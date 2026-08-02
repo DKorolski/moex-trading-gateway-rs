@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "stage": "5G-d-R1-a-R1-complete-precallback-transactional-admission",
+  "status": "review_candidate",
+  "base_commit": "0f72478123c8ddf90c5368ce0cef7867257087c3",
+  "base_stage5c_sha256": "6b38e1c145593ef3ea376b1e1ee50832fb10ba79a25f05ca9370f06344f974f5",
+  "stage5c_current_sha256": "dc7e0743165bc9995cde5e20531747275faaf6c60a53fc4e2c80a3dbd11d116d",
+  "r1_regions": {
+    "complete-precallback-transactional-admission-v1": "2288c35e162ce4145133c88f940be790161b786587e4eb3e18f7b105c059e91b",
+    "complete-precallback-transactional-admission-tests-v1": "ac1724cee1b12b3657c77aeaf632f64533d2b0d8e1bbdd21d7641e34c0eb4599"
+  },
+  "accepted_r1a_regions": {
+    "deterministic-bar-continuation-authority-v1": "d3547534d0767ea91f3e314897d907cb389a4b09a738e9ee53edb7ffe5b22e5d",
+    "deterministic-bar-continuation-authority-tests-v1": "f571e27ee3be39a8ed2b8341899604f3cad5659dd302c4de8762caff2a0b5659"
+  },
+  "preflight": {
+    "ready_settlement": true,
+    "unresolved_intent_absent": true,
+    "checked_bar_checkpoint": true,
+    "cross_event_monotonicity": true,
+    "instrument_binding": true,
+    "tick_binding": true,
+    "recovery_history_settled_chronology": true,
+    "explicit_event_time_valid": true,
+    "evaluation_now_gte_bar_checkpoint": true,
+    "bootstrap_not_expired": true
+  },
+  "exact_preservation_fields": 14,
+  "focused_r1_tests": 7,
+  "normalized_public_api_unchanged": true,
+  "stage5g_d_wrapper_changed": false,
+  "closed_surfaces": {
+    "stage5g_d_r1b": false,
+    "stage5g_e": false,
+    "stage5g_f": false,
+    "redis_live_consumer": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false
+  }
+}

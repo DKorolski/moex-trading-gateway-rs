@@ -7863,6 +7863,133 @@ pub(crate) fn advance_stage5c_timer_settlement_next_bar_at_checkpoint(
 }
 // STAGE5G-D-R1A-AUTHORITY-END: deterministic-bar-continuation-authority-v1
 
+// STAGE5G-D-R1A-R1-AUTHORITY-BEGIN: complete-precallback-transactional-admission-v1
+#[cfg(test)]
+thread_local! {
+    static STAGE5GD_R1A_R1_DELEGATE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn stage5gd_r1a_r1_reset_delegate_count() {
+    STAGE5GD_R1A_R1_DELEGATE_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+fn stage5gd_r1a_r1_delegate_count() -> usize {
+    STAGE5GD_R1A_R1_DELEGATE_COUNT.with(std::cell::Cell::get)
+}
+
+#[allow(dead_code)] // Independently reviewed authority is consumed only by Stage 5G-d R1-b.
+pub(crate) fn advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+    settlement: Stage5cTimerSettlement,
+    accepted: Stage5cAcceptedSemanticBar,
+    explicit_now_ts_utc_ms: i64,
+    previous_continuation_checkpoint_ts_utc_ms: i64,
+) -> Result<Stage5cSettledPaperStrategy, Stage5cTimerContinuationFailure> {
+    let settled = match &settlement.inner {
+        Stage5cTimerSettlementKind::ReadyForContinuation { settled, .. } => settled,
+        Stage5cTimerSettlementKind::GeneratedIntentBatch(_) => {
+            return Err(stage5cm_block(
+                Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
+                settlement,
+            ));
+        }
+    };
+    if settled.batch.intent_count() > 0 {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::UnresolvedIntentBatch),
+            settlement,
+        ));
+    }
+    let bar_checkpoint_ts_utc_ms = match stage5gd_accepted_bar_checkpoint_ts_utc_ms(&accepted) {
+        Ok(checkpoint) => checkpoint,
+        Err(reason) => return Err(stage5cm_block(reason, settlement)),
+    };
+    if bar_checkpoint_ts_utc_ms <= previous_continuation_checkpoint_ts_utc_ms {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::NonMonotonicBar),
+            settlement,
+        ));
+    }
+    let recovery_receipt = &settled.recovery_receipt;
+    let admission = &recovery_receipt
+        .warmup_receipt()
+        .restore_receipt()
+        .bootstrap_receipt()
+        .admission;
+    if accepted.bar.instrument != *admission.target_instrument() {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::InstrumentMismatch,
+            )),
+            settlement,
+        ));
+    }
+    if !same_tick_size(accepted.tick_size, admission.tick_size()) {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::TickSizeMismatch,
+            )),
+            settlement,
+        ));
+    }
+    if accepted.bar.close_time_utc <= recovery_receipt.recovered_ts().timestamp()
+        || accepted.bar.close_time_utc <= recovery_receipt.warmup_receipt().last_history_ts()
+    {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::StaleOrDuplicateBar,
+            )),
+            settlement,
+        ));
+    }
+    if accepted.bar.close_time_utc <= settled.batch.bar_close_ts() {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::NonMonotonicBar),
+            settlement,
+        ));
+    }
+    let Some(explicit_now) = Utc.timestamp_millis_opt(explicit_now_ts_utc_ms).single() else {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::InvalidTimestamp,
+            )),
+            settlement,
+        ));
+    };
+    if explicit_now_ts_utc_ms < bar_checkpoint_ts_utc_ms {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::FutureBar,
+            )),
+            settlement,
+        ));
+    }
+    if explicit_now
+        > recovery_receipt
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .expires_at()
+    {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::BrokerTruthExpired,
+            )),
+            settlement,
+        ));
+    }
+    #[cfg(test)]
+    STAGE5GD_R1A_R1_DELEGATE_COUNT.with(|count| count.set(count.get() + 1));
+    advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+        settlement,
+        accepted,
+        explicit_now_ts_utc_ms,
+        previous_continuation_checkpoint_ts_utc_ms,
+    )
+}
+// STAGE5G-D-R1A-R1-AUTHORITY-END: complete-precallback-transactional-admission-v1
+
 pub fn advance_stage5c_timer_settlement_timer(
     settlement: Stage5cTimerSettlement,
     input: Stage5cPaperTimerInput,
@@ -15755,6 +15882,234 @@ mod bootstrap_notification_tests {
         assert_eq!(advanced.intent_batch().bar_close_ts(), next_bar_close_ts);
     }
     // STAGE5G-D-R1A-AUTHORITY-TESTS-END: deterministic-bar-continuation-authority-v1
+
+    // STAGE5G-D-R1A-R1-AUTHORITY-TESTS-BEGIN: complete-precallback-transactional-admission-v1
+    #[derive(Debug, PartialEq)]
+    struct Stage5gdR1aR1SettlementSnapshot {
+        checkpoint_ts_utc_ms: Option<i64>,
+        state_fingerprint: String,
+        settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
+        intent_count: usize,
+        recovered_ts: DateTime<Utc>,
+        replayed_events: usize,
+        duplicate_events: usize,
+        last_history_ts: i64,
+        processed_history_bars: usize,
+        input_history_bars: usize,
+        strategy_id: String,
+        account_id: String,
+        target_instrument: InstrumentId,
+        expires_at: DateTime<Utc>,
+    }
+
+    fn stage5gd_r1a_r1_snapshot(
+        settlement: &Stage5cTimerSettlement,
+    ) -> Stage5gdR1aR1SettlementSnapshot {
+        let settled = settlement.settled();
+        let recovery = settled.recovery_receipt();
+        let warmup = recovery.warmup_receipt();
+        let admission = &warmup.restore_receipt().bootstrap_receipt().admission;
+        Stage5gdR1aR1SettlementSnapshot {
+            checkpoint_ts_utc_ms: settlement.checkpoint_ts_utc_ms(),
+            state_fingerprint: settled.intent_batch().state_fingerprint().to_string(),
+            settled_batch_history: settled.settled_batch_history().to_vec(),
+            intent_count: settled.intent_batch().intent_count(),
+            recovered_ts: recovery.recovered_ts(),
+            replayed_events: recovery.replayed_events(),
+            duplicate_events: recovery.duplicate_events(),
+            last_history_ts: warmup.last_history_ts(),
+            processed_history_bars: warmup.processed_bars(),
+            input_history_bars: warmup.input_bars(),
+            strategy_id: admission.strategy_id().to_string(),
+            account_id: format!("{:?}", admission.account_id()),
+            target_instrument: admission.target_instrument().clone(),
+            expires_at: admission.expires_at(),
+        }
+    }
+
+    fn stage5gd_r1a_r1_assert_exact_block(
+        blocked: Stage5cTimerContinuationFailure,
+        expected_reason: Stage5cTimerContinuationError,
+        before: Stage5gdR1aR1SettlementSnapshot,
+    ) {
+        assert_eq!(blocked.reason(), expected_reason);
+        let preserved = blocked
+            .into_blocked()
+            .expect("pre-callback admission failure must remain retryable")
+            .into_settlement();
+        assert_eq!(stage5gd_r1a_r1_snapshot(&preserved), before);
+        assert_eq!(stage5gd_r1a_r1_delegate_count(), 0);
+    }
+
+    fn stage5gd_r1a_r1_ready_fixture() -> (Stage5cTimerSettlement, i64, i64) {
+        let checkpoint = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 10)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let (settlement, bar_close_ts) = stage5gd_r1a_ready_at(checkpoint);
+        (settlement, bar_close_ts, checkpoint)
+    }
+
+    #[test]
+    fn stage5gd_r1a_r1_future_bar_is_retryable_and_exactly_preserved() {
+        stage5gd_r1a_r1_reset_delegate_count();
+        let (settlement, bar_close_ts, checkpoint) = stage5gd_r1a_r1_ready_fixture();
+        let before = stage5gd_r1a_r1_snapshot(&settlement);
+        let next_bar_close_ts = bar_close_ts + 600;
+        let blocked = advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap(),
+            next_bar_close_ts * 1_000 - 1,
+            checkpoint,
+        )
+        .expect_err("evaluation before bar close must be retryable");
+        stage5gd_r1a_r1_assert_exact_block(
+            blocked,
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::FutureBar,
+            )),
+            before,
+        );
+    }
+
+    #[test]
+    fn stage5gd_r1a_r1_wrong_instrument_is_retryable_and_exactly_preserved() {
+        stage5gd_r1a_r1_reset_delegate_count();
+        let (settlement, bar_close_ts, checkpoint) = stage5gd_r1a_r1_ready_fixture();
+        let before = stage5gd_r1a_r1_snapshot(&settlement);
+        let next_bar_close_ts = bar_close_ts + 600;
+        let mut accepted = accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap();
+        accepted.bar.instrument.symbol = "OTHER_TEST_FUT".to_string();
+        let blocked = advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+            settlement,
+            accepted,
+            next_bar_close_ts * 1_000,
+            checkpoint,
+        )
+        .expect_err("wrong instrument must be retryable");
+        stage5gd_r1a_r1_assert_exact_block(
+            blocked,
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::InstrumentMismatch,
+            )),
+            before,
+        );
+    }
+
+    #[test]
+    fn stage5gd_r1a_r1_wrong_tick_is_retryable_and_exactly_preserved() {
+        stage5gd_r1a_r1_reset_delegate_count();
+        let (settlement, bar_close_ts, checkpoint) = stage5gd_r1a_r1_ready_fixture();
+        let before = stage5gd_r1a_r1_snapshot(&settlement);
+        let next_bar_close_ts = bar_close_ts + 600;
+        let mut accepted = accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap();
+        accepted.tick_size = 1.0;
+        let blocked = advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+            settlement,
+            accepted,
+            next_bar_close_ts * 1_000,
+            checkpoint,
+        )
+        .expect_err("wrong tick size must be retryable");
+        stage5gd_r1a_r1_assert_exact_block(
+            blocked,
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::TickSizeMismatch,
+            )),
+            before,
+        );
+    }
+
+    #[test]
+    fn stage5gd_r1a_r1_stale_bar_is_retryable_and_exactly_preserved() {
+        stage5gd_r1a_r1_reset_delegate_count();
+        let (settlement, bar_close_ts, _) = stage5gd_r1a_r1_ready_fixture();
+        let before = stage5gd_r1a_r1_snapshot(&settlement);
+        let accepted = accept_stage5c_semantic_bar(semantic_input(bar_close_ts)).unwrap();
+        let blocked = advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+            settlement,
+            accepted,
+            bar_close_ts * 1_000,
+            (bar_close_ts - 1) * 1_000,
+        )
+        .expect_err("bar stale against settled batch must be retryable");
+        stage5gd_r1a_r1_assert_exact_block(
+            blocked,
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::NonMonotonicBar),
+            before,
+        );
+    }
+
+    #[test]
+    fn stage5gd_r1a_r1_history_stale_bar_preserves_recovery_identity() {
+        stage5gd_r1a_r1_reset_delegate_count();
+        let (settlement, _, _) = stage5gd_r1a_r1_ready_fixture();
+        let history_ts = settlement
+            .settled()
+            .recovery_receipt()
+            .warmup_receipt()
+            .last_history_ts();
+        let before = stage5gd_r1a_r1_snapshot(&settlement);
+        let accepted = accept_stage5c_semantic_bar(semantic_input(history_ts)).unwrap();
+        let blocked = advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+            settlement,
+            accepted,
+            history_ts * 1_000,
+            (history_ts - 1) * 1_000,
+        )
+        .expect_err("bar stale against warmup history must be retryable");
+        stage5gd_r1a_r1_assert_exact_block(
+            blocked,
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::StaleOrDuplicateBar,
+            )),
+            before,
+        );
+    }
+
+    #[test]
+    fn stage5gd_r1a_r1_unresolved_batch_is_retryable_and_exactly_preserved() {
+        stage5gd_r1a_r1_reset_delegate_count();
+        let (settled, _, bar_close_ts) = stage5ci_exit_settled();
+        let settlement = Stage5cTimerSettlement::generated_intent_batch(settled);
+        let before = stage5gd_r1a_r1_snapshot(&settlement);
+        let blocked = advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(bar_close_ts + 600)).unwrap(),
+            (bar_close_ts + 600) * 1_000,
+            (bar_close_ts + 10) * 1_000,
+        )
+        .expect_err("unresolved generated batch must remain retryable");
+        stage5gd_r1a_r1_assert_exact_block(
+            blocked,
+            Stage5cTimerContinuationError::GeneratedIntentBatchRequiresLifecycle,
+            before,
+        );
+    }
+
+    #[test]
+    fn stage5gd_r1a_r1_valid_bar_delegates_exactly_once_deterministically() {
+        fn run_once() -> (String, Vec<Stage5cPaperIntentBatchSummary>) {
+            stage5gd_r1a_r1_reset_delegate_count();
+            let (settlement, bar_close_ts, checkpoint) = stage5gd_r1a_r1_ready_fixture();
+            let next_bar_close_ts = bar_close_ts + 600;
+            let advanced = advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint(
+                settlement,
+                accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap(),
+                next_bar_close_ts * 1_000,
+                checkpoint,
+            )
+            .expect("complete preflight permits one existing callback path");
+            assert_eq!(stage5gd_r1a_r1_delegate_count(), 1);
+            (
+                advanced.intent_batch().state_fingerprint().to_string(),
+                advanced.settled_batch_history().to_vec(),
+            )
+        }
+        assert_eq!(run_once(), run_once());
+    }
+    // STAGE5G-D-R1A-R1-AUTHORITY-TESTS-END: complete-precallback-transactional-admission-v1
 
     #[test]
     fn stage5cn_settle_is_bounded_no_send_step() {
