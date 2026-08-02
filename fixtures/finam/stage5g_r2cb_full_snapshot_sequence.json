@@ -1,0 +1,141 @@
+{
+  "fixture_kind": "synthetic_finam_stage5g_r2cb_full_snapshot_sequence_v1",
+  "partial_received_ts": "2026-08-02T09:10:00.125Z",
+  "filled_received_ts": "2026-08-02T09:10:00.875Z",
+  "partial": {
+    "account": {
+      "account_id": "ACC_TEST_0001",
+      "cash": [
+        { "currency_code": "RUB", "units": "6000", "nanos": 0 }
+      ],
+      "positions": [
+        {
+          "asset_type": "FUTURES",
+          "average_price": { "value": "2210" },
+          "quantity": { "value": "0.1" },
+          "symbol": "IMOEXF@RTSX",
+          "unrealized_profit": { "value": "0" }
+        },
+        {
+          "asset_type": "FUTURES",
+          "average_price": { "value": "2210" },
+          "quantity": { "value": "0.3" },
+          "symbol": "IMOEXF@RTSX",
+          "unrealized_profit": { "value": "0" }
+        }
+      ],
+      "status": "ACCOUNT_ACTIVE",
+      "type": "UNION"
+    },
+    "orders": {
+      "orders": [
+        {
+          "executed_quantity": { "value": "0.4" },
+          "initial_quantity": { "value": "1" },
+          "order": {
+            "account_id": "ACC_TEST_0001",
+            "client_order_id": "R2CBCLIENT0001",
+            "legs": [],
+            "quantity": { "value": "1" },
+            "side": "SIDE_BUY",
+            "symbol": "IMOEXF@RTSX",
+            "time_in_force": "TIME_IN_FORCE_DAY",
+            "type": "ORDER_TYPE_MARKET"
+          },
+          "order_id": "FINAM-R2CB-ORDER-1",
+          "remaining_quantity": { "value": "0.6" },
+          "status": "ORDER_STATUS_PARTIALLY_FILLED",
+          "transact_at": "2026-08-02T09:10:00.050Z"
+        }
+      ]
+    },
+    "trades": {
+      "trades": [
+        {
+          "account_id": "ACC_TEST_0001",
+          "amount": { "value": "884" },
+          "client_order_id": "R2CBCLIENT0001",
+          "commission": { "currency_code": "RUB", "units": "0", "nanos": 400000000 },
+          "order_id": "FINAM-R2CB-ORDER-1",
+          "price": { "value": "2210" },
+          "quantity": { "value": "0.4" },
+          "side": "SIDE_BUY",
+          "symbol": "IMOEXF@RTSX",
+          "timestamp": "2026-08-02T09:10:00.100Z",
+          "trade_id": "FINAM-R2CB-TRADE-A"
+        }
+      ]
+    }
+  },
+  "filled": {
+    "account": {
+      "account_id": "ACC_TEST_0001",
+      "cash": [
+        { "currency_code": "RUB", "units": "6000", "nanos": 0 }
+      ],
+      "positions": [
+        {
+          "asset_type": "FUTURES",
+          "average_price": { "value": "2210.3" },
+          "quantity": { "value": "1" },
+          "symbol": "IMOEXF@RTSX",
+          "unrealized_profit": { "value": "0" }
+        }
+      ],
+      "status": "ACCOUNT_ACTIVE",
+      "type": "UNION"
+    },
+    "orders": {
+      "orders": [
+        {
+          "executed_quantity": { "value": "1" },
+          "initial_quantity": { "value": "1" },
+          "order": {
+            "account_id": "ACC_TEST_0001",
+            "client_order_id": "R2CBCLIENT0001",
+            "legs": [],
+            "quantity": { "value": "1" },
+            "side": "SIDE_BUY",
+            "symbol": "IMOEXF@RTSX",
+            "time_in_force": "TIME_IN_FORCE_DAY",
+            "type": "ORDER_TYPE_MARKET"
+          },
+          "order_id": "FINAM-R2CB-ORDER-1",
+          "remaining_quantity": { "value": "0" },
+          "status": "ORDER_STATUS_FILLED",
+          "transact_at": "2026-08-02T09:10:00.800Z"
+        }
+      ]
+    },
+    "trades": {
+      "trades": [
+        {
+          "account_id": "ACC_TEST_0001",
+          "amount": { "value": "884" },
+          "client_order_id": "R2CBCLIENT0001",
+          "commission": { "currency_code": "RUB", "units": "0", "nanos": 400000000 },
+          "order_id": "FINAM-R2CB-ORDER-1",
+          "price": { "value": "2210" },
+          "quantity": { "value": "0.4" },
+          "side": "SIDE_BUY",
+          "symbol": "IMOEXF@RTSX",
+          "timestamp": "2026-08-02T09:10:00.100Z",
+          "trade_id": "FINAM-R2CB-TRADE-A"
+        },
+        {
+          "account_id": "ACC_TEST_0001",
+          "amount": { "value": "1326.6" },
+          "client_order_id": "R2CBCLIENT0001",
+          "commission": { "currency_code": "RUB", "units": "0", "nanos": 600000000 },
+          "order_id": "FINAM-R2CB-ORDER-1",
+          "price": { "value": "2211" },
+          "quantity": { "value": "0.6" },
+          "side": "SIDE_BUY",
+          "symbol": "IMOEXF@RTSX",
+          "timestamp": "2026-08-02T09:10:00.700Z",
+          "trade_id": "FINAM-R2CB-TRADE-B"
+        }
+      ]
+    }
+  }
+}

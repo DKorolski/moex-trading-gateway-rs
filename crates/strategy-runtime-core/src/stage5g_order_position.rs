@@ -6,6 +6,8 @@
 //! No Redis, FINAM transport, command dispatch, clock read or broker send is
 //! reachable from this module.
 
+use std::collections::BTreeMap;
+
 use broker_core::command::CommandAckStatus;
 use broker_core::{
     instrument_identity_matches, BrokerOrderId, BrokerOrderLifecycle, BrokerOrderSnapshot,
@@ -20,7 +22,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::stage5c_paper_host::{
-    resolve_stage5c_paper_broker_lifecycle, Stage5cBrokerLifecycleResolvedPaperStrategy,
+    resolve_stage5c_paper_broker_lifecycle, settle_stage5c_validated_market_terminal_outcome_r3,
+    validate_stage5c_market_terminal_outcome_r3, Stage5cBrokerLifecycleResolvedPaperStrategy,
+    Stage5cBrokerLifecycleSettlement, Stage5cMarketTerminalOrderEvidence,
     Stage5cPaperBrokerEventPayload, Stage5cPaperBrokerEventRecord,
     Stage5cPaperBrokerLifecycleError, Stage5cPaperBrokerLifecycleInput, Stage5gSourceBaseAction,
     Stage5gSourceIntentProjection,
@@ -30,7 +34,8 @@ use crate::stage5g_mock_ack::{
     Stage5gResolvedMockAckPaperStrategy,
 };
 
-pub const STAGE5G_ORDER_POSITION_SCHEMA_VERSION: u16 = 2;
+pub const STAGE5G_ORDER_POSITION_SCHEMA_VERSION: u16 = 3;
+const STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stage5gOrderPositionEvidence {
@@ -101,6 +106,7 @@ pub enum Stage5gOrderPositionError {
     PositionOverfill,
     PositionIncomplete,
     PositionQuantityRegression,
+    OrderPositionIncoherent,
     TargetMarketOrderNonExecution,
     RejectedOrderHasFill,
     SequenceMappingOverflow,
@@ -144,6 +150,9 @@ struct Stage5gOrderPositionSlot {
     order_events: Vec<CanonicalOrderEvent>,
     trades: Vec<BrokerTradeSnapshot>,
     position: Option<(u64, BrokerPositionSnapshot)>,
+    position_derivation: Option<CanonicalPositionDerivation>,
+    position_matching_row_count: Option<usize>,
+    market_terminal_truth: Option<BrokerTruthSnapshot>,
     last_order_source_ts: Option<DateTime<Utc>>,
     last_order_received_ts: Option<DateTime<Utc>>,
     last_trade_source_ts: Option<DateTime<Utc>>,
@@ -167,7 +176,7 @@ struct Stage5gOrderPositionState {
     slots: Vec<Stage5gOrderPositionSlot>,
     evidence_identities: Vec<EvidenceIdentity>,
     last_total_sequence: Option<u64>,
-    last_broker_truth_received_ts: Option<DateTime<Utc>>,
+    last_broker_truth_received_ms: Option<i64>,
     duplicate_evidence_count: usize,
 }
 
@@ -183,16 +192,24 @@ pub struct Stage5gConvergedPaperStrategy {
     summary: Stage5gOrderPositionSummary,
 }
 
+/// A terminal MARKET outcome settled only through the accepted R3 authority.
+/// The contained Stage 5C settlement remains opaque and transport-free.
+pub struct Stage5gMarketTerminalConvergedPaperStrategy {
+    settlement: Stage5cBrokerLifecycleSettlement,
+    summary: Stage5gOrderPositionSummary,
+}
+
 pub enum Stage5gOrderPositionTransition {
     Awaiting(Stage5gOrderPositionSession),
     Converged(Stage5gConvergedPaperStrategy),
+    MarketTerminalConverged(Stage5gMarketTerminalConvergedPaperStrategy),
 }
 
 impl Stage5gOrderPositionTransition {
     pub fn into_awaiting(self) -> Option<Stage5gOrderPositionSession> {
         match self {
             Self::Awaiting(session) => Some(session),
-            Self::Converged(_) => None,
+            Self::Converged(_) | Self::MarketTerminalConverged(_) => None,
         }
     }
 
@@ -200,8 +217,33 @@ impl Stage5gOrderPositionTransition {
         match self {
             Self::Awaiting(_) => None,
             Self::Converged(converged) => Some(converged),
+            Self::MarketTerminalConverged(_) => None,
         }
     }
+
+    pub fn into_market_terminal_converged(
+        self,
+    ) -> Option<Stage5gMarketTerminalConvergedPaperStrategy> {
+        match self {
+            Self::MarketTerminalConverged(converged) => Some(converged),
+            Self::Awaiting(_) | Self::Converged(_) => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum CanonicalPositionDerivation {
+    AbsentFlat,
+    ExplicitSingle,
+    Aggregate,
+}
+
+#[derive(Clone)]
+struct CanonicalTargetPosition {
+    snapshot: BrokerPositionSnapshot,
+    derivation: CanonicalPositionDerivation,
+    matching_row_count: usize,
 }
 
 pub struct Stage5gOrderPositionAdmissionBlocked {
@@ -386,6 +428,9 @@ pub fn attach_stage5g_order_position_session(
             order_events: Vec::new(),
             trades: Vec::new(),
             position: None,
+            position_derivation: None,
+            position_matching_row_count: None,
+            market_terminal_truth: None,
             last_order_source_ts: None,
             last_order_received_ts: None,
             last_trade_source_ts: None,
@@ -404,7 +449,7 @@ pub fn attach_stage5g_order_position_session(
             slots,
             evidence_identities: Vec::new(),
             last_total_sequence: None,
-            last_broker_truth_received_ts: None,
+            last_broker_truth_received_ms: None,
             duplicate_evidence_count: 0,
         },
     })
@@ -438,9 +483,67 @@ fn source_projection_matches_ack(
     action_matches && source_side.as_deref() == ack.side.as_deref()
 }
 
+/// Canonicalizes a full broker poll before replay classification. FINAM maps
+/// every historical trade with the current observation receipt, so receipt is
+/// deliberately excluded from immutable trade identity while the newest
+/// observation watermark is retained.
+fn canonicalize_broker_truth_snapshot(
+    truth: &mut BrokerTruthSnapshot,
+) -> Result<(), Stage5gOrderPositionError> {
+    let mut trades_by_id: BTreeMap<String, BrokerTradeSnapshot> = BTreeMap::new();
+    for trade in truth.trades.drain(..) {
+        let key = trade.broker_trade_id.as_str().to_string();
+        match trades_by_id.get_mut(&key) {
+            Some(existing) if immutable_trade_payload_matches(existing, &trade) => {
+                if trade.received_ts > existing.received_ts {
+                    existing.received_ts = trade.received_ts;
+                }
+            }
+            Some(_) => return Err(Stage5gOrderPositionError::TradeIdentityConflict),
+            None => {
+                trades_by_id.insert(key, trade);
+            }
+        }
+    }
+    truth.trades = trades_by_id.into_values().collect();
+    canonical_json_sort(&mut truth.orders);
+    canonical_json_sort(&mut truth.positions);
+    canonical_json_sort(&mut truth.instruments);
+    if let Some(cash) = truth.cash.as_mut() {
+        canonical_json_sort(&mut cash.cash);
+    }
+    Ok(())
+}
+
+fn canonical_json_sort<T: Serialize>(values: &mut [T]) {
+    values.sort_by_cached_key(|value| {
+        serde_json::to_vec(value).expect("broker-neutral canonical value serializes")
+    });
+}
+
+fn immutable_trade_payload_matches(
+    left: &BrokerTradeSnapshot,
+    right: &BrokerTradeSnapshot,
+) -> bool {
+    left.account_id == right.account_id
+        && left.broker_trade_id == right.broker_trade_id
+        && left.broker_order_id == right.broker_order_id
+        && left.client_order_id == right.client_order_id
+        && instrument_identity_matches(&left.instrument, &right.instrument)
+        && left.side == right.side
+        && left.qty == right.qty
+        && left.price == right.price
+        && left.gross_amount == right.gross_amount
+        && left.commission == right.commission
+        && left.broker_asset_id == right.broker_asset_id
+        && left.board == right.board
+        && left.expiration_date == right.expiration_date
+        && left.source_ts == right.source_ts
+}
+
 pub fn apply_stage5g_order_position_evidence(
     mut session: Stage5gOrderPositionSession,
-    evidence: Stage5gOrderPositionEvidence,
+    mut evidence: Stage5gOrderPositionEvidence,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
     if session
         .state
@@ -462,6 +565,9 @@ pub fn apply_stage5g_order_position_evidence(
     };
     if evidence.broker_truth.account_id != session.state.account_id {
         return Err(block(Stage5gOrderPositionError::AccountMismatch, session));
+    }
+    if let Err(reason) = canonicalize_broker_truth_snapshot(&mut evidence.broker_truth) {
+        return Err(block(reason, session));
     }
     let identity = evidence_identity(&evidence);
     let fingerprint = evidence_fingerprint(&evidence);
@@ -508,7 +614,7 @@ pub fn apply_stage5g_order_position_evidence(
     let pre_candidate_state = session.state.clone();
     let mut next_slot = session.state.slots[slot_index].clone();
     if let Err(reason) = validate_snapshot_chronology(
-        session.state.last_broker_truth_received_ts,
+        session.state.last_broker_truth_received_ms,
         &session.state.instrument,
         &mut next_slot,
         &evidence,
@@ -526,7 +632,8 @@ pub fn apply_stage5g_order_position_evidence(
     }
     session.state.slots[slot_index] = next_slot;
     session.state.last_total_sequence = Some(evidence.total_sequence);
-    session.state.last_broker_truth_received_ts = Some(evidence.broker_truth.received_ts);
+    session.state.last_broker_truth_received_ms =
+        Some(evidence.broker_truth.received_ts.timestamp_millis());
     session.state.evidence_identities.push(EvidenceIdentity {
         identity,
         fingerprint,
@@ -557,13 +664,14 @@ fn classify_evidence_replay(
 }
 
 fn validate_snapshot_chronology(
-    last_broker_truth_received_ts: Option<DateTime<Utc>>,
+    last_broker_truth_received_ms: Option<i64>,
     instrument: &InstrumentId,
     slot: &mut Stage5gOrderPositionSlot,
     evidence: &Stage5gOrderPositionEvidence,
 ) -> Result<(), Stage5gOrderPositionError> {
     let snapshot_ts = evidence.broker_truth.received_ts;
-    if last_broker_truth_received_ts.is_some_and(|last| snapshot_ts < last) {
+    let snapshot_ms = snapshot_ts.timestamp_millis();
+    if last_broker_truth_received_ms.is_some_and(|last| snapshot_ms < last) {
         return Err(Stage5gOrderPositionError::BrokerTruthTimeRegression);
     }
     let target_order_id = slot.broker_order_id.as_ref();
@@ -712,16 +820,14 @@ fn apply_to_slot_candidate(
     if slot.terminal {
         let has_target_order = evidence.broker_truth.orders.iter().any(|order| {
             order.account_id == *account_id
-                && &order.instrument == instrument
+                && instrument_identity_matches(&order.instrument, instrument)
                 && (order.broker_order_id == slot.broker_order_id
                     || order.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id))
         });
+        let target_position =
+            canonical_target_position(account_id, instrument, &evidence.broker_truth)?;
         let contradictory_target_position =
-            evidence.broker_truth.positions.iter().any(|position| {
-                position.account_id == *account_id
-                    && position.matches_instrument(instrument)
-                    && decimal_f64_differs(position.qty, slot.source.pre_position_qty)
-            });
+            decimal_f64_differs(target_position.snapshot.qty, slot.source.pre_position_qty);
         if has_target_order || contradictory_target_position {
             return Err(Stage5gOrderPositionError::BrokerEvidenceAfterTerminalAck);
         }
@@ -731,10 +837,10 @@ fn apply_to_slot_candidate(
         Stage5gMockIntentAction::Place {
             place_kind: Stage5gMockPlaceKind::Market,
         } => {
-            let position = select_target_position(account_id, instrument, &evidence.broker_truth)?;
-            let terminal = validate_source_position(slot, &position, None)?;
-            slot.position = Some((evidence.total_sequence, position));
             if let Some(order) = select_optional_target_order(slot, &evidence.broker_truth)? {
+                // A concrete broker order is authoritative for lifecycle
+                // classification. Position truth is evaluated only after the
+                // order status and cumulative fill have been authenticated.
                 validate_order(account_id, instrument, slot, &order)?;
                 validate_source_order_attribution(slot, evidence.order_attribution.as_ref())?;
                 validate_trades(slot, &order, &evidence.broker_truth.trades)?;
@@ -743,27 +849,88 @@ fn apply_to_slot_candidate(
                     order: order.clone(),
                     attribution: evidence.order_attribution.clone(),
                 });
+                slot.order_events.sort_by(|left, right| {
+                    left.total_sequence
+                        .cmp(&right.total_sequence)
+                        .then_with(|| left.order.received_ts.cmp(&right.order.received_ts))
+                });
                 match order.status {
-                    OrderStatus::New | OrderStatus::Working | OrderStatus::PartiallyFilled => {
+                    OrderStatus::New | OrderStatus::Working => {
+                        if order.filled_qty != Decimal::ZERO {
+                            return Err(Stage5gOrderPositionError::OrderPositionIncoherent);
+                        }
+                        let position = canonical_target_position(
+                            account_id,
+                            instrument,
+                            &evidence.broker_truth,
+                        )?;
+                        validate_order_position_coherence(slot, &position.snapshot, &order)?;
+                        store_canonical_position(slot, evidence.total_sequence, position);
+                        slot.terminal = false;
+                    }
+                    OrderStatus::PartiallyFilled => {
+                        if order.filled_qty <= Decimal::ZERO || order.filled_qty >= order.qty {
+                            return Err(Stage5gOrderPositionError::InvalidOrderQuantity);
+                        }
+                        let position = canonical_target_position(
+                            account_id,
+                            instrument,
+                            &evidence.broker_truth,
+                        )?;
+                        validate_order_position_coherence(slot, &position.snapshot, &order)?;
+                        store_canonical_position(slot, evidence.total_sequence, position);
                         slot.terminal = false;
                     }
                     OrderStatus::Filled => {
-                        if !terminal {
+                        let position = canonical_target_position(
+                            account_id,
+                            instrument,
+                            &evidence.broker_truth,
+                        )?;
+                        validate_order_position_coherence(slot, &position.snapshot, &order)?;
+                        if !validate_source_position(slot, &position.snapshot, Some(&order))? {
                             return Err(Stage5gOrderPositionError::PositionIncomplete);
                         }
+                        store_canonical_position(slot, evidence.total_sequence, position);
                         slot.terminal = true;
                     }
                     OrderStatus::Unknown(_) => {
                         return Err(Stage5gOrderPositionError::UnknownOrderStatus);
                     }
-                    OrderStatus::Rejected | OrderStatus::Canceled | OrderStatus::Expired => {
-                        return Err(Stage5gOrderPositionError::TargetMarketOrderNonExecution);
+                    OrderStatus::Rejected => {
+                        if order.filled_qty != Decimal::ZERO {
+                            return Err(Stage5gOrderPositionError::RejectedOrderHasFill);
+                        }
+                        let position = canonical_target_position(
+                            account_id,
+                            instrument,
+                            &evidence.broker_truth,
+                        )?;
+                        validate_order_position_coherence(slot, &position.snapshot, &order)?;
+                        store_canonical_position(slot, evidence.total_sequence, position);
+                        slot.market_terminal_truth = Some(evidence.broker_truth.clone());
+                        slot.terminal = true;
+                    }
+                    OrderStatus::Canceled | OrderStatus::Expired => {
+                        let position = canonical_target_position(
+                            account_id,
+                            instrument,
+                            &evidence.broker_truth,
+                        )?;
+                        validate_order_position_coherence(slot, &position.snapshot, &order)?;
+                        store_canonical_position(slot, evidence.total_sequence, position);
+                        slot.market_terminal_truth = Some(evidence.broker_truth.clone());
+                        slot.terminal = true;
                     }
                 }
             } else {
                 // Position-only Market evidence is permitted only when the
                 // broker snapshot has no target order row. Exact source-relative
                 // position progress remains authoritative in this mode.
+                let position =
+                    canonical_target_position(account_id, instrument, &evidence.broker_truth)?;
+                let terminal = validate_source_position(slot, &position.snapshot, None)?;
+                store_canonical_position(slot, evidence.total_sequence, position);
                 slot.terminal = terminal;
             }
         }
@@ -790,11 +957,11 @@ fn apply_to_slot_candidate(
                 OrderStatus::New | OrderStatus::Working | OrderStatus::PartiallyFilled => {}
                 OrderStatus::Filled => {
                     let position =
-                        select_target_position(account_id, instrument, &evidence.broker_truth)?;
-                    if !validate_source_position(slot, &position, Some(&order))? {
+                        canonical_target_position(account_id, instrument, &evidence.broker_truth)?;
+                    if !validate_source_position(slot, &position.snapshot, Some(&order))? {
                         return Err(Stage5gOrderPositionError::PositionIncomplete);
                     }
-                    slot.position = Some((evidence.total_sequence, position));
+                    store_canonical_position(slot, evidence.total_sequence, position);
                     slot.terminal = true;
                 }
                 OrderStatus::Rejected => {
@@ -805,10 +972,13 @@ fn apply_to_slot_candidate(
                 }
                 OrderStatus::Canceled | OrderStatus::Expired => {
                     if order.filled_qty > Decimal::ZERO {
-                        let position =
-                            select_target_position(account_id, instrument, &evidence.broker_truth)?;
-                        validate_partial_terminal_position(slot, &position, &order)?;
-                        slot.position = Some((evidence.total_sequence, position));
+                        let position = canonical_target_position(
+                            account_id,
+                            instrument,
+                            &evidence.broker_truth,
+                        )?;
+                        validate_partial_terminal_position(slot, &position.snapshot, &order)?;
+                        store_canonical_position(slot, evidence.total_sequence, position);
                     }
                     slot.terminal = true;
                 }
@@ -862,11 +1032,16 @@ fn select_optional_target_order(
     }
 }
 
-fn select_target_position(
+fn canonical_target_position(
     account_id: &broker_core::BrokerAccountId,
     instrument: &InstrumentId,
     truth: &BrokerTruthSnapshot,
-) -> Result<BrokerPositionSnapshot, Stage5gOrderPositionError> {
+) -> Result<CanonicalTargetPosition, Stage5gOrderPositionError> {
+    if truth.positions.iter().any(|position| {
+        position.matches_instrument(instrument) && &position.account_id != account_id
+    }) {
+        return Err(Stage5gOrderPositionError::PositionAccountMismatch);
+    }
     let matches: Vec<_> = truth
         .positions
         .iter()
@@ -875,11 +1050,74 @@ fn select_target_position(
         })
         .cloned()
         .collect();
-    match matches.len() {
-        0 => Err(Stage5gOrderPositionError::MissingTargetPosition),
-        1 => Ok(matches.into_iter().next().expect("one target position")),
-        _ => Err(Stage5gOrderPositionError::AmbiguousTargetPosition),
+    if matches.is_empty() {
+        return Ok(CanonicalTargetPosition {
+            snapshot: BrokerPositionSnapshot {
+                account_id: account_id.clone(),
+                instrument: instrument.clone(),
+                qty: Decimal::ZERO,
+                avg_price: None,
+                unrealized_pnl: None,
+                source_ts: None,
+                received_ts: truth.received_ts,
+            },
+            derivation: CanonicalPositionDerivation::AbsentFlat,
+            matching_row_count: 0,
+        });
     }
+
+    let first_nonzero_sign = matches
+        .iter()
+        .find(|position| position.qty != Decimal::ZERO)
+        .map(|position| position.qty.is_sign_positive());
+    if first_nonzero_sign.is_some_and(|sign| {
+        matches.iter().any(|position| {
+            position.qty != Decimal::ZERO && position.qty.is_sign_positive() != sign
+        })
+    }) {
+        return Err(Stage5gOrderPositionError::PositionSideMismatch);
+    }
+    let qty: Decimal = matches.iter().map(|position| position.qty).sum();
+    let mut weighted_value = Decimal::ZERO;
+    let mut weight = Decimal::ZERO;
+    for position in matches
+        .iter()
+        .filter(|position| position.qty != Decimal::ZERO)
+    {
+        let avg_price = position
+            .avg_price
+            .ok_or(Stage5gOrderPositionError::PositionIncomplete)?;
+        weighted_value += avg_price * position.qty.abs();
+        weight += position.qty.abs();
+    }
+    let avg_price = (weight > Decimal::ZERO).then(|| weighted_value / weight);
+    let source_ts = matches
+        .iter()
+        .filter_map(|position| position.source_ts)
+        .max();
+    let received_ts = matches
+        .iter()
+        .map(|position| position.received_ts)
+        .max()
+        .unwrap_or(truth.received_ts);
+    let matching_row_count = matches.len();
+    Ok(CanonicalTargetPosition {
+        snapshot: BrokerPositionSnapshot {
+            account_id: account_id.clone(),
+            instrument: instrument.clone(),
+            qty,
+            avg_price,
+            unrealized_pnl: None,
+            source_ts,
+            received_ts,
+        },
+        derivation: if matching_row_count == 1 {
+            CanonicalPositionDerivation::ExplicitSingle
+        } else {
+            CanonicalPositionDerivation::Aggregate
+        },
+        matching_row_count,
+    })
 }
 
 fn validate_order(
@@ -990,7 +1228,7 @@ fn validate_trades(
     order: &BrokerOrderSnapshot,
     trades: &[BrokerTradeSnapshot],
 ) -> Result<(), Stage5gOrderPositionError> {
-    let mut correlated = Vec::new();
+    let mut incoming_by_id: BTreeMap<String, BrokerTradeSnapshot> = BTreeMap::new();
     for trade in trades {
         let broker_matches =
             trade.broker_order_id.is_some() && trade.broker_order_id == order.broker_order_id;
@@ -1022,25 +1260,41 @@ fn validate_trades(
         if trade.side != order.side {
             return Err(Stage5gOrderPositionError::TradeSideMismatch);
         }
-        if let Some(previous) = slot
-            .trades
-            .iter()
-            .find(|previous| previous.broker_trade_id == trade.broker_trade_id)
-        {
-            if previous != trade {
+        let key = trade.broker_trade_id.as_str().to_string();
+        match incoming_by_id.get_mut(&key) {
+            Some(previous) if immutable_trade_payload_matches(previous, trade) => {
+                if trade.received_ts > previous.received_ts {
+                    previous.received_ts = trade.received_ts;
+                }
+            }
+            Some(_) => {
                 return Err(Stage5gOrderPositionError::TradeIdentityConflict);
             }
-        } else {
-            correlated.push(trade.clone());
+            None => {
+                incoming_by_id.insert(key, trade.clone());
+            }
         }
     }
-    slot.trades.extend(correlated);
+    for incoming in incoming_by_id.into_values() {
+        if let Some(previous) = slot
+            .trades
+            .iter_mut()
+            .find(|previous| previous.broker_trade_id == incoming.broker_trade_id)
+        {
+            if !immutable_trade_payload_matches(previous, &incoming) {
+                return Err(Stage5gOrderPositionError::TradeIdentityConflict);
+            }
+            if incoming.received_ts > previous.received_ts {
+                previous.received_ts = incoming.received_ts;
+            }
+        } else {
+            slot.trades.push(incoming);
+        }
+    }
     slot.trades.sort_by(|left, right| {
-        left.source_ts.cmp(&right.source_ts).then_with(|| {
-            left.broker_trade_id
-                .as_str()
-                .cmp(right.broker_trade_id.as_str())
-        })
+        left.broker_trade_id
+            .as_str()
+            .cmp(right.broker_trade_id.as_str())
     });
     let trade_qty: Decimal = slot.trades.iter().map(|trade| trade.qty).sum();
     if order.filled_qty > Decimal::ZERO && trade_qty != order.filled_qty {
@@ -1148,6 +1402,33 @@ fn validate_partial_terminal_position(
     Ok(())
 }
 
+fn validate_order_position_coherence(
+    slot: &Stage5gOrderPositionSlot,
+    position: &BrokerPositionSnapshot,
+    order: &BrokerOrderSnapshot,
+) -> Result<(), Stage5gOrderPositionError> {
+    let pre_position = Decimal::from_f64_retain(slot.source.pre_position_qty)
+        .ok_or(Stage5gOrderPositionError::NumericConversionFailed)?;
+    let signed_fill = match order.side {
+        OrderSide::Buy => order.filled_qty,
+        OrderSide::Sell => -order.filled_qty,
+    };
+    if position.qty != pre_position + signed_fill {
+        return Err(Stage5gOrderPositionError::OrderPositionIncoherent);
+    }
+    Ok(())
+}
+
+fn store_canonical_position(
+    slot: &mut Stage5gOrderPositionSlot,
+    total_sequence: u64,
+    position: CanonicalTargetPosition,
+) {
+    slot.position = Some((total_sequence, position.snapshot));
+    slot.position_derivation = Some(position.derivation);
+    slot.position_matching_row_count = Some(position.matching_row_count);
+}
+
 fn decimal_f64_differs(value: Decimal, expected: f64) -> bool {
     value
         .to_f64()
@@ -1196,6 +1477,27 @@ fn converge_through_stage5c(
     session: Stage5gOrderPositionSession,
     pre_candidate_state: Stage5gOrderPositionState,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
+    let market_terminal_slots: Vec<_> = session
+        .state
+        .slots
+        .iter()
+        .enumerate()
+        .filter(|(_, slot)| slot.market_terminal_truth.is_some())
+        .map(|(index, _)| index)
+        .collect();
+    if market_terminal_slots.len() > 1 {
+        return Err(block(
+            Stage5gOrderPositionError::Stage5cPreCallbackBlocked,
+            Stage5gOrderPositionSession {
+                ack_resolved: session.ack_resolved,
+                state: pre_candidate_state,
+            },
+        ));
+    }
+    if let Some(slot_index) = market_terminal_slots.first().copied() {
+        return converge_market_terminal_through_r3(session, pre_candidate_state, slot_index);
+    }
+
     let mut records = Vec::new();
     for slot in &session.state.slots {
         for event in slot
@@ -1278,6 +1580,68 @@ fn converge_through_stage5c(
                     },
                 )),
             }
+        }
+    }
+}
+
+fn converge_market_terminal_through_r3(
+    session: Stage5gOrderPositionSession,
+    pre_candidate_state: Stage5gOrderPositionState,
+    slot_index: usize,
+) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
+    let slot = &session.state.slots[slot_index];
+    let evidence = Stage5cMarketTerminalOrderEvidence {
+        request_id: slot.ack.request_id,
+        truth: slot
+            .market_terminal_truth
+            .clone()
+            .expect("R3 convergence requires retained terminal truth"),
+        attribution: slot.source.expected_attribution.clone(),
+    };
+    let summary = state_summary(&session.state, 1);
+    let Stage5gOrderPositionSession {
+        ack_resolved,
+        state: _,
+    } = session;
+    let (stage5c_resolved, context) = ack_resolved.into_stage5g_c_parts();
+
+    // These exact accepted R3 entry points are the only MARKET terminal
+    // authority reachable from R2-c-b.
+    let validated = match validate_stage5c_market_terminal_outcome_r3(stage5c_resolved, evidence) {
+        Ok(validated) => validated,
+        Err(blocked) => {
+            let ack_resolved = Stage5gResolvedMockAckPaperStrategy::from_stage5g_c_parts(
+                blocked.into_resolved(),
+                context,
+            );
+            return Err(block(
+                Stage5gOrderPositionError::Stage5cPreCallbackBlocked,
+                Stage5gOrderPositionSession {
+                    ack_resolved,
+                    state: pre_candidate_state,
+                },
+            ));
+        }
+    };
+    match settle_stage5c_validated_market_terminal_outcome_r3(validated) {
+        Ok(settlement) => Ok(Stage5gOrderPositionTransition::MarketTerminalConverged(
+            Stage5gMarketTerminalConvergedPaperStrategy {
+                settlement,
+                summary,
+            },
+        )),
+        Err(blocked) => {
+            let ack_resolved = Stage5gResolvedMockAckPaperStrategy::from_stage5g_c_parts(
+                blocked.into_resolved(),
+                context,
+            );
+            Err(block(
+                Stage5gOrderPositionError::Stage5cPreCallbackBlocked,
+                Stage5gOrderPositionSession {
+                    ack_resolved,
+                    state: pre_candidate_state,
+                },
+            ))
         }
     }
 }
@@ -1378,46 +1742,37 @@ fn order_status_name(status: &OrderStatus) -> String {
 
 fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
     format!(
-        "{}:{}",
+        "moex.stage5g.order-position-evidence-identity.v2:{}:{}:{}",
         evidence.request_id,
-        evidence.broker_truth.received_ts.to_rfc3339()
+        evidence.broker_truth.account_id,
+        evidence.broker_truth.received_ts.timestamp_millis()
     )
 }
 
 fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
     let mut truth = evidence.broker_truth.clone();
-    truth.orders.sort_by(|left, right| {
-        left.broker_order_id
+    canonical_json_sort(&mut truth.orders);
+    canonical_json_sort(&mut truth.trades);
+    canonical_json_sort(&mut truth.positions);
+    canonical_json_sort(&mut truth.instruments);
+    if let Some(cash) = truth.cash.as_mut() {
+        canonical_json_sort(&mut cash.cash);
+    }
+    let projection = serde_json::json!({
+        "schema_version": STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION,
+        "domain": "moex.stage5g.order-position-evidence.v2",
+        "request_id": evidence.request_id,
+        "broker_truth": truth,
+        "receipt_watermark_ms": evidence.broker_truth.received_ts.timestamp_millis(),
+        "attribution": evidence
+            .order_attribution
             .as_ref()
-            .map(|value| value.as_str())
-            .cmp(&right.broker_order_id.as_ref().map(|value| value.as_str()))
-            .then_with(|| left.received_ts.cmp(&right.received_ts))
-    });
-    truth.trades.sort_by(|left, right| {
-        left.broker_trade_id
-            .as_str()
-            .cmp(right.broker_trade_id.as_str())
-            .then_with(|| left.received_ts.cmp(&right.received_ts))
-    });
-    truth.positions.sort_by(|left, right| {
-        left.instrument
-            .symbol
-            .cmp(&right.instrument.symbol)
-            .then_with(|| left.received_ts.cmp(&right.received_ts))
+            .map(HybridRuntimeAttribution::internal_comment),
     });
     let mut hasher = Sha256::new();
-    hasher.update(b"moex.stage5g.order-position-evidence.v1\0");
-    hasher.update(
-        serde_json::to_vec(&(
-            evidence.request_id,
-            &truth,
-            evidence
-                .order_attribution
-                .as_ref()
-                .map(HybridRuntimeAttribution::internal_comment),
-        ))
-        .expect("canonical Stage 5G-c evidence serializes"),
-    );
+    hasher.update(b"moex.stage5g.order-position-evidence.v2\0");
+    hasher
+        .update(serde_json::to_vec(&projection).expect("canonical Stage 5G-c evidence serializes"));
     format!("{:x}", hasher.finalize())
 }
 
@@ -1462,19 +1817,24 @@ fn lifecycle_state_fingerprint(state: &Stage5gOrderPositionState, callback_count
                     let order = &event.order;
                     serde_json::json!({
                         "total_sequence": event.total_sequence,
+                        "account_id": order.account_id,
                         "broker_order_id_hash": order.broker_order_id.as_ref().map(|id| exact_id_hash("broker-order", id.as_str())),
                         "client_order_id_hash": order.client_order_id.as_ref().map(|id| exact_id_hash("client-order", id.as_str())),
                         "instrument": order.instrument,
                         "side": order.side,
                         "order_type": order.order_type,
+                        "time_in_force": order.time_in_force,
                         "status": order.status,
                         "lifecycle": order.lifecycle,
                         "qty": order.qty,
                         "filled_qty": order.filled_qty,
                         "remaining_qty": order.remaining_qty,
                         "limit_price": order.limit_price,
+                        "broker_asset_id": order.broker_asset_id,
+                        "board": order.board,
+                        "expiration_date": order.expiration_date,
                         "source_ts": order.source_ts,
-                        "received_ts": order.received_ts,
+                        "received_ts_ms": order.received_ts.timestamp_millis(),
                         "attribution_hash": event.attribution.as_ref().map(|value| exact_id_hash("attribution", value.internal_comment())),
                     })
                 })
@@ -1485,29 +1845,46 @@ fn lifecycle_state_fingerprint(state: &Stage5gOrderPositionState, callback_count
                 .map(|trade| {
                     serde_json::json!({
                         "broker_trade_id_hash": exact_id_hash("broker-trade", trade.broker_trade_id.as_str()),
+                        "account_id": trade.account_id,
                         "broker_order_id_hash": trade.broker_order_id.as_ref().map(|id| exact_id_hash("broker-order", id.as_str())),
                         "client_order_id_hash": trade.client_order_id.as_ref().map(|id| exact_id_hash("client-order", id.as_str())),
                         "instrument": trade.instrument,
                         "side": trade.side,
                         "qty": trade.qty,
                         "price": trade.price,
+                        "gross_amount": trade.gross_amount,
+                        "commission": trade.commission,
+                        "broker_asset_id": trade.broker_asset_id,
+                        "board": trade.board,
+                        "expiration_date": trade.expiration_date,
                         "source_ts": trade.source_ts,
-                        "received_ts": trade.received_ts,
+                        "last_observed_received_ms": trade.received_ts.timestamp_millis(),
                     })
                 })
                 .collect();
             let position = slot.position.as_ref().map(|(sequence, position)| {
                 serde_json::json!({
                     "total_sequence": sequence,
+                    "account_id": position.account_id,
                     "instrument": position.instrument,
                     "qty": position.qty,
                     "avg_price": position.avg_price,
+                    "unrealized_pnl": position.unrealized_pnl,
                     "source_ts": position.source_ts,
-                    "received_ts": position.received_ts,
+                    "received_ts_ms": position.received_ts.timestamp_millis(),
+                    "derivation": slot.position_derivation,
+                    "matching_row_count": slot.position_matching_row_count,
                 })
             });
             serde_json::json!({
                 "request_id": slot.ack.request_id,
+                "ack_intent_class": slot.ack.intent_class,
+                "ack_action": slot.ack.action,
+                "ack_side": slot.ack.side,
+                "ack_latest_status": slot.ack.latest_status,
+                "ack_latest_reason_code": slot.ack.latest_reason_code,
+                "ack_latest_received_ts_utc": slot.ack.latest_received_ts_utc,
+                "ack_canonical_total_sequence": slot.ack.canonical_total_sequence,
                 "expected_client_order_id_hash": exact_id_hash("client-order", slot.ack.expected_client_order_id.as_str()),
                 "broker_order_id_hash": slot.broker_order_id.as_ref().map(|id| exact_id_hash("broker-order", id.as_str())),
                 "source": {
@@ -1521,6 +1898,7 @@ fn lifecycle_state_fingerprint(state: &Stage5gOrderPositionState, callback_count
                 "orders": orders,
                 "trades": trades,
                 "position": position,
+                "market_terminal_truth_receipt_ms": slot.market_terminal_truth.as_ref().map(|truth| truth.received_ts.timestamp_millis()),
                 "terminal": slot.terminal,
                 "last_order_source_ts": slot.last_order_source_ts,
                 "last_order_received_ts": slot.last_order_received_ts,
@@ -1539,13 +1917,13 @@ fn lifecycle_state_fingerprint(state: &Stage5gOrderPositionState, callback_count
         "slots": slots,
         "evidence_replay_ledger": state.evidence_identities.iter().map(|item| (&item.identity, &item.fingerprint)).collect::<Vec<_>>(),
         "last_total_sequence": state.last_total_sequence,
-        "last_broker_truth_received_ts": state.last_broker_truth_received_ts,
+        "last_broker_truth_received_ms": state.last_broker_truth_received_ms,
         "duplicate_evidence_count": state.duplicate_evidence_count,
         "stage5c_callback_count": callback_count,
     });
     let mut hasher = Sha256::new();
-    hasher.update(b"moex.stage5g.order-position-lifecycle.v2\0");
-    hasher.update(serde_json::to_vec(&projection).expect("Stage 5G-c v2 state serializes"));
+    hasher.update(b"moex.stage5g.order-position-lifecycle.v3\0");
+    hasher.update(serde_json::to_vec(&projection).expect("Stage 5G-c v3 state serializes"));
     format!("{:x}", hasher.finalize())
 }
 
@@ -1642,6 +2020,27 @@ impl Stage5gConvergedPaperStrategy {
     }
 }
 
+impl Stage5gMarketTerminalConvergedPaperStrategy {
+    pub fn summary(&self) -> &Stage5gOrderPositionSummary {
+        &self.summary
+    }
+    pub fn settlement(&self) -> &Stage5cBrokerLifecycleSettlement {
+        &self.settlement
+    }
+    pub fn intent_sink_attached(&self) -> bool {
+        false
+    }
+    pub fn redis_command_stream_attached(&self) -> bool {
+        false
+    }
+    pub fn broker_transport_attached(&self) -> bool {
+        false
+    }
+    pub fn broker_execution_attached(&self) -> bool {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use broker_core::{
@@ -1707,6 +2106,9 @@ mod tests {
             order_events: Vec::new(),
             trades: Vec::new(),
             position: None,
+            position_derivation: None,
+            position_matching_row_count: None,
+            market_terminal_truth: None,
             last_order_source_ts: None,
             last_order_received_ts: None,
             last_trade_source_ts: None,
@@ -1749,7 +2151,7 @@ mod tests {
                 fingerprint: evidence_fingerprint(event),
             }],
             last_total_sequence: Some(event.total_sequence),
-            last_broker_truth_received_ts: Some(event.broker_truth.received_ts),
+            last_broker_truth_received_ms: Some(event.broker_truth.received_ts.timestamp_millis()),
             duplicate_evidence_count: 0,
         }
     }
@@ -1993,7 +2395,7 @@ mod tests {
                 &mut slot,
                 &missing
             ),
-            Err(Stage5gOrderPositionError::MissingTargetPosition)
+            Err(Stage5gOrderPositionError::PositionSideMismatch)
         );
     }
 
@@ -2347,7 +2749,7 @@ mod tests {
                 truth(
                     vec![market_order(OrderStatus::Working, Decimal::ZERO, 2)],
                     vec![],
-                    vec![exact.clone()],
+                    vec![],
                     2,
                 ),
             ),
@@ -2378,7 +2780,7 @@ mod tests {
                             2,
                         )],
                         vec![],
-                        vec![exact.clone()],
+                        vec![],
                         2,
                     ),
                 ),
@@ -2392,23 +2794,23 @@ mod tests {
             1.0,
             0.0,
         );
-        assert_eq!(
-            apply_to_slot(
-                &account,
-                &target(),
-                &mut rejected_slot,
-                &evidence(
+        apply_to_slot(
+            &account,
+            &target(),
+            &mut rejected_slot,
+            &evidence(
+                2,
+                truth(
+                    vec![market_order(OrderStatus::Rejected, Decimal::ZERO, 2)],
+                    vec![],
+                    vec![],
                     2,
-                    truth(
-                        vec![market_order(OrderStatus::Rejected, Decimal::ZERO, 2)],
-                        vec![],
-                        vec![exact.clone()],
-                        2,
-                    ),
                 ),
             ),
-            Err(Stage5gOrderPositionError::TargetMarketOrderNonExecution)
-        );
+        )
+        .unwrap();
+        assert!(rejected_slot.terminal);
+        assert!(rejected_slot.market_terminal_truth.is_some());
 
         let mut filled_slot = market_slot(
             crate::BrokerNeutralHybridIntentClass::Entry,
@@ -2450,7 +2852,7 @@ mod tests {
                 slots: vec![slot.clone()],
                 evidence_identities: vec![],
                 last_total_sequence: None,
-                last_broker_truth_received_ts: None,
+                last_broker_truth_received_ms: None,
                 duplicate_evidence_count: 0,
             },
             0,
@@ -2483,7 +2885,7 @@ mod tests {
                 slots: vec![slot],
                 evidence_identities: vec![],
                 last_total_sequence: None,
-                last_broker_truth_received_ts: None,
+                last_broker_truth_received_ms: None,
                 duplicate_evidence_count: 0,
             },
             0,
@@ -2544,7 +2946,7 @@ mod tests {
         assert_eq!(slot.last_trade_received_ts, None);
 
         validate_snapshot_chronology(
-            Some(ts(9)),
+            Some(ts(9).timestamp_millis()),
             &target(),
             &mut slot,
             &evidence(
@@ -2621,7 +3023,7 @@ mod tests {
                 &mut slot(),
                 &missing
             ),
-            Err(Stage5gOrderPositionError::MissingTargetPosition)
+            Err(Stage5gOrderPositionError::PositionIncomplete)
         );
         let mut rejected = canceled;
         rejected.status = OrderStatus::Rejected;
@@ -2672,12 +3074,22 @@ mod tests {
         future_order.received_ts = ts(3);
         let event = evidence(2, truth(vec![future_order], vec![], vec![], 2));
         assert_eq!(
-            validate_snapshot_chronology(Some(ts(1)), &target(), &mut chronology_slot, &event),
+            validate_snapshot_chronology(
+                Some(ts(1).timestamp_millis()),
+                &target(),
+                &mut chronology_slot,
+                &event,
+            ),
             Err(Stage5gOrderPositionError::ComponentTimeAfterSnapshot)
         );
         let event = evidence(3, truth(vec![], vec![], vec![], 1));
         assert_eq!(
-            validate_snapshot_chronology(Some(ts(2)), &target(), &mut chronology_slot, &event),
+            validate_snapshot_chronology(
+                Some(ts(2).timestamp_millis()),
+                &target(),
+                &mut chronology_slot,
+                &event,
+            ),
             Err(Stage5gOrderPositionError::BrokerTruthTimeRegression)
         );
 
@@ -2696,7 +3108,12 @@ mod tests {
         regressed_order.source_ts = Some(ts(1));
         let regressed = evidence(5, truth(vec![regressed_order], vec![], vec![], 3));
         assert_eq!(
-            validate_snapshot_chronology(Some(ts(2)), &target(), &mut order_slot, &regressed),
+            validate_snapshot_chronology(
+                Some(ts(2).timestamp_millis()),
+                &target(),
+                &mut order_slot,
+                &regressed,
+            ),
             Err(Stage5gOrderPositionError::OrderTimeRegression)
         );
 
@@ -2707,7 +3124,12 @@ mod tests {
         regressed_position.source_ts = Some(ts(1));
         let regressed = evidence(7, truth(vec![], vec![], vec![regressed_position], 3));
         assert_eq!(
-            validate_snapshot_chronology(Some(ts(2)), &target(), &mut position_slot, &regressed),
+            validate_snapshot_chronology(
+                Some(ts(2).timestamp_millis()),
+                &target(),
+                &mut position_slot,
+                &regressed,
+            ),
             Err(Stage5gOrderPositionError::PositionTimeRegression)
         );
     }
@@ -2785,4 +3207,223 @@ mod tests {
             Err(Stage5gOrderPositionError::FilledQuantityRegression)
         );
     }
+
+    // STAGE5G-C-R2CB-PARITY-TESTS-BEGIN: broker-truth-finam-parity-v1
+    #[test]
+    fn r2cb_finam_full_snapshot_replay_refreshes_trade_receipt_without_conflict() {
+        let account = BrokerAccountId::new("ACC_TEST_0001");
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        let partial_qty = Decimal::new(4, 1);
+        let partial = evidence(
+            2,
+            truth(
+                vec![market_order(OrderStatus::PartiallyFilled, partial_qty, 2)],
+                vec![market_trade("FINAM_TRADE_A", partial_qty, 2)],
+                vec![position(partial_qty, 2)],
+                2,
+            ),
+        );
+        apply_to_slot(&account, &target(), &mut slot, &partial).unwrap();
+
+        let mut repeated = market_trade("FINAM_TRADE_A", partial_qty, 2);
+        repeated.received_ts = ts(3);
+        let filled = evidence(
+            3,
+            truth(
+                vec![market_order(OrderStatus::Filled, Decimal::ONE, 3)],
+                vec![
+                    repeated,
+                    market_trade("FINAM_TRADE_B", Decimal::new(6, 1), 3),
+                ],
+                vec![position(Decimal::ONE, 3)],
+                3,
+            ),
+        );
+        apply_to_slot(&account, &target(), &mut slot, &filled).unwrap();
+        assert!(slot.terminal);
+        assert_eq!(slot.trades.len(), 2);
+        assert_eq!(slot.trades[0].received_ts, ts(3));
+    }
+
+    #[test]
+    fn r2cb_same_snapshot_trade_id_is_deduplicated_or_conflicts() {
+        let qty = Decimal::new(4, 1);
+        let filled = market_order(OrderStatus::PartiallyFilled, qty, 2);
+        let first = market_trade("FINAM_TRADE_DUP", qty, 2);
+        let mut exact_refresh = first.clone();
+        exact_refresh.received_ts = ts(3);
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        validate_trades(&mut slot, &filled, &[first.clone(), exact_refresh]).unwrap();
+        assert_eq!(slot.trades.len(), 1);
+        assert_eq!(slot.trades[0].received_ts, ts(3));
+
+        let mut conflicting = first.clone();
+        conflicting.price += Decimal::ONE;
+        assert_eq!(
+            validate_trades(
+                &mut market_slot(
+                    crate::BrokerNeutralHybridIntentClass::Entry,
+                    crate::BrokerNeutralOrderSide::Buy,
+                    1.0,
+                    0.0,
+                ),
+                &filled,
+                &[first, conflicting]
+            ),
+            Err(Stage5gOrderPositionError::TradeIdentityConflict)
+        );
+    }
+
+    #[test]
+    fn r2cb_absent_flat_and_aggregate_positions_are_canonical() {
+        let account = BrokerAccountId::new("ACC_TEST_0001");
+        let flat =
+            canonical_target_position(&account, &target(), &truth(vec![], vec![], vec![], 2))
+                .unwrap();
+        assert_eq!(flat.snapshot.qty, Decimal::ZERO);
+        assert_eq!(flat.derivation, CanonicalPositionDerivation::AbsentFlat);
+
+        let aggregate = canonical_target_position(
+            &account,
+            &target(),
+            &truth(
+                vec![],
+                vec![],
+                vec![
+                    position(Decimal::new(4, 1), 2),
+                    position(Decimal::new(6, 1), 3),
+                ],
+                3,
+            ),
+        )
+        .unwrap();
+        assert_eq!(aggregate.snapshot.qty, Decimal::ONE);
+        assert_eq!(aggregate.matching_row_count, 2);
+        assert_eq!(aggregate.derivation, CanonicalPositionDerivation::Aggregate);
+        assert_eq!(aggregate.snapshot.received_ts, ts(3));
+    }
+
+    #[test]
+    fn r2cb_market_order_fill_and_position_progress_must_be_exact() {
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        let filled = Decimal::new(4, 1);
+        let event = evidence(
+            2,
+            truth(
+                vec![market_order(OrderStatus::PartiallyFilled, filled, 2)],
+                vec![market_trade("FINAM_TRADE_COHERENCE", filled, 2)],
+                vec![position(Decimal::new(8, 1), 2)],
+                2,
+            ),
+        );
+        assert_eq!(
+            apply_to_slot(
+                &BrokerAccountId::new("ACC_TEST_0001"),
+                &target(),
+                &mut slot,
+                &event,
+            ),
+            Err(Stage5gOrderPositionError::OrderPositionIncoherent)
+        );
+    }
+
+    #[test]
+    fn r2cb_terminal_guard_uses_canonical_instrument_identity() {
+        let mut terminal = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        terminal.terminal = true;
+        let mut compatible = market_order(OrderStatus::Working, Decimal::ZERO, 2);
+        compatible.instrument.venue_symbol = None;
+        assert_eq!(
+            apply_to_slot(
+                &BrokerAccountId::new("ACC_TEST_0001"),
+                &target(),
+                &mut terminal,
+                &evidence(2, truth(vec![compatible], vec![], vec![], 2)),
+            ),
+            Err(Stage5gOrderPositionError::BrokerEvidenceAfterTerminalAck)
+        );
+    }
+
+    #[test]
+    fn r2cb_evidence_fingerprint_is_permutation_stable_and_receipt_exact() {
+        use broker_core::account::CashPosition;
+        use broker_core::broker::BrokerKind;
+        use broker_core::{
+            BrokerCashSnapshot, BrokerInstrumentSpec, BrokerSymbol, InstrumentMapEntry,
+            InternalSymbol,
+        };
+
+        let spec = |symbol: &str| BrokerInstrumentSpec {
+            instrument: InstrumentMapEntry {
+                internal_symbol: InternalSymbol(symbol.to_string()),
+                broker: BrokerKind::Finam,
+                broker_symbol: BrokerSymbol(format!("{symbol}@RTSX")),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
+                price_step: Decimal::new(5, 1),
+                qty_step: Decimal::ONE,
+                lot_size: Decimal::ONE,
+                min_qty: Decimal::ONE,
+                step_value: Decimal::new(5, 0),
+                currency: "RUB".to_string(),
+                schedule_id: "MOEX_FUT".to_string(),
+                expiration_date: None,
+                is_tradable: true,
+            },
+            broker_asset_id: Some(format!("ASSET_{symbol}")),
+            board: Some("RTSX".to_string()),
+            long_initial_margin: Some(Decimal::new(5_000, 0)),
+            short_initial_margin: Some(Decimal::new(5_000, 0)),
+        };
+        let mut left = evidence(2, truth(vec![], vec![], vec![], 2));
+        left.broker_truth.instruments = vec![spec("IMOEXF"), spec("USDRUBF")];
+        left.broker_truth.cash = Some(BrokerCashSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            cash: vec![
+                CashPosition {
+                    currency: "RUB".to_string(),
+                    amount: Decimal::new(6_000, 0),
+                },
+                CashPosition {
+                    currency: "USD".to_string(),
+                    amount: Decimal::ZERO,
+                },
+            ],
+            equity: Some(Decimal::new(6_000, 0)),
+            free_cash: Some(Decimal::new(6_000, 0)),
+            initial_margin: Some(Decimal::ZERO),
+            maintenance_margin: Some(Decimal::ZERO),
+            source_ts: Some(ts(2)),
+            received_ts: ts(2),
+        });
+        let mut right = left.clone();
+        right.broker_truth.instruments.reverse();
+        right.broker_truth.cash.as_mut().unwrap().cash.reverse();
+        assert_eq!(evidence_fingerprint(&left), evidence_fingerprint(&right));
+
+        right.broker_truth.received_ts += chrono::Duration::milliseconds(1);
+        assert_ne!(evidence_identity(&left), evidence_identity(&right));
+        assert_ne!(evidence_fingerprint(&left), evidence_fingerprint(&right));
+    }
+    // STAGE5G-C-R2CB-PARITY-TESTS-END: broker-truth-finam-parity-v1
 }

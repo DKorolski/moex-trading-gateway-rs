@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-R2-c-b-broker-truth-finam-snapshot-parity",
+  "status": "review_candidate",
+  "accepted_predecessor": "bede0868424086fbc2655fbfe5a0f5f1f5fefd54",
+  "accepted_r3_entry_points": [
+    "validate_stage5c_market_terminal_outcome_r3",
+    "settle_stage5c_validated_market_terminal_outcome_r3"
+  ],
+  "broker_truth_contract": {
+    "package_receipt_clock": "BrokerTruthSnapshot.received_ts.timestamp_millis()",
+    "component_source_clock": "economic_identity_and_chronology_only",
+    "immutable_trade_excludes_received_ts": true,
+    "same_snapshot_trade_id_dedup_or_conflict": true,
+    "repeated_full_snapshot_trade_idempotent": true,
+    "target_position_rows": "aggregate_canonical_identity_matches",
+    "absent_target_position": "canonical_flat",
+    "market_order_classified_before_position": true,
+    "filled_qty_position_delta_exact": true,
+    "fingerprinted_collections_canonical": true
+  },
+  "evidence": {
+    "finam_fixture": "fixtures/finam/stage5g_r2cb_full_snapshot_sequence.json",
+    "focused_order_position_tests": 35,
+    "stage5g_regression_tests": 97,
+    "finam_mapper_fixture_tests": 1,
+    "durable_evidence_domain": "moex.stage5g.order-position-evidence.v2",
+    "lifecycle_domain": "moex.stage5g.order-position-lifecycle.v3"
+  },
+  "closed_surfaces": {
+    "stage5g_d": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}

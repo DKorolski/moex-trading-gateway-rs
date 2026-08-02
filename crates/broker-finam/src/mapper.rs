@@ -2450,6 +2450,71 @@ mod tests {
         assert_eq!(net_qty, Decimal::ZERO);
     }
 
+    // STAGE5G-C-R2CB-FINAM-FIXTURE-BEGIN: executable-full-snapshot-sequence-v1
+    #[test]
+    fn stage5g_r2cb_finam_full_snapshot_fixture_preserves_repeated_trade_identity() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/finam/stage5g_r2cb_full_snapshot_sequence.json"
+        ))
+        .expect("Stage 5G-c R2-c-b FINAM fixture JSON");
+        let map_snapshot = |name: &str, received_field: &str| {
+            let account: dto::AccountResponse =
+                serde_json::from_value(fixture[name]["account"].clone())
+                    .expect("FINAM account fixture");
+            let orders: dto::AccountOrdersResponse =
+                serde_json::from_value(fixture[name]["orders"].clone())
+                    .expect("FINAM orders fixture");
+            let trades: dto::AccountTradesResponse =
+                serde_json::from_value(fixture[name]["trades"].clone())
+                    .expect("FINAM trades fixture");
+            let received_ts = parse_timestamp(
+                "stage5g_r2cb_fixture.received_ts",
+                fixture[received_field]
+                    .as_str()
+                    .expect("fixture receipt timestamp"),
+            )
+            .expect("fixture receipt timestamp parses");
+            map_finam_broker_truth_snapshot_with_readonly_artifacts(
+                &account,
+                &orders,
+                Some(&trades),
+                &[],
+                received_ts,
+            )
+            .expect("FINAM full snapshot maps")
+        };
+
+        let partial = map_snapshot("partial", "partial_received_ts");
+        let filled = map_snapshot("filled", "filled_received_ts");
+
+        assert_eq!(partial.orders[0].status, OrderStatus::PartiallyFilled);
+        assert_eq!(partial.orders[0].filled_qty, Decimal::new(4, 1));
+        assert_eq!(partial.positions.len(), 2);
+        assert_eq!(
+            partial.positions.iter().map(|row| row.qty).sum::<Decimal>(),
+            Decimal::new(4, 1)
+        );
+        assert_eq!(filled.orders[0].status, OrderStatus::Filled);
+        assert_eq!(filled.orders[0].filled_qty, Decimal::ONE);
+        assert_eq!(filled.positions[0].qty, Decimal::ONE);
+        assert_eq!(partial.trades.len(), 1);
+        assert_eq!(filled.trades.len(), 2);
+        assert_eq!(
+            partial.trades[0].broker_trade_id,
+            filled.trades[0].broker_trade_id
+        );
+        assert_eq!(partial.trades[0].source_ts, filled.trades[0].source_ts);
+        assert_eq!(partial.trades[0].qty, filled.trades[0].qty);
+        assert_ne!(partial.trades[0].received_ts, filled.trades[0].received_ts);
+        assert_eq!(
+            filled.trades.iter().map(|trade| trade.qty).sum::<Decimal>(),
+            Decimal::ONE
+        );
+        assert_eq!(partial.received_ts.timestamp_millis(), 1_785_661_800_125);
+        assert_eq!(filled.received_ts.timestamp_millis(), 1_785_661_800_875);
+    }
+    // STAGE5G-C-R2CB-FINAM-FIXTURE-END: executable-full-snapshot-sequence-v1
+
     #[test]
     fn account_trade_empty_trade_id_returns_controlled_mapper_error_not_panic() {
         let received_ts = parse_timestamp("test", "2026-07-04T14:57:18Z").expect("timestamp");
