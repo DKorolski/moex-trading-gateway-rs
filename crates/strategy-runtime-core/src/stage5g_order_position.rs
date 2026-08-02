@@ -92,6 +92,7 @@ pub enum Stage5gOrderPositionError {
     InvalidOrderQuantity,
     FilledQuantityRegression,
     OrderTerminalRegression,
+    TargetTradeWithoutOrder,
     TradeIdentityConflict,
     TradeAccountMismatch,
     TradeInstrumentMismatch,
@@ -608,6 +609,33 @@ pub fn apply_stage5g_order_position_evidence(
         ));
     }
 
+    let current_slot = &session.state.slots[slot_index];
+    let has_target_trade = has_target_correlated_trade(current_slot, &evidence.broker_truth);
+    if current_slot.terminal && has_target_trade {
+        return Err(block(
+            Stage5gOrderPositionError::BrokerEvidenceAfterTerminalAck,
+            session,
+        ));
+    }
+    if matches!(
+        current_slot.ack.action,
+        Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market
+        }
+    ) && !has_target_correlated_order(current_slot, &evidence.broker_truth)
+        && has_target_trade
+    {
+        // STAGE5G-C-R2CB-R2-POSITION-ONLY-TRADE-BLOCK-BEGIN
+        // A position-only Market observation cannot authenticate trade rows.
+        // Retry with the target order row before any chronology or ledger
+        // state is advanced.
+        return Err(block(
+            Stage5gOrderPositionError::TargetTradeWithoutOrder,
+            session,
+        ));
+        // STAGE5G-C-R2CB-R2-POSITION-ONLY-TRADE-BLOCK-END
+    }
+
     // Evidence application is transactional: a blocked snapshot must not
     // partially append order/trade/position state before the caller retries
     // with corrected broker truth.
@@ -630,6 +658,15 @@ pub fn apply_stage5g_order_position_evidence(
     if let Err(reason) = result {
         return Err(block(reason, session));
     }
+    // STAGE5G-C-R2CB-R2-COMMITTED-TRADE-WATERMARK-BEGIN
+    refresh_trade_watermarks_from_committed_ledger(&mut next_slot);
+    if !component_watermarks_are_monotonic(&session.state.slots[slot_index], &next_slot) {
+        return Err(block(
+            Stage5gOrderPositionError::TradeTimeRegression,
+            session,
+        ));
+    }
+    // STAGE5G-C-R2CB-R2-COMMITTED-TRADE-WATERMARK-END
     session.state.slots[slot_index] = next_slot;
     session.state.last_total_sequence = Some(evidence.total_sequence);
     session.state.last_broker_truth_received_ms =
@@ -786,17 +823,41 @@ fn validate_snapshot_chronology(
             return Err(Stage5gOrderPositionError::TradeTimeRegression);
         }
     }
-    slot.last_trade_source_ts = correlated_trades
-        .iter()
-        .map(|trade| trade.source_ts)
-        .max()
-        .or(slot.last_trade_source_ts);
-    slot.last_trade_received_ts = correlated_trades
-        .iter()
-        .map(|trade| trade.received_ts)
-        .max()
-        .or(slot.last_trade_received_ts);
     Ok(())
+}
+
+fn refresh_trade_watermarks_from_committed_ledger(slot: &mut Stage5gOrderPositionSlot) {
+    let committed_source_max = slot.trades.iter().map(|trade| trade.source_ts).max();
+    let committed_received_max = slot.trades.iter().map(|trade| trade.received_ts).max();
+    slot.last_trade_source_ts = [slot.last_trade_source_ts, committed_source_max]
+        .into_iter()
+        .flatten()
+        .max();
+    slot.last_trade_received_ts = [slot.last_trade_received_ts, committed_received_max]
+        .into_iter()
+        .flatten()
+        .max();
+}
+
+fn component_watermarks_are_monotonic(
+    before: &Stage5gOrderPositionSlot,
+    after: &Stage5gOrderPositionSlot,
+) -> bool {
+    fn monotonic(before: Option<DateTime<Utc>>, after: Option<DateTime<Utc>>) -> bool {
+        before.map_or(true, |before| after.is_some_and(|after| after >= before))
+    }
+    monotonic(before.last_order_source_ts, after.last_order_source_ts)
+        && monotonic(before.last_order_received_ts, after.last_order_received_ts)
+        && monotonic(before.last_trade_source_ts, after.last_trade_source_ts)
+        && monotonic(before.last_trade_received_ts, after.last_trade_received_ts)
+        && monotonic(
+            before.last_position_source_ts,
+            after.last_position_source_ts,
+        )
+        && monotonic(
+            before.last_position_received_ts,
+            after.last_position_received_ts,
+        )
 }
 
 fn validate_component_time(
@@ -832,17 +893,13 @@ fn apply_to_slot_candidate(
     evidence: &Stage5gOrderPositionEvidence,
 ) -> Result<(), Stage5gOrderPositionError> {
     if slot.terminal {
-        let has_target_order = evidence.broker_truth.orders.iter().any(|order| {
-            order.account_id == *account_id
-                && instrument_identity_matches(&order.instrument, instrument)
-                && (order.broker_order_id == slot.broker_order_id
-                    || order.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id))
-        });
+        let has_target_order = has_target_correlated_order(slot, &evidence.broker_truth);
+        let has_target_trade = has_target_correlated_trade(slot, &evidence.broker_truth);
         let target_position =
             canonical_target_position(account_id, instrument, &evidence.broker_truth)?;
         let contradictory_target_position =
             decimal_f64_differs(target_position.snapshot.qty, slot.source.pre_position_qty);
-        if has_target_order || contradictory_target_position {
+        if has_target_order || has_target_trade || contradictory_target_position {
             return Err(Stage5gOrderPositionError::BrokerEvidenceAfterTerminalAck);
         }
         return Ok(());
@@ -1044,6 +1101,30 @@ fn select_optional_target_order(
         1 => Ok(matches.into_iter().next()),
         _ => Err(Stage5gOrderPositionError::AmbiguousTargetOrder),
     }
+}
+
+fn has_target_correlated_order(
+    slot: &Stage5gOrderPositionSlot,
+    truth: &BrokerTruthSnapshot,
+) -> bool {
+    truth.orders.iter().any(|order| {
+        slot.broker_order_id
+            .as_ref()
+            .is_some_and(|expected| order.broker_order_id.as_ref() == Some(expected))
+            || order.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+    })
+}
+
+fn has_target_correlated_trade(
+    slot: &Stage5gOrderPositionSlot,
+    truth: &BrokerTruthSnapshot,
+) -> bool {
+    truth.trades.iter().any(|trade| {
+        slot.broker_order_id
+            .as_ref()
+            .is_some_and(|expected| trade.broker_order_id.as_ref() == Some(expected))
+            || trade.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+    })
 }
 
 fn canonical_target_position(
@@ -2347,8 +2428,11 @@ mod tests {
         StrategyRequestId,
         ClientOrderId,
         Option<HybridRuntimeAttribution>,
+        Duration,
     ) {
-        let bar_close_ts = 1_785_661_790;
+        let bar_close_ts = Utc::now().timestamp() - 10;
+        let fixture_poll1_whole_second = 1_785_661_800;
+        let golden_time_shift = Duration::seconds(bar_close_ts + 10 - fixture_poll1_whole_second);
         let mut strategy = r2cb_public_runtime_strategy(bar_close_ts);
         for (close_time_utc, high, low) in [
             (bar_close_ts - 86_400 - 600, 2630.0, 2570.0),
@@ -2464,12 +2548,19 @@ mod tests {
             .clone();
         let session = attach_stage5g_order_position_session(resolved)
             .expect("public Stage 5G-c broker-truth attachment");
-        (session, request_id, client_order_id, expected_attribution)
+        (
+            session,
+            request_id,
+            client_order_id,
+            expected_attribution,
+            golden_time_shift,
+        )
     }
 
     fn r2cb_golden_truth(
         poll: &serde_json::Value,
         client_order_id: &ClientOrderId,
+        time_shift: Duration,
     ) -> BrokerTruthSnapshot {
         let parse_ts = |field: &str| {
             chrono::DateTime::parse_from_rfc3339(
@@ -2477,6 +2568,7 @@ mod tests {
             )
             .expect("golden timestamp parses")
             .with_timezone(&Utc)
+                + time_shift
         };
         let received_ts = parse_ts("received_ts");
         let status = match poll["order_status"].as_str().unwrap() {
@@ -2543,7 +2635,8 @@ mod tests {
                 expiration_date: None,
                 source_ts: chrono::DateTime::parse_from_rfc3339(row["source_ts"].as_str().unwrap())
                     .unwrap()
-                    .with_timezone(&Utc),
+                    .with_timezone(&Utc)
+                    + time_shift,
                 received_ts,
             })
             .collect();
@@ -3217,7 +3310,7 @@ mod tests {
     }
 
     #[test]
-    fn r2b_only_exact_correlated_trade_advances_slot_watermark() {
+    fn r2b_only_committed_correlated_trade_advances_slot_watermark() {
         let mut slot = market_slot(
             crate::BrokerNeutralHybridIntentClass::Entry,
             crate::BrokerNeutralOrderSide::Buy,
@@ -3252,6 +3345,10 @@ mod tests {
             ),
         )
         .unwrap();
+        assert_eq!(slot.last_trade_source_ts, None);
+        slot.trades
+            .push(market_trade("MARKET_TRADE_1", Decimal::ONE, 10));
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
         assert_eq!(slot.last_trade_source_ts, Some(ts(10)));
     }
 
@@ -3510,7 +3607,7 @@ mod tests {
         .expect("connector-neutral three-poll golden JSON");
         let polls = golden["polls"].as_array().expect("three golden polls");
         assert_eq!(polls.len(), 3);
-        let (mut session, request_id, client_order_id, expected_attribution) =
+        let (mut session, request_id, client_order_id, expected_attribution, time_shift) =
             r2cb_public_runtime_session();
         let mut fingerprints = Vec::new();
 
@@ -3520,7 +3617,7 @@ mod tests {
                 Stage5gOrderPositionEvidence {
                     total_sequence: u64::try_from(index + 2).unwrap(),
                     request_id,
-                    broker_truth: r2cb_golden_truth(poll, &client_order_id),
+                    broker_truth: r2cb_golden_truth(poll, &client_order_id, time_shift),
                     order_attribution: expected_attribution.clone(),
                 },
             )
@@ -3540,7 +3637,7 @@ mod tests {
             Stage5gOrderPositionEvidence {
                 total_sequence: 4,
                 request_id,
-                broker_truth: r2cb_golden_truth(&polls[2], &client_order_id),
+                broker_truth: r2cb_golden_truth(&polls[2], &client_order_id, time_shift),
                 order_attribution: expected_attribution,
             },
         )
@@ -3578,6 +3675,7 @@ mod tests {
         );
         validate_snapshot_chronology(None, &target(), &mut slot, &poll1).unwrap();
         apply_to_slot(&account, &target(), &mut slot, &poll1).unwrap();
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
         let poll1_fingerprint = lifecycle_state_fingerprint(
             &Stage5gOrderPositionState {
                 strategy_id: "hybrid_imoexf".to_string(),
@@ -3607,6 +3705,7 @@ mod tests {
         validate_snapshot_chronology(Some(ts(2).timestamp_millis()), &target(), &mut slot, &poll2)
             .unwrap();
         apply_to_slot(&account, &target(), &mut slot, &poll2).unwrap();
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
         assert_eq!(slot.trades.len(), 2);
         assert_eq!(slot.trades[0].received_ts, ts(3));
         let poll2_fingerprint = lifecycle_state_fingerprint(
@@ -3644,6 +3743,7 @@ mod tests {
         validate_snapshot_chronology(Some(ts(3).timestamp_millis()), &target(), &mut slot, &poll3)
             .unwrap();
         apply_to_slot(&account, &target(), &mut slot, &poll3).unwrap();
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
         assert!(slot.terminal);
         assert_eq!(slot.trades.len(), 3);
         assert!(slot.trades.iter().all(|trade| trade.received_ts == ts(4)));
@@ -3674,6 +3774,7 @@ mod tests {
         );
         validate_snapshot_chronology(None, &target(), &mut slot, &first).unwrap();
         apply_to_slot(&account, &target(), &mut slot, &first).unwrap();
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
 
         let mut known_a = market_trade("FINAM_TRADE_A", qty, 2);
         known_a.received_ts = ts(3);
@@ -3698,6 +3799,7 @@ mod tests {
         )
         .unwrap();
         apply_to_slot(&account, &target(), &mut slot, &second).unwrap();
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
 
         let mut refreshed_a = market_trade("FINAM_TRADE_A", qty, 2);
         refreshed_a.received_ts = ts(4);
@@ -3726,6 +3828,7 @@ mod tests {
         )
         .unwrap();
         apply_to_slot(&account, &target(), &mut slot, &stable).unwrap();
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
         assert_eq!(slot.trades.len(), 2);
         assert!(slot.trades.iter().all(|trade| trade.received_ts == ts(4)));
 
@@ -3767,6 +3870,278 @@ mod tests {
         );
     }
     // STAGE5G-C-R2CB-R1-THREE-POLL-RUNTIME-WITNESS-END
+
+    // STAGE5G-C-R2CB-R2-LEDGER-WATERMARK-WITNESSES-BEGIN
+    #[test]
+    fn r2cb_r2_subset_refresh_preserves_committed_max_and_blocks_unseen_late_trade() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let polls = golden["polls"].as_array().unwrap();
+        let (mut session, request_id, client_order_id, attribution, time_shift) =
+            r2cb_public_runtime_session();
+
+        for (sequence, poll) in [(2, &polls[0]), (3, &polls[1])] {
+            session = apply_stage5g_order_position_evidence(
+                session,
+                Stage5gOrderPositionEvidence {
+                    total_sequence: sequence,
+                    request_id,
+                    broker_truth: r2cb_golden_truth(poll, &client_order_id, time_shift),
+                    order_attribution: attribution.clone(),
+                },
+            )
+            .unwrap()
+            .into_awaiting()
+            .unwrap();
+        }
+        let before_subset = session.state.slots[0].clone();
+        let source_a = before_subset.trades[0].source_ts;
+        let source_b = before_subset.trades[1].source_ts;
+        assert!(source_a < source_b);
+        assert_eq!(before_subset.last_trade_source_ts, Some(source_b));
+
+        let mut subset = r2cb_golden_truth(&polls[1], &client_order_id, time_shift);
+        let subset_receipt = subset.received_ts + Duration::seconds(1);
+        subset.received_ts = subset_receipt;
+        subset.orders[0].source_ts = Some(subset_receipt - Duration::milliseconds(50));
+        subset.orders[0].received_ts = subset_receipt;
+        subset.positions.iter_mut().for_each(|position| {
+            position.received_ts = subset_receipt;
+        });
+        subset.trades.retain(|trade| trade.source_ts == source_a);
+        subset.trades[0].received_ts = subset_receipt;
+        session = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: subset,
+                order_attribution: attribution.clone(),
+            },
+        )
+        .expect("known-only coherent subset refresh is accepted")
+        .into_awaiting()
+        .expect("partial order remains awaiting");
+        let after_subset = &session.state.slots[0];
+        assert_eq!(after_subset.trades.len(), 2);
+        assert_eq!(after_subset.last_trade_source_ts, Some(source_b));
+        assert_eq!(after_subset.last_trade_received_ts, Some(subset_receipt));
+        assert!(component_watermarks_are_monotonic(
+            &before_subset,
+            after_subset
+        ));
+        let retained_fingerprint = session.summary().lifecycle_fingerprint_sha256;
+
+        let mut late = r2cb_golden_truth(&polls[1], &client_order_id, time_shift);
+        let late_receipt = subset_receipt + Duration::seconds(1);
+        late.received_ts = late_receipt;
+        late.orders[0].filled_qty = Decimal::new(6, 1);
+        late.orders[0].remaining_qty = Some(Decimal::new(4, 1));
+        late.orders[0].source_ts = Some(late_receipt - Duration::milliseconds(50));
+        late.orders[0].received_ts = late_receipt;
+        late.positions = vec![BrokerPositionSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: target(),
+            qty: Decimal::new(6, 1),
+            avg_price: Some(Decimal::new(2_210, 0)),
+            unrealized_pnl: None,
+            source_ts: None,
+            received_ts: late_receipt,
+        }];
+        let mut unseen_c = late.trades[0].clone();
+        unseen_c.broker_trade_id = BrokerTradeId::new("FINAM-R2CB-TRADE-LATE-C");
+        unseen_c.source_ts = source_a + Duration::milliseconds(200);
+        unseen_c.received_ts = late_receipt;
+        assert!(unseen_c.source_ts < source_b);
+        late.trades = vec![unseen_c];
+        let blocked = match apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 5,
+                request_id,
+                broker_truth: late,
+                order_attribution: attribution,
+            },
+        ) {
+            Err(failure) => failure.into_blocked().unwrap(),
+            Ok(_) => panic!("unseen late trade must remain fail closed"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage5gOrderPositionError::TradeTimeRegression
+        );
+        assert_eq!(
+            blocked.session().summary().lifecycle_fingerprint_sha256,
+            retained_fingerprint
+        );
+    }
+
+    #[test]
+    fn r2cb_r2_known_receipt_between_trade_and_global_max_preserves_global_max() {
+        let account = BrokerAccountId::new("ACC_TEST_0001");
+        let qty = Decimal::new(2, 1);
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        let mut trade_a = market_trade("FINAM_TRADE_A", qty, 2);
+        trade_a.received_ts = ts(2);
+        let mut trade_b = market_trade("FINAM_TRADE_B", qty, 4);
+        trade_b.received_ts = ts(5);
+        slot.trades = vec![trade_a.clone(), trade_b];
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
+        assert_eq!(slot.last_trade_received_ts, Some(ts(5)));
+
+        trade_a.received_ts = ts(3);
+        let event = evidence(
+            2,
+            truth(
+                vec![market_order(
+                    OrderStatus::PartiallyFilled,
+                    Decimal::new(4, 1),
+                    6,
+                )],
+                vec![trade_a],
+                vec![position(Decimal::new(4, 1), 6)],
+                6,
+            ),
+        );
+        validate_snapshot_chronology(None, &target(), &mut slot, &event).unwrap();
+        apply_to_slot(&account, &target(), &mut slot, &event).unwrap();
+        refresh_trade_watermarks_from_committed_ledger(&mut slot);
+        assert_eq!(slot.last_trade_received_ts, Some(ts(5)));
+        assert_eq!(slot.trades.len(), 2);
+    }
+
+    #[test]
+    fn r2cb_r2_position_only_trades_block_transactionally_then_order_snapshot_converges() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let polls = golden["polls"].as_array().unwrap();
+        let (session, request_id, client_order_id, attribution, time_shift) =
+            r2cb_public_runtime_session();
+        let before = session.summary().lifecycle_fingerprint_sha256;
+        let mut position_only = r2cb_golden_truth(&polls[1], &client_order_id, time_shift);
+        position_only.orders.clear();
+        let blocked = match apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: position_only,
+                order_attribution: attribution.clone(),
+            },
+        ) {
+            Err(failure) => failure.into_blocked().unwrap(),
+            Ok(_) => panic!("position-only target trades require the target order row"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage5gOrderPositionError::TargetTradeWithoutOrder
+        );
+        assert_eq!(
+            blocked.session().summary().lifecycle_fingerprint_sha256,
+            before
+        );
+        assert!(blocked.session().state.slots[0].trades.is_empty());
+        assert_eq!(blocked.session().state.slots[0].last_trade_source_ts, None);
+        assert_eq!(blocked.session().state.slots[0].position, None);
+        assert_eq!(blocked.session().summary().stage5c_callback_count, 0);
+
+        let converged = apply_stage5g_order_position_evidence(
+            blocked.into_session(),
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[2], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        )
+        .expect("coherent order-bearing retry converges")
+        .into_converged()
+        .unwrap();
+        assert_eq!(converged.summary().correlated_trade_count, 3);
+        assert_eq!(converged.summary().stage5c_callback_count, 1);
+    }
+
+    #[test]
+    fn r2cb_r2_position_only_contradictory_target_trades_are_never_ignored() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let poll = &golden["polls"].as_array().unwrap()[0];
+        for mutation in 0..6 {
+            let (session, request_id, client_order_id, attribution, time_shift) =
+                r2cb_public_runtime_session();
+            let mut truth = r2cb_golden_truth(poll, &client_order_id, time_shift);
+            truth.orders.clear();
+            let trade = &mut truth.trades[0];
+            match mutation {
+                0 => {
+                    trade.client_order_id = Some(ClientOrderId::new("CONFLICTINGCLIENT01").unwrap())
+                }
+                1 => trade.qty = Decimal::ZERO,
+                2 => trade.side = OrderSide::Sell,
+                3 => trade.instrument = other(),
+                4 => trade.account_id = BrokerAccountId::new("ACC_WRONG_0001"),
+                5 => trade.price += Decimal::ONE,
+                _ => unreachable!(),
+            }
+            let blocked = match apply_stage5g_order_position_evidence(
+                session,
+                Stage5gOrderPositionEvidence {
+                    total_sequence: 2,
+                    request_id,
+                    broker_truth: truth,
+                    order_attribution: attribution,
+                },
+            ) {
+                Err(failure) => failure.into_blocked().unwrap(),
+                Ok(_) => panic!("contradictory position-only target trade was ignored"),
+            };
+            assert_eq!(
+                blocked.reason(),
+                Stage5gOrderPositionError::TargetTradeWithoutOrder
+            );
+            assert!(blocked.session().state.slots[0].trades.is_empty());
+        }
+    }
+
+    #[test]
+    fn r2cb_r2_terminal_slot_rejects_target_trade_without_order() {
+        let mut terminal = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        terminal.terminal = true;
+        assert_eq!(
+            apply_to_slot(
+                &BrokerAccountId::new("ACC_TEST_0001"),
+                &target(),
+                &mut terminal,
+                &evidence(
+                    2,
+                    truth(
+                        vec![],
+                        vec![market_trade("FINAM_TERMINAL_TRADE", Decimal::ONE, 2)],
+                        vec![],
+                        2,
+                    ),
+                ),
+            ),
+            Err(Stage5gOrderPositionError::BrokerEvidenceAfterTerminalAck)
+        );
+    }
+    // STAGE5G-C-R2CB-R2-LEDGER-WATERMARK-WITNESSES-END
 
     #[test]
     fn r2cb_same_snapshot_trade_id_is_deduplicated_or_conflicts() {

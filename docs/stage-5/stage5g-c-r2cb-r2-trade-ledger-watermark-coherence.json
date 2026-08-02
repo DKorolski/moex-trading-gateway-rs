@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-R2-c-b-R2-trade-ledger-watermark-coherence",
+  "status": "review_candidate",
+  "base_commit": "8e3a794ea47ff24c9daf3d88b2ef7c3f588e0f01",
+  "required_parent_relation": "exactly_one_successor",
+  "accepted_r3_entry_points": [
+    "validate_stage5c_market_terminal_outcome_r3",
+    "settle_stage5c_validated_market_terminal_outcome_r3"
+  ],
+  "trade_watermark_contract": {
+    "source_of_truth": "post_validation_committed_slot_trade_ledger",
+    "source_watermark": "max(previous_last_trade_source_ts, committed_trade_source_max)",
+    "receipt_watermark": "max(previous_last_trade_received_ts, committed_trade_received_max)",
+    "accepted_component_watermarks_monotonic": true,
+    "incoming_snapshot_or_previous_update_forbidden": true,
+    "unseen_late_trade_policy": "fail_closed_trade_time_regression"
+  },
+  "position_only_market_contract": {
+    "without_target_order_and_without_target_trade": "position_progress_permitted",
+    "without_target_order_with_target_trade": "typed_retryable_target_trade_without_order",
+    "block_before_chronology_or_candidate_mutation": true,
+    "blocked_capability_and_fingerprint_preserved": true,
+    "blocked_stage5c_callback_count": 0,
+    "terminal_target_trade_policy": "broker_evidence_after_terminal_ack"
+  },
+  "evidence": {
+    "accepted_three_poll_public_witness": "r2cb_public_runtime_three_poll_golden_converges_through_stage5c",
+    "subset_refresh_witness": "r2cb_r2_subset_refresh_preserves_committed_max_and_blocks_unseen_late_trade",
+    "intermediate_receipt_witness": "r2cb_r2_known_receipt_between_trade_and_global_max_preserves_global_max",
+    "eventual_consistency_witness": "r2cb_r2_position_only_trades_block_transactionally_then_order_snapshot_converges",
+    "position_only_negative_witness": "r2cb_r2_position_only_contradictory_target_trades_are_never_ignored",
+    "terminal_trade_witness": "r2cb_r2_terminal_slot_rejects_target_trade_without_order"
+  },
+  "replay_identity_gate": {
+    "current_key": "request/account/receipt_millisecond",
+    "closed_in_this_stage": false,
+    "required_before_stage5g_d_or_stream_reuse": true,
+    "allowed_resolution": "source_owned_package_sequence_or_collision_safe_canonical_discriminator"
+  },
+  "closed_surfaces": {
+    "stage5g_d": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}
