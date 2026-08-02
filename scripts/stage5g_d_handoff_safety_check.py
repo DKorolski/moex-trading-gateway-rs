@@ -14,7 +14,7 @@ import stage5g_c_r2ca_r1_handoff_safety_check as base
 
 STAGE = "5G-d"
 BRANCH = "stage5g-lifecycle"
-BASE_REF = "d0494537d7c1739a16350b2d28f71b304165c812"
+BASE_REF = "7724b4472d603b3c2ef7c3ff22aa371aa64d8592"
 SOURCE_MANIFEST = "stage5g-d-source-tree-manifest.json"
 EVIDENCE_MANIFEST = "stage5g-d-evidence-manifest.json"
 COMMIT_OBJECT = "stage5g-d-commit-object.txt"
@@ -40,6 +40,7 @@ EXPECTED_COMMANDS: dict[str, list[str]] = {
 }
 EXPECTED_CHANGED_PATHS = sorted({
     "crates/strategy-runtime-core/src/lib.rs",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5g_order_position.rs",
     "crates/strategy-runtime-core/src/stage5g_timer.rs",
     "docs/current-status.md",
@@ -47,7 +48,6 @@ EXPECTED_CHANGED_PATHS = sorted({
     "docs/stage-5/stage5g-d-r1b-composition-restore.md",
     "docs/stage-5/stage5g-d-timer-continuation-contract.md",
     "docs/stage-5/stage5g-d-timer-continuation-inventory.json",
-    "scripts/make_stage5g_d_handoff_archive.py",
     "scripts/stage5g_d_check.py",
     "scripts/stage5g_d_handoff_safety_check.py",
     "scripts/stage5g_d_negative_harness.py",
@@ -86,7 +86,7 @@ def configure_base() -> None:
 def validate_gate_marker(label: str, stdout: str) -> None:
     markers = {
         "stage5g-d-check": "stage5g-d-check: PASS",
-        "stage5g-d-negative": "stage5g-d-negative-harness: PASS 21/21",
+        "stage5g-d-negative": "stage5g-d-negative-harness: PASS 31/31",
         "detached-predecessor": "stage5g-d-predecessor-gate: PASS",
         "stage5c-api-freeze": "stage5c-api-freeze-check: ok",
         "forbidden-no-rg": "stage5f-forbidden-no-rg-gate: ok",

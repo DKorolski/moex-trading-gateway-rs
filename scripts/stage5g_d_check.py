@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from pathlib import Path
 
-BASE = "d0494537d7c1739a16350b2d28f71b304165c812"
+BASE = "7724b4472d603b3c2ef7c3ff22aa371aa64d8592"
+STAGE5C_AUTHORITY = "d0494537d7c1739a16350b2d28f71b304165c812"
 
 
 class CheckFailure(RuntimeError):
@@ -23,14 +25,16 @@ def require(condition: bool, message: str) -> None:
 def validate(root: Path, *, check_git: bool = True) -> None:
     timer_path = root / "crates/strategy-runtime-core/src/stage5g_timer.rs"
     order_path = root / "crates/strategy-runtime-core/src/stage5g_order_position.rs"
+    stage5c_path = root / "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
     lib_path = root / "crates/strategy-runtime-core/src/lib.rs"
     inventory_path = root / "docs/stage-5/stage5g-d-timer-continuation-inventory.json"
     contract_path = root / "docs/stage-5/stage5g-d-timer-continuation-contract.md"
-    for path in (timer_path, order_path, lib_path, inventory_path, contract_path):
+    for path in (timer_path, order_path, stage5c_path, lib_path, inventory_path, contract_path):
         require(path.is_file(), f"missing required Stage 5G-d file: {path}")
 
     timer = timer_path.read_text()
     order = order_path.read_text()
+    stage5c = stage5c_path.read_text()
     lib = lib_path.read_text()
     inventory = json.loads(inventory_path.read_text())
 
@@ -51,6 +55,17 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "advance_stage5c_timer_settlement_timer",
         "pub fn settle_stage5g_bar_continuation",
         "Stage5gBarContinuationTransition",
+        "Stage5gBarContinuationTransition::Ready",
+        "stage5gd_rearm_zero_intent_bar_continuation",
+        "Stage5gTimerMockAckError::AckBeforeContinuationCheckpoint",
+        "event.ack.received_ts.timestamp_millis() < session.checkpoint_ts_utc_ms",
+        "Stage5gTimerOrderPositionAdmissionBlocked",
+        "pub fn retry(",
+        "attach_stage5g_timer_order_position_session(self.resolved)",
+        "pub current_evidence_identity",
+        "valid_current_evidence_identity",
+        "exact_current_identity_count",
+        "entry.identity == current_identity",
         "last_continuation_checkpoint_ts_utc_ms",
         "ContinuationBeforeInnerSettlement",
         ".is_some_and(|inner| checkpoint_ts_utc_ms < inner)",
@@ -79,6 +94,23 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     for token in required_tokens:
         require(token in timer, f"required timer contract token missing: {token}")
 
+    for token in (
+        "BrokerTruthBeforeContinuationCheckpoint",
+        "evidence.broker_truth.received_ts.timestamp_millis() < checkpoint",
+        "current_evidence_identity: Option<String>",
+        "stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss",
+    ):
+        require(token in order, f"required chronology/liveness witness missing: {token}")
+    require(
+        "STAGE5G-D-R1B-R1-ZERO-REARM-BEGIN" in stage5c
+        and "STAGE5G-D-R1B-R1-ZERO-REARM-END" in stage5c,
+        "narrow zero-intent re-arm bridge missing",
+    )
+    require(
+        "pub(crate) fn stage5gd_rearm_zero_intent_bar_continuation(" in stage5c,
+        "zero-intent re-arm authority function missing",
+    )
+
     forbidden_tokens = (
         "std::thread",
         "thread::spawn",
@@ -95,6 +127,7 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         ".delete(",
         "let checkpoint_ts_utc_ms = replay.last_broker_truth_received_ms",
         "last_continuation_checkpoint_ts_utc_ms: replay.last_broker_truth_received_ms",
+        ".ends_with(package_discriminator)",
     )
     for token in forbidden_tokens:
         require(token not in timer, f"forbidden Stage 5G-d surface: {token}")
@@ -134,9 +167,9 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     require("fingerprint" not in identity_body, "payload fingerprint entered package identity")
 
     require(inventory["stage"] == "5G-d", "inventory stage drift")
-    require(inventory["status"] == "r1b_review_candidate", "inventory status drift")
+    require(inventory["status"] == "r1b_r1_review_candidate", "inventory status drift")
     require(len(inventory["scenario_family"]) == 8, "timer scenario inventory must remain 8/8")
-    require(len(inventory["checkpoint_fields"]) == 7, "checkpoint field inventory drift")
+    require(len(inventory["checkpoint_fields"]) == 8, "checkpoint field inventory drift")
     for surface, opened in inventory["closed_surfaces"].items():
         require(opened is False, f"closed surface opened: {surface}")
 
@@ -147,12 +180,22 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     )
 
     if check_git:
-        result = subprocess.run(
-            ["git", "diff", "--quiet", BASE, "--", "crates/strategy-runtime-core/src/stage5c_paper_host.rs"],
+        accepted = subprocess.check_output(
+            ["git", "show", f"{STAGE5C_AUTHORITY}:crates/strategy-runtime-core/src/stage5c_paper_host.rs"],
             cwd=root,
-            check=False,
+            text=True,
         )
-        require(result.returncode == 0, "accepted d049453 Stage 5C authority was modified")
+        normalized_stage5c = re.sub(
+            r"\n// STAGE5G-D-R1B-R1-ZERO-REARM-BEGIN.*?"
+            r"// STAGE5G-D-R1B-R1-ZERO-REARM-END\n",
+            "",
+            stage5c,
+            flags=re.S,
+        )
+        require(
+            normalized_stage5c == accepted,
+            "Stage 5C changed outside the single no-callback zero-intent re-arm bridge",
+        )
 
 
 def main() -> int:

@@ -7834,6 +7834,24 @@ pub(crate) fn stage5gd_accepted_bar_checkpoint_ts_utc_ms(
         ))
 }
 
+// STAGE5G-D-R1B-R1-ZERO-REARM-BEGIN
+/// Re-arms a callback-complete zero-intent bar result for the next explicit
+/// Stage 5G-d timer or bar input. This is type-state plumbing only: no callback
+/// is invoked here and a generated batch can never cross this bridge.
+pub(crate) fn stage5gd_rearm_zero_intent_bar_continuation(
+    settled: Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+) -> Result<Stage5cTimerSettlement, Box<Stage5cSettledPaperStrategy>> {
+    if settled.intent_batch().intent_count() != 0 {
+        return Err(Box::new(settled));
+    }
+    Ok(Stage5cTimerSettlement::ready_for_continuation(
+        settled,
+        checkpoint_ts_utc_ms,
+    ))
+}
+// STAGE5G-D-R1B-R1-ZERO-REARM-END
+
 #[allow(dead_code)] // Independently reviewed authority is consumed only by Stage 5G-d R1-b.
 pub(crate) fn advance_stage5c_timer_settlement_next_bar_at_checkpoint(
     settlement: Stage5cTimerSettlement,

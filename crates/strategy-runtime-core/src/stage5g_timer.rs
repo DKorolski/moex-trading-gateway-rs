@@ -14,9 +14,10 @@ use crate::stage5c_paper_host::{
     advance_stage5c_paper_loop_once,
     advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint,
     advance_stage5c_timer_settlement_timer, settle_stage5c_timer_result,
-    stage5gd_accepted_bar_checkpoint_ts_utc_ms, Stage5cAcceptedSemanticBar, Stage5cPaperLoopError,
-    Stage5cPaperLoopEvent, Stage5cPaperLoopState, Stage5cPaperTimerInput,
-    Stage5cSettledPaperStrategy, Stage5cTimerContinuationError, Stage5cTimerSettlement,
+    stage5gd_accepted_bar_checkpoint_ts_utc_ms, stage5gd_rearm_zero_intent_bar_continuation,
+    Stage5cAcceptedSemanticBar, Stage5cPaperLoopError, Stage5cPaperLoopEvent,
+    Stage5cPaperLoopState, Stage5cPaperTimerInput, Stage5cSettledPaperStrategy,
+    Stage5cTimerContinuationError, Stage5cTimerSettlement,
 };
 use crate::stage5g_mock_ack::{
     apply_stage5g_mock_ack, attach_stage5g_mock_ack_session, Stage5gMockAckAdmissionBlocked,
@@ -27,8 +28,8 @@ use crate::stage5g_mock_ack::{
 use crate::stage5g_order_position::{
     attach_stage5g_order_position_session_with_replay, evidence_fingerprint, evidence_identity,
     EvidenceIdentity, Stage5gConvergedPaperStrategy, Stage5gMarketTerminalConvergedPaperStrategy,
-    Stage5gOrderPositionAdmissionBlocked, Stage5gOrderPositionEvidence,
-    Stage5gOrderPositionSession, Stage5gOrderPositionSummary, Stage5gReplayCheckpoint,
+    Stage5gOrderPositionEvidence, Stage5gOrderPositionSession, Stage5gOrderPositionSummary,
+    Stage5gReplayCheckpoint,
 };
 
 pub const STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION: u16 = 1;
@@ -44,6 +45,7 @@ pub struct Stage5gReplayLedgerEntry {
 pub struct Stage5gTimerCheckpointPayload {
     pub schema_version: u16,
     pub package_discriminator: Option<String>,
+    pub current_evidence_identity: Option<String>,
     pub evidence_replay_ledger: Vec<Stage5gReplayLedgerEntry>,
     pub last_broker_truth_received_at: Option<DateTime<Utc>>,
     pub last_broker_truth_received_ms: Option<i64>,
@@ -71,6 +73,9 @@ pub enum Stage5gTimerCheckpointError {
     MissingReplayLedger,
     InvalidReplayLedgerEntry,
     DuplicateReplayIdentity,
+    MissingCurrentEvidenceIdentity,
+    InvalidCurrentEvidenceIdentity,
+    AmbiguousCurrentEvidenceIdentity,
     CurrentPackageMissingFromReplayLedger,
     MissingTotalSequence,
     MissingContinuationCheckpoint,
@@ -141,9 +146,31 @@ pub enum Stage5gTimerMockAckFailure {
     Terminal(Stage5gMockAckFailure),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5gTimerMockAckError {
+    AckBeforeContinuationCheckpoint,
+    MockAck(crate::Stage5gMockAckError),
+}
+
 pub struct Stage5gTimerMockAckBlocked {
-    reason: crate::Stage5gMockAckError,
+    reason: Stage5gTimerMockAckError,
     session: Stage5gTimerMockAckSession,
+}
+
+pub struct Stage5gTimerOrderPositionAdmissionBlocked {
+    reason: crate::Stage5gOrderPositionAdmissionError,
+    resolved: Stage5gTimerResolvedMockAckPaperStrategy,
+}
+
+impl std::fmt::Debug for Stage5gTimerOrderPositionAdmissionBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5gTimerOrderPositionAdmissionBlocked")
+            .field("reason", &self.reason)
+            .field("checkpoint_ts_utc_ms", &self.resolved.checkpoint_ts_utc_ms)
+            .finish_non_exhaustive()
+    }
 }
 
 pub struct Stage5gBarContinuationPaperStrategy {
@@ -154,7 +181,7 @@ pub struct Stage5gBarContinuationPaperStrategy {
 }
 
 pub enum Stage5gBarContinuationTransition {
-    ZeroIntent(Stage5gBarContinuationPaperStrategy),
+    Ready(Stage5gTimerReadyPaperStrategy),
     GeneratedIntent(Stage5gTimerGeneratedIntentEscrow),
 }
 
@@ -491,7 +518,20 @@ pub fn settle_stage5g_bar_continuation(
     continuation: Stage5gBarContinuationPaperStrategy,
 ) -> Stage5gBarContinuationTransition {
     if continuation.settled.intent_batch().intent_count() == 0 {
-        Stage5gBarContinuationTransition::ZeroIntent(continuation)
+        let Stage5gBarContinuationPaperStrategy {
+            settled,
+            summary,
+            replay,
+            checkpoint_ts_utc_ms,
+        } = continuation;
+        let settlement = stage5gd_rearm_zero_intent_bar_continuation(settled, checkpoint_ts_utc_ms)
+            .expect("zero-intent classification re-arms only zero-intent settled state");
+        Stage5gBarContinuationTransition::Ready(Stage5gTimerReadyPaperStrategy {
+            settlement,
+            summary,
+            replay,
+            checkpoint_ts_utc_ms,
+        })
     } else {
         let Stage5gBarContinuationPaperStrategy {
             settled,
@@ -686,6 +726,14 @@ pub fn apply_stage5g_timer_mock_ack(
     session: Stage5gTimerMockAckSession,
     event: Stage5gMockAckEvent,
 ) -> Result<Stage5gTimerMockAckTransition, Stage5gTimerMockAckFailure> {
+    if event.ack.received_ts.timestamp_millis() < session.checkpoint_ts_utc_ms {
+        return Err(Stage5gTimerMockAckFailure::Blocked(Box::new(
+            Stage5gTimerMockAckBlocked {
+                reason: Stage5gTimerMockAckError::AckBeforeContinuationCheckpoint,
+                session,
+            },
+        )));
+    }
     let Stage5gTimerMockAckSession {
         inner,
         summary,
@@ -713,7 +761,7 @@ pub fn apply_stage5g_timer_mock_ack(
             let reason = blocked.reason();
             Err(Stage5gTimerMockAckFailure::Blocked(Box::new(
                 Stage5gTimerMockAckBlocked {
-                    reason,
+                    reason: Stage5gTimerMockAckError::MockAck(reason),
                     session: Stage5gTimerMockAckSession {
                         inner: blocked.into_session(),
                         summary,
@@ -731,18 +779,32 @@ pub fn apply_stage5g_timer_mock_ack(
 
 pub fn attach_stage5g_timer_order_position_session(
     resolved: Stage5gTimerResolvedMockAckPaperStrategy,
-) -> Result<Stage5gOrderPositionSession, Box<Stage5gOrderPositionAdmissionBlocked>> {
+) -> Result<Stage5gOrderPositionSession, Box<Stage5gTimerOrderPositionAdmissionBlocked>> {
     let Stage5gTimerResolvedMockAckPaperStrategy {
         inner,
+        summary,
         mut replay,
         checkpoint_ts_utc_ms,
-        ..
     } = resolved;
     replay.last_continuation_checkpoint_ts_utc_ms = max_optional_checkpoint(
         replay.last_continuation_checkpoint_ts_utc_ms,
         Some(checkpoint_ts_utc_ms),
     );
-    attach_stage5g_order_position_session_with_replay(inner, Some(replay))
+    match attach_stage5g_order_position_session_with_replay(inner, Some(replay.clone())) {
+        Ok(session) => Ok(session),
+        Err(blocked) => {
+            let reason = blocked.reason();
+            Err(Box::new(Stage5gTimerOrderPositionAdmissionBlocked {
+                reason,
+                resolved: Stage5gTimerResolvedMockAckPaperStrategy {
+                    inner: blocked.into_ack_resolved(),
+                    summary,
+                    replay,
+                    checkpoint_ts_utc_ms,
+                },
+            }))
+        }
+    }
 }
 
 impl Stage5gTimerMockAckAdmissionBlocked {
@@ -761,12 +823,28 @@ impl Stage5gTimerMockAckAdmissionBlocked {
 }
 
 impl Stage5gTimerMockAckBlocked {
-    pub fn reason(&self) -> crate::Stage5gMockAckError {
+    pub fn reason(&self) -> Stage5gTimerMockAckError {
         self.reason
     }
 
     pub fn into_session(self) -> Stage5gTimerMockAckSession {
         self.session
+    }
+}
+
+impl Stage5gTimerOrderPositionAdmissionBlocked {
+    pub fn reason(&self) -> crate::Stage5gOrderPositionAdmissionError {
+        self.reason
+    }
+
+    pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
+        self.resolved.checkpoint()
+    }
+
+    pub fn retry(
+        self,
+    ) -> Result<Stage5gOrderPositionSession, Box<Stage5gTimerOrderPositionAdmissionBlocked>> {
+        attach_stage5g_timer_order_position_session(self.resolved)
     }
 }
 
@@ -849,12 +927,23 @@ pub fn validate_stage5g_timer_checkpoint(
             return Err(Stage5gTimerCheckpointError::DuplicateReplayIdentity);
         }
     }
-    if !payload
+    let current_identity = payload
+        .current_evidence_identity
+        .as_deref()
+        .ok_or(Stage5gTimerCheckpointError::MissingCurrentEvidenceIdentity)?;
+    if !valid_current_evidence_identity(current_identity, package_discriminator) {
+        return Err(Stage5gTimerCheckpointError::InvalidCurrentEvidenceIdentity);
+    }
+    let exact_current_identity_count = payload
         .evidence_replay_ledger
         .iter()
-        .any(|entry| entry.identity.ends_with(package_discriminator))
-    {
+        .filter(|entry| entry.identity == current_identity)
+        .count();
+    if exact_current_identity_count == 0 {
         return Err(Stage5gTimerCheckpointError::CurrentPackageMissingFromReplayLedger);
+    }
+    if exact_current_identity_count != 1 {
+        return Err(Stage5gTimerCheckpointError::AmbiguousCurrentEvidenceIdentity);
     }
     let last_total_sequence = payload
         .last_total_sequence
@@ -918,9 +1007,10 @@ pub fn classify_stage5g_post_checkpoint_evidence(
         return Err(Stage5gCheckpointReplayError::BrokerTruthTimeRegression);
     }
     replay.evidence_identities.push(EvidenceIdentity {
-        identity,
+        identity: identity.clone(),
         fingerprint,
     });
+    replay.current_evidence_identity = Some(identity);
     replay.last_total_sequence = Some(evidence.total_sequence);
     replay.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);
     replay.last_broker_truth_received_ms =
@@ -957,6 +1047,7 @@ fn checkpoint_envelope(
     let payload = Stage5gTimerCheckpointPayload {
         schema_version: STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION,
         package_discriminator: replay.package_discriminator.clone(),
+        current_evidence_identity: replay.current_evidence_identity.clone(),
         evidence_replay_ledger: replay
             .evidence_identities
             .iter()
@@ -982,6 +1073,7 @@ fn replay_from_payload(payload: &Stage5gTimerCheckpointPayload) -> Stage5gReplay
     Stage5gReplayCheckpoint {
         schema_version: 1,
         package_discriminator: payload.package_discriminator.clone(),
+        current_evidence_identity: payload.current_evidence_identity.clone(),
         evidence_identities: payload
             .evidence_replay_ledger
             .iter()
@@ -996,6 +1088,26 @@ fn replay_from_payload(payload: &Stage5gTimerCheckpointPayload) -> Stage5gReplay
         last_total_sequence: payload.last_total_sequence,
         last_continuation_checkpoint_ts_utc_ms: payload.last_continuation_checkpoint_ts_utc_ms,
     }
+}
+
+fn valid_current_evidence_identity(identity: &str, package_discriminator: &str) -> bool {
+    const PREFIX: &str = "moex.stage5g.order-position-evidence-identity.v3:";
+    let Some(rest) = identity.strip_prefix(PREFIX) else {
+        return false;
+    };
+    let mut parts = rest.splitn(3, ':');
+    let Some(request_id) = parts.next() else {
+        return false;
+    };
+    let Some(account_id) = parts.next() else {
+        return false;
+    };
+    let Some(discriminator) = parts.next() else {
+        return false;
+    };
+    uuid::Uuid::parse_str(request_id).is_ok()
+        && !account_id.is_empty()
+        && discriminator == package_discriminator
 }
 
 impl Stage5gTimerCheckpointPayload {
@@ -1059,6 +1171,7 @@ mod tests {
                     event.broker_truth.received_ts.timestamp(),
                     event.broker_truth.received_ts.timestamp_subsec_nanos()
                 )),
+                current_evidence_identity: Some(evidence_identity(event)),
                 evidence_identities: vec![EvidenceIdentity {
                     identity: evidence_identity(event),
                     fingerprint: evidence_fingerprint(event),
@@ -1257,6 +1370,25 @@ mod tests {
         assert_eq!(
             validate_stage5g_timer_checkpoint(&missing_continuation),
             Err(Stage5gTimerCheckpointError::MissingContinuationCheckpoint)
+        );
+
+        let mut missing_current_identity = checkpoint_for(&event);
+        missing_current_identity.payload.current_evidence_identity = None;
+        rehash(&mut missing_current_identity);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_current_identity),
+            Err(Stage5gTimerCheckpointError::MissingCurrentEvidenceIdentity)
+        );
+
+        let mut suffix_only = checkpoint_for(&event);
+        let discriminator = suffix_only.payload.package_discriminator.clone().unwrap();
+        let forged = format!("arbitrary-suffix-only:{discriminator}");
+        suffix_only.payload.current_evidence_identity = Some(forged.clone());
+        suffix_only.payload.evidence_replay_ledger[0].identity = forged;
+        rehash(&mut suffix_only);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&suffix_only),
+            Err(Stage5gTimerCheckpointError::InvalidCurrentEvidenceIdentity)
         );
     }
 

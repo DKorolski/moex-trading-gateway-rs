@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5G-d",
-  "status": "r1b_review_candidate",
-  "accepted_predecessor": "d0494537d7c1739a16350b2d28f71b304165c812",
+  "status": "r1b_r1_review_candidate",
+  "accepted_predecessor": "7724b4472d603b3c2ef7c3ff22aa371aa64d8592",
   "authority": {
     "timer_callback": "Stage 5C-k",
     "timer_settlement": "Stage 5C-l",
@@ -68,13 +68,14 @@
       "checkpoint_roundtrip_preserves_exact_nanos_and_replay_ledger",
       "stage5gd_bar_generated_intent_roundtrips_through_ack_truth_and_next_timer",
       "stage5gd_timer_generated_cleanup_roundtrips_through_ack_truth_and_next_session",
-      "stage5gd_zero_intent_bar_retains_replay_owning_wrapper",
+      "stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss",
       "semantically_incomplete_checkpoints_fail_even_with_recomputed_hash",
       "replay_ledger_and_continuation_semantics_are_fail_closed"
     ]
   },
   "checkpoint_fields": [
     "package_discriminator",
+    "current_evidence_identity",
     "evidence_replay_ledger",
     "last_broker_truth_received_at",
     "last_broker_truth_received_ms",

@@ -70,6 +70,7 @@ pub enum Stage5gOrderPositionError {
     AccountMismatch,
     InstrumentMismatch,
     BrokerTruthBeforeAck,
+    BrokerTruthBeforeContinuationCheckpoint,
     BrokerTruthTimeRegression,
     ComponentTimeAfterSnapshot,
     ComponentSourceTimeAfterReceipt,
@@ -177,6 +178,7 @@ pub(crate) struct EvidenceIdentity {
 pub(crate) struct Stage5gReplayCheckpoint {
     pub(crate) schema_version: u16,
     pub(crate) package_discriminator: Option<String>,
+    pub(crate) current_evidence_identity: Option<String>,
     pub(crate) evidence_identities: Vec<EvidenceIdentity>,
     pub(crate) last_broker_truth_received_at: Option<DateTime<Utc>>,
     pub(crate) last_broker_truth_received_ms: Option<i64>,
@@ -192,6 +194,7 @@ struct Stage5gOrderPositionState {
     instrument: InstrumentId,
     slots: Vec<Stage5gOrderPositionSlot>,
     evidence_identities: Vec<EvidenceIdentity>,
+    current_evidence_identity: Option<String>,
     last_total_sequence: Option<u64>,
     last_broker_truth_received_at: Option<DateTime<Utc>>,
     last_broker_truth_received_ms: Option<i64>,
@@ -471,6 +474,7 @@ pub(crate) fn attach_stage5g_order_position_session_with_replay(
     let inherited_replay = inherited_replay.unwrap_or(Stage5gReplayCheckpoint {
         schema_version: STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION,
         package_discriminator: None,
+        current_evidence_identity: None,
         evidence_identities: Vec::new(),
         last_broker_truth_received_at: None,
         last_broker_truth_received_ms: None,
@@ -486,6 +490,7 @@ pub(crate) fn attach_stage5g_order_position_session_with_replay(
             instrument: summary.instrument,
             slots,
             evidence_identities: inherited_replay.evidence_identities,
+            current_evidence_identity: inherited_replay.current_evidence_identity,
             last_total_sequence: inherited_replay.last_total_sequence,
             last_broker_truth_received_at: inherited_replay.last_broker_truth_received_at,
             last_broker_truth_received_ms: inherited_replay.last_broker_truth_received_ms,
@@ -586,6 +591,16 @@ pub fn apply_stage5g_order_position_evidence(
     mut session: Stage5gOrderPositionSession,
     mut evidence: Stage5gOrderPositionEvidence,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
+    if session
+        .state
+        .last_continuation_checkpoint_ts_utc_ms
+        .is_some_and(|checkpoint| evidence.broker_truth.received_ts.timestamp_millis() < checkpoint)
+    {
+        return Err(block(
+            Stage5gOrderPositionError::BrokerTruthBeforeContinuationCheckpoint,
+            session,
+        ));
+    }
     if session
         .state
         .last_total_sequence
@@ -720,9 +735,10 @@ pub fn apply_stage5g_order_position_evidence(
             .max(evidence.broker_truth.received_ts.timestamp_millis()),
     );
     session.state.evidence_identities.push(EvidenceIdentity {
-        identity,
+        identity: identity.clone(),
         fingerprint,
     });
+    session.state.current_evidence_identity = Some(identity);
 
     if !session.state.slots.iter().all(|slot| slot.terminal) {
         return Ok(Stage5gOrderPositionTransition::Awaiting(session));
@@ -1950,6 +1966,7 @@ fn replay_checkpoint(state: &Stage5gOrderPositionState) -> Stage5gReplayCheckpoi
         package_discriminator: state
             .last_broker_truth_received_at
             .map(broker_truth_received_at_discriminator),
+        current_evidence_identity: state.current_evidence_identity.clone(),
         evidence_identities: state.evidence_identities.clone(),
         last_broker_truth_received_at: state.last_broker_truth_received_at,
         last_broker_truth_received_ms: state.last_broker_truth_received_ms,
@@ -2369,6 +2386,7 @@ mod tests {
                 identity: evidence_identity(event),
                 fingerprint: evidence_fingerprint(event),
             }],
+            current_evidence_identity: Some(evidence_identity(event)),
             last_total_sequence: Some(event.total_sequence),
             last_broker_truth_received_at: Some(event.broker_truth.received_ts),
             last_broker_truth_received_ms: Some(event.broker_truth.received_ts.timestamp_millis()),
@@ -2926,7 +2944,7 @@ mod tests {
         let client_order_id = ClientOrderId::from_strategy_request(request_id);
         let broker_order_id = BrokerOrderId::new(broker_order_id);
         let ack_received = Utc
-            .timestamp_millis_opt(checkpoint_ts_utc_ms + 1_000)
+            .timestamp_millis_opt(checkpoint_ts_utc_ms)
             .single()
             .unwrap();
         let ack_session = crate::attach_stage5g_mock_ack_session(
@@ -3001,7 +3019,7 @@ mod tests {
             .timestamp_millis_opt(checkpoint_ts_utc_ms + 1_000)
             .single()
             .unwrap();
-        let ack_session = match crate::attach_stage5g_timer_generated_mock_ack(
+        let mut ack_session = match crate::attach_stage5g_timer_generated_mock_ack(
             escrow,
             crate::Stage5gMockAckSessionInput {
                 intent_bindings: vec![crate::Stage5gMockIntentBinding {
@@ -3016,25 +3034,46 @@ mod tests {
             Ok(session) => session,
             Err(blocked) => panic!("generated ACK admission blocked: {:?}", blocked.reason()),
         };
-        let resolved = match match crate::apply_stage5g_timer_mock_ack(
-            ack_session,
-            crate::Stage5gMockAckEvent {
-                total_sequence: 1,
-                intent_request_id: request_id,
-                account_id: BrokerAccountId::new("ACC_TEST_0001"),
-                instrument: target(),
-                action,
-                side: Some(side),
-                ack: CommandAck {
-                    request_id,
-                    client_order_id: Some(client_order_id.clone()),
-                    broker_order_id: Some(broker_order_id.clone()),
-                    status: CommandAckStatus::Accepted,
-                    reason: None,
-                    received_ts: ack_received,
-                },
+        let ack_event = crate::Stage5gMockAckEvent {
+            total_sequence: 1,
+            intent_request_id: request_id,
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: target(),
+            action,
+            side: Some(side),
+            ack: CommandAck {
+                request_id,
+                client_order_id: Some(client_order_id.clone()),
+                broker_order_id: Some(broker_order_id.clone()),
+                status: CommandAckStatus::Accepted,
+                reason: None,
+                received_ts: ack_received,
             },
-        ) {
+        };
+        if checkpoint_ts_utc_ms.rem_euclid(1_000) >= 200 {
+            let expected_checkpoint = ack_session.checkpoint();
+            let mut early = ack_event.clone();
+            early.ack.received_ts = Utc
+                .timestamp_millis_opt(
+                    checkpoint_ts_utc_ms - checkpoint_ts_utc_ms.rem_euclid(1_000) + 100,
+                )
+                .single()
+                .unwrap();
+            let blocked = match crate::apply_stage5g_timer_mock_ack(ack_session, early) {
+                Err(crate::Stage5gTimerMockAckFailure::Blocked(blocked)) => blocked,
+                Ok(_) => panic!("same-second ACK before the continuation checkpoint must block"),
+                Err(crate::Stage5gTimerMockAckFailure::Terminal(_)) => {
+                    panic!("same-second ACK chronology is retryable")
+                }
+            };
+            assert_eq!(
+                blocked.reason(),
+                crate::Stage5gTimerMockAckError::AckBeforeContinuationCheckpoint
+            );
+            ack_session = blocked.into_session();
+            assert_eq!(ack_session.checkpoint(), expected_checkpoint);
+        }
+        let resolved = match match crate::apply_stage5g_timer_mock_ack(ack_session, ack_event) {
             Ok(transition) => transition,
             Err(crate::Stage5gTimerMockAckFailure::Blocked(blocked)) => {
                 panic!("generated mock ACK blocked: {:?}", blocked.reason())
@@ -3249,7 +3288,7 @@ mod tests {
     }
 
     #[test]
-    fn stage5gd_zero_intent_bar_retains_replay_owning_wrapper() {
+    fn stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss() {
         let converged = r2cb_public_converged_for_timer();
         let exact_receipt = converged
             .replay_checkpoint
@@ -3276,7 +3315,7 @@ mod tests {
         .expect("mild next bar is accepted transactionally");
         assert_eq!(continuation.intent_count(), 0);
         let retained = match crate::settle_stage5g_bar_continuation(continuation) {
-            crate::Stage5gBarContinuationTransition::ZeroIntent(retained) => retained,
+            crate::Stage5gBarContinuationTransition::Ready(retained) => retained,
             crate::Stage5gBarContinuationTransition::GeneratedIntent(_) => {
                 panic!("mild next bar must stay zero-intent")
             }
@@ -3299,6 +3338,48 @@ mod tests {
                     && entry.fingerprint_sha256 == previous.fingerprint));
         }
         crate::validate_stage5g_timer_checkpoint(&checkpoint).unwrap();
+
+        let timer_checkpoint_ms = next_close * 1_000 + 1;
+        let timer_ready = match crate::continue_stage5g_timer_with_timer(
+            retained,
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: timer_checkpoint_ms,
+            },
+        )
+        .expect("re-armed zero-intent bar accepts the next explicit timer")
+        {
+            crate::Stage5gTimerTransition::Ready(ready) => ready,
+            crate::Stage5gTimerTransition::GeneratedIntent(_) => {
+                panic!("fixture timer remains zero-intent")
+            }
+        };
+        assert_eq!(
+            timer_ready
+                .checkpoint()
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            Some(timer_checkpoint_ms)
+        );
+
+        let second_close = next_close + 600;
+        let second = crate::continue_stage5g_timer_with_bar(
+            timer_ready,
+            accepted_stage5gd_bar(second_close, target(), 0.5, 2_718.0, 2_719.0),
+        )
+        .expect("timer-ready state accepts the later explicit bar");
+        let second_ready = match crate::settle_stage5g_bar_continuation(second) {
+            crate::Stage5gBarContinuationTransition::Ready(ready) => ready,
+            crate::Stage5gBarContinuationTransition::GeneratedIntent(_) => {
+                panic!("second mild bar remains zero-intent")
+            }
+        };
+        assert_eq!(
+            second_ready
+                .checkpoint()
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            Some(second_close * 1_000)
+        );
     }
 
     #[test]
@@ -3448,7 +3529,7 @@ mod tests {
             .expect("transactional Stage 5G-d bar transition");
         let escrow = match crate::settle_stage5g_bar_continuation(continuation) {
             crate::Stage5gBarContinuationTransition::GeneratedIntent(escrow) => escrow,
-            crate::Stage5gBarContinuationTransition::ZeroIntent(_) => {
+            crate::Stage5gBarContinuationTransition::Ready(_) => {
                 panic!("large adverse M10 bar must generate the BO Exit")
             }
         };
@@ -3743,7 +3824,7 @@ mod tests {
                 )
             }
         };
-        let cleanup_checkpoint_ms = partial_received.timestamp_millis() + 4_000;
+        let cleanup_checkpoint_ms = partial_received.timestamp_millis() + 4_900;
         let cleanup_escrow = match crate::continue_stage5g_timer_with_timer(
             timer_ready,
             crate::Stage5cPaperTimerInput {
@@ -3781,6 +3862,19 @@ mod tests {
             .timestamp_millis_opt(cleanup_checkpoint_ms + 2_000)
             .single()
             .unwrap();
+        let early_received = Utc
+            .timestamp_millis_opt(cleanup_checkpoint_ms - 1)
+            .single()
+            .unwrap();
+        let early_truth = generated_exit_truth(
+            &cleanup,
+            early_received,
+            OrderStatus::Filled,
+            cleanup_qty,
+            cleanup_qty,
+            Decimal::ZERO,
+            "FINAM-TIMER-CLEANUP-TRADE-EARLY",
+        );
         let cleanup_truth = generated_exit_truth(
             &cleanup,
             cleanup_received,
@@ -3790,13 +3884,34 @@ mod tests {
             Decimal::ZERO,
             "FINAM-TIMER-CLEANUP-TRADE-2",
         );
-        let final_converged = match crate::apply_stage5g_order_position_evidence(
+        let cleanup_attribution = cleanup.projection.expected_attribution.clone();
+        let blocked = match crate::apply_stage5g_order_position_evidence(
             cleanup.session,
             Stage5gOrderPositionEvidence {
                 total_sequence: 3,
                 request_id: cleanup.request_id,
+                broker_truth: early_truth,
+                order_attribution: cleanup_attribution.clone(),
+            },
+        ) {
+            Err(blocked) => blocked,
+            Ok(_) => panic!("BrokerTruth before the inherited timer checkpoint must block"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage5gOrderPositionError::BrokerTruthBeforeContinuationCheckpoint
+        );
+        let cleanup_session = blocked
+            .into_blocked()
+            .expect("continuation chronology is retryable")
+            .into_session();
+        let final_converged = match crate::apply_stage5g_order_position_evidence(
+            cleanup_session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id: cleanup.request_id,
                 broker_truth: cleanup_truth,
-                order_attribution: cleanup.projection.expected_attribution,
+                order_attribution: cleanup_attribution,
             },
         )
         .expect("timer cleanup broker truth converges flat")
@@ -4410,6 +4525,7 @@ mod tests {
                 instrument: target(),
                 slots: vec![slot.clone()],
                 evidence_identities: vec![],
+                current_evidence_identity: None,
                 last_total_sequence: None,
                 last_broker_truth_received_at: None,
                 last_broker_truth_received_ms: None,
@@ -4445,6 +4561,7 @@ mod tests {
                 instrument: target(),
                 slots: vec![slot],
                 evidence_identities: vec![],
+                current_evidence_identity: None,
                 last_total_sequence: None,
                 last_broker_truth_received_at: None,
                 last_broker_truth_received_ms: None,
@@ -4841,6 +4958,7 @@ mod tests {
                 instrument: target(),
                 slots: vec![slot.clone()],
                 evidence_identities: vec![],
+                current_evidence_identity: None,
                 last_total_sequence: Some(2),
                 last_broker_truth_received_at: Some(ts(2)),
                 last_broker_truth_received_ms: Some(ts(2).timestamp_millis()),
@@ -4874,6 +4992,7 @@ mod tests {
                 instrument: target(),
                 slots: vec![slot.clone()],
                 evidence_identities: vec![],
+                current_evidence_identity: None,
                 last_total_sequence: Some(3),
                 last_broker_truth_received_at: Some(ts(3)),
                 last_broker_truth_received_ms: Some(ts(3).timestamp_millis()),

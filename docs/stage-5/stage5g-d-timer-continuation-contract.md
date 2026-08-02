@@ -1,7 +1,8 @@
 # Stage 5G-d — deterministic timer and continuation arbitration
 
-Status: R1-b review candidate.
-Accepted predecessor/authority: `d0494537d7c1739a16350b2d28f71b304165c812`.
+Status: R1-b R1 review candidate.
+Accepted predecessor: `7724b4472d603b3c2ef7c3ff22aa371aa64d8592`.
+Accepted Stage 5C callback authority: `d0494537d7c1739a16350b2d28f71b304165c812`.
 
 ## Decision
 
@@ -28,6 +29,7 @@ evaluation time from the accepted bar checkpoint itself.
 - package schema discriminator;
 - full `BrokerTruthSnapshot.received_ts`, including nanoseconds;
 - exact evidence identity/fingerprint ledger;
+- exact source-owned identity of the current broker package;
 - exact and millisecond broker-truth watermarks;
 - duplicate-evidence count;
 - last local `total_sequence`;
@@ -64,10 +66,15 @@ Stage 5G-d timer
 
 No transport-shaped request or direct send is exposed.
 
-Zero-intent bar output remains in `Stage5gBarContinuationPaperStrategy`; it
-cannot discard replay or continuation state through a raw settled conversion.
-Every following checkpoint is the maximum of the prior continuation, the
+Zero-intent bar output is re-armed into `Stage5gTimerReadyPaperStrategy`; the
+same linear value can consume exactly one later timer or bar. Re-arming is a
+crate-private no-callback Stage 5C type-state bridge; all strategy callbacks
+still execute only through the accepted Stage 5C authority. Every following checkpoint is the maximum of the prior continuation, the
 exact broker receipt compatibility watermark and the accepted bar checkpoint.
+
+Timer-generated ACK receipt and subsequent BrokerTruth receipt are rejected
+before mutation when their exact millisecond receipt precedes the inherited
+continuation checkpoint. Retry retains the complete timer-owned wrapper.
 
 ## Review boundary
 
