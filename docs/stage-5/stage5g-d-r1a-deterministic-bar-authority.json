@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "stage": "5G-d-R1-a-deterministic-bar-continuation-authority",
+  "status": "review_candidate",
+  "base_commit": "bc4cabfff42eafee48733296f121a8a6e2f42dd8",
+  "base_stage5c_sha256": "ca357ea9e2dd39910d119e1033e00eef7698cf459255a95825591cd1c86984e7",
+  "stage5c_current_sha256": "6b38e1c145593ef3ea376b1e1ee50832fb10ba79a25f05ca9370f06344f974f5",
+  "authority_regions": {
+    "deterministic-bar-continuation-authority-v1": "d3547534d0767ea91f3e314897d907cb389a4b09a738e9ee53edb7ffe5b22e5d",
+    "deterministic-bar-continuation-authority-tests-v1": "f571e27ee3be39a8ed2b8341899604f3cad5659dd302c4de8762caff2a0b5659"
+  },
+  "accepted_market_terminal_regions": {
+    "market-terminal-state-coherence-v1": "63c09f197264f144c21fa650e53912b6fe9086a0cc7ceb115cc1cb2b754b709b",
+    "deterministic-terminal-fill-boundary-v1": "943f7ac92874f3ccc91f13c5dd020806aee953221219202da24af8affa6d9b72",
+    "exact-receipt-clock-bracket-authority-v1": "2d1d530690bfc821c908ce092fec294c3b6a5243cb80cd6ad400e1c3aa57e12e"
+  },
+  "clock_policy": {
+    "timer_checkpoint": "explicit_stage5c_paper_timer_input_now_ms",
+    "bar_checkpoint": "accepted_semantic_bar_close_seconds_checked_mul_1000",
+    "bar_evaluation_now": "explicit_deterministic_event_time_ms",
+    "process_wall_clock_used": false
+  },
+  "focused_tests": 7,
+  "normalized_public_api_unchanged": true,
+  "stage5g_d_wrapper_changed": false,
+  "closed_surfaces": {
+    "stage5g_d_r1b": false,
+    "stage5g_e": false,
+    "stage5g_f": false,
+    "redis_live_consumer": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false
+  }
+}

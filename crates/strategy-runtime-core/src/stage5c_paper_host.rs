@@ -7820,6 +7820,49 @@ fn advance_stage5c_timer_settlement_next_bar_at(
     }
 }
 
+// STAGE5G-D-R1A-AUTHORITY-BEGIN: deterministic-bar-continuation-authority-v1
+#[allow(dead_code)] // Independently reviewed authority is consumed only by Stage 5G-d R1-b.
+pub(crate) fn stage5gd_accepted_bar_checkpoint_ts_utc_ms(
+    accepted: &Stage5cAcceptedSemanticBar,
+) -> Result<i64, Stage5cTimerContinuationError> {
+    accepted
+        .bar
+        .close_time_utc
+        .checked_mul(1_000)
+        .ok_or(Stage5cTimerContinuationError::NextBar(
+            Stage5cNextBarLoopError::Semantic(Stage5cSemanticBarError::InvalidTimestamp),
+        ))
+}
+
+#[allow(dead_code)] // Independently reviewed authority is consumed only by Stage 5G-d R1-b.
+pub(crate) fn advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+    settlement: Stage5cTimerSettlement,
+    accepted: Stage5cAcceptedSemanticBar,
+    explicit_now_ts_utc_ms: i64,
+    previous_continuation_checkpoint_ts_utc_ms: i64,
+) -> Result<Stage5cSettledPaperStrategy, Stage5cTimerContinuationFailure> {
+    let bar_checkpoint_ts_utc_ms = match stage5gd_accepted_bar_checkpoint_ts_utc_ms(&accepted) {
+        Ok(checkpoint) => checkpoint,
+        Err(reason) => return Err(stage5cm_block(reason, settlement)),
+    };
+    if bar_checkpoint_ts_utc_ms <= previous_continuation_checkpoint_ts_utc_ms {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::NonMonotonicBar),
+            settlement,
+        ));
+    }
+    let Some(explicit_now) = Utc.timestamp_millis_opt(explicit_now_ts_utc_ms).single() else {
+        return Err(stage5cm_block(
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::InvalidTimestamp,
+            )),
+            settlement,
+        ));
+    };
+    advance_stage5c_timer_settlement_next_bar_at(settlement, accepted, explicit_now)
+}
+// STAGE5G-D-R1A-AUTHORITY-END: deterministic-bar-continuation-authority-v1
+
 pub fn advance_stage5c_timer_settlement_timer(
     settlement: Stage5cTimerSettlement,
     input: Stage5cPaperTimerInput,
@@ -15473,6 +15516,245 @@ mod bootstrap_notification_tests {
             .settlement()
             .is_generated_intent_batch());
     }
+
+    // STAGE5G-D-R1A-AUTHORITY-TESTS-BEGIN: deterministic-bar-continuation-authority-v1
+    fn stage5gd_r1a_ready_at(checkpoint_ts_utc_ms: i64) -> (Stage5cTimerSettlement, i64) {
+        let (broker_resolved, bar_close_ts) = stage5ck_clean_broker_resolved();
+        let timer = resolve_stage5c_paper_timer(
+            broker_resolved,
+            Stage5cPaperTimerInput {
+                now_ts_utc_ms: checkpoint_ts_utc_ms,
+            },
+        )
+        .expect("R1-a fixture timer is admitted");
+        (settle_stage5c_timer_result(timer), bar_close_ts)
+    }
+
+    #[test]
+    fn stage5gd_r1a_reversed_bar_blocks_before_callback_and_preserves_settlement() {
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let next_bar_close_ts = bar_close_ts + 600;
+        let timer_checkpoint = (next_bar_close_ts + 300) * 1_000;
+        let (settlement, _) = stage5gd_r1a_ready_at(timer_checkpoint);
+        let before = settlement
+            .settled()
+            .intent_batch()
+            .state_fingerprint()
+            .to_string();
+        let blocked = advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap(),
+            next_bar_close_ts * 1_000,
+            timer_checkpoint,
+        )
+        .expect_err("bar preceding the timer checkpoint must block before callback");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::NonMonotonicBar)
+        );
+        let preserved = blocked.into_blocked().unwrap().into_settlement();
+        assert_eq!(preserved.checkpoint_ts_utc_ms(), Some(timer_checkpoint));
+        assert_eq!(
+            preserved.settled().intent_batch().state_fingerprint(),
+            before
+        );
+        assert_eq!(preserved.settled().settled_batch_history().len(), 2);
+    }
+
+    #[test]
+    fn stage5gd_r1a_equal_bar_and_timer_checkpoint_blocks_before_callback() {
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 0)
+            .single()
+            .unwrap()
+            .timestamp();
+        let next_bar_close_ts = bar_close_ts + 600;
+        let checkpoint = next_bar_close_ts * 1_000;
+        let (settlement, _) = stage5gd_r1a_ready_at(checkpoint);
+        let blocked = advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap(),
+            checkpoint,
+            checkpoint,
+        )
+        .expect_err("equal bar/timer checkpoint must block before callback");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::NonMonotonicBar)
+        );
+        assert_eq!(
+            blocked
+                .into_blocked()
+                .unwrap()
+                .settlement()
+                .checkpoint_ts_utc_ms(),
+            Some(checkpoint)
+        );
+    }
+
+    #[test]
+    fn stage5gd_r1a_later_bar_invokes_one_existing_stage5c_callback() {
+        let (settlement, bar_close_ts) = stage5gd_r1a_ready_at(
+            Utc.with_ymd_and_hms(2026, 7, 13, 9, 10, 10)
+                .single()
+                .unwrap()
+                .timestamp_millis(),
+        );
+        let before_history = settlement.settled().settled_batch_history().len();
+        let next_bar_close_ts = bar_close_ts + 600;
+        let advanced = advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap(),
+            next_bar_close_ts * 1_000,
+            (bar_close_ts + 10) * 1_000,
+        )
+        .expect("later bar is admitted exactly once");
+        assert_eq!(advanced.intent_batch().bar_close_ts(), next_bar_close_ts);
+        assert_eq!(advanced.settled_batch_history().len(), before_history + 1);
+    }
+
+    #[test]
+    fn stage5gd_r1a_explicit_clock_is_reproducible_and_process_clock_independent() {
+        fn run_once() -> (String, Vec<Stage5cPaperIntentBatchSummary>) {
+            let checkpoint = Utc
+                .with_ymd_and_hms(2026, 7, 13, 9, 10, 10)
+                .single()
+                .unwrap()
+                .timestamp_millis();
+            let (settlement, bar_close_ts) = stage5gd_r1a_ready_at(checkpoint);
+            let next_bar_close_ts = bar_close_ts + 600;
+            let advanced = advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+                settlement,
+                accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap(),
+                next_bar_close_ts * 1_000,
+                checkpoint,
+            )
+            .unwrap();
+            (
+                advanced.intent_batch().state_fingerprint().to_string(),
+                advanced.settled_batch_history().to_vec(),
+            )
+        }
+        assert_eq!(run_once(), run_once());
+    }
+
+    #[test]
+    fn stage5gd_r1a_explicit_now_after_expiry_is_retryable() {
+        let checkpoint = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 10)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let (settlement, bar_close_ts) = stage5gd_r1a_ready_at(checkpoint);
+        let expires_at = settlement
+            .settled()
+            .recovery_receipt()
+            .warmup_receipt()
+            .restore_receipt()
+            .bootstrap_receipt()
+            .expires_at();
+        let blocked = advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(bar_close_ts + 600)).unwrap(),
+            (expires_at + chrono::Duration::milliseconds(1)).timestamp_millis(),
+            checkpoint,
+        )
+        .expect_err("explicit event time after recovery expiry must block");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::BrokerTruthExpired,
+            ))
+        );
+        assert!(blocked.into_blocked().is_some());
+    }
+
+    #[test]
+    fn stage5gd_r1a_bar_checkpoint_overflow_is_retryable_before_callback() {
+        let checkpoint = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 10)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let (settlement, bar_close_ts) = stage5gd_r1a_ready_at(checkpoint);
+        let mut accepted = accept_stage5c_semantic_bar(semantic_input(bar_close_ts + 600)).unwrap();
+        accepted.bar.close_time_utc = i64::MAX;
+        let blocked = advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+            settlement,
+            accepted,
+            checkpoint + 1,
+            checkpoint,
+        )
+        .expect_err("checked bar checkpoint overflow must block before callback");
+        assert_eq!(
+            blocked.reason(),
+            Stage5cTimerContinuationError::NextBar(Stage5cNextBarLoopError::Semantic(
+                Stage5cSemanticBarError::InvalidTimestamp,
+            ))
+        );
+        assert!(blocked.into_blocked().is_some());
+    }
+
+    #[test]
+    fn stage5gd_r1a_generated_bar_intents_remain_in_stage5c_settled_batch() {
+        let checkpoint = Utc
+            .with_ymd_and_hms(2026, 7, 13, 9, 10, 10)
+            .single()
+            .unwrap()
+            .timestamp_millis();
+        let (mut settlement, bar_close_ts) = stage5gd_r1a_ready_at(checkpoint);
+        let next_bar_close_ts = bar_close_ts + 600;
+        let Stage5cTimerSettlementKind::ReadyForContinuation { settled, .. } =
+            &mut settlement.inner
+        else {
+            panic!("R1-a fixture must be ready");
+        };
+        let mut state = Strategy::state(&settled.strategy).clone();
+        match &mut state {
+            StrategyState::HybridIntradayRuntime {
+                active_cycle_id,
+                current_owner,
+                current_side,
+                last_position_qty,
+                tp_order_id,
+                sl_stop_order_id,
+                sl_exchange_order_id,
+                sl_triggered_ts,
+                mr_take_price,
+                mr_stop_price,
+                repair_deadline_ts,
+                ..
+            } => {
+                *active_cycle_id = Some("abc1230001".to_string());
+                *current_owner = Some(crate::hybrid_intraday::Owner::MeanReversion);
+                *current_side = Some(crate::hybrid_intraday::Side::Long);
+                *last_position_qty = 1.0;
+                *tp_order_id = Some(BrokerOrderId::new("TP_ORDER_TEST_0001"));
+                *sl_stop_order_id = Some(BrokerStopOrderId::new("STOP_TEST_0001"));
+                *sl_exchange_order_id = Some(BrokerOrderId::new("SL_EXCHANGE_TEST_0001"));
+                *sl_triggered_ts = Some(next_bar_close_ts - 31);
+                *mr_take_price = Some(2235.0);
+                *mr_stop_price = Some(2210.0);
+                *repair_deadline_ts = Some(next_bar_close_ts - 1);
+            }
+            StrategyState::Idle => panic!("expected hybrid runtime state"),
+        }
+        Strategy::set_state(&mut settled.strategy, state);
+        let advanced = advance_stage5c_timer_settlement_next_bar_at_checkpoint(
+            settlement,
+            accept_stage5c_semantic_bar(semantic_input(next_bar_close_ts)).unwrap(),
+            next_bar_close_ts * 1_000,
+            checkpoint,
+        )
+        .expect("existing Stage 5C callback output remains settled");
+        assert!(advanced.intent_batch().intent_count() > 0);
+        assert_eq!(advanced.intent_batch().bar_close_ts(), next_bar_close_ts);
+    }
+    // STAGE5G-D-R1A-AUTHORITY-TESTS-END: deterministic-bar-continuation-authority-v1
 
     #[test]
     fn stage5cn_settle_is_bounded_no_send_step() {
