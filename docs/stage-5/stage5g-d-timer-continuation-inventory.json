@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "stage": "5G-d",
+  "status": "review_candidate",
+  "accepted_predecessor": "d7561e6f36d01aea3d0dd67892800fbb6ac0a716",
+  "authority": {
+    "timer_callback": "Stage 5C-k",
+    "timer_settlement": "Stage 5C-l",
+    "continuation_arbitration": "Stage 5C-m",
+    "bounded_loop": "Stage 5C-n",
+    "market_terminal": "accepted R3 entry points only",
+    "package_identity": "moex.broker-truth.package.v1"
+  },
+  "scenario_family": [
+    "GTMR01_MONOTONIC_ZERO_INTENT_TIMER_CONTINUES",
+    "GTMR02_EQUAL_OR_REVERSED_TIMER_BLOCKS",
+    "GTMR03_TIMER_INTENT_REENTERS_ACK_LIFECYCLE",
+    "GTMR04_TIMER_CLEANUP_PRESERVES_ATTRIBUTION",
+    "GTMR05_CHECKPOINT_IS_SINGLE_CONSUME",
+    "GTMR06_BAR_TIMER_RACE_HAS_ONE_DETERMINISTIC_WINNER",
+    "GTMR07_GENERATED_BATCH_BLOCKS_UNRELATED_CONTINUATION",
+    "GTMR08_NO_AUTONOMOUS_LOOP_OR_CLOCK_READ"
+  ],
+  "witnesses": {
+    "GTMR01_MONOTONIC_ZERO_INTENT_TIMER_CONTINUES": [
+      "stage5gd_public_convergence_timer_is_linear_and_monotonic",
+      "stage5ck_zero_intent_timer_invokes_only_paper_timer_callback"
+    ],
+    "GTMR02_EQUAL_OR_REVERSED_TIMER_BLOCKS": [
+      "stage5gd_reversed_initial_timer_preserves_exact_checkpoint",
+      "stage5gd_public_convergence_timer_is_linear_and_monotonic"
+    ],
+    "GTMR03_TIMER_INTENT_REENTERS_ACK_LIFECYCLE": [
+      "attach_stage5g_timer_generated_mock_ack",
+      "apply_stage5g_timer_mock_ack",
+      "attach_stage5g_timer_order_position_session",
+      "stage5cl_nonzero_timer_batch_must_reenter_ack_lifecycle"
+    ],
+    "GTMR04_TIMER_CLEANUP_PRESERVES_ATTRIBUTION": [
+      "stage5ck_partial_entry_cleanup_uses_pending_entry_attribution"
+    ],
+    "GTMR05_CHECKPOINT_IS_SINGLE_CONSUME": [
+      "Stage5gTimerReadyPaperStrategy is linear",
+      "stage5cm_ready_checkpoint_can_continue_to_timer_or_bar_once"
+    ],
+    "GTMR06_BAR_TIMER_RACE_HAS_ONE_DETERMINISTIC_WINNER": [
+      "continue_stage5g_timer_with_bar",
+      "continue_stage5g_timer_with_timer",
+      "stage5cm_ready_checkpoint_can_continue_to_timer_or_bar_once"
+    ],
+    "GTMR07_GENERATED_BATCH_BLOCKS_UNRELATED_CONTINUATION": [
+      "Stage5gTimerGeneratedIntentEscrow",
+      "stage5cm_generated_timer_batch_blocks_continuation_until_lifecycle"
+    ],
+    "GTMR08_NO_AUTONOMOUS_LOOP_OR_CLOCK_READ": [
+      "stage5g_d_check.py forbidden surface scan",
+      "stage5g_d_negative_harness.py scheduler mutation"
+    ],
+    "R3_MARKET_TERMINAL": [
+      "stage5gd_r3_market_terminal_continues_only_through_timer_boundary"
+    ],
+    "REPLAY_AFTER_TIMER": [
+      "exact_redelivery_uses_new_local_sequence_but_same_package_identity",
+      "changed_payload_under_same_package_identity_fails_closed",
+      "two_packages_in_one_millisecond_keep_distinct_exact_identity",
+      "checkpoint_roundtrip_preserves_exact_nanos_and_replay_ledger"
+    ]
+  },
+  "checkpoint_fields": [
+    "package_discriminator",
+    "evidence_replay_ledger",
+    "last_broker_truth_received_at",
+    "last_broker_truth_received_ms",
+    "duplicate_evidence_count",
+    "last_total_sequence",
+    "last_continuation_checkpoint_ts_utc_ms"
+  ],
+  "closed_surfaces": {
+    "stage5g_e": false,
+    "stage5g_f": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}

@@ -61,6 +61,20 @@
 //! let _ = attach_stage5g_mock_ack_session(summary, input);
 //! ```
 //!
+//! Stage 5G-d continuation capabilities are linear and cannot be forged or
+//! cloned by a downstream host:
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::Stage5gTimerSession;
+//! let _forged = Stage5gTimerSession {};
+//! ```
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::Stage5gTimerReadyPaperStrategy;
+//! let ready: Stage5gTimerReadyPaperStrategy = unreachable!();
+//! let _copy = ready.clone();
+//! ```
+//!
 //! The linear Stage 5G-b session itself cannot be forged:
 //!
 //! ```compile_fail
@@ -138,6 +152,7 @@ mod stage5f_atomic_hybrid_semantics;
 // STAGE5F-TEST-OBSERVATION-MODULE-END
 mod stage5g_mock_ack;
 mod stage5g_order_position;
+mod stage5g_timer;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -258,6 +273,22 @@ pub use stage5g_order_position::{
     Stage5gOrderPositionEvidence, Stage5gOrderPositionFailure, Stage5gOrderPositionSession,
     Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal, Stage5gOrderPositionTransition,
     STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
+};
+pub use stage5g_timer::{
+    apply_stage5g_timer_checkpoint, apply_stage5g_timer_mock_ack,
+    attach_stage5g_market_terminal_timer_session, attach_stage5g_timer_generated_mock_ack,
+    attach_stage5g_timer_order_position_session, attach_stage5g_timer_session,
+    classify_stage5g_post_checkpoint_evidence, continue_stage5g_timer_with_bar,
+    continue_stage5g_timer_with_timer, validate_stage5g_timer_checkpoint,
+    Stage5gBarContinuationPaperStrategy, Stage5gCheckpointReplayDisposition,
+    Stage5gCheckpointReplayError, Stage5gCheckpointReplayResult, Stage5gReplayLedgerEntry,
+    Stage5gTimerBlocked, Stage5gTimerCheckpointEnvelope, Stage5gTimerCheckpointError,
+    Stage5gTimerCheckpointPayload, Stage5gTimerError, Stage5gTimerFailure,
+    Stage5gTimerGeneratedIntentEscrow, Stage5gTimerMockAckAdmissionBlocked,
+    Stage5gTimerMockAckBlocked, Stage5gTimerMockAckFailure, Stage5gTimerMockAckSession,
+    Stage5gTimerMockAckTransition, Stage5gTimerReadyPaperStrategy,
+    Stage5gTimerResolvedMockAckPaperStrategy, Stage5gTimerSession, Stage5gTimerTransition,
+    STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{

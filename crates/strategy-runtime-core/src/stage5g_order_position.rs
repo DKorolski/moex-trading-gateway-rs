@@ -164,10 +164,24 @@ struct Stage5gOrderPositionSlot {
     terminal: bool,
 }
 
-#[derive(Clone)]
-struct EvidenceIdentity {
-    identity: String,
-    fingerprint: String,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct EvidenceIdentity {
+    pub(crate) identity: String,
+    pub(crate) fingerprint: String,
+}
+
+/// Exact broker-package replay projection handed to the accepted Stage 5G-d
+/// continuation boundary. This is evidence only: it owns no strategy callback
+/// or transport capability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct Stage5gReplayCheckpoint {
+    pub(crate) schema_version: u16,
+    pub(crate) package_discriminator: Option<String>,
+    pub(crate) evidence_identities: Vec<EvidenceIdentity>,
+    pub(crate) last_broker_truth_received_at: Option<DateTime<Utc>>,
+    pub(crate) last_broker_truth_received_ms: Option<i64>,
+    pub(crate) duplicate_evidence_count: usize,
+    pub(crate) last_total_sequence: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -193,6 +207,7 @@ pub struct Stage5gOrderPositionSession {
 pub struct Stage5gConvergedPaperStrategy {
     resolved: Stage5cBrokerLifecycleResolvedPaperStrategy,
     summary: Stage5gOrderPositionSummary,
+    replay_checkpoint: Stage5gReplayCheckpoint,
 }
 
 /// A terminal MARKET outcome settled only through the accepted R3 authority.
@@ -200,6 +215,7 @@ pub struct Stage5gConvergedPaperStrategy {
 pub struct Stage5gMarketTerminalConvergedPaperStrategy {
     settlement: Stage5cBrokerLifecycleSettlement,
     summary: Stage5gOrderPositionSummary,
+    replay_checkpoint: Stage5gReplayCheckpoint,
 }
 
 pub enum Stage5gOrderPositionTransition {
@@ -352,6 +368,13 @@ impl Stage5gOrderPositionFailure {
 pub fn attach_stage5g_order_position_session(
     ack_resolved: Stage5gResolvedMockAckPaperStrategy,
 ) -> Result<Stage5gOrderPositionSession, Box<Stage5gOrderPositionAdmissionBlocked>> {
+    attach_stage5g_order_position_session_with_replay(ack_resolved, None)
+}
+
+pub(crate) fn attach_stage5g_order_position_session_with_replay(
+    ack_resolved: Stage5gResolvedMockAckPaperStrategy,
+    inherited_replay: Option<Stage5gReplayCheckpoint>,
+) -> Result<Stage5gOrderPositionSession, Box<Stage5gOrderPositionAdmissionBlocked>> {
     let summary = ack_resolved.lifecycle_summary();
     if summary.slots.is_empty() {
         return Err(admission_block(
@@ -443,6 +466,15 @@ pub fn attach_stage5g_order_position_session(
             terminal,
         });
     }
+    let inherited_replay = inherited_replay.unwrap_or(Stage5gReplayCheckpoint {
+        schema_version: STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION,
+        package_discriminator: None,
+        evidence_identities: Vec::new(),
+        last_broker_truth_received_at: None,
+        last_broker_truth_received_ms: None,
+        duplicate_evidence_count: 0,
+        last_total_sequence: None,
+    });
     Ok(Stage5gOrderPositionSession {
         ack_resolved,
         state: Stage5gOrderPositionState {
@@ -450,11 +482,11 @@ pub fn attach_stage5g_order_position_session(
             account_id: summary.account_id,
             instrument: summary.instrument,
             slots,
-            evidence_identities: Vec::new(),
-            last_total_sequence: None,
-            last_broker_truth_received_at: None,
-            last_broker_truth_received_ms: None,
-            duplicate_evidence_count: 0,
+            evidence_identities: inherited_replay.evidence_identities,
+            last_total_sequence: inherited_replay.last_total_sequence,
+            last_broker_truth_received_at: inherited_replay.last_broker_truth_received_at,
+            last_broker_truth_received_ms: inherited_replay.last_broker_truth_received_ms,
+            duplicate_evidence_count: inherited_replay.duplicate_evidence_count,
         },
     })
 }
@@ -1630,6 +1662,7 @@ fn converge_through_stage5c(
     }
     records.sort_by_key(|record| record.total_sequence);
     let summary = state_summary(&session.state, records.len());
+    let replay_checkpoint = replay_checkpoint(&session.state);
     let Stage5gOrderPositionSession {
         ack_resolved,
         state: _,
@@ -1652,7 +1685,11 @@ fn converge_through_stage5c(
                 ));
             }
             Ok(Stage5gOrderPositionTransition::Converged(
-                Stage5gConvergedPaperStrategy { resolved, summary },
+                Stage5gConvergedPaperStrategy {
+                    resolved,
+                    summary,
+                    replay_checkpoint,
+                },
             ))
         }
         Err(failure) => {
@@ -1697,6 +1734,7 @@ fn converge_market_terminal_through_r3(
         attribution: slot.source.expected_attribution.clone(),
     };
     let summary = state_summary(&session.state, 1);
+    let replay_checkpoint = replay_checkpoint(&session.state);
     let Stage5gOrderPositionSession {
         ack_resolved,
         state: _,
@@ -1726,6 +1764,7 @@ fn converge_market_terminal_through_r3(
             Stage5gMarketTerminalConvergedPaperStrategy {
                 settlement,
                 summary,
+                replay_checkpoint,
             },
         )),
         Err(blocked) => {
@@ -1855,7 +1894,7 @@ fn broker_truth_package_discriminator(truth: &BrokerTruthSnapshot) -> String {
     broker_truth_received_at_discriminator(truth.received_ts)
 }
 
-fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
+pub(crate) fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
     format!(
         "moex.stage5g.order-position-evidence-identity.v3:{}:{}:{}",
         evidence.request_id,
@@ -1865,7 +1904,7 @@ fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
 }
 // STAGE5G-C-REPLAY-PACKAGE-IDENTITY-END
 
-fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
+pub(crate) fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
     let mut truth = evidence.broker_truth.clone();
     canonical_json_sort(&mut truth.orders);
     canonical_json_sort(&mut truth.trades);
@@ -1891,6 +1930,20 @@ fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
     hasher
         .update(serde_json::to_vec(&projection).expect("canonical Stage 5G-c evidence serializes"));
     format!("{:x}", hasher.finalize())
+}
+
+fn replay_checkpoint(state: &Stage5gOrderPositionState) -> Stage5gReplayCheckpoint {
+    Stage5gReplayCheckpoint {
+        schema_version: STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION,
+        package_discriminator: state
+            .last_broker_truth_received_at
+            .map(broker_truth_received_at_discriminator),
+        evidence_identities: state.evidence_identities.clone(),
+        last_broker_truth_received_at: state.last_broker_truth_received_at,
+        last_broker_truth_received_ms: state.last_broker_truth_received_ms,
+        duplicate_evidence_count: state.duplicate_evidence_count,
+        last_total_sequence: state.last_total_sequence,
+    }
 }
 
 fn state_summary(
@@ -2126,6 +2179,15 @@ impl Stage5gConvergedPaperStrategy {
     pub fn broker_lifecycle(&self) -> &Stage5cBrokerLifecycleResolvedPaperStrategy {
         &self.resolved
     }
+    pub(crate) fn into_stage5g_d_parts(
+        self,
+    ) -> (
+        Stage5cBrokerLifecycleResolvedPaperStrategy,
+        Stage5gOrderPositionSummary,
+        Stage5gReplayCheckpoint,
+    ) {
+        (self.resolved, self.summary, self.replay_checkpoint)
+    }
     pub fn intent_sink_attached(&self) -> bool {
         false
     }
@@ -2146,6 +2208,15 @@ impl Stage5gMarketTerminalConvergedPaperStrategy {
     }
     pub fn settlement(&self) -> &Stage5cBrokerLifecycleSettlement {
         &self.settlement
+    }
+    pub(crate) fn into_stage5g_d_parts(
+        self,
+    ) -> (
+        Stage5cBrokerLifecycleSettlement,
+        Stage5gOrderPositionSummary,
+        Stage5gReplayCheckpoint,
+    ) {
+        (self.settlement, self.summary, self.replay_checkpoint)
     }
     pub fn intent_sink_attached(&self) -> bool {
         false
@@ -2674,6 +2745,179 @@ mod tests {
             trades,
             instruments: vec![],
             received_ts,
+        }
+    }
+
+    fn r2cb_public_converged_for_timer() -> Stage5gConvergedPaperStrategy {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .expect("connector-neutral three-poll golden JSON");
+        let polls = golden["polls"].as_array().expect("three golden polls");
+        let (mut session, request_id, client_order_id, expected_attribution, time_shift) =
+            r2cb_public_runtime_session();
+        for (index, poll) in polls.iter().enumerate() {
+            let transition = apply_stage5g_order_position_evidence(
+                session,
+                Stage5gOrderPositionEvidence {
+                    total_sequence: u64::try_from(index + 2).unwrap(),
+                    request_id,
+                    broker_truth: r2cb_golden_truth(poll, &client_order_id, time_shift),
+                    order_attribution: expected_attribution.clone(),
+                },
+            )
+            .expect("accepted full-snapshot timer fixture");
+            if index + 1 == polls.len() {
+                return transition
+                    .into_converged()
+                    .expect("terminal poll converges before timer attachment");
+            }
+            session = transition
+                .into_awaiting()
+                .expect("partial poll remains awaiting");
+        }
+        unreachable!("three-poll timer fixture has a terminal poll")
+    }
+
+    #[test]
+    fn stage5gd_public_convergence_timer_is_linear_and_monotonic() {
+        let converged = r2cb_public_converged_for_timer();
+        let callback_count = converged.summary().stage5c_callback_count;
+        let watermark_ms = converged
+            .replay_checkpoint
+            .last_broker_truth_received_ms
+            .unwrap();
+        let timer_ts = watermark_ms + 1;
+        let session = crate::attach_stage5g_timer_session(converged);
+        assert_eq!(
+            session
+                .checkpoint()
+                .payload
+                .last_broker_truth_received_at
+                .unwrap()
+                .timestamp_subsec_nanos(),
+            875_000_000
+        );
+        let ready = match crate::apply_stage5g_timer_checkpoint(
+            session,
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: timer_ts,
+            },
+        )
+        .expect("one explicit timer advances one converged capability")
+        {
+            crate::Stage5gTimerTransition::Ready(ready) => ready,
+            crate::Stage5gTimerTransition::GeneratedIntent(_) => {
+                panic!("golden BO fill has no immediate timer intent")
+            }
+        };
+        assert_eq!(ready.summary().stage5c_callback_count, callback_count);
+        assert_eq!(ready.checkpoint_ts_utc_ms(), timer_ts);
+        assert!(!ready.intent_sink_attached());
+        assert!(!ready.redis_command_stream_attached());
+        assert!(!ready.finam_transport_attached());
+        assert!(!ready.broker_execution_attached());
+
+        let blocked = crate::continue_stage5g_timer_with_timer(
+            ready,
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: timer_ts,
+            },
+        )
+        .expect_err("equal checkpoint must fail closed");
+        assert_eq!(
+            blocked.reason(),
+            crate::Stage5gTimerError::NonMonotonicCheckpoint
+        );
+        let preserved = blocked
+            .into_blocked()
+            .expect("equal timer is retryable")
+            .into_session();
+        assert_eq!(
+            preserved
+                .checkpoint()
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            Some(timer_ts)
+        );
+    }
+
+    #[test]
+    fn stage5gd_reversed_initial_timer_preserves_exact_checkpoint() {
+        let converged = r2cb_public_converged_for_timer();
+        let watermark_ms = converged
+            .replay_checkpoint
+            .last_broker_truth_received_ms
+            .unwrap();
+        let session = crate::attach_stage5g_timer_session(converged);
+        let expected = session.checkpoint();
+        let blocked = crate::apply_stage5g_timer_checkpoint(
+            session,
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: watermark_ms - 1,
+            },
+        )
+        .expect_err("reversed initial timer must fail closed");
+        assert_eq!(
+            blocked.reason(),
+            crate::Stage5gTimerError::NonMonotonicCheckpoint
+        );
+        assert_eq!(
+            blocked
+                .into_blocked()
+                .expect("reversed timer is retryable")
+                .into_session()
+                .checkpoint(),
+            expected
+        );
+    }
+
+    #[test]
+    fn stage5gd_r3_market_terminal_continues_only_through_timer_boundary() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let (session, request_id, client_order_id, expected_attribution, time_shift) =
+            r2cb_public_runtime_session();
+        let mut rejected = r2cb_golden_truth(&golden["polls"][0], &client_order_id, time_shift);
+        rejected.orders[0].status = OrderStatus::Rejected;
+        rejected.orders[0].lifecycle = BrokerOrderLifecycle::Terminal;
+        rejected.orders[0].filled_qty = Decimal::ZERO;
+        rejected.orders[0].remaining_qty = Some(Decimal::ONE);
+        rejected.positions.clear();
+        rejected.trades.clear();
+        let received_ms = rejected.received_ts.timestamp_millis();
+        let terminal = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: rejected,
+                order_attribution: expected_attribution,
+            },
+        )
+        .expect("rejected Market truth is settled by accepted R3 authority")
+        .into_market_terminal_converged()
+        .expect("R3 market terminal convergence remains distinct");
+        assert!(terminal.settlement().is_ready_for_timer());
+        let session = crate::attach_stage5g_market_terminal_timer_session(terminal);
+        let transition = crate::apply_stage5g_timer_checkpoint(
+            session,
+            crate::Stage5cPaperTimerInput {
+                now_ts_utc_ms: received_ms + 1,
+            },
+        )
+        .expect("R3 terminal settlement reaches the accepted Stage 5C timer");
+        match transition {
+            crate::Stage5gTimerTransition::Ready(ready) => {
+                assert_eq!(ready.checkpoint_ts_utc_ms(), received_ms + 1);
+                assert!(!ready.broker_execution_attached());
+            }
+            crate::Stage5gTimerTransition::GeneratedIntent(escrow) => {
+                assert!(escrow.intent_count() > 0);
+                assert!(!escrow.broker_execution_attached());
+            }
         }
     }
 
