@@ -1,14 +1,16 @@
-# Stage 5G-d R1-b R2 — restart chronology and replay-ledger coherence
+# Stage 5G-d R1-b R3 — canonical post-checkpoint evidence parity
 
 Status: implementation review candidate.
 
-Accepted predecessor: `e6d2d94d709ff2f6b589a565e255dbb0049d2705`.
+Accepted predecessor: `e7b133daa73026c0b7d1b82be368013ff9328667`.
 
 ## Scope
 
-R1-b R2 hardens the accepted R1-b R1 implementation without changing its
-Stage 5C callback authority or ownership model. It does not open Stage 5G-e/f,
-Redis, FINAM, transport, runtime-live or real orders.
+R1-b R3 preserves the accepted R2 chronology/latest-ledger hardening and makes
+active Stage 5G-c plus post-checkpoint Stage 5G-d consume one crate-private,
+pure canonical evidence authority. It does not change Stage 5C callback
+authority or open Stage 5G-e/f, Redis, FINAM, transport, runtime-live or real
+orders.
 
 The predecessor exposed a real liveness gap: a zero-intent bar owned only a
 settled Stage 5C value, while the accepted Stage 5C timer API requires its
@@ -59,6 +61,25 @@ receipt at or after the inherited continuation checkpoint and must also pass
 the existing last-BrokerTruth receipt regression guard before it can be
 appended to the replay ledger.
 
+## Canonical evidence parity
+
+The single authority owns its input and returns an opaque canonical evidence
+value. It sorts orders, positions, instruments and cash; groups trades by exact
+`BrokerTradeId`; collapses immutable duplicates while retaining the newest
+observation receipt; and rejects conflicting immutable trade payloads before
+fingerprint or replay mutation. Both active admission and restart
+classification obtain identity/fingerprint only from this value.
+
+An exact raw duplicate-trade redelivery therefore produces the same canonical
+fingerprint after restart. A new package result owns its canonical candidate,
+so a future Stage 5G-e consumer cannot classify one raw projection and apply a
+different one. Exact replay owns no candidate.
+
+Identity grammar remains version 3 and is now pinned: canonical lowercase
+hyphenated UUID text, a nonempty colon-free account ID, and the exact
+full-precision version-1 package discriminator. Changing this representation
+requires a new identity schema version.
+
 ## Executable witnesses
 
 - `stage5gd_bar_generated_intent_roundtrips_through_ack_truth_and_next_timer`;
@@ -69,6 +90,12 @@ appended to the replay ledger.
 - `replay_ledger_and_continuation_semantics_are_fail_closed`;
 - `new_post_restore_package_requires_continuation_chronology_but_exact_replay_does_not`;
 - `multi_package_restore_requires_ordered_ledger_and_latest_current_projection`.
+- `post_checkpoint_duplicate_trade_redelivery_matches_active_canonical_fingerprint`;
+- `post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed`;
+- `new_post_checkpoint_package_owns_one_deduplicated_canonical_candidate`;
+- `stage5gd_active_path_stores_single_authority_canonical_fingerprint`;
+- `stage5gd_active_path_rejects_conflicting_trade_identity_before_replay_append`;
+- `replay_identity_grammar_requires_canonical_uuid_and_colon_free_account`.
 
 The timer-generated witness is source-reachable through a partial Exit with an
 authoritative bracket-reconciliation timer. An explicit post-grace timer emits

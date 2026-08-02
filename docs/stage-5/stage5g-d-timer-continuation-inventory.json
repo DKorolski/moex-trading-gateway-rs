@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5G-d",
-  "status": "r1b_r2_review_candidate",
-  "accepted_predecessor": "e6d2d94d709ff2f6b589a565e255dbb0049d2705",
+  "status": "r1b_r3_review_candidate",
+  "accepted_predecessor": "e7b133daa73026c0b7d1b82be368013ff9328667",
   "authority": {
     "timer_callback": "Stage 5C-k",
     "timer_settlement": "Stage 5C-l",
@@ -72,6 +72,12 @@
       "semantically_incomplete_checkpoints_fail_even_with_recomputed_hash",
       "new_post_restore_package_requires_continuation_chronology_but_exact_replay_does_not",
       "multi_package_restore_requires_ordered_ledger_and_latest_current_projection",
+      "post_checkpoint_duplicate_trade_redelivery_matches_active_canonical_fingerprint",
+      "post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed",
+      "new_post_checkpoint_package_owns_one_deduplicated_canonical_candidate",
+      "replay_identity_grammar_requires_canonical_uuid_and_colon_free_account",
+      "stage5gd_active_path_stores_single_authority_canonical_fingerprint",
+      "stage5gd_active_path_rejects_conflicting_trade_identity_before_replay_append",
       "replay_ledger_and_continuation_semantics_are_fail_closed"
     ]
   },

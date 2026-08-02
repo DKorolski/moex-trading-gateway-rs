@@ -1,7 +1,7 @@
 # Stage 5G-d — deterministic timer and continuation arbitration
 
-Status: R1-b R2 review candidate.
-Accepted predecessor: `e6d2d94d709ff2f6b589a565e255dbb0049d2705`.
+Status: R1-b R3 review candidate.
+Accepted predecessor: `e7b133daa73026c0b7d1b82be368013ff9328667`.
 Accepted Stage 5C callback authority: `d0494537d7c1739a16350b2d28f71b304165c812`.
 
 ## Decision
@@ -62,6 +62,24 @@ new-package chronology. Historical exact redelivery is therefore idempotent.
 A new identity is rejected if its BrokerTruth receipt millisecond predates the
 inherited continuation checkpoint, then remains subject to the existing exact
 last-BrokerTruth receipt regression guard before ledger append.
+
+## Canonical evidence authority
+
+Active Stage 5G-c and post-checkpoint Stage 5G-d use the same crate-private,
+pure canonicalization function before identity/fingerprint classification. Its
+opaque owned result is the only value from which these paths obtain a replay
+fingerprint. Exact duplicate trade IDs collapse by immutable payload while the
+newest observation receipt is retained; conflicting immutable payloads fail
+before ledger mutation. Other vector-shaped broker truth is canonically sorted.
+
+`NewPackage` retains the canonical evidence candidate in its result ownership;
+`ExactReplay` does not create a candidate. This is a type-level boundary for a
+future Stage 5G-e consumer, not an authorization to open Stage 5G-e.
+
+Version-3 replay identities require canonical UUID text and a nonempty,
+colon-free account ID. The package suffix remains the exact nanosecond
+version-1 BrokerTruth receipt discriminator. Any encoding change requires a
+new identity schema version.
 
 ## Generated intents
 

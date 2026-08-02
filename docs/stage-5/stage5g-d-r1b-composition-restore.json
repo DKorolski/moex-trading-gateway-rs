@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "stage": "5G-d R1-b R2",
+  "stage": "5G-d R1-b R3",
   "status": "implementation_review_candidate",
-  "accepted_predecessor": "e6d2d94d709ff2f6b589a565e255dbb0049d2705",
+  "accepted_predecessor": "e7b133daa73026c0b7d1b82be368013ff9328667",
   "stage5c_callback_authority": "d0494537d7c1739a16350b2d28f71b304165c812",
   "bar_entrypoint": "advance_stage5c_timer_settlement_next_bar_transactional_at_checkpoint",
   "bar_evaluation_time_policy": "accepted_bar_checkpoint",
@@ -17,7 +17,11 @@
   "restart_new_package_causal_guard": true,
   "historical_exact_replay_allowed": true,
   "ledger_latest_state_coherence": true,
-  "negative_case_count": 42,
+  "single_canonical_evidence_authority": true,
+  "active_restart_fingerprint_parity": true,
+  "canonical_new_package_candidate_owned": true,
+  "canonical_identity_grammar_enforced": true,
+  "negative_case_count": 52,
   "closed_surfaces": {
     "stage5g_e": false,
     "stage5g_f": false,

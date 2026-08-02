@@ -9,7 +9,7 @@ import re
 import subprocess
 from pathlib import Path
 
-BASE = "e6d2d94d709ff2f6b589a565e255dbb0049d2705"
+BASE = "e7b133daa73026c0b7d1b82be368013ff9328667"
 STAGE5C_AUTHORITY = "d0494537d7c1739a16350b2d28f71b304165c812"
 
 
@@ -77,8 +77,16 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "exact_current_identity_count",
         "entry.identity == current_identity",
         "Stage5gCheckpointReplayError::BrokerTruthBeforeContinuationCheckpoint",
-        "evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint",
-        ".is_some_and(|last| evidence.broker_truth.received_ts < last)",
+        "received_at.timestamp_millis() < continuation_checkpoint",
+        ".is_some_and(|last| received_at < last)",
+        "canonicalize_stage5g_order_position_evidence(evidence)",
+        "canonical_evidence.identity().to_string()",
+        "canonical_evidence.fingerprint().to_string()",
+        "canonical_new_package_candidate: Some(canonical_evidence)",
+        "canonical_new_package_candidate: None",
+        "owns_canonical_new_package_candidate",
+        "Stage5gCheckpointReplayError::TradeIdentityConflict",
+        "Stage5gCheckpointReplayError::EvidenceIdentityGrammarViolation",
         "Stage5gTimerCheckpointError::ReplayLedgerReceiptRegression",
         "previous_ledger_receipt.is_some_and(|previous| parsed.received_at < previous)",
         "Stage5gTimerCheckpointError::CurrentEvidenceIdentityNotLatest",
@@ -109,6 +117,7 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "pub evidence_replay_ledger",
         "pub last_total_sequence",
         "timestamp_subsec_nanos()",
+        "parsed_request_id.to_string() != request_id",
     )
     for token in required_tokens:
         require(token in timer, f"required timer contract token missing: {token}")
@@ -118,11 +127,19 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "evidence.broker_truth.received_ts.timestamp_millis() < checkpoint",
         "current_evidence_identity: Option<String>",
         "stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss",
+        "stage5gd_active_path_stores_single_authority_canonical_fingerprint",
+        "stage5gd_active_path_rejects_conflicting_trade_identity_before_replay_append",
+        "pub(crate) struct Stage5gCanonicalOrderPositionEvidence",
+        "pub(crate) enum Stage5gEvidenceCanonicalizationError",
     ):
         require(token in order, f"required chronology/liveness witness missing: {token}")
     for token in (
         "new_post_restore_package_requires_continuation_chronology_but_exact_replay_does_not",
         "multi_package_restore_requires_ordered_ledger_and_latest_current_projection",
+        "post_checkpoint_duplicate_trade_redelivery_matches_active_canonical_fingerprint",
+        "post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed",
+        "new_post_checkpoint_package_owns_one_deduplicated_canonical_candidate",
+        "replay_identity_grammar_requires_canonical_uuid_and_colon_free_account",
     ):
         require(token in timer, f"required restart/ledger witness missing: {token}")
     require(
@@ -184,26 +201,92 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "complete timer-generated ACK/BrokerTruth route witness missing",
     )
 
+    authority_start = order.index(
+        "pub(crate) fn canonicalize_stage5g_order_position_evidence("
+    )
+    authority_end = order.index("fn canonicalize_broker_truth_snapshot(", authority_start)
+    authority = order[authority_start:authority_end]
+    for token in (
+        "account_id.is_empty() || account_id.contains(':')",
+        "canonicalize_broker_truth_snapshot(&mut evidence.broker_truth)?",
+        "let identity = evidence_identity(&evidence)",
+        "let fingerprint = canonical_evidence_fingerprint(&evidence)",
+    ):
+        require(token in authority, f"canonical evidence authority drift: {token}")
+    require(
+        order.count("canonical_evidence_fingerprint(") == 2,
+        "canonical fingerprint must have one definition and one authority call",
+    )
+    require(
+        order.count("canonicalize_broker_truth_snapshot(") == 2,
+        "BrokerTruth canonicalizer escaped the single evidence authority",
+    )
+    for token in (
+        "Some(existing) if immutable_trade_payload_matches(existing, &trade)",
+        "Some(_) => return Err(Stage5gEvidenceCanonicalizationError::TradeIdentityConflict)",
+        "truth.trades = trades_by_id.into_values().collect()",
+        "canonical_json_sort(&mut truth.orders)",
+        "canonical_json_sort(&mut truth.positions)",
+        "canonical_json_sort(&mut truth.instruments)",
+        "canonical_json_sort(&mut cash.cash)",
+    ):
+        require(token in order, f"canonical BrokerTruth policy drift: {token}")
+
+    active_start = order.index("pub fn apply_stage5g_order_position_evidence(")
+    active_end = order.index("fn classify_evidence_replay(", active_start)
+    active = order[active_start:active_end]
+    require(
+        active.count("canonicalize_stage5g_order_position_evidence(evidence)") == 1,
+        "active path must use the single canonical evidence authority exactly once",
+    )
+    active_canonical = active.index("canonicalize_stage5g_order_position_evidence(evidence)")
+    active_identity = active.index("canonical_evidence.identity()")
+    active_fingerprint = active.index("canonical_evidence.fingerprint()")
+    active_replay = active.index("classify_evidence_replay(")
+    require(
+        active_canonical < active_identity < active_fingerprint < active_replay,
+        "active canonicalization/fingerprint/replay order drift",
+    )
+    for bypass in (
+        "canonicalize_broker_truth_snapshot(",
+        "evidence_identity(&evidence)",
+        "canonical_evidence_fingerprint(&evidence)",
+    ):
+        require(bypass not in active, f"active raw canonicalization bypass: {bypass}")
+
     classifier_start = timer.index("pub fn classify_stage5g_post_checkpoint_evidence(")
     classifier_end = timer.index("fn checkpoint_envelope(", classifier_start)
     classifier = timer[classifier_start:classifier_end]
+    canonicalize = classifier.index("canonicalize_stage5g_order_position_evidence(evidence)")
+    canonical_identity = classifier.index("canonical_evidence.identity()")
+    canonical_fingerprint = classifier.index("canonical_evidence.fingerprint()")
     known_identity = classifier.index("if let Some(previous)")
-    continuation_guard = classifier.index(
-        "evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint"
-    )
+    continuation_guard = classifier.index("received_at.timestamp_millis() < continuation_checkpoint")
     receipt_regression = classifier.index("last_broker_truth_received_at")
     append_new = classifier.index("replay.evidence_identities.push")
     require(
-        known_identity < continuation_guard < receipt_regression < append_new,
+        canonicalize
+        < canonical_identity
+        < canonical_fingerprint
+        < known_identity
+        < continuation_guard
+        < receipt_regression
+        < append_new,
         "restart classifier chronology/order drift",
     )
     require(
         classifier.count(
-            "evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint"
+            "received_at.timestamp_millis() < continuation_checkpoint"
         )
         == 1,
         "restart continuation guard must occur exactly once after exact replay classification",
     )
+    for bypass in (
+        "evidence_identity(&evidence)",
+        "canonical_evidence_fingerprint(&evidence)",
+        "canonicalize_broker_truth_snapshot(",
+    ):
+        require(bypass not in classifier, f"restart raw canonicalization bypass: {bypass}")
 
     identity_start = order.index("fn evidence_identity(")
     identity_end = order.index("// STAGE5G-C-REPLAY-PACKAGE-IDENTITY-END")
@@ -212,24 +295,28 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     require("fingerprint" not in identity_body, "payload fingerprint entered package identity")
 
     require(inventory["stage"] == "5G-d", "inventory stage drift")
-    require(inventory["status"] == "r1b_r2_review_candidate", "inventory status drift")
+    require(inventory["status"] == "r1b_r3_review_candidate", "inventory status drift")
     require(inventory["accepted_predecessor"] == BASE, "inventory predecessor drift")
     require(len(inventory["scenario_family"]) == 8, "timer scenario inventory must remain 8/8")
     require(len(inventory["checkpoint_fields"]) == 8, "checkpoint field inventory drift")
     for surface, opened in inventory["closed_surfaces"].items():
         require(opened is False, f"closed surface opened: {surface}")
 
-    require(descriptor["stage"] == "5G-d R1-b R2", "descriptor stage drift")
+    require(descriptor["stage"] == "5G-d R1-b R3", "descriptor stage drift")
     require(
         descriptor["status"] == "implementation_review_candidate",
         "descriptor status drift",
     )
     require(descriptor["accepted_predecessor"] == BASE, "descriptor predecessor drift")
-    require(descriptor["negative_case_count"] == 42, "descriptor negative count drift")
+    require(descriptor["negative_case_count"] == 52, "descriptor negative count drift")
     for flag in (
         "restart_new_package_causal_guard",
         "historical_exact_replay_allowed",
         "ledger_latest_state_coherence",
+        "single_canonical_evidence_authority",
+        "active_restart_fingerprint_parity",
+        "canonical_new_package_candidate_owned",
+        "canonical_identity_grammar_enforced",
     ):
         require(descriptor[flag] is True, f"descriptor R2 property missing: {flag}")
     for surface, opened in descriptor["closed_surfaces"].items():

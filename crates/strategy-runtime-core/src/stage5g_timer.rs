@@ -26,8 +26,10 @@ use crate::stage5g_mock_ack::{
     Stage5gResolvedMockAckPaperStrategy,
 };
 use crate::stage5g_order_position::{
-    attach_stage5g_order_position_session_with_replay, evidence_fingerprint, evidence_identity,
-    EvidenceIdentity, Stage5gConvergedPaperStrategy, Stage5gMarketTerminalConvergedPaperStrategy,
+    attach_stage5g_order_position_session_with_replay,
+    canonicalize_stage5g_order_position_evidence, EvidenceIdentity,
+    Stage5gCanonicalOrderPositionEvidence, Stage5gConvergedPaperStrategy,
+    Stage5gEvidenceCanonicalizationError, Stage5gMarketTerminalConvergedPaperStrategy,
     Stage5gOrderPositionEvidence, Stage5gOrderPositionSession, Stage5gOrderPositionSummary,
     Stage5gReplayCheckpoint,
 };
@@ -268,6 +270,8 @@ pub enum Stage5gCheckpointReplayError {
     BrokerTruthBeforeContinuationCheckpoint,
     BrokerTruthTimeRegression,
     ConflictingDuplicateEvidence,
+    TradeIdentityConflict,
+    EvidenceIdentityGrammarViolation,
 }
 
 #[derive(Debug)]
@@ -275,6 +279,7 @@ pub struct Stage5gCheckpointReplayResult {
     disposition: Stage5gCheckpointReplayDisposition,
     replay: Stage5gReplayCheckpoint,
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
+    canonical_new_package_candidate: Option<Stage5gCanonicalOrderPositionEvidence>,
 }
 
 impl Stage5gCheckpointReplayResult {
@@ -284,6 +289,10 @@ impl Stage5gCheckpointReplayResult {
 
     pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
         checkpoint_envelope(&self.replay, self.last_continuation_checkpoint_ts_utc_ms)
+    }
+
+    pub fn owns_canonical_new_package_candidate(&self) -> bool {
+        self.canonical_new_package_candidate.is_some()
     }
 }
 
@@ -1002,8 +1011,18 @@ pub fn classify_stage5g_post_checkpoint_evidence(
     {
         return Err(Stage5gCheckpointReplayError::NonMonotonicSequence);
     }
-    let identity = evidence_identity(&evidence);
-    let fingerprint = evidence_fingerprint(&evidence);
+    let total_sequence = evidence.total_sequence;
+    let canonical_evidence =
+        canonicalize_stage5g_order_position_evidence(evidence).map_err(|reason| match reason {
+            Stage5gEvidenceCanonicalizationError::TradeIdentityConflict => {
+                Stage5gCheckpointReplayError::TradeIdentityConflict
+            }
+            Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation => {
+                Stage5gCheckpointReplayError::EvidenceIdentityGrammarViolation
+            }
+        })?;
+    let identity = canonical_evidence.identity().to_string();
+    let fingerprint = canonical_evidence.fingerprint().to_string();
     let mut replay = replay_from_payload(&envelope.payload);
     if let Some(previous) = replay
         .evidence_identities
@@ -1013,7 +1032,7 @@ pub fn classify_stage5g_post_checkpoint_evidence(
         if previous.fingerprint != fingerprint {
             return Err(Stage5gCheckpointReplayError::ConflictingDuplicateEvidence);
         }
-        replay.last_total_sequence = Some(evidence.total_sequence);
+        replay.last_total_sequence = Some(total_sequence);
         replay.duplicate_evidence_count += 1;
         return Ok(Stage5gCheckpointReplayResult {
             disposition: Stage5gCheckpointReplayDisposition::ExactReplay,
@@ -1021,18 +1040,20 @@ pub fn classify_stage5g_post_checkpoint_evidence(
             last_continuation_checkpoint_ts_utc_ms: envelope
                 .payload
                 .last_continuation_checkpoint_ts_utc_ms,
+            canonical_new_package_candidate: None,
         });
     }
+    let received_at = canonical_evidence.evidence().broker_truth.received_ts;
     let continuation_checkpoint = envelope
         .payload
         .last_continuation_checkpoint_ts_utc_ms
         .expect("validated Stage 5G-d checkpoint has a continuation watermark");
-    if evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint {
+    if received_at.timestamp_millis() < continuation_checkpoint {
         return Err(Stage5gCheckpointReplayError::BrokerTruthBeforeContinuationCheckpoint);
     }
     if replay
         .last_broker_truth_received_at
-        .is_some_and(|last| evidence.broker_truth.received_ts < last)
+        .is_some_and(|last| received_at < last)
     {
         return Err(Stage5gCheckpointReplayError::BrokerTruthTimeRegression);
     }
@@ -1041,18 +1062,17 @@ pub fn classify_stage5g_post_checkpoint_evidence(
         fingerprint,
     });
     replay.current_evidence_identity = Some(identity);
-    replay.last_total_sequence = Some(evidence.total_sequence);
-    replay.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);
-    replay.last_broker_truth_received_ms =
-        Some(evidence.broker_truth.received_ts.timestamp_millis());
+    replay.last_total_sequence = Some(total_sequence);
+    replay.last_broker_truth_received_at = Some(received_at);
+    replay.last_broker_truth_received_ms = Some(received_at.timestamp_millis());
     replay.last_continuation_checkpoint_ts_utc_ms = max_optional_checkpoint(
         replay.last_continuation_checkpoint_ts_utc_ms,
         replay.last_broker_truth_received_ms,
     );
     replay.package_discriminator = Some(format!(
         "moex.broker-truth.package.v1:{}:{:09}",
-        evidence.broker_truth.received_ts.timestamp(),
-        evidence.broker_truth.received_ts.timestamp_subsec_nanos()
+        received_at.timestamp(),
+        received_at.timestamp_subsec_nanos()
     ));
     Ok(Stage5gCheckpointReplayResult {
         disposition: Stage5gCheckpointReplayDisposition::NewPackage,
@@ -1060,6 +1080,7 @@ pub fn classify_stage5g_post_checkpoint_evidence(
         last_continuation_checkpoint_ts_utc_ms: envelope
             .payload
             .last_continuation_checkpoint_ts_utc_ms,
+        canonical_new_package_candidate: Some(canonical_evidence),
     })
 }
 
@@ -1132,7 +1153,8 @@ fn parse_replay_evidence_identity(identity: &str) -> Option<ParsedReplayEvidence
     let request_id = parts.next()?;
     let account_id = parts.next()?;
     let package_discriminator = parts.next()?;
-    if uuid::Uuid::parse_str(request_id).is_err()
+    let parsed_request_id = uuid::Uuid::parse_str(request_id).ok()?;
+    if parsed_request_id.to_string() != request_id
         || account_id.is_empty()
         || account_id.contains(':')
     {
@@ -1177,11 +1199,29 @@ fn _assert_stage5c_timer_error_is_used(_: Stage5cTimerContinuationError) {}
 
 #[cfg(test)]
 mod tests {
-    use broker_core::{BrokerAccountId, BrokerPositionSnapshot, Exchange, InstrumentId, Market};
+    use broker_core::{
+        BrokerAccountId, BrokerPositionSnapshot, BrokerTradeId, BrokerTradeSnapshot, Exchange,
+        InstrumentId, Market, OrderSide,
+    };
     use chrono::TimeZone;
     use rust_decimal::Decimal;
 
     use super::*;
+
+    fn canonical_evidence(
+        evidence: &Stage5gOrderPositionEvidence,
+    ) -> Stage5gCanonicalOrderPositionEvidence {
+        canonicalize_stage5g_order_position_evidence(evidence.clone())
+            .expect("test evidence canonicalizes")
+    }
+
+    fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
+        canonical_evidence(evidence).identity().to_string()
+    }
+
+    fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
+        canonical_evidence(evidence).fingerprint().to_string()
+    }
 
     fn target() -> InstrumentId {
         InstrumentId {
@@ -1211,6 +1251,41 @@ mod tests {
             },
             order_attribution: None,
         }
+    }
+
+    fn trade(
+        id: &str,
+        price: Decimal,
+        source_nanos: u32,
+        received_nanos: u32,
+    ) -> BrokerTradeSnapshot {
+        BrokerTradeSnapshot {
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            broker_trade_id: BrokerTradeId::new(id),
+            broker_order_id: None,
+            client_order_id: None,
+            instrument: target(),
+            side: OrderSide::Buy,
+            qty: Decimal::ONE,
+            price,
+            gross_amount: None,
+            commission: None,
+            broker_asset_id: None,
+            board: None,
+            expiration_date: None,
+            source_ts: received(source_nanos),
+            received_ts: received(received_nanos),
+        }
+    }
+
+    fn evidence_with_trades(
+        sequence: u64,
+        package_nanos: u32,
+        trades: Vec<BrokerTradeSnapshot>,
+    ) -> Stage5gOrderPositionEvidence {
+        let mut event = evidence(sequence, package_nanos);
+        event.broker_truth.trades = trades;
+        event
     }
 
     fn checkpoint_for(event: &Stage5gOrderPositionEvidence) -> Stage5gTimerCheckpointEnvelope {
@@ -1324,6 +1399,150 @@ mod tests {
         assert_eq!(
             classify_stage5g_post_checkpoint_evidence(&envelope, changed).unwrap_err(),
             Stage5gCheckpointReplayError::ConflictingDuplicateEvidence
+        );
+    }
+
+    #[test]
+    fn post_checkpoint_duplicate_trade_redelivery_matches_active_canonical_fingerprint() {
+        let first = trade(
+            "TRADE_CANONICAL_A",
+            Decimal::new(2_210, 0),
+            70_000_000,
+            80_000_000,
+        );
+        let mut refreshed = first.clone();
+        refreshed.received_ts = received(90_000_000);
+        let original = evidence_with_trades(7, 100_000_000, vec![first, refreshed]);
+        let canonical = canonical_evidence(&original);
+        assert_eq!(canonical.evidence().broker_truth.trades.len(), 1);
+        assert_eq!(
+            canonical.evidence().broker_truth.trades[0].received_ts,
+            received(90_000_000)
+        );
+        let envelope = checkpoint_for(&original);
+        assert_eq!(
+            envelope.payload.evidence_replay_ledger[0].fingerprint_sha256,
+            canonical.fingerprint()
+        );
+
+        let mut raw_redelivery = original.clone();
+        raw_redelivery.total_sequence = 8;
+        raw_redelivery.broker_truth.trades.reverse();
+        let replay = classify_stage5g_post_checkpoint_evidence(&envelope, raw_redelivery).unwrap();
+        assert_eq!(
+            replay.disposition(),
+            Stage5gCheckpointReplayDisposition::ExactReplay
+        );
+        assert!(!replay.owns_canonical_new_package_candidate());
+    }
+
+    #[test]
+    fn post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed() {
+        let original = evidence_with_trades(
+            7,
+            100_000_000,
+            vec![trade(
+                "TRADE_CONFLICT_A",
+                Decimal::new(2_210, 0),
+                70_000_000,
+                80_000_000,
+            )],
+        );
+        let envelope = checkpoint_for(&original);
+
+        let mut changed = original.clone();
+        changed.total_sequence = 8;
+        changed.broker_truth.trades[0].price += Decimal::ONE;
+        assert_eq!(
+            classify_stage5g_post_checkpoint_evidence(&envelope, changed).unwrap_err(),
+            Stage5gCheckpointReplayError::ConflictingDuplicateEvidence
+        );
+
+        let mut conflicting = original.clone();
+        conflicting.total_sequence = 8;
+        let mut changed_duplicate = conflicting.broker_truth.trades[0].clone();
+        changed_duplicate.price += Decimal::ONE;
+        conflicting.broker_truth.trades.push(changed_duplicate);
+        assert_eq!(
+            classify_stage5g_post_checkpoint_evidence(&envelope, conflicting).unwrap_err(),
+            Stage5gCheckpointReplayError::TradeIdentityConflict
+        );
+        assert_eq!(validate_stage5g_timer_checkpoint(&envelope), Ok(()));
+    }
+
+    #[test]
+    fn new_post_checkpoint_package_owns_one_deduplicated_canonical_candidate() {
+        let base = evidence(7, 100_000_000);
+        let envelope = checkpoint_for(&base);
+        let first = trade(
+            "TRADE_NEW_A",
+            Decimal::new(2_210, 0),
+            150_000_000,
+            160_000_000,
+        );
+        let mut refreshed = first.clone();
+        refreshed.received_ts = received(180_000_000);
+        let new_package = evidence_with_trades(8, 200_000_000, vec![refreshed, first]);
+        let result = classify_stage5g_post_checkpoint_evidence(&envelope, new_package).unwrap();
+        assert_eq!(
+            result.disposition(),
+            Stage5gCheckpointReplayDisposition::NewPackage
+        );
+        assert!(result.owns_canonical_new_package_candidate());
+        let candidate = result.canonical_new_package_candidate.as_ref().unwrap();
+        assert_eq!(candidate.evidence().broker_truth.trades.len(), 1);
+        assert_eq!(
+            result
+                .checkpoint()
+                .payload
+                .evidence_replay_ledger
+                .last()
+                .unwrap()
+                .fingerprint_sha256,
+            candidate.fingerprint()
+        );
+
+        let first = trade(
+            "TRADE_NEW_CONFLICT",
+            Decimal::new(2_210, 0),
+            150_000_000,
+            160_000_000,
+        );
+        let mut conflicting = first.clone();
+        conflicting.price += Decimal::ONE;
+        let conflicting_package = evidence_with_trades(8, 200_000_000, vec![first, conflicting]);
+        assert_eq!(
+            classify_stage5g_post_checkpoint_evidence(&envelope, conflicting_package).unwrap_err(),
+            Stage5gCheckpointReplayError::TradeIdentityConflict
+        );
+        assert_eq!(validate_stage5g_timer_checkpoint(&envelope), Ok(()));
+    }
+
+    #[test]
+    fn replay_identity_grammar_requires_canonical_uuid_and_colon_free_account() {
+        let event = evidence(7, 125_875_321);
+        let mut noncanonical_uuid = checkpoint_for(&event);
+        let canonical_request = event.request_id.to_string();
+        let compact_request = canonical_request.replace('-', "");
+        noncanonical_uuid.payload.current_evidence_identity = Some(
+            noncanonical_uuid
+                .payload
+                .current_evidence_identity
+                .as_deref()
+                .unwrap()
+                .replacen(&canonical_request, &compact_request, 1),
+        );
+        rehash(&mut noncanonical_uuid);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&noncanonical_uuid),
+            Err(Stage5gTimerCheckpointError::InvalidCurrentEvidenceIdentity)
+        );
+
+        let mut invalid_account = event;
+        invalid_account.broker_truth.account_id = BrokerAccountId::new("ACC:INVALID");
+        assert_eq!(
+            canonicalize_stage5g_order_position_evidence(invalid_account).unwrap_err(),
+            Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation
         );
     }
 

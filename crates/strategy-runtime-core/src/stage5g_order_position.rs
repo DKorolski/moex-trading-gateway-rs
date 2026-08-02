@@ -49,6 +49,40 @@ pub struct Stage5gOrderPositionEvidence {
     pub order_attribution: Option<HybridRuntimeAttribution>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gEvidenceCanonicalizationError {
+    TradeIdentityConflict,
+    EvidenceIdentityGrammarViolation,
+}
+
+/// Source-owned canonical evidence. Construction is restricted to the single
+/// pure canonicalization authority below, so active and restart paths cannot
+/// fingerprint different projections of one broker package.
+#[derive(Debug)]
+pub(crate) struct Stage5gCanonicalOrderPositionEvidence {
+    evidence: Stage5gOrderPositionEvidence,
+    identity: String,
+    fingerprint: String,
+}
+
+impl Stage5gCanonicalOrderPositionEvidence {
+    pub(crate) fn evidence(&self) -> &Stage5gOrderPositionEvidence {
+        &self.evidence
+    }
+
+    pub(crate) fn identity(&self) -> &str {
+        &self.identity
+    }
+
+    pub(crate) fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+
+    fn into_evidence(self) -> Stage5gOrderPositionEvidence {
+        self.evidence
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage5gOrderPositionAdmissionError {
@@ -102,6 +136,7 @@ pub enum Stage5gOrderPositionError {
     TradeIdentityMismatch,
     NonPositiveTradeQuantity,
     TradeQuantityMismatch,
+    EvidenceIdentityGrammarViolation,
     MissingTargetPosition,
     AmbiguousTargetPosition,
     PositionAccountMismatch,
@@ -529,13 +564,32 @@ fn source_projection_matches_ack(
     action_matches && source_side.as_deref() == ack.side.as_deref()
 }
 
-/// Canonicalizes a full broker poll before replay classification. FINAM maps
-/// every historical trade with the current observation receipt, so receipt is
-/// deliberately excluded from immutable trade identity while the newest
-/// observation watermark is retained.
+/// The only Stage 5G evidence canonicalization authority. It is pure, owns its
+/// input, and preserves the exact package receipt/account while normalizing
+/// all vector-shaped truth before identity/fingerprint classification.
+pub(crate) fn canonicalize_stage5g_order_position_evidence(
+    mut evidence: Stage5gOrderPositionEvidence,
+) -> Result<Stage5gCanonicalOrderPositionEvidence, Stage5gEvidenceCanonicalizationError> {
+    let account_id = evidence.broker_truth.account_id.as_str();
+    if account_id.is_empty() || account_id.contains(':') {
+        return Err(Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation);
+    }
+    canonicalize_broker_truth_snapshot(&mut evidence.broker_truth)?;
+    let identity = evidence_identity(&evidence);
+    let fingerprint = canonical_evidence_fingerprint(&evidence);
+    Ok(Stage5gCanonicalOrderPositionEvidence {
+        evidence,
+        identity,
+        fingerprint,
+    })
+}
+
+/// FINAM maps every historical trade with the current observation receipt, so
+/// receipt is deliberately excluded from immutable trade identity while the
+/// newest observation watermark is retained.
 fn canonicalize_broker_truth_snapshot(
     truth: &mut BrokerTruthSnapshot,
-) -> Result<(), Stage5gOrderPositionError> {
+) -> Result<(), Stage5gEvidenceCanonicalizationError> {
     let mut trades_by_id: BTreeMap<String, BrokerTradeSnapshot> = BTreeMap::new();
     for trade in truth.trades.drain(..) {
         let key = trade.broker_trade_id.as_str().to_string();
@@ -545,7 +599,7 @@ fn canonicalize_broker_truth_snapshot(
                     existing.received_ts = trade.received_ts;
                 }
             }
-            Some(_) => return Err(Stage5gOrderPositionError::TradeIdentityConflict),
+            Some(_) => return Err(Stage5gEvidenceCanonicalizationError::TradeIdentityConflict),
             None => {
                 trades_by_id.insert(key, trade);
             }
@@ -589,7 +643,7 @@ fn immutable_trade_payload_matches(
 
 pub fn apply_stage5g_order_position_evidence(
     mut session: Stage5gOrderPositionSession,
-    mut evidence: Stage5gOrderPositionEvidence,
+    evidence: Stage5gOrderPositionEvidence,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
     if session
         .state
@@ -622,11 +676,24 @@ pub fn apply_stage5g_order_position_evidence(
     if evidence.broker_truth.account_id != session.state.account_id {
         return Err(block(Stage5gOrderPositionError::AccountMismatch, session));
     }
-    if let Err(reason) = canonicalize_broker_truth_snapshot(&mut evidence.broker_truth) {
-        return Err(block(reason, session));
-    }
-    let identity = evidence_identity(&evidence);
-    let fingerprint = evidence_fingerprint(&evidence);
+    let canonical_evidence = match canonicalize_stage5g_order_position_evidence(evidence) {
+        Ok(canonical) => canonical,
+        Err(Stage5gEvidenceCanonicalizationError::TradeIdentityConflict) => {
+            return Err(block(
+                Stage5gOrderPositionError::TradeIdentityConflict,
+                session,
+            ));
+        }
+        Err(Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation) => {
+            return Err(block(
+                Stage5gOrderPositionError::EvidenceIdentityGrammarViolation,
+                session,
+            ));
+        }
+    };
+    let identity = canonical_evidence.identity().to_string();
+    let fingerprint = canonical_evidence.fingerprint().to_string();
+    let evidence = canonical_evidence.into_evidence();
     match classify_evidence_replay(&session.state, &identity, &fingerprint) {
         Err(reason) => return Err(block(reason, session)),
         Ok(true) => {
@@ -1922,7 +1989,7 @@ fn broker_truth_package_discriminator(truth: &BrokerTruthSnapshot) -> String {
     broker_truth_received_at_discriminator(truth.received_ts)
 }
 
-pub(crate) fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
+fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> String {
     format!(
         "moex.stage5g.order-position-evidence-identity.v3:{}:{}:{}",
         evidence.request_id,
@@ -1932,20 +1999,12 @@ pub(crate) fn evidence_identity(evidence: &Stage5gOrderPositionEvidence) -> Stri
 }
 // STAGE5G-C-REPLAY-PACKAGE-IDENTITY-END
 
-pub(crate) fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
-    let mut truth = evidence.broker_truth.clone();
-    canonical_json_sort(&mut truth.orders);
-    canonical_json_sort(&mut truth.trades);
-    canonical_json_sort(&mut truth.positions);
-    canonical_json_sort(&mut truth.instruments);
-    if let Some(cash) = truth.cash.as_mut() {
-        canonical_json_sort(&mut cash.cash);
-    }
+fn canonical_evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
     let projection = serde_json::json!({
         "schema_version": STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION,
         "domain": "moex.stage5g.order-position-evidence.v3",
         "request_id": evidence.request_id,
-        "broker_truth": truth,
+        "broker_truth": &evidence.broker_truth,
         "receipt_watermark_ms": evidence.broker_truth.received_ts.timestamp_millis(),
         "package_discriminator": broker_truth_package_discriminator(&evidence.broker_truth),
         "attribution": evidence
@@ -2293,6 +2352,13 @@ mod tests {
             exchange: Exchange::Moex,
             market: Market::Futures,
         }
+    }
+
+    fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
+        canonicalize_stage5g_order_position_evidence(evidence.clone())
+            .expect("test evidence canonicalizes")
+            .fingerprint()
+            .to_string()
     }
 
     fn other() -> InstrumentId {
@@ -5584,6 +5650,72 @@ mod tests {
         right.broker_truth.received_ts += chrono::Duration::milliseconds(1);
         assert_ne!(evidence_identity(&left), evidence_identity(&right));
         assert_ne!(evidence_fingerprint(&left), evidence_fingerprint(&right));
+    }
+
+    #[test]
+    fn stage5gd_active_path_stores_single_authority_canonical_fingerprint() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let poll = &golden["polls"].as_array().unwrap()[0];
+        let (session, request_id, client_order_id, attribution, time_shift) =
+            r2cb_public_runtime_session();
+        let mut truth = r2cb_golden_truth(poll, &client_order_id, time_shift);
+        truth.trades.push(truth.trades[0].clone());
+        let raw = Stage5gOrderPositionEvidence {
+            total_sequence: 2,
+            request_id,
+            broker_truth: truth,
+            order_attribution: attribution,
+        };
+        let canonical = canonicalize_stage5g_order_position_evidence(raw.clone()).unwrap();
+        assert_eq!(canonical.evidence().broker_truth.trades.len(), 1);
+        let expected_fingerprint = canonical.fingerprint().to_string();
+
+        let awaiting = apply_stage5g_order_position_evidence(session, raw)
+            .expect("active path accepts exact same-snapshot trade duplicates")
+            .into_awaiting()
+            .expect("first partial FINAM poll remains awaiting");
+        assert_eq!(awaiting.state.evidence_identities.len(), 1);
+        assert_eq!(
+            awaiting.state.evidence_identities[0].fingerprint,
+            expected_fingerprint
+        );
+        assert_eq!(awaiting.state.slots[0].trades.len(), 1);
+    }
+
+    #[test]
+    fn stage5gd_active_path_rejects_conflicting_trade_identity_before_replay_append() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let poll = &golden["polls"].as_array().unwrap()[0];
+        let (session, request_id, client_order_id, attribution, time_shift) =
+            r2cb_public_runtime_session();
+        let mut truth = r2cb_golden_truth(poll, &client_order_id, time_shift);
+        let mut conflicting = truth.trades[0].clone();
+        conflicting.price += Decimal::ONE;
+        truth.trades.push(conflicting);
+        let blocked = match apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: truth,
+                order_attribution: attribution,
+            },
+        ) {
+            Err(failure) => failure.into_blocked().unwrap(),
+            Ok(_) => panic!("conflicting trade identity must fail before replay append"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage5gOrderPositionError::TradeIdentityConflict
+        );
+        assert!(blocked.session().state.evidence_identities.is_empty());
+        assert_eq!(blocked.session().state.last_total_sequence, None);
     }
 
     // STAGE5G-C-REPLAY-PACKAGE-IDENTITY-WITNESSES-BEGIN
