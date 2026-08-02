@@ -1,7 +1,7 @@
 # Stage 5G-d — deterministic timer and continuation arbitration
 
-Status: R1-b R1 review candidate.
-Accepted predecessor: `7724b4472d603b3c2ef7c3ff22aa371aa64d8592`.
+Status: R1-b R2 review candidate.
+Accepted predecessor: `e6d2d94d709ff2f6b589a565e255dbb0049d2705`.
 Accepted Stage 5C callback authority: `d0494537d7c1739a16350b2d28f71b304165c812`.
 
 ## Decision
@@ -43,12 +43,25 @@ fingerprints, current-package membership and continuation chronology are
 validated independently of the payload hash. A recomputed hash cannot admit a
 semantically incomplete checkpoint.
 
+Validation parses every ledger identity at full nanosecond precision and
+requires nondecreasing receipt chronology. The current evidence identity must
+be the final/latest ledger entry; its exact receipt, package discriminator and
+millisecond compatibility projection must describe that same package. Thus a
+valid checksum cannot admit a stale current package, reversed ledger or a
+current receipt projection regressed to an earlier package.
+
 Package identity remains derived only from request/account and the exact
 broker package receipt discriminator. `total_sequence` and payload fingerprint
 are not identity inputs. Exact redelivery must carry a new increasing local
 sequence and is classified idempotently. Changed payload under the same
 identity is rejected. Distinct packages inside one millisecond remain distinct
 through nanosecond receipt precision.
+
+Post-restore classification checks an exact known identity before applying
+new-package chronology. Historical exact redelivery is therefore idempotent.
+A new identity is rejected if its BrokerTruth receipt millisecond predates the
+inherited continuation checkpoint, then remains subject to the existing exact
+last-BrokerTruth receipt regression guard before ledger append.
 
 ## Generated intents
 
@@ -69,8 +82,9 @@ No transport-shaped request or direct send is exposed.
 Zero-intent bar output is re-armed into `Stage5gTimerReadyPaperStrategy`; the
 same linear value can consume exactly one later timer or bar. Re-arming is a
 crate-private no-callback Stage 5C type-state bridge; all strategy callbacks
-still execute only through the accepted Stage 5C authority. Every following checkpoint is the maximum of the prior continuation, the
-exact broker receipt compatibility watermark and the accepted bar checkpoint.
+still execute only through the accepted Stage 5C authority. Every following
+checkpoint is the maximum of the prior continuation, the exact broker receipt
+compatibility watermark and the accepted bar checkpoint.
 
 Timer-generated ACK receipt and subsequent BrokerTruth receipt are rejected
 before mutation when their exact millisecond receipt precedes the inherited

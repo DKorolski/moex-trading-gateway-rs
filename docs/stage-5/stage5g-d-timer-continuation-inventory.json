@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5G-d",
-  "status": "r1b_r1_review_candidate",
-  "accepted_predecessor": "7724b4472d603b3c2ef7c3ff22aa371aa64d8592",
+  "status": "r1b_r2_review_candidate",
+  "accepted_predecessor": "e6d2d94d709ff2f6b589a565e255dbb0049d2705",
   "authority": {
     "timer_callback": "Stage 5C-k",
     "timer_settlement": "Stage 5C-l",
@@ -70,6 +70,8 @@
       "stage5gd_timer_generated_cleanup_roundtrips_through_ack_truth_and_next_session",
       "stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss",
       "semantically_incomplete_checkpoints_fail_even_with_recomputed_hash",
+      "new_post_restore_package_requires_continuation_chronology_but_exact_replay_does_not",
+      "multi_package_restore_requires_ordered_ledger_and_latest_current_projection",
       "replay_ledger_and_continuation_semantics_are_fail_closed"
     ]
   },

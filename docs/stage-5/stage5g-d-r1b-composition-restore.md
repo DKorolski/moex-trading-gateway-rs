@@ -1,15 +1,14 @@
-# Stage 5G-d R1-b R1 — continuation liveness and causal chronology
+# Stage 5G-d R1-b R2 — restart chronology and replay-ledger coherence
 
 Status: implementation review candidate.
 
-Accepted predecessor: `7724b4472d603b3c2ef7c3ff22aa371aa64d8592`.
+Accepted predecessor: `e6d2d94d709ff2f6b589a565e255dbb0049d2705`.
 
 ## Scope
 
-R1-b R1 composes the accepted transactional Stage 5C bar authority with the
-Stage 5G-d ownership wrappers. It does not change the accepted Stage 5C source
-callback logic or open Stage 5G-e/f, Redis, FINAM, transport, runtime-live or
-real orders.
+R1-b R2 hardens the accepted R1-b R1 implementation without changing its
+Stage 5C callback authority or ownership model. It does not open Stage 5G-e/f,
+Redis, FINAM, transport, runtime-live or real orders.
 
 The predecessor exposed a real liveness gap: a zero-intent bar owned only a
 settled Stage 5C value, while the accepted Stage 5C timer API requires its
@@ -44,8 +43,21 @@ Stage 5G-d checkpoint must be no older than the inner Stage 5C settlement.
 
 Checksum validity is necessary but not sufficient. Restore also requires an
 exact receipt/discriminator pair, derived millisecond watermark, unique replay
-ledger with valid fingerprints and exact current-evidence identity membership, local sequence,
-continuation watermark and coherent chronology/duplicate count.
+ledger with valid fingerprints and exact current-evidence identity membership,
+local sequence, continuation watermark and coherent chronology/duplicate count.
+
+Every replay-ledger identity is parsed at full nanosecond precision. Ledger
+receipts must be nondecreasing, the current identity must be the final/latest
+ledger identity, and the current exact receipt, discriminator and compatibility
+millisecond must all describe that same final package. Recomputed checksums do
+not make stale-current, reversed-ledger or regressed-current projections valid.
+
+After restore, an exact known identity is classified first and therefore
+remains an idempotent replay even when its historical receipt predates the
+continuation checkpoint. A genuinely new identity must have a BrokerTruth
+receipt at or after the inherited continuation checkpoint and must also pass
+the existing last-BrokerTruth receipt regression guard before it can be
+appended to the replay ledger.
 
 ## Executable witnesses
 
@@ -54,7 +66,9 @@ continuation watermark and coherent chronology/duplicate count.
 - `stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss`;
 - `stage5gd_bar_preflight_failure_returns_exact_incoming_checkpoint`;
 - `semantically_incomplete_checkpoints_fail_even_with_recomputed_hash`;
-- `replay_ledger_and_continuation_semantics_are_fail_closed`.
+- `replay_ledger_and_continuation_semantics_are_fail_closed`;
+- `new_post_restore_package_requires_continuation_chronology_but_exact_replay_does_not`;
+- `multi_package_restore_requires_ordered_ledger_and_latest_current_projection`.
 
 The timer-generated witness is source-reachable through a partial Exit with an
 authoritative bracket-reconciliation timer. An explicit post-grace timer emits

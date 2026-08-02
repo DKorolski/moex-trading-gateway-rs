@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run accepted R1-b and its authority chain from detached 7724b44 sources."""
+"""Run the accepted R1-b R1 predecessor and its authority chain detached."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BASE = "7724b4472d603b3c2ef7c3ff22aa371aa64d8592"
+BASE = "e6d2d94d709ff2f6b589a565e255dbb0049d2705"
+R1_BASE = "7724b4472d603b3c2ef7c3ff22aa371aa64d8592"
 AUTHORITY = "d0494537d7c1739a16350b2d28f71b304165c812"
 
 
@@ -27,11 +28,12 @@ def main() -> int:
     resolved = subprocess.check_output(["git", "rev-parse", BASE], cwd=ROOT, text=True).strip()
     if resolved != BASE:
         raise SystemExit("stage5g-d-predecessor-gate: FAIL: accepted predecessor missing")
-    authority_resolved = subprocess.check_output(
-        ["git", "rev-parse", AUTHORITY], cwd=ROOT, text=True
-    ).strip()
-    if authority_resolved != AUTHORITY:
-        raise SystemExit("stage5g-d-predecessor-gate: FAIL: Stage 5C authority missing")
+    for label, commit in (("R1 base", R1_BASE), ("Stage 5C authority", AUTHORITY)):
+        candidate = subprocess.check_output(
+            ["git", "rev-parse", commit], cwd=ROOT, text=True
+        ).strip()
+        if candidate != commit:
+            raise SystemExit(f"stage5g-d-predecessor-gate: FAIL: {label} missing")
     with tempfile.TemporaryDirectory(prefix="stage5g-d-predecessor-") as raw:
         temp = Path(raw)
         source = temp / "source"
@@ -42,6 +44,10 @@ def main() -> int:
         )
         for command in commands:
             subprocess.run(command, cwd=source, check=True)
+        r1_base = temp / "r1-base"
+        extract_commit(R1_BASE, r1_base)
+        for command in commands:
+            subprocess.run(command, cwd=r1_base, check=True)
         authority = temp / "authority"
         extract_commit(AUTHORITY, authority)
         for command in (

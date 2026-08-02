@@ -108,14 +108,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   R2-c-b and all live surfaces remain closed.
 - Stage 5G-c and its exact replay-package identity are independently accepted
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
-- Stage 5G-d R1-b at `7724b4472d603b3c2ef7c3ff22aa371aa64d8592` was reviewed
-  with four blocking findings. The current R1 successor closes zero-intent bar
-  liveness, exact checkpoint-to-ACK/BrokerTruth chronology, timer-owned
-  admission retry and exact current-package identity. A minimal crate-private
-  no-callback re-arm bridge is the only Stage 5C source delta; enforcement
-  proves all accepted callback authority remains byte-identical to
+- Stage 5G-d R1-b R1 at `e6d2d94d709ff2f6b589a565e255dbb0049d2705`
+  was independently reviewed with two remaining restart/replay findings. The
+  current R2 successor adds new-package continuation chronology while keeping
+  historical exact replay idempotent, and validates full-precision replay-ledger
+  order plus latest-current package coherence. The accepted Stage 5C callback
+  authority remains unchanged and byte-pinned to
   `d0494537d7c1739a16350b2d28f71b304165c812`. Stage 5G-d remains open pending
-  independent R1 acceptance.
+  independent R2 acceptance.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

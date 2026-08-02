@@ -9,7 +9,7 @@ import re
 import subprocess
 from pathlib import Path
 
-BASE = "7724b4472d603b3c2ef7c3ff22aa371aa64d8592"
+BASE = "e6d2d94d709ff2f6b589a565e255dbb0049d2705"
 STAGE5C_AUTHORITY = "d0494537d7c1739a16350b2d28f71b304165c812"
 
 
@@ -29,7 +29,16 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     lib_path = root / "crates/strategy-runtime-core/src/lib.rs"
     inventory_path = root / "docs/stage-5/stage5g-d-timer-continuation-inventory.json"
     contract_path = root / "docs/stage-5/stage5g-d-timer-continuation-contract.md"
-    for path in (timer_path, order_path, stage5c_path, lib_path, inventory_path, contract_path):
+    descriptor_path = root / "docs/stage-5/stage5g-d-r1b-composition-restore.json"
+    for path in (
+        timer_path,
+        order_path,
+        stage5c_path,
+        lib_path,
+        inventory_path,
+        contract_path,
+        descriptor_path,
+    ):
         require(path.is_file(), f"missing required Stage 5G-d file: {path}")
 
     timer = timer_path.read_text()
@@ -37,6 +46,7 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     stage5c = stage5c_path.read_text()
     lib = lib_path.read_text()
     inventory = json.loads(inventory_path.read_text())
+    descriptor = json.loads(descriptor_path.read_text())
 
     required_tokens = (
         "pub struct Stage5gTimerSession",
@@ -63,9 +73,18 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "pub fn retry(",
         "attach_stage5g_timer_order_position_session(self.resolved)",
         "pub current_evidence_identity",
-        "valid_current_evidence_identity",
+        "parse_replay_evidence_identity",
         "exact_current_identity_count",
         "entry.identity == current_identity",
+        "Stage5gCheckpointReplayError::BrokerTruthBeforeContinuationCheckpoint",
+        "evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint",
+        ".is_some_and(|last| evidence.broker_truth.received_ts < last)",
+        "Stage5gTimerCheckpointError::ReplayLedgerReceiptRegression",
+        "previous_ledger_receipt.is_some_and(|previous| parsed.received_at < previous)",
+        "Stage5gTimerCheckpointError::CurrentEvidenceIdentityNotLatest",
+        "Stage5gTimerCheckpointError::CurrentPackageReceiptMismatch",
+        "final_ledger_identity != Some(current_identity)",
+        "current.received_at != received_at || final_ledger_receipt != Some(received_at)",
         "last_continuation_checkpoint_ts_utc_ms",
         "ContinuationBeforeInnerSettlement",
         ".is_some_and(|inner| checkpoint_ts_utc_ms < inner)",
@@ -101,6 +120,11 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "stage5gd_zero_intent_bar_rearms_timer_and_later_bar_without_callback_loss",
     ):
         require(token in order, f"required chronology/liveness witness missing: {token}")
+    for token in (
+        "new_post_restore_package_requires_continuation_chronology_but_exact_replay_does_not",
+        "multi_package_restore_requires_ordered_ledger_and_latest_current_projection",
+    ):
+        require(token in timer, f"required restart/ledger witness missing: {token}")
     require(
         "STAGE5G-D-R1B-R1-ZERO-REARM-BEGIN" in stage5c
         and "STAGE5G-D-R1B-R1-ZERO-REARM-END" in stage5c,
@@ -160,6 +184,27 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "complete timer-generated ACK/BrokerTruth route witness missing",
     )
 
+    classifier_start = timer.index("pub fn classify_stage5g_post_checkpoint_evidence(")
+    classifier_end = timer.index("fn checkpoint_envelope(", classifier_start)
+    classifier = timer[classifier_start:classifier_end]
+    known_identity = classifier.index("if let Some(previous)")
+    continuation_guard = classifier.index(
+        "evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint"
+    )
+    receipt_regression = classifier.index("last_broker_truth_received_at")
+    append_new = classifier.index("replay.evidence_identities.push")
+    require(
+        known_identity < continuation_guard < receipt_regression < append_new,
+        "restart classifier chronology/order drift",
+    )
+    require(
+        classifier.count(
+            "evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint"
+        )
+        == 1,
+        "restart continuation guard must occur exactly once after exact replay classification",
+    )
+
     identity_start = order.index("fn evidence_identity(")
     identity_end = order.index("// STAGE5G-C-REPLAY-PACKAGE-IDENTITY-END")
     identity_body = order[identity_start:identity_end]
@@ -167,11 +212,28 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     require("fingerprint" not in identity_body, "payload fingerprint entered package identity")
 
     require(inventory["stage"] == "5G-d", "inventory stage drift")
-    require(inventory["status"] == "r1b_r1_review_candidate", "inventory status drift")
+    require(inventory["status"] == "r1b_r2_review_candidate", "inventory status drift")
+    require(inventory["accepted_predecessor"] == BASE, "inventory predecessor drift")
     require(len(inventory["scenario_family"]) == 8, "timer scenario inventory must remain 8/8")
     require(len(inventory["checkpoint_fields"]) == 8, "checkpoint field inventory drift")
     for surface, opened in inventory["closed_surfaces"].items():
         require(opened is False, f"closed surface opened: {surface}")
+
+    require(descriptor["stage"] == "5G-d R1-b R2", "descriptor stage drift")
+    require(
+        descriptor["status"] == "implementation_review_candidate",
+        "descriptor status drift",
+    )
+    require(descriptor["accepted_predecessor"] == BASE, "descriptor predecessor drift")
+    require(descriptor["negative_case_count"] == 42, "descriptor negative count drift")
+    for flag in (
+        "restart_new_package_causal_guard",
+        "historical_exact_replay_allowed",
+        "ledger_latest_state_coherence",
+    ):
+        require(descriptor[flag] is True, f"descriptor R2 property missing: {flag}")
+    for surface, opened in descriptor["closed_surfaces"].items():
+        require(opened is False, f"descriptor closed surface opened: {surface}")
 
     require(
         "validate_stage5c_market_terminal_outcome_r2" not in timer

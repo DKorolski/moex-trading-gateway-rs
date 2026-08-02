@@ -6,7 +6,7 @@
 //! It contains no clock read, scheduler, Redis, FINAM or broker dispatch.
 
 use broker_core::StrategyRequestId;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -77,6 +77,9 @@ pub enum Stage5gTimerCheckpointError {
     InvalidCurrentEvidenceIdentity,
     AmbiguousCurrentEvidenceIdentity,
     CurrentPackageMissingFromReplayLedger,
+    ReplayLedgerReceiptRegression,
+    CurrentEvidenceIdentityNotLatest,
+    CurrentPackageReceiptMismatch,
     MissingTotalSequence,
     MissingContinuationCheckpoint,
     ContinuationBeforeBrokerTruth,
@@ -262,6 +265,7 @@ pub enum Stage5gCheckpointReplayDisposition {
 #[serde(rename_all = "snake_case")]
 pub enum Stage5gCheckpointReplayError {
     NonMonotonicSequence,
+    BrokerTruthBeforeContinuationCheckpoint,
     BrokerTruthTimeRegression,
     ConflictingDuplicateEvidence,
 }
@@ -913,6 +917,9 @@ pub fn validate_stage5g_timer_checkpoint(
         return Err(Stage5gTimerCheckpointError::MillisecondWatermarkMismatch);
     }
     let mut identities = std::collections::HashSet::new();
+    let mut previous_ledger_receipt = None;
+    let mut final_ledger_identity = None;
+    let mut final_ledger_receipt = None;
     for entry in &payload.evidence_replay_ledger {
         if entry.identity.is_empty()
             || entry.fingerprint_sha256.len() != 64
@@ -926,13 +933,23 @@ pub fn validate_stage5g_timer_checkpoint(
         if !identities.insert(entry.identity.as_str()) {
             return Err(Stage5gTimerCheckpointError::DuplicateReplayIdentity);
         }
+        let parsed = parse_replay_evidence_identity(&entry.identity)
+            .ok_or(Stage5gTimerCheckpointError::InvalidReplayLedgerEntry)?;
+        if previous_ledger_receipt.is_some_and(|previous| parsed.received_at < previous) {
+            return Err(Stage5gTimerCheckpointError::ReplayLedgerReceiptRegression);
+        }
+        previous_ledger_receipt = Some(parsed.received_at);
+        final_ledger_identity = Some(entry.identity.as_str());
+        final_ledger_receipt = Some(parsed.received_at);
     }
     let current_identity = payload
         .current_evidence_identity
         .as_deref()
         .ok_or(Stage5gTimerCheckpointError::MissingCurrentEvidenceIdentity)?;
-    if !valid_current_evidence_identity(current_identity, package_discriminator) {
-        return Err(Stage5gTimerCheckpointError::InvalidCurrentEvidenceIdentity);
+    let current = parse_replay_evidence_identity(current_identity)
+        .ok_or(Stage5gTimerCheckpointError::InvalidCurrentEvidenceIdentity)?;
+    if current.package_discriminator != package_discriminator {
+        return Err(Stage5gTimerCheckpointError::CurrentPackageReceiptMismatch);
     }
     let exact_current_identity_count = payload
         .evidence_replay_ledger
@@ -944,6 +961,12 @@ pub fn validate_stage5g_timer_checkpoint(
     }
     if exact_current_identity_count != 1 {
         return Err(Stage5gTimerCheckpointError::AmbiguousCurrentEvidenceIdentity);
+    }
+    if final_ledger_identity != Some(current_identity) {
+        return Err(Stage5gTimerCheckpointError::CurrentEvidenceIdentityNotLatest);
+    }
+    if current.received_at != received_at || final_ledger_receipt != Some(received_at) {
+        return Err(Stage5gTimerCheckpointError::CurrentPackageReceiptMismatch);
     }
     let last_total_sequence = payload
         .last_total_sequence
@@ -999,6 +1022,13 @@ pub fn classify_stage5g_post_checkpoint_evidence(
                 .payload
                 .last_continuation_checkpoint_ts_utc_ms,
         });
+    }
+    let continuation_checkpoint = envelope
+        .payload
+        .last_continuation_checkpoint_ts_utc_ms
+        .expect("validated Stage 5G-d checkpoint has a continuation watermark");
+    if evidence.broker_truth.received_ts.timestamp_millis() < continuation_checkpoint {
+        return Err(Stage5gCheckpointReplayError::BrokerTruthBeforeContinuationCheckpoint);
     }
     if replay
         .last_broker_truth_received_at
@@ -1090,24 +1120,45 @@ fn replay_from_payload(payload: &Stage5gTimerCheckpointPayload) -> Stage5gReplay
     }
 }
 
-fn valid_current_evidence_identity(identity: &str, package_discriminator: &str) -> bool {
+struct ParsedReplayEvidenceIdentity<'a> {
+    package_discriminator: &'a str,
+    received_at: DateTime<Utc>,
+}
+
+fn parse_replay_evidence_identity(identity: &str) -> Option<ParsedReplayEvidenceIdentity<'_>> {
     const PREFIX: &str = "moex.stage5g.order-position-evidence-identity.v3:";
-    let Some(rest) = identity.strip_prefix(PREFIX) else {
-        return false;
-    };
+    let rest = identity.strip_prefix(PREFIX)?;
     let mut parts = rest.splitn(3, ':');
-    let Some(request_id) = parts.next() else {
-        return false;
-    };
-    let Some(account_id) = parts.next() else {
-        return false;
-    };
-    let Some(discriminator) = parts.next() else {
-        return false;
-    };
-    uuid::Uuid::parse_str(request_id).is_ok()
-        && !account_id.is_empty()
-        && discriminator == package_discriminator
+    let request_id = parts.next()?;
+    let account_id = parts.next()?;
+    let package_discriminator = parts.next()?;
+    if uuid::Uuid::parse_str(request_id).is_err()
+        || account_id.is_empty()
+        || account_id.contains(':')
+    {
+        return None;
+    }
+    const PACKAGE_PREFIX: &str = "moex.broker-truth.package.v1:";
+    let package_clock = package_discriminator.strip_prefix(PACKAGE_PREFIX)?;
+    let (seconds_raw, nanos_raw) = package_clock.split_once(':')?;
+    if nanos_raw.len() != 9 || !nanos_raw.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let seconds = seconds_raw.parse::<i64>().ok()?;
+    let nanos = nanos_raw.parse::<u32>().ok()?;
+    let received_at = Utc.timestamp_opt(seconds, nanos).single()?;
+    let canonical = format!(
+        "moex.broker-truth.package.v1:{}:{:09}",
+        received_at.timestamp(),
+        received_at.timestamp_subsec_nanos()
+    );
+    if canonical != package_discriminator {
+        return None;
+    }
+    Some(ParsedReplayEvidenceIdentity {
+        package_discriminator,
+        received_at,
+    })
 }
 
 impl Stage5gTimerCheckpointPayload {
@@ -1183,15 +1234,29 @@ mod tests {
                 duplicate_evidence_count: 0,
                 last_total_sequence: Some(event.total_sequence),
                 last_continuation_checkpoint_ts_utc_ms: Some(
-                    event.broker_truth.received_ts.timestamp_millis() + 10_000,
+                    event.broker_truth.received_ts.timestamp_millis(),
                 ),
             },
-            Some(event.broker_truth.received_ts.timestamp_millis() + 10_000),
+            Some(event.broker_truth.received_ts.timestamp_millis()),
         )
     }
 
     fn rehash(envelope: &mut Stage5gTimerCheckpointEnvelope) {
         envelope.payload_sha256 = envelope.payload.payload_fingerprint();
+    }
+
+    fn two_package_checkpoint() -> (
+        Stage5gTimerCheckpointEnvelope,
+        Stage5gOrderPositionEvidence,
+        Stage5gOrderPositionEvidence,
+    ) {
+        let first = evidence(7, 100_000_000);
+        let initial = checkpoint_for(&first);
+        let second = evidence(8, 200_000_000);
+        let checkpoint = classify_stage5g_post_checkpoint_evidence(&initial, second.clone())
+            .unwrap()
+            .checkpoint();
+        (checkpoint, first, second)
     }
 
     #[test]
@@ -1213,7 +1278,10 @@ mod tests {
     #[test]
     fn exact_redelivery_uses_new_local_sequence_but_same_package_identity() {
         let original = evidence(7, 125_875_321);
-        let envelope = checkpoint_for(&original);
+        let mut envelope = checkpoint_for(&original);
+        envelope.payload.last_continuation_checkpoint_ts_utc_ms =
+            Some(original.broker_truth.received_ts.timestamp_millis() + 10_000);
+        rehash(&mut envelope);
         let replay = evidence(8, 125_875_321);
         assert_eq!(evidence_identity(&original), evidence_identity(&replay));
         assert_eq!(
@@ -1286,6 +1354,48 @@ mod tests {
             .as_deref()
             .unwrap()
             .ends_with(":125900000"));
+        validate_stage5g_timer_checkpoint(&next).unwrap();
+        let encoded = serde_json::to_vec(&next).unwrap();
+        let restored: Stage5gTimerCheckpointEnvelope = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(restored, next);
+    }
+
+    #[test]
+    fn new_post_restore_package_requires_continuation_chronology_but_exact_replay_does_not() {
+        let original = evidence(7, 100_000_000);
+        let mut envelope = checkpoint_for(&original);
+        let same_second_floor = original
+            .broker_truth
+            .received_ts
+            .timestamp_millis()
+            .div_euclid(1_000)
+            * 1_000;
+        let continuation = same_second_floor + 900;
+        envelope.payload.last_continuation_checkpoint_ts_utc_ms = Some(continuation);
+        rehash(&mut envelope);
+        validate_stage5g_timer_checkpoint(&envelope).unwrap();
+
+        let early_new = evidence(8, 200_000_000);
+        assert_eq!(
+            classify_stage5g_post_checkpoint_evidence(&envelope, early_new).unwrap_err(),
+            Stage5gCheckpointReplayError::BrokerTruthBeforeContinuationCheckpoint
+        );
+
+        let corrected = evidence(8, 950_000_000);
+        let corrected_result =
+            classify_stage5g_post_checkpoint_evidence(&envelope, corrected).unwrap();
+        assert_eq!(
+            corrected_result.disposition(),
+            Stage5gCheckpointReplayDisposition::NewPackage
+        );
+
+        let exact_replay = evidence(8, 100_000_000);
+        let exact_result =
+            classify_stage5g_post_checkpoint_evidence(&envelope, exact_replay).unwrap();
+        assert_eq!(
+            exact_result.disposition(),
+            Stage5gCheckpointReplayDisposition::ExactReplay
+        );
     }
 
     #[test]
@@ -1383,8 +1493,7 @@ mod tests {
         let mut suffix_only = checkpoint_for(&event);
         let discriminator = suffix_only.payload.package_discriminator.clone().unwrap();
         let forged = format!("arbitrary-suffix-only:{discriminator}");
-        suffix_only.payload.current_evidence_identity = Some(forged.clone());
-        suffix_only.payload.evidence_replay_ledger[0].identity = forged;
+        suffix_only.payload.current_evidence_identity = Some(forged);
         rehash(&mut suffix_only);
         assert_eq!(
             validate_stage5g_timer_checkpoint(&suffix_only),
@@ -1428,8 +1537,15 @@ mod tests {
         );
 
         let mut missing_current_package = checkpoint_for(&event);
-        missing_current_package.payload.evidence_replay_ledger[0].identity =
-            "moex.stage5g.order-position-evidence-identity.v3:request:account:other".to_string();
+        missing_current_package.payload.evidence_replay_ledger[0].identity = format!(
+            "moex.stage5g.order-position-evidence-identity.v3:{}:ACC_TEST_0001:{}",
+            uuid::Uuid::from_u128(0x005d_9999),
+            missing_current_package
+                .payload
+                .package_discriminator
+                .as_deref()
+                .unwrap()
+        );
         rehash(&mut missing_current_package);
         assert_eq!(
             validate_stage5g_timer_checkpoint(&missing_current_package),
@@ -1443,6 +1559,94 @@ mod tests {
         assert_eq!(
             validate_stage5g_timer_checkpoint(&incoherent_duplicates),
             Err(Stage5gTimerCheckpointError::DuplicateCounterIncoherent)
+        );
+    }
+
+    #[test]
+    fn multi_package_restore_requires_ordered_ledger_and_latest_current_projection() {
+        let (valid, first, second) = two_package_checkpoint();
+        validate_stage5g_timer_checkpoint(&valid).unwrap();
+        let encoded = serde_json::to_vec(&valid).unwrap();
+        let restored: Stage5gTimerCheckpointEnvelope = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(restored, valid);
+
+        let mut stale_current = valid.clone();
+        stale_current.payload.current_evidence_identity = Some(evidence_identity(&first));
+        stale_current.payload.last_broker_truth_received_at = Some(first.broker_truth.received_ts);
+        stale_current.payload.last_broker_truth_received_ms =
+            Some(first.broker_truth.received_ts.timestamp_millis());
+        stale_current.payload.package_discriminator = Some(format!(
+            "moex.broker-truth.package.v1:{}:{:09}",
+            first.broker_truth.received_ts.timestamp(),
+            first.broker_truth.received_ts.timestamp_subsec_nanos()
+        ));
+        rehash(&mut stale_current);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&stale_current),
+            Err(Stage5gTimerCheckpointError::CurrentEvidenceIdentityNotLatest)
+        );
+
+        let mut regressed_receipt = valid.clone();
+        regressed_receipt.payload.last_broker_truth_received_at =
+            Some(first.broker_truth.received_ts);
+        regressed_receipt.payload.last_broker_truth_received_ms =
+            Some(first.broker_truth.received_ts.timestamp_millis());
+        regressed_receipt.payload.package_discriminator = Some(format!(
+            "moex.broker-truth.package.v1:{}:{:09}",
+            first.broker_truth.received_ts.timestamp(),
+            first.broker_truth.received_ts.timestamp_subsec_nanos()
+        ));
+        rehash(&mut regressed_receipt);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&regressed_receipt),
+            Err(Stage5gTimerCheckpointError::CurrentPackageReceiptMismatch)
+        );
+
+        let mut reversed_ledger = valid.clone();
+        reversed_ledger.payload.evidence_replay_ledger.swap(0, 1);
+        rehash(&mut reversed_ledger);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&reversed_ledger),
+            Err(Stage5gTimerCheckpointError::ReplayLedgerReceiptRegression)
+        );
+
+        let same_receipt_first = evidence(7, 400_000_000);
+        let same_receipt_initial = checkpoint_for(&same_receipt_first);
+        let mut same_receipt_second = evidence(8, 400_000_000);
+        same_receipt_second.request_id =
+            StrategyRequestId::from(uuid::Uuid::from_u128(0x005d_0002));
+        let mut nonfinal_current =
+            classify_stage5g_post_checkpoint_evidence(&same_receipt_initial, same_receipt_second)
+                .unwrap()
+                .checkpoint();
+        nonfinal_current.payload.current_evidence_identity =
+            Some(evidence_identity(&same_receipt_first));
+        rehash(&mut nonfinal_current);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&nonfinal_current),
+            Err(Stage5gTimerCheckpointError::CurrentEvidenceIdentityNotLatest)
+        );
+
+        let mut later_ledger_receipt = valid.clone();
+        let third = evidence(9, 300_000_000);
+        later_ledger_receipt
+            .payload
+            .evidence_replay_ledger
+            .push(Stage5gReplayLedgerEntry {
+                identity: evidence_identity(&third),
+                fingerprint_sha256: evidence_fingerprint(&third),
+            });
+        later_ledger_receipt.payload.last_total_sequence = Some(9);
+        rehash(&mut later_ledger_receipt);
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&later_ledger_receipt),
+            Err(Stage5gTimerCheckpointError::CurrentEvidenceIdentityNotLatest)
+        );
+
+        let second_identity = evidence_identity(&second);
+        assert_eq!(
+            valid.payload.current_evidence_identity.as_deref(),
+            Some(second_identity.as_str())
         );
     }
 
