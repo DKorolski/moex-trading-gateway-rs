@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-01.
+Status date: 2026-08-02.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -81,13 +81,21 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   exact terminal MARKET evidence validator was retained as useful work, but
   the no-callback completion left stale pending/position state while returning
   a false timer-ready type-state. The only active successor is R2-c-a R1.
-- Stage 5G-c R2-c-a R1 is a review candidate on that exact predecessor. It
-  separates validation from mutation with one opaque linear capability and
-  then reuses the ALOR-compatible Hybrid ACK/position transitions. Zero-fill
-  outcomes terminalize the original pending request; partial fills apply exact
-  broker position and retain the runtime-generated residual exit in the
-  existing intent escrow. Accepted and Confirmed ACK paths, corrected retry,
-  component chronology and timer blocking are covered without opening R2-c-b.
+- Independent review rejected Stage 5G-c R2-c-a R1 at
+  `d1b3116ef0b2bdcedbcfd1888f78b2d301a3c654` as submitted while retaining its
+  validation and state-coherence direction. The only authorized successor is
+  R2-c-a R2.
+- Stage 5G-c R2-c-a R2 is a review candidate on that exact predecessor. It
+  rejects Canceled/Expired full fills before mutation, binds terminal evidence
+  to the real source-owned owner/cycle payload, applies ACK/position/escrow work
+  to an isolated transaction candidate, and uses canonical broker-evidence
+  time for bracket grace. Inside grace it preserves the timer and returns
+  `ReadyForTimer`; the deterministic timer later escrows the residual Exit.
+  Ten focused witnesses run through accepted Stage 5F semantics and Stage 5G-b
+  Accepted or Submitted→Recovered ACK lifecycle. A separately pinned local
+  test clock also removes inherited weekend dependence from three Stage 5E
+  parity fixtures without changing production time authority. R2-c-b remains
+  closed.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

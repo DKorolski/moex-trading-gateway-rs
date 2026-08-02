@@ -944,6 +944,237 @@ impl HybridIntradayRuntimeStrategy {
         self.last_position_qty
     }
 
+    // STAGE5G-C-R2CA-R2-RUNTIME-BEGIN: deterministic-terminal-fill-runtime-v1
+    /// Builds an isolated transaction candidate for the Stage 5G-c R2-c-a R2
+    /// paper-only settlement boundary.  This deliberately does not implement
+    /// `Clone` for the public strategy type: only this crate-private authority
+    /// may duplicate the runtime long enough to validate an all-or-nothing
+    /// candidate transition.
+    pub(crate) fn stage5g_r2ca_r2_transaction_candidate(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            orchestrator: self.orchestrator.clone(),
+            high180_mr: self.high180_mr.clone(),
+            risk_gate_shadow_mr: self.risk_gate_shadow_mr.clone(),
+            state: self.state.clone(),
+            last_processed_bar_ts: self.last_processed_bar_ts,
+            last_position_qty: self.last_position_qty,
+            current_owner: self.current_owner,
+            current_side: self.current_side,
+            pending_entry: self.pending_entry,
+            pending_entry_request_id: self.pending_entry_request_id,
+            pending_entry_created_ts_utc: self.pending_entry_created_ts_utc,
+            deferred_entry: self.deferred_entry.clone(),
+            pending_exit: self.pending_exit,
+            pending_exit_request_id: self.pending_exit_request_id,
+            pending_exit_created_ts_utc: self.pending_exit_created_ts_utc,
+            deferred_exit: self.deferred_exit,
+            pending_tp_request_id: self.pending_tp_request_id,
+            pending_tp_created_ts_utc: self.pending_tp_created_ts_utc,
+            pending_sl_request_id: self.pending_sl_request_id,
+            pending_sl_created_ts_utc: self.pending_sl_created_ts_utc,
+            tp_order_id: self.tp_order_id.clone(),
+            sl_stop_order_id: self.sl_stop_order_id.clone(),
+            sl_exchange_order_id: self.sl_exchange_order_id.clone(),
+            sl_triggered_ts: self.sl_triggered_ts,
+            mr_take_price: self.mr_take_price,
+            mr_stop_price: self.mr_stop_price,
+            repair_deadline_ts: self.repair_deadline_ts,
+            next_repair_at_ts: self.next_repair_at_ts,
+            repair_backoff_level: self.repair_backoff_level,
+            repair_attempts: self.repair_attempts,
+            bracket_terminal_reconcile_started_ms: self.bracket_terminal_reconcile_started_ms,
+            active_cycle_id: self.active_cycle_id,
+            safe_mode_close_only: self.safe_mode_close_only,
+            safe_mode_reason: self.safe_mode_reason.clone(),
+            next_cycle_seq: self.next_cycle_seq,
+            last_bar_close: self.last_bar_close,
+            prev_day_close: self.prev_day_close,
+            last_day_local: self.last_day_local,
+            current_day_high: self.current_day_high,
+            current_day_low: self.current_day_low,
+            prev_day_range: self.prev_day_range,
+            entry_ready: self.entry_ready,
+            last_warmup_log: self.last_warmup_log,
+            working_orders: self.working_orders.clone(),
+            working_stop_orders: self.working_stop_orders.clone(),
+            cleanup_stop_retry_attempts: self.cleanup_stop_retry_attempts,
+            startup_live_replay_boundary_ts_utc: self.startup_live_replay_boundary_ts_utc,
+            startup_replay_suppressed_bars: self.startup_replay_suppressed_bars,
+            risk_gate_shadow_session_date: self.risk_gate_shadow_session_date,
+            risk_gate_shadow_pnl_points: self.risk_gate_shadow_pnl_points,
+            risk_gate_shadow_trade_count: self.risk_gate_shadow_trade_count,
+            risk_gate_shadow_position: self.risk_gate_shadow_position,
+            risk_gate_shadow_open: self.risk_gate_shadow_open,
+            pending_risk_gate_finalizations: self.pending_risk_gate_finalizations.clone(),
+            risk_gate_mr_enabled_current_session: self.risk_gate_mr_enabled_current_session,
+            risk_gate_rolling_sum_lb120: self.risk_gate_rolling_sum_lb120,
+            risk_gate_last_finalized_session_date: self.risk_gate_last_finalized_session_date,
+            risk_gate_ledger_rows_count: self.risk_gate_ledger_rows_count,
+        }
+    }
+
+    /// Proves that a terminal MARKET outcome belongs to the exact source-owned
+    /// semantic request rather than to a request-id-only synthetic state.
+    pub(crate) fn stage5g_r2ca_r2_source_payload(
+        &self,
+        request_id: StrategyRequestId,
+        intent_class: crate::BrokerNeutralHybridIntentClass,
+        order_side: crate::BrokerNeutralOrderSide,
+    ) -> Option<Stage5gR2caR2SourcePayload> {
+        match intent_class {
+            crate::BrokerNeutralHybridIntentClass::Entry => {
+                let entry = self.pending_entry?;
+                let side_matches = matches!(
+                    (entry.side, order_side),
+                    (Side::Long, crate::BrokerNeutralOrderSide::Buy)
+                        | (Side::Short, crate::BrokerNeutralOrderSide::Sell)
+                );
+                (self.pending_entry_request_id == Some(request_id)
+                    && self.active_cycle_id == Some(entry.cycle_id)
+                    && self.last_position_qty.abs() <= f64::EPSILON
+                    && side_matches)
+                    .then_some(Stage5gR2caR2SourcePayload::Entry {
+                        owner: entry.owner,
+                        side: entry.side,
+                        cycle_id: entry.cycle_id,
+                    })
+            }
+            crate::BrokerNeutralHybridIntentClass::Exit => {
+                let exit = self.pending_exit?;
+                let side_matches = matches!(
+                    (self.last_position_qty.is_sign_positive(), order_side),
+                    (true, crate::BrokerNeutralOrderSide::Sell)
+                        | (false, crate::BrokerNeutralOrderSide::Buy)
+                );
+                (self.pending_exit_request_id == Some(request_id)
+                    && self.last_position_qty.abs() > f64::EPSILON
+                    && self.active_cycle_id.is_some()
+                    && self.current_owner == Some(exit.owner)
+                    && self.current_side.is_some()
+                    && side_matches)
+                    .then_some(Stage5gR2caR2SourcePayload::Exit {
+                        owner: exit.owner,
+                        side: self.current_side?,
+                        cycle_id: self.active_cycle_id?,
+                    })
+            }
+            crate::BrokerNeutralHybridIntentClass::ProtectiveRepair
+            | crate::BrokerNeutralHybridIntentClass::CancelCleanup => None,
+        }
+    }
+
+    pub(crate) fn stage5g_r2ca_r2_bracket_reconcile_started_ms(&self) -> Option<i64> {
+        self.bracket_terminal_reconcile_started_ms
+    }
+
+    pub(crate) fn stage5g_r2ca_r2_bracket_reconcile_active_at(&self, now_ms: i64) -> bool {
+        self.bracket_terminal_reconcile_active(now_ms)
+    }
+
+    /// Applies only the source-proven partial-Exit nonzero-to-nonzero position
+    /// transition.  The grace decision is bound to canonical evidence time;
+    /// process wall clock is never consulted by this authority.
+    pub(crate) fn stage5g_r2ca_r2_apply_partial_exit_position_at(
+        &mut self,
+        input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimePositionEvent>,
+        decision_now_ms: i64,
+    ) -> Result<Vec<crate::BrokerNeutralHybridIntent>, Stage5gR2caR2PositionApplyError> {
+        self.validate_context_payload_instruments(&input.context, &input.payload.instrument)
+            .map_err(Stage5gR2caR2PositionApplyError::CallbackValidation)?;
+        if self
+            .bracket_terminal_reconcile_started_ms
+            .is_some_and(|started| decision_now_ms < started)
+        {
+            return Err(Stage5gR2caR2PositionApplyError::DecisionBeforeBracketTimer);
+        }
+        let context = Self::compatibility_context(&input.context);
+        let position = PositionEvent {
+            symbol: input.payload.instrument.symbol,
+            qty: input.payload.qty,
+            existing: input.payload.existing,
+            avg_price: input.payload.avg_price,
+            ts_utc: input.payload.source_ts_utc,
+        };
+        let prev = self.last_position_qty;
+        let cur = position.qty;
+        if self.pending_entry.is_some()
+            || prev.abs() <= f64::EPSILON
+            || cur.abs() <= f64::EPSILON
+            || (prev - cur).abs() <= f64::EPSILON
+            || prev.signum() != cur.signum()
+        {
+            return Err(Stage5gR2caR2PositionApplyError::SourceStateMismatch);
+        }
+        if self.bracket_terminal_reconcile_active(decision_now_ms) {
+            self.last_position_qty = cur;
+            self.lifecycle_bracket_terminal_reconcile_log(prev, cur);
+            self.sync_state();
+            return Ok(Vec::new());
+        }
+        let intents = self.emit_broker_residual_emergency_exit(
+            &context,
+            &position,
+            "broker_position_size_changed",
+        );
+        self.last_position_qty = cur;
+        self.sync_state();
+        Ok(intents)
+    }
+
+    /// Applies a source-owned partial Entry after the terminal ACK has cleared
+    /// the original pending request.  The captured owner/cycle is restored
+    /// before the residual Exit is generated, so no unowned open position can
+    /// become timer-ready.
+    pub(crate) fn stage5g_r2ca_r2_apply_partial_entry_position_at(
+        &mut self,
+        input: broker_core::HybridRuntimeCallbackInput<broker_core::HybridRuntimePositionEvent>,
+        source: Stage5gR2caR2SourcePayload,
+    ) -> Result<Vec<crate::BrokerNeutralHybridIntent>, Stage5gR2caR2PositionApplyError> {
+        self.validate_context_payload_instruments(&input.context, &input.payload.instrument)
+            .map_err(Stage5gR2caR2PositionApplyError::CallbackValidation)?;
+        let Stage5gR2caR2SourcePayload::Entry {
+            owner,
+            side,
+            cycle_id,
+        } = source
+        else {
+            return Err(Stage5gR2caR2PositionApplyError::SourceStateMismatch);
+        };
+        let context = Self::compatibility_context(&input.context);
+        let position = PositionEvent {
+            symbol: input.payload.instrument.symbol,
+            qty: input.payload.qty,
+            existing: input.payload.existing,
+            avg_price: input.payload.avg_price,
+            ts_utc: input.payload.source_ts_utc,
+        };
+        let sign_matches = matches!(
+            (side, position.qty.is_sign_positive()),
+            (Side::Long, true) | (Side::Short, false)
+        );
+        if self.pending_entry.is_some()
+            || self.pending_entry_request_id.is_some()
+            || self.last_position_qty.abs() > f64::EPSILON
+            || position.qty.abs() <= f64::EPSILON
+            || !sign_matches
+        {
+            return Err(Stage5gR2caR2PositionApplyError::SourceStateMismatch);
+        }
+        self.current_owner = Some(owner);
+        self.current_side = Some(side);
+        self.active_cycle_id = Some(cycle_id);
+        let intents = self.emit_broker_residual_emergency_exit(
+            &context,
+            &position,
+            "partial_entry_terminal_residual",
+        );
+        self.last_position_qty = position.qty;
+        self.sync_state();
+        Ok(intents)
+    }
+    // STAGE5G-C-R2CA-R2-RUNTIME-END: deterministic-terminal-fill-runtime-v1
+
     const MIN_MR_TAKE_DISTANCE_TICKS: f64 = 2.0;
     const MAX_CLEANUP_STOP_RETRIES: u32 = 3;
     const BRACKET_TERMINAL_RECONCILE_GRACE_MS: i64 = 3_000;
@@ -3100,6 +3331,29 @@ impl HybridIntradayRuntimeStrategy {
         self.sync_state();
     }
 }
+
+// STAGE5G-C-R2CA-R2-RUNTIME-ERROR-BEGIN: deterministic-terminal-fill-runtime-v1
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gR2caR2SourcePayload {
+    Entry {
+        owner: Owner,
+        side: Side,
+        cycle_id: [u8; 10],
+    },
+    Exit {
+        owner: Owner,
+        side: Side,
+        cycle_id: [u8; 10],
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gR2caR2PositionApplyError {
+    CallbackValidation(HybridRuntimeCallbackValidationError),
+    DecisionBeforeBracketTimer,
+    SourceStateMismatch,
+}
+// STAGE5G-C-R2CA-R2-RUNTIME-ERROR-END: deterministic-terminal-fill-runtime-v1
 
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
@@ -6854,6 +7108,11 @@ impl Strategy for HybridIntradayRuntimeStrategy {
     fn on_timer(&mut self, ctx: &StrategyCtx, now_ts_utc_ms: i64) -> Vec<Intent> {
         let mut intents = self.emit_bracket_reconcile_timeout_exit(ctx, now_ts_utc_ms);
         intents.extend(self.emit_partial_entry_timeout_exit(ctx, now_ts_utc_ms));
+        // STAGE5G-C-R2CA-R2-TIMER-SYNC-BEGIN: deterministic-terminal-fill-runtime-v1
+        // Timer helpers mutate private pending lifecycle fields. Publish that
+        // exact mutation before Stage 5C validates/escrows generated intents.
+        self.sync_state();
+        // STAGE5G-C-R2CA-R2-TIMER-SYNC-END: deterministic-terminal-fill-runtime-v1
         intents
     }
 

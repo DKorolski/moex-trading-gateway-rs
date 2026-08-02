@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "stage": "5G-c-R2-c-a-R2-deterministic-terminal-fill-boundary",
+  "status": "review_candidate",
+  "base_commit": "d1b3116ef0b2bdcedbcfd1888f78b2d301a3c654",
+  "predecessor_review_verdict": "rejected_as_submitted",
+  "predecessor_stage5c_sha256": "4670090bb6046d9c70310ef07dfee2eafaa87f7873627db9de240ee5ab568d40",
+  "predecessor_runtime_sha256": "aa514c2479a2720a585ce0c386ab91674e125582e013912fba49fe529f8bdd2d",
+  "stage5c_current_sha256": "541b3dfffc838bd939790210c0a63e988a1c1d4a66f69bba52914a494b4cc3ea",
+  "runtime_current_sha256": "fda7593117c41797d2a98e534937b53ead18451e6a3c89c5196eace0207959f3",
+  "regions": {
+    "deterministic-terminal-fill-boundary-v1": "943f7ac92874f3ccc91f13c5dd020806aee953221219202da24af8affa6d9b72",
+    "deterministic-terminal-fill-boundary-tests-v1": "2f363b466a122a8c6ec3cdd95060d2133ac4eb20476a0afc890fe454d0f47d43",
+    "deterministic-terminal-fill-runtime-v1": "c242d514fba0c878da8c09e5b3dcd2ba1293c23845ea3e05667a3e65d40240cf",
+    "deterministic-terminal-fill-runtime-errors-v1": "44e1661f094b595d3e175089efa196c548e6916329bbf407fa7c0f53d438c9a7",
+    "deterministic-terminal-fill-timer-sync-v1": "68b16a1519f766f90e4178237e430ea68df5c63e0854e2d010084144579c48ac",
+    "deterministic-terminal-fill-test-clock-v1": "eb2b6e2c9d549a9b8d6b26b9877f76ec2b0fdc071ce3dc97757cedd69f5f3efa"
+  },
+  "decision": "source_preflight_then_transaction_candidate_then_commit",
+  "status_fill_policy": {
+    "rejected": "filled_qty_equals_zero",
+    "canceled": "zero_lte_filled_qty_lt_order_qty",
+    "expired": "zero_lte_filled_qty_lt_order_qty",
+    "terminal_status_full_fill": "typed_block_preserving_original_capability"
+  },
+  "bracket_grace_clock": "canonical_broker_evidence_time",
+  "inside_grace_result": "ready_for_timer_with_timer_preserved",
+  "after_grace_result": "generated_recovery_intent_escrow",
+  "candidate_transition_transactional": true,
+  "source_owner_cycle_preflight": true,
+  "timer_private_state_sync_before_escrow": true,
+  "inherited_test_clock_fixed_and_production_unchanged": true,
+  "focused_source_path_tests": 10,
+  "accepted_stage5f_fixture_fingerprint": "stage5d_cfg_sha256:56141846cb180b8a224a1db7e1f5188c99c28f0fab88a27ebe65fbcb9d7cf626",
+  "stage5g_b_source_mapping_sha256": "a3aa1a64ebc763750b52530925c03b4573a30627c05211491a0ae51f64da7b67",
+  "broker_core_ack_mapping_sha256": "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d",
+  "stage5f_sha256": "cf8fe7900a2f1f84d3928c0d911db69415f19ee640c26dea47227759e375c508",
+  "normalized_public_api_unchanged": true,
+  "closed_surfaces": {
+    "stage5g_c_r2cb": false,
+    "stage5g_d": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}
