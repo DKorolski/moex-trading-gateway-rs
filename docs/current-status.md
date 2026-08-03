@@ -119,11 +119,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `e269b709d2c3e1a2d3892a88099585bce12d0778` was rejected as submitted because
   its package tests did not reseal the nested lifecycle authority and its
   TimerReady summary/checkpoint lacked source-settlement authority.
-  Stage 5G-e-c R2 is the only current implementation review candidate. It retains a
-  versioned Stage 5C TimerSettlement/recovery/history projection, validates all
-  TimerReady summary fields against source authority, binds the continuation
-  checkpoint to the inner settlement and binds the Stage 5G lifecycle commit
-  to the exact Stage 5D package instance before runtime mutation. The accepted
+  Stage 5G-e-c R2 at `f2f5b1508171632d2e4b211eae79ee6bf3b18178` was rejected
+  because all lifecycle commitments still lived inside one rehashable Stage 5G
+  extension. Stage 5G-e-c R3 is the only current implementation review
+  candidate. It retains the R2 Stage 5C TimerSettlement/recovery/history
+  projection, commits its complete source-derived lifecycle authority into the
+  independently checksummed Stage 5D envelope, validates that anchor before
+  runtime mutation, and requires a nonempty TimerReady history ending in the
+  exact settled batch. Its package-level tests reseal every nested checkpoint,
+  source/lifecycle hash, extension, envelope and package checksum before proving
+  coherent summary, history, recovery, checkpoint and complete-extension
+  mutations fail closed. The accepted
   owning exact-replay proof carries the old
   and new checkpoints plus exact canonical evidence, updates the live session
   through the same canonical Stage 5G-c metadata authority, and proves both

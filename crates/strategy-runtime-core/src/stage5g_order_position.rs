@@ -7814,7 +7814,7 @@ mod tests {
         );
         assert_eq!(
             crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch)
+            Err(crate::Stage5gCleanRestartError::UnexpectedOrderPositionState)
         );
     }
 
@@ -7835,7 +7835,7 @@ mod tests {
         );
         assert_eq!(
             crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch)
+            Err(crate::Stage5gCleanRestartError::ReplayProjectionInconsistent)
         );
     }
 
@@ -7843,8 +7843,12 @@ mod tests {
     fn stage5ge_c_r2_fully_resealed_timer_request_count_fails_semantically() {
         assert_stage5ge_c_rehashed_error(
             Stage5geCTestSourceKind::TimerReady,
-            |extension| extension["summary"]["request_count"] = serde_json::json!(999),
-            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+            |extension| {
+                extension["summary"]["request_count"] = serde_json::json!(999);
+                extension["timer_ready_source"]["source_summary"]["request_count"] =
+                    serde_json::json!(999);
+            },
+            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
         );
     }
 
@@ -7855,8 +7859,10 @@ mod tests {
             |extension| {
                 extension["summary"]["lifecycle_fingerprint_sha256"] =
                     serde_json::json!("0".repeat(64));
+                extension["timer_ready_source"]["source_summary"]["lifecycle_fingerprint_sha256"] =
+                    serde_json::json!("0".repeat(64));
             },
-            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
         );
     }
 
@@ -7869,30 +7875,28 @@ mod tests {
                 extension["summary"]["order_transition_count"] = serde_json::json!(8);
                 extension["summary"]["correlated_trade_count"] = serde_json::json!(9);
                 extension["summary"]["position_confirmation_count"] = serde_json::json!(10);
+                extension["timer_ready_source"]["source_summary"] = extension["summary"].clone();
             },
-            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
         );
     }
 
     #[test]
     fn stage5ge_c_r2_fully_resealed_valid_checkpoint_graft_with_watermarks_fails() {
-        let (donor_bytes, _) =
-            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
-        let donor_package: serde_json::Value = serde_json::from_slice(&donor_bytes).unwrap();
-        let donor_extension: serde_json::Value =
-            serde_json::from_str(donor_package["stage5g_extension_json"].as_str().unwrap())
-                .unwrap();
-        let graft = donor_extension["checkpoint"].clone();
         assert_stage5ge_c_rehashed_error(
             Stage5geCTestSourceKind::TimerReady,
-            move |extension| {
-                extension["checkpoint"] = graft.clone();
-                extension["summary"]["duplicate_evidence_count"] =
-                    graft["payload"]["duplicate_evidence_count"].clone();
-                extension["summary"]["last_total_sequence"] =
-                    graft["payload"]["last_total_sequence"].clone();
+            |extension| {
+                let current = extension["checkpoint"]["payload"]
+                    ["last_continuation_checkpoint_ts_utc_ms"]
+                    .as_i64()
+                    .unwrap();
+                let grafted = serde_json::json!(current + 1);
+                extension["checkpoint"]["payload"]["last_continuation_checkpoint_ts_utc_ms"] =
+                    grafted.clone();
+                extension["timer_ready_source"]["source_checkpoint"]["payload"]
+                    ["last_continuation_checkpoint_ts_utc_ms"] = grafted;
             },
-            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
         );
     }
 
@@ -7908,7 +7912,7 @@ mod tests {
                 extension["timer_ready_source"]["stage5c_settlement"]["checkpoint_ts_utc_ms"] =
                     serde_json::json!(outer + 1);
             },
-            crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch,
+            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
         );
     }
 
@@ -7920,7 +7924,96 @@ mod tests {
                 extension["timer_ready_source"]["stage5c_settlement"]
                     ["recovery_receipt_identity_sha256"] = serde_json::json!("a".repeat(64));
             },
-            crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch,
+            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r3_fully_resealed_empty_timer_history_fails_semantically() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                extension["timer_ready_source"]["stage5c_settlement"]["settled_batch_history"] =
+                    serde_json::json!([]);
+            },
+            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r3_fully_resealed_timer_history_state_fingerprint_fails_anchor() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                extension["timer_ready_source"]["stage5c_settlement"]["settled_batch_history"][0]
+                    ["state_fingerprint"] = serde_json::json!("forged-state-fingerprint");
+            },
+            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r3_missing_stage5d_source_anchor_fails_closed() {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |envelope| {
+                envelope
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("stage5g_source_authority_anchor_sha256");
+            },
+            |_| {},
+        );
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r3_stage5d_source_anchor_is_present_and_canonical() {
+        let (bytes, _) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let package: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let envelope: serde_json::Value =
+            serde_json::from_str(package["envelope_json"].as_str().unwrap()).unwrap();
+        let anchor = envelope["stage5g_source_authority_anchor_sha256"]
+            .as_str()
+            .unwrap();
+        assert_eq!(anchor.len(), 64);
+        assert!(anchor
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn stage5ge_c_r3_rehashed_stage5d_source_anchor_substitution_fails_closed() {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |envelope| {
+                envelope["stage5g_source_authority_anchor_sha256"] =
+                    serde_json::json!("a".repeat(64));
+            },
+            |_| {},
+        );
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r3_resealed_timer_history_must_end_in_settled_batch() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                extension["timer_ready_source"]["stage5c_settlement"]["settled_batch_history"]
+                    .as_array_mut()
+                    .unwrap()
+                    .pop();
+            },
+            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
         );
     }
 
@@ -7934,17 +8027,22 @@ mod tests {
                 .unwrap();
         let (target_bytes, fresh) =
             stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::NewPackageAwaiting);
+        let target_package: serde_json::Value = serde_json::from_slice(&target_bytes).unwrap();
+        let target_extension: serde_json::Value =
+            serde_json::from_str(target_package["stage5g_extension_json"].as_str().unwrap())
+                .unwrap();
+        let target_package_instance = target_extension["package_instance"].clone();
         let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
             &target_bytes,
-            |envelope| {
-                envelope["lifecycle_watermarks"]["persisted_event_watermark"] =
-                    serde_json::json!("same-binding-different-package-instance");
+            |_| {},
+            move |extension| {
+                *extension = donor_extension;
+                extension["package_instance"] = target_package_instance;
             },
-            move |extension| *extension = donor_extension,
         );
         assert_eq!(
             crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch)
+            Err(crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch)
         );
     }
 

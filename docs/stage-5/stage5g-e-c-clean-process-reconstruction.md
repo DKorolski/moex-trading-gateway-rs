@@ -1,40 +1,38 @@
-# Stage 5G-e-c R2 — fully resealed source-bound lifecycle reconstruction
+# Stage 5G-e-c R3 — independently anchored TimerReady source authority
 
-Base commit: `e269b709d2c3e1a2d3892a88099585bce12d0778`.
+Reviewed predecessor: `f2f5b1508171632d2e4b211eae79ee6bf3b18178`
+(`Stage 5G-e-c R2`, rejected as submitted).
 
-R2 preserves every accepted R1 boundary and closes the nested-reseal findings.
-The only durable document remains the Stage 5D canonical restart package;
-Stage 5G contributes one strict, versioned extension and never returns the
-consumed source capability.
+R3 preserves the accepted R2 implementation while separating the trust
+domains. The Stage 5G source-authority digest is now committed into the
+canonical Stage 5D persistence envelope before the final Stage 5G projection
+is serialized. The anchor therefore participates in the Stage 5D payload,
+envelope and package checksums; it is not stored only inside the rehashable
+Stage 5G extension.
 
-Timer-ready persistence now retains a crate-private source projection of the
-exact Stage 5C `ReadyForContinuation` settlement: zero-intent settled batch,
-ordered settled-batch history, recovery-receipt fingerprint and inner
-settlement checkpoint. It also retains the source-owned Stage 5G summary and
-checkpoint. Restore compares every summary field with that source authority,
-requires the outer checkpoint to equal the source checkpoint and not precede
-the inner settlement, and rejects missing or grafted authority.
+The anchored source projection covers the source-owned binding, lifecycle
+kind, callback and zero-intent authority, runtime-state fingerprint, complete
+summary, checkpoint, order-position state and TimerReady Stage 5C settlement.
+For TimerReady this includes the settled zero-intent batch, ordered history,
+recovery-receipt identity and source checkpoint. Restore recomputes this digest
+from the strict Stage 5G projection and compares it with the independent Stage
+5D envelope anchor before any runtime mutation.
 
-Every extension is bound to one Stage 5D package instance through snapshot
-identity/revision/generation, persisted timestamp, the Stage 5D payload
-checksum and lifecycle-watermark fingerprint. A source lifecycle commit joins
-those Stage 5D components to the Stage 5G lifecycle/source/checkpoint
-fingerprints. A complete extension graft from another same-strategy package
-therefore fails closed.
+The TimerReady validator also requires a nonempty history whose final row is
+the exact settled batch, exact request/intent cardinality, canonical lowercase
+SHA-256 identities and monotonic event/history timestamps. These checks reject
+impossible source projections independently of the outer anchor.
 
-The reconstructed capability contains a non-serializable validated next-stage
-authority. Timer-ready observations derive from the validated settlement
-projection; committed-awaiting observations derive summary/checkpoint from the
-persisted order-position state. No observation reads an unvalidated free
-summary.
+The package mutation harness now reseals both checkpoint envelopes, the full
+source-authority digest, lifecycle checkpoint, source lifecycle commit,
+lifecycle proof, Stage 5G extension checksum, Stage 5D envelope checksum and
+outer package checksum. Coherent mutations of both summary copies, recovery
+identity, settled history, both checkpoint copies and a same-instance complete
+extension graft still fail because the original Stage 5D anchor is unchanged.
 
-Package-level semantic mutation first strict-decodes the extension and
-recomputes the nested lifecycle proof before recomputing extension/envelope/
-package checksums. The 34 focused tests include four public clean-process
-roundtrips and exact-error witnesses for request/count/fingerprint mutation,
-valid checkpoint graft with adjusted watermarks, inner-settlement regression,
-recovery-receipt graft and complete same-binding extension graft. The 25-case
-negative matrix pins these enforcement points.
+Compatibility is additive: ordinary Stage 5D packages omit the optional anchor
+and retain their prior serialized form. A Stage 5G clean restart requires the
+anchor and fails closed when it is absent, malformed or inconsistent.
 
 Fresh BrokerTruth reconciliation, GRST01–GRST12, Stage 5G-f, Redis/FINAM/HTTP,
 broker execution, runtime-live, real orders, main merge and deployment remain

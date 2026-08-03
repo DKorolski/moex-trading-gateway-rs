@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 use crate::runtime_compat::Strategy;
 use crate::stage5d_persistence::{
+    stage5d_bind_stage5g_source_authority_anchor,
     stage5d_decode_canonical_restart_bytes_requiring_stage5g,
     stage5d_export_canonical_envelope_from_runtime,
     stage5d_export_canonical_restart_bytes_with_stage5g_extension,
@@ -139,6 +140,7 @@ pub enum Stage5gCleanRestartError {
     TimerReadySourceAuthorityMismatch,
     PackageInstanceBindingMismatch,
     SourceLifecycleCommitMismatch,
+    Stage5dSourceAuthorityAnchorMismatch,
 }
 
 impl From<Stage5dEnvelopeValidationError> for Stage5gCleanRestartError {
@@ -309,9 +311,19 @@ pub fn export_stage5g_clean_restart(
         lifecycle_watermarks: input.lifecycle_watermarks,
         riskgate: input.riskgate,
     };
-    let (stage5d_envelope, _) =
+    let (mut stage5d_envelope, _) =
         stage5d_export_canonical_envelope_from_runtime(strategy, stage5d_input.clone())?;
+    let preliminary_projection = projection_from_source(&source, &stage5d_envelope)?;
+    let stage5g_source_authority_anchor_sha256 =
+        independent_source_authority_sha256(&preliminary_projection)?;
+    stage5d_bind_stage5g_source_authority_anchor(
+        &mut stage5d_envelope,
+        &stage5g_source_authority_anchor_sha256,
+    )?;
     let projection = projection_from_source(&source, &stage5d_envelope)?;
+    if independent_source_authority_sha256(&projection)? != stage5g_source_authority_anchor_sha256 {
+        return Err(Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch);
+    }
     let extension_json = serde_json::to_string(&projection)
         .map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;
     let bytes = stage5d_export_canonical_restart_bytes_with_stage5g_extension(
@@ -319,6 +331,7 @@ pub fn export_stage5g_clean_restart(
         stage5d_input,
         input.riskgate_evidence,
         extension_json,
+        Some(&stage5g_source_authority_anchor_sha256),
     )?;
     // The borrow above ends before the owning source is destroyed. No source
     // Stage 5G or Stage 5C capability is returned beside the durable bytes.
@@ -678,11 +691,15 @@ fn validate_timer_ready_source_authority(
         || settlement.settled_batch.instrument != projection.binding.instrument_id
         || !is_sha256_hex(&settlement.recovery_receipt_identity_sha256)
         || settlement.settled_batch.state_fingerprint.is_empty()
+        || settlement.settled_batch_history.is_empty()
+        || settlement.settled_batch_history.last() != Some(&settlement.settled_batch)
         || !settlement.settled_batch_history.iter().all(|batch| {
             batch.strategy_id == projection.binding.strategy_id
                 && batch.account_id == projection.binding.account_id
                 && batch.instrument == projection.binding.instrument_id
                 && !batch.state_fingerprint.is_empty()
+                && batch.intent_count == batch.request_ids.len()
+                && batch.min_source_event_ts <= batch.max_source_event_ts
         })
         || !settlement
             .settled_batch_history
@@ -700,7 +717,10 @@ fn validate_timer_ready_source_authority(
 }
 
 fn is_sha256_hex(value: &str) -> bool {
-    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 fn validate_package_instance_internal(
@@ -731,6 +751,15 @@ fn validate_projection_binding(
     envelope: &crate::Stage5dPersistenceEnvelope,
     fresh_runtime: &HybridIntradayRuntimeStrategy,
 ) -> Result<(), Stage5gCleanRestartError> {
+    let stage5d_source_anchor = envelope
+        .stage5g_source_authority_anchor_sha256
+        .as_deref()
+        .ok_or(Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch)?;
+    if !is_sha256_hex(stage5d_source_anchor)
+        || stage5d_source_anchor != independent_source_authority_sha256(projection)?
+    {
+        return Err(Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch);
+    }
     let binding = &projection.binding;
     if binding.strategy_id != envelope.binding.strategy_id
         || binding.account_id != envelope.binding.account_id
@@ -848,6 +877,36 @@ fn lifecycle_source_authority_sha256(
         lifecycle_kind: projection.lifecycle_kind,
         timer_ready_source: &projection.timer_ready_source,
         order_position_state: &projection.order_position_state,
+    })
+}
+
+fn independent_source_authority_sha256(
+    projection: &Stage5gCleanRestartProjectionV1,
+) -> Result<String, Stage5gCleanRestartError> {
+    #[derive(Serialize)]
+    struct IndependentSourceAuthority<'a> {
+        domain: &'static str,
+        binding: &'a Stage5gCleanRestartBindingV1,
+        lifecycle_kind: Stage5gCleanRestartLifecycleKind,
+        authoritative_callback_count: usize,
+        zero_intent_ready: bool,
+        strategy_state_fingerprint_sha256: &'a str,
+        summary: &'a Stage5gOrderPositionSummary,
+        checkpoint: &'a Stage5gTimerCheckpointEnvelope,
+        order_position_state: &'a Option<Stage5gOrderPositionState>,
+        timer_ready_source: &'a Option<Stage5gTimerReadyRestartProjectionV1>,
+    }
+    semantic_sha256(&IndependentSourceAuthority {
+        domain: "moex.stage5g.clean-restart.stage5d-source-authority-anchor.v1",
+        binding: &projection.binding,
+        lifecycle_kind: projection.lifecycle_kind,
+        authoritative_callback_count: projection.lifecycle_proof.authoritative_callback_count,
+        zero_intent_ready: projection.lifecycle_proof.zero_intent_ready,
+        strategy_state_fingerprint_sha256: &projection.strategy_state_fingerprint_sha256,
+        summary: &projection.summary,
+        checkpoint: &projection.checkpoint,
+        order_position_state: &projection.order_position_state,
+        timer_ready_source: &projection.timer_ready_source,
     })
 }
 

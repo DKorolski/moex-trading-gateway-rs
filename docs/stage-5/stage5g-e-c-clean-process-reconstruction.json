@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "stage": "5G-e-c",
-  "name": "fully_resealed_source_bound_lifecycle_reconstruction_authority_r2",
+  "name": "independently_anchored_timerready_source_authority_r3",
   "status": "implementation_review_candidate",
-  "accepted_predecessor": "e269b709d2c3e1a2d3892a88099585bce12d0778",
+  "reviewed_predecessor": "f2f5b1508171632d2e4b211eae79ee6bf3b18178",
   "stage5d_is_single_persistence_authority": true,
   "source_capability_consumed_before_return": true,
   "strict_byte_boundary": true,
@@ -19,6 +19,9 @@
   "checkpoint_bound_to_inner_settlement": true,
   "package_instance_source_commit_bound": true,
   "next_reconciliation_uses_validated_authority": true,
+  "stage5d_independent_source_authority_anchor": true,
+  "fully_resealed_all_nested_hashes": true,
+  "timer_history_tail_bound_to_settled_batch": true,
   "public_clean_process_roundtrips": 4,
   "supported_source_lifecycles": [
     "timer_ready",
@@ -30,8 +33,8 @@
     "timer_ready",
     "order_position_awaiting_committed"
   ],
-  "focused_test_count": 34,
-  "negative_matrix_count": 25,
+  "focused_test_count": 40,
+  "negative_matrix_count": 32,
   "compile_fail_witness_count": 2,
   "fresh_broker_truth_reconciliation_deferred": true,
   "full_grst01_grst12_matrix_deferred": true,

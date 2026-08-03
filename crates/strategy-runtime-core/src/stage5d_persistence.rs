@@ -3475,6 +3475,7 @@ pub(crate) fn stage5d_export_canonical_envelope_from_runtime(
         },
         payload_checksum_sha256: String::new(),
         lifecycle_watermarks: input.lifecycle_watermarks,
+        stage5g_source_authority_anchor_sha256: None,
         recovery_indexes,
         runtime_private_extension,
         riskgate: input.riskgate,
@@ -3714,16 +3715,41 @@ pub(crate) fn stage5d_export_canonical_restart_bytes_with_stage5g_extension(
     input: Stage5dCanonicalEnvelopeExportInput,
     evidence: Stage5dRiskGateLedgerEvidence,
     stage5g_extension_json: String,
+    stage5g_source_authority_anchor_sha256: Option<&str>,
 ) -> Result<Vec<u8>, Stage5dEnvelopeValidationError> {
     if stage5g_extension_json.is_empty() {
         return Err(Stage5dEnvelopeValidationError::RequiredFieldEmpty);
     }
     let (mut package, _) =
         stage5d_export_canonical_restart_package_from_runtime(strategy, input, evidence)?;
+    if let Some(anchor) = stage5g_source_authority_anchor_sha256 {
+        let mut envelope: Stage5dPersistenceEnvelope = serde_json::from_str(&package.envelope_json)
+            .map_err(|_| Stage5dEnvelopeValidationError::DeserializationFailed)?;
+        stage5d_bind_stage5g_source_authority_anchor(&mut envelope, anchor)?;
+        package.envelope_json = serde_json::to_string(&envelope)
+            .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+        package.envelope_sha256 = sha256_text(&package.envelope_json);
+    }
     package.stage5g_extension_sha256 = Some(sha256_text(&stage5g_extension_json));
     package.stage5g_extension_json = Some(stage5g_extension_json);
     package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
     Ok(package.to_json_strict()?.into_bytes())
+}
+
+pub(crate) fn stage5d_bind_stage5g_source_authority_anchor(
+    envelope: &mut Stage5dPersistenceEnvelope,
+    anchor_sha256: &str,
+) -> Result<(), Stage5dEnvelopeValidationError> {
+    if anchor_sha256.len() != 64
+        || !anchor_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+    envelope.stage5g_source_authority_anchor_sha256 = Some(anchor_sha256.to_string());
+    envelope.payload_checksum_sha256 = envelope.compute_payload_checksum_sha256()?;
+    envelope.validate_schema_and_checksum()
 }
 
 pub(crate) fn stage5d_decode_canonical_restart_bytes_requiring_stage5g(
@@ -3804,7 +3830,14 @@ pub(crate) fn stage5g_test_rehash_clean_restart_package(
     let mut extension: crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1 =
         serde_json::from_value(extension_value)
             .expect("mutated test extension remains strictly typed");
-    crate::stage5g_clean_restart::stage5g_test_reseal_nested_integrity(&mut extension);
+    extension.checkpoint =
+        crate::stage5g_timer::stage5g_test_reseal_checkpoint(&extension.checkpoint.payload);
+    if let Some(timer_source) = extension.timer_ready_source.as_mut() {
+        timer_source.source_checkpoint = crate::stage5g_timer::stage5g_test_reseal_checkpoint(
+            &timer_source.source_checkpoint.payload,
+        );
+    }
+    crate::stage5g_clean_restart::stage5g_test_reseal_lifecycle_authority(&mut extension);
     let extension_value =
         serde_json::to_value(extension).expect("resealed test extension remains serializable");
     let mut envelope: Stage5dPersistenceEnvelope =
@@ -4462,6 +4495,8 @@ pub struct Stage5dPersistenceEnvelope {
     pub strategy_state: Stage5dStrategyStatePayload,
     pub payload_checksum_sha256: String,
     pub lifecycle_watermarks: Stage5dLifecycleWatermarks,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage5g_source_authority_anchor_sha256: Option<String>,
     pub recovery_indexes: Stage5dRecoveryIndexes,
     pub runtime_private_extension: Stage5dRuntimePrivateExtension,
     pub riskgate: Stage5dRiskGatePersistence,
@@ -18907,6 +18942,7 @@ mod tests {
             input,
             evidence,
             extension_json.clone(),
+            None,
         )
         .expect("Stage 5G extension must use the canonical Stage 5D package");
         drop(source_strategy);
@@ -18951,6 +18987,7 @@ mod tests {
             input,
             evidence,
             "{\"schema_version\":1}".to_string(),
+            None,
         )
         .unwrap();
         drop(source_strategy);

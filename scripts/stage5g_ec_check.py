@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed source/contract checker for Stage 5G-e-c."""
+"""Fail-closed source/contract checker for Stage 5G-e-c R3."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 import subprocess
 from pathlib import Path
 
-BASE = "e269b709d2c3e1a2d3892a88099585bce12d0778"
+BASE = "f2f5b1508171632d2e4b211eae79ee6bf3b18178"
 FILES = {
     "restart": Path("crates/strategy-runtime-core/src/stage5g_clean_restart.rs"),
     "stage5d": Path("crates/strategy-runtime-core/src/stage5d_persistence.rs"),
@@ -47,7 +47,7 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     descriptor = json.loads((root / FILES["descriptor"]).read_text())
 
     require(descriptor["stage"] == "5G-e-c", "descriptor stage drift")
-    require(descriptor["accepted_predecessor"] == BASE, "predecessor drift")
+    require(descriptor["reviewed_predecessor"] == BASE, "predecessor drift")
     for field in (
         "stage5d_is_single_persistence_authority",
         "source_capability_consumed_before_return",
@@ -64,10 +64,13 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "checkpoint_bound_to_inner_settlement",
         "package_instance_source_commit_bound",
         "next_reconciliation_uses_validated_authority",
+        "stage5d_independent_source_authority_anchor",
+        "fully_resealed_all_nested_hashes",
+        "timer_history_tail_bound_to_settled_batch",
     ):
         require(descriptor[field] is True, f"invariant lost: {field}")
-    require(descriptor["focused_test_count"] == 34, "focused test count drift")
-    require(descriptor["negative_matrix_count"] == 25, "negative matrix count drift")
+    require(descriptor["focused_test_count"] == 40, "focused test count drift")
+    require(descriptor["negative_matrix_count"] == 32, "negative matrix count drift")
     require(descriptor["public_clean_process_roundtrips"] == 4,
             "public roundtrip count drift")
     require(descriptor["supported_source_lifecycles"] == [
@@ -79,8 +82,8 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     ], "lifecycle set drift")
     require(all(value is False for value in descriptor["closed_surfaces"].values()),
             "closed surface opened")
-    require(f"Base commit: `{BASE}`." in contract, "contract base drift")
-    require("Stage 5G-e-c R2 is the only current implementation review" in status,
+    require(f"Reviewed predecessor: `{BASE}`" in contract, "contract base drift")
+    require("Stage 5G-e-c R3 is the only current implementation review" in status,
             "status drift")
 
     export_input = restart.split("pub struct Stage5gCleanRestartExportInput", 1)[1].split("}", 1)[0]
@@ -118,6 +121,11 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "lifecycle_authority_sha256",
         "lifecycle_source_authority_sha256",
         "source_lifecycle_commit_sha256",
+        "fn independent_source_authority_sha256(",
+        "Stage5dSourceAuthorityAnchorMismatch",
+        "stage5g_source_authority_anchor_sha256",
+        "stage5d_bind_stage5g_source_authority_anchor",
+        "stage5d_source_anchor != independent_source_authority_sha256(projection)?",
         "binding.source_lifecycle_commit_sha256 != source_lifecycle_commit_sha256(projection)?",
         "validate_timer_ready_source_authority",
         "validate_package_instance_internal(projection)?;",
@@ -127,6 +135,7 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "source.source_checkpoint != projection.checkpoint",
         "stage5d_payload_checksum_sha256",
         "stage5d_lifecycle_watermarks_sha256",
+        "settlement.settled_batch_history.last() != Some(&settlement.settled_batch)",
         "next_reconciliation_observation",
     )
     for token in required_restart:
@@ -152,10 +161,13 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     required_stage5d = (
         "stage5g_extension_json: Option<String>",
         "stage5g_extension_sha256: Option<String>",
+        "stage5g_source_authority_anchor_sha256: Option<String>",
+        "fn stage5d_bind_stage5g_source_authority_anchor(",
         "fn validate_stage5g_extension_pair(&self)",
         ".ok_or(Stage5dEnvelopeValidationError::RequiredFieldEmpty)?",
         "stage5d_apply_validated_materialized_riskgate_for_restart",
-        "stage5g_test_reseal_nested_integrity(&mut extension)",
+        "stage5g_test_reseal_lifecycle_authority(&mut extension)",
+        "extension.checkpoint =\n        crate::stage5g_timer::stage5g_test_reseal_checkpoint(",
     )
     for token in required_stage5d:
         require(token in stage5d, f"Stage 5D authority drift: {token}")
@@ -192,6 +204,12 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "stage5ge_c_r2_fully_resealed_inner_settlement_checkpoint_regression_fails",
         "stage5ge_c_r2_fully_resealed_recovery_receipt_graft_fails",
         "stage5ge_c_r2_fully_resealed_complete_extension_graft_fails_package_binding",
+        "stage5ge_c_r3_fully_resealed_empty_timer_history_fails_semantically",
+        "stage5ge_c_r3_fully_resealed_timer_history_state_fingerprint_fails_anchor",
+        "stage5ge_c_r3_missing_stage5d_source_anchor_fails_closed",
+        "stage5ge_c_r3_stage5d_source_anchor_is_present_and_canonical",
+        "stage5ge_c_r3_rehashed_stage5d_source_anchor_substitution_fails_closed",
+        "stage5ge_c_r3_resealed_timer_history_must_end_in_settled_batch",
     )
     require(all(name in order for name in tests), "focused projection witness missing")
     require("assert_stage5ge_c_rehashed_error" in order

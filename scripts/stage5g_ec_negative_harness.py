@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Twenty-five fail-closed mutations for Stage 5G-e-c R2."""
+"""Thirty-two fail-closed mutations for Stage 5G-e-c R3."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def main() -> int:
         ("source-move-proof-removed", lambda r: mutate(r, lib, "moved_source_cannot_be_reused", "removed_source_move_witness")),
         ("open-stage5g-f", lambda r: mutate(r, descriptor, '"stage5g_f": false', '"stage5g_f": true')),
         ("reduce-source-lifecycle-set", lambda r: mutate(r, descriptor, '    "new_package_awaiting"', '    "timer_ready"')),
-        ("nested-lifecycle-reseal-removed", lambda r: mutate(r, stage5d, "stage5g_test_reseal_nested_integrity(&mut extension)", "removed_nested_integrity_reseal(&mut extension)")),
+        ("nested-lifecycle-reseal-removed", lambda r: mutate(r, stage5d, "stage5g_test_reseal_lifecycle_authority(&mut extension)", "removed_full_lifecycle_reseal(&mut extension)")),
         ("semantic-error-assertion-removed", lambda r: mutate(r, order, "Err(expected)", "Ok(())")),
         ("timer-source-settlement-projection-removed", lambda r: mutate(r, restart, "pub(crate) struct Stage5gTimerReadyRestartProjectionV1", "pub(crate) struct RemovedTimerReadyRestartProjectionV1")),
         ("next-observation-free-summary", lambda r: mutate(r, restart, "let summary = self.reconciliation_authority.summary();", "let summary = &self.projection.summary;")),
@@ -72,6 +72,13 @@ def main() -> int:
         ("complete-extension-graft-test-removed", lambda r: mutate(r, order, "stage5ge_c_r2_fully_resealed_complete_extension_graft_fails_package_binding", "removed_complete_extension_graft_test")),
         ("source-lifecycle-commit-removed", lambda r: mutate(r, restart, "binding.source_lifecycle_commit_sha256 != source_lifecycle_commit_sha256(projection)?", "false")),
         ("timer-authority-bridge-removed", lambda r: mutate(r, timer, "stage5g_restart_stage5c_authority", "removed_timer_authority_bridge")),
+        ("stage5d-source-anchor-field-removed", lambda r: mutate(r, stage5d, "pub stage5g_source_authority_anchor_sha256: Option<String>,", "pub removed_stage5g_source_anchor: Option<String>,")),
+        ("stage5d-source-anchor-binder-removed", lambda r: mutate(r, stage5d, "fn stage5d_bind_stage5g_source_authority_anchor(", "fn removed_stage5d_source_authority_anchor(")),
+        ("independent-source-anchor-derivation-removed", lambda r: mutate(r, restart, "fn independent_source_authority_sha256(", "fn removed_independent_source_authority_sha256(")),
+        ("restore-anchor-comparison-removed", lambda r: mutate(r, restart, "stage5d_source_anchor != independent_source_authority_sha256(projection)?", "false")),
+        ("checkpoint-reseal-removed", lambda r: mutate(r, stage5d, "extension.checkpoint =\n        crate::stage5g_timer::stage5g_test_reseal_checkpoint(", "removed_checkpoint_reseal =\n        crate::stage5g_timer::stage5g_test_reseal_checkpoint(")),
+        ("timer-history-tail-binding-removed", lambda r: mutate(r, restart, "settlement.settled_batch_history.last() != Some(&settlement.settled_batch)", "false")),
+        ("stage5d-anchor-negative-removed", lambda r: mutate(r, order, "stage5ge_c_r3_rehashed_stage5d_source_anchor_substitution_fails_closed", "removed_stage5d_anchor_negative")),
     )
     for label, mutation in cases:
         must_fail(label, mutation)
