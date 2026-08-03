@@ -3771,6 +3771,23 @@ pub struct Stage5cTimerSettlement {
     inner: Stage5cTimerSettlementKind,
 }
 
+pub(crate) const STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION: u16 = 1;
+
+/// Versioned, transport-free projection of the exact Stage 5C authority owned
+/// by a `ReadyForContinuation` timer settlement.  It is deliberately
+/// crate-private: Stage 5G persistence may retain and validate it, while no
+/// downstream caller can construct a raw Stage 5C continuation capability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Stage5cTimerReadyRestartAuthorityV1 {
+    pub(crate) schema_version: u16,
+    pub(crate) settlement_kind: String,
+    pub(crate) checkpoint_ts_utc_ms: i64,
+    pub(crate) settled_batch: Stage5cPaperIntentBatchSummary,
+    pub(crate) settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
+    pub(crate) recovery_receipt_identity_sha256: String,
+}
+
 enum Stage5cTimerSettlementKind {
     ReadyForContinuation {
         settled: Stage5cSettledPaperStrategy,
@@ -3807,6 +3824,31 @@ impl std::fmt::Debug for Stage5cTimerSettlement {
 impl Stage5cTimerSettlement {
     pub(crate) fn stage5g_runtime_strategy(&self) -> &HybridIntradayRuntimeStrategy {
         self.settled().stage5g_runtime_strategy()
+    }
+
+    pub(crate) fn stage5g_restart_ready_authority(
+        &self,
+    ) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+        let Stage5cTimerSettlementKind::ReadyForContinuation {
+            settled,
+            checkpoint_ts_utc_ms,
+        } = &self.inner
+        else {
+            return None;
+        };
+        Some(Stage5cTimerReadyRestartAuthorityV1 {
+            schema_version: STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION,
+            settlement_kind: "ready_for_continuation".to_string(),
+            checkpoint_ts_utc_ms: *checkpoint_ts_utc_ms,
+            settled_batch: stage5ch_batch_summary(settled.intent_batch()),
+            settled_batch_history: settled.settled_batch_history().to_vec(),
+            recovery_receipt_identity_sha256: format!(
+                "{:x}",
+                Sha256::digest(stage5e_b3c_recovery_receipt_identity(
+                    settled.recovery_receipt()
+                ))
+            ),
+        })
     }
 
     fn ready_for_continuation(

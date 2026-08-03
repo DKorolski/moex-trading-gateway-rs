@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-02.
+Status date: 2026-08-03.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -115,8 +115,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   but was rejected because historical exact replay still entered NewPackage
   chronology and current-slot preflight. R2 at
   `6995f8dd2ac226eff33b781f575927361fdc2c45` is independently accepted and
-  closes Stage 5G-e-b. Stage 5G-e-c R1 is the current implementation review
-  candidate. The accepted owning exact-replay proof carries the old
+  closes Stage 5G-e-b. Stage 5G-e-c R1 at
+  `e269b709d2c3e1a2d3892a88099585bce12d0778` was rejected as submitted because
+  its package tests did not reseal the nested lifecycle authority and its
+  TimerReady summary/checkpoint lacked source-settlement authority.
+  Stage 5G-e-c R2 is the only current implementation review candidate. It retains a
+  versioned Stage 5C TimerSettlement/recovery/history projection, validates all
+  TimerReady summary fields against source authority, binds the continuation
+  checkpoint to the inner settlement and binds the Stage 5G lifecycle commit
+  to the exact Stage 5D package instance before runtime mutation. The accepted
+  owning exact-replay proof carries the old
   and new checkpoints plus exact canonical evidence, updates the live session
   through the same canonical Stage 5G-c metadata authority, and proves both
   `A→B→exact A→C` and inherited-old-request replay chains. Replay identity and

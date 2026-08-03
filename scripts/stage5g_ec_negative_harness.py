@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fourteen fail-closed mutations for Stage 5G-e-c R1."""
+"""Twenty-five fail-closed mutations for Stage 5G-e-c R2."""
 
 from __future__ import annotations
 
@@ -42,11 +42,13 @@ def main() -> int:
     restart = str(checker.FILES["restart"])
     stage5d = str(checker.FILES["stage5d"])
     order = str(checker.FILES["order"])
+    timer = str(checker.FILES["timer"])
+    paper = str(checker.FILES["paper"])
     lib = str(checker.FILES["lib"])
     descriptor = str(checker.FILES["descriptor"])
     cases = (
         ("caller-account-authority", lambda r: mutate(r, restart, "pub snapshot_id: String,", "pub account_id: BrokerAccountId,\n    pub snapshot_id: String,")),
-        ("source-binding-removed", lambda r: mutate(r, restart, "let (strategy_id, account_id, instrument_id) = source_binding(source);", "let (strategy_id, account_id, instrument_id) = caller_binding();")),
+        ("source-binding-removed", lambda r: mutate(r, restart, "fn source_binding(", "fn removed_source_binding(")),
         ("restore-cross-binding-removed", lambda r: mutate(r, restart, "validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;", "let _unchecked_binding = (&projection, &decoded.envelope, &fresh_runtime);")),
         ("validation-after-mutation", lambda r: mutate(r, restart, "validate_projection(&projection)?;\n    validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;", "let _deferred_projection_validation = &projection;")),
         ("timer-zero-intent-proof-removed", lambda r: mutate(r, restart, "if !projection.lifecycle_proof.zero_intent_ready", "if false && !projection.lifecycle_proof.zero_intent_ready")),
@@ -59,6 +61,17 @@ def main() -> int:
         ("source-move-proof-removed", lambda r: mutate(r, lib, "moved_source_cannot_be_reused", "removed_source_move_witness")),
         ("open-stage5g-f", lambda r: mutate(r, descriptor, '"stage5g_f": false', '"stage5g_f": true')),
         ("reduce-source-lifecycle-set", lambda r: mutate(r, descriptor, '    "new_package_awaiting"', '    "timer_ready"')),
+        ("nested-lifecycle-reseal-removed", lambda r: mutate(r, stage5d, "stage5g_test_reseal_nested_integrity(&mut extension)", "removed_nested_integrity_reseal(&mut extension)")),
+        ("semantic-error-assertion-removed", lambda r: mutate(r, order, "Err(expected)", "Ok(())")),
+        ("timer-source-settlement-projection-removed", lambda r: mutate(r, restart, "pub(crate) struct Stage5gTimerReadyRestartProjectionV1", "pub(crate) struct RemovedTimerReadyRestartProjectionV1")),
+        ("next-observation-free-summary", lambda r: mutate(r, restart, "let summary = self.reconciliation_authority.summary();", "let summary = &self.projection.summary;")),
+        ("timer-summary-derivation-removed", lambda r: mutate(r, restart, "source.source_summary != projection.summary", "false")),
+        ("checkpoint-settlement-binding-removed", lambda r: mutate(r, restart, "source.source_checkpoint != projection.checkpoint", "false")),
+        ("recovery-receipt-authority-removed", lambda r: mutate(r, paper, "recovery_receipt_identity_sha256: format!(", "removed_receipt_authority: format!(")),
+        ("package-instance-binding-removed", lambda r: mutate(r, restart, "validate_package_instance_internal(projection)?;", "let _unbound_package = projection;")),
+        ("complete-extension-graft-test-removed", lambda r: mutate(r, order, "stage5ge_c_r2_fully_resealed_complete_extension_graft_fails_package_binding", "removed_complete_extension_graft_test")),
+        ("source-lifecycle-commit-removed", lambda r: mutate(r, restart, "binding.source_lifecycle_commit_sha256 != source_lifecycle_commit_sha256(projection)?", "false")),
+        ("timer-authority-bridge-removed", lambda r: mutate(r, timer, "stage5g_restart_stage5c_authority", "removed_timer_authority_bridge")),
     )
     for label, mutation in cases:
         must_fail(label, mutation)

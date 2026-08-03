@@ -1439,6 +1439,12 @@ impl Stage5gTimerReadyPaperStrategy {
             && self.settlement.settled().intent_batch().intent_count() == 0
     }
 
+    pub(crate) fn stage5g_restart_stage5c_authority(
+        &self,
+    ) -> Option<crate::stage5c_paper_host::Stage5cTimerReadyRestartAuthorityV1> {
+        self.settlement.stage5g_restart_ready_authority()
+    }
+
     pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
         checkpoint_envelope(&self.replay, Some(self.checkpoint_ts_utc_ms))
     }

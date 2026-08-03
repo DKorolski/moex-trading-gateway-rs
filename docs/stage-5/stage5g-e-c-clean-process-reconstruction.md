@@ -1,34 +1,41 @@
-# Stage 5G-e-c R1 — source-bound lifecycle reconstruction authority
+# Stage 5G-e-c R2 — fully resealed source-bound lifecycle reconstruction
 
-Base commit: `4296f0621249875f7a2f8cccaa2fbe069cb4bccf`.
+Base commit: `e269b709d2c3e1a2d3892a88099585bce12d0778`.
 
-R1 preserves the single Stage 5D restart document. `Stage5gCleanRestartSource`
-is consumed, its projection is embedded as a versioned checksummed extension
-of the accepted Stage 5D canonical restart package, and only package bytes are
-returned. Strategy/account/instrument and both runtime config fingerprints are
-derived from the consumed source rather than public export input. Restore
-strictly decodes both sections, validates the Stage 5G projection and its
-cross-binding against the still-unconsumed Stage 5D envelope and fresh runtime,
-and only then mutates the fresh runtime with semantic/private/riskgate state.
+R2 preserves every accepted R1 boundary and closes the nested-reseal findings.
+The only durable document remains the Stage 5D canonical restart package;
+Stage 5G contributes one strict, versioned extension and never returns the
+consumed source capability.
 
-Four source capabilities remain accepted: timer-ready zero-intent, raw awaiting,
-committed exact replay and committed new-package awaiting. The three durable
-order/position shapes are intentionally collapsed into the one honest
-`order_position_awaiting_committed` lifecycle kind because their persisted
-state cannot prove the transient producer label. Timer-ready has exact
-zero-intent/callback authority; committed awaiting has exact pre-callback zero
-authority. Unknown kinds, self-authorized callback counts, missing replay state,
-cross-binding drift, regressive continuation and mismatched slots fail closed.
+Timer-ready persistence now retains a crate-private source projection of the
+exact Stage 5C `ReadyForContinuation` settlement: zero-intent settled batch,
+ordered settled-batch history, recovery-receipt fingerprint and inner
+settlement checkpoint. It also retains the source-owned Stage 5G summary and
+checkpoint. Restore compares every summary field with that source authority,
+requires the outer checkpoint to equal the source checkpoint and not precede
+the inner settlement, and rejects missing or grafted authority.
 
-The projection preserves replay-ledger order/fingerprints/current identity,
-package receipt and discriminator, millisecond watermark, sequence, duplicate
-counter, continuation checkpoint, callback count, order/trade/position slots,
-source attribution and exact broker Decimal serialization.
+Every extension is bound to one Stage 5D package instance through snapshot
+identity/revision/generation, persisted timestamp, the Stage 5D payload
+checksum and lifecycle-watermark fingerprint. A source lifecycle commit joins
+those Stage 5D components to the Stage 5G lifecycle/source/checkpoint
+fingerprints. A complete extension graft from another same-strategy package
+therefore fails closed.
 
-Focused evidence contains 27 tests: four public export/drop/copy/fresh-restore
-round trips, eight package-level rehash-aware semantic negatives and the prior
-15 projection/Stage 5D tests, plus compile-fail witnesses for source reuse and
-reconstructed-capability cloning. A crate-private redacted observation proves
-the restored capability has the fields needed by the next reconciliation step.
-Fresh post-restore BrokerTruth,
-GRST01–GRST12, Stage 5G-f and every live surface remain deferred.
+The reconstructed capability contains a non-serializable validated next-stage
+authority. Timer-ready observations derive from the validated settlement
+projection; committed-awaiting observations derive summary/checkpoint from the
+persisted order-position state. No observation reads an unvalidated free
+summary.
+
+Package-level semantic mutation first strict-decodes the extension and
+recomputes the nested lifecycle proof before recomputing extension/envelope/
+package checksums. The 34 focused tests include four public clean-process
+roundtrips and exact-error witnesses for request/count/fingerprint mutation,
+valid checkpoint graft with adjusted watermarks, inner-settlement regression,
+recovery-receipt graft and complete same-binding extension graft. The 25-case
+negative matrix pins these enforcement points.
+
+Fresh BrokerTruth reconciliation, GRST01–GRST12, Stage 5G-f, Redis/FINAM/HTTP,
+broker execution, runtime-live, real orders, main merge and deployment remain
+closed.

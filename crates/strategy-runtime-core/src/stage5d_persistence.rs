@@ -3801,6 +3801,12 @@ pub(crate) fn stage5g_test_rehash_clean_restart_package(
     .expect("test extension parses");
     mutate_envelope(&mut envelope_value);
     mutate_extension(&mut extension_value);
+    let mut extension: crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1 =
+        serde_json::from_value(extension_value)
+            .expect("mutated test extension remains strictly typed");
+    crate::stage5g_clean_restart::stage5g_test_reseal_nested_integrity(&mut extension);
+    let extension_value =
+        serde_json::to_value(extension).expect("resealed test extension remains serializable");
     let mut envelope: Stage5dPersistenceEnvelope =
         serde_json::from_value(envelope_value).expect("mutated test envelope remains typed");
     envelope.payload_checksum_sha256 = envelope

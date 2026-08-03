@@ -2405,9 +2405,22 @@ impl Stage5gOrderPositionSession {
     }
 
     pub(crate) fn stage5g_restart_checkpoint(&self) -> crate::Stage5gTimerCheckpointEnvelope {
+        Self::stage5g_restart_checkpoint_from_state(&self.state)
+    }
+
+    pub(crate) fn stage5g_restart_summary_from_state(
+        state: &Stage5gOrderPositionState,
+        authoritative_callback_count: usize,
+    ) -> Stage5gOrderPositionSummary {
+        state_summary(state, authoritative_callback_count)
+    }
+
+    pub(crate) fn stage5g_restart_checkpoint_from_state(
+        state: &Stage5gOrderPositionState,
+    ) -> crate::Stage5gTimerCheckpointEnvelope {
         crate::stage5g_timer::checkpoint_envelope(
-            &replay_checkpoint(&self.state),
-            self.state.last_continuation_checkpoint_ts_utc_ms,
+            &replay_checkpoint(state),
+            state.last_continuation_checkpoint_ts_utc_ms,
         )
     }
 
@@ -2417,11 +2430,9 @@ impl Stage5gOrderPositionSession {
         checkpoint: &crate::Stage5gTimerCheckpointEnvelope,
         authoritative_callback_count: usize,
     ) -> bool {
-        let expected_summary = state_summary(state, authoritative_callback_count);
-        let expected_checkpoint = crate::stage5g_timer::checkpoint_envelope(
-            &replay_checkpoint(state),
-            state.last_continuation_checkpoint_ts_utc_ms,
-        );
+        let expected_summary =
+            Self::stage5g_restart_summary_from_state(state, authoritative_callback_count);
+        let expected_checkpoint = Self::stage5g_restart_checkpoint_from_state(state);
         expected_summary == *summary && expected_checkpoint == *checkpoint
     }
 
@@ -7625,6 +7636,8 @@ mod tests {
                 .payload
                 .last_continuation_checkpoint_ts_utc_ms
         );
+        assert_eq!(observation.source_lifecycle_commit_sha256.len(), 64);
+        assert_eq!(observation.lifecycle_source_authority_sha256.len(), 64);
         assert!(!restored.intent_sink_attached());
         assert!(!restored.redis_command_stream_attached());
         assert!(!restored.finam_transport_attached());
@@ -7639,6 +7652,23 @@ mod tests {
             crate::export_stage5g_clean_restart(source, input).unwrap(),
             fresh_runtime,
         )
+    }
+
+    fn assert_stage5ge_c_rehashed_error(
+        kind: Stage5geCTestSourceKind,
+        mutate_extension: impl FnOnce(&mut serde_json::Value),
+        expected: crate::Stage5gCleanRestartError,
+    ) {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(kind);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |_| {},
+            mutate_extension,
+        );
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(expected)
+        );
     }
 
     #[test]
@@ -7678,7 +7708,10 @@ mod tests {
             },
             |_| {},
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::BindingMismatch)
+        );
     }
 
     #[test]
@@ -7692,7 +7725,10 @@ mod tests {
             },
             |_| {},
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::BindingMismatch)
+        );
     }
 
     #[test]
@@ -7706,7 +7742,10 @@ mod tests {
                 extension["binding"]["strategy_id"] = serde_json::json!("forged_strategy");
             },
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::BindingMismatch)
+        );
     }
 
     #[test]
@@ -7719,7 +7758,10 @@ mod tests {
                 extension["summary"]["duplicate_evidence_count"] = serde_json::json!(999);
             },
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch)
+        );
     }
 
     #[test]
@@ -7736,7 +7778,10 @@ mod tests {
             |_| {},
             |extension| extension["checkpoint"] = graft,
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch)
+        );
     }
 
     #[test]
@@ -7750,7 +7795,10 @@ mod tests {
                 extension["lifecycle_proof"]["authoritative_callback_count"] = serde_json::json!(7);
             },
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::CallbackAuthorityMismatch)
+        );
     }
 
     #[test]
@@ -7764,7 +7812,10 @@ mod tests {
                 extension["lifecycle_kind"] = serde_json::json!("timer_ready");
             },
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch)
+        );
     }
 
     #[test]
@@ -7782,13 +7833,125 @@ mod tests {
             |_| {},
             |extension| extension["order_position_state"] = graft,
         );
-        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r2_fully_resealed_timer_request_count_fails_semantically() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| extension["summary"]["request_count"] = serde_json::json!(999),
+            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r2_fully_resealed_timer_lifecycle_fingerprint_fails_semantically() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                extension["summary"]["lifecycle_fingerprint_sha256"] =
+                    serde_json::json!("0".repeat(64));
+            },
+            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r2_fully_resealed_timer_all_lifecycle_counts_fail_semantically() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                extension["summary"]["terminal_request_count"] = serde_json::json!(7);
+                extension["summary"]["order_transition_count"] = serde_json::json!(8);
+                extension["summary"]["correlated_trade_count"] = serde_json::json!(9);
+                extension["summary"]["position_confirmation_count"] = serde_json::json!(10);
+            },
+            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r2_fully_resealed_valid_checkpoint_graft_with_watermarks_fails() {
+        let (donor_bytes, _) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let donor_package: serde_json::Value = serde_json::from_slice(&donor_bytes).unwrap();
+        let donor_extension: serde_json::Value =
+            serde_json::from_str(donor_package["stage5g_extension_json"].as_str().unwrap())
+                .unwrap();
+        let graft = donor_extension["checkpoint"].clone();
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            move |extension| {
+                extension["checkpoint"] = graft.clone();
+                extension["summary"]["duplicate_evidence_count"] =
+                    graft["payload"]["duplicate_evidence_count"].clone();
+                extension["summary"]["last_total_sequence"] =
+                    graft["payload"]["last_total_sequence"].clone();
+            },
+            crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r2_fully_resealed_inner_settlement_checkpoint_regression_fails() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                let outer = extension["checkpoint"]["payload"]
+                    ["last_continuation_checkpoint_ts_utc_ms"]
+                    .as_i64()
+                    .unwrap();
+                extension["timer_ready_source"]["stage5c_settlement"]["checkpoint_ts_utc_ms"] =
+                    serde_json::json!(outer + 1);
+            },
+            crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r2_fully_resealed_recovery_receipt_graft_fails() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                extension["timer_ready_source"]["stage5c_settlement"]
+                    ["recovery_receipt_identity_sha256"] = serde_json::json!("a".repeat(64));
+            },
+            crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r2_fully_resealed_complete_extension_graft_fails_package_binding() {
+        let (donor_bytes, _) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let donor_package: serde_json::Value = serde_json::from_slice(&donor_bytes).unwrap();
+        let donor_extension: serde_json::Value =
+            serde_json::from_str(donor_package["stage5g_extension_json"].as_str().unwrap())
+                .unwrap();
+        let (target_bytes, fresh) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::NewPackageAwaiting);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &target_bytes,
+            |envelope| {
+                envelope["lifecycle_watermarks"]["persisted_event_watermark"] =
+                    serde_json::json!("same-binding-different-package-instance");
+            },
+            move |extension| *extension = donor_extension,
+        );
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::PackageInstanceBindingMismatch)
+        );
     }
 
     fn stage5ge_c_projection(
         source: &crate::Stage5gCleanRestartSource,
     ) -> crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1 {
-        crate::stage5g_clean_restart::projection_from_source(source)
+        crate::stage5g_clean_restart::stage5g_test_projection_from_source(source)
             .expect("accepted clean-restart source projects")
     }
 
