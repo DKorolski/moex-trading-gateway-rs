@@ -113,8 +113,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   checkpoint without synchronizing the continuing Stage 5G-c session. R1 at
   `1621307a6012fa1f9dcbc89a59651c801f6cc26f` fixed the current-package path
   but was rejected because historical exact replay still entered NewPackage
-  chronology and current-slot preflight. R2 is the current review candidate:
-  its owning exact-replay proof carries the old
+  chronology and current-slot preflight. R2 at
+  `6995f8dd2ac226eff33b781f575927361fdc2c45` is independently accepted and
+  closes Stage 5G-e-b. Stage 5G-e-c is the current implementation review
+  candidate. The accepted owning exact-replay proof carries the old
   and new checkpoints plus exact canonical evidence, updates the live session
   through the same canonical Stage 5G-c metadata authority, and proves both
   `A→B→exact A→C` and inherited-old-request replay chains. Replay identity and
@@ -124,8 +126,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   receipt watermarks and callback state remain fixed. All public commit
   authority now performs hard checkpoint validation in release builds. The
   accepted Stage 5C callback authority remains byte-pinned to
-  `d0494537d7c1739a16350b2d28f71b304165c812`. Full Stage 5D clean-process
-  restart and GRST01–GRST12 remain pending; Stage 5G-f remains closed.
+  `d0494537d7c1739a16350b2d28f71b304165c812`. The new linear clean-process
+  boundary consumes one of four supported Stage 5G capabilities, emits only a
+  checksummed Stage 5D package, drops the source, and reconstructs semantic,
+  private and riskgate state in a freshly configured runtime. Fresh
+  BrokerTruth reconciliation and GRST01–GRST12 remain pending; Stage 5G-f
+  remains closed.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

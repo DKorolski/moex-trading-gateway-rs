@@ -3389,6 +3389,10 @@ struct Stage5dCanonicalRestartPackage {
     envelope_sha256: String,
     riskgate_evidence_json: String,
     riskgate_evidence_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stage5g_extension_json: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stage5g_extension_sha256: Option<String>,
     package_checksum_sha256: String,
 }
 
@@ -3396,6 +3400,7 @@ struct Stage5dCanonicalRestartPackage {
 struct Stage5dDecodedCanonicalRestartPackage {
     envelope: Stage5dPersistenceEnvelope,
     validated_evidence: Stage5dValidatedRiskGateLedgerEvidence,
+    stage5g_extension_json: Option<String>,
     report: Stage5dCanonicalEnvelopeExportReport,
 }
 
@@ -3552,6 +3557,8 @@ fn stage5d_export_canonical_restart_package_from_runtime(
         envelope_sha256,
         riskgate_evidence_json,
         riskgate_evidence_sha256: riskgate_evidence_sha256.clone(),
+        stage5g_extension_json: None,
+        stage5g_extension_sha256: None,
         package_checksum_sha256: String::new(),
     };
     package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
@@ -3585,6 +3592,7 @@ impl Stage5dCanonicalRestartPackage {
         {
             return Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch);
         }
+        package.validate_stage5g_extension_pair()?;
         let envelope = Stage5dPersistenceEnvelope::from_json_str_strict(&package.envelope_json)?;
         if package.snapshot_id != envelope.snapshot_id
             || package.snapshot_revision != envelope.snapshot_revision
@@ -3635,6 +3643,7 @@ impl Stage5dCanonicalRestartPackage {
         Ok(Stage5dDecodedCanonicalRestartPackage {
             envelope,
             validated_evidence,
+            stage5g_extension_json: package.stage5g_extension_json,
             report,
         })
     }
@@ -3666,6 +3675,7 @@ impl Stage5dCanonicalRestartPackage {
         {
             return Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch);
         }
+        self.validate_stage5g_extension_pair()?;
         let envelope = Stage5dPersistenceEnvelope::from_json_str_strict(&self.envelope_json)?;
         if self.snapshot_id != envelope.snapshot_id
             || self.snapshot_revision != envelope.snapshot_revision
@@ -3683,6 +3693,93 @@ impl Stage5dCanonicalRestartPackage {
         stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
         Ok(())
     }
+
+    fn validate_stage5g_extension_pair(&self) -> Result<(), Stage5dEnvelopeValidationError> {
+        match (&self.stage5g_extension_json, &self.stage5g_extension_sha256) {
+            (None, None) => Ok(()),
+            (Some(payload), Some(checksum)) if sha256_text(payload) == *checksum => Ok(()),
+            _ => Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch),
+        }
+    }
+}
+
+pub(crate) struct Stage5dCleanRestartDecoded {
+    pub(crate) envelope: Stage5dPersistenceEnvelope,
+    pub(crate) validated_evidence: Stage5dValidatedRiskGateLedgerEvidence,
+    pub(crate) stage5g_extension_json: String,
+}
+
+pub(crate) fn stage5d_export_canonical_restart_bytes_with_stage5g_extension(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    input: Stage5dCanonicalEnvelopeExportInput,
+    evidence: Stage5dRiskGateLedgerEvidence,
+    stage5g_extension_json: String,
+) -> Result<Vec<u8>, Stage5dEnvelopeValidationError> {
+    if stage5g_extension_json.is_empty() {
+        return Err(Stage5dEnvelopeValidationError::RequiredFieldEmpty);
+    }
+    let (mut package, _) =
+        stage5d_export_canonical_restart_package_from_runtime(strategy, input, evidence)?;
+    package.stage5g_extension_sha256 = Some(sha256_text(&stage5g_extension_json));
+    package.stage5g_extension_json = Some(stage5g_extension_json);
+    package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
+    Ok(package.to_json_strict()?.into_bytes())
+}
+
+pub(crate) fn stage5d_decode_canonical_restart_bytes_requiring_stage5g(
+    bytes: &[u8],
+) -> Result<Stage5dCleanRestartDecoded, Stage5dEnvelopeValidationError> {
+    let payload = std::str::from_utf8(bytes)
+        .map_err(|_| Stage5dEnvelopeValidationError::DeserializationFailed)?;
+    let decoded = Stage5dCanonicalRestartPackage::from_json_str_strict(payload)?;
+    let stage5g_extension_json = decoded
+        .stage5g_extension_json
+        .ok_or(Stage5dEnvelopeValidationError::RequiredFieldEmpty)?;
+    Ok(Stage5dCleanRestartDecoded {
+        envelope: decoded.envelope,
+        validated_evidence: decoded.validated_evidence,
+        stage5g_extension_json,
+    })
+}
+
+pub(crate) fn stage5d_reconstruct_runtime_from_clean_restart(
+    decoded: Stage5dCleanRestartDecoded,
+    mut fresh_strategy: crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+) -> Result<
+    (
+        crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        String,
+    ),
+    Stage5dEnvelopeValidationError,
+> {
+    let validated_envelope = decoded
+        .envelope
+        .clone()
+        .validate_restore_contract_schema_only()?;
+    if fresh_strategy.stage5c_config_fingerprint()
+        != decoded.envelope.binding.stage5c_compat_config_fingerprint
+        || stage5d_profile_binding_string(&fresh_strategy)
+            != decoded.envelope.binding.profile_binding
+        || fresh_strategy.stage5d_canonical_config_fingerprint()
+            != decoded
+                .envelope
+                .binding
+                .stage5d_canonical_config_fingerprint
+    {
+        return Err(Stage5dEnvelopeValidationError::BindingMismatch);
+    }
+    let state = serde_json::from_value(decoded.envelope.strategy_state.strategy_state_json.clone())
+        .map_err(|_| Stage5dEnvelopeValidationError::SemanticStateInvalid)?;
+    Strategy::set_state(&mut fresh_strategy, state);
+    fresh_strategy
+        .stage5d_apply_runtime_private_extension(&decoded.envelope.runtime_private_extension)?;
+    stage5d_apply_validated_materialized_riskgate_for_restart(
+        &mut fresh_strategy,
+        validated_envelope,
+        decoded.validated_evidence,
+    )
+    .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    Ok((fresh_strategy, decoded.stage5g_extension_json))
 }
 
 fn stage5d_validate_package_cross_binding(
@@ -5172,6 +5269,8 @@ pub(crate) fn stage5d_canonical_riskgate_recovery_package_from_parts(
         envelope_sha256: envelope_sha256.clone(),
         riskgate_evidence_json,
         riskgate_evidence_sha256,
+        stage5g_extension_json: None,
+        stage5g_extension_sha256: None,
         package_checksum_sha256: String::new(),
     };
     package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
@@ -18705,6 +18804,77 @@ mod tests {
             expected_state,
             "fresh runtime restore must not inherit poisoned source memory"
         );
+    }
+
+    #[test]
+    fn stage5ge_c_stage5d_package_bytes_restore_fresh_runtime_without_source_capability() {
+        let (source_strategy, input, evidence, expected_state) =
+            stage5d_test_canonical_export_fixture("stage5ge-c-clean-process", |_| {});
+        let extension_json = serde_json::json!({
+            "schema_version": crate::STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION,
+            "test_projection": "opaque-stage5g-extension"
+        })
+        .to_string();
+        let bytes = stage5d_export_canonical_restart_bytes_with_stage5g_extension(
+            &source_strategy,
+            input,
+            evidence,
+            extension_json.clone(),
+        )
+        .expect("Stage 5G extension must use the canonical Stage 5D package");
+        drop(source_strategy);
+
+        let decoded = stage5d_decode_canonical_restart_bytes_requiring_stage5g(&bytes)
+            .expect("fresh ownership context decodes strict package bytes");
+        let fresh_runtime = stage5d_test_riskgate_runtime_strategy();
+        let (restored, restored_extension) =
+            stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)
+                .expect("semantic/private/riskgate state reconstructs in fresh runtime");
+        assert_eq!(restored_extension, extension_json);
+        assert_eq!(
+            serde_json::to_value(Strategy::state(&restored)).unwrap(),
+            expected_state
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_stage5d_package_without_projection_fails_closed() {
+        let (source_strategy, input, evidence, _) =
+            stage5d_test_canonical_export_fixture("stage5ge-c-missing-projection", |_| {});
+        let (package, _) = stage5d_export_canonical_restart_package_from_runtime(
+            &source_strategy,
+            input,
+            evidence,
+        )
+        .unwrap();
+        let bytes = package.to_json_strict().unwrap().into_bytes();
+        drop(source_strategy);
+        assert!(matches!(
+            stage5d_decode_canonical_restart_bytes_requiring_stage5g(&bytes),
+            Err(Stage5dEnvelopeValidationError::RequiredFieldEmpty)
+        ));
+    }
+
+    #[test]
+    fn stage5ge_c_stage5g_extension_checksum_tamper_fails_closed() {
+        let (source_strategy, input, evidence, _) =
+            stage5d_test_canonical_export_fixture("stage5ge-c-extension-tamper", |_| {});
+        let bytes = stage5d_export_canonical_restart_bytes_with_stage5g_extension(
+            &source_strategy,
+            input,
+            evidence,
+            "{\"schema_version\":1}".to_string(),
+        )
+        .unwrap();
+        drop(source_strategy);
+        let mut package: Stage5dCanonicalRestartPackage = serde_json::from_slice(&bytes).unwrap();
+        package.stage5g_extension_json = Some("{\"schema_version\":2}".to_string());
+        package.package_checksum_sha256 = package.compute_package_checksum_sha256().unwrap();
+        let tampered = serde_json::to_vec(&package).unwrap();
+        assert!(matches!(
+            stage5d_decode_canonical_restart_bytes_requiring_stage5g(&tampered),
+            Err(Stage5dEnvelopeValidationError::PayloadChecksumMismatch)
+        ));
     }
 
     #[test]

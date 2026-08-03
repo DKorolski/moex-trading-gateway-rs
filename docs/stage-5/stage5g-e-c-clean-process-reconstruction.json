@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "stage": "5G-e-c",
+  "name": "canonical_stage5d_clean_process_reconstruction",
+  "status": "implementation_review_candidate",
+  "accepted_predecessor": "6995f8dd2ac226eff33b781f575927361fdc2c45",
+  "stage5d_is_single_persistence_authority": true,
+  "source_capability_consumed_before_return": true,
+  "strict_byte_boundary": true,
+  "fresh_runtime_required": true,
+  "semantic_private_riskgate_state_applied": true,
+  "supported_lifecycle_kinds": [
+    "timer_ready",
+    "order_position_awaiting",
+    "exact_replay_synchronized",
+    "new_package_awaiting"
+  ],
+  "focused_test_count": 15,
+  "compile_fail_witness_count": 2,
+  "fresh_broker_truth_reconciliation_deferred": true,
+  "full_grst01_grst12_matrix_deferred": true,
+  "closed_surfaces": {
+    "stage5g_f": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}

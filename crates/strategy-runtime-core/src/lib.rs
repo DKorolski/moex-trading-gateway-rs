@@ -81,6 +81,31 @@
 //! use strategy_runtime_core::Stage5gMockAckSession;
 //! let _forged = Stage5gMockAckSession {};
 //! ```
+//!
+//! A Stage 5G-e-c source is consumed by export and cannot survive the alleged
+//! clean-process boundary:
+//!
+//! ```compile_fail,E0382
+//! use strategy_runtime_core::{
+//!     export_stage5g_clean_restart, Stage5gCleanRestartExportInput,
+//!     Stage5gCleanRestartSource,
+//! };
+//! fn moved_source_cannot_be_reused(
+//!     source: Stage5gCleanRestartSource,
+//!     input: Stage5gCleanRestartExportInput,
+//! ) {
+//!     let _bytes = export_stage5g_clean_restart(source, input);
+//!     drop(source);
+//! }
+//! ```
+//!
+//! The fresh reconstruction capability remains linear and cannot be cloned:
+//!
+//! ```compile_fail,E0599
+//! use strategy_runtime_core::Stage5gCleanRestartedCapability;
+//! let restored: Stage5gCleanRestartedCapability = unreachable!();
+//! let _copy = restored.clone();
+//! ```
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-docs
 //!
 //! The following B3F witnesses use a doctest-only facade whose wrappers contain
@@ -150,6 +175,7 @@ mod stage5e_no_io_lifecycle;
 #[cfg(test)]
 mod stage5f_atomic_hybrid_semantics;
 // STAGE5F-TEST-OBSERVATION-MODULE-END
+mod stage5g_clean_restart;
 mod stage5g_mock_ack;
 mod stage5g_order_position;
 mod stage5g_timer;
@@ -255,6 +281,11 @@ pub use stage5c_paper_host::{
     Stage5cTimerContinuationFailure, Stage5cTimerResolvedPaperStrategy, Stage5cTimerSettlement,
     Stage5cWarmedPaperStrategy, STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
     STAGE5C_RUNTIME_STATE_RESTORE_SCHEMA_VERSION,
+};
+pub use stage5g_clean_restart::{
+    export_stage5g_clean_restart, restore_stage5g_clean_restart, Stage5gCleanRestartError,
+    Stage5gCleanRestartExportInput, Stage5gCleanRestartLifecycleKind, Stage5gCleanRestartSource,
+    Stage5gCleanRestartedCapability, STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION,
 };
 pub use stage5g_mock_ack::{
     apply_stage5g_duplicate_after_resolution, apply_stage5g_mock_ack,

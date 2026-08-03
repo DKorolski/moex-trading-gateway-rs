@@ -674,6 +674,10 @@ impl Stage5gMockAckSession {
 }
 
 impl Stage5gResolvedMockAckPaperStrategy {
+    pub(crate) fn stage5g_runtime_strategy(&self) -> &crate::HybridIntradayRuntimeStrategy {
+        self.resolved.stage5g_runtime_strategy()
+    }
+
     pub(crate) fn source_intent_projections(
         &self,
     ) -> Vec<crate::stage5c_paper_host::Stage5gSourceIntentProjection> {

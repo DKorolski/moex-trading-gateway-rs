@@ -2883,7 +2883,8 @@ struct Stage5cPaperIntentRecord {
 }
 
 // STAGE5G-C-SOURCE-PROJECTION-BEGIN: source-projection-types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum Stage5gSourceBaseAction {
     Market,
     Place,
@@ -2902,6 +2903,78 @@ pub(crate) struct Stage5gSourceIntentProjection {
     pub target_qty: Option<f64>,
     pub pre_position_qty: f64,
     pub expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage5gSourceIntentProjectionWire {
+    request_id: StrategyRequestId,
+    intent_class: String,
+    base_action: Stage5gSourceBaseAction,
+    side: Option<String>,
+    target_qty: Option<f64>,
+    pre_position_qty: f64,
+    expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
+}
+
+impl Serialize for Stage5gSourceIntentProjection {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        Stage5gSourceIntentProjectionWire {
+            request_id: self.request_id,
+            intent_class: match self.intent_class {
+                crate::BrokerNeutralHybridIntentClass::Entry => "entry",
+                crate::BrokerNeutralHybridIntentClass::Exit => "exit",
+                crate::BrokerNeutralHybridIntentClass::CancelCleanup => "cancel_cleanup",
+                crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => "protective_repair",
+            }
+            .to_string(),
+            base_action: self.base_action,
+            side: self.side.map(|side| match side {
+                crate::BrokerNeutralOrderSide::Buy => "buy".to_string(),
+                crate::BrokerNeutralOrderSide::Sell => "sell".to_string(),
+            }),
+            target_qty: self.target_qty,
+            pre_position_qty: self.pre_position_qty,
+            expected_attribution: self.expected_attribution.clone(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Stage5gSourceIntentProjection {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = Stage5gSourceIntentProjectionWire::deserialize(deserializer)?;
+        let intent_class = match wire.intent_class.as_str() {
+            "entry" => crate::BrokerNeutralHybridIntentClass::Entry,
+            "exit" => crate::BrokerNeutralHybridIntentClass::Exit,
+            "cancel_cleanup" => crate::BrokerNeutralHybridIntentClass::CancelCleanup,
+            "protective_repair" => crate::BrokerNeutralHybridIntentClass::ProtectiveRepair,
+            _ => return Err(serde::de::Error::custom("unsupported intent class")),
+        };
+        let side = wire
+            .side
+            .map(|side| match side.as_str() {
+                "buy" => Ok(crate::BrokerNeutralOrderSide::Buy),
+                "sell" => Ok(crate::BrokerNeutralOrderSide::Sell),
+                _ => Err(serde::de::Error::custom("unsupported order side")),
+            })
+            .transpose()?;
+        Ok(Self {
+            request_id: wire.request_id,
+            intent_class,
+            base_action: wire.base_action,
+            side,
+            target_qty: wire.target_qty,
+            pre_position_qty: wire.pre_position_qty,
+            expected_attribution: wire.expected_attribution,
+        })
+    }
 }
 // STAGE5G-C-SOURCE-PROJECTION-END: source-projection-types
 
@@ -2989,6 +3062,10 @@ impl std::fmt::Debug for Stage5cSettledPaperStrategy {
 }
 
 impl Stage5cSettledPaperStrategy {
+    pub(crate) fn stage5g_runtime_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
     pub fn intent_batch(&self) -> &Stage5cPaperIntentBatch {
         &self.batch
     }
@@ -3413,6 +3490,10 @@ impl std::fmt::Debug for Stage5cResolvedPaperIntentBatchStrategy {
 }
 
 impl Stage5cResolvedPaperIntentBatchStrategy {
+    pub(crate) fn stage5g_runtime_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
     pub fn resolved_batch_summary(&self) -> Stage5cPaperIntentBatchSummary {
         stage5ch_batch_summary(&self.resolved_batch)
     }
@@ -3724,6 +3805,10 @@ impl std::fmt::Debug for Stage5cTimerSettlement {
 }
 
 impl Stage5cTimerSettlement {
+    pub(crate) fn stage5g_runtime_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        self.settled().stage5g_runtime_strategy()
+    }
+
     fn ready_for_continuation(
         settled: Stage5cSettledPaperStrategy,
         checkpoint_ts_utc_ms: i64,

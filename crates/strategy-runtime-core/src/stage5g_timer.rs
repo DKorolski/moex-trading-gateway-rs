@@ -599,6 +599,10 @@ impl std::fmt::Debug for Stage5gExactReplayApplyFailure {
 }
 
 impl Stage5gCommittedExactReplaySession {
+    pub(crate) fn stage5g_runtime_strategy(&self) -> &crate::HybridIntradayRuntimeStrategy {
+        self.session.stage5g_runtime_strategy()
+    }
+
     pub fn session(&self) -> &Stage5gOrderPositionSession {
         &self.session
     }
@@ -750,6 +754,10 @@ impl_committed_checkpoint!(Stage5gCommittedConvergedOrderPosition);
 impl_committed_checkpoint!(Stage5gCommittedMarketTerminalOrderPosition);
 
 impl Stage5gCommittedAwaitingOrderPosition {
+    pub(crate) fn stage5g_runtime_strategy(&self) -> &crate::HybridIntradayRuntimeStrategy {
+        self.session.stage5g_runtime_strategy()
+    }
+
     pub fn session(&self) -> &Stage5gOrderPositionSession {
         &self.session
     }
@@ -1411,6 +1419,10 @@ impl Stage5gTimerSession {
 }
 
 impl Stage5gTimerReadyPaperStrategy {
+    pub(crate) fn stage5g_runtime_strategy(&self) -> &crate::HybridIntradayRuntimeStrategy {
+        self.settlement.stage5g_runtime_strategy()
+    }
+
     pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
         checkpoint_envelope(&self.replay, Some(self.checkpoint_ts_utc_ms))
     }
@@ -1906,6 +1918,16 @@ fn replay_from_payload(payload: &Stage5gTimerCheckpointPayload) -> Stage5gReplay
         duplicate_evidence_count: payload.duplicate_evidence_count,
         last_total_sequence: payload.last_total_sequence,
         last_continuation_checkpoint_ts_utc_ms: payload.last_continuation_checkpoint_ts_utc_ms,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn stage5g_test_reseal_checkpoint(
+    payload: &Stage5gTimerCheckpointPayload,
+) -> Stage5gTimerCheckpointEnvelope {
+    Stage5gTimerCheckpointEnvelope {
+        payload: payload.clone(),
+        payload_sha256: payload.payload_fingerprint(),
     }
 }
 
