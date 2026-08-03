@@ -26,12 +26,15 @@ use crate::stage5g_mock_ack::{
     Stage5gResolvedMockAckPaperStrategy,
 };
 use crate::stage5g_order_position::{
+    apply_stage5g_canonical_order_position_evidence,
     attach_stage5g_order_position_session_with_replay,
-    canonicalize_stage5g_order_position_evidence, EvidenceIdentity,
+    canonicalize_stage5g_order_position_evidence, stage5g_converged_replay,
+    stage5g_market_terminal_replay, stage5g_order_position_session_replay, EvidenceIdentity,
     Stage5gCanonicalOrderPositionEvidence, Stage5gConvergedPaperStrategy,
     Stage5gEvidenceCanonicalizationError, Stage5gMarketTerminalConvergedPaperStrategy,
-    Stage5gOrderPositionEvidence, Stage5gOrderPositionSession, Stage5gOrderPositionSummary,
-    Stage5gReplayCheckpoint,
+    Stage5gOrderPositionError, Stage5gOrderPositionEvidence, Stage5gOrderPositionFailure,
+    Stage5gOrderPositionSession, Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal,
+    Stage5gOrderPositionTransition, Stage5gReplayCheckpoint,
 };
 
 pub const STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION: u16 = 1;
@@ -311,11 +314,78 @@ pub struct Stage5gExactReplayCheckpoint {
 /// ```
 pub struct Stage5gNewPackageCandidate {
     pre_candidate_checkpoint: Stage5gTimerCheckpointEnvelope,
-    #[allow(dead_code)]
     candidate_replay: Stage5gReplayCheckpoint,
-    #[allow(dead_code)]
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
     canonical_candidate: Stage5gCanonicalOrderPositionEvidence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5gNewPackageApplyBlockReason {
+    SessionCheckpointMismatch,
+    Stage5gC(Stage5gOrderPositionError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5gNewPackageCommitError {
+    AppliedReplayMismatch,
+}
+
+/// A transactional Stage 5G-c block retains only the previously committed
+/// checkpoint and the exact returned Stage 5G-c session. It intentionally has
+/// no candidate-checkpoint authority.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::Stage5gNewPackageApplyBlocked;
+/// # fn cannot_persist_candidate(blocked: Stage5gNewPackageApplyBlocked) {
+/// let _ = blocked.checkpoint();
+/// # }
+/// ```
+pub struct Stage5gNewPackageApplyBlocked {
+    reason: Stage5gNewPackageApplyBlockReason,
+    pre_candidate_checkpoint: Stage5gTimerCheckpointEnvelope,
+    session: Stage5gOrderPositionSession,
+    canonical_identity: String,
+}
+
+pub struct Stage5gNewPackageCommitMismatch {
+    reason: Stage5gNewPackageCommitError,
+    pre_candidate_checkpoint: Stage5gTimerCheckpointEnvelope,
+    canonical_identity: String,
+}
+
+pub struct Stage5gNewPackageTerminal {
+    terminal: Stage5gOrderPositionTerminal,
+    pre_candidate_checkpoint: Stage5gTimerCheckpointEnvelope,
+    canonical_identity: String,
+}
+
+pub enum Stage5gNewPackageApplyFailure {
+    Blocked(Box<Stage5gNewPackageApplyBlocked>),
+    CommitMismatch(Box<Stage5gNewPackageCommitMismatch>),
+    Terminal(Box<Stage5gNewPackageTerminal>),
+}
+
+pub struct Stage5gCommittedAwaitingOrderPosition {
+    session: Stage5gOrderPositionSession,
+    committed_checkpoint: Stage5gTimerCheckpointEnvelope,
+}
+
+pub struct Stage5gCommittedConvergedOrderPosition {
+    converged: Stage5gConvergedPaperStrategy,
+    committed_checkpoint: Stage5gTimerCheckpointEnvelope,
+}
+
+pub struct Stage5gCommittedMarketTerminalOrderPosition {
+    converged: Stage5gMarketTerminalConvergedPaperStrategy,
+    committed_checkpoint: Stage5gTimerCheckpointEnvelope,
+}
+
+pub enum Stage5gNewPackageApplyResult {
+    Awaiting(Stage5gCommittedAwaitingOrderPosition),
+    Converged(Stage5gCommittedConvergedOrderPosition),
+    MarketTerminal(Stage5gCommittedMarketTerminalOrderPosition),
 }
 
 impl Stage5gCheckpointReplayResult {
@@ -378,6 +448,299 @@ impl Stage5gNewPackageCandidate {
             self.canonical_candidate,
         )
     }
+}
+
+impl Stage5gNewPackageApplyBlocked {
+    pub fn reason(&self) -> Stage5gNewPackageApplyBlockReason {
+        self.reason
+    }
+
+    pub fn stage5g_c_reason(&self) -> Option<Stage5gOrderPositionError> {
+        match self.reason {
+            Stage5gNewPackageApplyBlockReason::Stage5gC(reason) => Some(reason),
+            Stage5gNewPackageApplyBlockReason::SessionCheckpointMismatch => None,
+        }
+    }
+
+    pub fn pre_candidate_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_candidate_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+
+    pub fn session(&self) -> &Stage5gOrderPositionSession {
+        &self.session
+    }
+
+    pub fn into_session(self) -> Stage5gOrderPositionSession {
+        self.session
+    }
+}
+
+impl std::fmt::Debug for Stage5gNewPackageApplyFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blocked(blocked) => formatter.debug_tuple("Blocked").field(blocked).finish(),
+            Self::CommitMismatch(mismatch) => formatter
+                .debug_struct("CommitMismatch")
+                .field("reason", &mismatch.reason)
+                .field("canonical_identity", &mismatch.canonical_identity)
+                .finish_non_exhaustive(),
+            Self::Terminal(terminal) => formatter
+                .debug_struct("Terminal")
+                .field("reason", &terminal.terminal.reason())
+                .field("canonical_identity", &terminal.canonical_identity)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+impl std::fmt::Debug for Stage5gNewPackageApplyBlocked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5gNewPackageApplyBlocked")
+            .field("reason", &self.reason)
+            .field("canonical_identity", &self.canonical_identity)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Stage5gNewPackageCommitMismatch {
+    pub fn reason(&self) -> Stage5gNewPackageCommitError {
+        self.reason
+    }
+
+    pub fn pre_candidate_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_candidate_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+}
+
+impl Stage5gNewPackageTerminal {
+    pub fn reason(&self) -> Stage5gOrderPositionError {
+        self.terminal.reason()
+    }
+
+    pub fn pre_candidate_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_candidate_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+}
+
+impl Stage5gNewPackageApplyFailure {
+    pub fn into_blocked(self) -> Option<Stage5gNewPackageApplyBlocked> {
+        match self {
+            Self::Blocked(blocked) => Some(*blocked),
+            Self::CommitMismatch(_) | Self::Terminal(_) => None,
+        }
+    }
+}
+
+macro_rules! impl_committed_checkpoint {
+    ($type:ty) => {
+        impl $type {
+            pub fn checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+                &self.committed_checkpoint
+            }
+        }
+    };
+}
+
+impl_committed_checkpoint!(Stage5gCommittedAwaitingOrderPosition);
+impl_committed_checkpoint!(Stage5gCommittedConvergedOrderPosition);
+impl_committed_checkpoint!(Stage5gCommittedMarketTerminalOrderPosition);
+
+impl Stage5gCommittedAwaitingOrderPosition {
+    pub fn session(&self) -> &Stage5gOrderPositionSession {
+        &self.session
+    }
+
+    pub fn into_parts(self) -> (Stage5gOrderPositionSession, Stage5gTimerCheckpointEnvelope) {
+        (self.session, self.committed_checkpoint)
+    }
+}
+
+impl Stage5gCommittedConvergedOrderPosition {
+    pub fn converged(&self) -> &Stage5gConvergedPaperStrategy {
+        &self.converged
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        Stage5gConvergedPaperStrategy,
+        Stage5gTimerCheckpointEnvelope,
+    ) {
+        (self.converged, self.committed_checkpoint)
+    }
+}
+
+impl Stage5gCommittedMarketTerminalOrderPosition {
+    pub fn converged(&self) -> &Stage5gMarketTerminalConvergedPaperStrategy {
+        &self.converged
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        Stage5gMarketTerminalConvergedPaperStrategy,
+        Stage5gTimerCheckpointEnvelope,
+    ) {
+        (self.converged, self.committed_checkpoint)
+    }
+}
+
+impl Stage5gNewPackageApplyResult {
+    pub fn checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        match self {
+            Self::Awaiting(committed) => committed.checkpoint(),
+            Self::Converged(committed) => committed.checkpoint(),
+            Self::MarketTerminal(committed) => committed.checkpoint(),
+        }
+    }
+
+    pub fn into_checkpoint(self) -> Stage5gTimerCheckpointEnvelope {
+        match self {
+            Self::Awaiting(committed) => committed.into_parts().1,
+            Self::Converged(committed) => committed.into_parts().1,
+            Self::MarketTerminal(committed) => committed.into_parts().1,
+        }
+    }
+
+    pub fn into_awaiting(self) -> Option<Stage5gCommittedAwaitingOrderPosition> {
+        match self {
+            Self::Awaiting(committed) => Some(committed),
+            Self::Converged(_) | Self::MarketTerminal(_) => None,
+        }
+    }
+
+    pub fn into_converged(self) -> Option<Stage5gCommittedConvergedOrderPosition> {
+        match self {
+            Self::Converged(committed) => Some(committed),
+            Self::Awaiting(_) | Self::MarketTerminal(_) => None,
+        }
+    }
+
+    pub fn into_market_terminal(self) -> Option<Stage5gCommittedMarketTerminalOrderPosition> {
+        match self {
+            Self::MarketTerminal(committed) => Some(committed),
+            Self::Awaiting(_) | Self::Converged(_) => None,
+        }
+    }
+}
+
+/// Consumes one newly classified package and transfers its exact owned
+/// canonical evidence into Stage 5G-c. The candidate checkpoint is created
+/// only from the accepted Stage 5G-c replay projection after exact structural
+/// equality with the classifier projection.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::{apply_stage5g_new_package_candidate,
+/// #     Stage5gNewPackageCandidate, Stage5gOrderPositionSession};
+/// # fn candidate_is_linear(session: Stage5gOrderPositionSession,
+/// #     candidate: Stage5gNewPackageCandidate) {
+/// let _ = apply_stage5g_new_package_candidate(session, candidate);
+/// let _ = candidate.canonical_identity();
+/// # }
+/// ```
+pub fn apply_stage5g_new_package_candidate(
+    session: Stage5gOrderPositionSession,
+    candidate: Stage5gNewPackageCandidate,
+) -> Result<Stage5gNewPackageApplyResult, Stage5gNewPackageApplyFailure> {
+    let (
+        pre_candidate_checkpoint,
+        candidate_replay,
+        prior_continuation_checkpoint,
+        canonical_candidate,
+    ) = candidate.into_stage5g_e_parts();
+    let canonical_identity = canonical_candidate.identity().to_string();
+    let pre_candidate_replay = replay_from_payload(&pre_candidate_checkpoint.payload);
+    if stage5g_order_position_session_replay(&session) != pre_candidate_replay {
+        return Err(Stage5gNewPackageApplyFailure::Blocked(Box::new(
+            Stage5gNewPackageApplyBlocked {
+                reason: Stage5gNewPackageApplyBlockReason::SessionCheckpointMismatch,
+                pre_candidate_checkpoint,
+                session,
+                canonical_identity,
+            },
+        )));
+    }
+
+    let transition =
+        match apply_stage5g_canonical_order_position_evidence(session, canonical_candidate) {
+            Ok(transition) => transition,
+            Err(Stage5gOrderPositionFailure::Blocked(blocked)) => {
+                return Err(Stage5gNewPackageApplyFailure::Blocked(Box::new(
+                    Stage5gNewPackageApplyBlocked {
+                        reason: Stage5gNewPackageApplyBlockReason::Stage5gC(blocked.reason()),
+                        pre_candidate_checkpoint,
+                        session: blocked.into_session(),
+                        canonical_identity,
+                    },
+                )));
+            }
+            Err(Stage5gOrderPositionFailure::Terminal(terminal)) => {
+                return Err(Stage5gNewPackageApplyFailure::Terminal(Box::new(
+                    Stage5gNewPackageTerminal {
+                        terminal,
+                        pre_candidate_checkpoint,
+                        canonical_identity,
+                    },
+                )));
+            }
+        };
+
+    let applied_replay = match &transition {
+        Stage5gOrderPositionTransition::Awaiting(session) => {
+            stage5g_order_position_session_replay(session)
+        }
+        Stage5gOrderPositionTransition::Converged(converged) => stage5g_converged_replay(converged),
+        Stage5gOrderPositionTransition::MarketTerminalConverged(converged) => {
+            stage5g_market_terminal_replay(converged)
+        }
+    };
+    if applied_replay != candidate_replay {
+        return Err(Stage5gNewPackageApplyFailure::CommitMismatch(Box::new(
+            Stage5gNewPackageCommitMismatch {
+                reason: Stage5gNewPackageCommitError::AppliedReplayMismatch,
+                pre_candidate_checkpoint,
+                canonical_identity,
+            },
+        )));
+    }
+    let committed_checkpoint = checkpoint_envelope(&applied_replay, prior_continuation_checkpoint);
+    debug_assert!(validate_stage5g_timer_checkpoint(&committed_checkpoint).is_ok());
+
+    Ok(match transition {
+        Stage5gOrderPositionTransition::Awaiting(session) => {
+            Stage5gNewPackageApplyResult::Awaiting(Stage5gCommittedAwaitingOrderPosition {
+                session,
+                committed_checkpoint,
+            })
+        }
+        Stage5gOrderPositionTransition::Converged(converged) => {
+            Stage5gNewPackageApplyResult::Converged(Stage5gCommittedConvergedOrderPosition {
+                converged,
+                committed_checkpoint,
+            })
+        }
+        Stage5gOrderPositionTransition::MarketTerminalConverged(converged) => {
+            Stage5gNewPackageApplyResult::MarketTerminal(
+                Stage5gCommittedMarketTerminalOrderPosition {
+                    converged,
+                    committed_checkpoint,
+                },
+            )
+        }
+    })
 }
 
 pub fn attach_stage5g_timer_session(
@@ -1171,7 +1534,7 @@ pub fn classify_stage5g_post_checkpoint_evidence(
     )))
 }
 
-fn checkpoint_envelope(
+pub(crate) fn checkpoint_envelope(
     replay: &Stage5gReplayCheckpoint,
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
 ) -> Stage5gTimerCheckpointEnvelope {

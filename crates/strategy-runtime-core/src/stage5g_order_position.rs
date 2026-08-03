@@ -447,6 +447,13 @@ impl Stage5gOrderPositionFailure {
             Self::Terminal(_) => None,
         }
     }
+
+    pub fn into_terminal(self) -> Option<Stage5gOrderPositionTerminal> {
+        match self {
+            Self::Blocked(_) => None,
+            Self::Terminal(terminal) => Some(terminal),
+        }
+    }
 }
 
 pub fn attach_stage5g_order_position_session(
@@ -720,39 +727,11 @@ fn merge_canonical_trade_observation_v1(
 }
 
 pub fn apply_stage5g_order_position_evidence(
-    mut session: Stage5gOrderPositionSession,
+    session: Stage5gOrderPositionSession,
     evidence: Stage5gOrderPositionEvidence,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
-    if session
-        .state
-        .last_continuation_checkpoint_ts_utc_ms
-        .is_some_and(|checkpoint| evidence.broker_truth.received_ts.timestamp_millis() < checkpoint)
-    {
-        return Err(block(
-            Stage5gOrderPositionError::BrokerTruthBeforeContinuationCheckpoint,
-            session,
-        ));
-    }
-    if session
-        .state
-        .last_total_sequence
-        .is_some_and(|last| evidence.total_sequence <= last)
-    {
-        return Err(block(
-            Stage5gOrderPositionError::NonMonotonicSequence,
-            session,
-        ));
-    }
-    let Some(slot_index) = session
-        .state
-        .slots
-        .iter()
-        .position(|slot| slot.ack.request_id == evidence.request_id)
-    else {
-        return Err(block(Stage5gOrderPositionError::UnknownRequestId, session));
-    };
-    if evidence.broker_truth.account_id != session.state.account_id {
-        return Err(block(Stage5gOrderPositionError::AccountMismatch, session));
+    if let Err(reason) = stage5g_order_position_precanonical_preflight(&session, &evidence) {
+        return Err(block(reason, session));
     }
     let canonical_evidence = match canonicalize_stage5g_order_position_evidence(evidence) {
         Ok(canonical) => canonical,
@@ -768,6 +747,21 @@ pub fn apply_stage5g_order_position_evidence(
                 session,
             ));
         }
+    };
+    apply_stage5g_canonical_order_position_evidence(session, canonical_evidence)
+}
+
+/// The single Stage 5G-c canonical application core. Stage 5G-e-b transfers
+/// its owned candidate here so classifier and application use the exact same
+/// identity/fingerprint authority without reconstructing raw evidence.
+pub(crate) fn apply_stage5g_canonical_order_position_evidence(
+    mut session: Stage5gOrderPositionSession,
+    canonical_evidence: Stage5gCanonicalOrderPositionEvidence,
+) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
+    let evidence = canonical_evidence.evidence();
+    let slot_index = match stage5g_order_position_precanonical_preflight(&session, evidence) {
+        Ok(slot_index) => slot_index,
+        Err(reason) => return Err(block(reason, session)),
     };
     let identity = canonical_evidence.identity().to_string();
     let fingerprint = canonical_evidence.fingerprint().to_string();
@@ -889,6 +883,54 @@ pub fn apply_stage5g_order_position_evidence(
         return Ok(Stage5gOrderPositionTransition::Awaiting(session));
     }
     converge_through_stage5c(session, pre_candidate_state)
+}
+
+fn stage5g_order_position_precanonical_preflight(
+    session: &Stage5gOrderPositionSession,
+    evidence: &Stage5gOrderPositionEvidence,
+) -> Result<usize, Stage5gOrderPositionError> {
+    if session
+        .state
+        .last_continuation_checkpoint_ts_utc_ms
+        .is_some_and(|checkpoint| evidence.broker_truth.received_ts.timestamp_millis() < checkpoint)
+    {
+        return Err(Stage5gOrderPositionError::BrokerTruthBeforeContinuationCheckpoint);
+    }
+    if session
+        .state
+        .last_total_sequence
+        .is_some_and(|last| evidence.total_sequence <= last)
+    {
+        return Err(Stage5gOrderPositionError::NonMonotonicSequence);
+    }
+    let slot_index = session
+        .state
+        .slots
+        .iter()
+        .position(|slot| slot.ack.request_id == evidence.request_id)
+        .ok_or(Stage5gOrderPositionError::UnknownRequestId)?;
+    if evidence.broker_truth.account_id != session.state.account_id {
+        return Err(Stage5gOrderPositionError::AccountMismatch);
+    }
+    Ok(slot_index)
+}
+
+pub(crate) fn stage5g_order_position_session_replay(
+    session: &Stage5gOrderPositionSession,
+) -> Stage5gReplayCheckpoint {
+    replay_checkpoint(&session.state)
+}
+
+pub(crate) fn stage5g_converged_replay(
+    converged: &Stage5gConvergedPaperStrategy,
+) -> Stage5gReplayCheckpoint {
+    converged.replay_checkpoint.clone()
+}
+
+pub(crate) fn stage5g_market_terminal_replay(
+    converged: &Stage5gMarketTerminalConvergedPaperStrategy,
+) -> Stage5gReplayCheckpoint {
+    converged.replay_checkpoint.clone()
 }
 
 fn classify_evidence_replay(
@@ -2954,6 +2996,271 @@ mod tests {
         unreachable!("three-poll timer fixture has a terminal poll")
     }
 
+    fn stage5ge_b_committed_checkpoint(
+        session: &Stage5gOrderPositionSession,
+    ) -> crate::Stage5gTimerCheckpointEnvelope {
+        let replay = stage5g_order_position_session_replay(session);
+        crate::stage5g_timer::checkpoint_envelope(
+            &replay,
+            replay.last_continuation_checkpoint_ts_utc_ms,
+        )
+    }
+
+    fn stage5ge_b_candidate(
+        checkpoint: &crate::Stage5gTimerCheckpointEnvelope,
+        evidence: Stage5gOrderPositionEvidence,
+    ) -> crate::Stage5gNewPackageCandidate {
+        crate::classify_stage5g_post_checkpoint_evidence(checkpoint, evidence)
+            .expect("fresh package classifies")
+            .into_new_package()
+            .expect("fresh package owns a candidate")
+    }
+
+    fn stage5ge_b_after_first_poll() -> (
+        Stage5gOrderPositionSession,
+        StrategyRequestId,
+        ClientOrderId,
+        Option<HybridRuntimeAttribution>,
+        Duration,
+        Vec<serde_json::Value>,
+    ) {
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .expect("connector-neutral three-poll golden JSON");
+        let polls = golden["polls"].as_array().unwrap().clone();
+        let (session, request_id, client_order_id, attribution, time_shift) =
+            r2cb_public_runtime_session();
+        let session = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                order_attribution: attribution.clone(),
+            },
+        )
+        .expect("first partial poll is accepted")
+        .into_awaiting()
+        .expect("first partial poll remains awaiting");
+        (
+            session,
+            request_id,
+            client_order_id,
+            attribution,
+            time_shift,
+            polls,
+        )
+    }
+
+    #[test]
+    fn stage5ge_b_awaiting_commits_only_after_owned_canonical_application() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let candidate = stage5ge_b_candidate(
+            &before,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        assert_eq!(candidate.pre_candidate_checkpoint(), &before);
+
+        let committed = crate::apply_stage5g_new_package_candidate(session, candidate)
+            .expect("owned canonical candidate applies")
+            .into_awaiting()
+            .expect("second partial poll remains awaiting");
+        assert_eq!(committed.checkpoint().payload.last_total_sequence, Some(3));
+        assert_eq!(
+            committed.checkpoint().payload.evidence_replay_ledger.len(),
+            before.payload.evidence_replay_ledger.len() + 1
+        );
+        assert_eq!(committed.session().summary().stage5c_callback_count, 0);
+        crate::validate_stage5g_timer_checkpoint(committed.checkpoint()).unwrap();
+    }
+
+    #[test]
+    fn stage5ge_b_raw_and_owned_canonical_routes_share_exact_apply_core() {
+        let (raw_session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let (
+            owned_session,
+            owned_request_id,
+            owned_client_order_id,
+            owned_attribution,
+            owned_time_shift,
+            owned_polls,
+        ) = stage5ge_b_after_first_poll();
+        assert_eq!(request_id, owned_request_id);
+        let raw_evidence = Stage5gOrderPositionEvidence {
+            total_sequence: 3,
+            request_id,
+            broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+            order_attribution: attribution,
+        };
+        let owned_evidence = Stage5gOrderPositionEvidence {
+            total_sequence: 3,
+            request_id: owned_request_id,
+            broker_truth: r2cb_golden_truth(
+                &owned_polls[1],
+                &owned_client_order_id,
+                owned_time_shift,
+            ),
+            order_attribution: owned_attribution,
+        };
+        let raw = apply_stage5g_order_position_evidence(raw_session, raw_evidence)
+            .unwrap()
+            .into_awaiting()
+            .unwrap();
+        let before = stage5ge_b_committed_checkpoint(&owned_session);
+        let owned = crate::apply_stage5g_new_package_candidate(
+            owned_session,
+            stage5ge_b_candidate(&before, owned_evidence),
+        )
+        .unwrap()
+        .into_awaiting()
+        .unwrap();
+        assert_eq!(stage5ge_b_committed_checkpoint(&raw), *owned.checkpoint());
+    }
+
+    #[test]
+    fn stage5ge_b_normal_convergence_commits_exact_applied_replay_once() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before_second = stage5ge_b_committed_checkpoint(&session);
+        let second = stage5ge_b_candidate(
+            &before_second,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+                order_attribution: attribution.clone(),
+            },
+        );
+        let (session, second_checkpoint) =
+            crate::apply_stage5g_new_package_candidate(session, second)
+                .unwrap()
+                .into_awaiting()
+                .unwrap()
+                .into_parts();
+        let third = stage5ge_b_candidate(
+            &second_checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[2], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        let committed = crate::apply_stage5g_new_package_candidate(session, third)
+            .expect("terminal filled package applies")
+            .into_converged()
+            .expect("filled Market order follows normal Stage 5C convergence");
+        assert_eq!(committed.checkpoint().payload.last_total_sequence, Some(4));
+        assert_eq!(committed.converged().summary().stage5c_callback_count, 1);
+        assert_eq!(committed.converged().summary().terminal_request_count, 1);
+        crate::validate_stage5g_timer_checkpoint(committed.checkpoint()).unwrap();
+    }
+
+    #[test]
+    fn stage5ge_b_transactional_block_returns_only_pre_candidate_commit() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let mut incomplete = r2cb_golden_truth(&polls[1], &client_order_id, time_shift);
+        incomplete.orders.clear();
+        let candidate = stage5ge_b_candidate(
+            &before,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: incomplete,
+                order_attribution: attribution.clone(),
+            },
+        );
+        let blocked = match crate::apply_stage5g_new_package_candidate(session, candidate) {
+            Err(failure) => failure
+                .into_blocked()
+                .expect("incomplete package is a transactional Stage 5G-c block"),
+            Ok(_) => panic!("incomplete package must block"),
+        };
+        assert_eq!(
+            blocked.stage5g_c_reason(),
+            Some(Stage5gOrderPositionError::TargetTradeWithoutOrder)
+        );
+        assert_eq!(blocked.pre_candidate_checkpoint(), &before);
+        let replay_after_block = stage5g_order_position_session_replay(blocked.session());
+        assert_eq!(
+            replay_after_block.evidence_identities.len(),
+            before.payload.evidence_replay_ledger.len()
+        );
+
+        let corrected = stage5ge_b_candidate(
+            &before,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        let committed =
+            crate::apply_stage5g_new_package_candidate(blocked.into_session(), corrected)
+                .expect("fresh corrected package is classified from the old checkpoint");
+        assert_eq!(committed.checkpoint().payload.last_total_sequence, Some(3));
+    }
+
+    #[test]
+    fn stage5ge_b_drop_before_apply_keeps_old_checkpoint_reclassifiable() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let next = Stage5gOrderPositionEvidence {
+            total_sequence: 3,
+            request_id,
+            broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+            order_attribution: attribution,
+        };
+        let first_identity = stage5ge_b_candidate(&before, next.clone())
+            .canonical_identity()
+            .to_string();
+        let replacement = stage5ge_b_candidate(&before, next);
+        assert_eq!(replacement.canonical_identity(), first_identity);
+        let committed = crate::apply_stage5g_new_package_candidate(session, replacement).unwrap();
+        assert_eq!(committed.checkpoint().payload.last_total_sequence, Some(3));
+    }
+
+    #[test]
+    fn stage5ge_b_session_checkpoint_mismatch_blocks_before_application() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let candidate = stage5ge_b_candidate(
+            &before,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 3,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        let (different_session, ..) = r2cb_public_runtime_session();
+        let blocked = match crate::apply_stage5g_new_package_candidate(different_session, candidate)
+        {
+            Err(failure) => failure.into_blocked().unwrap(),
+            Ok(_) => panic!("mismatched session must block before application"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            crate::Stage5gNewPackageApplyBlockReason::SessionCheckpointMismatch
+        );
+        assert_eq!(blocked.pre_candidate_checkpoint(), &before);
+        assert_eq!(blocked.session().summary().stage5c_callback_count, 0);
+    }
+
     fn stage5gd_bracket_seeded_exit_settled() -> (crate::Stage5cSettledPaperStrategy, i64) {
         let bar_close_ts = Utc::now().timestamp().div_euclid(600) * 600 - 600;
         let mut strategy = r2cb_public_runtime_strategy(bar_close_ts);
@@ -3304,6 +3611,74 @@ mod tests {
             instruments: Vec::new(),
             received_ts: received,
         }
+    }
+
+    #[test]
+    fn stage5ge_b_r3_market_terminal_candidate_commits_without_callback_duplication() {
+        let (settled, bar_close_ts) = stage5gd_bracket_seeded_exit_settled();
+        let fixture =
+            settled_exit_to_order_position(settled, bar_close_ts * 1_000, "FINAM-E-B-R3-ORDER-1");
+        let working_received = Utc
+            .timestamp_millis_opt(bar_close_ts * 1_000 + 2_500)
+            .single()
+            .unwrap();
+        let terminal_received = Utc
+            .timestamp_millis_opt(bar_close_ts * 1_000 + 3_000)
+            .single()
+            .unwrap();
+        let request_id = fixture.request_id;
+        let attribution = fixture.projection.expected_attribution.clone();
+        let working_truth = generated_exit_truth(
+            &fixture,
+            working_received,
+            OrderStatus::PartiallyFilled,
+            Decimal::ONE,
+            Decimal::new(4, 1),
+            Decimal::new(6, 1),
+            "FINAM-E-B-R3-TRADE-1",
+        );
+        let terminal_truth = generated_exit_truth(
+            &fixture,
+            terminal_received,
+            OrderStatus::Canceled,
+            Decimal::ONE,
+            Decimal::new(4, 1),
+            Decimal::new(6, 1),
+            "FINAM-E-B-R3-TRADE-1",
+        );
+        let session = apply_stage5g_order_position_evidence(
+            fixture.session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 1,
+                request_id,
+                broker_truth: working_truth,
+                order_attribution: attribution.clone(),
+            },
+        )
+        .unwrap()
+        .into_awaiting()
+        .expect("partial Exit remains awaiting");
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let candidate = stage5ge_b_candidate(
+            &before,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id,
+                broker_truth: terminal_truth,
+                order_attribution: attribution,
+            },
+        );
+        let committed = crate::apply_stage5g_new_package_candidate(session, candidate)
+            .expect("accepted R3 authority settles terminal partial Exit")
+            .into_market_terminal()
+            .expect("canceled partially filled Market Exit is R3 terminal");
+        assert_eq!(committed.checkpoint().payload.last_total_sequence, Some(2));
+        assert_eq!(committed.converged().summary().stage5c_callback_count, 1);
+        assert_eq!(
+            committed.checkpoint().payload.evidence_replay_ledger.len(),
+            before.payload.evidence_replay_ledger.len() + 1
+        );
+        crate::validate_stage5g_timer_checkpoint(committed.checkpoint()).unwrap();
     }
 
     fn accepted_stage5gd_bar(
