@@ -108,18 +108,19 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   R2-c-b and all live surfaces remain closed.
 - Stage 5G-c and its exact replay-package identity are independently accepted
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
-- Stage 5G-e-a at `0c1f1ce61c11c311e5df42edd4ed8c35beb838d2`
-  is independently accepted and closed. Stage 5G-e-b is the current review
-  candidate: it consumes the exact owned `NewPackage` canonical evidence
-  through one Stage 5G-c application core and makes a candidate checkpoint
-  available only after the complete applied replay projection matches the
-  classifier projection. Awaiting, normal convergence and accepted R3
-  market-terminal paths own their committed checkpoint; transactional blocks
-  retain only the pre-candidate checkpoint and exact returned Stage 5G-c
-  session. The accepted Stage 5C callback authority remains unchanged and
-  byte-pinned to `d0494537d7c1739a16350b2d28f71b304165c812`. Full canonical
-  Stage 5D clean-process restart and the twelve-case GRST matrix remain pending
-  within Stage 5G-e; Stage 5G-f remains closed.
+- Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
+  was rejected as submitted because ExactReplay advanced the committed
+  checkpoint without synchronizing the continuing Stage 5G-c session. R1 is
+  the current review candidate: its owning exact-replay proof carries the old
+  and new checkpoints plus exact canonical evidence, updates the live session
+  through the same canonical Stage 5G-c core, and proves a continuous
+  ExactReplay→NewPackage chain. Only local sequence and duplicate count may
+  change during exact synchronization; slots, identity ledger, BrokerTruth
+  receipt watermarks and callback state remain fixed. All public commit
+  authority now performs hard checkpoint validation in release builds. The
+  accepted Stage 5C callback authority remains byte-pinned to
+  `d0494537d7c1739a16350b2d28f71b304165c812`. Full Stage 5D clean-process
+  restart and GRST01–GRST12 remain pending; Stage 5G-f remains closed.
 - Stable macro-roadmap Stage 5 remains active while Stage 5G is incomplete.
   Stage 6 durable command-chain work is not opened by the Stage 5F acceptance.
 - Real FINAM `POST`/`DELETE`, Redis live command consumption, runtime-live,

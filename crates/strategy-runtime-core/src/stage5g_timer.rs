@@ -275,13 +275,14 @@ pub enum Stage5gCheckpointReplayError {
     ConflictingDuplicateEvidence,
     TradeIdentityConflict,
     EvidenceIdentityGrammarViolation,
+    InvalidCommittedCheckpoint,
 }
 
 /// Owning replay classification. The variants intentionally expose different
 /// persistence authority: only [`Stage5gExactReplayCheckpoint`] has a
 /// persistable checkpoint.
 pub enum Stage5gCheckpointReplayResult {
-    ExactReplay(Stage5gExactReplayCheckpoint),
+    ExactReplay(Box<Stage5gExactReplayCheckpoint>),
     NewPackage(Box<Stage5gNewPackageCandidate>),
 }
 
@@ -297,6 +298,69 @@ impl std::fmt::Debug for Stage5gCheckpointReplayResult {
 /// An exact replay has no broker-state mutation and may commit its duplicate
 /// counter/sequence update immediately.
 pub struct Stage5gExactReplayCheckpoint {
+    pre_replay_checkpoint: Stage5gTimerCheckpointEnvelope,
+    committed_checkpoint: Stage5gTimerCheckpointEnvelope,
+    canonical_replay: Stage5gCanonicalOrderPositionEvidence,
+    prior_continuation_checkpoint_ts_utc_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5gExactReplayApplyBlockReason {
+    SessionCheckpointMismatch,
+    Stage5gC(Stage5gOrderPositionError),
+    UnexpectedStage5gCTransition,
+    AppliedReplayMismatch,
+    InvalidCommittedCheckpoint,
+}
+
+/// A stale or incompatible live session retains its exact pre-replay commit
+/// and the original Stage 5G-c capability. It exposes no newer checkpoint.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::Stage5gExactReplayApplyBlocked;
+/// # fn stale_session_has_no_new_commit(blocked: Stage5gExactReplayApplyBlocked) {
+/// let _ = blocked.checkpoint();
+/// # }
+/// ```
+pub struct Stage5gExactReplayApplyBlocked {
+    reason: Stage5gExactReplayApplyBlockReason,
+    pre_replay_checkpoint: Stage5gTimerCheckpointEnvelope,
+    session: Stage5gOrderPositionSession,
+    canonical_identity: String,
+}
+
+pub struct Stage5gExactReplayTerminal {
+    terminal: Stage5gOrderPositionTerminal,
+    pre_replay_checkpoint: Stage5gTimerCheckpointEnvelope,
+    canonical_identity: String,
+}
+
+pub struct Stage5gExactReplayInvariantFailure {
+    reason: Stage5gExactReplayApplyBlockReason,
+    pre_replay_checkpoint: Stage5gTimerCheckpointEnvelope,
+    canonical_identity: String,
+}
+
+pub enum Stage5gExactReplayApplyFailure {
+    Blocked(Box<Stage5gExactReplayApplyBlocked>),
+    Invariant(Box<Stage5gExactReplayInvariantFailure>),
+    Terminal(Box<Stage5gExactReplayTerminal>),
+}
+
+/// The live Stage 5G-c session and the already persisted/committable exact
+/// replay checkpoint are returned as one linear capability.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::Stage5gCommittedExactReplaySession;
+/// # fn synchronized_result_does_not_return_proof(
+/// #     synchronized: Stage5gCommittedExactReplaySession,
+/// # ) {
+/// let _ = synchronized.into_exact_replay_proof();
+/// # }
+/// ```
+pub struct Stage5gCommittedExactReplaySession {
+    session: Stage5gOrderPositionSession,
     committed_checkpoint: Stage5gTimerCheckpointEnvelope,
 }
 
@@ -330,6 +394,7 @@ pub enum Stage5gNewPackageApplyBlockReason {
 #[serde(rename_all = "snake_case")]
 pub enum Stage5gNewPackageCommitError {
     AppliedReplayMismatch,
+    InvalidCommittedCheckpoint,
 }
 
 /// A transactional Stage 5G-c block retains only the previously committed
@@ -398,7 +463,7 @@ impl Stage5gCheckpointReplayResult {
 
     pub fn into_exact_replay(self) -> Option<Stage5gExactReplayCheckpoint> {
         match self {
-            Self::ExactReplay(committed) => Some(committed),
+            Self::ExactReplay(committed) => Some(*committed),
             Self::NewPackage(_) => None,
         }
     }
@@ -412,12 +477,138 @@ impl Stage5gCheckpointReplayResult {
 }
 
 impl Stage5gExactReplayCheckpoint {
+    pub fn pre_replay_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_replay_checkpoint
+    }
+
     pub fn checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
         &self.committed_checkpoint
     }
 
     pub fn into_checkpoint(self) -> Stage5gTimerCheckpointEnvelope {
         self.committed_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        self.canonical_replay.identity()
+    }
+
+    fn into_stage5g_eb_r1_parts(
+        self,
+    ) -> (
+        Stage5gTimerCheckpointEnvelope,
+        Stage5gTimerCheckpointEnvelope,
+        Stage5gCanonicalOrderPositionEvidence,
+        Option<i64>,
+    ) {
+        (
+            self.pre_replay_checkpoint,
+            self.committed_checkpoint,
+            self.canonical_replay,
+            self.prior_continuation_checkpoint_ts_utc_ms,
+        )
+    }
+}
+
+impl Stage5gExactReplayApplyBlocked {
+    pub fn reason(&self) -> Stage5gExactReplayApplyBlockReason {
+        self.reason
+    }
+
+    pub fn stage5g_c_reason(&self) -> Option<Stage5gOrderPositionError> {
+        match self.reason {
+            Stage5gExactReplayApplyBlockReason::Stage5gC(reason) => Some(reason),
+            _ => None,
+        }
+    }
+
+    pub fn pre_replay_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_replay_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+
+    pub fn session(&self) -> &Stage5gOrderPositionSession {
+        &self.session
+    }
+
+    pub fn into_session(self) -> Stage5gOrderPositionSession {
+        self.session
+    }
+}
+
+impl Stage5gExactReplayTerminal {
+    pub fn reason(&self) -> Stage5gOrderPositionError {
+        self.terminal.reason()
+    }
+
+    pub fn pre_replay_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_replay_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+}
+
+impl Stage5gExactReplayInvariantFailure {
+    pub fn reason(&self) -> Stage5gExactReplayApplyBlockReason {
+        self.reason
+    }
+
+    pub fn pre_replay_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_replay_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+}
+
+impl Stage5gExactReplayApplyFailure {
+    pub fn into_blocked(self) -> Option<Stage5gExactReplayApplyBlocked> {
+        match self {
+            Self::Blocked(blocked) => Some(*blocked),
+            Self::Invariant(_) | Self::Terminal(_) => None,
+        }
+    }
+}
+
+impl std::fmt::Debug for Stage5gExactReplayApplyFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Blocked(blocked) => formatter
+                .debug_struct("Blocked")
+                .field("reason", &blocked.reason)
+                .field("canonical_identity", &blocked.canonical_identity)
+                .finish_non_exhaustive(),
+            Self::Invariant(invariant) => formatter
+                .debug_struct("Invariant")
+                .field("reason", &invariant.reason)
+                .field("canonical_identity", &invariant.canonical_identity)
+                .finish_non_exhaustive(),
+            Self::Terminal(terminal) => formatter
+                .debug_struct("Terminal")
+                .field("reason", &terminal.terminal.reason())
+                .field("canonical_identity", &terminal.canonical_identity)
+                .finish_non_exhaustive(),
+        }
+    }
+}
+
+impl Stage5gCommittedExactReplaySession {
+    pub fn session(&self) -> &Stage5gOrderPositionSession {
+        &self.session
+    }
+
+    pub fn checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.committed_checkpoint
+    }
+
+    pub fn into_parts(self) -> (Stage5gOrderPositionSession, Stage5gTimerCheckpointEnvelope) {
+        (self.session, self.committed_checkpoint)
     }
 }
 
@@ -637,6 +828,118 @@ impl Stage5gNewPackageApplyResult {
     }
 }
 
+/// Synchronizes one live Stage 5G-c session with an already committed exact
+/// replay. The proof is linear and carries the exact owned canonical evidence;
+/// no raw evidence reconstruction or second canonicalization is permitted.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::{apply_stage5g_exact_replay_to_session,
+/// #     Stage5gExactReplayCheckpoint, Stage5gOrderPositionSession};
+/// # fn exact_replay_is_linear(session: Stage5gOrderPositionSession,
+/// #     proof: Stage5gExactReplayCheckpoint) {
+/// let _ = apply_stage5g_exact_replay_to_session(session, proof);
+/// let _ = proof.checkpoint();
+/// # }
+/// ```
+pub fn apply_stage5g_exact_replay_to_session(
+    session: Stage5gOrderPositionSession,
+    exact_replay: Stage5gExactReplayCheckpoint,
+) -> Result<Stage5gCommittedExactReplaySession, Stage5gExactReplayApplyFailure> {
+    let (
+        pre_replay_checkpoint,
+        committed_checkpoint,
+        canonical_replay,
+        prior_continuation_checkpoint_ts_utc_ms,
+    ) = exact_replay.into_stage5g_eb_r1_parts();
+    let canonical_identity = canonical_replay.identity().to_string();
+    if validate_stage5g_timer_checkpoint(&committed_checkpoint).is_err() {
+        return Err(Stage5gExactReplayApplyFailure::Blocked(Box::new(
+            Stage5gExactReplayApplyBlocked {
+                reason: Stage5gExactReplayApplyBlockReason::InvalidCommittedCheckpoint,
+                pre_replay_checkpoint,
+                session,
+                canonical_identity,
+            },
+        )));
+    }
+    let pre_replay = replay_from_payload(&pre_replay_checkpoint.payload);
+    if stage5g_order_position_session_replay(&session) != pre_replay {
+        return Err(Stage5gExactReplayApplyFailure::Blocked(Box::new(
+            Stage5gExactReplayApplyBlocked {
+                reason: Stage5gExactReplayApplyBlockReason::SessionCheckpointMismatch,
+                pre_replay_checkpoint,
+                session,
+                canonical_identity,
+            },
+        )));
+    }
+
+    let transition =
+        match apply_stage5g_canonical_order_position_evidence(session, canonical_replay) {
+            Ok(transition) => transition,
+            Err(Stage5gOrderPositionFailure::Blocked(blocked)) => {
+                return Err(Stage5gExactReplayApplyFailure::Blocked(Box::new(
+                    Stage5gExactReplayApplyBlocked {
+                        reason: Stage5gExactReplayApplyBlockReason::Stage5gC(blocked.reason()),
+                        pre_replay_checkpoint,
+                        session: blocked.into_session(),
+                        canonical_identity,
+                    },
+                )));
+            }
+            Err(Stage5gOrderPositionFailure::Terminal(terminal)) => {
+                return Err(Stage5gExactReplayApplyFailure::Terminal(Box::new(
+                    Stage5gExactReplayTerminal {
+                        terminal,
+                        pre_replay_checkpoint,
+                        canonical_identity,
+                    },
+                )));
+            }
+        };
+    let session = match transition {
+        Stage5gOrderPositionTransition::Awaiting(session) => session,
+        Stage5gOrderPositionTransition::Converged(_)
+        | Stage5gOrderPositionTransition::MarketTerminalConverged(_) => {
+            return Err(Stage5gExactReplayApplyFailure::Invariant(Box::new(
+                Stage5gExactReplayInvariantFailure {
+                    reason: Stage5gExactReplayApplyBlockReason::UnexpectedStage5gCTransition,
+                    pre_replay_checkpoint,
+                    canonical_identity,
+                },
+            )));
+        }
+    };
+    let applied_replay = stage5g_order_position_session_replay(&session);
+    let committed_replay = replay_from_payload(&committed_checkpoint.payload);
+    if applied_replay != committed_replay {
+        return Err(Stage5gExactReplayApplyFailure::Invariant(Box::new(
+            Stage5gExactReplayInvariantFailure {
+                reason: Stage5gExactReplayApplyBlockReason::AppliedReplayMismatch,
+                pre_replay_checkpoint,
+                canonical_identity,
+            },
+        )));
+    }
+    let synchronized_checkpoint =
+        checkpoint_envelope(&applied_replay, prior_continuation_checkpoint_ts_utc_ms);
+    if synchronized_checkpoint != committed_checkpoint
+        || validate_stage5g_timer_checkpoint(&synchronized_checkpoint).is_err()
+    {
+        return Err(Stage5gExactReplayApplyFailure::Invariant(Box::new(
+            Stage5gExactReplayInvariantFailure {
+                reason: Stage5gExactReplayApplyBlockReason::InvalidCommittedCheckpoint,
+                pre_replay_checkpoint,
+                canonical_identity,
+            },
+        )));
+    }
+    Ok(Stage5gCommittedExactReplaySession {
+        session,
+        committed_checkpoint,
+    })
+}
+
 /// Consumes one newly classified package and transfers its exact owned
 /// canonical evidence into Stage 5G-c. The candidate checkpoint is created
 /// only from the accepted Stage 5G-c replay projection after exact structural
@@ -717,7 +1020,15 @@ pub fn apply_stage5g_new_package_candidate(
         )));
     }
     let committed_checkpoint = checkpoint_envelope(&applied_replay, prior_continuation_checkpoint);
-    debug_assert!(validate_stage5g_timer_checkpoint(&committed_checkpoint).is_ok());
+    if validate_stage5g_timer_checkpoint(&committed_checkpoint).is_err() {
+        return Err(Stage5gNewPackageApplyFailure::CommitMismatch(Box::new(
+            Stage5gNewPackageCommitMismatch {
+                reason: Stage5gNewPackageCommitError::InvalidCommittedCheckpoint,
+                pre_candidate_checkpoint,
+                canonical_identity,
+            },
+        )));
+    }
 
     Ok(match transition {
         Stage5gOrderPositionTransition::Awaiting(session) => {
@@ -1485,11 +1796,18 @@ pub fn classify_stage5g_post_checkpoint_evidence(
             &replay,
             envelope.payload.last_continuation_checkpoint_ts_utc_ms,
         );
-        return Ok(Stage5gCheckpointReplayResult::ExactReplay(
+        validate_stage5g_timer_checkpoint(&committed_checkpoint)
+            .map_err(|_| Stage5gCheckpointReplayError::InvalidCommittedCheckpoint)?;
+        return Ok(Stage5gCheckpointReplayResult::ExactReplay(Box::new(
             Stage5gExactReplayCheckpoint {
+                pre_replay_checkpoint: envelope.clone(),
                 committed_checkpoint,
+                canonical_replay: canonical_evidence,
+                prior_continuation_checkpoint_ts_utc_ms: envelope
+                    .payload
+                    .last_continuation_checkpoint_ts_utc_ms,
             },
-        ));
+        )));
     }
     let received_at = canonical_evidence.evidence().broker_truth.received_ts;
     let continuation_checkpoint = envelope

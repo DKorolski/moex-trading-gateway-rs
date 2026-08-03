@@ -3053,6 +3053,222 @@ mod tests {
         )
     }
 
+    fn stage5ge_b_r1_exact_replay(
+        checkpoint: &crate::Stage5gTimerCheckpointEnvelope,
+        sequence: u64,
+        request_id: StrategyRequestId,
+        client_order_id: &ClientOrderId,
+        attribution: Option<HybridRuntimeAttribution>,
+        time_shift: Duration,
+        first_poll: &serde_json::Value,
+    ) -> crate::Stage5gExactReplayCheckpoint {
+        crate::classify_stage5g_post_checkpoint_evidence(
+            checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: sequence,
+                request_id,
+                broker_truth: r2cb_golden_truth(first_poll, client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        )
+        .expect("exact package redelivery classifies")
+        .into_exact_replay()
+        .expect("known canonical package produces exact-replay proof")
+    }
+
+    #[test]
+    fn stage5ge_b_r1_exact_replay_synchronizes_session_then_new_package_commits() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before_summary = session.summary();
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let exact = stage5ge_b_r1_exact_replay(
+            &before,
+            3,
+            request_id,
+            &client_order_id,
+            attribution.clone(),
+            time_shift,
+            &polls[0],
+        );
+        assert_eq!(exact.pre_replay_checkpoint(), &before);
+        let classifier_commit = exact.checkpoint().clone();
+        assert_eq!(classifier_commit.payload.last_total_sequence, Some(3));
+        assert_eq!(classifier_commit.payload.duplicate_evidence_count, 1);
+
+        let synchronized = crate::apply_stage5g_exact_replay_to_session(session, exact)
+            .expect("exact proof synchronizes the live Stage 5G-c session");
+        assert_eq!(synchronized.checkpoint(), &classifier_commit);
+        let after_exact = synchronized.session().summary();
+        assert_eq!(after_exact.last_total_sequence, Some(3));
+        assert_eq!(after_exact.duplicate_evidence_count, 1);
+        assert_eq!(
+            after_exact.terminal_request_count,
+            before_summary.terminal_request_count
+        );
+        assert_eq!(
+            after_exact.order_transition_count,
+            before_summary.order_transition_count
+        );
+        assert_eq!(
+            after_exact.correlated_trade_count,
+            before_summary.correlated_trade_count
+        );
+        assert_eq!(
+            after_exact.position_confirmation_count,
+            before_summary.position_confirmation_count
+        );
+        assert_eq!(
+            after_exact.stage5c_callback_count,
+            before_summary.stage5c_callback_count
+        );
+        assert_eq!(
+            synchronized.checkpoint().payload.evidence_replay_ledger,
+            before.payload.evidence_replay_ledger
+        );
+        assert_eq!(
+            synchronized.checkpoint().payload.current_evidence_identity,
+            before.payload.current_evidence_identity
+        );
+        assert_eq!(
+            synchronized
+                .checkpoint()
+                .payload
+                .last_broker_truth_received_at,
+            before.payload.last_broker_truth_received_at
+        );
+        assert_eq!(
+            synchronized
+                .checkpoint()
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            before.payload.last_continuation_checkpoint_ts_utc_ms
+        );
+
+        let (session, exact_checkpoint) = synchronized.into_parts();
+        let candidate = stage5ge_b_candidate(
+            &exact_checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        let committed = crate::apply_stage5g_new_package_candidate(session, candidate)
+            .expect("next NewPackage applies to synchronized session");
+        assert_eq!(committed.checkpoint().payload.last_total_sequence, Some(4));
+        assert_eq!(committed.checkpoint().payload.duplicate_evidence_count, 1);
+        assert_eq!(
+            committed.checkpoint().payload.evidence_replay_ledger.len(),
+            before.payload.evidence_replay_ledger.len() + 1
+        );
+    }
+
+    #[test]
+    fn stage5ge_b_r1_two_exact_replays_then_new_package_form_one_linear_chain() {
+        let (mut session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let mut checkpoint = stage5ge_b_committed_checkpoint(&session);
+        let baseline = session.summary();
+        for sequence in [3, 4] {
+            let proof = stage5ge_b_r1_exact_replay(
+                &checkpoint,
+                sequence,
+                request_id,
+                &client_order_id,
+                attribution.clone(),
+                time_shift,
+                &polls[0],
+            );
+            let synchronized = crate::apply_stage5g_exact_replay_to_session(session, proof)
+                .expect("each exact replay synchronizes once");
+            (session, checkpoint) = synchronized.into_parts();
+        }
+        assert_eq!(checkpoint.payload.last_total_sequence, Some(4));
+        assert_eq!(checkpoint.payload.duplicate_evidence_count, 2);
+        assert_eq!(
+            session.summary().order_transition_count,
+            baseline.order_transition_count
+        );
+        assert_eq!(
+            session.summary().correlated_trade_count,
+            baseline.correlated_trade_count
+        );
+        assert_eq!(
+            session.summary().stage5c_callback_count,
+            baseline.stage5c_callback_count
+        );
+
+        let candidate = stage5ge_b_candidate(
+            &checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 5,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        let committed = crate::apply_stage5g_new_package_candidate(session, candidate)
+            .expect("new package follows two exact replays");
+        assert_eq!(committed.checkpoint().payload.last_total_sequence, Some(5));
+        assert_eq!(committed.checkpoint().payload.duplicate_evidence_count, 2);
+    }
+
+    #[test]
+    fn stage5ge_b_r1_stale_session_blocks_before_exact_replay_application() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let proof = stage5ge_b_r1_exact_replay(
+            &before,
+            3,
+            request_id,
+            &client_order_id,
+            attribution,
+            time_shift,
+            &polls[0],
+        );
+        let (stale_session, ..) = r2cb_public_runtime_session();
+        let blocked = match crate::apply_stage5g_exact_replay_to_session(stale_session, proof) {
+            Err(failure) => failure.into_blocked().expect("stale session is retryable"),
+            Ok(_) => panic!("stale session must not accept exact-replay delta"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            crate::Stage5gExactReplayApplyBlockReason::SessionCheckpointMismatch
+        );
+        assert_eq!(blocked.pre_replay_checkpoint(), &before);
+        assert_eq!(blocked.session().summary().last_total_sequence, None);
+        assert_eq!(blocked.session().summary().stage5c_callback_count, 0);
+    }
+
+    #[test]
+    fn stage5ge_b_r1_crash_after_exact_persist_keeps_valid_commit_without_candidate() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let before = stage5ge_b_committed_checkpoint(&session);
+        let proof = stage5ge_b_r1_exact_replay(
+            &before,
+            3,
+            request_id,
+            &client_order_id,
+            attribution,
+            time_shift,
+            &polls[0],
+        );
+        let persisted = proof.checkpoint().clone();
+        crate::validate_stage5g_timer_checkpoint(&persisted).unwrap();
+        drop(proof);
+        drop(session);
+        assert_eq!(persisted.payload.last_total_sequence, Some(3));
+        assert_eq!(persisted.payload.duplicate_evidence_count, 1);
+        assert_eq!(
+            persisted.payload.evidence_replay_ledger,
+            before.payload.evidence_replay_ledger
+        );
+    }
+
     #[test]
     fn stage5ge_b_awaiting_commits_only_after_owned_canonical_application() {
         let (session, request_id, client_order_id, attribution, time_shift, polls) =
