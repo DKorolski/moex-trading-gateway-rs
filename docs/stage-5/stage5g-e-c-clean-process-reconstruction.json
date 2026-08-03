@@ -1,21 +1,30 @@
 {
   "schema_version": 1,
   "stage": "5G-e-c",
-  "name": "canonical_stage5d_clean_process_reconstruction",
+  "name": "source_bound_lifecycle_reconstruction_authority_r1",
   "status": "implementation_review_candidate",
-  "accepted_predecessor": "6995f8dd2ac226eff33b781f575927361fdc2c45",
+  "accepted_predecessor": "4296f0621249875f7a2f8cccaa2fbe069cb4bccf",
   "stage5d_is_single_persistence_authority": true,
   "source_capability_consumed_before_return": true,
   "strict_byte_boundary": true,
   "fresh_runtime_required": true,
   "semantic_private_riskgate_state_applied": true,
-  "supported_lifecycle_kinds": [
+  "source_owned_cross_binding": true,
+  "projection_validated_before_runtime_mutation": true,
+  "callback_authority_is_type_derived": true,
+  "rehash_aware_semantic_negatives": true,
+  "public_clean_process_roundtrips": 4,
+  "supported_source_lifecycles": [
     "timer_ready",
     "order_position_awaiting",
     "exact_replay_synchronized",
     "new_package_awaiting"
   ],
-  "focused_test_count": 15,
+  "supported_lifecycle_kinds": [
+    "timer_ready",
+    "order_position_awaiting_committed"
+  ],
+  "focused_test_count": 27,
   "compile_fail_witness_count": 2,
   "fresh_broker_truth_reconciliation_deferred": true,
   "full_grst01_grst12_matrix_deferred": true,

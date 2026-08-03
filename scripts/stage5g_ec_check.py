@@ -8,7 +8,7 @@ import json
 import subprocess
 from pathlib import Path
 
-BASE = "6995f8dd2ac226eff33b781f575927361fdc2c45"
+BASE = "4296f0621249875f7a2f8cccaa2fbe069cb4bccf"
 FILES = {
     "restart": Path("crates/strategy-runtime-core/src/stage5g_clean_restart.rs"),
     "stage5d": Path("crates/strategy-runtime-core/src/stage5d_persistence.rs"),
@@ -52,18 +52,32 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "strict_byte_boundary",
         "fresh_runtime_required",
         "semantic_private_riskgate_state_applied",
+        "source_owned_cross_binding",
+        "projection_validated_before_runtime_mutation",
+        "callback_authority_is_type_derived",
+        "rehash_aware_semantic_negatives",
     ):
         require(descriptor[field] is True, f"invariant lost: {field}")
-    require(descriptor["focused_test_count"] == 15, "focused test count drift")
-    require(descriptor["supported_lifecycle_kinds"] == [
+    require(descriptor["focused_test_count"] == 27, "focused test count drift")
+    require(descriptor["public_clean_process_roundtrips"] == 4,
+            "public roundtrip count drift")
+    require(descriptor["supported_source_lifecycles"] == [
         "timer_ready", "order_position_awaiting", "exact_replay_synchronized",
         "new_package_awaiting",
+    ], "source lifecycle set drift")
+    require(descriptor["supported_lifecycle_kinds"] == [
+        "timer_ready", "order_position_awaiting_committed",
     ], "lifecycle set drift")
     require(all(value is False for value in descriptor["closed_surfaces"].values()),
             "closed surface opened")
     require(f"Base commit: `{BASE}`." in contract, "contract base drift")
-    require("Stage 5G-e-c is the current implementation review" in status,
+    require("Stage 5G-e-c R1 is the current implementation review" in status,
             "status drift")
+
+    export_input = restart.split("pub struct Stage5gCleanRestartExportInput", 1)[1].split("}", 1)[0]
+    for caller_owned_identity in ("strategy_id", "account_id", "instrument_id"):
+        require(caller_owned_identity not in export_input,
+                f"caller regained identity authority: {caller_owned_identity}")
 
     required_restart = (
         "pub enum Stage5gCleanRestartSource",
@@ -71,18 +85,42 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "OrderPositionAwaiting(Stage5gOrderPositionSession)",
         "ExactReplaySynchronized(Stage5gCommittedExactReplaySession)",
         "NewPackageAwaiting(Stage5gCommittedAwaitingOrderPosition)",
+        "pub(crate) struct Stage5gCleanRestartBindingV1",
+        "pub(crate) struct Stage5gCleanRestartLifecycleProofV1",
+        "Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted",
+        "let (strategy_id, account_id, instrument_id) = source_binding(source);",
         "let bytes = stage5d_export_canonical_restart_bytes_with_stage5g_extension(",
         "let decoded = stage5d_decode_canonical_restart_bytes_requiring_stage5g(bytes)?;",
+        "validate_projection(&projection)?;",
+        "validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;",
         "stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;",
         "drop(source);",
         "pub struct Stage5gCleanRestartedCapability",
         "crate::validate_stage5g_timer_checkpoint(&projection.checkpoint)",
         "StrategyStateFingerprintMismatch",
+        "CallbackAuthorityMismatch",
+        "ZeroIntentProofMismatch",
+        "if !projection.lifecycle_proof.zero_intent_ready {",
+        "&projection.checkpoint,\n                projection.lifecycle_proof.authoritative_callback_count,",
+        "lifecycle_authority_sha256",
+        "next_reconciliation_observation",
     )
     for token in required_restart:
         require(token in restart, f"clean restart authority drift: {token}")
     for forbidden in ("reqwest", "redis::", ".post(", ".delete(", "tokio::spawn"):
         require(forbidden not in restart, f"forbidden e-c surface: {forbidden}")
+    projection_at = restart.index("let projection: Stage5gCleanRestartProjectionV1")
+    standalone_at = restart.index("validate_projection(&projection)?;", projection_at)
+    binding_at = restart.index(
+        "validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;",
+        standalone_at,
+    )
+    mutation_at = restart.index(
+        "stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;",
+        binding_at,
+    )
+    require(projection_at < standalone_at < binding_at < mutation_at,
+            "projection/binding must validate before runtime mutation")
 
     required_stage5d = (
         "stage5g_extension_json: Option<String>",
@@ -107,6 +145,18 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "stage5ge_c_unsupported_lifecycle_kind_fails_closed",
         "stage5ge_c_missing_order_position_state_fails_closed",
         "stage5ge_c_conflicting_slot_projection_fails_closed",
+        "stage5ge_c_r1_public_timer_ready_clean_process_roundtrip",
+        "stage5ge_c_r1_public_awaiting_clean_process_roundtrip",
+        "stage5ge_c_r1_public_exact_source_clean_process_roundtrip",
+        "stage5ge_c_r1_public_new_package_source_clean_process_roundtrip",
+        "stage5ge_c_r1_rehashed_stage5d_account_cross_binding_fails_closed",
+        "stage5ge_c_r1_rehashed_stage5d_instrument_cross_binding_fails_closed",
+        "stage5ge_c_r1_rehashed_extension_binding_strategy_fails_closed",
+        "stage5ge_c_r1_rehashed_timer_summary_fails_closed",
+        "stage5ge_c_r1_rehashed_timer_checkpoint_graft_fails_closed",
+        "stage5ge_c_r1_rehashed_callback_self_authority_fails_closed",
+        "stage5ge_c_r1_rehashed_lifecycle_kind_swap_fails_closed",
+        "stage5ge_c_r1_rehashed_order_position_graft_fails_closed",
     )
     require(all(name in order for name in tests), "focused projection witness missing")
     for name in (

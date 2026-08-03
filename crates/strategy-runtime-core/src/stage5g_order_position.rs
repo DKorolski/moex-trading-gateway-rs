@@ -2380,12 +2380,28 @@ fn block(
 }
 
 impl Stage5gOrderPositionSession {
+    pub(crate) fn stage5g_restart_state_binding(
+        state: &Stage5gOrderPositionState,
+    ) -> (&str, &broker_core::BrokerAccountId, &InstrumentId) {
+        (&state.strategy_id, &state.account_id, &state.instrument)
+    }
+
     pub(crate) fn stage5g_runtime_strategy(&self) -> &crate::HybridIntradayRuntimeStrategy {
         self.ack_resolved.stage5g_runtime_strategy()
     }
 
     pub(crate) fn stage5g_restart_state(&self) -> Stage5gOrderPositionState {
         self.state.clone()
+    }
+
+    pub(crate) fn stage5g_restart_binding(
+        &self,
+    ) -> (&str, &broker_core::BrokerAccountId, &InstrumentId) {
+        (
+            &self.state.strategy_id,
+            &self.state.account_id,
+            &self.state.instrument,
+        )
     }
 
     pub(crate) fn stage5g_restart_checkpoint(&self) -> crate::Stage5gTimerCheckpointEnvelope {
@@ -2399,8 +2415,9 @@ impl Stage5gOrderPositionSession {
         state: &Stage5gOrderPositionState,
         summary: &Stage5gOrderPositionSummary,
         checkpoint: &crate::Stage5gTimerCheckpointEnvelope,
+        authoritative_callback_count: usize,
     ) -> bool {
-        let expected_summary = state_summary(state, summary.stage5c_callback_count);
+        let expected_summary = state_summary(state, authoritative_callback_count);
         let expected_checkpoint = crate::stage5g_timer::checkpoint_envelope(
             &replay_checkpoint(state),
             state.last_continuation_checkpoint_ts_utc_ms,
@@ -2738,15 +2755,34 @@ mod tests {
     }
 
     fn r2cb_public_runtime_strategy(bar_close_ts: i64) -> HybridIntradayRuntimeStrategy {
+        r2cb_public_runtime_strategy_with_riskgate(bar_close_ts, RiskGateMode::Disabled)
+    }
+
+    fn r2cb_public_runtime_strategy_with_riskgate(
+        bar_close_ts: i64,
+        risk_gate_mode: RiskGateMode,
+    ) -> HybridIntradayRuntimeStrategy {
         let utc_bar_close = Utc.timestamp_opt(bar_close_ts, 0).single().unwrap();
         let timezone_offset_hours = 9 - i32::try_from(utc_bar_close.hour()).unwrap();
         let local_bar_close = utc_bar_close + Duration::hours(i64::from(timezone_offset_hours));
         HybridIntradayRuntimeStrategy::new(HybridIntradayRuntimeConfig {
             symbol: "IMOEXF".to_string(),
-            profile: HybridIntradayProfile::BaselineRuntimeHybrid,
-            mr_variant: MeanReversionVariant::Author41BoundaryShort,
-            mr_gate_policy: MrGatePolicy::Disabled,
-            risk_gate_mode: RiskGateMode::Disabled,
+            profile: if risk_gate_mode == RiskGateMode::Disabled {
+                HybridIntradayProfile::BaselineRuntimeHybrid
+            } else {
+                HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120
+            },
+            mr_variant: if risk_gate_mode == RiskGateMode::Disabled {
+                MeanReversionVariant::Author41BoundaryShort
+            } else {
+                MeanReversionVariant::High180
+            },
+            mr_gate_policy: if risk_gate_mode == RiskGateMode::Disabled {
+                MrGatePolicy::Disabled
+            } else {
+                MrGatePolicy::ShadowPnlLb120Positive
+            },
+            risk_gate_mode,
             risk_gate_seed_file: None,
             risk_gate_ledger_key: None,
             model_session_start_time: Some((local_bar_close - Duration::minutes(10)).time()),
@@ -2806,9 +2842,41 @@ mod tests {
         Option<HybridRuntimeAttribution>,
         Duration,
     ) {
+        r2cb_public_runtime_session_at_with_strategy(
+            bar_close_ts,
+            r2cb_public_runtime_strategy(bar_close_ts),
+        )
+    }
+
+    fn r2cb_public_runtime_session_at_with_strategy(
+        bar_close_ts: i64,
+        strategy: HybridIntradayRuntimeStrategy,
+    ) -> (
+        Stage5gOrderPositionSession,
+        StrategyRequestId,
+        ClientOrderId,
+        Option<HybridRuntimeAttribution>,
+        Duration,
+    ) {
+        let (session, request_id, client_order_id, attribution, shift, ()) =
+            r2cb_public_runtime_session_at_with_strategy_prepared(bar_close_ts, strategy, |_| ());
+        (session, request_id, client_order_id, attribution, shift)
+    }
+
+    fn r2cb_public_runtime_session_at_with_strategy_prepared<T>(
+        bar_close_ts: i64,
+        mut strategy: HybridIntradayRuntimeStrategy,
+        prepare: impl FnOnce(&mut HybridIntradayRuntimeStrategy) -> T,
+    ) -> (
+        Stage5gOrderPositionSession,
+        StrategyRequestId,
+        ClientOrderId,
+        Option<HybridRuntimeAttribution>,
+        Duration,
+        T,
+    ) {
         let fixture_poll1_whole_second = 1_785_661_800;
         let golden_time_shift = Duration::seconds(bar_close_ts + 10 - fixture_poll1_whole_second);
-        let mut strategy = r2cb_public_runtime_strategy(bar_close_ts);
         for (close_time_utc, high, low) in [
             (bar_close_ts - 86_400 - 600, 2630.0, 2570.0),
             (bar_close_ts - 86_400, 2620.0, 2580.0),
@@ -2843,6 +2911,7 @@ mod tests {
             )
             .is_empty());
         }
+        let prepared = prepare(&mut strategy);
         let signal = broker_core::HybridRuntimeBarEvent {
             instrument: target(),
             close_time_utc: bar_close_ts,
@@ -2929,6 +2998,7 @@ mod tests {
             client_order_id,
             expected_attribution,
             golden_time_shift,
+            prepared,
         )
     }
 
@@ -7341,6 +7411,380 @@ mod tests {
         crate::Stage5gCleanRestartSource::NewPackageAwaiting(awaiting)
     }
 
+    #[derive(Clone, Copy)]
+    enum Stage5geCTestSourceKind {
+        TimerReady,
+        OrderPositionAwaiting,
+        ExactReplaySynchronized,
+        NewPackageAwaiting,
+    }
+
+    fn stage5ge_c_public_roundtrip_fixture(
+        kind: Stage5geCTestSourceKind,
+    ) -> (
+        crate::Stage5gCleanRestartSource,
+        crate::Stage5gCleanRestartExportInput,
+        HybridIntradayRuntimeStrategy,
+    ) {
+        let bar_close_ts = Utc::now().timestamp().div_euclid(600) * 600 - 600;
+        let persisted_at = Utc.timestamp_opt(bar_close_ts + 120, 0).single().unwrap();
+        let strategy =
+            r2cb_public_runtime_strategy_with_riskgate(bar_close_ts, RiskGateMode::NormalAppend);
+        let (initial, request_id, client_order_id, attribution, time_shift, _prepared_authority) =
+            r2cb_public_runtime_session_at_with_strategy_prepared(
+                bar_close_ts,
+                strategy,
+                |strategy| {
+                    crate::stage5d_persistence::stage5f_test_seams::prepare_stage5g_clean_restart_test_authority(
+                    strategy,
+                    "hybrid_imoexf",
+                    persisted_at,
+                )
+                },
+            );
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let polls = golden["polls"].as_array().unwrap();
+        let source = match kind {
+            Stage5geCTestSourceKind::OrderPositionAwaiting => {
+                let session = apply_stage5g_order_position_evidence(
+                    initial,
+                    Stage5gOrderPositionEvidence {
+                        total_sequence: 2,
+                        request_id,
+                        broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                        order_attribution: attribution,
+                    },
+                )
+                .unwrap()
+                .into_awaiting()
+                .unwrap();
+                crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
+            }
+            Stage5geCTestSourceKind::ExactReplaySynchronized => {
+                let session = apply_stage5g_order_position_evidence(
+                    initial,
+                    Stage5gOrderPositionEvidence {
+                        total_sequence: 2,
+                        request_id,
+                        broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                        order_attribution: attribution.clone(),
+                    },
+                )
+                .unwrap()
+                .into_awaiting()
+                .unwrap();
+                let checkpoint = stage5ge_b_committed_checkpoint(&session);
+                let exact = stage5ge_b_r1_exact_replay(
+                    &checkpoint,
+                    3,
+                    request_id,
+                    &client_order_id,
+                    attribution,
+                    time_shift,
+                    &polls[0],
+                );
+                crate::Stage5gCleanRestartSource::ExactReplaySynchronized(
+                    crate::apply_stage5g_exact_replay_to_session(session, exact).unwrap(),
+                )
+            }
+            Stage5geCTestSourceKind::NewPackageAwaiting => {
+                let session = apply_stage5g_order_position_evidence(
+                    initial,
+                    Stage5gOrderPositionEvidence {
+                        total_sequence: 2,
+                        request_id,
+                        broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                        order_attribution: attribution.clone(),
+                    },
+                )
+                .unwrap()
+                .into_awaiting()
+                .unwrap();
+                let checkpoint = stage5ge_b_committed_checkpoint(&session);
+                let candidate = stage5ge_b_candidate(
+                    &checkpoint,
+                    Stage5gOrderPositionEvidence {
+                        total_sequence: 3,
+                        request_id,
+                        broker_truth: r2cb_golden_truth(&polls[1], &client_order_id, time_shift),
+                        order_attribution: attribution,
+                    },
+                );
+                crate::Stage5gCleanRestartSource::NewPackageAwaiting(
+                    crate::apply_stage5g_new_package_candidate(session, candidate)
+                        .unwrap()
+                        .into_awaiting()
+                        .unwrap(),
+                )
+            }
+            Stage5geCTestSourceKind::TimerReady => {
+                let mut session = initial;
+                let mut converged = None;
+                for (index, poll) in polls.iter().enumerate() {
+                    let transition = apply_stage5g_order_position_evidence(
+                        session,
+                        Stage5gOrderPositionEvidence {
+                            total_sequence: u64::try_from(index + 2).unwrap(),
+                            request_id,
+                            broker_truth: r2cb_golden_truth(poll, &client_order_id, time_shift),
+                            order_attribution: attribution.clone(),
+                        },
+                    )
+                    .unwrap();
+                    if index + 1 == polls.len() {
+                        converged = transition.into_converged();
+                        break;
+                    }
+                    session = transition.into_awaiting().unwrap();
+                }
+                let converged = converged.unwrap();
+                let watermark_ms = converged
+                    .replay_checkpoint
+                    .last_broker_truth_received_ms
+                    .unwrap();
+                let ready = match crate::apply_stage5g_timer_checkpoint(
+                    crate::attach_stage5g_timer_session(converged),
+                    crate::Stage5cPaperTimerInput {
+                        now_ts_utc_ms: watermark_ms + 1,
+                    },
+                )
+                .unwrap()
+                {
+                    crate::Stage5gTimerTransition::Ready(ready) => ready,
+                    crate::Stage5gTimerTransition::GeneratedIntent(_) => {
+                        panic!("zero-intent timer source remains ready")
+                    }
+                };
+                crate::Stage5gCleanRestartSource::TimerReady(ready)
+            }
+        };
+        let (riskgate, riskgate_evidence) =
+            crate::stage5g_clean_restart::stage5g_test_persistence_authority_from_source(
+                &source,
+                persisted_at,
+            );
+        let input = crate::Stage5gCleanRestartExportInput {
+            snapshot_id: format!("stage5ge-c-r1-{}", bar_close_ts),
+            snapshot_revision: 1,
+            previous_revision: None,
+            write_generation: 1,
+            persisted_at_ts_utc: persisted_at,
+            source_commit_or_build_id:
+                crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+            lifecycle_watermarks: crate::Stage5dLifecycleWatermarks {
+                persisted_event_watermark: Some(format!("stage5ge-c-r1:{bar_close_ts}")),
+                last_semantic_bar_ts: Utc.timestamp_opt(bar_close_ts, 0).single(),
+                last_broker_event_ts: Some(persisted_at - Duration::seconds(1)),
+            },
+            riskgate,
+            riskgate_evidence,
+        };
+        (
+            source,
+            input,
+            r2cb_public_runtime_strategy_with_riskgate(bar_close_ts, RiskGateMode::NormalAppend),
+        )
+    }
+
+    fn assert_stage5ge_c_public_clean_process_roundtrip(kind: Stage5geCTestSourceKind) {
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(kind);
+        let expected = stage5ge_c_projection(&source);
+        let bytes = crate::export_stage5g_clean_restart(source, input)
+            .expect("public export consumes the only source authority");
+        let copied_bytes = bytes.clone();
+        drop(bytes);
+        let restored = crate::restore_stage5g_clean_restart(&copied_bytes, fresh_runtime)
+            .expect("fresh runtime reconstructs from canonical copied bytes");
+        assert_eq!(restored.lifecycle_kind(), expected.lifecycle_kind);
+        assert_eq!(restored.summary(), &expected.summary);
+        assert_eq!(restored.checkpoint(), &expected.checkpoint);
+        assert_eq!(
+            restored.reconstructed_runtime_state_fingerprint_sha256(),
+            expected.strategy_state_fingerprint_sha256
+        );
+        let observation = restored.next_reconciliation_observation();
+        assert_eq!(observation.strategy_id, "hybrid_imoexf");
+        assert_eq!(
+            observation.account_id,
+            BrokerAccountId::new("ACC_TEST_0001")
+        );
+        assert_eq!(observation.instrument_id, target());
+        assert_eq!(observation.lifecycle_kind, expected.lifecycle_kind);
+        assert_eq!(
+            observation.callback_count,
+            expected.lifecycle_proof.authoritative_callback_count
+        );
+        assert_eq!(observation.request_count, expected.summary.request_count);
+        assert_eq!(
+            observation.continuation_checkpoint_ts_utc_ms,
+            expected
+                .checkpoint
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms
+        );
+        assert!(!restored.intent_sink_attached());
+        assert!(!restored.redis_command_stream_attached());
+        assert!(!restored.finam_transport_attached());
+        assert!(!restored.broker_execution_attached());
+    }
+
+    fn stage5ge_c_rehash_fixture(
+        kind: Stage5geCTestSourceKind,
+    ) -> (Vec<u8>, HybridIntradayRuntimeStrategy) {
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(kind);
+        (
+            crate::export_stage5g_clean_restart(source, input).unwrap(),
+            fresh_runtime,
+        )
+    }
+
+    #[test]
+    fn stage5ge_c_r1_public_timer_ready_clean_process_roundtrip() {
+        assert_stage5ge_c_public_clean_process_roundtrip(Stage5geCTestSourceKind::TimerReady);
+    }
+
+    #[test]
+    fn stage5ge_c_r1_public_awaiting_clean_process_roundtrip() {
+        assert_stage5ge_c_public_clean_process_roundtrip(
+            Stage5geCTestSourceKind::OrderPositionAwaiting,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r1_public_exact_source_clean_process_roundtrip() {
+        assert_stage5ge_c_public_clean_process_roundtrip(
+            Stage5geCTestSourceKind::ExactReplaySynchronized,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r1_public_new_package_source_clean_process_roundtrip() {
+        assert_stage5ge_c_public_clean_process_roundtrip(
+            Stage5geCTestSourceKind::NewPackageAwaiting,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_stage5d_account_cross_binding_fails_closed() {
+        let (bytes, fresh) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |envelope| {
+                envelope["binding"]["account_id"] = serde_json::json!("ACC_FORGED_0002");
+            },
+            |_| {},
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_stage5d_instrument_cross_binding_fails_closed() {
+        let (bytes, fresh) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |envelope| {
+                envelope["binding"]["instrument_id"]["symbol"] = serde_json::json!("RI");
+            },
+            |_| {},
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_extension_binding_strategy_fails_closed() {
+        let (bytes, fresh) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |_| {},
+            |extension| {
+                extension["binding"]["strategy_id"] = serde_json::json!("forged_strategy");
+            },
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_timer_summary_fails_closed() {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |_| {},
+            |extension| {
+                extension["summary"]["duplicate_evidence_count"] = serde_json::json!(999);
+            },
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_timer_checkpoint_graft_fails_closed() {
+        let (source_bytes, _) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let source_json: serde_json::Value = serde_json::from_slice(&source_bytes).unwrap();
+        let source_extension: serde_json::Value =
+            serde_json::from_str(source_json["stage5g_extension_json"].as_str().unwrap()).unwrap();
+        let graft = source_extension["checkpoint"].clone();
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |_| {},
+            |extension| extension["checkpoint"] = graft,
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_callback_self_authority_fails_closed() {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::NewPackageAwaiting);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |_| {},
+            |extension| {
+                extension["summary"]["stage5c_callback_count"] = serde_json::json!(7);
+                extension["lifecycle_proof"]["authoritative_callback_count"] = serde_json::json!(7);
+            },
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_lifecycle_kind_swap_fails_closed() {
+        let (bytes, fresh) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::ExactReplaySynchronized);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |_| {},
+            |extension| {
+                extension["lifecycle_kind"] = serde_json::json!("timer_ready");
+            },
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
+    #[test]
+    fn stage5ge_c_r1_rehashed_order_position_graft_fails_closed() {
+        let (source_bytes, _) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let source_json: serde_json::Value = serde_json::from_slice(&source_bytes).unwrap();
+        let source_extension: serde_json::Value =
+            serde_json::from_str(source_json["stage5g_extension_json"].as_str().unwrap()).unwrap();
+        let graft = source_extension["order_position_state"].clone();
+        let (target_bytes, fresh) =
+            stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::NewPackageAwaiting);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &target_bytes,
+            |_| {},
+            |extension| extension["order_position_state"] = graft,
+        );
+        assert!(crate::restore_stage5g_clean_restart(&forged, fresh).is_err());
+    }
+
     fn stage5ge_c_projection(
         source: &crate::Stage5gCleanRestartSource,
     ) -> crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1 {
@@ -7366,7 +7810,7 @@ mod tests {
         let projection = stage5ge_c_projection(&source);
         assert_eq!(
             projection.lifecycle_kind,
-            crate::Stage5gCleanRestartLifecycleKind::OrderPositionAwaiting
+            crate::Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted
         );
         assert_eq!(projection.summary.request_count, 1);
         assert!(projection.order_position_state.is_some());
@@ -7381,7 +7825,7 @@ mod tests {
         crate::stage5g_clean_restart::validate_projection(&decoded).unwrap();
         assert_eq!(
             decoded.lifecycle_kind,
-            crate::Stage5gCleanRestartLifecycleKind::ExactReplaySynchronized
+            crate::Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted
         );
     }
 
@@ -7393,7 +7837,7 @@ mod tests {
         crate::stage5g_clean_restart::validate_projection(&decoded).unwrap();
         assert_eq!(
             decoded.lifecycle_kind,
-            crate::Stage5gCleanRestartLifecycleKind::NewPackageAwaiting
+            crate::Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted
         );
     }
 
@@ -7463,6 +7907,7 @@ mod tests {
             .last_continuation_checkpoint_ts_utc_ms = Some(received_ms - 1);
         projection.checkpoint =
             crate::stage5g_timer::stage5g_test_reseal_checkpoint(&projection.checkpoint.payload);
+        crate::stage5g_clean_restart::stage5g_test_reseal_lifecycle_authority(&mut projection);
         assert_eq!(
             crate::stage5g_clean_restart::validate_projection(&projection),
             Err(crate::Stage5gCleanRestartError::ReplayCheckpoint(
@@ -7475,9 +7920,10 @@ mod tests {
     fn stage5ge_c_unsupported_lifecycle_kind_fails_closed() {
         let source = stage5ge_c_exact_source();
         let projection = stage5ge_c_projection(&source);
-        let payload = serde_json::to_string(&projection)
-            .unwrap()
-            .replace("exact_replay_synchronized", "generated_intent_escrow");
+        let payload = serde_json::to_string(&projection).unwrap().replace(
+            "order_position_awaiting_committed",
+            "generated_intent_escrow",
+        );
         assert!(serde_json::from_str::<
             crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1,
         >(&payload)
@@ -7489,6 +7935,7 @@ mod tests {
         let source = stage5ge_c_exact_source();
         let mut projection = stage5ge_c_projection(&source);
         projection.order_position_state = None;
+        crate::stage5g_clean_restart::stage5g_test_reseal_lifecycle_authority(&mut projection);
         assert_eq!(
             crate::stage5g_clean_restart::validate_projection(&projection),
             Err(crate::Stage5gCleanRestartError::MissingOrderPositionState)
@@ -7500,6 +7947,7 @@ mod tests {
         let source = stage5ge_c_new_package_awaiting_source();
         let mut projection = stage5ge_c_projection(&source);
         projection.summary.duplicate_evidence_count += 1;
+        crate::stage5g_clean_restart::stage5g_test_reseal_lifecycle_authority(&mut projection);
         assert_eq!(
             crate::stage5g_clean_restart::validate_projection(&projection),
             Err(crate::Stage5gCleanRestartError::ReplayProjectionInconsistent)

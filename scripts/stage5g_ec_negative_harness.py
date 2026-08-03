@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Twelve fail-closed mutations for Stage 5G-e-c."""
+"""Fourteen fail-closed mutations for Stage 5G-e-c R1."""
 
 from __future__ import annotations
 
@@ -45,18 +45,20 @@ def main() -> int:
     lib = str(checker.FILES["lib"])
     descriptor = str(checker.FILES["descriptor"])
     cases = (
-        ("retain-source", lambda r: mutate(r, restart, "drop(source);", "let _retained = source;")),
-        ("parallel-package", lambda r: mutate(r, restart, "let bytes = stage5d_export_canonical_restart_bytes_with_stage5g_extension(", "let bytes = ad_hoc_stage5g_restart_json(")),
-        ("stage5d-decode-bypass", lambda r: mutate(r, restart, "let decoded = stage5d_decode_canonical_restart_bytes_requiring_stage5g(bytes)?;", "let decoded = serde_json_decode_without_stage5d(bytes)?;")),
-        ("fresh-runtime-bypass", lambda r: mutate(r, restart, "stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;", "reuse_source_runtime(decoded, fresh_runtime)?;")),
-        ("missing-extension-accepted", lambda r: mutate(r, stage5d, ".ok_or(Stage5dEnvelopeValidationError::RequiredFieldEmpty)?", ".unwrap_or_default()")),
-        ("extension-checksum-removed", lambda r: mutate(r, stage5d, "fn validate_stage5g_extension_pair(&self)", "fn removed_extension_pair_validation(&self)")),
-        ("replay-validation-removed", lambda r: mutate(r, restart, "crate::validate_stage5g_timer_checkpoint(&projection.checkpoint)", "accept_unvalidated_checkpoint(&projection.checkpoint)")),
-        ("missing-lifecycle-test", lambda r: mutate(r, order, "stage5ge_c_unsupported_lifecycle_kind_fails_closed", "removed_unsupported_lifecycle_test")),
-        ("missing-decimal-test", lambda r: mutate(r, order, "stage5ge_c_exact_decimal_representation_survives_byte_roundtrip", "removed_decimal_test")),
-        ("missing-source-move-proof", lambda r: mutate(r, lib, "moved_source_cannot_be_reused", "removed_source_move_witness")),
+        ("caller-account-authority", lambda r: mutate(r, restart, "pub snapshot_id: String,", "pub account_id: BrokerAccountId,\n    pub snapshot_id: String,")),
+        ("source-binding-removed", lambda r: mutate(r, restart, "let (strategy_id, account_id, instrument_id) = source_binding(source);", "let (strategy_id, account_id, instrument_id) = caller_binding();")),
+        ("restore-cross-binding-removed", lambda r: mutate(r, restart, "validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;", "let _unchecked_binding = (&projection, &decoded.envelope, &fresh_runtime);")),
+        ("validation-after-mutation", lambda r: mutate(r, restart, "validate_projection(&projection)?;\n    validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;", "let _deferred_projection_validation = &projection;")),
+        ("timer-zero-intent-proof-removed", lambda r: mutate(r, restart, "if !projection.lifecycle_proof.zero_intent_ready", "if false && !projection.lifecycle_proof.zero_intent_ready")),
+        ("callback-self-authorization", lambda r: mutate(r, restart, "&projection.checkpoint,\n                projection.lifecycle_proof.authoritative_callback_count,", "&projection.checkpoint,\n                projection.summary.stage5c_callback_count,")),
+        ("canonical-lifecycle-collapse-removed", lambda r: mutate(r, descriptor, '    "order_position_awaiting_committed"', '    "exact_replay_synchronized"')),
+        ("rehash-negative-removed", lambda r: mutate(r, order, "stage5ge_c_r1_rehashed_stage5d_account_cross_binding_fails_closed", "removed_rehashed_cross_binding_test")),
+        ("public-export-roundtrip-removed", lambda r: mutate(r, order, "stage5ge_c_r1_public_timer_ready_clean_process_roundtrip", "removed_public_export_roundtrip")),
+        ("public-restore-roundtrip-removed", lambda r: mutate(r, order, "stage5ge_c_r1_public_new_package_source_clean_process_roundtrip", "removed_public_restore_roundtrip")),
+        ("next-stage-observation-removed", lambda r: mutate(r, restart, "next_reconciliation_observation", "removed_future_view")),
+        ("source-move-proof-removed", lambda r: mutate(r, lib, "moved_source_cannot_be_reused", "removed_source_move_witness")),
         ("open-stage5g-f", lambda r: mutate(r, descriptor, '"stage5g_f": false', '"stage5g_f": true')),
-        ("reduce-lifecycle-set", lambda r: mutate(r, descriptor, '    "new_package_awaiting"', '    "timer_ready"')),
+        ("reduce-source-lifecycle-set", lambda r: mutate(r, descriptor, '    "new_package_awaiting"', '    "timer_ready"')),
     )
     for label, mutation in cases:
         must_fail(label, mutation)

@@ -1423,6 +1423,22 @@ impl Stage5gTimerReadyPaperStrategy {
         self.settlement.stage5g_runtime_strategy()
     }
 
+    pub(crate) fn stage5g_restart_binding(
+        &self,
+    ) -> (
+        &str,
+        &broker_core::BrokerAccountId,
+        &broker_core::InstrumentId,
+    ) {
+        let batch = self.settlement.settled().intent_batch();
+        (batch.strategy_id(), batch.account_id(), batch.instrument())
+    }
+
+    pub(crate) fn stage5g_restart_is_zero_intent_ready(&self) -> bool {
+        self.settlement.is_ready_for_continuation()
+            && self.settlement.settled().intent_batch().intent_count() == 0
+    }
+
     pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
         checkpoint_envelope(&self.replay, Some(self.checkpoint_ts_utc_ms))
     }

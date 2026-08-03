@@ -14,7 +14,7 @@ import stage5g_c_r2ca_r1_handoff_safety_check as base
 
 STAGE = "5G-e-c"
 BRANCH = "stage5g-lifecycle"
-BASE_REF = "6995f8dd2ac226eff33b781f575927361fdc2c45"
+BASE_REF = "4296f0621249875f7a2f8cccaa2fbe069cb4bccf"
 SOURCE_MANIFEST = "stage5g-ec-source-tree-manifest.json"
 EVIDENCE_MANIFEST = "stage5g-ec-evidence-manifest.json"
 COMMIT_OBJECT = "stage5g-ec-commit-object.txt"
@@ -36,19 +36,14 @@ EXPECTED_COMMANDS: dict[str, list[str]] = {
     "forbidden-no-rg": ["bash", "scripts/stage5f_forbidden_no_rg_gate.sh"],
 }
 EXPECTED_CHANGED_PATHS = sorted({
-    "crates/strategy-runtime-core/src/lib.rs",
-    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5d_persistence.rs",
     "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
-    "crates/strategy-runtime-core/src/stage5g_mock_ack.rs",
     "crates/strategy-runtime-core/src/stage5g_order_position.rs",
     "crates/strategy-runtime-core/src/stage5g_timer.rs",
     "docs/current-status.md",
     "docs/stage-5/stage5g-e-c-clean-process-reconstruction.json",
     "docs/stage-5/stage5g-e-c-clean-process-reconstruction.md",
-    "scripts/make_stage5g_ec_handoff_archive.py",
     "scripts/stage5g_ec_check.py",
-    "scripts/stage5g_ec_gate.sh",
     "scripts/stage5g_ec_handoff_safety_check.py",
     "scripts/stage5g_ec_negative_harness.py",
 })
@@ -79,7 +74,7 @@ def configure_base() -> None:
 def validate_gate_marker(label: str, stdout: str) -> None:
     markers = {
         "stage5g-ec-check": "stage5g-ec-check: PASS",
-        "stage5g-ec-negative": "stage5g-ec-negative-harness: PASS 12/12",
+        "stage5g-ec-negative": "stage5g-ec-negative-harness: PASS 14/14",
         "stage5c-api-freeze": "stage5c-api-freeze-check: ok",
         "forbidden-no-rg": "stage5f-forbidden-no-rg-gate: ok",
     }

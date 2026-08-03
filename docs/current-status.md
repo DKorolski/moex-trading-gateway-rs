@@ -115,7 +115,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   but was rejected because historical exact replay still entered NewPackage
   chronology and current-slot preflight. R2 at
   `6995f8dd2ac226eff33b781f575927361fdc2c45` is independently accepted and
-  closes Stage 5G-e-b. Stage 5G-e-c is the current implementation review
+  closes Stage 5G-e-b. Stage 5G-e-c R1 is the current implementation review
   candidate. The accepted owning exact-replay proof carries the old
   and new checkpoints plus exact canonical evidence, updates the live session
   through the same canonical Stage 5G-c metadata authority, and proves both

@@ -3782,6 +3782,39 @@ pub(crate) fn stage5d_reconstruct_runtime_from_clean_restart(
     Ok((fresh_strategy, decoded.stage5g_extension_json))
 }
 
+#[cfg(test)]
+pub(crate) fn stage5g_test_rehash_clean_restart_package(
+    bytes: &[u8],
+    mutate_envelope: impl FnOnce(&mut serde_json::Value),
+    mutate_extension: impl FnOnce(&mut serde_json::Value),
+) -> Vec<u8> {
+    let mut package: Stage5dCanonicalRestartPackage =
+        serde_json::from_slice(bytes).expect("test package parses");
+    let mut envelope_value: serde_json::Value =
+        serde_json::from_str(&package.envelope_json).expect("test envelope parses");
+    let mut extension_value: serde_json::Value = serde_json::from_str(
+        package
+            .stage5g_extension_json
+            .as_deref()
+            .expect("test extension exists"),
+    )
+    .expect("test extension parses");
+    mutate_envelope(&mut envelope_value);
+    mutate_extension(&mut extension_value);
+    let mut envelope: Stage5dPersistenceEnvelope =
+        serde_json::from_value(envelope_value).expect("mutated test envelope remains typed");
+    envelope.payload_checksum_sha256 = envelope
+        .compute_payload_checksum_sha256()
+        .expect("mutated test envelope rehashes");
+    package.envelope_json = serde_json::to_string(&envelope).unwrap();
+    package.envelope_sha256 = sha256_text(&package.envelope_json);
+    let extension_json = serde_json::to_string(&extension_value).unwrap();
+    package.stage5g_extension_sha256 = Some(sha256_text(&extension_json));
+    package.stage5g_extension_json = Some(extension_json);
+    package.package_checksum_sha256 = package.compute_package_checksum_sha256().unwrap();
+    serde_json::to_vec(&package).unwrap()
+}
+
 fn stage5d_validate_package_cross_binding(
     envelope: &Stage5dPersistenceEnvelope,
     evidence: &Stage5dRiskGateLedgerEvidence,
@@ -6056,6 +6089,54 @@ pub(crate) mod stage5f_test_seams {
             ledger_tail_hash: evidence.ledger_tail_hash.clone(),
             durable_finalization_outbox: Vec::new(),
         }
+    }
+
+    pub(crate) fn prepare_stage5g_clean_restart_test_authority(
+        strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        strategy_id: &str,
+        persisted_at: DateTime<Utc>,
+    ) -> (Stage5dRiskGatePersistence, Stage5dRiskGateLedgerEvidence) {
+        let evidence = canonical_riskgate_evidence(strategy, strategy_id, persisted_at);
+        let persistence = persistence_from_evidence(&evidence);
+        let materialized = &persistence.materialized_state;
+        let mut state = serde_json::to_value(Strategy::state(strategy))
+            .expect("Stage 5G clean-restart source state serializes");
+        let semantic = &mut state["HybridIntradayRuntime"];
+        semantic["risk_gate_mr_enabled_current_session"] =
+            serde_json::to_value(materialized.mr_enabled_current_session).unwrap();
+        semantic["risk_gate_rolling_sum_lb120"] = serde_json::to_value(
+            materialized
+                .rolling_sum_lb120
+                .as_deref()
+                .map(str::parse::<f64>)
+                .transpose()
+                .expect("materialized rolling sum parses"),
+        )
+        .unwrap();
+        semantic["risk_gate_last_finalized_session_date"] =
+            serde_json::to_value(&materialized.last_finalized_session_date).unwrap();
+        semantic["risk_gate_ledger_rows_count"] = serde_json::json!(materialized.ledger_rows_count);
+        semantic["risk_gate_shadow_session_date"] =
+            serde_json::to_value(&materialized.current_shadow_session_date).unwrap();
+        semantic["risk_gate_shadow_pnl_points"] = serde_json::json!(materialized
+            .current_shadow_pnl_points
+            .parse::<f64>()
+            .expect("materialized shadow PnL parses"));
+        Strategy::set_state(
+            strategy,
+            serde_json::from_value(state).expect("Stage 5G authority state applies"),
+        );
+        (persistence, evidence)
+    }
+
+    pub(crate) fn stage5g_clean_restart_test_authority(
+        strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+        strategy_id: &str,
+        persisted_at: DateTime<Utc>,
+    ) -> (Stage5dRiskGatePersistence, Stage5dRiskGateLedgerEvidence) {
+        let evidence = canonical_riskgate_evidence(strategy, strategy_id, persisted_at);
+        let persistence = persistence_from_evidence(&evidence);
+        (persistence, evidence)
     }
 
     fn admission_for(
