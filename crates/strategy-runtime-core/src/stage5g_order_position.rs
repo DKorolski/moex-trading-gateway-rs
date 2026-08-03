@@ -7601,14 +7601,16 @@ mod tests {
     }
 
     fn assert_stage5ge_c_public_clean_process_roundtrip(kind: Stage5geCTestSourceKind) {
+        let commitment_key = stage5ge_c_commitment_key();
         let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(kind);
         let expected = stage5ge_c_projection(&source);
-        let bytes = crate::export_stage5g_clean_restart(source, input)
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
             .expect("public export consumes the only source authority");
         let copied_bytes = bytes.clone();
         drop(bytes);
-        let restored = crate::restore_stage5g_clean_restart(&copied_bytes, fresh_runtime)
-            .expect("fresh runtime reconstructs from canonical copied bytes");
+        let restored =
+            crate::restore_stage5g_clean_restart(&copied_bytes, &commitment_key, fresh_runtime)
+                .expect("fresh runtime reconstructs from canonical copied bytes");
         assert_eq!(restored.lifecycle_kind(), expected.lifecycle_kind);
         assert_eq!(restored.summary(), &expected.summary);
         assert_eq!(restored.checkpoint(), &expected.checkpoint);
@@ -7648,10 +7650,15 @@ mod tests {
         kind: Stage5geCTestSourceKind,
     ) -> (Vec<u8>, HybridIntradayRuntimeStrategy) {
         let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(kind);
+        let commitment_key = stage5ge_c_commitment_key();
         (
-            crate::export_stage5g_clean_restart(source, input).unwrap(),
+            crate::export_stage5g_clean_restart(source, input, &commitment_key).unwrap(),
             fresh_runtime,
         )
+    }
+
+    fn stage5ge_c_commitment_key() -> crate::Stage5gLifecycleCommitmentKey {
+        crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap()
     }
 
     fn assert_stage5ge_c_rehashed_error(
@@ -7666,7 +7673,8 @@ mod tests {
             mutate_extension,
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(expected)
         );
     }
@@ -7709,7 +7717,8 @@ mod tests {
             |_| {},
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::BindingMismatch)
         );
     }
@@ -7726,7 +7735,8 @@ mod tests {
             |_| {},
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::BindingMismatch)
         );
     }
@@ -7743,7 +7753,8 @@ mod tests {
             },
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::BindingMismatch)
         );
     }
@@ -7759,8 +7770,9 @@ mod tests {
             },
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch)
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::ReplayProjectionInconsistent)
         );
     }
 
@@ -7779,7 +7791,8 @@ mod tests {
             |extension| extension["checkpoint"] = graft,
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch)
         );
     }
@@ -7796,7 +7809,8 @@ mod tests {
             },
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::CallbackAuthorityMismatch)
         );
     }
@@ -7813,7 +7827,8 @@ mod tests {
             },
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::UnexpectedOrderPositionState)
         );
     }
@@ -7834,7 +7849,8 @@ mod tests {
             |extension| extension["order_position_state"] = graft,
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::ReplayProjectionInconsistent)
         );
     }
@@ -7845,10 +7861,8 @@ mod tests {
             Stage5geCTestSourceKind::TimerReady,
             |extension| {
                 extension["summary"]["request_count"] = serde_json::json!(999);
-                extension["timer_ready_source"]["source_summary"]["request_count"] =
-                    serde_json::json!(999);
             },
-            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+            crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
         );
     }
 
@@ -7859,10 +7873,8 @@ mod tests {
             |extension| {
                 extension["summary"]["lifecycle_fingerprint_sha256"] =
                     serde_json::json!("0".repeat(64));
-                extension["timer_ready_source"]["source_summary"]["lifecycle_fingerprint_sha256"] =
-                    serde_json::json!("0".repeat(64));
             },
-            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+            crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
         );
     }
 
@@ -7875,9 +7887,8 @@ mod tests {
                 extension["summary"]["order_transition_count"] = serde_json::json!(8);
                 extension["summary"]["correlated_trade_count"] = serde_json::json!(9);
                 extension["summary"]["position_confirmation_count"] = serde_json::json!(10);
-                extension["timer_ready_source"]["source_summary"] = extension["summary"].clone();
             },
-            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+            crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
         );
     }
 
@@ -7892,11 +7903,9 @@ mod tests {
                     .unwrap();
                 let grafted = serde_json::json!(current + 1);
                 extension["checkpoint"]["payload"]["last_continuation_checkpoint_ts_utc_ms"] =
-                    grafted.clone();
-                extension["timer_ready_source"]["source_checkpoint"]["payload"]
-                    ["last_continuation_checkpoint_ts_utc_ms"] = grafted;
+                    grafted;
             },
-            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+            crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
         );
     }
 
@@ -7921,10 +7930,10 @@ mod tests {
         assert_stage5ge_c_rehashed_error(
             Stage5geCTestSourceKind::TimerReady,
             |extension| {
-                extension["timer_ready_source"]["stage5c_settlement"]
-                    ["recovery_receipt_identity_sha256"] = serde_json::json!("a".repeat(64));
+                extension["timer_ready_source"]["stage5c_settlement"]["recovery_receipt"]
+                    ["processed_bars"] = serde_json::json!(999);
             },
-            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+            crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
         );
     }
 
@@ -7948,7 +7957,7 @@ mod tests {
                 extension["timer_ready_source"]["stage5c_settlement"]["settled_batch_history"][0]
                     ["state_fingerprint"] = serde_json::json!("forged-state-fingerprint");
             },
-            crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch,
+            crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
         );
     }
 
@@ -7966,13 +7975,34 @@ mod tests {
             |_| {},
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
             Err(crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch)
         );
     }
 
     #[test]
-    fn stage5ge_c_r3_stage5d_source_anchor_is_present_and_canonical() {
+    fn stage5ge_c_r4_missing_authenticated_commitment_fails_closed() {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
+            &bytes,
+            |envelope| {
+                envelope
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("stage5g_source_authority_hmac_sha256");
+            },
+            |_| {},
+        );
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r4_stage5d_authenticated_commitment_is_present_and_canonical() {
         let (bytes, _) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
         let package: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         let envelope: serde_json::Value =
@@ -7984,22 +8014,102 @@ mod tests {
         assert!(anchor
             .bytes()
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
+        let commitment = envelope["stage5g_source_authority_hmac_sha256"]
+            .as_str()
+            .unwrap();
+        assert_eq!(commitment.len(), 64);
+        assert!(commitment
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()));
     }
 
     #[test]
-    fn stage5ge_c_r3_rehashed_stage5d_source_anchor_substitution_fails_closed() {
+    fn stage5ge_c_r4_authenticated_commitment_substitution_fails_closed() {
         let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
         let forged = crate::stage5d_persistence::stage5g_test_rehash_clean_restart_package(
             &bytes,
             |envelope| {
-                envelope["stage5g_source_authority_anchor_sha256"] =
+                envelope["stage5g_source_authority_hmac_sha256"] =
                     serde_json::json!("a".repeat(64));
             },
             |_| {},
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch)
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r4_wrong_operator_commitment_key_fails_closed() {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let wrong_key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x6b; 32])
+            .expect("test key has the required length");
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&bytes, &wrong_key, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r4_fresh_runtime_config_mismatch_fails_closed() {
+        let (source, input, _) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::TimerReady);
+        let bar_close_ts = input
+            .lifecycle_watermarks
+            .last_semantic_bar_ts
+            .expect("test package has a semantic watermark")
+            .timestamp();
+        let mismatched_runtime =
+            r2cb_public_runtime_strategy_with_riskgate(bar_close_ts, RiskGateMode::Disabled);
+        let key = stage5ge_c_commitment_key();
+        let bytes = crate::export_stage5g_clean_restart(source, input, &key).unwrap();
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&bytes, &key, mismatched_runtime).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::BindingMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r4_old_package_fails_after_operator_key_epoch_rotation() {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let newer_epoch_key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x7c; 32])
+            .expect("rotated test key has the required length");
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&bytes, &newer_epoch_key, fresh).map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r4_fully_coherent_unkeyed_reseal_cannot_forge_commitment() {
+        assert_stage5ge_c_rehashed_error(
+            Stage5geCTestSourceKind::TimerReady,
+            |extension| {
+                extension["summary"]["request_count"] = serde_json::json!(41);
+                extension["summary"]["terminal_request_count"] = serde_json::json!(41);
+                extension["summary"]["lifecycle_fingerprint_sha256"] =
+                    serde_json::json!("b".repeat(64));
+
+                let settlement = &mut extension["timer_ready_source"]["stage5c_settlement"];
+                settlement["recovery_receipt"]["processed_bars"] = serde_json::json!(77);
+                settlement["settled_batch"]["state_fingerprint"] =
+                    serde_json::json!("coherently-forged-state");
+                let history = settlement["settled_batch_history"]
+                    .as_array_mut()
+                    .expect("TimerReady history is an array");
+                history.last_mut().expect("TimerReady history is nonempty")["state_fingerprint"] =
+                    serde_json::json!("coherently-forged-state");
+
+                let current = extension["checkpoint"]["payload"]
+                    ["last_continuation_checkpoint_ts_utc_ms"]
+                    .as_i64()
+                    .expect("TimerReady continuation checkpoint exists");
+                extension["checkpoint"]["payload"]["last_continuation_checkpoint_ts_utc_ms"] =
+                    serde_json::json!(current + 1);
+            },
+            crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
         );
     }
 
@@ -8041,8 +8151,9 @@ mod tests {
             },
         );
         assert_eq!(
-            crate::restore_stage5g_clean_restart(&forged, fresh).map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch)
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
         );
     }
 

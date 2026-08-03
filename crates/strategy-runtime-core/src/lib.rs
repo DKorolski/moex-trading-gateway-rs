@@ -88,15 +88,37 @@
 //! ```compile_fail,E0382
 //! use strategy_runtime_core::{
 //!     export_stage5g_clean_restart, Stage5gCleanRestartExportInput,
-//!     Stage5gCleanRestartSource,
+//!     Stage5gCleanRestartSource, Stage5gLifecycleCommitmentKey,
 //! };
 //! fn moved_source_cannot_be_reused(
 //!     source: Stage5gCleanRestartSource,
 //!     input: Stage5gCleanRestartExportInput,
+//!     key: &Stage5gLifecycleCommitmentKey,
 //! ) {
-//!     let _bytes = export_stage5g_clean_restart(source, input);
+//!     let _bytes = export_stage5g_clean_restart(source, input, key);
 //!     drop(source);
 //! }
+//! ```
+//!
+//! The operator-managed lifecycle commitment key is opaque, non-cloneable and
+//! cannot be serialized into the restart package:
+//!
+//! ```compile_fail,E0599
+//! use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
+//! let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[7_u8; 32]).unwrap();
+//! let _copy = key.clone();
+//! ```
+//!
+//! ```compile_fail,E0277
+//! use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
+//! let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[7_u8; 32]).unwrap();
+//! let _serialized = serde_json::to_string(&key).unwrap();
+//! ```
+//!
+//! ```compile_fail,E0277
+//! use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
+//! let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[7_u8; 32]).unwrap();
+//! println!("{key:?}");
 //! ```
 //!
 //! The fresh reconstruction capability remains linear and cannot be cloned:
@@ -285,7 +307,8 @@ pub use stage5c_paper_host::{
 pub use stage5g_clean_restart::{
     export_stage5g_clean_restart, restore_stage5g_clean_restart, Stage5gCleanRestartError,
     Stage5gCleanRestartExportInput, Stage5gCleanRestartLifecycleKind, Stage5gCleanRestartSource,
-    Stage5gCleanRestartedCapability, STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION,
+    Stage5gCleanRestartedCapability, Stage5gLifecycleCommitmentKey,
+    Stage5gLifecycleCommitmentKeyError, STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION,
 };
 pub use stage5g_mock_ack::{
     apply_stage5g_duplicate_after_resolution, apply_stage5g_mock_ack,

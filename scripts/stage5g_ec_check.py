@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed source/contract checker for Stage 5G-e-c R3."""
+"""Fail-closed source/contract checker for Stage 5G-e-c R4."""
 
 from __future__ import annotations
 
@@ -8,8 +8,11 @@ import json
 import subprocess
 from pathlib import Path
 
-BASE = "f2f5b1508171632d2e4b211eae79ee6bf3b18178"
+BASE = "2394dbcd15d953e1799e07f7c903fdb3b072fc3f"
 FILES = {
+    "workspace": Path("Cargo.toml"),
+    "lock": Path("Cargo.lock"),
+    "crate": Path("crates/strategy-runtime-core/Cargo.toml"),
     "restart": Path("crates/strategy-runtime-core/src/stage5g_clean_restart.rs"),
     "stage5d": Path("crates/strategy-runtime-core/src/stage5d_persistence.rs"),
     "order": Path("crates/strategy-runtime-core/src/stage5g_order_position.rs"),
@@ -35,12 +38,21 @@ def git(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
 
+def require_all(source: str, tokens: tuple[str, ...], label: str) -> None:
+    for token in tokens:
+        require(token in source, f"{label} drift: {token}")
+
+
 def validate(root: Path, *, check_git: bool = True) -> None:
     for path in FILES.values():
         require((root / path).is_file(), f"missing e-c file: {path}")
+
+    workspace = (root / FILES["workspace"]).read_text()
+    crate = (root / FILES["crate"]).read_text()
     restart = (root / FILES["restart"]).read_text()
     stage5d = (root / FILES["stage5d"]).read_text()
     order = (root / FILES["order"]).read_text()
+    paper = (root / FILES["paper"]).read_text()
     lib = (root / FILES["lib"]).read_text()
     contract = (root / FILES["contract"]).read_text()
     status = (root / FILES["status"]).read_text()
@@ -48,7 +60,15 @@ def validate(root: Path, *, check_git: bool = True) -> None:
 
     require(descriptor["stage"] == "5G-e-c", "descriptor stage drift")
     require(descriptor["reviewed_predecessor"] == BASE, "predecessor drift")
+    require(descriptor["threat_model"] == "authenticated_package_hmac_sha256",
+            "authenticated-package threat model drift")
+    require(descriptor["operator_key_bytes"] == 32, "operator key length drift")
+    require(descriptor["operator_key_serialized_in_package"] is False,
+            "operator key entered package")
+    require(descriptor["in_package_anchor_is_trust_root"] is False,
+            "in-package anchor promoted to trust root")
     for field in (
+        "authenticated_commitment_verified_before_runtime_mutation",
         "stage5d_is_single_persistence_authority",
         "source_capability_consumed_before_return",
         "strict_byte_boundary",
@@ -60,189 +80,159 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "rehash_aware_semantic_negatives",
         "nested_lifecycle_reseal_before_semantic_validation",
         "timer_ready_settlement_authority_persisted",
-        "timer_summary_derived_from_validated_source",
-        "checkpoint_bound_to_inner_settlement",
+        "timer_summary_is_single_authenticated_source_projection",
+        "duplicate_timer_summary_removed",
+        "duplicate_timer_checkpoint_removed",
+        "versioned_recovery_projection_persisted",
+        "recovery_identity_recomputed_on_restore",
+        "checkpoint_bound_to_authenticated_commitment",
+        "history_bound_to_authenticated_commitment",
         "package_instance_source_commit_bound",
         "next_reconciliation_uses_validated_authority",
-        "stage5d_independent_source_authority_anchor",
-        "fully_resealed_all_nested_hashes",
+        "stage5d_internal_source_authority_anchor",
+        "fully_resealed_unkeyed_package_rejected",
         "timer_history_tail_bound_to_settled_batch",
+        "operator_key_rotation_rejects_old_epoch_package",
+        "same_epoch_storage_rollback_prevention_external",
     ):
         require(descriptor[field] is True, f"invariant lost: {field}")
-    require(descriptor["focused_test_count"] == 40, "focused test count drift")
-    require(descriptor["negative_matrix_count"] == 32, "negative matrix count drift")
+    require(descriptor["focused_test_count"] == 46, "focused test count drift")
+    require(descriptor["negative_matrix_count"] == 40, "negative matrix count drift")
+    require(descriptor["compile_fail_witness_count"] == 5,
+            "compile-fail witness count drift")
     require(descriptor["public_clean_process_roundtrips"] == 4,
             "public roundtrip count drift")
-    require(descriptor["supported_source_lifecycles"] == [
-        "timer_ready", "order_position_awaiting", "exact_replay_synchronized",
-        "new_package_awaiting",
-    ], "source lifecycle set drift")
-    require(descriptor["supported_lifecycle_kinds"] == [
-        "timer_ready", "order_position_awaiting_committed",
-    ], "lifecycle set drift")
     require(all(value is False for value in descriptor["closed_surfaces"].values()),
             "closed surface opened")
     require(f"Reviewed predecessor: `{BASE}`" in contract, "contract base drift")
-    require("Stage 5G-e-c R3 is the only current implementation review" in status,
+    require("Stage 5G-e-c R4 is the only current implementation review candidate" in status,
             "status drift")
+    require("one key epoch" in contract.lower()
+            and "operator/storage responsibility" in contract,
+            "rollback limitation must remain explicit")
 
-    export_input = restart.split("pub struct Stage5gCleanRestartExportInput", 1)[1].split("}", 1)[0]
-    for caller_owned_identity in ("strategy_id", "account_id", "instrument_id"):
-        require(caller_owned_identity not in export_input,
-                f"caller regained identity authority: {caller_owned_identity}")
-
-    required_restart = (
-        "pub enum Stage5gCleanRestartSource",
-        "TimerReady(Stage5gTimerReadyPaperStrategy)",
-        "OrderPositionAwaiting(Stage5gOrderPositionSession)",
-        "ExactReplaySynchronized(Stage5gCommittedExactReplaySession)",
-        "NewPackageAwaiting(Stage5gCommittedAwaitingOrderPosition)",
-        "pub(crate) struct Stage5gCleanRestartBindingV1",
-        "pub(crate) struct Stage5gCleanRestartLifecycleProofV1",
-        "pub(crate) struct Stage5gTimerReadyRestartProjectionV1",
-        "pub(crate) struct Stage5gPackageInstanceBindingV1",
-        "pub(crate) enum Stage5gValidatedReconciliationAuthority",
-        "Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted",
-        "fn source_binding(",
-        "let (strategy_id, account_id, instrument_id) = source_binding(source);",
-        "let bytes = stage5d_export_canonical_restart_bytes_with_stage5g_extension(",
-        "let decoded = stage5d_decode_canonical_restart_bytes_requiring_stage5g(bytes)?;",
+    require('hmac = "0.12"' in workspace and "hmac.workspace = true" in crate,
+            "HMAC dependency drift")
+    require_all(restart, (
+        "use hmac::{Hmac, Mac};",
+        "pub struct Stage5gLifecycleCommitmentKey([u8; 32]);",
+        "pub fn from_secret_bytes(secret: &[u8])",
+        "pub fn export_stage5g_clean_restart(",
+        "commitment_key: &Stage5gLifecycleCommitmentKey",
+        "pub fn restore_stage5g_clean_restart(",
+        "fn lifecycle_commitment_hmac_sha256(",
+        "fn verify_lifecycle_commitment_hmac(",
+        "Hmac::<Sha256>::new_from_slice",
+        "mac.verify_slice(&tag).is_ok()",
+        "AuthenticatedLifecycleCommitmentMismatch",
+        ".stage5g_source_authority_hmac_sha256",
+        "stage5d_source_anchor != independent_source_authority_sha256(projection)?",
+        "if !verify_lifecycle_commitment_hmac(",
         "validate_projection(&projection)?;",
-        "validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;",
         "stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;",
         "drop(source);",
-        "pub struct Stage5gCleanRestartedCapability",
-        "crate::validate_stage5g_timer_checkpoint(&projection.checkpoint)",
-        "StrategyStateFingerprintMismatch",
-        "CallbackAuthorityMismatch",
-        "ZeroIntentProofMismatch",
-        "if !projection.lifecycle_proof.zero_intent_ready {",
-        "&projection.checkpoint,\n                projection.lifecycle_proof.authoritative_callback_count,",
-        "lifecycle_authority_sha256",
-        "lifecycle_source_authority_sha256",
-        "source_lifecycle_commit_sha256",
-        "fn independent_source_authority_sha256(",
-        "Stage5dSourceAuthorityAnchorMismatch",
-        "stage5g_source_authority_anchor_sha256",
-        "stage5d_bind_stage5g_source_authority_anchor",
-        "stage5d_source_anchor != independent_source_authority_sha256(projection)?",
-        "binding.source_lifecycle_commit_sha256 != source_lifecycle_commit_sha256(projection)?",
-        "validate_timer_ready_source_authority",
-        "validate_package_instance_internal(projection)?;",
+        "pub(crate) struct Stage5gTimerReadyRestartProjectionV1",
+        "pub(crate) enum Stage5gValidatedReconciliationAuthority",
+        "stage5c_recovery_receipt_projection_sha256(",
+        "settlement.settled_batch_history.last() != Some(&settlement.settled_batch)",
         "validated_reconciliation_authority",
         "let summary = self.reconciliation_authority.summary();",
-        "source.source_summary != projection.summary",
-        "source.source_checkpoint != projection.checkpoint",
-        "stage5d_payload_checksum_sha256",
-        "stage5d_lifecycle_watermarks_sha256",
-        "settlement.settled_batch_history.last() != Some(&settlement.settled_batch)",
-        "next_reconciliation_observation",
-    )
-    for token in required_restart:
-        require(token in restart, f"clean restart authority drift: {token}")
-    observation = restart.split("fn next_reconciliation_observation", 1)[1].split("\n    }", 1)[0]
-    require("self.projection.summary.request_count" not in observation,
-            "next-stage observation regained free-summary authority")
+    ), "authenticated lifecycle boundary")
+    require("source_summary" not in restart, "duplicate TimerReady summary returned")
+    require("source_checkpoint" not in restart, "duplicate TimerReady checkpoint returned")
+    require(restart.count("from_secret_bytes(&[") == 1
+            and "stage5ge_c_r4_debug_release_commitment_vector_is_deterministic" in restart,
+            "embedded/default operator key entered production source")
+    key_decl = restart.split("pub struct Stage5gLifecycleCommitmentKey", 1)[0][-200:]
+    require("derive" not in key_decl.split("\n\n")[-1], "operator key gained derives")
+    export_signature = restart.split("pub fn export_stage5g_clean_restart(", 1)[1].split(
+        ") -> Result", 1)[0]
+    restore_signature = restart.split("pub fn restore_stage5g_clean_restart(", 1)[1].split(
+        ") -> Result", 1)[0]
+    require("commitment_key: &Stage5gLifecycleCommitmentKey" in export_signature,
+            "export lost operator key")
+    require("commitment_key: &Stage5gLifecycleCommitmentKey" in restore_signature,
+            "restore lost operator key")
     for forbidden in ("reqwest", "redis::", ".post(", ".delete(", "tokio::spawn"):
         require(forbidden not in restart, f"forbidden e-c surface: {forbidden}")
+    independent = restart.split("fn independent_source_authority_sha256(", 1)[1].split(
+        "#[cfg(test)]", 1)[0]
+    require_all(independent, (
+        "summary: &projection.summary",
+        "checkpoint: &projection.checkpoint",
+        "order_position_state: &projection.order_position_state",
+        "timer_ready_source: &projection.timer_ready_source",
+        "strategy_state_fingerprint_sha256: &projection.strategy_state_fingerprint_sha256",
+    ), "authenticated source projection coverage")
+
     projection_at = restart.index("let projection: Stage5gCleanRestartProjectionV1")
-    standalone_at = restart.index("validate_projection(&projection)?;", projection_at)
-    binding_at = restart.index(
-        "validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;",
-        standalone_at,
-    )
+    semantic_at = restart.index("validate_projection(&projection)?;", projection_at)
+    binding_at = restart.index("validate_projection_binding(", semantic_at)
     mutation_at = restart.index(
-        "stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;",
-        binding_at,
-    )
-    require(projection_at < standalone_at < binding_at < mutation_at,
-            "projection/binding must validate before runtime mutation")
+        "stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;", binding_at)
+    require(projection_at < semantic_at < binding_at < mutation_at,
+            "semantic/HMAC validation must precede runtime mutation")
+    binding_body = restart.split("fn validate_projection_binding(", 1)[1].split(
+        "fn validated_reconciliation_authority(", 1)[0]
+    require("if !verify_lifecycle_commitment_hmac(" in binding_body,
+            "binding validation lost authenticated commitment")
 
-    required_stage5d = (
-        "stage5g_extension_json: Option<String>",
-        "stage5g_extension_sha256: Option<String>",
-        "stage5g_source_authority_anchor_sha256: Option<String>",
-        "fn stage5d_bind_stage5g_source_authority_anchor(",
-        "fn validate_stage5g_extension_pair(&self)",
-        ".ok_or(Stage5dEnvelopeValidationError::RequiredFieldEmpty)?",
-        "stage5d_apply_validated_materialized_riskgate_for_restart",
+    require_all(stage5d, (
+        "pub stage5g_source_authority_anchor_sha256: Option<String>",
+        "pub stage5g_source_authority_hmac_sha256: Option<String>",
+        "stage5g_source_authority_hmac_sha256: Option<&str>",
+        "stage5d_bind_stage5g_source_authority_anchor(&mut envelope, anchor, hmac)?;",
+        "envelope.stage5g_source_authority_hmac_sha256 = Some(hmac_sha256.to_string());",
         "stage5g_test_reseal_lifecycle_authority(&mut extension)",
-        "extension.checkpoint =\n        crate::stage5g_timer::stage5g_test_reseal_checkpoint(",
-    )
-    for token in required_stage5d:
-        require(token in stage5d, f"Stage 5D authority drift: {token}")
+        "stage5g_test_source_authority_anchor_sha256(&extension)",
+        "stage5c_recovery_receipt_projection_sha256(",
+    ), "Stage 5D authenticated cross-binding")
+    require("stage5g_source_authority_hmac_sha256 = Some(" not in stage5d.split(
+        "pub(crate) fn stage5g_test_rehash_clean_restart_package", 1)[1],
+        "test rehasher must not forge keyed commitment")
 
-    tests = (
-        "stage5ge_c_timer_ready_zero_intent_projects_through_canonical_boundary",
-        "stage5ge_c_awaiting_order_position_preserves_slots",
-        "stage5ge_c_exact_replay_synchronized_projection_roundtrips",
-        "stage5ge_c_new_package_awaiting_projection_roundtrips",
-        "stage5ge_c_historical_replay_ledger_and_counters_survive_bytes",
-        "stage5ge_c_exact_decimal_representation_survives_byte_roundtrip",
-        "stage5ge_c_callback_count_and_state_fingerprint_remain_exact",
-        "stage5ge_c_missing_replay_projection_fails_closed",
-        "stage5ge_c_regressive_continuation_checkpoint_fails_closed",
-        "stage5ge_c_unsupported_lifecycle_kind_fails_closed",
-        "stage5ge_c_missing_order_position_state_fails_closed",
-        "stage5ge_c_conflicting_slot_projection_fails_closed",
+    require_all(paper, (
+        "pub(crate) struct Stage5cRecoveryReceiptProjectionV1",
+        "pub(crate) recovery_receipt: Stage5cRecoveryReceiptProjectionV1",
+        "pub(crate) fn stage5c_recovery_receipt_projection_sha256(",
+        "stage5c_recovery_receipt_projection(receipt)",
+    ), "versioned recovery projection")
+
+    required_tests = (
         "stage5ge_c_r1_public_timer_ready_clean_process_roundtrip",
         "stage5ge_c_r1_public_awaiting_clean_process_roundtrip",
-        "stage5ge_c_r1_public_exact_source_clean_process_roundtrip",
-        "stage5ge_c_r1_public_new_package_source_clean_process_roundtrip",
         "stage5ge_c_r1_rehashed_stage5d_account_cross_binding_fails_closed",
         "stage5ge_c_r1_rehashed_stage5d_instrument_cross_binding_fails_closed",
-        "stage5ge_c_r1_rehashed_extension_binding_strategy_fails_closed",
-        "stage5ge_c_r1_rehashed_timer_summary_fails_closed",
-        "stage5ge_c_r1_rehashed_timer_checkpoint_graft_fails_closed",
-        "stage5ge_c_r1_rehashed_callback_self_authority_fails_closed",
-        "stage5ge_c_r1_rehashed_lifecycle_kind_swap_fails_closed",
-        "stage5ge_c_r1_rehashed_order_position_graft_fails_closed",
-        "stage5ge_c_r2_fully_resealed_timer_request_count_fails_semantically",
-        "stage5ge_c_r2_fully_resealed_timer_lifecycle_fingerprint_fails_semantically",
-        "stage5ge_c_r2_fully_resealed_timer_all_lifecycle_counts_fail_semantically",
-        "stage5ge_c_r2_fully_resealed_valid_checkpoint_graft_with_watermarks_fails",
-        "stage5ge_c_r2_fully_resealed_inner_settlement_checkpoint_regression_fails",
         "stage5ge_c_r2_fully_resealed_recovery_receipt_graft_fails",
-        "stage5ge_c_r2_fully_resealed_complete_extension_graft_fails_package_binding",
-        "stage5ge_c_r3_fully_resealed_empty_timer_history_fails_semantically",
+        "stage5ge_c_r2_fully_resealed_valid_checkpoint_graft_with_watermarks_fails",
         "stage5ge_c_r3_fully_resealed_timer_history_state_fingerprint_fails_anchor",
-        "stage5ge_c_r3_missing_stage5d_source_anchor_fails_closed",
-        "stage5ge_c_r3_stage5d_source_anchor_is_present_and_canonical",
-        "stage5ge_c_r3_rehashed_stage5d_source_anchor_substitution_fails_closed",
-        "stage5ge_c_r3_resealed_timer_history_must_end_in_settled_batch",
+        "stage5ge_c_r4_missing_authenticated_commitment_fails_closed",
+        "stage5ge_c_r4_authenticated_commitment_substitution_fails_closed",
+        "stage5ge_c_r4_wrong_operator_commitment_key_fails_closed",
+        "stage5ge_c_r4_fresh_runtime_config_mismatch_fails_closed",
+        "stage5ge_c_r4_old_package_fails_after_operator_key_epoch_rotation",
+        "stage5ge_c_r4_fully_coherent_unkeyed_reseal_cannot_forge_commitment",
+        "stage5ge_c_r2_fully_resealed_complete_extension_graft_fails_package_binding",
     )
-    require(all(name in order for name in tests), "focused projection witness missing")
-    require("assert_stage5ge_c_rehashed_error" in order
-            and "Err(expected)" in order,
-            "exact semantic-error assertions missing")
-    timer = (root / FILES["timer"]).read_text()
-    paper = (root / FILES["paper"]).read_text()
-    require("stage5g_restart_stage5c_authority" in timer,
-            "TimerReady source projection bridge missing")
-    for token in (
-        "Stage5cTimerReadyRestartAuthorityV1",
-        "settled_batch_history",
-        "recovery_receipt_identity_sha256",
-        "recovery_receipt_identity_sha256: format!(",
-        "stage5g_restart_ready_authority",
-    ):
-        require(token in paper, f"Stage 5C TimerReady authority drift: {token}")
-    for name in (
-        "stage5ge_c_stage5d_package_bytes_restore_fresh_runtime_without_source_capability",
-        "stage5ge_c_stage5d_package_without_projection_fails_closed",
-        "stage5ge_c_stage5g_extension_checksum_tamper_fails_closed",
-    ):
-        require(name in stage5d, f"Stage 5D byte-boundary witness missing: {name}")
-    require("moved_source_cannot_be_reused" in lib and "let _copy = restored.clone();" in lib
-            and "compile_fail,E0382" in lib and "compile_fail,E0599" in lib,
-            "compile-fail witness missing")
+    require_all(order, required_tests, "acceptance witness")
+    require("stage5ge_c_r4_debug_release_commitment_vector_is_deterministic" in restart,
+            "debug/release deterministic commitment vector missing")
+    require("AuthenticatedLifecycleCommitmentMismatch" in order,
+            "typed authenticated rejection missing")
+    require_all(lib, (
+        "moved_source_cannot_be_reused",
+        "let _copy = restored.clone();",
+        "let _copy = key.clone();",
+        "serde_json::to_string(&key)",
+        'println!("{key:?}");',
+    ), "linear/non-exportable compile-fail witness")
 
     if check_git and (root / ".git").exists():
         require(git(root, "rev-parse", f"{BASE}^{{commit}}") == BASE, "base missing")
         head = git(root, "rev-parse", "HEAD")
         if head != BASE:
             require(git(root, "rev-parse", "HEAD^") == BASE,
-                    "e-c must be exactly one successor")
+                    "R4 must be exactly one successor")
 
 
 def main() -> int:

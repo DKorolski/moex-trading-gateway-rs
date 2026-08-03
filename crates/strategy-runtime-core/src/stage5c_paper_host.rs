@@ -1080,23 +1080,52 @@ fn stage5e_b3c_semantic_bar_identity(
 }
 
 #[allow(dead_code)] // Used only by the currently closed sequence issuer.
-fn stage5e_b3c_recovery_receipt_identity(receipt: &Stage5cPendingRecoveryReceipt) -> [u8; 32] {
+fn stage5c_recovery_receipt_projection(
+    receipt: &Stage5cPendingRecoveryReceipt,
+) -> Stage5cRecoveryReceiptProjectionV1 {
     let warmup = receipt.warmup_receipt();
     let restore = warmup.restore_receipt();
+    Stage5cRecoveryReceiptProjectionV1 {
+        schema_version: 1,
+        restored_ts_utc_ms: restore.restored_ts().timestamp_millis(),
+        warmup_started_ts_utc_ms: warmup.started_ts().timestamp_millis(),
+        processed_bars: warmup.processed_bars() as u64,
+        input_bars: warmup.input_bars() as u64,
+        source_mode_code: stage5e_b3c_stage3_source_mode_code(warmup.source_mode()),
+        last_history_ts: warmup.last_history_ts(),
+        recovered_ts_utc_ms: receipt.recovered_ts().timestamp_millis(),
+        replayed_events: receipt.replayed_events() as u64,
+        duplicate_events: receipt.duplicate_events() as u64,
+    }
+}
+
+pub(crate) fn stage5c_recovery_receipt_projection_identity(
+    projection: &Stage5cRecoveryReceiptProjectionV1,
+) -> [u8; 32] {
     let mut encoder = Stage5eB3cCanonicalEncoder::new(b"stage5e-b3c-recovery-receipt-v1");
-    encoder.field(1, &restore.restored_ts().timestamp_millis().to_be_bytes());
-    encoder.field(2, &warmup.started_ts().timestamp_millis().to_be_bytes());
-    encoder.field(3, &(warmup.processed_bars() as u64).to_be_bytes());
-    encoder.field(4, &(warmup.input_bars() as u64).to_be_bytes());
-    encoder.field(
-        5,
-        &[stage5e_b3c_stage3_source_mode_code(warmup.source_mode())],
-    );
-    encoder.field(6, &warmup.last_history_ts().to_be_bytes());
-    encoder.field(7, &receipt.recovered_ts().timestamp_millis().to_be_bytes());
-    encoder.field(8, &(receipt.replayed_events() as u64).to_be_bytes());
-    encoder.field(9, &(receipt.duplicate_events() as u64).to_be_bytes());
+    encoder.field(1, &projection.restored_ts_utc_ms.to_be_bytes());
+    encoder.field(2, &projection.warmup_started_ts_utc_ms.to_be_bytes());
+    encoder.field(3, &projection.processed_bars.to_be_bytes());
+    encoder.field(4, &projection.input_bars.to_be_bytes());
+    encoder.field(5, &[projection.source_mode_code]);
+    encoder.field(6, &projection.last_history_ts.to_be_bytes());
+    encoder.field(7, &projection.recovered_ts_utc_ms.to_be_bytes());
+    encoder.field(8, &projection.replayed_events.to_be_bytes());
+    encoder.field(9, &projection.duplicate_events.to_be_bytes());
     encoder.finish()
+}
+
+pub(crate) fn stage5c_recovery_receipt_projection_sha256(
+    projection: &Stage5cRecoveryReceiptProjectionV1,
+) -> String {
+    format!(
+        "{:x}",
+        Sha256::digest(stage5c_recovery_receipt_projection_identity(projection))
+    )
+}
+
+fn stage5e_b3c_recovery_receipt_identity(receipt: &Stage5cPendingRecoveryReceipt) -> [u8; 32] {
+    stage5c_recovery_receipt_projection_identity(&stage5c_recovery_receipt_projection(receipt))
 }
 
 pub(crate) struct Stage5eObservedLiveBarWithSequenceEvidence {
@@ -3773,6 +3802,21 @@ pub struct Stage5cTimerSettlement {
 
 pub(crate) const STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION: u16 = 1;
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Stage5cRecoveryReceiptProjectionV1 {
+    pub(crate) schema_version: u16,
+    pub(crate) restored_ts_utc_ms: i64,
+    pub(crate) warmup_started_ts_utc_ms: i64,
+    pub(crate) processed_bars: u64,
+    pub(crate) input_bars: u64,
+    pub(crate) source_mode_code: u8,
+    pub(crate) last_history_ts: i64,
+    pub(crate) recovered_ts_utc_ms: i64,
+    pub(crate) replayed_events: u64,
+    pub(crate) duplicate_events: u64,
+}
+
 /// Versioned, transport-free projection of the exact Stage 5C authority owned
 /// by a `ReadyForContinuation` timer settlement.  It is deliberately
 /// crate-private: Stage 5G persistence may retain and validate it, while no
@@ -3785,6 +3829,7 @@ pub(crate) struct Stage5cTimerReadyRestartAuthorityV1 {
     pub(crate) checkpoint_ts_utc_ms: i64,
     pub(crate) settled_batch: Stage5cPaperIntentBatchSummary,
     pub(crate) settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
+    pub(crate) recovery_receipt: Stage5cRecoveryReceiptProjectionV1,
     pub(crate) recovery_receipt_identity_sha256: String,
 }
 
@@ -3836,18 +3881,17 @@ impl Stage5cTimerSettlement {
         else {
             return None;
         };
+        let recovery_receipt = stage5c_recovery_receipt_projection(settled.recovery_receipt());
+        let recovery_receipt_identity_sha256 =
+            stage5c_recovery_receipt_projection_sha256(&recovery_receipt);
         Some(Stage5cTimerReadyRestartAuthorityV1 {
             schema_version: STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION,
             settlement_kind: "ready_for_continuation".to_string(),
             checkpoint_ts_utc_ms: *checkpoint_ts_utc_ms,
             settled_batch: stage5ch_batch_summary(settled.intent_batch()),
             settled_batch_history: settled.settled_batch_history().to_vec(),
-            recovery_receipt_identity_sha256: format!(
-                "{:x}",
-                Sha256::digest(stage5e_b3c_recovery_receipt_identity(
-                    settled.recovery_receipt()
-                ))
-            ),
+            recovery_receipt,
+            recovery_receipt_identity_sha256,
         })
     }
 

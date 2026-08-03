@@ -121,15 +121,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   TimerReady summary/checkpoint lacked source-settlement authority.
   Stage 5G-e-c R2 at `f2f5b1508171632d2e4b211eae79ee6bf3b18178` was rejected
   because all lifecycle commitments still lived inside one rehashable Stage 5G
-  extension. Stage 5G-e-c R3 is the only current implementation review
-  candidate. It retains the R2 Stage 5C TimerSettlement/recovery/history
-  projection, commits its complete source-derived lifecycle authority into the
-  independently checksummed Stage 5D envelope, validates that anchor before
-  runtime mutation, and requires a nonempty TimerReady history ending in the
-  exact settled batch. Its package-level tests reseal every nested checkpoint,
-  source/lifecycle hash, extension, envelope and package checksum before proving
-  coherent summary, history, recovery, checkpoint and complete-extension
-  mutations fail closed. The accepted
+  extension. Stage 5G-e-c R3 at
+  `2394dbcd15d953e1799e07f7c903fdb3b072fc3f` was rejected because its Stage 5D
+  anchor remained inside the same coherently rehashable package trust domain.
+  Stage 5G-e-c R4 is the only current implementation review candidate. It
+  authenticates the complete lifecycle source projection with HMAC-SHA256 under
+  an opaque operator-managed key that is never stored in the package and is
+  verified before runtime mutation. R4 removes duplicate TimerReady
+  summary/checkpoint copies, persists the versioned recovery receipt projection
+  and recomputes its identity. Its acceptance witness coherently reseals every
+  unkeyed source/lifecycle hash, Stage 5D anchor, extension, envelope and package
+  checksum after mutating summary, history, recovery and checkpoint; restore
+  still fails at the keyed commitment boundary. The accepted
   owning exact-replay proof carries the old
   and new checkpoints plus exact canonical evidence, updates the live session
   through the same canonical Stage 5G-c metadata authority, and proves both

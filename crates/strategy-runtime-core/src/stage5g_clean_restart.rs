@@ -1,11 +1,13 @@
 //! Stage 5G-e-c canonical clean-process reconstruction boundary.
 //!
-//! The only durable authority is the accepted Stage 5D canonical restart
-//! package. Stage 5G contributes a checksummed, versioned extension to that
-//! package; it does not define an alternative restart document.
+//! Stage 5G contributes a checksummed, versioned extension to the accepted
+//! Stage 5D canonical restart package.  Package integrity is authenticated by
+//! an operator-managed HMAC key which is supplied out of band and is never
+//! serialized into that package.
 
 use broker_core::{BrokerAccountId, InstrumentId};
 use chrono::{DateTime, Utc};
+use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -29,6 +31,22 @@ use crate::{
 pub const STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_TIMER_READY_RESTART_PROJECTION_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_PACKAGE_INSTANCE_BINDING_SCHEMA_VERSION: u16 = 1;
+
+pub struct Stage5gLifecycleCommitmentKey([u8; 32]);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage5gLifecycleCommitmentKeyError {
+    InvalidLength,
+}
+
+impl Stage5gLifecycleCommitmentKey {
+    pub fn from_secret_bytes(secret: &[u8]) -> Result<Self, Stage5gLifecycleCommitmentKeyError> {
+        let bytes: [u8; 32] = secret
+            .try_into()
+            .map_err(|_| Stage5gLifecycleCommitmentKeyError::InvalidLength)?;
+        Ok(Self(bytes))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Stage5gCleanRestartExportInput {
@@ -84,8 +102,6 @@ pub(crate) struct Stage5gCleanRestartLifecycleProofV1 {
 pub(crate) struct Stage5gTimerReadyRestartProjectionV1 {
     pub(crate) schema_version: u16,
     pub(crate) stage5c_settlement: crate::stage5c_paper_host::Stage5cTimerReadyRestartAuthorityV1,
-    pub(crate) source_summary: Stage5gOrderPositionSummary,
-    pub(crate) source_checkpoint: Stage5gTimerCheckpointEnvelope,
     pub(crate) authoritative_callback_count: usize,
 }
 
@@ -141,6 +157,7 @@ pub enum Stage5gCleanRestartError {
     PackageInstanceBindingMismatch,
     SourceLifecycleCommitMismatch,
     Stage5dSourceAuthorityAnchorMismatch,
+    AuthenticatedLifecycleCommitmentMismatch,
 }
 
 impl From<Stage5dEnvelopeValidationError> for Stage5gCleanRestartError {
@@ -295,6 +312,7 @@ impl Stage5gCleanRestartedCapability {
 pub fn export_stage5g_clean_restart(
     source: Stage5gCleanRestartSource,
     input: Stage5gCleanRestartExportInput,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Vec<u8>, Stage5gCleanRestartError> {
     let strategy = strategy_from_source(&source);
     let (strategy_id, account_id, instrument_id) = source_binding(&source);
@@ -316,9 +334,12 @@ pub fn export_stage5g_clean_restart(
     let preliminary_projection = projection_from_source(&source, &stage5d_envelope)?;
     let stage5g_source_authority_anchor_sha256 =
         independent_source_authority_sha256(&preliminary_projection)?;
+    let stage5g_source_authority_hmac_sha256 =
+        lifecycle_commitment_hmac_sha256(commitment_key, &stage5g_source_authority_anchor_sha256);
     stage5d_bind_stage5g_source_authority_anchor(
         &mut stage5d_envelope,
         &stage5g_source_authority_anchor_sha256,
+        &stage5g_source_authority_hmac_sha256,
     )?;
     let projection = projection_from_source(&source, &stage5d_envelope)?;
     if independent_source_authority_sha256(&projection)? != stage5g_source_authority_anchor_sha256 {
@@ -332,6 +353,7 @@ pub fn export_stage5g_clean_restart(
         input.riskgate_evidence,
         extension_json,
         Some(&stage5g_source_authority_anchor_sha256),
+        Some(&stage5g_source_authority_hmac_sha256),
     )?;
     // The borrow above ends before the owning source is destroyed. No source
     // Stage 5G or Stage 5C capability is returned beside the durable bytes.
@@ -341,6 +363,7 @@ pub fn export_stage5g_clean_restart(
 
 pub fn restore_stage5g_clean_restart(
     bytes: &[u8],
+    commitment_key: &Stage5gLifecycleCommitmentKey,
     fresh_runtime: HybridIntradayRuntimeStrategy,
 ) -> Result<Stage5gCleanRestartedCapability, Stage5gCleanRestartError> {
     let decoded = stage5d_decode_canonical_restart_bytes_requiring_stage5g(bytes)?;
@@ -348,7 +371,12 @@ pub fn restore_stage5g_clean_restart(
         serde_json::from_str(&decoded.stage5g_extension_json)
             .map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;
     validate_projection(&projection)?;
-    validate_projection_binding(&projection, &decoded.envelope, &fresh_runtime)?;
+    validate_projection_binding(
+        &projection,
+        &decoded.envelope,
+        commitment_key,
+        &fresh_runtime,
+    )?;
     let reconciliation_authority = validated_reconciliation_authority(&projection)?;
     let (runtime, _extension_json) =
         stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;
@@ -470,8 +498,6 @@ pub(crate) fn projection_from_source(
                 stage5c_settlement: value
                     .stage5g_restart_stage5c_authority()
                     .ok_or(Stage5gCleanRestartError::MissingTimerReadySourceAuthority)?,
-                source_summary: summary.clone(),
-                source_checkpoint: checkpoint.clone(),
                 authoritative_callback_count: 1,
             };
             (
@@ -705,10 +731,13 @@ fn validate_timer_ready_source_authority(
             .settled_batch_history
             .windows(2)
             .all(|pair| pair[0].bar_close_ts <= pair[1].bar_close_ts)
-        || source.source_summary != projection.summary
-        || source.source_checkpoint != projection.checkpoint
         || source.authoritative_callback_count != 1
-        || source.source_summary.stage5c_callback_count != 1
+        || projection.summary.stage5c_callback_count != 1
+        || settlement.recovery_receipt.schema_version != 1
+        || settlement.recovery_receipt_identity_sha256
+            != crate::stage5c_paper_host::stage5c_recovery_receipt_projection_sha256(
+                &settlement.recovery_receipt,
+            )
         || outer_checkpoint < settlement.checkpoint_ts_utc_ms
     {
         return Err(Stage5gCleanRestartError::TimerReadySourceAuthorityMismatch);
@@ -749,6 +778,7 @@ fn validate_package_instance_internal(
 fn validate_projection_binding(
     projection: &Stage5gCleanRestartProjectionV1,
     envelope: &crate::Stage5dPersistenceEnvelope,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
     fresh_runtime: &HybridIntradayRuntimeStrategy,
 ) -> Result<(), Stage5gCleanRestartError> {
     let stage5d_source_anchor = envelope
@@ -759,6 +789,17 @@ fn validate_projection_binding(
         || stage5d_source_anchor != independent_source_authority_sha256(projection)?
     {
         return Err(Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch);
+    }
+    let authenticated_commitment = envelope
+        .stage5g_source_authority_hmac_sha256
+        .as_deref()
+        .ok_or(Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)?;
+    if !verify_lifecycle_commitment_hmac(
+        commitment_key,
+        stage5d_source_anchor,
+        authenticated_commitment,
+    ) {
+        return Err(Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch);
     }
     let binding = &projection.binding;
     if binding.strategy_id != envelope.binding.strategy_id
@@ -799,8 +840,8 @@ fn validated_reconciliation_authority(
                 .as_ref()
                 .ok_or(Stage5gCleanRestartError::MissingTimerReadySourceAuthority)?;
             Ok(Stage5gValidatedReconciliationAuthority::TimerReady {
-                summary: source.source_summary.clone(),
-                checkpoint: source.source_checkpoint.clone(),
+                summary: projection.summary.clone(),
+                checkpoint: projection.checkpoint.clone(),
                 stage5c_settlement: source.stage5c_settlement.clone(),
                 source_lifecycle_commit_sha256: projection
                     .package_instance
@@ -910,6 +951,54 @@ fn independent_source_authority_sha256(
     })
 }
 
+#[cfg(test)]
+pub(crate) fn stage5g_test_source_authority_anchor_sha256(
+    projection: &Stage5gCleanRestartProjectionV1,
+) -> String {
+    independent_source_authority_sha256(projection)
+        .expect("test Stage 5G source authority remains canonical")
+}
+
+fn lifecycle_commitment_hmac_sha256(
+    key: &Stage5gLifecycleCommitmentKey,
+    source_authority_sha256: &str,
+) -> String {
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(&key.0).expect("fixed-size Stage 5G HMAC key is valid");
+    mac.update(b"moex.stage5g.clean-restart.lifecycle-commitment.v1\0");
+    mac.update(source_authority_sha256.as_bytes());
+    let tag = mac.finalize().into_bytes();
+    tag.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn verify_lifecycle_commitment_hmac(
+    key: &Stage5gLifecycleCommitmentKey,
+    source_authority_sha256: &str,
+    expected_hmac_sha256: &str,
+) -> bool {
+    let Some(tag) = decode_sha256_hex(expected_hmac_sha256) else {
+        return false;
+    };
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(&key.0).expect("fixed-size Stage 5G HMAC key is valid");
+    mac.update(b"moex.stage5g.clean-restart.lifecycle-commitment.v1\0");
+    mac.update(source_authority_sha256.as_bytes());
+    mac.verify_slice(&tag).is_ok()
+}
+
+fn decode_sha256_hex(value: &str) -> Option<[u8; 32]> {
+    if !is_sha256_hex(value) {
+        return None;
+    }
+    let mut decoded = [0_u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        let high = (pair[0] as char).to_digit(16)? as u8;
+        let low = (pair[1] as char).to_digit(16)? as u8;
+        decoded[index] = (high << 4) | low;
+    }
+    Some(decoded)
+}
+
 fn source_lifecycle_commit_sha256(
     projection: &Stage5gCleanRestartProjectionV1,
 ) -> Result<String, Stage5gCleanRestartError> {
@@ -998,4 +1087,18 @@ pub(crate) fn stage5g_test_reseal_nested_integrity(
         source_lifecycle_commit_sha256(projection).expect("test source lifecycle commit reseals");
     projection.lifecycle_proof.source_authority_sha256 =
         lifecycle_authority_sha256(projection).expect("test projection authority reseals");
+}
+
+#[cfg(test)]
+mod authenticated_commitment_tests {
+    use super::*;
+
+    #[test]
+    fn stage5ge_c_r4_debug_release_commitment_vector_is_deterministic() {
+        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap();
+        assert_eq!(
+            lifecycle_commitment_hmac_sha256(&key, &"a".repeat(64)),
+            "ed214c701ba27ae5c6aa2bfc71c02427779ee5309a88a8837fb20a5435a5e5c2"
+        );
+    }
 }
