@@ -1,7 +1,7 @@
 # Stage 5G-d — deterministic timer and continuation arbitration
 
-Status: R1-b R4 review candidate.
-Accepted predecessor: `5fcc538a9bed574cdd9df268a9bb1368c608e11e`.
+Status: R1-b R5 review candidate.
+Accepted predecessor: `6cafcd7d7caae8b29364c41cb3eece0511e4d42c`.
 Accepted Stage 5C callback authority: `d0494537d7c1739a16350b2d28f71b304165c812`.
 
 ## Decision
@@ -79,6 +79,14 @@ observation-only `received_ts`. Duplicate merge retains the complete row with
 the maximum receipt, so neither vector order nor the first row can select a
 different canonical representation. The same projection and merge authority
 protect both raw snapshot deduplication and the committed trade ledger.
+
+Every fixed-point field in the immutable trade projection uses
+`Stage5gCanonicalDecimalV1`, whose exact 16-byte representation binds Decimal
+flags, scale, sign and mantissa. R5 deliberately treats scale/sign drift as an
+immutable conflict rather than numeric equality. It performs no Decimal
+normalization in comparison, stored canonical rows or fingerprinting; the
+broker row accepted into canonical evidence therefore remains byte-consistent
+with the equality decision.
 
 `NewPackage` retains the canonical evidence candidate in its result ownership;
 `ExactReplay` does not create a candidate. This is a type-level boundary for a

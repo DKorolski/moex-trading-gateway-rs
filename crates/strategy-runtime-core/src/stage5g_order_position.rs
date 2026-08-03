@@ -39,6 +39,8 @@ const STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
 const STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_IMMUTABLE_TRADE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_IMMUTABLE_TRADE_PAYLOAD_DOMAIN: &str = "moex.stage5g.immutable-trade-payload.v1";
+const STAGE5G_CANONICAL_DECIMAL_SCHEMA_VERSION: u16 = 1;
+const STAGE5G_CANONICAL_DECIMAL_DOMAIN: &str = "moex.stage5g.exact-decimal.v1";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stage5gOrderPositionEvidence {
@@ -63,6 +65,16 @@ pub(crate) enum Stage5gEvidenceCanonicalizationError {
 /// `InstrumentId` is bound structurally; broad correlation helpers are not an
 /// immutable-payload equality policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct Stage5gCanonicalDecimalV1 {
+    schema_version: u16,
+    domain: &'static str,
+    /// `Decimal::serialize()` binds flags (including sign and scale) plus the
+    /// complete 96-bit mantissa. Numeric Decimal equality is deliberately not
+    /// the immutable evidence policy.
+    exact_bytes: [u8; 16],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct Stage5gCanonicalImmutableTradePayloadV1 {
     schema_version: u16,
     domain: &'static str,
@@ -72,10 +84,10 @@ struct Stage5gCanonicalImmutableTradePayloadV1 {
     client_order_id: Option<ClientOrderId>,
     instrument: InstrumentId,
     side: OrderSide,
-    qty: Decimal,
-    price: Decimal,
-    gross_amount: Option<Decimal>,
-    commission: Option<Decimal>,
+    qty: Stage5gCanonicalDecimalV1,
+    price: Stage5gCanonicalDecimalV1,
+    gross_amount: Option<Stage5gCanonicalDecimalV1>,
+    commission: Option<Stage5gCanonicalDecimalV1>,
     broker_asset_id: Option<String>,
     board: Option<String>,
     expiration_date: Option<chrono::NaiveDate>,
@@ -652,6 +664,14 @@ fn canonical_json_sort<T: Serialize>(values: &mut [T]) {
     });
 }
 
+fn canonical_decimal_v1(value: Decimal) -> Stage5gCanonicalDecimalV1 {
+    Stage5gCanonicalDecimalV1 {
+        schema_version: STAGE5G_CANONICAL_DECIMAL_SCHEMA_VERSION,
+        domain: STAGE5G_CANONICAL_DECIMAL_DOMAIN,
+        exact_bytes: value.serialize(),
+    }
+}
+
 fn canonical_immutable_trade_payload_v1(
     trade: &BrokerTradeSnapshot,
 ) -> Stage5gCanonicalImmutableTradePayloadV1 {
@@ -664,10 +684,10 @@ fn canonical_immutable_trade_payload_v1(
         client_order_id: trade.client_order_id.clone(),
         instrument: trade.instrument.clone(),
         side: trade.side,
-        qty: trade.qty,
-        price: trade.price,
-        gross_amount: trade.gross_amount,
-        commission: trade.commission,
+        qty: canonical_decimal_v1(trade.qty),
+        price: canonical_decimal_v1(trade.price),
+        gross_amount: trade.gross_amount.map(canonical_decimal_v1),
+        commission: trade.commission.map(canonical_decimal_v1),
         broker_asset_id: trade.broker_asset_id.clone(),
         board: trade.board.clone(),
         expiration_date: trade.expiration_date,
@@ -5664,6 +5684,171 @@ mod tests {
         contradictory.received_ts = ts(3);
         assert_eq!(
             validate_trades(&mut slot, &filled, &[contradictory]),
+            Err(Stage5gOrderPositionError::TradeIdentityConflict)
+        );
+        assert_eq!(slot.trades, committed_ledger);
+    }
+
+    #[test]
+    fn stage5gd_r5_qty_scale_permutations_fail_closed_under_exact_decimal_policy() {
+        let qty_1_0 = Decimal::new(10, 1);
+        let qty_1_00 = Decimal::new(100, 2);
+        assert_eq!(qty_1_0, qty_1_00);
+        assert_ne!(
+            canonical_decimal_v1(qty_1_0),
+            canonical_decimal_v1(qty_1_00)
+        );
+        let first = trade("FINAM_R5_QTY_SCALE", qty_1_0, 2);
+        let mut changed_scale = first.clone();
+        changed_scale.qty = qty_1_00;
+
+        for rows in [
+            vec![first.clone(), changed_scale.clone()],
+            vec![changed_scale.clone(), first.clone()],
+        ] {
+            assert_eq!(
+                canonicalize_stage5g_order_position_evidence(evidence(
+                    2,
+                    truth(vec![], rows, vec![], 2),
+                ))
+                .unwrap_err(),
+                Stage5gEvidenceCanonicalizationError::TradeIdentityConflict
+            );
+        }
+    }
+
+    #[test]
+    fn stage5gd_r5_price_and_optional_amount_scale_drift_fail_closed() {
+        let mut first = trade("FINAM_R5_AMOUNT_SCALE", Decimal::ONE, 2);
+        first.price = Decimal::new(1_000, 1);
+        first.gross_amount = Some(Decimal::new(1_000, 1));
+        first.commission = Some(Decimal::new(10, 1));
+
+        let mut variants = Vec::new();
+        let mut price_scale = first.clone();
+        price_scale.price = Decimal::new(10_000, 2);
+        variants.push(price_scale);
+        let mut gross_scale = first.clone();
+        gross_scale.gross_amount = Some(Decimal::new(10_000, 2));
+        variants.push(gross_scale);
+        let mut commission_scale = first.clone();
+        commission_scale.commission = Some(Decimal::new(100, 2));
+        variants.push(commission_scale);
+
+        for changed_scale in variants {
+            assert_eq!(
+                canonicalize_stage5g_order_position_evidence(evidence(
+                    2,
+                    truth(
+                        vec![],
+                        vec![first.clone(), changed_scale.clone()],
+                        vec![],
+                        2,
+                    ),
+                ))
+                .unwrap_err(),
+                Stage5gEvidenceCanonicalizationError::TradeIdentityConflict
+            );
+            assert_eq!(
+                canonicalize_stage5g_order_position_evidence(evidence(
+                    2,
+                    truth(vec![], vec![changed_scale, first.clone()], vec![], 2),
+                ))
+                .unwrap_err(),
+                Stage5gEvidenceCanonicalizationError::TradeIdentityConflict
+            );
+        }
+    }
+
+    #[test]
+    fn stage5gd_r5_signed_zero_representation_is_explicit_and_fail_closed() {
+        let positive_zero = Decimal::from_parts(0, 0, 0, false, 2);
+        assert_eq!(
+            positive_zero,
+            Decimal::from_parts(0, 0, 0, true, 2),
+            "the normal constructor canonicalizes zero sign"
+        );
+        let mut negative_zero_bytes = positive_zero.serialize();
+        negative_zero_bytes[3] |= 0x80;
+        let negative_zero = Decimal::deserialize(negative_zero_bytes);
+        assert_eq!(positive_zero, negative_zero);
+        assert_ne!(
+            canonical_decimal_v1(positive_zero),
+            canonical_decimal_v1(negative_zero)
+        );
+        let mut positive = trade("FINAM_R5_SIGNED_ZERO", Decimal::ONE, 2);
+        positive.commission = Some(positive_zero);
+        let mut negative = positive.clone();
+        negative.commission = Some(negative_zero);
+        assert_eq!(
+            canonicalize_stage5g_order_position_evidence(evidence(
+                2,
+                truth(vec![], vec![positive, negative], vec![], 2),
+            ))
+            .unwrap_err(),
+            Stage5gEvidenceCanonicalizationError::TradeIdentityConflict
+        );
+    }
+
+    #[test]
+    fn stage5gd_r5_exact_decimal_rows_merge_deterministically_at_equal_and_later_receipts() {
+        let first = trade("FINAM_R5_EXACT_DECIMAL", Decimal::new(100, 2), 2);
+        let exact_equal_receipt = first.clone();
+        let mut later = first.clone();
+        later.received_ts = ts(3);
+
+        for rows in [
+            vec![first.clone(), exact_equal_receipt],
+            vec![first.clone(), later.clone()],
+            vec![later.clone(), first.clone()],
+        ] {
+            let expected_receipt = rows.iter().map(|trade| trade.received_ts).max().unwrap();
+            let canonical = canonicalize_stage5g_order_position_evidence(evidence(
+                2,
+                truth(vec![], rows, vec![], 3),
+            ))
+            .unwrap();
+            assert_eq!(canonical.evidence().broker_truth.trades.len(), 1);
+            assert_eq!(
+                canonical.evidence().broker_truth.trades[0].received_ts,
+                expected_receipt
+            );
+            assert_eq!(
+                canonical.evidence().broker_truth.trades[0].qty.serialize(),
+                Decimal::new(100, 2).serialize()
+            );
+        }
+    }
+
+    #[test]
+    fn stage5gd_r5_committed_trade_ledger_uses_exact_decimal_authority() {
+        let qty = Decimal::new(4, 1);
+        let filled = market_order(OrderStatus::PartiallyFilled, qty, 2);
+        let mut committed = market_trade("FINAM_R5_COMMITTED_DECIMAL", qty, 2);
+        committed.gross_amount = Some(Decimal::new(1_000, 1));
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        validate_trades(&mut slot, &filled, std::slice::from_ref(&committed)).unwrap();
+        let committed_ledger = slot.trades.clone();
+
+        let mut changed_qty_scale = committed.clone();
+        changed_qty_scale.qty = Decimal::new(40, 2);
+        changed_qty_scale.received_ts = ts(3);
+        assert_eq!(
+            validate_trades(&mut slot, &filled, &[changed_qty_scale]),
+            Err(Stage5gOrderPositionError::TradeIdentityConflict)
+        );
+        assert_eq!(slot.trades, committed_ledger);
+
+        let mut changed_gross_scale = committed;
+        changed_gross_scale.gross_amount = Some(Decimal::new(10_000, 2));
+        changed_gross_scale.received_ts = ts(3);
+        assert_eq!(
+            validate_trades(&mut slot, &filled, &[changed_gross_scale]),
             Err(Stage5gOrderPositionError::TradeIdentityConflict)
         );
         assert_eq!(slot.trades, committed_ledger);

@@ -1,14 +1,15 @@
-# Stage 5G-d R1-b R4 — deterministic exact immutable-trade canonicalization
+# Stage 5G-d R1-b R5 — deterministic canonical Decimal representation
 
 Status: implementation review candidate.
 
-Accepted predecessor: `5fcc538a9bed574cdd9df268a9bb1368c608e11e`.
+Accepted predecessor: `6cafcd7d7caae8b29364c41cb3eece0511e4d42c`.
 
 ## Scope
 
-R1-b R4 preserves the accepted R2 chronology/latest-ledger hardening and R3
-single-authority evidence ownership. It makes immutable trade canonicalization
-exact, deterministic and independent of duplicate-row order. Active Stage 5G-c
+R1-b R5 preserves the accepted R2 chronology/latest-ledger hardening, R3
+single-authority evidence ownership and R4 exact `InstrumentId` policy. It also
+makes fixed-point trade representation exact, deterministic and independent of
+duplicate-row order. Active Stage 5G-c
 plus post-checkpoint Stage 5G-d still consume one crate-private, pure canonical
 evidence authority. It does not change Stage 5C callback
 authority or open Stage 5G-e/f, Redis, FINAM, transport, runtime-live or real
@@ -102,7 +103,24 @@ venue symbols hiding different symbol/exchange/market fields—fails closed as
 `ExactReplay` may expose its committed checkpoint immediately. A `NewPackage`
 checkpoint remains only a candidate: a future Stage 5G-e type-state must first
 consume and successfully apply the exact owned canonical evidence through the
-active Stage 5G-c transition. R4 does not open that integration surface.
+active Stage 5G-c transition. R5 does not open that integration surface.
+
+### Exact Decimal policy
+
+Scale, sign and the complete mantissa are immutable broker evidence in R5.
+`Stage5gCanonicalDecimalV1` stores the exact 16-byte
+`rust_decimal::Decimal::serialize()` representation under an explicit schema
+and domain. The four fixed-point trade fields—quantity, price, gross amount and
+commission—enter `Stage5gCanonicalImmutableTradePayloadV1` only through this
+authority. Numeric `Decimal::PartialEq`, normalization and rescaling are not
+immutable-payload equality.
+
+Consequently `1.0` and `1.00`, or two zero values with distinct serialized sign
+bits, are different immutable evidence and fail closed for one
+`BrokerTradeId`. The stored `BrokerTradeSnapshot` and fingerprint are not
+normalized or rewritten. Exact byte-identical Decimal rows remain mergeable;
+the complete row with maximum `received_ts` is retained, and equal receipts
+are structurally identical.
 
 ## Executable witnesses
 
@@ -125,7 +143,13 @@ active Stage 5G-c transition. R4 does not open that integration surface.
 - `stage5gd_r4_same_venue_conflicting_instrument_fields_fail_closed`;
 - `stage5gd_r4_committed_trade_ledger_uses_exact_instrument_projection`;
 - `stage5gd_r4_active_restart_exact_duplicate_reversal_is_exact_replay`;
-- `stage5gd_r4_new_package_instrument_conflicts_preserve_checkpoint`.
+- `stage5gd_r4_new_package_instrument_conflicts_preserve_checkpoint`;
+- `stage5gd_r5_qty_scale_permutations_fail_closed_under_exact_decimal_policy`;
+- `stage5gd_r5_price_and_optional_amount_scale_drift_fail_closed`;
+- `stage5gd_r5_signed_zero_representation_is_explicit_and_fail_closed`;
+- `stage5gd_r5_exact_decimal_rows_merge_deterministically_at_equal_and_later_receipts`;
+- `stage5gd_r5_committed_trade_ledger_uses_exact_decimal_authority`;
+- `stage5gd_r5_restart_scaled_permutations_fail_closed_without_checkpoint_mutation`.
 
 The timer-generated witness is source-reachable through a partial Exit with an
 authoritative bracket-reconciliation timer. An explicit post-grace timer emits

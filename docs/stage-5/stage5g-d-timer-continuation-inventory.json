@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "5G-d",
-  "status": "r1b_r4_review_candidate",
-  "accepted_predecessor": "5fcc538a9bed574cdd9df268a9bb1368c608e11e",
+  "status": "r1b_r5_review_candidate",
+  "accepted_predecessor": "6cafcd7d7caae8b29364c41cb3eece0511e4d42c",
   "authority": {
     "timer_callback": "Stage 5C-k",
     "timer_settlement": "Stage 5C-l",
@@ -84,6 +84,12 @@
       "stage5gd_r4_committed_trade_ledger_uses_exact_instrument_projection",
       "stage5gd_r4_active_restart_exact_duplicate_reversal_is_exact_replay",
       "stage5gd_r4_new_package_instrument_conflicts_preserve_checkpoint",
+      "stage5gd_r5_qty_scale_permutations_fail_closed_under_exact_decimal_policy",
+      "stage5gd_r5_price_and_optional_amount_scale_drift_fail_closed",
+      "stage5gd_r5_signed_zero_representation_is_explicit_and_fail_closed",
+      "stage5gd_r5_exact_decimal_rows_merge_deterministically_at_equal_and_later_receipts",
+      "stage5gd_r5_committed_trade_ledger_uses_exact_decimal_authority",
+      "stage5gd_r5_restart_scaled_permutations_fail_closed_without_checkpoint_mutation",
       "replay_ledger_and_continuation_semantics_are_fail_closed"
     ]
   },

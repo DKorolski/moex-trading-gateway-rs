@@ -1495,6 +1495,41 @@ mod tests {
     }
 
     #[test]
+    fn stage5gd_r5_restart_scaled_permutations_fail_closed_without_checkpoint_mutation() {
+        let base = evidence(7, 100_000_000);
+        let checkpoint = checkpoint_for(&base);
+        let original_checkpoint = checkpoint.clone();
+        let mut scale_1 = trade(
+            "TRADE_R5_DECIMAL_SCALE",
+            Decimal::new(1_000, 1),
+            150_000_000,
+            160_000_000,
+        );
+        scale_1.qty = Decimal::new(10, 1);
+        scale_1.gross_amount = Some(Decimal::new(1_000, 1));
+        scale_1.commission = Some(Decimal::new(10, 1));
+        let mut scale_2 = scale_1.clone();
+        scale_2.qty = Decimal::new(100, 2);
+        scale_2.price = Decimal::new(10_000, 2);
+        scale_2.gross_amount = Some(Decimal::new(10_000, 2));
+        scale_2.commission = Some(Decimal::new(100, 2));
+        assert_eq!(scale_1.qty, scale_2.qty);
+        assert_ne!(scale_1.qty.serialize(), scale_2.qty.serialize());
+
+        for rows in [
+            vec![scale_1.clone(), scale_2.clone()],
+            vec![scale_2.clone(), scale_1.clone()],
+        ] {
+            let candidate = evidence_with_trades(8, 200_000_000, rows);
+            assert_eq!(
+                classify_stage5g_post_checkpoint_evidence(&checkpoint, candidate).unwrap_err(),
+                Stage5gCheckpointReplayError::TradeIdentityConflict
+            );
+            assert_eq!(checkpoint, original_checkpoint);
+        }
+    }
+
+    #[test]
     fn post_checkpoint_known_payload_change_and_trade_identity_conflict_fail_closed() {
         let original = evidence_with_trades(
             7,
