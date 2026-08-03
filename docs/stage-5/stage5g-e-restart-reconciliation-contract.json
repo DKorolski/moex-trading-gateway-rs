@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "stage": "5G-e-a",
+  "name": "replay_commit_type_state_barrier",
+  "status": "implementation_review_candidate",
+  "accepted_predecessor": "54e26c886afd97cd443fd8b0728fe180ff4793b5",
+  "accepted_stage5c_authority": "d0494537d7c1739a16350b2d28f71b304165c812",
+  "accepted_stage5g_d_closed": true,
+  "exact_replay_committed_checkpoint_available": true,
+  "new_package_pre_candidate_checkpoint_retained": true,
+  "new_package_candidate_checkpoint_persistable": false,
+  "new_package_exact_canonical_candidate_owned": true,
+  "raw_evidence_recanonicalization_allowed": false,
+  "stage5d_canonical_restart_package_required_next": true,
+  "restart_case_count": 12,
+  "implemented_restart_case_ids": [],
+  "deferred_restart_case_ids": [
+    "GRST01_RESTART_BEFORE_ACK",
+    "GRST02_RESTART_AFTER_ACK_BEFORE_ORDER",
+    "GRST03_RESTART_WITH_WORKING_ORDER",
+    "GRST04_RESTART_AFTER_PARTIAL_FILL",
+    "GRST05_RESTART_FILLED_BEFORE_POSITION",
+    "GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED",
+    "GRST07_RESTART_AT_TIMER_CHECKPOINT",
+    "GRST08_RESTART_WITH_GENERATED_INTENT_ESCROW",
+    "GRST09_EXACT_REPLAY_IS_IDEMPOTENT",
+    "GRST10_CONFLICTING_REPLAY_BLOCKS",
+    "GRST11_FRESH_BROKER_TRUTH_OVERRIDES_STALE_HINT",
+    "GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION"
+  ],
+  "closed_surfaces": {
+    "stage5g_f": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}

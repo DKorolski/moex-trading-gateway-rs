@@ -274,25 +274,109 @@ pub enum Stage5gCheckpointReplayError {
     EvidenceIdentityGrammarViolation,
 }
 
-#[derive(Debug)]
-pub struct Stage5gCheckpointReplayResult {
-    disposition: Stage5gCheckpointReplayDisposition,
-    replay: Stage5gReplayCheckpoint,
+/// Owning replay classification. The variants intentionally expose different
+/// persistence authority: only [`Stage5gExactReplayCheckpoint`] has a
+/// persistable checkpoint.
+pub enum Stage5gCheckpointReplayResult {
+    ExactReplay(Stage5gExactReplayCheckpoint),
+    NewPackage(Box<Stage5gNewPackageCandidate>),
+}
+
+impl std::fmt::Debug for Stage5gCheckpointReplayResult {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5gCheckpointReplayResult")
+            .field("disposition", &self.disposition())
+            .finish_non_exhaustive()
+    }
+}
+
+/// An exact replay has no broker-state mutation and may commit its duplicate
+/// counter/sequence update immediately.
+pub struct Stage5gExactReplayCheckpoint {
+    committed_checkpoint: Stage5gTimerCheckpointEnvelope,
+}
+
+/// A newly classified broker package owns the exact canonical candidate while
+/// retaining the last committed checkpoint. It deliberately has no
+/// `checkpoint()` method: a future Stage 5G-e transition must consume the
+/// candidate through the accepted Stage 5G-c authority before the candidate
+/// checkpoint can become persistable.
+///
+/// ```compile_fail
+/// # use strategy_runtime_core::Stage5gNewPackageCandidate;
+/// # fn cannot_persist(candidate: Stage5gNewPackageCandidate) {
+/// let _ = candidate.checkpoint();
+/// # }
+/// ```
+pub struct Stage5gNewPackageCandidate {
+    pre_candidate_checkpoint: Stage5gTimerCheckpointEnvelope,
+    #[allow(dead_code)]
+    candidate_replay: Stage5gReplayCheckpoint,
+    #[allow(dead_code)]
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
-    canonical_new_package_candidate: Option<Stage5gCanonicalOrderPositionEvidence>,
+    canonical_candidate: Stage5gCanonicalOrderPositionEvidence,
 }
 
 impl Stage5gCheckpointReplayResult {
     pub fn disposition(&self) -> Stage5gCheckpointReplayDisposition {
-        self.disposition
+        match self {
+            Self::ExactReplay(_) => Stage5gCheckpointReplayDisposition::ExactReplay,
+            Self::NewPackage(_) => Stage5gCheckpointReplayDisposition::NewPackage,
+        }
     }
 
-    pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
-        checkpoint_envelope(&self.replay, self.last_continuation_checkpoint_ts_utc_ms)
+    pub fn into_exact_replay(self) -> Option<Stage5gExactReplayCheckpoint> {
+        match self {
+            Self::ExactReplay(committed) => Some(committed),
+            Self::NewPackage(_) => None,
+        }
     }
 
-    pub fn owns_canonical_new_package_candidate(&self) -> bool {
-        self.canonical_new_package_candidate.is_some()
+    pub fn into_new_package(self) -> Option<Stage5gNewPackageCandidate> {
+        match self {
+            Self::ExactReplay(_) => None,
+            Self::NewPackage(candidate) => Some(*candidate),
+        }
+    }
+}
+
+impl Stage5gExactReplayCheckpoint {
+    pub fn checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.committed_checkpoint
+    }
+
+    pub fn into_checkpoint(self) -> Stage5gTimerCheckpointEnvelope {
+        self.committed_checkpoint
+    }
+}
+
+impl Stage5gNewPackageCandidate {
+    /// The exact checkpoint that remained committed before this candidate was
+    /// observed. Blocking before callback/application must return this value.
+    pub fn pre_candidate_checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
+        &self.pre_candidate_checkpoint
+    }
+
+    pub fn canonical_identity(&self) -> &str {
+        self.canonical_candidate.identity()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn into_stage5g_e_parts(
+        self,
+    ) -> (
+        Stage5gTimerCheckpointEnvelope,
+        Stage5gReplayCheckpoint,
+        Option<i64>,
+        Stage5gCanonicalOrderPositionEvidence,
+    ) {
+        (
+            self.pre_candidate_checkpoint,
+            self.candidate_replay,
+            self.last_continuation_checkpoint_ts_utc_ms,
+            self.canonical_candidate,
+        )
     }
 }
 
@@ -1034,14 +1118,15 @@ pub fn classify_stage5g_post_checkpoint_evidence(
         }
         replay.last_total_sequence = Some(total_sequence);
         replay.duplicate_evidence_count += 1;
-        return Ok(Stage5gCheckpointReplayResult {
-            disposition: Stage5gCheckpointReplayDisposition::ExactReplay,
-            replay,
-            last_continuation_checkpoint_ts_utc_ms: envelope
-                .payload
-                .last_continuation_checkpoint_ts_utc_ms,
-            canonical_new_package_candidate: None,
-        });
+        let committed_checkpoint = checkpoint_envelope(
+            &replay,
+            envelope.payload.last_continuation_checkpoint_ts_utc_ms,
+        );
+        return Ok(Stage5gCheckpointReplayResult::ExactReplay(
+            Stage5gExactReplayCheckpoint {
+                committed_checkpoint,
+            },
+        ));
     }
     let received_at = canonical_evidence.evidence().broker_truth.received_ts;
     let continuation_checkpoint = envelope
@@ -1074,14 +1159,16 @@ pub fn classify_stage5g_post_checkpoint_evidence(
         received_at.timestamp(),
         received_at.timestamp_subsec_nanos()
     ));
-    Ok(Stage5gCheckpointReplayResult {
-        disposition: Stage5gCheckpointReplayDisposition::NewPackage,
-        replay,
-        last_continuation_checkpoint_ts_utc_ms: envelope
-            .payload
-            .last_continuation_checkpoint_ts_utc_ms,
-        canonical_new_package_candidate: Some(canonical_evidence),
-    })
+    Ok(Stage5gCheckpointReplayResult::NewPackage(Box::new(
+        Stage5gNewPackageCandidate {
+            pre_candidate_checkpoint: envelope.clone(),
+            candidate_replay: replay,
+            last_continuation_checkpoint_ts_utc_ms: envelope
+                .payload
+                .last_continuation_checkpoint_ts_utc_ms,
+            canonical_candidate: canonical_evidence,
+        },
+    )))
 }
 
 fn checkpoint_envelope(
@@ -1328,9 +1415,14 @@ mod tests {
         let first = evidence(7, 100_000_000);
         let initial = checkpoint_for(&first);
         let second = evidence(8, 200_000_000);
-        let checkpoint = classify_stage5g_post_checkpoint_evidence(&initial, second.clone())
+        let candidate = classify_stage5g_post_checkpoint_evidence(&initial, second.clone())
             .unwrap()
-            .checkpoint();
+            .into_new_package()
+            .unwrap();
+        let checkpoint = checkpoint_envelope(
+            &candidate.candidate_replay,
+            candidate.last_continuation_checkpoint_ts_utc_ms,
+        );
         (checkpoint, first, second)
     }
 
@@ -1368,12 +1460,58 @@ mod tests {
             result.disposition(),
             Stage5gCheckpointReplayDisposition::ExactReplay
         );
-        let next = result.checkpoint();
+        let next = result.into_exact_replay().unwrap().into_checkpoint();
         assert_eq!(next.payload.last_total_sequence, Some(8));
         assert_eq!(next.payload.duplicate_evidence_count, 1);
         assert_eq!(
             next.payload.package_discriminator,
             envelope.payload.package_discriminator
+        );
+    }
+
+    #[test]
+    fn stage5ge_a_exact_replay_alone_exposes_the_committed_checkpoint() {
+        let original = evidence(7, 125_875_321);
+        let envelope = checkpoint_for(&original);
+        let exact = classify_stage5g_post_checkpoint_evidence(&envelope, evidence(8, 125_875_321))
+            .unwrap()
+            .into_exact_replay()
+            .unwrap();
+        assert_eq!(exact.checkpoint().payload.last_total_sequence, Some(8));
+        assert_eq!(exact.checkpoint().payload.duplicate_evidence_count, 1);
+        assert_eq!(
+            exact.checkpoint().payload.current_evidence_identity,
+            envelope.payload.current_evidence_identity
+        );
+    }
+
+    #[test]
+    fn stage5ge_a_new_package_retains_only_the_pre_candidate_committed_checkpoint() {
+        let original = evidence(7, 100_000_000);
+        let envelope = checkpoint_for(&original);
+        let new_package = evidence(8, 200_000_000);
+        let expected_identity = evidence_identity(&new_package);
+        let candidate = classify_stage5g_post_checkpoint_evidence(&envelope, new_package)
+            .unwrap()
+            .into_new_package()
+            .unwrap();
+
+        assert_eq!(candidate.pre_candidate_checkpoint(), &envelope);
+        assert_eq!(candidate.canonical_identity(), expected_identity);
+        assert_eq!(
+            candidate
+                .pre_candidate_checkpoint()
+                .payload
+                .last_total_sequence,
+            Some(7)
+        );
+        assert_eq!(candidate.candidate_replay.last_total_sequence, Some(8));
+        assert_ne!(
+            candidate.candidate_replay.current_evidence_identity,
+            candidate
+                .pre_candidate_checkpoint()
+                .payload
+                .current_evidence_identity
         );
     }
 
@@ -1433,7 +1571,7 @@ mod tests {
             replay.disposition(),
             Stage5gCheckpointReplayDisposition::ExactReplay
         );
-        assert!(!replay.owns_canonical_new_package_candidate());
+        assert!(replay.into_exact_replay().is_some());
     }
 
     #[test]
@@ -1463,7 +1601,7 @@ mod tests {
             replay.disposition(),
             Stage5gCheckpointReplayDisposition::ExactReplay
         );
-        assert!(!replay.owns_canonical_new_package_candidate());
+        assert!(replay.into_exact_replay().is_some());
     }
 
     #[test]
@@ -1581,19 +1719,26 @@ mod tests {
             result.disposition(),
             Stage5gCheckpointReplayDisposition::NewPackage
         );
-        assert!(result.owns_canonical_new_package_candidate());
-        let candidate = result.canonical_new_package_candidate.as_ref().unwrap();
-        assert_eq!(candidate.evidence().broker_truth.trades.len(), 1);
+        let candidate = result.into_new_package().unwrap();
         assert_eq!(
-            result
-                .checkpoint()
-                .payload
-                .evidence_replay_ledger
+            candidate
+                .canonical_candidate
+                .evidence()
+                .broker_truth
+                .trades
+                .len(),
+            1
+        );
+        assert_eq!(
+            candidate
+                .candidate_replay
+                .evidence_identities
                 .last()
                 .unwrap()
-                .fingerprint_sha256,
-            candidate.fingerprint()
+                .fingerprint,
+            candidate.canonical_candidate.fingerprint()
         );
+        assert_eq!(candidate.pre_candidate_checkpoint(), &envelope);
 
         let first = trade(
             "TRADE_NEW_CONFLICT",
@@ -1654,7 +1799,11 @@ mod tests {
             result.disposition(),
             Stage5gCheckpointReplayDisposition::NewPackage
         );
-        let next = result.checkpoint();
+        let candidate = result.into_new_package().unwrap();
+        let next = checkpoint_envelope(
+            &candidate.candidate_replay,
+            candidate.last_continuation_checkpoint_ts_utc_ms,
+        );
         assert_eq!(next.payload.evidence_replay_ledger.len(), 2);
         assert_eq!(
             next.payload.last_broker_truth_received_ms,
@@ -1927,10 +2076,15 @@ mod tests {
         let mut same_receipt_second = evidence(8, 400_000_000);
         same_receipt_second.request_id =
             StrategyRequestId::from(uuid::Uuid::from_u128(0x005d_0002));
-        let mut nonfinal_current =
+        let candidate =
             classify_stage5g_post_checkpoint_evidence(&same_receipt_initial, same_receipt_second)
                 .unwrap()
-                .checkpoint();
+                .into_new_package()
+                .unwrap();
+        let mut nonfinal_current = checkpoint_envelope(
+            &candidate.candidate_replay,
+            candidate.last_continuation_checkpoint_ts_utc_ms,
+        );
         nonfinal_current.payload.current_evidence_identity =
             Some(evidence_identity(&same_receipt_first));
         rehash(&mut nonfinal_current);
