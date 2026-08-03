@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "stage": "5G-e-b-R2",
+  "name": "historical_exact_replay_metadata_rebind",
+  "status": "implementation_review_candidate",
+  "accepted_predecessor": "1621307a6012fa1f9dcbc89a59651c801f6cc26f",
+  "accepted_stage5g_d": "54e26c886afd97cd443fd8b0728fe180ff4793b5",
+  "accepted_stage5c_authority": "d0494537d7c1739a16350b2d28f71b304165c812",
+  "one_exact_replay_metadata_authority": true,
+  "replay_classification_before_new_package_preflight": true,
+  "historical_same_request_replay_supported": true,
+  "historical_cross_request_replay_supported": true,
+  "exact_replay_mutable_fields": [
+    "last_total_sequence",
+    "duplicate_evidence_count"
+  ],
+  "new_package_continuation_guard_retained": true,
+  "fingerprint_conflict_guard_retained": true,
+  "release_checkpoint_validation_fail_closed": true,
+  "focused_r2_test_count": 6,
+  "inherited_pre_r2_test_count": 11,
+  "negative_case_count": 13,
+  "closed_surfaces": {
+    "stage5g_e_clean_process_restart": false,
+    "grst01_grst12_full_matrix": false,
+    "stage5g_f": false,
+    "redis_live_consumer_groups": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage6": false,
+    "main_merge": false,
+    "deployment": false
+  }
+}

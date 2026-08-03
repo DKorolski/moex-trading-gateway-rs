@@ -110,12 +110,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
 - Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
   was rejected as submitted because ExactReplay advanced the committed
-  checkpoint without synchronizing the continuing Stage 5G-c session. R1 is
-  the current review candidate: its owning exact-replay proof carries the old
+  checkpoint without synchronizing the continuing Stage 5G-c session. R1 at
+  `1621307a6012fa1f9dcbc89a59651c801f6cc26f` fixed the current-package path
+  but was rejected because historical exact replay still entered NewPackage
+  chronology and current-slot preflight. R2 is the current review candidate:
+  its owning exact-replay proof carries the old
   and new checkpoints plus exact canonical evidence, updates the live session
-  through the same canonical Stage 5G-c core, and proves a continuous
-  ExactReplay→NewPackage chain. Only local sequence and duplicate count may
-  change during exact synchronization; slots, identity ledger, BrokerTruth
+  through the same canonical Stage 5G-c metadata authority, and proves both
+  `A→B→exact A→C` and inherited-old-request replay chains. Replay identity and
+  fingerprint classification now precedes NewPackage-only continuation,
+  current-slot and broker-state checks. Only local sequence and duplicate count
+  may change during exact synchronization; slots, identity ledger, BrokerTruth
   receipt watermarks and callback state remain fixed. All public commit
   authority now performs hard checkpoint validation in release builds. The
   accepted Stage 5C callback authority remains byte-pinned to

@@ -730,9 +730,6 @@ pub fn apply_stage5g_order_position_evidence(
     session: Stage5gOrderPositionSession,
     evidence: Stage5gOrderPositionEvidence,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
-    if let Err(reason) = stage5g_order_position_precanonical_preflight(&session, &evidence) {
-        return Err(block(reason, session));
-    }
     let canonical_evidence = match canonicalize_stage5g_order_position_evidence(evidence) {
         Ok(canonical) => canonical,
         Err(Stage5gEvidenceCanonicalizationError::TradeIdentityConflict) => {
@@ -759,22 +756,20 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
     canonical_evidence: Stage5gCanonicalOrderPositionEvidence,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
     let evidence = canonical_evidence.evidence();
-    let slot_index = match stage5g_order_position_precanonical_preflight(&session, evidence) {
+    let identity = canonical_evidence.identity().to_string();
+    let fingerprint = canonical_evidence.fingerprint().to_string();
+    match apply_stage5g_exact_replay_metadata(&mut session, evidence, &identity, &fingerprint) {
+        Err(reason) => return Err(block(reason, session)),
+        Ok(Stage5gReplayAdmission::ExactReplay) => {
+            return Ok(Stage5gOrderPositionTransition::Awaiting(session));
+        }
+        Ok(Stage5gReplayAdmission::NewPackage) => {}
+    }
+    let slot_index = match stage5g_order_position_new_package_preflight(&session, evidence) {
         Ok(slot_index) => slot_index,
         Err(reason) => return Err(block(reason, session)),
     };
-    let identity = canonical_evidence.identity().to_string();
-    let fingerprint = canonical_evidence.fingerprint().to_string();
     let evidence = canonical_evidence.into_evidence();
-    match classify_evidence_replay(&session.state, &identity, &fingerprint) {
-        Err(reason) => return Err(block(reason, session)),
-        Ok(true) => {
-            session.state.last_total_sequence = Some(evidence.total_sequence);
-            session.state.duplicate_evidence_count += 1;
-            return Ok(Stage5gOrderPositionTransition::Awaiting(session));
-        }
-        Ok(false) => {}
-    }
     let ack_ts = session.state.slots[slot_index]
         .ack
         .latest_received_ts_utc
@@ -885,7 +880,43 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
     converge_through_stage5c(session, pre_candidate_state)
 }
 
-fn stage5g_order_position_precanonical_preflight(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage5gReplayAdmission {
+    ExactReplay,
+    NewPackage,
+}
+
+/// The single metadata authority shared by raw and owned canonical evidence.
+/// Exact replay classification intentionally precedes every NewPackage-only
+/// chronology, slot and broker-state check. A successful exact replay mutates
+/// only its local sequence and duplicate counter.
+fn apply_stage5g_exact_replay_metadata(
+    session: &mut Stage5gOrderPositionSession,
+    evidence: &Stage5gOrderPositionEvidence,
+    identity: &str,
+    fingerprint: &str,
+) -> Result<Stage5gReplayAdmission, Stage5gOrderPositionError> {
+    if session
+        .state
+        .last_total_sequence
+        .is_some_and(|last| evidence.total_sequence <= last)
+    {
+        return Err(Stage5gOrderPositionError::NonMonotonicSequence);
+    }
+    if evidence.broker_truth.account_id != session.state.account_id {
+        return Err(Stage5gOrderPositionError::AccountMismatch);
+    }
+    match classify_evidence_replay(&session.state, identity, fingerprint)? {
+        true => {
+            session.state.last_total_sequence = Some(evidence.total_sequence);
+            session.state.duplicate_evidence_count += 1;
+            Ok(Stage5gReplayAdmission::ExactReplay)
+        }
+        false => Ok(Stage5gReplayAdmission::NewPackage),
+    }
+}
+
+fn stage5g_order_position_new_package_preflight(
     session: &Stage5gOrderPositionSession,
     evidence: &Stage5gOrderPositionEvidence,
 ) -> Result<usize, Stage5gOrderPositionError> {
@@ -896,22 +927,12 @@ fn stage5g_order_position_precanonical_preflight(
     {
         return Err(Stage5gOrderPositionError::BrokerTruthBeforeContinuationCheckpoint);
     }
-    if session
-        .state
-        .last_total_sequence
-        .is_some_and(|last| evidence.total_sequence <= last)
-    {
-        return Err(Stage5gOrderPositionError::NonMonotonicSequence);
-    }
     let slot_index = session
         .state
         .slots
         .iter()
         .position(|slot| slot.ack.request_id == evidence.request_id)
         .ok_or(Stage5gOrderPositionError::UnknownRequestId)?;
-    if evidence.broker_truth.account_id != session.state.account_id {
-        return Err(Stage5gOrderPositionError::AccountMismatch);
-    }
     Ok(slot_index)
 }
 
@@ -2745,6 +2766,18 @@ mod tests {
         Duration,
     ) {
         let bar_close_ts = Utc::now().timestamp().div_euclid(600) * 600 - 600;
+        r2cb_public_runtime_session_at(bar_close_ts)
+    }
+
+    fn r2cb_public_runtime_session_at(
+        bar_close_ts: i64,
+    ) -> (
+        Stage5gOrderPositionSession,
+        StrategyRequestId,
+        ClientOrderId,
+        Option<HybridRuntimeAttribution>,
+        Duration,
+    ) {
         let fixture_poll1_whole_second = 1_785_661_800;
         let golden_time_shift = Duration::seconds(bar_close_ts + 10 - fixture_poll1_whole_second);
         let mut strategy = r2cb_public_runtime_strategy(bar_close_ts);
@@ -3076,6 +3109,35 @@ mod tests {
         .expect("known canonical package produces exact-replay proof")
     }
 
+    fn stage5ge_b_r2_apply_awaiting_package(
+        session: Stage5gOrderPositionSession,
+        sequence: u64,
+        request_id: StrategyRequestId,
+        client_order_id: &ClientOrderId,
+        attribution: Option<HybridRuntimeAttribution>,
+        time_shift: Duration,
+        poll: &serde_json::Value,
+    ) -> (
+        Stage5gOrderPositionSession,
+        crate::Stage5gTimerCheckpointEnvelope,
+    ) {
+        let checkpoint = stage5ge_b_committed_checkpoint(&session);
+        let candidate = stage5ge_b_candidate(
+            &checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: sequence,
+                request_id,
+                broker_truth: r2cb_golden_truth(poll, client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        crate::apply_stage5g_new_package_candidate(session, candidate)
+            .expect("partial NewPackage applies")
+            .into_awaiting()
+            .expect("partial package remains awaiting")
+            .into_parts()
+    }
+
     #[test]
     fn stage5ge_b_r1_exact_replay_synchronizes_session_then_new_package_commits() {
         let (session, request_id, client_order_id, attribution, time_shift, polls) =
@@ -3266,6 +3328,326 @@ mod tests {
         assert_eq!(
             persisted.payload.evidence_replay_ledger,
             before.payload.evidence_replay_ledger
+        );
+    }
+
+    #[test]
+    fn stage5ge_b_r2_historical_a_b_exact_a_then_c_is_continuous() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let (session, checkpoint_b) = stage5ge_b_r2_apply_awaiting_package(
+            session,
+            3,
+            request_id,
+            &client_order_id,
+            attribution.clone(),
+            time_shift,
+            &polls[1],
+        );
+        let exact_a = stage5ge_b_r1_exact_replay(
+            &checkpoint_b,
+            4,
+            request_id,
+            &client_order_id,
+            attribution.clone(),
+            time_shift,
+            &polls[0],
+        );
+        assert_ne!(
+            Some(exact_a.canonical_identity()),
+            checkpoint_b.payload.current_evidence_identity.as_deref()
+        );
+        assert!(
+            r2cb_golden_truth(&polls[0], &client_order_id, time_shift)
+                .received_ts
+                .timestamp_millis()
+                < checkpoint_b
+                    .payload
+                    .last_continuation_checkpoint_ts_utc_ms
+                    .unwrap()
+        );
+        let mut expected_exact = checkpoint_b.payload.clone();
+        expected_exact.last_total_sequence = Some(4);
+        expected_exact.duplicate_evidence_count += 1;
+        let synchronized = crate::apply_stage5g_exact_replay_to_session(session, exact_a)
+            .expect("historical exact A bypasses NewPackage chronology");
+        assert_eq!(synchronized.checkpoint().payload, expected_exact);
+        assert_eq!(synchronized.session().summary().stage5c_callback_count, 0);
+
+        let (session, exact_checkpoint) = synchronized.into_parts();
+        let candidate_c = stage5ge_b_candidate(
+            &exact_checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 5,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[2], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        let committed_c = crate::apply_stage5g_new_package_candidate(session, candidate_c)
+            .expect("C applies after historical exact A");
+        assert_eq!(
+            committed_c.checkpoint().payload.last_total_sequence,
+            Some(5)
+        );
+        assert_eq!(
+            committed_c
+                .checkpoint()
+                .payload
+                .evidence_replay_ledger
+                .len(),
+            checkpoint_b.payload.evidence_replay_ledger.len() + 1
+        );
+        assert_eq!(
+            committed_c
+                .into_converged()
+                .expect("third poll converges")
+                .converged()
+                .summary()
+                .stage5c_callback_count,
+            1
+        );
+    }
+
+    #[test]
+    fn stage5ge_b_r2_raw_historical_exact_uses_the_same_metadata_authority() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let (session, checkpoint_b) = stage5ge_b_r2_apply_awaiting_package(
+            session,
+            3,
+            request_id,
+            &client_order_id,
+            attribution.clone(),
+            time_shift,
+            &polls[1],
+        );
+        let mut expected = checkpoint_b.payload.clone();
+        expected.last_total_sequence = Some(4);
+        expected.duplicate_evidence_count += 1;
+        let session = apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        )
+        .expect("raw historical exact replay bypasses NewPackage preflight")
+        .into_awaiting()
+        .expect("exact replay cannot converge");
+        assert_eq!(stage5ge_b_committed_checkpoint(&session).payload, expected);
+        assert_eq!(session.summary().stage5c_callback_count, 0);
+    }
+
+    #[test]
+    fn stage5ge_b_r2_two_historical_exact_replays_then_new_package() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let (mut session, mut checkpoint) = stage5ge_b_r2_apply_awaiting_package(
+            session,
+            3,
+            request_id,
+            &client_order_id,
+            attribution.clone(),
+            time_shift,
+            &polls[1],
+        );
+        let ledger_before_exact = checkpoint.payload.evidence_replay_ledger.clone();
+        for sequence in [4, 5] {
+            let exact_a = stage5ge_b_r1_exact_replay(
+                &checkpoint,
+                sequence,
+                request_id,
+                &client_order_id,
+                attribution.clone(),
+                time_shift,
+                &polls[0],
+            );
+            let synchronized = crate::apply_stage5g_exact_replay_to_session(session, exact_a)
+                .expect("each historical exact replay updates metadata only");
+            (session, checkpoint) = synchronized.into_parts();
+        }
+        assert_eq!(checkpoint.payload.last_total_sequence, Some(5));
+        assert_eq!(checkpoint.payload.duplicate_evidence_count, 2);
+        assert_eq!(
+            checkpoint.payload.evidence_replay_ledger,
+            ledger_before_exact
+        );
+
+        let candidate_c = stage5ge_b_candidate(
+            &checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 6,
+                request_id,
+                broker_truth: r2cb_golden_truth(&polls[2], &client_order_id, time_shift),
+                order_attribution: attribution,
+            },
+        );
+        let committed_c = crate::apply_stage5g_new_package_candidate(session, candidate_c)
+            .expect("new package follows two historical replays");
+        assert_eq!(
+            committed_c.checkpoint().payload.last_total_sequence,
+            Some(6)
+        );
+    }
+
+    #[test]
+    fn stage5ge_b_r2_inherited_older_request_exact_replay_preserves_current_slot() {
+        let base_bar_close = Utc::now().timestamp().div_euclid(600) * 600 - 600;
+        let (first, request_r1, client_r1, attribution_r1, shift_r1) =
+            r2cb_public_runtime_session_at(base_bar_close);
+        let golden: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/expected/stage5g_r2cb_three_poll_broker_truth.json"
+        ))
+        .unwrap();
+        let polls = golden["polls"].as_array().unwrap();
+        let first = apply_stage5g_order_position_evidence(
+            first,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 2,
+                request_id: request_r1,
+                broker_truth: r2cb_golden_truth(&polls[0], &client_r1, shift_r1),
+                order_attribution: attribution_r1.clone(),
+            },
+        )
+        .unwrap()
+        .into_awaiting()
+        .unwrap();
+        let inherited_replay = stage5g_order_position_session_replay(&first);
+
+        let (second, request_r2, client_r2, attribution_r2, shift_r2) =
+            r2cb_public_runtime_session_at(base_bar_close + 600);
+        assert_ne!(request_r1, request_r2);
+        let Stage5gOrderPositionSession {
+            ack_resolved,
+            state: _,
+        } = second;
+        let second =
+            attach_stage5g_order_position_session_with_replay(ack_resolved, Some(inherited_replay))
+                .expect("new request inherits the accepted replay ledger");
+        assert_eq!(second.state.slots[0].ack.request_id, request_r2);
+        let checkpoint = stage5ge_b_committed_checkpoint(&second);
+        let exact_r1 = stage5ge_b_r1_exact_replay(
+            &checkpoint,
+            3,
+            request_r1,
+            &client_r1,
+            attribution_r1,
+            shift_r1,
+            &polls[0],
+        );
+        let synchronized = crate::apply_stage5g_exact_replay_to_session(second, exact_r1)
+            .expect("inherited R1 identity does not require a current R1 slot");
+        assert_eq!(
+            synchronized.session().state.slots[0].ack.request_id,
+            request_r2
+        );
+        assert!(synchronized.session().state.slots[0]
+            .order_events
+            .is_empty());
+        assert!(synchronized.session().state.slots[0].trades.is_empty());
+        assert_eq!(synchronized.session().summary().stage5c_callback_count, 0);
+
+        let (second, exact_checkpoint) = synchronized.into_parts();
+        let next_r2 = stage5ge_b_candidate(
+            &exact_checkpoint,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id: request_r2,
+                broker_truth: r2cb_golden_truth(&polls[0], &client_r2, shift_r2),
+                order_attribution: attribution_r2,
+            },
+        );
+        let committed_r2 = crate::apply_stage5g_new_package_candidate(second, next_r2)
+            .expect("current R2 package follows inherited historical exact replay");
+        assert_eq!(
+            committed_r2.checkpoint().payload.last_total_sequence,
+            Some(4)
+        );
+        assert_eq!(
+            committed_r2
+                .checkpoint()
+                .payload
+                .evidence_replay_ledger
+                .len(),
+            exact_checkpoint.payload.evidence_replay_ledger.len() + 1
+        );
+    }
+
+    #[test]
+    fn stage5ge_b_r2_new_identity_before_continuation_still_blocks() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let (session, checkpoint_b) = stage5ge_b_r2_apply_awaiting_package(
+            session,
+            3,
+            request_id,
+            &client_order_id,
+            attribution.clone(),
+            time_shift,
+            &polls[1],
+        );
+        let mut unseen_old = r2cb_golden_truth(&polls[2], &client_order_id, time_shift);
+        unseen_old.received_ts = r2cb_golden_truth(&polls[0], &client_order_id, time_shift)
+            .received_ts
+            + Duration::milliseconds(1);
+        assert!(
+            unseen_old.received_ts.timestamp_millis()
+                < checkpoint_b
+                    .payload
+                    .last_continuation_checkpoint_ts_utc_ms
+                    .unwrap()
+        );
+        let blocked = match apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: unseen_old,
+                order_attribution: attribution,
+            },
+        ) {
+            Err(blocked) => blocked,
+            Ok(_) => panic!("new package cannot bypass continuation chronology"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage5gOrderPositionError::BrokerTruthBeforeContinuationCheckpoint
+        );
+    }
+
+    #[test]
+    fn stage5ge_b_r2_historical_identity_fingerprint_conflict_still_blocks() {
+        let (session, request_id, client_order_id, attribution, time_shift, polls) =
+            stage5ge_b_after_first_poll();
+        let (session, _) = stage5ge_b_r2_apply_awaiting_package(
+            session,
+            3,
+            request_id,
+            &client_order_id,
+            attribution.clone(),
+            time_shift,
+            &polls[1],
+        );
+        let mut conflicting_a = r2cb_golden_truth(&polls[0], &client_order_id, time_shift);
+        conflicting_a.positions[0].qty += Decimal::new(1, 1);
+        let blocked = match apply_stage5g_order_position_evidence(
+            session,
+            Stage5gOrderPositionEvidence {
+                total_sequence: 4,
+                request_id,
+                broker_truth: conflicting_a,
+                order_attribution: attribution,
+            },
+        ) {
+            Err(blocked) => blocked,
+            Ok(_) => panic!("known identity with another fingerprint remains conflicting"),
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage5gOrderPositionError::ConflictingDuplicateEvidence
         );
     }
 
