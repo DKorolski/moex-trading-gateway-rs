@@ -437,6 +437,10 @@ pub struct Stage5dValidatedRiskGateLedgerEvidence {
 }
 
 impl Stage5dValidatedRiskGateLedgerEvidence {
+    pub(crate) fn evidence(&self) -> &Stage5dRiskGateLedgerEvidence {
+        &self.evidence
+    }
+
     /// Redacted ledger tail hash for evidence and diagnostics.
     pub fn ledger_tail_hash(&self) -> &str {
         &self.evidence.ledger_tail_hash
@@ -3367,11 +3371,11 @@ pub(crate) struct Stage5dCanonicalEnvelopeExportReport {
     pub runtime_live_opened: bool,
 }
 
-const STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION: u16 = 1;
+pub(crate) const STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION: u16 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum Stage5dCanonicalRestartCheckpointState {
+pub(crate) enum Stage5dCanonicalRestartCheckpointState {
     Committed,
 }
 
@@ -3398,6 +3402,8 @@ struct Stage5dCanonicalRestartPackage {
 
 #[allow(dead_code)]
 struct Stage5dDecodedCanonicalRestartPackage {
+    package_schema_version: u16,
+    checkpoint_state: Stage5dCanonicalRestartCheckpointState,
     envelope: Stage5dPersistenceEnvelope,
     validated_evidence: Stage5dValidatedRiskGateLedgerEvidence,
     stage5g_extension_json: Option<String>,
@@ -3643,6 +3649,8 @@ impl Stage5dCanonicalRestartPackage {
             runtime_live_opened: false,
         };
         Ok(Stage5dDecodedCanonicalRestartPackage {
+            package_schema_version: package.schema_version,
+            checkpoint_state: package.checkpoint_state,
             envelope,
             validated_evidence,
             stage5g_extension_json: package.stage5g_extension_json,
@@ -3706,11 +3714,56 @@ impl Stage5dCanonicalRestartPackage {
 }
 
 pub(crate) struct Stage5dCleanRestartDecoded {
+    pub(crate) package_schema_version: u16,
+    pub(crate) checkpoint_state: Stage5dCanonicalRestartCheckpointState,
     pub(crate) envelope: Stage5dPersistenceEnvelope,
     pub(crate) validated_evidence: Stage5dValidatedRiskGateLedgerEvidence,
     pub(crate) stage5g_extension_json: String,
 }
 
+pub(crate) fn stage5d_export_canonical_restart_bytes_from_authenticated_parts(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    envelope: Stage5dPersistenceEnvelope,
+    evidence: Stage5dRiskGateLedgerEvidence,
+    stage5g_extension_json: String,
+) -> Result<Vec<u8>, Stage5dEnvelopeValidationError> {
+    if stage5g_extension_json.is_empty() {
+        return Err(Stage5dEnvelopeValidationError::RequiredFieldEmpty);
+    }
+    envelope.validate_schema_and_checksum()?;
+    let validated_evidence = stage5d_validate_riskgate_ledger_evidence(evidence)
+        .map_err(|_| Stage5dEnvelopeValidationError::RiskGateFinalizationInconsistent)?;
+    stage5d_validate_package_cross_binding(&envelope, &validated_evidence.evidence)?;
+    stage5d_validate_canonical_restart_export_self_consistency(
+        strategy,
+        &envelope,
+        &validated_evidence,
+    )?;
+    let envelope_json = serde_json::to_string(&envelope)
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let riskgate_evidence_json = serde_json::to_string(&validated_evidence.evidence)
+        .map_err(|_| Stage5dEnvelopeValidationError::SerializationFailed)?;
+    let mut package = Stage5dCanonicalRestartPackage {
+        schema_version: STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
+        snapshot_id: envelope.snapshot_id.clone(),
+        snapshot_revision: envelope.snapshot_revision,
+        previous_revision: envelope.previous_revision,
+        write_generation: envelope.write_generation,
+        persisted_at_ts_utc: envelope.persisted_at_ts_utc,
+        checkpoint_state: Stage5dCanonicalRestartCheckpointState::Committed,
+        envelope_sha256: sha256_text(&envelope_json),
+        envelope_json,
+        riskgate_evidence_sha256: sha256_text(&riskgate_evidence_json),
+        riskgate_evidence_json,
+        stage5g_extension_sha256: Some(sha256_text(&stage5g_extension_json)),
+        stage5g_extension_json: Some(stage5g_extension_json),
+        package_checksum_sha256: String::new(),
+    };
+    package.package_checksum_sha256 = package.compute_package_checksum_sha256()?;
+    Ok(package.to_json_strict()?.into_bytes())
+}
+
+#[allow(dead_code)]
 pub(crate) fn stage5d_export_canonical_restart_bytes_with_stage5g_extension(
     strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
     input: Stage5dCanonicalEnvelopeExportInput,
@@ -3778,6 +3831,8 @@ pub(crate) fn stage5d_decode_canonical_restart_bytes_requiring_stage5g(
         .stage5g_extension_json
         .ok_or(Stage5dEnvelopeValidationError::RequiredFieldEmpty)?;
     Ok(Stage5dCleanRestartDecoded {
+        package_schema_version: decoded.package_schema_version,
+        checkpoint_state: decoded.checkpoint_state,
         envelope: decoded.envelope,
         validated_evidence: decoded.validated_evidence,
         stage5g_extension_json,
@@ -3875,6 +3930,112 @@ pub(crate) fn stage5g_test_rehash_clean_restart_package(
     package.stage5g_extension_sha256 = Some(sha256_text(&extension_json));
     package.stage5g_extension_json = Some(extension_json);
     package.package_checksum_sha256 = package.compute_package_checksum_sha256().unwrap();
+    serde_json::to_vec(&package).unwrap()
+}
+
+/// Test-only adversarial reseal for Stage 5G-e-c R5. The helper updates every
+/// ordinary Stage 5D/Stage 5G transport checksum and every unkeyed lifecycle
+/// hash after coherent semantic mutations, while deliberately retaining the
+/// original operator HMAC. A package produced here must therefore reach the
+/// keyed boundary and fail there rather than at an unrelated checksum gate.
+#[cfg(test)]
+pub(crate) fn stage5g_test_rehash_full_clean_restart_package(
+    bytes: &[u8],
+    mutate_envelope: impl FnOnce(&mut serde_json::Value),
+    mutate_evidence: impl FnOnce(&mut serde_json::Value),
+    mutate_extension: impl FnOnce(&mut serde_json::Value),
+) -> Vec<u8> {
+    let mut package: Stage5dCanonicalRestartPackage =
+        serde_json::from_slice(bytes).expect("test package parses");
+    let mut envelope_value: serde_json::Value =
+        serde_json::from_str(&package.envelope_json).expect("test envelope parses");
+    let mut evidence_value: serde_json::Value =
+        serde_json::from_str(&package.riskgate_evidence_json).expect("test evidence parses");
+    let mut extension_value: serde_json::Value = serde_json::from_str(
+        package
+            .stage5g_extension_json
+            .as_deref()
+            .expect("test extension exists"),
+    )
+    .expect("test extension parses");
+    let original_hmac = envelope_value["stage5g_source_authority_hmac_sha256"]
+        .as_str()
+        .expect("test package has an operator HMAC")
+        .to_string();
+
+    mutate_envelope(&mut envelope_value);
+    mutate_evidence(&mut evidence_value);
+    mutate_extension(&mut extension_value);
+
+    let mut envelope: Stage5dPersistenceEnvelope =
+        serde_json::from_value(envelope_value).expect("mutated test envelope remains typed");
+    let evidence: Stage5dRiskGateLedgerEvidence =
+        serde_json::from_value(evidence_value).expect("mutated test evidence remains typed");
+    let mut extension: crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1 =
+        serde_json::from_value(extension_value)
+            .expect("mutated test extension remains strictly typed");
+
+    extension.checkpoint =
+        crate::stage5g_timer::stage5g_test_reseal_checkpoint(&extension.checkpoint.payload);
+    if let Some(timer_source) = extension.timer_ready_source.as_mut() {
+        timer_source
+            .stage5c_settlement
+            .recovery_receipt_identity_sha256 =
+            crate::stage5c_paper_host::stage5c_recovery_receipt_projection_sha256(
+                &timer_source.stage5c_settlement.recovery_receipt,
+            );
+    }
+
+    extension.package_instance.snapshot_id = envelope.snapshot_id.clone();
+    extension.package_instance.snapshot_revision = envelope.snapshot_revision;
+    extension.package_instance.previous_revision = envelope.previous_revision;
+    extension.package_instance.write_generation = envelope.write_generation;
+    extension.package_instance.persisted_at_ts_utc = envelope.persisted_at_ts_utc;
+    extension
+        .package_instance
+        .stage5d_lifecycle_watermarks_sha256 = sha256_text(
+        &serde_json::to_string(&envelope.lifecycle_watermarks)
+            .expect("test watermarks remain serializable"),
+    );
+    crate::stage5g_clean_restart::stage5g_test_reseal_lifecycle_authority(&mut extension);
+
+    if envelope.stage5g_source_authority_anchor_sha256.is_some() {
+        envelope.stage5g_source_authority_anchor_sha256 = Some(
+            crate::stage5g_clean_restart::stage5g_test_source_authority_anchor_sha256(&extension),
+        );
+    }
+    envelope.stage5g_source_authority_hmac_sha256 = Some(original_hmac.clone());
+    envelope.payload_checksum_sha256 = envelope
+        .compute_payload_checksum_sha256()
+        .expect("mutated test envelope rehashes");
+
+    extension.package_instance.stage5d_payload_checksum_sha256 =
+        envelope.payload_checksum_sha256.clone();
+    crate::stage5g_clean_restart::stage5g_test_reseal_lifecycle_authority(&mut extension);
+
+    package.snapshot_id = envelope.snapshot_id.clone();
+    package.snapshot_revision = envelope.snapshot_revision;
+    package.previous_revision = envelope.previous_revision;
+    package.write_generation = envelope.write_generation;
+    package.persisted_at_ts_utc = envelope.persisted_at_ts_utc;
+    package.envelope_json = serde_json::to_string(&envelope).unwrap();
+    package.envelope_sha256 = sha256_text(&package.envelope_json);
+    package.riskgate_evidence_json = serde_json::to_string(&evidence).unwrap();
+    package.riskgate_evidence_sha256 = sha256_text(&package.riskgate_evidence_json);
+    let extension_json = serde_json::to_string(&extension).unwrap();
+    package.stage5g_extension_sha256 = Some(sha256_text(&extension_json));
+    package.stage5g_extension_json = Some(extension_json);
+    package.package_checksum_sha256 = package.compute_package_checksum_sha256().unwrap();
+
+    let final_envelope: Stage5dPersistenceEnvelope =
+        serde_json::from_str(&package.envelope_json).unwrap();
+    assert_eq!(
+        final_envelope
+            .stage5g_source_authority_hmac_sha256
+            .as_deref(),
+        Some(original_hmac.as_str()),
+        "adversarial reseal must not know or replace the operator HMAC"
+    );
     serde_json::to_vec(&package).unwrap()
 }
 

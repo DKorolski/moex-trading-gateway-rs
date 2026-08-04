@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Forty fail-closed source mutations for Stage 5G-e-c R4."""
+"""Fifty-two fail-closed source mutations for Stage 5G-e-c R5."""
 
 from __future__ import annotations
 
@@ -30,8 +30,27 @@ def mutate_all(root: Path, relative: str, old: str, new: str) -> None:
     path.write_text(source.replace(old, new))
 
 
+def mutate_section(
+    root: Path,
+    relative: str,
+    start: str,
+    end: str,
+    old: str,
+    new: str,
+) -> None:
+    path = root / relative
+    source = path.read_text()
+    before, separator, tail = source.partition(start)
+    if not separator:
+        raise RuntimeError(f"missing section start: {start}")
+    body, separator, after = tail.partition(end)
+    if not separator or old not in body:
+        raise RuntimeError(f"missing section mutation anchor: {old}")
+    path.write_text(before + start + body.replace(old, new) + end + after)
+
+
 def must_fail(label: str, mutation) -> None:
-    with tempfile.TemporaryDirectory(prefix="stage5g-ec-r4-negative-") as raw:
+    with tempfile.TemporaryDirectory(prefix="stage5g-ec-r5-negative-") as raw:
         root = Path(raw)
         for relative in PATHS:
             destination = root / relative
@@ -43,7 +62,7 @@ def must_fail(label: str, mutation) -> None:
         except (checker.CheckFailure, ValueError, KeyError, json.JSONDecodeError):
             print(f"PASS {label}")
             return
-        raise SystemExit(f"FAIL mutation escaped e-c R4 checker: {label}")
+        raise SystemExit(f"FAIL mutation escaped e-c R5 checker: {label}")
 
 
 def main() -> int:
@@ -69,12 +88,12 @@ def main() -> int:
         ("hmac-derivation-removed", lambda r: mutate(r, restart, "fn lifecycle_commitment_hmac_sha256(", "fn removed_lifecycle_commitment_hmac_sha256(")),
         ("constant-time-verification-removed", lambda r: mutate(r, restart, "mac.verify_slice(&tag).is_ok()", "true")),
         ("authenticated-error-removed", lambda r: mutate_all(r, restart, "AuthenticatedLifecycleCommitmentMismatch", "RemovedKeyedError")),
-        ("restore-hmac-field-read-removed", lambda r: mutate(r, restart, ".stage5g_source_authority_hmac_sha256", ".stage5g_source_authority_anchor_sha256")),
+        ("restore-hmac-field-read-removed", lambda r: mutate_section(r, restart, "fn validate_projection_binding(", "fn validated_reconciliation_authority(", ".stage5g_source_authority_hmac_sha256", ".stage5g_source_authority_anchor_sha256")),
         ("restore-hmac-comparison-removed", lambda r: mutate(r, restart, "if !verify_lifecycle_commitment_hmac(", "if false && !verify_lifecycle_commitment_hmac(")),
         ("embedded-default-key", lambda r: mutate(r, restart, "pub fn export_stage5g_clean_restart(", "const FORGED: () = { let _ = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0_u8; 32]); };\n\npub fn export_stage5g_clean_restart(")),
         ("stage5d-hmac-field-removed", lambda r: mutate(r, stage5d, "pub stage5g_source_authority_hmac_sha256: Option<String>,", "pub removed_stage5g_hmac: Option<String>,")),
         ("stage5d-hmac-binder-removed", lambda r: mutate(r, stage5d, "envelope.stage5g_source_authority_hmac_sha256 = Some(hmac_sha256.to_string());", "let _unbound_hmac = hmac_sha256;")),
-        ("test-rehasher-forges-keyed-commitment", lambda r: mutate(r, stage5d, "if envelope.stage5g_source_authority_anchor_sha256.is_some() {", "envelope.stage5g_source_authority_hmac_sha256 = Some(\"0\".repeat(64));\n    if envelope.stage5g_source_authority_anchor_sha256.is_some() {")),
+        ("test-rehasher-forges-keyed-commitment", lambda r: mutate_section(r, stage5d, "pub(crate) fn stage5g_test_rehash_full_clean_restart_package", "fn stage5d_validate_package_cross_binding", "if envelope.stage5g_source_authority_anchor_sha256.is_some() {", "envelope.stage5g_source_authority_hmac_sha256 = Some(\"0\".repeat(64));\n    if envelope.stage5g_source_authority_anchor_sha256.is_some() {")),
         ("duplicate-source-summary-reintroduced", lambda r: mutate(r, restart, "pub(crate) struct Stage5gTimerReadyRestartProjectionV1 {", "pub(crate) struct Stage5gTimerReadyRestartProjectionV1 {\n    source_summary: String,")),
         ("duplicate-source-checkpoint-reintroduced", lambda r: mutate(r, restart, "pub(crate) struct Stage5gTimerReadyRestartProjectionV1 {", "pub(crate) struct Stage5gTimerReadyRestartProjectionV1 {\n    source_checkpoint: String,")),
         ("summary-excluded-from-authenticated-projection", lambda r: mutate_all(r, restart, "summary: &projection.summary,", "summary: &projection.checkpoint,")),
@@ -83,7 +102,7 @@ def main() -> int:
         ("recovery-projection-type-removed", lambda r: mutate(r, paper, "pub(crate) struct Stage5cRecoveryReceiptProjectionV1", "pub(crate) struct RemovedRecoveryReceiptProjectionV1")),
         ("recovery-projection-field-removed", lambda r: mutate(r, paper, "pub(crate) recovery_receipt: Stage5cRecoveryReceiptProjectionV1", "pub(crate) removed_recovery_receipt: Stage5cRecoveryReceiptProjectionV1")),
         ("recovery-identity-recompute-removed", lambda r: mutate(r, restart, "stage5c_recovery_receipt_projection_sha256(", "removed_recovery_receipt_projection_sha256(")),
-        ("coherent-recovery-reseal-removed", lambda r: mutate(r, stage5d, "stage5c_recovery_receipt_projection_sha256(", "removed_recovery_receipt_projection_sha256(")),
+        ("coherent-recovery-reseal-removed", lambda r: mutate_section(r, stage5d, "pub(crate) fn stage5g_test_rehash_full_clean_restart_package", "fn stage5d_validate_package_cross_binding", "stage5c_recovery_receipt_projection_sha256(", "removed_recovery_receipt_projection_sha256(")),
         ("coherent-reseal-acceptance-test-removed", lambda r: mutate(r, order, "stage5ge_c_r4_fully_coherent_unkeyed_reseal_cannot_forge_commitment", "removed_fully_coherent_unkeyed_reseal_test")),
         ("missing-commitment-test-removed", lambda r: mutate(r, order, "stage5ge_c_r4_missing_authenticated_commitment_fails_closed", "removed_missing_commitment_test")),
         ("wrong-key-test-removed", lambda r: mutate(r, order, "stage5ge_c_r4_wrong_operator_commitment_key_fails_closed", "removed_wrong_key_test")),
@@ -95,9 +114,21 @@ def main() -> int:
         ("key-nonclone-proof-removed", lambda r: mutate(r, lib, "let _copy = key.clone();", "let _copy = &key;")),
         ("key-nonserialize-proof-removed", lambda r: mutate(r, lib, "serde_json::to_string(&key)", "serde_json::to_string(&())")),
         ("key-nondebug-proof-removed", lambda r: mutate(r, lib, 'println!("{key:?}");', 'println!("hidden");')),
+        ("authenticated-package-instance-omitted", lambda r: mutate_section(r, restart, "fn authenticated_restart_package_commitment_sha256(", "#[cfg(test)]", "package_instance: AuthenticatedPackageInstance {", "omitted_instance: AuthenticatedPackageInstance {")),
+        ("authenticated-watermarks-omitted", lambda r: mutate_all(r, stage5d, "pub lifecycle_watermarks: Stage5dLifecycleWatermarks,", "pub removed_lifecycle_watermarks: Stage5dLifecycleWatermarks,")),
+        ("authenticated-source-build-omitted", lambda r: mutate_all(r, stage5d, "pub source_commit_or_build_id: String,", "pub removed_source_commit_or_build_id: String,")),
+        ("authenticated-runtime-private-omitted", lambda r: mutate(r, stage5d, "pub runtime_private_extension: Stage5dRuntimePrivateExtension,", "pub removed_runtime_private_extension: Stage5dRuntimePrivateExtension,")),
+        ("authenticated-recovery-indexes-omitted", lambda r: mutate(r, stage5d, "pub recovery_indexes: Stage5dRecoveryIndexes,", "pub removed_recovery_indexes: Stage5dRecoveryIndexes,")),
+        ("authenticated-riskgate-persistence-omitted", lambda r: mutate_all(r, stage5d, "pub riskgate: Stage5dRiskGatePersistence,", "pub removed_riskgate: Stage5dRiskGatePersistence,")),
+        ("authenticated-riskgate-evidence-omitted", lambda r: mutate_section(r, restart, "fn authenticated_restart_package_commitment_sha256(", "#[cfg(test)]", "riskgate_evidence", "omitted_ledger_authority")),
+        ("authenticated-package-schema-omitted", lambda r: mutate_section(r, restart, "fn authenticated_restart_package_commitment_sha256(", "#[cfg(test)]", "package_schema_version", "omitted_outer_schema")),
+        ("authenticated-checkpoint-state-omitted", lambda r: mutate_section(r, restart, "fn authenticated_restart_package_commitment_sha256(", "#[cfg(test)]", "checkpoint_state", "omitted_commit_state")),
+        ("package-instance-tag-replay-test-removed", lambda r: mutate(r, order, "stage5ge_c_r5_lifecycle_tag_transplant_to_package_instance_fails_at_hmac", "removed_package_instance_tag_replay_test")),
+        ("watermark-coherent-reseal-test-removed", lambda r: mutate(r, order, "stage5ge_c_r5_persisted_event_watermark_reseal_fails_at_hmac", "removed_watermark_coherent_reseal_test")),
+        ("complete-package-reseal-test-removed", lambda r: mutate(r, order, "stage5ge_c_r5_complete_envelope_extension_reseal_fails_at_hmac", "removed_complete_package_reseal_test")),
         ("stage5g-f-opened", lambda r: mutate(r, descriptor, '"stage5g_f": false', '"stage5g_f": true')),
         ("runtime-live-opened", lambda r: mutate(r, descriptor, '"runtime_live": false', '"runtime_live": true')),
-        ("r4-status-removed", lambda r: mutate(r, status, "Stage 5G-e-c R4 is the only current implementation review candidate", "Stage 5G-e-c is unspecified")),
+        ("r5-status-removed", lambda r: mutate(r, status, "Stage 5G-e-c R5 is the only current implementation review", "Stage 5G-e-c is unspecified")),
     )
     for label, mutation in cases:
         must_fail(label, mutation)

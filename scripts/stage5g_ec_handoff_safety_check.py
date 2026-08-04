@@ -14,7 +14,7 @@ import stage5g_c_r2ca_r1_handoff_safety_check as base
 
 STAGE = "5G-e-c"
 BRANCH = "stage5g-lifecycle"
-BASE_REF = "2394dbcd15d953e1799e07f7c903fdb3b072fc3f"
+BASE_REF = "3a9fd1106a064ed6c29b1a378cbc02da90b2efc1"
 SOURCE_MANIFEST = "stage5g-ec-source-tree-manifest.json"
 EVIDENCE_MANIFEST = "stage5g-ec-evidence-manifest.json"
 COMMIT_OBJECT = "stage5g-ec-commit-object.txt"
@@ -39,12 +39,12 @@ EXPECTED_CHANGED_PATHS = sorted({
     "Cargo.lock",
     "Cargo.toml",
     "crates/strategy-runtime-core/Cargo.toml",
-    "crates/strategy-runtime-core/src/lib.rs",
     "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5d_persistence.rs",
     "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
     "crates/strategy-runtime-core/src/stage5g_order_position.rs",
     "docs/current-status.md",
+    "docs/reviewer-onboarding-and-roadmap.md",
     "docs/stage-5/stage5g-e-c-clean-process-reconstruction.json",
     "docs/stage-5/stage5g-e-c-clean-process-reconstruction.md",
     "scripts/stage5g_ec_check.py",
@@ -78,7 +78,7 @@ def configure_base() -> None:
 def validate_gate_marker(label: str, stdout: str) -> None:
     markers = {
         "stage5g-ec-check": "stage5g-ec-check: PASS",
-        "stage5g-ec-negative": "stage5g-ec-negative-harness: PASS 40/40",
+        "stage5g-ec-negative": "stage5g-ec-negative-harness: PASS 52/52",
         "stage5c-api-freeze": "stage5c-api-freeze-check: ok",
         "forbidden-no-rg": "stage5f-forbidden-no-rg-gate: ok",
     }

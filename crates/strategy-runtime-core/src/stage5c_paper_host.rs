@@ -6914,6 +6914,15 @@ fn apply_stage5c_semantic_bar_at(
     })
 }
 
+#[cfg(test)]
+pub(crate) fn stage5g_test_apply_stage5c_semantic_bar_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    apply_stage5c_semantic_bar_at(recovered, accepted, now)
+}
+
 fn stage5cf_semantic_context(
     strategy: &HybridIntradayRuntimeStrategy,
     admission: &Stage5cPaperHostAdmission,

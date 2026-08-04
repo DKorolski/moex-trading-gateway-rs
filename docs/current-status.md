@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-03.
+Status date: 2026-08-04.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -124,10 +124,19 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   extension. Stage 5G-e-c R3 at
   `2394dbcd15d953e1799e07f7c903fdb3b072fc3f` was rejected because its Stage 5D
   anchor remained inside the same coherently rehashable package trust domain.
-  Stage 5G-e-c R4 is the only current implementation review candidate. It
-  authenticates the complete lifecycle source projection with HMAC-SHA256 under
-  an opaque operator-managed key that is never stored in the package and is
-  verified before runtime mutation. R4 removes duplicate TimerReady
+  Stage 5G-e-c R4 at `3a9fd1106a064ed6c29b1a378cbc02da90b2efc1` was
+  rejected because its keyed commitment did not include the complete Stage 5D
+  package semantics. Stage 5G-e-c R5 is the only current implementation review
+  candidate. It authenticates one versioned canonical semantic projection of
+  the complete Stage 5D + Stage 5G restart package with HMAC-SHA256 under an
+  opaque operator-managed key that is never stored in the package and is
+  zeroized on drop. Package schema/checkpoint state, revision/generation,
+  timestamps, source build, semantic/private runtime state, watermarks,
+  recovery indexes and riskgate persistence/evidence are covered; only
+  circular transport checksums and the HMAC field itself are excluded. Twelve
+  coherent-reseal attacks recompute every ordinary checksum and unkeyed hash
+  while retaining the old tag, and all fail at the keyed boundary before
+  runtime mutation. R5 retains the R4 removal of duplicate TimerReady
   summary/checkpoint copies, persists the versioned recovery receipt projection
   and recomputes its identity. Its acceptance witness coherently reseals every
   unkeyed source/lifecycle hash, Stage 5D anchor, extension, envelope and package

@@ -1,22 +1,29 @@
-# Stage 5G-e-c R4 — authenticated lifecycle commitment
+# Stage 5G-e-c R5 — full canonical restart package MAC coverage
 
-Reviewed predecessor: `2394dbcd15d953e1799e07f7c903fdb3b072fc3f`
-(`Stage 5G-e-c R3`, rejected as submitted).
+Reviewed predecessor: `3a9fd1106a064ed6c29b1a378cbc02da90b2efc1`
+(`Stage 5G-e-c R4`, rejected as submitted because its HMAC covered only the
+Stage 5G source projection).
 
-R4 chooses threat-model A from the remediation assignment: the canonical
-Stage 5D restart package is authenticated with HMAC-SHA256 under an
-operator-managed 32-byte key. The key is supplied to export and restore by the
-operator boundary, is opaque and non-cloneable in the public API, and is never
-serialized into the restart package. The package retains the R3 unkeyed anchor
-as an internal consistency field; that field is explicitly not the trust root.
+R5 keeps the accepted R4 operator-key boundary and authenticates one versioned
+canonical semantic projection of the complete Stage 5D + Stage 5G restart
+package. The external key remains exactly 32 bytes, opaque, non-cloneable and
+non-serializable; its bytes are zeroized on drop and are never stored in the
+package.
 
-The HMAC authenticates the complete source-authority anchor. That anchor binds
-strategy/account/instrument identity, config fingerprints, Stage 5D payload and
-lifecycle watermarks, riskgate identity, revision/generation, runtime state,
-the sole canonical lifecycle summary, checkpoint, order-position projection,
-and the complete TimerReady Stage 5C settlement authority. Restore validates
-the strict projection, the in-package anchor and the operator-keyed HMAC before
-any runtime state is reconstructed or mutated.
+`Stage5gAuthenticatedRestartPackageCommitmentV1` binds package schema and
+checkpoint state, snapshot identity/revision/generation/timestamp, timestamp
+policy, complete Stage 5D envelope semantics, source build identity, runtime
+semantic/private state, lifecycle watermarks, recovery indexes, riskgate
+persistence and exact riskgate evidence. It also binds the complete Stage 5G
+source projection, summary, checkpoint, order-position authority and
+TimerReady settlement/recovery/history projection.
+
+Only circular transport-integrity fields are excluded: the Stage 5D payload
+checksum is cleared, the HMAC field is absent, and extension/outer package
+checksums are outside the canonical projection. Export computes the HMAC first
+and transport checksums afterward. Restore reconstructs the same projection
+from strictly decoded package data and verifies the HMAC before runtime state
+reconstruction or mutation.
 
 TimerReady no longer persists duplicate `source_summary` or
 `source_checkpoint` values. Its sole summary and checkpoint are produced from
@@ -31,17 +38,17 @@ fingerprints. The same commitment binds replay ledger/current identity,
 sequence and duplicate counters, BrokerTruth receipt/discriminator data, and
 the continuation checkpoint.
 
-The acceptance-defining adversarial witness coherently changes summary,
-recovery projection and identity, history and settled batch, and a valid later
-checkpoint. It then reseals every unkeyed lifecycle digest, the Stage 5D
-anchor and envelope checksum, the extension checksum and outer package
-checksum. Restore returns the exact typed
-`AuthenticatedLifecycleCommitmentMismatch` because the attacker cannot
-recompute the operator-keyed HMAC.
+Twelve acceptance-defining attacks coherently mutate watermarks, revision,
+generation, persisted time, a compatible source build, runtime-private state,
+recovery indexes, riskgate evidence/persistence, package identity, or the
+complete envelope plus extension. Every ordinary checksum and unkeyed
+lifecycle hash is resealed while the operator tag remains unchanged. All
+twelve reach and fail at the exact typed
+`AuthenticatedLifecycleCommitmentMismatch` boundary.
 
 Key rotation defines a new operator commitment epoch: a package authenticated
 under an older key fails against the newer key. Within one key epoch, storage
-rollback prevention remains an operator/storage responsibility; R4 does not
+rollback prevention remains an operator/storage responsibility; R5 does not
 claim a monotonic external store.
 
 Fresh BrokerTruth reconciliation, GRST01–GRST12, Stage 5G-f, Redis/FINAM/HTTP,

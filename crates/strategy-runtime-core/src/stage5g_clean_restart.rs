@@ -10,14 +10,16 @@ use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use zeroize::Zeroize;
 
 use crate::runtime_compat::Strategy;
 use crate::stage5d_persistence::{
     stage5d_bind_stage5g_source_authority_anchor,
     stage5d_decode_canonical_restart_bytes_requiring_stage5g,
     stage5d_export_canonical_envelope_from_runtime,
-    stage5d_export_canonical_restart_bytes_with_stage5g_extension,
+    stage5d_export_canonical_restart_bytes_from_authenticated_parts,
     stage5d_reconstruct_runtime_from_clean_restart, Stage5dCanonicalEnvelopeExportInput,
+    Stage5dCanonicalRestartCheckpointState, STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
 };
 use crate::stage5g_order_position::Stage5gOrderPositionState;
 use crate::{
@@ -31,6 +33,7 @@ use crate::{
 pub const STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_TIMER_READY_RESTART_PROJECTION_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_PACKAGE_INSTANCE_BINDING_SCHEMA_VERSION: u16 = 1;
+const STAGE5G_AUTHENTICATED_RESTART_PACKAGE_COMMITMENT_SCHEMA_VERSION: u16 = 1;
 
 pub struct Stage5gLifecycleCommitmentKey([u8; 32]);
 
@@ -45,6 +48,12 @@ impl Stage5gLifecycleCommitmentKey {
             .try_into()
             .map_err(|_| Stage5gLifecycleCommitmentKeyError::InvalidLength)?;
         Ok(Self(bytes))
+    }
+}
+
+impl Drop for Stage5gLifecycleCommitmentKey {
+    fn drop(&mut self) {
+        self.0.zeroize();
     }
 }
 
@@ -334,8 +343,20 @@ pub fn export_stage5g_clean_restart(
     let preliminary_projection = projection_from_source(&source, &stage5d_envelope)?;
     let stage5g_source_authority_anchor_sha256 =
         independent_source_authority_sha256(&preliminary_projection)?;
+    stage5d_envelope.stage5g_source_authority_anchor_sha256 =
+        Some(stage5g_source_authority_anchor_sha256.clone());
+    stage5d_envelope.stage5g_source_authority_hmac_sha256 = None;
+    stage5d_envelope.payload_checksum_sha256 =
+        stage5d_envelope.compute_payload_checksum_sha256()?;
+    let authenticated_package_commitment_sha256 = authenticated_restart_package_commitment_sha256(
+        &preliminary_projection,
+        &stage5d_envelope,
+        &input.riskgate_evidence,
+        STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
+        Stage5dCanonicalRestartCheckpointState::Committed,
+    )?;
     let stage5g_source_authority_hmac_sha256 =
-        lifecycle_commitment_hmac_sha256(commitment_key, &stage5g_source_authority_anchor_sha256);
+        lifecycle_commitment_hmac_sha256(commitment_key, &authenticated_package_commitment_sha256);
     stage5d_bind_stage5g_source_authority_anchor(
         &mut stage5d_envelope,
         &stage5g_source_authority_anchor_sha256,
@@ -347,13 +368,11 @@ pub fn export_stage5g_clean_restart(
     }
     let extension_json = serde_json::to_string(&projection)
         .map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;
-    let bytes = stage5d_export_canonical_restart_bytes_with_stage5g_extension(
+    let bytes = stage5d_export_canonical_restart_bytes_from_authenticated_parts(
         strategy,
-        stage5d_input,
+        stage5d_envelope,
         input.riskgate_evidence,
         extension_json,
-        Some(&stage5g_source_authority_anchor_sha256),
-        Some(&stage5g_source_authority_hmac_sha256),
     )?;
     // The borrow above ends before the owning source is destroyed. No source
     // Stage 5G or Stage 5C capability is returned beside the durable bytes.
@@ -374,6 +393,9 @@ pub fn restore_stage5g_clean_restart(
     validate_projection_binding(
         &projection,
         &decoded.envelope,
+        decoded.validated_evidence.evidence(),
+        decoded.package_schema_version,
+        decoded.checkpoint_state,
         commitment_key,
         &fresh_runtime,
     )?;
@@ -778,6 +800,9 @@ fn validate_package_instance_internal(
 fn validate_projection_binding(
     projection: &Stage5gCleanRestartProjectionV1,
     envelope: &crate::Stage5dPersistenceEnvelope,
+    riskgate_evidence: &Stage5dRiskGateLedgerEvidence,
+    package_schema_version: u16,
+    checkpoint_state: Stage5dCanonicalRestartCheckpointState,
     commitment_key: &Stage5gLifecycleCommitmentKey,
     fresh_runtime: &HybridIntradayRuntimeStrategy,
 ) -> Result<(), Stage5gCleanRestartError> {
@@ -794,9 +819,16 @@ fn validate_projection_binding(
         .stage5g_source_authority_hmac_sha256
         .as_deref()
         .ok_or(Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)?;
+    let authenticated_package_commitment_sha256 = authenticated_restart_package_commitment_sha256(
+        projection,
+        envelope,
+        riskgate_evidence,
+        package_schema_version,
+        checkpoint_state,
+    )?;
     if !verify_lifecycle_commitment_hmac(
         commitment_key,
-        stage5d_source_anchor,
+        &authenticated_package_commitment_sha256,
         authenticated_commitment,
     ) {
         return Err(Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch);
@@ -951,6 +983,88 @@ fn independent_source_authority_sha256(
     })
 }
 
+fn authenticated_restart_package_commitment_sha256(
+    projection: &Stage5gCleanRestartProjectionV1,
+    envelope: &crate::Stage5dPersistenceEnvelope,
+    riskgate_evidence: &Stage5dRiskGateLedgerEvidence,
+    package_schema_version: u16,
+    checkpoint_state: Stage5dCanonicalRestartCheckpointState,
+) -> Result<String, Stage5gCleanRestartError> {
+    #[derive(Serialize)]
+    struct AuthenticatedPackageInstance<'a> {
+        schema_version: u16,
+        snapshot_id: &'a str,
+        snapshot_revision: u64,
+        previous_revision: Option<u64>,
+        write_generation: u64,
+        persisted_at_ts_utc: DateTime<Utc>,
+        stage5d_lifecycle_watermarks_sha256: &'a str,
+        lifecycle_source_authority_sha256: &'a str,
+        stage5g_lifecycle_checkpoint_sha256: &'a str,
+    }
+
+    #[derive(Serialize)]
+    struct AuthenticatedStage5gProjection<'a> {
+        binding: &'a Stage5gCleanRestartBindingV1,
+        lifecycle_kind: Stage5gCleanRestartLifecycleKind,
+        authoritative_callback_count: usize,
+        zero_intent_ready: bool,
+        strategy_state_fingerprint_sha256: &'a str,
+        summary: &'a Stage5gOrderPositionSummary,
+        checkpoint: &'a Stage5gTimerCheckpointEnvelope,
+        order_position_state: &'a Option<Stage5gOrderPositionState>,
+        timer_ready_source: &'a Option<Stage5gTimerReadyRestartProjectionV1>,
+        package_instance: AuthenticatedPackageInstance<'a>,
+    }
+
+    #[derive(Serialize)]
+    struct Stage5gAuthenticatedRestartPackageCommitmentV1<'a> {
+        schema_version: u16,
+        domain: &'static str,
+        package_schema_version: u16,
+        checkpoint_state: Stage5dCanonicalRestartCheckpointState,
+        stage5d_envelope_without_transport_integrity: &'a crate::Stage5dPersistenceEnvelope,
+        riskgate_evidence: &'a Stage5dRiskGateLedgerEvidence,
+        stage5g: AuthenticatedStage5gProjection<'a>,
+    }
+
+    let mut normalized_envelope = envelope.clone();
+    normalized_envelope.payload_checksum_sha256.clear();
+    normalized_envelope.stage5g_source_authority_hmac_sha256 = None;
+    let instance = &projection.package_instance;
+    let canonical = Stage5gAuthenticatedRestartPackageCommitmentV1 {
+        schema_version: STAGE5G_AUTHENTICATED_RESTART_PACKAGE_COMMITMENT_SCHEMA_VERSION,
+        domain: "moex.stage5g.clean-restart.authenticated-package.v1",
+        package_schema_version,
+        checkpoint_state,
+        stage5d_envelope_without_transport_integrity: &normalized_envelope,
+        riskgate_evidence,
+        stage5g: AuthenticatedStage5gProjection {
+            binding: &projection.binding,
+            lifecycle_kind: projection.lifecycle_kind,
+            authoritative_callback_count: projection.lifecycle_proof.authoritative_callback_count,
+            zero_intent_ready: projection.lifecycle_proof.zero_intent_ready,
+            strategy_state_fingerprint_sha256: &projection.strategy_state_fingerprint_sha256,
+            summary: &projection.summary,
+            checkpoint: &projection.checkpoint,
+            order_position_state: &projection.order_position_state,
+            timer_ready_source: &projection.timer_ready_source,
+            package_instance: AuthenticatedPackageInstance {
+                schema_version: instance.schema_version,
+                snapshot_id: &instance.snapshot_id,
+                snapshot_revision: instance.snapshot_revision,
+                previous_revision: instance.previous_revision,
+                write_generation: instance.write_generation,
+                persisted_at_ts_utc: instance.persisted_at_ts_utc,
+                stage5d_lifecycle_watermarks_sha256: &instance.stage5d_lifecycle_watermarks_sha256,
+                lifecycle_source_authority_sha256: &instance.lifecycle_source_authority_sha256,
+                stage5g_lifecycle_checkpoint_sha256: &instance.stage5g_lifecycle_checkpoint_sha256,
+            },
+        },
+    };
+    semantic_sha256(&canonical)
+}
+
 #[cfg(test)]
 pub(crate) fn stage5g_test_source_authority_anchor_sha256(
     projection: &Stage5gCleanRestartProjectionV1,
@@ -961,19 +1075,19 @@ pub(crate) fn stage5g_test_source_authority_anchor_sha256(
 
 fn lifecycle_commitment_hmac_sha256(
     key: &Stage5gLifecycleCommitmentKey,
-    source_authority_sha256: &str,
+    authenticated_package_commitment_sha256: &str,
 ) -> String {
     let mut mac =
         Hmac::<Sha256>::new_from_slice(&key.0).expect("fixed-size Stage 5G HMAC key is valid");
-    mac.update(b"moex.stage5g.clean-restart.lifecycle-commitment.v1\0");
-    mac.update(source_authority_sha256.as_bytes());
+    mac.update(b"moex.stage5g.clean-restart.full-package-commitment.v1\0");
+    mac.update(authenticated_package_commitment_sha256.as_bytes());
     let tag = mac.finalize().into_bytes();
     tag.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn verify_lifecycle_commitment_hmac(
     key: &Stage5gLifecycleCommitmentKey,
-    source_authority_sha256: &str,
+    authenticated_package_commitment_sha256: &str,
     expected_hmac_sha256: &str,
 ) -> bool {
     let Some(tag) = decode_sha256_hex(expected_hmac_sha256) else {
@@ -981,8 +1095,8 @@ fn verify_lifecycle_commitment_hmac(
     };
     let mut mac =
         Hmac::<Sha256>::new_from_slice(&key.0).expect("fixed-size Stage 5G HMAC key is valid");
-    mac.update(b"moex.stage5g.clean-restart.lifecycle-commitment.v1\0");
-    mac.update(source_authority_sha256.as_bytes());
+    mac.update(b"moex.stage5g.clean-restart.full-package-commitment.v1\0");
+    mac.update(authenticated_package_commitment_sha256.as_bytes());
     mac.verify_slice(&tag).is_ok()
 }
 
@@ -1098,7 +1212,7 @@ mod authenticated_commitment_tests {
         let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap();
         assert_eq!(
             lifecycle_commitment_hmac_sha256(&key, &"a".repeat(64)),
-            "ed214c701ba27ae5c6aa2bfc71c02427779ee5309a88a8837fb20a5435a5e5c2"
+            "ff49355053b14670675a16f5333dcca7dc45d2f7adcf2718afc869beecbd2a65"
         );
     }
 }

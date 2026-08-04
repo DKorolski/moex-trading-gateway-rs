@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed source/contract checker for Stage 5G-e-c R4."""
+"""Fail-closed source/contract checker for Stage 5G-e-c R5."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 import subprocess
 from pathlib import Path
 
-BASE = "2394dbcd15d953e1799e07f7c903fdb3b072fc3f"
+BASE = "3a9fd1106a064ed6c29b1a378cbc02da90b2efc1"
 FILES = {
     "workspace": Path("Cargo.toml"),
     "lock": Path("Cargo.lock"),
@@ -22,6 +22,7 @@ FILES = {
     "contract": Path("docs/stage-5/stage5g-e-c-clean-process-reconstruction.md"),
     "descriptor": Path("docs/stage-5/stage5g-e-c-clean-process-reconstruction.json"),
     "status": Path("docs/current-status.md"),
+    "overview": Path("docs/reviewer-onboarding-and-roadmap.md"),
 }
 
 
@@ -56,6 +57,7 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     lib = (root / FILES["lib"]).read_text()
     contract = (root / FILES["contract"]).read_text()
     status = (root / FILES["status"]).read_text()
+    overview = (root / FILES["overview"]).read_text()
     descriptor = json.loads((root / FILES["descriptor"]).read_text())
 
     require(descriptor["stage"] == "5G-e-c", "descriptor stage drift")
@@ -68,6 +70,16 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     require(descriptor["in_package_anchor_is_trust_root"] is False,
             "in-package anchor promoted to trust root")
     for field in (
+        "canonical_package_schema_and_checkpoint_authenticated",
+        "complete_stage5d_envelope_semantics_authenticated",
+        "lifecycle_watermarks_authenticated",
+        "source_build_identity_authenticated",
+        "runtime_private_extension_authenticated",
+        "recovery_indexes_authenticated",
+        "riskgate_persistence_authenticated",
+        "riskgate_evidence_authenticated",
+        "circular_transport_integrity_fields_excluded",
+        "operator_key_zeroized_on_drop",
         "authenticated_commitment_verified_before_runtime_mutation",
         "stage5d_is_single_persistence_authority",
         "source_capability_consumed_before_return",
@@ -96,8 +108,12 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "same_epoch_storage_rollback_prevention_external",
     ):
         require(descriptor[field] is True, f"invariant lost: {field}")
-    require(descriptor["focused_test_count"] == 46, "focused test count drift")
-    require(descriptor["negative_matrix_count"] == 40, "negative matrix count drift")
+    require(descriptor["authenticated_projection_schema_version"] == 1,
+            "authenticated projection schema drift")
+    require(descriptor["focused_test_count"] == 58, "focused test count drift")
+    require(descriptor["coherent_full_package_hmac_mutation_count"] == 12,
+            "coherent package mutation count drift")
+    require(descriptor["negative_matrix_count"] == 52, "negative matrix count drift")
     require(descriptor["compile_fail_witness_count"] == 5,
             "compile-fail witness count drift")
     require(descriptor["public_clean_process_roundtrips"] == 4,
@@ -105,14 +121,24 @@ def validate(root: Path, *, check_git: bool = True) -> None:
     require(all(value is False for value in descriptor["closed_surfaces"].values()),
             "closed surface opened")
     require(f"Reviewed predecessor: `{BASE}`" in contract, "contract base drift")
-    require("Stage 5G-e-c R4 is the only current implementation review candidate" in status,
+    require("Stage 5G-e-c R5 is the only current implementation review" in status,
             "status drift")
+    require_all(overview, (
+        "Stage 5G-e-c R5",
+        "Stage 5G-f",
+        "Stage 5G-g",
+        "Stage 5G-h",
+        "Stage 6",
+        "Redis live consumer groups",
+        "FINAM HTTP POST/DELETE",
+    ), "reviewer onboarding roadmap")
     require("one key epoch" in contract.lower()
             and "operator/storage responsibility" in contract,
             "rollback limitation must remain explicit")
 
-    require('hmac = "0.12"' in workspace and "hmac.workspace = true" in crate,
-            "HMAC dependency drift")
+    require('hmac = "0.12"' in workspace and "hmac.workspace = true" in crate
+            and 'zeroize = "1"' in workspace and "zeroize.workspace = true" in crate,
+            "HMAC/key-memory dependency drift")
     require_all(restart, (
         "use hmac::{Hmac, Mac};",
         "pub struct Stage5gLifecycleCommitmentKey([u8; 32]);",
@@ -124,6 +150,11 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "fn verify_lifecycle_commitment_hmac(",
         "Hmac::<Sha256>::new_from_slice",
         "mac.verify_slice(&tag).is_ok()",
+        "impl Drop for Stage5gLifecycleCommitmentKey",
+        "self.0.zeroize();",
+        "Stage5gAuthenticatedRestartPackageCommitmentV1",
+        "authenticated_restart_package_commitment_sha256(",
+        "moex.stage5g.clean-restart.full-package-commitment.v1\\0",
         "AuthenticatedLifecycleCommitmentMismatch",
         ".stage5g_source_authority_hmac_sha256",
         "stage5d_source_anchor != independent_source_authority_sha256(projection)?",
@@ -155,15 +186,39 @@ def validate(root: Path, *, check_git: bool = True) -> None:
             "restore lost operator key")
     for forbidden in ("reqwest", "redis::", ".post(", ".delete(", "tokio::spawn"):
         require(forbidden not in restart, f"forbidden e-c surface: {forbidden}")
-    independent = restart.split("fn independent_source_authority_sha256(", 1)[1].split(
-        "#[cfg(test)]", 1)[0]
-    require_all(independent, (
+    authenticated = restart.split(
+        "fn authenticated_restart_package_commitment_sha256(", 1
+    )[1].split("#[cfg(test)]", 1)[0]
+    require_all(authenticated, (
+        "package_schema_version",
+        "checkpoint_state",
+        "stage5d_envelope_without_transport_integrity",
+        "normalized_envelope.payload_checksum_sha256.clear();",
+        "normalized_envelope.stage5g_source_authority_hmac_sha256 = None;",
+        "riskgate_evidence",
         "summary: &projection.summary",
         "checkpoint: &projection.checkpoint",
         "order_position_state: &projection.order_position_state",
         "timer_ready_source: &projection.timer_ready_source",
         "strategy_state_fingerprint_sha256: &projection.strategy_state_fingerprint_sha256",
-    ), "authenticated source projection coverage")
+        "snapshot_id: &instance.snapshot_id",
+        "snapshot_revision: instance.snapshot_revision",
+        "write_generation: instance.write_generation",
+        "persisted_at_ts_utc: instance.persisted_at_ts_utc",
+        "package_instance: AuthenticatedPackageInstance {",
+    ), "authenticated full-package projection coverage")
+    for required_stage5d_field in (
+        "timestamp_policy",
+        "binding",
+        "strategy_state",
+        "lifecycle_watermarks",
+        "recovery_indexes",
+        "runtime_private_extension",
+        "riskgate",
+        "source_commit_or_build_id",
+    ):
+        require(f"pub {required_stage5d_field}:" in stage5d,
+                f"authenticated envelope source field missing: {required_stage5d_field}")
 
     projection_at = restart.index("let projection: Stage5gCleanRestartProjectionV1")
     semantic_at = restart.index("validate_projection(&projection)?;", projection_at)
@@ -174,7 +229,8 @@ def validate(root: Path, *, check_git: bool = True) -> None:
             "semantic/HMAC validation must precede runtime mutation")
     binding_body = restart.split("fn validate_projection_binding(", 1)[1].split(
         "fn validated_reconciliation_authority(", 1)[0]
-    require("if !verify_lifecycle_commitment_hmac(" in binding_body,
+    require(".stage5g_source_authority_hmac_sha256" in binding_body
+            and "if !verify_lifecycle_commitment_hmac(" in binding_body,
             "binding validation lost authenticated commitment")
 
     require_all(stage5d, (
@@ -185,11 +241,19 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "envelope.stage5g_source_authority_hmac_sha256 = Some(hmac_sha256.to_string());",
         "stage5g_test_reseal_lifecycle_authority(&mut extension)",
         "stage5g_test_source_authority_anchor_sha256(&extension)",
+        "stage5g_test_rehash_full_clean_restart_package(",
+        "Some(original_hmac.as_str())",
+        "stage5d_export_canonical_restart_bytes_from_authenticated_parts(",
         "stage5c_recovery_receipt_projection_sha256(",
     ), "Stage 5D authenticated cross-binding")
-    require("stage5g_source_authority_hmac_sha256 = Some(" not in stage5d.split(
-        "pub(crate) fn stage5g_test_rehash_clean_restart_package", 1)[1],
-        "test rehasher must not forge keyed commitment")
+    full_rehasher = stage5d.split(
+        "pub(crate) fn stage5g_test_rehash_full_clean_restart_package", 1
+    )[1].split("fn stage5d_validate_package_cross_binding", 1)[0]
+    require("original_hmac" in full_rehasher
+            and "lifecycle_commitment_hmac_sha256" not in full_rehasher
+            and 'Some("0".repeat(64))' not in full_rehasher
+            and "stage5c_recovery_receipt_projection_sha256(" in full_rehasher,
+            "full-package rehasher must retain, not forge, keyed commitment")
 
     require_all(paper, (
         "pub(crate) struct Stage5cRecoveryReceiptProjectionV1",
@@ -212,6 +276,18 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         "stage5ge_c_r4_fresh_runtime_config_mismatch_fails_closed",
         "stage5ge_c_r4_old_package_fails_after_operator_key_epoch_rotation",
         "stage5ge_c_r4_fully_coherent_unkeyed_reseal_cannot_forge_commitment",
+        "stage5ge_c_r5_persisted_event_watermark_reseal_fails_at_hmac",
+        "stage5ge_c_r5_semantic_timestamp_watermark_reseal_fails_at_hmac",
+        "stage5ge_c_r5_snapshot_revision_reseal_fails_at_hmac",
+        "stage5ge_c_r5_write_generation_reseal_fails_at_hmac",
+        "stage5ge_c_r5_persisted_timestamp_reseal_fails_at_hmac",
+        "stage5ge_c_r5_compatible_source_build_reseal_fails_at_hmac",
+        "stage5ge_c_r5_runtime_private_cleanup_reseal_fails_at_hmac",
+        "stage5ge_c_r5_recovery_index_reseal_fails_at_hmac",
+        "stage5ge_c_r5_riskgate_evidence_reseal_fails_at_hmac",
+        "stage5ge_c_r5_riskgate_persistence_reseal_fails_at_hmac",
+        "stage5ge_c_r5_lifecycle_tag_transplant_to_package_instance_fails_at_hmac",
+        "stage5ge_c_r5_complete_envelope_extension_reseal_fails_at_hmac",
         "stage5ge_c_r2_fully_resealed_complete_extension_graft_fails_package_binding",
     )
     require_all(order, required_tests, "acceptance witness")
@@ -232,7 +308,7 @@ def validate(root: Path, *, check_git: bool = True) -> None:
         head = git(root, "rev-parse", "HEAD")
         if head != BASE:
             require(git(root, "rev-parse", "HEAD^") == BASE,
-                    "R4 must be exactly one successor")
+                    "R5 must be exactly one successor")
 
 
 def main() -> int:

@@ -2948,8 +2948,12 @@ mod tests {
                 bar_close_ts - 600,
                 signal,
             );
-        let semantic = crate::apply_stage5c_semantic_bar(recovered, accepted)
-            .expect("accepted Stage 5F semantic Market intent");
+        let semantic = crate::stage5c_paper_host::stage5g_test_apply_stage5c_semantic_bar_at(
+            recovered,
+            accepted,
+            Utc.timestamp_opt(bar_close_ts + 1, 0).single().unwrap(),
+        )
+        .expect("accepted Stage 5F semantic Market intent");
         let settled = crate::settle_stage5c_semantic_result(semantic)
             .expect("accepted Stage 5F Market intent settlement");
         let request_id = settled.intent_batch().request_ids()[0];
@@ -7437,7 +7441,11 @@ mod tests {
         crate::Stage5gCleanRestartExportInput,
         HybridIntradayRuntimeStrategy,
     ) {
-        let bar_close_ts = Utc::now().timestamp().div_euclid(600) * 600 - 600;
+        let bar_close_ts = Utc
+            .with_ymd_and_hms(2026, 8, 3, 12, 0, 0)
+            .single()
+            .expect("Stage 5G-e-c fixture timestamp is valid")
+            .timestamp();
         let persisted_at = Utc.timestamp_opt(bar_close_ts + 120, 0).single().unwrap();
         let strategy =
             r2cb_public_runtime_strategy_with_riskgate(bar_close_ts, RiskGateMode::NormalAppend);
@@ -7679,6 +7687,25 @@ mod tests {
         );
     }
 
+    fn assert_stage5ge_c_full_package_reseal_reaches_hmac(
+        mutate_envelope: impl FnOnce(&mut serde_json::Value),
+        mutate_evidence: impl FnOnce(&mut serde_json::Value),
+        mutate_extension: impl FnOnce(&mut serde_json::Value),
+    ) {
+        let (bytes, fresh) = stage5ge_c_rehash_fixture(Stage5geCTestSourceKind::TimerReady);
+        let forged = crate::stage5d_persistence::stage5g_test_rehash_full_clean_restart_package(
+            &bytes,
+            mutate_envelope,
+            mutate_evidence,
+            mutate_extension,
+        );
+        assert_eq!(
+            crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
+                .map(|_| ()),
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
+        );
+    }
+
     #[test]
     fn stage5ge_c_r1_public_timer_ready_clean_process_roundtrip() {
         assert_stage5ge_c_public_clean_process_roundtrip(Stage5geCTestSourceKind::TimerReady);
@@ -7719,7 +7746,7 @@ mod tests {
         assert_eq!(
             crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
                 .map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::BindingMismatch)
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
         );
     }
 
@@ -7737,7 +7764,7 @@ mod tests {
         assert_eq!(
             crate::restore_stage5g_clean_restart(&forged, &stage5ge_c_commitment_key(), fresh,)
                 .map(|_| ()),
-            Err(crate::Stage5gCleanRestartError::BindingMismatch)
+            Err(crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch)
         );
     }
 
@@ -8110,6 +8137,174 @@ mod tests {
                     serde_json::json!(current + 1);
             },
             crate::Stage5gCleanRestartError::AuthenticatedLifecycleCommitmentMismatch,
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_persisted_event_watermark_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["lifecycle_watermarks"]["persisted_event_watermark"] =
+                    serde_json::json!("stage5ge-c-r5:forged-watermark");
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_semantic_timestamp_watermark_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                let current = envelope["lifecycle_watermarks"]["last_semantic_bar_ts"]
+                    .as_str()
+                    .unwrap();
+                let shifted = DateTime::parse_from_rfc3339(current)
+                    .unwrap()
+                    .with_timezone(&Utc)
+                    + Duration::seconds(1);
+                envelope["lifecycle_watermarks"]["last_semantic_bar_ts"] =
+                    serde_json::json!(shifted);
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_snapshot_revision_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["snapshot_revision"] = serde_json::json!(2);
+                envelope["previous_revision"] = serde_json::json!(1);
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_write_generation_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| envelope["write_generation"] = serde_json::json!(2),
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_persisted_timestamp_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                let current = envelope["persisted_at_ts_utc"].as_str().unwrap();
+                let shifted = DateTime::parse_from_rfc3339(current)
+                    .unwrap()
+                    .with_timezone(&Utc)
+                    + Duration::seconds(1);
+                envelope["persisted_at_ts_utc"] = serde_json::json!(shifted);
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_compatible_source_build_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["binding"]["source_commit_or_build_id"] =
+                    serde_json::json!("source_commit:92e6e0685b1cbab6f4c6271abe1db8ab690a1ded");
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_runtime_private_cleanup_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["runtime_private_extension"]["cleanup_retry_state"]
+                    ["cleanup_stop_retry_attempts"] = serde_json::json!(1);
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_recovery_index_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["recovery_indexes"]["known_trade_ids"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!("TRADE_R5_FORGED"));
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_riskgate_evidence_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |_| {},
+            |evidence| {
+                evidence["current_shadow_pnl_points"] = serde_json::json!("0.5");
+            },
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_riskgate_persistence_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["riskgate"]["materialized_state"]["current_shadow_pnl_points"] =
+                    serde_json::json!("0.5");
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_lifecycle_tag_transplant_to_package_instance_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["snapshot_id"] = serde_json::json!("stage5ge-c-r5-other-instance");
+            },
+            |_| {},
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn stage5ge_c_r5_complete_envelope_extension_reseal_fails_at_hmac() {
+        assert_stage5ge_c_full_package_reseal_reaches_hmac(
+            |envelope| {
+                envelope["lifecycle_watermarks"]["persisted_event_watermark"] =
+                    serde_json::json!("stage5ge-c-r5:complete-reseal");
+                envelope["runtime_private_extension"]["cleanup_retry_state"]
+                    ["cleanup_stop_retry_attempts"] = serde_json::json!(2);
+            },
+            |_| {},
+            |extension| {
+                extension["summary"]["request_count"] = serde_json::json!(41);
+                extension["summary"]["terminal_request_count"] = serde_json::json!(41);
+                extension["summary"]["lifecycle_fingerprint_sha256"] =
+                    serde_json::json!("b".repeat(64));
+                let settlement = &mut extension["timer_ready_source"]["stage5c_settlement"];
+                settlement["recovery_receipt"]["processed_bars"] = serde_json::json!(77);
+                settlement["settled_batch"]["state_fingerprint"] =
+                    serde_json::json!("coherently-forged-state");
+                settlement["settled_batch_history"]
+                    .as_array_mut()
+                    .unwrap()
+                    .last_mut()
+                    .unwrap()["state_fingerprint"] = serde_json::json!("coherently-forged-state");
+            },
         );
     }
 
