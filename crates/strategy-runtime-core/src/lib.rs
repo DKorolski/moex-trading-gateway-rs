@@ -198,6 +198,8 @@ mod stage5e_no_io_lifecycle;
 mod stage5f_atomic_hybrid_semantics;
 // STAGE5F-TEST-OBSERVATION-MODULE-END
 mod stage5g_clean_restart;
+#[allow(dead_code)] // Stage 5G-e-d-a contract is consumed by the reviewed e-d-b reducer.
+mod stage5g_fresh_broker_truth;
 mod stage5g_mock_ack;
 mod stage5g_order_position;
 mod stage5g_timer;
