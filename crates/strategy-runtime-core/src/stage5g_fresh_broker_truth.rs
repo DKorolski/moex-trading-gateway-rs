@@ -9,7 +9,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write;
 
 use broker_core::{
-    BrokerAccountId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeSnapshot, InstrumentId,
+    instrument_identity_matches, BrokerAccountId, BrokerOrderSnapshot, BrokerPositionSnapshot,
+    BrokerTradeSnapshot, InstrumentId, OrderStatus, OrderType,
 };
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -20,7 +21,7 @@ pub(crate) const STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION: u16 = 1;
 
 macro_rules! stage5g_string_identity {
     ($name:ident) => {
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
         #[serde(transparent)]
         pub(crate) struct $name(String);
 
@@ -48,7 +49,7 @@ stage5g_string_identity!(Stage5gGatewayInstanceId);
 stage5g_string_identity!(Stage5gPackageId);
 stage5g_string_identity!(Stage5gSnapshotEpoch);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub(crate) struct Stage5gDeploymentGeneration(u64);
 
@@ -61,7 +62,7 @@ impl Stage5gDeploymentGeneration {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub(crate) struct Stage5gFeedGeneration(u64);
 
@@ -74,7 +75,7 @@ impl Stage5gFeedGeneration {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
 pub(crate) struct Stage5gSha256(String);
 
@@ -91,12 +92,16 @@ impl Stage5gSha256 {
         }
         Ok(Self(value))
     }
+
+    fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Identity fields required before any later reconciliation callback may be
 /// considered. All members are typed; a free-form `source` string is not an
 /// identity proof.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Stage5gOperationalIdentityV1 {
     broker_id: Stage5gBrokerId,
@@ -113,7 +118,8 @@ pub(crate) struct Stage5gOperationalIdentityV1 {
     target_instrument: InstrumentId,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct Stage5gOperationalIdentityInput {
     pub(crate) broker_id: String,
     pub(crate) account_id: BrokerAccountId,
@@ -133,8 +139,13 @@ impl Stage5gOperationalIdentityV1 {
     pub(crate) fn validate(
         input: Stage5gOperationalIdentityInput,
     ) -> Result<Self, Stage5gFreshBrokerTruthError> {
-        if input.account_id.as_str().trim().is_empty()
-            || input.target_instrument.symbol.trim().is_empty()
+        if !canonical_nonempty(input.account_id.as_str())
+            || !canonical_nonempty(&input.target_instrument.symbol)
+            || input
+                .target_instrument
+                .venue_symbol
+                .as_deref()
+                .is_some_and(|value| !canonical_nonempty(value))
         {
             return Err(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity);
         }
@@ -168,9 +179,12 @@ impl Stage5gOperationalIdentityV1 {
 pub(crate) struct Stage5gFreshBrokerTruthPackageV1 {
     pub(crate) schema_version: u16,
     pub(crate) package_id: String,
-    pub(crate) operational_identity: Stage5gOperationalIdentityV1,
+    pub(crate) operational_identity: Stage5gOperationalIdentityInput,
     pub(crate) snapshot_epoch: String,
     pub(crate) captured_at: DateTime<Utc>,
+    pub(crate) orders_observed_at: DateTime<Utc>,
+    pub(crate) trades_observed_at: DateTime<Utc>,
+    pub(crate) positions_observed_at: DateTime<Utc>,
     pub(crate) orders_complete: bool,
     pub(crate) trades_complete: bool,
     pub(crate) positions_complete: bool,
@@ -179,13 +193,48 @@ pub(crate) struct Stage5gFreshBrokerTruthPackageV1 {
     pub(crate) positions: Vec<BrokerPositionSnapshot>,
 }
 
-/// Context proving that the package was captured after the accepted clean
-/// restore and is not a replay of the prior snapshot epoch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stage5gReconciledFreshPackageIdentity {
+    package_id: Stage5gPackageId,
+    snapshot_epoch: Stage5gSnapshotEpoch,
+    canonical_fingerprint_sha256: Stage5gSha256,
+}
+
+impl Stage5gReconciledFreshPackageIdentity {
+    pub(crate) fn validate(
+        package_id: impl Into<String>,
+        snapshot_epoch: impl Into<String>,
+        canonical_fingerprint_sha256: impl Into<String>,
+    ) -> Result<Self, Stage5gFreshBrokerTruthError> {
+        Ok(Self {
+            package_id: Stage5gPackageId::parse(package_id)
+                .map_err(|_| Stage5gFreshBrokerTruthError::EmptyPackageId)?,
+            snapshot_epoch: Stage5gSnapshotEpoch::parse(snapshot_epoch)
+                .map_err(|_| Stage5gFreshBrokerTruthError::EmptySnapshotEpoch)?,
+            canonical_fingerprint_sha256: Stage5gSha256::parse(canonical_fingerprint_sha256)
+                .map_err(|_| Stage5gFreshBrokerTruthError::InvalidReplayFingerprint)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gFreshPackageLineage {
+    NewFresh,
+    ExactLastReconciledReplay,
+    ExactAcceptedHistoricalReplay,
+}
+
+/// Context proving post-restore collection and separating pre-restart identity
+/// from the last-reconciled and bounded historical replay authorities.
 pub(crate) struct Stage5gFreshBrokerTruthValidationContext<'a> {
     pub(crate) expected_operational_identity: &'a Stage5gOperationalIdentityV1,
-    pub(crate) previous_package_id: &'a str,
-    pub(crate) previous_snapshot_epoch: &'a str,
+    pub(crate) pre_restart_package_id: &'a str,
+    pub(crate) pre_restart_snapshot_epoch: &'a str,
+    pub(crate) last_reconciled_fresh_package: Option<&'a Stage5gReconciledFreshPackageIdentity>,
+    pub(crate) accepted_replay_ledger: &'a [Stage5gReconciledFreshPackageIdentity],
+    pub(crate) known_historical_fresh_packages: &'a [Stage5gReconciledFreshPackageIdentity],
     pub(crate) clean_restore_completed_at: DateTime<Utc>,
+    pub(crate) validation_observed_at: DateTime<Utc>,
 }
 
 /// Canonical, linear evidence. It is intentionally non-serializable and owns
@@ -195,12 +244,16 @@ pub(crate) struct Stage5gValidatedFreshBrokerTruthPackage {
     snapshot_epoch: Stage5gSnapshotEpoch,
     operational_identity: Stage5gOperationalIdentityV1,
     captured_at: DateTime<Utc>,
+    orders_observed_at: DateTime<Utc>,
+    trades_observed_at: DateTime<Utc>,
+    positions_observed_at: DateTime<Utc>,
     orders_complete: bool,
     trades_complete: bool,
     positions_complete: bool,
     orders: Vec<BrokerOrderSnapshot>,
     trades: Vec<BrokerTradeSnapshot>,
     positions: Vec<BrokerPositionSnapshot>,
+    lineage: Stage5gFreshPackageLineage,
     canonical_fingerprint_sha256: String,
 }
 
@@ -211,6 +264,10 @@ impl Stage5gValidatedFreshBrokerTruthPackage {
 
     pub(crate) fn canonical_fingerprint_sha256(&self) -> &str {
         &self.canonical_fingerprint_sha256
+    }
+
+    pub(crate) fn lineage(&self) -> Stage5gFreshPackageLineage {
+        self.lineage
     }
 }
 
@@ -290,13 +347,25 @@ pub(crate) enum Stage5gFreshBrokerTruthError {
     OperationalIdentityMismatch,
     EmptyPackageId,
     EmptySnapshotEpoch,
+    InvalidReplayFingerprint,
     ReplayedPackageId,
     ReplayedSnapshotEpoch,
+    ReusedFreshSnapshotEpoch,
+    FreshPackageIdentityConflict,
+    HistoricalReplayNotAccepted,
+    InvalidReplayLedger,
     PackageNotCapturedAfterRestore,
+    PackageCapturedAfterValidation,
+    SectionNotObservedAfterRestore,
+    SectionObservedAfterPackageCapture,
     RowAccountMismatch,
-    RowTimestampAfterPackageCapture,
+    RowReceivedBeforeCleanRestore,
+    RowTimestampAfterSectionObservation,
     RowSourceTimestampAfterReceipt,
+    MalformedNativeId,
     InvalidOrderQuantity,
+    InvalidOrderShape,
+    InconsistentActiveZeroRemaining,
     InvalidTradeQuantity,
     OrderLifecycleMismatch,
     DuplicateOrderIdentity,
@@ -316,54 +385,187 @@ pub(crate) fn validate_stage5g_fresh_broker_truth_package(
         .map_err(|_| Stage5gFreshBrokerTruthError::EmptyPackageId)?;
     let snapshot_epoch = Stage5gSnapshotEpoch::parse(package.snapshot_epoch.clone())
         .map_err(|_| Stage5gFreshBrokerTruthError::EmptySnapshotEpoch)?;
-    if package_id.as_str() == context.previous_package_id {
+    if package_id.as_str() == context.pre_restart_package_id {
         return Err(Stage5gFreshBrokerTruthError::ReplayedPackageId);
     }
-    if snapshot_epoch.as_str() == context.previous_snapshot_epoch {
+    if snapshot_epoch.as_str() == context.pre_restart_snapshot_epoch {
         return Err(Stage5gFreshBrokerTruthError::ReplayedSnapshotEpoch);
     }
     if package.captured_at <= context.clean_restore_completed_at {
         return Err(Stage5gFreshBrokerTruthError::PackageNotCapturedAfterRestore);
     }
-    if &package.operational_identity != context.expected_operational_identity {
+    if package.captured_at > context.validation_observed_at {
+        return Err(Stage5gFreshBrokerTruthError::PackageCapturedAfterValidation);
+    }
+    validate_section_observation(
+        package.orders_observed_at,
+        package.captured_at,
+        context.clean_restore_completed_at,
+    )?;
+    validate_section_observation(
+        package.trades_observed_at,
+        package.captured_at,
+        context.clean_restore_completed_at,
+    )?;
+    validate_section_observation(
+        package.positions_observed_at,
+        package.captured_at,
+        context.clean_restore_completed_at,
+    )?;
+    let operational_identity =
+        Stage5gOperationalIdentityV1::validate(package.operational_identity.clone())?;
+    if &operational_identity != context.expected_operational_identity {
         return Err(Stage5gFreshBrokerTruthError::OperationalIdentityMismatch);
     }
 
-    validate_rows(&package)?;
+    validate_rows(&package, context.clean_restore_completed_at)?;
     canonicalize_rows(&mut package);
     let canonical_fingerprint_sha256 = package_fingerprint(&package)?;
+    let lineage = classify_lineage(
+        &package_id,
+        &snapshot_epoch,
+        &canonical_fingerprint_sha256,
+        &context,
+    )?;
 
     Ok(Stage5gValidatedFreshBrokerTruthPackage {
         package_id,
         snapshot_epoch,
-        operational_identity: package.operational_identity,
+        operational_identity,
         captured_at: package.captured_at,
+        orders_observed_at: package.orders_observed_at,
+        trades_observed_at: package.trades_observed_at,
+        positions_observed_at: package.positions_observed_at,
         orders_complete: package.orders_complete,
         trades_complete: package.trades_complete,
         positions_complete: package.positions_complete,
         orders: package.orders,
         trades: package.trades,
         positions: package.positions,
+        lineage,
         canonical_fingerprint_sha256,
     })
 }
 
+fn validate_section_observation(
+    observed_at: DateTime<Utc>,
+    captured_at: DateTime<Utc>,
+    clean_restore_completed_at: DateTime<Utc>,
+) -> Result<(), Stage5gFreshBrokerTruthError> {
+    if observed_at <= clean_restore_completed_at {
+        return Err(Stage5gFreshBrokerTruthError::SectionNotObservedAfterRestore);
+    }
+    if observed_at > captured_at {
+        return Err(Stage5gFreshBrokerTruthError::SectionObservedAfterPackageCapture);
+    }
+    Ok(())
+}
+
+fn classify_lineage(
+    package_id: &Stage5gPackageId,
+    snapshot_epoch: &Stage5gSnapshotEpoch,
+    fingerprint: &str,
+    context: &Stage5gFreshBrokerTruthValidationContext<'_>,
+) -> Result<Stage5gFreshPackageLineage, Stage5gFreshBrokerTruthError> {
+    validate_replay_ledger(context)?;
+    if let Some(last) = context.last_reconciled_fresh_package {
+        if package_id == &last.package_id {
+            return exact_lineage_or_conflict(
+                snapshot_epoch,
+                fingerprint,
+                last,
+                Stage5gFreshPackageLineage::ExactLastReconciledReplay,
+            );
+        }
+    }
+    if let Some(historical) = context
+        .accepted_replay_ledger
+        .iter()
+        .find(|entry| &entry.package_id == package_id)
+    {
+        return exact_lineage_or_conflict(
+            snapshot_epoch,
+            fingerprint,
+            historical,
+            Stage5gFreshPackageLineage::ExactAcceptedHistoricalReplay,
+        );
+    }
+    if let Some(known) = context
+        .known_historical_fresh_packages
+        .iter()
+        .find(|entry| &entry.package_id == package_id)
+    {
+        if known.snapshot_epoch != *snapshot_epoch
+            || known.canonical_fingerprint_sha256.as_str() != fingerprint
+        {
+            return Err(Stage5gFreshBrokerTruthError::FreshPackageIdentityConflict);
+        }
+        return Err(Stage5gFreshBrokerTruthError::HistoricalReplayNotAccepted);
+    }
+    if context
+        .last_reconciled_fresh_package
+        .into_iter()
+        .chain(context.accepted_replay_ledger.iter())
+        .chain(context.known_historical_fresh_packages.iter())
+        .any(|entry| entry.snapshot_epoch == *snapshot_epoch)
+    {
+        return Err(Stage5gFreshBrokerTruthError::ReusedFreshSnapshotEpoch);
+    }
+    Ok(Stage5gFreshPackageLineage::NewFresh)
+}
+
+fn exact_lineage_or_conflict(
+    snapshot_epoch: &Stage5gSnapshotEpoch,
+    fingerprint: &str,
+    expected: &Stage5gReconciledFreshPackageIdentity,
+    exact: Stage5gFreshPackageLineage,
+) -> Result<Stage5gFreshPackageLineage, Stage5gFreshBrokerTruthError> {
+    if snapshot_epoch == &expected.snapshot_epoch
+        && fingerprint == expected.canonical_fingerprint_sha256.as_str()
+    {
+        Ok(exact)
+    } else {
+        Err(Stage5gFreshBrokerTruthError::FreshPackageIdentityConflict)
+    }
+}
+
+fn validate_replay_ledger(
+    context: &Stage5gFreshBrokerTruthValidationContext<'_>,
+) -> Result<(), Stage5gFreshBrokerTruthError> {
+    let mut ids = BTreeSet::new();
+    let mut epochs = BTreeSet::new();
+    for entry in context
+        .last_reconciled_fresh_package
+        .into_iter()
+        .chain(context.accepted_replay_ledger.iter())
+        .chain(context.known_historical_fresh_packages.iter())
+    {
+        if !ids.insert(entry.package_id.as_str()) || !epochs.insert(entry.snapshot_epoch.as_str()) {
+            return Err(Stage5gFreshBrokerTruthError::InvalidReplayLedger);
+        }
+    }
+    Ok(())
+}
+
 fn validate_rows(
     package: &Stage5gFreshBrokerTruthPackageV1,
+    clean_restore_completed_at: DateTime<Utc>,
 ) -> Result<(), Stage5gFreshBrokerTruthError> {
     let account = &package.operational_identity.account_id;
     let mut broker_order_ids = BTreeSet::new();
     let mut client_order_ids = BTreeSet::new();
     let mut orphan_order_identities = BTreeSet::new();
     let mut trade_ids = BTreeSet::new();
-    let mut position_ids = BTreeSet::new();
 
     for order in &package.orders {
         if &order.account_id != account {
             return Err(Stage5gFreshBrokerTruthError::RowAccountMismatch);
         }
-        if order.received_ts > package.captured_at {
-            return Err(Stage5gFreshBrokerTruthError::RowTimestampAfterPackageCapture);
+        if order.received_ts < clean_restore_completed_at {
+            return Err(Stage5gFreshBrokerTruthError::RowReceivedBeforeCleanRestore);
+        }
+        if order.received_ts > package.orders_observed_at {
+            return Err(Stage5gFreshBrokerTruthError::RowTimestampAfterSectionObservation);
         }
         if order
             .source_ts
@@ -374,14 +576,48 @@ fn validate_rows(
         if order.lifecycle != BrokerOrderSnapshot::lifecycle_for(&order.status) {
             return Err(Stage5gFreshBrokerTruthError::OrderLifecycleMismatch);
         }
+        if order
+            .broker_order_id
+            .as_ref()
+            .is_some_and(|id| !canonical_native_id(id.as_str()))
+            || order
+                .client_order_id
+                .as_ref()
+                .is_some_and(|id| !canonical_native_id(id.as_str()))
+        {
+            return Err(Stage5gFreshBrokerTruthError::MalformedNativeId);
+        }
         if order.qty <= Decimal::ZERO
             || order.filled_qty < Decimal::ZERO
             || order.filled_qty > order.qty
-            || order.remaining_qty.is_some_and(|remaining| {
-                remaining < Decimal::ZERO || remaining != order.qty - order.filled_qty
-            })
+            || match order.remaining_qty {
+                Some(remaining) => {
+                    remaining < Decimal::ZERO || remaining != order.qty - order.filled_qty
+                }
+                None => true,
+            }
         {
             return Err(Stage5gFreshBrokerTruthError::InvalidOrderQuantity);
+        }
+        if matches!(order.status, OrderStatus::Filled) && order.filled_qty != order.qty {
+            return Err(Stage5gFreshBrokerTruthError::InvalidOrderQuantity);
+        }
+        if order.is_inconsistent_active_zero_remaining() {
+            return Err(Stage5gFreshBrokerTruthError::InconsistentActiveZeroRemaining);
+        }
+        match order.order_type {
+            OrderType::Market if order.limit_price.is_some() => {
+                return Err(Stage5gFreshBrokerTruthError::InvalidOrderShape);
+            }
+            OrderType::Limit
+                if match order.limit_price {
+                    Some(price) => price <= Decimal::ZERO,
+                    None => true,
+                } =>
+            {
+                return Err(Stage5gFreshBrokerTruthError::InvalidOrderShape);
+            }
+            _ => {}
         }
         if order
             .broker_order_id
@@ -405,8 +641,11 @@ fn validate_rows(
         if &trade.account_id != account {
             return Err(Stage5gFreshBrokerTruthError::RowAccountMismatch);
         }
-        if trade.received_ts > package.captured_at {
-            return Err(Stage5gFreshBrokerTruthError::RowTimestampAfterPackageCapture);
+        if trade.received_ts < clean_restore_completed_at {
+            return Err(Stage5gFreshBrokerTruthError::RowReceivedBeforeCleanRestore);
+        }
+        if trade.received_ts > package.trades_observed_at {
+            return Err(Stage5gFreshBrokerTruthError::RowTimestampAfterSectionObservation);
         }
         if trade.source_ts > trade.received_ts {
             return Err(Stage5gFreshBrokerTruthError::RowSourceTimestampAfterReceipt);
@@ -414,16 +653,31 @@ fn validate_rows(
         if trade.qty <= Decimal::ZERO || trade.price <= Decimal::ZERO {
             return Err(Stage5gFreshBrokerTruthError::InvalidTradeQuantity);
         }
+        if !canonical_native_id(trade.broker_trade_id.as_str())
+            || trade
+                .broker_order_id
+                .as_ref()
+                .is_some_and(|id| !canonical_native_id(id.as_str()))
+            || trade
+                .client_order_id
+                .as_ref()
+                .is_some_and(|id| !canonical_native_id(id.as_str()))
+        {
+            return Err(Stage5gFreshBrokerTruthError::MalformedNativeId);
+        }
         if !trade_ids.insert(trade.broker_trade_id.as_str().to_owned()) {
             return Err(Stage5gFreshBrokerTruthError::DuplicateTradeIdentity);
         }
     }
-    for position in &package.positions {
+    for (index, position) in package.positions.iter().enumerate() {
         if &position.account_id != account {
             return Err(Stage5gFreshBrokerTruthError::RowAccountMismatch);
         }
-        if position.received_ts > package.captured_at {
-            return Err(Stage5gFreshBrokerTruthError::RowTimestampAfterPackageCapture);
+        if position.received_ts < clean_restore_completed_at {
+            return Err(Stage5gFreshBrokerTruthError::RowReceivedBeforeCleanRestore);
+        }
+        if position.received_ts > package.positions_observed_at {
+            return Err(Stage5gFreshBrokerTruthError::RowTimestampAfterSectionObservation);
         }
         if position
             .source_ts
@@ -431,11 +685,22 @@ fn validate_rows(
         {
             return Err(Stage5gFreshBrokerTruthError::RowSourceTimestampAfterReceipt);
         }
-        if !position_ids.insert(instrument_key(&position.instrument)) {
+        if package.positions[..index]
+            .iter()
+            .any(|previous| instrument_identity_matches(&previous.instrument, &position.instrument))
+        {
             return Err(Stage5gFreshBrokerTruthError::DuplicatePositionIdentity);
         }
     }
     Ok(())
+}
+
+fn canonical_nonempty(value: &str) -> bool {
+    !value.is_empty() && value == value.trim() && !value.chars().any(char::is_control)
+}
+
+fn canonical_native_id(value: &str) -> bool {
+    canonical_nonempty(value)
 }
 
 fn canonicalize_rows(package: &mut Stage5gFreshBrokerTruthPackageV1) {
@@ -506,8 +771,8 @@ mod tests {
         }
     }
 
-    fn identity() -> Stage5gOperationalIdentityV1 {
-        Stage5gOperationalIdentityV1::validate(Stage5gOperationalIdentityInput {
+    fn identity_input() -> Stage5gOperationalIdentityInput {
+        Stage5gOperationalIdentityInput {
             broker_id: "finam-mock".to_owned(),
             account_id: BrokerAccountId::new("ACC_TEST_0001"),
             strategy_definition_id: "hybrid-imoexf".to_owned(),
@@ -520,8 +785,11 @@ mod tests {
             market_data_generation: 3,
             command_consumer_generation: 4,
             target_instrument: instrument(),
-        })
-        .expect("valid identity")
+        }
+    }
+
+    fn identity() -> Stage5gOperationalIdentityV1 {
+        Stage5gOperationalIdentityV1::validate(identity_input()).expect("valid identity")
     }
 
     fn package() -> Stage5gFreshBrokerTruthPackageV1 {
@@ -576,9 +844,12 @@ mod tests {
         Stage5gFreshBrokerTruthPackageV1 {
             schema_version: STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
             package_id: "fresh-package-1".to_owned(),
-            operational_identity: identity(),
+            operational_identity: identity_input(),
             snapshot_epoch: "snapshot-epoch-2".to_owned(),
             captured_at,
+            orders_observed_at: captured_at - Duration::seconds(1),
+            trades_observed_at: captured_at - Duration::seconds(1),
+            positions_observed_at: captured_at - Duration::seconds(1),
             orders_complete: true,
             trades_complete: true,
             positions_complete: true,
@@ -588,20 +859,45 @@ mod tests {
         }
     }
 
-    fn validate(
+    fn validate_with_lineage(
         package: Stage5gFreshBrokerTruthPackageV1,
+        last_reconciled_fresh_package: Option<&Stage5gReconciledFreshPackageIdentity>,
+        accepted_replay_ledger: &[Stage5gReconciledFreshPackageIdentity],
+        known_historical_fresh_packages: &[Stage5gReconciledFreshPackageIdentity],
     ) -> Result<Stage5gValidatedFreshBrokerTruthPackage, Stage5gFreshBrokerTruthError> {
         let expected = identity();
         let restore_at = package.captured_at - Duration::seconds(5);
+        let validation_observed_at = package.captured_at + Duration::seconds(1);
         validate_stage5g_fresh_broker_truth_package(
             package,
             Stage5gFreshBrokerTruthValidationContext {
                 expected_operational_identity: &expected,
-                previous_package_id: "fresh-package-0",
-                previous_snapshot_epoch: "snapshot-epoch-1",
+                pre_restart_package_id: "fresh-package-0",
+                pre_restart_snapshot_epoch: "snapshot-epoch-1",
+                last_reconciled_fresh_package,
+                accepted_replay_ledger,
+                known_historical_fresh_packages,
                 clean_restore_completed_at: restore_at,
+                validation_observed_at,
             },
         )
+    }
+
+    fn validate(
+        package: Stage5gFreshBrokerTruthPackageV1,
+    ) -> Result<Stage5gValidatedFreshBrokerTruthPackage, Stage5gFreshBrokerTruthError> {
+        validate_with_lineage(package, None, &[], &[])
+    }
+
+    fn reconciled_identity(
+        validated: &Stage5gValidatedFreshBrokerTruthPackage,
+    ) -> Stage5gReconciledFreshPackageIdentity {
+        Stage5gReconciledFreshPackageIdentity::validate(
+            validated.package_id.as_str(),
+            "snapshot-epoch-2",
+            validated.canonical_fingerprint_sha256(),
+        )
+        .expect("valid reconciled package identity")
     }
 
     #[test]
@@ -624,6 +920,7 @@ mod tests {
             first.canonical_fingerprint_sha256(),
             second.canonical_fingerprint_sha256()
         );
+        assert_eq!(first.lineage(), Stage5gFreshPackageLineage::NewFresh);
     }
 
     #[test]
@@ -636,17 +933,22 @@ mod tests {
     }
 
     #[test]
-    fn replayed_epoch_and_identity_mismatch_fail_closed() {
+    fn pre_restart_epoch_and_identity_mismatch_fail_closed() {
         let expected = identity();
         let package = package();
         let restore_at = package.captured_at - Duration::seconds(5);
+        let validation_observed_at = package.captured_at + Duration::seconds(1);
         let replayed_package = validate_stage5g_fresh_broker_truth_package(
             package.clone(),
             Stage5gFreshBrokerTruthValidationContext {
                 expected_operational_identity: &expected,
-                previous_package_id: "fresh-package-1",
-                previous_snapshot_epoch: "snapshot-epoch-1",
+                pre_restart_package_id: "fresh-package-1",
+                pre_restart_snapshot_epoch: "snapshot-epoch-1",
+                last_reconciled_fresh_package: None,
+                accepted_replay_ledger: &[],
+                known_historical_fresh_packages: &[],
                 clean_restore_completed_at: restore_at,
+                validation_observed_at,
             },
         );
         assert_eq!(
@@ -658,9 +960,13 @@ mod tests {
             package.clone(),
             Stage5gFreshBrokerTruthValidationContext {
                 expected_operational_identity: &expected,
-                previous_package_id: "fresh-package-0",
-                previous_snapshot_epoch: "snapshot-epoch-2",
+                pre_restart_package_id: "fresh-package-0",
+                pre_restart_snapshot_epoch: "snapshot-epoch-2",
+                last_reconciled_fresh_package: None,
+                accepted_replay_ledger: &[],
+                known_historical_fresh_packages: &[],
                 clean_restore_completed_at: restore_at,
+                validation_observed_at,
             },
         );
         assert_eq!(
@@ -674,9 +980,13 @@ mod tests {
             package,
             Stage5gFreshBrokerTruthValidationContext {
                 expected_operational_identity: &wrong,
-                previous_package_id: "fresh-package-0",
-                previous_snapshot_epoch: "snapshot-epoch-1",
+                pre_restart_package_id: "fresh-package-0",
+                pre_restart_snapshot_epoch: "snapshot-epoch-1",
+                last_reconciled_fresh_package: None,
+                accepted_replay_ledger: &[],
+                known_historical_fresh_packages: &[],
                 clean_restore_completed_at: restore_at,
+                validation_observed_at,
             },
         );
         assert_eq!(
@@ -712,6 +1022,174 @@ mod tests {
         assert_eq!(
             validate(invalid_time).err(),
             Some(Stage5gFreshBrokerTruthError::RowSourceTimestampAfterReceipt)
+        );
+    }
+
+    #[test]
+    fn stale_pre_restore_order_trade_and_position_rows_fail_closed() {
+        let restore_at = package().captured_at - Duration::seconds(5);
+
+        let mut stale_order = package();
+        stale_order.orders[0].received_ts = restore_at - Duration::seconds(1);
+        stale_order.orders[0].source_ts = Some(restore_at - Duration::seconds(2));
+        assert_eq!(
+            validate(stale_order).err(),
+            Some(Stage5gFreshBrokerTruthError::RowReceivedBeforeCleanRestore)
+        );
+
+        let mut stale_trade = package();
+        stale_trade.trades[0].received_ts = restore_at - Duration::seconds(1);
+        stale_trade.trades[0].source_ts = restore_at - Duration::seconds(2);
+        assert_eq!(
+            validate(stale_trade).err(),
+            Some(Stage5gFreshBrokerTruthError::RowReceivedBeforeCleanRestore)
+        );
+
+        let mut stale_position = package();
+        stale_position.positions[0].received_ts = restore_at - Duration::seconds(1);
+        stale_position.positions[0].source_ts = Some(restore_at - Duration::seconds(2));
+        assert_eq!(
+            validate(stale_position).err(),
+            Some(Stage5gFreshBrokerTruthError::RowReceivedBeforeCleanRestore)
+        );
+    }
+
+    #[test]
+    fn complete_empty_section_requires_post_restore_observation() {
+        let mut missing_proof = package();
+        missing_proof.orders.clear();
+        missing_proof.orders_observed_at = missing_proof.captured_at - Duration::seconds(5);
+        assert_eq!(
+            validate(missing_proof).err(),
+            Some(Stage5gFreshBrokerTruthError::SectionNotObservedAfterRestore)
+        );
+
+        let mut valid_empty = package();
+        valid_empty.orders.clear();
+        let validated = validate(valid_empty).expect("post-restore empty section is evidence");
+        assert!(validated.all_sections_complete());
+    }
+
+    #[test]
+    fn semantic_position_duplicates_and_wildcard_bridge_fail_closed() {
+        let mut pair = package();
+        let mut wildcard = pair.positions[0].clone();
+        wildcard.instrument.venue_symbol = None;
+        pair.positions.push(wildcard.clone());
+        assert_eq!(
+            validate(pair).err(),
+            Some(Stage5gFreshBrokerTruthError::DuplicatePositionIdentity)
+        );
+
+        let mut bridge = package();
+        bridge.positions[0].instrument.venue_symbol = Some("IMOEXF-A@RTSX".to_owned());
+        let mut second_venue = bridge.positions[0].clone();
+        second_venue.instrument.venue_symbol = Some("IMOEXF-B@RTSX".to_owned());
+        bridge.positions.push(second_venue);
+        bridge.positions.push(wildcard);
+        assert_eq!(
+            validate(bridge).err(),
+            Some(Stage5gFreshBrokerTruthError::DuplicatePositionIdentity)
+        );
+    }
+
+    #[test]
+    fn invalid_json_identity_zero_generation_and_hash_fail_closed() {
+        let mut malformed_json = serde_json::to_value(package()).expect("package JSON");
+        malformed_json["operational_identity"]["broker_id"] = serde_json::json!(" finam-mock ");
+        let malformed_package: Stage5gFreshBrokerTruthPackageV1 =
+            serde_json::from_value(malformed_json).expect("raw DTO remains parseable");
+        assert_eq!(
+            validate(malformed_package).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut zero_generation = identity_input();
+        zero_generation.deployment_generation = 0;
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(zero_generation).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut malformed_hash = identity_input();
+        malformed_hash.config_fingerprint_sha256 = "not-a-sha256".to_owned();
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(malformed_hash).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+    }
+
+    #[test]
+    fn filled_incomplete_and_working_zero_remaining_fail_closed() {
+        let mut incomplete_fill = package();
+        incomplete_fill.orders[0].status = OrderStatus::Filled;
+        incomplete_fill.orders[0].lifecycle = BrokerOrderLifecycle::Terminal;
+        assert_eq!(
+            validate(incomplete_fill).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderQuantity)
+        );
+
+        let mut working_zero = package();
+        working_zero.orders[0].filled_qty = Decimal::ONE;
+        working_zero.orders[0].remaining_qty = Some(Decimal::ZERO);
+        assert_eq!(
+            validate(working_zero).err(),
+            Some(Stage5gFreshBrokerTruthError::InconsistentActiveZeroRemaining)
+        );
+    }
+
+    #[test]
+    fn malformed_native_id_and_missing_remaining_fail_closed() {
+        let mut malformed_id = package();
+        malformed_id.orders[0].broker_order_id = Some(BrokerOrderId::new(" ORDER-1 "));
+        assert_eq!(
+            validate(malformed_id).err(),
+            Some(Stage5gFreshBrokerTruthError::MalformedNativeId)
+        );
+
+        let mut missing_remaining = package();
+        missing_remaining.orders[0].remaining_qty = None;
+        assert_eq!(
+            validate(missing_remaining).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderQuantity)
+        );
+    }
+
+    #[test]
+    fn exact_last_replay_is_eligible_and_changed_fingerprint_conflicts() {
+        let original = package();
+        let first = validate(original.clone()).expect("new package");
+        let last = reconciled_identity(&first);
+        let exact = validate_with_lineage(original.clone(), Some(&last), &[], &[])
+            .expect("exact last replay");
+        assert_eq!(
+            exact.lineage(),
+            Stage5gFreshPackageLineage::ExactLastReconciledReplay
+        );
+
+        let mut changed = original;
+        changed.orders[0].limit_price = Some(Decimal::new(2209, 0));
+        assert_eq!(
+            validate_with_lineage(changed, Some(&last), &[], &[]).err(),
+            Some(Stage5gFreshBrokerTruthError::FreshPackageIdentityConflict)
+        );
+    }
+
+    #[test]
+    fn old_non_immediate_replay_requires_bounded_acceptance() {
+        let original = package();
+        let first = validate(original.clone()).expect("new package");
+        let known = reconciled_identity(&first);
+        assert_eq!(
+            validate_with_lineage(original.clone(), None, &[], std::slice::from_ref(&known)).err(),
+            Some(Stage5gFreshBrokerTruthError::HistoricalReplayNotAccepted)
+        );
+
+        let accepted = validate_with_lineage(original, None, std::slice::from_ref(&known), &[])
+            .expect("bounded accepted replay");
+        assert_eq!(
+            accepted.lineage(),
+            Stage5gFreshPackageLineage::ExactAcceptedHistoricalReplay
         );
     }
 

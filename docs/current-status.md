@@ -108,6 +108,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   R2-c-b and all live surfaces remain closed.
 - Stage 5G-c and its exact replay-package identity are independently accepted
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
+- Stage 5G-e-d-a R1 is the current implementation review candidate. Independent
+  review rejected the first e-d-a candidate at
+  `f44b154753ea8b60a73cfb6ee3b5e487263dcb3b` because post-restore section
+  freshness, semantic position ambiguity and replay lineage were not yet
+  sufficiently sealed. R1 adds per-section observation bounds, constructor-only
+  validated operational identity, broker-core semantic position deduplication,
+  strict canonical order quantities and separate pre-restart, last-reconciled
+  and bounded historical replay authorities. Stage 5G-e-d-b remains closed
+  pending independent R1 acceptance; no reducer or callback authority is added.
 - Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
   was rejected as submitted because ExactReplay advanced the committed
   checkpoint without synchronizing the continuing Stage 5G-c session. R1 at

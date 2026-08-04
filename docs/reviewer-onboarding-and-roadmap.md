@@ -70,31 +70,28 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-The active target is **Stage 5G-e-c R5 — full canonical restart package MAC
-coverage**, based directly on
-`3a9fd1106a064ed6c29b1a378cbc02da90b2efc1`.
+The active target is **Stage 5G-e-d-a R1 — fresh mock BrokerTruth input
+contract hardening**, a single clean successor to rejected candidate
+`f44b154753ea8b60a73cfb6ee3b5e487263dcb3b`.
 
-R4 correctly introduced an external 32-byte operator HMAC key but keyed only
-the Stage 5G source projection. R5 authenticates one versioned canonical
-semantic projection of the complete Stage 5D + Stage 5G restart package:
+R1 closes three input-boundary gaps before any reducer may exist:
 
-- package schema/checkpoint state and package instance identity;
-- revision, generation and persisted timestamp;
-- complete Stage 5D envelope semantics and source build identity;
-- runtime semantic/private state, watermarks and recovery indexes;
-- riskgate persistence and exact ledger evidence;
-- complete Stage 5G lifecycle, checkpoint and reconciliation authority.
+- every order/trade/position section proves a post-restore observation and all
+  row receipt timestamps are bounded by restore and that observation;
+- position ambiguity uses the accepted broker-core semantic instrument matcher,
+  including wildcard venue collisions;
+- pre-restart identity, last-reconciled identity/fingerprint and bounded
+  historical replay authority are separate and fail closed on changed content.
 
-Only circular transport-integrity fields are excluded. Twelve coherent-reseal
-attacks recompute all ordinary checksums and unkeyed hashes while retaining the
-old operator tag; each must fail specifically with
-`AuthenticatedLifecycleCommitmentMismatch` before runtime mutation.
+Validated operational identities are constructor-only; canonical order shape,
+quantity and lifecycle rules are enforced. Stage 5G-e-d-b remains closed, and
+R1 contains no reconciliation reducer, callback authority or runtime mutation.
 
 ## Deliberately closed surfaces
 
 The current stage does **not** authorize:
 
-- fresh BrokerTruth reconciliation after clean restore;
+- fresh BrokerTruth reconciliation reducer after clean restore;
 - the GRST01–GRST12 restart/reconciliation matrix;
 - Stage 5G-f protective completion;
 - Redis live consumer groups or a strategy command consumer;
@@ -102,26 +99,28 @@ The current stage does **not** authorize:
 - runtime-live, unattended execution or real orders;
 - Stage 6+, main merge or deployment.
 
-## Planned sequence after R5 acceptance
+## Planned sequence after e-d-a R1 acceptance
 
 The accepted Stage 5G plan remains the controlling sequence:
 
-1. Finish Stage 5G-e with fresh **mock** BrokerTruth reconciliation and the
-   deterministic GRST01–GRST12 restart matrix.
-2. Stage 5G-f: paper/mock protective target and stop completion for the eight
+1. Stage 5G-e-d-b: add the separately reviewed deterministic, mutation-safe
+   fresh **mock** BrokerTruth reducer and execute GRST01–GRST12.
+2. Stage 5G-e-d-c: export/restart/reconcile/re-export evidence and negative
+   closure matrix.
+3. Stage 5G-f: paper/mock protective target and stop completion for the eight
    frozen lifecycle cases; no native FINAM stop/SLTP/bracket placement.
-3. Stage 5G-g: freeze and reproduce the complete 54-case lifecycle matrix in
+4. Stage 5G-g: freeze and reproduce the complete 54-case lifecycle matrix in
    debug, release and parallel modes.
-4. Stage 5G-h: aggregate immutable acceptance and close Stage 5G.
-5. Request the explicit macro-roadmap transition out of Stage 5. Acceptance of
+5. Stage 5G-h: aggregate immutable acceptance and close Stage 5G.
+6. Request the explicit macro-roadmap transition out of Stage 5. Acceptance of
    Stage 5G alone does not open Stage 6.
-6. Stage 6: durable request/client/broker ID chain.
-7. Stage 7: runtime command consumer in paper/mock mode.
-8. Stage 8: separately authorized real FINAM execution under the command
+7. Stage 6: durable request/client/broker ID chain.
+8. Stage 7: runtime command consumer in paper/mock mode.
+9. Stage 8: separately authorized real FINAM execution under the command
    consumer.
-9. Stages 9–12: reconciliation loop, runtime-live readiness/observability,
+10. Stages 9–12: reconciliation loop, runtime-live readiness/observability,
    dual-broker shadow parity and first runtime-driven live micro.
-10. Stage 13: stop/SLTP/bracket, followed only later by instrument expansion
+11. Stage 13: stop/SLTP/bracket, followed only later by instrument expansion
     beyond the proven IMOEXF path.
 
 ## Recommended review reading order
