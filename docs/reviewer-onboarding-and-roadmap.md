@@ -70,22 +70,22 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-The active target is **Stage 5G-e-d-a R5 — whole-source, gate-command and
-handoff-provenance closure**, a single clean successor to rejected R4
-`49357a2d49d45ab6f5f9cb8b3f0e11dfb6b97c30`.
+The active target is **Stage 5G-e-d-a R6 — compilation-control and protected-tree
+closure**, a single clean successor to rejected R5
+`c84ee07c2700f04b5c070eab713598777d5195b6`.
 
-R1 through R4 closed the substantive input-boundary and direct reducer shape.
-R5 closes only the remaining acceptance-seal findings:
+R1 through R5 closed the substantive input boundary, direct reducer shape and
+`src`/gate/provenance seal. R6 closes only the compilation-control findings:
 
-- all 19 runtime-core Rust source files and the full target file are frozen;
-- code after the test module and reducers in sibling modules are rejected;
-- the exact ordered R5 command inventory is mutation-protected;
-- clean-tree, branch, parent, origin and gate-success handoff guards are bound;
-- the detached R4→R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
+- the accepted R5 tree is frozen outside the exact ten-file R6 allowlist;
+- root/package Cargo manifests, lockfile and workspace members are exact;
+- all 23 runtime Rust targets are fixed and alternate roots/build scripts fail;
+- repository-local Cargo config and compiler wrappers fail closed;
+- the detached R5→R4→R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
 
 Validated operational identities remain constructor-only; prior semantic fixes
-remain intact. Stage 5G-e-d-b remains closed pending independent R5 acceptance,
-and R5 contains no reconciliation reducer, callback authority or runtime mutation.
+remain intact. Stage 5G-e-d-b remains closed pending independent R6 acceptance,
+and R6 contains no reconciliation reducer, callback authority or runtime mutation.
 
 ## Deliberately closed surfaces
 

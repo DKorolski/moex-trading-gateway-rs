@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an immutable, origin-bound Stage 5G-e-d-a R5 review handoff."""
+"""Build an immutable, origin-bound Stage 5G-e-d-a R6 review handoff."""
 
 from __future__ import annotations
 
@@ -16,8 +16,20 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 HANDOFF_DIR = ROOT / "reports/handoff"
 BRANCH = "stage5g-lifecycle"
-STAGE = "5G-e-d-a-r5"
-REQUIRED_PARENT = "49357a2d49d45ab6f5f9cb8b3f0e11dfb6b97c30"
+STAGE = "5G-e-d-a-r6"
+REQUIRED_PARENT = "c84ee07c2700f04b5c070eab713598777d5195b6"
+EXPECTED_DELTA = [
+    ("M", "docs/current-status.md"),
+    ("M", "docs/reviewer-onboarding-and-roadmap.md"),
+    ("A", "docs/stage-5/stage5g-e-d-a-r6-protected-tree-freeze.json"),
+    ("M", "docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.json"),
+    ("M", "docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.md"),
+    ("M", "scripts/make_stage5g_ed_handoff_archive.py"),
+    ("A", "scripts/stage5g_eda_r6_check.py"),
+    ("A", "scripts/stage5g_eda_r6_gate.sh"),
+    ("A", "scripts/stage5g_eda_r6_negative_harness.py"),
+    ("A", "scripts/stage5g_eda_r6_preseal_check.py"),
+]
 
 
 def run_text(command: list[str]) -> str:
@@ -38,6 +50,17 @@ def validate_member(name: str) -> None:
         fail(f"secret/log member forbidden: {name}")
 
 
+def exact_delta() -> list[tuple[str, str]]:
+    output = run_text(["git", "diff", "--name-status", f"{REQUIRED_PARENT}..HEAD"])
+    rows: list[tuple[str, str]] = []
+    for line in output.splitlines():
+        fields = line.split("\t")
+        if len(fields) != 2 or fields[0] not in {"A", "M"}:
+            fail(f"unsupported changed-path row: {line}")
+        rows.append((fields[0], fields[1]))
+    return rows
+
+
 def main() -> None:
     status = run_text(["git", "status", "--porcelain", "--untracked-files=all"])
     if status:
@@ -49,13 +72,16 @@ def main() -> None:
     source_commit = source_ref[:7]
     parent_ref = run_text(["git", "rev-parse", "HEAD^"])
     if parent_ref != REQUIRED_PARENT:
-        fail(f"R5 must be one clean successor to {REQUIRED_PARENT}; got parent {parent_ref}")
+        fail(f"R6 must be one clean successor to {REQUIRED_PARENT}; got parent {parent_ref}")
     origin_ref = run_text(["git", "rev-parse", f"origin/{BRANCH}"])
     if origin_ref != source_ref:
         fail(f"origin/{BRANCH} must equal HEAD before packaging")
+    delta = exact_delta()
+    if delta != EXPECTED_DELTA:
+        fail(f"exact R6 changed-path allowlist drifted: {delta}")
 
     gate = subprocess.run(
-        ["bash", "scripts/stage5g_eda_r5_gate.sh"],
+        ["bash", "scripts/stage5g_eda_r6_gate.sh"],
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -63,7 +89,7 @@ def main() -> None:
     )
     if gate.returncode != 0:
         print(gate.stdout.decode(errors="replace"))
-        fail("stage5g_eda_r5_gate.sh failed")
+        fail("stage5g_eda_r6_gate.sh failed")
 
     archive_name = f"moex-trading-project-{source_commit}.zip"
     HANDOFF_DIR.mkdir(parents=True, exist_ok=True)
@@ -115,7 +141,7 @@ def main() -> None:
             "schema_version": 1,
             "stage": STAGE,
             "source_ref": source_ref,
-            "command": ["bash", "scripts/stage5g_eda_r5_gate.sh"],
+            "command": ["bash", "scripts/stage5g_eda_r6_gate.sh"],
             "exit_code": 0,
             "all_required_gates_passed": True,
         },
@@ -128,8 +154,8 @@ def main() -> None:
             json.dumps(source_manifest, indent=2, sort_keys=True).encode() + b"\n",
             0o644,
         ),
-        "stage5g-e-d-a-r5-gate-result.json": (gate_result, 0o644),
-        "stage5g-e-d-a-r5-gate-output.txt": (gate.stdout, 0o644),
+        "stage5g-e-d-a-r6-gate-result.json": (gate_result, 0o644),
+        "stage5g-e-d-a-r6-gate-output.txt": (gate.stdout, 0o644),
     }
     for name in generated:
         if name in payloads:
