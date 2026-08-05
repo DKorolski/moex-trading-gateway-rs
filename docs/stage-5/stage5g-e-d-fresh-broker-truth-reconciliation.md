@@ -1,11 +1,18 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R6 final compilation-control acceptance boundary
+## e-d-a R6 accepted boundary and e-d-b reducer
 
-This slice defines and validates the input contract only. It does not reconcile
-or mutate a runtime and cannot invoke a strategy callback. The validated package
-is crate-private, linear, non-serializable and carries no Redis, FINAM, HTTP,
+Stage 5G-e-d-a was independently accepted at
+`4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. Its validated package is
+crate-private, linear, non-serializable and carries no Redis, FINAM, HTTP,
 broker-dispatch or runtime-live authority.
+
+Stage 5G-e-d-b adds one child reducer. It consumes the accepted clean-restart
+capability and validated package, cross-binds account/strategy/config/target
+identity, classifies one frozen GRST case, and may construct one opaque
+in-memory candidate. The reducer retains both owning authorities in its linear
+result. It cannot apply the candidate, invoke a callback, mutate runtime or
+persistence, publish Redis data, call FINAM/HTTP or dispatch an order.
 
 The package wraps the accepted broker-neutral `BrokerOrderSnapshot`,
 `BrokerTradeSnapshot` and `BrokerPositionSnapshot` rows. It does not introduce a
@@ -91,7 +98,7 @@ The completion obligations are attached without renaming or removing a case:
 | `GRST11_FRESH_BROKER_TRUTH_OVERRIDES_STALE_HINT` | Fresh active/terminal truth overrides stale cancel/order hints; canceled, rejected and expired outcomes remain explicit. |
 | `GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION` | Missing, ambiguous or incomplete truth is never interpreted as broker absence. |
 
-## Dispositions reserved for e-d-b
+## Executable e-d-b dispositions
 
 The typed disposition vocabulary is frozen in e-d-a:
 
@@ -103,9 +110,10 @@ The typed disposition vocabulary is frozen in e-d-a:
 - `ManualInterventionRequired`;
 - `TerminalInconsistency`.
 
-No function in e-d-a returns one of these dispositions. Classification and the
-GRST01–12 executable reducer belong to e-d-b and require a separate review.
-Stage 5G-e-d-b remains closed pending independent R6 acceptance.
+The e-d-b reducer returns exactly one of these dispositions with a closed typed
+reason. GRST01–12 execute once in frozen order in focused debug/release tests.
+Exact replay is a semantic no-op, incomplete truth never means broker absence,
+and contradiction never produces a candidate.
 
 R6 is final e-d-a compilation-control acceptance closure. It does not change the
 production validation semantics accepted as substantively correct in R2–R5.
@@ -133,7 +141,9 @@ broker dispatch, runtime-live and real orders remain closed.
 
 ## Verification
 
-Primary current-HEAD gate: `bash scripts/stage5g_eda_r6_gate.sh`.
+The accepted predecessor gate is `bash scripts/stage5g_eda_r6_gate.sh` from a
+detached worktree at exact `4ece2c7...`. The current-head e-d-b gate is
+`bash scripts/stage5g_edb_gate.sh`.
 
 The R6 checker is the controlling strict current-HEAD superset. It freezes the
 complete accepted R5 project tree outside the exact ten-file R6 allowlist,
@@ -155,11 +165,12 @@ debug/release, the full
 `strategy-runtime-core` suite, formatting and clippy with warnings denied.
 
 The R6 checker also binds the exact ordered current gate command inventory and
-the immutable handoff builder hash. For lineage evidence the R5 gate runs the
+the immutable handoff builder hash. For lineage evidence the R6 gate runs the
 complete R5 gate from detached
 `c84ee07c2700f04b5c070eab713598777d5195b6`; that gate runs detached R4,
 R3, R2, R1, `f44b154` and accepted `b9db879` predecessors. Detached gates prove
-provenance in addition to, never instead of, current-HEAD R5 invariants.
+provenance in addition to, never instead of, the accepted R6 boundary and
+current-head e-d-b invariants.
 
 The historical `stage5g_ed_*` scripts are predecessor-only snapshot tools for
 `f44b154`, not the documented HEAD command.

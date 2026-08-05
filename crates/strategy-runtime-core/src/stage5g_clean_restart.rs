@@ -21,6 +21,7 @@ use crate::stage5d_persistence::{
     stage5d_reconstruct_runtime_from_clean_restart, Stage5dCanonicalEnvelopeExportInput,
     Stage5dCanonicalRestartCheckpointState, STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
 };
+use crate::stage5g_order_position::Stage5gFreshTruthRestartSlotProjection;
 use crate::stage5g_order_position::Stage5gOrderPositionState;
 use crate::{
     HybridIntradayRuntimeStrategy, Stage5dEnvelopeValidationError, Stage5dLifecycleWatermarks,
@@ -227,6 +228,28 @@ pub(crate) struct Stage5gNextReconciliationObservation {
     pub(crate) lifecycle_source_authority_sha256: String,
 }
 
+/// Immutable, consuming-boundary projection for Stage 5G-e-d-b.  It contains
+/// only accepted restart facts and no callback, runtime mutation, persistence
+/// or transport handle.
+#[derive(Serialize)]
+pub(crate) struct Stage5gFreshTruthRestartProjection {
+    pub(crate) lifecycle_kind: Stage5gCleanRestartLifecycleKind,
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) instrument_id: InstrumentId,
+    pub(crate) config_fingerprint_sha256: String,
+    pub(crate) strategy_state_fingerprint_sha256: String,
+    pub(crate) reconstructed_runtime_state_fingerprint_sha256: String,
+    pub(crate) callback_count: usize,
+    pub(crate) request_count: usize,
+    pub(crate) terminal_request_count: usize,
+    pub(crate) source_lifecycle_commit_sha256: String,
+    pub(crate) lifecycle_source_authority_sha256: String,
+    pub(crate) checkpoint: Stage5gTimerCheckpointEnvelope,
+    pub(crate) slots: Vec<Stage5gFreshTruthRestartSlotProjection>,
+    pub(crate) generated_intent_escrow_fingerprint_sha256: Option<String>,
+}
+
 impl Stage5gCleanRestartedCapability {
     pub fn lifecycle_kind(&self) -> Stage5gCleanRestartLifecycleKind {
         self.projection.lifecycle_kind
@@ -314,6 +337,55 @@ impl Stage5gCleanRestartedCapability {
                 .last_continuation_checkpoint_ts_utc_ms,
             source_lifecycle_commit_sha256,
             lifecycle_source_authority_sha256,
+        }
+    }
+
+    pub(crate) fn fresh_truth_reducer_projection(&self) -> Stage5gFreshTruthRestartProjection {
+        let observation = self.next_reconciliation_observation();
+        let slots = match &self.reconciliation_authority {
+            Stage5gValidatedReconciliationAuthority::TimerReady { .. } => Vec::new(),
+            Stage5gValidatedReconciliationAuthority::OrderPositionAwaitingCommitted {
+                state,
+                ..
+            } => Stage5gOrderPositionSession::stage5g_fresh_truth_restart_slots(state),
+        };
+        let generated_intent_escrow_fingerprint_sha256 = slots
+            .iter()
+            .filter(|slot| {
+                slot.broker_order_id.is_none()
+                    && slot.latest_order.is_none()
+                    && slot.trades.is_empty()
+                    && slot.position.is_none()
+            })
+            .collect::<Vec<_>>();
+        let generated_intent_escrow_fingerprint_sha256 =
+            (!generated_intent_escrow_fingerprint_sha256.is_empty()).then(|| {
+                semantic_sha256(&generated_intent_escrow_fingerprint_sha256)
+                    .expect("validated generated-intent escrow projection remains serializable")
+            });
+        Stage5gFreshTruthRestartProjection {
+            lifecycle_kind: observation.lifecycle_kind,
+            strategy_id: observation.strategy_id,
+            account_id: observation.account_id,
+            instrument_id: observation.instrument_id,
+            config_fingerprint_sha256: self.projection.binding.stage5c_config_fingerprint.clone(),
+            strategy_state_fingerprint_sha256: self
+                .projection
+                .strategy_state_fingerprint_sha256
+                .clone(),
+            reconstructed_runtime_state_fingerprint_sha256: self
+                .reconstructed_runtime_state_fingerprint_sha256(),
+            callback_count: observation.callback_count,
+            request_count: observation.request_count,
+            terminal_request_count: self
+                .reconciliation_authority
+                .summary()
+                .terminal_request_count,
+            source_lifecycle_commit_sha256: observation.source_lifecycle_commit_sha256,
+            lifecycle_source_authority_sha256: observation.lifecycle_source_authority_sha256,
+            checkpoint: self.reconciliation_authority.checkpoint().clone(),
+            slots,
+            generated_intent_escrow_fingerprint_sha256,
         }
     }
 }

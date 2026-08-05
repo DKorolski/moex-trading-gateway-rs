@@ -70,9 +70,11 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-The active target is **Stage 5G-e-d-a R6 — compilation-control and protected-tree
-closure**, a single clean successor to rejected R5
-`c84ee07c2700f04b5c070eab713598777d5195b6`.
+Stage 5G-e-d-a R6 was independently accepted and closed at
+`4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`.
+The active target is **Stage 5G-e-d-b — deterministic mutation-safe fresh mock
+BrokerTruth reducer and executable GRST01–GRST12 matrix**, as one clean
+successor to that accepted R6 boundary.
 
 R1 through R5 closed the substantive input boundary, direct reducer shape and
 `src`/gate/provenance seal. R6 closes only the compilation-control findings:
@@ -83,23 +85,24 @@ R1 through R5 closed the substantive input boundary, direct reducer shape and
 - repository-local Cargo config and compiler wrappers fail closed;
 - the detached R5→R4→R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
 
-Validated operational identities remain constructor-only; prior semantic fixes
-remain intact. Stage 5G-e-d-b remains closed pending independent R6 acceptance,
-and R6 contains no reconciliation reducer, callback authority or runtime mutation.
+Validated operational identities remain constructor-only. The e-d-b reducer
+performs classification and opaque candidate construction only. It retains both
+linear inputs, owns no callback or runtime mutation authority, and does not
+open persistence, Redis, FINAM, HTTP, dispatch or live execution.
 
 ## Deliberately closed surfaces
 
 The current stage does **not** authorize:
 
-- fresh BrokerTruth reconciliation reducer after clean restore;
-- the GRST01–GRST12 restart/reconciliation matrix;
+- application of an e-d-b owned reconciliation candidate;
+- Stage 5G-e-d-c export/restart/reconcile/re-export evidence;
 - Stage 5G-f protective completion;
 - Redis live consumer groups or a strategy command consumer;
 - FINAM HTTP POST/DELETE or broker dispatch/execution;
 - runtime-live, unattended execution or real orders;
 - Stage 6+, main merge or deployment.
 
-## Planned sequence after e-d-a R2 acceptance
+## Planned sequence after accepted e-d-a R6
 
 The accepted Stage 5G plan remains the controlling sequence:
 

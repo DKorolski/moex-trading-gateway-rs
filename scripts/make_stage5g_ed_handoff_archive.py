@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an immutable, origin-bound Stage 5G-e-d-a R6 review handoff."""
+"""Build an immutable, origin-bound Stage 5G-e-d-b review handoff."""
 
 from __future__ import annotations
 
@@ -16,19 +16,24 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 HANDOFF_DIR = ROOT / "reports/handoff"
 BRANCH = "stage5g-lifecycle"
-STAGE = "5G-e-d-a-r6"
-REQUIRED_PARENT = "c84ee07c2700f04b5c070eab713598777d5195b6"
+STAGE = "5G-e-d-b"
+REQUIRED_PARENT = "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47"
 EXPECTED_DELTA = [
+    ("M", "crates/strategy-runtime-core/src/stage5g_clean_restart.rs"),
+    ("M", "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs"),
+    ("A", "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs"),
+    ("M", "crates/strategy-runtime-core/src/stage5g_order_position.rs"),
     ("M", "docs/current-status.md"),
     ("M", "docs/reviewer-onboarding-and-roadmap.md"),
-    ("A", "docs/stage-5/stage5g-e-d-a-r6-protected-tree-freeze.json"),
+    ("A", "docs/stage-5/stage5g-e-d-b-reducer-contract.json"),
+    ("A", "docs/stage-5/stage5g-e-d-b-reducer-contract.md"),
     ("M", "docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.json"),
     ("M", "docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.md"),
     ("M", "scripts/make_stage5g_ed_handoff_archive.py"),
-    ("A", "scripts/stage5g_eda_r6_check.py"),
-    ("A", "scripts/stage5g_eda_r6_gate.sh"),
-    ("A", "scripts/stage5g_eda_r6_negative_harness.py"),
-    ("A", "scripts/stage5g_eda_r6_preseal_check.py"),
+    ("A", "scripts/stage5g_edb_check.py"),
+    ("A", "scripts/stage5g_edb_gate.sh"),
+    ("A", "scripts/stage5g_edb_negative_harness.py"),
+    ("A", "scripts/stage5g_edb_preseal_check.py"),
 ]
 
 
@@ -72,16 +77,16 @@ def main() -> None:
     source_commit = source_ref[:7]
     parent_ref = run_text(["git", "rev-parse", "HEAD^"])
     if parent_ref != REQUIRED_PARENT:
-        fail(f"R6 must be one clean successor to {REQUIRED_PARENT}; got parent {parent_ref}")
+        fail(f"e-d-b must be one clean successor to {REQUIRED_PARENT}; got parent {parent_ref}")
     origin_ref = run_text(["git", "rev-parse", f"origin/{BRANCH}"])
     if origin_ref != source_ref:
         fail(f"origin/{BRANCH} must equal HEAD before packaging")
     delta = exact_delta()
     if delta != EXPECTED_DELTA:
-        fail(f"exact R6 changed-path allowlist drifted: {delta}")
+        fail(f"exact e-d-b changed-path allowlist drifted: {delta}")
 
     gate = subprocess.run(
-        ["bash", "scripts/stage5g_eda_r6_gate.sh"],
+        ["bash", "scripts/stage5g_edb_gate.sh"],
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -89,7 +94,7 @@ def main() -> None:
     )
     if gate.returncode != 0:
         print(gate.stdout.decode(errors="replace"))
-        fail("stage5g_eda_r6_gate.sh failed")
+        fail("stage5g_edb_gate.sh failed")
 
     archive_name = f"moex-trading-project-{source_commit}.zip"
     HANDOFF_DIR.mkdir(parents=True, exist_ok=True)
@@ -141,7 +146,7 @@ def main() -> None:
             "schema_version": 1,
             "stage": STAGE,
             "source_ref": source_ref,
-            "command": ["bash", "scripts/stage5g_eda_r6_gate.sh"],
+            "command": ["bash", "scripts/stage5g_edb_gate.sh"],
             "exit_code": 0,
             "all_required_gates_passed": True,
         },
@@ -154,8 +159,8 @@ def main() -> None:
             json.dumps(source_manifest, indent=2, sort_keys=True).encode() + b"\n",
             0o644,
         ),
-        "stage5g-e-d-a-r6-gate-result.json": (gate_result, 0o644),
-        "stage5g-e-d-a-r6-gate-output.txt": (gate.stdout, 0o644),
+        "stage5g-e-d-b-gate-result.json": (gate_result, 0o644),
+        "stage5g-e-d-b-gate-output.txt": (gate.stdout, 0o644),
     }
     for name in generated:
         if name in payloads:

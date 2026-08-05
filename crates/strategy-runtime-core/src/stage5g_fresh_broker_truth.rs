@@ -17,6 +17,8 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod reducer;
+
 pub(crate) const STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION: u16 = 1;
 
 macro_rules! stage5g_string_identity {

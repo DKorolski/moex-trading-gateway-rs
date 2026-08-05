@@ -281,6 +281,22 @@ pub(crate) struct Stage5gOrderPositionState {
     last_continuation_checkpoint_ts_utc_ms: Option<i64>,
 }
 
+/// Minimal immutable view consumed by the Stage 5G-e-d-b reducer.  It is
+/// intentionally produced by the module that owns `Stage5gOrderPositionState`
+/// so the reducer never receives mutable state or broad field visibility.
+#[derive(Clone, Serialize)]
+pub(crate) struct Stage5gFreshTruthRestartSlotProjection {
+    pub(crate) request_id: String,
+    pub(crate) expected_client_order_id: ClientOrderId,
+    pub(crate) broker_order_id: Option<BrokerOrderId>,
+    pub(crate) side: Option<OrderSide>,
+    pub(crate) target_qty: Option<String>,
+    pub(crate) latest_order: Option<BrokerOrderSnapshot>,
+    pub(crate) trades: Vec<BrokerTradeSnapshot>,
+    pub(crate) position: Option<BrokerPositionSnapshot>,
+    pub(crate) terminal: bool,
+}
+
 /// Linear paper-only capability. It intentionally implements none of Clone,
 /// Copy, Debug, Display, Default, Serialize or Deserialize.
 pub struct Stage5gOrderPositionSession {
@@ -2434,6 +2450,29 @@ impl Stage5gOrderPositionSession {
             Self::stage5g_restart_summary_from_state(state, authoritative_callback_count);
         let expected_checkpoint = Self::stage5g_restart_checkpoint_from_state(state);
         expected_summary == *summary && expected_checkpoint == *checkpoint
+    }
+
+    pub(crate) fn stage5g_fresh_truth_restart_slots(
+        state: &Stage5gOrderPositionState,
+    ) -> Vec<Stage5gFreshTruthRestartSlotProjection> {
+        state
+            .slots
+            .iter()
+            .map(|slot| Stage5gFreshTruthRestartSlotProjection {
+                request_id: slot.ack.request_id.to_string(),
+                expected_client_order_id: slot.ack.expected_client_order_id.clone(),
+                broker_order_id: slot.broker_order_id.clone(),
+                side: slot.source.side.map(|side| match side {
+                    crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
+                    crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
+                }),
+                target_qty: slot.source.target_qty.map(|qty| qty.to_string()),
+                latest_order: slot.order_events.last().map(|event| event.order.clone()),
+                trades: slot.trades.clone(),
+                position: slot.position.as_ref().map(|(_, position)| position.clone()),
+                terminal: slot.terminal,
+            })
+            .collect()
     }
 
     pub fn summary(&self) -> Stage5gOrderPositionSummary {

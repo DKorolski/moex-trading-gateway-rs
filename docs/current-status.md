@@ -108,7 +108,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   R2-c-b and all live surfaces remain closed.
 - Stage 5G-c and its exact replay-package identity are independently accepted
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
-- Stage 5G-e-d-a R6 is the current final compilation-control review candidate. R1 at
+- Stage 5G-e-d-a R6 was independently accepted and closed at
+  `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. R1 at
   `9a3221602a902bc6207418f0131665a039d62768` closed the substantive freshness,
   semantic position, identity construction, order-shape and replay-lineage
   defects but was rejected because its current-HEAD checker was not a strict
@@ -129,8 +130,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   set, but did not cover alternate Cargo target roots or repository-local Cargo
   wrappers. R6 changes no Rust or Cargo semantics: it freezes the full accepted
   R5 project tree outside an exact ten-file allowlist, Cargo manifests/lockfile,
-  workspace topology and all 23 runtime Rust targets. Stage 5G-e-d-b remains closed
-  pending independent R6 acceptance; no reducer or callback authority is added.
+  workspace topology and all 23 runtime Rust targets. Stage 5G-e-d-b is the
+  current implementation candidate: one child reducer consumes the accepted
+  clean-restart and validated fresh-truth authorities, executes GRST01–GRST12,
+  and can construct only an opaque in-memory candidate. It cannot invoke a
+  callback, mutate runtime/persistence, publish Redis data, use FINAM/HTTP or
+  dispatch an order. Stage 5G-e-d-c remains closed pending independent e-d-b
+  acceptance.
 - Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
   was rejected as submitted because ExactReplay advanced the committed
   checkpoint without synchronizing the continuing Stage 5G-c session. R1 at
