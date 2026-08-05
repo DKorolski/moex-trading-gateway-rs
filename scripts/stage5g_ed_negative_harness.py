@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mutation harness proving that the Stage 5G-e-d-a checker fails closed."""
+"""Predecessor-only f44b154 mutation harness; not a current-HEAD gate."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_SNAPSHOT_REF = "f44b154753ea8b60a73cfb6ee3b5e487263dcb3b"
 CHECKER = ROOT / "scripts/stage5g_ed_check.py"
 FILES = [
     "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs",
@@ -55,6 +56,14 @@ def run_case(name: str, mutation) -> None:
 
 
 def main() -> None:
+    source_ref = subprocess.check_output(
+        ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
+    ).strip()
+    if source_ref != EXPECTED_SNAPSHOT_REF:
+        raise SystemExit(
+            "stage5g-ed-negative: PREDECESSOR-ONLY: run from detached f44b154 snapshot; "
+            "use stage5g_eda_r2_gate.sh on HEAD"
+        )
     cases = [
         (
             "renamed-frozen-grst-id",

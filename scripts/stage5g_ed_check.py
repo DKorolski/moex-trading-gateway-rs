@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Fail-closed source/contract checker for Stage 5G-e-d-a."""
+"""Predecessor-only Stage 5G-e-d-a snapshot checker for f44b154.
+
+This historical tool is intentionally incompatible with current HEAD. Use
+``stage5g_eda_r2_gate.sh`` for the controlling current-source gate.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -15,6 +20,7 @@ DESIGN = Path("docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.md")
 INVENTORY = Path("docs/stage-5/stage5g-lifecycle-entry-inventory.json")
 GATE = Path("scripts/stage5g_ed_gate.sh")
 ACCEPTED_EC_REF = "b9db87947723cf9c50e64b5fcc3b5ab30e857fd1"
+EXPECTED_SNAPSHOT_REF = "f44b154753ea8b60a73cfb6ee3b5e487263dcb3b"
 
 EXPECTED_IDS = [
     "GRST01_RESTART_BEFORE_ACK",
@@ -76,6 +82,16 @@ def main() -> None:
     parser.add_argument("--root", type=Path, default=Path.cwd())
     args = parser.parse_args()
     root = args.root.resolve()
+    try:
+        source_ref = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise SystemExit(
+            "stage5g-ed-check: PREDECESSOR-ONLY: run from detached f44b154 snapshot"
+        ) from error
+    require(source_ref == EXPECTED_SNAPSHOT_REF,
+            "PREDECESSOR-ONLY: expected detached f44b154 snapshot; use stage5g_eda_r2_gate.sh on HEAD")
 
     for relative in (SOURCE, LIB, CONTRACT, DESIGN, INVENTORY, GATE):
         require((root / relative).is_file(), f"missing {relative}")

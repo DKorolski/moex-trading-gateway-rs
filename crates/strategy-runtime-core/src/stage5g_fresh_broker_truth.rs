@@ -28,7 +28,7 @@ macro_rules! stage5g_string_identity {
         impl $name {
             fn parse(value: impl Into<String>) -> Result<Self, Stage5gFreshBrokerTruthError> {
                 let value = value.into();
-                if value.trim().is_empty() || value != value.trim() {
+                if !canonical_identity_token(&value) {
                     return Err(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity);
                 }
                 Ok(Self(value))
@@ -139,13 +139,13 @@ impl Stage5gOperationalIdentityV1 {
     pub(crate) fn validate(
         input: Stage5gOperationalIdentityInput,
     ) -> Result<Self, Stage5gFreshBrokerTruthError> {
-        if !canonical_nonempty(input.account_id.as_str())
-            || !canonical_nonempty(&input.target_instrument.symbol)
+        if !canonical_identity_token(input.account_id.as_str())
+            || !canonical_identity_token(&input.target_instrument.symbol)
             || input
                 .target_instrument
                 .venue_symbol
                 .as_deref()
-                .is_some_and(|value| !canonical_nonempty(value))
+                .is_some_and(|value| !canonical_identity_token(value))
         {
             return Err(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity);
         }
@@ -385,6 +385,11 @@ pub(crate) fn validate_stage5g_fresh_broker_truth_package(
         .map_err(|_| Stage5gFreshBrokerTruthError::EmptyPackageId)?;
     let snapshot_epoch = Stage5gSnapshotEpoch::parse(package.snapshot_epoch.clone())
         .map_err(|_| Stage5gFreshBrokerTruthError::EmptySnapshotEpoch)?;
+    if !canonical_identity_token(context.pre_restart_package_id)
+        || !canonical_identity_token(context.pre_restart_snapshot_epoch)
+    {
+        return Err(Stage5gFreshBrokerTruthError::InvalidReplayLedger);
+    }
     if package_id.as_str() == context.pre_restart_package_id {
         return Err(Stage5gFreshBrokerTruthError::ReplayedPackageId);
     }
@@ -695,12 +700,19 @@ fn validate_rows(
     Ok(())
 }
 
-fn canonical_nonempty(value: &str) -> bool {
-    !value.is_empty() && value == value.trim() && !value.chars().any(char::is_control)
+/// Canonical Stage 5G identity-token grammar: non-empty UTF-8 with no Unicode
+/// whitespace or control characters. Hyphen, colon and other visible Unicode
+/// scalar values serialize deterministically and remain allowed.
+fn canonical_identity_token(value: &str) -> bool {
+    !value.is_empty()
+        && value == value.trim()
+        && !value
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
 }
 
 fn canonical_native_id(value: &str) -> bool {
-    canonical_nonempty(value)
+    canonical_identity_token(value)
 }
 
 fn canonicalize_rows(package: &mut Stage5gFreshBrokerTruthPackageV1) {
@@ -1006,7 +1018,7 @@ mod tests {
     }
 
     #[test]
-    fn shared_client_id_and_invalid_chronology_fail_closed() {
+    fn shared_client_id_fails_closed() {
         let mut shared_client = package();
         let mut second = shared_client.orders[0].clone();
         second.broker_order_id = Some(BrokerOrderId::new("ORDER-2"));
@@ -1015,12 +1027,31 @@ mod tests {
             validate(shared_client).err(),
             Some(Stage5gFreshBrokerTruthError::DuplicateOrderIdentity)
         );
+    }
 
-        let mut invalid_time = package();
-        invalid_time.orders[0].source_ts =
-            Some(invalid_time.orders[0].received_ts + Duration::seconds(1));
+    #[test]
+    fn source_chronology_is_enforced_for_order_trade_and_position() {
+        let mut invalid_order = package();
+        invalid_order.orders[0].source_ts =
+            Some(invalid_order.orders[0].received_ts + Duration::seconds(1));
         assert_eq!(
-            validate(invalid_time).err(),
+            validate(invalid_order).err(),
+            Some(Stage5gFreshBrokerTruthError::RowSourceTimestampAfterReceipt)
+        );
+
+        let mut invalid_trade = package();
+        invalid_trade.trades[0].source_ts =
+            invalid_trade.trades[0].received_ts + Duration::seconds(1);
+        assert_eq!(
+            validate(invalid_trade).err(),
+            Some(Stage5gFreshBrokerTruthError::RowSourceTimestampAfterReceipt)
+        );
+
+        let mut invalid_position = package();
+        invalid_position.positions[0].source_ts =
+            Some(invalid_position.positions[0].received_ts + Duration::seconds(1));
+        assert_eq!(
+            validate(invalid_position).err(),
             Some(Stage5gFreshBrokerTruthError::RowSourceTimestampAfterReceipt)
         );
     }
@@ -1071,6 +1102,80 @@ mod tests {
     }
 
     #[test]
+    fn every_section_observation_is_bounded_by_restore_and_capture() {
+        let restore_offset = Duration::seconds(5);
+
+        let mut stale_orders = package();
+        stale_orders.orders_observed_at = stale_orders.captured_at - restore_offset;
+        assert_eq!(
+            validate(stale_orders).err(),
+            Some(Stage5gFreshBrokerTruthError::SectionNotObservedAfterRestore)
+        );
+        let mut stale_trades = package();
+        stale_trades.trades_observed_at = stale_trades.captured_at - restore_offset;
+        assert_eq!(
+            validate(stale_trades).err(),
+            Some(Stage5gFreshBrokerTruthError::SectionNotObservedAfterRestore)
+        );
+        let mut stale_positions = package();
+        stale_positions.positions_observed_at = stale_positions.captured_at - restore_offset;
+        assert_eq!(
+            validate(stale_positions).err(),
+            Some(Stage5gFreshBrokerTruthError::SectionNotObservedAfterRestore)
+        );
+
+        let mut future_orders = package();
+        future_orders.orders_observed_at = future_orders.captured_at + Duration::seconds(1);
+        assert_eq!(
+            validate(future_orders).err(),
+            Some(Stage5gFreshBrokerTruthError::SectionObservedAfterPackageCapture)
+        );
+        let mut future_trades = package();
+        future_trades.trades_observed_at = future_trades.captured_at + Duration::seconds(1);
+        assert_eq!(
+            validate(future_trades).err(),
+            Some(Stage5gFreshBrokerTruthError::SectionObservedAfterPackageCapture)
+        );
+        let mut future_positions = package();
+        future_positions.positions_observed_at =
+            future_positions.captured_at + Duration::seconds(1);
+        assert_eq!(
+            validate(future_positions).err(),
+            Some(Stage5gFreshBrokerTruthError::SectionObservedAfterPackageCapture)
+        );
+    }
+
+    #[test]
+    fn every_row_receipt_is_bounded_by_its_section_observation() {
+        let mut late_order = package();
+        late_order.orders[0].received_ts =
+            late_order.orders_observed_at + Duration::milliseconds(1);
+        late_order.orders[0].source_ts = Some(late_order.orders_observed_at);
+        assert_eq!(
+            validate(late_order).err(),
+            Some(Stage5gFreshBrokerTruthError::RowTimestampAfterSectionObservation)
+        );
+
+        let mut late_trade = package();
+        late_trade.trades[0].received_ts =
+            late_trade.trades_observed_at + Duration::milliseconds(1);
+        late_trade.trades[0].source_ts = late_trade.trades_observed_at;
+        assert_eq!(
+            validate(late_trade).err(),
+            Some(Stage5gFreshBrokerTruthError::RowTimestampAfterSectionObservation)
+        );
+
+        let mut late_position = package();
+        late_position.positions[0].received_ts =
+            late_position.positions_observed_at + Duration::milliseconds(1);
+        late_position.positions[0].source_ts = Some(late_position.positions_observed_at);
+        assert_eq!(
+            validate(late_position).err(),
+            Some(Stage5gFreshBrokerTruthError::RowTimestampAfterSectionObservation)
+        );
+    }
+
+    #[test]
     fn semantic_position_duplicates_and_wildcard_bridge_fail_closed() {
         let mut pair = package();
         let mut wildcard = pair.positions[0].clone();
@@ -1116,6 +1221,69 @@ mod tests {
         assert_eq!(
             Stage5gOperationalIdentityV1::validate(malformed_hash).err(),
             Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+    }
+
+    #[test]
+    fn canonical_identity_token_grammar_is_constructor_and_json_enforced() {
+        for invalid in [
+            " token",
+            "token ",
+            "token with-space",
+            "token\twith-tab",
+            "token\nwith-newline",
+            "token\u{7f}with-control",
+            "",
+        ] {
+            assert_eq!(
+                Stage5gBrokerId::parse(invalid).err(),
+                Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity),
+                "invalid token survived: {invalid:?}"
+            );
+        }
+        assert_eq!(
+            Stage5gBrokerId::parse("finam-mock:gateway-1")
+                .expect("visible hyphen/colon token")
+                .as_str(),
+            "finam-mock:gateway-1"
+        );
+
+        let mut malformed_json = serde_json::to_value(package()).expect("package JSON");
+        malformed_json["operational_identity"]["strategy_instance_id"] =
+            serde_json::json!("hybrid\ninstance");
+        let malformed_package: Stage5gFreshBrokerTruthPackageV1 =
+            serde_json::from_value(malformed_json).expect("raw DTO remains parseable");
+        assert_eq!(
+            validate(malformed_package).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut invalid_account = identity_input();
+        invalid_account.account_id = BrokerAccountId::new("ACC TEST");
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(invalid_account).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut invalid_instrument = identity_input();
+        invalid_instrument.target_instrument.venue_symbol = Some("IMOEXF\tRTSX".to_owned());
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(invalid_instrument).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut invalid_package_id = package();
+        invalid_package_id.package_id = "package with-space".to_owned();
+        assert_eq!(
+            validate(invalid_package_id).err(),
+            Some(Stage5gFreshBrokerTruthError::EmptyPackageId)
+        );
+
+        let mut invalid_epoch = package();
+        invalid_epoch.snapshot_epoch = "snapshot\tepoch".to_owned();
+        assert_eq!(
+            validate(invalid_epoch).err(),
+            Some(Stage5gFreshBrokerTruthError::EmptySnapshotEpoch)
         );
     }
 

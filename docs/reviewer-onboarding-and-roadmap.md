@@ -70,22 +70,23 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-The active target is **Stage 5G-e-d-a R1 — fresh mock BrokerTruth input
-contract hardening**, a single clean successor to rejected candidate
-`f44b154753ea8b60a73cfb6ee3b5e487263dcb3b`.
+The active target is **Stage 5G-e-d-a R2 — current-HEAD contract/gate closure**,
+a single clean successor to rejected R1
+`9a3221602a902bc6207418f0131665a039d62768`.
 
-R1 closes three input-boundary gaps before any reducer may exist:
+R1 closed the substantive input-boundary gaps. R2 closes the remaining
+acceptance-gate and identity-grammar findings before any reducer may exist:
 
-- every order/trade/position section proves a post-restore observation and all
-  row receipt timestamps are bounded by restore and that observation;
-- position ambiguity uses the accepted broker-core semantic instrument matcher,
-  including wildcard venue collisions;
-- pre-restart identity, last-reconciled identity/fingerprint and bounded
-  historical replay authority are separate and fail closed on changed content.
+- the current-HEAD checker binds exact ordered GRST, disposition and operational
+  identity contracts in both JSON and Rust;
+- all order/trade/position chronology predicates have focused witnesses and
+  independent negative mutations;
+- one canonical token grammar rejects internal Unicode whitespace/control for
+  Stage 5G, package, snapshot, account and instrument textual identities.
 
-Validated operational identities are constructor-only; canonical order shape,
-quantity and lifecycle rules are enforced. Stage 5G-e-d-b remains closed, and
-R1 contains no reconciliation reducer, callback authority or runtime mutation.
+Validated operational identities remain constructor-only; R1 semantic fixes
+remain intact. Stage 5G-e-d-b remains closed, and R2 contains no reconciliation
+reducer, callback authority or runtime mutation.
 
 ## Deliberately closed surfaces
 
@@ -99,7 +100,7 @@ The current stage does **not** authorize:
 - runtime-live, unattended execution or real orders;
 - Stage 6+, main merge or deployment.
 
-## Planned sequence after e-d-a R1 acceptance
+## Planned sequence after e-d-a R2 acceptance
 
 The accepted Stage 5G plan remains the controlling sequence:
 

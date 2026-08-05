@@ -2,9 +2,10 @@
   "schema_version": 1,
   "stage": "5G-e-d-a",
   "name": "fresh_mock_broker_truth_contract",
-  "status": "r1_implementation_review_candidate",
+  "status": "r2_implementation_review_candidate",
   "accepted_predecessor_commit": "b9db87947723cf9c50e64b5fcc3b5ab30e857fd1",
   "rejected_predecessor_commit": "f44b154753ea8b60a73cfb6ee3b5e487263dcb3b",
+  "rejected_r1_commit": "9a3221602a902bc6207418f0131665a039d62768",
   "contract": {
     "package_schema_version": 1,
     "package_identity_required": true,
@@ -24,6 +25,8 @@
     "filled_requires_complete_fill": true,
     "replay_lineage_split_required": true,
     "changed_fingerprint_conflict_required": true,
+    "canonical_identity_token_required": true,
+    "chronology_mutation_complete": true,
     "validated_package_serializable": false,
     "validated_package_owns_callback_authority": false
   },
@@ -66,7 +69,7 @@
   ],
   "restart_scenario_count": 12,
   "implemented_restart_case_ids": [],
-  "next_slice": "5G-e-d-b_after_independent_r1_acceptance",
+  "next_slice": "5G-e-d-b_after_independent_r2_acceptance",
   "closed_surfaces": {
     "reconciliation_reducer": false,
     "strategy_callback": false,

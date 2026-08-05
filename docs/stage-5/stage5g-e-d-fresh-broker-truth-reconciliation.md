@@ -1,6 +1,6 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R1 contract boundary
+## e-d-a R2 contract boundary
 
 This slice defines and validates the input contract only. It does not reconcile
 or mutate a runtime and cannot invoke a strategy callback. The validated package
@@ -41,8 +41,12 @@ fingerprint, instrument-map fingerprint, market-data generation,
 command-consumer generation and full target `InstrumentId`. A free-form source
 label is not accepted as identity authority. The validated identity types have
 no unchecked `Deserialize`; JSON first enters a raw DTO and must pass the typed
-constructor. Whitespace IDs, zero generations and malformed SHA-256 values are
-rejected.
+constructor. The canonical identity-token grammar requires a non-empty,
+already-trimmed UTF-8 token with no Unicode whitespace or control character
+anywhere. Visible hyphen and colon characters are allowed. This policy applies
+to Stage 5G string identities, package/snapshot identity, account, target symbol
+and optional venue symbol. Zero generations and malformed lowercase-hex SHA-256
+values are rejected.
 
 Replay authority is deliberately split. The pre-restart package/epoch prevents
 reuse of stale startup evidence. The last-reconciled identity permits only an
@@ -101,7 +105,7 @@ The typed disposition vocabulary is frozen in e-d-a:
 
 No function in e-d-a returns one of these dispositions. Classification and the
 GRST01–12 executable reducer belong to e-d-b and require a separate review.
-Stage 5G-e-d-b remains closed until independent acceptance of this R1 package.
+Stage 5G-e-d-b remains closed until independent acceptance of this R2 package.
 
 ## Next slices
 
@@ -115,13 +119,23 @@ broker dispatch, runtime-live and real orders remain closed.
 
 ## Verification
 
-The R1 review gate is `bash scripts/stage5g_eda_r1_gate.sh`. It runs the R1
-source checker and negative matrix, formatting, focused tests in debug and
-release, the full `strategy-runtime-core` library suite and clippy with warnings
-denied. It then runs the rejected predecessor's complete e-d-a gate from a
-detached `f44b154753ea8b60a73cfb6ee3b5e487263dcb3b` worktree. That predecessor
-gate in turn executes the inherited accepted Stage 5G-e-c gate from detached
-`b9db87947723cf9c50e64b5fcc3b5ab30e857fd1` source.
+Primary current-HEAD gate: `bash scripts/stage5g_eda_r2_gate.sh`.
+
+The R2 checker is a strict current-HEAD superset: it compares the exact ordered
+12 GRST IDs, seven reconciliation dispositions and twelve operational identity
+fields in JSON and Rust source. It independently pins every row-kind chronology
+guard and all three section observations; its mutation matrix covers frozen
+contract drift, each chronology class, token-grammar regression and forbidden
+authority opening. The gate runs focused tests in debug/release, the full
+`strategy-runtime-core` suite, formatting and clippy with warnings denied.
+
+For lineage evidence it then runs the complete R1 gate from detached
+`9a3221602a902bc6207418f0131665a039d62768`; that gate runs detached `f44b154`
+and accepted `b9db879` predecessors. Detached gates prove provenance in
+addition to, never instead of, the current-HEAD R2 invariants.
+
+The historical `stage5g_ed_*` scripts are predecessor-only snapshot tools for
+`f44b154`, not the documented HEAD command.
 
 The older standalone Stage 5D additive and repository-wide forbidden scanners
 remain historical hash-pinned tools: on the accepted Stage 5G predecessor they
