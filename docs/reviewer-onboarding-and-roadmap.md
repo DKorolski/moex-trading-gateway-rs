@@ -70,22 +70,22 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-The active target is **Stage 5G-e-d-a R4 — exact production-boundary and
-contract-map gate closure**, a single clean successor to rejected R3
-`2ebb097eab73708b142c0bc26da217f1404a81aa`.
+The active target is **Stage 5G-e-d-a R5 — whole-source, gate-command and
+handoff-provenance closure**, a single clean successor to rejected R4
+`49357a2d49d45ab6f5f9cb8b3f0e11dfb6b97c30`.
 
-R1 through R3 closed the substantive input-boundary gaps and direct reducer
-shape. R4 closes only the remaining acceptance-gate findings:
+R1 through R4 closed the substantive input-boundary and direct reducer shape.
+R5 closes only the remaining acceptance-seal findings:
 
-- the accepted production validator prefix is frozen by exact SHA-256;
-- the complete contract map and exact closed-surface dictionary are bound;
-- direct and alias-based reducer mutations are rejected;
-- omitted compound-quantity, identity and lineage witnesses are test-only;
-- the detached R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
+- all 19 runtime-core Rust source files and the full target file are frozen;
+- code after the test module and reducers in sibling modules are rejected;
+- the exact ordered R5 command inventory is mutation-protected;
+- clean-tree, branch, parent, origin and gate-success handoff guards are bound;
+- the detached R4→R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
 
 Validated operational identities remain constructor-only; prior semantic fixes
-remain intact. Stage 5G-e-d-b remains closed, and R4 contains no reconciliation
-reducer, callback authority or runtime mutation.
+remain intact. Stage 5G-e-d-b remains closed pending independent R5 acceptance,
+and R5 contains no reconciliation reducer, callback authority or runtime mutation.
 
 ## Deliberately closed surfaces
 

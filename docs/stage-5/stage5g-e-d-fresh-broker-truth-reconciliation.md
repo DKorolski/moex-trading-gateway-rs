@@ -1,6 +1,6 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R4 contract boundary
+## e-d-a R5 final acceptance boundary
 
 This slice defines and validates the input contract only. It does not reconcile
 or mutate a runtime and cannot invoke a strategy callback. The validated package
@@ -105,11 +105,15 @@ The typed disposition vocabulary is frozen in e-d-a:
 
 No function in e-d-a returns one of these dispositions. Classification and the
 GRST01–12 executable reducer belong to e-d-b and require a separate review.
-Stage 5G-e-d-b remains closed until independent acceptance of this R4 package.
+Stage 5G-e-d-b remains closed pending independent R5 acceptance.
 
-R4 is acceptance/gate closure only. It does not change the production validation
-semantics accepted as substantively correct in R2/R3. Production fresh BrokerTruth validator remains frozen at the exact
-prefix SHA-256 recorded in `stage5g-e-d-a-r4-production-freeze.json`. The
+R5 is final e-d-a acceptance/gate closure only. It does not change the production
+validation semantics accepted as substantively correct in R2/R3/R4.
+All strategy-runtime-core Rust source remains byte-frozen to R4. This is bound through the exact
+19-file source manifest in
+`stage5g-e-d-a-r5-runtime-core-source-freeze.json`. The production fresh
+BrokerTruth validator also remains frozen at the exact prefix SHA-256 recorded
+in `stage5g-e-d-a-r4-production-freeze.json`. The
 explicit current-HEAD inventory in
 `stage5g-e-d-a-r3-current-head-invariants.json` binds every inherited package,
 chronology, row-authority, quantity, shape, duplicate and replay-ledger guard to
@@ -128,11 +132,13 @@ broker dispatch, runtime-live and real orders remain closed.
 
 ## Verification
 
-Primary current-HEAD gate: `bash scripts/stage5g_eda_r4_gate.sh`.
+Primary current-HEAD gate: `bash scripts/stage5g_eda_r5_gate.sh`.
 
-The R4 checker is the controlling strict current-HEAD superset. Its primary
-proof is the exact accepted production-prefix hash, so every production guard,
-import, alias and authority surface fails closed on any byte drift. It also
+The R5 checker is the controlling strict current-HEAD superset. It freezes the
+complete accepted fresh-truth source file and every Rust source under
+`strategy-runtime-core`, so suffix code, sibling reducers, new files and module
+registration drift all fail closed. It retains the accepted production-prefix
+hash and also
 compares the complete contract truth map and exact closed-surface key/value map,
 and retains alias-aware reducer diagnostics. It compares the exact ordered
 12 GRST IDs, seven reconciliation dispositions and twelve operational identity
@@ -143,10 +149,12 @@ Rust source, not merely documentation drift. The gate runs focused tests in
 debug/release, the full
 `strategy-runtime-core` suite, formatting and clippy with warnings denied.
 
-For lineage evidence it then runs the complete R3 gate from detached
-`2ebb097eab73708b142c0bc26da217f1404a81aa`; that gate runs detached R2, R1,
-`f44b154` and accepted `b9db879` predecessors. Detached gates prove provenance
-in addition to, never instead of, the current-HEAD R4 invariants.
+The R5 checker also binds the exact ordered current gate command inventory and
+the immutable handoff builder hash. For lineage evidence the R5 gate runs the
+complete R4 gate from detached
+`49357a2d49d45ab6f5f9cb8b3f0e11dfb6b97c30`; that gate runs detached R3,
+R2, R1, `f44b154` and accepted `b9db879` predecessors. Detached gates prove
+provenance in addition to, never instead of, current-HEAD R5 invariants.
 
 The historical `stage5g_ed_*` scripts are predecessor-only snapshot tools for
 `f44b154`, not the documented HEAD command.
