@@ -1106,6 +1106,133 @@ mod tests {
     }
 
     #[test]
+    fn every_order_quantity_component_fails_closed() {
+        for qty in [Decimal::ZERO, -Decimal::ONE] {
+            let mut invalid = package();
+            invalid.orders[0].qty = qty;
+            assert_eq!(
+                validate(invalid).err(),
+                Some(Stage5gFreshBrokerTruthError::InvalidOrderQuantity),
+                "order quantity survived: {qty}"
+            );
+        }
+
+        let mut negative_filled = package();
+        negative_filled.orders[0].filled_qty = -Decimal::ONE;
+        assert_eq!(
+            validate(negative_filled).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderQuantity)
+        );
+
+        let mut overfilled = package();
+        overfilled.orders[0].filled_qty = Decimal::new(2, 0);
+        assert_eq!(
+            validate(overfilled).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderQuantity)
+        );
+
+        let mut negative_remaining = package();
+        negative_remaining.orders[0].remaining_qty = Some(-Decimal::ONE);
+        assert_eq!(
+            validate(negative_remaining).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderQuantity)
+        );
+
+        let mut inconsistent_remaining = package();
+        inconsistent_remaining.orders[0].remaining_qty = Some(Decimal::new(2, 0));
+        assert_eq!(
+            validate(inconsistent_remaining).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderQuantity)
+        );
+    }
+
+    #[test]
+    fn identity_generations_target_and_instrument_map_hash_fail_closed() {
+        let mut invalid_target = identity_input();
+        invalid_target.target_instrument.symbol = "IMO EXF".to_owned();
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(invalid_target).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut zero_market_generation = identity_input();
+        zero_market_generation.market_data_generation = 0;
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(zero_market_generation).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut zero_command_generation = identity_input();
+        zero_command_generation.command_consumer_generation = 0;
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(zero_command_generation).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+
+        let mut malformed_instrument_map_hash = identity_input();
+        malformed_instrument_map_hash.instrument_map_fingerprint_sha256 = "not-a-sha256".to_owned();
+        assert_eq!(
+            Stage5gOperationalIdentityV1::validate(malformed_instrument_map_hash).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOperationalIdentity)
+        );
+    }
+
+    #[test]
+    fn invalid_pre_restart_identity_tokens_fail_closed() {
+        for (pre_restart_package_id, pre_restart_snapshot_epoch) in [
+            ("pre restart package", "snapshot-epoch-1"),
+            ("fresh-package-0", "pre restart epoch"),
+        ] {
+            let package = package();
+            let captured_at = package.captured_at;
+            let expected = identity();
+            let result = validate_stage5g_fresh_broker_truth_package(
+                package,
+                Stage5gFreshBrokerTruthValidationContext {
+                    expected_operational_identity: &expected,
+                    pre_restart_package_id,
+                    pre_restart_snapshot_epoch,
+                    last_reconciled_fresh_package: None,
+                    accepted_replay_ledger: &[],
+                    known_historical_fresh_packages: &[],
+                    clean_restore_completed_at: captured_at - Duration::seconds(5),
+                    validation_observed_at: captured_at + Duration::seconds(1),
+                },
+            );
+            assert_eq!(
+                result.err(),
+                Some(Stage5gFreshBrokerTruthError::InvalidReplayLedger)
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_idless_order_identity_fails_closed() {
+        let mut duplicate = package();
+        duplicate.orders[0].broker_order_id = None;
+        duplicate.orders[0].client_order_id = None;
+        duplicate.orders.push(duplicate.orders[0].clone());
+        assert_eq!(
+            validate(duplicate).err(),
+            Some(Stage5gFreshBrokerTruthError::DuplicateOrderIdentity)
+        );
+    }
+
+    #[test]
+    fn new_package_reusing_known_snapshot_epoch_fails_closed() {
+        let known = Stage5gReconciledFreshPackageIdentity::validate(
+            "known-package",
+            "snapshot-epoch-2",
+            "c".repeat(64),
+        )
+        .expect("known historical identity");
+        assert_eq!(
+            validate_with_lineage(package(), None, &[], std::slice::from_ref(&known)).err(),
+            Some(Stage5gFreshBrokerTruthError::ReusedFreshSnapshotEpoch)
+        );
+    }
+
+    #[test]
     fn complete_fresh_package_is_canonical_and_deterministic() {
         let first = validate(package()).expect("fresh package validates");
         let second = validate(package()).expect("same package validates");

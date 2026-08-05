@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "stage": "5G-e-d-a-r4",
+  "base_commit": "2ebb097eab73708b142c0bc26da217f1404a81aa",
+  "source_path": "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs",
+  "production_test_boundary_marker": "#[cfg(test)]\nmod tests {",
+  "boundary_marker_occurrences": 1,
+  "accepted_production_prefix_line_count": 766,
+  "accepted_production_prefix_sha256": "f2c1d9d104e3351e5d3c0eef300ca8e27081cb7568bd32e6eac8e0f421bd359f",
+  "production_validator_frozen": true,
+  "test_only_successor_changes_allowed": true,
+  "implemented_restart_case_ids": [],
+  "stage5g_e_d_b_open": false
+}

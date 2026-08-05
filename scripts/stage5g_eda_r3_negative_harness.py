@@ -69,8 +69,8 @@ def run_case(name: str, mutation) -> None:
         print(f"PASS {name}")
 
 
-def main() -> None:
-    cases = [
+def mutation_cases() -> list[tuple[str, object]]:
+    return [
         ("drop-json-disposition", lambda root: replace_once(
             root, CONTRACT, ',\n    "TerminalInconsistency"', "")),
         ("rename-rust-disposition", lambda root: replace_once(
@@ -217,6 +217,10 @@ def main() -> None:
             'Self::Grst07RestartAtTimerCheckpoint => "GRST07_RESTART_AT_TIMER_CHECKPOINT"',
             'Self::Grst07RestartAtTimerCheckpoint => "GRST07_RESTART_AT_TIMER_CHECKPOINT_DRIFT"')),
     ]
+
+
+def main() -> None:
+    cases = mutation_cases()
     for name, mutation in cases:
         run_case(name, mutation)
     if len(cases) < 42:

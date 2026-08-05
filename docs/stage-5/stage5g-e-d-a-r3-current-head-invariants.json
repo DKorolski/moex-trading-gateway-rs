@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-a-r3",
-  "base_commit": "8384a13bc8b7babcb11f6f5bb0f717f1a6c70388",
-  "status": "gate_only_review_candidate",
+  "stage": "5G-e-d-a-r4",
+  "base_commit": "2ebb097eab73708b142c0bc26da217f1404a81aa",
+  "status": "r4_prefix_frozen_gate_only_review_candidate",
   "implemented_restart_case_ids": [],
   "invariants": [
     {"invariant_id":"package_schema_version","production_anchor":"package.schema_version != STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION","focused_rust_witness":"fn package_schema_and_capture_window_fail_closed","negative_mutation_id":"remove-schema-version-guard"},
@@ -43,7 +43,20 @@
     {"invariant_id":"unique_client_order_id","production_anchor":"!client_order_ids.insert(id.as_str().to_owned())","focused_rust_witness":"fn shared_client_id_fails_closed","negative_mutation_id":"remove-unique-client-order-rule"},
     {"invariant_id":"unique_broker_trade_id","production_anchor":"!trade_ids.insert(trade.broker_trade_id.as_str().to_owned())","focused_rust_witness":"fn trade_identity_quantity_and_price_fail_closed","negative_mutation_id":"remove-unique-trade-rule"},
     {"invariant_id":"semantic_position_identity_unique","production_anchor":"instrument_identity_matches(&previous.instrument, &position.instrument)","focused_rust_witness":"fn semantic_position_duplicates_and_wildcard_bridge_fail_closed","negative_mutation_id":"restore-strict-position-key-dedup"},
-    {"invariant_id":"replay_ledger_id_epoch_unique","production_anchor":"!ids.insert(entry.package_id.as_str()) || !epochs.insert(entry.snapshot_epoch.as_str())","focused_rust_witness":"fn replay_ledger_rejects_duplicate_package_or_epoch_identity","negative_mutation_id":"remove-replay-ledger-uniqueness-rule"}
+    {"invariant_id":"replay_ledger_id_epoch_unique","production_anchor":"!ids.insert(entry.package_id.as_str()) || !epochs.insert(entry.snapshot_epoch.as_str())","focused_rust_witness":"fn replay_ledger_rejects_duplicate_package_or_epoch_identity","negative_mutation_id":"remove-replay-ledger-uniqueness-rule"},
+    {"invariant_id":"account_token_application","production_anchor":"!canonical_identity_token(input.account_id.as_str())","focused_rust_witness":"fn canonical_identity_token_grammar_is_constructor_and_json_enforced","negative_mutation_id":"remove-account-token-application"},
+    {"invariant_id":"target_symbol_token_application","production_anchor":"!canonical_identity_token(&input.target_instrument.symbol)","focused_rust_witness":"fn identity_generations_target_and_instrument_map_hash_fail_closed","negative_mutation_id":"remove-target-symbol-token-application"},
+    {"invariant_id":"pre_restart_token_application","production_anchor":"!canonical_identity_token(context.pre_restart_package_id)","focused_rust_witness":"fn invalid_pre_restart_identity_tokens_fail_closed","negative_mutation_id":"remove-pre-restart-token-application"},
+    {"invariant_id":"order_quantity_positive","production_anchor":"order.qty <= Decimal::ZERO","focused_rust_witness":"fn every_order_quantity_component_fails_closed","negative_mutation_id":"remove-order-positive-qty"},
+    {"invariant_id":"order_filled_nonnegative","production_anchor":"order.filled_qty < Decimal::ZERO","focused_rust_witness":"fn every_order_quantity_component_fails_closed","negative_mutation_id":"remove-order-negative-filled"},
+    {"invariant_id":"order_not_overfilled","production_anchor":"order.filled_qty > order.qty","focused_rust_witness":"fn every_order_quantity_component_fails_closed","negative_mutation_id":"remove-order-overfilled"},
+    {"invariant_id":"order_remaining_nonnegative","production_anchor":"remaining < Decimal::ZERO","focused_rust_witness":"fn every_order_quantity_component_fails_closed","negative_mutation_id":"remove-negative-remaining"},
+    {"invariant_id":"orphan_order_identity_unique","production_anchor":"!orphan_order_identities.insert(order_identity(order))","focused_rust_witness":"fn duplicate_idless_order_identity_fails_closed","negative_mutation_id":"remove-orphan-order-duplicate"},
+    {"invariant_id":"fresh_snapshot_epoch_not_reused","production_anchor":".any(|entry| entry.snapshot_epoch == *snapshot_epoch)","focused_rust_witness":"fn new_package_reusing_known_snapshot_epoch_fails_closed","negative_mutation_id":"remove-reused-snapshot-epoch"},
+    {"invariant_id":"known_historical_requires_acceptance","production_anchor":"return Err(Stage5gFreshBrokerTruthError::HistoricalReplayNotAccepted);","focused_rust_witness":"fn old_non_immediate_replay_requires_bounded_acceptance","negative_mutation_id":"allow-known-historical-unaccepted"},
+    {"invariant_id":"market_data_generation_nonzero","production_anchor":"Stage5gFeedGeneration::parse(input.market_data_generation)?","focused_rust_witness":"fn identity_generations_target_and_instrument_map_hash_fail_closed","negative_mutation_id":"remove-market-data-generation-validation"},
+    {"invariant_id":"command_generation_nonzero","production_anchor":"Stage5gFeedGeneration::parse(\n                input.command_consumer_generation","focused_rust_witness":"fn identity_generations_target_and_instrument_map_hash_fail_closed","negative_mutation_id":"remove-command-generation-validation"},
+    {"invariant_id":"instrument_map_sha256_valid","production_anchor":"Stage5gSha256::parse(\n                input.instrument_map_fingerprint_sha256","focused_rust_witness":"fn identity_generations_target_and_instrument_map_hash_fail_closed","negative_mutation_id":"remove-instrument-map-sha-validation"}
   ],
   "closed_surfaces": {
     "reconciliation_reducer": false,

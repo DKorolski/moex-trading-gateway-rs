@@ -108,7 +108,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   R2-c-b and all live surfaces remain closed.
 - Stage 5G-c and its exact replay-package identity are independently accepted
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
-- Stage 5G-e-d-a R3 is the current gate-only review candidate. R1 at
+- Stage 5G-e-d-a R4 is the current gate-only review candidate. R1 at
   `9a3221602a902bc6207418f0131665a039d62768` closed the substantive freshness,
   semantic position, identity construction, order-shape and replay-lineage
   defects but was rejected because its current-HEAD checker was not a strict
@@ -119,10 +119,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `8384a13bc8b7babcb11f6f5bb0f717f1a6c70388` was substantively correct but
   rejected because its current-HEAD checker omitted inherited guards, its
   reducer mutation changed only JSON, and it did not freeze ordered `ALL`.
-  R3 adds the explicit inherited-invariant inventory, missing focused witnesses,
-  a real Rust reducer mutation and exact ordered `ALL` enforcement.
-  Stage 5G-e-d-b remains closed pending independent R3 acceptance; no reducer
-  or callback authority is added.
+  R3 added the explicit inherited-invariant inventory, missing focused witnesses,
+  a real Rust reducer mutation and exact ordered `ALL` enforcement, but its gate
+  remained bypassable through aliases and omitted inherited contract/compound
+  guards. R4 freezes the accepted production prefix, binds the exact contract
+  and closed-surface maps, adds alias-aware diagnostics and completes test-only
+  witnesses. Stage 5G-e-d-b remains closed pending independent R4 acceptance;
+  no reducer or callback authority is added.
 - Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
   was rejected as submitted because ExactReplay advanced the committed
   checkpoint without synchronizing the continuing Stage 5G-c session. R1 at
