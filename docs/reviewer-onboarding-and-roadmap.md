@@ -70,22 +70,21 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-The active target is **Stage 5G-e-d-a R2 — current-HEAD contract/gate closure**,
-a single clean successor to rejected R1
-`9a3221602a902bc6207418f0131665a039d62768`.
+The active target is **Stage 5G-e-d-a R3 — inherited-invariant and reducer-surface
+gate closure**, a single clean successor to rejected R2
+`8384a13bc8b7babcb11f6f5bb0f717f1a6c70388`.
 
-R1 closed the substantive input-boundary gaps. R2 closes the remaining
-acceptance-gate and identity-grammar findings before any reducer may exist:
+R1 and R2 closed the substantive input-boundary gaps. R3 closes only the
+remaining acceptance-gate findings before any reducer may exist:
 
-- the current-HEAD checker binds exact ordered GRST, disposition and operational
-  identity contracts in both JSON and Rust;
-- all order/trade/position chronology predicates have focused witnesses and
-  independent negative mutations;
-- one canonical token grammar rejects internal Unicode whitespace/control for
-  Stage 5G, package, snapshot, account and instrument textual identities.
+- an explicit inventory binds each inherited safety invariant to source,
+  focused Rust evidence and one named mutation;
+- exact ordered `Stage5gRestartScenarioId::ALL` is frozen;
+- a compilable Rust reducer consuming validated truth is rejected structurally;
+- the detached R2→R1→f44→b9 chain remains mandatory lineage evidence.
 
-Validated operational identities remain constructor-only; R1 semantic fixes
-remain intact. Stage 5G-e-d-b remains closed, and R2 contains no reconciliation
+Validated operational identities remain constructor-only; R1/R2 semantic fixes
+remain intact. Stage 5G-e-d-b remains closed, and R3 contains no reconciliation
 reducer, callback authority or runtime mutation.
 
 ## Deliberately closed surfaces

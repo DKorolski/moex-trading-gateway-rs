@@ -917,10 +917,192 @@ mod tests {
         let ids = Stage5gRestartScenarioId::ALL
             .into_iter()
             .map(Stage5gRestartScenarioId::frozen_id)
-            .collect::<BTreeSet<_>>();
-        assert_eq!(ids.len(), 12);
-        assert!(ids.contains("GRST01_RESTART_BEFORE_ACK"));
-        assert!(ids.contains("GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION"));
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            vec![
+                "GRST01_RESTART_BEFORE_ACK",
+                "GRST02_RESTART_AFTER_ACK_BEFORE_ORDER",
+                "GRST03_RESTART_WITH_WORKING_ORDER",
+                "GRST04_RESTART_AFTER_PARTIAL_FILL",
+                "GRST05_RESTART_FILLED_BEFORE_POSITION",
+                "GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED",
+                "GRST07_RESTART_AT_TIMER_CHECKPOINT",
+                "GRST08_RESTART_WITH_GENERATED_INTENT_ESCROW",
+                "GRST09_EXACT_REPLAY_IS_IDEMPOTENT",
+                "GRST10_CONFLICTING_REPLAY_BLOCKS",
+                "GRST11_FRESH_BROKER_TRUTH_OVERRIDES_STALE_HINT",
+                "GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION",
+            ]
+        );
+    }
+
+    #[test]
+    fn package_schema_and_capture_window_fail_closed() {
+        let mut unsupported = package();
+        unsupported.schema_version += 1;
+        assert_eq!(
+            validate(unsupported).err(),
+            Some(Stage5gFreshBrokerTruthError::UnsupportedSchemaVersion)
+        );
+
+        let captured_at = package().captured_at;
+        for restore_at in [captured_at, captured_at + Duration::milliseconds(1)] {
+            let expected = identity();
+            let result = validate_stage5g_fresh_broker_truth_package(
+                package(),
+                Stage5gFreshBrokerTruthValidationContext {
+                    expected_operational_identity: &expected,
+                    pre_restart_package_id: "fresh-package-0",
+                    pre_restart_snapshot_epoch: "snapshot-epoch-1",
+                    last_reconciled_fresh_package: None,
+                    accepted_replay_ledger: &[],
+                    known_historical_fresh_packages: &[],
+                    clean_restore_completed_at: restore_at,
+                    validation_observed_at: captured_at + Duration::seconds(1),
+                },
+            );
+            assert_eq!(
+                result.err(),
+                Some(Stage5gFreshBrokerTruthError::PackageNotCapturedAfterRestore),
+                "capture at/before restore survived: {restore_at}"
+            );
+        }
+
+        let expected = identity();
+        let after_observation = package();
+        let captured_at = after_observation.captured_at;
+        let result = validate_stage5g_fresh_broker_truth_package(
+            after_observation,
+            Stage5gFreshBrokerTruthValidationContext {
+                expected_operational_identity: &expected,
+                pre_restart_package_id: "fresh-package-0",
+                pre_restart_snapshot_epoch: "snapshot-epoch-1",
+                last_reconciled_fresh_package: None,
+                accepted_replay_ledger: &[],
+                known_historical_fresh_packages: &[],
+                clean_restore_completed_at: captured_at - Duration::seconds(5),
+                validation_observed_at: captured_at - Duration::milliseconds(1),
+            },
+        );
+        assert_eq!(
+            result.err(),
+            Some(Stage5gFreshBrokerTruthError::PackageCapturedAfterValidation)
+        );
+    }
+
+    #[test]
+    fn each_broker_row_is_bound_to_the_package_account() {
+        let mut order_mismatch = package();
+        order_mismatch.orders[0].account_id = BrokerAccountId::new("ACC_OTHER");
+        assert_eq!(
+            validate(order_mismatch).err(),
+            Some(Stage5gFreshBrokerTruthError::RowAccountMismatch)
+        );
+
+        let mut trade_mismatch = package();
+        trade_mismatch.trades[0].account_id = BrokerAccountId::new("ACC_OTHER");
+        assert_eq!(
+            validate(trade_mismatch).err(),
+            Some(Stage5gFreshBrokerTruthError::RowAccountMismatch)
+        );
+
+        let mut position_mismatch = package();
+        position_mismatch.positions[0].account_id = BrokerAccountId::new("ACC_OTHER");
+        assert_eq!(
+            validate(position_mismatch).err(),
+            Some(Stage5gFreshBrokerTruthError::RowAccountMismatch)
+        );
+    }
+
+    #[test]
+    fn trade_identity_quantity_and_price_fail_closed() {
+        let mut duplicate = package();
+        duplicate.trades.push(duplicate.trades[0].clone());
+        assert_eq!(
+            validate(duplicate).err(),
+            Some(Stage5gFreshBrokerTruthError::DuplicateTradeIdentity)
+        );
+
+        for qty in [Decimal::ZERO, -Decimal::ONE] {
+            let mut invalid = package();
+            invalid.trades[0].qty = qty;
+            assert_eq!(
+                validate(invalid).err(),
+                Some(Stage5gFreshBrokerTruthError::InvalidTradeQuantity),
+                "trade quantity survived: {qty}"
+            );
+        }
+        for price in [Decimal::ZERO, -Decimal::ONE] {
+            let mut invalid = package();
+            invalid.trades[0].price = price;
+            assert_eq!(
+                validate(invalid).err(),
+                Some(Stage5gFreshBrokerTruthError::InvalidTradeQuantity),
+                "trade price survived: {price}"
+            );
+        }
+    }
+
+    #[test]
+    fn market_and_limit_order_shapes_fail_closed() {
+        let mut market_with_price = package();
+        market_with_price.orders[0].order_type = OrderType::Market;
+        assert_eq!(
+            validate(market_with_price).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderShape)
+        );
+
+        let mut limit_without_price = package();
+        limit_without_price.orders[0].limit_price = None;
+        assert_eq!(
+            validate(limit_without_price).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderShape)
+        );
+
+        let mut limit_with_zero_price = package();
+        limit_with_zero_price.orders[0].limit_price = Some(Decimal::ZERO);
+        assert_eq!(
+            validate(limit_with_zero_price).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidOrderShape)
+        );
+    }
+
+    #[test]
+    fn replay_ledger_rejects_duplicate_package_or_epoch_identity() {
+        let first = Stage5gReconciledFreshPackageIdentity::validate(
+            "ledger-package-a",
+            "ledger-epoch-a",
+            "a".repeat(64),
+        )
+        .expect("first ledger identity");
+        let duplicate_package = Stage5gReconciledFreshPackageIdentity::validate(
+            "ledger-package-a",
+            "ledger-epoch-b",
+            "b".repeat(64),
+        )
+        .expect("duplicate package identity");
+        assert_eq!(
+            validate_with_lineage(package(), None, &[first, duplicate_package], &[]).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidReplayLedger)
+        );
+
+        let first = Stage5gReconciledFreshPackageIdentity::validate(
+            "ledger-package-a",
+            "ledger-epoch-a",
+            "a".repeat(64),
+        )
+        .expect("first ledger identity");
+        let duplicate_epoch = Stage5gReconciledFreshPackageIdentity::validate(
+            "ledger-package-b",
+            "ledger-epoch-a",
+            "b".repeat(64),
+        )
+        .expect("duplicate epoch identity");
+        assert_eq!(
+            validate_with_lineage(package(), None, &[first, duplicate_epoch], &[]).err(),
+            Some(Stage5gFreshBrokerTruthError::InvalidReplayLedger)
+        );
     }
 
     #[test]

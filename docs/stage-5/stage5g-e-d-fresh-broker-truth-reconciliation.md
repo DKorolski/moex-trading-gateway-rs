@@ -1,6 +1,6 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R2 contract boundary
+## e-d-a R3 contract boundary
 
 This slice defines and validates the input contract only. It does not reconcile
 or mutate a runtime and cannot invoke a strategy callback. The validated package
@@ -105,7 +105,14 @@ The typed disposition vocabulary is frozen in e-d-a:
 
 No function in e-d-a returns one of these dispositions. Classification and the
 GRST01–12 executable reducer belong to e-d-b and require a separate review.
-Stage 5G-e-d-b remains closed until independent acceptance of this R2 package.
+Stage 5G-e-d-b remains closed until independent acceptance of this R3 package.
+
+R3 is gate-only closure. It does not change the production validation semantics
+accepted as substantively correct in R2. The explicit current-HEAD inventory in
+`stage5g-e-d-a-r3-current-head-invariants.json` binds every inherited package,
+chronology, row-authority, quantity, shape, duplicate and replay-ledger guard to
+a production anchor, focused Rust witness and named negative mutation.
+`implemented_restart_case_ids remains empty`; no GRST case executes in e-d-a.
 
 ## Next slices
 
@@ -119,20 +126,21 @@ broker dispatch, runtime-live and real orders remain closed.
 
 ## Verification
 
-Primary current-HEAD gate: `bash scripts/stage5g_eda_r2_gate.sh`.
+Primary current-HEAD gate: `bash scripts/stage5g_eda_r3_gate.sh`.
 
-The R2 checker is a strict current-HEAD superset: it compares the exact ordered
+The R3 checker is the controlling strict current-HEAD superset: it compares the exact ordered
 12 GRST IDs, seven reconciliation dispositions and twelve operational identity
-fields in JSON and Rust source. It independently pins every row-kind chronology
-guard and all three section observations; its mutation matrix covers frozen
-contract drift, each chronology class, token-grammar regression and forbidden
-authority opening. The gate runs focused tests in debug/release, the full
+fields in JSON and Rust source, including the exact ordered
+`Stage5gRestartScenarioId::ALL` array. It independently pins every inherited
+package/row guard and rejects an actual compilable reducer inserted into the
+Rust source, not merely documentation drift. The gate runs focused tests in
+debug/release, the full
 `strategy-runtime-core` suite, formatting and clippy with warnings denied.
 
-For lineage evidence it then runs the complete R1 gate from detached
-`9a3221602a902bc6207418f0131665a039d62768`; that gate runs detached `f44b154`
-and accepted `b9db879` predecessors. Detached gates prove provenance in
-addition to, never instead of, the current-HEAD R2 invariants.
+For lineage evidence it then runs the complete R2 gate from detached
+`8384a13bc8b7babcb11f6f5bb0f717f1a6c70388`; that gate runs detached R1,
+`f44b154` and accepted `b9db879` predecessors. Detached gates prove provenance
+in addition to, never instead of, the current-HEAD R3 invariants.
 
 The historical `stage5g_ed_*` scripts are predecessor-only snapshot tools for
 `f44b154`, not the documented HEAD command.
