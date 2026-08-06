@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-b-r4",
-  "accepted_base": "f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28",
+  "stage": "5G-e-d-b-r5",
+  "accepted_base": "66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd",
   "accepted_stage5g_e_d_a_r6": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
   "owning_entry_point": "reduce_stage5g_fresh_broker_truth",
   "child_module": "stage5g_fresh_broker_truth/reducer.rs",
@@ -117,6 +117,18 @@
     "immutable_target_order_payload_required": true,
     "minimum_negative_mutation_count": 225
   },
+  "r5_policy": {
+    "status_independent_exact_terminal_grst06": true,
+    "exact_terminal_statuses": ["Filled", "Rejected", "Canceled", "Expired"],
+    "same_status_canceled_expired_monotonic_advance": true,
+    "rejected_positive_fill_forbidden": true,
+    "filled_additional_fill_forbidden": true,
+    "cross_terminal_status_transition_forbidden": true,
+    "committed_trade_subset_and_payload_required": true,
+    "fresh_trade_sum_and_position_convergence_required": true,
+    "history_counts_on_missing_owned_and_conflict_paths": true,
+    "minimum_negative_mutation_count": 265
+  },
   "semantic_comparator_contract": {
     "terminal_order_fields": [
       "account_id",
@@ -182,10 +194,10 @@
     ]
   },
   "source_sha256": {
-    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "bd311b22dc4610c6a313afba306a535cbf1099f3949b1ca24a352bb7949d191a",
+    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "e08a60b313c64685cbc33dcf310b07d8f277f7648cc240f0a8742d699c116a40",
     "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs": "0ccd686136eca16a96d2ae1eaf2c5c4f5acd2f5e02936c6ccb72cd4c10b0a5d6",
     "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": "3f6b4e6863c300ba9eeb0d64279e6811cc271d171d10b4a313e407841d23701b",
-    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "5f06290d222b3c3e6f5ce84931a37b20178cda1f532cc71fea7b5f4b4506591b"
+    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "d29d82615b3dfec4f5165374459cc4a99928728f3af5985676c8b1662e94d561"
   },
   "closed_surfaces": {
     "strategy_callback": false,

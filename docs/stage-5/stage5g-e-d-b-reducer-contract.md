@@ -1,4 +1,4 @@
-# Stage 5G-e-d-b R4 — global history, flat, cancel authority and immutable payload hardening
+# Stage 5G-e-d-b R5 — terminal idempotency and monotonic supersession closure
 
 Accepted Stage 5G-e-d-a R6 predecessor: `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`.
 Rejected R2 base repaired by this direct successor:
@@ -10,8 +10,13 @@ account history was handled only after slot selection, flat had two competing
 representations, cancel target client authority could be inferred from the
 cancel command, and non-terminal target order payload drift was not fully
 sealed. R4 is one direct repair successor to that exact R3 commit.
+R4 at `66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd` closed all submitted R3
+findings but was rejected because exact terminal idempotency was nested only
+under Filled, safe same-status Canceled/Expired late fills could not advance,
+and missing-owned outcomes lost already classified history counts. R5 is one
+direct repair successor to that exact R4 commit.
 
-R4 keeps the original e-d-b scope: deterministic classification and opaque
+R5 keeps the original e-d-b scope: deterministic classification and opaque
 candidate construction only. It does not apply a candidate, invoke a strategy
 callback, mutate runtime or Stage 5D persistence, publish Redis data, call
 FINAM/HTTP, dispatch an order or open runtime-live.
@@ -95,8 +100,9 @@ self-consistency use the same helper.
 
 ## Status and completeness matrix
 
-- TimerReady continues only with complete positions, no target orders/trades
-  and exact committed target quantity.
+- TimerReady continues only with complete positions, no owned current
+  order/trade evidence, all other rows classified as harmless historical, and
+  exact committed target quantity.
 - New/Working requires complete position truth equal to committed pre-position;
   any fill or linked trade is a terminal contradiction.
 - PartiallyFilled requires complete position truth, exact trade sum, exact
@@ -108,11 +114,14 @@ self-consistency use the same helper.
   requires unchanged pre-position.
 
 Committed order status/fill quantity and committed trade IDs/payloads are
-monotonic. GRST06 requires semantic terminal order, immutable trade ledger,
-position and ownership identity equality. Receipt timestamps and volatile
-unrealized PnL are excluded from semantic equality, while independent post-
-restore chronology remains mandatory. Safe added fills/trades are GRST11, while any
-regression is GRST10/12 and cannot form a candidate.
+monotonic. Exact re-observation of Filled, Rejected, Canceled or Expired is one
+status-independent GRST06 rule and never creates a candidate. Receipt
+timestamps and volatile unrealized PnL are excluded from semantic equality,
+while independent post-restore chronology remains mandatory. A same-status
+Canceled or Expired order may advance to GRST11 only when added immutable
+trades exactly explain the larger fill and the complete canonical position
+converges. Rejected positive fills, Filled additional fills, status changes,
+trade disappearance/payload drift and fill regression remain blocking.
 
 Every source-to-fresh order comparison first verifies the exact immutable order
 payload: account, exact instrument, broker/client IDs, side, type, TIF,
@@ -142,11 +151,11 @@ Canonicalization is exercised with more than one trade row. Identical owning
 inputs produce byte-identical redacted evidence in sequential, reversed-row and
 parallel runs. Exact replay keeps pre/post semantic fingerprints identical.
 
-The mandatory gate runs the R4 checker, at least 225 named negative mutations,
+The mandatory gate runs the R5 checker, at least 265 named negative mutations,
 preseal, debug/release focused tests, the full runtime-core suite, formatting,
-clippy with warnings denied and the detached exact R3 predecessor gate, which
-retains the complete R2→R1→R6 lineage.
+clippy with warnings denied and the detached exact R4 predecessor gate, which
+retains the complete R3→R2→R1→R6 lineage.
 
-Stage 5G-e-d-c remains closed until independent R4 acceptance. Stage 5G-f,
+Stage 5G-e-d-c remains closed until independent R5 acceptance. Stage 5G-f,
 Redis consumer groups, FINAM transport, HTTP POST/DELETE, broker dispatch,
 runtime-live, real orders and Stage 6 remain closed.

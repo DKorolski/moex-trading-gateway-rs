@@ -140,7 +140,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   price authority, cancel identity, historical-row partitioning and semantic
   refresh. R3 at `f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28` was rejected on
   global no-slot history, canonical flat semantics, cancel target authority
-  provenance and immutable target-order payload monotonicity. R4 is the current
+  provenance and immutable target-order payload monotonicity. R4 at
+  `66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd` closed those findings but was
+  rejected because exact Rejected/Canceled/Expired truth still created a new
+  candidate, safe same-status Canceled/Expired late fills were blocked, and
+  missing-owned outcomes lost classified history counts. R5 is the current
   direct repair candidate. It retains the R2 restart-owned
   authority for all twelve operational identity fields, conservative replay
   hints without `ExactReplay`, account-wide order safety, source-action and
@@ -157,12 +161,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   before GRST01/GRST07, carries history counts without a candidate, canonicalizes
   complete empty and explicit-zero positions as flat, derives cancel target
   client authority only from accepted target-order evidence, and rejects drift
-  in every immutable target-order field before lifecycle progress. Authenticated owning
+  in every immutable target-order field before lifecycle progress. R5 makes
+  exact Filled/Rejected/Canceled/Expired re-observation one generic GRST06
+  no-candidate path. It permits GRST11 only for same-status Canceled/Expired
+  added immutable trades with exact fill sum, source intent and canonical
+  position convergence; Rejected fills, cross-status transitions and all
+  regressions remain blocking. Missing-owned and terminal-conflict outcomes now
+  retain already classified history counts. Authenticated owning
   fixtures exercise export/restore/validate/bind/reduce and GRST01–GRST12;
   multi-trade row order and parallel evidence are deterministic. It still
   cannot invoke a callback, mutate runtime/persistence, publish Redis data, use
   FINAM/HTTP or dispatch an order. Stage 5G-e-d-c remains closed pending
-  independent e-d-b R4 acceptance.
+  independent e-d-b R5 acceptance.
 - Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
   was rejected as submitted because ExactReplay advanced the committed
   checkpoint without synchronizing the continuing Stage 5G-c session. R1 at

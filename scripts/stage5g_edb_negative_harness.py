@@ -127,6 +127,12 @@ def cases() -> list[tuple[str, object]]:
         "stage5g_edb_r4_cancel_target_identity_conflicts_only_against_authenticated_authority",
         "stage5g_edb_r4_immutable_target_order_payload_cannot_drift",
         "stage5g_edb_r4_place_market_tif_is_immutable",
+        "stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06",
+        "stage5g_edb_r5_canceled_and_expired_late_fills_are_grst11_candidates",
+        "stage5g_edb_r5_terminal_late_fill_evidence_is_canonical_and_parallel",
+        "stage5g_edb_r5_terminal_late_fill_regressions_fail_closed",
+        "stage5g_edb_r5_rejected_fill_and_terminal_status_transitions_fail_closed",
+        "stage5g_edb_r5_missing_owned_and_terminal_conflict_retain_history_counts",
     ]:
         values.append((f"remove-r1-witness-{witness}", lambda root, witness=witness: replace_once(
             root, REDUCER, f"fn {witness}()", f"fn removed_{witness}()")))
@@ -326,6 +332,18 @@ def cases() -> list[tuple[str, object]]:
                        encoded=encoded, replacement=replacement: replace_once(
                            root, CONTRACT, f'    "{key}": {encoded}',
                            f'    "{key}": {replacement}')))
+    for key, value in checker.R5_POLICY.items():
+        encoded = json.dumps(value)
+        if isinstance(value, bool):
+            replacement = json.dumps(not value)
+        elif isinstance(value, int):
+            replacement = json.dumps(value - 1)
+        else:
+            replacement = json.dumps(list(reversed(value)))
+        values.append((f"drift-r5-policy-{key}", lambda root, key=key,
+                       encoded=encoded, replacement=replacement: replace_once(
+                           root, CONTRACT, f'    "{key}": {encoded}',
+                           f'    "{key}": {replacement}')))
     values.extend([
         ("remove-global-history-partition-helper", lambda root: replace_once(
             root, REDUCER, "fn stage5g_global_history_partition(",
@@ -411,6 +429,65 @@ def cases() -> list[tuple[str, object]]:
         ("remove-reduction-level-history-count", lambda root: replace_first(
             root, REDUCER, "ignored_unrelated_terminal_order_count: usize,",
             "removed_unrelated_terminal_order_count: usize,")),
+        ("remove-generic-exact-terminal-grst06", lambda root: replace_once(
+            root, REDUCER,
+            "&& progress == Stage5gSourceFreshProgress::ExactCommittedTerminal",
+            "&& false")),
+        ("drop-exact-terminal-source-shape-compatibility", lambda root: replace_once(
+            root, REDUCER, "&& exact_terminal_shape_is_compatible", "&& true")),
+        ("restrict-grst06-to-filled", lambda root: replace_once(
+            root, REDUCER,
+            "OrderStatus::Filled\n                | OrderStatus::Rejected\n                | OrderStatus::Canceled\n                | OrderStatus::Expired",
+            "OrderStatus::Filled")),
+        ("exact-rejected-creates-candidate", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06()",
+            "fn removed_stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06()")),
+        ("exact-canceled-creates-candidate", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06()",
+            "fn removed_stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06()")),
+        ("exact-expired-creates-candidate", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06()",
+            "fn removed_stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06()")),
+        ("block-safe-canceled-late-fill", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_canceled_and_expired_late_fills_are_grst11_candidates()",
+            "fn removed_stage5g_edb_r5_canceled_and_expired_late_fills_are_grst11_candidates()")),
+        ("block-safe-expired-late-fill", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_canceled_and_expired_late_fills_are_grst11_candidates()",
+            "fn removed_stage5g_edb_r5_canceled_and_expired_late_fills_are_grst11_candidates()")),
+        ("allow-rejected-late-fill", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_rejected_fill_and_terminal_status_transitions_fail_closed()",
+            "fn removed_stage5g_edb_r5_rejected_fill_and_terminal_status_transitions_fail_closed()")),
+        ("allow-terminal-status-transition", lambda root: replace_once(
+            root, REDUCER,
+            "fresh_order.status != committed_order.status",
+            "false")),
+        ("drop-terminal-added-trade-subset", lambda root: replace_once(
+            root, REDUCER, "for committed in &slot.trades", "for committed in &[]")),
+        ("drop-terminal-added-trade-payload-check", lambda root: replace_once(
+            root, REDUCER,
+            "stage5g_immutable_trade_payload_matches(committed, fresh)", "true")),
+        ("drop-terminal-new-trade-sum-check", lambda root: replace_once(
+            root, REDUCER,
+            "fresh_trade_sum == fresh_order.filled_qty", "true")),
+        ("drop-terminal-position-convergence", lambda root: replace_once(
+            root, REDUCER,
+            "observed_fresh_position == Some(expected_fresh_position)", "true")),
+        ("drop-terminal-source-intent-compatibility", lambda root: replace_once(
+            root, REDUCER, "&& source_intent_remains_compatible", "&& true")),
+        ("lose-history-count-on-missing-owned-order", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_missing_owned_and_terminal_conflict_retain_history_counts()",
+            "fn removed_stage5g_edb_r5_missing_owned_and_terminal_conflict_retain_history_counts()")),
+        ("lose-history-count-on-terminal-conflict", lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r5_missing_owned_and_terminal_conflict_retain_history_counts()",
+            "fn removed_stage5g_edb_r5_missing_owned_and_terminal_conflict_retain_history_counts()")),
     ])
     return values
 
@@ -438,7 +515,7 @@ def run_case(name: str, mutation) -> None:
 
 def main() -> None:
     matrix = cases()
-    if len(matrix) < 225 or len({name for name, _ in matrix}) != len(matrix):
+    if len(matrix) < 265 or len({name for name, _ in matrix}) != len(matrix):
         raise SystemExit("stage5g-edb-negative: FAIL: matrix count/names invalid")
     for name, mutation in matrix:
         run_case(name, mutation)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Current-head contract and closed-surface checker for Stage 5G-e-d-b R4."""
+"""Current-head contract and closed-surface checker for Stage 5G-e-d-b R5."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 
-BASE_REF = "f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28"
+BASE_REF = "66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd"
 ACCEPTED_R6_REF = "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47"
 CONTRACT = Path("docs/stage-5/stage5g-e-d-b-reducer-contract.json")
 MAIN_CONTRACT = Path("docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.json")
@@ -98,7 +98,7 @@ EXPECTED_DELTA = [
     ("M", "scripts/stage5g_edb_gate.sh"),
     ("M", "scripts/stage5g_edb_negative_harness.py"),
     ("M", "scripts/stage5g_edb_preseal_check.py"),
-    ("A", "scripts/stage5g_edb_r4_gate.sh"),
+    ("A", "scripts/stage5g_edb_r5_gate.sh"),
 ]
 
 R4_POLICY = {
@@ -112,6 +112,18 @@ R4_POLICY = {
     "cancel_target_authority_is_action_scoped": True,
     "immutable_target_order_payload_required": True,
     "minimum_negative_mutation_count": 225,
+}
+R5_POLICY = {
+    "status_independent_exact_terminal_grst06": True,
+    "exact_terminal_statuses": ["Filled", "Rejected", "Canceled", "Expired"],
+    "same_status_canceled_expired_monotonic_advance": True,
+    "rejected_positive_fill_forbidden": True,
+    "filled_additional_fill_forbidden": True,
+    "cross_terminal_status_transition_forbidden": True,
+    "committed_trade_subset_and_payload_required": True,
+    "fresh_trade_sum_and_position_convergence_required": True,
+    "history_counts_on_missing_owned_and_conflict_paths": True,
+    "minimum_negative_mutation_count": 265,
 }
 SEMANTIC_COMPARATOR_CONTRACT = {
     "terminal_order_fields": [
@@ -212,17 +224,18 @@ def check(root: Path, check_git: bool) -> None:
         Path("scripts/stage5g_edb_gate.sh"), Path("scripts/stage5g_edb_negative_harness.py"),
         Path("scripts/stage5g_edb_preseal_check.py"),
         Path("scripts/stage5g_edb_r3_gate.sh"), Path("scripts/stage5g_edb_r4_gate.sh"),
+        Path("scripts/stage5g_edb_r5_gate.sh"),
     ]:
         require((root / relative).is_file() and not (root / relative).is_symlink(),
                 f"required regular file missing: {relative}")
 
     if check_git:
         require(subprocess.check_output(["git", "rev-parse", "HEAD^"], cwd=root, text=True).strip() == BASE_REF,
-                "HEAD must be one direct successor to rejected e-d-b R3")
+                "HEAD must be one direct successor to rejected e-d-b R4")
         require(exact_git_delta(root) == EXPECTED_DELTA, "exact e-d-b changed-path allowlist drifted")
 
     contract = load_json(root, CONTRACT)
-    require(contract.get("stage") == "5G-e-d-b-r4", "contract stage drifted")
+    require(contract.get("stage") == "5G-e-d-b-r5", "contract stage drifted")
     require(contract.get("accepted_base") == BASE_REF, "accepted base drifted")
     require(contract.get("owning_entry_point") == "reduce_stage5g_fresh_broker_truth",
             "owning reducer entry drifted")
@@ -255,13 +268,14 @@ def check(root: Path, check_git: bool) -> None:
         "minimum_negative_mutation_count": 195,
     }, "R3 policy contract drifted")
     require(contract.get("r4_policy") == R4_POLICY, "R4 policy contract drifted")
+    require(contract.get("r5_policy") == R5_POLICY, "R5 policy contract drifted")
     require(contract.get("semantic_comparator_contract") == SEMANTIC_COMPARATOR_CONTRACT,
             "semantic comparator contract drifted")
 
     main = load_json(root, MAIN_CONTRACT)
-    require(main.get("stage") == "5G-e-d-b-r4", "main contract stage drifted")
-    require(main.get("rejected_stage5g_e_d_b_r3_commit") == BASE_REF,
-            "main contract rejected R3 binding drifted")
+    require(main.get("stage") == "5G-e-d-b-r5", "main contract stage drifted")
+    require(main.get("rejected_stage5g_e_d_b_r4_commit") == BASE_REF,
+            "main contract rejected R4 binding drifted")
     require(main.get("accepted_stage5g_e_d_a_r6_commit") == ACCEPTED_R6_REF,
             "main contract R6 binding drifted")
     require(main.get("implemented_restart_case_ids") == SCENARIOS,
@@ -276,6 +290,10 @@ def check(root: Path, check_git: bool) -> None:
         "action_scoped_cancel_target_authority_required",
         "immutable_target_order_monotonicity_required",
         "reduction_level_history_evidence_required",
+        "status_independent_exact_terminal_idempotency_required",
+        "same_status_terminal_late_fill_subset_required",
+        "terminal_status_transition_fail_closed_required",
+        "missing_owned_history_evidence_required",
     ]:
         require(main.get("contract", {}).get(key) is True,
                 f"main R4 contract property drifted: {key}")
@@ -367,6 +385,12 @@ def check(root: Path, check_git: bool) -> None:
         "global_account_history_partition_proven",
         "canonical_position_semantics_proven",
         "cancel_target_order_authority",
+        "same_status_terminal_advance_allowed",
+        "added_trade_set_is_complete",
+        "fresh_trade_sum == fresh_order.filled_qty",
+        "observed_fresh_position == Some(expected_fresh_position)",
+        "source_intent_remains_compatible",
+        "exact_terminal_shape_is_compatible",
     ]:
         require(marker in reducer, f"reducer invariant anchor missing: {marker}")
     for marker, minimum in [
@@ -460,6 +484,23 @@ def check(root: Path, check_git: bool) -> None:
     classify_body = reducer.split("fn classify(", 1)[1].split("fn disposition_id(", 1)[0]
     require("Stage5gRestartReconciliationDisposition::ExactReplay" not in classify_body,
             "ExactReplay reopened without authenticated fresh replay ledger")
+    owning_classify = classify_body.split("fn cross_binding_matches(", 1)[0]
+    # Anchor the R5 decision to its named compatibility proof. Earlier helper
+    # expressions also match on order.status, so splitting on the first textual
+    # match would inspect the wrong region while still compiling successfully.
+    exact_terminal_region = owning_classify.split(
+        "let exact_terminal_shape_is_compatible = match order.status", 1
+    )[1].split("match order.status {", 1)[0]
+    require(
+        "slot.terminal" in exact_terminal_region
+        and "progress == Stage5gSourceFreshProgress::ExactCommittedTerminal"
+        in exact_terminal_region
+        and all(
+            f"OrderStatus::{status}" in exact_terminal_region
+            for status in ["Filled", "Rejected", "Canceled", "Expired"]
+        ),
+        "status-independent exact-terminal GRST06 decision drifted",
+    )
     for marker in [
         "untrusted_last_reconciled_hint",
         "untrusted_accepted_replay_hints",
@@ -511,6 +552,12 @@ def check(root: Path, check_git: bool) -> None:
         "stage5g_edb_r4_cancel_target_identity_conflicts_only_against_authenticated_authority",
         "stage5g_edb_r4_immutable_target_order_payload_cannot_drift",
         "stage5g_edb_r4_place_market_tif_is_immutable",
+        "stage5g_edb_r5_all_exact_terminal_statuses_are_generic_grst06",
+        "stage5g_edb_r5_canceled_and_expired_late_fills_are_grst11_candidates",
+        "stage5g_edb_r5_terminal_late_fill_evidence_is_canonical_and_parallel",
+        "stage5g_edb_r5_terminal_late_fill_regressions_fail_closed",
+        "stage5g_edb_r5_rejected_fill_and_terminal_status_transitions_fail_closed",
+        "stage5g_edb_r5_missing_owned_and_terminal_conflict_retain_history_counts",
     ]:
         require(tests.count(f"fn {witness}()") == 1, f"focused witness drifted: {witness}")
 
@@ -528,6 +575,7 @@ def check(root: Path, check_git: bool) -> None:
         text = (root / relative).read_text()
         require("c5f84bb" in text, f"rejected e-d-b R2 reference missing: {relative}")
         require("f9bc372" in text, f"rejected e-d-b R3 reference missing: {relative}")
+        require("66c5fbd" in text, f"rejected e-d-b R4 reference missing: {relative}")
         require("4ece2c7" in text, f"accepted R6 reference missing: {relative}")
         require("Stage 5G-e-d-c" in text or "e-d-c" in text,
                 f"next closed e-d-c boundary missing: {relative}")
@@ -545,7 +593,7 @@ def check(root: Path, check_git: bool) -> None:
     for relative, expected in source_hashes.items():
         require(sha256(root / relative) == expected, f"source SHA drifted: {relative}")
 
-    print("stage5g-edb-check: PASS")
+    print("stage5g-edb-r5-check: PASS")
 
 
 def main() -> None:

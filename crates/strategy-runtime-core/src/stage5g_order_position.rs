@@ -7874,6 +7874,11 @@ pub(crate) mod tests {
         GeneratedCancelTargetAuthority,
         GeneratedFractionalIntentEscrow,
         TerminalPositionApplied,
+        TerminalRejected,
+        TerminalCanceledZero,
+        TerminalCanceledPartial,
+        TerminalExpiredZero,
+        TerminalExpiredPartial,
         TerminalFlatExplicit,
         TerminalFlatAbsent,
         ExactReplaySynchronized,
@@ -8048,6 +8053,11 @@ pub(crate) mod tests {
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
             }
             Stage5geCTestSourceKind::TerminalPositionApplied
+            | Stage5geCTestSourceKind::TerminalRejected
+            | Stage5geCTestSourceKind::TerminalCanceledZero
+            | Stage5geCTestSourceKind::TerminalCanceledPartial
+            | Stage5geCTestSourceKind::TerminalExpiredZero
+            | Stage5geCTestSourceKind::TerminalExpiredPartial
             | Stage5geCTestSourceKind::TerminalFlatExplicit
             | Stage5geCTestSourceKind::TerminalFlatAbsent => {
                 let mut session = apply_stage5g_order_position_evidence(
@@ -8084,24 +8094,60 @@ pub(crate) mod tests {
                     .last_mut()
                     .expect("terminal fixture order")
                     .order;
-                order.status = OrderStatus::Filled;
+                order.status = match kind {
+                    Stage5geCTestSourceKind::TerminalRejected => OrderStatus::Rejected,
+                    Stage5geCTestSourceKind::TerminalCanceledZero
+                    | Stage5geCTestSourceKind::TerminalCanceledPartial => OrderStatus::Canceled,
+                    Stage5geCTestSourceKind::TerminalExpiredZero
+                    | Stage5geCTestSourceKind::TerminalExpiredPartial => OrderStatus::Expired,
+                    _ => OrderStatus::Filled,
+                };
                 order.lifecycle = BrokerOrderSnapshot::lifecycle_for(&order.status);
-                order.filled_qty = order.qty;
-                order.remaining_qty = Some(Decimal::ZERO);
+                let partial = matches!(
+                    kind,
+                    Stage5geCTestSourceKind::TerminalCanceledPartial
+                        | Stage5geCTestSourceKind::TerminalExpiredPartial
+                );
+                let zero_fill = matches!(
+                    kind,
+                    Stage5geCTestSourceKind::TerminalRejected
+                        | Stage5geCTestSourceKind::TerminalCanceledZero
+                        | Stage5geCTestSourceKind::TerminalExpiredZero
+                );
+                order.filled_qty = if zero_fill {
+                    Decimal::ZERO
+                } else if partial {
+                    Decimal::new(4, 1)
+                } else {
+                    order.qty
+                };
+                order.remaining_qty = Some(order.qty - order.filled_qty);
                 if flat {
                     order.side = OrderSide::Sell;
                 }
                 let fill_qty = order.qty;
-                let trade = slot.trades.first_mut().expect("terminal fixture trade");
-                trade.qty = fill_qty;
-                if flat {
-                    trade.side = OrderSide::Sell;
+                if zero_fill {
+                    slot.trades.clear();
+                    slot.position = None;
+                } else {
+                    slot.trades.truncate(1);
+                    let trade = slot.trades.first_mut().expect("terminal fixture trade");
+                    trade.qty = order.filled_qty;
+                    if flat {
+                        trade.side = OrderSide::Sell;
+                    }
                 }
                 if matches!(kind, Stage5geCTestSourceKind::TerminalFlatAbsent) {
                     slot.position = None;
-                } else {
+                } else if !zero_fill {
                     let (_, position) = slot.position.as_mut().expect("terminal fixture position");
-                    position.qty = if flat { Decimal::ZERO } else { fill_qty };
+                    position.qty = if flat {
+                        Decimal::ZERO
+                    } else if partial {
+                        order.filled_qty
+                    } else {
+                        fill_qty
+                    };
                 }
                 slot.terminal = true;
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
@@ -8406,6 +8452,42 @@ pub(crate) mod tests {
             .expect("e-d-b terminal fixture exports authenticated restart bytes");
         crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
             .expect("e-d-b terminal fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_terminal_rejected_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        stage5g_edb_restored_terminal_status_fixture(Stage5geCTestSourceKind::TerminalRejected)
+    }
+
+    pub(crate) fn stage5g_edb_restored_terminal_canceled_fixture(
+        partial: bool,
+    ) -> crate::Stage5gCleanRestartedCapability {
+        stage5g_edb_restored_terminal_status_fixture(if partial {
+            Stage5geCTestSourceKind::TerminalCanceledPartial
+        } else {
+            Stage5geCTestSourceKind::TerminalCanceledZero
+        })
+    }
+
+    pub(crate) fn stage5g_edb_restored_terminal_expired_fixture(
+        partial: bool,
+    ) -> crate::Stage5gCleanRestartedCapability {
+        stage5g_edb_restored_terminal_status_fixture(if partial {
+            Stage5geCTestSourceKind::TerminalExpiredPartial
+        } else {
+            Stage5geCTestSourceKind::TerminalExpiredZero
+        })
+    }
+
+    fn stage5g_edb_restored_terminal_status_fixture(
+        kind: Stage5geCTestSourceKind,
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(kind);
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b status terminal fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b status terminal fixture reconstructs through accepted byte boundary")
     }
 
     pub(crate) fn stage5g_edb_restored_terminal_flat_fixture(

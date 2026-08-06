@@ -1,6 +1,6 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R6 accepted boundary and e-d-b R4 reducer
+## e-d-a R6 accepted boundary and e-d-b R5 reducer
 
 Stage 5G-e-d-a was independently accepted at
 `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. Its validated package is
@@ -17,8 +17,11 @@ rejected on LIMIT price authority, cancel correlation, historical-row
 partitioning and semantic refresh. R3 at
 `f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28` closed those findings but was
 rejected on global no-slot history, canonical flat semantics, cancel target
-authority provenance and immutable target-order payload monotonicity. e-d-b R4
-is its one direct repair successor. It consumes the
+authority provenance and immutable target-order payload monotonicity. R4 at
+`66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd` closed those findings but was
+rejected because all-terminal idempotency and safe terminal late-fill
+supersession were incomplete. e-d-b R5 is its one direct repair successor. It
+consumes the
 accepted clean-restart capability and a non-serializable restart-bound package,
 classifies one frozen GRST case, and may construct one opaque in-memory
 candidate. The reducer retains both owning authorities in its linear result. It
@@ -32,7 +35,7 @@ second order/position domain model.
 ## Freshness and identity
 
 Validation requires all of the following before a later reducer may inspect the
-package. The R4 chronology is exact:
+package. The R5 chronology remains exact:
 
 ```text
 clean_restore_completed_at < section_observed_at <= captured_at
@@ -149,7 +152,7 @@ The typed disposition vocabulary is frozen in e-d-a:
 - `ManualInterventionRequired`;
 - `TerminalInconsistency`.
 
-The e-d-b R4 reducer returns exactly one of these dispositions with a closed typed
+The e-d-b R5 reducer returns exactly one of these dispositions with a closed typed
 reason. GRST01–12 execute once in frozen order in focused debug/release tests.
 Replay hints are semantic no-ops, incomplete truth never means broker absence,
 and contradiction never produces a candidate. Restart slots preserve typed
@@ -157,6 +160,15 @@ intent class and exact Decimal pre-position; expected post-position is
 `pre_position_qty + signed_fill`. Shared exact trade linkage rejects a
 secondary-ID conflict even when the other ID matches, and never treats two
 missing IDs as equal authority.
+
+Terminal decisions are ordered uniformly. Exact Filled, Rejected, Canceled or
+Expired truth is GRST06 with no candidate. Only same-status Canceled/Expired
+evidence may advance monotonically to GRST11, and only when immutable committed
+trades remain an exact subset, added trades explain the larger fill, and the
+complete canonical position converges. Rejected fills, Filled overfill,
+terminal status changes and regressions remain fail-closed. TimerReady requires
+no owned current order/trade evidence; every other inspected row must already
+be classified as harmless history.
 
 R6 is final e-d-a compilation-control acceptance closure. It does not change the
 production validation semantics accepted as substantively correct in R2–R5.
@@ -174,7 +186,7 @@ a production anchor, focused Rust witness and named negative mutation.
 
 ## Next slices
 
-1. e-d-b R4: consume the accepted clean-restart capability and restart-bound
+1. e-d-b R5: consume the accepted clean-restart capability and restart-bound
    validated fresh package in a deterministic, mutation-safe reducer; execute
    GRST01–12 through pure and owning-boundary fixtures.
 2. e-d-c: deterministic export/restart/reconcile/re-export evidence, negative
@@ -187,8 +199,8 @@ broker dispatch, runtime-live and real orders remain closed.
 
 The accepted predecessor gate is `bash scripts/stage5g_eda_r6_gate.sh` from a
 detached worktree at exact `4ece2c7...`. The rejected e-d-b R2 repair base is
-`c5f84bb...`; rejected R3 is `f9bc372...`. The current-head e-d-b R4 gate is
-`bash scripts/stage5g_edb_r4_gate.sh`.
+`c5f84bb...`; rejected R3 is `f9bc372...`; rejected R4 is `66c5fbd...`.
+The current-head e-d-b R5 gate is `bash scripts/stage5g_edb_r5_gate.sh`.
 
 The R6 checker is the controlling strict current-HEAD superset. It freezes the
 complete accepted R5 project tree outside the exact ten-file R6 allowlist,

@@ -78,8 +78,10 @@ also remained rejected. R2 at `c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4`
 was rejected on LIMIT price authority, cancel correlation, historical rows and
 semantic refresh. R3 at `f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28`
 was rejected on global history, flat canonicalization, cancel target authority
-and immutable target-order payload findings. The active target is **Stage
-5G-e-d-b R4 — restart-owned,
+and immutable target-order payload findings. R4 at
+`66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd` closed those findings but was
+rejected on all-terminal idempotency, safe same-status terminal late fills and
+missing-owned history evidence. The active target is **Stage 5G-e-d-b R5 — restart-owned,
 mutation-safe fresh mock BrokerTruth reducer and executable GRST01–GRST12
 matrix**, as one clean repair successor to `f9bc372` while retaining accepted
 R6 as the architectural predecessor.
@@ -102,7 +104,7 @@ classification and opaque candidate construction only. It retains both linear
 inputs, owns no callback or runtime mutation authority, and does not open
 persistence, Redis, FINAM, HTTP, dispatch or live execution.
 
-R4 deliberately fails source LIMIT recovery closed until canonical Decimal/tick
+R5 deliberately fails source LIMIT recovery closed until canonical Decimal/tick
 price authority exists. It separates cancel command identity from target-order
 identity, partitions unrelated terminal orders and historical trades, blocks
 partial-ID conflicts, applies semantic terminal refresh equality, and requires
@@ -113,6 +115,9 @@ complete empty and explicit-zero target positions as the same flat state,
 derives cancel target-client authority only from accepted target-order rows,
 and freezes the complete immutable target-order payload across lifecycle
 progress.
+It also makes exact Filled/Rejected/Canceled/Expired truth a single GRST06
+no-candidate path, permits only proven same-status Canceled/Expired late-fill
+supersession, and retains history counts on missing-owned/conflict outcomes.
 
 ## Deliberately closed surfaces
 
@@ -130,7 +135,7 @@ The current stage does **not** authorize:
 
 The accepted Stage 5G plan remains the controlling sequence:
 
-1. Stage 5G-e-d-b R4: independently accept the restart-bound deterministic,
+1. Stage 5G-e-d-b R5: independently accept the restart-bound deterministic,
    mutation-safe fresh **mock** BrokerTruth reducer and owning GRST01–GRST12
    evidence.
 2. Stage 5G-e-d-c: export/restart/reconcile/re-export evidence and negative
