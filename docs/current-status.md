@@ -116,6 +116,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Policy B is fixed: ExactReplay stays disabled and no external ledger is
   introduced. Redis, FINAM, dispatch, callbacks, runtime-live and real orders
   remain closed.
+- Stage 5G-e-d-c at `18240b26a5bea77ea71c851f72a644706a7e0b57`
+  was held for R1 authority hardening. The R1 implementation is one direct
+  successor on `stage5g-lifecycle`: it makes the validated post-application
+  token linear and opaque, independently derives candidate/post/restored
+  semantic projections, cross-binds application evidence, and exercises all
+  14 real failure boundaries plus GRST01–GRST12. Its current mutation evidence
+  is 60/60 (424/424 including the predecessor). This remains an in-memory
+  paper boundary: there is no external durable journal, fsync/CAS, callback,
+  Redis, FINAM, broker dispatch, runtime-live or real order authority. Policy B
+  continues to disable ExactReplay.
 - Stage 5G-e-d-a R6 was independently accepted and closed at
   `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. R1 at
   `9a3221602a902bc6207418f0131665a039d62768` closed the substantive freshness,

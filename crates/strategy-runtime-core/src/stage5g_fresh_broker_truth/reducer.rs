@@ -208,8 +208,56 @@ impl Stage5gFreshTruthReduction {
 }
 
 impl Stage5gOwnedReconciliationCandidate {
+    pub(super) fn command_request_id(&self) -> &str {
+        &self.command_request_id
+    }
+
     pub(super) fn fingerprint(&self) -> String {
         candidate_fingerprint(self)
+    }
+
+    pub(super) fn application_semantic_fingerprint(
+        &self,
+        ignored_terminal_order_count: usize,
+        ignored_historical_trade_count: usize,
+    ) -> String {
+        semantic_sha256(&application_projection_from_candidate(
+            self,
+            ignored_terminal_order_count,
+            ignored_historical_trade_count,
+        ))
+    }
+
+    pub(super) fn post_state_semantic_fingerprint(
+        &self,
+        state: &Stage5gOrderPositionState,
+        ignored_terminal_order_count: usize,
+        ignored_historical_trade_count: usize,
+    ) -> Option<String> {
+        application_projection_from_state(
+            state,
+            &self.command_request_id,
+            &self.operational_binding_commitment_sha256,
+            ignored_terminal_order_count,
+            ignored_historical_trade_count,
+        )
+        .map(|projection| semantic_sha256(&projection))
+    }
+
+    pub(super) fn restored_state_semantic_fingerprint(
+        &self,
+        restored_state: &Stage5gOrderPositionState,
+        ignored_terminal_order_count: usize,
+        ignored_historical_trade_count: usize,
+    ) -> Option<String> {
+        let independently_restored = application_projection_from_state(
+            restored_state,
+            &self.command_request_id,
+            &self.operational_binding_commitment_sha256,
+            ignored_terminal_order_count,
+            ignored_historical_trade_count,
+        )?;
+        Some(semantic_sha256(&independently_restored))
     }
 
     pub(super) fn application_preflight_matches(
@@ -271,39 +319,6 @@ impl Stage5gOwnedReconciliationCandidate {
             },
             order_attribution: context.expected_attribution,
         })
-    }
-
-    pub(super) fn post_state_matches(&self, state: &Stage5gOrderPositionState) -> bool {
-        let Some(slot) = Stage5gOrderPositionSession::stage5g_fresh_truth_restart_slots(state)
-            .into_iter()
-            .find(|slot| slot.command_request_id == self.command_request_id)
-        else {
-            return false;
-        };
-        let position_matches = match (&self.position, &slot.position) {
-            (None, None) => true,
-            (None, Some(position)) | (Some(position), None) => position.qty == Decimal::ZERO,
-            (Some(expected), Some(actual)) => stage5g_semantic_position_matches(expected, actual),
-        };
-        let trades_match = self.trades.len() == slot.trades.len()
-            && self.trades.iter().all(|expected| {
-                slot.trades.iter().any(|actual| {
-                    actual.broker_trade_id == expected.broker_trade_id
-                        && stage5g_immutable_trade_payload_matches(expected, actual)
-                })
-            });
-        slot.target_broker_order_id == self.target_broker_order_id
-            && slot.target_order_client_order_id == self.target_order_client_order_id
-            && slot.intent_class == self.intent_class
-            && slot.source_action == self.source_action
-            && slot.side == self.side
-            && slot.target_qty == self.target_qty
-            && slot.pre_position_qty == self.pre_position_qty
-            && slot.expected_attribution_fingerprint_sha256
-                == self.expected_attribution_fingerprint_sha256
-            && slot.latest_order.as_ref() == Some(&self.order)
-            && trades_match
-            && position_matches
     }
 }
 
@@ -1684,6 +1699,146 @@ fn candidate_fingerprint(candidate: &Stage5gOwnedReconciliationCandidate) -> Str
     })
 }
 
+#[derive(Serialize)]
+struct Stage5gApplicationSemanticProjection {
+    domain: &'static str,
+    operational_binding_commitment_sha256: String,
+    command_request_id: String,
+    command_client_order_id: ClientOrderId,
+    target_broker_order_id: Option<BrokerOrderId>,
+    target_order_client_order_id: Option<ClientOrderId>,
+    intent_class: Stage5gRestartIntentClass,
+    source_action: crate::Stage5gMockIntentAction,
+    side: Option<OrderSide>,
+    target_qty: Option<Decimal>,
+    pre_position_qty: Decimal,
+    expected_attribution_fingerprint_sha256: Option<String>,
+    order: BrokerOrderSnapshot,
+    trades: Vec<BrokerTradeSnapshot>,
+    position: Option<BrokerPositionSnapshot>,
+    positions_complete: bool,
+    account_wide_safety_proven: bool,
+    global_account_history_partition_proven: bool,
+    canonical_position_semantics_proven: bool,
+    source_monotonicity_proven: bool,
+    immutable_target_order_monotonicity_proven: bool,
+    target_order_immutable_commitment_sha256: Option<String>,
+    ignored_terminal_order_count: usize,
+    ignored_historical_trade_count: usize,
+}
+
+fn canonical_application_trades(mut trades: Vec<BrokerTradeSnapshot>) -> Vec<BrokerTradeSnapshot> {
+    trades.sort_by_cached_key(|trade| {
+        serde_json::to_vec(trade).expect("canonical application trade serializes")
+    });
+    trades
+}
+
+fn canonical_application_position(
+    position: Option<BrokerPositionSnapshot>,
+) -> Option<BrokerPositionSnapshot> {
+    position.filter(|position| position.qty != Decimal::ZERO)
+}
+
+fn application_projection_from_candidate(
+    candidate: &Stage5gOwnedReconciliationCandidate,
+    ignored_terminal_order_count: usize,
+    ignored_historical_trade_count: usize,
+) -> Stage5gApplicationSemanticProjection {
+    Stage5gApplicationSemanticProjection {
+        domain: "moex.stage5g.edc.application-semantic.v1",
+        operational_binding_commitment_sha256: candidate
+            .operational_binding_commitment_sha256
+            .clone(),
+        command_request_id: candidate.command_request_id.clone(),
+        command_client_order_id: candidate.command_client_order_id.clone(),
+        target_broker_order_id: candidate.target_broker_order_id.clone(),
+        target_order_client_order_id: candidate.target_order_client_order_id.clone(),
+        intent_class: candidate.intent_class,
+        source_action: candidate.source_action.clone(),
+        side: candidate.side,
+        target_qty: candidate.target_qty,
+        pre_position_qty: candidate.pre_position_qty,
+        expected_attribution_fingerprint_sha256: candidate
+            .expected_attribution_fingerprint_sha256
+            .clone(),
+        order: candidate.order.clone(),
+        trades: canonical_application_trades(candidate.trades.clone()),
+        position: canonical_application_position(candidate.position.clone()),
+        positions_complete: candidate.positions_complete,
+        account_wide_safety_proven: candidate.account_wide_safety_proven,
+        global_account_history_partition_proven: candidate.global_account_history_partition_proven,
+        canonical_position_semantics_proven: candidate.canonical_position_semantics_proven,
+        source_monotonicity_proven: candidate.source_monotonicity_proven,
+        immutable_target_order_monotonicity_proven: candidate
+            .immutable_target_order_monotonicity_proven,
+        target_order_immutable_commitment_sha256: candidate
+            .target_order_immutable_commitment_sha256
+            .clone(),
+        ignored_terminal_order_count,
+        ignored_historical_trade_count,
+    }
+}
+
+fn application_projection_from_state(
+    state: &Stage5gOrderPositionState,
+    command_request_id: &str,
+    operational_binding_commitment_sha256: &str,
+    ignored_terminal_order_count: usize,
+    ignored_historical_trade_count: usize,
+) -> Option<Stage5gApplicationSemanticProjection> {
+    let slot = Stage5gOrderPositionSession::stage5g_fresh_truth_restart_slots(state)
+        .into_iter()
+        .find(|slot| slot.command_request_id == command_request_id)?;
+    let target_order_immutable_commitment_sha256 = slot
+        .cancel_target_order_authority
+        .as_ref()
+        .and_then(|authority| authority.immutable_order_commitment_sha256.clone());
+    Some(Stage5gApplicationSemanticProjection {
+        domain: "moex.stage5g.edc.application-semantic.v1",
+        operational_binding_commitment_sha256: operational_binding_commitment_sha256.to_owned(),
+        command_request_id: slot.command_request_id,
+        command_client_order_id: slot.command_client_order_id,
+        target_broker_order_id: slot.target_broker_order_id,
+        target_order_client_order_id: slot.target_order_client_order_id,
+        intent_class: slot.intent_class,
+        source_action: slot.source_action,
+        side: slot.side,
+        target_qty: slot.target_qty,
+        pre_position_qty: slot.pre_position_qty,
+        expected_attribution_fingerprint_sha256: slot.expected_attribution_fingerprint_sha256,
+        order: slot.latest_order?,
+        trades: canonical_application_trades(slot.trades),
+        position: canonical_application_position(slot.position),
+        positions_complete: true,
+        account_wide_safety_proven: true,
+        global_account_history_partition_proven: true,
+        canonical_position_semantics_proven: true,
+        source_monotonicity_proven: true,
+        immutable_target_order_monotonicity_proven: true,
+        target_order_immutable_commitment_sha256,
+        ignored_terminal_order_count,
+        ignored_historical_trade_count,
+    })
+}
+
+pub(super) fn stage5g_application_state_semantic_fingerprint(
+    state: &Stage5gOrderPositionState,
+    command_request_id: &str,
+    operational_binding_commitment_sha256: &str,
+    ignored_terminal_order_count: usize,
+    ignored_historical_trade_count: usize,
+) -> Option<String> {
+    application_projection_from_state(
+        state,
+        command_request_id,
+        operational_binding_commitment_sha256,
+        ignored_terminal_order_count,
+        ignored_historical_trade_count,
+    )
+    .map(|projection| semantic_sha256(&projection))
+}
+
 pub(super) const fn disposition_id(
     disposition: Stage5gRestartReconciliationDisposition,
 ) -> &'static str {
@@ -1728,8 +1883,9 @@ mod tests {
     use crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection;
     use crate::stage5g_fresh_broker_truth::application::{
         apply_stage5g_fresh_truth_reduction, apply_stage5g_fresh_truth_reduction_with_failure,
-        Stage5gFreshTruthApplicationError, Stage5gFreshTruthApplicationFailurePoint,
-        Stage5gFreshTruthApplicationResult,
+        apply_stage5g_fresh_truth_reduction_with_mismatch, stage5g_application_trace_snapshot,
+        Stage5gApplicationTrace, Stage5gFreshTruthApplicationError,
+        Stage5gFreshTruthApplicationFailurePoint, Stage5gFreshTruthApplicationResult,
     };
     use crate::stage5g_fresh_broker_truth::{
         bind_stage5g_fresh_truth_to_clean_restart, validate_stage5g_fresh_broker_truth_package,
@@ -1741,11 +1897,84 @@ mod tests {
         Stage5gValidatedFreshBrokerTruthPackage, STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
     };
     use crate::stage5g_order_position::{
-        Stage5gFreshTruthRestartSlotProjection, Stage5gRestartIntentClass,
+        Stage5gFreshTruthRestartSlotProjection, Stage5gRestartApplicationMismatch,
+        Stage5gRestartIntentClass,
     };
     use crate::stage5g_timer::{Stage5gTimerCheckpointEnvelope, Stage5gTimerCheckpointPayload};
 
     const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    macro_rules! assert_not_impl {
+        ($name:ident, $ty:ty, $bound:path) => {
+            fn $name() {
+                trait AmbiguousIfImplemented<A> {
+                    fn witness() {}
+                }
+                impl<T: ?Sized> AmbiguousIfImplemented<()> for T {}
+                impl<T: ?Sized + $bound> AmbiguousIfImplemented<u8> for T {}
+                let _ = <$ty as AmbiguousIfImplemented<_>>::witness;
+            }
+        };
+    }
+
+    assert_not_impl!(
+        stage5g_edc_r1_reduction_not_clone,
+        Stage5gFreshTruthReduction,
+        Clone
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_reduction_not_serialize,
+        Stage5gFreshTruthReduction,
+        serde::Serialize
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_reduction_not_deserialize,
+        Stage5gFreshTruthReduction,
+        serde::de::DeserializeOwned
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_candidate_not_clone,
+        Stage5gOwnedReconciliationCandidate,
+        Clone
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_candidate_not_serialize,
+        Stage5gOwnedReconciliationCandidate,
+        serde::Serialize
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_candidate_not_deserialize,
+        Stage5gOwnedReconciliationCandidate,
+        serde::de::DeserializeOwned
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_post_token_not_clone,
+        crate::stage5g_fresh_broker_truth::Stage5gValidatedPostApplication,
+        Clone
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_post_token_not_serialize,
+        crate::stage5g_fresh_broker_truth::Stage5gValidatedPostApplication,
+        serde::Serialize
+    );
+    assert_not_impl!(
+        stage5g_edc_r1_post_token_not_deserialize,
+        crate::stage5g_fresh_broker_truth::Stage5gValidatedPostApplication,
+        serde::de::DeserializeOwned
+    );
+
+    #[test]
+    fn stage5g_edc_r1_actual_production_types_are_linear_and_non_serializable() {
+        stage5g_edc_r1_reduction_not_clone();
+        stage5g_edc_r1_reduction_not_serialize();
+        stage5g_edc_r1_reduction_not_deserialize();
+        stage5g_edc_r1_candidate_not_clone();
+        stage5g_edc_r1_candidate_not_serialize();
+        stage5g_edc_r1_candidate_not_deserialize();
+        stage5g_edc_r1_post_token_not_clone();
+        stage5g_edc_r1_post_token_not_serialize();
+        stage5g_edc_r1_post_token_not_deserialize();
+    }
 
     struct Case {
         restart: Stage5gFreshTruthRestartProjection,
@@ -5088,17 +5317,17 @@ mod tests {
         };
         let evidence = applied.evidence();
         assert_eq!(
-            evidence.scenario_id,
+            evidence.scenario_id(),
             Stage5gRestartScenarioId::Grst03RestartWithWorkingOrder.frozen_id()
         );
         assert_eq!(
-            evidence.candidate_fingerprint_sha256,
-            evidence.applied_post_semantic_fingerprint_sha256
+            evidence.candidate_fingerprint_sha256(),
+            evidence.applied_post_semantic_fingerprint_sha256()
         );
-        assert!(evidence.runtime_transition_applied);
-        assert!(!evidence.callback_invoked);
-        assert!(!evidence.transport_opened);
-        assert!(!evidence.exact_replay_enabled);
+        assert!(evidence.runtime_transition_applied());
+        assert!(!evidence.callback_invoked());
+        assert!(!evidence.transport_opened());
+        assert!(!evidence.exact_replay_enabled());
         assert!(!applied.canonical_package_bytes().is_empty());
         assert_eq!(
             applied.restored().stage5g_application_evidence(),
@@ -5124,6 +5353,448 @@ mod tests {
         reduce_stage5g_fresh_broker_truth(restart, bound)
     }
 
+    fn stage5g_edc_policy_b_replay_reduction() -> Stage5gFreshTruthReduction {
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("awaiting replay slot");
+        let validated = validated_owning_package(
+            &restart,
+            "stage5g-edc-r1-policy-b-replay",
+            "stage5g-edc-r1-policy-b-replay-epoch",
+            OwningTruthRows::complete(
+                slot.latest_order.clone().into_iter().collect(),
+                slot.trades.clone(),
+                slot.position.clone().into_iter().collect(),
+            ),
+        );
+        let replay_identity = Stage5gReconciledFreshPackageIdentity::validate(
+            validated.package_id.as_str(),
+            validated.snapshot_epoch.as_str(),
+            validated.canonical_fingerprint_sha256.clone(),
+        )
+        .expect("validated replay tuple");
+        let raw = raw_package_from_validated(&validated);
+        let current_id = projection
+            .checkpoint
+            .payload
+            .current_evidence_identity
+            .as_deref()
+            .expect("checkpoint identity");
+        let current_epoch = projection
+            .checkpoint
+            .payload
+            .package_discriminator
+            .as_deref()
+            .expect("checkpoint epoch");
+        let reviewed_authority =
+            super::super::stage5g_test_reviewed_operational_identity_authority(
+                raw.operational_identity.clone(),
+            )
+            .expect("reviewed replay identity");
+        let operational_authority =
+            super::super::authorize_stage5g_fresh_truth_operational_identity(
+                &restart,
+                reviewed_authority,
+            )
+            .expect("authorized replay identity");
+        let package = validate_stage5g_fresh_broker_truth_package(
+            raw,
+            Stage5gFreshBrokerTruthValidationContext {
+                operational_authority,
+                pre_restart_package_id: current_id,
+                pre_restart_snapshot_epoch: current_epoch,
+                untrusted_last_reconciled_hint: Some(&replay_identity),
+                untrusted_accepted_replay_hints: &[],
+                untrusted_known_historical_hints: &[],
+                clean_restore_completed_at: Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
+                validation_observed_at: Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 10).unwrap(),
+            },
+        )
+        .expect("Policy-B replay package validates");
+        let bound = bind_stage5g_fresh_truth_to_clean_restart(&restart, package)
+            .expect("Policy-B replay package binds");
+        reduce_stage5g_fresh_broker_truth(restart, bound)
+    }
+
+    fn stage5g_edc_grst_reduction(index: u8) -> Stage5gFreshTruthReduction {
+        if index == 9 {
+            return stage5g_edc_policy_b_replay_reduction();
+        }
+        let restart = match index {
+            1 => crate::stage5g_order_position::tests::stage5g_edb_restored_before_ack_fixture(),
+            2 | 8 => {
+                crate::stage5g_order_position::tests::stage5g_edb_restored_generated_escrow_fixture(
+                )
+            }
+            3 => return stage5g_edc_working_reduction(),
+            4 | 5 | 10 | 11 | 12 => {
+                crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture()
+            }
+            6 => {
+                crate::stage5g_order_position::tests::stage5g_edb_restored_terminal_applied_fixture(
+                )
+            }
+            7 => crate::stage5g_order_position::tests::stage5g_edb_restored_timer_ready_fixture(),
+            _ => panic!("unsupported GRST index {index}"),
+        };
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first();
+        let rows = match index {
+            1 | 8 | 12 => OwningTruthRows::complete(vec![], vec![], vec![]),
+            2 => {
+                let slot = slot.expect("generated slot");
+                let mut discovered =
+                    discovered_order_for_slot(slot, OrderStatus::Working, "GRST02-DISCOVERED");
+                let ts = Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 9).unwrap();
+                discovered.source_ts = Some(ts);
+                discovered.received_ts = ts;
+                OwningTruthRows::complete(vec![discovered], vec![], vec![])
+            }
+            4 => {
+                let slot = slot.expect("partial-fill slot");
+                OwningTruthRows::complete(
+                    slot.latest_order.clone().into_iter().collect(),
+                    slot.trades.clone(),
+                    slot.position.clone().into_iter().collect(),
+                )
+            }
+            5 => {
+                let slot = slot.expect("filled-before-position slot");
+                let mut filled = slot.latest_order.clone().expect("source order");
+                filled.status = OrderStatus::Filled;
+                filled.lifecycle = BrokerOrderSnapshot::lifecycle_for(&filled.status);
+                filled.filled_qty = filled.qty;
+                filled.remaining_qty = Some(Decimal::ZERO);
+                let first_trade = slot.trades.first().cloned().expect("source trade");
+                let mut final_trade = first_trade.clone();
+                final_trade.broker_trade_id = BrokerTradeId::new("GRST05-FINAL-TRADE");
+                final_trade.qty = filled.qty - first_trade.qty;
+                OwningTruthRows {
+                    orders_complete: true,
+                    trades_complete: true,
+                    positions_complete: false,
+                    orders: vec![filled],
+                    trades: vec![first_trade, final_trade],
+                    positions: vec![],
+                }
+            }
+            6 => {
+                let slot = slot.expect("terminal slot");
+                OwningTruthRows::complete(
+                    slot.latest_order.clone().into_iter().collect(),
+                    slot.trades.clone(),
+                    slot.position.clone().into_iter().collect(),
+                )
+            }
+            7 => {
+                let positions = (projection.committed_position_qty != Decimal::ZERO)
+                    .then(|| position(projection.committed_position_qty))
+                    .into_iter()
+                    .collect();
+                OwningTruthRows::complete(vec![], vec![], positions)
+            }
+            10 => {
+                let slot = slot.expect("conflict slot");
+                let mut conflicting_order = slot.latest_order.clone().expect("source order");
+                conflicting_order.broker_order_id =
+                    Some(BrokerOrderId::new("GRST10-CONFLICTING-ORDER"));
+                OwningTruthRows::complete(vec![conflicting_order], vec![], vec![])
+            }
+            11 => {
+                let slot = slot.expect("late terminal slot");
+                let mut canceled = slot.latest_order.clone().expect("source order");
+                canceled.status = OrderStatus::Canceled;
+                canceled.lifecycle = BrokerOrderSnapshot::lifecycle_for(&canceled.status);
+                canceled.remaining_qty = Some(canceled.qty - canceled.filled_qty);
+                OwningTruthRows::complete(
+                    vec![canceled],
+                    slot.trades.clone(),
+                    slot.position.clone().into_iter().collect(),
+                )
+            }
+            _ => unreachable!(),
+        };
+        let bound = bound_owning_package(
+            &restart,
+            &format!("stage5g-edc-r1-grst{index:02}"),
+            &format!("stage5g-edc-r1-grst{index:02}-epoch"),
+            rows,
+        );
+        reduce_stage5g_fresh_broker_truth(restart, bound)
+    }
+
+    fn assert_stage5g_edc_grst(index: u8, expected: Stage5gRestartScenarioId) {
+        let reduction = stage5g_edc_grst_reduction(index);
+        let reduction_evidence = reduction.evidence();
+        assert_eq!(reduction_evidence.scenario_id, expected.frozen_id());
+        let expected_disposition = match index {
+            1 | 5 => Stage5gRestartReconciliationDisposition::AwaitFreshBrokerTruth,
+            2 | 3 | 4 | 11 => Stage5gRestartReconciliationDisposition::ApplyOwnedCandidate,
+            6 | 7 => Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint,
+            8 | 9 | 12 => Stage5gRestartReconciliationDisposition::ReconciliationRequired,
+            10 => Stage5gRestartReconciliationDisposition::ManualInterventionRequired,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            reduction_evidence.disposition,
+            disposition_id(expected_disposition)
+        );
+        let pre_fingerprint = reduction.pre_restart_package_fingerprint_sha256();
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        match apply_stage5g_fresh_truth_reduction(reduction, &key) {
+            Stage5gFreshTruthApplicationResult::Applied(applied) => {
+                assert!(matches!(index, 2 | 3 | 4 | 11));
+                assert_eq!(applied.evidence().scenario_id(), expected.frozen_id());
+                assert!(applied.evidence().runtime_transition_applied());
+            }
+            Stage5gFreshTruthApplicationResult::Continued(continued) => {
+                assert!(matches!(index, 6 | 7));
+                assert_eq!(continued.scenario_id(), expected.frozen_id());
+                assert_eq!(
+                    continued
+                        .restart()
+                        .stage5g_pre_restart_package_fingerprint_sha256(),
+                    pre_fingerprint
+                );
+                assert!(continued.restart().stage5g_application_evidence().is_none());
+            }
+            Stage5gFreshTruthApplicationResult::Blocked(blocked) => {
+                assert!(
+                    matches!(index, 1 | 5 | 8 | 9 | 10 | 12),
+                    "GRST{index:02} unexpectedly blocked: {:?} {:?} {:?}",
+                    blocked.application_error(),
+                    blocked.disposition(),
+                    blocked.reason()
+                );
+                assert_eq!(blocked.scenario_id(), expected.frozen_id());
+                assert_eq!(
+                    blocked
+                        .restart()
+                        .stage5g_pre_restart_package_fingerprint_sha256(),
+                    pre_fingerprint
+                );
+                assert!(blocked.restart().stage5g_application_evidence().is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn stage5g_edc_grst01_before_ack_is_blocked_without_mutation() {
+        assert_stage5g_edc_grst(1, Stage5gRestartScenarioId::Grst01RestartBeforeAck);
+    }
+
+    #[test]
+    fn stage5g_edc_grst02_after_ack_candidate_is_applied() {
+        assert_stage5g_edc_grst(
+            2,
+            Stage5gRestartScenarioId::Grst02RestartAfterAckBeforeOrder,
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_grst03_working_candidate_is_applied() {
+        assert_stage5g_edc_grst(3, Stage5gRestartScenarioId::Grst03RestartWithWorkingOrder);
+    }
+
+    #[test]
+    fn stage5g_edc_grst04_partial_fill_candidate_is_applied() {
+        assert_stage5g_edc_grst(4, Stage5gRestartScenarioId::Grst04RestartAfterPartialFill);
+    }
+
+    #[test]
+    fn stage5g_edc_grst05_filled_before_position_awaits_truth() {
+        assert_stage5g_edc_grst(
+            5,
+            Stage5gRestartScenarioId::Grst05RestartFilledBeforePosition,
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_grst06_terminal_checkpoint_continues() {
+        assert_stage5g_edc_grst(
+            6,
+            Stage5gRestartScenarioId::Grst06RestartAfterTerminalPositionApplied,
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_grst07_timer_checkpoint_continues_without_mutation() {
+        assert_stage5g_edc_grst(7, Stage5gRestartScenarioId::Grst07RestartAtTimerCheckpoint);
+    }
+
+    #[test]
+    fn stage5g_edc_grst08_generated_intent_escrow_is_blocked() {
+        assert_stage5g_edc_grst(
+            8,
+            Stage5gRestartScenarioId::Grst08RestartWithGeneratedIntentEscrow,
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_grst09_policy_b_replay_is_disabled_without_mutation() {
+        assert_stage5g_edc_grst(9, Stage5gRestartScenarioId::Grst09ExactReplayIsIdempotent);
+    }
+
+    #[test]
+    fn stage5g_edc_grst10_conflict_requires_manual_intervention() {
+        assert_stage5g_edc_grst(10, Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks);
+    }
+
+    #[test]
+    fn stage5g_edc_grst11_fresh_terminal_candidate_is_applied() {
+        assert_stage5g_edc_grst(
+            11,
+            Stage5gRestartScenarioId::Grst11FreshBrokerTruthOverridesStaleHint,
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_grst12_missing_truth_is_blocked_without_mutation() {
+        assert_stage5g_edc_grst(
+            12,
+            Stage5gRestartScenarioId::Grst12MissingOrAmbiguousTruthRequiresReconciliation,
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_exact_disposition_apply_owned_candidate() {
+        assert_eq!(
+            stage5g_edc_grst_reduction(3).evidence().disposition,
+            disposition_id(Stage5gRestartReconciliationDisposition::ApplyOwnedCandidate)
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_exact_disposition_continue_from_committed_checkpoint() {
+        assert_eq!(
+            stage5g_edc_grst_reduction(6).evidence().disposition,
+            disposition_id(
+                Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint
+            )
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_exact_disposition_await_fresh_broker_truth() {
+        assert_eq!(
+            stage5g_edc_grst_reduction(1).evidence().disposition,
+            disposition_id(Stage5gRestartReconciliationDisposition::AwaitFreshBrokerTruth)
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_exact_disposition_reconciliation_required() {
+        assert_eq!(
+            stage5g_edc_grst_reduction(8).evidence().disposition,
+            disposition_id(Stage5gRestartReconciliationDisposition::ReconciliationRequired)
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_exact_disposition_manual_intervention_required() {
+        assert_eq!(
+            stage5g_edc_grst_reduction(10).evidence().disposition,
+            disposition_id(Stage5gRestartReconciliationDisposition::ManualInterventionRequired)
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_exact_disposition_terminal_inconsistency() {
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("awaiting slot");
+        let mut conflicting_position = slot.position.clone().expect("source position");
+        conflicting_position.qty += Decimal::ONE;
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edc-r1-terminal-inconsistency",
+            "stage5g-edc-r1-terminal-inconsistency-epoch",
+            OwningTruthRows::complete(
+                slot.latest_order.clone().into_iter().collect(),
+                slot.trades.clone(),
+                vec![conflicting_position],
+            ),
+        );
+        assert_eq!(
+            reduce_stage5g_fresh_broker_truth(restart, bound)
+                .evidence()
+                .disposition,
+            disposition_id(Stage5gRestartReconciliationDisposition::TerminalInconsistency)
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_exact_disposition_exact_replay_disabled() {
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        let reduction = stage5g_edc_grst_reduction(9);
+        assert_eq!(
+            reduction.evidence().disposition,
+            disposition_id(Stage5gRestartReconciliationDisposition::ReconciliationRequired)
+        );
+        assert_eq!(
+            reduction.evidence().reason,
+            Stage5gFreshTruthReductionReason::ReplayTupleNotInRestartLedger
+        );
+        let Stage5gFreshTruthApplicationResult::Blocked(blocked) =
+            apply_stage5g_fresh_truth_reduction(reduction, &key)
+        else {
+            panic!("Policy-B ExactReplay must remain blocked");
+        };
+        assert_eq!(blocked.application_error(), None);
+        assert_eq!(
+            blocked.disposition(),
+            Stage5gRestartReconciliationDisposition::ReconciliationRequired
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r1_independent_post_state_mismatches_fail_before_package_commit() {
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        for mismatch in [
+            Stage5gRestartApplicationMismatch::OrderStatus,
+            Stage5gRestartApplicationMismatch::FilledQuantity,
+            Stage5gRestartApplicationMismatch::RemainingQuantity,
+            Stage5gRestartApplicationMismatch::TradePayload,
+            Stage5gRestartApplicationMismatch::TradeSet,
+            Stage5gRestartApplicationMismatch::Position,
+            Stage5gRestartApplicationMismatch::TargetIdentity,
+            Stage5gRestartApplicationMismatch::IntentClass,
+            Stage5gRestartApplicationMismatch::Attribution,
+            Stage5gRestartApplicationMismatch::UnrelatedSlot,
+            Stage5gRestartApplicationMismatch::LastTotalSequence,
+            Stage5gRestartApplicationMismatch::CurrentEvidenceIdentity,
+            Stage5gRestartApplicationMismatch::Watermark,
+        ] {
+            let reduction = stage5g_edc_grst_reduction(4);
+            let pre_fingerprint = reduction.pre_restart_package_fingerprint_sha256();
+            let result =
+                apply_stage5g_fresh_truth_reduction_with_mismatch(reduction, &key, mismatch);
+            let Stage5gFreshTruthApplicationResult::Blocked(blocked) = result else {
+                panic!("{mismatch:?} must block before post-package commit");
+            };
+            assert_eq!(
+                blocked.application_error(),
+                Some(Stage5gFreshTruthApplicationError::PostStateSemanticMismatch),
+                "{mismatch:?}"
+            );
+            assert_eq!(
+                blocked
+                    .restart()
+                    .stage5g_pre_restart_package_fingerprint_sha256(),
+                pre_fingerprint,
+                "{mismatch:?}"
+            );
+            assert!(blocked.restart().stage5g_application_evidence().is_none());
+            let trace = stage5g_application_trace_snapshot();
+            assert_eq!(trace.canonical_transition_completed, 1, "{mismatch:?}");
+            assert_eq!(trace.serialization_started, 0, "{mismatch:?}");
+            assert_eq!(trace.bytes_produced, 0, "{mismatch:?}");
+        }
+    }
+
     #[test]
     fn stage5g_edc_failure_matrix_preserves_exact_pre_application_authority() {
         let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
@@ -5141,11 +5812,117 @@ mod tests {
             Stage5gFreshTruthApplicationFailurePoint::DuringAuthenticationVerification,
             Stage5gFreshTruthApplicationFailurePoint::DuringRestore,
             Stage5gFreshTruthApplicationFailurePoint::AfterRestoreBeforeEvidenceEquality,
-            Stage5gFreshTruthApplicationFailurePoint::BeforeDisabledReplayProjection,
-            Stage5gFreshTruthApplicationFailurePoint::AfterDisabledReplayProjectionBeforeAuthentication,
         ];
 
-        for point in points {
+        let expected_traces = [
+            Stage5gApplicationTrace::default(),
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                serialization_started: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                serialization_started: 1,
+                bytes_produced: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                serialization_started: 1,
+                bytes_produced: 1,
+                post_state_consumed: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                serialization_started: 1,
+                bytes_produced: 1,
+                post_state_consumed: 1,
+                decode_started: 1,
+                authentication_started: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                serialization_started: 1,
+                bytes_produced: 1,
+                post_state_consumed: 1,
+                decode_started: 1,
+                authentication_started: 1,
+                authentication_completed: 1,
+                restore_started: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                serialization_started: 1,
+                bytes_produced: 1,
+                post_state_consumed: 1,
+                decode_started: 1,
+                authentication_started: 1,
+                authentication_completed: 1,
+                restore_started: 1,
+                restore_completed: 1,
+                ..Default::default()
+            },
+        ];
+
+        for (point, expected_trace) in points.into_iter().zip(expected_traces) {
             let reduction = stage5g_edc_working_reduction();
             let pre_fingerprint = reduction.pre_restart_package_fingerprint_sha256();
             let result = apply_stage5g_fresh_truth_reduction_with_failure(reduction, &key, point);
@@ -5168,6 +5945,43 @@ mod tests {
             assert!(!blocked.restart().redis_command_stream_attached());
             assert!(!blocked.restart().finam_transport_attached());
             assert!(!blocked.restart().broker_execution_attached());
+            assert_eq!(
+                stage5g_application_trace_snapshot(),
+                expected_trace,
+                "{point:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn stage5g_edc_policy_b_failure_points_use_actual_grst09_reduction() {
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        for point in [
+            Stage5gFreshTruthApplicationFailurePoint::BeforeDisabledReplayProjection,
+            Stage5gFreshTruthApplicationFailurePoint::AfterDisabledReplayProjectionBeforeAuthentication,
+        ] {
+            let reduction = stage5g_edc_policy_b_replay_reduction();
+            assert_eq!(
+                reduction.evidence().scenario_id,
+                Stage5gRestartScenarioId::Grst09ExactReplayIsIdempotent.frozen_id()
+            );
+            let pre_fingerprint = reduction.pre_restart_package_fingerprint_sha256();
+            let result = apply_stage5g_fresh_truth_reduction_with_failure(reduction, &key, point);
+            let Stage5gFreshTruthApplicationResult::Blocked(blocked) = result else {
+                panic!("{point:?} must retain the GRST09 rollback authority");
+            };
+            assert_eq!(
+                blocked.application_error(),
+                Some(Stage5gFreshTruthApplicationError::InjectedFailure)
+            );
+            assert_eq!(
+                blocked
+                    .restart()
+                    .stage5g_pre_restart_package_fingerprint_sha256(),
+                pre_fingerprint
+            );
+            assert!(blocked.restart().stage5g_application_evidence().is_none());
         }
     }
 
@@ -5304,6 +6118,151 @@ mod tests {
     }
 
     #[test]
+    fn stage5g_edc_r1_fully_resealed_scenario_reason_tamper_is_rejected_semantically() {
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        for (field, value) in [
+            (
+                "scenario_id",
+                serde_json::json!("GRST04_RESTART_AFTER_PARTIAL_FILL"),
+            ),
+            (
+                "reason",
+                serde_json::json!("partial_fill_position_converged"),
+            ),
+            (
+                "disposition",
+                serde_json::json!("continue_from_committed_checkpoint"),
+            ),
+        ] {
+            let result = apply_stage5g_fresh_truth_reduction(stage5g_edc_working_reduction(), &key);
+            let Stage5gFreshTruthApplicationResult::Applied(applied) = result else {
+                panic!("semantic tamper source must apply");
+            };
+            let fresh = applied.restored().stage5g_fresh_reconstruction_candidate();
+            let forged = crate::stage5d_persistence::stage5g_test_fully_reseal_application_package(
+                applied.canonical_package_bytes(),
+                &key,
+                |extension| {
+                    extension["fresh_truth_application_evidence"][field] = value;
+                },
+            );
+            assert!(
+                crate::restore_stage5g_clean_restart(&forged, &key, fresh).is_err(),
+                "fully resealed {field} tamper must fail semantic validation"
+            );
+        }
+    }
+
+    #[test]
+    fn stage5g_edc_r1_fully_resealed_evidence_and_state_tamper_matrix_is_rejected() {
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        for mutation in [
+            "fresh_package_id",
+            "fresh_snapshot_epoch",
+            "fresh_package_fingerprint",
+            "pre_package_fingerprint",
+            "candidate_and_post_fingerprints",
+            "history_counts",
+            "runtime_transition_applied",
+            "order_state",
+            "trade_payload",
+            "trade_set",
+            "position_state",
+            "unrelated_slot",
+            "watermark_and_replay_identity",
+        ] {
+            let reduction = if matches!(mutation, "trade_payload" | "trade_set" | "position_state")
+            {
+                stage5g_edc_grst_reduction(4)
+            } else {
+                stage5g_edc_working_reduction()
+            };
+            let result = apply_stage5g_fresh_truth_reduction(reduction, &key);
+            let Stage5gFreshTruthApplicationResult::Applied(applied) = result else {
+                panic!("semantic tamper source must apply");
+            };
+            let fresh = applied.restored().stage5g_fresh_reconstruction_candidate();
+            let forged = crate::stage5d_persistence::stage5g_test_fully_reseal_application_package(
+                applied.canonical_package_bytes(),
+                &key,
+                |extension| {
+                    let evidence = &mut extension["fresh_truth_application_evidence"];
+                    match mutation {
+                        "fresh_package_id" => {
+                            evidence["fresh_package_id"] = serde_json::json!("R1-FORGED-PACKAGE")
+                        }
+                        "fresh_snapshot_epoch" => {
+                            evidence["fresh_snapshot_epoch"] = serde_json::json!("R1-FORGED-EPOCH")
+                        }
+                        "fresh_package_fingerprint" => {
+                            evidence["fresh_package_fingerprint_sha256"] =
+                                serde_json::json!("b".repeat(64))
+                        }
+                        "pre_package_fingerprint" => {
+                            evidence["pre_restart_package_fingerprint_sha256"] =
+                                serde_json::json!("b".repeat(64))
+                        }
+                        "candidate_and_post_fingerprints" => {
+                            let forged = serde_json::json!("b".repeat(64));
+                            evidence["candidate_fingerprint_sha256"] = forged.clone();
+                            evidence["applied_post_semantic_fingerprint_sha256"] = forged.clone();
+                            evidence["restored_post_semantic_fingerprint_sha256"] = forged;
+                        }
+                        "history_counts" => {
+                            evidence["ignored_terminal_order_count"] = serde_json::json!(91);
+                            evidence["ignored_historical_trade_count"] = serde_json::json!(73);
+                        }
+                        "runtime_transition_applied" => {
+                            evidence["runtime_transition_applied"] = serde_json::json!(false)
+                        }
+                        "order_state" => {
+                            let events = extension["order_position_state"]["slots"][0]
+                                ["order_events"]
+                                .as_array_mut()
+                                .expect("order event array");
+                            events.last_mut().expect("order event")["order"]["status"] =
+                                serde_json::json!("Rejected");
+                        }
+                        "trade_payload" => {
+                            extension["order_position_state"]["slots"][0]["trades"][0]["qty"] =
+                                serde_json::json!("999");
+                        }
+                        "trade_set" => {
+                            extension["order_position_state"]["slots"][0]["trades"]
+                                .as_array_mut()
+                                .expect("trade array")
+                                .pop();
+                        }
+                        "position_state" => {
+                            extension["order_position_state"]["slots"][0]["position"][1]["qty"] =
+                                serde_json::json!("999");
+                        }
+                        "unrelated_slot" => {
+                            let slots = extension["order_position_state"]["slots"]
+                                .as_array_mut()
+                                .expect("slot array");
+                            slots.push(slots[0].clone());
+                        }
+                        "watermark_and_replay_identity" => {
+                            extension["order_position_state"]["last_total_sequence"] =
+                                serde_json::json!(99991);
+                            extension["order_position_state"]["current_evidence_identity"] =
+                                serde_json::json!("R1-FORGED-REPLAY-IDENTITY");
+                        }
+                        _ => unreachable!(),
+                    }
+                },
+            );
+            assert!(
+                crate::restore_stage5g_clean_restart(&forged, &key, fresh).is_err(),
+                "fully resealed {mutation} tamper must fail semantic validation"
+            );
+        }
+    }
+
+    #[test]
     fn stage5g_edc_late_fill_trade_permutation_produces_identical_post_package() {
         let run = |reverse: bool| {
             let (restart, mut rows) =
@@ -5424,12 +6383,12 @@ mod tests {
                 }
             };
             assert_eq!(
-                applied.evidence().scenario_id,
+                applied.evidence().scenario_id(),
                 Stage5gRestartScenarioId::Grst11FreshBrokerTruthOverridesStaleHint.frozen_id()
             );
-            assert!(applied.evidence().runtime_transition_applied);
-            assert!(!applied.evidence().callback_invoked);
-            assert!(!applied.evidence().transport_opened);
+            assert!(applied.evidence().runtime_transition_applied());
+            assert!(!applied.evidence().callback_invoked());
+            assert!(!applied.evidence().transport_opened());
         }
     }
 

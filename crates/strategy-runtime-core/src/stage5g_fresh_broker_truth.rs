@@ -20,62 +20,25 @@ use sha2::{Digest, Sha256};
 mod application;
 mod reducer;
 
+pub(crate) use application::{
+    stage5g_application_authority_sha256, stage5g_application_evidence_is_valid,
+    stage5g_application_evidence_matches_state, Stage5gFreshTruthApplicationEvidenceV1,
+    Stage5gValidatedPostApplication,
+};
+#[cfg(test)]
+pub(crate) use application::{
+    stage5g_application_trace_mark, Stage5gApplicationTracePhase,
+    Stage5gFreshTruthApplicationFailurePoint,
+};
+#[cfg(doctest)]
+pub(crate) use application::{
+    Stage5gFreshTruthApplicationBlocked, Stage5gFreshTruthApplied, Stage5gFreshTruthContinued,
+};
+#[cfg(doctest)]
+pub(crate) use reducer::{Stage5gFreshTruthReduction, Stage5gOwnedReconciliationCandidate};
+
 pub(crate) const STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION: u16 = 1;
-pub(crate) const STAGE5G_FRESH_TRUTH_APPLICATION_EVIDENCE_SCHEMA_VERSION: u16 = 1;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Stage5gFreshTruthApplicationEvidenceV1 {
-    pub(crate) schema_version: u16,
-    pub(crate) scenario_id: String,
-    pub(crate) disposition: String,
-    pub(crate) reason: String,
-    pub(crate) operational_identity_commitment_sha256: String,
-    pub(crate) fresh_package_id: String,
-    pub(crate) fresh_snapshot_epoch: String,
-    pub(crate) fresh_package_fingerprint_sha256: String,
-    pub(crate) pre_restart_package_fingerprint_sha256: String,
-    pub(crate) reduction_pre_semantic_fingerprint_sha256: String,
-    pub(crate) candidate_fingerprint_sha256: String,
-    pub(crate) applied_post_semantic_fingerprint_sha256: String,
-    pub(crate) post_restart_package_fingerprint_sha256: String,
-    pub(crate) ignored_terminal_order_count: usize,
-    pub(crate) ignored_historical_trade_count: usize,
-    pub(crate) runtime_transition_applied: bool,
-    pub(crate) callback_invoked: bool,
-    pub(crate) transport_opened: bool,
-    pub(crate) exact_replay_enabled: bool,
-}
-
-pub(crate) fn stage5g_application_evidence_is_valid(
-    evidence: &Stage5gFreshTruthApplicationEvidenceV1,
-) -> bool {
-    let sha256 = |value: &str| {
-        value.len() == 64
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    };
-    evidence.schema_version == STAGE5G_FRESH_TRUTH_APPLICATION_EVIDENCE_SCHEMA_VERSION
-        && !evidence.scenario_id.is_empty()
-        && !evidence.disposition.is_empty()
-        && !evidence.reason.is_empty()
-        && !evidence.fresh_package_id.is_empty()
-        && !evidence.fresh_snapshot_epoch.is_empty()
-        && sha256(&evidence.operational_identity_commitment_sha256)
-        && sha256(&evidence.fresh_package_fingerprint_sha256)
-        && sha256(&evidence.pre_restart_package_fingerprint_sha256)
-        && sha256(&evidence.reduction_pre_semantic_fingerprint_sha256)
-        && sha256(&evidence.candidate_fingerprint_sha256)
-        && sha256(&evidence.applied_post_semantic_fingerprint_sha256)
-        && sha256(&evidence.post_restart_package_fingerprint_sha256)
-        && evidence.candidate_fingerprint_sha256
-            == evidence.applied_post_semantic_fingerprint_sha256
-        && evidence.runtime_transition_applied
-        && !evidence.callback_invoked
-        && !evidence.transport_opened
-        && !evidence.exact_replay_enabled
-}
+pub(crate) const STAGE5G_FRESH_TRUTH_APPLICATION_EVIDENCE_SCHEMA_VERSION: u16 = 2;
 
 macro_rules! stage5g_string_identity {
     ($name:ident) => {

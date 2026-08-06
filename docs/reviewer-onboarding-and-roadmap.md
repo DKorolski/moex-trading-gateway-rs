@@ -92,6 +92,15 @@ B is explicit: ExactReplay remains disabled until a later durable authority is
 designed. No callback, Redis, FINAM, HTTP, dispatch, runtime-live or real-order
 surface is opened.
 
+The submitted e-d-c commit `18240b26a5bea77ea71c851f72a644706a7e0b57`
+is the immutable R1 predecessor. R1 seals the previously reviewable package
+minting seam with one non-cloneable post-application token, proves independent
+candidate/post/restored hashes and whole-state invariants, and adds 14
+phase-specific failure witnesses, 12 full-chain GRST witnesses, exact
+disposition coverage, actual-type ownership checks and fully resealed semantic
+tamper rejection. R1 remains paper-only and does not claim external durability;
+its handoff must be one direct successor on `stage5g-lifecycle`.
+
 R1 through R5 closed the substantive input boundary, direct reducer shape and
 `src`/gate/provenance seal. R6 closes only the compilation-control findings:
 

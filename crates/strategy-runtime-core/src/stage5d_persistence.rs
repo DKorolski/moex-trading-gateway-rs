@@ -3901,6 +3901,13 @@ pub(crate) fn stage5g_test_rehash_clean_restart_package(
     let mut extension: crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1 =
         serde_json::from_value(extension_value)
             .expect("mutated test extension remains strictly typed");
+    if let Some(application_evidence) = extension.fresh_truth_application_evidence.as_ref() {
+        extension.fresh_truth_application_authority_sha256 = Some(
+            crate::stage5g_fresh_broker_truth::stage5g_application_authority_sha256(
+                application_evidence,
+            ),
+        );
+    }
     extension.checkpoint =
         crate::stage5g_timer::stage5g_test_reseal_checkpoint(&extension.checkpoint.payload);
     if let Some(timer_source) = extension.timer_ready_source.as_mut() {
@@ -3927,6 +3934,56 @@ pub(crate) fn stage5g_test_rehash_clean_restart_package(
     package.envelope_json = serde_json::to_string(&envelope).unwrap();
     package.envelope_sha256 = sha256_text(&package.envelope_json);
     let extension_json = serde_json::to_string(&extension_value).unwrap();
+    package.stage5g_extension_sha256 = Some(sha256_text(&extension_json));
+    package.stage5g_extension_json = Some(extension_json);
+    package.package_checksum_sha256 = package.compute_package_checksum_sha256().unwrap();
+    serde_json::to_vec(&package).unwrap()
+}
+
+/// Adversarial helper for e-d-c R1. It reseals every unkeyed transport and
+/// lifecycle hash and then recomputes the outer operator HMAC with the test
+/// key. Restore must therefore reject semantic cross-binding violations, not
+/// stale integrity metadata.
+#[cfg(test)]
+pub(crate) fn stage5g_test_fully_reseal_application_package(
+    bytes: &[u8],
+    commitment_key: &crate::Stage5gLifecycleCommitmentKey,
+    mutate_extension: impl FnOnce(&mut serde_json::Value),
+) -> Vec<u8> {
+    let rehashed = stage5g_test_rehash_clean_restart_package(bytes, |_| {}, mutate_extension);
+    let mut package: Stage5dCanonicalRestartPackage =
+        serde_json::from_slice(&rehashed).expect("rehashed application package parses");
+    let mut envelope: Stage5dPersistenceEnvelope =
+        serde_json::from_str(&package.envelope_json).expect("rehashed envelope parses");
+    let evidence: Stage5dRiskGateLedgerEvidence =
+        serde_json::from_str(&package.riskgate_evidence_json).expect("riskgate evidence parses");
+    let mut projection: crate::stage5g_clean_restart::Stage5gCleanRestartProjectionV1 =
+        serde_json::from_str(
+            package
+                .stage5g_extension_json
+                .as_deref()
+                .expect("application extension exists"),
+        )
+        .expect("rehashed application projection parses");
+
+    envelope.stage5g_source_authority_hmac_sha256 = Some(
+        crate::stage5g_clean_restart::stage5g_test_authenticated_restart_hmac_sha256(
+            &projection,
+            &envelope,
+            &evidence,
+            commitment_key,
+        ),
+    );
+    envelope.payload_checksum_sha256 = envelope
+        .compute_payload_checksum_sha256()
+        .expect("keyed test envelope rehashes");
+    projection.package_instance.stage5d_payload_checksum_sha256 =
+        envelope.payload_checksum_sha256.clone();
+    crate::stage5g_clean_restart::stage5g_test_reseal_nested_integrity(&mut projection);
+
+    package.envelope_json = serde_json::to_string(&envelope).unwrap();
+    package.envelope_sha256 = sha256_text(&package.envelope_json);
+    let extension_json = serde_json::to_string(&projection).unwrap();
     package.stage5g_extension_sha256 = Some(sha256_text(&extension_json));
     package.stage5g_extension_json = Some(extension_json);
     package.package_checksum_sha256 = package.compute_package_checksum_sha256().unwrap();

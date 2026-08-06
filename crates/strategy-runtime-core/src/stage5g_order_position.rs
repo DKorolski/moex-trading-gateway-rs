@@ -333,6 +333,14 @@ pub(crate) struct Stage5gRestartCandidateOrderPositionContext {
     pub(crate) expected_attribution: Option<HybridRuntimeAttribution>,
 }
 
+pub(crate) struct Stage5gRestartApplicationExpectation {
+    request_id: StrategyRequestId,
+    total_sequence: u64,
+    evidence_identity: String,
+    evidence_fingerprint: String,
+    received_at: DateTime<Utc>,
+}
+
 /// Narrow, immutable authority for a Cancel target. The command identity is
 /// intentionally absent. Optional client/payload authority exists only after
 /// a separately owned target-order observation has been accepted.
@@ -989,6 +997,228 @@ pub(crate) fn apply_stage5g_restart_canonical_order_position_state(
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    static STAGE5G_FAIL_RESTART_CANONICAL_BEFORE_COMMIT: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+/// Test-only arming hook. The sole production bridge still enters the real
+/// shared primitive; the flag is consumed at its final commit boundary.
+#[cfg(test)]
+pub(crate) fn stage5g_test_fail_restart_canonical_before_commit() {
+    STAGE5G_FAIL_RESTART_CANONICAL_BEFORE_COMMIT.with(|flag| flag.set(true));
+}
+
+pub(crate) fn stage5g_restart_application_expectation(
+    canonical: &Stage5gCanonicalOrderPositionEvidence,
+) -> Stage5gRestartApplicationExpectation {
+    Stage5gRestartApplicationExpectation {
+        request_id: canonical.evidence.request_id,
+        total_sequence: canonical.evidence.total_sequence,
+        evidence_identity: canonical.identity.clone(),
+        evidence_fingerprint: canonical.fingerprint.clone(),
+        received_at: canonical.evidence.broker_truth.received_ts,
+    }
+}
+
+pub(crate) fn stage5g_restart_state_semantic_sha256(state: &Stage5gOrderPositionState) -> String {
+    #[derive(Serialize)]
+    struct Projection<'a> {
+        domain: &'static str,
+        state: &'a Stage5gOrderPositionState,
+    }
+    let bytes = serde_json::to_vec(&Projection {
+        domain: "moex.stage5g.edc.global-state.v1",
+        state,
+    })
+    .expect("authenticated Stage 5G state serializes");
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gRestartApplicationClass {
+    Working,
+    PartialFill,
+    Terminal,
+}
+
+pub(crate) fn stage5g_restart_application_class(
+    state: &Stage5gOrderPositionState,
+    command_request_id: &str,
+) -> Option<Stage5gRestartApplicationClass> {
+    let request_id = StrategyRequestId::new(uuid::Uuid::parse_str(command_request_id).ok()?);
+    let slot = state
+        .slots
+        .iter()
+        .find(|slot| slot.ack.request_id == request_id)?;
+    let status = &slot.order_events.last()?.order.status;
+    match status {
+        OrderStatus::New | OrderStatus::Working => Some(Stage5gRestartApplicationClass::Working),
+        OrderStatus::PartiallyFilled => Some(Stage5gRestartApplicationClass::PartialFill),
+        OrderStatus::Filled
+        | OrderStatus::Rejected
+        | OrderStatus::Canceled
+        | OrderStatus::Expired => Some(Stage5gRestartApplicationClass::Terminal),
+        OrderStatus::Unknown(_) => None,
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gRestartApplicationMismatch {
+    OrderStatus,
+    FilledQuantity,
+    RemainingQuantity,
+    TradePayload,
+    TradeSet,
+    Position,
+    TargetIdentity,
+    IntentClass,
+    Attribution,
+    UnrelatedSlot,
+    LastTotalSequence,
+    CurrentEvidenceIdentity,
+    Watermark,
+}
+
+#[cfg(test)]
+pub(crate) fn stage5g_test_mutate_restart_application_state(
+    state: &mut Stage5gOrderPositionState,
+    mismatch: Stage5gRestartApplicationMismatch,
+) {
+    if mismatch == Stage5gRestartApplicationMismatch::UnrelatedSlot {
+        let duplicate = state
+            .slots
+            .first()
+            .expect("application fixture slot")
+            .clone();
+        state.slots.push(duplicate);
+        return;
+    }
+    let slot = state.slots.first_mut().expect("application fixture slot");
+    match mismatch {
+        Stage5gRestartApplicationMismatch::OrderStatus => {
+            let event = slot
+                .order_events
+                .last_mut()
+                .expect("application order event");
+            event.order.status = OrderStatus::Rejected;
+            event.order.lifecycle = BrokerOrderSnapshot::lifecycle_for(&event.order.status);
+        }
+        Stage5gRestartApplicationMismatch::FilledQuantity => {
+            slot.order_events
+                .last_mut()
+                .expect("application order event")
+                .order
+                .filled_qty += Decimal::ONE;
+        }
+        Stage5gRestartApplicationMismatch::RemainingQuantity => {
+            slot.order_events
+                .last_mut()
+                .expect("application order event")
+                .order
+                .remaining_qty = Some(Decimal::ZERO);
+        }
+        Stage5gRestartApplicationMismatch::TradePayload => {
+            slot.trades.first_mut().expect("application trade").qty += Decimal::ONE;
+        }
+        Stage5gRestartApplicationMismatch::TradeSet => {
+            slot.trades.pop().expect("application trade");
+        }
+        Stage5gRestartApplicationMismatch::Position => {
+            slot.position.as_mut().expect("application position").1.qty += Decimal::ONE;
+        }
+        Stage5gRestartApplicationMismatch::TargetIdentity => {
+            slot.broker_order_id = Some(BrokerOrderId::new("R1-MISMATCH-ORDER"));
+        }
+        Stage5gRestartApplicationMismatch::IntentClass => {
+            slot.source.intent_class = match slot.source.intent_class {
+                crate::BrokerNeutralHybridIntentClass::Entry => {
+                    crate::BrokerNeutralHybridIntentClass::Exit
+                }
+                _ => crate::BrokerNeutralHybridIntentClass::Entry,
+            };
+        }
+        Stage5gRestartApplicationMismatch::Attribution => {
+            slot.source.expected_attribution = None;
+            if let Some(event) = slot.order_events.last_mut() {
+                event.attribution = None;
+            }
+        }
+        Stage5gRestartApplicationMismatch::UnrelatedSlot => unreachable!(),
+        Stage5gRestartApplicationMismatch::LastTotalSequence => {
+            state.last_total_sequence = state
+                .last_total_sequence
+                .and_then(|value| value.checked_add(1));
+        }
+        Stage5gRestartApplicationMismatch::CurrentEvidenceIdentity => {
+            state.current_evidence_identity = Some("R1-MISMATCH-IDENTITY".to_string());
+        }
+        Stage5gRestartApplicationMismatch::Watermark => {
+            state.last_broker_truth_received_ms = state
+                .last_broker_truth_received_ms
+                .and_then(|value| value.checked_add(1));
+        }
+    }
+}
+
+pub(crate) fn stage5g_restart_application_global_invariants(
+    pre: &Stage5gOrderPositionState,
+    post: &Stage5gOrderPositionState,
+    expected: &Stage5gRestartApplicationExpectation,
+) -> bool {
+    if pre.strategy_id != post.strategy_id
+        || pre.account_id != post.account_id
+        || pre.instrument != post.instrument
+        || pre.slots.len() != post.slots.len()
+        || pre.duplicate_evidence_count != post.duplicate_evidence_count
+    {
+        return false;
+    }
+    let Some(target_index) = pre
+        .slots
+        .iter()
+        .position(|slot| slot.ack.request_id == expected.request_id)
+    else {
+        return false;
+    };
+    if pre
+        .slots
+        .iter()
+        .zip(&post.slots)
+        .enumerate()
+        .any(|(index, (before, after))| {
+            index != target_index && !state_slot_bytes_equal(before, after)
+        })
+    {
+        return false;
+    }
+    let mut expected_ledger = pre.evidence_identities.clone();
+    expected_ledger.push(EvidenceIdentity {
+        identity: expected.evidence_identity.clone(),
+        fingerprint: expected.evidence_fingerprint.clone(),
+    });
+    post.evidence_identities == expected_ledger
+        && post.current_evidence_identity.as_deref() == Some(&expected.evidence_identity)
+        && post.last_total_sequence == Some(expected.total_sequence)
+        && post.last_broker_truth_received_at == Some(expected.received_at)
+        && post.last_broker_truth_received_ms == Some(expected.received_at.timestamp_millis())
+        && post.last_continuation_checkpoint_ts_utc_ms
+            == Some(
+                pre.last_continuation_checkpoint_ts_utc_ms
+                    .unwrap_or(i64::MIN)
+                    .max(expected.received_at.timestamp_millis()),
+            )
+}
+
+fn state_slot_bytes_equal(
+    left: &Stage5gOrderPositionSlot,
+    right: &Stage5gOrderPositionSlot,
+) -> bool {
+    serde_json::to_vec(left).ok() == serde_json::to_vec(right).ok()
+}
+
 fn canonical_state_failure(
     reason: Stage5gOrderPositionError,
     state: Stage5gOrderPositionState,
@@ -1026,6 +1256,32 @@ fn apply_stage5g_canonical_order_position_state(
         Ok(slot_index) => slot_index,
         Err(reason) => return Err(canonical_state_failure(reason, state)),
     };
+    // A restart can discover the broker-native order id after an accepted
+    // place ACK that carried only the client id. The reducer has already
+    // proved unique ownership; adopt that id inside this same transactional
+    // canonical transition before ordinary immutable-order validation.
+    if mode == Stage5gCanonicalApplicationMode::RestartFreshTruth
+        && matches!(
+            state.slots[slot_index].ack.action,
+            Stage5gMockIntentAction::Place { .. }
+        )
+        && state.slots[slot_index].broker_order_id.is_none()
+    {
+        let expected_client_order_id = &state.slots[slot_index].ack.expected_client_order_id;
+        let discovered = evidence
+            .broker_truth
+            .orders
+            .iter()
+            .filter(|order| {
+                order.client_order_id.as_ref() == Some(expected_client_order_id)
+                    && order.account_id == state.account_id
+                    && instrument_identity_matches(&order.instrument, &state.instrument)
+            })
+            .collect::<Vec<_>>();
+        if discovered.len() == 1 {
+            state.slots[slot_index].broker_order_id = discovered[0].broker_order_id.clone();
+        }
+    }
     let evidence = canonical_evidence.into_evidence();
     let ack_ts = state.slots[slot_index]
         .ack
@@ -1136,6 +1392,13 @@ fn apply_stage5g_canonical_order_position_state(
         ));
     }
     // STAGE5G-C-R2CB-R2-COMMITTED-TRADE-WATERMARK-END
+    #[cfg(test)]
+    if STAGE5G_FAIL_RESTART_CANONICAL_BEFORE_COMMIT.with(|flag| flag.replace(false)) {
+        return Err(canonical_state_failure(
+            Stage5gOrderPositionError::Stage5cPreCallbackBlocked,
+            state,
+        ));
+    }
     state.slots[slot_index] = next_slot;
     state.last_total_sequence = Some(evidence.total_sequence);
     state.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);

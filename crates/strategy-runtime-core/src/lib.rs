@@ -248,6 +248,22 @@
 //! use strategy_runtime_core::stage5g_edc_compile_fail_facade::reduction;
 //! let _json = serde_json::to_string(&reduction()).unwrap();
 //! ```
+//!
+//! ```compile_fail,E0382
+//! // stage5g_edc_r1_compile_fail_candidate_applied_twice
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::{apply_candidate, candidate};
+//! let candidate = candidate();
+//! apply_candidate(candidate);
+//! apply_candidate(candidate);
+//! ```
+//!
+//! ```compile_fail,E0382
+//! // stage5g_edc_r1_compile_fail_post_token_reused_after_export
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::{export_post, post_token};
+//! let token = post_token();
+//! export_post(token);
+//! export_post(token);
+//! ```
 // STAGE5G-EDC-COMPILE-FAIL-END
 
 pub mod hybrid_intraday;
@@ -339,10 +355,18 @@ pub mod stage5e_b3f_compile_fail_facade {
 #[cfg(doctest)]
 #[doc(hidden)]
 pub mod stage5g_edc_compile_fail_facade {
-    pub struct Reduction(pub(crate) ());
-    pub struct Applied(pub(crate) ());
-    pub struct Continued(pub(crate) ());
-    pub struct Blocked(pub(crate) ());
+    pub struct Reduction(Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthReduction>);
+    pub struct Candidate(
+        Option<crate::stage5g_fresh_broker_truth::Stage5gOwnedReconciliationCandidate>,
+    );
+    pub struct PostToken(
+        Option<crate::stage5g_fresh_broker_truth::Stage5gValidatedPostApplication>,
+    );
+    pub struct Applied(Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplied>);
+    pub struct Continued(Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthContinued>);
+    pub struct Blocked(
+        Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationBlocked>,
+    );
     pub struct Diagnostic(pub(crate) ());
     pub enum Outcome {
         Applied(Applied),
@@ -353,8 +377,21 @@ pub mod stage5g_edc_compile_fail_facade {
     pub fn reduction() -> Reduction {
         unreachable!("compile-fail facade is type-checked but never executed")
     }
-    pub fn apply(_reduction: Reduction) -> Outcome {
+    pub fn apply(reduction: Reduction) -> Outcome {
+        drop(reduction.0);
         unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn candidate() -> Candidate {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn apply_candidate(candidate: Candidate) {
+        drop(candidate.0);
+    }
+    pub fn post_token() -> PostToken {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn export_post(token: PostToken) {
+        drop(token.0);
     }
     pub fn applied() -> Applied {
         unreachable!("compile-fail facade is type-checked but never executed")
