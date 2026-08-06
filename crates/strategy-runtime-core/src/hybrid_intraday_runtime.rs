@@ -1014,6 +1014,13 @@ impl HybridIntradayRuntimeStrategy {
         }
     }
 
+    /// Configuration-identical empty reconstruction context for an
+    /// authenticated Stage 5G package roundtrip. It carries no callback,
+    /// transport or broker authority and is populated only by Stage 5D restore.
+    pub(crate) fn stage5g_clean_reconstruction_candidate(&self) -> Self {
+        Self::new(self.config.clone())
+    }
+
     /// Proves that a terminal MARKET outcome belongs to the exact source-owned
     /// semantic request rather than to a request-id-only synthetic state.
     pub(crate) fn stage5g_r2ca_r2_source_payload(

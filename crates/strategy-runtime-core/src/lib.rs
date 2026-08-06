@@ -177,6 +177,78 @@
 //! drop(borrowed);
 //! ```
 // STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5e-b3f-doctest-docs
+// STAGE5G-EDC-COMPILE-FAIL-BEGIN
+//!
+//! Stage 5G-e-d-c consumes one opaque reduction. These doctest-only facade
+//! witnesses mirror the production ownership shape without exposing the
+//! production candidate or application function.
+//!
+//! ```compile_fail,E0599
+//! // stage5g_edc_compile_fail_reduction_clone
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::reduction;
+//! let reduction = reduction();
+//! let _clone = reduction.clone();
+//! ```
+//!
+//! ```compile_fail,E0599
+//! // stage5g_edc_compile_fail_candidate_extraction
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::reduction;
+//! let _candidate = reduction().candidate();
+//! ```
+//!
+//! ```compile_fail,E0382
+//! // stage5g_edc_compile_fail_apply_twice
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::{apply, reduction};
+//! let reduction = reduction();
+//! let _first = apply(reduction);
+//! let _second = apply(reduction);
+//! ```
+//!
+//! ```compile_fail,E0382
+//! // stage5g_edc_compile_fail_reduction_reuse
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::{apply, reduction};
+//! let reduction = reduction();
+//! let _result = apply(reduction);
+//! drop(reduction);
+//! ```
+//!
+//! ```compile_fail,E0599
+//! // stage5g_edc_compile_fail_blocked_to_candidate
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::blocked;
+//! let _candidate = blocked().into_candidate();
+//! ```
+//!
+//! ```compile_fail,E0599
+//! // stage5g_edc_compile_fail_continued_to_candidate
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::continued;
+//! let _candidate = continued().into_candidate();
+//! ```
+//!
+//! ```compile_fail,E0599
+//! // stage5g_edc_compile_fail_applied_exposes_candidate
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::applied;
+//! let _candidate = applied().candidate();
+//! ```
+//!
+//! ```compile_fail,E0599
+//! // stage5g_edc_compile_fail_diagnostic_reconstruction
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::diagnostic;
+//! let _candidate = diagnostic().into_candidate();
+//! ```
+//!
+//! ```compile_fail,E0061
+//! // stage5g_edc_compile_fail_raw_rows_application
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::apply;
+//! let raw_broker_rows: Vec<String> = Vec::new();
+//! let _result = apply(raw_broker_rows);
+//! ```
+//!
+//! ```compile_fail,E0277
+//! // stage5g_edc_compile_fail_reduction_serialization
+//! use strategy_runtime_core::stage5g_edc_compile_fail_facade::reduction;
+//! let _json = serde_json::to_string(&reduction()).unwrap();
+//! ```
+// STAGE5G-EDC-COMPILE-FAIL-END
 
 pub mod hybrid_intraday;
 // The accepted source wrapper intentionally retains Stage 5C/5D callbacks
@@ -261,6 +333,40 @@ pub mod stage5e_b3f_compile_fail_facade {
                 b3f_doctest_consume_escrow(self.0, &seal.0);
             Payload(())
         }
+    }
+}
+
+#[cfg(doctest)]
+#[doc(hidden)]
+pub mod stage5g_edc_compile_fail_facade {
+    pub struct Reduction(pub(crate) ());
+    pub struct Applied(pub(crate) ());
+    pub struct Continued(pub(crate) ());
+    pub struct Blocked(pub(crate) ());
+    pub struct Diagnostic(pub(crate) ());
+    pub enum Outcome {
+        Applied(Applied),
+        Continued(Continued),
+        Blocked(Blocked),
+    }
+
+    pub fn reduction() -> Reduction {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn apply(_reduction: Reduction) -> Outcome {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn applied() -> Applied {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn continued() -> Continued {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn blocked() -> Blocked {
+        unreachable!("compile-fail facade is type-checked but never executed")
+    }
+    pub fn diagnostic() -> Diagnostic {
+        unreachable!("compile-fail facade is type-checked but never executed")
     }
 }
 // STAGE5D-ADDITIVE-BRIDGE-END: lib-stage5e-b3f-doctest-facade

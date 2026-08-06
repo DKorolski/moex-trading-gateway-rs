@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-04.
+Status date: 2026-08-06.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -108,6 +108,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   R2-c-b and all live surfaces remain closed.
 - Stage 5G-c and its exact replay-package identity are independently accepted
   and closed at `d7561e6f36d01aea3d0dd67892800fbb6ac0a716`.
+- Stage 5G-e-d-b R5 was independently accepted at
+  `2b2bcc671c68722b3b84b914b785ffcb83f6802d`. Stage 5G-e-d-c is the current
+  implementation target. It consumes one accepted fresh-truth reduction,
+  applies an owned candidate through the canonical order/position core, and
+  returns only an authenticated clean-process restored capability. Replay
+  Policy B is fixed: ExactReplay stays disabled and no external ledger is
+  introduced. Redis, FINAM, dispatch, callbacks, runtime-live and real orders
+  remain closed.
 - Stage 5G-e-d-a R6 was independently accepted and closed at
   `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. R1 at
   `9a3221602a902bc6207418f0131665a039d62768` closed the substantive freshness,
@@ -144,8 +152,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd` closed those findings but was
   rejected because exact Rejected/Canceled/Expired truth still created a new
   candidate, safe same-status Canceled/Expired late fills were blocked, and
-  missing-owned outcomes lost classified history counts. R5 is the current
-  direct repair candidate. It retains the R2 restart-owned
+  missing-owned outcomes lost classified history counts. R5 is the accepted
+  reducer predecessor for e-d-c. It retains the R2 restart-owned
   authority for all twelve operational identity fields, conservative replay
   hints without `ExactReplay`, account-wide order safety, source-action and
   monotonicity checks, exact GRST06/GRST11 separation, target identity conflict
@@ -170,9 +178,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   retain already classified history counts. Authenticated owning
   fixtures exercise export/restore/validate/bind/reduce and GRST01–GRST12;
   multi-trade row order and parallel evidence are deterministic. It still
-  cannot invoke a callback, mutate runtime/persistence, publish Redis data, use
-  FINAM/HTTP or dispatch an order. Stage 5G-e-d-c remains closed pending
-  independent e-d-b R5 acceptance.
+  cannot invoke a callback, publish Redis data, use FINAM/HTTP or dispatch an
+  order. Its accepted output is now the sole input authority for the active
+  Stage 5G-e-d-c review candidate described above.
 - Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
   was rejected as submitted because ExactReplay advanced the committed
   checkpoint without synchronizing the continuing Stage 5G-c session. R1 at

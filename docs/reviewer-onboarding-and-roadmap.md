@@ -81,10 +81,16 @@ was rejected on global history, flat canonicalization, cancel target authority
 and immutable target-order payload findings. R4 at
 `66c5fbd2518ec2e7398c88bb59cc7e4dae3ce1bd` closed those findings but was
 rejected on all-terminal idempotency, safe same-status terminal late fills and
-missing-owned history evidence. The active target is **Stage 5G-e-d-b R5 — restart-owned,
-mutation-safe fresh mock BrokerTruth reducer and executable GRST01–GRST12
-matrix**, as one clean repair successor to `f9bc372` while retaining accepted
-R6 as the architectural predecessor.
+missing-owned history evidence. Stage 5G-e-d-b R5 was subsequently accepted at
+`2b2bcc671c68722b3b84b914b785ffcb83f6802d`.
+
+The active target is **Stage 5G-e-d-c — linear fresh-truth candidate
+application**. It consumes the opaque accepted reducer result exactly once,
+reuses the canonical order/position transition, proves post-state equality and
+returns only a freshly restored authenticated package capability. Replay Policy
+B is explicit: ExactReplay remains disabled until a later durable authority is
+designed. No callback, Redis, FINAM, HTTP, dispatch, runtime-live or real-order
+surface is opened.
 
 R1 through R5 closed the substantive input boundary, direct reducer shape and
 `src`/gate/provenance seal. R6 closes only the compilation-control findings:

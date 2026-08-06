@@ -327,6 +327,12 @@ pub(crate) struct Stage5gFreshTruthRestartSlotProjection {
     pub(crate) terminal: bool,
 }
 
+pub(crate) struct Stage5gRestartCandidateOrderPositionContext {
+    pub(crate) request_id: StrategyRequestId,
+    pub(crate) next_total_sequence: u64,
+    pub(crate) expected_attribution: Option<HybridRuntimeAttribution>,
+}
+
 /// Narrow, immutable authority for a Cancel target. The command identity is
 /// intentionally absent. Optional client/payload authority exists only after
 /// a separately owned target-order observation has been accepted.
@@ -893,37 +899,147 @@ pub fn apply_stage5g_order_position_evidence(
 /// its owned candidate here so classifier and application use the exact same
 /// identity/fingerprint authority without reconstructing raw evidence.
 pub(crate) fn apply_stage5g_canonical_order_position_evidence(
-    mut session: Stage5gOrderPositionSession,
+    session: Stage5gOrderPositionSession,
     canonical_evidence: Stage5gCanonicalOrderPositionEvidence,
 ) -> Result<Stage5gOrderPositionTransition, Stage5gOrderPositionFailure> {
+    let Stage5gOrderPositionSession {
+        ack_resolved,
+        state,
+    } = session;
+    match apply_stage5g_canonical_order_position_state(
+        state,
+        canonical_evidence,
+        Stage5gCanonicalApplicationMode::ActiveSession,
+    ) {
+        Ok(Stage5gCanonicalStateTransition::ExactReplay(state)) => Ok(
+            Stage5gOrderPositionTransition::Awaiting(Stage5gOrderPositionSession {
+                ack_resolved,
+                state,
+            }),
+        ),
+        Ok(Stage5gCanonicalStateTransition::Applied {
+            state,
+            pre_candidate_state,
+        }) => {
+            let all_terminal = state.slots.iter().all(|slot| slot.terminal);
+            let session = Stage5gOrderPositionSession {
+                ack_resolved,
+                state,
+            };
+            if all_terminal {
+                converge_through_stage5c(session, *pre_candidate_state)
+            } else {
+                Ok(Stage5gOrderPositionTransition::Awaiting(session))
+            }
+        }
+        Err(failure) => Err(block(
+            failure.reason,
+            Stage5gOrderPositionSession {
+                ack_resolved,
+                state: *failure.state,
+            },
+        )),
+    }
+}
+
+enum Stage5gCanonicalStateTransition {
+    ExactReplay(Stage5gOrderPositionState),
+    Applied {
+        state: Stage5gOrderPositionState,
+        pre_candidate_state: Box<Stage5gOrderPositionState>,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Stage5gCanonicalApplicationMode {
+    ActiveSession,
+    RestartFreshTruth,
+}
+
+struct Stage5gCanonicalStateFailure {
+    reason: Stage5gOrderPositionError,
+    state: Box<Stage5gOrderPositionState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gRestartCanonicalApplicationError {
+    ExactReplayDisabled,
+    OrderPosition(Stage5gOrderPositionError),
+}
+
+/// Restart-only owner of the accepted canonical transition. It consumes a
+/// cloned authenticated state and canonical evidence, returns only the
+/// resulting state, and deliberately never reaches the callback wrapper.
+pub(crate) fn apply_stage5g_restart_canonical_order_position_state(
+    state: Stage5gOrderPositionState,
+    canonical_evidence: Stage5gCanonicalOrderPositionEvidence,
+) -> Result<Stage5gOrderPositionState, Stage5gRestartCanonicalApplicationError> {
+    match apply_stage5g_canonical_order_position_state(
+        state,
+        canonical_evidence,
+        Stage5gCanonicalApplicationMode::RestartFreshTruth,
+    ) {
+        Ok(Stage5gCanonicalStateTransition::Applied { state, .. }) => Ok(state),
+        Ok(Stage5gCanonicalStateTransition::ExactReplay(_)) => {
+            Err(Stage5gRestartCanonicalApplicationError::ExactReplayDisabled)
+        }
+        Err(failure) => Err(Stage5gRestartCanonicalApplicationError::OrderPosition(
+            failure.reason,
+        )),
+    }
+}
+
+fn canonical_state_failure(
+    reason: Stage5gOrderPositionError,
+    state: Stage5gOrderPositionState,
+) -> Stage5gCanonicalStateFailure {
+    Stage5gCanonicalStateFailure {
+        reason,
+        state: Box::new(state),
+    }
+}
+
+/// Shared transactional state primitive. Both the accepted active session
+/// path and the restart-only e-d-c path use this exact implementation; only
+/// the active wrapper above is allowed to continue into a Stage 5C callback.
+fn apply_stage5g_canonical_order_position_state(
+    mut state: Stage5gOrderPositionState,
+    canonical_evidence: Stage5gCanonicalOrderPositionEvidence,
+    mode: Stage5gCanonicalApplicationMode,
+) -> Result<Stage5gCanonicalStateTransition, Stage5gCanonicalStateFailure> {
     let evidence = canonical_evidence.evidence();
     let identity = canonical_evidence.identity().to_string();
     let fingerprint = canonical_evidence.fingerprint().to_string();
-    match apply_stage5g_exact_replay_metadata(&mut session, evidence, &identity, &fingerprint) {
-        Err(reason) => return Err(block(reason, session)),
+    match apply_stage5g_exact_replay_metadata_to_state(
+        &mut state,
+        evidence,
+        &identity,
+        &fingerprint,
+    ) {
+        Err(reason) => return Err(canonical_state_failure(reason, state)),
         Ok(Stage5gReplayAdmission::ExactReplay) => {
-            return Ok(Stage5gOrderPositionTransition::Awaiting(session));
+            return Ok(Stage5gCanonicalStateTransition::ExactReplay(state));
         }
         Ok(Stage5gReplayAdmission::NewPackage) => {}
     }
-    let slot_index = match stage5g_order_position_new_package_preflight(&session, evidence) {
+    let slot_index = match stage5g_order_position_new_package_preflight_state(&state, evidence) {
         Ok(slot_index) => slot_index,
-        Err(reason) => return Err(block(reason, session)),
+        Err(reason) => return Err(canonical_state_failure(reason, state)),
     };
     let evidence = canonical_evidence.into_evidence();
-    let ack_ts = session.state.slots[slot_index]
+    let ack_ts = state.slots[slot_index]
         .ack
         .latest_received_ts_utc
         .as_deref()
         .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
         .map(|value| value.with_timezone(&chrono::Utc));
     if ack_ts.is_some_and(|ack_ts| evidence.broker_truth.received_ts < ack_ts) {
-        return Err(block(
+        return Err(canonical_state_failure(
             Stage5gOrderPositionError::BrokerTruthBeforeAck,
-            session,
+            state,
         ));
     }
-    let safety_slot = &session.state.slots[slot_index];
+    let safety_slot = &state.slots[slot_index];
     let target_client_order_id = slot_target_order_client_id(safety_slot);
     let target_broker_order_id = slot_target_broker_order_id(safety_slot);
     match stage5g_account_wide_order_safety(
@@ -933,37 +1049,40 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
     ) {
         Stage5gAccountWideOrderSafety::Safe => {}
         Stage5gAccountWideOrderSafety::NonOwnedActive => {
-            return Err(block(
+            return Err(canonical_state_failure(
                 Stage5gOrderPositionError::AccountWideActiveOrderSafetyGuard,
-                session,
+                state,
             ));
         }
         Stage5gAccountWideOrderSafety::NonOwnedUnknown => {
-            return Err(block(
+            return Err(canonical_state_failure(
                 Stage5gOrderPositionError::AccountWideUnknownOrderSafetyGuard,
-                session,
+                state,
             ));
         }
         Stage5gAccountWideOrderSafety::AmbiguousOwned => {
-            return Err(block(
+            return Err(canonical_state_failure(
                 Stage5gOrderPositionError::AmbiguousTargetOrder,
-                session,
+                state,
             ));
         }
         Stage5gAccountWideOrderSafety::ConflictingOwnedIdentity => {
-            return Err(block(
+            return Err(canonical_state_failure(
                 Stage5gOrderPositionError::ClientOrderIdMismatch,
-                session,
+                state,
             ));
         }
     }
 
-    let current_slot = &session.state.slots[slot_index];
+    let current_slot = &state.slots[slot_index];
     let has_target_trade = has_target_correlated_trade(current_slot, &evidence.broker_truth);
-    if current_slot.terminal && has_target_trade {
-        return Err(block(
+    if current_slot.terminal
+        && has_target_trade
+        && mode != Stage5gCanonicalApplicationMode::RestartFreshTruth
+    {
+        return Err(canonical_state_failure(
             Stage5gOrderPositionError::BrokerEvidenceAfterTerminalAck,
-            session,
+            state,
         ));
     }
     if matches!(
@@ -978,9 +1097,9 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
         // A position-only Market observation cannot authenticate trade rows.
         // Retry with the target order row before any chronology or ledger
         // state is advanced.
-        return Err(block(
+        return Err(canonical_state_failure(
             Stage5gOrderPositionError::TargetTradeWithoutOrder,
-            session,
+            state,
         ));
         // STAGE5G-C-R2CB-R2-POSITION-ONLY-TRADE-BLOCK-END
     }
@@ -988,56 +1107,55 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
     // Evidence application is transactional: a blocked snapshot must not
     // partially append order/trade/position state before the caller retries
     // with corrected broker truth.
-    let pre_candidate_state = session.state.clone();
-    let mut next_slot = session.state.slots[slot_index].clone();
+    let pre_candidate_state = state.clone();
+    let mut next_slot = state.slots[slot_index].clone();
     if let Err(reason) = validate_snapshot_chronology(
-        session.state.last_broker_truth_received_at,
-        &session.state.instrument,
+        state.last_broker_truth_received_at,
+        &state.instrument,
         &mut next_slot,
         &evidence,
     ) {
-        return Err(block(reason, session));
+        return Err(canonical_state_failure(reason, state));
     }
-    let result = apply_to_slot(
-        &session.state.account_id,
-        &session.state.instrument,
+    let result = apply_to_slot_with_mode(
+        &state.account_id,
+        &state.instrument,
         &mut next_slot,
         &evidence,
+        mode,
     );
     if let Err(reason) = result {
-        return Err(block(reason, session));
+        return Err(canonical_state_failure(reason, state));
     }
     // STAGE5G-C-R2CB-R2-COMMITTED-TRADE-WATERMARK-BEGIN
     refresh_trade_watermarks_from_committed_ledger(&mut next_slot);
-    if !component_watermarks_are_monotonic(&session.state.slots[slot_index], &next_slot) {
-        return Err(block(
+    if !component_watermarks_are_monotonic(&state.slots[slot_index], &next_slot) {
+        return Err(canonical_state_failure(
             Stage5gOrderPositionError::TradeTimeRegression,
-            session,
+            state,
         ));
     }
     // STAGE5G-C-R2CB-R2-COMMITTED-TRADE-WATERMARK-END
-    session.state.slots[slot_index] = next_slot;
-    session.state.last_total_sequence = Some(evidence.total_sequence);
-    session.state.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);
-    session.state.last_broker_truth_received_ms =
+    state.slots[slot_index] = next_slot;
+    state.last_total_sequence = Some(evidence.total_sequence);
+    state.last_broker_truth_received_at = Some(evidence.broker_truth.received_ts);
+    state.last_broker_truth_received_ms =
         Some(evidence.broker_truth.received_ts.timestamp_millis());
-    session.state.last_continuation_checkpoint_ts_utc_ms = Some(
-        session
-            .state
+    state.last_continuation_checkpoint_ts_utc_ms = Some(
+        state
             .last_continuation_checkpoint_ts_utc_ms
             .unwrap_or(i64::MIN)
             .max(evidence.broker_truth.received_ts.timestamp_millis()),
     );
-    session.state.evidence_identities.push(EvidenceIdentity {
+    state.evidence_identities.push(EvidenceIdentity {
         identity: identity.clone(),
         fingerprint,
     });
-    session.state.current_evidence_identity = Some(identity);
-
-    if !session.state.slots.iter().all(|slot| slot.terminal) {
-        return Ok(Stage5gOrderPositionTransition::Awaiting(session));
-    }
-    converge_through_stage5c(session, pre_candidate_state)
+    state.current_evidence_identity = Some(identity);
+    Ok(Stage5gCanonicalStateTransition::Applied {
+        state,
+        pre_candidate_state: Box::new(pre_candidate_state),
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1050,45 +1168,42 @@ enum Stage5gReplayAdmission {
 /// Exact replay classification intentionally precedes every NewPackage-only
 /// chronology, slot and broker-state check. A successful exact replay mutates
 /// only its local sequence and duplicate counter.
-fn apply_stage5g_exact_replay_metadata(
-    session: &mut Stage5gOrderPositionSession,
+fn apply_stage5g_exact_replay_metadata_to_state(
+    state: &mut Stage5gOrderPositionState,
     evidence: &Stage5gOrderPositionEvidence,
     identity: &str,
     fingerprint: &str,
 ) -> Result<Stage5gReplayAdmission, Stage5gOrderPositionError> {
-    if session
-        .state
+    if state
         .last_total_sequence
         .is_some_and(|last| evidence.total_sequence <= last)
     {
         return Err(Stage5gOrderPositionError::NonMonotonicSequence);
     }
-    if evidence.broker_truth.account_id != session.state.account_id {
+    if evidence.broker_truth.account_id != state.account_id {
         return Err(Stage5gOrderPositionError::AccountMismatch);
     }
-    match classify_evidence_replay(&session.state, identity, fingerprint)? {
+    match classify_evidence_replay(state, identity, fingerprint)? {
         true => {
-            session.state.last_total_sequence = Some(evidence.total_sequence);
-            session.state.duplicate_evidence_count += 1;
+            state.last_total_sequence = Some(evidence.total_sequence);
+            state.duplicate_evidence_count += 1;
             Ok(Stage5gReplayAdmission::ExactReplay)
         }
         false => Ok(Stage5gReplayAdmission::NewPackage),
     }
 }
 
-fn stage5g_order_position_new_package_preflight(
-    session: &Stage5gOrderPositionSession,
+fn stage5g_order_position_new_package_preflight_state(
+    state: &Stage5gOrderPositionState,
     evidence: &Stage5gOrderPositionEvidence,
 ) -> Result<usize, Stage5gOrderPositionError> {
-    if session
-        .state
+    if state
         .last_continuation_checkpoint_ts_utc_ms
         .is_some_and(|checkpoint| evidence.broker_truth.received_ts.timestamp_millis() < checkpoint)
     {
         return Err(Stage5gOrderPositionError::BrokerTruthBeforeContinuationCheckpoint);
     }
-    let slot_index = session
-        .state
+    let slot_index = state
         .slots
         .iter()
         .position(|slot| slot.ack.request_id == evidence.request_id)
@@ -1309,14 +1424,31 @@ fn validate_component_time(
     Ok(())
 }
 
+#[cfg(test)]
 fn apply_to_slot(
     account_id: &broker_core::BrokerAccountId,
     instrument: &InstrumentId,
     slot: &mut Stage5gOrderPositionSlot,
     evidence: &Stage5gOrderPositionEvidence,
 ) -> Result<(), Stage5gOrderPositionError> {
+    apply_to_slot_with_mode(
+        account_id,
+        instrument,
+        slot,
+        evidence,
+        Stage5gCanonicalApplicationMode::ActiveSession,
+    )
+}
+
+fn apply_to_slot_with_mode(
+    account_id: &broker_core::BrokerAccountId,
+    instrument: &InstrumentId,
+    slot: &mut Stage5gOrderPositionSlot,
+    evidence: &Stage5gOrderPositionEvidence,
+    mode: Stage5gCanonicalApplicationMode,
+) -> Result<(), Stage5gOrderPositionError> {
     let mut candidate = slot.clone();
-    apply_to_slot_candidate(account_id, instrument, &mut candidate, evidence)?;
+    apply_to_slot_candidate(account_id, instrument, &mut candidate, evidence, mode)?;
     *slot = candidate;
     Ok(())
 }
@@ -1326,6 +1458,7 @@ fn apply_to_slot_candidate(
     instrument: &InstrumentId,
     slot: &mut Stage5gOrderPositionSlot,
     evidence: &Stage5gOrderPositionEvidence,
+    mode: Stage5gCanonicalApplicationMode,
 ) -> Result<(), Stage5gOrderPositionError> {
     if slot.terminal {
         let has_target_order = has_target_correlated_order(slot, &evidence.broker_truth);
@@ -1334,10 +1467,19 @@ fn apply_to_slot_candidate(
             canonical_target_position(account_id, instrument, &evidence.broker_truth)?;
         let contradictory_target_position =
             decimal_f64_differs(target_position.snapshot.qty, slot.source.pre_position_qty);
-        if has_target_order || has_target_trade || contradictory_target_position {
+        if mode != Stage5gCanonicalApplicationMode::RestartFreshTruth
+            && (has_target_order || has_target_trade || contradictory_target_position)
+        {
             return Err(Stage5gOrderPositionError::BrokerEvidenceAfterTerminalAck);
         }
-        return Ok(());
+        if !has_target_order && !has_target_trade && !contradictory_target_position {
+            return Ok(());
+        }
+        // The accepted e-d-b reducer has already proved a same-status,
+        // monotonic terminal late-fill candidate. Restart-only application
+        // re-enters the ordinary canonical validation below; active-session
+        // callers remain fail-closed at the branch above.
+        slot.terminal = false;
     }
     match &slot.ack.action {
         Stage5gMockIntentAction::Place {
@@ -2870,6 +3012,21 @@ impl Stage5gOrderPositionSession {
                 }
             })
             .collect()
+    }
+
+    pub(crate) fn stage5g_restart_candidate_context(
+        state: &Stage5gOrderPositionState,
+        command_request_id: &str,
+    ) -> Option<Stage5gRestartCandidateOrderPositionContext> {
+        let slot = state
+            .slots
+            .iter()
+            .find(|slot| slot.ack.request_id.to_string() == command_request_id)?;
+        Some(Stage5gRestartCandidateOrderPositionContext {
+            request_id: slot.ack.request_id,
+            next_total_sequence: state.last_total_sequence.unwrap_or(0).checked_add(1)?,
+            expected_attribution: slot.source.expected_attribution.clone(),
+        })
     }
 
     pub fn summary(&self) -> Stage5gOrderPositionSummary {

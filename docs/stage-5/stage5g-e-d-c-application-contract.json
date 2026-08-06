@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "stage": "5G-e-d-c",
+  "accepted_predecessor": "2b2bcc671c68722b3b84b914b785ffcb83f6802d",
+  "branch": "stage5g-lifecycle",
+  "owning_entry_point": "apply_stage5g_fresh_truth_reduction",
+  "input": "Stage5gFreshTruthReduction",
+  "results": [
+    "Stage5gFreshTruthApplied",
+    "Stage5gFreshTruthContinued",
+    "Stage5gFreshTruthApplicationBlocked"
+  ],
+  "replay_policy": "B_DISABLED",
+  "failure_injection_point_count": 14,
+  "minimum_negative_mutation_count": 320,
+  "application_evidence_schema_version": 1,
+  "canonical_transition_reused": true,
+  "authenticated_export_drop_restore": true,
+  "source_post_state_consumed_before_success": true,
+  "pre_authority_returned_on_failure": true,
+  "closed_surfaces": {
+    "strategy_callback": false,
+    "bar_timer_execution": false,
+    "redis": false,
+    "finam": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "protective_execution": false,
+    "external_journal": false,
+    "stage5g_f": false,
+    "stage6": false
+  }
+}

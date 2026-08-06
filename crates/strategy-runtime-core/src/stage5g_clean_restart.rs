@@ -145,6 +145,9 @@ pub(crate) struct Stage5gCleanRestartProjectionV1 {
     pub(crate) checkpoint: Stage5gTimerCheckpointEnvelope,
     pub(crate) order_position_state: Option<Stage5gOrderPositionState>,
     pub(crate) timer_ready_source: Option<Stage5gTimerReadyRestartProjectionV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) fresh_truth_application_evidence:
+        Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
     pub(crate) package_instance: Stage5gPackageInstanceBindingV1,
 }
 
@@ -184,6 +187,19 @@ pub struct Stage5gCleanRestartedCapability {
     runtime: HybridIntradayRuntimeStrategy,
     projection: Stage5gCleanRestartProjectionV1,
     reconciliation_authority: Stage5gValidatedReconciliationAuthority,
+    continuation_authority: Stage5gCleanRestartContinuationAuthority,
+}
+
+#[derive(Clone)]
+struct Stage5gCleanRestartContinuationAuthority {
+    snapshot_id: String,
+    snapshot_revision: u64,
+    write_generation: u64,
+    persisted_at_ts_utc: DateTime<Utc>,
+    source_commit_or_build_id: String,
+    lifecycle_watermarks: Stage5dLifecycleWatermarks,
+    riskgate: Stage5dRiskGatePersistence,
+    riskgate_evidence: Stage5dRiskGateLedgerEvidence,
 }
 
 pub(crate) enum Stage5gValidatedReconciliationAuthority {
@@ -302,6 +318,161 @@ impl Stage5gCleanRestartedCapability {
         Stage5gValidatedReconciliationAuthority,
     ) {
         (self.runtime, self.reconciliation_authority)
+    }
+
+    pub(crate) fn stage5g_restart_order_position_state(&self) -> Option<Stage5gOrderPositionState> {
+        match &self.reconciliation_authority {
+            Stage5gValidatedReconciliationAuthority::OrderPositionAwaitingCommitted {
+                state,
+                ..
+            } => Some(state.clone()),
+            Stage5gValidatedReconciliationAuthority::TimerReady { .. } => None,
+        }
+    }
+
+    pub(crate) fn stage5g_pre_restart_package_fingerprint_sha256(&self) -> String {
+        semantic_sha256(&self.projection)
+            .expect("validated clean-restart projection remains canonical")
+    }
+
+    pub(crate) fn stage5g_fresh_reconstruction_candidate(&self) -> HybridIntradayRuntimeStrategy {
+        self.runtime.stage5g_clean_reconstruction_candidate()
+    }
+
+    pub(crate) fn stage5g_post_application_package_fingerprint_sha256(
+        &self,
+        state: &Stage5gOrderPositionState,
+        fresh_package_id: &str,
+        fresh_snapshot_epoch: &str,
+        candidate_fingerprint_sha256: &str,
+    ) -> Result<String, Stage5gCleanRestartError> {
+        #[derive(Serialize)]
+        struct PostPackageProjection<'a> {
+            domain: &'static str,
+            parent_snapshot_id: &'a str,
+            parent_snapshot_revision: u64,
+            fresh_package_id: &'a str,
+            fresh_snapshot_epoch: &'a str,
+            candidate_fingerprint_sha256: &'a str,
+            order_position_state: &'a Stage5gOrderPositionState,
+        }
+        semantic_sha256(&PostPackageProjection {
+            domain: "moex.stage5g.fresh-truth-post-package.v1",
+            parent_snapshot_id: &self.continuation_authority.snapshot_id,
+            parent_snapshot_revision: self.continuation_authority.snapshot_revision,
+            fresh_package_id,
+            fresh_snapshot_epoch,
+            candidate_fingerprint_sha256,
+            order_position_state: state,
+        })
+    }
+
+    pub(crate) fn stage5g_export_post_application_order_position(
+        &self,
+        state: Stage5gOrderPositionState,
+        fresh_package_id: &str,
+        fresh_snapshot_epoch: &str,
+        captured_at: DateTime<Utc>,
+        application_evidence: crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Vec<u8>, Stage5gCleanRestartError> {
+        if !crate::stage5g_fresh_broker_truth::stage5g_application_evidence_is_valid(
+            &application_evidence,
+        ) || application_evidence.post_restart_package_fingerprint_sha256
+            != self.stage5g_post_application_package_fingerprint_sha256(
+                &state,
+                fresh_package_id,
+                fresh_snapshot_epoch,
+                &application_evidence.candidate_fingerprint_sha256,
+            )?
+        {
+            return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
+        }
+        let snapshot_revision = self
+            .continuation_authority
+            .snapshot_revision
+            .checked_add(1)
+            .ok_or(Stage5gCleanRestartError::PackageInstanceBindingMismatch)?;
+        let write_generation = self
+            .continuation_authority
+            .write_generation
+            .checked_add(1)
+            .ok_or(Stage5gCleanRestartError::PackageInstanceBindingMismatch)?;
+        let snapshot_identity = semantic_sha256(&(
+            "moex.stage5g.fresh-truth-post-snapshot.v1",
+            self.continuation_authority.snapshot_id.as_str(),
+            fresh_package_id,
+            fresh_snapshot_epoch,
+            application_evidence.candidate_fingerprint_sha256.as_str(),
+        ))?;
+        let persisted_at_ts_utc = captured_at.max(self.continuation_authority.persisted_at_ts_utc);
+        let mut lifecycle_watermarks = self.continuation_authority.lifecycle_watermarks.clone();
+        lifecycle_watermarks.last_broker_event_ts = Some(
+            lifecycle_watermarks
+                .last_broker_event_ts
+                .map_or(captured_at, |current| current.max(captured_at)),
+        );
+        let stage5d_input = Stage5dCanonicalEnvelopeExportInput {
+            snapshot_id: format!("stage5g-edc-{}", &snapshot_identity[..32]),
+            snapshot_revision,
+            previous_revision: Some(self.continuation_authority.snapshot_revision),
+            write_generation,
+            persisted_at_ts_utc,
+            strategy_id: self.projection.binding.strategy_id.clone(),
+            account_id: self.projection.binding.account_id.clone(),
+            instrument_id: self.projection.binding.instrument_id.clone(),
+            source_commit_or_build_id: self
+                .continuation_authority
+                .source_commit_or_build_id
+                .clone(),
+            lifecycle_watermarks,
+            riskgate: self.continuation_authority.riskgate.clone(),
+        };
+        let (mut envelope, _) =
+            stage5d_export_canonical_envelope_from_runtime(&self.runtime, stage5d_input)?;
+        let preliminary_projection = projection_from_order_position_state(
+            &self.runtime,
+            state.clone(),
+            &envelope,
+            Some(application_evidence.clone()),
+        )?;
+        let anchor = independent_source_authority_sha256(&preliminary_projection)?;
+        envelope.stage5g_source_authority_anchor_sha256 = Some(anchor.clone());
+        envelope.stage5g_source_authority_hmac_sha256 = None;
+        envelope.payload_checksum_sha256 = envelope.compute_payload_checksum_sha256()?;
+        let authenticated_commitment = authenticated_restart_package_commitment_sha256(
+            &preliminary_projection,
+            &envelope,
+            &self.continuation_authority.riskgate_evidence,
+            STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
+            Stage5dCanonicalRestartCheckpointState::Committed,
+        )?;
+        let hmac = lifecycle_commitment_hmac_sha256(commitment_key, &authenticated_commitment);
+        stage5d_bind_stage5g_source_authority_anchor(&mut envelope, &anchor, &hmac)?;
+        let projection = projection_from_order_position_state(
+            &self.runtime,
+            state,
+            &envelope,
+            Some(application_evidence),
+        )?;
+        if independent_source_authority_sha256(&projection)? != anchor {
+            return Err(Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch);
+        }
+        let extension_json = serde_json::to_string(&projection)
+            .map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;
+        stage5d_export_canonical_restart_bytes_from_authenticated_parts(
+            &self.runtime,
+            envelope,
+            self.continuation_authority.riskgate_evidence.clone(),
+            extension_json,
+        )
+        .map_err(Stage5gCleanRestartError::Stage5d)
+    }
+
+    pub(crate) fn stage5g_application_evidence(
+        &self,
+    ) -> Option<&crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1> {
+        self.projection.fresh_truth_application_evidence.as_ref()
     }
 
     #[allow(dead_code)]
@@ -483,6 +654,16 @@ pub fn restore_stage5g_clean_restart(
         commitment_key,
         &fresh_runtime,
     )?;
+    let continuation_authority = Stage5gCleanRestartContinuationAuthority {
+        snapshot_id: decoded.envelope.snapshot_id.clone(),
+        snapshot_revision: decoded.envelope.snapshot_revision,
+        write_generation: decoded.envelope.write_generation,
+        persisted_at_ts_utc: decoded.envelope.persisted_at_ts_utc,
+        source_commit_or_build_id: decoded.envelope.binding.source_commit_or_build_id.clone(),
+        lifecycle_watermarks: decoded.envelope.lifecycle_watermarks.clone(),
+        riskgate: decoded.envelope.riskgate.clone(),
+        riskgate_evidence: decoded.validated_evidence.evidence().clone(),
+    };
     let reconciliation_authority = validated_reconciliation_authority(&projection)?;
     let (runtime, _extension_json) =
         stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;
@@ -498,6 +679,7 @@ pub fn restore_stage5g_clean_restart(
         runtime,
         projection,
         reconciliation_authority,
+        continuation_authority,
     })
 }
 
@@ -659,6 +841,77 @@ pub(crate) fn projection_from_source(
         checkpoint,
         order_position_state,
         timer_ready_source,
+        fresh_truth_application_evidence: None,
+        package_instance: Stage5gPackageInstanceBindingV1 {
+            schema_version: STAGE5G_PACKAGE_INSTANCE_BINDING_SCHEMA_VERSION,
+            snapshot_id: stage5d_envelope.snapshot_id.clone(),
+            snapshot_revision: stage5d_envelope.snapshot_revision,
+            previous_revision: stage5d_envelope.previous_revision,
+            write_generation: stage5d_envelope.write_generation,
+            persisted_at_ts_utc: stage5d_envelope.persisted_at_ts_utc,
+            stage5d_payload_checksum_sha256: stage5d_envelope.payload_checksum_sha256.clone(),
+            stage5d_lifecycle_watermarks_sha256: semantic_sha256(
+                &stage5d_envelope.lifecycle_watermarks,
+            )?,
+            lifecycle_source_authority_sha256: String::new(),
+            stage5g_lifecycle_checkpoint_sha256: String::new(),
+            source_lifecycle_commit_sha256: String::new(),
+        },
+    };
+    projection
+        .package_instance
+        .lifecycle_source_authority_sha256 = lifecycle_source_authority_sha256(&projection)?;
+    projection
+        .package_instance
+        .stage5g_lifecycle_checkpoint_sha256 = lifecycle_checkpoint_sha256(&projection)?;
+    projection.package_instance.source_lifecycle_commit_sha256 =
+        source_lifecycle_commit_sha256(&projection)?;
+    projection.lifecycle_proof.source_authority_sha256 = lifecycle_authority_sha256(&projection)?;
+    validate_projection(&projection)?;
+    Ok(projection)
+}
+
+fn projection_from_order_position_state(
+    strategy: &HybridIntradayRuntimeStrategy,
+    state: Stage5gOrderPositionState,
+    stage5d_envelope: &crate::Stage5dPersistenceEnvelope,
+    application_evidence: Option<
+        crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1,
+    >,
+) -> Result<Stage5gCleanRestartProjectionV1, Stage5gCleanRestartError> {
+    let strategy_state = serde_json::to_value(Strategy::state(strategy))
+        .map_err(|_| Stage5gCleanRestartError::StrategyStateFingerprintMismatch)?;
+    let strategy_state_fingerprint_sha256 =
+        crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&strategy_state)
+            .map_err(|_| Stage5gCleanRestartError::StrategyStateFingerprintMismatch)?;
+    let (strategy_id, account_id, instrument_id) =
+        Stage5gOrderPositionSession::stage5g_restart_state_binding(&state);
+    let binding = Stage5gCleanRestartBindingV1 {
+        schema_version: 1,
+        strategy_id: strategy_id.to_string(),
+        account_id: account_id.clone(),
+        instrument_id: instrument_id.clone(),
+        stage5c_config_fingerprint: strategy.stage5c_config_fingerprint(),
+        stage5d_canonical_config_fingerprint: strategy.stage5d_canonical_config_fingerprint(),
+    };
+    let summary = Stage5gOrderPositionSession::stage5g_restart_summary_from_state(&state, 0);
+    let checkpoint = Stage5gOrderPositionSession::stage5g_restart_checkpoint_from_state(&state);
+    let mut projection = Stage5gCleanRestartProjectionV1 {
+        schema_version: STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION,
+        binding,
+        lifecycle_kind: Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted,
+        lifecycle_proof: Stage5gCleanRestartLifecycleProofV1 {
+            schema_version: 1,
+            authoritative_callback_count: 0,
+            zero_intent_ready: false,
+            source_authority_sha256: String::new(),
+        },
+        strategy_state_fingerprint_sha256,
+        summary,
+        checkpoint,
+        order_position_state: Some(state),
+        timer_ready_source: None,
+        fresh_truth_application_evidence: application_evidence,
         package_instance: Stage5gPackageInstanceBindingV1 {
             schema_version: STAGE5G_PACKAGE_INSTANCE_BINDING_SCHEMA_VERSION,
             snapshot_id: stage5d_envelope.snapshot_id.clone(),
@@ -705,6 +958,15 @@ pub(crate) fn validate_projection(
             .is_empty()
     {
         return Err(Stage5gCleanRestartError::BindingMismatch);
+    }
+    if projection
+        .fresh_truth_application_evidence
+        .as_ref()
+        .is_some_and(|evidence| {
+            !crate::stage5g_fresh_broker_truth::stage5g_application_evidence_is_valid(evidence)
+        })
+    {
+        return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
     }
     validate_package_instance_internal(projection)?;
     if projection.lifecycle_proof.schema_version != 1
@@ -1007,6 +1269,9 @@ fn lifecycle_checkpoint_sha256(
         checkpoint: &'a Stage5gTimerCheckpointEnvelope,
         order_position_state: &'a Option<Stage5gOrderPositionState>,
         timer_ready_source: &'a Option<Stage5gTimerReadyRestartProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fresh_truth_application_evidence:
+            &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
     }
     semantic_sha256(&LifecycleCheckpoint {
         domain: "moex.stage5g.clean-restart.lifecycle-checkpoint.v1",
@@ -1016,6 +1281,7 @@ fn lifecycle_checkpoint_sha256(
         checkpoint: &projection.checkpoint,
         order_position_state: &projection.order_position_state,
         timer_ready_source: &projection.timer_ready_source,
+        fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
     })
 }
 
@@ -1028,12 +1294,16 @@ fn lifecycle_source_authority_sha256(
         lifecycle_kind: Stage5gCleanRestartLifecycleKind,
         timer_ready_source: &'a Option<Stage5gTimerReadyRestartProjectionV1>,
         order_position_state: &'a Option<Stage5gOrderPositionState>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fresh_truth_application_evidence:
+            &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
     }
     semantic_sha256(&SourceAuthority {
         domain: "moex.stage5g.clean-restart.lifecycle-source-authority.v1",
         lifecycle_kind: projection.lifecycle_kind,
         timer_ready_source: &projection.timer_ready_source,
         order_position_state: &projection.order_position_state,
+        fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
     })
 }
 
@@ -1052,6 +1322,9 @@ fn independent_source_authority_sha256(
         checkpoint: &'a Stage5gTimerCheckpointEnvelope,
         order_position_state: &'a Option<Stage5gOrderPositionState>,
         timer_ready_source: &'a Option<Stage5gTimerReadyRestartProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fresh_truth_application_evidence:
+            &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
     }
     semantic_sha256(&IndependentSourceAuthority {
         domain: "moex.stage5g.clean-restart.stage5d-source-authority-anchor.v1",
@@ -1064,6 +1337,7 @@ fn independent_source_authority_sha256(
         checkpoint: &projection.checkpoint,
         order_position_state: &projection.order_position_state,
         timer_ready_source: &projection.timer_ready_source,
+        fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
     })
 }
 
@@ -1098,6 +1372,9 @@ fn authenticated_restart_package_commitment_sha256(
         checkpoint: &'a Stage5gTimerCheckpointEnvelope,
         order_position_state: &'a Option<Stage5gOrderPositionState>,
         timer_ready_source: &'a Option<Stage5gTimerReadyRestartProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fresh_truth_application_evidence:
+            &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
         package_instance: AuthenticatedPackageInstance<'a>,
     }
 
@@ -1133,6 +1410,7 @@ fn authenticated_restart_package_commitment_sha256(
             checkpoint: &projection.checkpoint,
             order_position_state: &projection.order_position_state,
             timer_ready_source: &projection.timer_ready_source,
+            fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
             package_instance: AuthenticatedPackageInstance {
                 schema_version: instance.schema_version,
                 snapshot_id: &instance.snapshot_id,
@@ -1243,6 +1521,9 @@ fn lifecycle_authority_sha256(
         checkpoint: &'a Stage5gTimerCheckpointEnvelope,
         order_position_state: &'a Option<Stage5gOrderPositionState>,
         timer_ready_source: &'a Option<Stage5gTimerReadyRestartProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        fresh_truth_application_evidence:
+            &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
         package_instance: &'a Stage5gPackageInstanceBindingV1,
     }
     let bytes = serde_json::to_vec(&Authority {
@@ -1256,6 +1537,7 @@ fn lifecycle_authority_sha256(
         checkpoint: &projection.checkpoint,
         order_position_state: &projection.order_position_state,
         timer_ready_source: &projection.timer_ready_source,
+        fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
         package_instance: &projection.package_instance,
     })
     .map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;
