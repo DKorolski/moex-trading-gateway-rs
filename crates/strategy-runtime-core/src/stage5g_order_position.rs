@@ -290,9 +290,11 @@ pub(crate) struct Stage5gFreshTruthRestartSlotProjection {
     pub(crate) expected_client_order_id: ClientOrderId,
     pub(crate) broker_order_id: Option<BrokerOrderId>,
     pub(crate) intent_class: Stage5gRestartIntentClass,
+    pub(crate) source_action: Stage5gMockIntentAction,
     pub(crate) side: Option<OrderSide>,
     pub(crate) target_qty: Option<Decimal>,
     pub(crate) pre_position_qty: Decimal,
+    pub(crate) source_numeric_authority_is_integral: bool,
     pub(crate) expected_attribution_fingerprint_sha256: Option<String>,
     pub(crate) latest_order: Option<BrokerOrderSnapshot>,
     pub(crate) trades: Vec<BrokerTradeSnapshot>,
@@ -329,6 +331,14 @@ pub(crate) enum Stage5gTradeOrderLinkage {
     Exact,
     Unrelated,
     Conflict,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gAccountWideOrderSafety {
+    Safe,
+    NonOwnedActive,
+    NonOwnedUnknown,
+    AmbiguousOwned,
 }
 
 /// Linear paper-only capability. It intentionally implements none of Clone,
@@ -832,20 +842,30 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
             session,
         ));
     }
-    if has_non_target_active_order(&session, &evidence.broker_truth, slot_index) {
-        return Err(block(
-            Stage5gOrderPositionError::AccountWideActiveOrderSafetyGuard,
-            session,
-        ));
-    }
-    if evidence.broker_truth.orders.iter().any(|order| {
-        order.lifecycle == BrokerOrderLifecycle::Unknown
-            && order.broker_order_id != session.state.slots[slot_index].broker_order_id
-    }) {
-        return Err(block(
-            Stage5gOrderPositionError::AccountWideUnknownOrderSafetyGuard,
-            session,
-        ));
+    match stage5g_account_wide_order_safety(
+        &evidence.broker_truth.orders,
+        Some(&session.state.slots[slot_index].ack.expected_client_order_id),
+        session.state.slots[slot_index].broker_order_id.as_ref(),
+    ) {
+        Stage5gAccountWideOrderSafety::Safe => {}
+        Stage5gAccountWideOrderSafety::NonOwnedActive => {
+            return Err(block(
+                Stage5gOrderPositionError::AccountWideActiveOrderSafetyGuard,
+                session,
+            ));
+        }
+        Stage5gAccountWideOrderSafety::NonOwnedUnknown => {
+            return Err(block(
+                Stage5gOrderPositionError::AccountWideUnknownOrderSafetyGuard,
+                session,
+            ));
+        }
+        Stage5gAccountWideOrderSafety::AmbiguousOwned => {
+            return Err(block(
+                Stage5gOrderPositionError::AmbiguousTargetOrder,
+                session,
+            ));
+        }
     }
 
     let current_slot = &session.state.slots[slot_index];
@@ -1563,23 +1583,8 @@ fn validate_order(
     if order.side != expected_side {
         return Err(Stage5gOrderPositionError::OrderSideMismatch);
     }
-    match slot.ack.action {
-        Stage5gMockIntentAction::Place {
-            place_kind: Stage5gMockPlaceKind::Market,
-        } if order.order_type != OrderType::Market => {
-            return Err(Stage5gOrderPositionError::OrderTypeMismatch);
-        }
-        Stage5gMockIntentAction::Place {
-            place_kind: Stage5gMockPlaceKind::Limit,
-        } if order.order_type != OrderType::Limit => {
-            return Err(Stage5gOrderPositionError::OrderTypeMismatch);
-        }
-        Stage5gMockIntentAction::Cancel {
-            ref target_order_id,
-        } if order.broker_order_id.as_ref() != Some(target_order_id) => {
-            return Err(Stage5gOrderPositionError::BrokerOrderIdMismatch);
-        }
-        _ => {}
+    if !stage5g_order_matches_source_action(&slot.ack.action, order) {
+        return Err(Stage5gOrderPositionError::OrderTypeMismatch);
     }
     match order.order_type {
         OrderType::Market if order.limit_price.is_some() => {
@@ -1736,6 +1741,42 @@ pub(crate) fn stage5g_exact_trade_order_linkage(
     } else {
         Stage5gTradeOrderLinkage::Unrelated
     }
+}
+
+pub(crate) fn stage5g_order_matches_source_action(
+    action: &Stage5gMockIntentAction,
+    order: &BrokerOrderSnapshot,
+) -> bool {
+    match action {
+        Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Market,
+        } => order.order_type == OrderType::Market && order.limit_price.is_none(),
+        Stage5gMockIntentAction::Place {
+            place_kind: Stage5gMockPlaceKind::Limit,
+        } => {
+            order.order_type == OrderType::Limit
+                && order.limit_price.is_some_and(|price| price > Decimal::ZERO)
+        }
+        Stage5gMockIntentAction::Cancel { target_order_id } => {
+            order.broker_order_id.as_ref() == Some(target_order_id)
+        }
+    }
+}
+
+pub(crate) fn stage5g_immutable_trade_payload_matches(
+    left: &BrokerTradeSnapshot,
+    right: &BrokerTradeSnapshot,
+) -> bool {
+    immutable_trade_payload_matches(left, right)
+}
+
+/// Stage 5G-e-d-b accepts only integral MOEX lot quantities until the source
+/// runtime model is migrated from `f64` to canonical Decimal authority.
+pub(crate) fn stage5g_integral_lot_decimal(value: f64) -> Option<Decimal> {
+    const MAX_EXACT_F64_INTEGER: f64 = 9_007_199_254_740_992.0;
+    (value.is_finite() && value.fract() == 0.0 && value.abs() <= MAX_EXACT_F64_INTEGER)
+        .then(|| Decimal::from_f64_retain(value))
+        .flatten()
 }
 
 pub(crate) fn stage5g_expected_post_position_qty(
@@ -1914,24 +1955,33 @@ fn decimal_f64_differs(value: Decimal, expected: f64) -> bool {
         .unwrap_or(true)
 }
 
-fn has_non_target_active_order(
-    session: &Stage5gOrderPositionSession,
-    truth: &BrokerTruthSnapshot,
-    current_slot: usize,
-) -> bool {
-    let expected_ids: Vec<_> = session
-        .state
-        .slots
+pub(crate) fn stage5g_account_wide_order_safety(
+    orders: &[BrokerOrderSnapshot],
+    expected_client_order_id: Option<&ClientOrderId>,
+    expected_broker_order_id: Option<&BrokerOrderId>,
+) -> Stage5gAccountWideOrderSafety {
+    let owned = |order: &BrokerOrderSnapshot| {
+        expected_client_order_id
+            .is_some_and(|expected| order.client_order_id.as_ref() == Some(expected))
+            || expected_broker_order_id
+                .is_some_and(|expected| order.broker_order_id.as_ref() == Some(expected))
+    };
+    if orders.iter().filter(|order| owned(order)).count() > 1 {
+        return Stage5gAccountWideOrderSafety::AmbiguousOwned;
+    }
+    if orders
         .iter()
-        .filter_map(|slot| slot.broker_order_id.as_ref())
-        .collect();
-    truth.orders.iter().any(|order| {
-        order.is_active_for_lifecycle()
-            && !expected_ids
-                .iter()
-                .any(|expected| order.broker_order_id.as_ref() == Some(*expected))
-            && order.broker_order_id != session.state.slots[current_slot].broker_order_id
-    })
+        .any(|order| !owned(order) && order.lifecycle == BrokerOrderLifecycle::Unknown)
+    {
+        return Stage5gAccountWideOrderSafety::NonOwnedUnknown;
+    }
+    if orders
+        .iter()
+        .any(|order| !owned(order) && order.is_active_for_lifecycle())
+    {
+        return Stage5gAccountWideOrderSafety::NonOwnedActive;
+    }
+    Stage5gAccountWideOrderSafety::Safe
 }
 
 #[cfg(test)]
@@ -2564,13 +2614,25 @@ impl Stage5gOrderPositionSession {
                 expected_client_order_id: slot.ack.expected_client_order_id.clone(),
                 broker_order_id: slot.broker_order_id.clone(),
                 intent_class: slot.source.intent_class.into(),
+                source_action: slot.ack.action.clone(),
                 side: slot.source.side.map(|side| match side {
                     crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
                     crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
                 }),
-                target_qty: slot.source.target_qty.and_then(Decimal::from_f64_retain),
-                pre_position_qty: Decimal::from_f64_retain(slot.source.pre_position_qty)
-                    .expect("validated source pre-position remains an exact Decimal"),
+                target_qty: slot
+                    .source
+                    .target_qty
+                    .and_then(stage5g_integral_lot_decimal),
+                pre_position_qty: stage5g_integral_lot_decimal(slot.source.pre_position_qty)
+                    .unwrap_or(Decimal::ZERO),
+                source_numeric_authority_is_integral: stage5g_integral_lot_decimal(
+                    slot.source.pre_position_qty,
+                )
+                .is_some()
+                    && slot
+                        .source
+                        .target_qty
+                        .map_or(true, |qty| stage5g_integral_lot_decimal(qty).is_some()),
                 expected_attribution_fingerprint_sha256: slot
                     .source
                     .expected_attribution
@@ -7580,6 +7642,9 @@ pub(crate) mod tests {
         OrderPositionAwaiting,
         BeforeAckNoSlot,
         GeneratedIntentEscrow,
+        GeneratedLimitIntentEscrow,
+        GeneratedCancelIntentEscrow,
+        GeneratedFractionalIntentEscrow,
         TerminalPositionApplied,
         ExactReplaySynchronized,
         NewPackageAwaiting,
@@ -7633,7 +7698,10 @@ pub(crate) mod tests {
                 .unwrap();
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
             }
-            Stage5geCTestSourceKind::GeneratedIntentEscrow => {
+            Stage5geCTestSourceKind::GeneratedIntentEscrow
+            | Stage5geCTestSourceKind::GeneratedLimitIntentEscrow
+            | Stage5geCTestSourceKind::GeneratedCancelIntentEscrow
+            | Stage5geCTestSourceKind::GeneratedFractionalIntentEscrow => {
                 let mut session = apply_stage5g_order_position_evidence(
                     initial,
                     Stage5gOrderPositionEvidence {
@@ -7647,6 +7715,29 @@ pub(crate) mod tests {
                 .into_awaiting()
                 .unwrap();
                 for slot in &mut session.state.slots {
+                    match kind {
+                        Stage5geCTestSourceKind::GeneratedLimitIntentEscrow => {
+                            slot.ack.action = Stage5gMockIntentAction::Place {
+                                place_kind: Stage5gMockPlaceKind::Limit,
+                            };
+                            slot.source.base_action = Stage5gSourceBaseAction::Place;
+                        }
+                        Stage5geCTestSourceKind::GeneratedCancelIntentEscrow => {
+                            slot.ack.action = Stage5gMockIntentAction::Cancel {
+                                target_order_id: BrokerOrderId::new("CANCEL-TARGET-R2"),
+                            };
+                            slot.ack.intent_class = "CancelCleanup".to_owned();
+                            slot.ack.side = None;
+                            slot.source.base_action = Stage5gSourceBaseAction::Cancel;
+                            slot.source.intent_class =
+                                crate::BrokerNeutralHybridIntentClass::CancelCleanup;
+                            slot.source.side = None;
+                        }
+                        Stage5geCTestSourceKind::GeneratedFractionalIntentEscrow => {
+                            slot.source.target_qty = Some(0.1);
+                        }
+                        _ => {}
+                    }
                     slot.broker_order_id = None;
                     slot.order_events.clear();
                     slot.trades.clear();
@@ -7924,6 +8015,42 @@ pub(crate) mod tests {
             .expect("e-d-b escrow fixture exports authenticated restart bytes");
         crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
             .expect("e-d-b escrow fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_generated_limit_escrow_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedLimitIntentEscrow,
+        );
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b limit escrow exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b limit escrow reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_generated_cancel_escrow_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedCancelIntentEscrow,
+        );
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b cancel escrow exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b cancel escrow reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_generated_fractional_escrow_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedFractionalIntentEscrow,
+        );
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b fractional escrow exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b fractional escrow reconstructs through the accepted byte boundary")
     }
 
     pub(crate) fn stage5g_edb_restored_before_ack_fixture() -> crate::Stage5gCleanRestartedCapability

@@ -22,8 +22,9 @@ use crate::stage5d_persistence::{
     stage5d_reconstruct_runtime_from_clean_restart, Stage5dCanonicalEnvelopeExportInput,
     Stage5dCanonicalRestartCheckpointState, STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
 };
-use crate::stage5g_order_position::Stage5gFreshTruthRestartSlotProjection;
-use crate::stage5g_order_position::Stage5gOrderPositionState;
+use crate::stage5g_order_position::{
+    stage5g_integral_lot_decimal, Stage5gFreshTruthRestartSlotProjection, Stage5gOrderPositionState,
+};
 use crate::{
     HybridIntradayRuntimeStrategy, Stage5dEnvelopeValidationError, Stage5dLifecycleWatermarks,
     Stage5dRiskGateLedgerEvidence, Stage5dRiskGatePersistence,
@@ -248,6 +249,7 @@ pub(crate) struct Stage5gFreshTruthRestartProjection {
     pub(crate) lifecycle_source_authority_sha256: String,
     pub(crate) checkpoint: Stage5gTimerCheckpointEnvelope,
     pub(crate) committed_position_qty: Decimal,
+    pub(crate) committed_position_numeric_authority_is_integral: bool,
     pub(crate) slots: Vec<Stage5gFreshTruthRestartSlotProjection>,
     pub(crate) generated_intent_escrow_fingerprint_sha256: Option<String>,
 }
@@ -386,10 +388,14 @@ impl Stage5gCleanRestartedCapability {
             source_lifecycle_commit_sha256: observation.source_lifecycle_commit_sha256,
             lifecycle_source_authority_sha256: observation.lifecycle_source_authority_sha256,
             checkpoint: self.reconciliation_authority.checkpoint().clone(),
-            committed_position_qty: Decimal::from_f64_retain(
+            committed_position_qty: stage5g_integral_lot_decimal(
                 self.runtime.stage5c_current_position_qty(),
             )
-            .expect("validated reconstructed position remains an exact Decimal"),
+            .unwrap_or(Decimal::ZERO),
+            committed_position_numeric_authority_is_integral: stage5g_integral_lot_decimal(
+                self.runtime.stage5c_current_position_qty(),
+            )
+            .is_some(),
             slots,
             generated_intent_escrow_fingerprint_sha256,
         }

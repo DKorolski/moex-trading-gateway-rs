@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Current-head contract and closed-surface checker for Stage 5G-e-d-b R1."""
+"""Current-head contract and closed-surface checker for Stage 5G-e-d-b R2."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 
-BASE_REF = "8a02f2a6b6e27587539d1e4e4717301bf010e6a1"
+BASE_REF = "b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b"
 ACCEPTED_R6_REF = "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47"
 CONTRACT = Path("docs/stage-5/stage5g-e-d-b-reducer-contract.json")
 MAIN_CONTRACT = Path("docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.json")
@@ -44,14 +44,19 @@ DISPOSITIONS = [
     "TerminalInconsistency",
 ]
 REASONS = [
-    "ExactPackageReplay", "ExactHistoricalReplay", "FreshWorkingOrderMatched",
-    "FreshTerminalOrderMatched", "PartialFillPositionConverged",
+    "FreshWorkingOrderMatched", "FreshTerminalOrderMatched", "PartialFillPositionConverged",
     "TerminalPositionAlreadyApplied", "TimerCheckpointExact",
     "GeneratedIntentEscrowRetained", "OrdersTruthIncomplete", "TradesTruthIncomplete",
     "PositionsTruthIncomplete", "AuthoritativeOrderMissing",
     "ClientOrderIdentityConflict", "BrokerOrderIdentityConflict", "TradeIdentityConflict",
     "PositionQuantityMismatch", "PositionDirectionMismatch", "UnexpectedTargetPosition",
-    "ReplayFingerprintConflict", "OperationalIdentityConflict",
+    "ReplayFingerprintConflict", "HistoricalReplayNotAccepted",
+    "ReplayTupleNotInRestartLedger", "AccountWideActiveOrderConflict",
+    "AccountWideUnknownOrderConflict", "AmbiguousOwnedOrderSet",
+    "SourceOrderActionConflict", "OrderTerminalRegression", "FilledQuantityRegression",
+    "CommittedTradeMissing", "CommittedTradePayloadConflict",
+    "TargetInstrumentIdentityConflict", "SourceNumericAuthorityUnsupported",
+    "OperationalIdentityConflict",
     "UnsupportedLifecycleCombination", "TerminalContradiction",
 ]
 CROSS_BINDINGS = [
@@ -93,6 +98,7 @@ EXPECTED_DELTA = [
     ("M", "scripts/stage5g_edb_gate.sh"),
     ("M", "scripts/stage5g_edb_negative_harness.py"),
     ("M", "scripts/stage5g_edb_preseal_check.py"),
+    ("A", "scripts/stage5g_edb_r2_gate.sh"),
 ]
 
 
@@ -144,17 +150,18 @@ def check(root: Path, check_git: bool) -> None:
         Path("scripts/make_stage5g_ed_handoff_archive.py"),
         Path("scripts/stage5g_edb_gate.sh"), Path("scripts/stage5g_edb_negative_harness.py"),
         Path("scripts/stage5g_edb_preseal_check.py"),
+        Path("scripts/stage5g_edb_r2_gate.sh"),
     ]:
         require((root / relative).is_file() and not (root / relative).is_symlink(),
                 f"required regular file missing: {relative}")
 
     if check_git:
         require(subprocess.check_output(["git", "rev-parse", "HEAD^"], cwd=root, text=True).strip() == BASE_REF,
-                "HEAD must be one direct successor to accepted R6")
+                "HEAD must be one direct successor to rejected e-d-b R1")
         require(exact_git_delta(root) == EXPECTED_DELTA, "exact e-d-b changed-path allowlist drifted")
 
     contract = load_json(root, CONTRACT)
-    require(contract.get("stage") == "5G-e-d-b-r1", "contract stage drifted")
+    require(contract.get("stage") == "5G-e-d-b-r2", "contract stage drifted")
     require(contract.get("accepted_base") == BASE_REF, "accepted base drifted")
     require(contract.get("owning_entry_point") == "reduce_stage5g_fresh_broker_truth",
             "owning reducer entry drifted")
@@ -172,11 +179,13 @@ def check(root: Path, check_git: bool) -> None:
         "owning_input_evidence_byte_identical": True,
         "multi_trade_row_order_canonical": True,
         "wall_clock_reads": False,
-        "exact_replay_semantic_noop": True,
+        "exact_replay_semantic_noop": False,
+        "exact_replay_disabled_without_authenticated_ledger": True,
+        "integral_source_lots_only": True,
     }, "determinism contract drifted")
 
     main = load_json(root, MAIN_CONTRACT)
-    require(main.get("stage") == "5G-e-d-b-r1", "main contract stage drifted")
+    require(main.get("stage") == "5G-e-d-b-r2", "main contract stage drifted")
     require(main.get("accepted_stage5g_e_d_a_r6_commit") == ACCEPTED_R6_REF,
             "main contract R6 binding drifted")
     require(main.get("implemented_restart_case_ids") == SCENARIOS,
@@ -225,6 +234,23 @@ def check(root: Path, check_git: bool) -> None:
         "OrderStatus::Canceled | OrderStatus::Expired",
         "positions_complete",
         "generated_intent_escrow_fingerprint_sha256",
+        "stage5g_account_wide_order_safety(",
+        "Stage5gAccountWideOrderSafety::NonOwnedActive",
+        "Stage5gAccountWideOrderSafety::NonOwnedUnknown",
+        "Stage5gAccountWideOrderSafety::AmbiguousOwned",
+        "stage5g_order_matches_source_action(&slot.source_action, order)",
+        "source_to_fresh_progress(",
+        "Stage5gSourceFreshProgress::ExactCommittedTerminal",
+        "stage5g_immutable_trade_payload_matches(committed, fresh)",
+        "TargetInstrumentIdentityConflict",
+        "SourceNumericAuthorityUnsupported",
+        "Stage5gFreshPackageLineage::ReplayTupleNotInRestartLedger =>",
+        "Stage5gFreshPackageLineage::HistoricalReplayNotAccepted =>",
+        "committed_order.lifecycle == BrokerOrderLifecycle::Terminal",
+        "fresh_order.filled_qty < committed_order.filled_qty",
+        "for committed in &slot.trades",
+        "&& progress == Stage5gSourceFreshProgress::ExactCommittedTerminal",
+        "!restart.committed_position_numeric_authority_is_integral",
     ]:
         require(marker in reducer, f"reducer invariant anchor missing: {marker}")
     for marker, minimum in [
@@ -239,10 +265,12 @@ def check(root: Path, check_git: bool) -> None:
         require(reducer.count(marker) >= minimum,
                 f"reducer repeated safety anchor weakened: {marker}")
     for marker in [
-        "pub(crate) struct Stage5gFreshTruthReplayAuthorityV1",
+        "pub(crate) struct Stage5gFreshTruthReplayHintsV1",
+        "pub(crate) struct Stage5gFreshTruthOperationalAuthority",
+        "pub(crate) struct Stage5gReviewedOperationalIdentityAuthority",
         "pub(crate) struct Stage5gRestartBoundFreshBrokerTruthPackage",
         "pub(crate) fn bind_stage5g_fresh_truth_to_clean_restart(",
-        "restart_replay_authority_matches(",
+        "restart_replay_hints_match_checkpoint(",
     ]:
         require(marker in parent, f"restart-owned authority anchor missing: {marker}")
     for field in CROSS_BINDINGS[:11]:
@@ -255,17 +283,35 @@ def check(root: Path, check_git: bool) -> None:
         "intent_class: Stage5gRestartIntentClass",
         "pre_position_qty: Decimal",
         "target_qty: Option<Decimal>",
+        "source_action: Stage5gMockIntentAction",
+        "source_numeric_authority_is_integral: bool",
         "pub(crate) fn stage5g_exact_trade_order_linkage(",
+        "pub(crate) fn stage5g_account_wide_order_safety(",
+        "pub(crate) fn stage5g_order_matches_source_action(",
+        "pub(crate) fn stage5g_integral_lot_decimal(",
         "pre_position_qty + signed_fill",
     ]:
         require(marker in order_position, f"canonical slot/linkage anchor missing: {marker}")
     require(order_position.count("pre_position_qty + signed_fill") >= 2,
             "source-relative position formula coverage weakened")
 
-    for type_name in ["Stage5gFreshTruthReduction", "Stage5gOwnedReconciliationCandidate"]:
-        prefix = reducer.split(f"struct {type_name}", 1)[0][-240:]
+    for type_name, source in [
+        ("Stage5gFreshTruthReduction", reducer),
+        ("Stage5gOwnedReconciliationCandidate", reducer),
+        ("Stage5gFreshTruthOperationalAuthority", parent),
+        ("Stage5gReviewedOperationalIdentityAuthority", parent),
+    ]:
+        prefix = source.split(f"struct {type_name}", 1)[0][-240:]
         require(not re.search(r"derive\([^)]*(Clone|Copy|Serialize|Deserialize|Default)", prefix),
                 f"linear authority type gained forbidden derive: {type_name}")
+    authorizer_signature = parent.split(
+        "pub(crate) fn authorize_stage5g_fresh_truth_operational_identity(", 1
+    )[1].split(") -> Result<", 1)[0]
+    require("Stage5gReviewedOperationalIdentityAuthority" in authorizer_signature
+            and "Stage5gOperationalIdentityInput" not in authorizer_signature,
+            "raw operational DTO can still mint final authority")
+    require("#[cfg(test)]\npub(super) fn stage5g_test_reviewed_operational_identity_authority(" in parent,
+            "reviewed identity test issuer is not test-only")
 
     production = strip_comments(reducer.split("#[cfg(test)]", 1)[0]).lower()
     for forbidden in [
@@ -274,6 +320,19 @@ def check(root: Path, check_git: bool) -> None:
         "strategy::on", "intent_sink",
     ]:
         require(forbidden not in production, f"closed production surface opened: {forbidden}")
+    classify_body = reducer.split("fn classify(", 1)[1].split("fn disposition_id(", 1)[0]
+    require("Stage5gRestartReconciliationDisposition::ExactReplay" not in classify_body,
+            "ExactReplay reopened without authenticated fresh replay ledger")
+    for marker in [
+        "untrusted_last_reconciled_hint",
+        "untrusted_accepted_replay_hints",
+        "untrusted_known_historical_hints",
+    ]:
+        require(marker in parent, f"replay hint boundary marker missing: {marker}")
+    require("last_reconciled_fresh_package" not in parent
+            and "accepted_replay_ledger" not in parent
+            and "known_historical_fresh_packages" not in parent,
+            "caller replay hints still claim authenticated ledger authority")
 
     tests = reducer.split("#[cfg(test)]", 1)[1]
     for index in range(1, 13):
@@ -294,12 +353,17 @@ def check(root: Path, check_git: bool) -> None:
         "stage5g_edb_r1_owning_generated_intent_escrow_is_retained",
         "stage5g_edb_r1_owning_exact_current_and_historical_replay_are_noops",
         "stage5g_edb_r1_owning_row_order_and_parallel_evidence_are_deterministic",
+        "stage5g_edb_r2_twelve_prebind_operational_authority_mismatches_fail",
+        "stage5g_edb_r2_account_wide_order_safety_is_owning_and_fail_closed",
+        "stage5g_edb_r2_source_market_limit_and_cancel_actions_are_owning",
+        "stage5g_edb_r2_source_fresh_monotonicity_is_owning",
+        "stage5g_edb_r2_semantic_instrument_conflicts_and_fractional_source_block",
     ]:
         require(tests.count(f"fn {witness}()") == 1, f"focused witness drifted: {witness}")
 
     for relative in [DESIGN, REDUCER_DOC, STATUS, ONBOARDING]:
         text = (root / relative).read_text()
-        require("8a02f2a" in text, f"rejected e-d-b base reference missing: {relative}")
+        require("b0ede8b" in text, f"rejected e-d-b R1 reference missing: {relative}")
         require("4ece2c7" in text, f"accepted R6 reference missing: {relative}")
         require("Stage 5G-e-d-c" in text or "e-d-c" in text,
                 f"next closed e-d-c boundary missing: {relative}")

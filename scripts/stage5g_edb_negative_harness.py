@@ -106,10 +106,81 @@ def cases() -> list[tuple[str, object]]:
         "stage5g_edb_r1_owning_generated_intent_escrow_is_retained",
         "stage5g_edb_r1_owning_exact_current_and_historical_replay_are_noops",
         "stage5g_edb_r1_owning_row_order_and_parallel_evidence_are_deterministic",
+        "stage5g_edb_r2_twelve_prebind_operational_authority_mismatches_fail",
+        "stage5g_edb_r2_account_wide_order_safety_is_owning_and_fail_closed",
+        "stage5g_edb_r2_source_market_limit_and_cancel_actions_are_owning",
+        "stage5g_edb_r2_source_fresh_monotonicity_is_owning",
+        "stage5g_edb_r2_semantic_instrument_conflicts_and_fractional_source_block",
     ]:
         values.append((f"remove-r1-witness-{witness}", lambda root, witness=witness: replace_once(
             root, REDUCER, f"fn {witness}()", f"fn removed_{witness}()")))
     values.extend([
+        *[(
+            f"remove-prebind-operational-authority-{field}",
+            lambda root, field=field: replace_once(
+                root, REDUCER,
+                "fn stage5g_edb_r2_twelve_prebind_operational_authority_mismatches_fail()",
+                f"fn removed_prebind_authority_{field}()",
+            ),
+        ) for field in checker.CROSS_BINDINGS[:12]],
+        ("remove-replay-exact-membership-boundary", lambda root: replace_once(
+            root, PARENT, "fn restart_replay_hints_match_checkpoint(",
+            "fn removed_restart_replay_hints_match_checkpoint(")),
+        ("make-reviewed-operational-authority-clone", lambda root: replace_once(
+            root, PARENT,
+            "pub(crate) struct Stage5gReviewedOperationalIdentityAuthority {",
+            "#[derive(Clone)]\npub(crate) struct Stage5gReviewedOperationalIdentityAuthority {")),
+        ("remove-reviewed-authority-test-only-seal", lambda root: replace_once(
+            root, PARENT,
+            "#[cfg(test)]\npub(super) fn stage5g_test_reviewed_operational_identity_authority(",
+            "pub(super) fn stage5g_test_reviewed_operational_identity_authority(")),
+        ("replace-replay-membership-with-length", lambda root: replace_once(
+            root, PARENT, ".any(|entry| entry.identity == current_identity);",
+            ".count() == checkpoint.payload.evidence_replay_ledger.len();")),
+        ("allow-arbitrary-current-replay-tuple", lambda root: replace_once(
+            root, REDUCER, "Stage5gFreshPackageLineage::ReplayTupleNotInRestartLedger =>",
+            "Stage5gFreshPackageLineage::NewFresh =>")),
+        ("allow-arbitrary-historical-replay-tuple", lambda root: replace_once(
+            root, REDUCER, "Stage5gFreshPackageLineage::HistoricalReplayNotAccepted =>",
+            "Stage5gFreshPackageLineage::NewFresh =>")),
+        ("drop-account-wide-active-guard", lambda root: replace_once(
+            root, REDUCER, "Stage5gAccountWideOrderSafety::NonOwnedActive =>",
+            "Stage5gAccountWideOrderSafety::Safe =>")),
+        ("drop-account-wide-unknown-guard", lambda root: replace_once(
+            root, REDUCER, "Stage5gAccountWideOrderSafety::NonOwnedUnknown =>",
+            "Stage5gAccountWideOrderSafety::Safe =>")),
+        ("drop-account-wide-ambiguous-guard", lambda root: replace_once(
+            root, REDUCER, "Stage5gAccountWideOrderSafety::AmbiguousOwned =>",
+            "Stage5gAccountWideOrderSafety::Safe =>")),
+        ("drop-market-limit-parity", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "pub(crate) fn stage5g_order_matches_source_action(",
+            "pub(crate) fn removed_stage5g_order_matches_source_action(")),
+        ("drop-cancel-target-parity", lambda root: replace_once(
+            root, REDUCER, "stage5g_order_matches_source_action(&slot.source_action, order)",
+            "true")),
+        ("drop-terminal-regression-guard", lambda root: replace_once(
+            root, REDUCER,
+            "committed_order.lifecycle == BrokerOrderLifecycle::Terminal",
+            "false")),
+        ("drop-filled-regression-guard", lambda root: replace_once(
+            root, REDUCER, "fresh_order.filled_qty < committed_order.filled_qty", "false")),
+        ("drop-committed-trade-subset-guard", lambda root: replace_once(
+            root, REDUCER, "for committed in &slot.trades", "for committed in &[]")),
+        ("drop-committed-trade-payload-guard", lambda root: replace_once(
+            root, REDUCER, "stage5g_immutable_trade_payload_matches(committed, fresh)", "true")),
+        ("weaken-grst06-to-position-only", lambda root: replace_once(
+            root, REDUCER,
+            "&& progress == Stage5gSourceFreshProgress::ExactCommittedTerminal",
+            "&& true")),
+        ("restore-exact-only-target-filter-without-semantic-conflict", lambda root: replace_once(
+            root, REDUCER, "let target_identity_conflict = truth.orders.iter().any(|row| {",
+            "let target_identity_conflict = false && truth.orders.iter().any(|row| {")),
+        ("remove-fractional-numeric-policy", lambda root: replace_once(
+            root, REDUCER, "!restart.committed_position_numeric_authority_is_integral", "false")),
+        ("merge-historical-not-accepted-into-fingerprint-conflict", lambda root: replace_once(
+            root, REDUCER, "Stage5gFreshPackageLineage::HistoricalReplayNotAccepted =>",
+            "Stage5gFreshPackageLineage::ReplayFingerprintConflict =>")),
         ("remove-restart-bound-package-type", lambda root: replace_once(
             root, PARENT, "pub(crate) struct Stage5gRestartBoundFreshBrokerTruthPackage",
             "pub(crate) struct RemovedStage5gRestartBoundFreshBrokerTruthPackage")),
@@ -117,14 +188,14 @@ def cases() -> list[tuple[str, object]]:
             root, PARENT, "pub(crate) fn bind_stage5g_fresh_truth_to_clean_restart(",
             "pub(crate) fn removed_bind_stage5g_fresh_truth_to_clean_restart(")),
         ("remove-restart-replay-authority-check", lambda root: replace_once(
-            root, PARENT, "fn restart_replay_authority_matches(",
-            "fn removed_restart_replay_authority_matches(")),
+            root, PARENT, "fn restart_replay_hints_match_checkpoint(",
+            "fn removed_restart_replay_hints_match_checkpoint(")),
         ("remove-operational-binding-commitment", lambda root: replace_first(
             root, REDUCER, "stage5g_operational_binding_commitment(",
             "removed_operational_binding_commitment(")),
         ("remove-restart-replay-commitment", lambda root: replace_once(
-            root, REDUCER, "stage5g_restart_replay_commitment(restart, &package.replay_authority)",
-            "removed_restart_replay_commitment(restart, &package.replay_authority)")),
+            root, REDUCER, "stage5g_restart_replay_commitment(restart, &package.replay_hints)",
+            "removed_restart_replay_commitment(restart, &package.replay_hints)")),
         ("allow-target-venue-wildcard", lambda root: replace_once(
             root, REDUCER,
             "restart.instrument_id == package.operational_identity.target_instrument",
@@ -204,7 +275,7 @@ def run_case(name: str, mutation) -> None:
 
 def main() -> None:
     matrix = cases()
-    if len(matrix) < 120 or len({name for name, _ in matrix}) != len(matrix):
+    if len(matrix) < 160 or len({name for name, _ in matrix}) != len(matrix):
         raise SystemExit("stage5g-edb-negative: FAIL: matrix count/names invalid")
     for name, mutation in matrix:
         run_case(name, mutation)

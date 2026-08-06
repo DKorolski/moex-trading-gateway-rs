@@ -73,9 +73,10 @@ current runtime branch to send orders continuously.
 Stage 5G-e-d-a R6 was independently accepted and closed at
 `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. The first e-d-b implementation at
 `8a02f2a6b6e27587539d1e4e4717301bf010e6a1` was rejected on five reducer
-semantics findings. The active target is **Stage 5G-e-d-b R1 — restart-bound,
+semantics findings. R1 at `b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b`
+also remained rejected. The active target is **Stage 5G-e-d-b R2 — restart-owned,
 mutation-safe fresh mock BrokerTruth reducer and executable GRST01–GRST12
-matrix**, as one clean repair successor to `8a02f2a` while retaining accepted
+matrix**, as one clean repair successor to `b0ede8b` while retaining accepted
 R6 as the architectural predecessor.
 
 R1 through R5 closed the substantive input boundary, direct reducer shape and
@@ -87,9 +88,10 @@ R1 through R5 closed the substantive input boundary, direct reducer shape and
 - repository-local Cargo config and compiler wrappers fail closed;
 - the detached R5→R4→R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
 
-Validated operational identities remain constructor-only. R1 binds all twelve
-identity fields and restart-owned replay lineage to authenticated restart
-commitments, uses exact client/broker trade linkage and computes position from
+Validated operational identities remain constructor-only. R2 binds all twelve
+identity fields to authenticated restart authority and treats replay lists as
+untrusted hints until an authenticated fresh-truth ledger exists. It uses
+domain-separated commitments, exact client/broker trade linkage and computes position from
 typed intent plus exact Decimal pre-position. The e-d-b reducer performs
 classification and opaque candidate construction only. It retains both linear
 inputs, owns no callback or runtime mutation authority, and does not open
@@ -111,7 +113,7 @@ The current stage does **not** authorize:
 
 The accepted Stage 5G plan remains the controlling sequence:
 
-1. Stage 5G-e-d-b R1: independently accept the restart-bound deterministic,
+1. Stage 5G-e-d-b R2: independently accept the restart-bound deterministic,
    mutation-safe fresh **mock** BrokerTruth reducer and owning GRST01–GRST12
    evidence.
 2. Stage 5G-e-d-c: export/restart/reconcile/re-export evidence and negative

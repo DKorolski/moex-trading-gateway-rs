@@ -135,9 +135,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   it did not bind the complete operational identity or replay lineage to the
   authenticated restart, accepted a trade when one ID matched but the other
   conflicted, calculated post-position from zero, and had incomplete terminal
-  status guards. Stage 5G-e-d-b R1 is the current direct repair candidate. It
-  adds restart-bound operational/replay commitments, exact target identity,
-  typed intent plus exact Decimal pre-position, shared exact trade linkage and
+  status guards. Stage 5G-e-d-b R2 is the current direct repair candidate over
+  rejected R1 `b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b`. It adds restart-owned
+  authority for all twelve operational identity fields, conservative replay
+  hints without `ExactReplay`, account-wide order safety, source-action and
+  monotonicity checks, exact GRST06/GRST11 separation, target identity conflict
+  handling and temporary integral-lot-only source admission. It also adds
+  restart-bound operational/replay commitments, exact target identity,
+  typed intent plus canonical integral Decimal projection, shared exact trade linkage and
   a fail-closed status × fill × completeness matrix. Authenticated owning
   fixtures exercise export/restore/validate/bind/reduce and GRST01–GRST12;
   multi-trade row order and parallel evidence are deterministic. It still

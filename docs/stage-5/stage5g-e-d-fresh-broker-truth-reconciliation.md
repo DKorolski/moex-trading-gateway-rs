@@ -1,6 +1,6 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R6 accepted boundary and e-d-b R1 reducer
+## e-d-a R6 accepted boundary and e-d-b R2 reducer
 
 Stage 5G-e-d-a was independently accepted at
 `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. Its validated package is
@@ -10,7 +10,9 @@ broker-dispatch or runtime-live authority.
 The first e-d-b implementation at
 `8a02f2a6b6e27587539d1e4e4717301bf010e6a1` was rejected because restart
 binding, replay ownership, trade linkage and source-relative position semantics
-were incomplete. e-d-b R1 is its one direct repair successor. It consumes the
+were incomplete. R1 at `b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b`
+remained rejected on restart authority and parity findings. e-d-b R2 is its
+one direct repair successor. It consumes the
 accepted clean-restart capability and a non-serializable restart-bound package,
 classifies one frozen GRST case, and may construct one opaque in-memory
 candidate. The reducer retains both owning authorities in its linear result. It
@@ -24,7 +26,7 @@ second order/position domain model.
 ## Freshness and identity
 
 Validation requires all of the following before a later reducer may inspect the
-package. The R1 chronology is exact:
+package. The R2 chronology is exact:
 
 ```text
 clean_restore_completed_at < section_observed_at <= captured_at
@@ -58,13 +60,20 @@ to Stage 5G string identities, package/snapshot identity, account, target symbol
 and optional venue symbol. Zero generations and malformed lowercase-hex SHA-256
 values are rejected.
 
-Replay authority is deliberately split and committed to the authenticated
-restart checkpoint. The pre-restart package/epoch prevents
-reuse of stale startup evidence. The last-reconciled identity permits only an
-exact immediate replay. A separate bounded accepted historical ledger may
-permit an exact older replay. The same package ID with a changed canonical fingerprint
-is a conflict and fails before any mutation; a known historical package outside
-the accepted ledger is blocked.
+Package validation consumes a separate linear reviewed deployment/config
+capability. R2 intentionally has no production raw-DTO issuer for it; the only
+issuer is test-only. This prevents the broker package from supplying both the
+actual and expected identity. Production config issuance remains closed for a
+separately reviewed integration step.
+
+Replay data supplied to e-d-b is deliberately typed as untrusted hints and
+committed to the package/restart binding only to prevent post-bind mutation.
+No authenticated fresh-truth ledger exists in the Stage 5D restart envelope,
+so exact immediate and historical replay are conservatively disabled. Exact
+current tuples become `ReplayTupleNotInRestartLedger`; exact historical tuples
+become `HistoricalReplayNotAccepted`; changed tuples become
+`ReplayFingerprintConflict`. Exact replay may be enabled only after e-d-c adds
+and authenticates the durable tuple ledger.
 
 Position uniqueness inside e-d-a follows broker-core's accepted semantic
 instrument matcher. The e-d-b operational boundary is stricter: the target
@@ -76,6 +85,13 @@ facts. An empty incomplete section means “truth unavailable”, not “the bro
 has no rows”. e-d-a preserves that distinction; e-d-b must map it to
 `AwaitFreshBrokerTruth` or a stronger fail-closed disposition before any
 callback.
+
+Before target filtering, the full account order set is checked with the same
+shared guard as accepted Stage 5G order/position logic. Non-owned active or
+unknown rows and ambiguous owned rows block. MARKET/LIMIT/CANCEL source action
+is retained and checked. Source/fresh order and trade facts may only advance
+monotonically. Source runtime quantities are accepted only for finite integral
+lots until the source model migrates from `f64` to canonical `Decimal`.
 
 Order rows preserve canonical lifecycle rules: status and lifecycle must agree,
 remaining quantity must be explicit and exact, `Filled` requires a complete
@@ -94,10 +110,10 @@ The completion obligations are attached without renaming or removing a case:
 | `GRST03_RESTART_WITH_WORKING_ORDER` | Post-ACK working order remains active and retains exact request/client/broker identity. |
 | `GRST04_RESTART_AFTER_PARTIAL_FILL` | Partial fill and matching target position converge monotonically; mismatch blocks. |
 | `GRST05_RESTART_FILLED_BEFORE_POSITION` | Filled order before a complete matching position section waits for fresh position truth. |
-| `GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED` | Filled terminal order plus applied target/flat position continues from the committed checkpoint. |
+| `GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED` | Exact terminal order, trades, position and ownership identity continue from the committed checkpoint. |
 | `GRST07_RESTART_AT_TIMER_CHECKPOINT` | Exact timer checkpoint replay is single-consume and deterministic. |
 | `GRST08_RESTART_WITH_GENERATED_INTENT_ESCROW` | Retryable block retains generated-intent escrow unchanged. |
-| `GRST09_EXACT_REPLAY_IS_IDEMPOTENT` | Exact package replay is a no-op with an unchanged semantic fingerprint. |
+| `GRST09_EXACT_REPLAY_IS_IDEMPOTENT` | Caller exact-replay hints are semantic no-ops but remain blocked until an authenticated fresh ledger exists. |
 | `GRST10_CONFLICTING_REPLAY_BLOCKS` | Contradictory rows/package identity never mutate runtime and require reconciliation or terminal handling. |
 | `GRST11_FRESH_BROKER_TRUTH_OVERRIDES_STALE_HINT` | Fresh active/terminal truth overrides stale cancel/order hints; canceled, rejected and expired outcomes remain explicit. |
 | `GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION` | Missing, ambiguous or incomplete truth is never interpreted as broker absence. |
@@ -114,9 +130,9 @@ The typed disposition vocabulary is frozen in e-d-a:
 - `ManualInterventionRequired`;
 - `TerminalInconsistency`.
 
-The e-d-b R1 reducer returns exactly one of these dispositions with a closed typed
+The e-d-b R2 reducer returns exactly one of these dispositions with a closed typed
 reason. GRST01–12 execute once in frozen order in focused debug/release tests.
-Exact replay is a semantic no-op, incomplete truth never means broker absence,
+Replay hints are semantic no-ops, incomplete truth never means broker absence,
 and contradiction never produces a candidate. Restart slots preserve typed
 intent class and exact Decimal pre-position; expected post-position is
 `pre_position_qty + signed_fill`. Shared exact trade linkage rejects a
@@ -139,7 +155,7 @@ a production anchor, focused Rust witness and named negative mutation.
 
 ## Next slices
 
-1. e-d-b R1: consume the accepted clean-restart capability and restart-bound
+1. e-d-b R2: consume the accepted clean-restart capability and restart-bound
    validated fresh package in a deterministic, mutation-safe reducer; execute
    GRST01–12 through pure and owning-boundary fixtures.
 2. e-d-c: deterministic export/restart/reconcile/re-export evidence, negative
@@ -152,8 +168,8 @@ broker dispatch, runtime-live and real orders remain closed.
 
 The accepted predecessor gate is `bash scripts/stage5g_eda_r6_gate.sh` from a
 detached worktree at exact `4ece2c7...`. The rejected e-d-b repair base is
-`8a02f2a...`. The current-head e-d-b R1 gate is
-`bash scripts/stage5g_edb_gate.sh`.
+`b0ede8b...`. The current-head e-d-b R2 gate is
+`bash scripts/stage5g_edb_r2_gate.sh`.
 
 The R6 checker is the controlling strict current-HEAD superset. It freezes the
 complete accepted R5 project tree outside the exact ten-file R6 allowlist,

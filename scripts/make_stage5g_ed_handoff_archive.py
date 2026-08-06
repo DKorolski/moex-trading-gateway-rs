@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build an immutable, origin-bound Stage 5G-e-d-b R1 review handoff."""
+"""Build an immutable, origin-bound Stage 5G-e-d-b R2 review handoff."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 HANDOFF_DIR = ROOT / "reports/handoff"
 BRANCH = "stage5g-lifecycle"
-STAGE = "5G-e-d-b-r1"
-REQUIRED_PARENT = "8a02f2a6b6e27587539d1e4e4717301bf010e6a1"
+STAGE = "5G-e-d-b-r2"
+REQUIRED_PARENT = "b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b"
 EXPECTED_DELTA = [
     ("M", "crates/strategy-runtime-core/src/stage5g_clean_restart.rs"),
     ("M", "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs"),
@@ -34,6 +34,7 @@ EXPECTED_DELTA = [
     ("M", "scripts/stage5g_edb_gate.sh"),
     ("M", "scripts/stage5g_edb_negative_harness.py"),
     ("M", "scripts/stage5g_edb_preseal_check.py"),
+    ("A", "scripts/stage5g_edb_r2_gate.sh"),
 ]
 
 
@@ -77,7 +78,7 @@ def main() -> None:
     source_commit = source_ref[:7]
     parent_ref = run_text(["git", "rev-parse", "HEAD^"])
     if parent_ref != REQUIRED_PARENT:
-        fail(f"e-d-b R1 must be one clean successor to {REQUIRED_PARENT}; got parent {parent_ref}")
+        fail(f"e-d-b R2 must be one clean successor to {REQUIRED_PARENT}; got parent {parent_ref}")
     origin_ref = run_text(["git", "rev-parse", f"origin/{BRANCH}"])
     if origin_ref != source_ref:
         fail(f"origin/{BRANCH} must equal HEAD before packaging")
@@ -86,7 +87,7 @@ def main() -> None:
         fail(f"exact e-d-b R1 changed-path allowlist drifted: {delta}")
 
     gate = subprocess.run(
-        ["bash", "scripts/stage5g_edb_gate.sh"],
+        ["bash", "scripts/stage5g_edb_r2_gate.sh"],
         cwd=ROOT,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -94,7 +95,7 @@ def main() -> None:
     )
     if gate.returncode != 0:
         print(gate.stdout.decode(errors="replace"))
-        fail("stage5g_edb_gate.sh failed")
+        fail("stage5g_edb_r2_gate.sh failed")
 
     archive_name = f"moex-trading-project-{source_commit}.zip"
     HANDOFF_DIR.mkdir(parents=True, exist_ok=True)
@@ -146,7 +147,7 @@ def main() -> None:
             "schema_version": 1,
             "stage": STAGE,
             "source_ref": source_ref,
-            "command": ["bash", "scripts/stage5g_edb_gate.sh"],
+            "command": ["bash", "scripts/stage5g_edb_r2_gate.sh"],
             "exit_code": 0,
             "all_required_gates_passed": True,
         },
@@ -159,8 +160,8 @@ def main() -> None:
             json.dumps(source_manifest, indent=2, sort_keys=True).encode() + b"\n",
             0o644,
         ),
-        "stage5g-e-d-b-r1-gate-result.json": (gate_result, 0o644),
-        "stage5g-e-d-b-r1-gate-output.txt": (gate.stdout, 0o644),
+        "stage5g-e-d-b-r2-gate-result.json": (gate_result, 0o644),
+        "stage5g-e-d-b-r2-gate-output.txt": (gate.stdout, 0o644),
     }
     for name in generated:
         if name in payloads:

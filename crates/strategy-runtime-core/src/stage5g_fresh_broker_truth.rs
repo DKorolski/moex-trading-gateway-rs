@@ -222,31 +222,79 @@ impl Stage5gReconciledFreshPackageIdentity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Stage5gFreshPackageLineage {
     NewFresh,
-    ExactLastReconciledReplay,
-    ExactAcceptedHistoricalReplay,
+    ReplayTupleNotInRestartLedger,
+    HistoricalReplayNotAccepted,
     ReplayFingerprintConflict,
-    UnknownHistoricalReplay,
 }
 
 #[derive(Clone, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Stage5gFreshTruthReplayAuthorityV1 {
+pub(crate) struct Stage5gFreshTruthReplayHintsV1 {
     pre_restart_package_id: String,
     pre_restart_snapshot_epoch: String,
-    last_reconciled_fresh_package: Option<Stage5gReconciledFreshPackageIdentity>,
-    accepted_replay_ledger: Vec<Stage5gReconciledFreshPackageIdentity>,
-    known_historical_fresh_packages: Vec<Stage5gReconciledFreshPackageIdentity>,
+    untrusted_last_reconciled_hint: Option<Stage5gReconciledFreshPackageIdentity>,
+    untrusted_accepted_replay_hints: Vec<Stage5gReconciledFreshPackageIdentity>,
+    untrusted_known_historical_hints: Vec<Stage5gReconciledFreshPackageIdentity>,
+}
+
+/// Linear restart-owned operational authority. It can be created only while
+/// borrowing an authenticated clean-restart capability and is then consumed
+/// by package validation. A validated raw DTO alone is not admission proof.
+pub(crate) struct Stage5gFreshTruthOperationalAuthority {
+    expected_identity: Stage5gOperationalIdentityV1,
+    restart_authority_commitment_sha256: String,
+}
+
+/// Linear proof that deployment/gateway/config identity was reviewed outside
+/// the broker package boundary. e-d-b deliberately exposes no production
+/// issuer: the eventual issuer belongs to the separately reviewed e-d-c/config
+/// integration. A raw broker DTO therefore cannot mint operational authority.
+pub(crate) struct Stage5gReviewedOperationalIdentityAuthority {
+    expected_identity: Stage5gOperationalIdentityV1,
+}
+
+pub(crate) fn authorize_stage5g_fresh_truth_operational_identity(
+    restart: &crate::Stage5gCleanRestartedCapability,
+    reviewed_authority: Stage5gReviewedOperationalIdentityAuthority,
+) -> Result<Stage5gFreshTruthOperationalAuthority, Stage5gFreshBrokerTruthError> {
+    let expected_identity = reviewed_authority.expected_identity;
+    let projection = restart.fresh_truth_reducer_projection();
+    if projection.account_id != expected_identity.account_id
+        || projection.strategy_id != expected_identity.strategy_definition_id.as_str()
+        || projection.config_fingerprint_sha256
+            != expected_identity.config_fingerprint_sha256.as_str()
+        || projection.instrument_id != expected_identity.target_instrument
+        || projection.strategy_state_fingerprint_sha256
+            != projection.reconstructed_runtime_state_fingerprint_sha256
+    {
+        return Err(Stage5gFreshBrokerTruthError::OperationalRestartBindingMismatch);
+    }
+    let restart_authority_commitment_sha256 =
+        stage5g_restart_owned_operational_authority_commitment(&projection, &expected_identity);
+    Ok(Stage5gFreshTruthOperationalAuthority {
+        expected_identity,
+        restart_authority_commitment_sha256,
+    })
+}
+
+#[cfg(test)]
+pub(super) fn stage5g_test_reviewed_operational_identity_authority(
+    reviewed_identity: Stage5gOperationalIdentityInput,
+) -> Result<Stage5gReviewedOperationalIdentityAuthority, Stage5gFreshBrokerTruthError> {
+    Ok(Stage5gReviewedOperationalIdentityAuthority {
+        expected_identity: Stage5gOperationalIdentityV1::validate(reviewed_identity)?,
+    })
 }
 
 /// Context proving post-restore collection and separating pre-restart identity
 /// from the last-reconciled and bounded historical replay authorities.
 pub(crate) struct Stage5gFreshBrokerTruthValidationContext<'a> {
-    pub(crate) expected_operational_identity: &'a Stage5gOperationalIdentityV1,
+    pub(crate) operational_authority: Stage5gFreshTruthOperationalAuthority,
     pub(crate) pre_restart_package_id: &'a str,
     pub(crate) pre_restart_snapshot_epoch: &'a str,
-    pub(crate) last_reconciled_fresh_package: Option<&'a Stage5gReconciledFreshPackageIdentity>,
-    pub(crate) accepted_replay_ledger: &'a [Stage5gReconciledFreshPackageIdentity],
-    pub(crate) known_historical_fresh_packages: &'a [Stage5gReconciledFreshPackageIdentity],
+    pub(crate) untrusted_last_reconciled_hint: Option<&'a Stage5gReconciledFreshPackageIdentity>,
+    pub(crate) untrusted_accepted_replay_hints: &'a [Stage5gReconciledFreshPackageIdentity],
+    pub(crate) untrusted_known_historical_hints: &'a [Stage5gReconciledFreshPackageIdentity],
     pub(crate) clean_restore_completed_at: DateTime<Utc>,
     pub(crate) validation_observed_at: DateTime<Utc>,
 }
@@ -257,6 +305,7 @@ pub(crate) struct Stage5gValidatedFreshBrokerTruthPackage {
     package_id: Stage5gPackageId,
     snapshot_epoch: Stage5gSnapshotEpoch,
     operational_identity: Stage5gOperationalIdentityV1,
+    operational_authority_commitment_sha256: String,
     captured_at: DateTime<Utc>,
     orders_observed_at: DateTime<Utc>,
     trades_observed_at: DateTime<Utc>,
@@ -269,7 +318,7 @@ pub(crate) struct Stage5gValidatedFreshBrokerTruthPackage {
     positions: Vec<BrokerPositionSnapshot>,
     lineage: Stage5gFreshPackageLineage,
     canonical_fingerprint_sha256: String,
-    replay_authority: Stage5gFreshTruthReplayAuthorityV1,
+    replay_hints: Stage5gFreshTruthReplayHintsV1,
 }
 
 /// Opaque restart-bound package admitted by the e-d-b owning reducer. It is
@@ -313,16 +362,24 @@ pub(crate) fn bind_stage5g_fresh_truth_to_clean_restart(
     {
         return Err(Stage5gFreshBrokerTruthError::OperationalRestartBindingMismatch);
     }
-    if !restart_replay_authority_matches(&projection.checkpoint, &package.replay_authority) {
+    if package.operational_authority_commitment_sha256
+        != stage5g_restart_owned_operational_authority_commitment(
+            &projection,
+            &package.operational_identity,
+        )
+    {
+        return Err(Stage5gFreshBrokerTruthError::OperationalRestartBindingMismatch);
+    }
+    if !restart_replay_hints_match_checkpoint(&projection.checkpoint, &package.replay_hints) {
         return Err(Stage5gFreshBrokerTruthError::RestartReplayAuthorityMismatch);
     }
     let operational_binding_commitment_sha256 = stage5g_operational_binding_commitment(
         &projection,
         &package.operational_identity,
-        &package.replay_authority,
+        &package.replay_hints,
     );
     let restart_replay_commitment_sha256 =
-        stage5g_restart_replay_commitment(&projection, &package.replay_authority);
+        stage5g_restart_replay_commitment(&projection, &package.replay_hints);
     Ok(Stage5gRestartBoundFreshBrokerTruthPackage {
         package,
         operational_binding_commitment_sha256,
@@ -330,10 +387,33 @@ pub(crate) fn bind_stage5g_fresh_truth_to_clean_restart(
     })
 }
 
+fn stage5g_restart_owned_operational_authority_commitment(
+    restart: &crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection,
+    identity: &Stage5gOperationalIdentityV1,
+) -> String {
+    #[derive(Serialize)]
+    struct AuthorityProjection<'a> {
+        domain: &'static str,
+        source_lifecycle_commit_sha256: &'a str,
+        lifecycle_source_authority_sha256: &'a str,
+        checkpoint_payload_sha256: &'a str,
+        strategy_state_fingerprint_sha256: &'a str,
+        operational_identity: &'a Stage5gOperationalIdentityV1,
+    }
+    semantic_binding_sha256(&AuthorityProjection {
+        domain: "moex.stage5g.fresh-truth-operational-authority.v1",
+        source_lifecycle_commit_sha256: &restart.source_lifecycle_commit_sha256,
+        lifecycle_source_authority_sha256: &restart.lifecycle_source_authority_sha256,
+        checkpoint_payload_sha256: &restart.checkpoint.payload_sha256,
+        strategy_state_fingerprint_sha256: &restart.strategy_state_fingerprint_sha256,
+        operational_identity: identity,
+    })
+}
+
 pub(super) fn stage5g_operational_binding_commitment(
     restart: &crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection,
     identity: &Stage5gOperationalIdentityV1,
-    replay_authority: &Stage5gFreshTruthReplayAuthorityV1,
+    replay_hints: &Stage5gFreshTruthReplayHintsV1,
 ) -> String {
     #[derive(Serialize)]
     struct BindingProjection<'a> {
@@ -342,7 +422,7 @@ pub(super) fn stage5g_operational_binding_commitment(
         lifecycle_source_authority_sha256: &'a str,
         checkpoint: &'a crate::Stage5gTimerCheckpointEnvelope,
         operational_identity: &'a Stage5gOperationalIdentityV1,
-        replay_authority: &'a Stage5gFreshTruthReplayAuthorityV1,
+        replay_hints: &'a Stage5gFreshTruthReplayHintsV1,
     }
     semantic_binding_sha256(&BindingProjection {
         domain: "moex.stage5g.fresh-truth-operational-binding.v1",
@@ -350,13 +430,13 @@ pub(super) fn stage5g_operational_binding_commitment(
         lifecycle_source_authority_sha256: &restart.lifecycle_source_authority_sha256,
         checkpoint: &restart.checkpoint,
         operational_identity: identity,
-        replay_authority,
+        replay_hints,
     })
 }
 
 pub(super) fn stage5g_restart_replay_commitment(
     restart: &crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection,
-    replay_authority: &Stage5gFreshTruthReplayAuthorityV1,
+    replay_hints: &Stage5gFreshTruthReplayHintsV1,
 ) -> String {
     #[derive(Serialize)]
     struct ReplayProjection<'a> {
@@ -365,7 +445,7 @@ pub(super) fn stage5g_restart_replay_commitment(
         checkpoint_current_evidence_identity: &'a Option<String>,
         checkpoint_replay_ledger: &'a [crate::Stage5gReplayLedgerEntry],
         checkpoint_payload_sha256: &'a str,
-        replay_authority: &'a Stage5gFreshTruthReplayAuthorityV1,
+        replay_hints: &'a Stage5gFreshTruthReplayHintsV1,
     }
     semantic_binding_sha256(&ReplayProjection {
         domain: "moex.stage5g.fresh-truth-restart-replay.v1",
@@ -373,13 +453,13 @@ pub(super) fn stage5g_restart_replay_commitment(
         checkpoint_current_evidence_identity: &restart.checkpoint.payload.current_evidence_identity,
         checkpoint_replay_ledger: &restart.checkpoint.payload.evidence_replay_ledger,
         checkpoint_payload_sha256: &restart.checkpoint.payload_sha256,
-        replay_authority,
+        replay_hints,
     })
 }
 
-fn restart_replay_authority_matches(
+fn restart_replay_hints_match_checkpoint(
     checkpoint: &crate::Stage5gTimerCheckpointEnvelope,
-    replay: &Stage5gFreshTruthReplayAuthorityV1,
+    replay: &Stage5gFreshTruthReplayHintsV1,
 ) -> bool {
     let Some(current_identity) = checkpoint.payload.current_evidence_identity.as_deref() else {
         return false;
@@ -395,9 +475,6 @@ fn restart_replay_authority_matches(
     if !current_entry_exists
         || replay.pre_restart_package_id != current_identity
         || replay.pre_restart_snapshot_epoch != current_epoch
-        || replay.accepted_replay_ledger.len() > checkpoint.payload.evidence_replay_ledger.len()
-        || replay.known_historical_fresh_packages.len()
-            > checkpoint.payload.evidence_replay_ledger.len()
     {
         return false;
     }
@@ -559,9 +636,13 @@ pub(crate) fn validate_stage5g_fresh_broker_truth_package(
     )?;
     let operational_identity =
         Stage5gOperationalIdentityV1::validate(package.operational_identity.clone())?;
-    if &operational_identity != context.expected_operational_identity {
+    if operational_identity != context.operational_authority.expected_identity {
         return Err(Stage5gFreshBrokerTruthError::OperationalIdentityMismatch);
     }
+    let operational_authority_commitment_sha256 = context
+        .operational_authority
+        .restart_authority_commitment_sha256
+        .clone();
 
     validate_rows(&package, context.clean_restore_completed_at)?;
     canonicalize_rows(&mut package);
@@ -572,18 +653,19 @@ pub(crate) fn validate_stage5g_fresh_broker_truth_package(
         &canonical_fingerprint_sha256,
         &context,
     )?;
-    let replay_authority = Stage5gFreshTruthReplayAuthorityV1 {
+    let replay_hints = Stage5gFreshTruthReplayHintsV1 {
         pre_restart_package_id: context.pre_restart_package_id.to_owned(),
         pre_restart_snapshot_epoch: context.pre_restart_snapshot_epoch.to_owned(),
-        last_reconciled_fresh_package: context.last_reconciled_fresh_package.cloned(),
-        accepted_replay_ledger: context.accepted_replay_ledger.to_vec(),
-        known_historical_fresh_packages: context.known_historical_fresh_packages.to_vec(),
+        untrusted_last_reconciled_hint: context.untrusted_last_reconciled_hint.cloned(),
+        untrusted_accepted_replay_hints: context.untrusted_accepted_replay_hints.to_vec(),
+        untrusted_known_historical_hints: context.untrusted_known_historical_hints.to_vec(),
     };
 
     Ok(Stage5gValidatedFreshBrokerTruthPackage {
         package_id,
         snapshot_epoch,
         operational_identity,
+        operational_authority_commitment_sha256,
         captured_at: package.captured_at,
         orders_observed_at: package.orders_observed_at,
         trades_observed_at: package.trades_observed_at,
@@ -596,7 +678,7 @@ pub(crate) fn validate_stage5g_fresh_broker_truth_package(
         positions: package.positions,
         lineage,
         canonical_fingerprint_sha256,
-        replay_authority,
+        replay_hints,
     })
 }
 
@@ -621,18 +703,18 @@ fn classify_lineage(
     context: &Stage5gFreshBrokerTruthValidationContext<'_>,
 ) -> Result<Stage5gFreshPackageLineage, Stage5gFreshBrokerTruthError> {
     validate_replay_ledger(context)?;
-    if let Some(last) = context.last_reconciled_fresh_package {
+    if let Some(last) = context.untrusted_last_reconciled_hint {
         if package_id == &last.package_id {
             return Ok(exact_lineage_or_conflict(
                 snapshot_epoch,
                 fingerprint,
                 last,
-                Stage5gFreshPackageLineage::ExactLastReconciledReplay,
+                Stage5gFreshPackageLineage::ReplayTupleNotInRestartLedger,
             ));
         }
     }
     if let Some(historical) = context
-        .accepted_replay_ledger
+        .untrusted_accepted_replay_hints
         .iter()
         .find(|entry| &entry.package_id == package_id)
     {
@@ -640,11 +722,11 @@ fn classify_lineage(
             snapshot_epoch,
             fingerprint,
             historical,
-            Stage5gFreshPackageLineage::ExactAcceptedHistoricalReplay,
+            Stage5gFreshPackageLineage::HistoricalReplayNotAccepted,
         ));
     }
     if let Some(known) = context
-        .known_historical_fresh_packages
+        .untrusted_known_historical_hints
         .iter()
         .find(|entry| &entry.package_id == package_id)
     {
@@ -654,15 +736,15 @@ fn classify_lineage(
             {
                 Stage5gFreshPackageLineage::ReplayFingerprintConflict
             } else {
-                Stage5gFreshPackageLineage::UnknownHistoricalReplay
+                Stage5gFreshPackageLineage::HistoricalReplayNotAccepted
             },
         );
     }
     if context
-        .last_reconciled_fresh_package
+        .untrusted_last_reconciled_hint
         .into_iter()
-        .chain(context.accepted_replay_ledger.iter())
-        .chain(context.known_historical_fresh_packages.iter())
+        .chain(context.untrusted_accepted_replay_hints.iter())
+        .chain(context.untrusted_known_historical_hints.iter())
         .any(|entry| entry.snapshot_epoch == *snapshot_epoch)
     {
         return Err(Stage5gFreshBrokerTruthError::ReusedFreshSnapshotEpoch);
@@ -691,10 +773,10 @@ fn validate_replay_ledger(
     let mut ids = BTreeSet::new();
     let mut epochs = BTreeSet::new();
     for entry in context
-        .last_reconciled_fresh_package
+        .untrusted_last_reconciled_hint
         .into_iter()
-        .chain(context.accepted_replay_ledger.iter())
-        .chain(context.known_historical_fresh_packages.iter())
+        .chain(context.untrusted_accepted_replay_hints.iter())
+        .chain(context.untrusted_known_historical_hints.iter())
     {
         if !ids.insert(entry.package_id.as_str()) || !epochs.insert(entry.snapshot_epoch.as_str()) {
             return Err(Stage5gFreshBrokerTruthError::InvalidReplayLedger);
@@ -955,6 +1037,15 @@ mod tests {
         Stage5gOperationalIdentityV1::validate(identity_input()).expect("valid identity")
     }
 
+    fn supplementary_test_operational_authority(
+        expected_identity: Stage5gOperationalIdentityV1,
+    ) -> Stage5gFreshTruthOperationalAuthority {
+        Stage5gFreshTruthOperationalAuthority {
+            expected_identity,
+            restart_authority_commitment_sha256: "f".repeat(64),
+        }
+    }
+
     fn package() -> Stage5gFreshBrokerTruthPackageV1 {
         let captured_at = Utc.with_ymd_and_hms(2026, 8, 4, 9, 0, 10).unwrap();
         let account_id = BrokerAccountId::new("ACC_TEST_0001");
@@ -1024,9 +1115,9 @@ mod tests {
 
     fn validate_with_lineage(
         package: Stage5gFreshBrokerTruthPackageV1,
-        last_reconciled_fresh_package: Option<&Stage5gReconciledFreshPackageIdentity>,
-        accepted_replay_ledger: &[Stage5gReconciledFreshPackageIdentity],
-        known_historical_fresh_packages: &[Stage5gReconciledFreshPackageIdentity],
+        untrusted_last_reconciled_hint: Option<&Stage5gReconciledFreshPackageIdentity>,
+        untrusted_accepted_replay_hints: &[Stage5gReconciledFreshPackageIdentity],
+        untrusted_known_historical_hints: &[Stage5gReconciledFreshPackageIdentity],
     ) -> Result<Stage5gValidatedFreshBrokerTruthPackage, Stage5gFreshBrokerTruthError> {
         let expected = identity();
         let restore_at = package.captured_at - Duration::seconds(5);
@@ -1034,12 +1125,12 @@ mod tests {
         validate_stage5g_fresh_broker_truth_package(
             package,
             Stage5gFreshBrokerTruthValidationContext {
-                expected_operational_identity: &expected,
+                operational_authority: supplementary_test_operational_authority(expected.clone()),
                 pre_restart_package_id: "fresh-package-0",
                 pre_restart_snapshot_epoch: "snapshot-epoch-1",
-                last_reconciled_fresh_package,
-                accepted_replay_ledger,
-                known_historical_fresh_packages,
+                untrusted_last_reconciled_hint,
+                untrusted_accepted_replay_hints,
+                untrusted_known_historical_hints,
                 clean_restore_completed_at: restore_at,
                 validation_observed_at,
             },
@@ -1103,12 +1194,12 @@ mod tests {
             let result = validate_stage5g_fresh_broker_truth_package(
                 package(),
                 Stage5gFreshBrokerTruthValidationContext {
-                    expected_operational_identity: &expected,
+                    operational_authority: supplementary_test_operational_authority(expected),
                     pre_restart_package_id: "fresh-package-0",
                     pre_restart_snapshot_epoch: "snapshot-epoch-1",
-                    last_reconciled_fresh_package: None,
-                    accepted_replay_ledger: &[],
-                    known_historical_fresh_packages: &[],
+                    untrusted_last_reconciled_hint: None,
+                    untrusted_accepted_replay_hints: &[],
+                    untrusted_known_historical_hints: &[],
                     clean_restore_completed_at: restore_at,
                     validation_observed_at: captured_at + Duration::seconds(1),
                 },
@@ -1126,12 +1217,12 @@ mod tests {
         let result = validate_stage5g_fresh_broker_truth_package(
             after_observation,
             Stage5gFreshBrokerTruthValidationContext {
-                expected_operational_identity: &expected,
+                operational_authority: supplementary_test_operational_authority(expected),
                 pre_restart_package_id: "fresh-package-0",
                 pre_restart_snapshot_epoch: "snapshot-epoch-1",
-                last_reconciled_fresh_package: None,
-                accepted_replay_ledger: &[],
-                known_historical_fresh_packages: &[],
+                untrusted_last_reconciled_hint: None,
+                untrusted_accepted_replay_hints: &[],
+                untrusted_known_historical_hints: &[],
                 clean_restore_completed_at: captured_at - Duration::seconds(5),
                 validation_observed_at: captured_at - Duration::milliseconds(1),
             },
@@ -1340,12 +1431,12 @@ mod tests {
             let result = validate_stage5g_fresh_broker_truth_package(
                 package,
                 Stage5gFreshBrokerTruthValidationContext {
-                    expected_operational_identity: &expected,
+                    operational_authority: supplementary_test_operational_authority(expected),
                     pre_restart_package_id,
                     pre_restart_snapshot_epoch,
-                    last_reconciled_fresh_package: None,
-                    accepted_replay_ledger: &[],
-                    known_historical_fresh_packages: &[],
+                    untrusted_last_reconciled_hint: None,
+                    untrusted_accepted_replay_hints: &[],
+                    untrusted_known_historical_hints: &[],
                     clean_restore_completed_at: captured_at - Duration::seconds(5),
                     validation_observed_at: captured_at + Duration::seconds(1),
                 },
@@ -1413,12 +1504,12 @@ mod tests {
         let replayed_package = validate_stage5g_fresh_broker_truth_package(
             package.clone(),
             Stage5gFreshBrokerTruthValidationContext {
-                expected_operational_identity: &expected,
+                operational_authority: supplementary_test_operational_authority(expected.clone()),
                 pre_restart_package_id: "fresh-package-1",
                 pre_restart_snapshot_epoch: "snapshot-epoch-1",
-                last_reconciled_fresh_package: None,
-                accepted_replay_ledger: &[],
-                known_historical_fresh_packages: &[],
+                untrusted_last_reconciled_hint: None,
+                untrusted_accepted_replay_hints: &[],
+                untrusted_known_historical_hints: &[],
                 clean_restore_completed_at: restore_at,
                 validation_observed_at,
             },
@@ -1431,12 +1522,12 @@ mod tests {
         let replayed = validate_stage5g_fresh_broker_truth_package(
             package.clone(),
             Stage5gFreshBrokerTruthValidationContext {
-                expected_operational_identity: &expected,
+                operational_authority: supplementary_test_operational_authority(expected),
                 pre_restart_package_id: "fresh-package-0",
                 pre_restart_snapshot_epoch: "snapshot-epoch-2",
-                last_reconciled_fresh_package: None,
-                accepted_replay_ledger: &[],
-                known_historical_fresh_packages: &[],
+                untrusted_last_reconciled_hint: None,
+                untrusted_accepted_replay_hints: &[],
+                untrusted_known_historical_hints: &[],
                 clean_restore_completed_at: restore_at,
                 validation_observed_at,
             },
@@ -1451,12 +1542,12 @@ mod tests {
         let mismatch = validate_stage5g_fresh_broker_truth_package(
             package,
             Stage5gFreshBrokerTruthValidationContext {
-                expected_operational_identity: &wrong,
+                operational_authority: supplementary_test_operational_authority(wrong),
                 pre_restart_package_id: "fresh-package-0",
                 pre_restart_snapshot_epoch: "snapshot-epoch-1",
-                last_reconciled_fresh_package: None,
-                accepted_replay_ledger: &[],
-                known_historical_fresh_packages: &[],
+                untrusted_last_reconciled_hint: None,
+                untrusted_accepted_replay_hints: &[],
+                untrusted_known_historical_hints: &[],
                 clean_restore_completed_at: restore_at,
                 validation_observed_at,
             },
@@ -1792,7 +1883,7 @@ mod tests {
             .expect("exact last replay");
         assert_eq!(
             exact.lineage(),
-            Stage5gFreshPackageLineage::ExactLastReconciledReplay
+            Stage5gFreshPackageLineage::ReplayTupleNotInRestartLedger
         );
 
         let mut changed = original;
@@ -1815,14 +1906,14 @@ mod tests {
                 .expect("unknown historical replay remains typed reducer evidence");
         assert_eq!(
             unknown.lineage(),
-            Stage5gFreshPackageLineage::UnknownHistoricalReplay
+            Stage5gFreshPackageLineage::HistoricalReplayNotAccepted
         );
 
         let accepted = validate_with_lineage(original, None, std::slice::from_ref(&known), &[])
             .expect("bounded accepted replay");
         assert_eq!(
             accepted.lineage(),
-            Stage5gFreshPackageLineage::ExactAcceptedHistoricalReplay
+            Stage5gFreshPackageLineage::HistoricalReplayNotAccepted
         );
     }
 
