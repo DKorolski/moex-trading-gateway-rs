@@ -18,7 +18,8 @@ use crate::stage5g_clean_restart::{
 };
 use crate::stage5g_order_position::{
     stage5g_account_wide_order_safety, stage5g_exact_trade_order_linkage,
-    stage5g_expected_post_position_qty, stage5g_immutable_trade_payload_matches,
+    stage5g_expected_post_position_qty, stage5g_immutable_order_payload_commitment_sha256,
+    stage5g_immutable_order_payload_matches, stage5g_immutable_trade_payload_matches,
     stage5g_intent_position_is_compatible, stage5g_order_matches_source_action,
     stage5g_order_ownership_correlation, Stage5gAccountWideOrderSafety,
     Stage5gFreshTruthRestartSlotProjection, Stage5gOrderOwnershipCorrelation,
@@ -92,9 +93,11 @@ pub(crate) struct Stage5gOwnedReconciliationCandidate {
     position: Option<BrokerPositionSnapshot>,
     positions_complete: bool,
     account_wide_safety_proven: bool,
+    global_account_history_partition_proven: bool,
+    canonical_position_semantics_proven: bool,
     source_monotonicity_proven: bool,
-    ignored_unrelated_terminal_order_count: usize,
-    ignored_unrelated_historical_trade_count: usize,
+    immutable_target_order_monotonicity_proven: bool,
+    target_order_immutable_commitment_sha256: Option<String>,
 }
 
 /// Linear reduction result. Ownership of both accepted inputs is retained so
@@ -105,6 +108,8 @@ pub(crate) struct Stage5gFreshTruthReduction {
     reason: Stage5gFreshTruthReductionReason,
     pre_semantic_fingerprint_sha256: String,
     post_candidate_fingerprint_sha256: String,
+    ignored_unrelated_terminal_order_count: usize,
+    ignored_unrelated_historical_trade_count: usize,
     candidate: Option<Stage5gOwnedReconciliationCandidate>,
     _restart: Stage5gCleanRestartedCapability,
     _truth: Stage5gRestartBoundFreshBrokerTruthPackage,
@@ -154,18 +159,8 @@ impl Stage5gFreshTruthReduction {
             trades_complete: self._truth.package.trades_complete,
             positions_complete: self._truth.package.positions_complete,
             candidate_present: self.candidate.is_some(),
-            ignored_unrelated_terminal_order_count: self
-                .candidate
-                .as_ref()
-                .map_or(0, |candidate| {
-                    candidate.ignored_unrelated_terminal_order_count
-                }),
-            ignored_unrelated_historical_trade_count: self
-                .candidate
-                .as_ref()
-                .map_or(0, |candidate| {
-                    candidate.ignored_unrelated_historical_trade_count
-                }),
+            ignored_unrelated_terminal_order_count: self.ignored_unrelated_terminal_order_count,
+            ignored_unrelated_historical_trade_count: self.ignored_unrelated_historical_trade_count,
             callback_count_before: restart.callback_count,
             callback_count_after: restart.callback_count,
             runtime_mutated: false,
@@ -194,6 +189,9 @@ pub(crate) fn reduce_stage5g_fresh_broker_truth(
         reason: classified.reason,
         pre_semantic_fingerprint_sha256,
         post_candidate_fingerprint_sha256,
+        ignored_unrelated_terminal_order_count: classified.ignored_unrelated_terminal_order_count,
+        ignored_unrelated_historical_trade_count: classified
+            .ignored_unrelated_historical_trade_count,
         candidate: classified.candidate,
         _restart: restart,
         _truth: truth,
@@ -205,6 +203,20 @@ struct Classified {
     disposition: Stage5gRestartReconciliationDisposition,
     reason: Stage5gFreshTruthReductionReason,
     candidate: Option<Stage5gOwnedReconciliationCandidate>,
+    ignored_unrelated_terminal_order_count: usize,
+    ignored_unrelated_historical_trade_count: usize,
+}
+
+impl Classified {
+    fn with_history_counts(
+        mut self,
+        ignored_unrelated_terminal_order_count: usize,
+        ignored_unrelated_historical_trade_count: usize,
+    ) -> Self {
+        self.ignored_unrelated_terminal_order_count = ignored_unrelated_terminal_order_count;
+        self.ignored_unrelated_historical_trade_count = ignored_unrelated_historical_trade_count;
+        self
+    }
 }
 
 fn classify(
@@ -338,6 +350,9 @@ fn classify(
         .filter(|row| row.instrument == restart.instrument_id)
         .collect::<Vec<_>>();
 
+    let global_history =
+        stage5g_global_history_partition(owned_slot.is_some(), &target_orders, &target_trades);
+
     if target_positions.len() > 1 {
         return blocked(
             Stage5gRestartScenarioId::Grst12MissingOrAmbiguousTruthRequiresReconciliation,
@@ -354,14 +369,17 @@ fn classify(
             );
         }
         let observed_position = observed_complete_position_qty(&target_positions);
-        return if target_orders.is_empty()
-            && target_trades.is_empty()
+        return if global_history.all_rows_classified
             && observed_position == Some(restart.committed_position_qty)
         {
             blocked(
                 Stage5gRestartScenarioId::Grst07RestartAtTimerCheckpoint,
                 Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint,
                 Stage5gFreshTruthReductionReason::TimerCheckpointExact,
+            )
+            .with_history_counts(
+                global_history.ignored_unrelated_terminal_order_count,
+                global_history.ignored_unrelated_historical_trade_count,
             )
         } else {
             blocked(
@@ -381,11 +399,15 @@ fn classify(
         }
         let target_position_matches = observed_complete_position_qty(&target_positions)
             == Some(restart.committed_position_qty);
-        return if target_orders.is_empty() && target_trades.is_empty() && target_position_matches {
+        return if global_history.all_rows_classified && target_position_matches {
             blocked(
                 Stage5gRestartScenarioId::Grst01RestartBeforeAck,
                 Stage5gRestartReconciliationDisposition::AwaitFreshBrokerTruth,
                 Stage5gFreshTruthReductionReason::AuthoritativeOrderMissing,
+            )
+            .with_history_counts(
+                global_history.ignored_unrelated_terminal_order_count,
+                global_history.ignored_unrelated_historical_trade_count,
             )
         } else {
             blocked(
@@ -554,11 +576,18 @@ fn classify(
             Stage5gFreshTruthReductionReason::TerminalContradiction,
         );
     }
+    if slot.terminal && !truth.positions_complete {
+        return incomplete(
+            restart,
+            Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
+        );
+    }
     let progress = source_to_fresh_progress(
         slot,
         order,
         &linked_trades,
         target_positions.first().copied(),
+        truth.positions_complete,
     );
     if let Stage5gSourceFreshProgress::Conflict(reason) = progress {
         return blocked(
@@ -678,6 +707,10 @@ fn classify(
                     Stage5gRestartScenarioId::Grst06RestartAfterTerminalPositionApplied,
                     Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint,
                     Stage5gFreshTruthReductionReason::TerminalPositionAlreadyApplied,
+                )
+                .with_history_counts(
+                    ignored_unrelated_terminal_order_count,
+                    ignored_unrelated_historical_trade_count,
                 )
             } else {
                 candidate(
@@ -810,29 +843,63 @@ pub(crate) fn stage5g_semantic_terminal_order_matches(
     committed: &BrokerOrderSnapshot,
     fresh: &BrokerOrderSnapshot,
 ) -> bool {
-    committed.account_id == fresh.account_id
-        && committed.instrument == fresh.instrument
-        && committed.client_order_id == fresh.client_order_id
-        && committed.broker_order_id == fresh.broker_order_id
-        && committed.side == fresh.side
-        && committed.order_type == fresh.order_type
-        && committed.time_in_force == fresh.time_in_force
+    stage5g_immutable_order_payload_matches(committed, fresh)
         && committed.status == fresh.status
         && committed.lifecycle == fresh.lifecycle
-        && committed.qty == fresh.qty
         && committed.filled_qty == fresh.filled_qty
         && committed.remaining_qty == fresh.remaining_qty
-        && committed.limit_price == fresh.limit_price
 }
 
 pub(crate) fn stage5g_semantic_position_matches(
     committed: &BrokerPositionSnapshot,
     fresh: &BrokerPositionSnapshot,
 ) -> bool {
-    committed.account_id == fresh.account_id
+    let same_identity = committed.account_id == fresh.account_id
         && committed.instrument == fresh.instrument
-        && committed.qty == fresh.qty
-        && committed.avg_price == fresh.avg_price
+        && committed.qty == fresh.qty;
+    same_identity && (committed.qty == Decimal::ZERO || committed.avg_price == fresh.avg_price)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Stage5gCanonicalPositionObservation<'a> {
+    Flat,
+    NonFlat(&'a BrokerPositionSnapshot),
+}
+
+fn stage5g_canonical_position_observation(
+    section_complete: bool,
+    position: Option<&BrokerPositionSnapshot>,
+) -> Option<Stage5gCanonicalPositionObservation<'_>> {
+    if !section_complete {
+        return None;
+    }
+    match position {
+        None => Some(Stage5gCanonicalPositionObservation::Flat),
+        Some(position) if position.qty == Decimal::ZERO => {
+            Some(Stage5gCanonicalPositionObservation::Flat)
+        }
+        Some(position) => Some(Stage5gCanonicalPositionObservation::NonFlat(position)),
+    }
+}
+
+fn stage5g_semantic_position_observation_matches(
+    committed: Option<&BrokerPositionSnapshot>,
+    fresh: Option<&BrokerPositionSnapshot>,
+    fresh_section_complete: bool,
+) -> bool {
+    let committed = stage5g_canonical_position_observation(true, committed);
+    let fresh = stage5g_canonical_position_observation(fresh_section_complete, fresh);
+    match (committed, fresh) {
+        (
+            Some(Stage5gCanonicalPositionObservation::Flat),
+            Some(Stage5gCanonicalPositionObservation::Flat),
+        ) => true,
+        (
+            Some(Stage5gCanonicalPositionObservation::NonFlat(committed)),
+            Some(Stage5gCanonicalPositionObservation::NonFlat(fresh)),
+        ) => stage5g_semantic_position_matches(committed, fresh),
+        _ => false,
+    }
 }
 
 fn source_to_fresh_progress(
@@ -840,6 +907,7 @@ fn source_to_fresh_progress(
     fresh_order: &BrokerOrderSnapshot,
     fresh_trades: &[&BrokerTradeSnapshot],
     fresh_position: Option<&BrokerPositionSnapshot>,
+    fresh_positions_complete: bool,
 ) -> Stage5gSourceFreshProgress {
     let Some(committed_order) = slot.latest_order.as_ref() else {
         return if slot.trades.is_empty() && !slot.terminal {
@@ -855,6 +923,11 @@ fn source_to_fresh_progress(
     {
         return Stage5gSourceFreshProgress::Conflict(
             Stage5gFreshTruthReductionReason::BrokerOrderIdentityConflict,
+        );
+    }
+    if !stage5g_immutable_order_payload_matches(committed_order, fresh_order) {
+        return Stage5gSourceFreshProgress::Conflict(
+            Stage5gFreshTruthReductionReason::TerminalContradiction,
         );
     }
     if committed_order.lifecycle == BrokerOrderLifecycle::Terminal
@@ -888,11 +961,11 @@ fn source_to_fresh_progress(
     }
     if slot.terminal {
         let exact_trades = slot.trades.len() == fresh_trades.len();
-        let exact_position = match (slot.position.as_ref(), fresh_position) {
-            (Some(committed), Some(fresh)) => stage5g_semantic_position_matches(committed, fresh),
-            (None, None) => true,
-            _ => false,
-        };
+        let exact_position = stage5g_semantic_position_observation_matches(
+            slot.position.as_ref(),
+            fresh_position,
+            fresh_positions_complete,
+        );
         if stage5g_semantic_terminal_order_matches(committed_order, fresh_order)
             && exact_trades
             && exact_position
@@ -937,6 +1010,8 @@ fn blocked(
         disposition,
         reason,
         candidate: None,
+        ignored_unrelated_terminal_order_count: 0,
+        ignored_unrelated_historical_trade_count: 0,
     }
 }
 
@@ -979,9 +1054,14 @@ fn candidate(
         position: rows.position.cloned(),
         positions_complete: rows.positions_complete,
         account_wide_safety_proven: true,
+        global_account_history_partition_proven: true,
+        canonical_position_semantics_proven: true,
         source_monotonicity_proven: true,
-        ignored_unrelated_terminal_order_count: rows.ignored_unrelated_terminal_order_count,
-        ignored_unrelated_historical_trade_count: rows.ignored_unrelated_historical_trade_count,
+        immutable_target_order_monotonicity_proven: true,
+        target_order_immutable_commitment_sha256: slot
+            .cancel_target_order_authority
+            .as_ref()
+            .and_then(|authority| authority.immutable_order_commitment_sha256.clone()),
     };
     if !candidate_is_self_consistent(&candidate) {
         return blocked(
@@ -995,6 +1075,8 @@ fn candidate(
         disposition: Stage5gRestartReconciliationDisposition::ApplyOwnedCandidate,
         reason,
         candidate: Some(candidate),
+        ignored_unrelated_terminal_order_count: rows.ignored_unrelated_terminal_order_count,
+        ignored_unrelated_historical_trade_count: rows.ignored_unrelated_historical_trade_count,
     }
 }
 
@@ -1066,13 +1148,22 @@ fn candidate_is_self_consistent(candidate: &Stage5gOwnedReconciliationCandidate)
                     .unwrap_or(true)
         }
     };
+    let immutable_target_order_authority_is_exact = candidate
+        .target_order_immutable_commitment_sha256
+        .as_ref()
+        .map(|expected| stage5g_immutable_order_payload_commitment_sha256(order) == *expected)
+        .unwrap_or(true);
     !candidate.command_request_id.is_empty()
         && candidate.operational_binding_commitment_sha256.len() == 64
         && target_identity_is_exact
         && source_price_authority_is_supported
         && stage5g_order_matches_source_action(&candidate.source_action, order)
         && candidate.account_wide_safety_proven
+        && candidate.global_account_history_partition_proven
+        && candidate.canonical_position_semantics_proven
         && candidate.source_monotonicity_proven
+        && candidate.immutable_target_order_monotonicity_proven
+        && immutable_target_order_authority_is_exact
         && candidate
             .side
             .map(|side| side == order.side)
@@ -1097,6 +1188,36 @@ fn candidate_is_self_consistent(candidate: &Stage5gOwnedReconciliationCandidate)
             }
             None => true,
         }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Stage5gGlobalHistoryPartition {
+    all_rows_classified: bool,
+    ignored_unrelated_terminal_order_count: usize,
+    ignored_unrelated_historical_trade_count: usize,
+}
+
+fn stage5g_global_history_partition(
+    owned_slot_present: bool,
+    target_orders: &[&BrokerOrderSnapshot],
+    target_trades: &[&BrokerTradeSnapshot],
+) -> Stage5gGlobalHistoryPartition {
+    if owned_slot_present {
+        return Stage5gGlobalHistoryPartition {
+            all_rows_classified: true,
+            ignored_unrelated_terminal_order_count: 0,
+            ignored_unrelated_historical_trade_count: 0,
+        };
+    }
+    let terminal_order_count = target_orders
+        .iter()
+        .filter(|order| order.lifecycle == BrokerOrderLifecycle::Terminal)
+        .count();
+    Stage5gGlobalHistoryPartition {
+        all_rows_classified: terminal_order_count == target_orders.len(),
+        ignored_unrelated_terminal_order_count: terminal_order_count,
+        ignored_unrelated_historical_trade_count: target_trades.len(),
+    }
 }
 
 fn observed_complete_position_qty(positions: &[&BrokerPositionSnapshot]) -> Option<Decimal> {
@@ -1175,8 +1296,8 @@ fn candidate_fingerprint(candidate: &Stage5gOwnedReconciliationCandidate) -> Str
         positions_complete: bool,
         account_wide_safety_proven: bool,
         source_monotonicity_proven: bool,
-        ignored_unrelated_terminal_order_count: usize,
-        ignored_unrelated_historical_trade_count: usize,
+        immutable_target_order_monotonicity_proven: bool,
+        target_order_immutable_commitment_sha256: &'a Option<String>,
     }
     semantic_sha256(&CandidateProjection {
         domain: "moex.stage5g.fresh-truth-candidate.v1",
@@ -1197,9 +1318,10 @@ fn candidate_fingerprint(candidate: &Stage5gOwnedReconciliationCandidate) -> Str
         positions_complete: candidate.positions_complete,
         account_wide_safety_proven: candidate.account_wide_safety_proven,
         source_monotonicity_proven: candidate.source_monotonicity_proven,
-        ignored_unrelated_terminal_order_count: candidate.ignored_unrelated_terminal_order_count,
-        ignored_unrelated_historical_trade_count: candidate
-            .ignored_unrelated_historical_trade_count,
+        immutable_target_order_monotonicity_proven: candidate
+            .immutable_target_order_monotonicity_proven,
+        target_order_immutable_commitment_sha256: &candidate
+            .target_order_immutable_commitment_sha256,
     })
 }
 
@@ -1230,7 +1352,7 @@ mod tests {
 
     use broker_core::{
         BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId, Exchange, InstrumentId,
-        Market, OrderType,
+        Market, OrderType, TimeInForce,
     };
     use chrono::{TimeZone, Utc};
 
@@ -1323,6 +1445,7 @@ mod tests {
             command_client_order_id: ClientOrderId::new("CLIENT-1").expect("client id"),
             target_broker_order_id: broker_order_id.map(BrokerOrderId::new),
             target_order_client_order_id: Some(ClientOrderId::new("CLIENT-1").expect("client id")),
+            cancel_target_order_authority: None,
             intent_class: Stage5gRestartIntentClass::Entry,
             source_action: crate::Stage5gMockIntentAction::Place {
                 place_kind: crate::Stage5gMockPlaceKind::Market,
@@ -3402,6 +3525,384 @@ mod tests {
             assert!(!evidence.callback_invoked);
             assert!(!evidence.transport_opened);
         }
+    }
+
+    #[test]
+    fn stage5g_edb_r4_owning_grst01_and_grst07_ignore_complete_harmless_history() {
+        for timer_ready in [true, false] {
+            let restart = if timer_ready {
+                crate::stage5g_order_position::tests::stage5g_edb_restored_timer_ready_fixture()
+            } else {
+                crate::stage5g_order_position::tests::stage5g_edb_restored_before_ack_fixture()
+            };
+            let projection = restart.fresh_truth_reducer_projection();
+            let mut old_filled = order(OrderStatus::Filled, "OLD-FILLED-R4", Decimal::ONE);
+            old_filled.client_order_id =
+                Some(ClientOrderId::new("OLD-C-FILLED-R4").expect("old client"));
+            let mut old_canceled = order(OrderStatus::Canceled, "OLD-CANCELED-R4", Decimal::ZERO);
+            old_canceled.client_order_id =
+                Some(ClientOrderId::new("OLD-C-CANCELED-R4").expect("old client"));
+            let mut old_trade = trade(Decimal::ONE, "OLD-FILLED-R4");
+            old_trade.broker_trade_id = BrokerTradeId::new("OLD-TRADE-R4");
+            old_trade.client_order_id = old_filled.client_order_id.clone();
+            let positions = (projection.committed_position_qty != Decimal::ZERO)
+                .then(|| position(projection.committed_position_qty))
+                .into_iter()
+                .collect();
+            let bound = bound_owning_package(
+                &restart,
+                if timer_ready {
+                    "stage5g-edb-r4-timer-history"
+                } else {
+                    "stage5g-edb-r4-before-ack-history"
+                },
+                if timer_ready {
+                    "stage5g-edb-r4-timer-history-epoch"
+                } else {
+                    "stage5g-edb-r4-before-ack-history-epoch"
+                },
+                OwningTruthRows::complete(
+                    vec![old_filled, old_canceled],
+                    vec![old_trade],
+                    positions,
+                ),
+            );
+            let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+            assert_eq!(
+                evidence.scenario_id,
+                if timer_ready {
+                    Stage5gRestartScenarioId::Grst07RestartAtTimerCheckpoint.frozen_id()
+                } else {
+                    Stage5gRestartScenarioId::Grst01RestartBeforeAck.frozen_id()
+                }
+            );
+            assert_eq!(evidence.ignored_unrelated_terminal_order_count, 2);
+            assert_eq!(evidence.ignored_unrelated_historical_trade_count, 1);
+            assert!(!evidence.candidate_present);
+        }
+    }
+
+    #[test]
+    fn stage5g_edb_r4_no_slot_active_and_unknown_orders_still_block() {
+        for unknown in [false, true] {
+            let restart =
+                crate::stage5g_order_position::tests::stage5g_edb_restored_timer_ready_fixture();
+            let mut blocking = order(OrderStatus::Working, "BLOCKING-R4", Decimal::ZERO);
+            if unknown {
+                blocking.status = OrderStatus::Unknown("broker-pending-r4".to_owned());
+                blocking.lifecycle = BrokerOrderLifecycle::Unknown;
+            }
+            let bound = bound_owning_package(
+                &restart,
+                if unknown {
+                    "stage5g-edb-r4-unknown-history"
+                } else {
+                    "stage5g-edb-r4-active-history"
+                },
+                if unknown {
+                    "stage5g-edb-r4-unknown-history-epoch"
+                } else {
+                    "stage5g-edb-r4-active-history-epoch"
+                },
+                OwningTruthRows::complete(vec![blocking], vec![], vec![]),
+            );
+            let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+            assert_eq!(
+                evidence.reason,
+                if unknown {
+                    Stage5gFreshTruthReductionReason::AccountWideUnknownOrderConflict
+                } else {
+                    Stage5gFreshTruthReductionReason::AccountWideActiveOrderConflict
+                }
+            );
+            assert!(!evidence.candidate_present);
+        }
+    }
+
+    #[test]
+    fn stage5g_edb_r4_owning_grst06_canonicalizes_both_flat_representations() {
+        for (committed_row_present, fresh_row_present) in [(true, false), (false, true)] {
+            let restart =
+                crate::stage5g_order_position::tests::stage5g_edb_restored_terminal_flat_fixture(
+                    committed_row_present,
+                );
+            let projection = restart.fresh_truth_reducer_projection();
+            let slot = projection.slots.first().expect("terminal flat slot");
+            let positions = fresh_row_present
+                .then(|| {
+                    let mut flat = position(Decimal::ZERO);
+                    flat.avg_price = if committed_row_present {
+                        None
+                    } else {
+                        Some(Decimal::new(9_999, 0))
+                    };
+                    flat.unrealized_pnl = Some(Decimal::new(1_234, 2));
+                    flat
+                })
+                .into_iter()
+                .collect();
+            let mut orders: Vec<_> = slot.latest_order.clone().into_iter().collect();
+            let mut old_canceled = order(OrderStatus::Canceled, "OLD-GRST06-R4", Decimal::ZERO);
+            old_canceled.client_order_id =
+                Some(ClientOrderId::new("OLD-C-GRST06-R4").expect("old client"));
+            orders.push(old_canceled);
+            let mut trades = slot.trades.clone();
+            let mut old_trade = trade(Decimal::ONE, "OLD-GRST06-R4");
+            old_trade.broker_trade_id = BrokerTradeId::new("OLD-TRADE-GRST06-R4");
+            old_trade.client_order_id =
+                Some(ClientOrderId::new("OLD-C-GRST06-R4").expect("old client"));
+            trades.push(old_trade);
+            let bound = bound_owning_package(
+                &restart,
+                if committed_row_present {
+                    "stage5g-edb-r4-flat-explicit-to-absent"
+                } else {
+                    "stage5g-edb-r4-flat-absent-to-explicit"
+                },
+                if committed_row_present {
+                    "stage5g-edb-r4-flat-explicit-to-absent-epoch"
+                } else {
+                    "stage5g-edb-r4-flat-absent-to-explicit-epoch"
+                },
+                OwningTruthRows::complete(orders, trades, positions),
+            );
+            let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+            assert_eq!(
+                evidence.scenario_id,
+                Stage5gRestartScenarioId::Grst06RestartAfterTerminalPositionApplied.frozen_id()
+            );
+            assert_eq!(
+                evidence.disposition,
+                disposition_id(
+                    Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint
+                )
+            );
+            assert_eq!(evidence.ignored_unrelated_terminal_order_count, 1);
+            assert_eq!(evidence.ignored_unrelated_historical_trade_count, 1);
+            assert!(!evidence.candidate_present);
+        }
+    }
+
+    #[test]
+    fn stage5g_edb_r4_flat_absence_never_overrides_incomplete_or_nonflat_truth() {
+        let restart =
+            crate::stage5g_order_position::tests::stage5g_edb_restored_terminal_flat_fixture(true);
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("terminal flat slot");
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r4-flat-incomplete",
+            "stage5g-edb-r4-flat-incomplete-epoch",
+            OwningTruthRows {
+                orders_complete: true,
+                trades_complete: true,
+                positions_complete: false,
+                orders: slot.latest_order.clone().into_iter().collect(),
+                trades: slot.trades.clone(),
+                positions: vec![],
+            },
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.reason,
+            Stage5gFreshTruthReductionReason::PositionsTruthIncomplete
+        );
+
+        let restart =
+            crate::stage5g_order_position::tests::stage5g_edb_restored_terminal_flat_fixture(false);
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("terminal flat slot");
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r4-flat-nonzero-conflict",
+            "stage5g-edb-r4-flat-nonzero-conflict-epoch",
+            OwningTruthRows::complete(
+                slot.latest_order.clone().into_iter().collect(),
+                slot.trades.clone(),
+                vec![position(Decimal::ONE)],
+            ),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.reason,
+            Stage5gFreshTruthReductionReason::TerminalContradiction
+        );
+    }
+
+    #[test]
+    fn stage5g_edb_r4_cancel_target_authority_is_action_scoped_and_production_derived() {
+        let restart = crate::stage5g_order_position::tests::
+            stage5g_edb_restored_generated_cancel_escrow_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("cancel slot");
+        assert_eq!(slot.command_client_order_id.as_str(), "C-CANCEL");
+        assert!(slot.target_order_client_order_id.is_none());
+        let authority = slot
+            .cancel_target_order_authority
+            .as_ref()
+            .expect("broker target authority always exists");
+        assert_eq!(
+            authority.target_broker_order_id.as_str(),
+            "CANCEL-TARGET-R2"
+        );
+        assert!(authority.target_order_client_order_id.is_none());
+        assert!(authority.immutable_order_commitment_sha256.is_none());
+        let mut target = discovered_order_for_slot(slot, OrderStatus::Canceled, "ignored");
+        target.client_order_id = Some(ClientOrderId::new("C-PLACE").expect("target client"));
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r4-cancel-unknown-client",
+            "stage5g-edb-r4-cancel-unknown-client-epoch",
+            OwningTruthRows::complete(vec![target], vec![], vec![]),
+        );
+        let reduction = reduce_stage5g_fresh_broker_truth(restart, bound);
+        let candidate = reduction
+            .candidate
+            .as_ref()
+            .expect("broker-only target is accepted");
+        assert_eq!(candidate.command_client_order_id.as_str(), "C-CANCEL");
+        assert!(candidate.target_order_client_order_id.is_none());
+
+        let restart = crate::stage5g_order_position::tests::
+            stage5g_edb_restored_cancel_target_authority_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection
+            .slots
+            .first()
+            .expect("authenticated cancel target slot");
+        assert_eq!(slot.command_client_order_id.as_str(), "C-CANCEL");
+        assert_eq!(
+            slot.target_order_client_order_id
+                .as_ref()
+                .expect("target client authority")
+                .as_str(),
+            "C-PLACE"
+        );
+        assert_ne!(
+            slot.command_client_order_id,
+            slot.target_order_client_order_id.clone().unwrap()
+        );
+        assert!(slot
+            .cancel_target_order_authority
+            .as_ref()
+            .and_then(|authority| authority.immutable_order_commitment_sha256.as_ref())
+            .is_some());
+    }
+
+    #[test]
+    fn stage5g_edb_r4_cancel_target_identity_conflicts_only_against_authenticated_authority() {
+        for wrong_client in [false, true] {
+            let restart = crate::stage5g_order_position::tests::
+                stage5g_edb_restored_cancel_target_authority_fixture();
+            let projection = restart.fresh_truth_reducer_projection();
+            let slot = projection
+                .slots
+                .first()
+                .expect("authenticated cancel target slot");
+            let mut target = slot.latest_order.clone().expect("committed target order");
+            target.status = OrderStatus::Canceled;
+            target.lifecycle = BrokerOrderSnapshot::lifecycle_for(&target.status);
+            if wrong_client {
+                target.client_order_id =
+                    Some(ClientOrderId::new("C-WRONG").expect("wrong target client"));
+            } else {
+                target.broker_order_id = Some(BrokerOrderId::new("B-WRONG"));
+            }
+            let bound = bound_owning_package(
+                &restart,
+                if wrong_client {
+                    "stage5g-edb-r4-cancel-wrong-client"
+                } else {
+                    "stage5g-edb-r4-cancel-wrong-broker"
+                },
+                if wrong_client {
+                    "stage5g-edb-r4-cancel-wrong-client-epoch"
+                } else {
+                    "stage5g-edb-r4-cancel-wrong-broker-epoch"
+                },
+                OwningTruthRows::complete(vec![target], vec![], vec![]),
+            );
+            let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+            assert_eq!(
+                evidence.reason,
+                Stage5gFreshTruthReductionReason::TargetOrderIdentityConflict
+            );
+            assert!(!evidence.candidate_present);
+        }
+    }
+
+    #[test]
+    fn stage5g_edb_r4_immutable_target_order_payload_cannot_drift() {
+        for drift in 0..5 {
+            let restart = crate::stage5g_order_position::tests::
+                stage5g_edb_restored_cancel_target_authority_fixture();
+            let projection = restart.fresh_truth_reducer_projection();
+            let slot = projection
+                .slots
+                .first()
+                .expect("authenticated cancel target slot");
+            let mut target = slot.latest_order.clone().expect("committed target order");
+            target.status = OrderStatus::Canceled;
+            target.lifecycle = BrokerOrderSnapshot::lifecycle_for(&target.status);
+            match drift {
+                0 => target.side = OrderSide::Sell,
+                1 => {
+                    target.qty += Decimal::ONE;
+                    target.remaining_qty = Some(target.qty - target.filled_qty);
+                }
+                2 => {
+                    target.order_type = OrderType::Market;
+                    target.limit_price = None;
+                }
+                3 => target.time_in_force = Some(TimeInForce::ImmediateOrCancel),
+                4 => target.limit_price = Some(Decimal::new(2_209, 0)),
+                _ => unreachable!(),
+            }
+            let bound = bound_owning_package(
+                &restart,
+                &format!("stage5g-edb-r4-immutable-drift-{drift}"),
+                &format!("stage5g-edb-r4-immutable-drift-{drift}-epoch"),
+                OwningTruthRows::complete(vec![target], vec![], vec![]),
+            );
+            let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+            assert_eq!(
+                evidence.reason,
+                Stage5gFreshTruthReductionReason::TerminalContradiction
+            );
+            assert!(!evidence.candidate_present);
+        }
+
+        let restart = crate::stage5g_order_position::tests::
+            stage5g_edb_restored_cancel_target_authority_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection
+            .slots
+            .first()
+            .expect("authenticated cancel target slot");
+        let mut target = slot.latest_order.clone().expect("committed target order");
+        target.status = OrderStatus::Canceled;
+        target.lifecycle = BrokerOrderSnapshot::lifecycle_for(&target.status);
+        target.received_ts += chrono::Duration::seconds(1);
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r4-immutable-terminal-advance",
+            "stage5g-edb-r4-immutable-terminal-advance-epoch",
+            OwningTruthRows::complete(vec![target], vec![], vec![]),
+        );
+        assert!(
+            reduce_stage5g_fresh_broker_truth(restart, bound)
+                .evidence()
+                .candidate_present
+        );
+    }
+
+    #[test]
+    fn stage5g_edb_r4_place_market_tif_is_immutable() {
+        let mut committed = order(OrderStatus::Working, "MARKET-TIF-R4", Decimal::ZERO);
+        committed.time_in_force = None;
+        let mut fresh = committed.clone();
+        fresh.time_in_force = Some(TimeInForce::ImmediateOrCancel);
+        assert!(!stage5g_immutable_order_payload_matches(&committed, &fresh));
     }
 
     #[test]

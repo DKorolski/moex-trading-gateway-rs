@@ -1,6 +1,6 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R6 accepted boundary and e-d-b R3 reducer
+## e-d-a R6 accepted boundary and e-d-b R4 reducer
 
 Stage 5G-e-d-a was independently accepted at
 `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. Its validated package is
@@ -14,7 +14,11 @@ were incomplete. R1 at `b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b`
 remained rejected on restart authority and parity findings. R2 at
 `c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4` closed those findings but was
 rejected on LIMIT price authority, cancel correlation, historical-row
-partitioning and semantic refresh. e-d-b R3 is its one direct repair successor. It consumes the
+partitioning and semantic refresh. R3 at
+`f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28` closed those findings but was
+rejected on global no-slot history, canonical flat semantics, cancel target
+authority provenance and immutable target-order payload monotonicity. e-d-b R4
+is its one direct repair successor. It consumes the
 accepted clean-restart capability and a non-serializable restart-bound package,
 classifies one frozen GRST case, and may construct one opaque in-memory
 candidate. The reducer retains both owning authorities in its linear result. It
@@ -28,7 +32,7 @@ second order/position domain model.
 ## Freshness and identity
 
 Validation requires all of the following before a later reducer may inspect the
-package. The R3 chronology is exact:
+package. The R4 chronology is exact:
 
 ```text
 clean_restore_completed_at < section_observed_at <= captured_at
@@ -63,7 +67,7 @@ and optional venue symbol. Zero generations and malformed lowercase-hex SHA-256
 values are rejected.
 
 Package validation consumes a separate linear reviewed deployment/config
-capability. R3 intentionally has no production raw-DTO issuer for it; the only
+capability. R4 intentionally has no production raw-DTO issuer for it; the only
 issuer is test-only. This prevents the broker package from supplying both the
 actual and expected identity. Production config issuance remains closed for a
 separately reviewed integration step.
@@ -92,11 +96,21 @@ Before target filtering, the full account order set is checked with the same
 shared guard as accepted Stage 5G order/position logic. Non-owned active or
 unknown rows and ambiguous/conflicting owned rows block. Unrelated terminal
 orders and unrelated trades are ignored as historical rows and counted in
-redacted evidence. MARKET/CANCEL source action is retained and checked; source
+redacted evidence. This partition is global and occurs before no-slot
+GRST01/GRST07 decisions; the counters are reduction-level evidence and remain
+present without a candidate. MARKET/CANCEL source action is retained and checked; source
 LIMIT is fail closed until canonical Decimal/tick price authority exists.
-Cancel command identity is distinct from target-order identity. Source/fresh order and trade facts may only advance
+Cancel command identity is distinct from action-scoped target-order authority,
+which can be derived only from accepted target-order evidence. Source/fresh
+order and trade facts may only advance
 monotonically. Source runtime quantities are accepted only for finite integral
 lots until the source model migrates from `f64` to canonical `Decimal`.
+
+Complete empty target positions and complete explicit zero rows canonicalize to
+the same flat observation; volatile flat average price and PnL do not affect
+equality. Incomplete positions never infer flat. Before lifecycle progress is
+considered, source and fresh orders must match on the complete immutable order
+payload (identity, side/type/TIF, quantity/price and native instrument fields).
 
 Order rows preserve canonical lifecycle rules: status and lifecycle must agree,
 remaining quantity must be explicit and exact, `Filled` requires a complete
@@ -135,7 +149,7 @@ The typed disposition vocabulary is frozen in e-d-a:
 - `ManualInterventionRequired`;
 - `TerminalInconsistency`.
 
-The e-d-b R3 reducer returns exactly one of these dispositions with a closed typed
+The e-d-b R4 reducer returns exactly one of these dispositions with a closed typed
 reason. GRST01–12 execute once in frozen order in focused debug/release tests.
 Replay hints are semantic no-ops, incomplete truth never means broker absence,
 and contradiction never produces a candidate. Restart slots preserve typed
@@ -160,7 +174,7 @@ a production anchor, focused Rust witness and named negative mutation.
 
 ## Next slices
 
-1. e-d-b R3: consume the accepted clean-restart capability and restart-bound
+1. e-d-b R4: consume the accepted clean-restart capability and restart-bound
    validated fresh package in a deterministic, mutation-safe reducer; execute
    GRST01–12 through pure and owning-boundary fixtures.
 2. e-d-c: deterministic export/restart/reconcile/re-export evidence, negative
@@ -173,8 +187,8 @@ broker dispatch, runtime-live and real orders remain closed.
 
 The accepted predecessor gate is `bash scripts/stage5g_eda_r6_gate.sh` from a
 detached worktree at exact `4ece2c7...`. The rejected e-d-b R2 repair base is
-`c5f84bb...`. The current-head e-d-b R3 gate is
-`bash scripts/stage5g_edb_r3_gate.sh`.
+`c5f84bb...`; rejected R3 is `f9bc372...`. The current-head e-d-b R4 gate is
+`bash scripts/stage5g_edb_r4_gate.sh`.
 
 The R6 checker is the controlling strict current-HEAD superset. It freezes the
 complete accepted R5 project tree outside the exact ten-file R6 allowlist,
@@ -199,7 +213,8 @@ The R6 checker also binds the exact ordered current gate command inventory and
 the immutable handoff builder hash. For lineage evidence the R6 gate runs the
 complete R5 gate from detached
 `c84ee07c2700f04b5c070eab713598777d5195b6`; that gate runs detached R4,
-R3, R2, R1, `f44b154` and accepted `b9db879` predecessors. Detached gates prove
+R4 runs detached R3, which retains R2, R1, `f44b154` and accepted `b9db879`
+predecessors. Detached gates prove
 provenance in addition to, never instead of, the accepted R6 boundary and
 current-head e-d-b invariants.
 

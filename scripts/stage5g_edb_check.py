@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Current-head contract and closed-surface checker for Stage 5G-e-d-b R3."""
+"""Current-head contract and closed-surface checker for Stage 5G-e-d-b R4."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 
-BASE_REF = "c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4"
+BASE_REF = "f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28"
 ACCEPTED_R6_REF = "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47"
 CONTRACT = Path("docs/stage-5/stage5g-e-d-b-reducer-contract.json")
 MAIN_CONTRACT = Path("docs/stage-5/stage5g-e-d-fresh-broker-truth-reconciliation.json")
@@ -85,7 +85,6 @@ CLOSED_SURFACES = {
     "stage6": False,
 }
 EXPECTED_DELTA = [
-    ("M", "crates/strategy-runtime-core/src/stage5g_clean_restart.rs"),
     ("M", "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs"),
     ("M", "crates/strategy-runtime-core/src/stage5g_order_position.rs"),
     ("M", "docs/current-status.md"),
@@ -99,17 +98,52 @@ EXPECTED_DELTA = [
     ("M", "scripts/stage5g_edb_gate.sh"),
     ("M", "scripts/stage5g_edb_negative_harness.py"),
     ("M", "scripts/stage5g_edb_preseal_check.py"),
-    ("A", "scripts/stage5g_edb_r3_gate.sh"),
+    ("A", "scripts/stage5g_edb_r4_gate.sh"),
 ]
 
+R4_POLICY = {
+    "global_history_partition_before_grst01_grst07": True,
+    "no_slot_terminal_orders_are_historical": True,
+    "no_slot_trades_are_historical_after_exact_position": True,
+    "history_counts_exist_without_candidate": True,
+    "complete_empty_and_explicit_zero_are_flat": True,
+    "flat_ignores_avg_price_and_unrealized_pnl": True,
+    "cancel_target_client_never_comes_from_command_identity": True,
+    "cancel_target_authority_is_action_scoped": True,
+    "immutable_target_order_payload_required": True,
+    "minimum_negative_mutation_count": 225,
+}
+SEMANTIC_COMPARATOR_CONTRACT = {
+    "terminal_order_fields": [
+        "account_id", "instrument", "broker_order_id", "client_order_id", "side",
+        "order_type", "time_in_force", "qty", "limit_price", "broker_asset_id",
+        "board", "expiration_date", "status", "lifecycle", "filled_qty", "remaining_qty",
+    ],
+    "non_terminal_immutable_order_fields": [
+        "account_id", "instrument", "broker_order_id", "client_order_id", "side",
+        "order_type", "time_in_force", "qty", "limit_price", "broker_asset_id",
+        "board", "expiration_date",
+    ],
+    "position_fields": ["account_id", "instrument", "qty", "avg_price_non_flat_only"],
+    "trade_immutable_fields": [
+        "account_id", "broker_trade_id", "broker_order_id", "client_order_id",
+        "instrument", "side", "qty", "price", "gross_amount", "commission",
+        "broker_asset_id", "board", "expiration_date", "source_ts",
+    ],
+    "excluded_observation_fields": [
+        "order.source_ts", "order.received_ts", "position.source_ts",
+        "position.received_ts", "position.unrealized_pnl", "trade.received_ts",
+    ],
+}
+
 OWNING_SCENARIO_WITNESSES = [
-    ("GRST01_RESTART_BEFORE_ACK", "stage5g_edb_r1_owning_remaining_grst_paths_are_fail_closed_or_noop", "Grst01RestartBeforeAck"),
+    ("GRST01_RESTART_BEFORE_ACK", "stage5g_edb_r4_owning_grst01_and_grst07_ignore_complete_harmless_history", "Grst01RestartBeforeAck"),
     ("GRST02_RESTART_AFTER_ACK_BEFORE_ORDER", "stage5g_edb_r1_owning_remaining_grst_paths_are_fail_closed_or_noop", "Grst02RestartAfterAckBeforeOrder"),
     ("GRST03_RESTART_WITH_WORKING_ORDER", "stage5g_edb_r3_owning_grst03_runs_full_authenticated_path", "Grst03RestartWithWorkingOrder"),
     ("GRST04_RESTART_AFTER_PARTIAL_FILL", "stage5g_edb_r1_owning_awaiting_runs_export_decode_restore_validate_bind_reduce", "Grst04RestartAfterPartialFill"),
     ("GRST05_RESTART_FILLED_BEFORE_POSITION", "stage5g_edb_r1_owning_status_paths_cover_working_filled_terminal_and_missing", "Grst05RestartFilledBeforePosition"),
-    ("GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED", "stage5g_edb_r1_owning_remaining_grst_paths_are_fail_closed_or_noop", "Grst06RestartAfterTerminalPositionApplied"),
-    ("GRST07_RESTART_AT_TIMER_CHECKPOINT", "stage5g_edb_r1_owning_timer_ready_runs_export_decode_restore_validate_bind_reduce", "Grst07RestartAtTimerCheckpoint"),
+    ("GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED", "stage5g_edb_r4_owning_grst06_canonicalizes_both_flat_representations", "Grst06RestartAfterTerminalPositionApplied"),
+    ("GRST07_RESTART_AT_TIMER_CHECKPOINT", "stage5g_edb_r4_owning_grst01_and_grst07_ignore_complete_harmless_history", "Grst07RestartAtTimerCheckpoint"),
     ("GRST08_RESTART_WITH_GENERATED_INTENT_ESCROW", "stage5g_edb_r1_owning_generated_intent_escrow_is_retained", "Grst08RestartWithGeneratedIntentEscrow"),
     ("GRST09_EXACT_REPLAY_IS_IDEMPOTENT", "stage5g_edb_r1_owning_exact_current_and_historical_replay_are_noops", "Grst09ExactReplayIsIdempotent"),
     ("GRST10_CONFLICTING_REPLAY_BLOCKS", "stage5g_edb_r1_owning_remaining_grst_paths_are_fail_closed_or_noop", "Grst10ConflictingReplayBlocks"),
@@ -143,6 +177,12 @@ def enum_variants(source: str, name: str) -> list[str]:
     return re.findall(r"(?m)^\s{4}([A-Z][A-Za-z0-9_]*)\s*,\s*$", match.group(1))
 
 
+def struct_fields(source: str, name: str) -> list[str]:
+    match = re.search(rf"struct\s+{re.escape(name)}\s*\{{(.*?)\n\}}", source, re.S)
+    require(match is not None, f"struct {name} missing")
+    return re.findall(r"(?m)^\s{4}(?:pub\(crate\)\s+)?([a-z][a-z0-9_]*)\s*:", match.group(1))
+
+
 def strip_comments(source: str) -> str:
     source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
     return re.sub(r"//[^\n]*", "", source)
@@ -171,18 +211,18 @@ def check(root: Path, check_git: bool) -> None:
         Path("scripts/make_stage5g_ed_handoff_archive.py"),
         Path("scripts/stage5g_edb_gate.sh"), Path("scripts/stage5g_edb_negative_harness.py"),
         Path("scripts/stage5g_edb_preseal_check.py"),
-        Path("scripts/stage5g_edb_r3_gate.sh"),
+        Path("scripts/stage5g_edb_r3_gate.sh"), Path("scripts/stage5g_edb_r4_gate.sh"),
     ]:
         require((root / relative).is_file() and not (root / relative).is_symlink(),
                 f"required regular file missing: {relative}")
 
     if check_git:
         require(subprocess.check_output(["git", "rev-parse", "HEAD^"], cwd=root, text=True).strip() == BASE_REF,
-                "HEAD must be one direct successor to rejected e-d-b R2")
+                "HEAD must be one direct successor to rejected e-d-b R3")
         require(exact_git_delta(root) == EXPECTED_DELTA, "exact e-d-b changed-path allowlist drifted")
 
     contract = load_json(root, CONTRACT)
-    require(contract.get("stage") == "5G-e-d-b-r3", "contract stage drifted")
+    require(contract.get("stage") == "5G-e-d-b-r4", "contract stage drifted")
     require(contract.get("accepted_base") == BASE_REF, "accepted base drifted")
     require(contract.get("owning_entry_point") == "reduce_stage5g_fresh_broker_truth",
             "owning reducer entry drifted")
@@ -214,9 +254,14 @@ def check(root: Path, check_git: bool) -> None:
         "owning_grst_witness_count": 12,
         "minimum_negative_mutation_count": 195,
     }, "R3 policy contract drifted")
+    require(contract.get("r4_policy") == R4_POLICY, "R4 policy contract drifted")
+    require(contract.get("semantic_comparator_contract") == SEMANTIC_COMPARATOR_CONTRACT,
+            "semantic comparator contract drifted")
 
     main = load_json(root, MAIN_CONTRACT)
-    require(main.get("stage") == "5G-e-d-b-r3", "main contract stage drifted")
+    require(main.get("stage") == "5G-e-d-b-r4", "main contract stage drifted")
+    require(main.get("rejected_stage5g_e_d_b_r3_commit") == BASE_REF,
+            "main contract rejected R3 binding drifted")
     require(main.get("accepted_stage5g_e_d_a_r6_commit") == ACCEPTED_R6_REF,
             "main contract R6 binding drifted")
     require(main.get("implemented_restart_case_ids") == SCENARIOS,
@@ -225,6 +270,15 @@ def check(root: Path, check_git: bool) -> None:
             "next slice drifted")
     require(main.get("closed_surfaces", {}).get("reconciliation_reducer") is True,
             "main contract does not open only reducer")
+    for key in [
+        "global_history_partition_before_no_slot_decisions_required",
+        "canonical_flat_position_required",
+        "action_scoped_cancel_target_authority_required",
+        "immutable_target_order_monotonicity_required",
+        "reduction_level_history_evidence_required",
+    ]:
+        require(main.get("contract", {}).get(key) is True,
+                f"main R4 contract property drifted: {key}")
     for key, expected in CLOSED_SURFACES.items():
         if key in main.get("closed_surfaces", {}):
             require(main["closed_surfaces"][key] is expected, f"main closed surface drifted: {key}")
@@ -242,6 +296,16 @@ def check(root: Path, check_git: bool) -> None:
             == ORDER_CORRELATIONS, "order correlation partition drifted")
     require(enum_variants(order_position, "Stage5gTradeOrderLinkage")
             == TRADE_LINKAGES, "trade linkage partition drifted")
+    require(struct_fields(order_position, "Stage5gCanonicalImmutableOrderPayloadV1") == [
+        "schema_version", "domain", "account_id", "broker_order_id", "client_order_id",
+        "instrument", "side", "order_type", "time_in_force", "qty", "limit_price",
+        "broker_asset_id", "board", "expiration_date",
+    ], "immutable order comparator source fields drifted")
+    require(struct_fields(order_position, "Stage5gCanonicalImmutableTradePayloadV1") == [
+        "schema_version", "domain", "account_id", "broker_trade_id", "broker_order_id",
+        "client_order_id", "instrument", "side", "qty", "price", "gross_amount",
+        "commission", "broker_asset_id", "board", "expiration_date", "source_ts",
+    ], "immutable trade comparator source fields drifted")
     require("_restart: Stage5gCleanRestartedCapability" in reducer
             and "_truth: Stage5gRestartBoundFreshBrokerTruthPackage" in reducer,
             "linear input ownership retention drifted")
@@ -295,6 +359,14 @@ def check(root: Path, check_git: bool) -> None:
         "for committed in &slot.trades",
         "&& progress == Stage5gSourceFreshProgress::ExactCommittedTerminal",
         "!restart.committed_position_numeric_authority_is_integral",
+        "stage5g_global_history_partition(",
+        "stage5g_canonical_position_observation(",
+        ".with_history_counts(",
+        "stage5g_immutable_order_payload_matches(committed_order, fresh_order)",
+        "immutable_target_order_monotonicity_proven",
+        "global_account_history_partition_proven",
+        "canonical_position_semantics_proven",
+        "cancel_target_order_authority",
     ]:
         require(marker in reducer, f"reducer invariant anchor missing: {marker}")
     for marker, minimum in [
@@ -339,6 +411,10 @@ def check(root: Path, check_git: bool) -> None:
         "pub(crate) fn stage5g_order_matches_source_action(",
         "pub(crate) fn stage5g_integral_lot_decimal(",
         "pre_position_qty + signed_fill",
+        "pub(crate) struct Stage5gCancelTargetOrderAuthority",
+        "pub(crate) cancel_target_order_authority: Option<Stage5gCancelTargetOrderAuthority>",
+        "pub(crate) fn stage5g_immutable_order_payload_matches(",
+        "pub(crate) fn stage5g_immutable_order_payload_commitment_sha256(",
     ]:
         require(marker in order_position, f"canonical slot/linkage anchor missing: {marker}")
     require(order_position.count("pre_position_qty + signed_fill") >= 2,
@@ -427,6 +503,14 @@ def check(root: Path, check_git: bool) -> None:
         "stage5g_edb_r3_semantic_comparators_ignore_only_reviewed_volatile_fields",
         "stage5g_edb_r3_owning_grst03_runs_full_authenticated_path",
         "stage5g_edb_r3_working_order_requires_complete_pre_position_truth",
+        "stage5g_edb_r4_owning_grst01_and_grst07_ignore_complete_harmless_history",
+        "stage5g_edb_r4_no_slot_active_and_unknown_orders_still_block",
+        "stage5g_edb_r4_owning_grst06_canonicalizes_both_flat_representations",
+        "stage5g_edb_r4_flat_absence_never_overrides_incomplete_or_nonflat_truth",
+        "stage5g_edb_r4_cancel_target_authority_is_action_scoped_and_production_derived",
+        "stage5g_edb_r4_cancel_target_identity_conflicts_only_against_authenticated_authority",
+        "stage5g_edb_r4_immutable_target_order_payload_cannot_drift",
+        "stage5g_edb_r4_place_market_tif_is_immutable",
     ]:
         require(tests.count(f"fn {witness}()") == 1, f"focused witness drifted: {witness}")
 
@@ -443,6 +527,7 @@ def check(root: Path, check_git: bool) -> None:
     for relative in [DESIGN, REDUCER_DOC, STATUS, ONBOARDING]:
         text = (root / relative).read_text()
         require("c5f84bb" in text, f"rejected e-d-b R2 reference missing: {relative}")
+        require("f9bc372" in text, f"rejected e-d-b R3 reference missing: {relative}")
         require("4ece2c7" in text, f"accepted R6 reference missing: {relative}")
         require("Stage 5G-e-d-c" in text or "e-d-c" in text,
                 f"next closed e-d-c boundary missing: {relative}")

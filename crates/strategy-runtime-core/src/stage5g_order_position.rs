@@ -39,6 +39,8 @@ const STAGE5G_EVIDENCE_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
 const STAGE5G_BROKER_TRUTH_PACKAGE_IDENTITY_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_IMMUTABLE_TRADE_PAYLOAD_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_IMMUTABLE_TRADE_PAYLOAD_DOMAIN: &str = "moex.stage5g.immutable-trade-payload.v1";
+const STAGE5G_IMMUTABLE_ORDER_PAYLOAD_SCHEMA_VERSION: u16 = 1;
+const STAGE5G_IMMUTABLE_ORDER_PAYLOAD_DOMAIN: &str = "moex.stage5g.immutable-order-payload.v1";
 const STAGE5G_CANONICAL_DECIMAL_SCHEMA_VERSION: u16 = 1;
 const STAGE5G_CANONICAL_DECIMAL_DOMAIN: &str = "moex.stage5g.exact-decimal.v1";
 
@@ -92,6 +94,27 @@ struct Stage5gCanonicalImmutableTradePayloadV1 {
     board: Option<String>,
     expiration_date: Option<chrono::NaiveDate>,
     source_ts: DateTime<Utc>,
+}
+
+/// Exact immutable broker-order payload. Lifecycle/status/fill progress and
+/// observation timestamps are deliberately excluded; every field below must
+/// remain stable while one broker order advances.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct Stage5gCanonicalImmutableOrderPayloadV1 {
+    schema_version: u16,
+    domain: &'static str,
+    account_id: BrokerAccountId,
+    broker_order_id: Option<BrokerOrderId>,
+    client_order_id: Option<ClientOrderId>,
+    instrument: InstrumentId,
+    side: OrderSide,
+    order_type: OrderType,
+    time_in_force: Option<broker_core::TimeInForce>,
+    qty: Stage5gCanonicalDecimalV1,
+    limit_price: Option<Stage5gCanonicalDecimalV1>,
+    broker_asset_id: Option<String>,
+    board: Option<String>,
+    expiration_date: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,6 +313,7 @@ pub(crate) struct Stage5gFreshTruthRestartSlotProjection {
     pub(crate) command_client_order_id: ClientOrderId,
     pub(crate) target_broker_order_id: Option<BrokerOrderId>,
     pub(crate) target_order_client_order_id: Option<ClientOrderId>,
+    pub(crate) cancel_target_order_authority: Option<Stage5gCancelTargetOrderAuthority>,
     pub(crate) intent_class: Stage5gRestartIntentClass,
     pub(crate) source_action: Stage5gMockIntentAction,
     pub(crate) side: Option<OrderSide>,
@@ -301,6 +325,16 @@ pub(crate) struct Stage5gFreshTruthRestartSlotProjection {
     pub(crate) trades: Vec<BrokerTradeSnapshot>,
     pub(crate) position: Option<BrokerPositionSnapshot>,
     pub(crate) terminal: bool,
+}
+
+/// Narrow, immutable authority for a Cancel target. The command identity is
+/// intentionally absent. Optional client/payload authority exists only after
+/// a separately owned target-order observation has been accepted.
+#[derive(Clone, Serialize)]
+pub(crate) struct Stage5gCancelTargetOrderAuthority {
+    pub(crate) target_broker_order_id: BrokerOrderId,
+    pub(crate) target_order_client_order_id: Option<ClientOrderId>,
+    pub(crate) immutable_order_commitment_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -773,6 +807,42 @@ fn canonical_immutable_trade_payload_v1(
     }
 }
 
+fn canonical_immutable_order_payload_v1(
+    order: &BrokerOrderSnapshot,
+) -> Stage5gCanonicalImmutableOrderPayloadV1 {
+    Stage5gCanonicalImmutableOrderPayloadV1 {
+        schema_version: STAGE5G_IMMUTABLE_ORDER_PAYLOAD_SCHEMA_VERSION,
+        domain: STAGE5G_IMMUTABLE_ORDER_PAYLOAD_DOMAIN,
+        account_id: order.account_id.clone(),
+        broker_order_id: order.broker_order_id.clone(),
+        client_order_id: order.client_order_id.clone(),
+        instrument: order.instrument.clone(),
+        side: order.side,
+        order_type: order.order_type,
+        time_in_force: order.time_in_force,
+        qty: canonical_decimal_v1(order.qty),
+        limit_price: order.limit_price.map(canonical_decimal_v1),
+        broker_asset_id: order.broker_asset_id.clone(),
+        board: order.board.clone(),
+        expiration_date: order.expiration_date,
+    }
+}
+
+pub(crate) fn stage5g_immutable_order_payload_matches(
+    left: &BrokerOrderSnapshot,
+    right: &BrokerOrderSnapshot,
+) -> bool {
+    canonical_immutable_order_payload_v1(left) == canonical_immutable_order_payload_v1(right)
+}
+
+pub(crate) fn stage5g_immutable_order_payload_commitment_sha256(
+    order: &BrokerOrderSnapshot,
+) -> String {
+    let bytes = serde_json::to_vec(&canonical_immutable_order_payload_v1(order))
+        .expect("immutable broker-order payload serializes");
+    format!("{:x}", Sha256::digest(bytes))
+}
+
 fn immutable_trade_payload_matches(
     left: &BrokerTradeSnapshot,
     right: &BrokerTradeSnapshot,
@@ -854,19 +924,8 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
         ));
     }
     let safety_slot = &session.state.slots[slot_index];
-    let (target_client_order_id, target_broker_order_id) = match &safety_slot.ack.action {
-        Stage5gMockIntentAction::Place { .. } => (
-            Some(&safety_slot.ack.expected_client_order_id),
-            safety_slot.broker_order_id.as_ref(),
-        ),
-        Stage5gMockIntentAction::Cancel { target_order_id } => (
-            safety_slot
-                .order_events
-                .last()
-                .and_then(|event| event.order.client_order_id.as_ref()),
-            Some(target_order_id),
-        ),
-    };
+    let target_client_order_id = slot_target_order_client_id(safety_slot);
+    let target_broker_order_id = slot_target_broker_order_id(safety_slot);
     match stage5g_account_wide_order_safety(
         &evidence.broker_truth.orders,
         target_client_order_id,
@@ -1083,8 +1142,8 @@ fn validate_snapshot_chronology(
     if last_broker_truth_received_at.is_some_and(|last| snapshot_ts < last) {
         return Err(Stage5gOrderPositionError::BrokerTruthTimeRegression);
     }
-    let target_order_id = slot.broker_order_id.as_ref();
-    let target_client_order_id = &slot.ack.expected_client_order_id;
+    let target_order_id = slot_target_broker_order_id(slot).cloned();
+    let target_client_order_id = slot_target_order_client_id(slot).cloned();
     let correlated_orders: Vec<_> = evidence
         .broker_truth
         .orders
@@ -1092,8 +1151,10 @@ fn validate_snapshot_chronology(
         .filter(|order| {
             order.account_id == evidence.broker_truth.account_id
                 && instrument_identity_matches(&order.instrument, instrument)
-                && (order.broker_order_id.as_ref() == target_order_id
-                    || order.client_order_id.as_ref() == Some(target_client_order_id))
+                && (order.broker_order_id.as_ref() == target_order_id.as_ref()
+                    || target_client_order_id
+                        .as_ref()
+                        .is_some_and(|expected| order.client_order_id.as_ref() == Some(expected)))
         })
         .collect();
     for order in &correlated_orders {
@@ -1158,8 +1219,10 @@ fn validate_snapshot_chronology(
         .filter(|trade| {
             trade.account_id == evidence.broker_truth.account_id
                 && instrument_identity_matches(&trade.instrument, instrument)
-                && (trade.broker_order_id.as_ref() == target_order_id
-                    || trade.client_order_id.as_ref() == Some(target_client_order_id))
+                && (trade.broker_order_id.as_ref() == target_order_id.as_ref()
+                    || target_client_order_id
+                        .as_ref()
+                        .is_some_and(|expected| trade.client_order_id.as_ref() == Some(expected)))
         })
         .collect();
     for trade in &correlated_trades {
@@ -1434,14 +1497,38 @@ fn apply_to_slot_candidate(
     Ok(())
 }
 
+fn slot_target_broker_order_id(slot: &Stage5gOrderPositionSlot) -> Option<&BrokerOrderId> {
+    match &slot.ack.action {
+        Stage5gMockIntentAction::Place { .. } => slot.broker_order_id.as_ref(),
+        Stage5gMockIntentAction::Cancel { target_order_id } => Some(target_order_id),
+    }
+}
+
+fn slot_authenticated_target_order(
+    slot: &Stage5gOrderPositionSlot,
+) -> Option<&BrokerOrderSnapshot> {
+    let target_broker_order_id = slot_target_broker_order_id(slot)?;
+    slot.order_events.iter().rev().find_map(|event| {
+        (event.order.broker_order_id.as_ref() == Some(target_broker_order_id))
+            .then_some(&event.order)
+    })
+}
+
+fn slot_target_order_client_id(slot: &Stage5gOrderPositionSlot) -> Option<&ClientOrderId> {
+    match &slot.ack.action {
+        Stage5gMockIntentAction::Place { .. } => Some(&slot.ack.expected_client_order_id),
+        Stage5gMockIntentAction::Cancel { .. } => slot_authenticated_target_order(slot)
+            .and_then(|order| order.client_order_id.as_ref())
+            .filter(|client_order_id| *client_order_id != &slot.ack.expected_client_order_id),
+    }
+}
+
 fn select_target_order(
     slot: &Stage5gOrderPositionSlot,
     truth: &BrokerTruthSnapshot,
 ) -> Result<BrokerOrderSnapshot, Stage5gOrderPositionError> {
-    let expected = slot
-        .broker_order_id
-        .as_ref()
-        .ok_or(Stage5gOrderPositionError::MissingTargetOrder)?;
+    let expected =
+        slot_target_broker_order_id(slot).ok_or(Stage5gOrderPositionError::MissingTargetOrder)?;
     let matches: Vec<_> = truth
         .orders
         .iter()
@@ -1459,12 +1546,16 @@ fn select_optional_target_order(
     slot: &Stage5gOrderPositionSlot,
     truth: &BrokerTruthSnapshot,
 ) -> Result<Option<BrokerOrderSnapshot>, Stage5gOrderPositionError> {
+    let target_broker_order_id = slot_target_broker_order_id(slot);
+    let target_client_order_id = slot_target_order_client_id(slot);
     let matches: Vec<_> = truth
         .orders
         .iter()
         .filter(|order| {
-            order.broker_order_id.as_ref() == slot.broker_order_id.as_ref()
-                || order.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+            target_broker_order_id
+                .is_some_and(|expected| order.broker_order_id.as_ref() == Some(expected))
+                || target_client_order_id
+                    .is_some_and(|expected| order.client_order_id.as_ref() == Some(expected))
         })
         .cloned()
         .collect();
@@ -1479,11 +1570,13 @@ fn has_target_correlated_order(
     slot: &Stage5gOrderPositionSlot,
     truth: &BrokerTruthSnapshot,
 ) -> bool {
+    let target_broker_order_id = slot_target_broker_order_id(slot);
+    let target_client_order_id = slot_target_order_client_id(slot);
     truth.orders.iter().any(|order| {
-        slot.broker_order_id
-            .as_ref()
+        target_broker_order_id
             .is_some_and(|expected| order.broker_order_id.as_ref() == Some(expected))
-            || order.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+            || target_client_order_id
+                .is_some_and(|expected| order.client_order_id.as_ref() == Some(expected))
     })
 }
 
@@ -1491,11 +1584,13 @@ fn has_target_correlated_trade(
     slot: &Stage5gOrderPositionSlot,
     truth: &BrokerTruthSnapshot,
 ) -> bool {
+    let target_broker_order_id = slot_target_broker_order_id(slot);
+    let target_client_order_id = slot_target_order_client_id(slot);
     truth.trades.iter().any(|trade| {
-        slot.broker_order_id
-            .as_ref()
+        target_broker_order_id
             .is_some_and(|expected| trade.broker_order_id.as_ref() == Some(expected))
-            || trade.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+            || target_client_order_id
+                .is_some_and(|expected| trade.client_order_id.as_ref() == Some(expected))
     })
 }
 
@@ -1599,23 +1694,34 @@ fn validate_order(
     if !instrument_identity_matches(&order.instrument, instrument) {
         return Err(Stage5gOrderPositionError::InstrumentMismatch);
     }
-    if order.broker_order_id != slot.broker_order_id {
+    if order.broker_order_id.as_ref() != slot_target_broker_order_id(slot) {
         return Err(Stage5gOrderPositionError::BrokerOrderIdMismatch);
     }
-    if order.client_order_id.as_ref() != Some(&slot.ack.expected_client_order_id) {
-        return Err(Stage5gOrderPositionError::ClientOrderIdMismatch);
-    }
-    let expected_side = slot
-        .ack
-        .side
-        .as_deref()
-        .and_then(parse_side)
-        .ok_or(Stage5gOrderPositionError::OrderSideMismatch)?;
-    if order.side != expected_side {
-        return Err(Stage5gOrderPositionError::OrderSideMismatch);
-    }
-    if !stage5g_order_matches_source_action(&slot.ack.action, order) {
-        return Err(Stage5gOrderPositionError::OrderTypeMismatch);
+    match &slot.ack.action {
+        Stage5gMockIntentAction::Place { .. } => {
+            if order.client_order_id.as_ref() != Some(&slot.ack.expected_client_order_id) {
+                return Err(Stage5gOrderPositionError::ClientOrderIdMismatch);
+            }
+            let expected_side = slot
+                .ack
+                .side
+                .as_deref()
+                .and_then(parse_side)
+                .ok_or(Stage5gOrderPositionError::OrderSideMismatch)?;
+            if order.side != expected_side {
+                return Err(Stage5gOrderPositionError::OrderSideMismatch);
+            }
+            if !stage5g_order_matches_source_action(&slot.ack.action, order) {
+                return Err(Stage5gOrderPositionError::OrderTypeMismatch);
+            }
+        }
+        Stage5gMockIntentAction::Cancel { .. } => {
+            if slot_target_order_client_id(slot)
+                .is_some_and(|expected| order.client_order_id.as_ref() != Some(expected))
+            {
+                return Err(Stage5gOrderPositionError::ClientOrderIdMismatch);
+            }
+        }
     }
     match order.order_type {
         OrderType::Market if order.limit_price.is_some() => {
@@ -1646,15 +1752,20 @@ fn validate_order(
     {
         return Err(Stage5gOrderPositionError::InvalidOrderQuantity);
     }
-    let source_qty = slot
-        .source
-        .target_qty
-        .and_then(Decimal::from_f64_retain)
-        .ok_or(Stage5gOrderPositionError::SourceOrderMismatch)?;
-    if order.qty != source_qty || order.filled_qty > source_qty {
-        return Err(Stage5gOrderPositionError::SourceOrderMismatch);
+    if matches!(slot.ack.action, Stage5gMockIntentAction::Place { .. }) {
+        let source_qty = slot
+            .source
+            .target_qty
+            .and_then(Decimal::from_f64_retain)
+            .ok_or(Stage5gOrderPositionError::SourceOrderMismatch)?;
+        if order.qty != source_qty || order.filled_qty > source_qty {
+            return Err(Stage5gOrderPositionError::SourceOrderMismatch);
+        }
     }
     if let Some(previous) = slot.order_events.last().map(|event| &event.order) {
+        if !stage5g_immutable_order_payload_matches(previous, order) {
+            return Err(Stage5gOrderPositionError::SourceOrderMismatch);
+        }
         if previous.lifecycle == BrokerOrderLifecycle::Terminal && previous.status != order.status {
             return Err(Stage5gOrderPositionError::OrderTerminalRegression);
         }
@@ -2686,24 +2797,47 @@ impl Stage5gOrderPositionSession {
             .slots
             .iter()
             .map(|slot| {
-                let (target_broker_order_id, target_order_client_order_id) = match &slot.ack.action
-                {
+                let (
+                    target_broker_order_id,
+                    target_order_client_order_id,
+                    cancel_target_order_authority,
+                    latest_order,
+                ) = match &slot.ack.action {
                     Stage5gMockIntentAction::Place { .. } => (
                         slot.broker_order_id.clone(),
                         Some(slot.ack.expected_client_order_id.clone()),
+                        None,
+                        slot.order_events.last().map(|event| event.order.clone()),
                     ),
-                    Stage5gMockIntentAction::Cancel { target_order_id } => (
-                        Some(target_order_id.clone()),
-                        slot.order_events
-                            .last()
-                            .and_then(|event| event.order.client_order_id.clone()),
-                    ),
+                    Stage5gMockIntentAction::Cancel { target_order_id } => {
+                        let target_order = slot_authenticated_target_order(slot).cloned();
+                        let target_client_order_id = target_order
+                            .as_ref()
+                            .and_then(|order| order.client_order_id.clone())
+                            .filter(|client_order_id| {
+                                client_order_id != &slot.ack.expected_client_order_id
+                            });
+                        let authority = Stage5gCancelTargetOrderAuthority {
+                            target_broker_order_id: target_order_id.clone(),
+                            target_order_client_order_id: target_client_order_id.clone(),
+                            immutable_order_commitment_sha256: target_order
+                                .as_ref()
+                                .map(stage5g_immutable_order_payload_commitment_sha256),
+                        };
+                        (
+                            Some(target_order_id.clone()),
+                            target_client_order_id,
+                            Some(authority),
+                            target_order,
+                        )
+                    }
                 };
                 Stage5gFreshTruthRestartSlotProjection {
                     command_request_id: slot.ack.request_id.to_string(),
                     command_client_order_id: slot.ack.expected_client_order_id.clone(),
                     target_broker_order_id,
                     target_order_client_order_id,
+                    cancel_target_order_authority,
                     intent_class: slot.source.intent_class.into(),
                     source_action: slot.ack.action.clone(),
                     side: slot.source.side.map(|side| match side {
@@ -2729,7 +2863,7 @@ impl Stage5gOrderPositionSession {
                         .expected_attribution
                         .as_ref()
                         .map(|value| exact_id_hash("attribution", value.internal_comment())),
-                    latest_order: slot.order_events.last().map(|event| event.order.clone()),
+                    latest_order,
                     trades: slot.trades.clone(),
                     position: slot.position.as_ref().map(|(_, position)| position.clone()),
                     terminal: slot.terminal,
@@ -7737,8 +7871,11 @@ pub(crate) mod tests {
         GeneratedWorkingIntentEscrow,
         GeneratedLimitIntentEscrow,
         GeneratedCancelIntentEscrow,
+        GeneratedCancelTargetAuthority,
         GeneratedFractionalIntentEscrow,
         TerminalPositionApplied,
+        TerminalFlatExplicit,
+        TerminalFlatAbsent,
         ExactReplaySynchronized,
         NewPackageAwaiting,
     }
@@ -7783,7 +7920,7 @@ pub(crate) mod tests {
                         total_sequence: 2,
                         request_id,
                         broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
-                        order_attribution: attribution,
+                        order_attribution: attribution.clone(),
                     },
                 )
                 .unwrap()
@@ -7795,6 +7932,7 @@ pub(crate) mod tests {
             | Stage5geCTestSourceKind::GeneratedWorkingIntentEscrow
             | Stage5geCTestSourceKind::GeneratedLimitIntentEscrow
             | Stage5geCTestSourceKind::GeneratedCancelIntentEscrow
+            | Stage5geCTestSourceKind::GeneratedCancelTargetAuthority
             | Stage5geCTestSourceKind::GeneratedFractionalIntentEscrow => {
                 let mut session = apply_stage5g_order_position_evidence(
                     initial,
@@ -7802,7 +7940,7 @@ pub(crate) mod tests {
                         total_sequence: 2,
                         request_id,
                         broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
-                        order_attribution: attribution,
+                        order_attribution: attribution.clone(),
                     },
                 )
                 .unwrap()
@@ -7816,10 +7954,22 @@ pub(crate) mod tests {
                             };
                             slot.source.base_action = Stage5gSourceBaseAction::Place;
                         }
-                        Stage5geCTestSourceKind::GeneratedCancelIntentEscrow => {
+                        Stage5geCTestSourceKind::GeneratedCancelIntentEscrow
+                        | Stage5geCTestSourceKind::GeneratedCancelTargetAuthority => {
                             slot.ack.action = Stage5gMockIntentAction::Cancel {
-                                target_order_id: BrokerOrderId::new("CANCEL-TARGET-R2"),
+                                target_order_id: BrokerOrderId::new(
+                                    if matches!(
+                                        kind,
+                                        Stage5geCTestSourceKind::GeneratedCancelTargetAuthority
+                                    ) {
+                                        "CANCEL-TARGET-R4"
+                                    } else {
+                                        "CANCEL-TARGET-R2"
+                                    },
+                                ),
                             };
+                            slot.ack.expected_client_order_id =
+                                ClientOrderId::new("C-CANCEL").expect("cancel command client");
                             slot.ack.intent_class = "CancelCleanup".to_owned();
                             slot.ack.side = None;
                             slot.source.base_action = Stage5gSourceBaseAction::Cancel;
@@ -7841,7 +7991,45 @@ pub(crate) mod tests {
                         slot.broker_order_id = Some(BrokerOrderId::new("WORKING-TARGET-R3"));
                     }
                 }
-                crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
+                if matches!(
+                    kind,
+                    Stage5geCTestSourceKind::GeneratedCancelTargetAuthority
+                ) {
+                    let mut broker_truth =
+                        r2cb_golden_truth(&polls[0], &client_order_id, time_shift);
+                    let target = broker_truth
+                        .orders
+                        .first_mut()
+                        .expect("cancel target fixture order");
+                    target.broker_order_id = Some(BrokerOrderId::new("CANCEL-TARGET-R4"));
+                    target.client_order_id =
+                        Some(ClientOrderId::new("C-PLACE").expect("target place client"));
+                    target.status = OrderStatus::Working;
+                    target.lifecycle = BrokerOrderSnapshot::lifecycle_for(&target.status);
+                    target.order_type = OrderType::Limit;
+                    target.time_in_force = Some(broker_core::TimeInForce::Day);
+                    target.limit_price = Some(Decimal::new(2_210, 0));
+                    target.filled_qty = Decimal::ZERO;
+                    target.remaining_qty = Some(target.qty);
+                    broker_truth.received_ts += chrono::Duration::milliseconds(1);
+                    target.received_ts = broker_truth.received_ts;
+                    broker_truth.trades.clear();
+                    let session = apply_stage5g_order_position_evidence(
+                        session,
+                        Stage5gOrderPositionEvidence {
+                            total_sequence: 3,
+                            request_id,
+                            broker_truth,
+                            order_attribution: attribution,
+                        },
+                    )
+                    .expect("separately owned cancel target is accepted")
+                    .into_awaiting()
+                    .expect("working cancel target remains awaiting");
+                    crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
+                } else {
+                    crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
+                }
             }
             Stage5geCTestSourceKind::BeforeAckNoSlot => {
                 let mut session = apply_stage5g_order_position_evidence(
@@ -7859,7 +8047,9 @@ pub(crate) mod tests {
                 session.state.slots.clear();
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
             }
-            Stage5geCTestSourceKind::TerminalPositionApplied => {
+            Stage5geCTestSourceKind::TerminalPositionApplied
+            | Stage5geCTestSourceKind::TerminalFlatExplicit
+            | Stage5geCTestSourceKind::TerminalFlatAbsent => {
                 let mut session = apply_stage5g_order_position_evidence(
                     initial,
                     Stage5gOrderPositionEvidence {
@@ -7877,6 +8067,18 @@ pub(crate) mod tests {
                     .slots
                     .first_mut()
                     .expect("terminal fixture slot");
+                let flat = matches!(
+                    kind,
+                    Stage5geCTestSourceKind::TerminalFlatExplicit
+                        | Stage5geCTestSourceKind::TerminalFlatAbsent
+                );
+                if flat {
+                    slot.ack.intent_class = "Exit".to_owned();
+                    slot.ack.side = Some("Sell".to_owned());
+                    slot.source.intent_class = crate::BrokerNeutralHybridIntentClass::Exit;
+                    slot.source.side = Some(crate::BrokerNeutralOrderSide::Sell);
+                    slot.source.pre_position_qty = 1.0;
+                }
                 let order = &mut slot
                     .order_events
                     .last_mut()
@@ -7886,11 +8088,21 @@ pub(crate) mod tests {
                 order.lifecycle = BrokerOrderSnapshot::lifecycle_for(&order.status);
                 order.filled_qty = order.qty;
                 order.remaining_qty = Some(Decimal::ZERO);
+                if flat {
+                    order.side = OrderSide::Sell;
+                }
                 let fill_qty = order.qty;
                 let trade = slot.trades.first_mut().expect("terminal fixture trade");
                 trade.qty = fill_qty;
-                let (_, position) = slot.position.as_mut().expect("terminal fixture position");
-                position.qty = fill_qty;
+                if flat {
+                    trade.side = OrderSide::Sell;
+                }
+                if matches!(kind, Stage5geCTestSourceKind::TerminalFlatAbsent) {
+                    slot.position = None;
+                } else {
+                    let (_, position) = slot.position.as_mut().expect("terminal fixture position");
+                    position.qty = if flat { Decimal::ZERO } else { fill_qty };
+                }
                 slot.terminal = true;
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
             }
@@ -8150,6 +8362,18 @@ pub(crate) mod tests {
             .expect("e-d-b cancel escrow reconstructs through the accepted byte boundary")
     }
 
+    pub(crate) fn stage5g_edb_restored_cancel_target_authority_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedCancelTargetAuthority,
+        );
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b cancel target authority exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b cancel target authority reconstructs through accepted byte boundary")
+    }
+
     pub(crate) fn stage5g_edb_restored_generated_fractional_escrow_fixture(
     ) -> crate::Stage5gCleanRestartedCapability {
         let commitment_key = stage5ge_c_commitment_key();
@@ -8182,6 +8406,22 @@ pub(crate) mod tests {
             .expect("e-d-b terminal fixture exports authenticated restart bytes");
         crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
             .expect("e-d-b terminal fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_terminal_flat_fixture(
+        committed_position_row_present: bool,
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let kind = if committed_position_row_present {
+            Stage5geCTestSourceKind::TerminalFlatExplicit
+        } else {
+            Stage5geCTestSourceKind::TerminalFlatAbsent
+        };
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(kind);
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b terminal flat fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b terminal flat fixture reconstructs through accepted byte boundary")
     }
 
     fn assert_stage5ge_c_rehashed_error(

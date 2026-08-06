@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-b-r3",
-  "accepted_base": "c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4",
+  "stage": "5G-e-d-b-r4",
+  "accepted_base": "f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28",
   "accepted_stage5g_e_d_a_r6": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
   "owning_entry_point": "reduce_stage5g_fresh_broker_truth",
   "child_module": "stage5g_fresh_broker_truth/reducer.rs",
@@ -105,11 +105,87 @@
     "owning_grst_witness_count": 12,
     "minimum_negative_mutation_count": 195
   },
+  "r4_policy": {
+    "global_history_partition_before_grst01_grst07": true,
+    "no_slot_terminal_orders_are_historical": true,
+    "no_slot_trades_are_historical_after_exact_position": true,
+    "history_counts_exist_without_candidate": true,
+    "complete_empty_and_explicit_zero_are_flat": true,
+    "flat_ignores_avg_price_and_unrealized_pnl": true,
+    "cancel_target_client_never_comes_from_command_identity": true,
+    "cancel_target_authority_is_action_scoped": true,
+    "immutable_target_order_payload_required": true,
+    "minimum_negative_mutation_count": 225
+  },
+  "semantic_comparator_contract": {
+    "terminal_order_fields": [
+      "account_id",
+      "instrument",
+      "broker_order_id",
+      "client_order_id",
+      "side",
+      "order_type",
+      "time_in_force",
+      "qty",
+      "limit_price",
+      "broker_asset_id",
+      "board",
+      "expiration_date",
+      "status",
+      "lifecycle",
+      "filled_qty",
+      "remaining_qty"
+    ],
+    "non_terminal_immutable_order_fields": [
+      "account_id",
+      "instrument",
+      "broker_order_id",
+      "client_order_id",
+      "side",
+      "order_type",
+      "time_in_force",
+      "qty",
+      "limit_price",
+      "broker_asset_id",
+      "board",
+      "expiration_date"
+    ],
+    "position_fields": [
+      "account_id",
+      "instrument",
+      "qty",
+      "avg_price_non_flat_only"
+    ],
+    "trade_immutable_fields": [
+      "account_id",
+      "broker_trade_id",
+      "broker_order_id",
+      "client_order_id",
+      "instrument",
+      "side",
+      "qty",
+      "price",
+      "gross_amount",
+      "commission",
+      "broker_asset_id",
+      "board",
+      "expiration_date",
+      "source_ts"
+    ],
+    "excluded_observation_fields": [
+      "order.source_ts",
+      "order.received_ts",
+      "position.source_ts",
+      "position.received_ts",
+      "position.unrealized_pnl",
+      "trade.received_ts"
+    ]
+  },
   "source_sha256": {
-    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "ec90353bf4fc87e2fe8b2a0b3368ca286ced5454d44995e8b16220c36e26ca4a",
+    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "bd311b22dc4610c6a313afba306a535cbf1099f3949b1ca24a352bb7949d191a",
     "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs": "0ccd686136eca16a96d2ae1eaf2c5c4f5acd2f5e02936c6ccb72cd4c10b0a5d6",
     "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": "3f6b4e6863c300ba9eeb0d64279e6811cc271d171d10b4a313e407841d23701b",
-    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "d25e525ec23d47d5c7cb1633e959543850c4b837f711034853ee239f5049ec6f"
+    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "5f06290d222b3c3e6f5ce84931a37b20178cda1f532cc71fea7b5f4b4506591b"
   },
   "closed_surfaces": {
     "strategy_callback": false,

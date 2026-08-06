@@ -76,9 +76,12 @@ Stage 5G-e-d-a R6 was independently accepted and closed at
 semantics findings. R1 at `b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b`
 also remained rejected. R2 at `c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4`
 was rejected on LIMIT price authority, cancel correlation, historical rows and
-semantic refresh. The active target is **Stage 5G-e-d-b R3 — restart-owned,
+semantic refresh. R3 at `f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28`
+was rejected on global history, flat canonicalization, cancel target authority
+and immutable target-order payload findings. The active target is **Stage
+5G-e-d-b R4 — restart-owned,
 mutation-safe fresh mock BrokerTruth reducer and executable GRST01–GRST12
-matrix**, as one clean repair successor to `c5f84bb` while retaining accepted
+matrix**, as one clean repair successor to `f9bc372` while retaining accepted
 R6 as the architectural predecessor.
 
 R1 through R5 closed the substantive input boundary, direct reducer shape and
@@ -90,7 +93,7 @@ R1 through R5 closed the substantive input boundary, direct reducer shape and
 - repository-local Cargo config and compiler wrappers fail closed;
 - the detached R5→R4→R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
 
-Validated operational identities remain constructor-only. R3 binds all twelve
+Validated operational identities remain constructor-only. R4 retains the R3 binding of all twelve
 identity fields to authenticated restart authority and treats replay lists as
 untrusted hints until an authenticated fresh-truth ledger exists. It uses
 domain-separated commitments, exact client/broker trade linkage and computes position from
@@ -99,11 +102,17 @@ classification and opaque candidate construction only. It retains both linear
 inputs, owns no callback or runtime mutation authority, and does not open
 persistence, Redis, FINAM, HTTP, dispatch or live execution.
 
-R3 deliberately fails source LIMIT recovery closed until canonical Decimal/tick
+R4 deliberately fails source LIMIT recovery closed until canonical Decimal/tick
 price authority exists. It separates cancel command identity from target-order
 identity, partitions unrelated terminal orders and historical trades, blocks
 partial-ID conflicts, applies semantic terminal refresh equality, and requires
 complete exact pre-position truth for Working/New candidates.
+It additionally performs the harmless-history partition before no-slot
+decisions, emits history counts independently of candidate existence, treats
+complete empty and explicit-zero target positions as the same flat state,
+derives cancel target-client authority only from accepted target-order rows,
+and freezes the complete immutable target-order payload across lifecycle
+progress.
 
 ## Deliberately closed surfaces
 
@@ -121,7 +130,7 @@ The current stage does **not** authorize:
 
 The accepted Stage 5G plan remains the controlling sequence:
 
-1. Stage 5G-e-d-b R3: independently accept the restart-bound deterministic,
+1. Stage 5G-e-d-b R4: independently accept the restart-bound deterministic,
    mutation-safe fresh **mock** BrokerTruth reducer and owning GRST01–GRST12
    evidence.
 2. Stage 5G-e-d-c: export/restart/reconcile/re-export evidence and negative

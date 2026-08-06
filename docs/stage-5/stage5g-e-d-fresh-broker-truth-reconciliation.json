@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-b-r3",
+  "stage": "5G-e-d-b-r4",
   "name": "fresh_mock_broker_truth_contract",
-  "status": "restart_bound_reducer_r3_review_candidate",
+  "status": "restart_bound_reducer_r4_review_candidate",
+  "rejected_stage5g_e_d_b_r3_commit": "f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28",
   "rejected_stage5g_e_d_b_r2_commit": "c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4",
   "rejected_stage5g_e_d_b_r1_commit": "b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b",
   "accepted_stage5g_e_d_a_r6_commit": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
@@ -56,7 +57,12 @@
     "source_limit_price_authority_policy": "fail_closed",
     "cancel_command_target_identity_separation_required": true,
     "historical_row_partition_required": true,
-    "semantic_terminal_refresh_required": true
+    "semantic_terminal_refresh_required": true,
+    "global_history_partition_before_no_slot_decisions_required": true,
+    "canonical_flat_position_required": true,
+    "action_scoped_cancel_target_authority_required": true,
+    "immutable_target_order_monotonicity_required": true,
+    "reduction_level_history_evidence_required": true
   },
   "operational_identity_fields": [
     "broker_id",

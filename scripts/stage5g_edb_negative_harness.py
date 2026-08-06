@@ -59,7 +59,7 @@ def cases() -> list[tuple[str, object]]:
         values.append((f"drift-disposition-{disposition}", lambda root, disposition=disposition: replace_once(
             root, CONTRACT, f'    "{disposition}"', f'    "Mutated{disposition}"')))
     for binding in checker.CROSS_BINDINGS:
-        values.append((f"remove-cross-binding-{binding}", lambda root, binding=binding: replace_once(
+        values.append((f"remove-cross-binding-{binding}", lambda root, binding=binding: replace_first(
             root, CONTRACT, f'    "{binding}",\n' if binding != checker.CROSS_BINDINGS[-1]
             else f'    "{binding}"\n', "")))
     for surface in checker.CLOSED_SURFACES:
@@ -119,6 +119,14 @@ def cases() -> list[tuple[str, object]]:
         "stage5g_edb_r3_semantic_comparators_ignore_only_reviewed_volatile_fields",
         "stage5g_edb_r3_owning_grst03_runs_full_authenticated_path",
         "stage5g_edb_r3_working_order_requires_complete_pre_position_truth",
+        "stage5g_edb_r4_owning_grst01_and_grst07_ignore_complete_harmless_history",
+        "stage5g_edb_r4_no_slot_active_and_unknown_orders_still_block",
+        "stage5g_edb_r4_owning_grst06_canonicalizes_both_flat_representations",
+        "stage5g_edb_r4_flat_absence_never_overrides_incomplete_or_nonflat_truth",
+        "stage5g_edb_r4_cancel_target_authority_is_action_scoped_and_production_derived",
+        "stage5g_edb_r4_cancel_target_identity_conflicts_only_against_authenticated_authority",
+        "stage5g_edb_r4_immutable_target_order_payload_cannot_drift",
+        "stage5g_edb_r4_place_market_tif_is_immutable",
     ]:
         values.append((f"remove-r1-witness-{witness}", lambda root, witness=witness: replace_once(
             root, REDUCER, f"fn {witness}()", f"fn removed_{witness}()")))
@@ -311,6 +319,99 @@ def cases() -> list[tuple[str, object]]:
         values.append((f"drift-r3-policy-{name}",
                        lambda root, old=old, new=new: replace_once(
                            root, CONTRACT, old, new)))
+    for key, value in checker.R4_POLICY.items():
+        encoded = json.dumps(value)
+        replacement = json.dumps(not value if isinstance(value, bool) else value - 1)
+        values.append((f"drift-r4-policy-{key}", lambda root, key=key,
+                       encoded=encoded, replacement=replacement: replace_once(
+                           root, CONTRACT, f'    "{key}": {encoded}',
+                           f'    "{key}": {replacement}')))
+    values.extend([
+        ("remove-global-history-partition-helper", lambda root: replace_once(
+            root, REDUCER, "fn stage5g_global_history_partition(",
+            "fn removed_stage5g_global_history_partition(")),
+        ("remove-canonical-position-observation-helper", lambda root: replace_once(
+            root, REDUCER, "fn stage5g_canonical_position_observation(",
+            "fn removed_stage5g_canonical_position_observation(")),
+        ("remove-reduction-history-counter-propagation", lambda root: replace_once(
+            root, REDUCER, "fn with_history_counts(", "fn removed_with_history_counts(")),
+        ("remove-cancel-target-authority-type", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "pub(crate) struct Stage5gCancelTargetOrderAuthority",
+            "pub(crate) struct RemovedStage5gCancelTargetOrderAuthority")),
+        ("remove-immutable-order-payload-comparator", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "pub(crate) fn stage5g_immutable_order_payload_matches(",
+            "pub(crate) fn removed_stage5g_immutable_order_payload_matches(")),
+        ("remove-immutable-order-payload-commitment", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "pub(crate) fn stage5g_immutable_order_payload_commitment_sha256(",
+            "pub(crate) fn removed_stage5g_immutable_order_payload_commitment_sha256(")),
+        ("remove-action-scoped-cancel-authority-slot", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "pub(crate) cancel_target_order_authority: Option<Stage5gCancelTargetOrderAuthority>",
+            "pub(crate) removed_cancel_target_order_authority: Option<Stage5gCancelTargetOrderAuthority>")),
+    ])
+    values.extend([
+        *[(name, lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r4_owning_grst01_and_grst07_ignore_complete_harmless_history()",
+            "fn removed_stage5g_edb_r4_owning_grst01_and_grst07_ignore_complete_harmless_history()",
+        )) for name in [
+            "timer-ignore-old-terminal-order",
+            "timer-ignore-old-historical-trade",
+            "before-ack-ignore-old-terminal-order",
+            "before-ack-ignore-old-historical-trade",
+        ]],
+        *[(name, lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r4_no_slot_active_and_unknown_orders_still_block()",
+            "fn removed_stage5g_edb_r4_no_slot_active_and_unknown_orders_still_block()",
+        )) for name in [
+            "timer-active-order-still-blocks",
+            "timer-unknown-order-still-blocks",
+        ]],
+        *[(name, lambda root: replace_once(
+            root, REDUCER,
+            "fn stage5g_edb_r4_owning_grst06_canonicalizes_both_flat_representations()",
+            "fn removed_stage5g_edb_r4_owning_grst06_canonicalizes_both_flat_representations()",
+        )) for name in [
+            "treat-complete-empty-flat-as-conflict",
+            "treat-explicit-zero-flat-as-conflict",
+            "compare-flat-avg-price",
+        ]],
+        ("derive-cancel-target-client-from-command-event", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "let target_client_order_id = target_order",
+            "let target_client_order_id = Some(slot.ack.expected_client_order_id.clone());\n                        let _forbidden_target_order = target_order")),
+        ("require-cancel-command-client-as-target-client", lambda root: replace_once(
+            root, REDUCER,
+            ".map(|expected| order.client_order_id.as_ref() == Some(expected))\n                    .unwrap_or(true)",
+            ".map(|expected| order.client_order_id.as_ref() == Some(expected))\n                    .unwrap_or(order.client_order_id.as_ref() == Some(&candidate.command_client_order_id))")),
+        ("drop-cancel-target-broker-authority", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "target_broker_order_id: target_order_id.clone(),",
+            "target_broker_order_id: BrokerOrderId::new(\"FORGED\"),")),
+        ("drop-immutable-side-check", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE), "side: order.side,",
+            "side: OrderSide::Buy,")),
+        ("drop-immutable-qty-check", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "qty: canonical_decimal_v1(order.qty),", "qty: \"ignored\".to_owned(),")),
+        ("drop-immutable-order-type-check", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE), "order_type: order.order_type,",
+            "order_type: OrderType::Market,")),
+        ("drop-immutable-tif-check", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE), "time_in_force: order.time_in_force,",
+            "time_in_force: None,")),
+        ("drop-immutable-limit-price-check", lambda root: replace_once(
+            root, str(checker.ORDER_POSITION_SOURCE),
+            "limit_price: order.limit_price.map(canonical_decimal_v1),",
+            "limit_price: None,")),
+        ("remove-reduction-level-history-count", lambda root: replace_first(
+            root, REDUCER, "ignored_unrelated_terminal_order_count: usize,",
+            "removed_unrelated_terminal_order_count: usize,")),
+    ])
     return values
 
 
@@ -337,7 +438,7 @@ def run_case(name: str, mutation) -> None:
 
 def main() -> None:
     matrix = cases()
-    if len(matrix) < 195 or len({name for name, _ in matrix}) != len(matrix):
+    if len(matrix) < 225 or len({name for name, _ in matrix}) != len(matrix):
         raise SystemExit("stage5g-edb-negative: FAIL: matrix count/names invalid")
     for name, mutation in matrix:
         run_case(name, mutation)

@@ -1,12 +1,17 @@
-# Stage 5G-e-d-b R3 — broker-row correlation and semantic refresh hardening
+# Stage 5G-e-d-b R4 — global history, flat, cancel authority and immutable payload hardening
 
 Accepted Stage 5G-e-d-a R6 predecessor: `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`.
 Rejected R2 base repaired by this direct successor:
 `c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4`. Rejected R1 was
 `b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b`. The original rejected e-d-b
 lineage starts at `8a02f2a6b6e27587539d1e4e4717301bf010e6a1`.
+R3 at `f9bc372f7ad5a56514ce1d6ad7ffd4f54097bb28` was rejected because harmless
+account history was handled only after slot selection, flat had two competing
+representations, cancel target client authority could be inferred from the
+cancel command, and non-terminal target order payload drift was not fully
+sealed. R4 is one direct repair successor to that exact R3 commit.
 
-R3 keeps the original e-d-b scope: deterministic classification and opaque
+R4 keeps the original e-d-b scope: deterministic classification and opaque
 candidate construction only. It does not apply a candidate, invoke a strategy
 callback, mutate runtime or Stage 5D persistence, publish Redis data, call
 FINAM/HTTP, dispatch an order or open runtime-live.
@@ -27,7 +32,7 @@ non-serializable. Its domain-separated commitments cover:
   replay hints.
 
 The operational authorizer consumes a separate linear
-`Stage5gReviewedOperationalIdentityAuthority`, not the package raw DTO. R3
+`Stage5gReviewedOperationalIdentityAuthority`, not the package raw DTO. R4
 ships no production issuer for that capability; only a `#[cfg(test)]` issuer
 exists for owning evidence. A real config/deployment issuer requires the next
 separate review, so broker input cannot mint its own expected identity.
@@ -53,7 +58,7 @@ pre_position_qty + signed_fill
 
 The same pure helpers are used by the accepted Stage 5G order/position logic
 and this reducer. Source runtime quantity authority is still `f64`; therefore
-R3 admits only finite integral lots and blocks fractional source quantities
+R4 admits only finite integral lots and blocks fractional source quantities
 with `SourceNumericAuthorityUnsupported`. No `f64 -> String -> Decimal`
 conversion is presented as exact business authority.
 
@@ -64,11 +69,19 @@ ignored and counted; non-owned active/unknown rows remain account-wide safety
 blocks. Semantic target matches with a non-exact canonical `InstrumentId`
 block as `TargetInstrumentIdentityConflict`.
 
+The account-wide safety pass is followed by a global history partition before
+GRST01/GRST07 or slot selection. No-slot terminal orders and unrelated trades
+are harmless history only after complete position truth is exact. Their counts
+belong to the reduction/evidence itself, so candidate-free GRST01, GRST06 and
+GRST07 outcomes retain them. Active, unknown or ambiguous rows remain blocking.
+
 Command identity and target-order identity are separate. Place uses its command
 client ID as target client ID. Cancel retains its own command request/client ID
 while correlating only to the target broker order ID and, when committed, the
-target client order ID. The cancel command client ID is never compared to the
-target order row.
+target client order ID. Cancel target-client authority is produced only by an
+accepted target-order row through the production order/position boundary and
+is action-scoped in the restart projection. The cancel command client ID can
+never become target-order authority.
 
 MARKET and CANCEL continue through the reducer. Source LIMIT is deliberately
 fail closed with `SourceLimitPriceAuthorityUnsupported` until source price has
@@ -101,6 +114,17 @@ unrealized PnL are excluded from semantic equality, while independent post-
 restore chronology remains mandatory. Safe added fills/trades are GRST11, while any
 regression is GRST10/12 and cannot form a candidate.
 
+Every source-to-fresh order comparison first verifies the exact immutable order
+payload: account, exact instrument, broker/client IDs, side, type, TIF,
+quantity, limit price and native asset/board/expiration fields. Only lifecycle,
+status and fills may advance monotonically. The action-scoped cancel authority
+also commits this immutable payload when target-order evidence is available.
+
+Complete empty target positions and complete explicit `qty = 0` rows are the
+same canonical flat observation. Flat equality ignores `avg_price` and
+unrealized PnL; non-flat equality keeps authoritative quantity and average
+price. An incomplete position section can never imply flat or absence.
+
 Incomplete sections never mean broker absence. Candidate self-consistency
 rechecks commitment, linkage, intent class, source-relative quantity, terminal
 rules and required section completeness.
@@ -118,10 +142,11 @@ Canonicalization is exercised with more than one trade row. Identical owning
 inputs produce byte-identical redacted evidence in sequential, reversed-row and
 parallel runs. Exact replay keeps pre/post semantic fingerprints identical.
 
-The mandatory gate runs the R3 checker, at least 195 named negative mutations,
+The mandatory gate runs the R4 checker, at least 225 named negative mutations,
 preseal, debug/release focused tests, the full runtime-core suite, formatting,
-clippy with warnings denied and detached exact R6 acceptance gate.
+clippy with warnings denied and the detached exact R3 predecessor gate, which
+retains the complete R2→R1→R6 lineage.
 
-Stage 5G-e-d-c remains closed until independent R3 acceptance. Stage 5G-f,
+Stage 5G-e-d-c remains closed until independent R4 acceptance. Stage 5G-f,
 Redis consumer groups, FINAM transport, HTTP POST/DELETE, broker dispatch,
 runtime-live, real orders and Stage 6 remain closed.
