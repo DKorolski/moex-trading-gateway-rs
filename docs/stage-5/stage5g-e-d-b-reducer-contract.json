@@ -1,7 +1,8 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-b",
-  "accepted_base": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
+  "stage": "5G-e-d-b-r1",
+  "accepted_base": "8a02f2a6b6e27587539d1e4e4717301bf010e6a1",
+  "accepted_stage5g_e_d_a_r6": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
   "owning_entry_point": "reduce_stage5g_fresh_broker_truth",
   "child_module": "stage5g_fresh_broker_truth/reducer.rs",
   "scenario_ids": [
@@ -52,11 +53,20 @@
     "TerminalContradiction"
   ],
   "cross_bindings": [
+    "broker_id",
     "account_id",
     "strategy_definition_id",
+    "strategy_instance_id",
+    "deployment_id",
+    "deployment_generation",
+    "gateway_instance_id",
     "config_fingerprint_sha256",
-    "target_instrument",
+    "instrument_map_fingerprint_sha256",
+    "market_data_generation",
+    "command_consumer_generation",
+    "target_instrument_exact",
     "reconstructed_runtime_state_fingerprint_sha256",
+    "restart_replay_commitment_sha256",
     "request_client_broker_identity"
   ],
   "determinism": {
@@ -64,14 +74,16 @@
     "sequential": true,
     "canonical_row_order": true,
     "parallel_no_shared_state": true,
+    "owning_input_evidence_byte_identical": true,
+    "multi_trade_row_order_canonical": true,
     "wall_clock_reads": false,
     "exact_replay_semantic_noop": true
   },
   "source_sha256": {
-    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "0d6d0a0aa16fbe0c2f2f54eb1a19afcc111ad1481d7295f48a957a2435c114d2",
-    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs": "ae3bf763ecc144d87f5bbc61eae7df8f0f3846c36b6622203c418d6b93a7660f",
-    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": "265ba46bd2097120c9693cab9b1c974f581e2732c5bd776764971cd732421637",
-    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "606d352339dcb8ffe186deb11c5c7ec9924d58c5d7b6a2c50c3f1f0e52ae29c6"
+    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "d8d8fb58e0b3f660426130d5b009851876d793a098a217f9801671ad79469e0d",
+    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs": "0f4701047b7e16ea6e1a6aced398dc3444dca60de2c733bd3256ee2a8f4ec717",
+    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": "eca1dd414e791fb485ac594e0e6b1a5302d23abf921e869009e1f509f0bd19a4",
+    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "b295e3d803f3c3420688c50a3225ab129d8be25fc3c220660d9b391125cfec45"
   },
   "closed_surfaces": {
     "strategy_callback": false,

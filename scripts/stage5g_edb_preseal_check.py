@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Git-backed delta and archive preseal for Stage 5G-e-d-b."""
+"""Git-backed delta and archive preseal for Stage 5G-e-d-b R1."""
 
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def main() -> None:
         fail(f"HEAD parent must be {checker.BASE_REF}; got {parent}")
     delta = exact_delta()
     if delta != checker.EXPECTED_DELTA:
-        fail(f"exact e-d-b changed-path allowlist drifted: {delta}")
+        fail(f"exact e-d-b R1 changed-path allowlist drifted: {delta}")
 
     index = subprocess.check_output(["git", "ls-files", "-s"], text=True)
     tracked: set[str] = set()
@@ -72,7 +72,7 @@ def main() -> None:
     if archived != tracked:
         fail("archive/index mismatch")
     print(
-        f"stage5g-edb-preseal: PASS delta={len(delta)}/{len(checker.EXPECTED_DELTA)} "
+        f"stage5g-edb-r1-preseal: PASS delta={len(delta)}/{len(checker.EXPECTED_DELTA)} "
         f"archive={len(tracked)}/{len(archived)}"
     )
 

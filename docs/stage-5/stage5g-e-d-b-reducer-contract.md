@@ -1,42 +1,85 @@
-# Stage 5G-e-d-b — deterministic fresh BrokerTruth reducer
+# Stage 5G-e-d-b R1 — restart-bound fresh BrokerTruth reducer
 
-Accepted predecessor: `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`.
+Accepted Stage 5G-e-d-a R6 predecessor: `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`.
+Rejected e-d-b base repaired by this direct successor:
+`8a02f2a6b6e27587539d1e4e4717301bf010e6a1`.
 
-This slice adds classification and opaque candidate construction only. The
-single reducer entry point consumes one authenticated clean-restart capability
-and one e-d-a validated fresh BrokerTruth package. Its linear result retains
-both inputs; no competing continuation is returned.
+R1 keeps the original e-d-b scope: deterministic classification and opaque
+candidate construction only. It does not apply a candidate, invoke a strategy
+callback, mutate runtime or Stage 5D persistence, publish Redis data, call
+FINAM/HTTP, dispatch an order or open runtime-live.
 
-The clean-restart owner exposes a narrow immutable projection containing the
-accepted lifecycle kind, strategy/account/instrument binding, Stage 5C SHA-256 config
-fingerprint, committed summary/checkpoint, request/client/broker identities,
-local order/trade/position evidence, callback/request counts and semantic
-fingerprints. The fresh package remains the existing canonical Broker Core
-order/trade/position model. No raw broker DTO or second domain model enters the
-reducer.
+## Restart-bound authority
 
-Cross-binding compares every fact available on both accepted authorities:
-account, strategy definition, canonical config fingerprint, target instrument
-and reconstructed runtime-state fingerprint. Deployment/gateway/feed identity
-continues to be constructor-validated inside the e-d-a package; the accepted
-Stage 5G clean-restart schema does not duplicate those fields, so e-d-b neither
-weakens nor invents a second source for them.
+`bind_stage5g_fresh_truth_to_clean_restart` is the only production constructor
+for `Stage5gRestartBoundFreshBrokerTruthPackage`. The type is non-Clone and
+non-serializable. Its domain-separated commitments cover:
 
-The reducer performs no observable mutation. Blocked, contradiction and exact
-replay outcomes retain checkpoint, generated-intent escrow, counters and runtime
-state. `ApplyOwnedCandidate` contains only an in-memory order/trade/position
-projection with explicit request/client/broker identity, side and target
-quantity binding; it is not Clone, Serialize, transport input or persistence output.
-Applying or exporting it belongs to Stage 5G-e-d-c after separate acceptance.
+- authenticated source lifecycle and lifecycle-authority commitments;
+- the complete restart checkpoint and replay ledger;
+- all twelve operational identity fields: broker, account, strategy definition
+  and instance, deployment and generation, gateway instance, config and
+  instrument-map fingerprints, market-data and command-consumer generations,
+  and exact target `InstrumentId`;
+- pre-restart, last-reconciled and bounded historical replay authority.
 
-GRST01–GRST12 execute in their frozen order. Incomplete sections map to waiting,
-never broker absence. Complete contradictions map to reconciliation, manual
-intervention or terminal inconsistency without a candidate. Exact replay is a
-semantic no-op. Debug, release, sequential and parallel runs use no wall clock
-or shared mutable state. Focused executable negatives cover cross-boundary
-identity, request/client/broker/trade linkage, independent completeness,
-quantity/position convergence and distinct canceled/rejected/expired outcomes.
+The reducer recomputes both operational and restart-replay commitments before
+classification. Exact current or historical replay requires an exact
+package/epoch/fingerprint tuple. A changed fingerprint maps to GRST10 with
+`ReplayFingerprintConflict`; unknown historical evidence remains blocked.
 
-Still closed: strategy callbacks, runtime and Stage 5D mutation, persistence
-export, Redis, FINAM, HTTP POST/DELETE, broker dispatch, runtime-live, real
-orders, Stage 5G-f and Stage 6.
+## Canonical order/position semantics
+
+The restart slot retains typed intent class (`Entry`, `Exit`,
+`ProtectiveRepair`, `CancelCleanup`), exact `Decimal` target and pre-position,
+request/client/broker IDs and optional attribution commitment. Expected
+position is always:
+
+```text
+pre_position_qty + signed_fill
+```
+
+The same pure helpers are used by the accepted Stage 5G order/position logic
+and this reducer. No `f64 -> String -> Decimal` conversion is an authority.
+
+Trade linkage is exact only when at least one present client/broker ID matches
+and no present ID conflicts. `None == None` is not a match. Selection and
+candidate self-consistency use the same helper.
+
+## Status and completeness matrix
+
+- TimerReady continues only with complete positions, no target orders/trades
+  and exact committed target quantity.
+- New/Working with any fill or linked trade is a terminal contradiction.
+- PartiallyFilled requires complete position truth, exact trade sum, exact
+  source-relative position and compatible intent class.
+- Filled waits when positions are incomplete; complete empty positions are
+  accepted only when the expected post-position is exactly flat.
+- Rejected with a fill or linked trade is inconsistent.
+- Canceled/Expired with a fill require complete exact post-position; zero fill
+  requires unchanged pre-position.
+
+Incomplete sections never mean broker absence. Candidate self-consistency
+rechecks commitment, linkage, intent class, source-relative quantity, terminal
+rules and required section completeness.
+
+## Executable evidence
+
+GRST01–GRST12 remain frozen and covered by the pure reducer matrix. Owning
+boundary tests additionally run authenticated export → byte decode/restore →
+fresh package validation → restart binding → owning reduction for every GRST
+outcome. They cover Entry partial/fill, Exit-to-flat, terminal partials,
+rejected-with-fill, TimerReady contradictions, exact current/historical replay,
+full operational mismatch and generated-intent escrow retention.
+
+Canonicalization is exercised with more than one trade row. Identical owning
+inputs produce byte-identical redacted evidence in sequential, reversed-row and
+parallel runs. Exact replay keeps pre/post semantic fingerprints identical.
+
+The mandatory gate runs the R1 checker, at least 120 named negative mutations,
+preseal, debug/release focused tests, the full runtime-core suite, formatting,
+clippy with warnings denied and detached exact R6 acceptance gate.
+
+Stage 5G-e-d-c remains closed until independent R1 acceptance. Stage 5G-f,
+Redis consumer groups, FINAM transport, HTTP POST/DELETE, broker dispatch,
+runtime-live, real orders and Stage 6 remain closed.

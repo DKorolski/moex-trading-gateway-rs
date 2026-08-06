@@ -1,18 +1,21 @@
 # Stage 5G-e-d — fresh mock BrokerTruth reconciliation
 
-## e-d-a R6 accepted boundary and e-d-b reducer
+## e-d-a R6 accepted boundary and e-d-b R1 reducer
 
 Stage 5G-e-d-a was independently accepted at
 `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. Its validated package is
 crate-private, linear, non-serializable and carries no Redis, FINAM, HTTP,
 broker-dispatch or runtime-live authority.
 
-Stage 5G-e-d-b adds one child reducer. It consumes the accepted clean-restart
-capability and validated package, cross-binds account/strategy/config/target
-identity, classifies one frozen GRST case, and may construct one opaque
-in-memory candidate. The reducer retains both owning authorities in its linear
-result. It cannot apply the candidate, invoke a callback, mutate runtime or
-persistence, publish Redis data, call FINAM/HTTP or dispatch an order.
+The first e-d-b implementation at
+`8a02f2a6b6e27587539d1e4e4717301bf010e6a1` was rejected because restart
+binding, replay ownership, trade linkage and source-relative position semantics
+were incomplete. e-d-b R1 is its one direct repair successor. It consumes the
+accepted clean-restart capability and a non-serializable restart-bound package,
+classifies one frozen GRST case, and may construct one opaque in-memory
+candidate. The reducer retains both owning authorities in its linear result. It
+cannot apply the candidate, invoke a callback, mutate runtime or persistence,
+publish Redis data, call FINAM/HTTP or dispatch an order.
 
 The package wraps the accepted broker-neutral `BrokerOrderSnapshot`,
 `BrokerTradeSnapshot` and `BrokerPositionSnapshot` rows. It does not introduce a
@@ -55,17 +58,18 @@ to Stage 5G string identities, package/snapshot identity, account, target symbol
 and optional venue symbol. Zero generations and malformed lowercase-hex SHA-256
 values are rejected.
 
-Replay authority is deliberately split. The pre-restart package/epoch prevents
+Replay authority is deliberately split and committed to the authenticated
+restart checkpoint. The pre-restart package/epoch prevents
 reuse of stale startup evidence. The last-reconciled identity permits only an
 exact immediate replay. A separate bounded accepted historical ledger may
 permit an exact older replay. The same package ID with a changed canonical fingerprint
 is a conflict and fails before any mutation; a known historical package outside
 the accepted ledger is blocked.
 
-Position uniqueness follows broker-core's accepted semantic instrument matcher,
-not strict JSON equality. A wildcard venue collision (`venue_symbol=None`
-against a matching canonical symbol/exchange/market) is rejected, including a
-bridge between two otherwise distinct venue symbols.
+Position uniqueness inside e-d-a follows broker-core's accepted semantic
+instrument matcher. The e-d-b operational boundary is stricter: the target
+`InstrumentId`, including venue symbol, must exactly equal the authenticated
+restart target; wildcard venue fallback is forbidden.
 
 `orders_complete`, `trades_complete` and `positions_complete` are independent
 facts. An empty incomplete section means “truth unavailable”, not “the broker
@@ -110,10 +114,14 @@ The typed disposition vocabulary is frozen in e-d-a:
 - `ManualInterventionRequired`;
 - `TerminalInconsistency`.
 
-The e-d-b reducer returns exactly one of these dispositions with a closed typed
+The e-d-b R1 reducer returns exactly one of these dispositions with a closed typed
 reason. GRST01–12 execute once in frozen order in focused debug/release tests.
 Exact replay is a semantic no-op, incomplete truth never means broker absence,
-and contradiction never produces a candidate.
+and contradiction never produces a candidate. Restart slots preserve typed
+intent class and exact Decimal pre-position; expected post-position is
+`pre_position_qty + signed_fill`. Shared exact trade linkage rejects a
+secondary-ID conflict even when the other ID matches, and never treats two
+missing IDs as equal authority.
 
 R6 is final e-d-a compilation-control acceptance closure. It does not change the
 production validation semantics accepted as substantively correct in R2–R5.
@@ -131,8 +139,9 @@ a production anchor, focused Rust witness and named negative mutation.
 
 ## Next slices
 
-1. e-d-b: consume the accepted clean-restart capability and validated fresh
-   package in a deterministic, mutation-safe reducer; execute GRST01–12.
+1. e-d-b R1: consume the accepted clean-restart capability and restart-bound
+   validated fresh package in a deterministic, mutation-safe reducer; execute
+   GRST01–12 through pure and owning-boundary fixtures.
 2. e-d-c: deterministic export/restart/reconcile/re-export evidence, negative
    matrix and immutable handoff.
 
@@ -142,7 +151,8 @@ broker dispatch, runtime-live and real orders remain closed.
 ## Verification
 
 The accepted predecessor gate is `bash scripts/stage5g_eda_r6_gate.sh` from a
-detached worktree at exact `4ece2c7...`. The current-head e-d-b gate is
+detached worktree at exact `4ece2c7...`. The rejected e-d-b repair base is
+`8a02f2a...`. The current-head e-d-b R1 gate is
 `bash scripts/stage5g_edb_gate.sh`.
 
 The R6 checker is the controlling strict current-HEAD superset. It freezes the

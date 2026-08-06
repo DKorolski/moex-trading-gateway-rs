@@ -289,12 +289,46 @@ pub(crate) struct Stage5gFreshTruthRestartSlotProjection {
     pub(crate) request_id: String,
     pub(crate) expected_client_order_id: ClientOrderId,
     pub(crate) broker_order_id: Option<BrokerOrderId>,
+    pub(crate) intent_class: Stage5gRestartIntentClass,
     pub(crate) side: Option<OrderSide>,
-    pub(crate) target_qty: Option<String>,
+    pub(crate) target_qty: Option<Decimal>,
+    pub(crate) pre_position_qty: Decimal,
+    pub(crate) expected_attribution_fingerprint_sha256: Option<String>,
     pub(crate) latest_order: Option<BrokerOrderSnapshot>,
     pub(crate) trades: Vec<BrokerTradeSnapshot>,
     pub(crate) position: Option<BrokerPositionSnapshot>,
     pub(crate) terminal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Stage5gRestartIntentClass {
+    Entry,
+    Exit,
+    ProtectiveRepair,
+    CancelCleanup,
+}
+
+impl From<crate::BrokerNeutralHybridIntentClass> for Stage5gRestartIntentClass {
+    fn from(value: crate::BrokerNeutralHybridIntentClass) -> Self {
+        match value {
+            crate::BrokerNeutralHybridIntentClass::Entry => Self::Entry,
+            crate::BrokerNeutralHybridIntentClass::Exit => Self::Exit,
+            crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => Self::ProtectiveRepair,
+            crate::BrokerNeutralHybridIntentClass::CancelCleanup => Self::CancelCleanup,
+        }
+    }
+}
+
+/// Shared exact correlation result used by both the accepted Stage 5G
+/// order/position core and the restart reducer. Missing identifiers never
+/// compare equal, and one matching identifier cannot hide a conflict in the
+/// other supplied identifier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gTradeOrderLinkage {
+    Exact,
+    Unrelated,
+    Conflict,
 }
 
 /// Linear paper-only capability. It intentionally implements none of Clone,
@@ -1612,23 +1646,12 @@ fn validate_trades(
 ) -> Result<(), Stage5gOrderPositionError> {
     let mut incoming_by_id: BTreeMap<String, BrokerTradeSnapshot> = BTreeMap::new();
     for trade in trades {
-        let broker_matches =
-            trade.broker_order_id.is_some() && trade.broker_order_id == order.broker_order_id;
-        let client_matches =
-            trade.client_order_id.is_some() && trade.client_order_id == order.client_order_id;
-        if !broker_matches && !client_matches {
-            continue;
-        }
-        if trade
-            .broker_order_id
-            .as_ref()
-            .is_some_and(|actual| Some(actual) != order.broker_order_id.as_ref())
-            || trade
-                .client_order_id
-                .as_ref()
-                .is_some_and(|actual| Some(actual) != order.client_order_id.as_ref())
-        {
-            return Err(Stage5gOrderPositionError::TradeIdentityMismatch);
+        match stage5g_exact_trade_order_linkage(order, trade) {
+            Stage5gTradeOrderLinkage::Exact => {}
+            Stage5gTradeOrderLinkage::Unrelated => continue,
+            Stage5gTradeOrderLinkage::Conflict => {
+                return Err(Stage5gOrderPositionError::TradeIdentityMismatch);
+            }
         }
         if trade.qty <= Decimal::ZERO {
             return Err(Stage5gOrderPositionError::NonPositiveTradeQuantity);
@@ -1678,6 +1701,84 @@ fn validate_trades(
         return Err(Stage5gOrderPositionError::TradeQuantityMismatch);
     }
     Ok(())
+}
+
+pub(crate) fn stage5g_exact_trade_order_linkage(
+    order: &BrokerOrderSnapshot,
+    trade: &BrokerTradeSnapshot,
+) -> Stage5gTradeOrderLinkage {
+    let client_match = trade.client_order_id.is_some()
+        && order.client_order_id.is_some()
+        && trade.client_order_id == order.client_order_id;
+    let broker_match = trade.broker_order_id.is_some()
+        && order.broker_order_id.is_some()
+        && trade.broker_order_id == order.broker_order_id;
+    let client_conflict =
+        trade
+            .client_order_id
+            .as_ref()
+            .is_some_and(|actual| match order.client_order_id.as_ref() {
+                Some(expected) => actual != expected,
+                None => true,
+            });
+    let broker_conflict =
+        trade
+            .broker_order_id
+            .as_ref()
+            .is_some_and(|actual| match order.broker_order_id.as_ref() {
+                Some(expected) => actual != expected,
+                None => true,
+            });
+    if client_conflict || broker_conflict {
+        Stage5gTradeOrderLinkage::Conflict
+    } else if client_match || broker_match {
+        Stage5gTradeOrderLinkage::Exact
+    } else {
+        Stage5gTradeOrderLinkage::Unrelated
+    }
+}
+
+pub(crate) fn stage5g_expected_post_position_qty(
+    pre_position_qty: Decimal,
+    order: &BrokerOrderSnapshot,
+) -> Decimal {
+    let signed_fill = match order.side {
+        OrderSide::Buy => order.filled_qty,
+        OrderSide::Sell => -order.filled_qty,
+    };
+    pre_position_qty + signed_fill
+}
+
+pub(crate) fn stage5g_intent_position_is_compatible(
+    intent_class: Stage5gRestartIntentClass,
+    pre_position_qty: Decimal,
+    expected_post_position_qty: Decimal,
+    order: &BrokerOrderSnapshot,
+) -> bool {
+    match intent_class {
+        Stage5gRestartIntentClass::Entry => {
+            let direction_matches = match order.side {
+                OrderSide::Buy => expected_post_position_qty > Decimal::ZERO,
+                OrderSide::Sell => expected_post_position_qty < Decimal::ZERO,
+            };
+            direction_matches
+                && expected_post_position_qty.abs() >= pre_position_qty.abs()
+                && order.filled_qty <= order.qty
+        }
+        Stage5gRestartIntentClass::Exit => {
+            expected_post_position_qty == Decimal::ZERO
+                || pre_position_qty != Decimal::ZERO
+                    && ((expected_post_position_qty > Decimal::ZERO
+                        && pre_position_qty > Decimal::ZERO)
+                        || (expected_post_position_qty < Decimal::ZERO
+                            && pre_position_qty < Decimal::ZERO))
+                    && expected_post_position_qty.abs() < pre_position_qty.abs()
+        }
+        Stage5gRestartIntentClass::ProtectiveRepair => expected_post_position_qty == Decimal::ZERO,
+        Stage5gRestartIntentClass::CancelCleanup => {
+            order.filled_qty == Decimal::ZERO && expected_post_position_qty == pre_position_qty
+        }
+    }
 }
 
 fn validate_source_position(
@@ -2462,11 +2563,19 @@ impl Stage5gOrderPositionSession {
                 request_id: slot.ack.request_id.to_string(),
                 expected_client_order_id: slot.ack.expected_client_order_id.clone(),
                 broker_order_id: slot.broker_order_id.clone(),
+                intent_class: slot.source.intent_class.into(),
                 side: slot.source.side.map(|side| match side {
                     crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
                     crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
                 }),
-                target_qty: slot.source.target_qty.map(|qty| qty.to_string()),
+                target_qty: slot.source.target_qty.and_then(Decimal::from_f64_retain),
+                pre_position_qty: Decimal::from_f64_retain(slot.source.pre_position_qty)
+                    .expect("validated source pre-position remains an exact Decimal"),
+                expected_attribution_fingerprint_sha256: slot
+                    .source
+                    .expected_attribution
+                    .as_ref()
+                    .map(|value| exact_id_hash("attribution", value.internal_comment())),
                 latest_order: slot.order_events.last().map(|event| event.order.clone()),
                 trades: slot.trades.clone(),
                 position: slot.position.as_ref().map(|(_, position)| position.clone()),
@@ -2554,7 +2663,7 @@ impl Stage5gMarketTerminalConvergedPaperStrategy {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use broker_core::command::CommandAck;
     use broker_core::{
         BrokerAccountId, BrokerOrderId, BrokerTradeId, ClientOrderId, Exchange, Market, TimeInForce,
@@ -7469,6 +7578,9 @@ mod tests {
     enum Stage5geCTestSourceKind {
         TimerReady,
         OrderPositionAwaiting,
+        BeforeAckNoSlot,
+        GeneratedIntentEscrow,
+        TerminalPositionApplied,
         ExactReplaySynchronized,
         NewPackageAwaiting,
     }
@@ -7519,6 +7631,79 @@ mod tests {
                 .unwrap()
                 .into_awaiting()
                 .unwrap();
+                crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
+            }
+            Stage5geCTestSourceKind::GeneratedIntentEscrow => {
+                let mut session = apply_stage5g_order_position_evidence(
+                    initial,
+                    Stage5gOrderPositionEvidence {
+                        total_sequence: 2,
+                        request_id,
+                        broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                        order_attribution: attribution,
+                    },
+                )
+                .unwrap()
+                .into_awaiting()
+                .unwrap();
+                for slot in &mut session.state.slots {
+                    slot.broker_order_id = None;
+                    slot.order_events.clear();
+                    slot.trades.clear();
+                    slot.position = None;
+                    slot.terminal = false;
+                }
+                crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
+            }
+            Stage5geCTestSourceKind::BeforeAckNoSlot => {
+                let mut session = apply_stage5g_order_position_evidence(
+                    initial,
+                    Stage5gOrderPositionEvidence {
+                        total_sequence: 2,
+                        request_id,
+                        broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                        order_attribution: attribution,
+                    },
+                )
+                .unwrap()
+                .into_awaiting()
+                .unwrap();
+                session.state.slots.clear();
+                crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
+            }
+            Stage5geCTestSourceKind::TerminalPositionApplied => {
+                let mut session = apply_stage5g_order_position_evidence(
+                    initial,
+                    Stage5gOrderPositionEvidence {
+                        total_sequence: 2,
+                        request_id,
+                        broker_truth: r2cb_golden_truth(&polls[0], &client_order_id, time_shift),
+                        order_attribution: attribution,
+                    },
+                )
+                .unwrap()
+                .into_awaiting()
+                .unwrap();
+                let slot = session
+                    .state
+                    .slots
+                    .first_mut()
+                    .expect("terminal fixture slot");
+                let order = &mut slot
+                    .order_events
+                    .last_mut()
+                    .expect("terminal fixture order")
+                    .order;
+                order.status = OrderStatus::Filled;
+                order.lifecycle = BrokerOrderSnapshot::lifecycle_for(&order.status);
+                order.filled_qty = order.qty;
+                order.remaining_qty = Some(Decimal::ZERO);
+                let fill_qty = order.qty;
+                let trade = slot.trades.first_mut().expect("terminal fixture trade");
+                trade.qty = fill_qty;
+                let (_, position) = slot.position.as_mut().expect("terminal fixture position");
+                position.qty = fill_qty;
+                slot.terminal = true;
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
             }
             Stage5geCTestSourceKind::ExactReplaySynchronized => {
@@ -7706,6 +7891,61 @@ mod tests {
 
     fn stage5ge_c_commitment_key() -> crate::Stage5gLifecycleCommitmentKey {
         crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap()
+    }
+
+    pub(crate) fn stage5g_edb_restored_timer_ready_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::TimerReady);
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_awaiting_fixture() -> crate::Stage5gCleanRestartedCapability
+    {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::OrderPositionAwaiting);
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_generated_escrow_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::GeneratedIntentEscrow);
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b escrow fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b escrow fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_before_ack_fixture() -> crate::Stage5gCleanRestartedCapability
+    {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::BeforeAckNoSlot);
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b pre-ACK fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b pre-ACK fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_terminal_applied_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::TerminalPositionApplied);
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b terminal fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b terminal fixture reconstructs through the accepted byte boundary")
     }
 
     fn assert_stage5ge_c_rehashed_error(

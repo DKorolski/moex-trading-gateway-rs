@@ -26,4 +26,4 @@ git worktree add --detach "$snapshot_root" "$r6_ref" >/dev/null
   bash scripts/stage5g_eda_r6_gate.sh
 )
 
-echo "stage5g-e-d-b-gate: PASS"
+echo "stage5g-e-d-b-r1-gate: PASS"

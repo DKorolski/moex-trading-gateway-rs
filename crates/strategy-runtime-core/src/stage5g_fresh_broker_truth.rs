@@ -195,7 +195,7 @@ pub(crate) struct Stage5gFreshBrokerTruthPackageV1 {
     pub(crate) positions: Vec<BrokerPositionSnapshot>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(crate) struct Stage5gReconciledFreshPackageIdentity {
     package_id: Stage5gPackageId,
     snapshot_epoch: Stage5gSnapshotEpoch,
@@ -224,6 +224,18 @@ pub(crate) enum Stage5gFreshPackageLineage {
     NewFresh,
     ExactLastReconciledReplay,
     ExactAcceptedHistoricalReplay,
+    ReplayFingerprintConflict,
+    UnknownHistoricalReplay,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Stage5gFreshTruthReplayAuthorityV1 {
+    pre_restart_package_id: String,
+    pre_restart_snapshot_epoch: String,
+    last_reconciled_fresh_package: Option<Stage5gReconciledFreshPackageIdentity>,
+    accepted_replay_ledger: Vec<Stage5gReconciledFreshPackageIdentity>,
+    known_historical_fresh_packages: Vec<Stage5gReconciledFreshPackageIdentity>,
 }
 
 /// Context proving post-restore collection and separating pre-restart identity
@@ -257,6 +269,16 @@ pub(crate) struct Stage5gValidatedFreshBrokerTruthPackage {
     positions: Vec<BrokerPositionSnapshot>,
     lineage: Stage5gFreshPackageLineage,
     canonical_fingerprint_sha256: String,
+    replay_authority: Stage5gFreshTruthReplayAuthorityV1,
+}
+
+/// Opaque restart-bound package admitted by the e-d-b owning reducer. It is
+/// deliberately non-Clone and non-serializable: only the binding constructor
+/// below can join validated fresh truth to an authenticated clean restart.
+pub(crate) struct Stage5gRestartBoundFreshBrokerTruthPackage {
+    package: Stage5gValidatedFreshBrokerTruthPackage,
+    operational_binding_commitment_sha256: String,
+    restart_replay_commitment_sha256: String,
 }
 
 impl Stage5gValidatedFreshBrokerTruthPackage {
@@ -271,6 +293,120 @@ impl Stage5gValidatedFreshBrokerTruthPackage {
     pub(crate) fn lineage(&self) -> Stage5gFreshPackageLineage {
         self.lineage
     }
+}
+
+pub(crate) fn bind_stage5g_fresh_truth_to_clean_restart(
+    restart: &crate::Stage5gCleanRestartedCapability,
+    package: Stage5gValidatedFreshBrokerTruthPackage,
+) -> Result<Stage5gRestartBoundFreshBrokerTruthPackage, Stage5gFreshBrokerTruthError> {
+    let projection = restart.fresh_truth_reducer_projection();
+    if projection.account_id != package.operational_identity.account_id
+        || projection.strategy_id != package.operational_identity.strategy_definition_id.as_str()
+        || projection.config_fingerprint_sha256
+            != package
+                .operational_identity
+                .config_fingerprint_sha256
+                .as_str()
+        || projection.instrument_id != package.operational_identity.target_instrument
+        || projection.strategy_state_fingerprint_sha256
+            != projection.reconstructed_runtime_state_fingerprint_sha256
+    {
+        return Err(Stage5gFreshBrokerTruthError::OperationalRestartBindingMismatch);
+    }
+    if !restart_replay_authority_matches(&projection.checkpoint, &package.replay_authority) {
+        return Err(Stage5gFreshBrokerTruthError::RestartReplayAuthorityMismatch);
+    }
+    let operational_binding_commitment_sha256 = stage5g_operational_binding_commitment(
+        &projection,
+        &package.operational_identity,
+        &package.replay_authority,
+    );
+    let restart_replay_commitment_sha256 =
+        stage5g_restart_replay_commitment(&projection, &package.replay_authority);
+    Ok(Stage5gRestartBoundFreshBrokerTruthPackage {
+        package,
+        operational_binding_commitment_sha256,
+        restart_replay_commitment_sha256,
+    })
+}
+
+pub(super) fn stage5g_operational_binding_commitment(
+    restart: &crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection,
+    identity: &Stage5gOperationalIdentityV1,
+    replay_authority: &Stage5gFreshTruthReplayAuthorityV1,
+) -> String {
+    #[derive(Serialize)]
+    struct BindingProjection<'a> {
+        domain: &'static str,
+        source_lifecycle_commit_sha256: &'a str,
+        lifecycle_source_authority_sha256: &'a str,
+        checkpoint: &'a crate::Stage5gTimerCheckpointEnvelope,
+        operational_identity: &'a Stage5gOperationalIdentityV1,
+        replay_authority: &'a Stage5gFreshTruthReplayAuthorityV1,
+    }
+    semantic_binding_sha256(&BindingProjection {
+        domain: "moex.stage5g.fresh-truth-operational-binding.v1",
+        source_lifecycle_commit_sha256: &restart.source_lifecycle_commit_sha256,
+        lifecycle_source_authority_sha256: &restart.lifecycle_source_authority_sha256,
+        checkpoint: &restart.checkpoint,
+        operational_identity: identity,
+        replay_authority,
+    })
+}
+
+pub(super) fn stage5g_restart_replay_commitment(
+    restart: &crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection,
+    replay_authority: &Stage5gFreshTruthReplayAuthorityV1,
+) -> String {
+    #[derive(Serialize)]
+    struct ReplayProjection<'a> {
+        domain: &'static str,
+        checkpoint_package_discriminator: &'a Option<String>,
+        checkpoint_current_evidence_identity: &'a Option<String>,
+        checkpoint_replay_ledger: &'a [crate::Stage5gReplayLedgerEntry],
+        checkpoint_payload_sha256: &'a str,
+        replay_authority: &'a Stage5gFreshTruthReplayAuthorityV1,
+    }
+    semantic_binding_sha256(&ReplayProjection {
+        domain: "moex.stage5g.fresh-truth-restart-replay.v1",
+        checkpoint_package_discriminator: &restart.checkpoint.payload.package_discriminator,
+        checkpoint_current_evidence_identity: &restart.checkpoint.payload.current_evidence_identity,
+        checkpoint_replay_ledger: &restart.checkpoint.payload.evidence_replay_ledger,
+        checkpoint_payload_sha256: &restart.checkpoint.payload_sha256,
+        replay_authority,
+    })
+}
+
+fn restart_replay_authority_matches(
+    checkpoint: &crate::Stage5gTimerCheckpointEnvelope,
+    replay: &Stage5gFreshTruthReplayAuthorityV1,
+) -> bool {
+    let Some(current_identity) = checkpoint.payload.current_evidence_identity.as_deref() else {
+        return false;
+    };
+    let Some(current_epoch) = checkpoint.payload.package_discriminator.as_deref() else {
+        return false;
+    };
+    let current_entry_exists = checkpoint
+        .payload
+        .evidence_replay_ledger
+        .iter()
+        .any(|entry| entry.identity == current_identity);
+    if !current_entry_exists
+        || replay.pre_restart_package_id != current_identity
+        || replay.pre_restart_snapshot_epoch != current_epoch
+        || replay.accepted_replay_ledger.len() > checkpoint.payload.evidence_replay_ledger.len()
+        || replay.known_historical_fresh_packages.len()
+            > checkpoint.payload.evidence_replay_ledger.len()
+    {
+        return false;
+    }
+    true
+}
+
+fn semantic_binding_sha256<T: Serialize>(value: &T) -> String {
+    let bytes = serde_json::to_vec(value).expect("validated binding projection serializes");
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,6 +483,8 @@ pub(crate) enum Stage5gFreshBrokerTruthError {
     UnsupportedSchemaVersion,
     InvalidOperationalIdentity,
     OperationalIdentityMismatch,
+    OperationalRestartBindingMismatch,
+    RestartReplayAuthorityMismatch,
     EmptyPackageId,
     EmptySnapshotEpoch,
     InvalidReplayFingerprint,
@@ -434,6 +572,13 @@ pub(crate) fn validate_stage5g_fresh_broker_truth_package(
         &canonical_fingerprint_sha256,
         &context,
     )?;
+    let replay_authority = Stage5gFreshTruthReplayAuthorityV1 {
+        pre_restart_package_id: context.pre_restart_package_id.to_owned(),
+        pre_restart_snapshot_epoch: context.pre_restart_snapshot_epoch.to_owned(),
+        last_reconciled_fresh_package: context.last_reconciled_fresh_package.cloned(),
+        accepted_replay_ledger: context.accepted_replay_ledger.to_vec(),
+        known_historical_fresh_packages: context.known_historical_fresh_packages.to_vec(),
+    };
 
     Ok(Stage5gValidatedFreshBrokerTruthPackage {
         package_id,
@@ -451,6 +596,7 @@ pub(crate) fn validate_stage5g_fresh_broker_truth_package(
         positions: package.positions,
         lineage,
         canonical_fingerprint_sha256,
+        replay_authority,
     })
 }
 
@@ -477,12 +623,12 @@ fn classify_lineage(
     validate_replay_ledger(context)?;
     if let Some(last) = context.last_reconciled_fresh_package {
         if package_id == &last.package_id {
-            return exact_lineage_or_conflict(
+            return Ok(exact_lineage_or_conflict(
                 snapshot_epoch,
                 fingerprint,
                 last,
                 Stage5gFreshPackageLineage::ExactLastReconciledReplay,
-            );
+            ));
         }
     }
     if let Some(historical) = context
@@ -490,24 +636,27 @@ fn classify_lineage(
         .iter()
         .find(|entry| &entry.package_id == package_id)
     {
-        return exact_lineage_or_conflict(
+        return Ok(exact_lineage_or_conflict(
             snapshot_epoch,
             fingerprint,
             historical,
             Stage5gFreshPackageLineage::ExactAcceptedHistoricalReplay,
-        );
+        ));
     }
     if let Some(known) = context
         .known_historical_fresh_packages
         .iter()
         .find(|entry| &entry.package_id == package_id)
     {
-        if known.snapshot_epoch != *snapshot_epoch
-            || known.canonical_fingerprint_sha256.as_str() != fingerprint
-        {
-            return Err(Stage5gFreshBrokerTruthError::FreshPackageIdentityConflict);
-        }
-        return Err(Stage5gFreshBrokerTruthError::HistoricalReplayNotAccepted);
+        return Ok(
+            if known.snapshot_epoch != *snapshot_epoch
+                || known.canonical_fingerprint_sha256.as_str() != fingerprint
+            {
+                Stage5gFreshPackageLineage::ReplayFingerprintConflict
+            } else {
+                Stage5gFreshPackageLineage::UnknownHistoricalReplay
+            },
+        );
     }
     if context
         .last_reconciled_fresh_package
@@ -526,13 +675,13 @@ fn exact_lineage_or_conflict(
     fingerprint: &str,
     expected: &Stage5gReconciledFreshPackageIdentity,
     exact: Stage5gFreshPackageLineage,
-) -> Result<Stage5gFreshPackageLineage, Stage5gFreshBrokerTruthError> {
+) -> Stage5gFreshPackageLineage {
     if snapshot_epoch == &expected.snapshot_epoch
         && fingerprint == expected.canonical_fingerprint_sha256.as_str()
     {
-        Ok(exact)
+        exact
     } else {
-        Err(Stage5gFreshBrokerTruthError::FreshPackageIdentityConflict)
+        Stage5gFreshPackageLineage::ReplayFingerprintConflict
     }
 }
 
@@ -1648,9 +1797,11 @@ mod tests {
 
         let mut changed = original;
         changed.orders[0].limit_price = Some(Decimal::new(2209, 0));
+        let conflict = validate_with_lineage(changed, Some(&last), &[], &[])
+            .expect("fingerprint conflict remains typed reducer evidence");
         assert_eq!(
-            validate_with_lineage(changed, Some(&last), &[], &[]).err(),
-            Some(Stage5gFreshBrokerTruthError::FreshPackageIdentityConflict)
+            conflict.lineage(),
+            Stage5gFreshPackageLineage::ReplayFingerprintConflict
         );
     }
 
@@ -1659,9 +1810,12 @@ mod tests {
         let original = package();
         let first = validate(original.clone()).expect("new package");
         let known = reconciled_identity(&first);
+        let unknown =
+            validate_with_lineage(original.clone(), None, &[], std::slice::from_ref(&known))
+                .expect("unknown historical replay remains typed reducer evidence");
         assert_eq!(
-            validate_with_lineage(original.clone(), None, &[], std::slice::from_ref(&known)).err(),
-            Some(Stage5gFreshBrokerTruthError::HistoricalReplayNotAccepted)
+            unknown.lineage(),
+            Stage5gFreshPackageLineage::UnknownHistoricalReplay
         );
 
         let accepted = validate_with_lineage(original, None, std::slice::from_ref(&known), &[])

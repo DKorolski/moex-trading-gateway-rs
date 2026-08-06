@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-b",
+  "stage": "5G-e-d-b-r1",
   "name": "fresh_mock_broker_truth_contract",
-  "status": "deterministic_reducer_review_candidate",
+  "status": "restart_bound_reducer_r1_review_candidate",
   "accepted_stage5g_e_d_a_r6_commit": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
+  "rejected_stage5g_e_d_b_commit": "8a02f2a6b6e27587539d1e4e4717301bf010e6a1",
   "accepted_predecessor_commit": "b9db87947723cf9c50e64b5fcc3b5ab30e857fd1",
   "rejected_predecessor_commit": "f44b154753ea8b60a73cfb6ee3b5e487263dcb3b",
   "rejected_r1_commit": "9a3221602a902bc6207418f0131665a039d62768",
@@ -37,7 +38,12 @@
     "canonical_identity_token_required": true,
     "chronology_mutation_complete": true,
     "validated_package_serializable": false,
-    "validated_package_owns_callback_authority": false
+    "validated_package_owns_callback_authority": false,
+    "restart_bound_full_operational_identity_required": true,
+    "restart_owned_replay_commitment_required": true,
+    "exact_trade_linkage_shared_helper_required": true,
+    "source_relative_decimal_position_required": true,
+    "status_position_completeness_matrix_required": true
   },
   "operational_identity_fields": [
     "broker_id",
@@ -77,6 +83,20 @@
     {"id": "GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION", "execution": "implemented_in_e_d_b", "obligation": "missing_ambiguous_incomplete_fail_closed"}
   ],
   "restart_scenario_count": 12,
+  "owning_boundary_source_reachable_case_ids": [
+    "GRST01_RESTART_BEFORE_ACK",
+    "GRST02_RESTART_AFTER_ACK_BEFORE_ORDER",
+    "GRST03_RESTART_WITH_WORKING_ORDER",
+    "GRST04_RESTART_AFTER_PARTIAL_FILL",
+    "GRST05_RESTART_FILLED_BEFORE_POSITION",
+    "GRST06_RESTART_AFTER_TERMINAL_POSITION_APPLIED",
+    "GRST07_RESTART_AT_TIMER_CHECKPOINT",
+    "GRST08_RESTART_WITH_GENERATED_INTENT_ESCROW",
+    "GRST09_EXACT_REPLAY_IS_IDEMPOTENT",
+    "GRST10_CONFLICTING_REPLAY_BLOCKS",
+    "GRST11_FRESH_BROKER_TRUTH_OVERRIDES_STALE_HINT",
+    "GRST12_MISSING_OR_AMBIGUOUS_TRUTH_REQUIRES_RECONCILIATION"
+  ],
   "implemented_restart_case_ids": [
     "GRST01_RESTART_BEFORE_ACK",
     "GRST02_RESTART_AFTER_ACK_BEFORE_ORDER",

@@ -6,8 +6,8 @@
 //! broker command.
 
 use broker_core::{
-    instrument_identity_matches, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot,
-    BrokerTradeSnapshot, ClientOrderId, OrderSide, OrderStatus,
+    BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeSnapshot, ClientOrderId,
+    OrderSide, OrderStatus,
 };
 use rust_decimal::Decimal;
 use serde::Serialize;
@@ -16,11 +16,17 @@ use sha2::{Digest, Sha256};
 use crate::stage5g_clean_restart::{
     Stage5gCleanRestartLifecycleKind, Stage5gFreshTruthRestartProjection,
 };
+use crate::stage5g_order_position::{
+    stage5g_exact_trade_order_linkage, stage5g_expected_post_position_qty,
+    stage5g_intent_position_is_compatible, Stage5gFreshTruthRestartSlotProjection,
+    Stage5gRestartIntentClass, Stage5gTradeOrderLinkage,
+};
 use crate::Stage5gCleanRestartedCapability;
 
 use super::{
-    Stage5gFreshPackageLineage, Stage5gRestartReconciliationDisposition, Stage5gRestartScenarioId,
-    Stage5gValidatedFreshBrokerTruthPackage,
+    stage5g_operational_binding_commitment, stage5g_restart_replay_commitment,
+    Stage5gFreshPackageLineage, Stage5gRestartBoundFreshBrokerTruthPackage,
+    Stage5gRestartReconciliationDisposition, Stage5gRestartScenarioId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -53,14 +59,19 @@ pub(crate) enum Stage5gFreshTruthReductionReason {
 /// Opaque candidate for the separately reviewed e-d-c application/evidence
 /// boundary.  Deliberately not Clone, Debug, Serialize or Deserialize.
 pub(crate) struct Stage5gOwnedReconciliationCandidate {
+    operational_binding_commitment_sha256: String,
     request_id: String,
     client_order_id: ClientOrderId,
     broker_order_id: Option<BrokerOrderId>,
+    intent_class: Stage5gRestartIntentClass,
     side: Option<OrderSide>,
-    target_qty: Option<String>,
+    target_qty: Option<Decimal>,
+    pre_position_qty: Decimal,
+    expected_attribution_fingerprint_sha256: Option<String>,
     order: BrokerOrderSnapshot,
     trades: Vec<BrokerTradeSnapshot>,
     position: Option<BrokerPositionSnapshot>,
+    positions_complete: bool,
 }
 
 /// Linear reduction result. Ownership of both accepted inputs is retained so
@@ -73,7 +84,7 @@ pub(crate) struct Stage5gFreshTruthReduction {
     post_candidate_fingerprint_sha256: String,
     candidate: Option<Stage5gOwnedReconciliationCandidate>,
     _restart: Stage5gCleanRestartedCapability,
-    _truth: Stage5gValidatedFreshBrokerTruthPackage,
+    _truth: Stage5gRestartBoundFreshBrokerTruthPackage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -82,6 +93,9 @@ pub(crate) struct Stage5gFreshTruthReductionEvidence {
     pub(crate) disposition: &'static str,
     pub(crate) reason: Stage5gFreshTruthReductionReason,
     pub(crate) package_fingerprint_sha256: String,
+    pub(crate) package_identity_commitment_sha256: String,
+    pub(crate) operational_binding_commitment_sha256: String,
+    pub(crate) restart_replay_commitment_sha256: String,
     pub(crate) pre_semantic_fingerprint_sha256: String,
     pub(crate) post_candidate_fingerprint_sha256: String,
     pub(crate) orders_complete: bool,
@@ -102,12 +116,18 @@ impl Stage5gFreshTruthReduction {
             scenario_id: self.scenario_id.frozen_id(),
             disposition: disposition_id(self.disposition),
             reason: self.reason,
-            package_fingerprint_sha256: self._truth.canonical_fingerprint_sha256.clone(),
+            package_fingerprint_sha256: self._truth.package.canonical_fingerprint_sha256.clone(),
+            package_identity_commitment_sha256: package_identity_commitment(&self._truth),
+            operational_binding_commitment_sha256: self
+                ._truth
+                .operational_binding_commitment_sha256
+                .clone(),
+            restart_replay_commitment_sha256: self._truth.restart_replay_commitment_sha256.clone(),
             pre_semantic_fingerprint_sha256: self.pre_semantic_fingerprint_sha256.clone(),
             post_candidate_fingerprint_sha256: self.post_candidate_fingerprint_sha256.clone(),
-            orders_complete: self._truth.orders_complete,
-            trades_complete: self._truth.trades_complete,
-            positions_complete: self._truth.positions_complete,
+            orders_complete: self._truth.package.orders_complete,
+            trades_complete: self._truth.package.trades_complete,
+            positions_complete: self._truth.package.positions_complete,
             candidate_present: self.candidate.is_some(),
             callback_count_before: restart.callback_count,
             callback_count_after: restart.callback_count,
@@ -121,7 +141,7 @@ impl Stage5gFreshTruthReduction {
 /// The single owning e-d-b reducer entry point.
 pub(crate) fn reduce_stage5g_fresh_broker_truth(
     restart: Stage5gCleanRestartedCapability,
-    truth: Stage5gValidatedFreshBrokerTruthPackage,
+    truth: Stage5gRestartBoundFreshBrokerTruthPackage,
 ) -> Stage5gFreshTruthReduction {
     let restart_projection = restart.fresh_truth_reducer_projection();
     let pre_semantic_fingerprint_sha256 = semantic_sha256(&restart_projection);
@@ -152,9 +172,10 @@ struct Classified {
 
 fn classify(
     restart: &Stage5gFreshTruthRestartProjection,
-    truth: &Stage5gValidatedFreshBrokerTruthPackage,
+    bound_truth: &Stage5gRestartBoundFreshBrokerTruthPackage,
 ) -> Classified {
-    if !cross_binding_matches(restart, truth) {
+    let truth = &bound_truth.package;
+    if !cross_binding_matches(restart, bound_truth) {
         return blocked(
             Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
             Stage5gRestartReconciliationDisposition::ReconciliationRequired,
@@ -164,6 +185,9 @@ fn classify(
 
     match truth.lineage {
         Stage5gFreshPackageLineage::ExactLastReconciledReplay => {
+            if !exact_current_replay_matches_restart(truth) {
+                return replay_conflict();
+            }
             return blocked(
                 replay_scenario(restart),
                 Stage5gRestartReconciliationDisposition::ExactReplay,
@@ -175,10 +199,23 @@ fn classify(
             );
         }
         Stage5gFreshPackageLineage::ExactAcceptedHistoricalReplay => {
+            if !exact_historical_replay_matches_restart(truth) {
+                return replay_conflict();
+            }
             return blocked(
                 replay_scenario(restart),
                 Stage5gRestartReconciliationDisposition::ExactReplay,
                 Stage5gFreshTruthReductionReason::ExactHistoricalReplay,
+            );
+        }
+        Stage5gFreshPackageLineage::ReplayFingerprintConflict => {
+            return replay_conflict();
+        }
+        Stage5gFreshPackageLineage::UnknownHistoricalReplay => {
+            return blocked(
+                Stage5gRestartScenarioId::Grst12MissingOrAmbiguousTruthRequiresReconciliation,
+                Stage5gRestartReconciliationDisposition::ManualInterventionRequired,
+                Stage5gFreshTruthReductionReason::ReplayFingerprintConflict,
             );
         }
         Stage5gFreshPackageLineage::NewFresh => {}
@@ -200,17 +237,17 @@ fn classify(
     let target_orders = truth
         .orders
         .iter()
-        .filter(|row| instrument_identity_matches(&row.instrument, &restart.instrument_id))
+        .filter(|row| row.instrument == restart.instrument_id)
         .collect::<Vec<_>>();
     let target_trades = truth
         .trades
         .iter()
-        .filter(|row| instrument_identity_matches(&row.instrument, &restart.instrument_id))
+        .filter(|row| row.instrument == restart.instrument_id)
         .collect::<Vec<_>>();
     let target_positions = truth
         .positions
         .iter()
-        .filter(|row| instrument_identity_matches(&row.instrument, &restart.instrument_id))
+        .filter(|row| row.instrument == restart.instrument_id)
         .collect::<Vec<_>>();
 
     if target_positions.len() > 1 {
@@ -222,19 +259,41 @@ fn classify(
     }
 
     if restart.lifecycle_kind == Stage5gCleanRestartLifecycleKind::TimerReady {
-        return blocked(
-            Stage5gRestartScenarioId::Grst07RestartAtTimerCheckpoint,
-            Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint,
-            Stage5gFreshTruthReductionReason::TimerCheckpointExact,
-        );
+        if !truth.positions_complete {
+            return incomplete(
+                restart,
+                Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
+            );
+        }
+        let observed_position = observed_complete_position_qty(&target_positions);
+        return if target_orders.is_empty()
+            && target_trades.is_empty()
+            && observed_position == Some(restart.committed_position_qty)
+        {
+            blocked(
+                Stage5gRestartScenarioId::Grst07RestartAtTimerCheckpoint,
+                Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint,
+                Stage5gFreshTruthReductionReason::TimerCheckpointExact,
+            )
+        } else {
+            blocked(
+                Stage5gRestartScenarioId::Grst12MissingOrAmbiguousTruthRequiresReconciliation,
+                Stage5gRestartReconciliationDisposition::TerminalInconsistency,
+                Stage5gFreshTruthReductionReason::UnexpectedTargetPosition,
+            )
+        };
     }
 
     if restart.slots.is_empty() {
-        let target_position_is_flat = match target_positions.first() {
-            Some(position) => position.qty == Decimal::ZERO,
-            None => true,
-        };
-        return if target_orders.is_empty() && target_position_is_flat {
+        if !truth.positions_complete {
+            return incomplete(
+                restart,
+                Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
+            );
+        }
+        let target_position_matches = observed_complete_position_qty(&target_positions)
+            == Some(restart.committed_position_qty);
+        return if target_orders.is_empty() && target_trades.is_empty() && target_position_matches {
             blocked(
                 Stage5gRestartScenarioId::Grst01RestartBeforeAck,
                 Stage5gRestartReconciliationDisposition::AwaitFreshBrokerTruth,
@@ -324,30 +383,34 @@ fn classify(
         );
     }
 
-    let linked_trades = target_trades
-        .iter()
-        .copied()
-        .filter(|trade| {
-            trade.client_order_id == order.client_order_id
-                || trade.broker_order_id == order.broker_order_id
-        })
-        .collect::<Vec<_>>();
-    if linked_trades.len() != target_trades.len() {
-        return blocked(
-            Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
-            Stage5gRestartReconciliationDisposition::ManualInterventionRequired,
-            Stage5gFreshTruthReductionReason::TradeIdentityConflict,
-        );
+    let mut linked_trades = Vec::with_capacity(target_trades.len());
+    for trade in target_trades {
+        match stage5g_exact_trade_order_linkage(order, trade) {
+            Stage5gTradeOrderLinkage::Exact => linked_trades.push(trade),
+            Stage5gTradeOrderLinkage::Unrelated | Stage5gTradeOrderLinkage::Conflict => {
+                return blocked(
+                    Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
+                    Stage5gRestartReconciliationDisposition::ManualInterventionRequired,
+                    Stage5gFreshTruthReductionReason::TradeIdentityConflict,
+                );
+            }
+        }
     }
-    if target_trades.iter().any(|trade| {
-        trade.client_order_id == order.client_order_id
-            || trade.broker_order_id == order.broker_order_id
-    }) && linked_trades.iter().any(|trade| trade.side != order.side)
-    {
+    if linked_trades.iter().any(|trade| trade.side != order.side) {
         return blocked(
             Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
             Stage5gRestartReconciliationDisposition::TerminalInconsistency,
             Stage5gFreshTruthReductionReason::TradeIdentityConflict,
+        );
+    }
+    if slot
+        .target_qty
+        .is_some_and(|expected| expected != order.qty)
+    {
+        return blocked(
+            Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
+            Stage5gRestartReconciliationDisposition::TerminalInconsistency,
+            Stage5gFreshTruthReductionReason::TerminalContradiction,
         );
     }
     let trade_sum = linked_trades
@@ -361,19 +424,44 @@ fn classify(
         );
     }
 
+    let expected_position = stage5g_expected_post_position_qty(slot.pre_position_qty, order);
+    let observed_position = truth
+        .positions_complete
+        .then(|| observed_complete_position_qty(&target_positions))
+        .flatten();
+    let position_is_exact = observed_position == Some(expected_position);
+    let intent_is_compatible = stage5g_intent_position_is_compatible(
+        slot.intent_class,
+        slot.pre_position_qty,
+        expected_position,
+        order,
+    );
+
     match order.status {
-        OrderStatus::New | OrderStatus::Working => candidate(
-            if slot.broker_order_id.is_none() {
-                Stage5gRestartScenarioId::Grst02RestartAfterAckBeforeOrder
-            } else {
-                Stage5gRestartScenarioId::Grst03RestartWithWorkingOrder
-            },
-            Stage5gFreshTruthReductionReason::FreshWorkingOrderMatched,
-            slot,
-            order,
-            linked_trades,
-            target_positions.first().copied(),
-        ),
+        OrderStatus::New | OrderStatus::Working => {
+            if order.filled_qty > Decimal::ZERO || !linked_trades.is_empty() {
+                return terminal_contradiction();
+            }
+            if truth.positions_complete && !position_is_exact {
+                return position_conflict(expected_position, observed_position);
+            }
+            candidate(
+                if slot.broker_order_id.is_none() {
+                    Stage5gRestartScenarioId::Grst02RestartAfterAckBeforeOrder
+                } else {
+                    Stage5gRestartScenarioId::Grst03RestartWithWorkingOrder
+                },
+                Stage5gFreshTruthReductionReason::FreshWorkingOrderMatched,
+                bound_truth,
+                slot,
+                CandidateBrokerRows {
+                    order,
+                    trades: linked_trades,
+                    position: target_positions.first().copied(),
+                    positions_complete: truth.positions_complete,
+                },
+            )
+        }
         OrderStatus::PartiallyFilled => {
             if !truth.positions_complete {
                 return incomplete(
@@ -381,31 +469,24 @@ fn classify(
                     Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
                 );
             }
-            let Some(position) = target_positions.first().copied() else {
-                return blocked(
-                    Stage5gRestartScenarioId::Grst04RestartAfterPartialFill,
-                    Stage5gRestartReconciliationDisposition::ReconciliationRequired,
-                    Stage5gFreshTruthReductionReason::PositionQuantityMismatch,
-                );
-            };
-            if !position_matches_fill(position, order) {
-                return blocked(
-                    Stage5gRestartScenarioId::Grst04RestartAfterPartialFill,
-                    Stage5gRestartReconciliationDisposition::ReconciliationRequired,
-                    if (position.qty < Decimal::ZERO) != (signed_fill(order) < Decimal::ZERO) {
-                        Stage5gFreshTruthReductionReason::PositionDirectionMismatch
-                    } else {
-                        Stage5gFreshTruthReductionReason::PositionQuantityMismatch
-                    },
-                );
+            if order.filled_qty <= Decimal::ZERO
+                || order.filled_qty >= order.qty
+                || !position_is_exact
+                || !intent_is_compatible
+            {
+                return position_conflict(expected_position, observed_position);
             }
             candidate(
                 Stage5gRestartScenarioId::Grst04RestartAfterPartialFill,
                 Stage5gFreshTruthReductionReason::PartialFillPositionConverged,
+                bound_truth,
                 slot,
-                order,
-                linked_trades,
-                Some(position),
+                CandidateBrokerRows {
+                    order,
+                    trades: linked_trades,
+                    position: target_positions.first().copied(),
+                    positions_complete: true,
+                },
             )
         }
         OrderStatus::Filled => {
@@ -416,20 +497,15 @@ fn classify(
                     Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
                 );
             }
-            let fresh_position = target_positions.first().copied();
-            if let Some(position) = fresh_position {
-                if !position_matches_fill(position, order) {
-                    return blocked(
-                        Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
-                        Stage5gRestartReconciliationDisposition::TerminalInconsistency,
-                        Stage5gFreshTruthReductionReason::PositionQuantityMismatch,
-                    );
-                }
+            if !position_is_exact || order.filled_qty > Decimal::ZERO && !intent_is_compatible {
+                return position_conflict(expected_position, observed_position);
             }
-            if slot.terminal
-                && slot.position.as_ref().map(|position| position.qty)
-                    == fresh_position.map(|position| position.qty)
-            {
+            let committed_position = slot
+                .position
+                .as_ref()
+                .map(|position| position.qty)
+                .unwrap_or(Decimal::ZERO);
+            if slot.terminal && committed_position == expected_position {
                 blocked(
                     Stage5gRestartScenarioId::Grst06RestartAfterTerminalPositionApplied,
                     Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint,
@@ -439,21 +515,66 @@ fn classify(
                 candidate(
                     Stage5gRestartScenarioId::Grst11FreshBrokerTruthOverridesStaleHint,
                     Stage5gFreshTruthReductionReason::FreshTerminalOrderMatched,
+                    bound_truth,
                     slot,
-                    order,
-                    linked_trades,
-                    fresh_position,
+                    CandidateBrokerRows {
+                        order,
+                        trades: linked_trades,
+                        position: target_positions.first().copied(),
+                        positions_complete: true,
+                    },
                 )
             }
         }
-        OrderStatus::Canceled | OrderStatus::Rejected | OrderStatus::Expired => candidate(
-            Stage5gRestartScenarioId::Grst11FreshBrokerTruthOverridesStaleHint,
-            Stage5gFreshTruthReductionReason::FreshTerminalOrderMatched,
-            slot,
-            order,
-            linked_trades,
-            target_positions.first().copied(),
-        ),
+        OrderStatus::Rejected => {
+            if order.filled_qty > Decimal::ZERO || !linked_trades.is_empty() {
+                return terminal_contradiction();
+            }
+            if !truth.positions_complete {
+                return incomplete(
+                    restart,
+                    Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
+                );
+            }
+            if observed_position != Some(slot.pre_position_qty) {
+                return position_conflict(slot.pre_position_qty, observed_position);
+            }
+            candidate(
+                Stage5gRestartScenarioId::Grst11FreshBrokerTruthOverridesStaleHint,
+                Stage5gFreshTruthReductionReason::FreshTerminalOrderMatched,
+                bound_truth,
+                slot,
+                CandidateBrokerRows {
+                    order,
+                    trades: linked_trades,
+                    position: target_positions.first().copied(),
+                    positions_complete: true,
+                },
+            )
+        }
+        OrderStatus::Canceled | OrderStatus::Expired => {
+            if !truth.positions_complete {
+                return incomplete(
+                    restart,
+                    Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
+                );
+            }
+            if !position_is_exact || order.filled_qty > Decimal::ZERO && !intent_is_compatible {
+                return position_conflict(expected_position, observed_position);
+            }
+            candidate(
+                Stage5gRestartScenarioId::Grst11FreshBrokerTruthOverridesStaleHint,
+                Stage5gFreshTruthReductionReason::FreshTerminalOrderMatched,
+                bound_truth,
+                slot,
+                CandidateBrokerRows {
+                    order,
+                    trades: linked_trades,
+                    position: target_positions.first().copied(),
+                    positions_complete: true,
+                },
+            )
+        }
         OrderStatus::Unknown(_) => blocked(
             Stage5gRestartScenarioId::Grst12MissingOrAmbiguousTruthRequiresReconciliation,
             Stage5gRestartReconciliationDisposition::ReconciliationRequired,
@@ -464,21 +585,65 @@ fn classify(
 
 fn cross_binding_matches(
     restart: &Stage5gFreshTruthRestartProjection,
-    truth: &Stage5gValidatedFreshBrokerTruthPackage,
+    truth: &Stage5gRestartBoundFreshBrokerTruthPackage,
 ) -> bool {
-    restart.account_id == truth.operational_identity.account_id
-        && restart.strategy_id == truth.operational_identity.strategy_definition_id.as_str()
+    let package = &truth.package;
+    restart.account_id == package.operational_identity.account_id
+        && restart.strategy_id == package.operational_identity.strategy_definition_id.as_str()
         && restart.config_fingerprint_sha256
-            == truth
+            == package
                 .operational_identity
                 .config_fingerprint_sha256
                 .as_str()
-        && instrument_identity_matches(
-            &restart.instrument_id,
-            &truth.operational_identity.target_instrument,
-        )
+        && restart.instrument_id == package.operational_identity.target_instrument
         && restart.strategy_state_fingerprint_sha256
             == restart.reconstructed_runtime_state_fingerprint_sha256
+        && truth.operational_binding_commitment_sha256
+            == stage5g_operational_binding_commitment(
+                restart,
+                &package.operational_identity,
+                &package.replay_authority,
+            )
+        && truth.restart_replay_commitment_sha256
+            == stage5g_restart_replay_commitment(restart, &package.replay_authority)
+}
+
+fn exact_current_replay_matches_restart(
+    truth: &super::Stage5gValidatedFreshBrokerTruthPackage,
+) -> bool {
+    truth
+        .replay_authority
+        .last_reconciled_fresh_package
+        .as_ref()
+        .is_some_and(|expected| {
+            expected.package_id == truth.package_id
+                && expected.snapshot_epoch == truth.snapshot_epoch
+                && expected.canonical_fingerprint_sha256.as_str()
+                    == truth.canonical_fingerprint_sha256
+        })
+}
+
+fn exact_historical_replay_matches_restart(
+    truth: &super::Stage5gValidatedFreshBrokerTruthPackage,
+) -> bool {
+    truth
+        .replay_authority
+        .accepted_replay_ledger
+        .iter()
+        .any(|expected| {
+            expected.package_id == truth.package_id
+                && expected.snapshot_epoch == truth.snapshot_epoch
+                && expected.canonical_fingerprint_sha256.as_str()
+                    == truth.canonical_fingerprint_sha256
+        })
+}
+
+fn replay_conflict() -> Classified {
+    blocked(
+        Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
+        Stage5gRestartReconciliationDisposition::ReconciliationRequired,
+        Stage5gFreshTruthReductionReason::ReplayFingerprintConflict,
+    )
 }
 
 fn replay_scenario(restart: &Stage5gFreshTruthRestartProjection) -> Stage5gRestartScenarioId {
@@ -521,23 +686,37 @@ fn blocked(
     }
 }
 
+struct CandidateBrokerRows<'a> {
+    order: &'a BrokerOrderSnapshot,
+    trades: Vec<&'a BrokerTradeSnapshot>,
+    position: Option<&'a BrokerPositionSnapshot>,
+    positions_complete: bool,
+}
+
 fn candidate(
     scenario_id: Stage5gRestartScenarioId,
     reason: Stage5gFreshTruthReductionReason,
-    slot: &crate::stage5g_order_position::Stage5gFreshTruthRestartSlotProjection,
-    order: &BrokerOrderSnapshot,
-    trades: Vec<&BrokerTradeSnapshot>,
-    position: Option<&BrokerPositionSnapshot>,
+    truth: &Stage5gRestartBoundFreshBrokerTruthPackage,
+    slot: &Stage5gFreshTruthRestartSlotProjection,
+    rows: CandidateBrokerRows<'_>,
 ) -> Classified {
+    let order = rows.order;
     let candidate = Stage5gOwnedReconciliationCandidate {
+        operational_binding_commitment_sha256: truth.operational_binding_commitment_sha256.clone(),
         request_id: slot.request_id.clone(),
         client_order_id: slot.expected_client_order_id.clone(),
         broker_order_id: order.broker_order_id.clone(),
+        intent_class: slot.intent_class,
         side: slot.side,
-        target_qty: slot.target_qty.clone(),
+        target_qty: slot.target_qty,
+        pre_position_qty: slot.pre_position_qty,
+        expected_attribution_fingerprint_sha256: slot
+            .expected_attribution_fingerprint_sha256
+            .clone(),
         order: order.clone(),
-        trades: trades.into_iter().cloned().collect(),
-        position: position.cloned(),
+        trades: rows.trades.into_iter().cloned().collect(),
+        position: rows.position.cloned(),
+        positions_complete: rows.positions_complete,
     };
     if !candidate_is_self_consistent(&candidate) {
         return blocked(
@@ -556,7 +735,49 @@ fn candidate(
 
 fn candidate_is_self_consistent(candidate: &Stage5gOwnedReconciliationCandidate) -> bool {
     let order = &candidate.order;
+    let expected_position = stage5g_expected_post_position_qty(candidate.pre_position_qty, order);
+    let observed_position = candidate
+        .position
+        .as_ref()
+        .map(|position| position.qty)
+        .unwrap_or(Decimal::ZERO);
+    let trades_are_exact = candidate.trades.iter().all(|trade| {
+        trade.side == order.side
+            && stage5g_exact_trade_order_linkage(order, trade) == Stage5gTradeOrderLinkage::Exact
+    });
+    let trade_sum = candidate
+        .trades
+        .iter()
+        .fold(Decimal::ZERO, |sum, trade| sum + trade.qty);
+    let position_is_exact = !candidate.positions_complete || observed_position == expected_position;
+    let status_is_consistent = match order.status {
+        OrderStatus::New | OrderStatus::Working => {
+            order.filled_qty == Decimal::ZERO && candidate.trades.is_empty() && position_is_exact
+        }
+        OrderStatus::PartiallyFilled => {
+            order.filled_qty > Decimal::ZERO
+                && order.filled_qty < order.qty
+                && candidate.positions_complete
+                && observed_position == expected_position
+        }
+        OrderStatus::Filled => {
+            order.filled_qty == order.qty
+                && candidate.positions_complete
+                && observed_position == expected_position
+        }
+        OrderStatus::Rejected => {
+            order.filled_qty == Decimal::ZERO
+                && candidate.trades.is_empty()
+                && candidate.positions_complete
+                && observed_position == candidate.pre_position_qty
+        }
+        OrderStatus::Canceled | OrderStatus::Expired => {
+            candidate.positions_complete && observed_position == expected_position
+        }
+        OrderStatus::Unknown(_) => false,
+    };
     !candidate.request_id.is_empty()
+        && candidate.operational_binding_commitment_sha256.len() == 64
         && order.client_order_id.as_ref() == Some(&candidate.client_order_id)
         && order.broker_order_id == candidate.broker_order_id
         && candidate
@@ -565,37 +786,74 @@ fn candidate_is_self_consistent(candidate: &Stage5gOwnedReconciliationCandidate)
             .unwrap_or(true)
         && candidate
             .target_qty
-            .as_deref()
-            .map(|qty| qty.parse::<Decimal>().ok() == Some(order.qty))
+            .map(|qty| qty == order.qty)
             .unwrap_or(true)
-        && candidate.trades.iter().all(|trade| {
-            trade.side == order.side
-                && (trade.client_order_id == order.client_order_id
-                    || trade.broker_order_id == order.broker_order_id)
-        })
-        && candidate
-            .trades
-            .iter()
-            .fold(Decimal::ZERO, |sum, trade| sum + trade.qty)
-            == order.filled_qty
+        && trades_are_exact
+        && trade_sum == order.filled_qty
+        && (order.filled_qty == Decimal::ZERO
+            || stage5g_intent_position_is_compatible(
+                candidate.intent_class,
+                candidate.pre_position_qty,
+                expected_position,
+                order,
+            ))
+        && status_is_consistent
         && match candidate.position.as_ref() {
             Some(position) => {
-                position.account_id == order.account_id
-                    && instrument_identity_matches(&position.instrument, &order.instrument)
+                position.account_id == order.account_id && position.instrument == order.instrument
             }
             None => true,
         }
 }
 
-fn signed_fill(order: &BrokerOrderSnapshot) -> Decimal {
-    match order.side {
-        OrderSide::Buy => order.filled_qty,
-        OrderSide::Sell => -order.filled_qty,
+fn observed_complete_position_qty(positions: &[&BrokerPositionSnapshot]) -> Option<Decimal> {
+    match positions {
+        [] => Some(Decimal::ZERO),
+        [position] => Some(position.qty),
+        _ => None,
     }
 }
 
-fn position_matches_fill(position: &BrokerPositionSnapshot, order: &BrokerOrderSnapshot) -> bool {
-    position.qty == signed_fill(order)
+fn position_conflict(expected: Decimal, observed: Option<Decimal>) -> Classified {
+    let direction_conflict = observed.is_some_and(|actual| {
+        actual != Decimal::ZERO
+            && expected != Decimal::ZERO
+            && ((actual > Decimal::ZERO && expected < Decimal::ZERO)
+                || (actual < Decimal::ZERO && expected > Decimal::ZERO))
+    });
+    blocked(
+        Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
+        Stage5gRestartReconciliationDisposition::TerminalInconsistency,
+        if direction_conflict {
+            Stage5gFreshTruthReductionReason::PositionDirectionMismatch
+        } else {
+            Stage5gFreshTruthReductionReason::PositionQuantityMismatch
+        },
+    )
+}
+
+fn terminal_contradiction() -> Classified {
+    blocked(
+        Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks,
+        Stage5gRestartReconciliationDisposition::TerminalInconsistency,
+        Stage5gFreshTruthReductionReason::TerminalContradiction,
+    )
+}
+
+fn package_identity_commitment(truth: &Stage5gRestartBoundFreshBrokerTruthPackage) -> String {
+    #[derive(Serialize)]
+    struct PackageIdentityProjection<'a> {
+        domain: &'static str,
+        package_id: &'a str,
+        snapshot_epoch: &'a str,
+        canonical_fingerprint_sha256: &'a str,
+    }
+    semantic_sha256(&PackageIdentityProjection {
+        domain: "moex.stage5g.fresh-truth-package-identity.v1",
+        package_id: truth.package.package_id.as_str(),
+        snapshot_epoch: truth.package.snapshot_epoch.as_str(),
+        canonical_fingerprint_sha256: &truth.package.canonical_fingerprint_sha256,
+    })
 }
 
 fn semantic_sha256<T: Serialize>(value: &T) -> String {
@@ -607,25 +865,35 @@ fn candidate_fingerprint(candidate: &Stage5gOwnedReconciliationCandidate) -> Str
     #[derive(Serialize)]
     struct CandidateProjection<'a> {
         domain: &'static str,
+        operational_binding_commitment_sha256: &'a str,
         request_id: &'a str,
         client_order_id: &'a ClientOrderId,
         broker_order_id: &'a Option<BrokerOrderId>,
+        intent_class: Stage5gRestartIntentClass,
         side: Option<OrderSide>,
-        target_qty: &'a Option<String>,
+        target_qty: &'a Option<Decimal>,
+        pre_position_qty: Decimal,
+        expected_attribution_fingerprint_sha256: &'a Option<String>,
         order: &'a BrokerOrderSnapshot,
         trades: &'a [BrokerTradeSnapshot],
         position: &'a Option<BrokerPositionSnapshot>,
+        positions_complete: bool,
     }
     semantic_sha256(&CandidateProjection {
         domain: "moex.stage5g.fresh-truth-candidate.v1",
+        operational_binding_commitment_sha256: &candidate.operational_binding_commitment_sha256,
         request_id: &candidate.request_id,
         client_order_id: &candidate.client_order_id,
         broker_order_id: &candidate.broker_order_id,
+        intent_class: candidate.intent_class,
         side: candidate.side,
         target_qty: &candidate.target_qty,
+        pre_position_qty: candidate.pre_position_qty,
+        expected_attribution_fingerprint_sha256: &candidate.expected_attribution_fingerprint_sha256,
         order: &candidate.order,
         trades: &candidate.trades,
         position: &candidate.position,
+        positions_complete: candidate.positions_complete,
     })
 }
 
@@ -663,11 +931,17 @@ mod tests {
     use super::*;
     use crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection;
     use crate::stage5g_fresh_broker_truth::{
+        bind_stage5g_fresh_truth_to_clean_restart, validate_stage5g_fresh_broker_truth_package,
         Stage5gBrokerId, Stage5gDeploymentGeneration, Stage5gDeploymentId, Stage5gFeedGeneration,
-        Stage5gGatewayInstanceId, Stage5gOperationalIdentityV1, Stage5gPackageId, Stage5gSha256,
+        Stage5gFreshBrokerTruthPackageV1, Stage5gFreshBrokerTruthValidationContext,
+        Stage5gGatewayInstanceId, Stage5gOperationalIdentityInput, Stage5gOperationalIdentityV1,
+        Stage5gPackageId, Stage5gReconciledFreshPackageIdentity, Stage5gSha256,
         Stage5gSnapshotEpoch, Stage5gStrategyDefinitionId, Stage5gStrategyInstanceId,
+        Stage5gValidatedFreshBrokerTruthPackage, STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
     };
-    use crate::stage5g_order_position::Stage5gFreshTruthRestartSlotProjection;
+    use crate::stage5g_order_position::{
+        Stage5gFreshTruthRestartSlotProjection, Stage5gRestartIntentClass,
+    };
     use crate::stage5g_timer::{Stage5gTimerCheckpointEnvelope, Stage5gTimerCheckpointPayload};
 
     const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -727,6 +1001,7 @@ mod tests {
             source_lifecycle_commit_sha256: SHA.to_owned(),
             lifecycle_source_authority_sha256: SHA.to_owned(),
             checkpoint: checkpoint(),
+            committed_position_qty: Decimal::ZERO,
             slots: slot.into_iter().collect(),
             generated_intent_escrow_fingerprint_sha256: escrow.then(|| SHA.to_owned()),
         }
@@ -740,8 +1015,11 @@ mod tests {
             request_id: "00000000-0000-0000-0000-000000000001".to_owned(),
             expected_client_order_id: ClientOrderId::new("CLIENT-1").expect("client id"),
             broker_order_id: broker_order_id.map(BrokerOrderId::new),
+            intent_class: Stage5gRestartIntentClass::Entry,
             side: Some(OrderSide::Buy),
-            target_qty: Some("1".to_owned()),
+            target_qty: Some(Decimal::ONE),
+            pre_position_qty: Decimal::ZERO,
+            expected_attribution_fingerprint_sha256: None,
             latest_order: None,
             trades: Vec::new(),
             position: None,
@@ -857,7 +1135,247 @@ mod tests {
             positions,
             lineage,
             canonical_fingerprint_sha256: SHA.to_owned(),
+            replay_authority: super::super::Stage5gFreshTruthReplayAuthorityV1 {
+                pre_restart_package_id: "restart-evidence".to_owned(),
+                pre_restart_snapshot_epoch: "restart-package".to_owned(),
+                last_reconciled_fresh_package: Some(
+                    super::super::Stage5gReconciledFreshPackageIdentity::validate(
+                        "fresh-package-2",
+                        "snapshot-epoch-2",
+                        SHA,
+                    )
+                    .expect("replay identity"),
+                ),
+                accepted_replay_ledger: Vec::new(),
+                known_historical_fresh_packages: Vec::new(),
+            },
         }
+    }
+
+    fn clone_truth(
+        truth: &Stage5gValidatedFreshBrokerTruthPackage,
+    ) -> Stage5gValidatedFreshBrokerTruthPackage {
+        Stage5gValidatedFreshBrokerTruthPackage {
+            package_id: truth.package_id.clone(),
+            snapshot_epoch: truth.snapshot_epoch.clone(),
+            operational_identity: truth.operational_identity.clone(),
+            captured_at: truth.captured_at,
+            orders_observed_at: truth.orders_observed_at,
+            trades_observed_at: truth.trades_observed_at,
+            positions_observed_at: truth.positions_observed_at,
+            orders_complete: truth.orders_complete,
+            trades_complete: truth.trades_complete,
+            positions_complete: truth.positions_complete,
+            orders: truth.orders.clone(),
+            trades: truth.trades.clone(),
+            positions: truth.positions.clone(),
+            lineage: truth.lineage,
+            canonical_fingerprint_sha256: truth.canonical_fingerprint_sha256.clone(),
+            replay_authority: truth.replay_authority.clone(),
+        }
+    }
+
+    fn raw_package_from_validated(
+        value: &Stage5gValidatedFreshBrokerTruthPackage,
+    ) -> Stage5gFreshBrokerTruthPackageV1 {
+        let identity = &value.operational_identity;
+        Stage5gFreshBrokerTruthPackageV1 {
+            schema_version: STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
+            package_id: value.package_id.as_str().to_owned(),
+            operational_identity: Stage5gOperationalIdentityInput {
+                broker_id: identity.broker_id.as_str().to_owned(),
+                account_id: identity.account_id.clone(),
+                strategy_definition_id: identity.strategy_definition_id.as_str().to_owned(),
+                strategy_instance_id: identity.strategy_instance_id.as_str().to_owned(),
+                deployment_id: identity.deployment_id.as_str().to_owned(),
+                deployment_generation: identity.deployment_generation.0,
+                gateway_instance_id: identity.gateway_instance_id.as_str().to_owned(),
+                config_fingerprint_sha256: identity.config_fingerprint_sha256.as_str().to_owned(),
+                instrument_map_fingerprint_sha256: identity
+                    .instrument_map_fingerprint_sha256
+                    .as_str()
+                    .to_owned(),
+                market_data_generation: identity.market_data_generation.0,
+                command_consumer_generation: identity.command_consumer_generation.0,
+                target_instrument: identity.target_instrument.clone(),
+            },
+            snapshot_epoch: value.snapshot_epoch.as_str().to_owned(),
+            captured_at: value.captured_at,
+            orders_observed_at: value.orders_observed_at,
+            trades_observed_at: value.trades_observed_at,
+            positions_observed_at: value.positions_observed_at,
+            orders_complete: value.orders_complete,
+            trades_complete: value.trades_complete,
+            positions_complete: value.positions_complete,
+            orders: value.orders.clone(),
+            trades: value.trades.clone(),
+            positions: value.positions.clone(),
+        }
+    }
+
+    fn bound_truth(
+        restart: &Stage5gFreshTruthRestartProjection,
+        truth: &Stage5gValidatedFreshBrokerTruthPackage,
+    ) -> Stage5gRestartBoundFreshBrokerTruthPackage {
+        Stage5gRestartBoundFreshBrokerTruthPackage {
+            operational_binding_commitment_sha256: stage5g_operational_binding_commitment(
+                restart,
+                &truth.operational_identity,
+                &truth.replay_authority,
+            ),
+            restart_replay_commitment_sha256: stage5g_restart_replay_commitment(
+                restart,
+                &truth.replay_authority,
+            ),
+            package: clone_truth(truth),
+        }
+    }
+
+    fn classify_case(
+        restart: &Stage5gFreshTruthRestartProjection,
+        truth: &Stage5gValidatedFreshBrokerTruthPackage,
+    ) -> Classified {
+        classify(restart, &bound_truth(restart, truth))
+    }
+
+    struct OwningTruthRows {
+        orders_complete: bool,
+        trades_complete: bool,
+        positions_complete: bool,
+        orders: Vec<BrokerOrderSnapshot>,
+        trades: Vec<BrokerTradeSnapshot>,
+        positions: Vec<BrokerPositionSnapshot>,
+    }
+
+    impl OwningTruthRows {
+        fn complete(
+            orders: Vec<BrokerOrderSnapshot>,
+            trades: Vec<BrokerTradeSnapshot>,
+            positions: Vec<BrokerPositionSnapshot>,
+        ) -> Self {
+            Self {
+                orders_complete: true,
+                trades_complete: true,
+                positions_complete: true,
+                orders,
+                trades,
+                positions,
+            }
+        }
+    }
+
+    fn validated_owning_package(
+        restart: &Stage5gCleanRestartedCapability,
+        package_id: &str,
+        snapshot_epoch: &str,
+        rows: OwningTruthRows,
+    ) -> Stage5gValidatedFreshBrokerTruthPackage {
+        let projection = restart.fresh_truth_reducer_projection();
+        let identity_input = Stage5gOperationalIdentityInput {
+            broker_id: "finam-mock".to_owned(),
+            account_id: projection.account_id.clone(),
+            strategy_definition_id: projection.strategy_id.clone(),
+            strategy_instance_id: "hybrid-imoexf-paper-1".to_owned(),
+            deployment_id: "stage5g-edb-r1".to_owned(),
+            deployment_generation: 11,
+            gateway_instance_id: "mock-gateway-edb-r1".to_owned(),
+            config_fingerprint_sha256: projection.config_fingerprint_sha256.clone(),
+            instrument_map_fingerprint_sha256: "b".repeat(64),
+            market_data_generation: 7,
+            command_consumer_generation: 9,
+            target_instrument: projection.instrument_id.clone(),
+        };
+        let expected_identity =
+            Stage5gOperationalIdentityV1::validate(identity_input.clone()).expect("identity");
+        let current_id = projection
+            .checkpoint
+            .payload
+            .current_evidence_identity
+            .clone()
+            .expect("authenticated checkpoint current identity");
+        let current_epoch = projection
+            .checkpoint
+            .payload
+            .package_discriminator
+            .clone()
+            .expect("authenticated checkpoint package discriminator");
+        let current_fingerprint = projection
+            .checkpoint
+            .payload
+            .evidence_replay_ledger
+            .iter()
+            .find(|entry| entry.identity == current_id)
+            .expect("current replay row")
+            .fingerprint_sha256
+            .clone();
+        let last = Stage5gReconciledFreshPackageIdentity::validate(
+            current_id.clone(),
+            current_epoch.clone(),
+            current_fingerprint,
+        )
+        .expect("current replay tuple");
+        let accepted = projection
+            .checkpoint
+            .payload
+            .evidence_replay_ledger
+            .iter()
+            .filter(|entry| entry.identity != current_id)
+            .map(|entry| {
+                let epoch = entry
+                    .identity
+                    .splitn(4, ':')
+                    .nth(3)
+                    .expect("canonical replay identity epoch");
+                Stage5gReconciledFreshPackageIdentity::validate(
+                    entry.identity.clone(),
+                    epoch,
+                    entry.fingerprint_sha256.clone(),
+                )
+                .expect("historical replay tuple")
+            })
+            .collect::<Vec<_>>();
+        let restore_completed_at = Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap();
+        let captured_at = Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 10).unwrap();
+        validate_stage5g_fresh_broker_truth_package(
+            Stage5gFreshBrokerTruthPackageV1 {
+                schema_version: STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
+                package_id: package_id.to_owned(),
+                operational_identity: identity_input,
+                snapshot_epoch: snapshot_epoch.to_owned(),
+                captured_at,
+                orders_observed_at: captured_at,
+                trades_observed_at: captured_at,
+                positions_observed_at: captured_at,
+                orders_complete: rows.orders_complete,
+                trades_complete: rows.trades_complete,
+                positions_complete: rows.positions_complete,
+                orders: rows.orders,
+                trades: rows.trades,
+                positions: rows.positions,
+            },
+            Stage5gFreshBrokerTruthValidationContext {
+                expected_operational_identity: &expected_identity,
+                pre_restart_package_id: &current_id,
+                pre_restart_snapshot_epoch: &current_epoch,
+                last_reconciled_fresh_package: Some(&last),
+                accepted_replay_ledger: &accepted,
+                known_historical_fresh_packages: &[],
+                clean_restore_completed_at: restore_completed_at,
+                validation_observed_at: captured_at,
+            },
+        )
+        .expect("fresh package validates after authenticated reconstruction")
+    }
+
+    fn bound_owning_package(
+        restart: &Stage5gCleanRestartedCapability,
+        package_id: &str,
+        snapshot_epoch: &str,
+        rows: OwningTruthRows,
+    ) -> Stage5gRestartBoundFreshBrokerTruthPackage {
+        let validated = validated_owning_package(restart, package_id, snapshot_epoch, rows);
+        bind_stage5g_fresh_truth_to_clean_restart(restart, validated)
+            .expect("validated fresh truth binds to authenticated restart")
     }
 
     fn cases() -> Vec<Case> {
@@ -937,7 +1455,7 @@ mod tests {
                         Some(slot(Some("ORDER-1"), false)),
                         false,
                     );
-                    restart.slots[0].target_qty = Some("2".to_owned());
+                    restart.slots[0].target_qty = Some(Decimal::new(2, 0));
                     restart
                 },
                 truth: truth(
@@ -1115,7 +1633,7 @@ mod tests {
 
     fn assert_case(index: usize) {
         let case = cases().remove(index);
-        let actual = classify(&case.restart, &case.truth);
+        let actual = classify_case(&case.restart, &case.truth);
         assert_eq!(actual.scenario_id, case.expected_scenario);
         assert_eq!(actual.disposition, case.expected_disposition);
         assert_eq!(actual.reason, case.expected_reason);
@@ -1179,11 +1697,11 @@ mod tests {
     fn stage5g_edb_matrix_executes_frozen_ids_once_in_order() {
         let _owning_entry: fn(
             Stage5gCleanRestartedCapability,
-            Stage5gValidatedFreshBrokerTruthPackage,
+            Stage5gRestartBoundFreshBrokerTruthPackage,
         ) -> Stage5gFreshTruthReduction = reduce_stage5g_fresh_broker_truth;
         let actual = cases()
             .into_iter()
-            .map(|case| classify(&case.restart, &case.truth).scenario_id)
+            .map(|case| classify_case(&case.restart, &case.truth).scenario_id)
             .collect::<Vec<_>>();
         assert_eq!(actual, Stage5gRestartScenarioId::ALL);
         assert_eq!(actual.iter().copied().collect::<HashSet<_>>().len(), 12);
@@ -1192,11 +1710,11 @@ mod tests {
     #[test]
     fn stage5g_edb_sequential_and_row_order_are_deterministic() {
         for mut case in cases() {
-            let first = classify(&case.restart, &case.truth);
+            let first = classify_case(&case.restart, &case.truth);
             case.truth.orders.reverse();
             case.truth.trades.reverse();
             case.truth.positions.reverse();
-            let second = classify(&case.restart, &case.truth);
+            let second = classify_case(&case.restart, &case.truth);
             assert_eq!(first.scenario_id, second.scenario_id);
             assert_eq!(first.disposition, second.disposition);
             assert_eq!(first.reason, second.reason);
@@ -1211,7 +1729,7 @@ mod tests {
     fn stage5g_edb_exact_replay_is_semantic_noop() {
         let case = cases().remove(8);
         let before = semantic_sha256(&case.restart);
-        let actual = classify(&case.restart, &case.truth);
+        let actual = classify_case(&case.restart, &case.truth);
         assert_eq!(
             actual.disposition,
             Stage5gRestartReconciliationDisposition::ExactReplay
@@ -1263,7 +1781,7 @@ mod tests {
         variants.push(wrong_runtime);
 
         for case in variants {
-            let actual = classify(&case.restart, &case.truth);
+            let actual = classify_case(&case.restart, &case.truth);
             assert_eq!(
                 actual.scenario_id,
                 Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks
@@ -1274,6 +1792,100 @@ mod tests {
             );
             assert!(actual.candidate.is_none());
         }
+    }
+
+    #[test]
+    fn stage5g_edb_r1_all_operational_identity_fields_are_commitment_bound() {
+        fn assert_bound_mutation_is_rejected(
+            mutate: impl FnOnce(&mut Stage5gOperationalIdentityV1),
+        ) {
+            let case = cases().remove(2);
+            let mut bound = bound_truth(&case.restart, &case.truth);
+            mutate(&mut bound.package.operational_identity);
+            let actual = classify(&case.restart, &bound);
+            assert_eq!(
+                actual.scenario_id,
+                Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks
+            );
+            assert_eq!(
+                actual.reason,
+                Stage5gFreshTruthReductionReason::OperationalIdentityConflict
+            );
+            assert!(actual.candidate.is_none());
+        }
+
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.broker_id = Stage5gBrokerId::parse("other-broker").expect("broker")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.account_id = BrokerAccountId::new("ACC_TEST_0002")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.strategy_definition_id =
+                Stage5gStrategyDefinitionId::parse("other-strategy").expect("strategy")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.strategy_instance_id =
+                Stage5gStrategyInstanceId::parse("other-instance").expect("instance")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.deployment_id =
+                Stage5gDeploymentId::parse("other-deployment").expect("deployment")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.deployment_generation =
+                Stage5gDeploymentGeneration::parse(12).expect("generation")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.gateway_instance_id =
+                Stage5gGatewayInstanceId::parse("other-gateway").expect("gateway")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.config_fingerprint_sha256 =
+                Stage5gSha256::parse("b".repeat(64)).expect("config")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.instrument_map_fingerprint_sha256 =
+                Stage5gSha256::parse("c".repeat(64)).expect("instrument map")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.market_data_generation =
+                Stage5gFeedGeneration::parse(8).expect("market generation")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.command_consumer_generation =
+                Stage5gFeedGeneration::parse(10).expect("consumer generation")
+        });
+        assert_bound_mutation_is_rejected(|identity| {
+            identity.target_instrument.venue_symbol = None
+        });
+    }
+
+    #[test]
+    fn stage5g_edb_r1_restart_replay_commitment_and_conflict_are_enforced() {
+        let case = cases().remove(8);
+        let mut changed_fingerprint = bound_truth(&case.restart, &case.truth);
+        changed_fingerprint.package.canonical_fingerprint_sha256 = "b".repeat(64);
+        let actual = classify(&case.restart, &changed_fingerprint);
+        assert_eq!(
+            actual.reason,
+            Stage5gFreshTruthReductionReason::ReplayFingerprintConflict
+        );
+        assert_eq!(
+            actual.disposition,
+            Stage5gRestartReconciliationDisposition::ReconciliationRequired
+        );
+        assert!(actual.candidate.is_none());
+
+        let case = cases().remove(2);
+        let mut changed_authority = bound_truth(&case.restart, &case.truth);
+        changed_authority.restart_replay_commitment_sha256 = "c".repeat(64);
+        let actual = classify(&case.restart, &changed_authority);
+        assert_eq!(
+            actual.reason,
+            Stage5gFreshTruthReductionReason::OperationalIdentityConflict
+        );
+        assert!(actual.candidate.is_none());
     }
 
     #[test]
@@ -1305,9 +1917,150 @@ mod tests {
                 Stage5gFreshTruthReductionReason::TradeIdentityConflict,
             ),
         ] {
-            let actual = classify(&case.restart, &case.truth);
+            let actual = classify_case(&case.restart, &case.truth);
             assert_eq!(actual.reason, reason);
             assert!(actual.candidate.is_none());
+        }
+    }
+
+    #[test]
+    fn stage5g_edb_r1_exact_trade_linkage_rejects_secondary_id_conflicts() {
+        let order = order(OrderStatus::PartiallyFilled, "B1", Decimal::ONE);
+
+        let mut exact = trade(Decimal::ONE, "B1");
+        exact.client_order_id = Some(ClientOrderId::new("CLIENT-1").expect("client"));
+        assert_eq!(
+            stage5g_exact_trade_order_linkage(&order, &exact),
+            Stage5gTradeOrderLinkage::Exact
+        );
+
+        let mut broker_conflict = exact.clone();
+        broker_conflict.broker_order_id = Some(BrokerOrderId::new("B2"));
+        assert_eq!(
+            stage5g_exact_trade_order_linkage(&order, &broker_conflict),
+            Stage5gTradeOrderLinkage::Conflict
+        );
+
+        let mut client_conflict = exact.clone();
+        client_conflict.client_order_id = Some(ClientOrderId::new("C2").expect("client conflict"));
+        assert_eq!(
+            stage5g_exact_trade_order_linkage(&order, &client_conflict),
+            Stage5gTradeOrderLinkage::Conflict
+        );
+
+        let mut both_conflict = client_conflict;
+        both_conflict.broker_order_id = Some(BrokerOrderId::new("B2"));
+        assert_eq!(
+            stage5g_exact_trade_order_linkage(&order, &both_conflict),
+            Stage5gTradeOrderLinkage::Conflict
+        );
+
+        let mut client_only_order = order.clone();
+        client_only_order.broker_order_id = None;
+        let mut client_only_mismatch = exact.clone();
+        client_only_mismatch.broker_order_id = None;
+        client_only_mismatch.client_order_id =
+            Some(ClientOrderId::new("C2").expect("client conflict"));
+        assert_eq!(
+            stage5g_exact_trade_order_linkage(&client_only_order, &client_only_mismatch),
+            Stage5gTradeOrderLinkage::Conflict
+        );
+
+        let mut broker_only_order = order;
+        broker_only_order.client_order_id = None;
+        let mut broker_only_exact = exact.clone();
+        broker_only_exact.client_order_id = None;
+        assert_eq!(
+            stage5g_exact_trade_order_linkage(&broker_only_order, &broker_only_exact),
+            Stage5gTradeOrderLinkage::Exact
+        );
+
+        let mut no_id_order = broker_only_order;
+        no_id_order.broker_order_id = None;
+        let mut no_id_trade = exact;
+        no_id_trade.client_order_id = None;
+        no_id_trade.broker_order_id = None;
+        assert_eq!(
+            stage5g_exact_trade_order_linkage(&no_id_order, &no_id_trade),
+            Stage5gTradeOrderLinkage::Unrelated
+        );
+    }
+
+    #[test]
+    fn stage5g_edb_r1_source_relative_entry_exit_and_terminal_matrix() {
+        let mut exit_restart = restart(
+            Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted,
+            Some(slot(Some("ORDER-1"), false)),
+            false,
+        );
+        exit_restart.slots[0].intent_class = Stage5gRestartIntentClass::Exit;
+        exit_restart.slots[0].pre_position_qty = Decimal::ONE;
+        exit_restart.slots[0].side = Some(OrderSide::Sell);
+        let mut exit_order = order(OrderStatus::Filled, "ORDER-1", Decimal::ONE);
+        exit_order.side = OrderSide::Sell;
+        let mut exit_trade = trade(Decimal::ONE, "ORDER-1");
+        exit_trade.side = OrderSide::Sell;
+        let exit_truth = truth(
+            Stage5gFreshPackageLineage::NewFresh,
+            true,
+            true,
+            true,
+            vec![exit_order],
+            vec![exit_trade],
+            vec![],
+        );
+        let exit = classify_case(&exit_restart, &exit_truth);
+        assert_eq!(
+            exit.disposition,
+            Stage5gRestartReconciliationDisposition::ApplyOwnedCandidate
+        );
+        assert!(exit.candidate.is_some());
+
+        let mut working_with_fill = cases().remove(2);
+        working_with_fill.truth.orders[0].filled_qty = Decimal::new(1, 1);
+        working_with_fill.truth.orders[0].remaining_qty = Some(Decimal::new(9, 1));
+
+        let mut rejected_with_fill = cases().remove(10);
+        rejected_with_fill.truth.orders[0].status = OrderStatus::Rejected;
+        rejected_with_fill.truth.orders[0].filled_qty = Decimal::ONE;
+        rejected_with_fill.truth.orders[0].remaining_qty = Some(Decimal::ZERO);
+        rejected_with_fill.truth.trades = vec![trade(Decimal::ONE, "ORDER-1")];
+
+        let mut canceled_partial_without_position = cases().remove(10);
+        canceled_partial_without_position.truth.orders[0].qty = Decimal::new(2, 0);
+        canceled_partial_without_position.truth.orders[0].filled_qty = Decimal::ONE;
+        canceled_partial_without_position.truth.orders[0].remaining_qty = Some(Decimal::ONE);
+        canceled_partial_without_position.truth.trades = vec![trade(Decimal::ONE, "ORDER-1")];
+
+        let mut expired_partial_without_position = cases().remove(10);
+        expired_partial_without_position.truth.orders[0].status = OrderStatus::Expired;
+        expired_partial_without_position.truth.orders[0].qty = Decimal::new(2, 0);
+        expired_partial_without_position.truth.orders[0].filled_qty = Decimal::ONE;
+        expired_partial_without_position.truth.orders[0].remaining_qty = Some(Decimal::ONE);
+        expired_partial_without_position.truth.trades = vec![trade(Decimal::ONE, "ORDER-1")];
+
+        let mut filled_complete_empty_nonflat = cases().remove(4);
+        filled_complete_empty_nonflat.truth.positions_complete = true;
+
+        let mut timer_incomplete = cases().remove(6);
+        timer_incomplete.truth.positions_complete = false;
+
+        for case in [
+            working_with_fill,
+            rejected_with_fill,
+            canceled_partial_without_position,
+            expired_partial_without_position,
+            filled_complete_empty_nonflat,
+            timer_incomplete,
+        ] {
+            let actual = classify_case(&case.restart, &case.truth);
+            assert!(actual.candidate.is_none());
+            assert!(matches!(
+                actual.disposition,
+                Stage5gRestartReconciliationDisposition::AwaitFreshBrokerTruth
+                    | Stage5gRestartReconciliationDisposition::ReconciliationRequired
+                    | Stage5gRestartReconciliationDisposition::TerminalInconsistency
+            ));
         }
     }
 
@@ -1333,7 +2086,7 @@ mod tests {
                 Stage5gFreshTruthReductionReason::PositionsTruthIncomplete,
             ),
         ] {
-            let actual = classify(&case.restart, &case.truth);
+            let actual = classify_case(&case.restart, &case.truth);
             assert_eq!(
                 actual.disposition,
                 Stage5gRestartReconciliationDisposition::AwaitFreshBrokerTruth
@@ -1346,13 +2099,13 @@ mod tests {
     #[test]
     fn stage5g_edb_quantity_and_position_mismatch_cannot_form_candidate() {
         let mut target_qty_mismatch = cases().remove(2);
-        target_qty_mismatch.restart.slots[0].target_qty = Some("2".to_owned());
+        target_qty_mismatch.restart.slots[0].target_qty = Some(Decimal::new(2, 0));
 
         let mut partial_position_mismatch = cases().remove(3);
         partial_position_mismatch.truth.positions[0].qty = Decimal::new(5, 1);
 
         for case in [target_qty_mismatch, partial_position_mismatch] {
-            let actual = classify(&case.restart, &case.truth);
+            let actual = classify_case(&case.restart, &case.truth);
             assert!(actual.candidate.is_none());
             assert!(matches!(
                 actual.disposition,
@@ -1385,7 +2138,7 @@ mod tests {
                 vec![],
                 vec![],
             );
-            let actual = classify(&restart, &truth);
+            let actual = classify_case(&restart, &truth);
             assert_eq!(
                 actual.disposition,
                 Stage5gRestartReconciliationDisposition::ApplyOwnedCandidate
@@ -1402,7 +2155,7 @@ mod tests {
             .map(|index| {
                 thread::spawn(move || {
                     let case = cases().remove(index);
-                    let actual = classify(&case.restart, &case.truth);
+                    let actual = classify_case(&case.restart, &case.truth);
                     (
                         actual.scenario_id,
                         actual.disposition,
@@ -1419,7 +2172,7 @@ mod tests {
         let sequential = cases()
             .into_iter()
             .map(|case| {
-                let actual = classify(&case.restart, &case.truth);
+                let actual = classify_case(&case.restart, &case.truth);
                 (
                     actual.scenario_id,
                     actual.disposition,
@@ -1429,5 +2182,418 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(parallel, sequential);
+    }
+
+    #[test]
+    fn stage5g_edb_r1_owning_timer_ready_runs_export_decode_restore_validate_bind_reduce() {
+        let restart =
+            crate::stage5g_order_position::tests::stage5g_edb_restored_timer_ready_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let positions = (projection.committed_position_qty != Decimal::ZERO)
+            .then(|| position(projection.committed_position_qty))
+            .into_iter()
+            .collect();
+        let validated = validated_owning_package(
+            &restart,
+            "stage5g-edb-r1-fresh-timer",
+            "stage5g-edb-r1-epoch-timer",
+            OwningTruthRows::complete(Vec::new(), Vec::new(), positions),
+        );
+        let bound = bind_stage5g_fresh_truth_to_clean_restart(&restart, validated)
+            .expect("authenticated restart binds full operational and replay authority");
+        let reduction = reduce_stage5g_fresh_broker_truth(restart, bound);
+        let evidence = reduction.evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst07RestartAtTimerCheckpoint.frozen_id()
+        );
+        assert_eq!(
+            evidence.disposition,
+            disposition_id(
+                Stage5gRestartReconciliationDisposition::ContinueFromCommittedCheckpoint
+            )
+        );
+        assert_eq!(
+            evidence.callback_count_before,
+            evidence.callback_count_after
+        );
+        assert!(!evidence.runtime_mutated);
+        assert!(!evidence.callback_invoked);
+        assert!(!evidence.transport_opened);
+        assert_eq!(evidence.operational_binding_commitment_sha256.len(), 64);
+        assert_eq!(evidence.restart_replay_commitment_sha256.len(), 64);
+        assert_eq!(evidence.package_identity_commitment_sha256.len(), 64);
+    }
+
+    #[test]
+    fn stage5g_edb_r1_owning_awaiting_runs_export_decode_restore_validate_bind_reduce() {
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("awaiting fixture slot");
+        let validated = validated_owning_package(
+            &restart,
+            "stage5g-edb-r1-fresh-awaiting",
+            "stage5g-edb-r1-epoch-awaiting",
+            OwningTruthRows::complete(
+                slot.latest_order.clone().into_iter().collect(),
+                slot.trades.clone(),
+                slot.position.clone().into_iter().collect(),
+            ),
+        );
+        let bound = bind_stage5g_fresh_truth_to_clean_restart(&restart, validated)
+            .expect("authenticated awaiting restart binds fresh package");
+        let reduction = reduce_stage5g_fresh_broker_truth(restart, bound);
+        let evidence = reduction.evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst04RestartAfterPartialFill.frozen_id()
+        );
+        assert_ne!(
+            evidence.reason,
+            Stage5gFreshTruthReductionReason::OperationalIdentityConflict
+        );
+        assert_eq!(
+            evidence.callback_count_before,
+            evidence.callback_count_after
+        );
+        assert!(!evidence.runtime_mutated);
+        assert!(!evidence.callback_invoked);
+        assert!(!evidence.transport_opened);
+    }
+
+    #[test]
+    fn stage5g_edb_r1_owning_status_paths_cover_working_filled_terminal_and_missing() {
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("awaiting slot");
+        let mut working = slot.latest_order.clone().expect("source order");
+        working.status = OrderStatus::Working;
+        working.lifecycle = BrokerOrderSnapshot::lifecycle_for(&working.status);
+        working.filled_qty = Decimal::ZERO;
+        working.remaining_qty = Some(working.qty);
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-working",
+            "stage5g-edb-r1-epoch-working",
+            OwningTruthRows::complete(vec![working], vec![], vec![]),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst03RestartWithWorkingOrder.frozen_id()
+        );
+        assert!(evidence.candidate_present);
+
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("awaiting slot");
+        let mut filled = slot.latest_order.clone().expect("source order");
+        filled.status = OrderStatus::Filled;
+        filled.lifecycle = BrokerOrderSnapshot::lifecycle_for(&filled.status);
+        filled.filled_qty = filled.qty;
+        filled.remaining_qty = Some(Decimal::ZERO);
+        let mut fill_trade = slot.trades.first().cloned().expect("source trade");
+        fill_trade.qty = filled.qty;
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-filled-incomplete",
+            "stage5g-edb-r1-epoch-filled-incomplete",
+            OwningTruthRows {
+                orders_complete: true,
+                trades_complete: true,
+                positions_complete: false,
+                orders: vec![filled],
+                trades: vec![fill_trade],
+                positions: vec![],
+            },
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst05RestartFilledBeforePosition.frozen_id()
+        );
+        assert!(!evidence.candidate_present);
+
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("awaiting slot");
+        let mut canceled = slot.latest_order.clone().expect("source order");
+        canceled.status = OrderStatus::Canceled;
+        canceled.lifecycle = BrokerOrderSnapshot::lifecycle_for(&canceled.status);
+        canceled.filled_qty = Decimal::ZERO;
+        canceled.remaining_qty = Some(canceled.qty);
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-canceled",
+            "stage5g-edb-r1-epoch-canceled",
+            OwningTruthRows::complete(vec![canceled], vec![], vec![]),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst11FreshBrokerTruthOverridesStaleHint.frozen_id()
+        );
+        assert!(evidence.candidate_present);
+
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-missing",
+            "stage5g-edb-r1-epoch-missing",
+            OwningTruthRows::complete(vec![], vec![], vec![]),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst12MissingOrAmbiguousTruthRequiresReconciliation
+                .frozen_id()
+        );
+        assert!(!evidence.candidate_present);
+    }
+
+    #[test]
+    fn stage5g_edb_r1_owning_remaining_grst_paths_are_fail_closed_or_noop() {
+        let restart =
+            crate::stage5g_order_position::tests::stage5g_edb_restored_before_ack_fixture();
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-before-ack",
+            "stage5g-edb-r1-epoch-before-ack",
+            OwningTruthRows::complete(vec![], vec![], vec![]),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst01RestartBeforeAck.frozen_id()
+        );
+
+        let restart =
+            crate::stage5g_order_position::tests::stage5g_edb_restored_generated_escrow_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("generated slot");
+        let mut discovered = order(OrderStatus::Working, "DISCOVERED-ORDER", Decimal::ZERO);
+        discovered.client_order_id = Some(slot.expected_client_order_id.clone());
+        discovered.side = slot.side.expect("generated side");
+        discovered.qty = slot.target_qty.expect("generated quantity");
+        discovered.remaining_qty = Some(discovered.qty);
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-after-ack",
+            "stage5g-edb-r1-epoch-after-ack",
+            OwningTruthRows::complete(vec![discovered], vec![], vec![]),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst02RestartAfterAckBeforeOrder.frozen_id()
+        );
+        assert!(evidence.candidate_present);
+
+        let restart =
+            crate::stage5g_order_position::tests::stage5g_edb_restored_terminal_applied_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("terminal slot");
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-terminal-applied",
+            "stage5g-edb-r1-epoch-terminal-applied",
+            OwningTruthRows::complete(
+                slot.latest_order.clone().into_iter().collect(),
+                slot.trades.clone(),
+                slot.position.clone().into_iter().collect(),
+            ),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst06RestartAfterTerminalPositionApplied.frozen_id()
+        );
+        assert!(!evidence.candidate_present);
+
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("awaiting slot");
+        let mut bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-conflict",
+            "stage5g-edb-r1-epoch-conflict",
+            OwningTruthRows::complete(
+                slot.latest_order.clone().into_iter().collect(),
+                slot.trades.clone(),
+                slot.position.clone().into_iter().collect(),
+            ),
+        );
+        bound.operational_binding_commitment_sha256 = "f".repeat(64);
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst10ConflictingReplayBlocks.frozen_id()
+        );
+        assert!(!evidence.candidate_present);
+    }
+
+    #[test]
+    fn stage5g_edb_r1_owning_generated_intent_escrow_is_retained() {
+        let restart =
+            crate::stage5g_order_position::tests::stage5g_edb_restored_generated_escrow_fixture();
+        assert!(restart
+            .fresh_truth_reducer_projection()
+            .generated_intent_escrow_fingerprint_sha256
+            .is_some());
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edb-r1-owning-escrow",
+            "stage5g-edb-r1-epoch-escrow",
+            OwningTruthRows::complete(vec![], vec![], vec![]),
+        );
+        let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+        assert_eq!(
+            evidence.scenario_id,
+            Stage5gRestartScenarioId::Grst08RestartWithGeneratedIntentEscrow.frozen_id()
+        );
+        assert_eq!(
+            evidence.reason,
+            Stage5gFreshTruthReductionReason::GeneratedIntentEscrowRetained
+        );
+        assert!(!evidence.candidate_present);
+    }
+
+    #[test]
+    fn stage5g_edb_r1_owning_exact_current_and_historical_replay_are_noops() {
+        fn exact_replay_evidence(historical: bool) -> Stage5gFreshTruthReductionEvidence {
+            let restart =
+                crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+            let projection = restart.fresh_truth_reducer_projection();
+            let slot = projection.slots.first().expect("awaiting slot");
+            let validated = validated_owning_package(
+                &restart,
+                if historical {
+                    "stage5g-edb-r1-owning-historical-replay"
+                } else {
+                    "stage5g-edb-r1-owning-current-replay"
+                },
+                if historical {
+                    "stage5g-edb-r1-epoch-historical-replay"
+                } else {
+                    "stage5g-edb-r1-epoch-current-replay"
+                },
+                OwningTruthRows::complete(
+                    slot.latest_order.clone().into_iter().collect(),
+                    slot.trades.clone(),
+                    slot.position.clone().into_iter().collect(),
+                ),
+            );
+            let replay_identity = Stage5gReconciledFreshPackageIdentity::validate(
+                validated.package_id.as_str(),
+                validated.snapshot_epoch.as_str(),
+                validated.canonical_fingerprint_sha256.clone(),
+            )
+            .expect("validated replay tuple");
+            let raw = raw_package_from_validated(&validated);
+            let current_id = projection
+                .checkpoint
+                .payload
+                .current_evidence_identity
+                .as_deref()
+                .expect("checkpoint identity");
+            let current_epoch = projection
+                .checkpoint
+                .payload
+                .package_discriminator
+                .as_deref()
+                .expect("checkpoint epoch");
+            let accepted = historical
+                .then(|| replay_identity.clone())
+                .into_iter()
+                .collect::<Vec<_>>();
+            let package = validate_stage5g_fresh_broker_truth_package(
+                raw,
+                Stage5gFreshBrokerTruthValidationContext {
+                    expected_operational_identity: &validated.operational_identity,
+                    pre_restart_package_id: current_id,
+                    pre_restart_snapshot_epoch: current_epoch,
+                    last_reconciled_fresh_package: (!historical).then_some(&replay_identity),
+                    accepted_replay_ledger: &accepted,
+                    known_historical_fresh_packages: &[],
+                    clean_restore_completed_at: Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap(),
+                    validation_observed_at: Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 10).unwrap(),
+                },
+            )
+            .expect("exact package revalidates through the owning input boundary");
+            assert_eq!(
+                package.lineage,
+                if historical {
+                    Stage5gFreshPackageLineage::ExactAcceptedHistoricalReplay
+                } else {
+                    Stage5gFreshPackageLineage::ExactLastReconciledReplay
+                }
+            );
+            let bound = bind_stage5g_fresh_truth_to_clean_restart(&restart, package)
+                .expect("exact replay binds through the production restart authority");
+            reduce_stage5g_fresh_broker_truth(restart, bound).evidence()
+        }
+
+        for historical in [false, true] {
+            let evidence = exact_replay_evidence(historical);
+            assert_eq!(
+                evidence.scenario_id,
+                Stage5gRestartScenarioId::Grst09ExactReplayIsIdempotent.frozen_id()
+            );
+            assert_eq!(
+                evidence.disposition,
+                disposition_id(Stage5gRestartReconciliationDisposition::ExactReplay)
+            );
+            assert_eq!(
+                evidence.pre_semantic_fingerprint_sha256,
+                evidence.post_candidate_fingerprint_sha256
+            );
+            assert!(!evidence.candidate_present);
+            assert!(!evidence.runtime_mutated);
+            assert!(!evidence.callback_invoked);
+            assert!(!evidence.transport_opened);
+        }
+    }
+
+    #[test]
+    fn stage5g_edb_r1_owning_row_order_and_parallel_evidence_are_deterministic() {
+        fn owning_filled_evidence(reverse: bool) -> Vec<u8> {
+            let restart =
+                crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+            let projection = restart.fresh_truth_reducer_projection();
+            let slot = projection.slots.first().expect("awaiting slot");
+            let mut filled = slot.latest_order.clone().expect("source order");
+            filled.status = OrderStatus::Filled;
+            filled.lifecycle = BrokerOrderSnapshot::lifecycle_for(&filled.status);
+            filled.filled_qty = filled.qty;
+            filled.remaining_qty = Some(Decimal::ZERO);
+            let mut first = slot.trades.first().cloned().expect("source trade");
+            first.qty = Decimal::new(4, 1);
+            let mut second = first.clone();
+            second.broker_trade_id = BrokerTradeId::new("FINAM-R1-TRADE-B");
+            second.qty = Decimal::new(6, 1);
+            second.source_ts += chrono::Duration::milliseconds(1);
+            second.received_ts += chrono::Duration::milliseconds(1);
+            let mut trades = vec![first, second];
+            if reverse {
+                trades.reverse();
+            }
+            let bound = bound_owning_package(
+                &restart,
+                "stage5g-edb-r1-owning-deterministic",
+                "stage5g-edb-r1-epoch-deterministic",
+                OwningTruthRows::complete(vec![filled], trades, vec![position(Decimal::ONE)]),
+            );
+            let evidence = reduce_stage5g_fresh_broker_truth(restart, bound).evidence();
+            serde_json::to_vec(&evidence).expect("redacted evidence")
+        }
+
+        let canonical = owning_filled_evidence(false);
+        assert_eq!(canonical, owning_filled_evidence(true));
+        let handles = (0..4)
+            .map(|index| thread::spawn(move || owning_filled_evidence(index % 2 == 1)))
+            .collect::<Vec<_>>();
+        for handle in handles {
+            assert_eq!(canonical, handle.join().expect("owning worker"));
+        }
     }
 }

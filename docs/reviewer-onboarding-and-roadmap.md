@@ -71,10 +71,12 @@ current runtime branch to send orders continuously.
 ## Current review target
 
 Stage 5G-e-d-a R6 was independently accepted and closed at
-`4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`.
-The active target is **Stage 5G-e-d-b — deterministic mutation-safe fresh mock
-BrokerTruth reducer and executable GRST01–GRST12 matrix**, as one clean
-successor to that accepted R6 boundary.
+`4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. The first e-d-b implementation at
+`8a02f2a6b6e27587539d1e4e4717301bf010e6a1` was rejected on five reducer
+semantics findings. The active target is **Stage 5G-e-d-b R1 — restart-bound,
+mutation-safe fresh mock BrokerTruth reducer and executable GRST01–GRST12
+matrix**, as one clean repair successor to `8a02f2a` while retaining accepted
+R6 as the architectural predecessor.
 
 R1 through R5 closed the substantive input boundary, direct reducer shape and
 `src`/gate/provenance seal. R6 closes only the compilation-control findings:
@@ -85,10 +87,13 @@ R1 through R5 closed the substantive input boundary, direct reducer shape and
 - repository-local Cargo config and compiler wrappers fail closed;
 - the detached R5→R4→R3→R2→R1→f44→b9 chain remains mandatory lineage evidence.
 
-Validated operational identities remain constructor-only. The e-d-b reducer
-performs classification and opaque candidate construction only. It retains both
-linear inputs, owns no callback or runtime mutation authority, and does not
-open persistence, Redis, FINAM, HTTP, dispatch or live execution.
+Validated operational identities remain constructor-only. R1 binds all twelve
+identity fields and restart-owned replay lineage to authenticated restart
+commitments, uses exact client/broker trade linkage and computes position from
+typed intent plus exact Decimal pre-position. The e-d-b reducer performs
+classification and opaque candidate construction only. It retains both linear
+inputs, owns no callback or runtime mutation authority, and does not open
+persistence, Redis, FINAM, HTTP, dispatch or live execution.
 
 ## Deliberately closed surfaces
 
@@ -106,8 +111,9 @@ The current stage does **not** authorize:
 
 The accepted Stage 5G plan remains the controlling sequence:
 
-1. Stage 5G-e-d-b: add the separately reviewed deterministic, mutation-safe
-   fresh **mock** BrokerTruth reducer and execute GRST01–GRST12.
+1. Stage 5G-e-d-b R1: independently accept the restart-bound deterministic,
+   mutation-safe fresh **mock** BrokerTruth reducer and owning GRST01–GRST12
+   evidence.
 2. Stage 5G-e-d-c: export/restart/reconcile/re-export evidence and negative
    closure matrix.
 3. Stage 5G-f: paper/mock protective target and stop completion for the eight

@@ -130,13 +130,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   set, but did not cover alternate Cargo target roots or repository-local Cargo
   wrappers. R6 changes no Rust or Cargo semantics: it freezes the full accepted
   R5 project tree outside an exact ten-file allowlist, Cargo manifests/lockfile,
-  workspace topology and all 23 runtime Rust targets. Stage 5G-e-d-b is the
-  current implementation candidate: one child reducer consumes the accepted
-  clean-restart and validated fresh-truth authorities, executes GRST01–GRST12,
-  and can construct only an opaque in-memory candidate. It cannot invoke a
-  callback, mutate runtime/persistence, publish Redis data, use FINAM/HTTP or
-  dispatch an order. Stage 5G-e-d-c remains closed pending independent e-d-b
-  acceptance.
+  workspace topology and all 23 runtime Rust targets. The first Stage 5G-e-d-b
+  implementation at `8a02f2a6b6e27587539d1e4e4717301bf010e6a1` was rejected:
+  it did not bind the complete operational identity or replay lineage to the
+  authenticated restart, accepted a trade when one ID matched but the other
+  conflicted, calculated post-position from zero, and had incomplete terminal
+  status guards. Stage 5G-e-d-b R1 is the current direct repair candidate. It
+  adds restart-bound operational/replay commitments, exact target identity,
+  typed intent plus exact Decimal pre-position, shared exact trade linkage and
+  a fail-closed status × fill × completeness matrix. Authenticated owning
+  fixtures exercise export/restore/validate/bind/reduce and GRST01–GRST12;
+  multi-trade row order and parallel evidence are deterministic. It still
+  cannot invoke a callback, mutate runtime/persistence, publish Redis data, use
+  FINAM/HTTP or dispatch an order. Stage 5G-e-d-c remains closed pending
+  independent e-d-b R1 acceptance.
 - Stage 5G-e-b at `cbe4044bbca8303a7852d225364ec5cf89f02386`
   was rejected as submitted because ExactReplay advanced the committed
   checkpoint without synchronizing the continuing Stage 5G-c session. R1 at

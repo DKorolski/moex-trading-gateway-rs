@@ -8,6 +8,7 @@
 use broker_core::{BrokerAccountId, InstrumentId};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
@@ -246,6 +247,7 @@ pub(crate) struct Stage5gFreshTruthRestartProjection {
     pub(crate) source_lifecycle_commit_sha256: String,
     pub(crate) lifecycle_source_authority_sha256: String,
     pub(crate) checkpoint: Stage5gTimerCheckpointEnvelope,
+    pub(crate) committed_position_qty: Decimal,
     pub(crate) slots: Vec<Stage5gFreshTruthRestartSlotProjection>,
     pub(crate) generated_intent_escrow_fingerprint_sha256: Option<String>,
 }
@@ -384,6 +386,10 @@ impl Stage5gCleanRestartedCapability {
             source_lifecycle_commit_sha256: observation.source_lifecycle_commit_sha256,
             lifecycle_source_authority_sha256: observation.lifecycle_source_authority_sha256,
             checkpoint: self.reconciliation_authority.checkpoint().clone(),
+            committed_position_qty: Decimal::from_f64_retain(
+                self.runtime.stage5c_current_position_qty(),
+            )
+            .expect("validated reconstructed position remains an exact Decimal"),
             slots,
             generated_intent_escrow_fingerprint_sha256,
         }
