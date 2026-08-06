@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-b-r2",
-  "accepted_base": "b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b",
+  "stage": "5G-e-d-b-r3",
+  "accepted_base": "c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4",
   "accepted_stage5g_e_d_a_r6": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
   "owning_entry_point": "reduce_stage5g_fresh_broker_truth",
   "child_module": "stage5g_fresh_broker_truth/reducer.rs",
@@ -52,6 +52,10 @@
     "AccountWideUnknownOrderConflict",
     "AmbiguousOwnedOrderSet",
     "SourceOrderActionConflict",
+    "SourceLimitPriceAuthorityUnsupported",
+    "SourceLimitPriceMismatch",
+    "CancelTargetClientIdentityConflict",
+    "TargetOrderIdentityConflict",
     "OrderTerminalRegression",
     "FilledQuantityRegression",
     "CommittedTradeMissing",
@@ -91,11 +95,21 @@
     "exact_replay_disabled_without_authenticated_ledger": true,
     "integral_source_lots_only": true
   },
+  "r3_policy": {
+    "source_limit_price_authority": "fail_closed_until_canonical_decimal_tick_authority",
+    "cancel_command_and_target_identity_separated": true,
+    "historical_terminal_orders_ignored_after_account_wide_safety": true,
+    "historical_unrelated_trades_ignored": true,
+    "semantic_terminal_refresh_excludes_receipt_timestamp_and_unrealized_pnl": true,
+    "working_order_requires_complete_exact_pre_position": true,
+    "owning_grst_witness_count": 12,
+    "minimum_negative_mutation_count": 195
+  },
   "source_sha256": {
-    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "7cdbdc425c1f1c00dbbac71c569bf84e389eeebc0f2b98b4247999379675a7ad",
+    "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": "ec90353bf4fc87e2fe8b2a0b3368ca286ced5454d44995e8b16220c36e26ca4a",
     "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs": "0ccd686136eca16a96d2ae1eaf2c5c4f5acd2f5e02936c6ccb72cd4c10b0a5d6",
-    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": "44fc5c836cafe890c0bbe3f4ac57d88e30923004371f3107d58db8a06976ab2a",
-    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "6b658319c57bc52aedebbb13638b2db95aa3c716101734f9fe7a2fc2f54de6b9"
+    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": "3f6b4e6863c300ba9eeb0d64279e6811cc271d171d10b4a313e407841d23701b",
+    "crates/strategy-runtime-core/src/stage5g_order_position.rs": "d25e525ec23d47d5c7cb1633e959543850c4b837f711034853ee239f5049ec6f"
   },
   "closed_surfaces": {
     "strategy_callback": false,

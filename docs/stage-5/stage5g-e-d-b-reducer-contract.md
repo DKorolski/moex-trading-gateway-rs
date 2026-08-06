@@ -1,11 +1,12 @@
-# Stage 5G-e-d-b R2 — restart-owned fresh BrokerTruth reducer hardening
+# Stage 5G-e-d-b R3 — broker-row correlation and semantic refresh hardening
 
 Accepted Stage 5G-e-d-a R6 predecessor: `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`.
-Rejected R1 base repaired by this direct successor:
+Rejected R2 base repaired by this direct successor:
+`c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4`. Rejected R1 was
 `b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b`. The original rejected e-d-b
 lineage starts at `8a02f2a6b6e27587539d1e4e4717301bf010e6a1`.
 
-R2 keeps the original e-d-b scope: deterministic classification and opaque
+R3 keeps the original e-d-b scope: deterministic classification and opaque
 candidate construction only. It does not apply a candidate, invoke a strategy
 callback, mutate runtime or Stage 5D persistence, publish Redis data, call
 FINAM/HTTP, dispatch an order or open runtime-live.
@@ -26,7 +27,7 @@ non-serializable. Its domain-separated commitments cover:
   replay hints.
 
 The operational authorizer consumes a separate linear
-`Stage5gReviewedOperationalIdentityAuthority`, not the package raw DTO. R2
+`Stage5gReviewedOperationalIdentityAuthority`, not the package raw DTO. R3
 ships no production issuer for that capability; only a `#[cfg(test)]` issuer
 exists for owning evidence. A real config/deployment issuer requires the next
 separate review, so broker input cannot mint its own expected identity.
@@ -52,24 +53,39 @@ pre_position_qty + signed_fill
 
 The same pure helpers are used by the accepted Stage 5G order/position logic
 and this reducer. Source runtime quantity authority is still `f64`; therefore
-R2 admits only finite integral lots and blocks fractional source quantities
+R3 admits only finite integral lots and blocks fractional source quantities
 with `SourceNumericAuthorityUnsupported`. No `f64 -> String -> Decimal`
 conversion is presented as exact business authority.
 
 Before target filtering, all account orders pass the shared active/unknown/
-ambiguous ownership guard. Semantic target matches with a non-exact canonical
-`InstrumentId` block as `TargetInstrumentIdentityConflict`. MARKET, LIMIT and
-CANCEL retain their source action; a fresh row cannot reinterpret that action.
+ambiguous ownership guard and the pure ownership classifier. Exact owned rows
+may form a candidate; partial-ID conflicts block; unrelated terminal history is
+ignored and counted; non-owned active/unknown rows remain account-wide safety
+blocks. Semantic target matches with a non-exact canonical `InstrumentId`
+block as `TargetInstrumentIdentityConflict`.
+
+Command identity and target-order identity are separate. Place uses its command
+client ID as target client ID. Cancel retains its own command request/client ID
+while correlating only to the target broker order ID and, when committed, the
+target client order ID. The cancel command client ID is never compared to the
+target order row.
+
+MARKET and CANCEL continue through the reducer. Source LIMIT is deliberately
+fail closed with `SourceLimitPriceAuthorityUnsupported` until source price has
+a reviewed canonical Decimal/tick authority; a positive broker LIMIT price is
+not accepted as source price evidence.
 
 Trade linkage is exact only when at least one present client/broker ID matches
-and no present ID conflicts. `None == None` is not a match. Selection and
-candidate self-consistency use the same helper.
+and no supplied ID conflicts. No match is unrelated historical evidence, not a
+conflict. `None == None` is not a match. Selection and candidate
+self-consistency use the same helper.
 
 ## Status and completeness matrix
 
 - TimerReady continues only with complete positions, no target orders/trades
   and exact committed target quantity.
-- New/Working with any fill or linked trade is a terminal contradiction.
+- New/Working requires complete position truth equal to committed pre-position;
+  any fill or linked trade is a terminal contradiction.
 - PartiallyFilled requires complete position truth, exact trade sum, exact
   source-relative position and compatible intent class.
 - Filled waits when positions are incomplete; complete empty positions are
@@ -79,8 +95,10 @@ candidate self-consistency use the same helper.
   requires unchanged pre-position.
 
 Committed order status/fill quantity and committed trade IDs/payloads are
-monotonic. GRST06 requires exact terminal order, trade ledger, position and
-ownership identity equality. Safe added fills/trades are GRST11, while any
+monotonic. GRST06 requires semantic terminal order, immutable trade ledger,
+position and ownership identity equality. Receipt timestamps and volatile
+unrealized PnL are excluded from semantic equality, while independent post-
+restore chronology remains mandatory. Safe added fills/trades are GRST11, while any
 regression is GRST10/12 and cannot form a candidate.
 
 Incomplete sections never mean broker absence. Candidate self-consistency
@@ -100,10 +118,10 @@ Canonicalization is exercised with more than one trade row. Identical owning
 inputs produce byte-identical redacted evidence in sequential, reversed-row and
 parallel runs. Exact replay keeps pre/post semantic fingerprints identical.
 
-The mandatory gate runs the R2 checker, at least 160 named negative mutations,
+The mandatory gate runs the R3 checker, at least 195 named negative mutations,
 preseal, debug/release focused tests, the full runtime-core suite, formatting,
 clippy with warnings denied and detached exact R6 acceptance gate.
 
-Stage 5G-e-d-c remains closed until independent R2 acceptance. Stage 5G-f,
+Stage 5G-e-d-c remains closed until independent R3 acceptance. Stage 5G-f,
 Redis consumer groups, FINAM transport, HTTP POST/DELETE, broker dispatch,
 runtime-live, real orders and Stage 6 remain closed.

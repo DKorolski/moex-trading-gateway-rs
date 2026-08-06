@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
-  "stage": "5G-e-d-b-r2",
+  "stage": "5G-e-d-b-r3",
   "name": "fresh_mock_broker_truth_contract",
-  "status": "restart_bound_reducer_r2_review_candidate",
+  "status": "restart_bound_reducer_r3_review_candidate",
+  "rejected_stage5g_e_d_b_r2_commit": "c5f84bbcf7c1b44c1eac9c2e99857834d333a4c4",
   "rejected_stage5g_e_d_b_r1_commit": "b0ede8bbdfa99e7b2b06fd7f4f04db128d5f625b",
   "accepted_stage5g_e_d_a_r6_commit": "4ece2c7c83ca5575dbca306b5fa29a48dae2bd47",
   "rejected_stage5g_e_d_b_commit": "8a02f2a6b6e27587539d1e4e4717301bf010e6a1",
@@ -51,7 +52,11 @@
     "integral_source_lots_only": true,
     "exact_trade_linkage_shared_helper_required": true,
     "source_relative_decimal_position_required": true,
-    "status_position_completeness_matrix_required": true
+    "status_position_completeness_matrix_required": true,
+    "source_limit_price_authority_policy": "fail_closed",
+    "cancel_command_target_identity_separation_required": true,
+    "historical_row_partition_required": true,
+    "semantic_terminal_refresh_required": true
   },
   "operational_identity_fields": [
     "broker_id",

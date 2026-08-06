@@ -356,7 +356,7 @@ impl Stage5gCleanRestartedCapability {
         let generated_intent_escrow_fingerprint_sha256 = slots
             .iter()
             .filter(|slot| {
-                slot.broker_order_id.is_none()
+                slot.target_broker_order_id.is_none()
                     && slot.latest_order.is_none()
                     && slot.trades.is_empty()
                     && slot.position.is_none()

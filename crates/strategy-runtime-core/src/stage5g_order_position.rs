@@ -286,9 +286,10 @@ pub(crate) struct Stage5gOrderPositionState {
 /// so the reducer never receives mutable state or broad field visibility.
 #[derive(Clone, Serialize)]
 pub(crate) struct Stage5gFreshTruthRestartSlotProjection {
-    pub(crate) request_id: String,
-    pub(crate) expected_client_order_id: ClientOrderId,
-    pub(crate) broker_order_id: Option<BrokerOrderId>,
+    pub(crate) command_request_id: String,
+    pub(crate) command_client_order_id: ClientOrderId,
+    pub(crate) target_broker_order_id: Option<BrokerOrderId>,
+    pub(crate) target_order_client_order_id: Option<ClientOrderId>,
     pub(crate) intent_class: Stage5gRestartIntentClass,
     pub(crate) source_action: Stage5gMockIntentAction,
     pub(crate) side: Option<OrderSide>,
@@ -339,6 +340,16 @@ pub(crate) enum Stage5gAccountWideOrderSafety {
     NonOwnedActive,
     NonOwnedUnknown,
     AmbiguousOwned,
+    ConflictingOwnedIdentity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gOrderOwnershipCorrelation {
+    ExactOwned,
+    ConflictingOwnedIdentity,
+    UnrelatedTerminal,
+    NonOwnedActive,
+    NonOwnedUnknown,
 }
 
 /// Linear paper-only capability. It intentionally implements none of Clone,
@@ -842,10 +853,24 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
             session,
         ));
     }
+    let safety_slot = &session.state.slots[slot_index];
+    let (target_client_order_id, target_broker_order_id) = match &safety_slot.ack.action {
+        Stage5gMockIntentAction::Place { .. } => (
+            Some(&safety_slot.ack.expected_client_order_id),
+            safety_slot.broker_order_id.as_ref(),
+        ),
+        Stage5gMockIntentAction::Cancel { target_order_id } => (
+            safety_slot
+                .order_events
+                .last()
+                .and_then(|event| event.order.client_order_id.as_ref()),
+            Some(target_order_id),
+        ),
+    };
     match stage5g_account_wide_order_safety(
         &evidence.broker_truth.orders,
-        Some(&session.state.slots[slot_index].ack.expected_client_order_id),
-        session.state.slots[slot_index].broker_order_id.as_ref(),
+        target_client_order_id,
+        target_broker_order_id,
     ) {
         Stage5gAccountWideOrderSafety::Safe => {}
         Stage5gAccountWideOrderSafety::NonOwnedActive => {
@@ -863,6 +888,12 @@ pub(crate) fn apply_stage5g_canonical_order_position_evidence(
         Stage5gAccountWideOrderSafety::AmbiguousOwned => {
             return Err(block(
                 Stage5gOrderPositionError::AmbiguousTargetOrder,
+                session,
+            ));
+        }
+        Stage5gAccountWideOrderSafety::ConflictingOwnedIdentity => {
+            return Err(block(
+                Stage5gOrderPositionError::ClientOrderIdMismatch,
                 session,
             ));
         }
@@ -1734,12 +1765,49 @@ pub(crate) fn stage5g_exact_trade_order_linkage(
                 Some(expected) => actual != expected,
                 None => true,
             });
-    if client_conflict || broker_conflict {
-        Stage5gTradeOrderLinkage::Conflict
-    } else if client_match || broker_match {
-        Stage5gTradeOrderLinkage::Exact
-    } else {
+    if !client_match && !broker_match {
         Stage5gTradeOrderLinkage::Unrelated
+    } else if client_conflict || broker_conflict {
+        Stage5gTradeOrderLinkage::Conflict
+    } else {
+        Stage5gTradeOrderLinkage::Exact
+    }
+}
+
+pub(crate) fn stage5g_order_ownership_correlation(
+    order: &BrokerOrderSnapshot,
+    target_client_order_id: Option<&ClientOrderId>,
+    target_broker_order_id: Option<&BrokerOrderId>,
+) -> Stage5gOrderOwnershipCorrelation {
+    let client_match = target_client_order_id
+        .is_some_and(|expected| order.client_order_id.as_ref() == Some(expected));
+    let broker_match = target_broker_order_id
+        .is_some_and(|expected| order.broker_order_id.as_ref() == Some(expected));
+    let client_conflict = target_client_order_id.is_some_and(|expected| {
+        order
+            .client_order_id
+            .as_ref()
+            .is_some_and(|actual| actual != expected)
+    });
+    let broker_conflict = target_broker_order_id.is_some_and(|expected| {
+        order
+            .broker_order_id
+            .as_ref()
+            .is_some_and(|actual| actual != expected)
+    });
+
+    if client_match || broker_match {
+        if client_conflict || broker_conflict {
+            Stage5gOrderOwnershipCorrelation::ConflictingOwnedIdentity
+        } else {
+            Stage5gOrderOwnershipCorrelation::ExactOwned
+        }
+    } else if order.lifecycle == BrokerOrderLifecycle::Unknown {
+        Stage5gOrderOwnershipCorrelation::NonOwnedUnknown
+    } else if order.is_active_for_lifecycle() {
+        Stage5gOrderOwnershipCorrelation::NonOwnedActive
+    } else {
+        Stage5gOrderOwnershipCorrelation::UnrelatedTerminal
     }
 }
 
@@ -1957,28 +2025,36 @@ fn decimal_f64_differs(value: Decimal, expected: f64) -> bool {
 
 pub(crate) fn stage5g_account_wide_order_safety(
     orders: &[BrokerOrderSnapshot],
-    expected_client_order_id: Option<&ClientOrderId>,
-    expected_broker_order_id: Option<&BrokerOrderId>,
+    target_client_order_id: Option<&ClientOrderId>,
+    target_broker_order_id: Option<&BrokerOrderId>,
 ) -> Stage5gAccountWideOrderSafety {
-    let owned = |order: &BrokerOrderSnapshot| {
-        expected_client_order_id
-            .is_some_and(|expected| order.client_order_id.as_ref() == Some(expected))
-            || expected_broker_order_id
-                .is_some_and(|expected| order.broker_order_id.as_ref() == Some(expected))
-    };
-    if orders.iter().filter(|order| owned(order)).count() > 1 {
+    let correlations = orders
+        .iter()
+        .map(|order| {
+            stage5g_order_ownership_correlation(
+                order,
+                target_client_order_id,
+                target_broker_order_id,
+            )
+        })
+        .collect::<Vec<_>>();
+    if correlations
+        .iter()
+        .filter(|correlation| **correlation == Stage5gOrderOwnershipCorrelation::ExactOwned)
+        .count()
+        > 1
+    {
         return Stage5gAccountWideOrderSafety::AmbiguousOwned;
     }
-    if orders
-        .iter()
-        .any(|order| !owned(order) && order.lifecycle == BrokerOrderLifecycle::Unknown)
-    {
+    if correlations.iter().any(|correlation| {
+        *correlation == Stage5gOrderOwnershipCorrelation::ConflictingOwnedIdentity
+    }) {
+        return Stage5gAccountWideOrderSafety::ConflictingOwnedIdentity;
+    }
+    if correlations.contains(&Stage5gOrderOwnershipCorrelation::NonOwnedUnknown) {
         return Stage5gAccountWideOrderSafety::NonOwnedUnknown;
     }
-    if orders
-        .iter()
-        .any(|order| !owned(order) && order.is_active_for_lifecycle())
-    {
+    if correlations.contains(&Stage5gOrderOwnershipCorrelation::NonOwnedActive) {
         return Stage5gAccountWideOrderSafety::NonOwnedActive;
     }
     Stage5gAccountWideOrderSafety::Safe
@@ -2609,39 +2685,55 @@ impl Stage5gOrderPositionSession {
         state
             .slots
             .iter()
-            .map(|slot| Stage5gFreshTruthRestartSlotProjection {
-                request_id: slot.ack.request_id.to_string(),
-                expected_client_order_id: slot.ack.expected_client_order_id.clone(),
-                broker_order_id: slot.broker_order_id.clone(),
-                intent_class: slot.source.intent_class.into(),
-                source_action: slot.ack.action.clone(),
-                side: slot.source.side.map(|side| match side {
-                    crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
-                    crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
-                }),
-                target_qty: slot
-                    .source
-                    .target_qty
-                    .and_then(stage5g_integral_lot_decimal),
-                pre_position_qty: stage5g_integral_lot_decimal(slot.source.pre_position_qty)
-                    .unwrap_or(Decimal::ZERO),
-                source_numeric_authority_is_integral: stage5g_integral_lot_decimal(
-                    slot.source.pre_position_qty,
-                )
-                .is_some()
-                    && slot
+            .map(|slot| {
+                let (target_broker_order_id, target_order_client_order_id) = match &slot.ack.action
+                {
+                    Stage5gMockIntentAction::Place { .. } => (
+                        slot.broker_order_id.clone(),
+                        Some(slot.ack.expected_client_order_id.clone()),
+                    ),
+                    Stage5gMockIntentAction::Cancel { target_order_id } => (
+                        Some(target_order_id.clone()),
+                        slot.order_events
+                            .last()
+                            .and_then(|event| event.order.client_order_id.clone()),
+                    ),
+                };
+                Stage5gFreshTruthRestartSlotProjection {
+                    command_request_id: slot.ack.request_id.to_string(),
+                    command_client_order_id: slot.ack.expected_client_order_id.clone(),
+                    target_broker_order_id,
+                    target_order_client_order_id,
+                    intent_class: slot.source.intent_class.into(),
+                    source_action: slot.ack.action.clone(),
+                    side: slot.source.side.map(|side| match side {
+                        crate::BrokerNeutralOrderSide::Buy => OrderSide::Buy,
+                        crate::BrokerNeutralOrderSide::Sell => OrderSide::Sell,
+                    }),
+                    target_qty: slot
                         .source
                         .target_qty
-                        .map_or(true, |qty| stage5g_integral_lot_decimal(qty).is_some()),
-                expected_attribution_fingerprint_sha256: slot
-                    .source
-                    .expected_attribution
-                    .as_ref()
-                    .map(|value| exact_id_hash("attribution", value.internal_comment())),
-                latest_order: slot.order_events.last().map(|event| event.order.clone()),
-                trades: slot.trades.clone(),
-                position: slot.position.as_ref().map(|(_, position)| position.clone()),
-                terminal: slot.terminal,
+                        .and_then(stage5g_integral_lot_decimal),
+                    pre_position_qty: stage5g_integral_lot_decimal(slot.source.pre_position_qty)
+                        .unwrap_or(Decimal::ZERO),
+                    source_numeric_authority_is_integral: stage5g_integral_lot_decimal(
+                        slot.source.pre_position_qty,
+                    )
+                    .is_some()
+                        && slot
+                            .source
+                            .target_qty
+                            .map_or(true, |qty| stage5g_integral_lot_decimal(qty).is_some()),
+                    expected_attribution_fingerprint_sha256: slot
+                        .source
+                        .expected_attribution
+                        .as_ref()
+                        .map(|value| exact_id_hash("attribution", value.internal_comment())),
+                    latest_order: slot.order_events.last().map(|event| event.order.clone()),
+                    trades: slot.trades.clone(),
+                    position: slot.position.as_ref().map(|(_, position)| position.clone()),
+                    terminal: slot.terminal,
+                }
             })
             .collect()
     }
@@ -7642,6 +7734,7 @@ pub(crate) mod tests {
         OrderPositionAwaiting,
         BeforeAckNoSlot,
         GeneratedIntentEscrow,
+        GeneratedWorkingIntentEscrow,
         GeneratedLimitIntentEscrow,
         GeneratedCancelIntentEscrow,
         GeneratedFractionalIntentEscrow,
@@ -7699,6 +7792,7 @@ pub(crate) mod tests {
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
             }
             Stage5geCTestSourceKind::GeneratedIntentEscrow
+            | Stage5geCTestSourceKind::GeneratedWorkingIntentEscrow
             | Stage5geCTestSourceKind::GeneratedLimitIntentEscrow
             | Stage5geCTestSourceKind::GeneratedCancelIntentEscrow
             | Stage5geCTestSourceKind::GeneratedFractionalIntentEscrow => {
@@ -7743,6 +7837,9 @@ pub(crate) mod tests {
                     slot.trades.clear();
                     slot.position = None;
                     slot.terminal = false;
+                    if matches!(kind, Stage5geCTestSourceKind::GeneratedWorkingIntentEscrow) {
+                        slot.broker_order_id = Some(BrokerOrderId::new("WORKING-TARGET-R3"));
+                    }
                 }
                 crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session)
             }
@@ -8015,6 +8112,18 @@ pub(crate) mod tests {
             .expect("e-d-b escrow fixture exports authenticated restart bytes");
         crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
             .expect("e-d-b escrow fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage5g_edb_restored_generated_working_escrow_fixture(
+    ) -> crate::Stage5gCleanRestartedCapability {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedWorkingIntentEscrow,
+        );
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("e-d-b working escrow fixture exports authenticated restart bytes");
+        crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("e-d-b working escrow fixture reconstructs through accepted byte boundary")
     }
 
     pub(crate) fn stage5g_edb_restored_generated_limit_escrow_fixture(

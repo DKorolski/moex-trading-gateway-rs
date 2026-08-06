@@ -17,7 +17,7 @@ CHECKER = ROOT / "scripts/stage5g_edb_check.py"
 REDUCER = str(checker.REDUCER_SOURCE)
 PARENT = str(checker.PARENT_SOURCE)
 CONTRACT = str(checker.CONTRACT)
-FILES = sorted({path for _, path in checker.EXPECTED_DELTA})
+FILES = sorted({path for _, path in checker.EXPECTED_DELTA} | {PARENT})
 
 
 def replace_once(root: Path, relative: str, old: str, new: str) -> None:
@@ -111,6 +111,14 @@ def cases() -> list[tuple[str, object]]:
         "stage5g_edb_r2_source_market_limit_and_cancel_actions_are_owning",
         "stage5g_edb_r2_source_fresh_monotonicity_is_owning",
         "stage5g_edb_r2_semantic_instrument_conflicts_and_fractional_source_block",
+        "stage5g_edb_r3_source_limit_price_authority_fails_closed_for_every_broker_shape",
+        "stage5g_edb_r3_cancel_command_and_target_order_identities_are_distinct",
+        "stage5g_edb_r3_historical_same_instrument_rows_are_partitioned_and_counted",
+        "stage5g_edb_r3_semantic_terminal_refresh_ignores_receipt_and_volatile_pnl",
+        "stage5g_edb_r3_shared_order_and_trade_correlation_truth_tables_are_exact",
+        "stage5g_edb_r3_semantic_comparators_ignore_only_reviewed_volatile_fields",
+        "stage5g_edb_r3_owning_grst03_runs_full_authenticated_path",
+        "stage5g_edb_r3_working_order_requires_complete_pre_position_truth",
     ]:
         values.append((f"remove-r1-witness-{witness}", lambda root, witness=witness: replace_once(
             root, REDUCER, f"fn {witness}()", f"fn removed_{witness}()")))
@@ -248,7 +256,61 @@ def cases() -> list[tuple[str, object]]:
             root, REDUCER,
             "Stage5gFreshPackageLineage::ReplayFingerprintConflict => {",
             "Stage5gFreshPackageLineage::UnknownHistoricalReplay => {")),
+        ("drop-candidate-limit-price-fail-closed", lambda root: replace_once(
+            root, REDUCER,
+            "let source_price_authority_is_supported = !matches!(",
+            "let source_price_authority_is_supported = true || !matches!(")),
+        ("drop-candidate-working-position-completeness", lambda root: replace_first(
+            root, REDUCER,
+            "&& candidate.trades.is_empty()\n                && candidate.positions_complete",
+            "&& candidate.trades.is_empty()\n                && true")),
     ])
+    for correlation in checker.ORDER_CORRELATIONS:
+        values.append((f"remove-order-correlation-{correlation}",
+                       lambda root, correlation=correlation: replace_first(
+                           root, str(checker.ORDER_POSITION_SOURCE),
+                           f"    {correlation},\n", "")))
+    for linkage in checker.TRADE_LINKAGES:
+        values.append((f"remove-trade-linkage-{linkage}",
+                       lambda root, linkage=linkage: replace_first(
+                           root, str(checker.ORDER_POSITION_SOURCE),
+                           f"    {linkage},\n", "")))
+    r3_policy_mutations = {
+        "source-limit-policy": (
+            '"source_limit_price_authority": "fail_closed_until_canonical_decimal_tick_authority"',
+            '"source_limit_price_authority": "accept_positive_broker_limit"',
+        ),
+        "cancel-identity-separation": (
+            '"cancel_command_and_target_identity_separated": true',
+            '"cancel_command_and_target_identity_separated": false',
+        ),
+        "historical-terminal-order-partition": (
+            '"historical_terminal_orders_ignored_after_account_wide_safety": true',
+            '"historical_terminal_orders_ignored_after_account_wide_safety": false',
+        ),
+        "historical-trade-partition": (
+            '"historical_unrelated_trades_ignored": true',
+            '"historical_unrelated_trades_ignored": false',
+        ),
+        "semantic-terminal-refresh": (
+            '"semantic_terminal_refresh_excludes_receipt_timestamp_and_unrealized_pnl": true',
+            '"semantic_terminal_refresh_excludes_receipt_timestamp_and_unrealized_pnl": false',
+        ),
+        "working-position-completeness": (
+            '"working_order_requires_complete_exact_pre_position": true',
+            '"working_order_requires_complete_exact_pre_position": false',
+        ),
+        "owning-grst-count": (
+            '"owning_grst_witness_count": 12', '"owning_grst_witness_count": 11',
+        ),
+        "minimum-negative-count": (
+            '"minimum_negative_mutation_count": 195', '"minimum_negative_mutation_count": 194',
+        ),
+    }
+    for name, (old, new) in r3_policy_mutations.items():
+        values.append((f"drift-r3-policy-{name}",
+                       lambda root, old=old, new=new: replace_once(
+                           root, CONTRACT, old, new)))
     return values
 
 
@@ -275,7 +337,7 @@ def run_case(name: str, mutation) -> None:
 
 def main() -> None:
     matrix = cases()
-    if len(matrix) < 160 or len({name for name, _ in matrix}) != len(matrix):
+    if len(matrix) < 195 or len({name for name, _ in matrix}) != len(matrix):
         raise SystemExit("stage5g-edb-negative: FAIL: matrix count/names invalid")
     for name, mutation in matrix:
         run_case(name, mutation)
