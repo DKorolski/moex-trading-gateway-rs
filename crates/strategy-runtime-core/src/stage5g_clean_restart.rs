@@ -5,7 +5,7 @@
 //! an operator-managed HMAC key which is supplied out of band and is never
 //! serialized into that package.
 
-use broker_core::{BrokerAccountId, InstrumentId};
+use broker_core::{BrokerAccountId, HybridRuntimeOwner, InstrumentId};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, Mac};
 use rust_decimal::Decimal;
@@ -81,6 +81,7 @@ pub enum Stage5gCleanRestartSource {
     OrderPositionAwaiting(Stage5gOrderPositionSession),
     ExactReplaySynchronized(Stage5gCommittedExactReplaySession),
     NewPackageAwaiting(Stage5gCommittedAwaitingOrderPosition),
+    ProtectiveLifecycle(crate::stage5g_protective_completion::Stage5gProtectiveRestartSource),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +89,7 @@ pub enum Stage5gCleanRestartSource {
 pub enum Stage5gCleanRestartLifecycleKind {
     TimerReady,
     OrderPositionAwaitingCommitted,
+    ProtectiveLifecycleCommitted,
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +155,9 @@ pub(crate) struct Stage5gCleanRestartProjectionV1 {
     pub(crate) fresh_truth_application_authority_sha256: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) fresh_truth_application_authority_hmac_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) protective_lifecycle_projection:
+        Option<crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionV1>,
     pub(crate) package_instance: Stage5gPackageInstanceBindingV1,
 }
 
@@ -220,20 +225,27 @@ pub(crate) enum Stage5gValidatedReconciliationAuthority {
         state: Stage5gOrderPositionState,
         source_lifecycle_commit_sha256: String,
     },
+    ProtectiveLifecycleCommitted {
+        summary: Stage5gOrderPositionSummary,
+        checkpoint: Stage5gTimerCheckpointEnvelope,
+        source_lifecycle_commit_sha256: String,
+    },
 }
 
 impl Stage5gValidatedReconciliationAuthority {
     fn summary(&self) -> &Stage5gOrderPositionSummary {
         match self {
             Self::TimerReady { summary, .. }
-            | Self::OrderPositionAwaitingCommitted { summary, .. } => summary,
+            | Self::OrderPositionAwaitingCommitted { summary, .. }
+            | Self::ProtectiveLifecycleCommitted { summary, .. } => summary,
         }
     }
 
     fn checkpoint(&self) -> &Stage5gTimerCheckpointEnvelope {
         match self {
             Self::TimerReady { checkpoint, .. }
-            | Self::OrderPositionAwaitingCommitted { checkpoint, .. } => checkpoint,
+            | Self::OrderPositionAwaitingCommitted { checkpoint, .. }
+            | Self::ProtectiveLifecycleCommitted { checkpoint, .. } => checkpoint,
         }
     }
 }
@@ -441,7 +453,8 @@ impl Stage5gCleanRestartedCapability {
                 state,
                 ..
             } => Some(state.clone()),
-            Stage5gValidatedReconciliationAuthority::TimerReady { .. } => None,
+            Stage5gValidatedReconciliationAuthority::TimerReady { .. }
+            | Stage5gValidatedReconciliationAuthority::ProtectiveLifecycleCommitted { .. } => None,
         }
     }
 
@@ -635,27 +648,87 @@ impl Stage5gCleanRestartedCapability {
         self.projection.fresh_truth_application_evidence.as_ref()
     }
 
-    pub(crate) fn into_stage5g_protective_completion_authority_input(
+    pub(crate) fn into_stage5g_protective_completion_authority_parts(
         self,
-    ) -> Option<(
-        HybridIntradayRuntimeStrategy,
-        crate::stage5g_protective_completion::Stage5gProtectiveCompletionAuthorityInput,
-    )> {
+    ) -> Option<crate::stage5g_protective_completion::Stage5gProtectiveCleanRestartParts> {
         let restart_package_fingerprint_sha256 = semantic_sha256(&self.projection)
             .expect("validated clean-restart projection remains canonical");
         let last_checkpoint_fingerprint_sha256 =
             semantic_sha256(self.reconciliation_authority.checkpoint())
                 .expect("validated clean-restart checkpoint remains canonical");
         let observation = self.next_reconciliation_observation();
-        let input = self.runtime.stage5g_protective_completion_authority_input(
-            observation.strategy_id,
-            observation.account_id,
-            observation.instrument_id,
-            observation.lifecycle_source_authority_sha256,
-            restart_package_fingerprint_sha256,
-            last_checkpoint_fingerprint_sha256,
-        )?;
-        Some((self.runtime, input))
+        let protective_projection = self.projection.protective_lifecycle_projection.clone();
+        let input = match self.runtime.stage5g_protective_completion_authority_input(
+            observation.strategy_id.clone(),
+            observation.account_id.clone(),
+            observation.instrument_id.clone(),
+            observation.lifecycle_source_authority_sha256.clone(),
+            restart_package_fingerprint_sha256.clone(),
+            last_checkpoint_fingerprint_sha256.clone(),
+        ) {
+            Some(input) => input,
+            None => {
+                let projection = protective_projection.as_ref()?;
+                match projection.projection_kind {
+                    crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionKind::FlatCleanupPending
+                    | crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionKind::Completed => {}
+                    crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionKind::PreExecutionReady
+                    | crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionKind::AwaitingPositionTruth => {
+                        return None;
+                    }
+                }
+                let summary = &projection.authority_summary;
+                crate::stage5g_protective_completion::Stage5gProtectiveCompletionAuthorityInput {
+                    strategy_id: summary.strategy_id.clone(),
+                    account_id: summary.account_id.clone(),
+                    instrument: summary.instrument.clone(),
+                    tick_size: summary.tick_size,
+                    current_owner: HybridRuntimeOwner::MeanReversion,
+                    active_cycle_id: Some(summary.active_cycle_id.clone()),
+                    protected_position_side: summary.protected_position_side,
+                    protected_position_qty: summary.protected_position_qty,
+                    tp_order_id: summary.tp_order_id.clone(),
+                    sl_stop_order_id: summary.sl_stop_order_id.clone(),
+                    sl_exchange_order_id: summary.sl_exchange_order_id.clone(),
+                    protective_created_ts_utc: summary.protective_created_ts_utc,
+                    last_lifecycle_checkpoint_ts_utc: summary.last_lifecycle_checkpoint_ts_utc,
+                    operational_identity_commitment_sha256: observation
+                        .lifecycle_source_authority_sha256
+                        .clone(),
+                    restart_package_fingerprint_sha256,
+                    last_checkpoint_fingerprint_sha256,
+                }
+            }
+        };
+        let seed = crate::stage5g_protective_completion::Stage5gProtectiveRestartSeed {
+            lifecycle_kind: self.projection.lifecycle_kind,
+            strategy_id: observation.strategy_id,
+            account_id: observation.account_id,
+            instrument: observation.instrument_id,
+            summary: self.reconciliation_authority.summary().clone(),
+            checkpoint: self.reconciliation_authority.checkpoint().clone(),
+            order_position_state: self.stage5g_restart_order_position_state(),
+            parent_restart_package_fingerprint_sha256: semantic_sha256(&self.projection)
+                .expect("validated clean-restart projection remains canonical"),
+            lifecycle_source_authority_sha256: self
+                .projection
+                .package_instance
+                .lifecycle_source_authority_sha256
+                .clone(),
+            source_lifecycle_commit_sha256: self
+                .projection
+                .package_instance
+                .source_lifecycle_commit_sha256
+                .clone(),
+        };
+        Some(
+            crate::stage5g_protective_completion::Stage5gProtectiveCleanRestartParts {
+                runtime: self.runtime,
+                input,
+                restart_seed: seed,
+                protective_projection,
+            },
+        )
     }
 
     #[allow(dead_code)]
@@ -682,6 +755,17 @@ impl Stage5gCleanRestartedCapability {
                     semantic_sha256(state)
                         .expect("validated order-position source remains serializable"),
                 ),
+                Stage5gValidatedReconciliationAuthority::ProtectiveLifecycleCommitted {
+                    source_lifecycle_commit_sha256,
+                    ..
+                } => (
+                    source_lifecycle_commit_sha256.clone(),
+                    self.projection
+                        .protective_lifecycle_projection
+                        .as_ref()
+                        .and_then(|projection| semantic_sha256(projection).ok())
+                        .expect("validated protective projection remains serializable"),
+                ),
             };
         Stage5gNextReconciliationObservation {
             strategy_id: self.projection.binding.strategy_id.clone(),
@@ -706,6 +790,9 @@ impl Stage5gCleanRestartedCapability {
                 state,
                 ..
             } => Stage5gOrderPositionSession::stage5g_fresh_truth_restart_slots(state),
+            Stage5gValidatedReconciliationAuthority::ProtectiveLifecycleCommitted { .. } => {
+                Vec::new()
+            }
         };
         let generated_intent_escrow_fingerprint_sha256 = slots
             .iter()
@@ -950,6 +1037,7 @@ fn strategy_from_source(source: &Stage5gCleanRestartSource) -> &HybridIntradayRu
             value.stage5g_runtime_strategy()
         }
         Stage5gCleanRestartSource::NewPackageAwaiting(value) => value.stage5g_runtime_strategy(),
+        Stage5gCleanRestartSource::ProtectiveLifecycle(value) => value.stage5g_runtime_strategy(),
     }
 }
 
@@ -963,6 +1051,7 @@ fn source_binding(source: &Stage5gCleanRestartSource) -> (&str, &BrokerAccountId
         Stage5gCleanRestartSource::NewPackageAwaiting(value) => {
             value.session().stage5g_restart_binding()
         }
+        Stage5gCleanRestartSource::ProtectiveLifecycle(value) => value.stage5g_restart_binding(),
     }
 }
 
@@ -1036,6 +1125,7 @@ pub(crate) fn projection_from_source(
         checkpoint,
         order_position_state,
         timer_ready_source,
+        protective_lifecycle_projection,
     ) = match source {
         Stage5gCleanRestartSource::TimerReady(value) => {
             let checkpoint = value.checkpoint();
@@ -1055,6 +1145,7 @@ pub(crate) fn projection_from_source(
                 checkpoint,
                 None,
                 Some(timer_ready_source),
+                None,
             )
         }
         Stage5gCleanRestartSource::OrderPositionAwaiting(value) => (
@@ -1065,6 +1156,7 @@ pub(crate) fn projection_from_source(
             value.stage5g_restart_checkpoint(),
             Some(value.stage5g_restart_state()),
             None,
+            None,
         ),
         Stage5gCleanRestartSource::ExactReplaySynchronized(value) => (
             Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted,
@@ -1073,6 +1165,7 @@ pub(crate) fn projection_from_source(
             value.session().summary(),
             value.checkpoint().clone(),
             Some(value.session().stage5g_restart_state()),
+            None,
             None,
         ),
         Stage5gCleanRestartSource::NewPackageAwaiting(value) => (
@@ -1083,6 +1176,17 @@ pub(crate) fn projection_from_source(
             value.checkpoint().clone(),
             Some(value.session().stage5g_restart_state()),
             None,
+            None,
+        ),
+        Stage5gCleanRestartSource::ProtectiveLifecycle(value) => (
+            Stage5gCleanRestartLifecycleKind::ProtectiveLifecycleCommitted,
+            value.stage5g_restart_projection().callback_count,
+            false,
+            value.stage5g_restart_summary(),
+            value.stage5g_restart_checkpoint(),
+            value.stage5g_restart_order_position_state(),
+            None,
+            Some(value.stage5g_restart_projection()),
         ),
     };
     let mut projection = Stage5gCleanRestartProjectionV1 {
@@ -1103,6 +1207,7 @@ pub(crate) fn projection_from_source(
         fresh_truth_application_evidence: None,
         fresh_truth_application_authority_sha256: None,
         fresh_truth_application_authority_hmac_sha256: None,
+        protective_lifecycle_projection,
         package_instance: Stage5gPackageInstanceBindingV1 {
             schema_version: STAGE5G_PACKAGE_INSTANCE_BINDING_SCHEMA_VERSION,
             snapshot_id: stage5d_envelope.snapshot_id.clone(),
@@ -1177,6 +1282,7 @@ fn projection_from_order_position_state(
         fresh_truth_application_evidence: application_evidence,
         fresh_truth_application_authority_sha256: application_authority_sha256,
         fresh_truth_application_authority_hmac_sha256: application_authority_hmac_sha256,
+        protective_lifecycle_projection: None,
         package_instance: Stage5gPackageInstanceBindingV1 {
             schema_version: STAGE5G_PACKAGE_INSTANCE_BINDING_SCHEMA_VERSION,
             snapshot_id: stage5d_envelope.snapshot_id.clone(),
@@ -1307,6 +1413,27 @@ pub(crate) fn validate_projection(
                 Err(Stage5gCleanRestartError::ReplayProjectionInconsistent)
             }
         }
+        (Stage5gCleanRestartLifecycleKind::ProtectiveLifecycleCommitted, _) => {
+            if projection.lifecycle_proof.zero_intent_ready
+                || projection.timer_ready_source.is_some()
+            {
+                return Err(Stage5gCleanRestartError::ZeroIntentProofMismatch);
+            }
+            let protective = projection
+                .protective_lifecycle_projection
+                .as_ref()
+                .ok_or(Stage5gCleanRestartError::LifecycleProofMismatch)?;
+            validate_common_projection_binding(projection)?;
+            crate::stage5g_protective_completion::validate_stage5g_protective_restart_projection(
+                protective,
+                &projection.binding.strategy_id,
+                &projection.binding.account_id,
+                &projection.binding.instrument_id,
+                &projection.strategy_state_fingerprint_sha256,
+            )
+            .map_err(|_| Stage5gCleanRestartError::LifecycleProofMismatch)?;
+            validate_summary_checkpoint_projection(projection)
+        }
     }
 }
 
@@ -1322,6 +1449,14 @@ fn validate_common_projection_binding(
         if strategy_id != projection.binding.strategy_id
             || account_id != &projection.binding.account_id
             || instrument_id != &projection.binding.instrument_id
+        {
+            return Err(Stage5gCleanRestartError::BindingMismatch);
+        }
+    }
+    if let Some(protective) = projection.protective_lifecycle_projection.as_ref() {
+        if protective.authority_summary.strategy_id != projection.binding.strategy_id
+            || protective.authority_summary.account_id != projection.binding.account_id
+            || protective.authority_summary.instrument != projection.binding.instrument_id
         {
             return Err(Stage5gCleanRestartError::BindingMismatch);
         }
@@ -1569,6 +1704,21 @@ fn validated_reconciliation_authority(
                 },
             )
         }
+        Stage5gCleanRestartLifecycleKind::ProtectiveLifecycleCommitted => {
+            if projection.protective_lifecycle_projection.is_none() {
+                return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
+            }
+            Ok(
+                Stage5gValidatedReconciliationAuthority::ProtectiveLifecycleCommitted {
+                    summary: projection.summary.clone(),
+                    checkpoint: projection.checkpoint.clone(),
+                    source_lifecycle_commit_sha256: projection
+                        .package_instance
+                        .source_lifecycle_commit_sha256
+                        .clone(),
+                },
+            )
+        }
     }
 }
 
@@ -1626,6 +1776,9 @@ fn lifecycle_checkpoint_sha256(
         fresh_truth_application_authority_sha256: &'a Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_authority_hmac_sha256: &'a Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        protective_lifecycle_projection:
+            &'a Option<crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionV1>,
     }
     semantic_sha256(&LifecycleCheckpoint {
         domain: "moex.stage5g.clean-restart.lifecycle-checkpoint.v1",
@@ -1640,6 +1793,7 @@ fn lifecycle_checkpoint_sha256(
             .fresh_truth_application_authority_sha256,
         fresh_truth_application_authority_hmac_sha256: &projection
             .fresh_truth_application_authority_hmac_sha256,
+        protective_lifecycle_projection: &projection.protective_lifecycle_projection,
     })
 }
 
@@ -1659,6 +1813,9 @@ fn lifecycle_source_authority_sha256(
         fresh_truth_application_authority_sha256: &'a Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_authority_hmac_sha256: &'a Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        protective_lifecycle_projection:
+            &'a Option<crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionV1>,
     }
     semantic_sha256(&SourceAuthority {
         domain: "moex.stage5g.clean-restart.lifecycle-source-authority.v1",
@@ -1670,6 +1827,7 @@ fn lifecycle_source_authority_sha256(
             .fresh_truth_application_authority_sha256,
         fresh_truth_application_authority_hmac_sha256: &projection
             .fresh_truth_application_authority_hmac_sha256,
+        protective_lifecycle_projection: &projection.protective_lifecycle_projection,
     })
 }
 
@@ -1695,6 +1853,9 @@ fn independent_source_authority_sha256(
         fresh_truth_application_authority_sha256: &'a Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_authority_hmac_sha256: &'a Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        protective_lifecycle_projection:
+            &'a Option<crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionV1>,
     }
     semantic_sha256(&IndependentSourceAuthority {
         domain: "moex.stage5g.clean-restart.stage5d-source-authority-anchor.v1",
@@ -1712,6 +1873,7 @@ fn independent_source_authority_sha256(
             .fresh_truth_application_authority_sha256,
         fresh_truth_application_authority_hmac_sha256: &projection
             .fresh_truth_application_authority_hmac_sha256,
+        protective_lifecycle_projection: &projection.protective_lifecycle_projection,
     })
 }
 
@@ -1753,6 +1915,9 @@ fn authenticated_restart_package_commitment_sha256(
         fresh_truth_application_authority_sha256: &'a Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_authority_hmac_sha256: &'a Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        protective_lifecycle_projection:
+            &'a Option<crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionV1>,
         package_instance: AuthenticatedPackageInstance<'a>,
     }
 
@@ -1793,6 +1958,7 @@ fn authenticated_restart_package_commitment_sha256(
                 .fresh_truth_application_authority_sha256,
             fresh_truth_application_authority_hmac_sha256: &projection
                 .fresh_truth_application_authority_hmac_sha256,
+            protective_lifecycle_projection: &projection.protective_lifecycle_projection,
             package_instance: AuthenticatedPackageInstance {
                 schema_version: instance.schema_version,
                 snapshot_id: &instance.snapshot_id,
@@ -1963,6 +2129,9 @@ fn lifecycle_authority_sha256(
         fresh_truth_application_authority_sha256: &'a Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_authority_hmac_sha256: &'a Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        protective_lifecycle_projection:
+            &'a Option<crate::stage5g_protective_completion::Stage5gProtectiveRestartProjectionV1>,
         package_instance: &'a Stage5gPackageInstanceBindingV1,
     }
     let bytes = serde_json::to_vec(&Authority {
@@ -1981,6 +2150,7 @@ fn lifecycle_authority_sha256(
             .fresh_truth_application_authority_sha256,
         fresh_truth_application_authority_hmac_sha256: &projection
             .fresh_truth_application_authority_hmac_sha256,
+        protective_lifecycle_projection: &projection.protective_lifecycle_projection,
         package_instance: &projection.package_instance,
     })
     .map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;

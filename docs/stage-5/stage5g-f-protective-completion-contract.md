@@ -6,9 +6,14 @@ Reversion positions in paper/mock mode only.
 It does not place FINAM native stops, SLTP, brackets, real orders, Redis
 consumer work, broker dispatch, runtime-live, Stage 5G-g/h or Stage 6.
 
-## R2 base and accepted predecessor
+## R3 base and accepted predecessor
 
-R2 is one direct successor to the reviewed Stage 5G-f R1 implementation:
+R3 is one direct successor to the reviewed Stage 5G-f R2 intermediate
+baseline:
+
+`34ecc9595bdb83639415ddde1b3975b88ac2faa4`
+
+The accepted Stage 5G-f R1 lineage point remains:
 
 `a28cedd984d41bd2db4aeb7fd8c125c62ded4b28`
 
@@ -98,10 +103,28 @@ Production code admits `Stage5gProtectiveCompletionAuthority` only through
 The authority is source-owned by the authenticated clean-restart package; raw
 caller fields are not exported as a production API.
 
-`Stage5gProtectiveCompletionAuthority` is then consumed by
-`validate_stage5g_protective_completion_evidence` and
+R3 authenticated protective restart extends the accepted Stage 5G clean-restart
+package with a versioned protective lifecycle projection. The projection binds:
+
+- scenario and protective leg;
+- strategy/account/instrument and MR cycle;
+- protected side/quantity and TP/SL protective identifiers;
+- accepted execution receipt ledger;
+- position-truth disposition;
+- post-runtime semantic fingerprint;
+- generated cleanup batch and settled batch-history fingerprints;
+- cleanup sibling identity;
+- cleanup-pending/completed state.
+
+`Stage5gProtectiveCompletionAuthority` is then consumed by the production
+canonical evidence issuer `issue_stage5g_canonical_protective_evidence` and
 `apply_stage5g_protective_completion`. The production apply boundary consumes
 `Stage5gValidatedProtectiveEvidence`, not raw caller vectors.
+
+Raw protective evidence structs and the crate-private canonical acceptor remain
+test-only/internal. Production callers cannot mint validated protective evidence
+from caller-provided `positions_complete`, raw position rows, terminal status
+strings or arbitrary receipt fingerprints.
 
 Standalone raw JSON restart of a protective transition is intentionally absent.
 Restart continuity must use the accepted Stage 5D/Stage 5G authenticated package
@@ -117,7 +140,13 @@ The result partition is:
 - `AwaitingPositionTruth`;
 - `Blocked`.
 
-`Completed` is used only when no sibling cleanup batch is generated or required.
+Completed is not immediate while sibling cleanup is pending.
+
+`Completed` is used only when no sibling cleanup batch is generated or required,
+or after a future cleanup-settlement continuation proves completion. If the
+accepted Stage 5C broker lifecycle bridge emits cleanup intents after a flat
+protective execution, Stage 5G-f returns `FlatCleanupPending`. That state
+owns:
 If the accepted Stage 5C broker lifecycle bridge emits cleanup intents after a
 flat protective execution, Stage 5G-f returns `FlatCleanupPending`. That state
 owns:
@@ -141,27 +170,28 @@ Sibling cleanup is represented only by exact paper lifecycle escrow evidence or
 an exact terminal sibling proof. A missing sibling proof is not treated as safe.
 It is not broker dispatch and not native transport.
 
-The R2 lifecycle-ownership slice deliberately leaves authenticated protective
-restart projection as the next Stage 5G-f slice. The contract records this as
-`restart_extension_status = pending_next_slice` rather than pretending the
-restart package is closed.
+R3 closes the authenticated protective restart projection for the Stage 5G-f
+paper/mock boundary. It does not open Stage 5G-g/h cleanup settlement,
+protective-order placement or any live transport.
 
 ## Current gate
 
 Primary current-head gate:
 
 ```bash
-bash scripts/stage5g_f_r2_gate.sh
+bash scripts/stage5g_f_r3_gate.sh
 ```
 
 Required current-head checks:
 
 - Stage 5G-f checker;
-- Stage 5G-f negative harness, floor `>=180`;
+- Stage 5G-f negative harness, floor `>=240`;
 - Stage 5G-f preseal;
 - focused GPRT debug and release tests;
+- authenticated protective restart debug and release tests;
 - full `strategy-runtime-core` lib test;
 - doctests, fmt, clippy;
+- detached submitted R2 `34ecc95` Stage 5G-f verification;
 - detached submitted R1 `a28cedd` Stage 5G-f verification;
 - detached bounded Stage 5G-e-d-c R3 predecessor verification;
 - forbidden surfaces remain closed.

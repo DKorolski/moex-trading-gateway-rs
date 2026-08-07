@@ -1075,10 +1075,10 @@ impl HybridIntradayRuntimeStrategy {
     ) -> (Self, String) {
         let mut strategy = Self::new(HybridIntradayRuntimeConfig {
             symbol: "IMOEXF".to_string(),
-            profile: HybridIntradayProfile::BaselineRuntimeHybrid,
-            mr_variant: MeanReversionVariant::ClassicPrevDayRange,
-            mr_gate_policy: MrGatePolicy::Disabled,
-            risk_gate_mode: RiskGateMode::Disabled,
+            profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
+            mr_variant: MeanReversionVariant::High180,
+            mr_gate_policy: MrGatePolicy::ShadowPnlLb120Positive,
+            risk_gate_mode: RiskGateMode::NormalAppend,
             risk_gate_seed_file: None,
             risk_gate_ledger_key: None,
             model_session_start_time: None,
@@ -1103,7 +1103,7 @@ impl HybridIntradayRuntimeStrategy {
             breakout_config: IntradayBreakoutConfig::default(),
             orchestrator_config: HybridOrchestratorConfig::default(),
         });
-        let cycle = *b"MR5GFCYC01";
+        let cycle = *b"abc1230001";
         strategy.current_owner = Some(Owner::MeanReversion);
         strategy.current_side = Some(match side {
             crate::stage5g_protective_completion::Stage5gProtectedPositionSide::Long => Side::Long,
@@ -1121,7 +1121,7 @@ impl HybridIntradayRuntimeStrategy {
         strategy.sl_exchange_order_id = Some(sl_exchange_order_id);
         strategy.pending_tp_created_ts_utc = Some(1_800_000_000);
         strategy.pending_sl_created_ts_utc = Some(1_800_000_000);
-        strategy.last_processed_bar_ts = Some(1_799_999_400);
+        strategy.last_processed_bar_ts = Some(1_783_318_200);
         (strategy, Self::format_cycle_id(&cycle))
     }
 

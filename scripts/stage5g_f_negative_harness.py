@@ -12,11 +12,12 @@ import stage5g_f_check as checker
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"
+RESTART = "crates/strategy-runtime-core/src/stage5g_clean_restart.rs"
 STAGE5C = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
 CONTRACT = "docs/stage-5/stage5g-f-protective-completion-contract.json"
 DESIGN = "docs/stage-5/stage5g-f-protective-completion-contract.md"
 LIB = "crates/strategy-runtime-core/src/lib.rs"
-GATE = "scripts/stage5g_f_r2_gate.sh"
+GATE = "scripts/stage5g_f_r3_gate.sh"
 PRESEAL = "scripts/stage5g_f_preseal_check.py"
 HANDOFF = "scripts/make_stage5g_f_handoff_archive.py"
 
@@ -51,6 +52,16 @@ def source_marker_cases() -> list[tuple[str, callable]]:
         cases.append((
             f"source-guard-marker-{idx:02d}",
             lambda root, marker=marker: mutate(root, SOURCE, marker, marker[::-1], count=None),
+        ))
+    return cases
+
+
+def restart_marker_cases() -> list[tuple[str, callable]]:
+    cases: list[tuple[str, callable]] = []
+    for idx, marker in enumerate(checker.REQUIRED_RESTART_MARKERS, start=1):
+        cases.append((
+            f"restart-guard-marker-{idx:02d}",
+            lambda root, marker=marker: mutate(root, RESTART, marker, marker[::-1], count=None),
         ))
     return cases
 
@@ -90,7 +101,7 @@ def contract_cases() -> list[tuple[str, callable]]:
             lambda root, surface=surface: mutate(root, CONTRACT, f'"{surface}": false', f'"{surface}": true'),
         ))
     cases.extend([
-        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 180', '"current_stage5g_f_minimum": 1')),
+        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 240', '"current_stage5g_f_minimum": 1')),
         ("open-production-raw-evidence", lambda root: mutate(root, CONTRACT, '"production_apply_accepts_raw_evidence": false', '"production_apply_accepts_raw_evidence": true')),
         ("wrong-validated-evidence-type", lambda root: mutate(root, CONTRACT, '"validated_evidence_type": "Stage5gValidatedProtectiveEvidence"', '"validated_evidence_type": "Stage5gProtectiveCompletionEvidence"')),
         ("wrong-callback-bridge-file", lambda root: mutate(root, CONTRACT, '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5c_paper_host.rs"', '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"')),
@@ -98,7 +109,13 @@ def contract_cases() -> list[tuple[str, callable]]:
         ("drop-completed-post-runtime-contract", lambda root: mutate(root, CONTRACT, '"successful_completion_owns_post_runtime": true', '"successful_completion_owns_post_runtime": false')),
         ("drop-flat-cleanup-batch-contract", lambda root: mutate(root, CONTRACT, '"flat_cleanup_pending_owns_generated_batch": true', '"flat_cleanup_pending_owns_generated_batch": false')),
         ("drop-generated-cleanup-retention-contract", lambda root: mutate(root, CONTRACT, '"generated_cleanup_intents_retained": true', '"generated_cleanup_intents_retained": false')),
-        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "pending_next_slice"', '"restart_extension_status": "accepted"')),
+        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "authenticated_protective_restart_r3"', '"restart_extension_status": "pending_next_slice"')),
+        ("disable-authenticated-protective-restart", lambda root: mutate(root, CONTRACT, '"authenticated_protective_restart": true', '"authenticated_protective_restart": false')),
+        ("detach-protective-projection-package", lambda root: mutate(root, CONTRACT, '"protective_projection_in_clean_restart_package": true', '"protective_projection_in_clean_restart_package": false')),
+        ("wrong-canonical-protective-issuer", lambda root: mutate(root, CONTRACT, '"canonical_protective_evidence_issuer": "issue_stage5g_canonical_protective_evidence"', '"canonical_protective_evidence_issuer": "validate_stage5g_protective_completion_evidence"')),
+        ("wrong-test-only-raw-acceptor", lambda root: mutate(root, CONTRACT, '"test_only_raw_evidence_acceptor": "accept_stage5g_canonical_protective_broker_truth"', '"test_only_raw_evidence_acceptor": "public_raw_acceptor"')),
+        ("export-production-raw-validator-contract", lambda root: mutate(root, CONTRACT, '"production_raw_evidence_validator_exported": false', '"production_raw_evidence_validator_exported": true')),
+        ("change-completed-policy", lambda root: mutate(root, CONTRACT, '"completed_policy": "not_immediate_when_sibling_cleanup_pending"', '"completed_policy": "immediate_when_flat"')),
         ("open-bar-ohlc-authority", lambda root: mutate(root, CONTRACT, '"bar_ohlc_completion_authority": false', '"bar_ohlc_completion_authority": true')),
         ("wrong-base-ref", lambda root: mutate(root, CONTRACT, checker.BASE, "0" * 40)),
         ("wrong-entry-function", lambda root: mutate(root, CONTRACT, '"apply_stage5g_protective_completion"', '"apply_stage5g_protective_completion_bypass"')),
@@ -134,8 +151,10 @@ def governance_cases() -> list[tuple[str, callable]]:
         ("gate-removes-predecessor-checker", lambda root: mutate(root, GATE, "python3 scripts/stage5g_edc_r3_check.py", "# predecessor checker removed")),
         ("gate-removes-predecessor-negative", lambda root: mutate(root, GATE, "python3 scripts/stage5g_edc_r3_negative_harness.py", "# predecessor negative removed")),
         ("gate-removes-predecessor-release-tests", lambda root: mutate(root, GATE, "cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_", "# predecessor release tests removed")),
+        ("gate-removes-r2-snapshot", lambda root: mutate(root, GATE, "34ecc9595bdb83639415ddde1b3975b88ac2faa4", "34ecc9595bdb83639415ddde1b3975b88ac2faa0")),
+        ("gate-removes-r1-lineage", lambda root: mutate(root, GATE, "a28cedd984d41bd2db4aeb7fd8c125c62ded4b28", "a28cedd984d41bd2db4aeb7fd8c125c62ded4b20")),
         ("preseal-loses-allowlist", lambda root: mutate(root, PRESEAL, "EXPECTED = sorted([", "EXPECTED_DISABLED = sorted([")),
-        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r2_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
+        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r3_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
     ]
 
 
@@ -196,17 +215,53 @@ def r2_lifecycle_cases() -> list[tuple[str, callable]]:
     ]
 
 
+def r3_restart_and_issuer_cases() -> list[tuple[str, callable]]:
+    return [
+        ("drop-restart-projection-schema", lambda root: mutate(root, SOURCE, "pub const STAGE5G_PROTECTIVE_RESTART_PROJECTION_SCHEMA_VERSION: u16 = 1;", "pub const STAGE5G_PROTECTIVE_RESTART_PROJECTION_SCHEMA_VERSION: u16 = 2;")),
+        ("drop-canonical-evidence-schema", lambda root: mutate(root, SOURCE, "pub const STAGE5G_PROTECTIVE_CANONICAL_EVIDENCE_SCHEMA_VERSION: u16 = 1;", "pub const STAGE5G_PROTECTIVE_CANONICAL_EVIDENCE_SCHEMA_VERSION: u16 = 2;")),
+        ("drop-accepted-broker-truth", lambda root: mutate(root, SOURCE, "pub struct Stage5gAcceptedProtectiveBrokerTruth", "pub struct RemovedStage5gAcceptedProtectiveBrokerTruth")),
+        ("drop-canonical-issuer", lambda root: mutate(root, SOURCE, "pub fn issue_stage5g_canonical_protective_evidence(", "pub fn removed_issue_stage5g_canonical_protective_evidence(")),
+        ("drop-protective-restart-source-exporter", lambda root: mutate(root, SOURCE, "pub fn stage5g_protective_restart_source_from_transition(", "pub fn removed_stage5g_protective_restart_source_from_transition(")),
+        ("drop-protective-continuation-restore", lambda root: mutate(root, SOURCE, "pub fn restore_stage5g_protective_completion_continuation(", "pub fn removed_restore_stage5g_protective_completion_continuation(")),
+        ("drop-clean-restart-protective-source", lambda root: mutate(root, RESTART, "ProtectiveLifecycle(crate::stage5g_protective_completion::Stage5gProtectiveRestartSource)", "LifecycleSourceRemoved(crate::stage5g_protective_completion::Stage5gProtectiveRestartSource)")),
+        ("drop-clean-restart-protective-kind", lambda root: mutate(root, RESTART, "ProtectiveLifecycleCommitted", "LifecycleKindRemoved", count=None)),
+        ("drop-protective-projection-field", lambda root: mutate(root, RESTART, "protective_lifecycle_projection:", "protective_lifecycle_projection_removed:")),
+        ("drop-authority-parts", lambda root: mutate(root, RESTART, "into_stage5g_protective_completion_authority_parts", "authority_parts_removed", count=None)),
+        ("drop-projection-replay-fingerprint-check", lambda root: mutate(root, SOURCE, "projection.replay_protection_fingerprint_sha256\n            != protective_projection_fingerprint(projection)", "projection.replay_protection_fingerprint_sha256\n            == protective_projection_fingerprint(projection)")),
+        ("drop-runtime-fingerprint-check", lambda root: mutate(root, SOURCE, "projection.post_runtime_stage5c_state_fingerprint_sha256\n            != runtime_stage5c_state_fingerprint_sha256", "projection.post_runtime_stage5c_state_fingerprint_sha256\n            == runtime_stage5c_state_fingerprint_sha256")),
+        ("drop-canonical-authority-fingerprint-check", lambda root: mutate(root, SOURCE, "accepted.canonical_authority_fingerprint_sha256\n        != authority.summary().authority_fingerprint_sha256", "accepted.canonical_authority_fingerprint_sha256\n        == authority.summary().authority_fingerprint_sha256")),
+        ("drop-canonical-issuer-validation", lambda root: mutate(root, SOURCE, "validate_evidence(authority, &accepted.evidence)?;", "// validate_evidence removed", count=1)),
+        ("drop-sibling-terminal-validation", lambda root: mutate(root, SOURCE, "validate_preexisting_sibling_terminal(authority, &accepted.evidence)?;", "// validate_preexisting_sibling_terminal removed", count=1)),
+        ("exact-replay-appends-receipt", lambda root: mutate(root, SOURCE, "let replay_should_append = matches!(replay, Stage5gProtectiveReplayClassification::New);", "let replay_should_append = true;")),
+        ("conflict-replay-not-blocked", lambda root: mutate(root, SOURCE, "if replay == Stage5gProtectiveReplayClassification::FingerprintConflict {", "if false && replay == Stage5gProtectiveReplayClassification::FingerprintConflict {")),
+        ("awaiting-does-not-append-receipt", lambda root: mutate(root, SOURCE, "authority.accepted_receipts.push(execution_receipt.clone());", "drop(execution_receipt.clone());", count=1)),
+        ("cleanup-batch-cleared", lambda root: mutate(root, SOURCE, "generated_cleanup_batch: bridge.generated_intent_batch,", "generated_cleanup_batch: None,")),
+        ("cleanup-history-dropped", lambda root: mutate(root, SOURCE, "settled_batch_history: bridge.settled_batch_history,", "settled_batch_history: Vec::new(),")),
+        ("post-runtime-dropped", lambda root: mutate(root, SOURCE, "post_state: callback.post_state,", "post_state: Stage5gProtectiveCommittedState::new(crate::HybridIntradayRuntimeStrategy::default()),", count=None)),
+        ("unsupported-flat-prepare-opened", lambda root: mutate(root, SOURCE, "return Err(Stage5gProtectiveBlockReason::UnsupportedCleanRestartLifecycleKind);", "continue;", count=1)),
+        ("restore-ignores-protective-projection", lambda root: mutate(root, SOURCE, "let Some(projection) = parts.protective_projection.clone() else {", "let None = parts.protective_projection.clone() else {")),
+        ("completed-forged-as-cleanup-pending", lambda root: mutate(root, SOURCE, "Stage5gProtectiveRestartProjectionKind::Completed => {", "Stage5gProtectiveRestartProjectionKind::Completed | Stage5gProtectiveRestartProjectionKind::FlatCleanupPending => {", count=1)),
+        ("flat-cleanup-forged-completed", lambda root: mutate(root, SOURCE, "Stage5gProtectiveRestartProjectionKind::FlatCleanupPending => {", "Stage5gProtectiveRestartProjectionKind::FlatCleanupPending | Stage5gProtectiveRestartProjectionKind::Completed => {", count=1)),
+        ("remove-r3-authenticated-restart-test", lambda root: mutate(root, SOURCE, "stage5g_f_r3_authenticated_restart_prepares_protective_authority_and_canonical_issuer", "removed_stage5g_f_r3_authenticated_restart_prepares_protective_authority_and_canonical_issuer", count=None)),
+        ("remove-r3-awaiting-restore-test", lambda root: mutate(root, SOURCE, "stage5g_f_r3_awaiting_position_truth_survives_authenticated_restart", "removed_stage5g_f_r3_awaiting_position_truth_survives_authenticated_restart", count=None)),
+        ("remove-r3-flat-cleanup-restore-test", lambda root: mutate(root, SOURCE, "stage5g_f_r3_flat_cleanup_pending_survives_authenticated_restart", "removed_stage5g_f_r3_flat_cleanup_pending_survives_authenticated_restart", count=None)),
+        ("remove-r3-completed-policy-test", lambda root: mutate(root, SOURCE, "stage5g_f_r3_completed_is_not_immediate_when_sibling_cleanup_is_pending", "removed_stage5g_f_r3_completed_is_not_immediate_when_sibling_cleanup_is_pending", count=None)),
+    ]
+
+
 def cases() -> list[tuple[str, callable]]:
     all_cases = (
         source_marker_cases()
+        + restart_marker_cases()
         + focused_test_cases()
         + contract_cases()
         + governance_cases()
         + forbidden_surface_cases()
         + r2_lifecycle_cases()
+        + r3_restart_and_issuer_cases()
     )
-    if len(all_cases) < 180:
-        fail(f"negative floor not met: {len(all_cases)} < 180")
+    if len(all_cases) < 240:
+        fail(f"negative floor not met: {len(all_cases)} < 240")
     names = [name for name, _ in all_cases]
     if len(names) != len(set(names)):
         fail("duplicate mutation names")
