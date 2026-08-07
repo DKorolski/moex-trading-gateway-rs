@@ -135,6 +135,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   fingerprint recomputation, and real serializer/reconstruction/Policy-B
   failure phases. All live, Redis, FINAM, callback, broker dispatch, real order
   and Stage 6 surfaces remain closed.
+- Independent review of R2 at
+  `95901eb9bf19e103e9acb82fb9726708f356b4cd` confirmed the production mapping
+  is semantically correct but held acceptance because the checker did not
+  mutation-seal every source-proof field assignment. Stage 5G-e-d-c R3 is the
+  current narrow review candidate on top of `95901eb...`. R3 adds the
+  machine-readable source-proof field-map descriptor, exact constructor
+  assignment checking, direct production source-map negative mutations,
+  independent source-oracle GRST02/03/04/11 witnesses, nonzero history-count
+  oracle coverage, parent revision/package-instance cross-binding, and R3
+  handoff/gate scripts. It does not open Redis, FINAM, callbacks, broker
+  dispatch, runtime-live, real orders, Stage 5G-f or Stage 6.
 - Stage 5G-e-d-a R6 was independently accepted and closed at
   `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. R1 at
   `9a3221602a902bc6207418f0131665a039d62768` closed the substantive freshness,

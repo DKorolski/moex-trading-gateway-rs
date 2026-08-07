@@ -1217,6 +1217,10 @@ pub(crate) fn validate_projection(
                 && crate::stage5g_fresh_broker_truth::stage5g_application_authority_sha256(evidence)
                     == authority
                 && is_sha256_hex(authority_hmac)
+                && stage5g_application_parent_revision_matches_package_instance(
+                    evidence,
+                    &projection.package_instance,
+                )
                 && crate::stage5g_fresh_broker_truth::stage5g_application_evidence_matches_state(
                     evidence, state,
                 )
@@ -1315,6 +1319,15 @@ fn stage5g_application_post_package_fingerprint_matches_projection(
         evidence.candidate_fingerprint_sha256(),
     )?;
     Ok(expected == evidence.post_restart_package_fingerprint_sha256())
+}
+
+fn stage5g_application_parent_revision_matches_package_instance(
+    evidence: &crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1,
+    package_instance: &Stage5gPackageInstanceBindingV1,
+) -> bool {
+    package_instance
+        .previous_revision
+        .is_some_and(|previous| previous == evidence.parent_snapshot_revision())
 }
 
 fn validate_summary_checkpoint_projection(

@@ -72,6 +72,22 @@ impl Stage5gFreshTruthApplicationEvidenceV1 {
         &self.scenario_id
     }
 
+    pub(crate) fn disposition(&self) -> &str {
+        &self.disposition
+    }
+
+    pub(crate) fn reason(&self) -> &str {
+        &self.reason
+    }
+
+    pub(crate) fn operational_identity_commitment_sha256(&self) -> &str {
+        &self.operational_identity_commitment_sha256
+    }
+
+    pub(crate) fn command_request_id(&self) -> &str {
+        &self.command_request_id
+    }
+
     pub(crate) fn candidate_fingerprint_sha256(&self) -> &str {
         &self.candidate_fingerprint_sha256
     }
@@ -94,6 +110,22 @@ impl Stage5gFreshTruthApplicationEvidenceV1 {
 
     pub(crate) fn fresh_captured_at(&self) -> DateTime<Utc> {
         self.fresh_captured_at
+    }
+
+    pub(crate) fn fresh_package_fingerprint_sha256(&self) -> &str {
+        &self.fresh_package_fingerprint_sha256
+    }
+
+    pub(crate) fn pre_restart_package_fingerprint_sha256(&self) -> &str {
+        &self.pre_restart_package_fingerprint_sha256
+    }
+
+    pub(crate) fn reduction_pre_semantic_fingerprint_sha256(&self) -> &str {
+        &self.reduction_pre_semantic_fingerprint_sha256
+    }
+
+    pub(crate) fn application_source_proof_sha256(&self) -> &str {
+        &self.application_source_proof_sha256
     }
 
     pub(crate) fn post_restart_package_fingerprint_sha256(&self) -> &str {
@@ -130,6 +162,14 @@ impl Stage5gFreshTruthApplicationEvidenceV1 {
 
     pub(crate) fn exact_replay_enabled(&self) -> bool {
         self.exact_replay_enabled
+    }
+
+    pub(crate) fn ignored_terminal_order_count(&self) -> usize {
+        self.ignored_terminal_order_count
+    }
+
+    pub(crate) fn ignored_historical_trade_count(&self) -> usize {
+        self.ignored_historical_trade_count
     }
 }
 
@@ -269,7 +309,6 @@ impl Stage5gFreshTruthApplicationSourceProof {
         parts: &Stage5gFreshTruthApplicationParts,
         candidate: &super::reducer::Stage5gOwnedReconciliationCandidate,
     ) -> Self {
-        let parent = parts.restart.stage5g_application_parent_snapshot_binding();
         Self {
             scenario_id: parts.scenario_id.frozen_id().to_string(),
             disposition: disposition_id(parts.disposition).to_string(),
@@ -279,8 +318,14 @@ impl Stage5gFreshTruthApplicationSourceProof {
                 .operational_binding_commitment_sha256
                 .clone(),
             command_request_id: candidate.command_request_id().to_owned(),
-            parent_snapshot_id: parent.0,
-            parent_snapshot_revision: parent.1,
+            parent_snapshot_id: parts
+                .restart
+                .stage5g_application_parent_snapshot_binding()
+                .0,
+            parent_snapshot_revision: parts
+                .restart
+                .stage5g_application_parent_snapshot_binding()
+                .1,
             fresh_package_id: parts.truth.package.package_id.as_str().to_string(),
             fresh_snapshot_epoch: parts.truth.package.snapshot_epoch.as_str().to_string(),
             fresh_captured_at: parts.truth.package.captured_at,

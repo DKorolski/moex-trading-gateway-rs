@@ -1,0 +1,47 @@
+{
+  "stage": "5G-e-d-c R3",
+  "base_ref": "95901eb9bf19e103e9acb82fb9726708f356b4cd",
+  "branch": "stage5g-lifecycle",
+  "schema_version": 1,
+  "source_proof_type": "Stage5gFreshTruthApplicationSourceProof",
+  "constructor": "Stage5gFreshTruthApplicationSourceProof::from_application_parts",
+  "field_map": {
+    "scenario_id": "parts.scenario_id.frozen_id().to_string()",
+    "disposition": "disposition_id(parts.disposition).to_string()",
+    "reason": "reason_id(parts.reason)",
+    "operational_identity_commitment_sha256": "parts.truth.operational_binding_commitment_sha256.clone()",
+    "command_request_id": "candidate.command_request_id().to_owned()",
+    "parent_snapshot_id": "parts.restart.stage5g_application_parent_snapshot_binding().0",
+    "parent_snapshot_revision": "parts.restart.stage5g_application_parent_snapshot_binding().1",
+    "fresh_package_id": "parts.truth.package.package_id.as_str().to_string()",
+    "fresh_snapshot_epoch": "parts.truth.package.snapshot_epoch.as_str().to_string()",
+    "fresh_captured_at": "parts.truth.package.captured_at",
+    "fresh_package_fingerprint_sha256": "parts.truth.package.canonical_fingerprint_sha256.clone()",
+    "pre_restart_package_fingerprint_sha256": "parts.restart.stage5g_pre_restart_package_fingerprint_sha256()",
+    "reduction_pre_semantic_fingerprint_sha256": "parts.pre_semantic_fingerprint_sha256.clone()",
+    "ignored_terminal_order_count": "parts.ignored_unrelated_terminal_order_count",
+    "ignored_historical_trade_count": "parts.ignored_unrelated_historical_trade_count"
+  },
+  "forbidden_constructor_sources": [
+    "Stage5gFreshTruthApplicationEvidenceV1",
+    "evidence",
+    "Stage5gFreshTruthApplicationSourceProof::from_evidence",
+    "Default::default",
+    ".."
+  ],
+  "closed_surfaces": {
+    "redis": false,
+    "finam": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "callbacks": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage5g_f": false,
+    "stage6": false
+  },
+  "negative_floor": {
+    "current_r3_new_minimum": 18,
+    "aggregate_minimum": 540
+  }
+}

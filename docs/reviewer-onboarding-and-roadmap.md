@@ -160,6 +160,14 @@ The accepted Stage 5G plan remains the controlling sequence:
    evidence.
 2. Stage 5G-e-d-c: export/restart/reconcile/re-export evidence and negative
    closure matrix.
+   - R2 at `95901eb9bf19e103e9acb82fb9726708f356b4cd` closed the accepted
+     application-authority design defects but was held because the
+     source-proof field map was not mutation-sealed.
+   - R3 is the current narrow candidate: exact machine-readable
+     source-proof field-map descriptor, direct production source-map
+     mutations, independent source-oracle witnesses and parent
+     revision/package-instance cross-binding. Stage 5G-e-d-c closes only after
+     independent R3 acceptance.
 3. Stage 5G-f: paper/mock protective target and stop completion for the eight
    frozen lifecycle cases; no native FINAM stop/SLTP/bracket placement.
 4. Stage 5G-g: freeze and reproduce the complete 54-case lifecycle matrix in

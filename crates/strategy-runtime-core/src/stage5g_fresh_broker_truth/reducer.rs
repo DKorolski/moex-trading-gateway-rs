@@ -1888,6 +1888,7 @@ mod tests {
         stage5g_application_trace_snapshot, Stage5gApplicationTrace,
         Stage5gFreshTruthApplicationError, Stage5gFreshTruthApplicationFailurePoint,
         Stage5gFreshTruthApplicationResult, Stage5gFreshTruthApplicationSourceMutation,
+        Stage5gFreshTruthApplied,
     };
     use crate::stage5g_fresh_broker_truth::{
         bind_stage5g_fresh_truth_to_clean_restart, validate_stage5g_fresh_broker_truth_package,
@@ -5877,6 +5878,256 @@ mod tests {
             assert_eq!(trace.serialization_started, 0, "{mutation:?}");
             assert_eq!(trace.bytes_produced, 0, "{mutation:?}");
         }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Stage5gEdcR3SourceOracle {
+        scenario_id: String,
+        disposition: String,
+        reason: String,
+        operational_identity_commitment_sha256: String,
+        command_request_id: String,
+        parent_snapshot_id: String,
+        parent_snapshot_revision: u64,
+        fresh_package_id: String,
+        fresh_snapshot_epoch: String,
+        fresh_captured_at: chrono::DateTime<Utc>,
+        fresh_package_fingerprint_sha256: String,
+        pre_restart_package_fingerprint_sha256: String,
+        reduction_pre_semantic_fingerprint_sha256: String,
+        ignored_terminal_order_count: usize,
+        ignored_historical_trade_count: usize,
+    }
+
+    fn stage5g_edc_r3_capture_source_oracle(
+        reduction: &Stage5gFreshTruthReduction,
+    ) -> Stage5gEdcR3SourceOracle {
+        let candidate = reduction
+            .candidate
+            .as_ref()
+            .expect("R3 source oracle requires an owned candidate");
+        let (parent_snapshot_id, parent_snapshot_revision) = reduction
+            ._restart
+            .stage5g_application_parent_snapshot_binding();
+        Stage5gEdcR3SourceOracle {
+            scenario_id: reduction.scenario_id.frozen_id().to_string(),
+            disposition: disposition_id(reduction.disposition).to_string(),
+            reason: reason_id(reduction.reason),
+            operational_identity_commitment_sha256: reduction
+                ._truth
+                .operational_binding_commitment_sha256
+                .clone(),
+            command_request_id: candidate.command_request_id().to_owned(),
+            parent_snapshot_id,
+            parent_snapshot_revision,
+            fresh_package_id: reduction._truth.package.package_id.as_str().to_string(),
+            fresh_snapshot_epoch: reduction._truth.package.snapshot_epoch.as_str().to_string(),
+            fresh_captured_at: reduction._truth.package.captured_at,
+            fresh_package_fingerprint_sha256: reduction
+                ._truth
+                .package
+                .canonical_fingerprint_sha256
+                .clone(),
+            pre_restart_package_fingerprint_sha256: reduction
+                ._restart
+                .stage5g_pre_restart_package_fingerprint_sha256(),
+            reduction_pre_semantic_fingerprint_sha256: reduction
+                .pre_semantic_fingerprint_sha256
+                .clone(),
+            ignored_terminal_order_count: reduction.ignored_unrelated_terminal_order_count,
+            ignored_historical_trade_count: reduction.ignored_unrelated_historical_trade_count,
+        }
+    }
+
+    impl Stage5gEdcR3SourceOracle {
+        fn assert_matches(
+            &self,
+            evidence: &crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1,
+        ) {
+            assert_eq!(evidence.scenario_id(), self.scenario_id);
+            assert_eq!(evidence.disposition(), self.disposition);
+            assert_eq!(evidence.reason(), self.reason);
+            assert_eq!(
+                evidence.operational_identity_commitment_sha256(),
+                self.operational_identity_commitment_sha256
+            );
+            assert_eq!(evidence.command_request_id(), self.command_request_id);
+            assert_eq!(evidence.parent_snapshot_id(), self.parent_snapshot_id);
+            assert_eq!(
+                evidence.parent_snapshot_revision(),
+                self.parent_snapshot_revision
+            );
+            assert_eq!(evidence.fresh_package_id(), self.fresh_package_id);
+            assert_eq!(evidence.fresh_snapshot_epoch(), self.fresh_snapshot_epoch);
+            assert_eq!(evidence.fresh_captured_at(), self.fresh_captured_at);
+            assert_eq!(
+                evidence.fresh_package_fingerprint_sha256(),
+                self.fresh_package_fingerprint_sha256
+            );
+            assert_eq!(
+                evidence.pre_restart_package_fingerprint_sha256(),
+                self.pre_restart_package_fingerprint_sha256
+            );
+            assert_eq!(
+                evidence.reduction_pre_semantic_fingerprint_sha256(),
+                self.reduction_pre_semantic_fingerprint_sha256
+            );
+            assert_eq!(
+                evidence.ignored_terminal_order_count(),
+                self.ignored_terminal_order_count
+            );
+            assert_eq!(
+                evidence.ignored_historical_trade_count(),
+                self.ignored_historical_trade_count
+            );
+        }
+    }
+
+    fn stage5g_edc_r3_apply_and_assert_source_oracle(
+        reduction: Stage5gFreshTruthReduction,
+    ) -> (Stage5gEdcR3SourceOracle, Box<Stage5gFreshTruthApplied>) {
+        let oracle = stage5g_edc_r3_capture_source_oracle(&reduction);
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        let Stage5gFreshTruthApplicationResult::Applied(applied) =
+            apply_stage5g_fresh_truth_reduction(reduction, &key)
+        else {
+            panic!("R3 source-oracle fixture must apply");
+        };
+        oracle.assert_matches(applied.evidence());
+        oracle.assert_matches(
+            applied
+                .restored()
+                .stage5g_application_evidence()
+                .expect("restored application evidence"),
+        );
+        (oracle, applied)
+    }
+
+    fn stage5g_edc_r3_nonzero_history_reduction() -> Stage5gFreshTruthReduction {
+        let restart = crate::stage5g_order_position::tests::stage5g_edb_restored_awaiting_fixture();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("partial-fill slot");
+        let mut unrelated_terminal = order(
+            OrderStatus::Canceled,
+            "R3-UNRELATED-TERMINAL",
+            Decimal::ZERO,
+        );
+        unrelated_terminal.client_order_id =
+            Some(ClientOrderId::new("R3-UNRELATED-CLIENT").expect("unrelated client"));
+        let mut unrelated_trade = trade(Decimal::ONE, "R3-UNRELATED-TERMINAL");
+        unrelated_trade.broker_trade_id = BrokerTradeId::new("R3-UNRELATED-TRADE");
+        unrelated_trade.client_order_id =
+            Some(ClientOrderId::new("R3-UNRELATED-CLIENT").expect("unrelated trade client"));
+        let mut orders = slot.latest_order.clone().into_iter().collect::<Vec<_>>();
+        orders.push(unrelated_terminal);
+        let mut trades = slot.trades.clone();
+        trades.push(unrelated_trade);
+        let bound = bound_owning_package(
+            &restart,
+            "stage5g-edc-r3-nonzero-history",
+            "stage5g-edc-r3-nonzero-history-epoch",
+            OwningTruthRows::complete(orders, trades, slot.position.clone().into_iter().collect()),
+        );
+        reduce_stage5g_fresh_broker_truth(restart, bound)
+    }
+
+    #[test]
+    fn stage5g_edc_r3_source_oracle_grst02_candidate() {
+        stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(2));
+    }
+
+    #[test]
+    fn stage5g_edc_r3_source_oracle_grst03_working() {
+        stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(3));
+    }
+
+    #[test]
+    fn stage5g_edc_r3_source_oracle_grst04_partial_fill() {
+        stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(4));
+    }
+
+    #[test]
+    fn stage5g_edc_r3_source_oracle_grst11_terminal_late_fill() {
+        stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(11));
+    }
+
+    #[test]
+    fn stage5g_edc_r3_source_oracle_nonzero_history_counts() {
+        let (oracle, applied) = stage5g_edc_r3_apply_and_assert_source_oracle(
+            stage5g_edc_r3_nonzero_history_reduction(),
+        );
+        assert_eq!(oracle.ignored_terminal_order_count, 1);
+        assert_eq!(oracle.ignored_historical_trade_count, 1);
+        assert_eq!(applied.evidence().ignored_terminal_order_count(), 1);
+        assert_eq!(applied.evidence().ignored_historical_trade_count(), 1);
+    }
+
+    #[test]
+    fn stage5g_edc_r3_fresh_captured_at_exact_watermark_binding() {
+        let (oracle, applied) =
+            stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(4));
+        assert_eq!(
+            applied.evidence().fresh_captured_at(),
+            oracle.fresh_captured_at
+        );
+        let package: serde_json::Value =
+            serde_json::from_slice(applied.canonical_package_bytes()).expect("package JSON");
+        let extension_json = package["stage5g_extension_json"]
+            .as_str()
+            .expect("Stage 5G extension string");
+        let extension: serde_json::Value =
+            serde_json::from_str(extension_json).expect("Stage 5G extension JSON");
+        let persisted_at: chrono::DateTime<Utc> =
+            serde_json::from_value(extension["package_instance"]["persisted_at_ts_utc"].clone())
+                .expect("package instance persisted_at");
+        assert_eq!(persisted_at, oracle.fresh_captured_at);
+    }
+
+    #[test]
+    fn stage5g_edc_r3_parent_revision_cross_binding() {
+        let (oracle, applied) =
+            stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(2));
+        let package: serde_json::Value =
+            serde_json::from_slice(applied.canonical_package_bytes()).expect("package JSON");
+        let extension_json = package["stage5g_extension_json"]
+            .as_str()
+            .expect("Stage 5G extension string");
+        let extension: serde_json::Value =
+            serde_json::from_str(extension_json).expect("Stage 5G extension JSON");
+        assert_eq!(
+            extension["package_instance"]["previous_revision"].as_u64(),
+            Some(oracle.parent_snapshot_revision)
+        );
+        assert_eq!(
+            applied.evidence().parent_snapshot_revision(),
+            oracle.parent_snapshot_revision
+        );
+    }
+
+    #[test]
+    fn stage5g_edc_r3_restored_evidence_source_oracle_equality() {
+        let (oracle, applied) =
+            stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(11));
+        let restored_evidence = applied
+            .restored()
+            .stage5g_application_evidence()
+            .expect("restored evidence");
+        oracle.assert_matches(restored_evidence);
+        assert_eq!(restored_evidence, applied.evidence());
+    }
+
+    #[test]
+    fn stage5g_edc_r3_source_proof_cannot_be_rebuilt_from_evidence() {
+        let (_, applied) =
+            stage5g_edc_r3_apply_and_assert_source_oracle(stage5g_edc_grst_reduction(3));
+        assert_eq!(
+            applied.evidence().application_source_proof_sha256().len(),
+            64
+        );
+        stage5g_edc_r2_source_proof_not_clone();
+        stage5g_edc_r2_source_proof_not_serialize();
+        stage5g_edc_r2_source_proof_not_deserialize();
     }
 
     #[test]
