@@ -9,13 +9,14 @@ import re
 import subprocess
 from pathlib import Path
 
-BASE = "c38d2e44e083e39552ea716823e43ebae775b881"
+BASE = "63e7f220f108ec539b61e73147938d461969daa8"
+ACCEPTED_EDC_R3 = "c38d2e44e083e39552ea716823e43ebae775b881"
 BRANCH = "stage5g-lifecycle"
 SOURCE = Path("crates/strategy-runtime-core/src/stage5g_protective_completion.rs")
 LIB = Path("crates/strategy-runtime-core/src/lib.rs")
 CONTRACT = Path("docs/stage-5/stage5g-f-protective-completion-contract.json")
 DESIGN = Path("docs/stage-5/stage5g-f-protective-completion-contract.md")
-GATE = Path("scripts/stage5g_f_gate.sh")
+GATE = Path("scripts/stage5g_f_r1_gate.sh")
 NEGATIVE = Path("scripts/stage5g_f_negative_harness.py")
 PRESEAL = Path("scripts/stage5g_f_preseal_check.py")
 HANDOFF = Path("scripts/make_stage5g_f_handoff_archive.py")
@@ -43,8 +44,10 @@ REQUIRED_TESTS = [
     "stage5g_f_f12_to_f15_bar_extremes_remain_no_bar_exit_authority",
     "stage5g_f_owner_role_instrument_side_qty_and_chronology_are_exact",
     "stage5g_f_complete_absent_target_position_is_flat_but_incomplete_absent_is_not",
+    "stage5g_f_position_truth_duplicate_and_contradictory_rows_do_not_sum_flat",
+    "stage5g_f_fractional_quantity_is_rejected_by_integral_lot_authority",
     "stage5g_f_duplicate_exact_is_idempotent_and_conflicting_duplicate_blocks",
-    "stage5g_f_restart_roundtrips_before_awaiting_and_completed_states",
+    "stage5g_f_standalone_json_restart_codec_is_not_available",
     "stage5g_f_sibling_cleanup_requires_exact_paper_lifecycle_attribution",
     "stage5g_f_gprt_witnesses_are_frozen_and_ordered",
     "stage5g_f_debug_release_parallel_evidence_is_deterministic_in_process",
@@ -57,19 +60,46 @@ REQUIRED_SOURCE_MARKERS = [
     "pub enum Stage5gProtectiveLeg",
     "pub enum Stage5gProtectiveDisposition",
     "pub enum Stage5gProtectiveBlockReason",
-    "pub struct Stage5gProtectiveCompletionAuthorityInput",
     "pub struct Stage5gProtectiveCompletionAuthority",
-    "pub fn admit_stage5g_protective_completion_authority(",
+    "pub fn prepare_stage5g_protective_completion(",
+    "restart: crate::Stage5gCleanRestartedCapability",
+    ".into_stage5g_protective_completion_authority_input()",
+    "pub(crate) fn admit_stage5g_protective_completion_authority(",
     "pub fn apply_stage5g_protective_completion(",
-    "pub fn export_stage5g_protective_completion_for_restart(",
-    "pub fn restore_stage5g_protective_completion_from_restart(",
+    "enum Stage5gProtectiveReplayClassification",
+    "Stage5gProtectiveReplayClassification::ExactReplay",
+    "Stage5gProtectiveReplayClassification::FingerprintConflict",
+    "fn classify_replay(",
+    "fn apply_canonical_stage5g_protective_completion_callbacks(",
+    "crate::BrokerNeutralHybridStrategy::on_broker_order",
+    "crate::BrokerNeutralHybridStrategy::on_broker_stop_order",
+    "crate::BrokerNeutralHybridStrategy::on_broker_position",
+    "callback_count += 1;",
+    "generated_cleanup_intents += intents.len();",
+    "stage5g_protective_completion_callback_context",
+    "stage5g_protective_completion_post_callback_summary",
+    "post_callback_state_fingerprint_sha256",
+    "Stage5gProtectiveCleanupEscrowProof",
+    "paper_lifecycle_escrow",
+    "Stage5gProtectiveSiblingTerminalEvidence",
+    "sibling_terminal",
+    "fn sibling_order_id_matches(",
+    "fn terminal_status_is_safe(",
+    "fn scenario_for_reason(",
+    "Stage5gProtectiveBlockReason::MissingSiblingCleanupProof",
+    "Stage5gProtectiveBlockReason::SiblingCleanupOrderIdMismatch",
+    "Stage5gProtectiveBlockReason::CanonicalCallbackFailed",
+    "Stage5gProtectiveScenarioId::Gprt05WrongOwnerOrCycleBlocks",
+    "Stage5gProtectiveScenarioId::Gprt06WrongInstrumentOrOrderIdBlocks",
+    "Stage5gProtectiveScenarioId::Gprt07TriggerWithoutFlatPositionBlocks",
+    "Stage5gProtectiveScenarioId::Gprt08NonExecutionTerminalCannotInventExit",
     "input.current_owner != HybridRuntimeOwner::MeanReversion",
     "input\n        .active_cycle_id\n        .as_deref()\n        .unwrap_or_default()\n        .is_empty()",
     "input.tp_order_id.is_none() || input.sl_stop_order_id.is_none()",
     "evidence.observed_account_id != authority.input.account_id",
     "event_ts < authority.input.protective_created_ts_utc",
     "event_ts < authority.input.last_lifecycle_checkpoint_ts_utc",
-    "instrument_identity_matches(&order.instrument, &authority.input.instrument)",
+    "order.instrument != authority.input.instrument",
     "Some(&order.order_id) != authority.input.tp_order_id.as_ref()",
     "Some(&order.stop_order_id) != authority.input.sl_stop_order_id.as_ref()",
     "order.exchange_order_id.as_ref() != Some(expected_exchange_order_id)",
@@ -86,12 +116,25 @@ REQUIRED_SOURCE_MARKERS = [
     "truth.received_ts_utc < event_ts_utc",
     "position.account_id != authority.input.account_id",
     "source_ts.timestamp() < event_ts_utc",
-    "qty += position.qty",
-    "if qty != Decimal::ZERO",
+    "stage5g_integral_lot_decimal(qty)",
+    "stage5g_integral_lot_decimal(filled_qty)",
+    "let mut target_position: Option<&BrokerPositionSnapshot> = None;",
+    "if target_position.is_some()",
+    "if position.qty != Decimal::ZERO",
     "normalize_status(&order.status) == \"filled\"",
     "\"filled\" | \"executed\" | \"triggered\" | \"done\" | \"completed\"",
     "\"canceled\" | \"cancelled\" | \"expired\" | \"rejected\"",
     "Stage5gProtectiveBlockReason::ConflictingDuplicateEvidence",
+]
+
+FORBIDDEN_R1_PRODUCTION_MARKERS = [
+    "pub struct Stage5gProtectiveCompletionAuthorityInput",
+    "pub fn admit_stage5g_protective_completion_authority(",
+    "pub fn export_stage5g_protective_completion_for_restart(",
+    "pub fn restore_stage5g_protective_completion_from_restart(",
+    "serde_json::from_slice(bytes)",
+    "serde_json::to_vec(transition)",
+    "Decimal::from_f64(",
     "accepted_by_paper_lifecycle",
 ]
 
@@ -153,10 +196,30 @@ def check_contract(root: Path, source: str) -> None:
     require(contract["branch"] == BRANCH, "contract branch drift")
     require(contract["entry_function"] == "apply_stage5g_protective_completion",
             "contract entry function drift")
+    require(contract["authority_issuer"] == "prepare_stage5g_protective_completion",
+            "authority issuer drift")
+    require(contract["authority_source"] == "Stage5gCleanRestartedCapability",
+            "authority source drift")
+    require(contract["production_public_raw_authority_input"] is False,
+            "public raw authority input reopened")
+    require(contract["production_standalone_json_restart_codec"] is False,
+            "standalone JSON restart codec reopened")
+    require(contract["canonical_callback_bridge"] is True,
+            "canonical callback bridge not declared")
+    require(contract["callback_bridge_transport_attached"] is False,
+            "callback bridge attached transport")
+    require(contract["cleanup_caller_boolean_proof"] is False,
+            "cleanup caller boolean proof reopened")
+    require(contract["cleanup_requires_escrow_or_terminal_proof"] is True,
+            "cleanup proof requirement drift")
+    require(contract["exact_replay_appends_receipt"] is False,
+            "exact replay may append receipt")
+    require(contract["position_rows_are_summed_to_flat"] is False,
+            "position rows can be summed to flat")
     predecessor = contract["predecessor_verification"]
     require(predecessor["mode"] == "bounded_detached_stage5g_edc_r3",
             "predecessor verification mode drift")
-    require(predecessor["commit"] == BASE, "predecessor verification commit drift")
+    require(predecessor["commit"] == ACCEPTED_EDC_R3, "predecessor verification commit drift")
     require(predecessor["runs_recursive_historical_lineage"] is False,
             "predecessor verification recursion reopened")
     required_commands = predecessor["required_commands"]
@@ -169,7 +232,7 @@ def check_contract(root: Path, source: str) -> None:
     ]:
         require(command in required_commands, f"predecessor command missing: {command}")
     require(contract["scenario_order"] == EXPECTED_SCENARIOS, "GPRT scenario order drift")
-    require(contract["negative_floor"]["current_stage5g_f_minimum"] >= 80,
+    require(contract["negative_floor"]["current_stage5g_f_minimum"] >= 140,
             "negative floor drift")
     require(contract["frozen_stage5f_source_semantics"]["bar_ohlc_completion_authority"] is False,
             "bar OHLC authority opened")
@@ -188,7 +251,7 @@ def check(root: Path, check_git: bool) -> None:
     if check_git:
         parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], cwd=root, text=True).strip()
         branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=root, text=True).strip()
-        require(parent == BASE, "HEAD is not one direct successor to c38d2e4")
+        require(parent == BASE, "HEAD is not one direct successor to 63e7f22")
         require(branch == BRANCH, "wrong branch")
 
     source = read(root, SOURCE)
@@ -211,6 +274,8 @@ def check(root: Path, check_git: bool) -> None:
         require(marker in source, f"missing source marker: {marker}")
     for marker in FORBIDDEN_PRODUCTION_MARKERS:
         require(marker not in prod, f"forbidden production marker: {marker}")
+    for marker in FORBIDDEN_R1_PRODUCTION_MARKERS:
+        require(marker not in prod, f"forbidden R1 production marker: {marker}")
     require("Stage 5F F12–F15 remain no-bar-exit" in design,
             "design lost F12-F15 no-bar-exit statement")
     require("Only after independent Stage 5G-f acceptance may Stage 5G-g begin" in design,
@@ -236,10 +301,13 @@ def check(root: Path, check_git: bool) -> None:
             "gate missing detached e-d-c R3 debug tests")
     require("cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_" in gate,
             "gate missing detached e-d-c R3 release tests")
-    require(">= 80" in negative or "80" in negative, "negative harness lost floor")
+    require("63e7f220f108ec539b61e73147938d461969daa8" in gate,
+            "gate missing detached submitted 63e7f22 verification")
+    require("stage5g-f-r1-gate: PASS" in gate, "gate PASS marker drift")
+    require(">= 140" in negative or "140" in negative, "negative harness lost floor")
     require("EXPECTED = sorted([" in preseal, "preseal expected-path allowlist missing")
-    require('["bash", "scripts/stage5g_f_gate.sh"]' in handoff,
-            "handoff builder does not run Stage 5G-f gate")
+    require('["bash", "scripts/stage5g_f_r1_gate.sh"]' in handoff,
+            "handoff builder does not run Stage 5G-f R1 gate")
 
     print("stage5g-f-check: PASS")
 

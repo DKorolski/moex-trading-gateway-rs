@@ -7,14 +7,15 @@
 //! position truth converge.
 
 use broker_core::{
-    instrument_identity_matches, BrokerAccountId, BrokerOrderId, BrokerPositionSnapshot,
-    BrokerStopOrderId, HybridRuntimeAttribution, HybridRuntimeOrderEvent, HybridRuntimeOrderRole,
-    HybridRuntimeOwner, HybridRuntimeStopOrderEvent, InstrumentId,
+    BrokerAccountId, BrokerOrderId, BrokerPositionSnapshot, BrokerStopOrderId,
+    HybridRuntimeAttribution, HybridRuntimeOrderEvent, HybridRuntimeOrderRole, HybridRuntimeOwner,
+    HybridRuntimePositionEvent, HybridRuntimeStopOrderEvent, InstrumentId,
 };
-use rust_decimal::prelude::FromPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+use crate::stage5g_order_position::stage5g_integral_lot_decimal;
 
 pub const STAGE5G_PROTECTIVE_COMPLETION_SCHEMA_VERSION: u16 = 1;
 
@@ -114,11 +115,15 @@ pub enum Stage5gProtectiveBlockReason {
     NonExecutionTerminal,
     UnsupportedExecutionStatus,
     ConflictingDuplicateEvidence,
+    MissingSiblingCleanupProof,
+    SiblingCleanupOrderIdMismatch,
     SiblingCleanupAttributionMismatch,
+    CanonicalCallbackFailed,
+    MissingCleanRestartProtectiveState,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Stage5gProtectiveCompletionAuthorityInput {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct Stage5gProtectiveCompletionAuthorityInput {
     pub strategy_id: String,
     pub account_id: BrokerAccountId,
     pub instrument: InstrumentId,
@@ -136,10 +141,20 @@ pub struct Stage5gProtectiveCompletionAuthorityInput {
     pub last_checkpoint_fingerprint_sha256: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
 pub struct Stage5gProtectiveCompletionAuthority {
     input: Stage5gProtectiveCompletionAuthorityInput,
+    runtime: Option<crate::HybridIntradayRuntimeStrategy>,
     accepted_receipts: Vec<Stage5gProtectiveEvidenceReceipt>,
+}
+
+impl std::fmt::Debug for Stage5gProtectiveCompletionAuthority {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Stage5gProtectiveCompletionAuthority")
+            .field("summary", &self.summary())
+            .field("source_runtime_owned", &self.runtime.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Stage5gProtectiveCompletionAuthority {
@@ -192,12 +207,13 @@ pub struct Stage5gProtectiveAuthoritySummary {
     pub authority_fingerprint_sha256: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Stage5gProtectiveCompletionEvidence {
     pub observed_account_id: BrokerAccountId,
     pub execution: Stage5gProtectiveExecutionEvidence,
     pub position_truth: Stage5gProtectivePositionTruth,
     pub sibling_cleanup: Option<Stage5gProtectiveSiblingCleanupEvidence>,
+    pub sibling_terminal: Option<Stage5gProtectiveSiblingTerminalEvidence>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -213,11 +229,31 @@ pub struct Stage5gProtectivePositionTruth {
     pub received_ts_utc: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage5gProtectiveCleanupEscrowProof {
+    lifecycle_receipt_fingerprint_sha256: String,
+    accepted_cleanup_intent_fingerprint_sha256: String,
+}
+
+impl Stage5gProtectiveCleanupEscrowProof {
+    fn is_valid(&self) -> bool {
+        sha256_like(&self.lifecycle_receipt_fingerprint_sha256)
+            && sha256_like(&self.accepted_cleanup_intent_fingerprint_sha256)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Stage5gProtectiveSiblingCleanupEvidence {
     pub cleanup_order_id: BrokerOrderId,
     pub attribution: HybridRuntimeAttribution,
-    pub accepted_by_paper_lifecycle: bool,
+    pub paper_lifecycle_escrow: Stage5gProtectiveCleanupEscrowProof,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Stage5gProtectiveSiblingTerminalEvidence {
+    pub sibling_order_id: BrokerOrderId,
+    pub terminal_status: String,
+    pub terminal_receipt_fingerprint_sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -237,10 +273,12 @@ pub struct Stage5gProtectiveCompleted {
     pub final_owner: Option<HybridRuntimeOwner>,
     pub final_cycle_id: Option<String>,
     pub final_position_qty: Decimal,
+    pub callback_count: usize,
+    pub post_callback_state_fingerprint_sha256: String,
     pub completion_fingerprint_sha256: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Stage5gProtectiveAwaitingPositionTruth {
     pub scenario: Stage5gProtectiveScenarioId,
     pub leg: Stage5gProtectiveLeg,
@@ -249,14 +287,14 @@ pub struct Stage5gProtectiveAwaitingPositionTruth {
     pub reason: Stage5gProtectiveBlockReason,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct Stage5gProtectiveBlocked {
     pub scenario: Stage5gProtectiveScenarioId,
     pub authority: Stage5gProtectiveCompletionAuthority,
     pub reason: Stage5gProtectiveBlockReason,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum Stage5gProtectiveCompletionTransition {
     Completed(Stage5gProtectiveCompleted),
     AwaitingPositionTruth(Stage5gProtectiveAwaitingPositionTruth),
@@ -281,12 +319,43 @@ impl Stage5gProtectiveCompletionTransition {
     }
 
     pub fn semantic_fingerprint_sha256(&self) -> String {
-        semantic_sha256(self)
+        match self {
+            Self::Completed(completed) => semantic_sha256(completed),
+            Self::AwaitingPositionTruth(awaiting) => semantic_sha256(&(
+                awaiting.scenario,
+                awaiting.leg,
+                awaiting.authority.summary(),
+                &awaiting.execution_receipt,
+                awaiting.reason,
+            )),
+            Self::Blocked(blocked) => semantic_sha256(&(
+                blocked.scenario,
+                blocked.authority.summary(),
+                blocked.reason,
+            )),
+        }
     }
 }
 
-pub fn admit_stage5g_protective_completion_authority(
+pub fn prepare_stage5g_protective_completion(
+    restart: crate::Stage5gCleanRestartedCapability,
+) -> Result<Stage5gProtectiveCompletionAuthority, Stage5gProtectiveBlockReason> {
+    let (runtime, input) = restart
+        .into_stage5g_protective_completion_authority_input()
+        .ok_or(Stage5gProtectiveBlockReason::MissingCleanRestartProtectiveState)?;
+    admit_stage5g_protective_completion_authority_from_source(input, Some(runtime))
+}
+
+#[cfg(test)]
+pub(crate) fn admit_stage5g_protective_completion_authority(
     input: Stage5gProtectiveCompletionAuthorityInput,
+) -> Result<Stage5gProtectiveCompletionAuthority, Stage5gProtectiveBlockReason> {
+    admit_stage5g_protective_completion_authority_from_source(input, None)
+}
+
+fn admit_stage5g_protective_completion_authority_from_source(
+    input: Stage5gProtectiveCompletionAuthorityInput,
+    runtime: Option<crate::HybridIntradayRuntimeStrategy>,
 ) -> Result<Stage5gProtectiveCompletionAuthority, Stage5gProtectiveBlockReason> {
     if input.strategy_id.is_empty() {
         return Err(Stage5gProtectiveBlockReason::EmptyStrategyId);
@@ -310,48 +379,77 @@ pub fn admit_stage5g_protective_completion_authority(
     }
     Ok(Stage5gProtectiveCompletionAuthority {
         input,
+        runtime,
         accepted_receipts: Vec::new(),
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Stage5gProtectiveReplayClassification {
+    New,
+    ExactReplay(Stage5gProtectiveEvidenceReceipt),
+    FingerprintConflict,
 }
 
 pub fn apply_stage5g_protective_completion(
     authority: Stage5gProtectiveCompletionAuthority,
     evidence: Stage5gProtectiveCompletionEvidence,
 ) -> Stage5gProtectiveCompletionTransition {
-    let scenario = scenario_for(&authority, &evidence);
+    let base_scenario = base_scenario_for(&authority, &evidence);
     let preflight = validate_evidence(&authority, &evidence);
     let (leg, event_ts) = match execution_metadata(&evidence.execution) {
         Ok(value) => value,
         Err(reason) => {
             return Stage5gProtectiveCompletionTransition::Blocked(Stage5gProtectiveBlocked {
-                scenario,
+                scenario: scenario_for_reason(base_scenario, reason),
                 authority,
                 reason,
             });
         }
     };
     if let Err(reason) = preflight {
-        return block_or_await(authority, scenario, leg, reason, None);
+        return block_or_await(
+            authority,
+            scenario_for_reason(base_scenario, reason),
+            leg,
+            reason,
+            None,
+            true,
+        );
     }
-    if let Some(reason) = duplicate_conflict(&authority, &evidence) {
+    let replay = classify_replay(&authority, &evidence);
+    if replay == Stage5gProtectiveReplayClassification::FingerprintConflict {
+        let reason = Stage5gProtectiveBlockReason::ConflictingDuplicateEvidence;
         return Stage5gProtectiveCompletionTransition::Blocked(Stage5gProtectiveBlocked {
-            scenario,
+            scenario: scenario_for_reason(base_scenario, reason),
             authority,
             reason,
         });
     }
-    let receipt = Stage5gProtectiveEvidenceReceipt {
-        identity: evidence_identity(&authority, &evidence),
-        fingerprint_sha256: semantic_sha256(&evidence),
-        disposition: Stage5gProtectiveDisposition::AwaitingPositionTruth,
+    let replay_should_append = matches!(replay, Stage5gProtectiveReplayClassification::New);
+    let receipt = match replay {
+        Stage5gProtectiveReplayClassification::New => Stage5gProtectiveEvidenceReceipt {
+            identity: evidence_identity(&authority, &evidence),
+            fingerprint_sha256: semantic_sha256(&evidence),
+            disposition: Stage5gProtectiveDisposition::AwaitingPositionTruth,
+        },
+        Stage5gProtectiveReplayClassification::ExactReplay(receipt) => receipt,
+        Stage5gProtectiveReplayClassification::FingerprintConflict => unreachable!(),
     };
 
     if let Err(reason) = position_truth_is_flat(&authority, &evidence.position_truth, event_ts) {
-        return block_or_await(authority, scenario, leg, reason, Some(receipt));
+        return block_or_await(
+            authority,
+            scenario_for_reason(base_scenario, reason),
+            leg,
+            reason,
+            Some(receipt),
+            replay_should_append,
+        );
     }
     if let Err(reason) = validate_sibling_cleanup(&authority, &evidence) {
         return Stage5gProtectiveCompletionTransition::Blocked(Stage5gProtectiveBlocked {
-            scenario,
+            scenario: scenario_for_reason(base_scenario, reason),
             authority,
             reason,
         });
@@ -359,17 +457,32 @@ pub fn apply_stage5g_protective_completion(
 
     let mut completed_receipt = receipt;
     completed_receipt.disposition = Stage5gProtectiveDisposition::Completed;
-    let authority_summary = authority.summary();
-    let cleanup_pending = evidence.sibling_cleanup.is_some();
+    let callback = match apply_canonical_stage5g_protective_completion_callbacks(
+        authority, &evidence, event_ts,
+    ) {
+        Ok(callback) => callback,
+        Err(blocked) => {
+            let (authority, reason) = *blocked;
+            return Stage5gProtectiveCompletionTransition::Blocked(Stage5gProtectiveBlocked {
+                scenario: scenario_for_reason(base_scenario, reason),
+                authority,
+                reason,
+            });
+        }
+    };
+    let authority_summary = callback.authority_summary;
+    let cleanup_pending = callback.cleanup_pending;
     let mut completed = Stage5gProtectiveCompleted {
-        scenario,
+        scenario: base_scenario,
         leg,
         authority_summary,
         execution_receipt: completed_receipt,
         cleanup_pending,
-        final_owner: None,
-        final_cycle_id: None,
-        final_position_qty: Decimal::ZERO,
+        final_owner: callback.final_owner,
+        final_cycle_id: callback.final_cycle_id,
+        final_position_qty: callback.final_position_qty,
+        callback_count: callback.callback_count,
+        post_callback_state_fingerprint_sha256: callback.post_callback_state_fingerprint_sha256,
         completion_fingerprint_sha256: String::new(),
     };
     completed.completion_fingerprint_sha256 = semantic_sha256(&(
@@ -381,20 +494,10 @@ pub fn apply_stage5g_protective_completion(
         completed.final_owner,
         &completed.final_cycle_id,
         completed.final_position_qty,
+        completed.callback_count,
+        &completed.post_callback_state_fingerprint_sha256,
     ));
     Stage5gProtectiveCompletionTransition::Completed(completed)
-}
-
-pub fn export_stage5g_protective_completion_for_restart(
-    transition: &Stage5gProtectiveCompletionTransition,
-) -> Vec<u8> {
-    serde_json::to_vec(transition).expect("Stage 5G-f restart export must serialize")
-}
-
-pub fn restore_stage5g_protective_completion_from_restart(
-    bytes: &[u8],
-) -> Result<Stage5gProtectiveCompletionTransition, serde_json::Error> {
-    serde_json::from_slice(bytes)
 }
 
 fn block_or_await(
@@ -403,13 +506,16 @@ fn block_or_await(
     leg: Stage5gProtectiveLeg,
     reason: Stage5gProtectiveBlockReason,
     receipt: Option<Stage5gProtectiveEvidenceReceipt>,
+    append_receipt: bool,
 ) -> Stage5gProtectiveCompletionTransition {
     match reason {
         Stage5gProtectiveBlockReason::PositionTruthIncomplete
         | Stage5gProtectiveBlockReason::PositionNotFlat => {
             let mut execution_receipt = receipt.expect("await requires accepted execution receipt");
             execution_receipt.disposition = Stage5gProtectiveDisposition::AwaitingPositionTruth;
-            authority.accepted_receipts.push(execution_receipt.clone());
+            if append_receipt {
+                authority.accepted_receipts.push(execution_receipt.clone());
+            }
             Stage5gProtectiveCompletionTransition::AwaitingPositionTruth(
                 Stage5gProtectiveAwaitingPositionTruth {
                     scenario,
@@ -426,6 +532,136 @@ fn block_or_await(
             reason,
         }),
     }
+}
+
+struct Stage5gProtectiveCallbackOutcome {
+    authority_summary: Stage5gProtectiveAuthoritySummary,
+    cleanup_pending: bool,
+    final_owner: Option<HybridRuntimeOwner>,
+    final_cycle_id: Option<String>,
+    final_position_qty: Decimal,
+    callback_count: usize,
+    post_callback_state_fingerprint_sha256: String,
+}
+
+fn apply_canonical_stage5g_protective_completion_callbacks(
+    mut authority: Stage5gProtectiveCompletionAuthority,
+    evidence: &Stage5gProtectiveCompletionEvidence,
+    event_ts: i64,
+) -> Result<
+    Stage5gProtectiveCallbackOutcome,
+    Box<(
+        Stage5gProtectiveCompletionAuthority,
+        Stage5gProtectiveBlockReason,
+    )>,
+> {
+    let Some(mut runtime) = authority.runtime.take() else {
+        return Err(Box::new((
+            authority,
+            Stage5gProtectiveBlockReason::CanonicalCallbackFailed,
+        )));
+    };
+    let context = runtime.stage5g_protective_completion_callback_context(
+        authority.input.strategy_id.clone(),
+        authority.input.account_id.clone(),
+        authority.input.instrument.clone(),
+        event_ts,
+        Some(match authority.input.protected_position_side {
+            Stage5gProtectedPositionSide::Long => authority
+                .input
+                .protected_position_qty
+                .to_string()
+                .parse()
+                .unwrap_or(0.0),
+            Stage5gProtectedPositionSide::Short => -authority
+                .input
+                .protected_position_qty
+                .to_string()
+                .parse::<f64>()
+                .unwrap_or(0.0),
+        }),
+    );
+    let mut callback_count = 0usize;
+    let mut generated_cleanup_intents = 0usize;
+    let execution_intents = match &evidence.execution {
+        Stage5gProtectiveExecutionEvidence::TargetOrder(order) => {
+            crate::BrokerNeutralHybridStrategy::on_broker_order(
+                &mut runtime,
+                broker_core::HybridRuntimeCallbackInput {
+                    context: context.clone(),
+                    payload: order.clone(),
+                },
+            )
+        }
+        Stage5gProtectiveExecutionEvidence::StopOrder(order) => {
+            crate::BrokerNeutralHybridStrategy::on_broker_stop_order(
+                &mut runtime,
+                broker_core::HybridRuntimeCallbackInput {
+                    context: context.clone(),
+                    payload: order.clone(),
+                },
+            )
+        }
+    };
+    match execution_intents {
+        Ok(intents) => {
+            callback_count += 1;
+            generated_cleanup_intents += intents.len();
+        }
+        Err(_) => {
+            authority.runtime = Some(runtime);
+            return Err(Box::new((
+                authority,
+                Stage5gProtectiveBlockReason::CanonicalCallbackFailed,
+            )));
+        }
+    }
+
+    let position_context = runtime.stage5g_protective_completion_callback_context(
+        authority.input.strategy_id.clone(),
+        authority.input.account_id.clone(),
+        authority.input.instrument.clone(),
+        evidence.position_truth.received_ts_utc,
+        Some(0.0),
+    );
+    let position_intents = crate::BrokerNeutralHybridStrategy::on_broker_position(
+        &mut runtime,
+        broker_core::HybridRuntimeCallbackInput {
+            context: position_context,
+            payload: HybridRuntimePositionEvent {
+                instrument: authority.input.instrument.clone(),
+                qty: 0.0,
+                existing: false,
+                avg_price: 0.0,
+                source_ts_utc: evidence.position_truth.received_ts_utc,
+            },
+        },
+    );
+    match position_intents {
+        Ok(intents) => {
+            callback_count += 1;
+            generated_cleanup_intents += intents.len();
+        }
+        Err(_) => {
+            authority.runtime = Some(runtime);
+            return Err(Box::new((
+                authority,
+                Stage5gProtectiveBlockReason::CanonicalCallbackFailed,
+            )));
+        }
+    }
+    let (final_owner, final_cycle_id, final_position_qty, post_callback_state_fingerprint_sha256) =
+        runtime.stage5g_protective_completion_post_callback_summary();
+    let authority_summary = authority.summary();
+    Ok(Stage5gProtectiveCallbackOutcome {
+        authority_summary,
+        cleanup_pending: generated_cleanup_intents > 0 || evidence.sibling_cleanup.is_some(),
+        final_owner,
+        final_cycle_id,
+        final_position_qty,
+        callback_count,
+        post_callback_state_fingerprint_sha256,
+    })
 }
 
 fn validate_evidence(
@@ -459,7 +695,7 @@ fn validate_target_order(
     authority: &Stage5gProtectiveCompletionAuthority,
     order: &HybridRuntimeOrderEvent,
 ) -> Result<(), Stage5gProtectiveBlockReason> {
-    if !instrument_identity_matches(&order.instrument, &authority.input.instrument) {
+    if order.instrument != authority.input.instrument {
         return Err(Stage5gProtectiveBlockReason::InstrumentMismatch);
     }
     if Some(&order.order_id) != authority.input.tp_order_id.as_ref() {
@@ -477,7 +713,7 @@ fn validate_stop_order(
     authority: &Stage5gProtectiveCompletionAuthority,
     order: &HybridRuntimeStopOrderEvent,
 ) -> Result<(), Stage5gProtectiveBlockReason> {
-    if !instrument_identity_matches(&order.instrument, &authority.input.instrument) {
+    if order.instrument != authority.input.instrument {
         return Err(Stage5gProtectiveBlockReason::InstrumentMismatch);
     }
     if Some(&order.stop_order_id) != authority.input.sl_stop_order_id.as_ref() {
@@ -529,8 +765,10 @@ fn validate_side_and_quantity(
     if normalize_side(side) != expected_exit_side(authority.input.protected_position_side) {
         return Err(Stage5gProtectiveBlockReason::SideMismatch);
     }
-    let qty = decimal_from_f64(qty)?;
-    let filled_qty = decimal_from_f64(filled_qty)?;
+    let qty = stage5g_integral_lot_decimal(qty)
+        .ok_or(Stage5gProtectiveBlockReason::InvalidExecutionQuantity)?;
+    let filled_qty = stage5g_integral_lot_decimal(filled_qty)
+        .ok_or(Stage5gProtectiveBlockReason::InvalidExecutionQuantity)?;
     if qty <= Decimal::ZERO || filled_qty <= Decimal::ZERO {
         return Err(Stage5gProtectiveBlockReason::InvalidExecutionQuantity);
     }
@@ -553,7 +791,7 @@ fn position_truth_is_flat(
     if truth.received_ts_utc < event_ts_utc {
         return Err(Stage5gProtectiveBlockReason::ChronologyViolation);
     }
-    let mut qty = Decimal::ZERO;
+    let mut target_position: Option<&BrokerPositionSnapshot> = None;
     for position in &truth.positions {
         if position.account_id != authority.input.account_id {
             return Err(Stage5gProtectiveBlockReason::AccountMismatch);
@@ -565,11 +803,17 @@ fn position_truth_is_flat(
         {
             return Err(Stage5gProtectiveBlockReason::ChronologyViolation);
         }
-        if instrument_identity_matches(&position.instrument, &authority.input.instrument) {
-            qty += position.qty;
+        if position.instrument == authority.input.instrument {
+            if target_position.is_some() {
+                return Err(Stage5gProtectiveBlockReason::PositionNotFlat);
+            }
+            target_position = Some(position);
         }
     }
-    if qty != Decimal::ZERO {
+    let Some(position) = target_position else {
+        return Ok(());
+    };
+    if position.qty != Decimal::ZERO {
         return Err(Stage5gProtectiveBlockReason::PositionNotFlat);
     }
     Ok(())
@@ -579,18 +823,70 @@ fn validate_sibling_cleanup(
     authority: &Stage5gProtectiveCompletionAuthority,
     evidence: &Stage5gProtectiveCompletionEvidence,
 ) -> Result<(), Stage5gProtectiveBlockReason> {
-    let Some(cleanup) = &evidence.sibling_cleanup else {
-        return Ok(());
-    };
-    if !cleanup.accepted_by_paper_lifecycle {
+    if evidence.sibling_cleanup.is_some() && evidence.sibling_terminal.is_some() {
         return Err(Stage5gProtectiveBlockReason::SiblingCleanupAttributionMismatch);
     }
-    validate_attribution(
-        authority,
-        Some(&cleanup.attribution),
-        HybridRuntimeOrderRole::Cancel,
+    let (leg, _) = execution_metadata(&evidence.execution)?;
+    if let Some(cleanup) = &evidence.sibling_cleanup {
+        if !cleanup.paper_lifecycle_escrow.is_valid() {
+            return Err(Stage5gProtectiveBlockReason::MissingSiblingCleanupProof);
+        }
+        if !sibling_order_id_matches(authority, leg, &cleanup.cleanup_order_id) {
+            return Err(Stage5gProtectiveBlockReason::SiblingCleanupOrderIdMismatch);
+        }
+        validate_attribution(
+            authority,
+            Some(&cleanup.attribution),
+            HybridRuntimeOrderRole::Cancel,
+        )
+        .map_err(|_| Stage5gProtectiveBlockReason::SiblingCleanupAttributionMismatch)?;
+        return Ok(());
+    }
+    if let Some(terminal) = &evidence.sibling_terminal {
+        if !terminal_status_is_safe(&terminal.terminal_status)
+            || !sha256_like(&terminal.terminal_receipt_fingerprint_sha256)
+        {
+            return Err(Stage5gProtectiveBlockReason::MissingSiblingCleanupProof);
+        }
+        if !sibling_order_id_matches(authority, leg, &terminal.sibling_order_id) {
+            return Err(Stage5gProtectiveBlockReason::SiblingCleanupOrderIdMismatch);
+        }
+        return Ok(());
+    }
+    Err(Stage5gProtectiveBlockReason::MissingSiblingCleanupProof)
+}
+
+fn sibling_order_id_matches(
+    authority: &Stage5gProtectiveCompletionAuthority,
+    completed_leg: Stage5gProtectiveLeg,
+    observed: &BrokerOrderId,
+) -> bool {
+    match completed_leg {
+        Stage5gProtectiveLeg::Target => authority
+            .input
+            .sl_exchange_order_id
+            .as_ref()
+            .is_some_and(|expected| expected == observed),
+        Stage5gProtectiveLeg::Stop => authority
+            .input
+            .tp_order_id
+            .as_ref()
+            .is_some_and(|expected| expected == observed),
+    }
+}
+
+fn terminal_status_is_safe(status: &str) -> bool {
+    matches!(
+        normalize_status(status).as_str(),
+        "canceled"
+            | "cancelled"
+            | "expired"
+            | "rejected"
+            | "filled"
+            | "executed"
+            | "done"
+            | "completed"
     )
-    .map_err(|_| Stage5gProtectiveBlockReason::SiblingCleanupAttributionMismatch)
 }
 
 fn execution_metadata(
@@ -641,17 +937,23 @@ fn status_block_reason(
     }
 }
 
-fn duplicate_conflict(
+fn classify_replay(
     authority: &Stage5gProtectiveCompletionAuthority,
     evidence: &Stage5gProtectiveCompletionEvidence,
-) -> Option<Stage5gProtectiveBlockReason> {
+) -> Stage5gProtectiveReplayClassification {
     let identity = evidence_identity(authority, evidence);
     let fingerprint = semantic_sha256(evidence);
-    authority
+    match authority
         .accepted_receipts
         .iter()
-        .find(|receipt| receipt.identity == identity && receipt.fingerprint_sha256 != fingerprint)
-        .map(|_| Stage5gProtectiveBlockReason::ConflictingDuplicateEvidence)
+        .find(|receipt| receipt.identity == identity)
+    {
+        Some(receipt) if receipt.fingerprint_sha256 == fingerprint => {
+            Stage5gProtectiveReplayClassification::ExactReplay(receipt.clone())
+        }
+        Some(_) => Stage5gProtectiveReplayClassification::FingerprintConflict,
+        None => Stage5gProtectiveReplayClassification::New,
+    }
 }
 
 fn evidence_identity(
@@ -674,7 +976,7 @@ fn evidence_identity(
     }
 }
 
-fn scenario_for(
+fn base_scenario_for(
     authority: &Stage5gProtectiveCompletionAuthority,
     evidence: &Stage5gProtectiveCompletionEvidence,
 ) -> Stage5gProtectiveScenarioId {
@@ -702,6 +1004,35 @@ fn scenario_for(
     }
 }
 
+fn scenario_for_reason(
+    base: Stage5gProtectiveScenarioId,
+    reason: Stage5gProtectiveBlockReason,
+) -> Stage5gProtectiveScenarioId {
+    match reason {
+        Stage5gProtectiveBlockReason::WrongOwner
+        | Stage5gProtectiveBlockReason::MissingCycle
+        | Stage5gProtectiveBlockReason::WrongCycle => {
+            Stage5gProtectiveScenarioId::Gprt05WrongOwnerOrCycleBlocks
+        }
+        Stage5gProtectiveBlockReason::InstrumentMismatch
+        | Stage5gProtectiveBlockReason::TargetOrderIdMismatch
+        | Stage5gProtectiveBlockReason::StopOrderIdMismatch
+        | Stage5gProtectiveBlockReason::StopExchangeOrderIdMismatch
+        | Stage5gProtectiveBlockReason::SiblingCleanupOrderIdMismatch => {
+            Stage5gProtectiveScenarioId::Gprt06WrongInstrumentOrOrderIdBlocks
+        }
+        Stage5gProtectiveBlockReason::PositionTruthIncomplete
+        | Stage5gProtectiveBlockReason::PositionNotFlat => {
+            Stage5gProtectiveScenarioId::Gprt07TriggerWithoutFlatPositionBlocks
+        }
+        Stage5gProtectiveBlockReason::NonExecutionTerminal
+        | Stage5gProtectiveBlockReason::UnsupportedExecutionStatus => {
+            Stage5gProtectiveScenarioId::Gprt08NonExecutionTerminalCannotInventExit
+        }
+        _ => base,
+    }
+}
+
 fn normalize_status(value: &str) -> String {
     value.trim().to_ascii_lowercase()
 }
@@ -721,15 +1052,15 @@ fn expected_exit_side(side: Stage5gProtectedPositionSide) -> &'static str {
     }
 }
 
-fn decimal_from_f64(value: f64) -> Result<Decimal, Stage5gProtectiveBlockReason> {
-    Decimal::from_f64(value).ok_or(Stage5gProtectiveBlockReason::InvalidExecutionQuantity)
-}
-
 fn semantic_sha256<T: Serialize>(value: &T) -> String {
     let bytes = serde_json::to_vec(value).expect("Stage 5G-f semantic value serializes");
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     format!("{:x}", hasher.finalize())
+}
+
+fn sha256_like(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -742,7 +1073,7 @@ mod tests {
     use super::*;
 
     const STRATEGY_ID: &str = "hybrid_imoexf";
-    const CYCLE_ID: &str = "cycle-mr-5g-f";
+    const CYCLE_ID: &str = "MR5GFCYC01";
     const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
     fn account() -> BrokerAccountId {
@@ -770,24 +1101,46 @@ mod tests {
     }
 
     fn authority(side: Stage5gProtectedPositionSide) -> Stage5gProtectiveCompletionAuthority {
-        admit_stage5g_protective_completion_authority(Stage5gProtectiveCompletionAuthorityInput {
-            strategy_id: STRATEGY_ID.to_string(),
-            account_id: account(),
-            instrument: instrument(),
-            current_owner: HybridRuntimeOwner::MeanReversion,
-            active_cycle_id: Some(CYCLE_ID.to_string()),
-            protected_position_side: side,
-            protected_position_qty: Decimal::from(3),
-            tp_order_id: Some(BrokerOrderId::new("TP_STAGE5G_F")),
-            sl_stop_order_id: Some(BrokerStopOrderId::new("SL_STOP_STAGE5G_F")),
-            sl_exchange_order_id: Some(BrokerOrderId::new("SL_EXCHANGE_STAGE5G_F")),
-            protective_created_ts_utc: 1_800_000_000,
-            last_lifecycle_checkpoint_ts_utc: 1_800_000_001,
-            operational_identity_commitment_sha256: SHA.to_string(),
-            restart_package_fingerprint_sha256: SHA.to_string(),
-            last_checkpoint_fingerprint_sha256: SHA.to_string(),
-        })
-        .expect("authority")
+        let (runtime, cycle_id) =
+            crate::HybridIntradayRuntimeStrategy::stage5g_test_mr_protective_runtime_fixture(
+                side,
+                BrokerOrderId::new("TP_STAGE5G_F"),
+                BrokerStopOrderId::new("SL_STOP_STAGE5G_F"),
+                BrokerOrderId::new("SL_EXCHANGE_STAGE5G_F"),
+            );
+        assert_eq!(cycle_id, CYCLE_ID);
+        let input = runtime
+            .stage5g_protective_completion_authority_input(
+                STRATEGY_ID.to_string(),
+                account(),
+                instrument(),
+                SHA.to_string(),
+                SHA.to_string(),
+                SHA.to_string(),
+            )
+            .expect("source-owned MR protective authority input");
+        admit_stage5g_protective_completion_authority_from_source(input, Some(runtime))
+            .expect("authority")
+    }
+
+    fn cleanup_proof() -> Stage5gProtectiveCleanupEscrowProof {
+        Stage5gProtectiveCleanupEscrowProof {
+            lifecycle_receipt_fingerprint_sha256: SHA.to_string(),
+            accepted_cleanup_intent_fingerprint_sha256: SHA.to_string(),
+        }
+    }
+
+    fn cleanup_for_completed_leg(
+        leg: Stage5gProtectiveLeg,
+    ) -> Stage5gProtectiveSiblingCleanupEvidence {
+        Stage5gProtectiveSiblingCleanupEvidence {
+            cleanup_order_id: match leg {
+                Stage5gProtectiveLeg::Target => BrokerOrderId::new("SL_EXCHANGE_STAGE5G_F"),
+                Stage5gProtectiveLeg::Stop => BrokerOrderId::new("TP_STAGE5G_F"),
+            },
+            attribution: attr("CANCEL", CYCLE_ID, "MR"),
+            paper_lifecycle_escrow: cleanup_proof(),
+        }
     }
 
     fn target_order(side: Stage5gProtectedPositionSide, status: &str) -> HybridRuntimeOrderEvent {
@@ -866,7 +1219,8 @@ mod tests {
             observed_account_id: account(),
             execution: Stage5gProtectiveExecutionEvidence::TargetOrder(target_order(side, status)),
             position_truth,
-            sibling_cleanup: None,
+            sibling_cleanup: Some(cleanup_for_completed_leg(Stage5gProtectiveLeg::Target)),
+            sibling_terminal: None,
         }
     }
 
@@ -879,7 +1233,8 @@ mod tests {
             observed_account_id: account(),
             execution: Stage5gProtectiveExecutionEvidence::StopOrder(stop_order(side, status)),
             position_truth,
-            sibling_cleanup: None,
+            sibling_cleanup: Some(cleanup_for_completed_leg(Stage5gProtectiveLeg::Stop)),
+            sibling_terminal: None,
         }
     }
 
@@ -921,6 +1276,10 @@ mod tests {
         assert_eq!(completed.final_position_qty, Decimal::ZERO);
         assert!(completed.final_owner.is_none());
         assert!(completed.final_cycle_id.is_none());
+        assert_eq!(completed.callback_count, 2);
+        assert!(sha256_like(
+            &completed.post_callback_state_fingerprint_sha256
+        ));
     }
 
     #[test]
@@ -1023,6 +1382,18 @@ mod tests {
             )),
             Stage5gProtectiveBlockReason::WrongCycle
         );
+        let transition = apply_stage5g_protective_completion(
+            authority(Stage5gProtectedPositionSide::Long),
+            target_evidence(
+                Stage5gProtectedPositionSide::Long,
+                "Filled",
+                flat_position_truth(),
+            ),
+        );
+        assert_ne!(
+            transition.scenario(),
+            Stage5gProtectiveScenarioId::Gprt05WrongOwnerOrCycleBlocks
+        );
     }
 
     #[test]
@@ -1036,10 +1407,17 @@ mod tests {
             order.order_id = BrokerOrderId::new("TP_OTHER");
         }
         assert_eq!(
-            blocked_reason(apply_stage5g_protective_completion(
-                authority(Stage5gProtectedPositionSide::Long),
-                evidence
-            )),
+            {
+                let transition = apply_stage5g_protective_completion(
+                    authority(Stage5gProtectedPositionSide::Long),
+                    evidence,
+                );
+                assert_eq!(
+                    transition.scenario(),
+                    Stage5gProtectiveScenarioId::Gprt06WrongInstrumentOrOrderIdBlocks
+                );
+                blocked_reason(transition)
+            },
             Stage5gProtectiveBlockReason::TargetOrderIdMismatch
         );
 
@@ -1052,10 +1430,17 @@ mod tests {
             order.stop_order_id = BrokerStopOrderId::new("SL_OTHER");
         }
         assert_eq!(
-            blocked_reason(apply_stage5g_protective_completion(
-                authority(Stage5gProtectedPositionSide::Long),
-                evidence
-            )),
+            {
+                let transition = apply_stage5g_protective_completion(
+                    authority(Stage5gProtectedPositionSide::Long),
+                    evidence,
+                );
+                assert_eq!(
+                    transition.scenario(),
+                    Stage5gProtectiveScenarioId::Gprt06WrongInstrumentOrOrderIdBlocks
+                );
+                blocked_reason(transition)
+            },
             Stage5gProtectiveBlockReason::StopOrderIdMismatch
         );
 
@@ -1068,11 +1453,89 @@ mod tests {
             order.exchange_order_id = Some(BrokerOrderId::new("SL_EXCHANGE_OTHER"));
         }
         assert_eq!(
+            {
+                let transition = apply_stage5g_protective_completion(
+                    authority(Stage5gProtectedPositionSide::Long),
+                    evidence,
+                );
+                assert_eq!(
+                    transition.scenario(),
+                    Stage5gProtectiveScenarioId::Gprt06WrongInstrumentOrOrderIdBlocks
+                );
+                blocked_reason(transition)
+            },
+            Stage5gProtectiveBlockReason::StopExchangeOrderIdMismatch
+        );
+    }
+
+    #[test]
+    fn stage5g_f_position_truth_duplicate_and_contradictory_rows_do_not_sum_flat() {
+        let mut truth = flat_position_truth();
+        truth.positions.push(BrokerPositionSnapshot {
+            account_id: account(),
+            instrument: instrument(),
+            qty: Decimal::ZERO,
+            avg_price: None,
+            unrealized_pnl: None,
+            source_ts: Some(ts(1_800_000_011)),
+            received_ts: ts(1_800_000_011),
+        });
+        assert_eq!(
+            blocked_reason(apply_stage5g_protective_completion(
+                authority(Stage5gProtectedPositionSide::Long),
+                target_evidence(Stage5gProtectedPositionSide::Long, "Filled", truth)
+            )),
+            Stage5gProtectiveBlockReason::PositionNotFlat
+        );
+
+        let mut contradictory = Stage5gProtectivePositionTruth {
+            positions_complete: true,
+            positions: Vec::new(),
+            received_ts_utc: 1_800_000_011,
+        };
+        contradictory.positions.push(BrokerPositionSnapshot {
+            account_id: account(),
+            instrument: instrument(),
+            qty: Decimal::from(3),
+            avg_price: None,
+            unrealized_pnl: None,
+            source_ts: Some(ts(1_800_000_011)),
+            received_ts: ts(1_800_000_011),
+        });
+        contradictory.positions.push(BrokerPositionSnapshot {
+            account_id: account(),
+            instrument: instrument(),
+            qty: Decimal::from(-3),
+            avg_price: None,
+            unrealized_pnl: None,
+            source_ts: Some(ts(1_800_000_011)),
+            received_ts: ts(1_800_000_011),
+        });
+        assert_eq!(
+            blocked_reason(apply_stage5g_protective_completion(
+                authority(Stage5gProtectedPositionSide::Long),
+                target_evidence(Stage5gProtectedPositionSide::Long, "Filled", contradictory)
+            )),
+            Stage5gProtectiveBlockReason::PositionNotFlat
+        );
+    }
+
+    #[test]
+    fn stage5g_f_fractional_quantity_is_rejected_by_integral_lot_authority() {
+        let mut evidence = target_evidence(
+            Stage5gProtectedPositionSide::Long,
+            "Filled",
+            flat_position_truth(),
+        );
+        if let Stage5gProtectiveExecutionEvidence::TargetOrder(order) = &mut evidence.execution {
+            order.filled_qty = 2.5;
+        }
+        assert_eq!(
             blocked_reason(apply_stage5g_protective_completion(
                 authority(Stage5gProtectedPositionSide::Long),
                 evidence
             )),
-            Stage5gProtectiveBlockReason::StopExchangeOrderIdMismatch
+            Stage5gProtectiveBlockReason::InvalidExecutionQuantity
         );
     }
 
@@ -1091,6 +1554,10 @@ mod tests {
             Stage5gProtectiveDisposition::AwaitingPositionTruth
         );
         assert_eq!(
+            transition.scenario(),
+            Stage5gProtectiveScenarioId::Gprt07TriggerWithoutFlatPositionBlocks
+        );
+        assert_eq!(
             blocked_reason(transition),
             Stage5gProtectiveBlockReason::PositionNotFlat
         );
@@ -1099,26 +1566,36 @@ mod tests {
     #[test]
     fn stage5g_f_gprt08_non_execution_terminal_cannot_invent_exit() {
         for status in ["Canceled", "Cancelled", "Expired", "Rejected"] {
-            assert_eq!(
-                blocked_reason(apply_stage5g_protective_completion(
-                    authority(Stage5gProtectedPositionSide::Long),
-                    target_evidence(
-                        Stage5gProtectedPositionSide::Long,
-                        status,
-                        flat_position_truth()
-                    )
-                )),
-                Stage5gProtectiveBlockReason::NonExecutionTerminal
+            let target_transition = apply_stage5g_protective_completion(
+                authority(Stage5gProtectedPositionSide::Long),
+                target_evidence(
+                    Stage5gProtectedPositionSide::Long,
+                    status,
+                    flat_position_truth(),
+                ),
             );
             assert_eq!(
-                blocked_reason(apply_stage5g_protective_completion(
-                    authority(Stage5gProtectedPositionSide::Long),
-                    stop_evidence(
-                        Stage5gProtectedPositionSide::Long,
-                        status,
-                        flat_position_truth()
-                    )
-                )),
+                target_transition.scenario(),
+                Stage5gProtectiveScenarioId::Gprt08NonExecutionTerminalCannotInventExit
+            );
+            assert_eq!(
+                blocked_reason(target_transition),
+                Stage5gProtectiveBlockReason::NonExecutionTerminal
+            );
+            let stop_transition = apply_stage5g_protective_completion(
+                authority(Stage5gProtectedPositionSide::Long),
+                stop_evidence(
+                    Stage5gProtectedPositionSide::Long,
+                    status,
+                    flat_position_truth(),
+                ),
+            );
+            assert_eq!(
+                stop_transition.scenario(),
+                Stage5gProtectiveScenarioId::Gprt08NonExecutionTerminalCannotInventExit
+            );
+            assert_eq!(
+                blocked_reason(stop_transition),
                 Stage5gProtectiveBlockReason::NonExecutionTerminal
             );
         }
@@ -1299,70 +1776,43 @@ mod tests {
     }
 
     #[test]
-    fn stage5g_f_restart_roundtrips_before_awaiting_and_completed_states() {
-        let before = Stage5gProtectiveCompletionTransition::Blocked(Stage5gProtectiveBlocked {
-            scenario: Stage5gProtectiveScenarioId::Gprt05WrongOwnerOrCycleBlocks,
-            authority: authority(Stage5gProtectedPositionSide::Long),
-            reason: Stage5gProtectiveBlockReason::WrongCycle,
-        });
-        let before_bytes = export_stage5g_protective_completion_for_restart(&before);
-        let before_restored =
-            restore_stage5g_protective_completion_from_restart(&before_bytes).expect("restore");
-        assert_eq!(
-            before.semantic_fingerprint_sha256(),
-            before_restored.semantic_fingerprint_sha256()
-        );
-
-        let awaiting = apply_stage5g_protective_completion(
-            authority(Stage5gProtectedPositionSide::Long),
-            stop_evidence(
-                Stage5gProtectedPositionSide::Long,
-                "Triggered",
-                nonflat_position_truth(),
-            ),
-        );
-        let awaiting_bytes = export_stage5g_protective_completion_for_restart(&awaiting);
-        let awaiting_restored =
-            restore_stage5g_protective_completion_from_restart(&awaiting_bytes).expect("restore");
-        assert_eq!(
-            awaiting.semantic_fingerprint_sha256(),
-            awaiting_restored.semantic_fingerprint_sha256()
-        );
-
-        let completed = apply_stage5g_protective_completion(
-            authority(Stage5gProtectedPositionSide::Long),
-            target_evidence(
-                Stage5gProtectedPositionSide::Long,
-                "Filled",
-                flat_position_truth(),
-            ),
-        );
-        let completed_bytes = export_stage5g_protective_completion_for_restart(&completed);
-        let completed_restored =
-            restore_stage5g_protective_completion_from_restart(&completed_bytes).expect("restore");
-        assert_eq!(
-            completed.semantic_fingerprint_sha256(),
-            completed_restored.semantic_fingerprint_sha256()
-        );
+    fn stage5g_f_standalone_json_restart_codec_is_not_available() {
+        let production_source = include_str!("stage5g_protective_completion.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production section");
+        assert!(!production_source.contains("export_stage5g_protective_completion_for_restart"));
+        assert!(!production_source.contains("restore_stage5g_protective_completion_from_restart"));
+        assert!(!production_source.contains("serde_json::from_slice(bytes)"));
+        assert!(!production_source.contains("serde_json::to_vec(transition)"));
     }
 
     #[test]
     fn stage5g_f_sibling_cleanup_requires_exact_paper_lifecycle_attribution() {
-        let mut evidence = target_evidence(
+        let evidence = target_evidence(
             Stage5gProtectedPositionSide::Long,
             "Filled",
             flat_position_truth(),
         );
-        evidence.sibling_cleanup = Some(Stage5gProtectiveSiblingCleanupEvidence {
-            cleanup_order_id: BrokerOrderId::new("SL_EXCHANGE_STAGE5G_F"),
-            attribution: attr("CANCEL", CYCLE_ID, "MR"),
-            accepted_by_paper_lifecycle: true,
-        });
         let completed = completed(apply_stage5g_protective_completion(
             authority(Stage5gProtectedPositionSide::Long),
             evidence,
         ));
         assert!(completed.cleanup_pending);
+
+        let mut missing = target_evidence(
+            Stage5gProtectedPositionSide::Long,
+            "Filled",
+            flat_position_truth(),
+        );
+        missing.sibling_cleanup = None;
+        assert_eq!(
+            blocked_reason(apply_stage5g_protective_completion(
+                authority(Stage5gProtectedPositionSide::Long),
+                missing
+            )),
+            Stage5gProtectiveBlockReason::MissingSiblingCleanupProof
+        );
 
         let mut mismatch = target_evidence(
             Stage5gProtectedPositionSide::Long,
@@ -1372,7 +1822,7 @@ mod tests {
         mismatch.sibling_cleanup = Some(Stage5gProtectiveSiblingCleanupEvidence {
             cleanup_order_id: BrokerOrderId::new("SL_EXCHANGE_STAGE5G_F"),
             attribution: attr("CANCEL", "wrong-cycle", "MR"),
-            accepted_by_paper_lifecycle: true,
+            paper_lifecycle_escrow: cleanup_proof(),
         });
         assert_eq!(
             blocked_reason(apply_stage5g_protective_completion(

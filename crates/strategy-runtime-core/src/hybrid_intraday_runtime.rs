@@ -944,6 +944,186 @@ impl HybridIntradayRuntimeStrategy {
         self.last_position_qty
     }
 
+    pub(crate) fn stage5g_protective_completion_post_callback_summary(
+        &self,
+    ) -> (
+        Option<broker_core::HybridRuntimeOwner>,
+        Option<String>,
+        rust_decimal::Decimal,
+        String,
+    ) {
+        let owner = self.current_owner.map(|owner| match owner {
+            Owner::MeanReversion => broker_core::HybridRuntimeOwner::MeanReversion,
+            Owner::IntradayBreakout => broker_core::HybridRuntimeOwner::IntradayBreakout,
+        });
+        let cycle_id = self
+            .active_cycle_id
+            .map(|cycle| Self::format_cycle_id(&cycle));
+        let position_qty =
+            crate::stage5g_order_position::stage5g_integral_lot_decimal(self.last_position_qty)
+                .unwrap_or(rust_decimal::Decimal::ZERO);
+        let state = serde_json::to_value(crate::runtime_compat::Strategy::state(self))
+            .expect("runtime state remains serializable after protective callback");
+        let stage5c_fingerprint =
+            crate::stage5c_paper_host::stage5c_semantic_value_fingerprint(&state)
+                .expect("runtime state remains canonical after protective callback");
+        let fingerprint = format!("{:x}", Sha256::digest(stage5c_fingerprint.as_bytes()));
+        (owner, cycle_id, position_qty, fingerprint)
+    }
+
+    pub(crate) fn stage5g_protective_completion_callback_context(
+        &self,
+        strategy_id: String,
+        account_id: broker_core::BrokerAccountId,
+        instrument: broker_core::InstrumentId,
+        event_ts_utc: i64,
+        position_qty: Option<f64>,
+    ) -> broker_core::HybridRuntimeStrategyContext {
+        broker_core::HybridRuntimeStrategyContext {
+            strategy_id,
+            request_namespace_account: account_id,
+            instrument,
+            tick_size: self.config.tick_size,
+            trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
+            paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
+            allow_live_orders: false,
+            gateway_phase: broker_core::HybridRuntimeGatewayPhase::LiveReady,
+            position_qty,
+            event_ts_utc,
+            strategy_now_ts_utc: event_ts_utc,
+            last_bar_ts_utc: self.last_processed_bar_ts,
+        }
+    }
+
+    pub(crate) fn stage5g_protective_completion_authority_input(
+        &self,
+        strategy_id: String,
+        account_id: broker_core::BrokerAccountId,
+        instrument: broker_core::InstrumentId,
+        operational_identity_commitment_sha256: String,
+        restart_package_fingerprint_sha256: String,
+        last_checkpoint_fingerprint_sha256: String,
+    ) -> Option<crate::stage5g_protective_completion::Stage5gProtectiveCompletionAuthorityInput>
+    {
+        let current_owner = self.current_owner?;
+        let protected_position_side = match self.last_position_qty {
+            qty if qty > f64::EPSILON => {
+                crate::stage5g_protective_completion::Stage5gProtectedPositionSide::Long
+            }
+            qty if qty < -f64::EPSILON => {
+                crate::stage5g_protective_completion::Stage5gProtectedPositionSide::Short
+            }
+            _ => return None,
+        };
+        let protected_position_qty = crate::stage5g_order_position::stage5g_integral_lot_decimal(
+            self.last_position_qty.abs(),
+        )?;
+        let active_cycle_id = self
+            .active_cycle_id
+            .map(|cycle| Self::format_cycle_id(&cycle));
+        let protective_created_ts_utc = [
+            self.pending_tp_created_ts_utc,
+            self.pending_sl_created_ts_utc,
+            self.sl_triggered_ts,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or_default();
+        let last_lifecycle_checkpoint_ts_utc = [
+            self.pending_tp_created_ts_utc,
+            self.pending_sl_created_ts_utc,
+            self.sl_triggered_ts,
+            self.bracket_terminal_reconcile_started_ms
+                .map(|value| value / 1000),
+        ]
+        .into_iter()
+        .flatten()
+        .max()
+        .unwrap_or(protective_created_ts_utc);
+        Some(
+            crate::stage5g_protective_completion::Stage5gProtectiveCompletionAuthorityInput {
+                strategy_id,
+                account_id,
+                instrument,
+                current_owner: match current_owner {
+                    Owner::MeanReversion => broker_core::HybridRuntimeOwner::MeanReversion,
+                    Owner::IntradayBreakout => broker_core::HybridRuntimeOwner::IntradayBreakout,
+                },
+                active_cycle_id,
+                protected_position_side,
+                protected_position_qty,
+                tp_order_id: self.tp_order_id.clone(),
+                sl_stop_order_id: self.sl_stop_order_id.clone(),
+                sl_exchange_order_id: self.sl_exchange_order_id.clone(),
+                protective_created_ts_utc,
+                last_lifecycle_checkpoint_ts_utc,
+                operational_identity_commitment_sha256,
+                restart_package_fingerprint_sha256,
+                last_checkpoint_fingerprint_sha256,
+            },
+        )
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage5g_test_mr_protective_runtime_fixture(
+        side: crate::stage5g_protective_completion::Stage5gProtectedPositionSide,
+        tp_order_id: BrokerOrderId,
+        sl_stop_order_id: BrokerStopOrderId,
+        sl_exchange_order_id: BrokerOrderId,
+    ) -> (Self, String) {
+        let mut strategy = Self::new(HybridIntradayRuntimeConfig {
+            symbol: "IMOEXF".to_string(),
+            profile: HybridIntradayProfile::BaselineRuntimeHybrid,
+            mr_variant: MeanReversionVariant::ClassicPrevDayRange,
+            mr_gate_policy: MrGatePolicy::Disabled,
+            risk_gate_mode: RiskGateMode::Disabled,
+            risk_gate_seed_file: None,
+            risk_gate_ledger_key: None,
+            model_session_start_time: None,
+            model_session_end_time: None,
+            qty: 3.0,
+            live_order_style: MarketBuyAndCloseLiveOrderStyle::Market,
+            tick_size: 0.5,
+            marketable_limit_offset_ticks: 0,
+            timezone_offset_hours: 3,
+            session_close_hour: 23,
+            session_close_minute: 49,
+            weekends_off: true,
+            stop_end_buffer_sec: 60,
+            repair_deadline_sec: 180,
+            sl_escalate_timeout_sec: 30,
+            max_repair_retries: 3,
+            repair_backoff_base_sec: 5,
+            repair_backoff_max_sec: 60,
+            pending_timeout_sec: 30,
+            partial_entry_fill_timeout_ms: 3_000,
+            mr_config: MeanReversionConfig::default(),
+            breakout_config: IntradayBreakoutConfig::default(),
+            orchestrator_config: HybridOrchestratorConfig::default(),
+        });
+        let cycle = *b"MR5GFCYC01";
+        strategy.current_owner = Some(Owner::MeanReversion);
+        strategy.current_side = Some(match side {
+            crate::stage5g_protective_completion::Stage5gProtectedPositionSide::Long => Side::Long,
+            crate::stage5g_protective_completion::Stage5gProtectedPositionSide::Short => {
+                Side::Short
+            }
+        });
+        strategy.last_position_qty = match side {
+            crate::stage5g_protective_completion::Stage5gProtectedPositionSide::Long => 3.0,
+            crate::stage5g_protective_completion::Stage5gProtectedPositionSide::Short => -3.0,
+        };
+        strategy.active_cycle_id = Some(cycle);
+        strategy.tp_order_id = Some(tp_order_id);
+        strategy.sl_stop_order_id = Some(sl_stop_order_id);
+        strategy.sl_exchange_order_id = Some(sl_exchange_order_id);
+        strategy.pending_tp_created_ts_utc = Some(1_800_000_000);
+        strategy.pending_sl_created_ts_utc = Some(1_800_000_000);
+        strategy.last_processed_bar_ts = Some(1_799_999_400);
+        (strategy, Self::format_cycle_id(&cycle))
+    }
+
     // STAGE5G-C-R2CA-R2-RUNTIME-BEGIN: deterministic-terminal-fill-runtime-v1
     /// Builds an isolated transaction candidate for the Stage 5G-c R2-c-a R2
     /// paper-only settlement boundary.  This deliberately does not implement

@@ -11,17 +11,17 @@ from pathlib import PurePosixPath
 import stage5g_f_check as checker
 
 EXPECTED = sorted([
+    "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
     "crates/strategy-runtime-core/src/lib.rs",
+    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
     "crates/strategy-runtime-core/src/stage5g_protective_completion.rs",
-    "docs/current-status.md",
-    "docs/reviewer-onboarding-and-roadmap.md",
     "docs/stage-5/stage5g-f-protective-completion-contract.json",
     "docs/stage-5/stage5g-f-protective-completion-contract.md",
     "scripts/make_stage5g_f_handoff_archive.py",
     "scripts/stage5g_f_check.py",
-    "scripts/stage5g_f_gate.sh",
     "scripts/stage5g_f_negative_harness.py",
     "scripts/stage5g_f_preseal_check.py",
+    "scripts/stage5g_f_r1_gate.sh",
 ])
 
 
@@ -46,7 +46,7 @@ def safe(name: str) -> bool:
 
 def main() -> None:
     if output("git", "rev-parse", "HEAD^") != checker.BASE:
-        fail("HEAD is not the direct successor to c38d2e4")
+        fail("HEAD is not the direct successor to 63e7f22")
     if output("git", "branch", "--show-current") != checker.BRANCH:
         fail("wrong branch")
     delta = output("git", "diff", "--name-only", f"{checker.BASE}..HEAD").splitlines()

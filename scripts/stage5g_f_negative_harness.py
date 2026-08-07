@@ -15,7 +15,7 @@ SOURCE = "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"
 CONTRACT = "docs/stage-5/stage5g-f-protective-completion-contract.json"
 DESIGN = "docs/stage-5/stage5g-f-protective-completion-contract.md"
 LIB = "crates/strategy-runtime-core/src/lib.rs"
-GATE = "scripts/stage5g_f_gate.sh"
+GATE = "scripts/stage5g_f_r1_gate.sh"
 PRESEAL = "scripts/stage5g_f_preseal_check.py"
 HANDOFF = "scripts/make_stage5g_f_handoff_archive.py"
 
@@ -89,12 +89,22 @@ def contract_cases() -> list[tuple[str, callable]]:
             lambda root, surface=surface: mutate(root, CONTRACT, f'"{surface}": false', f'"{surface}": true'),
         ))
     cases.extend([
-        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 80', '"current_stage5g_f_minimum": 1')),
+        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 140', '"current_stage5g_f_minimum": 1')),
         ("open-bar-ohlc-authority", lambda root: mutate(root, CONTRACT, '"bar_ohlc_completion_authority": false', '"bar_ohlc_completion_authority": true')),
         ("wrong-base-ref", lambda root: mutate(root, CONTRACT, checker.BASE, "0" * 40)),
         ("wrong-entry-function", lambda root: mutate(root, CONTRACT, '"apply_stage5g_protective_completion"', '"apply_stage5g_protective_completion_bypass"')),
+        ("wrong-authority-issuer", lambda root: mutate(root, CONTRACT, '"authority_issuer": "prepare_stage5g_protective_completion"', '"authority_issuer": "admit_stage5g_protective_completion_authority"')),
+        ("wrong-authority-source", lambda root: mutate(root, CONTRACT, '"authority_source": "Stage5gCleanRestartedCapability"', '"authority_source": "caller_fields"')),
+        ("open-public-raw-authority-input", lambda root: mutate(root, CONTRACT, '"production_public_raw_authority_input": false', '"production_public_raw_authority_input": true')),
+        ("open-standalone-json-restart-codec", lambda root: mutate(root, CONTRACT, '"production_standalone_json_restart_codec": false', '"production_standalone_json_restart_codec": true')),
+        ("disable-canonical-callback-bridge", lambda root: mutate(root, CONTRACT, '"canonical_callback_bridge": true', '"canonical_callback_bridge": false')),
+        ("attach-callback-transport", lambda root: mutate(root, CONTRACT, '"callback_bridge_transport_attached": false', '"callback_bridge_transport_attached": true')),
+        ("open-cleanup-caller-bool-proof", lambda root: mutate(root, CONTRACT, '"cleanup_caller_boolean_proof": false', '"cleanup_caller_boolean_proof": true')),
+        ("disable-cleanup-proof-requirement", lambda root: mutate(root, CONTRACT, '"cleanup_requires_escrow_or_terminal_proof": true', '"cleanup_requires_escrow_or_terminal_proof": false')),
+        ("allow-exact-replay-append", lambda root: mutate(root, CONTRACT, '"exact_replay_appends_receipt": false', '"exact_replay_appends_receipt": true')),
+        ("allow-position-row-summing", lambda root: mutate(root, CONTRACT, '"position_rows_are_summed_to_flat": false', '"position_rows_are_summed_to_flat": true')),
         ("wrong-predecessor-verification-mode", lambda root: mutate(root, CONTRACT, '"mode": "bounded_detached_stage5g_edc_r3"', '"mode": "recursive_stage5g_edc_r3_gate"')),
-        ("wrong-predecessor-verification-commit", lambda root: mutate(root, CONTRACT, '"commit": "' + checker.BASE + '"', '"commit": "' + ("1" * 40) + '"')),
+        ("wrong-predecessor-verification-commit", lambda root: mutate(root, CONTRACT, '"commit": "' + checker.ACCEPTED_EDC_R3 + '"', '"commit": "' + ("1" * 40) + '"')),
         ("open-recursive-historical-lineage", lambda root: mutate(root, CONTRACT, '"runs_recursive_historical_lineage": false', '"runs_recursive_historical_lineage": true')),
         ("remove-predecessor-check-command", lambda root: mutate(root, CONTRACT, '"python3 scripts/stage5g_edc_r3_check.py"', '"python3 scripts/stage5g_edc_r3_check_removed.py"')),
     ])
@@ -107,16 +117,16 @@ def governance_cases() -> list[tuple[str, callable]]:
         ("remove-public-facade", lambda root: mutate(root, LIB, "pub use stage5g_protective_completion::", "pub use stage5g_protective_completion_removed::")),
         ("design-loses-f12-f15", lambda root: mutate(root, DESIGN, "Stage 5F F12–F15 remain no-bar-exit", "Stage 5F F12-F15 drift")),
         ("design-opens-stage5g-g", lambda root: mutate(root, DESIGN, "Only after independent Stage 5G-f acceptance may Stage 5G-g begin", "Stage 5G-g may begin immediately")),
-        ("gate-removes-checker", lambda root: mutate(root, GATE, "python3 scripts/stage5g_f_check.py", "# checker removed")),
-        ("gate-removes-negative", lambda root: mutate(root, GATE, "python3 scripts/stage5g_f_negative_harness.py", "# negative removed")),
-        ("gate-removes-preseal", lambda root: mutate(root, GATE, "python3 scripts/stage5g_f_preseal_check.py", "# preseal removed")),
-        ("gate-removes-debug-tests", lambda root: mutate(root, GATE, "cargo test -p strategy-runtime-core --lib stage5g_f_", "# focused debug removed")),
-        ("gate-removes-release-tests", lambda root: mutate(root, GATE, "cargo test --release -p strategy-runtime-core --lib stage5g_f_", "# focused release removed")),
+        ("gate-removes-checker", lambda root: mutate(root, GATE, "python3 scripts/stage5g_f_check.py", "# checker removed", count=None)),
+        ("gate-removes-negative", lambda root: mutate(root, GATE, "python3 scripts/stage5g_f_negative_harness.py", "# negative removed", count=None)),
+        ("gate-removes-preseal", lambda root: mutate(root, GATE, "python3 scripts/stage5g_f_preseal_check.py", "# preseal removed", count=None)),
+        ("gate-removes-debug-tests", lambda root: mutate(root, GATE, "cargo test -p strategy-runtime-core --lib stage5g_f_", "# focused debug removed", count=None)),
+        ("gate-removes-release-tests", lambda root: mutate(root, GATE, "cargo test --release -p strategy-runtime-core --lib stage5g_f_", "# focused release removed", count=None)),
         ("gate-removes-predecessor-checker", lambda root: mutate(root, GATE, "python3 scripts/stage5g_edc_r3_check.py", "# predecessor checker removed")),
         ("gate-removes-predecessor-negative", lambda root: mutate(root, GATE, "python3 scripts/stage5g_edc_r3_negative_harness.py", "# predecessor negative removed")),
         ("gate-removes-predecessor-release-tests", lambda root: mutate(root, GATE, "cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_", "# predecessor release tests removed")),
         ("preseal-loses-allowlist", lambda root: mutate(root, PRESEAL, "EXPECTED = sorted([", "EXPECTED_DISABLED = sorted([")),
-        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
+        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r1_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
     ]
 
 
@@ -143,8 +153,8 @@ def cases() -> list[tuple[str, callable]]:
         + governance_cases()
         + forbidden_surface_cases()
     )
-    if len(all_cases) < 80:
-        fail(f"negative floor not met: {len(all_cases)} < 80")
+    if len(all_cases) < 140:
+        fail(f"negative floor not met: {len(all_cases)} < 140")
     names = [name for name, _ in all_cases]
     if len(names) != len(set(names)):
         fail("duplicate mutation names")

@@ -52,7 +52,7 @@ def main() -> None:
         fail("origin/stage5g-lifecycle must equal HEAD")
 
     gate = subprocess.run(
-        ["bash", "scripts/stage5g_f_gate.sh"],
+        ["bash", "scripts/stage5g_f_r1_gate.sh"],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -96,13 +96,13 @@ def main() -> None:
 
     evidence = json.dumps({
         "schema_version": 1,
-        "stage": "Stage 5G-f",
+        "stage": "Stage 5G-f R1",
         "source_ref": head,
         "predecessor": checker.BASE,
         "gate_exit_code": 0,
         "scenario_count": len(checker.EXPECTED_SCENARIOS),
         "negative_cases": len(negative.cases()),
-        "negative_floor": 80,
+        "negative_floor": 140,
         "focused_test_count": len(checker.REQUIRED_TESTS),
         "contract": "docs/stage-5/stage5g-f-protective-completion-contract.json",
         "closed_surfaces": [

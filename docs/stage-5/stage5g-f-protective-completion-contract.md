@@ -6,12 +6,15 @@ Reversion positions in paper/mock mode only.
 It does not place FINAM native stops, SLTP, brackets, real orders, Redis
 consumer work, broker dispatch, runtime-live, Stage 5G-g/h or Stage 6.
 
-## Accepted base
+## R1 base and accepted predecessor
+
+R1 is one direct successor to the submitted Stage 5G-f implementation:
+
+`63e7f220f108ec539b61e73147938d461969daa8`
+
+The accepted Stage 5G-e-d-c R3 predecessor remains:
 
 `c38d2e44e083e39552ea716823e43ebae775b881`
-
-The commit must be one direct successor to this accepted Stage 5G-e-d-c R3
-base.
 
 The Stage 5G-f handoff runs a bounded predecessor R3 verification in a detached
 worktree at that exact commit:
@@ -90,32 +93,45 @@ row is not flat.
 
 ## Opaque path
 
-`Stage5gProtectiveCompletionAuthority` is admitted from a frozen restored
-lifecycle input and consumed by `apply_stage5g_protective_completion`.
+Production code admits `Stage5gProtectiveCompletionAuthority` only through
+`prepare_stage5g_protective_completion(Stage5gCleanRestartedCapability)`.
+The authority is source-owned by the authenticated clean-restart package; raw
+caller fields are not exported as a production API.
+
+`Stage5gProtectiveCompletionAuthority` is then consumed by
+`apply_stage5g_protective_completion`.
+
+Standalone raw JSON restart of a protective transition is intentionally absent.
+Restart continuity must use the accepted Stage 5D/Stage 5G authenticated package
+boundary; this slice does not introduce a second durable store.
 
 Completed transition consumes the authority and emits a completed evidence
-summary. Awaiting/blocking transitions preserve the exact incoming authority
-when no completion mutation is allowed.
+summary derived after the canonical source runtime callback bridge runs the
+accepted `on_broker_order`/`on_broker_stop_order` plus flat-position callback
+path. Awaiting/blocking transitions preserve the exact incoming authority when
+no completion mutation is allowed.
 
-Sibling cleanup is represented only as paper lifecycle evidence with exact MR
-cancel attribution. It is not broker dispatch and not native transport.
+Sibling cleanup is represented only by exact paper lifecycle escrow evidence or
+an exact terminal sibling proof. A missing sibling proof is not treated as safe.
+It is not broker dispatch and not native transport.
 
 ## Current gate
 
 Primary current-head gate:
 
 ```bash
-bash scripts/stage5g_f_gate.sh
+bash scripts/stage5g_f_r1_gate.sh
 ```
 
 Required current-head checks:
 
 - Stage 5G-f checker;
-- Stage 5G-f negative harness, floor `>=80`;
+- Stage 5G-f negative harness, floor `>=140`;
 - Stage 5G-f preseal;
 - focused GPRT debug and release tests;
 - full `strategy-runtime-core` lib test;
 - doctests, fmt, clippy;
+- detached submitted `63e7f22` Stage 5G-f verification;
 - detached bounded Stage 5G-e-d-c R3 predecessor verification;
 - forbidden surfaces remain closed.
 

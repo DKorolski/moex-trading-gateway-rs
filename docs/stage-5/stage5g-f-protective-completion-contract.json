@@ -1,12 +1,22 @@
 {
   "schema_version": 1,
   "stage": "5G-f",
-  "base_ref": "c38d2e44e083e39552ea716823e43ebae775b881",
+  "base_ref": "63e7f220f108ec539b61e73147938d461969daa8",
   "branch": "stage5g-lifecycle",
   "purpose": "paper/mock Mean Reversion protective target/stop completion from canonical broker feedback plus complete flat position truth",
   "protective_completion_type": "Stage5gProtectiveCompletionTransition",
   "authority_type": "Stage5gProtectiveCompletionAuthority",
+  "authority_issuer": "prepare_stage5g_protective_completion",
+  "authority_source": "Stage5gCleanRestartedCapability",
   "entry_function": "apply_stage5g_protective_completion",
+  "production_public_raw_authority_input": false,
+  "production_standalone_json_restart_codec": false,
+  "canonical_callback_bridge": true,
+  "callback_bridge_transport_attached": false,
+  "cleanup_caller_boolean_proof": false,
+  "cleanup_requires_escrow_or_terminal_proof": true,
+  "exact_replay_appends_receipt": false,
+  "position_rows_are_summed_to_flat": false,
   "predecessor_verification": {
     "mode": "bounded_detached_stage5g_edc_r3",
     "commit": "c38d2e44e083e39552ea716823e43ebae775b881",
@@ -94,6 +104,6 @@
     "stage6": false
   },
   "negative_floor": {
-    "current_stage5g_f_minimum": 80
+    "current_stage5g_f_minimum": 140
   }
 }

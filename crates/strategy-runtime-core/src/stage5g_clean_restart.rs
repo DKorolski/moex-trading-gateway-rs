@@ -635,6 +635,29 @@ impl Stage5gCleanRestartedCapability {
         self.projection.fresh_truth_application_evidence.as_ref()
     }
 
+    pub(crate) fn into_stage5g_protective_completion_authority_input(
+        self,
+    ) -> Option<(
+        HybridIntradayRuntimeStrategy,
+        crate::stage5g_protective_completion::Stage5gProtectiveCompletionAuthorityInput,
+    )> {
+        let restart_package_fingerprint_sha256 = semantic_sha256(&self.projection)
+            .expect("validated clean-restart projection remains canonical");
+        let last_checkpoint_fingerprint_sha256 =
+            semantic_sha256(self.reconciliation_authority.checkpoint())
+                .expect("validated clean-restart checkpoint remains canonical");
+        let observation = self.next_reconciliation_observation();
+        let input = self.runtime.stage5g_protective_completion_authority_input(
+            observation.strategy_id,
+            observation.account_id,
+            observation.instrument_id,
+            observation.lifecycle_source_authority_sha256,
+            restart_package_fingerprint_sha256,
+            last_checkpoint_fingerprint_sha256,
+        )?;
+        Some((self.runtime, input))
+    }
+
     #[allow(dead_code)]
     pub(crate) fn next_reconciliation_observation(&self) -> Stage5gNextReconciliationObservation {
         let summary = self.reconciliation_authority.summary();
