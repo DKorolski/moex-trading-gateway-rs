@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-06.
+Status date: 2026-08-07.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -12,6 +12,19 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current transition
 
+- Stage 5G-e-d-c R3 was independently accepted at
+  `c38d2e44e083e39552ea716823e43ebae775b881` and pushed to `origin/main`.
+  It closes the exact source-proof field-map gap for fresh-truth application:
+  constructor assignments are machine-described, mutation-sealed and
+  independently source-oracle checked. Stage 5G-f is now the active allowed
+  functional slice.
+- Stage 5G-f is a paper/mock protective-completion implementation candidate on
+  direct base `c38d2e44e083e39552ea716823e43ebae775b881`. It owns only Mean
+  Reversion target/stop completion from exact protective broker/runtime
+  feedback plus complete flat position truth for the eight frozen GPRT
+  scenarios. It does not open FINAM native stops, SLTP/brackets, HTTP
+  POST/DELETE, Redis live consumers, broker dispatch, runtime-live, real orders,
+  Stage 5G-g/h or Stage 6.
 - Stage 5F-e aggregate acceptance was independently accepted at
   `fb8245e2f91cfc1678548a1228e8558d9adc2181`; Stage 5F is formally closed.
 - The immutable closure facts are recorded in

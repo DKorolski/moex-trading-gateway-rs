@@ -290,6 +290,7 @@ mod stage5g_clean_restart;
 mod stage5g_fresh_broker_truth;
 mod stage5g_mock_ack;
 mod stage5g_order_position;
+mod stage5g_protective_completion;
 mod stage5g_timer;
 
 pub use hybrid_intraday_runtime::{
@@ -478,6 +479,18 @@ pub use stage5g_order_position::{
     Stage5gOrderPositionEvidence, Stage5gOrderPositionFailure, Stage5gOrderPositionSession,
     Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal, Stage5gOrderPositionTransition,
     STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
+};
+pub use stage5g_protective_completion::{
+    admit_stage5g_protective_completion_authority, apply_stage5g_protective_completion,
+    export_stage5g_protective_completion_for_restart,
+    restore_stage5g_protective_completion_from_restart, Stage5gProtectedPositionSide,
+    Stage5gProtectiveAuthoritySummary, Stage5gProtectiveBlockReason, Stage5gProtectiveBlocked,
+    Stage5gProtectiveCompleted, Stage5gProtectiveCompletionAuthority,
+    Stage5gProtectiveCompletionAuthorityInput, Stage5gProtectiveCompletionEvidence,
+    Stage5gProtectiveCompletionTransition, Stage5gProtectiveDisposition,
+    Stage5gProtectiveEvidenceReceipt, Stage5gProtectiveExecutionEvidence, Stage5gProtectiveLeg,
+    Stage5gProtectivePositionTruth, Stage5gProtectiveScenarioId,
+    Stage5gProtectiveSiblingCleanupEvidence, STAGE5G_PROTECTIVE_COMPLETION_SCHEMA_VERSION,
 };
 pub use stage5g_timer::{
     apply_stage5g_exact_replay_to_session, apply_stage5g_new_package_candidate,

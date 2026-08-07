@@ -70,6 +70,35 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
+Stage 5G-e-d-c R3 was independently accepted at
+`c38d2e44e083e39552ea716823e43ebae775b881`. The active review target is now
+**Stage 5G-f — paper/mock Mean Reversion protective completion**.
+
+Stage 5G-f is one direct successor to `c38d2e4`. It completes only the eight
+frozen GPRT protective cases by consuming an accepted restored lifecycle
+authority and canonical broker/runtime feedback. Target completion requires
+exact `TakeProfit` filled evidence plus complete flat target-position truth.
+Stop completion requires exact `StopLoss` execution-like evidence plus complete
+flat target-position truth. F12–F15 remain no-bar-exit Stage 5F semantics:
+bar OHLC highs/lows are not protective execution authority.
+
+The Stage 5G-f contract is:
+
+- `docs/stage-5/stage5g-f-protective-completion-contract.json`
+- `docs/stage-5/stage5g-f-protective-completion-contract.md`
+
+Primary gate:
+
+```bash
+bash scripts/stage5g_f_gate.sh
+```
+
+The current Stage 5G-f candidate still forbids FINAM native stop/SLTP/bracket
+endpoints, HTTP POST/DELETE, Redis live consumers, broker dispatch, a second
+callback path, runtime-live, real orders, Stage 5G-g/h and Stage 6.
+
+## Previous e-d-c target
+
 Stage 5G-e-d-a R6 was independently accepted and closed at
 `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. The first e-d-b implementation at
 `8a02f2a6b6e27587539d1e4e4717301bf010e6a1` was rejected on five reducer
@@ -143,9 +172,9 @@ supersession, and retains history counts on missing-owned/conflict outcomes.
 
 ## Deliberately closed surfaces
 
-The current stage does **not** authorize:
+The current Stage 5G-f candidate does **not** authorize:
 
-- Stage 5G-f protective completion;
+- Stage 5G-g/h aggregate/freeze implementation;
 - Redis live consumer groups or a strategy command consumer;
 - FINAM HTTP POST/DELETE or broker dispatch/execution;
 - runtime-live, unattended execution or real orders;

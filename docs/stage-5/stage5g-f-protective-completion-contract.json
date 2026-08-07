@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "stage": "5G-f",
+  "base_ref": "c38d2e44e083e39552ea716823e43ebae775b881",
+  "branch": "stage5g-lifecycle",
+  "purpose": "paper/mock Mean Reversion protective target/stop completion from canonical broker feedback plus complete flat position truth",
+  "protective_completion_type": "Stage5gProtectiveCompletionTransition",
+  "authority_type": "Stage5gProtectiveCompletionAuthority",
+  "entry_function": "apply_stage5g_protective_completion",
+  "predecessor_verification": {
+    "mode": "bounded_detached_stage5g_edc_r3",
+    "commit": "c38d2e44e083e39552ea716823e43ebae775b881",
+    "runs_recursive_historical_lineage": false,
+    "required_commands": [
+      "python3 scripts/stage5g_edc_r3_check.py",
+      "python3 scripts/stage5g_edc_r3_negative_harness.py",
+      "python3 scripts/stage5g_edc_r3_preseal_check.py",
+      "cargo test -p strategy-runtime-core --lib stage5g_edc_r3_",
+      "cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_"
+    ]
+  },
+  "scenario_order": [
+    "GPRT01_F12_MR_LONG_TARGET_COMPLETES_FLAT",
+    "GPRT02_F13_MR_SHORT_TARGET_COMPLETES_FLAT",
+    "GPRT03_F14_MR_LONG_STOP_COMPLETES_FLAT",
+    "GPRT04_F15_MR_SHORT_STOP_COMPLETES_FLAT",
+    "GPRT05_WRONG_OWNER_OR_CYCLE_BLOCKS",
+    "GPRT06_WRONG_INSTRUMENT_OR_ORDER_ID_BLOCKS",
+    "GPRT07_TRIGGER_WITHOUT_FLAT_POSITION_BLOCKS",
+    "GPRT08_NON_EXECUTION_TERMINAL_CANNOT_INVENT_EXIT"
+  ],
+  "frozen_stage5f_source_semantics": {
+    "F12": "MR long favorable extreme emits no bar-owned exit",
+    "F13": "MR short favorable extreme emits no bar-owned exit",
+    "F14": "MR long adverse extreme emits no bar-owned exit",
+    "F15": "MR short adverse extreme emits no bar-owned exit",
+    "bar_ohlc_completion_authority": false
+  },
+  "completion_rules": {
+    "target": {
+      "required_status": "Filled",
+      "requires_flat_position_truth": true,
+      "role": "TakeProfit",
+      "owner": "MeanReversion"
+    },
+    "stop": {
+      "execution_like_statuses": [
+        "Filled",
+        "Executed",
+        "Triggered",
+        "Done",
+        "Completed"
+      ],
+      "requires_flat_position_truth": true,
+      "role": "StopLoss",
+      "owner": "MeanReversion"
+    },
+    "non_execution_terminal_statuses": [
+      "Canceled",
+      "Cancelled",
+      "Expired",
+      "Rejected"
+    ],
+    "complete_absent_target_position_is_flat": true,
+    "incomplete_absent_position_is_not_flat": true
+  },
+  "required_exact_authorities": [
+    "strategy_id",
+    "account_id",
+    "instrument",
+    "owner_mean_reversion",
+    "active_cycle_id",
+    "role_take_profit_or_stop_loss",
+    "tp_broker_order_id",
+    "sl_broker_stop_order_id",
+    "sl_exchange_broker_order_id_when_known",
+    "opposite_side",
+    "protected_position_quantity",
+    "monotonic_chronology",
+    "complete_flat_position_truth",
+    "sibling_cleanup_attribution_when_present"
+  ],
+  "closed_surfaces": {
+    "finam_native_stop_endpoint": false,
+    "finam_sltp_bracket_endpoint": false,
+    "http_post_delete": false,
+    "redis_live_consumer": false,
+    "broker_dispatch": false,
+    "second_callback_path": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "stage5g_g": false,
+    "stage5g_h": false,
+    "stage6": false
+  },
+  "negative_floor": {
+    "current_stage5g_f_minimum": 80
+  }
+}
