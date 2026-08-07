@@ -3966,6 +3966,20 @@ pub(crate) fn stage5g_test_fully_reseal_application_package(
         )
         .expect("rehashed application projection parses");
 
+    if let Some(application_evidence) = projection.fresh_truth_application_evidence.as_ref() {
+        let application_authority =
+            crate::stage5g_fresh_broker_truth::stage5g_application_authority_sha256(
+                application_evidence,
+            );
+        projection.fresh_truth_application_authority_sha256 = Some(application_authority.clone());
+        projection.fresh_truth_application_authority_hmac_sha256 = Some(
+            crate::stage5g_clean_restart::stage5g_test_application_authority_hmac_sha256(
+                commitment_key,
+                &application_authority,
+            ),
+        );
+    }
+
     envelope.stage5g_source_authority_hmac_sha256 = Some(
         crate::stage5g_clean_restart::stage5g_test_authenticated_restart_hmac_sha256(
             &projection,

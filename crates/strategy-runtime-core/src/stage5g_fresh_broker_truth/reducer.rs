@@ -1883,9 +1883,11 @@ mod tests {
     use crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection;
     use crate::stage5g_fresh_broker_truth::application::{
         apply_stage5g_fresh_truth_reduction, apply_stage5g_fresh_truth_reduction_with_failure,
-        apply_stage5g_fresh_truth_reduction_with_mismatch, stage5g_application_trace_snapshot,
-        Stage5gApplicationTrace, Stage5gFreshTruthApplicationError,
-        Stage5gFreshTruthApplicationFailurePoint, Stage5gFreshTruthApplicationResult,
+        apply_stage5g_fresh_truth_reduction_with_mismatch,
+        apply_stage5g_fresh_truth_reduction_with_source_mutation,
+        stage5g_application_trace_snapshot, Stage5gApplicationTrace,
+        Stage5gFreshTruthApplicationError, Stage5gFreshTruthApplicationFailurePoint,
+        Stage5gFreshTruthApplicationResult, Stage5gFreshTruthApplicationSourceMutation,
     };
     use crate::stage5g_fresh_broker_truth::{
         bind_stage5g_fresh_truth_to_clean_restart, validate_stage5g_fresh_broker_truth_package,
@@ -1962,6 +1964,36 @@ mod tests {
         crate::stage5g_fresh_broker_truth::Stage5gValidatedPostApplication,
         serde::de::DeserializeOwned
     );
+    assert_not_impl!(
+        stage5g_edc_r2_source_proof_not_clone,
+        crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationSourceProof,
+        Clone
+    );
+    assert_not_impl!(
+        stage5g_edc_r2_source_proof_not_serialize,
+        crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationSourceProof,
+        serde::Serialize
+    );
+    assert_not_impl!(
+        stage5g_edc_r2_source_proof_not_deserialize,
+        crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationSourceProof,
+        serde::de::DeserializeOwned
+    );
+    assert_not_impl!(
+        stage5g_edc_r2_finalized_post_token_not_clone,
+        crate::stage5g_fresh_broker_truth::Stage5gFinalizedPostApplication,
+        Clone
+    );
+    assert_not_impl!(
+        stage5g_edc_r2_finalized_post_token_not_serialize,
+        crate::stage5g_fresh_broker_truth::Stage5gFinalizedPostApplication,
+        serde::Serialize
+    );
+    assert_not_impl!(
+        stage5g_edc_r2_finalized_post_token_not_deserialize,
+        crate::stage5g_fresh_broker_truth::Stage5gFinalizedPostApplication,
+        serde::de::DeserializeOwned
+    );
 
     #[test]
     fn stage5g_edc_r1_actual_production_types_are_linear_and_non_serializable() {
@@ -1974,6 +2006,12 @@ mod tests {
         stage5g_edc_r1_post_token_not_clone();
         stage5g_edc_r1_post_token_not_serialize();
         stage5g_edc_r1_post_token_not_deserialize();
+        stage5g_edc_r2_source_proof_not_clone();
+        stage5g_edc_r2_source_proof_not_serialize();
+        stage5g_edc_r2_source_proof_not_deserialize();
+        stage5g_edc_r2_finalized_post_token_not_clone();
+        stage5g_edc_r2_finalized_post_token_not_serialize();
+        stage5g_edc_r2_finalized_post_token_not_deserialize();
     }
 
     struct Case {
@@ -5742,7 +5780,10 @@ mod tests {
         else {
             panic!("Policy-B ExactReplay must remain blocked");
         };
-        assert_eq!(blocked.application_error(), None);
+        assert_eq!(
+            blocked.application_error(),
+            Some(Stage5gFreshTruthApplicationError::ExactReplayDisabled)
+        );
         assert_eq!(
             blocked.disposition(),
             Stage5gRestartReconciliationDisposition::ReconciliationRequired
@@ -5792,6 +5833,49 @@ mod tests {
             assert_eq!(trace.canonical_transition_completed, 1, "{mismatch:?}");
             assert_eq!(trace.serialization_started, 0, "{mismatch:?}");
             assert_eq!(trace.bytes_produced, 0, "{mismatch:?}");
+        }
+    }
+
+    #[test]
+    fn stage5g_edc_r2_application_source_mapping_mismatches_fail_before_post_token() {
+        let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
+            .expect("fixture commitment key");
+        for mutation in [
+            Stage5gFreshTruthApplicationSourceMutation::FreshPackageFingerprint,
+            Stage5gFreshTruthApplicationSourceMutation::PreRestartPackageFingerprint,
+            Stage5gFreshTruthApplicationSourceMutation::ReductionPreSemanticFingerprint,
+            Stage5gFreshTruthApplicationSourceMutation::OperationalIdentityCommitment,
+            Stage5gFreshTruthApplicationSourceMutation::FreshPackageId,
+            Stage5gFreshTruthApplicationSourceMutation::FreshSnapshotEpoch,
+            Stage5gFreshTruthApplicationSourceMutation::FreshCapturedAt,
+            Stage5gFreshTruthApplicationSourceMutation::SwapFreshIdAndEpoch,
+            Stage5gFreshTruthApplicationSourceMutation::HistoryCounts,
+            Stage5gFreshTruthApplicationSourceMutation::SourceProofCommitment,
+        ] {
+            let reduction = stage5g_edc_working_reduction();
+            let pre_fingerprint = reduction.pre_restart_package_fingerprint_sha256();
+            let result =
+                apply_stage5g_fresh_truth_reduction_with_source_mutation(reduction, &key, mutation);
+            let Stage5gFreshTruthApplicationResult::Blocked(blocked) = result else {
+                panic!("{mutation:?} must block before post token export");
+            };
+            assert_eq!(
+                blocked.application_error(),
+                Some(Stage5gFreshTruthApplicationError::SourceProofMismatch),
+                "{mutation:?}"
+            );
+            assert_eq!(
+                blocked
+                    .restart()
+                    .stage5g_pre_restart_package_fingerprint_sha256(),
+                pre_fingerprint,
+                "{mutation:?}"
+            );
+            assert!(blocked.restart().stage5g_application_evidence().is_none());
+            let trace = stage5g_application_trace_snapshot();
+            assert_eq!(trace.post_equality_completed, 1, "{mutation:?}");
+            assert_eq!(trace.serialization_started, 0, "{mutation:?}");
+            assert_eq!(trace.bytes_produced, 0, "{mutation:?}");
         }
     }
 
@@ -5853,6 +5937,7 @@ mod tests {
                 canonical_transition_completed: 1,
                 post_equality_completed: 1,
                 serialization_started: 1,
+                serializer_called: 1,
                 ..Default::default()
             },
             Stage5gApplicationTrace {
@@ -5862,6 +5947,7 @@ mod tests {
                 canonical_transition_completed: 1,
                 post_equality_completed: 1,
                 serialization_started: 1,
+                serializer_called: 1,
                 bytes_produced: 1,
                 ..Default::default()
             },
@@ -5872,21 +5958,9 @@ mod tests {
                 canonical_transition_completed: 1,
                 post_equality_completed: 1,
                 serialization_started: 1,
-                bytes_produced: 1,
-                post_state_consumed: 1,
-                ..Default::default()
-            },
-            Stage5gApplicationTrace {
-                candidate_extracted: 1,
-                preflight_completed: 1,
-                canonical_transition_started: 1,
-                canonical_transition_completed: 1,
-                post_equality_completed: 1,
-                serialization_started: 1,
+                serializer_called: 1,
                 bytes_produced: 1,
                 post_state_consumed: 1,
-                decode_started: 1,
-                authentication_started: 1,
                 ..Default::default()
             },
             Stage5gApplicationTrace {
@@ -5896,12 +5970,11 @@ mod tests {
                 canonical_transition_completed: 1,
                 post_equality_completed: 1,
                 serialization_started: 1,
+                serializer_called: 1,
                 bytes_produced: 1,
                 post_state_consumed: 1,
                 decode_started: 1,
                 authentication_started: 1,
-                authentication_completed: 1,
-                restore_started: 1,
                 ..Default::default()
             },
             Stage5gApplicationTrace {
@@ -5911,12 +5984,31 @@ mod tests {
                 canonical_transition_completed: 1,
                 post_equality_completed: 1,
                 serialization_started: 1,
+                serializer_called: 1,
                 bytes_produced: 1,
                 post_state_consumed: 1,
                 decode_started: 1,
                 authentication_started: 1,
                 authentication_completed: 1,
                 restore_started: 1,
+                runtime_reconstruction_called: 1,
+                ..Default::default()
+            },
+            Stage5gApplicationTrace {
+                candidate_extracted: 1,
+                preflight_completed: 1,
+                canonical_transition_started: 1,
+                canonical_transition_completed: 1,
+                post_equality_completed: 1,
+                serialization_started: 1,
+                serializer_called: 1,
+                bytes_produced: 1,
+                post_state_consumed: 1,
+                decode_started: 1,
+                authentication_started: 1,
+                authentication_completed: 1,
+                restore_started: 1,
+                runtime_reconstruction_called: 1,
                 restore_completed: 1,
                 ..Default::default()
             },
@@ -5957,9 +6049,19 @@ mod tests {
     fn stage5g_edc_policy_b_failure_points_use_actual_grst09_reduction() {
         let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32])
             .expect("fixture commitment key");
-        for point in [
-            Stage5gFreshTruthApplicationFailurePoint::BeforeDisabledReplayProjection,
-            Stage5gFreshTruthApplicationFailurePoint::AfterDisabledReplayProjectionBeforeAuthentication,
+        for (point, expected_trace) in [
+            (
+                Stage5gFreshTruthApplicationFailurePoint::BeforeReplayPolicyClassification,
+                Stage5gApplicationTrace::default(),
+            ),
+            (
+                Stage5gFreshTruthApplicationFailurePoint::AfterReplayPolicyClassifiedDisabledBeforeBlockedResult,
+                Stage5gApplicationTrace {
+                    replay_policy_classification_started: 1,
+                    replay_policy_classified_disabled: 1,
+                    ..Default::default()
+                },
+            ),
         ] {
             let reduction = stage5g_edc_policy_b_replay_reduction();
             assert_eq!(
@@ -5982,6 +6084,7 @@ mod tests {
                 pre_fingerprint
             );
             assert!(blocked.restart().stage5g_application_evidence().is_none());
+            assert_eq!(stage5g_application_trace_snapshot(), expected_trace);
         }
     }
 
@@ -6163,6 +6266,7 @@ mod tests {
             "fresh_snapshot_epoch",
             "fresh_package_fingerprint",
             "pre_package_fingerprint",
+            "post_package_fingerprint",
             "candidate_and_post_fingerprints",
             "history_counts",
             "runtime_transition_applied",
@@ -6202,6 +6306,10 @@ mod tests {
                         }
                         "pre_package_fingerprint" => {
                             evidence["pre_restart_package_fingerprint_sha256"] =
+                                serde_json::json!("b".repeat(64))
+                        }
+                        "post_package_fingerprint" => {
+                            evidence["post_restart_package_fingerprint_sha256"] =
                                 serde_json::json!("b".repeat(64))
                         }
                         "candidate_and_post_fingerprints" => {

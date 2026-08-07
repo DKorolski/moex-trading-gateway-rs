@@ -30,6 +30,10 @@ pub(crate) use application::{
     stage5g_application_trace_mark, Stage5gApplicationTracePhase,
     Stage5gFreshTruthApplicationFailurePoint,
 };
+#[cfg(any(test, doctest))]
+pub(crate) use application::{
+    Stage5gFinalizedPostApplication, Stage5gFreshTruthApplicationSourceProof,
+};
 #[cfg(doctest)]
 pub(crate) use application::{
     Stage5gFreshTruthApplicationBlocked, Stage5gFreshTruthApplied, Stage5gFreshTruthContinued,
@@ -38,7 +42,7 @@ pub(crate) use application::{
 pub(crate) use reducer::{Stage5gFreshTruthReduction, Stage5gOwnedReconciliationCandidate};
 
 pub(crate) const STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION: u16 = 1;
-pub(crate) const STAGE5G_FRESH_TRUTH_APPLICATION_EVIDENCE_SCHEMA_VERSION: u16 = 2;
+pub(crate) const STAGE5G_FRESH_TRUTH_APPLICATION_EVIDENCE_SCHEMA_VERSION: u16 = 3;
 
 macro_rules! stage5g_string_identity {
     ($name:ident) => {

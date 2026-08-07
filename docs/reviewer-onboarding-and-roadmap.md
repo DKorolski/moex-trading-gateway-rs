@@ -101,6 +101,13 @@ disposition coverage, actual-type ownership checks and fully resealed semantic
 tamper rejection. R1 remains paper-only and does not claim external durability;
 its handoff must be one direct successor on `stage5g-lifecycle`.
 
+R2 is the active e-d-c closure patch on top of
+`67e13aeecd3bf0dc33e570770b0e4b90f5fec0cf`. It preserves the R1 application
+shape and adds a private linear source proof, field-by-field source/evidence
+validation, source-bound fresh `captured_at`, final authority over
+`post_restart_package_fingerprint_sha256`, restore-side recomputation of that
+fingerprint and real serializer/reconstruction/Policy-B failure phases.
+
 R1 through R5 closed the substantive input boundary, direct reducer shape and
 `src`/gate/provenance seal. R6 closes only the compilation-control findings:
 
@@ -138,8 +145,6 @@ supersession, and retains history counts on missing-owned/conflict outcomes.
 
 The current stage does **not** authorize:
 
-- application of an e-d-b owned reconciliation candidate;
-- Stage 5G-e-d-c export/restart/reconcile/re-export evidence;
 - Stage 5G-f protective completion;
 - Redis live consumer groups or a strategy command consumer;
 - FINAM HTTP POST/DELETE or broker dispatch/execution;

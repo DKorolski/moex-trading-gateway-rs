@@ -1,0 +1,43 @@
+{
+  "stage": "5G-e-d-c R2",
+  "base_ref": "67e13aeecd3bf0dc33e570770b0e4b90f5fec0cf",
+  "branch": "stage5g-lifecycle",
+  "owning_entry_point": "apply_stage5g_fresh_truth_reduction",
+  "source_proof": "Stage5gFreshTruthApplicationSourceProof",
+  "opaque_post_application_token": "Stage5gValidatedPostApplication",
+  "finalized_post_application_token": "Stage5gFinalizedPostApplication",
+  "application_evidence_schema_version": 3,
+  "replay_policy": "B_DISABLED",
+  "failure_boundary_count": 14,
+  "grst_full_chain_witness_count": 12,
+  "aggregate_negative_minimum": 450,
+  "negative_cases": {
+    "predecessor": 424,
+    "current_minimum": 55,
+    "aggregate_minimum": 479
+  },
+  "proofs": {
+    "exclusive_package_mint_authority": true,
+    "source_bound_application_provenance": true,
+    "captured_at_source_bound": true,
+    "candidate_post_restored_independent_hashes": true,
+    "global_state_invariants": true,
+    "final_application_authority_includes_post_package_fingerprint": true,
+    "restore_recomputes_post_package_fingerprint": true,
+    "inner_application_authority_hmac": true,
+    "fully_resealed_tamper_rejection": true,
+    "actual_type_ownership_assertions": true,
+    "real_failure_boundary_operations": true
+  },
+  "closed_surfaces": {
+    "redis": false,
+    "finam_http": false,
+    "broker_dispatch": false,
+    "strategy_callback": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "exact_replay": false,
+    "stage5g_f": false,
+    "stage6": false
+  }
+}

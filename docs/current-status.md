@@ -126,6 +126,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   paper boundary: there is no external durable journal, fsync/CAS, callback,
   Redis, FINAM, broker dispatch, runtime-live or real order authority. Policy B
   continues to disable ExactReplay.
+- Stage 5G-e-d-c R2 is the current closure patch on top of
+  `67e13aeecd3bf0dc33e570770b0e4b90f5fec0cf`. R2 keeps the accepted R1
+  application architecture but adds a private linear application-source proof,
+  field-by-field source/evidence validation, source-bound `captured_at`, a
+  two-phase finalized post-application token, final authority over
+  `post_restart_package_fingerprint_sha256`, restore-side post-package
+  fingerprint recomputation, and real serializer/reconstruction/Policy-B
+  failure phases. All live, Redis, FINAM, callback, broker dispatch, real order
+  and Stage 6 surfaces remain closed.
 - Stage 5G-e-d-a R6 was independently accepted and closed at
   `4ece2c7c83ca5575dbca306b5fa29a48dae2bd47`. R1 at
   `9a3221602a902bc6207418f0131665a039d62768` closed the substantive freshness,

@@ -362,6 +362,12 @@ pub mod stage5g_edc_compile_fail_facade {
     pub struct PostToken(
         Option<crate::stage5g_fresh_broker_truth::Stage5gValidatedPostApplication>,
     );
+    pub struct SourceProof(
+        Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationSourceProof>,
+    );
+    pub struct FinalizedPostToken(
+        Option<crate::stage5g_fresh_broker_truth::Stage5gFinalizedPostApplication>,
+    );
     pub struct Applied(Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplied>);
     pub struct Continued(Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthContinued>);
     pub struct Blocked(

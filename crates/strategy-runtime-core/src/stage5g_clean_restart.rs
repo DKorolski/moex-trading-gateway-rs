@@ -20,7 +20,8 @@ use crate::stage5d_persistence::{
     stage5d_export_canonical_envelope_from_runtime,
     stage5d_export_canonical_restart_bytes_from_authenticated_parts,
     stage5d_reconstruct_runtime_from_clean_restart, Stage5dCanonicalEnvelopeExportInput,
-    Stage5dCanonicalRestartCheckpointState, STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
+    Stage5dCanonicalRestartCheckpointState, Stage5dCleanRestartDecoded,
+    STAGE5D_CANONICAL_RESTART_PACKAGE_SCHEMA_VERSION,
 };
 use crate::stage5g_order_position::{
     stage5g_integral_lot_decimal, Stage5gFreshTruthRestartSlotProjection, Stage5gOrderPositionState,
@@ -274,6 +275,116 @@ pub(crate) struct Stage5gFreshTruthRestartProjection {
     pub(crate) generated_intent_escrow_fingerprint_sha256: Option<String>,
 }
 
+trait Stage5gApplicationProjectionSerializer {
+    fn serialize(
+        &self,
+        projection: &Stage5gCleanRestartProjectionV1,
+    ) -> Result<String, Stage5gCleanRestartError>;
+}
+
+struct Stage5gSerdeApplicationProjectionSerializer;
+
+impl Stage5gApplicationProjectionSerializer for Stage5gSerdeApplicationProjectionSerializer {
+    fn serialize(
+        &self,
+        projection: &Stage5gCleanRestartProjectionV1,
+    ) -> Result<String, Stage5gCleanRestartError> {
+        #[cfg(test)]
+        crate::stage5g_fresh_broker_truth::stage5g_application_trace_mark(
+            crate::stage5g_fresh_broker_truth::Stage5gApplicationTracePhase::SerializerCalled,
+        );
+        serde_json::to_string(projection).map_err(|_| Stage5gCleanRestartError::ProjectionDecode)
+    }
+}
+
+#[cfg(test)]
+struct Stage5gFailingApplicationProjectionSerializer;
+
+#[cfg(test)]
+impl Stage5gApplicationProjectionSerializer for Stage5gFailingApplicationProjectionSerializer {
+    fn serialize(
+        &self,
+        _projection: &Stage5gCleanRestartProjectionV1,
+    ) -> Result<String, Stage5gCleanRestartError> {
+        crate::stage5g_fresh_broker_truth::stage5g_application_trace_mark(
+            crate::stage5g_fresh_broker_truth::Stage5gApplicationTracePhase::SerializerCalled,
+        );
+        Err(Stage5gCleanRestartError::ProjectionDecode)
+    }
+}
+
+fn stage5g_serialize_application_projection(
+    projection: &Stage5gCleanRestartProjectionV1,
+    #[cfg(test)] fail_during_serialization: bool,
+) -> Result<String, Stage5gCleanRestartError> {
+    #[cfg(test)]
+    crate::stage5g_fresh_broker_truth::stage5g_application_trace_mark(
+        crate::stage5g_fresh_broker_truth::Stage5gApplicationTracePhase::SerializationStarted,
+    );
+    #[cfg(test)]
+    if fail_during_serialization {
+        return Stage5gFailingApplicationProjectionSerializer.serialize(projection);
+    }
+    Stage5gSerdeApplicationProjectionSerializer.serialize(projection)
+}
+
+trait Stage5gRuntimeReconstructionAdapter {
+    fn reconstruct(
+        &self,
+        decoded: Stage5dCleanRestartDecoded,
+        fresh_runtime: HybridIntradayRuntimeStrategy,
+    ) -> Result<(HybridIntradayRuntimeStrategy, String), Stage5dEnvelopeValidationError>;
+}
+
+struct Stage5gStage5dRuntimeReconstructionAdapter;
+
+impl Stage5gRuntimeReconstructionAdapter for Stage5gStage5dRuntimeReconstructionAdapter {
+    fn reconstruct(
+        &self,
+        decoded: Stage5dCleanRestartDecoded,
+        fresh_runtime: HybridIntradayRuntimeStrategy,
+    ) -> Result<(HybridIntradayRuntimeStrategy, String), Stage5dEnvelopeValidationError> {
+        #[cfg(test)]
+        crate::stage5g_fresh_broker_truth::stage5g_application_trace_mark(
+            crate::stage5g_fresh_broker_truth::Stage5gApplicationTracePhase::RuntimeReconstructionCalled,
+        );
+        stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)
+    }
+}
+
+#[cfg(test)]
+struct Stage5gFailingRuntimeReconstructionAdapter;
+
+#[cfg(test)]
+impl Stage5gRuntimeReconstructionAdapter for Stage5gFailingRuntimeReconstructionAdapter {
+    fn reconstruct(
+        &self,
+        _decoded: Stage5dCleanRestartDecoded,
+        _fresh_runtime: HybridIntradayRuntimeStrategy,
+    ) -> Result<(HybridIntradayRuntimeStrategy, String), Stage5dEnvelopeValidationError> {
+        crate::stage5g_fresh_broker_truth::stage5g_application_trace_mark(
+            crate::stage5g_fresh_broker_truth::Stage5gApplicationTracePhase::RuntimeReconstructionCalled,
+        );
+        Err(Stage5dEnvelopeValidationError::SemanticStateInvalid)
+    }
+}
+
+fn stage5g_reconstruct_runtime_from_clean_restart(
+    decoded: Stage5dCleanRestartDecoded,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+    #[cfg(test)] fail_during_restore: bool,
+) -> Result<(HybridIntradayRuntimeStrategy, String), Stage5gCleanRestartError> {
+    #[cfg(test)]
+    if fail_during_restore {
+        return Stage5gFailingRuntimeReconstructionAdapter
+            .reconstruct(decoded, fresh_runtime)
+            .map_err(Stage5gCleanRestartError::Stage5d);
+    }
+    Stage5gStage5dRuntimeReconstructionAdapter
+        .reconstruct(decoded, fresh_runtime)
+        .map_err(Stage5gCleanRestartError::Stage5d)
+}
+
 impl Stage5gCleanRestartedCapability {
     pub fn lifecycle_kind(&self) -> Stage5gCleanRestartLifecycleKind {
         self.projection.lifecycle_kind
@@ -339,6 +450,13 @@ impl Stage5gCleanRestartedCapability {
             .expect("validated clean-restart projection remains canonical")
     }
 
+    pub(crate) fn stage5g_application_parent_snapshot_binding(&self) -> (String, u64) {
+        (
+            self.continuation_authority.snapshot_id.clone(),
+            self.continuation_authority.snapshot_revision,
+        )
+    }
+
     pub(crate) fn stage5g_fresh_reconstruction_candidate(&self) -> HybridIntradayRuntimeStrategy {
         self.runtime.stage5g_clean_reconstruction_candidate()
     }
@@ -350,25 +468,14 @@ impl Stage5gCleanRestartedCapability {
         fresh_snapshot_epoch: &str,
         candidate_fingerprint_sha256: &str,
     ) -> Result<String, Stage5gCleanRestartError> {
-        #[derive(Serialize)]
-        struct PostPackageProjection<'a> {
-            domain: &'static str,
-            parent_snapshot_id: &'a str,
-            parent_snapshot_revision: u64,
-            fresh_package_id: &'a str,
-            fresh_snapshot_epoch: &'a str,
-            candidate_fingerprint_sha256: &'a str,
-            order_position_state: &'a Stage5gOrderPositionState,
-        }
-        semantic_sha256(&PostPackageProjection {
-            domain: "moex.stage5g.fresh-truth-post-package.v1",
-            parent_snapshot_id: &self.continuation_authority.snapshot_id,
-            parent_snapshot_revision: self.continuation_authority.snapshot_revision,
+        stage5g_post_application_package_fingerprint_sha256_from_parent(
+            state,
+            &self.continuation_authority.snapshot_id,
+            self.continuation_authority.snapshot_revision,
             fresh_package_id,
             fresh_snapshot_epoch,
             candidate_fingerprint_sha256,
-            order_position_state: state,
-        })
+        )
     }
 
     pub(crate) fn stage5g_export_post_application_order_position(
@@ -382,7 +489,7 @@ impl Stage5gCleanRestartedCapability {
         ),
         Stage5gCleanRestartError,
     > {
-        let mut parts = validated.into_export_parts();
+        let parts = validated.into_export_parts();
         #[cfg(test)]
         let fail_during_serialization = parts.fails_at(
             crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationFailurePoint::DuringSerialization,
@@ -404,7 +511,8 @@ impl Stage5gCleanRestartedCapability {
             &parts.fresh_snapshot_epoch,
             parts.candidate_fingerprint_sha256(),
         )?;
-        parts.bind_post_restart_package_fingerprint(post_package_fingerprint);
+        let finalized = parts.finalize_post_restart_package_fingerprint(post_package_fingerprint);
+        let parts = finalized.into_export_parts();
         let application_evidence = parts.evidence;
         if !crate::stage5g_fresh_broker_truth::stage5g_application_evidence_is_valid(
             &application_evidence,
@@ -489,16 +597,11 @@ impl Stage5gCleanRestartedCapability {
         if independent_source_authority_sha256(&projection)? != anchor {
             return Err(Stage5gCleanRestartError::Stage5dSourceAuthorityAnchorMismatch);
         }
-        #[cfg(test)]
-        crate::stage5g_fresh_broker_truth::stage5g_application_trace_mark(
-            crate::stage5g_fresh_broker_truth::Stage5gApplicationTracePhase::SerializationStarted,
-        );
-        #[cfg(test)]
-        if fail_during_serialization {
-            return Err(Stage5gCleanRestartError::ProjectionDecode);
-        }
-        let extension_json = serde_json::to_string(&projection)
-            .map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;
+        let extension_json = stage5g_serialize_application_projection(
+            &projection,
+            #[cfg(test)]
+            fail_during_serialization,
+        )?;
         let bytes = stage5d_export_canonical_restart_bytes_from_authenticated_parts(
             &self.runtime,
             envelope,
@@ -784,15 +887,17 @@ fn restore_stage5g_clean_restart_inner(
         crate::stage5g_fresh_broker_truth::Stage5gApplicationTracePhase::RestoreStarted,
     );
     #[cfg(test)]
-    if failure_point
-        == Some(
-            crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationFailurePoint::DuringRestore,
-        )
-    {
-        return Err(Stage5gCleanRestartError::ProjectionDecode);
-    }
+    let (runtime, _extension_json) = stage5g_reconstruct_runtime_from_clean_restart(
+        decoded,
+        fresh_runtime,
+        failure_point
+            == Some(
+                crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationFailurePoint::DuringRestore,
+            ),
+    )?;
+    #[cfg(not(test))]
     let (runtime, _extension_json) =
-        stage5d_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;
+        stage5g_reconstruct_runtime_from_clean_restart(decoded, fresh_runtime)?;
     let restored_state = serde_json::to_value(Strategy::state(&runtime))
         .map_err(|_| Stage5gCleanRestartError::StrategyStateFingerprintMismatch)?;
     let restored_fingerprint =
@@ -1109,13 +1214,15 @@ pub(crate) fn validate_projection(
         (None, None, None, _) => {}
         (Some(evidence), Some(authority), Some(authority_hmac), Some(state))
             if crate::stage5g_fresh_broker_truth::stage5g_application_evidence_is_valid(evidence)
-                && crate::stage5g_fresh_broker_truth::stage5g_application_authority_sha256(
-                    evidence,
-                ) == authority
+                && crate::stage5g_fresh_broker_truth::stage5g_application_authority_sha256(evidence)
+                    == authority
                 && is_sha256_hex(authority_hmac)
                 && crate::stage5g_fresh_broker_truth::stage5g_application_evidence_matches_state(
                     evidence, state,
-                ) => {}
+                )
+                && stage5g_application_post_package_fingerprint_matches_projection(
+                    evidence, state,
+                )? => {}
         _ => return Err(Stage5gCleanRestartError::LifecycleProofMismatch),
     }
     validate_package_instance_internal(projection)?;
@@ -1193,6 +1300,21 @@ fn validate_common_projection_binding(
         }
     }
     Ok(())
+}
+
+fn stage5g_application_post_package_fingerprint_matches_projection(
+    evidence: &crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1,
+    state: &Stage5gOrderPositionState,
+) -> Result<bool, Stage5gCleanRestartError> {
+    let expected = stage5g_post_application_package_fingerprint_sha256_from_parent(
+        state,
+        evidence.parent_snapshot_id(),
+        evidence.parent_snapshot_revision(),
+        evidence.fresh_package_id(),
+        evidence.fresh_snapshot_epoch(),
+        evidence.candidate_fingerprint_sha256(),
+    )?;
+    Ok(expected == evidence.post_restart_package_fingerprint_sha256())
 }
 
 fn validate_summary_checkpoint_projection(
@@ -1418,6 +1540,35 @@ fn semantic_sha256<T: Serialize>(value: &T) -> Result<String, Stage5gCleanRestar
     let bytes =
         serde_json::to_vec(value).map_err(|_| Stage5gCleanRestartError::ProjectionDecode)?;
     Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
+fn stage5g_post_application_package_fingerprint_sha256_from_parent(
+    state: &Stage5gOrderPositionState,
+    parent_snapshot_id: &str,
+    parent_snapshot_revision: u64,
+    fresh_package_id: &str,
+    fresh_snapshot_epoch: &str,
+    candidate_fingerprint_sha256: &str,
+) -> Result<String, Stage5gCleanRestartError> {
+    #[derive(Serialize)]
+    struct PostPackageProjection<'a> {
+        domain: &'static str,
+        parent_snapshot_id: &'a str,
+        parent_snapshot_revision: u64,
+        fresh_package_id: &'a str,
+        fresh_snapshot_epoch: &'a str,
+        candidate_fingerprint_sha256: &'a str,
+        order_position_state: &'a Stage5gOrderPositionState,
+    }
+    semantic_sha256(&PostPackageProjection {
+        domain: "moex.stage5g.fresh-truth-post-package.v1",
+        parent_snapshot_id,
+        parent_snapshot_revision,
+        fresh_package_id,
+        fresh_snapshot_epoch,
+        candidate_fingerprint_sha256,
+        order_position_state: state,
+    })
 }
 
 fn lifecycle_checkpoint_sha256(
@@ -1670,6 +1821,14 @@ fn application_authority_hmac_sha256(
     mac.update(application_authority_sha256.as_bytes());
     let tag = mac.finalize().into_bytes();
     tag.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[cfg(test)]
+pub(crate) fn stage5g_test_application_authority_hmac_sha256(
+    key: &Stage5gLifecycleCommitmentKey,
+    application_authority_sha256: &str,
+) -> String {
+    application_authority_hmac_sha256(key, application_authority_sha256)
 }
 
 fn verify_application_authority_hmac(

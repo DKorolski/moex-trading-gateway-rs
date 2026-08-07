@@ -42,11 +42,15 @@ pub(crate) struct Stage5gFreshTruthApplicationEvidenceV1 {
     reason: String,
     operational_identity_commitment_sha256: String,
     command_request_id: String,
+    parent_snapshot_id: String,
+    parent_snapshot_revision: u64,
     fresh_package_id: String,
     fresh_snapshot_epoch: String,
+    fresh_captured_at: DateTime<Utc>,
     fresh_package_fingerprint_sha256: String,
     pre_restart_package_fingerprint_sha256: String,
     reduction_pre_semantic_fingerprint_sha256: String,
+    application_source_proof_sha256: String,
     candidate_fingerprint_sha256: String,
     applied_post_semantic_fingerprint_sha256: String,
     restored_post_semantic_fingerprint_sha256: String,
@@ -70,6 +74,30 @@ impl Stage5gFreshTruthApplicationEvidenceV1 {
 
     pub(crate) fn candidate_fingerprint_sha256(&self) -> &str {
         &self.candidate_fingerprint_sha256
+    }
+
+    pub(crate) fn parent_snapshot_id(&self) -> &str {
+        &self.parent_snapshot_id
+    }
+
+    pub(crate) fn parent_snapshot_revision(&self) -> u64 {
+        self.parent_snapshot_revision
+    }
+
+    pub(crate) fn fresh_package_id(&self) -> &str {
+        &self.fresh_package_id
+    }
+
+    pub(crate) fn fresh_snapshot_epoch(&self) -> &str {
+        &self.fresh_snapshot_epoch
+    }
+
+    pub(crate) fn fresh_captured_at(&self) -> DateTime<Utc> {
+        self.fresh_captured_at
+    }
+
+    pub(crate) fn post_restart_package_fingerprint_sha256(&self) -> &str {
+        &self.post_restart_package_fingerprint_sha256
     }
 
     pub(crate) fn applied_post_semantic_fingerprint_sha256(&self) -> &str {
@@ -119,12 +147,17 @@ pub(crate) fn stage5g_application_evidence_is_valid(
         && evidence.disposition == "apply_owned_candidate"
         && !evidence.reason.is_empty()
         && !evidence.command_request_id.is_empty()
+        && !evidence.parent_snapshot_id.is_empty()
+        && evidence.parent_snapshot_revision > 0
         && !evidence.fresh_package_id.is_empty()
         && !evidence.fresh_snapshot_epoch.is_empty()
         && sha256(&evidence.operational_identity_commitment_sha256)
         && sha256(&evidence.fresh_package_fingerprint_sha256)
         && sha256(&evidence.pre_restart_package_fingerprint_sha256)
         && sha256(&evidence.reduction_pre_semantic_fingerprint_sha256)
+        && sha256(&evidence.application_source_proof_sha256)
+        && evidence.application_source_proof_sha256
+            == stage5g_application_source_proof_sha256_from_evidence(evidence)
         && sha256(&evidence.candidate_fingerprint_sha256)
         && sha256(&evidence.applied_post_semantic_fingerprint_sha256)
         && sha256(&evidence.restored_post_semantic_fingerprint_sha256)
@@ -145,10 +178,298 @@ pub(crate) fn stage5g_application_evidence_is_valid(
         && evidence.global_state_invariants_proven
 }
 
+/// Linear proof that lineage values used in e-d-c evidence were read from the
+/// consumed e-d-b reduction/restart/fresh-truth authorities. It has private
+/// fields and no Clone/Serialize implementation; ordinary callers can neither
+/// mint it from strings nor duplicate it.
+pub(crate) struct Stage5gFreshTruthApplicationSourceProof {
+    scenario_id: String,
+    disposition: String,
+    reason: String,
+    operational_identity_commitment_sha256: String,
+    command_request_id: String,
+    parent_snapshot_id: String,
+    parent_snapshot_revision: u64,
+    fresh_package_id: String,
+    fresh_snapshot_epoch: String,
+    fresh_captured_at: DateTime<Utc>,
+    fresh_package_fingerprint_sha256: String,
+    pre_restart_package_fingerprint_sha256: String,
+    reduction_pre_semantic_fingerprint_sha256: String,
+    ignored_terminal_order_count: usize,
+    ignored_historical_trade_count: usize,
+}
+
+fn stage5g_application_source_proof_sha256_from_evidence(
+    evidence: &Stage5gFreshTruthApplicationEvidenceV1,
+) -> String {
+    #[derive(Serialize)]
+    struct SourceProofProjection<'a> {
+        domain: &'static str,
+        scenario_id: &'a str,
+        disposition: &'a str,
+        reason: &'a str,
+        operational_identity_commitment_sha256: &'a str,
+        command_request_id: &'a str,
+        parent_snapshot_id: &'a str,
+        parent_snapshot_revision: u64,
+        fresh_package_id: &'a str,
+        fresh_snapshot_epoch: &'a str,
+        fresh_captured_at: DateTime<Utc>,
+        fresh_package_fingerprint_sha256: &'a str,
+        pre_restart_package_fingerprint_sha256: &'a str,
+        reduction_pre_semantic_fingerprint_sha256: &'a str,
+        ignored_terminal_order_count: usize,
+        ignored_historical_trade_count: usize,
+    }
+    let bytes = serde_json::to_vec(&SourceProofProjection {
+        domain: "moex.stage5g.edc.application-source-proof.v1",
+        scenario_id: &evidence.scenario_id,
+        disposition: &evidence.disposition,
+        reason: &evidence.reason,
+        operational_identity_commitment_sha256: &evidence.operational_identity_commitment_sha256,
+        command_request_id: &evidence.command_request_id,
+        parent_snapshot_id: &evidence.parent_snapshot_id,
+        parent_snapshot_revision: evidence.parent_snapshot_revision,
+        fresh_package_id: &evidence.fresh_package_id,
+        fresh_snapshot_epoch: &evidence.fresh_snapshot_epoch,
+        fresh_captured_at: evidence.fresh_captured_at,
+        fresh_package_fingerprint_sha256: &evidence.fresh_package_fingerprint_sha256,
+        pre_restart_package_fingerprint_sha256: &evidence.pre_restart_package_fingerprint_sha256,
+        reduction_pre_semantic_fingerprint_sha256: &evidence
+            .reduction_pre_semantic_fingerprint_sha256,
+        ignored_terminal_order_count: evidence.ignored_terminal_order_count,
+        ignored_historical_trade_count: evidence.ignored_historical_trade_count,
+    })
+    .expect("application source proof evidence projection serializes");
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
+pub(crate) enum Stage5gFreshTruthApplicationSourceMismatch {
+    WrongScenario,
+    WrongDisposition,
+    WrongReason,
+    WrongOperationalIdentity,
+    WrongCommandRequest,
+    WrongParentSnapshot,
+    WrongFreshPackageId,
+    WrongFreshEpoch,
+    WrongFreshCapturedAt,
+    WrongFreshFingerprint,
+    WrongPreRestartFingerprint,
+    WrongReductionPreFingerprint,
+    WrongHistoryCounts,
+    WrongSourceProofCommitment,
+}
+
+impl Stage5gFreshTruthApplicationSourceProof {
+    fn from_application_parts(
+        parts: &Stage5gFreshTruthApplicationParts,
+        candidate: &super::reducer::Stage5gOwnedReconciliationCandidate,
+    ) -> Self {
+        let parent = parts.restart.stage5g_application_parent_snapshot_binding();
+        Self {
+            scenario_id: parts.scenario_id.frozen_id().to_string(),
+            disposition: disposition_id(parts.disposition).to_string(),
+            reason: reason_id(parts.reason),
+            operational_identity_commitment_sha256: parts
+                .truth
+                .operational_binding_commitment_sha256
+                .clone(),
+            command_request_id: candidate.command_request_id().to_owned(),
+            parent_snapshot_id: parent.0,
+            parent_snapshot_revision: parent.1,
+            fresh_package_id: parts.truth.package.package_id.as_str().to_string(),
+            fresh_snapshot_epoch: parts.truth.package.snapshot_epoch.as_str().to_string(),
+            fresh_captured_at: parts.truth.package.captured_at,
+            fresh_package_fingerprint_sha256: parts
+                .truth
+                .package
+                .canonical_fingerprint_sha256
+                .clone(),
+            pre_restart_package_fingerprint_sha256: parts
+                .restart
+                .stage5g_pre_restart_package_fingerprint_sha256(),
+            reduction_pre_semantic_fingerprint_sha256: parts
+                .pre_semantic_fingerprint_sha256
+                .clone(),
+            ignored_terminal_order_count: parts.ignored_unrelated_terminal_order_count,
+            ignored_historical_trade_count: parts.ignored_unrelated_historical_trade_count,
+        }
+    }
+
+    fn commitment_sha256(&self) -> String {
+        #[derive(Serialize)]
+        struct SourceProofProjection<'a> {
+            domain: &'static str,
+            scenario_id: &'a str,
+            disposition: &'a str,
+            reason: &'a str,
+            operational_identity_commitment_sha256: &'a str,
+            command_request_id: &'a str,
+            parent_snapshot_id: &'a str,
+            parent_snapshot_revision: u64,
+            fresh_package_id: &'a str,
+            fresh_snapshot_epoch: &'a str,
+            fresh_captured_at: DateTime<Utc>,
+            fresh_package_fingerprint_sha256: &'a str,
+            pre_restart_package_fingerprint_sha256: &'a str,
+            reduction_pre_semantic_fingerprint_sha256: &'a str,
+            ignored_terminal_order_count: usize,
+            ignored_historical_trade_count: usize,
+        }
+        let bytes = serde_json::to_vec(&SourceProofProjection {
+            domain: "moex.stage5g.edc.application-source-proof.v1",
+            scenario_id: &self.scenario_id,
+            disposition: &self.disposition,
+            reason: &self.reason,
+            operational_identity_commitment_sha256: &self.operational_identity_commitment_sha256,
+            command_request_id: &self.command_request_id,
+            parent_snapshot_id: &self.parent_snapshot_id,
+            parent_snapshot_revision: self.parent_snapshot_revision,
+            fresh_package_id: &self.fresh_package_id,
+            fresh_snapshot_epoch: &self.fresh_snapshot_epoch,
+            fresh_captured_at: self.fresh_captured_at,
+            fresh_package_fingerprint_sha256: &self.fresh_package_fingerprint_sha256,
+            pre_restart_package_fingerprint_sha256: &self.pre_restart_package_fingerprint_sha256,
+            reduction_pre_semantic_fingerprint_sha256: &self
+                .reduction_pre_semantic_fingerprint_sha256,
+            ignored_terminal_order_count: self.ignored_terminal_order_count,
+            ignored_historical_trade_count: self.ignored_historical_trade_count,
+        })
+        .expect("private application source proof serializes");
+        format!("{:x}", Sha256::digest(bytes))
+    }
+}
+
+pub(crate) fn validate_stage5g_application_evidence_against_source(
+    evidence: &Stage5gFreshTruthApplicationEvidenceV1,
+    source: &Stage5gFreshTruthApplicationSourceProof,
+) -> Result<(), Stage5gFreshTruthApplicationSourceMismatch> {
+    if evidence.scenario_id != source.scenario_id {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongScenario);
+    }
+    if evidence.disposition != source.disposition {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongDisposition);
+    }
+    if evidence.reason != source.reason {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongReason);
+    }
+    if evidence.operational_identity_commitment_sha256
+        != source.operational_identity_commitment_sha256
+    {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongOperationalIdentity);
+    }
+    if evidence.command_request_id != source.command_request_id {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongCommandRequest);
+    }
+    if evidence.parent_snapshot_id != source.parent_snapshot_id
+        || evidence.parent_snapshot_revision != source.parent_snapshot_revision
+    {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongParentSnapshot);
+    }
+    if evidence.fresh_package_id != source.fresh_package_id {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongFreshPackageId);
+    }
+    if evidence.fresh_snapshot_epoch != source.fresh_snapshot_epoch {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongFreshEpoch);
+    }
+    if evidence.fresh_captured_at != source.fresh_captured_at {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongFreshCapturedAt);
+    }
+    if evidence.fresh_package_fingerprint_sha256 != source.fresh_package_fingerprint_sha256 {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongFreshFingerprint);
+    }
+    if evidence.pre_restart_package_fingerprint_sha256
+        != source.pre_restart_package_fingerprint_sha256
+    {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongPreRestartFingerprint);
+    }
+    if evidence.reduction_pre_semantic_fingerprint_sha256
+        != source.reduction_pre_semantic_fingerprint_sha256
+    {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongReductionPreFingerprint);
+    }
+    if evidence.ignored_terminal_order_count != source.ignored_terminal_order_count
+        || evidence.ignored_historical_trade_count != source.ignored_historical_trade_count
+    {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongHistoryCounts);
+    }
+    if evidence.application_source_proof_sha256 != source.commitment_sha256() {
+        return Err(Stage5gFreshTruthApplicationSourceMismatch::WrongSourceProofCommitment);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+fn stage5g_test_mutate_application_source_evidence(
+    evidence: &mut Stage5gFreshTruthApplicationEvidenceV1,
+    mutation: Stage5gFreshTruthApplicationSourceMutation,
+) {
+    match mutation {
+        Stage5gFreshTruthApplicationSourceMutation::FreshPackageFingerprint => {
+            evidence.fresh_package_fingerprint_sha256 = "b".repeat(64);
+        }
+        Stage5gFreshTruthApplicationSourceMutation::PreRestartPackageFingerprint => {
+            evidence.pre_restart_package_fingerprint_sha256 = "b".repeat(64);
+        }
+        Stage5gFreshTruthApplicationSourceMutation::ReductionPreSemanticFingerprint => {
+            evidence.reduction_pre_semantic_fingerprint_sha256 = "b".repeat(64);
+        }
+        Stage5gFreshTruthApplicationSourceMutation::OperationalIdentityCommitment => {
+            evidence.operational_identity_commitment_sha256 = "b".repeat(64);
+        }
+        Stage5gFreshTruthApplicationSourceMutation::FreshPackageId => {
+            evidence.fresh_package_id = "R2-FORGED-FRESH-PACKAGE".to_owned();
+        }
+        Stage5gFreshTruthApplicationSourceMutation::FreshSnapshotEpoch => {
+            evidence.fresh_snapshot_epoch = "R2-FORGED-FRESH-EPOCH".to_owned();
+        }
+        Stage5gFreshTruthApplicationSourceMutation::FreshCapturedAt => {
+            evidence.fresh_captured_at += chrono::Duration::seconds(1);
+        }
+        Stage5gFreshTruthApplicationSourceMutation::SwapFreshIdAndEpoch => {
+            std::mem::swap(
+                &mut evidence.fresh_package_id,
+                &mut evidence.fresh_snapshot_epoch,
+            );
+        }
+        Stage5gFreshTruthApplicationSourceMutation::HistoryCounts => {
+            evidence.ignored_terminal_order_count += 1;
+            evidence.ignored_historical_trade_count += 1;
+        }
+        Stage5gFreshTruthApplicationSourceMutation::SourceProofCommitment => {
+            evidence.application_source_proof_sha256 = "b".repeat(64);
+        }
+    }
+}
+
 /// Linear proof that the sole e-d-c owner completed preflight, the canonical
 /// state transition and independent candidate/post-state equality. It is
 /// deliberately non-Clone/non-Serialize and has no crate-visible constructor.
 pub(crate) struct Stage5gValidatedPostApplication {
+    state: crate::stage5g_order_position::Stage5gOrderPositionState,
+    fresh_package_id: String,
+    fresh_snapshot_epoch: String,
+    captured_at: DateTime<Utc>,
+    evidence: Stage5gFreshTruthApplicationEvidenceV1,
+    #[cfg(test)]
+    failure_point: Option<Stage5gFreshTruthApplicationFailurePoint>,
+}
+
+pub(crate) struct Stage5gValidatedPostApplicationExportParts {
+    pub(crate) state: crate::stage5g_order_position::Stage5gOrderPositionState,
+    pub(crate) fresh_package_id: String,
+    pub(crate) fresh_snapshot_epoch: String,
+    pub(crate) captured_at: DateTime<Utc>,
+    pub(crate) evidence: Stage5gFreshTruthApplicationEvidenceV1,
+    #[cfg(test)]
+    pub(crate) failure_point: Option<Stage5gFreshTruthApplicationFailurePoint>,
+}
+
+pub(crate) struct Stage5gFinalizedPostApplication {
     state: crate::stage5g_order_position::Stage5gOrderPositionState,
     fresh_package_id: String,
     fresh_snapshot_epoch: String,
@@ -159,7 +480,7 @@ pub(crate) struct Stage5gValidatedPostApplication {
     failure_point: Option<Stage5gFreshTruthApplicationFailurePoint>,
 }
 
-pub(crate) struct Stage5gValidatedPostApplicationExportParts {
+pub(crate) struct Stage5gFinalizedPostApplicationExportParts {
     pub(crate) state: crate::stage5g_order_position::Stage5gOrderPositionState,
     pub(crate) fresh_package_id: String,
     pub(crate) fresh_snapshot_epoch: String,
@@ -173,27 +494,72 @@ pub(crate) struct Stage5gValidatedPostApplicationExportParts {
 impl Stage5gValidatedPostApplication {
     fn new(
         state: crate::stage5g_order_position::Stage5gOrderPositionState,
-        fresh_package_id: String,
-        fresh_snapshot_epoch: String,
-        captured_at: DateTime<Utc>,
+        source_proof: Stage5gFreshTruthApplicationSourceProof,
         evidence: Stage5gFreshTruthApplicationEvidenceV1,
         #[cfg(test)] failure_point: Option<Stage5gFreshTruthApplicationFailurePoint>,
-    ) -> Self {
-        let authority_commitment_sha256 = stage5g_application_authority_sha256(&evidence);
-        Self {
+    ) -> Result<Self, Stage5gFreshTruthApplicationSourceMismatch> {
+        validate_stage5g_application_evidence_against_source(&evidence, &source_proof)?;
+        Ok(Self {
             state,
-            fresh_package_id,
-            fresh_snapshot_epoch,
-            captured_at,
+            fresh_package_id: source_proof.fresh_package_id,
+            fresh_snapshot_epoch: source_proof.fresh_snapshot_epoch,
+            captured_at: source_proof.fresh_captured_at,
             evidence,
-            authority_commitment_sha256,
             #[cfg(test)]
             failure_point,
-        }
+        })
     }
 
     pub(crate) fn into_export_parts(self) -> Stage5gValidatedPostApplicationExportParts {
         Stage5gValidatedPostApplicationExportParts {
+            state: self.state,
+            fresh_package_id: self.fresh_package_id,
+            fresh_snapshot_epoch: self.fresh_snapshot_epoch,
+            captured_at: self.captured_at,
+            evidence: self.evidence,
+            #[cfg(test)]
+            failure_point: self.failure_point,
+        }
+    }
+}
+
+impl Stage5gValidatedPostApplicationExportParts {
+    pub(crate) fn finalize_post_restart_package_fingerprint(
+        mut self,
+        fingerprint: String,
+    ) -> Stage5gFinalizedPostApplication {
+        self.evidence.post_restart_package_fingerprint_sha256 = fingerprint;
+        let authority_commitment_sha256 = stage5g_application_authority_sha256(&self.evidence);
+        Stage5gFinalizedPostApplication {
+            state: self.state,
+            fresh_package_id: self.fresh_package_id,
+            fresh_snapshot_epoch: self.fresh_snapshot_epoch,
+            captured_at: self.captured_at,
+            evidence: self.evidence,
+            authority_commitment_sha256,
+            #[cfg(test)]
+            failure_point: self.failure_point,
+        }
+    }
+
+    pub(crate) fn evidence_matches_owned_tuple(&self) -> bool {
+        self.evidence.fresh_package_id == self.fresh_package_id
+            && self.evidence.fresh_snapshot_epoch == self.fresh_snapshot_epoch
+    }
+
+    pub(crate) fn candidate_fingerprint_sha256(&self) -> &str {
+        &self.evidence.candidate_fingerprint_sha256
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fails_at(&self, point: Stage5gFreshTruthApplicationFailurePoint) -> bool {
+        self.failure_point == Some(point)
+    }
+}
+
+impl Stage5gFinalizedPostApplication {
+    pub(crate) fn into_export_parts(self) -> Stage5gFinalizedPostApplicationExportParts {
+        Stage5gFinalizedPostApplicationExportParts {
             state: self.state,
             fresh_package_id: self.fresh_package_id,
             fresh_snapshot_epoch: self.fresh_snapshot_epoch,
@@ -206,20 +572,7 @@ impl Stage5gValidatedPostApplication {
     }
 }
 
-impl Stage5gValidatedPostApplicationExportParts {
-    pub(crate) fn bind_post_restart_package_fingerprint(&mut self, fingerprint: String) {
-        self.evidence.post_restart_package_fingerprint_sha256 = fingerprint;
-    }
-
-    pub(crate) fn evidence_matches_owned_tuple(&self) -> bool {
-        self.evidence.fresh_package_id == self.fresh_package_id
-            && self.evidence.fresh_snapshot_epoch == self.fresh_snapshot_epoch
-    }
-
-    pub(crate) fn candidate_fingerprint_sha256(&self) -> &str {
-        &self.evidence.candidate_fingerprint_sha256
-    }
-
+impl Stage5gFinalizedPostApplicationExportParts {
     #[cfg(test)]
     pub(crate) fn fails_at(&self, point: Stage5gFreshTruthApplicationFailurePoint) -> bool {
         self.failure_point == Some(point)
@@ -238,17 +591,22 @@ pub(crate) fn stage5g_application_authority_sha256(
         reason: &'a str,
         operational_identity_commitment_sha256: &'a str,
         command_request_id: &'a str,
+        parent_snapshot_id: &'a str,
+        parent_snapshot_revision: u64,
         fresh_package_id: &'a str,
         fresh_snapshot_epoch: &'a str,
+        fresh_captured_at: DateTime<Utc>,
         fresh_package_fingerprint_sha256: &'a str,
         pre_restart_package_fingerprint_sha256: &'a str,
         reduction_pre_semantic_fingerprint_sha256: &'a str,
+        application_source_proof_sha256: &'a str,
         candidate_fingerprint_sha256: &'a str,
         applied_post_semantic_fingerprint_sha256: &'a str,
         restored_post_semantic_fingerprint_sha256: &'a str,
         pre_global_state_fingerprint_sha256: &'a str,
         post_global_state_fingerprint_sha256: &'a str,
         restored_global_state_fingerprint_sha256: &'a str,
+        post_restart_package_fingerprint_sha256: &'a str,
         ignored_terminal_order_count: usize,
         ignored_historical_trade_count: usize,
         runtime_transition_applied: bool,
@@ -265,12 +623,16 @@ pub(crate) fn stage5g_application_authority_sha256(
         reason: &evidence.reason,
         operational_identity_commitment_sha256: &evidence.operational_identity_commitment_sha256,
         command_request_id: &evidence.command_request_id,
+        parent_snapshot_id: &evidence.parent_snapshot_id,
+        parent_snapshot_revision: evidence.parent_snapshot_revision,
         fresh_package_id: &evidence.fresh_package_id,
         fresh_snapshot_epoch: &evidence.fresh_snapshot_epoch,
+        fresh_captured_at: evidence.fresh_captured_at,
         fresh_package_fingerprint_sha256: &evidence.fresh_package_fingerprint_sha256,
         pre_restart_package_fingerprint_sha256: &evidence.pre_restart_package_fingerprint_sha256,
         reduction_pre_semantic_fingerprint_sha256: &evidence
             .reduction_pre_semantic_fingerprint_sha256,
+        application_source_proof_sha256: &evidence.application_source_proof_sha256,
         candidate_fingerprint_sha256: &evidence.candidate_fingerprint_sha256,
         applied_post_semantic_fingerprint_sha256: &evidence
             .applied_post_semantic_fingerprint_sha256,
@@ -280,6 +642,7 @@ pub(crate) fn stage5g_application_authority_sha256(
         post_global_state_fingerprint_sha256: &evidence.post_global_state_fingerprint_sha256,
         restored_global_state_fingerprint_sha256: &evidence
             .restored_global_state_fingerprint_sha256,
+        post_restart_package_fingerprint_sha256: &evidence.post_restart_package_fingerprint_sha256,
         ignored_terminal_order_count: evidence.ignored_terminal_order_count,
         ignored_historical_trade_count: evidence.ignored_historical_trade_count,
         runtime_transition_applied: evidence.runtime_transition_applied,
@@ -338,6 +701,7 @@ pub(crate) enum Stage5gFreshTruthApplicationError {
     CandidateCanonicalizationFailed,
     CanonicalTransitionFailed,
     ExactReplayDisabled,
+    SourceProofMismatch,
     PostStateSemanticMismatch,
     PostPackageFailed,
     RestoredPackageMismatch,
@@ -360,8 +724,23 @@ pub(crate) enum Stage5gFreshTruthApplicationFailurePoint {
     DuringAuthenticationVerification,
     DuringRestore,
     AfterRestoreBeforeEvidenceEquality,
-    BeforeDisabledReplayProjection,
-    AfterDisabledReplayProjectionBeforeAuthentication,
+    BeforeReplayPolicyClassification,
+    AfterReplayPolicyClassifiedDisabledBeforeBlockedResult,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gFreshTruthApplicationSourceMutation {
+    FreshPackageFingerprint,
+    PreRestartPackageFingerprint,
+    ReductionPreSemanticFingerprint,
+    OperationalIdentityCommitment,
+    FreshPackageId,
+    FreshSnapshotEpoch,
+    FreshCapturedAt,
+    SwapFreshIdAndEpoch,
+    HistoryCounts,
+    SourceProofCommitment,
 }
 
 #[cfg(test)]
@@ -373,14 +752,19 @@ pub(crate) struct Stage5gApplicationTrace {
     pub(crate) canonical_transition_completed: usize,
     pub(crate) post_equality_completed: usize,
     pub(crate) serialization_started: usize,
+    pub(crate) serializer_called: usize,
     pub(crate) bytes_produced: usize,
     pub(crate) post_state_consumed: usize,
     pub(crate) decode_started: usize,
     pub(crate) authentication_started: usize,
     pub(crate) authentication_completed: usize,
     pub(crate) restore_started: usize,
+    pub(crate) runtime_reconstruction_called: usize,
     pub(crate) restore_completed: usize,
     pub(crate) final_equality_completed: usize,
+    pub(crate) replay_policy_classification_started: usize,
+    pub(crate) replay_policy_classified_disabled: usize,
+    pub(crate) blocked_result_constructed: usize,
 }
 
 #[cfg(test)]
@@ -392,14 +776,19 @@ pub(crate) enum Stage5gApplicationTracePhase {
     CanonicalTransitionCompleted,
     PostEqualityCompleted,
     SerializationStarted,
+    SerializerCalled,
     BytesProduced,
     PostStateConsumed,
     DecodeStarted,
     AuthenticationStarted,
     AuthenticationCompleted,
     RestoreStarted,
+    RuntimeReconstructionCalled,
     RestoreCompleted,
     FinalEqualityCompleted,
+    ReplayPolicyClassificationStarted,
+    ReplayPolicyClassifiedDisabled,
+    BlockedResultConstructed,
 }
 
 #[cfg(test)]
@@ -438,6 +827,7 @@ pub(crate) fn stage5g_application_trace_mark(phase: Stage5gApplicationTracePhase
             Stage5gApplicationTracePhase::SerializationStarted => {
                 trace.serialization_started += 1;
             }
+            Stage5gApplicationTracePhase::SerializerCalled => trace.serializer_called += 1,
             Stage5gApplicationTracePhase::BytesProduced => trace.bytes_produced += 1,
             Stage5gApplicationTracePhase::PostStateConsumed => trace.post_state_consumed += 1,
             Stage5gApplicationTracePhase::DecodeStarted => trace.decode_started += 1,
@@ -448,9 +838,21 @@ pub(crate) fn stage5g_application_trace_mark(phase: Stage5gApplicationTracePhase
                 trace.authentication_completed += 1;
             }
             Stage5gApplicationTracePhase::RestoreStarted => trace.restore_started += 1,
+            Stage5gApplicationTracePhase::RuntimeReconstructionCalled => {
+                trace.runtime_reconstruction_called += 1;
+            }
             Stage5gApplicationTracePhase::RestoreCompleted => trace.restore_completed += 1,
             Stage5gApplicationTracePhase::FinalEqualityCompleted => {
                 trace.final_equality_completed += 1;
+            }
+            Stage5gApplicationTracePhase::ReplayPolicyClassificationStarted => {
+                trace.replay_policy_classification_started += 1;
+            }
+            Stage5gApplicationTracePhase::ReplayPolicyClassifiedDisabled => {
+                trace.replay_policy_classified_disabled += 1;
+            }
+            Stage5gApplicationTracePhase::BlockedResultConstructed => {
+                trace.blocked_result_constructed += 1;
             }
         }
     });
@@ -566,6 +968,8 @@ pub(crate) fn apply_stage5g_fresh_truth_reduction(
         None,
         #[cfg(test)]
         None,
+        #[cfg(test)]
+        None,
     )
 }
 
@@ -576,7 +980,13 @@ pub(crate) fn apply_stage5g_fresh_truth_reduction_with_failure(
     failure_point: Stage5gFreshTruthApplicationFailurePoint,
 ) -> Stage5gFreshTruthApplicationResult {
     stage5g_application_trace_reset();
-    apply_stage5g_fresh_truth_reduction_inner(reduction, commitment_key, Some(failure_point), None)
+    apply_stage5g_fresh_truth_reduction_inner(
+        reduction,
+        commitment_key,
+        Some(failure_point),
+        None,
+        None,
+    )
 }
 
 #[cfg(test)]
@@ -586,7 +996,17 @@ pub(crate) fn apply_stage5g_fresh_truth_reduction_with_mismatch(
     mismatch: Stage5gRestartApplicationMismatch,
 ) -> Stage5gFreshTruthApplicationResult {
     stage5g_application_trace_reset();
-    apply_stage5g_fresh_truth_reduction_inner(reduction, commitment_key, None, Some(mismatch))
+    apply_stage5g_fresh_truth_reduction_inner(reduction, commitment_key, None, None, Some(mismatch))
+}
+
+#[cfg(test)]
+pub(crate) fn apply_stage5g_fresh_truth_reduction_with_source_mutation(
+    reduction: Stage5gFreshTruthReduction,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    mutation: Stage5gFreshTruthApplicationSourceMutation,
+) -> Stage5gFreshTruthApplicationResult {
+    stage5g_application_trace_reset();
+    apply_stage5g_fresh_truth_reduction_inner(reduction, commitment_key, None, Some(mutation), None)
 }
 
 fn apply_stage5g_fresh_truth_reduction_inner(
@@ -594,29 +1014,21 @@ fn apply_stage5g_fresh_truth_reduction_inner(
     commitment_key: &Stage5gLifecycleCommitmentKey,
     #[cfg(test)] failure_point: Option<Stage5gFreshTruthApplicationFailurePoint>,
     #[cfg(not(test))] _failure_point: Option<()>,
+    #[cfg(test)] source_mutation: Option<Stage5gFreshTruthApplicationSourceMutation>,
     #[cfg(test)] mismatch: Option<Stage5gRestartApplicationMismatch>,
 ) -> Stage5gFreshTruthApplicationResult {
     let parts = reduction.into_application_parts();
     #[cfg(test)]
-    if parts.scenario_id == Stage5gRestartScenarioId::Grst09ExactReplayIsIdempotent {
-        if failure_point
-            == Some(Stage5gFreshTruthApplicationFailurePoint::BeforeDisabledReplayProjection)
-        {
-            return blocked(
-                parts,
-                Some(Stage5gFreshTruthApplicationError::InjectedFailure),
-            );
-        }
-        if failure_point
-            == Some(
-                Stage5gFreshTruthApplicationFailurePoint::AfterDisabledReplayProjectionBeforeAuthentication,
-            )
-        {
-            return blocked(
-                parts,
-                Some(Stage5gFreshTruthApplicationError::InjectedFailure),
-            );
-        }
+    if parts.scenario_id == Stage5gRestartScenarioId::Grst09ExactReplayIsIdempotent
+        && parts.reason == Stage5gFreshTruthReductionReason::ReplayTupleNotInRestartLedger
+    {
+        return policy_b_exact_replay_disabled(parts, failure_point);
+    }
+    #[cfg(not(test))]
+    if parts.scenario_id.frozen_id() == "GRST09_EXACT_REPLAY_IS_IDEMPOTENT"
+        && parts.reason == Stage5gFreshTruthReductionReason::ReplayTupleNotInRestartLedger
+    {
+        return policy_b_exact_replay_disabled(parts);
     }
     match parts.disposition {
         Stage5gRestartReconciliationDisposition::ApplyOwnedCandidate => apply_owned_candidate(
@@ -624,6 +1036,8 @@ fn apply_stage5g_fresh_truth_reduction_inner(
             commitment_key,
             #[cfg(test)]
             failure_point,
+            #[cfg(test)]
+            source_mutation,
             #[cfg(test)]
             mismatch,
         ),
@@ -646,9 +1060,10 @@ fn apply_stage5g_fresh_truth_reduction_inner(
                 ))
             }
         }
-        Stage5gRestartReconciliationDisposition::ExactReplay => blocked(
+        Stage5gRestartReconciliationDisposition::ExactReplay => policy_b_exact_replay_disabled(
             parts,
-            Some(Stage5gFreshTruthApplicationError::ExactReplayDisabled),
+            #[cfg(test)]
+            failure_point,
         ),
         Stage5gRestartReconciliationDisposition::AwaitFreshBrokerTruth
         | Stage5gRestartReconciliationDisposition::ReconciliationRequired
@@ -666,10 +1081,51 @@ fn apply_stage5g_fresh_truth_reduction_inner(
     }
 }
 
+fn policy_b_exact_replay_disabled(
+    parts: Stage5gFreshTruthApplicationParts,
+    #[cfg(test)] failure_point: Option<Stage5gFreshTruthApplicationFailurePoint>,
+) -> Stage5gFreshTruthApplicationResult {
+    #[cfg(test)]
+    if parts.scenario_id == Stage5gRestartScenarioId::Grst09ExactReplayIsIdempotent
+        && failure_point
+            == Some(Stage5gFreshTruthApplicationFailurePoint::BeforeReplayPolicyClassification)
+    {
+        return blocked(
+            parts,
+            Some(Stage5gFreshTruthApplicationError::InjectedFailure),
+        );
+    }
+    #[cfg(test)]
+    stage5g_application_trace_mark(Stage5gApplicationTracePhase::ReplayPolicyClassificationStarted);
+    let exact_replay_is_disabled = true;
+    #[cfg(test)]
+    stage5g_application_trace_mark(Stage5gApplicationTracePhase::ReplayPolicyClassifiedDisabled);
+    #[cfg(test)]
+    if parts.scenario_id == Stage5gRestartScenarioId::Grst09ExactReplayIsIdempotent
+        && failure_point
+            == Some(
+                Stage5gFreshTruthApplicationFailurePoint::AfterReplayPolicyClassifiedDisabledBeforeBlockedResult,
+            )
+    {
+        return blocked(
+            parts,
+            Some(Stage5gFreshTruthApplicationError::InjectedFailure),
+        );
+    }
+    debug_assert!(exact_replay_is_disabled);
+    #[cfg(test)]
+    stage5g_application_trace_mark(Stage5gApplicationTracePhase::BlockedResultConstructed);
+    blocked(
+        parts,
+        Some(Stage5gFreshTruthApplicationError::ExactReplayDisabled),
+    )
+}
+
 fn apply_owned_candidate(
     mut parts: Stage5gFreshTruthApplicationParts,
     commitment_key: &Stage5gLifecycleCommitmentKey,
     #[cfg(test)] failure_point: Option<Stage5gFreshTruthApplicationFailurePoint>,
+    #[cfg(test)] source_mutation: Option<Stage5gFreshTruthApplicationSourceMutation>,
     #[cfg(test)] mismatch: Option<Stage5gRestartApplicationMismatch>,
 ) -> Stage5gFreshTruthApplicationResult {
     #[cfg(test)]
@@ -831,25 +1287,30 @@ fn apply_owned_candidate(
         );
     }
 
-    let fresh_package_id = parts.truth.package.package_id.as_str().to_string();
-    let fresh_snapshot_epoch = parts.truth.package.snapshot_epoch.as_str().to_string();
+    let source_proof =
+        Stage5gFreshTruthApplicationSourceProof::from_application_parts(&parts, &candidate);
     let evidence = Stage5gFreshTruthApplicationEvidenceV1 {
         schema_version: STAGE5G_FRESH_TRUTH_APPLICATION_EVIDENCE_SCHEMA_VERSION,
-        scenario_id: parts.scenario_id.frozen_id().to_string(),
-        disposition: disposition_id(parts.disposition).to_string(),
-        reason: reason_id(parts.reason),
-        operational_identity_commitment_sha256: parts
-            .truth
-            .operational_binding_commitment_sha256
+        scenario_id: source_proof.scenario_id.clone(),
+        disposition: source_proof.disposition.clone(),
+        reason: source_proof.reason.clone(),
+        operational_identity_commitment_sha256: source_proof
+            .operational_identity_commitment_sha256
             .clone(),
-        command_request_id: candidate.command_request_id().to_owned(),
-        fresh_package_id: fresh_package_id.clone(),
-        fresh_snapshot_epoch: fresh_snapshot_epoch.clone(),
-        fresh_package_fingerprint_sha256: parts.truth.package.canonical_fingerprint_sha256.clone(),
-        pre_restart_package_fingerprint_sha256: parts
-            .restart
-            .stage5g_pre_restart_package_fingerprint_sha256(),
-        reduction_pre_semantic_fingerprint_sha256: parts.pre_semantic_fingerprint_sha256.clone(),
+        command_request_id: source_proof.command_request_id.clone(),
+        parent_snapshot_id: source_proof.parent_snapshot_id.clone(),
+        parent_snapshot_revision: source_proof.parent_snapshot_revision,
+        fresh_package_id: source_proof.fresh_package_id.clone(),
+        fresh_snapshot_epoch: source_proof.fresh_snapshot_epoch.clone(),
+        fresh_captured_at: source_proof.fresh_captured_at,
+        fresh_package_fingerprint_sha256: source_proof.fresh_package_fingerprint_sha256.clone(),
+        pre_restart_package_fingerprint_sha256: source_proof
+            .pre_restart_package_fingerprint_sha256
+            .clone(),
+        reduction_pre_semantic_fingerprint_sha256: source_proof
+            .reduction_pre_semantic_fingerprint_sha256
+            .clone(),
+        application_source_proof_sha256: source_proof.commitment_sha256(),
         candidate_fingerprint_sha256: candidate_fingerprint.clone(),
         applied_post_semantic_fingerprint_sha256: post_state_fingerprint.clone(),
         restored_post_semantic_fingerprint_sha256: post_state_fingerprint,
@@ -865,16 +1326,31 @@ fn apply_owned_candidate(
         exact_replay_enabled: false,
         global_state_invariants_proven,
     };
+    #[cfg(test)]
+    let evidence = {
+        let mut evidence = evidence;
+        if let Some(mutation) = source_mutation {
+            stage5g_test_mutate_application_source_evidence(&mut evidence, mutation);
+        }
+        evidence
+    };
     let fresh_runtime = parts.restart.stage5g_fresh_reconstruction_candidate();
-    let validated_post_application = Stage5gValidatedPostApplication::new(
+    let validated_post_application = match Stage5gValidatedPostApplication::new(
         post_state,
-        fresh_package_id,
-        fresh_snapshot_epoch,
-        parts.truth.package.captured_at,
+        source_proof,
         evidence,
         #[cfg(test)]
         failure_point,
-    );
+    ) {
+        Ok(value) => value,
+        Err(_) => {
+            return blocked_with_candidate_dropped(
+                parts,
+                candidate,
+                Stage5gFreshTruthApplicationError::SourceProofMismatch,
+            );
+        }
+    };
     let (package_bytes, evidence) = match parts
         .restart
         .stage5g_export_post_application_order_position(validated_post_application, commitment_key)
