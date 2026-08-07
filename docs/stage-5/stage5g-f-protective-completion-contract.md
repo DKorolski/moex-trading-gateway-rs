@@ -6,11 +6,11 @@ Reversion positions in paper/mock mode only.
 It does not place FINAM native stops, SLTP, brackets, real orders, Redis
 consumer work, broker dispatch, runtime-live, Stage 5G-g/h or Stage 6.
 
-## R1 base and accepted predecessor
+## R2 base and accepted predecessor
 
-R1 is one direct successor to the submitted Stage 5G-f implementation:
+R2 is one direct successor to the reviewed Stage 5G-f R1 implementation:
 
-`63e7f220f108ec539b61e73147938d461969daa8`
+`a28cedd984d41bd2db4aeb7fd8c125c62ded4b28`
 
 The accepted Stage 5G-e-d-c R3 predecessor remains:
 
@@ -91,7 +91,7 @@ statuses and cannot invent an exit.
 Complete absent target-position row is flat. Incomplete absent target-position
 row is not flat.
 
-## Opaque path
+## Opaque path and owning lifecycle state
 
 Production code admits `Stage5gProtectiveCompletionAuthority` only through
 `prepare_stage5g_protective_completion(Stage5gCleanRestartedCapability)`.
@@ -99,39 +99,70 @@ The authority is source-owned by the authenticated clean-restart package; raw
 caller fields are not exported as a production API.
 
 `Stage5gProtectiveCompletionAuthority` is then consumed by
-`apply_stage5g_protective_completion`.
+`validate_stage5g_protective_completion_evidence` and
+`apply_stage5g_protective_completion`. The production apply boundary consumes
+`Stage5gValidatedProtectiveEvidence`, not raw caller vectors.
 
 Standalone raw JSON restart of a protective transition is intentionally absent.
 Restart continuity must use the accepted Stage 5D/Stage 5G authenticated package
 boundary; this slice does not introduce a second durable store.
 
-Completed transition consumes the authority and emits a completed evidence
-summary derived after the canonical source runtime callback bridge runs the
-accepted `on_broker_order`/`on_broker_stop_order` plus flat-position callback
-path. Awaiting/blocking transitions preserve the exact incoming authority when
-no completion mutation is allowed.
+Successful continuation now owns canonical post-callback runtime state through
+`Stage5gProtectiveCommittedState`.
+
+The result partition is:
+
+- `Completed`;
+- `FlatCleanupPending`;
+- `AwaitingPositionTruth`;
+- `Blocked`.
+
+`Completed` is used only when no sibling cleanup batch is generated or required.
+If the accepted Stage 5C broker lifecycle bridge emits cleanup intents after a
+flat protective execution, Stage 5G-f returns `FlatCleanupPending`. That state
+owns:
+
+- the post-callback runtime;
+- the exact generated `Stage5cPaperIntentBatch`;
+- the generated batch summary;
+- the settled batch history;
+- both Stage 5C bridge state fingerprint and Stage 5G post-runtime semantic
+  fingerprint.
+
+Stage 5G-f itself does not call raw broker callbacks as its lifecycle boundary.
+It has one narrow call into the accepted Stage 5C bridge in
+`stage5c_paper_host.rs`; raw `on_broker_order`, `on_broker_stop_order`, and
+`on_broker_position` calls remain inside that Stage 5C settlement surface.
+
+Awaiting/blocking transitions preserve the exact incoming authority when no
+completion mutation is allowed.
 
 Sibling cleanup is represented only by exact paper lifecycle escrow evidence or
 an exact terminal sibling proof. A missing sibling proof is not treated as safe.
 It is not broker dispatch and not native transport.
+
+The R2 lifecycle-ownership slice deliberately leaves authenticated protective
+restart projection as the next Stage 5G-f slice. The contract records this as
+`restart_extension_status = pending_next_slice` rather than pretending the
+restart package is closed.
 
 ## Current gate
 
 Primary current-head gate:
 
 ```bash
-bash scripts/stage5g_f_r1_gate.sh
+bash scripts/stage5g_f_r2_gate.sh
 ```
 
 Required current-head checks:
 
 - Stage 5G-f checker;
-- Stage 5G-f negative harness, floor `>=140`;
+- Stage 5G-f negative harness, floor `>=180`;
 - Stage 5G-f preseal;
 - focused GPRT debug and release tests;
 - full `strategy-runtime-core` lib test;
 - doctests, fmt, clippy;
-- detached submitted `63e7f22` Stage 5G-f verification;
+- detached submitted R1 `a28cedd` Stage 5G-f verification;
 - detached bounded Stage 5G-e-d-c R3 predecessor verification;
 - forbidden surfaces remain closed.
 

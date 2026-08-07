@@ -4197,6 +4197,269 @@ impl Stage5cBrokerLifecycleResolvedPaperStrategy {
     }
 }
 
+// STAGE5G-F-R2-BEGIN: protective-lifecycle-stage5c-bridge
+pub(crate) enum Stage5gProtectiveBrokerLifecycleExecution {
+    Order(broker_core::HybridRuntimeOrderEvent),
+    StopOrder(broker_core::HybridRuntimeStopOrderEvent),
+}
+
+pub(crate) struct Stage5gProtectiveBrokerLifecycleBridgeInput {
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) instrument: InstrumentId,
+    pub(crate) tick_size: f64,
+    pub(crate) pre_position_qty: f64,
+    pub(crate) execution: Stage5gProtectiveBrokerLifecycleExecution,
+    pub(crate) position: broker_core::HybridRuntimePositionEvent,
+}
+
+pub(crate) struct Stage5gProtectiveBrokerLifecycleBridgeOutput {
+    pub(crate) strategy: HybridIntradayRuntimeStrategy,
+    pub(crate) generated_intent_batch: Option<Stage5cPaperIntentBatch>,
+    pub(crate) generated_intent_batch_summary: Option<Stage5cPaperIntentBatchSummary>,
+    pub(crate) settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
+    pub(crate) callback_count: usize,
+    pub(crate) post_state_fingerprint_sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage5gProtectiveBrokerLifecycleBridgeError {
+    CallbackValidationFailed,
+    GeneratedIntentTerminal,
+}
+
+/// Stage 5G-f is deliberately not allowed to call raw broker callbacks itself.
+/// This bridge keeps the callback invocation and generated-intent materialisation
+/// inside the already accepted Stage 5C broker lifecycle surface.
+pub(crate) fn resolve_stage5g_protective_broker_lifecycle_bridge(
+    mut strategy: HybridIntradayRuntimeStrategy,
+    input: Stage5gProtectiveBrokerLifecycleBridgeInput,
+) -> Result<Stage5gProtectiveBrokerLifecycleBridgeOutput, Stage5gProtectiveBrokerLifecycleBridgeError>
+{
+    let mut callback_count = 0usize;
+    let mut generated_intent_batch: Option<Stage5cPaperIntentBatch> = None;
+    let mut settled_batch_history = Vec::new();
+
+    let execution_ts = match &input.execution {
+        Stage5gProtectiveBrokerLifecycleExecution::Order(order) => order.source_ts_utc,
+        Stage5gProtectiveBrokerLifecycleExecution::StopOrder(order) => order.source_ts_utc,
+    };
+    let execution_context = strategy.stage5g_protective_completion_callback_context(
+        input.strategy_id.clone(),
+        input.account_id.clone(),
+        input.instrument.clone(),
+        execution_ts,
+        Some(input.pre_position_qty),
+    );
+    let execution_cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), &input.strategy_id);
+    let execution_intents = match &input.execution {
+        Stage5gProtectiveBrokerLifecycleExecution::Order(payload) => {
+            crate::BrokerNeutralHybridStrategy::on_broker_order(
+                &mut strategy,
+                broker_core::HybridRuntimeCallbackInput {
+                    context: execution_context,
+                    payload: payload.clone(),
+                },
+            )
+        }
+        Stage5gProtectiveBrokerLifecycleExecution::StopOrder(payload) => {
+            crate::BrokerNeutralHybridStrategy::on_broker_stop_order(
+                &mut strategy,
+                broker_core::HybridRuntimeCallbackInput {
+                    context: execution_context,
+                    payload: payload.clone(),
+                },
+            )
+        }
+    }
+    .map_err(|_| Stage5gProtectiveBrokerLifecycleBridgeError::CallbackValidationFailed)?;
+    callback_count += 1;
+    stage5g_protective_merge_generated_intents(
+        &strategy,
+        &input,
+        execution_ts,
+        execution_intents,
+        &execution_cleanup_ledger,
+        &mut generated_intent_batch,
+    )?;
+
+    let position_ts = input.position.source_ts_utc;
+    let position_context = strategy.stage5g_protective_completion_callback_context(
+        input.strategy_id.clone(),
+        input.account_id.clone(),
+        input.instrument.clone(),
+        position_ts,
+        Some(input.position.qty),
+    );
+    let position_cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), &input.strategy_id);
+    let position_intents = crate::BrokerNeutralHybridStrategy::on_broker_position(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context: position_context,
+            payload: input.position.clone(),
+        },
+    )
+    .map_err(|_| Stage5gProtectiveBrokerLifecycleBridgeError::CallbackValidationFailed)?;
+    callback_count += 1;
+    stage5g_protective_merge_generated_intents(
+        &strategy,
+        &input,
+        position_ts,
+        position_intents,
+        &position_cleanup_ledger,
+        &mut generated_intent_batch,
+    )?;
+
+    if let Some(generated_batch) = &mut generated_intent_batch {
+        stage5cj_verify_generated_batch_final_pending_consistency(
+            Strategy::state(&strategy),
+            generated_batch,
+        )
+        .map_err(|_| Stage5gProtectiveBrokerLifecycleBridgeError::GeneratedIntentTerminal)?;
+        generated_batch.state_fingerprint = stage5c_state_fingerprint(Strategy::state(&strategy));
+        settled_batch_history.push(stage5ch_batch_summary(generated_batch));
+    }
+    let generated_intent_batch_summary =
+        generated_intent_batch.as_ref().map(stage5ch_batch_summary);
+    let post_state_fingerprint_sha256 = stage5c_state_fingerprint(Strategy::state(&strategy));
+    Ok(Stage5gProtectiveBrokerLifecycleBridgeOutput {
+        strategy,
+        generated_intent_batch,
+        generated_intent_batch_summary,
+        settled_batch_history,
+        callback_count,
+        post_state_fingerprint_sha256,
+    })
+}
+
+fn stage5g_protective_merge_generated_intents(
+    strategy: &HybridIntradayRuntimeStrategy,
+    input: &Stage5gProtectiveBrokerLifecycleBridgeInput,
+    source_ts: i64,
+    intents: Vec<crate::BrokerNeutralHybridIntent>,
+    cleanup_ledger: &Stage5cCleanupAttributionLedger,
+    generated_intent_batch: &mut Option<Stage5cPaperIntentBatch>,
+) -> Result<(), Stage5gProtectiveBrokerLifecycleBridgeError> {
+    if intents.is_empty() {
+        return Ok(());
+    }
+    let expected_attribution_by_request =
+        stage5g_protective_expected_generated_attribution_by_request(
+            &input.strategy_id,
+            input.account_id.as_str(),
+            &input.instrument.symbol,
+            source_ts,
+            &intents,
+            cleanup_ledger,
+        )
+        .map_err(|_| Stage5gProtectiveBrokerLifecycleBridgeError::GeneratedIntentTerminal)?;
+    let callback_batch = stage5g_protective_build_paper_intent_batch(
+        strategy,
+        input,
+        source_ts,
+        intents,
+        &expected_attribution_by_request,
+    )
+    .map_err(|_| Stage5gProtectiveBrokerLifecycleBridgeError::GeneratedIntentTerminal)?;
+    stage5cj_merge_generated_batch(generated_intent_batch, callback_batch)
+        .map_err(|_| Stage5gProtectiveBrokerLifecycleBridgeError::GeneratedIntentTerminal)
+}
+
+fn stage5g_protective_expected_generated_attribution_by_request(
+    strategy_id: &str,
+    account_id: &str,
+    symbol: &str,
+    source_ts: i64,
+    intents: &[crate::BrokerNeutralHybridIntent],
+    ledger: &Stage5cCleanupAttributionLedger,
+) -> Result<
+    HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
+    Stage5cIntentSettlementError,
+> {
+    let mut expected = HashMap::new();
+    let mut seen_request_ids = HashSet::new();
+    for intent in intents {
+        let request_id =
+            stage5cg_source_request_id(strategy_id, account_id, symbol, source_ts, intent)?;
+        if !seen_request_ids.insert(request_id) {
+            return Err(Stage5cIntentSettlementError::DuplicateRequestId);
+        }
+        if let Some(attribution) = stage5cj_expected_cleanup_attribution_from_ledger(ledger, intent)
+        {
+            expected.insert(request_id, attribution);
+        }
+    }
+    Ok(expected)
+}
+
+fn stage5g_protective_build_paper_intent_batch(
+    strategy: &HybridIntradayRuntimeStrategy,
+    input: &Stage5gProtectiveBrokerLifecycleBridgeInput,
+    source_ts: i64,
+    intents: Vec<crate::BrokerNeutralHybridIntent>,
+    expected_attribution_by_request: &HashMap<
+        StrategyRequestId,
+        broker_core::HybridRuntimeAttribution,
+    >,
+) -> Result<Stage5cPaperIntentBatch, Stage5cIntentSettlementError> {
+    if intents.len() > u8::MAX as usize {
+        return Err(Stage5cIntentSettlementError::TooManyIntents);
+    }
+    let mut request_ids = Vec::with_capacity(intents.len());
+    let mut records = Vec::with_capacity(intents.len());
+    let mut seen_request_ids = HashSet::new();
+    let state = Strategy::state(strategy);
+    for intent in intents {
+        validate_stage5cg_intent(
+            &intent,
+            &input.instrument.symbol,
+            input.tick_size,
+            source_ts,
+        )?;
+        let class = intent
+            .explicit_class()
+            .ok_or(Stage5cIntentSettlementError::MissingIntentClass)?;
+        let request_id = stage5cg_source_request_id(
+            &input.strategy_id,
+            input.account_id.as_str(),
+            &input.instrument.symbol,
+            source_ts,
+            &intent,
+        )?;
+        stage5cg_verify_pending_request_id(state, class, request_id)?;
+        if !seen_request_ids.insert(request_id) {
+            return Err(Stage5cIntentSettlementError::DuplicateRequestId);
+        }
+        request_ids.push(request_id);
+        let expected_attribution = expected_attribution_by_request
+            .get(&request_id)
+            .cloned()
+            .or_else(|| {
+                stage5cj_expected_attribution_for_intent(state, &input.strategy_id, class, &intent)
+            });
+        records.push(Stage5cPaperIntentRecord {
+            request_id,
+            source_event_ts: source_ts,
+            intent_class: class,
+            expected_attribution,
+            intent,
+        });
+    }
+    Ok(Stage5cPaperIntentBatch {
+        strategy_id: input.strategy_id.clone(),
+        account_id: input.account_id.clone(),
+        instrument: input.instrument.clone(),
+        bar_close_ts: source_ts,
+        state_fingerprint: stage5c_state_fingerprint(state),
+        request_ids,
+        records,
+        observation_only: false,
+    })
+}
+// STAGE5G-F-R2-END: protective-lifecycle-stage5c-bridge
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stage5cPaperBrokerLifecycleExpectation {
     pub request_id: StrategyRequestId,

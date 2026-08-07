@@ -862,7 +862,7 @@ enum TagRole {
     Cancel,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HybridIntradayRuntimeStrategy {
     config: HybridIntradayRuntimeConfig,
     orchestrator: HybridOrchestrator,
@@ -1046,6 +1046,7 @@ impl HybridIntradayRuntimeStrategy {
                 strategy_id,
                 account_id,
                 instrument,
+                tick_size: self.config.tick_size,
                 current_owner: match current_owner {
                     Owner::MeanReversion => broker_core::HybridRuntimeOwner::MeanReversion,
                     Owner::IntradayBreakout => broker_core::HybridRuntimeOwner::IntradayBreakout,

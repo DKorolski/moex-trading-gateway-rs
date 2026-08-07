@@ -12,10 +12,11 @@ import stage5g_f_check as checker
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"
+STAGE5C = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
 CONTRACT = "docs/stage-5/stage5g-f-protective-completion-contract.json"
 DESIGN = "docs/stage-5/stage5g-f-protective-completion-contract.md"
 LIB = "crates/strategy-runtime-core/src/lib.rs"
-GATE = "scripts/stage5g_f_r1_gate.sh"
+GATE = "scripts/stage5g_f_r2_gate.sh"
 PRESEAL = "scripts/stage5g_f_preseal_check.py"
 HANDOFF = "scripts/make_stage5g_f_handoff_archive.py"
 
@@ -89,7 +90,15 @@ def contract_cases() -> list[tuple[str, callable]]:
             lambda root, surface=surface: mutate(root, CONTRACT, f'"{surface}": false', f'"{surface}": true'),
         ))
     cases.extend([
-        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 140', '"current_stage5g_f_minimum": 1')),
+        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 180', '"current_stage5g_f_minimum": 1')),
+        ("open-production-raw-evidence", lambda root: mutate(root, CONTRACT, '"production_apply_accepts_raw_evidence": false', '"production_apply_accepts_raw_evidence": true')),
+        ("wrong-validated-evidence-type", lambda root: mutate(root, CONTRACT, '"validated_evidence_type": "Stage5gValidatedProtectiveEvidence"', '"validated_evidence_type": "Stage5gProtectiveCompletionEvidence"')),
+        ("wrong-callback-bridge-file", lambda root: mutate(root, CONTRACT, '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5c_paper_host.rs"', '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"')),
+        ("open-stage5g-direct-raw-callback", lambda root: mutate(root, CONTRACT, '"stage5g_direct_raw_broker_callback_boundary": false', '"stage5g_direct_raw_broker_callback_boundary": true')),
+        ("drop-completed-post-runtime-contract", lambda root: mutate(root, CONTRACT, '"successful_completion_owns_post_runtime": true', '"successful_completion_owns_post_runtime": false')),
+        ("drop-flat-cleanup-batch-contract", lambda root: mutate(root, CONTRACT, '"flat_cleanup_pending_owns_generated_batch": true', '"flat_cleanup_pending_owns_generated_batch": false')),
+        ("drop-generated-cleanup-retention-contract", lambda root: mutate(root, CONTRACT, '"generated_cleanup_intents_retained": true', '"generated_cleanup_intents_retained": false')),
+        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "pending_next_slice"', '"restart_extension_status": "accepted"')),
         ("open-bar-ohlc-authority", lambda root: mutate(root, CONTRACT, '"bar_ohlc_completion_authority": false', '"bar_ohlc_completion_authority": true')),
         ("wrong-base-ref", lambda root: mutate(root, CONTRACT, checker.BASE, "0" * 40)),
         ("wrong-entry-function", lambda root: mutate(root, CONTRACT, '"apply_stage5g_protective_completion"', '"apply_stage5g_protective_completion_bypass"')),
@@ -126,7 +135,7 @@ def governance_cases() -> list[tuple[str, callable]]:
         ("gate-removes-predecessor-negative", lambda root: mutate(root, GATE, "python3 scripts/stage5g_edc_r3_negative_harness.py", "# predecessor negative removed")),
         ("gate-removes-predecessor-release-tests", lambda root: mutate(root, GATE, "cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_", "# predecessor release tests removed")),
         ("preseal-loses-allowlist", lambda root: mutate(root, PRESEAL, "EXPECTED = sorted([", "EXPECTED_DISABLED = sorted([")),
-        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r1_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
+        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r2_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
     ]
 
 
@@ -135,13 +144,55 @@ def forbidden_surface_cases() -> list[tuple[str, callable]]:
         ("inject-reqwest", lambda root: mutate(root, SOURCE, "use broker_core::{", "use reqwest as forbidden_reqwest;\nuse broker_core::{")),
         ("inject-method-post", lambda root: mutate(root, SOURCE, "use broker_core::{", "use http::Method::POST;\nuse broker_core::{")),
         ("inject-method-delete", lambda root: mutate(root, SOURCE, "use broker_core::{", "use http::Method::DELETE;\nuse broker_core::{")),
+        ("inject-finam-namespace", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! finam::orders Stage 5G-f paper/mock")),
+        ("inject-finam-client", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! FinamRestClient Stage 5G-f paper/mock")),
+        ("inject-finam-transport", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! FinamTransport Stage 5G-f paper/mock")),
         ("inject-redis", lambda root: mutate(root, SOURCE, "use broker_core::{", "use redis::Commands;\nuse broker_core::{")),
-        ("inject-runtime-live", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! runtime_live Stage 5G-f paper/mock")),
+        ("inject-runtime-live", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! runtime_live_enabled: true Stage 5G-f paper/mock")),
         ("inject-bar-event", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! BarEvent Stage 5G-f paper/mock")),
         ("inject-bar-high", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! .high Stage 5G-f paper/mock")),
         ("inject-bar-low", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! .low Stage 5G-f paper/mock")),
         ("inject-wall-clock", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! Utc::now Stage 5G-f paper/mock")),
         ("inject-sleep", lambda root: mutate(root, SOURCE, "//! Stage 5G-f paper/mock", "//! thread::sleep Stage 5G-f paper/mock")),
+    ]
+
+
+def r2_lifecycle_cases() -> list[tuple[str, callable]]:
+    return [
+        ("drop-validated-evidence-type", lambda root: mutate(root, SOURCE, "pub struct Stage5gValidatedProtectiveEvidence", "pub struct RemovedStage5gValidatedProtectiveEvidence")),
+        ("raw-apply-signature", lambda root: mutate(root, SOURCE, "validated: Stage5gValidatedProtectiveEvidence", "evidence: Stage5gProtectiveCompletionEvidence")),
+        ("remove-validated-evidence-consume", lambda root: mutate(root, SOURCE, "let evidence = validated.evidence;", "let evidence = Stage5gProtectiveCompletionEvidence")),
+        ("drop-committed-state-type", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectiveCommittedState", "pub struct RemovedStage5gProtectiveCommittedState")),
+        ("drop-post-state-summary-type", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectivePostStateSummary", "pub struct RemovedStage5gProtectivePostStateSummary")),
+        ("drop-flat-cleanup-pending-type", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectiveFlatCleanupPending", "pub struct RemovedStage5gProtectiveFlatCleanupPending")),
+        ("drop-flat-cleanup-disposition", lambda root: mutate(root, SOURCE, "Stage5gProtectiveDisposition::FlatCleanupPending", "Stage5gProtectiveDisposition::Completed", count=None)),
+        ("drop-completed-owned-post-state", lambda root: mutate(root, SOURCE, "post_state: Stage5gProtectiveCommittedState", "post_state_removed: Stage5gProtectiveCommittedState", count=1)),
+        ("drop-cleanup-owned-post-state", lambda root: mutate(root, SOURCE, "post_state: Stage5gProtectiveCommittedState", "post_state_removed: Stage5gProtectiveCommittedState", count=2)),
+        ("drop-generated-cleanup-batch-field", lambda root: mutate(root, SOURCE, "generated_cleanup_batch: crate::Stage5cPaperIntentBatch", "generated_cleanup_batch_removed: crate::Stage5cPaperIntentBatch")),
+        ("drop-generated-cleanup-summary-field", lambda root: mutate(root, SOURCE, "generated_cleanup_batch_summary: crate::Stage5cPaperIntentBatchSummary", "generated_cleanup_batch_summary_removed: crate::Stage5cPaperIntentBatchSummary", count=1)),
+        ("drop-settled-batch-history-field", lambda root: mutate(root, SOURCE, "settled_batch_history: Vec<crate::Stage5cPaperIntentBatchSummary>", "settled_batch_history_removed: Vec<crate::Stage5cPaperIntentBatchSummary>", count=1)),
+        ("drop-stage5c-owned-bridge-call", lambda root: mutate(root, SOURCE, "fn apply_stage5c_owned_protective_lifecycle_bridge(", "fn removed_apply_stage5c_owned_protective_lifecycle_bridge(")),
+        ("drop-stage5c-resolver-call", lambda root: mutate(root, SOURCE, "resolve_stage5g_protective_broker_lifecycle_bridge(", "disabled_stage5g_protective_broker_lifecycle_bridge(")),
+        ("drop-order-execution-routing", lambda root: mutate(root, SOURCE, "Stage5gProtectiveBrokerLifecycleExecution::Order", "Stage5gProtectiveBrokerLifecycleExecution::RemovedOrder")),
+        ("drop-stop-execution-routing", lambda root: mutate(root, SOURCE, "Stage5gProtectiveBrokerLifecycleExecution::StopOrder", "Stage5gProtectiveBrokerLifecycleExecution::RemovedStopOrder")),
+        ("drop-bridge-post-state-fingerprint", lambda root: mutate(root, SOURCE, "bridge_post_state_fingerprint_sha256", "bridge_post_state_fingerprint_removed", count=None)),
+        ("raw-order-callback-in-stage5g", lambda root: mutate(root, SOURCE, "fn apply_stage5c_owned_protective_lifecycle_bridge(", "crate::BrokerNeutralHybridStrategy::on_broker_order;\nfn apply_stage5c_owned_protective_lifecycle_bridge(")),
+        ("raw-stop-callback-in-stage5g", lambda root: mutate(root, SOURCE, "fn apply_stage5c_owned_protective_lifecycle_bridge(", "crate::BrokerNeutralHybridStrategy::on_broker_stop_order;\nfn apply_stage5c_owned_protective_lifecycle_bridge(")),
+        ("raw-position-callback-in-stage5g", lambda root: mutate(root, SOURCE, "fn apply_stage5c_owned_protective_lifecycle_bridge(", "crate::BrokerNeutralHybridStrategy::on_broker_position;\nfn apply_stage5c_owned_protective_lifecycle_bridge(")),
+        ("reintroduce-cleanup-bool", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectiveCompleted {", "pub struct Stage5gProtectiveCompleted {\n    pub cleanup_pending: bool,")),
+        ("count-and-discard-generated-intents", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectiveCompleted {", "let generated_cleanup_intents += intents.len();\npub struct Stage5gProtectiveCompleted {")),
+        ("drop-stage5c-bridge-enum", lambda root: mutate(root, STAGE5C, "pub(crate) enum Stage5gProtectiveBrokerLifecycleExecution", "pub(crate) enum RemovedStage5gProtectiveBrokerLifecycleExecution")),
+        ("drop-stage5c-bridge-input", lambda root: mutate(root, STAGE5C, "pub(crate) struct Stage5gProtectiveBrokerLifecycleBridgeInput", "pub(crate) struct RemovedStage5gProtectiveBrokerLifecycleBridgeInput")),
+        ("drop-stage5c-bridge-output", lambda root: mutate(root, STAGE5C, "pub(crate) struct Stage5gProtectiveBrokerLifecycleBridgeOutput", "pub(crate) struct RemovedStage5gProtectiveBrokerLifecycleBridgeOutput")),
+        ("drop-stage5c-bridge-function", lambda root: mutate(root, STAGE5C, "pub(crate) fn resolve_stage5g_protective_broker_lifecycle_bridge(", "pub(crate) fn removed_resolve_stage5g_protective_broker_lifecycle_bridge(")),
+        ("drop-stage5c-order-callback", lambda root: mutate(root, STAGE5C, "crate::BrokerNeutralHybridStrategy::on_broker_order", "crate::BrokerNeutralHybridStrategy::removed_on_broker_order")),
+        ("drop-stage5c-stop-callback", lambda root: mutate(root, STAGE5C, "crate::BrokerNeutralHybridStrategy::on_broker_stop_order", "crate::BrokerNeutralHybridStrategy::removed_on_broker_stop_order")),
+        ("drop-stage5c-position-callback", lambda root: mutate(root, STAGE5C, "crate::BrokerNeutralHybridStrategy::on_broker_position", "crate::BrokerNeutralHybridStrategy::removed_on_broker_position")),
+        ("drop-stage5c-intent-merge", lambda root: mutate(root, STAGE5C, "stage5g_protective_merge_generated_intents(", "disabled_protective_merge_generated_intents(")),
+        ("drop-stage5c-terminal-consistency", lambda root: mutate(root, STAGE5C, "stage5cj_verify_generated_batch_final_pending_consistency(", "disabled_generated_batch_final_pending_consistency(")),
+        ("drop-stage5c-batch-summary", lambda root: mutate(root, STAGE5C, "stage5ch_batch_summary(generated_batch)", "disabled_batch_summary(generated_batch)")),
+        ("drop-stage5c-post-state-fingerprint", lambda root: mutate(root, STAGE5C, "post_state_fingerprint_sha256", "post_state_fingerprint_removed", count=None)),
+        ("drop-callback-generated-cleanup-test", lambda root: mutate(root, SOURCE, "stage5g_f_callback_generated_cleanup_is_retained_and_raw_cleanup_is_blocked", "removed_stage5g_f_callback_generated_cleanup_is_retained_and_raw_cleanup_is_blocked", count=None)),
     ]
 
 
@@ -152,9 +203,10 @@ def cases() -> list[tuple[str, callable]]:
         + contract_cases()
         + governance_cases()
         + forbidden_surface_cases()
+        + r2_lifecycle_cases()
     )
-    if len(all_cases) < 140:
-        fail(f"negative floor not met: {len(all_cases)} < 140")
+    if len(all_cases) < 180:
+        fail(f"negative floor not met: {len(all_cases)} < 180")
     names = [name for name, _ in all_cases]
     if len(names) != len(set(names)):
         fail("duplicate mutation names")

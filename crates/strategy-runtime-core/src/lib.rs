@@ -482,13 +482,16 @@ pub use stage5g_order_position::{
 };
 pub use stage5g_protective_completion::{
     apply_stage5g_protective_completion, prepare_stage5g_protective_completion,
-    Stage5gProtectedPositionSide, Stage5gProtectiveAuthoritySummary, Stage5gProtectiveBlockReason,
-    Stage5gProtectiveBlocked, Stage5gProtectiveCompleted, Stage5gProtectiveCompletionAuthority,
-    Stage5gProtectiveCompletionEvidence, Stage5gProtectiveCompletionTransition,
-    Stage5gProtectiveDisposition, Stage5gProtectiveEvidenceReceipt,
-    Stage5gProtectiveExecutionEvidence, Stage5gProtectiveLeg, Stage5gProtectivePositionTruth,
-    Stage5gProtectiveScenarioId, Stage5gProtectiveSiblingCleanupEvidence,
-    STAGE5G_PROTECTIVE_COMPLETION_SCHEMA_VERSION,
+    validate_stage5g_protective_completion_evidence, Stage5gProtectedPositionSide,
+    Stage5gProtectiveAuthoritySummary, Stage5gProtectiveBlockReason, Stage5gProtectiveBlocked,
+    Stage5gProtectiveCommittedState, Stage5gProtectiveCompleted,
+    Stage5gProtectiveCompletionAuthority, Stage5gProtectiveCompletionEvidence,
+    Stage5gProtectiveCompletionTransition, Stage5gProtectiveDisposition,
+    Stage5gProtectiveEvidenceReceipt, Stage5gProtectiveExecutionEvidence,
+    Stage5gProtectiveFlatCleanupPending, Stage5gProtectiveLeg, Stage5gProtectivePositionTruth,
+    Stage5gProtectivePostStateSummary, Stage5gProtectiveScenarioId,
+    Stage5gProtectiveSiblingCleanupEvidence, Stage5gProtectiveSiblingTerminalEvidence,
+    Stage5gValidatedProtectiveEvidence, STAGE5G_PROTECTIVE_COMPLETION_SCHEMA_VERSION,
 };
 pub use stage5g_timer::{
     apply_stage5g_exact_replay_to_session, apply_stage5g_new_package_candidate,
