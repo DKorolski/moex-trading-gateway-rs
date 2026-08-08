@@ -52,7 +52,7 @@ def main() -> None:
         fail("origin/stage5g-lifecycle must equal HEAD")
 
     gate = subprocess.run(
-        ["bash", "scripts/stage5g_f_r4_gate.sh"],
+        ["bash", "scripts/stage5g_f_r5_gate.sh"],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -94,15 +94,21 @@ def main() -> None:
         f"predecessor={checker.BASE}\n"
     ).encode()
 
+    artifact = subprocess.check_output(
+        ["cargo", "run", "-q", "-p", "strategy-runtime-core", "--bin", "stage5g_f_gprt_artifact"],
+        cwd=ROOT,
+    )
+    artifact_sha256 = hashlib.sha256(artifact).hexdigest()
+
     evidence = json.dumps({
         "schema_version": 1,
-        "stage": "Stage 5G-f R4",
+        "stage": "Stage 5G-f R5",
         "source_ref": head,
         "predecessor": checker.BASE,
         "gate_exit_code": 0,
         "scenario_count": len(checker.EXPECTED_SCENARIOS),
         "negative_cases": len(negative.cases()),
-        "negative_floor": 330,
+        "negative_floor": 390,
         "focused_test_count": len(checker.REQUIRED_TESTS),
         "contract": "docs/stage-5/stage5g-f-protective-completion-contract.json",
         "authenticated_protective_restart": True,
@@ -110,6 +116,8 @@ def main() -> None:
         "cleanup_settlement_boundary": "apply_stage5g_protective_cleanup_completion",
         "cleanup_batch_restart_projection": True,
         "deterministic_artifact_scenarios": 8,
+        "gprt_artifact_name": "stage5g-f-gprt-artifact.json",
+        "gprt_artifact_sha256": artifact_sha256,
         "raw_protective_evidence_exported": False,
         "completed_policy": "not_immediate_when_sibling_cleanup_pending",
         "closed_surfaces": [
@@ -134,6 +142,12 @@ def main() -> None:
         ("handoff-evidence/stage5g-f-full-gate.txt", redacted, 0o644),
         ("handoff-evidence/stage5g-f-source-manifest.json", source_manifest, 0o644),
         ("handoff-evidence/stage5g-f-evidence-manifest.json", evidence, 0o644),
+        ("handoff-evidence/stage5g-f-gprt-artifact.json", artifact, 0o644),
+        (
+            "handoff-evidence/stage5g-f-gprt-artifact.sha256",
+            f"{artifact_sha256}  stage5g-f-gprt-artifact.json\n".encode(),
+            0o644,
+        ),
         ("handoff-evidence/stage5g-f-toolchain.txt",
          f"{run(['rustc', '--version'])}\n{run(['cargo', '--version'])}\n".encode(), 0o644),
     ]

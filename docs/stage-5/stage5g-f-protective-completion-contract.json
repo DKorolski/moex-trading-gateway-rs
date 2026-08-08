@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5G-f",
-  "base_ref": "7dde2ac181c7a5d3a3312bfb463e384281062a8a",
+  "base_ref": "430bae6cd02f67844623f9d1b2112b1faedcc40a",
   "branch": "stage5g-lifecycle",
   "purpose": "paper/mock Mean Reversion protective target/stop completion from canonical broker feedback plus complete flat position truth",
   "protective_completion_type": "Stage5gProtectiveCompletionTransition",
@@ -21,7 +21,7 @@
   "successful_completion_owns_post_runtime": true,
   "flat_cleanup_pending_owns_generated_batch": true,
   "generated_cleanup_intents_retained": true,
-  "restart_extension_status": "protective_restart_cleanup_completion_r4",
+  "restart_extension_status": "protective_restart_cleanup_completion_r5",
   "authenticated_protective_restart": true,
   "protective_projection_in_clean_restart_package": true,
   "production_canonical_broker_truth_issuer": true,
@@ -128,6 +128,10 @@
     "stage6": false
   },
   "negative_floor": {
-    "current_stage5g_f_minimum": 330
-  }
+    "current_stage5g_f_minimum": 390
+  },
+  "cleanup_settlement_ledger": "per_request_terminal_nonexecution_required",
+  "cleanup_truth_pending_authority_binding": true,
+  "cleanup_execution_race_policy": "position_truth_required",
+  "debug_release_gprt_artifact": "stage5g-f-gprt-artifact.json"
 }

@@ -17,7 +17,7 @@ STAGE5C = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
 CONTRACT = "docs/stage-5/stage5g-f-protective-completion-contract.json"
 DESIGN = "docs/stage-5/stage5g-f-protective-completion-contract.md"
 LIB = "crates/strategy-runtime-core/src/lib.rs"
-GATE = "scripts/stage5g_f_r4_gate.sh"
+GATE = "scripts/stage5g_f_r5_gate.sh"
 PRESEAL = "scripts/stage5g_f_preseal_check.py"
 HANDOFF = "scripts/make_stage5g_f_handoff_archive.py"
 
@@ -125,7 +125,7 @@ def contract_cases() -> list[tuple[str, callable]]:
             lambda root, surface=surface: mutate(root, CONTRACT, f'"{surface}": false', f'"{surface}": true'),
         ))
     cases.extend([
-        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 330', '"current_stage5g_f_minimum": 1')),
+        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 390', '"current_stage5g_f_minimum": 1')),
         ("open-production-raw-evidence", lambda root: mutate(root, CONTRACT, '"production_apply_accepts_raw_evidence": false', '"production_apply_accepts_raw_evidence": true')),
         ("wrong-validated-evidence-type", lambda root: mutate(root, CONTRACT, '"validated_evidence_type": "Stage5gValidatedProtectiveEvidence"', '"validated_evidence_type": "Stage5gProtectiveCompletionEvidence"')),
         ("wrong-callback-bridge-file", lambda root: mutate(root, CONTRACT, '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5c_paper_host.rs"', '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"')),
@@ -133,7 +133,7 @@ def contract_cases() -> list[tuple[str, callable]]:
         ("drop-completed-post-runtime-contract", lambda root: mutate(root, CONTRACT, '"successful_completion_owns_post_runtime": true', '"successful_completion_owns_post_runtime": false')),
         ("drop-flat-cleanup-batch-contract", lambda root: mutate(root, CONTRACT, '"flat_cleanup_pending_owns_generated_batch": true', '"flat_cleanup_pending_owns_generated_batch": false')),
         ("drop-generated-cleanup-retention-contract", lambda root: mutate(root, CONTRACT, '"generated_cleanup_intents_retained": true', '"generated_cleanup_intents_retained": false')),
-        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "protective_restart_cleanup_completion_r4"', '"restart_extension_status": "pending_next_slice"')),
+        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "protective_restart_cleanup_completion_r5"', '"restart_extension_status": "pending_next_slice"')),
         ("disable-authenticated-protective-restart", lambda root: mutate(root, CONTRACT, '"authenticated_protective_restart": true', '"authenticated_protective_restart": false')),
         ("detach-protective-projection-package", lambda root: mutate(root, CONTRACT, '"protective_projection_in_clean_restart_package": true', '"protective_projection_in_clean_restart_package": false')),
         ("wrong-canonical-protective-issuer", lambda root: mutate(root, CONTRACT, '"canonical_protective_evidence_issuer": "issue_stage5g_canonical_protective_evidence"', '"canonical_protective_evidence_issuer": "validate_stage5g_protective_completion_evidence"')),
@@ -178,7 +178,7 @@ def governance_cases() -> list[tuple[str, callable]]:
         ("gate-removes-r2-snapshot", lambda root: mutate(root, GATE, "34ecc9595bdb83639415ddde1b3975b88ac2faa4", "34ecc9595bdb83639415ddde1b3975b88ac2faa0")),
         ("gate-removes-r1-lineage", lambda root: mutate(root, GATE, "a28cedd984d41bd2db4aeb7fd8c125c62ded4b28", "a28cedd984d41bd2db4aeb7fd8c125c62ded4b20")),
         ("preseal-loses-allowlist", lambda root: mutate(root, PRESEAL, "EXPECTED = sorted([", "EXPECTED_DISABLED = sorted([")),
-        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r4_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
+        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r5_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
     ]
 
 
@@ -277,7 +277,7 @@ def r4_cleanup_closure_cases() -> list[tuple[str, callable]]:
     stage5c_cleanup_begin = "pub(crate) fn stage5g_protective_cleanup_batch_restart_projection("
     stage5c_cleanup_end = "pub(crate) fn stage5g_protective_cleanup_batch_projection_fingerprint("
     return [
-        ("remove-r4-flat-cleanup-settlement-test", lambda root: mutate(root, SOURCE, "stage5g_f_r4_flat_cleanup_pending_restores_batch_and_settles_to_completed", "removed_stage5g_f_r4_flat_cleanup_pending_restores_batch_and_settles_to_completed", count=None)),
+        ("remove-r4-flat-cleanup-settlement-test", lambda root: mutate(root, SOURCE, "stage5g_f_r5_multi_request_cleanup_settles_only_after_all_requests", "removed_stage5g_f_r5_multi_request_cleanup_settles_only_after_all_requests", count=None)),
         ("remove-r4-non-terminal-cleanup-test", lambda root: mutate(root, SOURCE, "stage5g_f_r4_non_terminal_cleanup_truth_keeps_flat_cleanup_pending", "removed_stage5g_f_r4_non_terminal_cleanup_truth_keeps_flat_cleanup_pending", count=None)),
         ("drop-production-canonical-truth-issuer", lambda root: mutate(root, SOURCE, "pub(crate) fn accept_stage5g_canonical_protective_broker_truth", "fn removed_accept_stage5g_canonical_protective_broker_truth")),
         ("make-canonical-truth-issuer-test-only", lambda root: mutate(root, SOURCE, "pub(crate) fn accept_stage5g_canonical_protective_broker_truth", "#[cfg(test)]\npub(crate) fn accept_stage5g_canonical_protective_broker_truth")),
@@ -291,12 +291,12 @@ def r4_cleanup_closure_cases() -> list[tuple[str, callable]]:
         ("drop-cleanup-projection-fingerprint-check", lambda root: mutate(root, SOURCE, "cleanup_projection.batch_fingerprint\n                    != crate::stage5c_paper_host::stage5g_protective_cleanup_batch_projection_fingerprint", "cleanup_projection.batch_fingerprint\n                    == crate::stage5c_paper_host::stage5g_protective_cleanup_batch_projection_fingerprint")),
         ("drop-cleanup-truth-boundary", lambda root: mutate(root, SOURCE, "pub fn apply_stage5g_protective_cleanup_completion(", "pub fn removed_apply_stage5g_protective_cleanup_completion(")),
         ("drop-cleanup-truth-acceptor", lambda root: mutate(root, SOURCE, "pub fn accept_stage5g_protective_cleanup_truth(", "pub fn removed_accept_stage5g_protective_cleanup_truth(")),
-        ("cleanup-terminal-always-completed", lambda root: mutate(root, SOURCE, "if !stage5g_cleanup_status_is_terminal(&accepted.evidence.status) {", "if false && !stage5g_cleanup_status_is_terminal(&accepted.evidence.status) {")),
-        ("cleanup-working-forged-terminal", lambda root: mutate(root, SOURCE, "\"canceled\" | \"cancelled\" | \"filled\" | \"executed\" | \"deleted\" | \"done\"", "\"working\" | \"canceled\" | \"cancelled\" | \"filled\" | \"executed\" | \"deleted\" | \"done\"")),
+        ("cleanup-terminal-always-completed", lambda root: mutate(root, SOURCE, "if !stage5g_cleanup_ledger_all_terminal_non_execution(&pending.cleanup_settlement_ledger) {", "if false && !stage5g_cleanup_ledger_all_terminal_non_execution(&pending.cleanup_settlement_ledger) {")),
+        ("cleanup-working-forged-terminal", lambda root: mutate(root, SOURCE, "Stage5gProtectiveCleanupOutcome::Pending => {", "Stage5gProtectiveCleanupOutcome::Canceled => {", count=1)),
         ("cleanup-request-id-check-bypassed", lambda root: mutate(root, SOURCE, ".find(|record| record.request_id == request_id)", ".find(|_record| true)")),
         ("cleanup-target-id-check-bypassed", lambda root: mutate(root, SOURCE, "if target_protective_id != record.target_protective_id", "if false && target_protective_id != record.target_protective_id")),
         ("cleanup-chronology-check-bypassed", lambda root: mutate(root, SOURCE, "|| received_ts_utc < record.source_event_ts", "|| false && received_ts_utc < record.source_event_ts")),
-        ("completed-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: Some(\n            accepted.evidence.settlement_fingerprint_sha256,\n        )", "cleanup_settlement_fingerprint_sha256: None")),
+        ("completed-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: Some(\n            pending.cleanup_settlement_ledger.ledger_fingerprint_sha256,\n        )", "cleanup_settlement_fingerprint_sha256: None")),
         ("completed-restart-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: completed.cleanup_settlement_fingerprint_sha256", "cleanup_settlement_fingerprint_sha256: None")),
         ("drop-stage5c-cleanup-projection-type", lambda root: mutate(root, STAGE5C, "pub struct Stage5gProtectiveCleanupBatchRestartProjectionV1", "pub struct RemovedStage5gProtectiveCleanupBatchRestartProjectionV1")),
         ("drop-stage5c-cleanup-record-type", lambda root: mutate(root, STAGE5C, "pub struct Stage5gProtectiveCleanupBatchRestartRecordV1", "pub struct RemovedStage5gProtectiveCleanupBatchRestartRecordV1")),
@@ -318,6 +318,54 @@ def r4_cleanup_closure_cases() -> list[tuple[str, callable]]:
     ]
 
 
+
+def r5_cleanup_ledger_cases() -> list[tuple[str, callable]]:
+    return [
+        ("drop-cleanup-settlement-ledger-type", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectiveCleanupSettlementLedgerV1", "pub struct RemovedStage5gProtectiveCleanupSettlementLedgerV1")),
+        ("drop-cleanup-request-settlement-type", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectiveCleanupRequestSettlementV1", "pub struct RemovedStage5gProtectiveCleanupRequestSettlementV1")),
+        ("drop-cleanup-outcome-type", lambda root: mutate(root, SOURCE, "pub enum Stage5gProtectiveCleanupOutcome", "pub enum RemovedStage5gProtectiveCleanupOutcome")),
+        ("drop-cleanup-state-type", lambda root: mutate(root, SOURCE, "pub enum Stage5gProtectiveCleanupSettlementState", "pub enum RemovedStage5gProtectiveCleanupSettlementState")),
+        ("drop-pending-authority-helper", lambda root: mutate(root, SOURCE, "fn stage5g_pending_cleanup_authority_sha256", "fn removed_stage5g_pending_cleanup_authority_sha256")),
+        ("drop-pending-authority-field", lambda root: mutate(root, SOURCE, "pending_cleanup_authority_sha256", "removed_pending_cleanup_authority_sha256", count=None)),
+        ("drop-ledger-before-field", lambda root: mutate(root, SOURCE, "cleanup_ledger_fingerprint_before_sha256", "removed_cleanup_ledger_fingerprint_before_sha256", count=None)),
+        ("drop-authority-mismatch-reason", lambda root: mutate(root, SOURCE, "CleanupAuthorityMismatch", "RemovedCleanupAuthorityMismatch", count=None)),
+        ("drop-cleanup-conflict-reason", lambda root: mutate(root, SOURCE, "CleanupConflict", "RemovedCleanupConflict", count=None)),
+        ("drop-position-truth-required-reason", lambda root: mutate(root, SOURCE, "CleanupPositionTruthRequired", "RemovedCleanupPositionTruthRequired", count=None)),
+        ("drop-position-truth-required-transition", lambda root: mutate(root, SOURCE, "CleanupPositionTruthRequired(Box<Stage5gProtectiveRestoredFlatCleanupPending>)", "RemovedCleanupPositionTruthRequired(Box<Stage5gProtectiveRestoredFlatCleanupPending>)")),
+        ("drop-ledger-validity-check", lambda root: mutate(root, SOURCE, "if !stage5g_cleanup_ledger_is_valid(&pending.cleanup_settlement_ledger, cleanup_projection)", "if false && !stage5g_cleanup_ledger_is_valid(&pending.cleanup_settlement_ledger, cleanup_projection)", count=1)),
+        ("drop-apply-pending-authority-compare", lambda root: mutate(root, SOURCE, "pending_authority != accepted.evidence.pending_cleanup_authority_sha256", "false && pending_authority != accepted.evidence.pending_cleanup_authority_sha256")),
+        ("drop-ledger-before-compare", lambda root: mutate(root, SOURCE, "!= accepted.evidence.cleanup_ledger_fingerprint_before_sha256", "== accepted.evidence.cleanup_ledger_fingerprint_before_sha256", count=1)),
+        ("drop-batch-fingerprint-compare", lambda root: mutate(root, SOURCE, "!= accepted.evidence.batch_fingerprint_sha256", "== accepted.evidence.batch_fingerprint_sha256", count=1)),
+        ("drop-entry-target-compare", lambda root: mutate(root, SOURCE, "entry.target_protective_id != accepted.evidence.target_protective_id", "false && entry.target_protective_id != accepted.evidence.target_protective_id")),
+        ("drop-entry-action-compare", lambda root: mutate(root, SOURCE, "entry.base_action != accepted.evidence.base_action", "false && entry.base_action != accepted.evidence.base_action")),
+        ("drop-entry-attribution-compare", lambda root: mutate(root, SOURCE, "entry.expected_attribution != accepted.evidence.expected_attribution", "false && entry.expected_attribution != accepted.evidence.expected_attribution")),
+        ("force-all-cleanup-terminal", lambda root: mutate(root, SOURCE, "stage5g_cleanup_ledger_all_terminal_non_execution(&pending.cleanup_settlement_ledger)", "true", count=1)),
+        ("execution-observed-completes", lambda root: mutate(root, SOURCE, "Stage5gProtectiveCleanupOutcome::ExecutionObserved => {", "Stage5gProtectiveCleanupOutcome::Canceled => {", count=1)),
+        ("filled-status-not-execution-race", lambda root: mutate(root, SOURCE, "\"filled\" | \"executed\" | \"triggered\" | \"completed-as-execution\"", "\"executed\" | \"triggered\" | \"completed-as-execution\"")),
+        ("delete-action-name-drift", lambda root: mutate(root, SOURCE, "\"delete_stop_limit\"", "\"delete\"", count=1)),
+        ("ledger-fingerprint-domain-drift", lambda root: mutate(root, SOURCE, "stage5g_cleanup_ledger_fingerprint", "removed_stage5g_cleanup_ledger_fingerprint", count=1)),
+        ("drop-r5-multi-request-test", lambda root: mutate(root, SOURCE, "stage5g_f_r5_multi_request_cleanup_settles_only_after_all_requests", "removed_stage5g_f_r5_multi_request_cleanup_settles_only_after_all_requests", count=None)),
+        ("drop-r5-cross-pending-test", lambda root: mutate(root, SOURCE, "stage5g_f_r5_cleanup_token_is_bound_to_exact_pending_authority", "removed_stage5g_f_r5_cleanup_token_is_bound_to_exact_pending_authority", count=None)),
+        ("drop-r5-execution-race-test", lambda root: mutate(root, SOURCE, "stage5g_f_r5_cleanup_execution_race_requires_position_truth", "removed_stage5g_f_r5_cleanup_execution_race_requires_position_truth", count=None)),
+        ("drop-gprt-artifact-api", lambda root: mutate(root, SOURCE, "pub fn stage5g_f_gprt_artifact_json_pretty", "pub fn removed_stage5g_f_gprt_artifact_json_pretty")),
+        ("drop-gprt-artifact-row-type", lambda root: mutate(root, SOURCE, "pub struct Stage5gProtectiveGprtArtifactRow", "pub struct RemovedStage5gProtectiveGprtArtifactRow")),
+        ("omit-gprt01-phase-b", lambda root: mutate(root, SOURCE, "Some(\"completed\")", "None", count=1)),
+        ("open-runtime-live-in-artifact", lambda root: mutate(root, SOURCE, "runtime_live_attached: false", "runtime_live_attached: true", count=1)),
+        ("open-redis-in-artifact", lambda root: mutate(root, SOURCE, "redis_command_stream_attached: false", "redis_command_stream_attached: true", count=1)),
+        ("open-finam-in-artifact", lambda root: mutate(root, SOURCE, "finam_transport_attached: false", "finam_transport_attached: true", count=1)),
+        ("remove-debug-artifact-emit", lambda root: mutate(root, GATE, "stage5g-f-gprt-artifact.debug.json", "removed-stage5g-f-gprt-artifact.debug.json", count=None)),
+        ("remove-release-artifact-emit", lambda root: mutate(root, GATE, "stage5g-f-gprt-artifact.release.json", "removed-stage5g-f-gprt-artifact.release.json", count=None)),
+        ("remove-artifact-cmp", lambda root: mutate(root, GATE, "cmp \"$artifact_dir/stage5g-f-gprt-artifact.debug.json\" \"$artifact_dir/stage5g-f-gprt-artifact.release.json\"", "true # cmp removed")),
+        ("remove-artifact-sha", lambda root: mutate(root, HANDOFF, "stage5g-f-gprt-artifact.sha256", "removed-stage5g-f-gprt-artifact.sha256", count=None)),
+        ("drop-r5-gate-pass-marker", lambda root: mutate(root, GATE, "stage5g-f-r5-gate: PASS", "stage5g-f-r5-gate: REMOVED")),
+        ("r5-contract-ledger-disabled", lambda root: mutate(root, CONTRACT, '"cleanup_settlement_ledger": "per_request_terminal_nonexecution_required"', '"cleanup_settlement_ledger": "disabled"')),
+        ("r5-contract-authority-binding-disabled", lambda root: mutate(root, CONTRACT, '"cleanup_truth_pending_authority_binding": true', '"cleanup_truth_pending_authority_binding": false')),
+        ("r5-contract-execution-race-disabled", lambda root: mutate(root, CONTRACT, '"cleanup_execution_race_policy": "position_truth_required"', '"cleanup_execution_race_policy": "completed"')),
+        ("r5-contract-artifact-disabled", lambda root: mutate(root, CONTRACT, '"debug_release_gprt_artifact": "stage5g-f-gprt-artifact.json"', '"debug_release_gprt_artifact": "none"')),
+        ("remove-bin-artifact-source", lambda root: mutate(root, Path("crates/strategy-runtime-core/src/bin/stage5g_f_gprt_artifact.rs"), "stage5g_f_gprt_artifact_json_pretty", "removed_stage5g_f_gprt_artifact_json_pretty")),
+        ("remove-preseal-bin-allowlist", lambda root: mutate(root, PRESEAL, "crates/strategy-runtime-core/src/bin/stage5g_f_gprt_artifact.rs", "removed/bin/stage5g_f_gprt_artifact.rs")),
+    ]
+
 def cases() -> list[tuple[str, callable]]:
     all_cases = (
         source_marker_cases()
@@ -329,9 +377,10 @@ def cases() -> list[tuple[str, callable]]:
         + r2_lifecycle_cases()
         + r3_restart_and_issuer_cases()
         + r4_cleanup_closure_cases()
+        + r5_cleanup_ledger_cases()
     )
-    if len(all_cases) < 330:
-        fail(f"negative floor not met: {len(all_cases)} < 330")
+    if len(all_cases) < 390:
+        fail(f"negative floor not met: {len(all_cases)} < 390")
     names = [name for name, _ in all_cases]
     if len(names) != len(set(names)):
         fail("duplicate mutation names")

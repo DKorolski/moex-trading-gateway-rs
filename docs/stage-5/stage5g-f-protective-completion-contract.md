@@ -8,7 +8,7 @@ consumer work, broker dispatch, runtime-live, Stage 5G-g/h or Stage 6.
 
 ## R4 base and accepted predecessor
 
-R4 cleanup closure is one direct successor to the reviewed Stage 5G-f R3
+R5 cleanup ledger closure is one direct successor to the reviewed Stage 5G-f R3
 intermediate baseline:
 
 `7dde2ac181c7a5d3a3312bfb463e384281062a8a`
@@ -144,9 +144,9 @@ The result partition is:
 - `AwaitingPositionTruth`;
 - `Blocked`.
 
-Completed is not immediate while sibling cleanup is pending.
+Completed requires every generated cleanup request to reach terminal non-execution; sibling execution requires fresh position truth.
 
-R4 cleanup closure adds the missing continuation after an authenticated
+R5 cleanup ledger closure adds the missing continuation after an authenticated
 `FlatCleanupPending` restart:
 
 - Stage 5C owns a reconstructable cleanup-batch restart projection with exact
@@ -155,8 +155,12 @@ R4 cleanup closure adds the missing continuation after an authenticated
   through the Stage 5C verifier instead of restoring from summary/hash only;
 - `apply_stage5g_protective_cleanup_completion` is the sole paper/mock cleanup
   settlement boundary;
-- exact terminal cleanup truth moves the continuation to `Completed`;
+- terminal non-execution cleanup truth settles exactly one cleanup request;
+- `Completed` is reached only after every generated cleanup request reaches
+  terminal non-execution;
 - non-terminal cleanup truth keeps the continuation in `FlatCleanupPending`;
+- execution-observed cleanup truth requires fresh position truth instead of
+  completing the protective lifecycle;
 - the cleanup settlement fingerprint is preserved in the completed restart
   projection.
 
@@ -173,6 +177,7 @@ owns:
 - the exact generated `Stage5cPaperIntentBatch`;
 - the generated batch summary;
 - the settled batch history;
+- the per-request cleanup settlement ledger;
 - both Stage 5C bridge state fingerprint and Stage 5G post-runtime semantic
   fingerprint.
 
@@ -188,7 +193,7 @@ Sibling cleanup is represented only by exact paper lifecycle escrow evidence or
 an exact terminal sibling proof. A missing sibling proof is not treated as safe.
 It is not broker dispatch and not native transport.
 
-R4 closes the authenticated protective restart + cleanup-settlement projection
+R5 closes the authenticated protective restart + cleanup-settlement projection
 for the Stage 5G-f paper/mock boundary. It does not open Stage 5G-g/h
 protective-order placement, Redis live consumption, FINAM transport or any
 runtime-live execution.
@@ -198,19 +203,20 @@ runtime-live execution.
 Primary current-head gate:
 
 ```bash
-bash scripts/stage5g_f_r3_gate.sh
-bash scripts/stage5g_f_r4_gate.sh
+bash scripts/stage5g_f_r5_gate.sh
 ```
 
 Required current-head checks:
 
 - Stage 5G-f checker;
-- Stage 5G-f negative harness, floor `>=330`;
+- Stage 5G-f negative harness, floor `>=390`;
 - Stage 5G-f preseal;
 - focused GPRT debug and release tests;
 - authenticated protective restart debug and release tests;
 - full `strategy-runtime-core` lib test;
 - doctests, fmt, clippy;
+- debug/release GPRT artifact parity;
+- detached submitted R4 `430bae6` Stage 5G-f verification;
 - detached submitted R3 `7dde2ac` Stage 5G-f verification;
 - detached submitted R2 `34ecc95` Stage 5G-f verification;
 - detached submitted R1 `a28cedd` Stage 5G-f verification;
