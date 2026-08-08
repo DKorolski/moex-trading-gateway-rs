@@ -485,6 +485,7 @@ pub use stage5g_protective_completion::{
     apply_stage5g_protective_completion, issue_stage5g_canonical_protective_evidence,
     prepare_stage5g_protective_completion, restore_stage5g_protective_completion_continuation,
     stage5g_f_gprt_artifact_json_pretty, stage5g_f_gprt_artifact_rows,
+    stage5g_f_gprt_artifact_rows_parallel_verified,
     stage5g_protective_restart_source_from_transition, Stage5gAcceptedProtectiveBrokerTruth,
     Stage5gAcceptedProtectiveCleanupTruth, Stage5gProtectedPositionSide,
     Stage5gProtectiveAuthoritySummary, Stage5gProtectiveBlockReason, Stage5gProtectiveBlocked,

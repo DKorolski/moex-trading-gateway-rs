@@ -6,10 +6,18 @@ Reversion positions in paper/mock mode only.
 It does not place FINAM native stops, SLTP, brackets, real orders, Redis
 consumer work, broker dispatch, runtime-live, Stage 5G-g/h or Stage 6.
 
-## R4 base and accepted predecessor
+## R6 base and accepted predecessor
 
-R5 cleanup ledger closure is one direct successor to the reviewed Stage 5G-f R3
+R6 stable cleanup observation closure is one direct successor to the reviewed Stage 5G-f R5
 intermediate baseline:
+
+`1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8`
+
+The accepted Stage 5G-f R4 lineage point remains:
+
+`430bae6cd02f67844623f9d1b2112b1faedcc40a`
+
+The accepted Stage 5G-f R3 lineage point remains:
 
 `7dde2ac181c7a5d3a3312bfb463e384281062a8a`
 
@@ -146,7 +154,7 @@ The result partition is:
 
 Completed requires every generated cleanup request to reach terminal non-execution; sibling execution requires fresh position truth.
 
-R5 cleanup ledger closure adds the missing continuation after an authenticated
+R6 stable cleanup observation closure adds the missing continuation after an authenticated
 `FlatCleanupPending` restart:
 
 - Stage 5C owns a reconstructable cleanup-batch restart projection with exact
@@ -203,23 +211,21 @@ runtime-live execution.
 Primary current-head gate:
 
 ```bash
-bash scripts/stage5g_f_r5_gate.sh
+bash scripts/stage5g_f_r6_gate.sh
 ```
 
 Required current-head checks:
 
 - Stage 5G-f checker;
-- Stage 5G-f negative harness, floor `>=390`;
+- Stage 5G-f negative harness, floor `>=430`;
 - Stage 5G-f preseal;
 - focused GPRT debug and release tests;
 - authenticated protective restart debug and release tests;
 - full `strategy-runtime-core` lib test;
 - doctests, fmt, clippy;
 - debug/release GPRT artifact parity;
-- detached submitted R4 `430bae6` Stage 5G-f verification;
-- detached submitted R3 `7dde2ac` Stage 5G-f verification;
-- detached submitted R2 `34ecc95` Stage 5G-f verification;
-- detached submitted R1 `a28cedd` Stage 5G-f verification;
+- detached submitted R5 `1f8d7f3` Stage 5G-f gate verification, which transitively covers
+  the accepted R1/R2/R3/R4 lineage;
 - detached bounded Stage 5G-e-d-c R3 predecessor verification;
 - forbidden surfaces remain closed.
 

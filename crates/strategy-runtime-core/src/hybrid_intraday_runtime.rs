@@ -1066,7 +1066,6 @@ impl HybridIntradayRuntimeStrategy {
         )
     }
 
-    #[cfg(test)]
     pub(crate) fn stage5g_test_mr_protective_runtime_fixture(
         side: crate::stage5g_protective_completion::Stage5gProtectedPositionSide,
         tp_order_id: BrokerOrderId,
