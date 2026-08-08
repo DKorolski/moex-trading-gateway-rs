@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5G-f",
-  "base_ref": "34ecc9595bdb83639415ddde1b3975b88ac2faa4",
+  "base_ref": "7dde2ac181c7a5d3a3312bfb463e384281062a8a",
   "branch": "stage5g-lifecycle",
   "purpose": "paper/mock Mean Reversion protective target/stop completion from canonical broker feedback plus complete flat position truth",
   "protective_completion_type": "Stage5gProtectiveCompletionTransition",
@@ -21,11 +21,16 @@
   "successful_completion_owns_post_runtime": true,
   "flat_cleanup_pending_owns_generated_batch": true,
   "generated_cleanup_intents_retained": true,
-  "restart_extension_status": "authenticated_protective_restart_r3",
+  "restart_extension_status": "protective_restart_cleanup_completion_r4",
   "authenticated_protective_restart": true,
   "protective_projection_in_clean_restart_package": true,
+  "production_canonical_broker_truth_issuer": true,
+  "cleanup_batch_restart_projection": true,
+  "cleanup_batch_projection_is_reconstructable": true,
+  "cleanup_settlement_boundary": "apply_stage5g_protective_cleanup_completion",
+  "deterministic_artifact_scenarios": 8,
   "canonical_protective_evidence_issuer": "issue_stage5g_canonical_protective_evidence",
-  "test_only_raw_evidence_acceptor": "accept_stage5g_canonical_protective_broker_truth",
+  "canonical_broker_truth_acceptor_scope": "crate_private_production_issuer",
   "production_raw_evidence_validator_exported": false,
   "completed_policy": "not_immediate_when_sibling_cleanup_pending",
   "callback_bridge_transport_attached": false,
@@ -123,6 +128,6 @@
     "stage6": false
   },
   "negative_floor": {
-    "current_stage5g_f_minimum": 240
+    "current_stage5g_f_minimum": 330
   }
 }

@@ -17,7 +17,7 @@ STAGE5C = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
 CONTRACT = "docs/stage-5/stage5g-f-protective-completion-contract.json"
 DESIGN = "docs/stage-5/stage5g-f-protective-completion-contract.md"
 LIB = "crates/strategy-runtime-core/src/lib.rs"
-GATE = "scripts/stage5g_f_r3_gate.sh"
+GATE = "scripts/stage5g_f_r4_gate.sh"
 PRESEAL = "scripts/stage5g_f_preseal_check.py"
 HANDOFF = "scripts/make_stage5g_f_handoff_archive.py"
 
@@ -32,6 +32,30 @@ def mutate(root: Path, relative: str, old: str, new: str, count: int | None = 1)
     if old not in text:
         fail(f"mutation target missing in {relative}: {old}")
     path.write_text(text.replace(old, new) if count is None else text.replace(old, new, count))
+
+
+def mutate_between(
+    root: Path,
+    relative: str,
+    begin: str,
+    end: str,
+    old: str,
+    new: str,
+    count: int | None = 1,
+) -> None:
+    path = root / relative
+    text = path.read_text()
+    start = text.find(begin)
+    if start == -1:
+        fail(f"mutation section begin missing in {relative}: {begin}")
+    stop = text.find(end, start + len(begin))
+    if stop == -1:
+        fail(f"mutation section end missing in {relative}: {end}")
+    section = text[start:stop]
+    if old not in section:
+        fail(f"mutation target missing in {relative} section: {old}")
+    mutated = section.replace(old, new) if count is None else section.replace(old, new, count)
+    path.write_text(text[:start] + mutated + text[stop:])
 
 
 def run_checker(root: Path) -> bool:
@@ -101,7 +125,7 @@ def contract_cases() -> list[tuple[str, callable]]:
             lambda root, surface=surface: mutate(root, CONTRACT, f'"{surface}": false', f'"{surface}": true'),
         ))
     cases.extend([
-        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 240', '"current_stage5g_f_minimum": 1')),
+        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 330', '"current_stage5g_f_minimum": 1')),
         ("open-production-raw-evidence", lambda root: mutate(root, CONTRACT, '"production_apply_accepts_raw_evidence": false', '"production_apply_accepts_raw_evidence": true')),
         ("wrong-validated-evidence-type", lambda root: mutate(root, CONTRACT, '"validated_evidence_type": "Stage5gValidatedProtectiveEvidence"', '"validated_evidence_type": "Stage5gProtectiveCompletionEvidence"')),
         ("wrong-callback-bridge-file", lambda root: mutate(root, CONTRACT, '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5c_paper_host.rs"', '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"')),
@@ -109,11 +133,11 @@ def contract_cases() -> list[tuple[str, callable]]:
         ("drop-completed-post-runtime-contract", lambda root: mutate(root, CONTRACT, '"successful_completion_owns_post_runtime": true', '"successful_completion_owns_post_runtime": false')),
         ("drop-flat-cleanup-batch-contract", lambda root: mutate(root, CONTRACT, '"flat_cleanup_pending_owns_generated_batch": true', '"flat_cleanup_pending_owns_generated_batch": false')),
         ("drop-generated-cleanup-retention-contract", lambda root: mutate(root, CONTRACT, '"generated_cleanup_intents_retained": true', '"generated_cleanup_intents_retained": false')),
-        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "authenticated_protective_restart_r3"', '"restart_extension_status": "pending_next_slice"')),
+        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "protective_restart_cleanup_completion_r4"', '"restart_extension_status": "pending_next_slice"')),
         ("disable-authenticated-protective-restart", lambda root: mutate(root, CONTRACT, '"authenticated_protective_restart": true', '"authenticated_protective_restart": false')),
         ("detach-protective-projection-package", lambda root: mutate(root, CONTRACT, '"protective_projection_in_clean_restart_package": true', '"protective_projection_in_clean_restart_package": false')),
         ("wrong-canonical-protective-issuer", lambda root: mutate(root, CONTRACT, '"canonical_protective_evidence_issuer": "issue_stage5g_canonical_protective_evidence"', '"canonical_protective_evidence_issuer": "validate_stage5g_protective_completion_evidence"')),
-        ("wrong-test-only-raw-acceptor", lambda root: mutate(root, CONTRACT, '"test_only_raw_evidence_acceptor": "accept_stage5g_canonical_protective_broker_truth"', '"test_only_raw_evidence_acceptor": "public_raw_acceptor"')),
+        ("wrong-canonical-broker-truth-acceptor-scope", lambda root: mutate(root, CONTRACT, '"canonical_broker_truth_acceptor_scope": "crate_private_production_issuer"', '"canonical_broker_truth_acceptor_scope": "public_raw_acceptor"')),
         ("export-production-raw-validator-contract", lambda root: mutate(root, CONTRACT, '"production_raw_evidence_validator_exported": false', '"production_raw_evidence_validator_exported": true')),
         ("change-completed-policy", lambda root: mutate(root, CONTRACT, '"completed_policy": "not_immediate_when_sibling_cleanup_pending"', '"completed_policy": "immediate_when_flat"')),
         ("open-bar-ohlc-authority", lambda root: mutate(root, CONTRACT, '"bar_ohlc_completion_authority": false', '"bar_ohlc_completion_authority": true')),
@@ -154,7 +178,7 @@ def governance_cases() -> list[tuple[str, callable]]:
         ("gate-removes-r2-snapshot", lambda root: mutate(root, GATE, "34ecc9595bdb83639415ddde1b3975b88ac2faa4", "34ecc9595bdb83639415ddde1b3975b88ac2faa0")),
         ("gate-removes-r1-lineage", lambda root: mutate(root, GATE, "a28cedd984d41bd2db4aeb7fd8c125c62ded4b28", "a28cedd984d41bd2db4aeb7fd8c125c62ded4b20")),
         ("preseal-loses-allowlist", lambda root: mutate(root, PRESEAL, "EXPECTED = sorted([", "EXPECTED_DISABLED = sorted([")),
-        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r3_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
+        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r4_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
     ]
 
 
@@ -187,9 +211,9 @@ def r2_lifecycle_cases() -> list[tuple[str, callable]]:
         ("drop-flat-cleanup-disposition", lambda root: mutate(root, SOURCE, "Stage5gProtectiveDisposition::FlatCleanupPending", "Stage5gProtectiveDisposition::Completed", count=None)),
         ("drop-completed-owned-post-state", lambda root: mutate(root, SOURCE, "post_state: Stage5gProtectiveCommittedState", "post_state_removed: Stage5gProtectiveCommittedState", count=1)),
         ("drop-cleanup-owned-post-state", lambda root: mutate(root, SOURCE, "post_state: Stage5gProtectiveCommittedState", "post_state_removed: Stage5gProtectiveCommittedState", count=2)),
-        ("drop-generated-cleanup-batch-field", lambda root: mutate(root, SOURCE, "generated_cleanup_batch: crate::Stage5cPaperIntentBatch", "generated_cleanup_batch_removed: crate::Stage5cPaperIntentBatch")),
-        ("drop-generated-cleanup-summary-field", lambda root: mutate(root, SOURCE, "generated_cleanup_batch_summary: crate::Stage5cPaperIntentBatchSummary", "generated_cleanup_batch_summary_removed: crate::Stage5cPaperIntentBatchSummary", count=1)),
-        ("drop-settled-batch-history-field", lambda root: mutate(root, SOURCE, "settled_batch_history: Vec<crate::Stage5cPaperIntentBatchSummary>", "settled_batch_history_removed: Vec<crate::Stage5cPaperIntentBatchSummary>", count=1)),
+        ("drop-generated-cleanup-batch-field", lambda root: mutate(root, SOURCE, "generated_cleanup_batch: crate::Stage5cPaperIntentBatch", "generated_cleanup_batch_removed: crate::Stage5cPaperIntentBatch", count=None)),
+        ("drop-generated-cleanup-summary-field", lambda root: mutate(root, SOURCE, "generated_cleanup_batch_summary: crate::Stage5cPaperIntentBatchSummary", "generated_cleanup_batch_summary_removed: crate::Stage5cPaperIntentBatchSummary", count=None)),
+        ("drop-settled-batch-history-field", lambda root: mutate(root, SOURCE, "settled_batch_history: Vec<crate::Stage5cPaperIntentBatchSummary>", "settled_batch_history_removed: Vec<crate::Stage5cPaperIntentBatchSummary>", count=None)),
         ("drop-stage5c-owned-bridge-call", lambda root: mutate(root, SOURCE, "fn apply_stage5c_owned_protective_lifecycle_bridge(", "fn removed_apply_stage5c_owned_protective_lifecycle_bridge(")),
         ("drop-stage5c-resolver-call", lambda root: mutate(root, SOURCE, "resolve_stage5g_protective_broker_lifecycle_bridge(", "disabled_stage5g_protective_broker_lifecycle_bridge(")),
         ("drop-order-execution-routing", lambda root: mutate(root, SOURCE, "Stage5gProtectiveBrokerLifecycleExecution::Order", "Stage5gProtectiveBrokerLifecycleExecution::RemovedOrder")),
@@ -249,6 +273,51 @@ def r3_restart_and_issuer_cases() -> list[tuple[str, callable]]:
     ]
 
 
+def r4_cleanup_closure_cases() -> list[tuple[str, callable]]:
+    stage5c_cleanup_begin = "pub(crate) fn stage5g_protective_cleanup_batch_restart_projection("
+    stage5c_cleanup_end = "pub(crate) fn stage5g_protective_cleanup_batch_projection_fingerprint("
+    return [
+        ("remove-r4-flat-cleanup-settlement-test", lambda root: mutate(root, SOURCE, "stage5g_f_r4_flat_cleanup_pending_restores_batch_and_settles_to_completed", "removed_stage5g_f_r4_flat_cleanup_pending_restores_batch_and_settles_to_completed", count=None)),
+        ("remove-r4-non-terminal-cleanup-test", lambda root: mutate(root, SOURCE, "stage5g_f_r4_non_terminal_cleanup_truth_keeps_flat_cleanup_pending", "removed_stage5g_f_r4_non_terminal_cleanup_truth_keeps_flat_cleanup_pending", count=None)),
+        ("drop-production-canonical-truth-issuer", lambda root: mutate(root, SOURCE, "pub(crate) fn accept_stage5g_canonical_protective_broker_truth", "fn removed_accept_stage5g_canonical_protective_broker_truth")),
+        ("make-canonical-truth-issuer-test-only", lambda root: mutate(root, SOURCE, "pub(crate) fn accept_stage5g_canonical_protective_broker_truth", "#[cfg(test)]\npub(crate) fn accept_stage5g_canonical_protective_broker_truth")),
+        ("drop-cleanup-batch-projection-field", lambda root: mutate(root, SOURCE, "cleanup_batch_restart_projection:", "cleanup_batch_restart_projection_removed:", count=None)),
+        ("drop-cleanup-settlement-fingerprint-field", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256", "cleanup_settlement_fingerprint_removed", count=None)),
+        ("drop-restored-pending-owning-batch", lambda root: mutate(root, SOURCE, "generated_cleanup_batch: crate::Stage5cPaperIntentBatch", "generated_cleanup_batch_removed: crate::Stage5cPaperIntentBatch", count=1)),
+        ("drop-restored-pending-summary", lambda root: mutate(root, SOURCE, "generated_cleanup_batch_summary: crate::Stage5cPaperIntentBatchSummary", "generated_cleanup_batch_summary_removed: crate::Stage5cPaperIntentBatchSummary", count=2)),
+        ("drop-restored-pending-history", lambda root: mutate(root, SOURCE, "settled_batch_history: Vec<crate::Stage5cPaperIntentBatchSummary>", "settled_batch_history_removed: Vec<crate::Stage5cPaperIntentBatchSummary>", count=2)),
+        ("drop-restored-pending-restart-seed", lambda root: mutate(root, SOURCE, "restart_seed: Some(parts.restart_seed)", "restart_seed: None")),
+        ("restore-cleanup-from-summary-only", lambda root: mutate(root, SOURCE, "restore_stage5g_protective_cleanup_batch_from_projection", "restore_stage5g_protective_cleanup_batch_from_summary", count=None)),
+        ("drop-cleanup-projection-fingerprint-check", lambda root: mutate(root, SOURCE, "cleanup_projection.batch_fingerprint\n                    != crate::stage5c_paper_host::stage5g_protective_cleanup_batch_projection_fingerprint", "cleanup_projection.batch_fingerprint\n                    == crate::stage5c_paper_host::stage5g_protective_cleanup_batch_projection_fingerprint")),
+        ("drop-cleanup-truth-boundary", lambda root: mutate(root, SOURCE, "pub fn apply_stage5g_protective_cleanup_completion(", "pub fn removed_apply_stage5g_protective_cleanup_completion(")),
+        ("drop-cleanup-truth-acceptor", lambda root: mutate(root, SOURCE, "pub fn accept_stage5g_protective_cleanup_truth(", "pub fn removed_accept_stage5g_protective_cleanup_truth(")),
+        ("cleanup-terminal-always-completed", lambda root: mutate(root, SOURCE, "if !stage5g_cleanup_status_is_terminal(&accepted.evidence.status) {", "if false && !stage5g_cleanup_status_is_terminal(&accepted.evidence.status) {")),
+        ("cleanup-working-forged-terminal", lambda root: mutate(root, SOURCE, "\"canceled\" | \"cancelled\" | \"filled\" | \"executed\" | \"deleted\" | \"done\"", "\"working\" | \"canceled\" | \"cancelled\" | \"filled\" | \"executed\" | \"deleted\" | \"done\"")),
+        ("cleanup-request-id-check-bypassed", lambda root: mutate(root, SOURCE, ".find(|record| record.request_id == request_id)", ".find(|_record| true)")),
+        ("cleanup-target-id-check-bypassed", lambda root: mutate(root, SOURCE, "if target_protective_id != record.target_protective_id", "if false && target_protective_id != record.target_protective_id")),
+        ("cleanup-chronology-check-bypassed", lambda root: mutate(root, SOURCE, "|| received_ts_utc < record.source_event_ts", "|| false && received_ts_utc < record.source_event_ts")),
+        ("completed-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: Some(\n            accepted.evidence.settlement_fingerprint_sha256,\n        )", "cleanup_settlement_fingerprint_sha256: None")),
+        ("completed-restart-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: completed.cleanup_settlement_fingerprint_sha256", "cleanup_settlement_fingerprint_sha256: None")),
+        ("drop-stage5c-cleanup-projection-type", lambda root: mutate(root, STAGE5C, "pub struct Stage5gProtectiveCleanupBatchRestartProjectionV1", "pub struct RemovedStage5gProtectiveCleanupBatchRestartProjectionV1")),
+        ("drop-stage5c-cleanup-record-type", lambda root: mutate(root, STAGE5C, "pub struct Stage5gProtectiveCleanupBatchRestartRecordV1", "pub struct RemovedStage5gProtectiveCleanupBatchRestartRecordV1")),
+        ("drop-stage5c-cleanup-projector", lambda root: mutate(root, STAGE5C, "pub(crate) fn stage5g_protective_cleanup_batch_restart_projection(", "pub(crate) fn removed_stage5g_protective_cleanup_batch_restart_projection(")),
+        ("drop-stage5c-cleanup-reconstructor", lambda root: mutate(root, STAGE5C, "pub(crate) fn restore_stage5g_protective_cleanup_batch_from_projection(", "pub(crate) fn removed_restore_stage5g_protective_cleanup_batch_from_projection(")),
+        ("drop-stage5c-cleanup-fingerprint", lambda root: mutate(root, STAGE5C, "pub(crate) fn stage5g_protective_cleanup_batch_projection_fingerprint(", "pub(crate) fn removed_stage5g_protective_cleanup_batch_projection_fingerprint(")),
+        ("stage5c-cleanup-accepts-entry", lambda root: mutate(root, STAGE5C, "if intent_class != crate::BrokerNeutralHybridIntentClass::CancelCleanup", "if false && intent_class != crate::BrokerNeutralHybridIntentClass::CancelCleanup")),
+        ("stage5c-cleanup-allows-non-cleanup-action", lambda root: mutate(root, STAGE5C, "_ => return Err(Stage5cIntentSettlementError::UnsupportedIntentAction),", "_ => crate::BrokerNeutralHybridIntent::Cancel { order_id: BrokerOrderId::new(record.target_protective_id.clone()) },", count=1)),
+        ("stage5c-cleanup-drops-request-order-check", lambda root: mutate(root, STAGE5C, "projection.request_ids.get(index) != Some(&record.request_id)", "false && projection.request_ids.get(index) != Some(&record.request_id)")),
+        ("stage5c-cleanup-drops-fingerprint-check", lambda root: mutate(root, STAGE5C, "projection.batch_fingerprint\n            != stage5g_protective_cleanup_batch_projection_fingerprint(projection)", "projection.batch_fingerprint\n            == stage5g_protective_cleanup_batch_projection_fingerprint(projection)")),
+        ("stage5c-cleanup-record-drops-target-id", lambda root: mutate_between(root, STAGE5C, stage5c_cleanup_begin, stage5c_cleanup_end, "target_protective_id,", "target_protective_id: String::new(),", count=1)),
+        ("stage5c-cleanup-record-drops-attribution", lambda root: mutate_between(root, STAGE5C, stage5c_cleanup_begin, stage5c_cleanup_end, "expected_attribution: record.expected_attribution.clone()", "expected_attribution: None", count=1)),
+        ("stage5c-cleanup-record-drops-source-ts", lambda root: mutate_between(root, STAGE5C, stage5c_cleanup_begin, stage5c_cleanup_end, "source_event_ts: record.source_event_ts", "source_event_ts: 0", count=1)),
+        ("drop-all-eight-witness-gprt05", lambda root: mutate(root, SOURCE, "Gprt05WrongOwnerOrCycleBlocks", "RemovedGprt05WrongOwnerOrCycleBlocks", count=1)),
+        ("drop-all-eight-witness-gprt06", lambda root: mutate(root, SOURCE, "TP_OTHER", "TP_STAGE5G_F", count=1)),
+        ("drop-all-eight-witness-gprt07", lambda root: mutate(root, SOURCE, "\"Triggered\",\n                    nonflat_position_truth()", "\"Triggered\",\n                    flat_position_truth()", count=1)),
+        ("drop-all-eight-witness-gprt08", lambda root: mutate(root, SOURCE, "\"Canceled\",\n                    flat_position_truth()", "\"Filled\",\n                    flat_position_truth()", count=1)),
+        ("open-stage5g-g-contract", lambda root: mutate(root, CONTRACT, '"stage5g_g": false', '"stage5g_g": true')),
+    ]
+
+
 def cases() -> list[tuple[str, callable]]:
     all_cases = (
         source_marker_cases()
@@ -259,9 +328,10 @@ def cases() -> list[tuple[str, callable]]:
         + forbidden_surface_cases()
         + r2_lifecycle_cases()
         + r3_restart_and_issuer_cases()
+        + r4_cleanup_closure_cases()
     )
-    if len(all_cases) < 240:
-        fail(f"negative floor not met: {len(all_cases)} < 240")
+    if len(all_cases) < 330:
+        fail(f"negative floor not met: {len(all_cases)} < 330")
     names = [name for name, _ in all_cases]
     if len(names) != len(set(names)):
         fail("duplicate mutation names")

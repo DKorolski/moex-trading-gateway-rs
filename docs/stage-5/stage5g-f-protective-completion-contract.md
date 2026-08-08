@@ -6,10 +6,14 @@ Reversion positions in paper/mock mode only.
 It does not place FINAM native stops, SLTP, brackets, real orders, Redis
 consumer work, broker dispatch, runtime-live, Stage 5G-g/h or Stage 6.
 
-## R3 base and accepted predecessor
+## R4 base and accepted predecessor
 
-R3 is one direct successor to the reviewed Stage 5G-f R2 intermediate
-baseline:
+R4 cleanup closure is one direct successor to the reviewed Stage 5G-f R3
+intermediate baseline:
+
+`7dde2ac181c7a5d3a3312bfb463e384281062a8a`
+
+The accepted Stage 5G-f R2 intermediate baseline remains:
 
 `34ecc9595bdb83639415ddde1b3975b88ac2faa4`
 
@@ -142,6 +146,20 @@ The result partition is:
 
 Completed is not immediate while sibling cleanup is pending.
 
+R4 cleanup closure adds the missing continuation after an authenticated
+`FlatCleanupPending` restart:
+
+- Stage 5C owns a reconstructable cleanup-batch restart projection with exact
+  request IDs, target protective IDs, source timestamps and MR attribution;
+- `FlatCleanupPending` restore reconstructs the owning `Stage5cPaperIntentBatch`
+  through the Stage 5C verifier instead of restoring from summary/hash only;
+- `apply_stage5g_protective_cleanup_completion` is the sole paper/mock cleanup
+  settlement boundary;
+- exact terminal cleanup truth moves the continuation to `Completed`;
+- non-terminal cleanup truth keeps the continuation in `FlatCleanupPending`;
+- the cleanup settlement fingerprint is preserved in the completed restart
+  projection.
+
 `Completed` is used only when no sibling cleanup batch is generated or required,
 or after a future cleanup-settlement continuation proves completion. If the
 accepted Stage 5C broker lifecycle bridge emits cleanup intents after a flat
@@ -170,9 +188,10 @@ Sibling cleanup is represented only by exact paper lifecycle escrow evidence or
 an exact terminal sibling proof. A missing sibling proof is not treated as safe.
 It is not broker dispatch and not native transport.
 
-R3 closes the authenticated protective restart projection for the Stage 5G-f
-paper/mock boundary. It does not open Stage 5G-g/h cleanup settlement,
-protective-order placement or any live transport.
+R4 closes the authenticated protective restart + cleanup-settlement projection
+for the Stage 5G-f paper/mock boundary. It does not open Stage 5G-g/h
+protective-order placement, Redis live consumption, FINAM transport or any
+runtime-live execution.
 
 ## Current gate
 
@@ -180,17 +199,19 @@ Primary current-head gate:
 
 ```bash
 bash scripts/stage5g_f_r3_gate.sh
+bash scripts/stage5g_f_r4_gate.sh
 ```
 
 Required current-head checks:
 
 - Stage 5G-f checker;
-- Stage 5G-f negative harness, floor `>=240`;
+- Stage 5G-f negative harness, floor `>=330`;
 - Stage 5G-f preseal;
 - focused GPRT debug and release tests;
 - authenticated protective restart debug and release tests;
 - full `strategy-runtime-core` lib test;
 - doctests, fmt, clippy;
+- detached submitted R3 `7dde2ac` Stage 5G-f verification;
 - detached submitted R2 `34ecc95` Stage 5G-f verification;
 - detached submitted R1 `a28cedd` Stage 5G-f verification;
 - detached bounded Stage 5G-e-d-c R3 predecessor verification;

@@ -2902,6 +2902,35 @@ pub struct Stage5cPaperIntentBatchSummary {
     pub observation_only: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage5gProtectiveCleanupBatchRestartProjectionV1 {
+    pub(crate) schema_version: u16,
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) instrument: InstrumentId,
+    pub(crate) origin_bar_close_ts: i64,
+    pub(crate) bar_close_ts: i64,
+    pub(crate) state_fingerprint: String,
+    pub(crate) request_ids: Vec<StrategyRequestId>,
+    pub(crate) records: Vec<Stage5gProtectiveCleanupBatchRestartRecordV1>,
+    pub(crate) observation_only: bool,
+    pub(crate) batch_fingerprint: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage5gProtectiveCleanupBatchRestartRecordV1 {
+    pub(crate) request_id: StrategyRequestId,
+    pub(crate) source_event_ts: i64,
+    pub(crate) intent_class: String,
+    pub(crate) base_action: Stage5gSourceBaseAction,
+    pub(crate) target_protective_id: String,
+    pub(crate) side: Option<String>,
+    pub(crate) qty: Option<f64>,
+    pub(crate) expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
+}
+
 #[derive(Clone)]
 struct Stage5cPaperIntentRecord {
     request_id: StrategyRequestId,
@@ -7585,6 +7614,200 @@ fn stage5ch_batch_summary(batch: &Stage5cPaperIntentBatch) -> Stage5cPaperIntent
         request_ids: batch.request_ids.clone(),
         intent_count: batch.intent_count(),
         observation_only: batch.observation_only,
+    }
+}
+
+pub(crate) fn stage5g_protective_cleanup_batch_restart_projection(
+    batch: &Stage5cPaperIntentBatch,
+) -> Result<Stage5gProtectiveCleanupBatchRestartProjectionV1, Stage5cIntentSettlementError> {
+    let mut seen = HashSet::new();
+    let mut records = Vec::with_capacity(batch.records.len());
+    for record in &batch.records {
+        if !seen.insert(record.request_id) {
+            return Err(Stage5cIntentSettlementError::DuplicateRequestId);
+        }
+        let (base_action, target_protective_id, side, qty) = match record.intent.base_intent() {
+            crate::BrokerNeutralHybridIntent::Cancel { order_id } => (
+                Stage5gSourceBaseAction::Cancel,
+                order_id.as_str().to_string(),
+                None,
+                None,
+            ),
+            crate::BrokerNeutralHybridIntent::DeleteStopLimit { order_id, side, .. } => (
+                Stage5gSourceBaseAction::DeleteStopLimit,
+                order_id.as_str().to_string(),
+                *side,
+                None,
+            ),
+            _ => return Err(Stage5cIntentSettlementError::UnsupportedIntentAction),
+        };
+        records.push(Stage5gProtectiveCleanupBatchRestartRecordV1 {
+            request_id: record.request_id,
+            source_event_ts: record.source_event_ts,
+            intent_class: stage5g_intent_class_name(record.intent_class).to_string(),
+            base_action,
+            target_protective_id,
+            side: side.map(stage5g_order_side_name).map(str::to_string),
+            qty,
+            expected_attribution: record.expected_attribution.clone(),
+        });
+    }
+    let summary = stage5ch_batch_summary(batch);
+    let mut projection = Stage5gProtectiveCleanupBatchRestartProjectionV1 {
+        schema_version: 1,
+        strategy_id: summary.strategy_id,
+        account_id: summary.account_id,
+        instrument: summary.instrument,
+        origin_bar_close_ts: summary.origin_bar_close_ts,
+        bar_close_ts: summary.bar_close_ts,
+        state_fingerprint: summary.state_fingerprint,
+        request_ids: summary.request_ids,
+        records,
+        observation_only: summary.observation_only,
+        batch_fingerprint: String::new(),
+    };
+    projection.batch_fingerprint =
+        stage5g_protective_cleanup_batch_projection_fingerprint(&projection);
+    Ok(projection)
+}
+
+pub(crate) fn restore_stage5g_protective_cleanup_batch_from_projection(
+    projection: &Stage5gProtectiveCleanupBatchRestartProjectionV1,
+    expected_strategy_id: &str,
+    expected_account_id: &BrokerAccountId,
+    expected_instrument: &InstrumentId,
+) -> Result<Stage5cPaperIntentBatch, Stage5cIntentSettlementError> {
+    if projection.schema_version != 1
+        || projection.strategy_id != expected_strategy_id
+        || &projection.account_id != expected_account_id
+        || &projection.instrument != expected_instrument
+        || projection.batch_fingerprint
+            != stage5g_protective_cleanup_batch_projection_fingerprint(projection)
+        || projection.request_ids.len() != projection.records.len()
+    {
+        return Err(Stage5cIntentSettlementError::RequestIdMismatch);
+    }
+    let mut seen = HashSet::new();
+    let mut records = Vec::with_capacity(projection.records.len());
+    for (index, record) in projection.records.iter().enumerate() {
+        if projection.request_ids.get(index) != Some(&record.request_id)
+            || !seen.insert(record.request_id)
+            || record.target_protective_id.is_empty()
+        {
+            return Err(Stage5cIntentSettlementError::DuplicateRequestId);
+        }
+        let intent_class = stage5g_intent_class_from_name(&record.intent_class)?;
+        if intent_class != crate::BrokerNeutralHybridIntentClass::CancelCleanup {
+            return Err(Stage5cIntentSettlementError::UnsupportedIntentAction);
+        }
+        let intent = match record.base_action {
+            Stage5gSourceBaseAction::Cancel => crate::BrokerNeutralHybridIntent::Cancel {
+                order_id: BrokerOrderId::new(record.target_protective_id.clone()),
+            },
+            Stage5gSourceBaseAction::DeleteStopLimit => {
+                crate::BrokerNeutralHybridIntent::DeleteStopLimit {
+                    order_id: BrokerStopOrderId::new(record.target_protective_id.clone()),
+                    side: record
+                        .side
+                        .as_deref()
+                        .map(stage5g_order_side_from_name)
+                        .transpose()?,
+                    check_duplicates: Some(true),
+                }
+            }
+            _ => return Err(Stage5cIntentSettlementError::UnsupportedIntentAction),
+        }
+        .with_class(intent_class)
+        .with_symbol(projection.instrument.symbol.clone());
+        records.push(Stage5cPaperIntentRecord {
+            request_id: record.request_id,
+            source_event_ts: record.source_event_ts,
+            intent_class,
+            intent,
+            expected_attribution: record.expected_attribution.clone(),
+        });
+    }
+    Ok(Stage5cPaperIntentBatch {
+        strategy_id: projection.strategy_id.clone(),
+        account_id: projection.account_id.clone(),
+        instrument: projection.instrument.clone(),
+        bar_close_ts: projection.bar_close_ts,
+        state_fingerprint: projection.state_fingerprint.clone(),
+        request_ids: projection.request_ids.clone(),
+        records,
+        observation_only: projection.observation_only,
+    })
+}
+
+pub(crate) fn stage5g_protective_cleanup_batch_projection_fingerprint(
+    projection: &Stage5gProtectiveCleanupBatchRestartProjectionV1,
+) -> String {
+    #[derive(Serialize)]
+    struct FingerprintProjection<'a> {
+        schema_version: u16,
+        strategy_id: &'a str,
+        account_id: &'a BrokerAccountId,
+        instrument: &'a InstrumentId,
+        origin_bar_close_ts: i64,
+        bar_close_ts: i64,
+        state_fingerprint: &'a str,
+        request_ids: &'a [StrategyRequestId],
+        records: &'a [Stage5gProtectiveCleanupBatchRestartRecordV1],
+        observation_only: bool,
+    }
+    let payload = FingerprintProjection {
+        schema_version: projection.schema_version,
+        strategy_id: &projection.strategy_id,
+        account_id: &projection.account_id,
+        instrument: &projection.instrument,
+        origin_bar_close_ts: projection.origin_bar_close_ts,
+        bar_close_ts: projection.bar_close_ts,
+        state_fingerprint: &projection.state_fingerprint,
+        request_ids: &projection.request_ids,
+        records: &projection.records,
+        observation_only: projection.observation_only,
+    };
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&payload).expect("cleanup projection serializes"))
+    )
+}
+
+fn stage5g_intent_class_name(class: crate::BrokerNeutralHybridIntentClass) -> &'static str {
+    match class {
+        crate::BrokerNeutralHybridIntentClass::Entry => "entry",
+        crate::BrokerNeutralHybridIntentClass::Exit => "exit",
+        crate::BrokerNeutralHybridIntentClass::CancelCleanup => "cancel_cleanup",
+        crate::BrokerNeutralHybridIntentClass::ProtectiveRepair => "protective_repair",
+    }
+}
+
+fn stage5g_intent_class_from_name(
+    value: &str,
+) -> Result<crate::BrokerNeutralHybridIntentClass, Stage5cIntentSettlementError> {
+    match value {
+        "entry" => Ok(crate::BrokerNeutralHybridIntentClass::Entry),
+        "exit" => Ok(crate::BrokerNeutralHybridIntentClass::Exit),
+        "cancel_cleanup" => Ok(crate::BrokerNeutralHybridIntentClass::CancelCleanup),
+        "protective_repair" => Ok(crate::BrokerNeutralHybridIntentClass::ProtectiveRepair),
+        _ => Err(Stage5cIntentSettlementError::UnsupportedIntentAction),
+    }
+}
+
+fn stage5g_order_side_name(side: crate::BrokerNeutralOrderSide) -> &'static str {
+    match side {
+        crate::BrokerNeutralOrderSide::Buy => "buy",
+        crate::BrokerNeutralOrderSide::Sell => "sell",
+    }
+}
+
+fn stage5g_order_side_from_name(
+    value: &str,
+) -> Result<crate::BrokerNeutralOrderSide, Stage5cIntentSettlementError> {
+    match value {
+        "buy" => Ok(crate::BrokerNeutralOrderSide::Buy),
+        "sell" => Ok(crate::BrokerNeutralOrderSide::Sell),
+        _ => Err(Stage5cIntentSettlementError::UnsupportedIntentAction),
     }
 }
 

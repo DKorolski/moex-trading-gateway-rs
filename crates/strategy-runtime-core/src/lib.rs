@@ -481,11 +481,14 @@ pub use stage5g_order_position::{
     STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
 };
 pub use stage5g_protective_completion::{
+    accept_stage5g_protective_cleanup_truth, apply_stage5g_protective_cleanup_completion,
     apply_stage5g_protective_completion, issue_stage5g_canonical_protective_evidence,
     prepare_stage5g_protective_completion, restore_stage5g_protective_completion_continuation,
     stage5g_protective_restart_source_from_transition, Stage5gAcceptedProtectiveBrokerTruth,
-    Stage5gProtectedPositionSide, Stage5gProtectiveAuthoritySummary, Stage5gProtectiveBlockReason,
-    Stage5gProtectiveBlocked, Stage5gProtectiveCommittedState, Stage5gProtectiveCompleted,
+    Stage5gAcceptedProtectiveCleanupTruth, Stage5gProtectedPositionSide,
+    Stage5gProtectiveAuthoritySummary, Stage5gProtectiveBlockReason, Stage5gProtectiveBlocked,
+    Stage5gProtectiveCleanupSettlementEvidence, Stage5gProtectiveCleanupTransition,
+    Stage5gProtectiveCommittedState, Stage5gProtectiveCompleted,
     Stage5gProtectiveCompletionAuthority, Stage5gProtectiveCompletionTransition,
     Stage5gProtectiveDisposition, Stage5gProtectiveEvidenceReceipt,
     Stage5gProtectiveFlatCleanupPending, Stage5gProtectiveLeg, Stage5gProtectivePostStateSummary,

@@ -9,7 +9,8 @@ import re
 import subprocess
 from pathlib import Path
 
-BASE = "34ecc9595bdb83639415ddde1b3975b88ac2faa4"
+BASE = "7dde2ac181c7a5d3a3312bfb463e384281062a8a"
+SUBMITTED_R3 = "7dde2ac181c7a5d3a3312bfb463e384281062a8a"
 SUBMITTED_R2 = "34ecc9595bdb83639415ddde1b3975b88ac2faa4"
 ACCEPTED_R1 = "a28cedd984d41bd2db4aeb7fd8c125c62ded4b28"
 ACCEPTED_EDC_R3 = "c38d2e44e083e39552ea716823e43ebae775b881"
@@ -20,7 +21,7 @@ STAGE5C = Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs")
 LIB = Path("crates/strategy-runtime-core/src/lib.rs")
 CONTRACT = Path("docs/stage-5/stage5g-f-protective-completion-contract.json")
 DESIGN = Path("docs/stage-5/stage5g-f-protective-completion-contract.md")
-GATE = Path("scripts/stage5g_f_r3_gate.sh")
+GATE = Path("scripts/stage5g_f_r4_gate.sh")
 NEGATIVE = Path("scripts/stage5g_f_negative_harness.py")
 PRESEAL = Path("scripts/stage5g_f_preseal_check.py")
 HANDOFF = Path("scripts/make_stage5g_f_handoff_archive.py")
@@ -34,6 +35,17 @@ EXPECTED_SCENARIOS = [
     "GPRT06_WRONG_INSTRUMENT_OR_ORDER_ID_BLOCKS",
     "GPRT07_TRIGGER_WITHOUT_FLAT_POSITION_BLOCKS",
     "GPRT08_NON_EXECUTION_TERMINAL_CANNOT_INVENT_EXIT",
+]
+
+EXPECTED_SCENARIO_VARIANTS = [
+    "Gprt01F12MrLongTargetCompletesFlat",
+    "Gprt02F13MrShortTargetCompletesFlat",
+    "Gprt03F14MrLongStopCompletesFlat",
+    "Gprt04F15MrShortStopCompletesFlat",
+    "Gprt05WrongOwnerOrCycleBlocks",
+    "Gprt06WrongInstrumentOrOrderIdBlocks",
+    "Gprt07TriggerWithoutFlatPositionBlocks",
+    "Gprt08NonExecutionTerminalCannotInventExit",
 ]
 
 REQUIRED_TESTS = [
@@ -59,6 +71,8 @@ REQUIRED_TESTS = [
     "stage5g_f_r3_awaiting_position_truth_survives_authenticated_restart",
     "stage5g_f_r3_flat_cleanup_pending_survives_authenticated_restart",
     "stage5g_f_r3_completed_is_not_immediate_when_sibling_cleanup_is_pending",
+    "stage5g_f_r4_flat_cleanup_pending_restores_batch_and_settles_to_completed",
+    "stage5g_f_r4_non_terminal_cleanup_truth_keeps_flat_cleanup_pending",
 ]
 
 REQUIRED_SOURCE_MARKERS = [
@@ -77,6 +91,7 @@ REQUIRED_SOURCE_MARKERS = [
     "pub struct Stage5gProtectiveRestartProjectionV1",
     "pub struct Stage5gProtectiveReceiptLedgerProjection",
     "pub struct Stage5gAcceptedProtectiveBrokerTruth",
+    "pub(crate) fn accept_stage5g_canonical_protective_broker_truth(",
     "pub struct Stage5gProtectiveRestartSource",
     "pub enum Stage5gProtectiveRestoredContinuation",
     "pub struct Stage5gProtectiveCompletionAuthority",
@@ -130,11 +145,21 @@ REQUIRED_SOURCE_MARKERS = [
     "Stage5gProtectiveRestartProjectionKind::Completed",
     "protective_projection_fingerprint",
     "validate_stage5g_protective_restart_projection",
-    "cleanup_batch_projection_fingerprint",
+    "cleanup_batch_restart_projection",
+    "Stage5gProtectiveCleanupSettlementEvidence",
+    "Stage5gAcceptedProtectiveCleanupTruth",
+    "Stage5gProtectiveCleanupTransition",
+    "pub fn accept_stage5g_protective_cleanup_truth(",
+    "pub fn apply_stage5g_protective_cleanup_completion(",
+    "stage5g_protective_cleanup_batch_restart_projection(",
+    "restore_stage5g_protective_cleanup_batch_from_projection(",
+    "stage5g_protective_cleanup_batch_projection_fingerprint(",
     "receipt_ledger_projection",
     "runtime_stage5c_state_fingerprint",
     "let Some(projection) = parts.protective_projection.clone() else {",
     "Stage5gProtectiveRestartProjectionKind::FlatCleanupPending => {\n            let post_state = Stage5gProtectiveCommittedState::new(parts.runtime);",
+    "let cleanup_projection = projection\n                .cleanup_batch_restart_projection",
+    "generated_cleanup_batch,\n                    generated_cleanup_batch_summary,\n                    settled_batch_history,\n                    restart_seed: Some(parts.restart_seed),",
     "Stage5gProtectiveRestartProjectionKind::Completed => {\n            let post_state = Stage5gProtectiveCommittedState::new(parts.runtime);",
     "return Err(Stage5gProtectiveBlockReason::UnsupportedCleanRestartLifecycleKind);",
     "validate_evidence(authority, &accepted.evidence)?;",
@@ -148,6 +173,7 @@ REQUIRED_SOURCE_MARKERS = [
     "generated_cleanup_batch: bridge.generated_intent_batch,",
     "settled_batch_history: bridge.settled_batch_history,",
     "post_state: callback.post_state,",
+    "cleanup_settlement_fingerprint_sha256",
     ".protected_position_qty.to_f64()",
     "Stage5gProtectiveBlockReason::PostCallbackPositionNotIntegral",
     "input.current_owner != HybridRuntimeOwner::MeanReversion",
@@ -284,6 +310,14 @@ def stage5c_bridge_source(source: str) -> str:
     return source.split(begin, 1)[1].split(end, 1)[0]
 
 
+def bounded_section(source: str, start_marker: str, end_marker: str) -> str:
+    start = source.find(start_marker)
+    require(start != -1, f"section start missing: {start_marker}")
+    end = source.find(end_marker, start + len(start_marker))
+    require(end != -1, f"section end missing: {end_marker}")
+    return source[start:end]
+
+
 def rust_enum_variants(source: str, enum_name: str) -> list[str]:
     match = re.search(rf"enum\s+{re.escape(enum_name)}\s*\{{(?P<body>.*?)\n\}}", source, re.S)
     require(match is not None, f"missing enum {enum_name}")
@@ -329,16 +363,26 @@ def check_contract(root: Path, source: str) -> None:
             "FlatCleanupPending no longer owns generated batch")
     require(contract["generated_cleanup_intents_retained"] is True,
             "generated cleanup intent retention disabled")
-    require(contract["restart_extension_status"] == "authenticated_protective_restart_r3",
-            "restart extension status must be authenticated R3")
+    require(contract["restart_extension_status"] == "protective_restart_cleanup_completion_r4",
+            "restart extension status must be R4 cleanup closure")
     require(contract["authenticated_protective_restart"] is True,
             "authenticated protective restart not declared")
     require(contract["protective_projection_in_clean_restart_package"] is True,
             "protective projection not bound to clean restart")
+    require(contract["production_canonical_broker_truth_issuer"] is True,
+            "production canonical broker truth issuer missing")
+    require(contract["cleanup_batch_restart_projection"] is True,
+            "cleanup batch restart projection missing")
+    require(contract["cleanup_batch_projection_is_reconstructable"] is True,
+            "cleanup batch projection must be reconstructable")
+    require(contract["cleanup_settlement_boundary"] == "apply_stage5g_protective_cleanup_completion",
+            "cleanup settlement boundary drift")
+    require(contract["deterministic_artifact_scenarios"] == 8,
+            "all-eight deterministic artifact coverage drift")
     require(contract["canonical_protective_evidence_issuer"] == "issue_stage5g_canonical_protective_evidence",
             "canonical evidence issuer drift")
-    require(contract["test_only_raw_evidence_acceptor"] == "accept_stage5g_canonical_protective_broker_truth",
-            "test-only canonical acceptor drift")
+    require(contract["canonical_broker_truth_acceptor_scope"] == "crate_private_production_issuer",
+            "canonical broker truth acceptor scope drift")
     require(contract["production_raw_evidence_validator_exported"] is False,
             "production raw evidence validator exported")
     require(contract["completed_policy"] == "not_immediate_when_sibling_cleanup_pending",
@@ -369,7 +413,7 @@ def check_contract(root: Path, source: str) -> None:
     ]:
         require(command in required_commands, f"predecessor command missing: {command}")
     require(contract["scenario_order"] == EXPECTED_SCENARIOS, "GPRT scenario order drift")
-    require(contract["negative_floor"]["current_stage5g_f_minimum"] >= 240,
+    require(contract["negative_floor"]["current_stage5g_f_minimum"] >= 330,
             "negative floor drift")
     require(contract["frozen_stage5f_source_semantics"]["bar_ohlc_completion_authority"] is False,
             "bar OHLC authority opened")
@@ -379,16 +423,22 @@ def check_contract(root: Path, source: str) -> None:
     for scenario in EXPECTED_SCENARIOS:
         require(source.count(scenario) >= 1, f"missing scenario string {scenario}")
     variants = rust_enum_variants(source, "Stage5gProtectiveScenarioId")
-    require(len(variants) == 8, "Stage5gProtectiveScenarioId variant count drift")
+    require(variants == EXPECTED_SCENARIO_VARIANTS,
+            "Stage5gProtectiveScenarioId variant inventory/order drift")
     require("pub const ALL: [Stage5gProtectiveScenarioId; 8] = [" in source,
             "GPRT ALL inventory drift")
+    require(source.count("TP_OTHER") >= 2, "GPRT06 wrong-order-id witness drift")
+    require('"Triggered",\n                    nonflat_position_truth()' in source,
+            "GPRT07 non-flat trigger witness drift")
+    require('"Canceled",\n                    flat_position_truth()' in source,
+            "GPRT08 non-execution terminal witness drift")
 
 
 def check(root: Path, check_git: bool) -> None:
     if check_git:
         parent = subprocess.check_output(["git", "rev-parse", "HEAD^"], cwd=root, text=True).strip()
         branch = subprocess.check_output(["git", "branch", "--show-current"], cwd=root, text=True).strip()
-        require(parent == BASE, "HEAD is not one direct successor to 34ecc95")
+        require(parent == BASE, "HEAD is not one direct successor to 7dde2ac")
         require(branch == BRANCH, "wrong branch")
 
     source = read(root, SOURCE)
@@ -413,6 +463,8 @@ def check(root: Path, check_git: bool) -> None:
             "canonical evidence issuer export missing")
     require("restore_stage5g_protective_completion_continuation" in lib,
             "protective continuation restore export missing")
+    require("apply_stage5g_protective_cleanup_completion" in lib,
+            "cleanup completion export missing")
     for raw_export in [
         "Stage5gProtectiveCompletionEvidence",
         "Stage5gProtectiveExecutionEvidence",
@@ -425,6 +477,51 @@ def check(root: Path, check_git: bool) -> None:
 
     for marker in REQUIRED_SOURCE_MARKERS:
         require(marker in source, f"missing source marker: {marker}")
+    require("pub(crate) fn accept_stage5g_canonical_protective_broker_truth(" in prod,
+            "canonical broker truth issuer must be production-reachable inside crate")
+    require("#[cfg(test)]\npub(crate) fn accept_stage5g_canonical_protective_broker_truth(" not in source,
+            "canonical broker truth issuer must not be test-only")
+    require("if !stage5g_cleanup_status_is_terminal(&accepted.evidence.status) {" in source,
+            "cleanup completion must branch on terminal broker status")
+    require("return Stage5gProtectiveCleanupTransition::FlatCleanupPending(Box::new(pending));" in source,
+            "non-terminal cleanup truth must preserve FlatCleanupPending")
+    require(".find(|record| record.request_id == request_id)" in source,
+            "cleanup truth must bind to exact generated cleanup request_id")
+    require("if target_protective_id != record.target_protective_id" in source,
+            "cleanup truth must bind to exact target protective order id")
+    require("|| received_ts_utc < record.source_event_ts" in source,
+            "cleanup truth chronology guard missing")
+    require("cleanup_settlement_fingerprint_sha256: Some(\n            accepted.evidence.settlement_fingerprint_sha256,\n        )" in source,
+            "completed cleanup transition must retain settlement fingerprint")
+    require("cleanup_settlement_fingerprint_sha256: completed.cleanup_settlement_fingerprint_sha256" in source,
+            "completed restart projection must retain cleanup settlement fingerprint")
+    cleanup_status_match = re.search(
+        r"fn stage5g_cleanup_status_is_terminal\(status: &str\) -> bool \{(?P<body>.*?)\n\}",
+        source,
+        re.S,
+    )
+    require(cleanup_status_match is not None, "cleanup terminal status predicate missing")
+    cleanup_status_body = cleanup_status_match.group("body")
+    require('"working"' not in cleanup_status_body.lower(),
+            "working cleanup status must remain non-terminal")
+    require('"canceled" | "cancelled" | "filled" | "executed" | "deleted" | "done"'
+            in cleanup_status_body,
+            "cleanup terminal status allowlist drift")
+    for forbidden_drift_marker in [
+        "cleanup_batch_restart_projection_removed",
+        "cleanup_settlement_fingerprint_removed",
+        "generated_cleanup_batch_removed",
+        "generated_cleanup_batch_summary_removed",
+        "settled_batch_history_removed",
+        "removed_accept_stage5g_protective_cleanup_truth",
+        "removed_apply_stage5g_protective_cleanup_completion",
+        ".find(|_record| true)",
+        "if false && target_protective_id != record.target_protective_id",
+        "|| false && received_ts_utc < record.source_event_ts",
+        "cleanup_projection.batch_fingerprint\n                    == crate::stage5c_paper_host::stage5g_protective_cleanup_batch_projection_fingerprint",
+        "projection.batch_fingerprint\n            == stage5g_protective_cleanup_batch_projection_fingerprint(projection)",
+    ]:
+        require(forbidden_drift_marker not in source, f"removed marker survived: {forbidden_drift_marker}")
     for marker in REQUIRED_RESTART_MARKERS:
         require(marker in restart, f"missing clean-restart marker: {marker}")
     require(source.count("post_state: Stage5gProtectiveCommittedState") >= 5,
@@ -435,6 +532,52 @@ def check(root: Path, check_git: bool) -> None:
             "settled batch history ownership drift")
     for marker in REQUIRED_STAGE5C_BRIDGE_MARKERS:
         require(marker in stage5c_bridge, f"missing Stage 5C bridge marker: {marker}")
+    for marker in [
+        "pub struct Stage5gProtectiveCleanupBatchRestartProjectionV1",
+        "pub struct Stage5gProtectiveCleanupBatchRestartRecordV1",
+        "pub(crate) fn stage5g_protective_cleanup_batch_restart_projection(",
+        "pub(crate) fn restore_stage5g_protective_cleanup_batch_from_projection(",
+        "pub(crate) fn stage5g_protective_cleanup_batch_projection_fingerprint(",
+    ]:
+        require(marker in stage5c, f"missing Stage 5C cleanup projection marker: {marker}")
+    for forbidden_stage5c_marker in [
+        "pub(crate) fn removed_stage5g_protective_cleanup_batch_restart_projection(",
+        "pub(crate) fn removed_restore_stage5g_protective_cleanup_batch_from_projection(",
+        "pub(crate) fn removed_stage5g_protective_cleanup_batch_projection_fingerprint(",
+    ]:
+        require(forbidden_stage5c_marker not in stage5c,
+                f"removed Stage 5C cleanup projection marker survived: {forbidden_stage5c_marker}")
+    stage5c_cleanup_section = bounded_section(
+        stage5c,
+        "pub(crate) fn stage5g_protective_cleanup_batch_restart_projection(",
+        "pub(crate) fn stage5g_protective_cleanup_batch_projection_fingerprint(",
+    )
+    require("if intent_class != crate::BrokerNeutralHybridIntentClass::CancelCleanup" in stage5c,
+            "Stage 5C cleanup projection must require CancelCleanup intent class")
+    require("_ => return Err(Stage5cIntentSettlementError::UnsupportedIntentAction)," in stage5c,
+            "Stage 5C cleanup projection must reject non-cleanup actions")
+    require("projection.request_ids.get(index) != Some(&record.request_id)" in stage5c,
+            "Stage 5C cleanup reconstructor must preserve request_id order")
+    require("projection.batch_fingerprint\n            != stage5g_protective_cleanup_batch_projection_fingerprint(projection)" in stage5c,
+            "Stage 5C cleanup reconstructor must verify projection fingerprint")
+    for stage5c_field_binding in [
+        "target_protective_id,",
+        "source_event_ts: record.source_event_ts",
+        "expected_attribution: record.expected_attribution.clone()",
+    ]:
+        require(stage5c_cleanup_section.count(stage5c_field_binding) >= 2,
+                f"Stage 5C cleanup projection/restoration field binding missing: {stage5c_field_binding}")
+    for forbidden_stage5c_bypass in [
+        "if false && intent_class != crate::BrokerNeutralHybridIntentClass::CancelCleanup",
+        "_ => crate::BrokerNeutralHybridIntent::Cancel { order_id: BrokerOrderId::new(record.target_protective_id.clone()) },",
+        "false && projection.request_ids.get(index) != Some(&record.request_id)",
+        "projection.batch_fingerprint\n            == stage5g_protective_cleanup_batch_projection_fingerprint(projection)",
+        "target_protective_id: String::new(),",
+        "expected_attribution: None",
+        "source_event_ts: 0",
+    ]:
+        require(forbidden_stage5c_bypass not in stage5c_cleanup_section,
+                f"Stage 5C cleanup-only bypass survived: {forbidden_stage5c_bypass}")
     require(stage5c_bridge.count("stage5g_protective_merge_generated_intents(") >= 3,
             "Stage 5C bridge generated-intent merge call coverage drift")
     for marker in FORBIDDEN_PRODUCTION_MARKERS:
@@ -447,8 +590,8 @@ def check(root: Path, check_git: bool) -> None:
             "design lost F12-F15 no-bar-exit statement")
     require("Only after independent Stage 5G-f acceptance may Stage 5G-g begin" in design,
             "design lost Stage 5G-g closure")
-    require("R3 authenticated protective restart" in design,
-            "design lost R3 authenticated restart statement")
+    require("R4 cleanup closure" in design,
+            "design lost R4 cleanup closure statement")
     require("Completed is not immediate while sibling cleanup is pending" in design,
             "design lost Completed policy")
 
@@ -473,12 +616,13 @@ def check(root: Path, check_git: bool) -> None:
     require("cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_" in gate,
             "gate missing detached e-d-c R3 release tests")
     require(ACCEPTED_R1 in gate, "gate missing accepted a28cedd R1 lineage verification")
+    require(SUBMITTED_R3 in gate, "gate missing detached submitted 7dde2ac R3 verification")
     require(SUBMITTED_R2 in gate, "gate missing detached submitted 34ecc95 R2 verification")
-    require("stage5g-f-r3-gate: PASS" in gate, "gate PASS marker drift")
-    require(">= 240" in negative or "240" in negative, "negative harness lost floor")
+    require("stage5g-f-r4-gate: PASS" in gate, "gate PASS marker drift")
+    require(">= 330" in negative or "330" in negative, "negative harness lost floor")
     require("EXPECTED = sorted([" in preseal, "preseal expected-path allowlist missing")
-    require('["bash", "scripts/stage5g_f_r3_gate.sh"]' in handoff,
-            "handoff builder does not run Stage 5G-f R3 gate")
+    require('["bash", "scripts/stage5g_f_r4_gate.sh"]' in handoff,
+            "handoff builder does not run Stage 5G-f R4 gate")
 
     print("stage5g-f-check: PASS")
 
