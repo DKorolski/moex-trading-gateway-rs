@@ -6,6 +6,15 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+stage5g-artifact-fixtures = []
+
+[[bin]]
+name = "stage5g_f_gprt_artifact"
+path = "src/bin/stage5g_f_gprt_artifact.rs"
+required-features = ["stage5g-artifact-fixtures"]
+
 [dependencies]
 broker-core = { path = "../broker-core" }
 chrono.workspace = true

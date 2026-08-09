@@ -6,10 +6,15 @@ Reversion positions in paper/mock mode only.
 It does not place FINAM native stops, SLTP, brackets, real orders, Redis
 consumer work, broker dispatch, runtime-live, Stage 5G-g/h or Stage 6.
 
-## R6 base and accepted predecessor
+## R7 closure candidate and accepted predecessor
 
-R6 stable cleanup observation closure is one direct successor to the reviewed Stage 5G-f R5
-intermediate baseline:
+R7 production-authority oracle closure is one direct successor to the reviewed
+Stage 5G-f R6 baseline:
+
+`79c544352a0a5f8c0fc61da33c314a17df5d0e3b`
+
+R6 stable cleanup observation closure remains the accepted cleanup/replay core.
+Its predecessor was the Stage 5G-f R5 intermediate baseline:
 
 `1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8`
 
@@ -172,6 +177,26 @@ R6 stable cleanup observation closure adds the missing continuation after an aut
 - the cleanup settlement fingerprint is preserved in the completed restart
   projection.
 
+R7 makes the frozen GPRT01–08 evidence follow that same production lifecycle:
+
+- a deterministic fixture is available only behind the non-default
+  `stage5g-artifact-fixtures` feature;
+- every row starts with canonical Stage 5D/Stage 5G export, strict decode,
+  operator-key HMAC validation, clean restore and
+  `prepare_stage5g_protective_completion`;
+- phase A `AwaitingPositionTruth` and `FlatCleanupPending`, and phase B
+  `Completed`, are exported, dropped and restored through the authenticated
+  package boundary;
+- the schema-v3 artifact freezes canonical package fingerprints for each
+  persistable phase;
+- `Completed` owns the actual final per-request cleanup ledger plus its original
+  cleanup-batch projection, and restore validates request identity, terminal
+  non-execution state and ledger fingerprint;
+- GPRT07 records one accepted receipt, zero Stage 5C callbacks and unchanged
+  runtime state;
+- GPRT05, GPRT06 and GPRT08 freeze equal pre/post runtime fingerprints and zero
+  callbacks.
+
 `Completed` is used only when no sibling cleanup batch is generated or required,
 or after a future cleanup-settlement continuation proves completion. If the
 accepted Stage 5C broker lifecycle bridge emits cleanup intents after a flat
@@ -211,21 +236,21 @@ runtime-live execution.
 Primary current-head gate:
 
 ```bash
-bash scripts/stage5g_f_r6_gate.sh
+bash scripts/stage5g_f_r7_gate.sh
 ```
 
 Required current-head checks:
 
 - Stage 5G-f checker;
-- Stage 5G-f negative harness, floor `>=430`;
+- Stage 5G-f negative harness, floor `>=460`;
 - Stage 5G-f preseal;
 - focused GPRT debug and release tests;
 - authenticated protective restart debug and release tests;
 - full `strategy-runtime-core` lib test;
 - doctests, fmt, clippy;
 - debug/release GPRT artifact parity;
-- detached submitted R5 `1f8d7f3` Stage 5G-f gate verification, which transitively covers
-  the accepted R1/R2/R3/R4 lineage;
+- detached submitted R6 `79c5443` Stage 5G-f gate verification, which
+  transitively covers the accepted R1–R5 lineage;
 - detached bounded Stage 5G-e-d-c R3 predecessor verification;
 - forbidden surfaces remain closed.
 

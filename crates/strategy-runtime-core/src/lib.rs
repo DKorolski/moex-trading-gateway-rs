@@ -484,8 +484,6 @@ pub use stage5g_protective_completion::{
     accept_stage5g_protective_cleanup_truth, apply_stage5g_protective_cleanup_completion,
     apply_stage5g_protective_completion, issue_stage5g_canonical_protective_evidence,
     prepare_stage5g_protective_completion, restore_stage5g_protective_completion_continuation,
-    stage5g_f_gprt_artifact_json_pretty, stage5g_f_gprt_artifact_rows,
-    stage5g_f_gprt_artifact_rows_parallel_verified,
     stage5g_protective_restart_source_from_transition, Stage5gAcceptedProtectiveBrokerTruth,
     Stage5gAcceptedProtectiveCleanupTruth, Stage5gProtectedPositionSide,
     Stage5gProtectiveAuthoritySummary, Stage5gProtectiveBlockReason, Stage5gProtectiveBlocked,
@@ -504,6 +502,11 @@ pub use stage5g_protective_completion::{
     STAGE5G_PROTECTIVE_CANONICAL_EVIDENCE_SCHEMA_VERSION,
     STAGE5G_PROTECTIVE_COMPLETION_SCHEMA_VERSION,
     STAGE5G_PROTECTIVE_RESTART_PROJECTION_SCHEMA_VERSION,
+};
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+pub use stage5g_protective_completion::{
+    stage5g_f_gprt_artifact_json_pretty, stage5g_f_gprt_artifact_rows,
+    stage5g_f_gprt_artifact_rows_parallel_verified,
 };
 pub use stage5g_timer::{
     apply_stage5g_exact_replay_to_session, apply_stage5g_new_package_candidate,

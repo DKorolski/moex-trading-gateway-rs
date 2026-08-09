@@ -1066,7 +1066,8 @@ impl HybridIntradayRuntimeStrategy {
         )
     }
 
-    pub(crate) fn stage5g_test_mr_protective_runtime_fixture(
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    pub(crate) fn stage5g_artifact_mr_protective_runtime_fixture(
         side: crate::stage5g_protective_completion::Stage5gProtectedPositionSide,
         tp_order_id: BrokerOrderId,
         sl_stop_order_id: BrokerStopOrderId,
@@ -1121,6 +1122,7 @@ impl HybridIntradayRuntimeStrategy {
         strategy.pending_tp_created_ts_utc = Some(1_800_000_000);
         strategy.pending_sl_created_ts_utc = Some(1_800_000_000);
         strategy.last_processed_bar_ts = Some(1_783_318_200);
+        strategy.sync_state();
         (strategy, Self::format_cycle_id(&cycle))
     }
 

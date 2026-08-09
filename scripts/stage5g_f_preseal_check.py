@@ -11,8 +11,11 @@ from pathlib import PurePosixPath
 import stage5g_f_check as checker
 
 EXPECTED = sorted([
+    "crates/strategy-runtime-core/Cargo.toml",
     "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs",
     "crates/strategy-runtime-core/src/lib.rs",
+    "crates/strategy-runtime-core/src/stage5d_persistence.rs",
+    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
     "crates/strategy-runtime-core/src/stage5g_protective_completion.rs",
     "docs/stage-5/stage5g-f-protective-completion-contract.json",
     "docs/stage-5/stage5g-f-protective-completion-contract.md",
@@ -20,7 +23,7 @@ EXPECTED = sorted([
     "scripts/stage5g_f_check.py",
     "scripts/stage5g_f_negative_harness.py",
     "scripts/stage5g_f_preseal_check.py",
-    "scripts/stage5g_f_r6_gate.sh",
+    "scripts/stage5g_f_r7_gate.sh",
 ])
 
 

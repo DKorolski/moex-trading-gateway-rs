@@ -6210,6 +6210,192 @@ pub(crate) fn stage5d_apply_next_riskgate_recovery_action(
     })
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_artifact_source_record_to_stage5d(
+    record: &crate::hybrid_intraday::RiskGateLedgerRecord,
+) -> Stage5dRiskGateLedgerRecord {
+    let decimal = |value| {
+        crate::hybrid_intraday::format_riskgate_authority_decimal(value)
+            .expect("Stage 5G artifact riskgate decimal must be source-canonical")
+    };
+    Stage5dRiskGateLedgerRecord {
+        session_date: record.row.session_date.format("%Y-%m-%d").to_string(),
+        shadow_pnl_points: decimal(record.row.shadow_pnl_points),
+        shadow_trade_count: record.row.shadow_trade_count,
+        rolling_sum_before_session: decimal(record.row.rolling_sum_before_session),
+        mr_enabled_for_session: record.row.mr_enabled_for_session,
+        source: match record.row.source {
+            crate::hybrid_intraday::RiskGateRowSource::Seed => Stage5dRiskGateRowSource::Seed,
+            crate::hybrid_intraday::RiskGateRowSource::Runtime => Stage5dRiskGateRowSource::Runtime,
+        },
+        status: match record.row.status {
+            crate::hybrid_intraday::RiskGateRowStatus::Complete => {
+                Stage5dRiskGateRowStatus::Complete
+            }
+            crate::hybrid_intraday::RiskGateRowStatus::Incomplete => {
+                Stage5dRiskGateRowStatus::Incomplete
+            }
+        },
+        rolling_sum_lb120: decimal(record.rolling_sum_lb120),
+        mr_enabled_next_session: record.mr_enabled_next_session,
+        finalized_at_utc: record.finalized_at_utc,
+    }
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_artifact_riskgate_evidence(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    persisted_at: DateTime<Utc>,
+) -> Stage5dRiskGateLedgerEvidence {
+    let semantic: Stage5dSemanticStrategyStateV1 = serde_json::from_value(
+        serde_json::to_value(Strategy::state(strategy))
+            .expect("Stage 5G artifact source riskgate state serializes"),
+    )
+    .expect("Stage 5G artifact source riskgate state is valid");
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(semantic_state) = semantic;
+    let source_identity = strategy.stage5d_expected_riskgate_identity(strategy_id.to_string());
+    let identity = Stage5dRiskGateIdentity {
+        strategy_id: source_identity.strategy_id.clone(),
+        profile_id: source_identity.profile_id.clone(),
+        mr_variant: source_identity.mr_variant.clone(),
+        timeframe: source_identity.timeframe.clone(),
+        session_policy: source_identity.session_policy.clone(),
+        model_version: source_identity.model_version.clone(),
+    };
+    let mut dates = Vec::with_capacity(221);
+    let mut date = NaiveDate::from_ymd_opt(2026, 1, 5).expect("Stage 5G artifact terminal date");
+    while dates.len() < 221 {
+        if !matches!(date.weekday(), Weekday::Sat | Weekday::Sun) {
+            dates.push(date);
+        }
+        date -= chrono::Duration::days(1);
+    }
+    dates.reverse();
+    let mut rows = Vec::with_capacity(dates.len());
+    for (index, session_date) in dates.into_iter().enumerate() {
+        let pnl = if index == 220 {
+            158.60000000000008
+        } else {
+            0.0
+        };
+        let mut row = crate::hybrid_intraday::build_runtime_session_row(
+            &rows,
+            session_date,
+            pnl,
+            usize::from(pnl != 0.0) as u32,
+        )
+        .expect("Stage 5G artifact source riskgate row");
+        row.source = crate::hybrid_intraday::RiskGateRowSource::Seed;
+        rows.push(row);
+    }
+    let records = crate::hybrid_intraday::build_ledger_records_from_rows(
+        &rows,
+        &source_identity,
+        persisted_at.timestamp(),
+    )
+    .expect("Stage 5G artifact source riskgate records");
+    let mut evidence = Stage5dRiskGateLedgerEvidence {
+        schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+        identity,
+        ledger_tail_hash: String::new(),
+        ledger_records: records
+            .iter()
+            .map(stage5g_artifact_source_record_to_stage5d)
+            .collect(),
+        seed_loaded: true,
+        current_shadow_session_date: semantic_state.risk_gate_shadow_session_date,
+        current_shadow_pnl_points: stage5d_source_format_riskgate_decimal(
+            semantic_state.risk_gate_shadow_pnl_points,
+        ),
+        current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
+    };
+    evidence.ledger_tail_hash = stage5d_compute_riskgate_ledger_tail_hash(&evidence)
+        .expect("Stage 5G artifact source riskgate tail hash");
+    evidence
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_artifact_persistence_from_evidence(
+    evidence: &Stage5dRiskGateLedgerEvidence,
+) -> Stage5dRiskGatePersistence {
+    let source_records = stage5d_source_riskgate_records_from_evidence(evidence)
+        .expect("Stage 5G artifact evidence converts to source records");
+    let current_shadow_session_date = evidence
+        .current_shadow_session_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .expect("Stage 5G artifact current-shadow session parses");
+    let current_shadow_pnl_points =
+        parse_finite_decimal_string(&evidence.current_shadow_pnl_points)
+            .expect("Stage 5G artifact current-shadow PnL parses");
+    let materialized = crate::hybrid_intraday::rebuild_materialized_state_from_ledger_records(
+        &source_records,
+        current_shadow_session_date,
+        current_shadow_pnl_points,
+        evidence.seed_loaded,
+    )
+    .expect("Stage 5G artifact riskgate projection rebuilds");
+    Stage5dRiskGatePersistence {
+        schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+        identity: evidence.identity.clone(),
+        materialized_state: stage5d_stage_materialized_from_source(&materialized),
+        ledger_tail_hash: evidence.ledger_tail_hash.clone(),
+        durable_finalization_outbox: Vec::new(),
+    }
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+pub(crate) fn stage5g_artifact_prepare_clean_restart_authority(
+    strategy: &mut crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    persisted_at: DateTime<Utc>,
+) -> (Stage5dRiskGatePersistence, Stage5dRiskGateLedgerEvidence) {
+    let evidence = stage5g_artifact_riskgate_evidence(strategy, strategy_id, persisted_at);
+    let persistence = stage5g_artifact_persistence_from_evidence(&evidence);
+    let materialized = &persistence.materialized_state;
+    let mut state = serde_json::to_value(Strategy::state(strategy))
+        .expect("Stage 5G artifact authority state serializes");
+    let semantic = &mut state["HybridIntradayRuntime"];
+    semantic["risk_gate_mr_enabled_current_session"] =
+        serde_json::to_value(materialized.mr_enabled_current_session).unwrap();
+    semantic["risk_gate_rolling_sum_lb120"] = serde_json::to_value(
+        materialized
+            .rolling_sum_lb120
+            .as_deref()
+            .map(str::parse::<f64>)
+            .transpose()
+            .expect("Stage 5G artifact rolling sum parses"),
+    )
+    .unwrap();
+    semantic["risk_gate_last_finalized_session_date"] =
+        serde_json::to_value(&materialized.last_finalized_session_date).unwrap();
+    semantic["risk_gate_ledger_rows_count"] = serde_json::json!(materialized.ledger_rows_count);
+    semantic["risk_gate_shadow_session_date"] =
+        serde_json::to_value(&materialized.current_shadow_session_date).unwrap();
+    semantic["risk_gate_shadow_pnl_points"] = serde_json::json!(materialized
+        .current_shadow_pnl_points
+        .parse::<f64>()
+        .expect("Stage 5G artifact shadow PnL parses"));
+    Strategy::set_state(
+        strategy,
+        serde_json::from_value(state).expect("Stage 5G artifact authority state applies"),
+    );
+    (persistence, evidence)
+}
+
+#[cfg(all(feature = "stage5g-artifact-fixtures", not(test)))]
+pub(crate) fn stage5g_artifact_clean_restart_authority(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    persisted_at: DateTime<Utc>,
+) -> (Stage5dRiskGatePersistence, Stage5dRiskGateLedgerEvidence) {
+    let evidence = stage5g_artifact_riskgate_evidence(strategy, strategy_id, persisted_at);
+    let persistence = stage5g_artifact_persistence_from_evidence(&evidence);
+    (persistence, evidence)
+}
+
 // STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN
 #[cfg(test)]
 pub(crate) mod stage5f_test_seams {

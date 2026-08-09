@@ -17,7 +17,9 @@ STAGE5C = "crates/strategy-runtime-core/src/stage5c_paper_host.rs"
 CONTRACT = "docs/stage-5/stage5g-f-protective-completion-contract.json"
 DESIGN = "docs/stage-5/stage5g-f-protective-completion-contract.md"
 LIB = "crates/strategy-runtime-core/src/lib.rs"
-GATE = "scripts/stage5g_f_r6_gate.sh"
+CARGO = "crates/strategy-runtime-core/Cargo.toml"
+STAGE5D = "crates/strategy-runtime-core/src/stage5d_persistence.rs"
+GATE = "scripts/stage5g_f_r7_gate.sh"
 PRESEAL = "scripts/stage5g_f_preseal_check.py"
 HANDOFF = "scripts/make_stage5g_f_handoff_archive.py"
 
@@ -125,7 +127,7 @@ def contract_cases() -> list[tuple[str, callable]]:
             lambda root, surface=surface: mutate(root, CONTRACT, f'"{surface}": false', f'"{surface}": true'),
         ))
     cases.extend([
-        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 430', '"current_stage5g_f_minimum": 1')),
+        ("lower-negative-floor", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 460', '"current_stage5g_f_minimum": 1')),
         ("open-production-raw-evidence", lambda root: mutate(root, CONTRACT, '"production_apply_accepts_raw_evidence": false', '"production_apply_accepts_raw_evidence": true')),
         ("wrong-validated-evidence-type", lambda root: mutate(root, CONTRACT, '"validated_evidence_type": "Stage5gValidatedProtectiveEvidence"', '"validated_evidence_type": "Stage5gProtectiveCompletionEvidence"')),
         ("wrong-callback-bridge-file", lambda root: mutate(root, CONTRACT, '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5c_paper_host.rs"', '"canonical_callback_bridge_file": "crates/strategy-runtime-core/src/stage5g_protective_completion.rs"')),
@@ -133,7 +135,7 @@ def contract_cases() -> list[tuple[str, callable]]:
         ("drop-completed-post-runtime-contract", lambda root: mutate(root, CONTRACT, '"successful_completion_owns_post_runtime": true', '"successful_completion_owns_post_runtime": false')),
         ("drop-flat-cleanup-batch-contract", lambda root: mutate(root, CONTRACT, '"flat_cleanup_pending_owns_generated_batch": true', '"flat_cleanup_pending_owns_generated_batch": false')),
         ("drop-generated-cleanup-retention-contract", lambda root: mutate(root, CONTRACT, '"generated_cleanup_intents_retained": true', '"generated_cleanup_intents_retained": false')),
-        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "protective_restart_cleanup_completion_r6"', '"restart_extension_status": "pending_next_slice"')),
+        ("hide-restart-extension-status", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "protective_restart_production_oracle_r7"', '"restart_extension_status": "pending_next_slice"')),
         ("disable-authenticated-protective-restart", lambda root: mutate(root, CONTRACT, '"authenticated_protective_restart": true', '"authenticated_protective_restart": false')),
         ("detach-protective-projection-package", lambda root: mutate(root, CONTRACT, '"protective_projection_in_clean_restart_package": true', '"protective_projection_in_clean_restart_package": false')),
         ("wrong-canonical-protective-issuer", lambda root: mutate(root, CONTRACT, '"canonical_protective_evidence_issuer": "issue_stage5g_canonical_protective_evidence"', '"canonical_protective_evidence_issuer": "validate_stage5g_protective_completion_evidence"')),
@@ -164,7 +166,7 @@ def contract_cases() -> list[tuple[str, callable]]:
 def governance_cases() -> list[tuple[str, callable]]:
     return [
         ("remove-module-link", lambda root: mutate(root, LIB, "mod stage5g_protective_completion;", "// removed stage5g_f module")),
-        ("remove-public-facade", lambda root: mutate(root, LIB, "pub use stage5g_protective_completion::", "pub use stage5g_protective_completion_removed::")),
+        ("remove-public-facade", lambda root: mutate(root, LIB, "pub use stage5g_protective_completion::", "pub use stage5g_protective_completion_removed::", count=None)),
         ("design-loses-f12-f15", lambda root: mutate(root, DESIGN, "Stage 5F F12–F15 remain no-bar-exit", "Stage 5F F12-F15 drift")),
         ("design-opens-stage5g-g", lambda root: mutate(root, DESIGN, "Only after independent Stage 5G-f acceptance may Stage 5G-g begin", "Stage 5G-g may begin immediately")),
         ("gate-removes-checker", lambda root: mutate(root, GATE, "python3 scripts/stage5g_f_check.py", "# checker removed", count=None)),
@@ -177,7 +179,7 @@ def governance_cases() -> list[tuple[str, callable]]:
         ("gate-removes-predecessor-release-tests", lambda root: mutate(root, GATE, "cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_", "# predecessor release tests removed")),
         ("gate-removes-r1-lineage", lambda root: mutate(root, GATE, "a28cedd984d41bd2db4aeb7fd8c125c62ded4b28", "a28cedd984d41bd2db4aeb7fd8c125c62ded4b20")),
         ("preseal-loses-allowlist", lambda root: mutate(root, PRESEAL, "EXPECTED = sorted([", "EXPECTED_DISABLED = sorted([")),
-        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r6_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
+        ("handoff-removes-gate", lambda root: mutate(root, HANDOFF, '["bash", "scripts/stage5g_f_r7_gate.sh"]', '["bash", "scripts/stage5g_f_check.py"]')),
     ]
 
 
@@ -295,7 +297,7 @@ def r4_cleanup_closure_cases() -> list[tuple[str, callable]]:
         ("cleanup-request-id-check-bypassed", lambda root: mutate(root, SOURCE, ".find(|record| record.request_id == request_id)", ".find(|_record| true)")),
         ("cleanup-target-id-check-bypassed", lambda root: mutate(root, SOURCE, "if target_protective_id != record.target_protective_id", "if false && target_protective_id != record.target_protective_id")),
         ("cleanup-chronology-check-bypassed", lambda root: mutate(root, SOURCE, "|| received_ts_utc < record.source_event_ts", "|| false && received_ts_utc < record.source_event_ts")),
-        ("completed-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: Some(\n            pending.cleanup_settlement_ledger.ledger_fingerprint_sha256,\n        )", "cleanup_settlement_fingerprint_sha256: None")),
+        ("completed-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: Some(cleanup_settlement_fingerprint_sha256)", "cleanup_settlement_fingerprint_sha256: None")),
         ("completed-restart-drops-cleanup-settlement-fingerprint", lambda root: mutate(root, SOURCE, "cleanup_settlement_fingerprint_sha256: completed.cleanup_settlement_fingerprint_sha256", "cleanup_settlement_fingerprint_sha256: None")),
         ("drop-stage5c-cleanup-projection-type", lambda root: mutate(root, STAGE5C, "pub struct Stage5gProtectiveCleanupBatchRestartProjectionV1", "pub struct RemovedStage5gProtectiveCleanupBatchRestartProjectionV1")),
         ("drop-stage5c-cleanup-record-type", lambda root: mutate(root, STAGE5C, "pub struct Stage5gProtectiveCleanupBatchRestartRecordV1", "pub struct RemovedStage5gProtectiveCleanupBatchRestartRecordV1")),
@@ -356,7 +358,7 @@ def r5_cleanup_ledger_cases() -> list[tuple[str, callable]]:
         ("remove-release-artifact-emit", lambda root: mutate(root, GATE, "stage5g-f-gprt-artifact.release.json", "removed-stage5g-f-gprt-artifact.release.json", count=None)),
         ("remove-artifact-cmp", lambda root: mutate(root, GATE, "cmp \"$artifact_dir/stage5g-f-gprt-artifact.debug.json\" \"$artifact_dir/stage5g-f-gprt-artifact.release.json\"", "true # cmp removed")),
         ("remove-artifact-sha", lambda root: mutate(root, HANDOFF, "stage5g-f-gprt-artifact.sha256", "removed-stage5g-f-gprt-artifact.sha256", count=None)),
-        ("drop-r5-gate-pass-marker", lambda root: mutate(root, GATE, "stage5g-f-r6-gate: PASS", "stage5g-f-r6-gate: REMOVED")),
+        ("drop-r5-gate-pass-marker", lambda root: mutate(root, GATE, "stage5g-f-r7-gate: PASS", "stage5g-f-r7-gate: REMOVED")),
         ("r5-contract-ledger-disabled", lambda root: mutate(root, CONTRACT, '"cleanup_settlement_ledger": "per_request_terminal_nonexecution_required"', '"cleanup_settlement_ledger": "disabled"')),
         ("r5-contract-authority-binding-disabled", lambda root: mutate(root, CONTRACT, '"cleanup_truth_pending_authority_binding": true', '"cleanup_truth_pending_authority_binding": false')),
         ("r5-contract-execution-race-disabled", lambda root: mutate(root, CONTRACT, '"cleanup_execution_race_policy": "position_truth_required"', '"cleanup_execution_race_policy": "completed"')),
@@ -379,7 +381,7 @@ def r6_stable_observation_and_artifact_cases() -> list[tuple[str, callable]]:
         ("source-produced-artifact-runner-removed", lambda root: mutate(root, SOURCE, "stage5g_f_source_produced_gprt_artifact_row", "removed_stage5g_f_source_produced_gprt_artifact_row", count=None)),
         ("artifact-transition-runner-removed", lambda root: mutate(root, SOURCE, "stage5g_f_artifact_transition", "removed_stage5g_f_artifact_transition", count=None)),
         ("artifact-flat-cleanup-runner-removed", lambda root: mutate(root, SOURCE, "stage5g_f_artifact_row_from_flat_cleanup_pending", "removed_stage5g_f_artifact_row_from_flat_cleanup_pending", count=None)),
-        ("artifact-restored-pending-runner-removed", lambda root: mutate(root, SOURCE, "stage5g_f_restored_pending_from_flat", "removed_stage5g_f_restored_pending_from_flat", count=None)),
+        ("artifact-authenticated-roundtrip-runner-removed", lambda root: mutate(root, SOURCE, "stage5g_f_authenticated_package_roundtrip", "removed_stage5g_f_authenticated_package_roundtrip", count=None)),
         ("parallel-artifact-verifier-removed", lambda root: mutate(root, SOURCE, "stage5g_f_gprt_artifact_rows_parallel_verified", "removed_stage5g_f_gprt_artifact_rows_parallel_verified", count=None)),
         ("artifact-no-source-map", lambda root: mutate(root, SOURCE, ".map(stage5g_f_source_produced_gprt_artifact_row)", ".map(|scenario| stage5g_f_artifact_base_row(scenario, None, \"static\", \"static\", 0))")),
         ("artifact-omits-phase-a-runtime", lambda root: mutate(root, SOURCE, "phase_a_runtime_semantic_fingerprint_sha256", "removed_phase_a_runtime_semantic_fingerprint_sha256", count=None)),
@@ -397,16 +399,61 @@ def r6_stable_observation_and_artifact_cases() -> list[tuple[str, callable]]:
         ("artifact-omits-final-cycle", lambda root: mutate(root, SOURCE, "phase_b_final_cycle_id", "removed_phase_b_final_cycle_id", count=None)),
         ("artifact-omits-final-position", lambda root: mutate(root, SOURCE, "phase_b_final_position_qty", "removed_phase_b_final_position_qty", count=None)),
         ("artifact-omits-completed-restart-projection", lambda root: mutate(root, SOURCE, "phase_b_completed_restart_projection_fingerprint_sha256", "removed_phase_b_completed_restart_projection_fingerprint_sha256", count=None)),
-        ("artifact-schema-version-drift", lambda root: mutate(root, SOURCE, "schema_version: 2", "schema_version: 1", count=1)),
+        ("artifact-schema-version-drift", lambda root: mutate(root, SOURCE, "schema_version: 3", "schema_version: 2", count=1)),
         ("artifact-drops-parallel-byte-compare-sequential", lambda root: mutate(root, SOURCE, "serde_json::to_vec(&sequential)", "serde_json::to_vec(&Vec::<Stage5gProtectiveGprtArtifactRow>::new())", count=1)),
         ("artifact-drops-parallel-byte-compare-parallel", lambda root: mutate(root, SOURCE, "serde_json::to_vec(&parallel)", "serde_json::to_vec(&Vec::<Stage5gProtectiveGprtArtifactRow>::new())", count=1)),
-        ("gate-drops-submitted-r5", lambda root: mutate(root, GATE, "git checkout --quiet -B stage5g-lifecycle 1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8", "git checkout --quiet -B stage5g-lifecycle 430bae6cd02f67844623f9d1b2112b1faedcc40a", count=1)),
-        ("gate-drops-r5-gate", lambda root: mutate(root, GATE, "bash scripts/stage5g_f_r5_gate.sh", "python3 scripts/stage5g_f_check.py")),
-        ("gate-drops-submitted-r5-pass-segment", lambda root: mutate(root, GATE, "submitted-1f8d7f3=PASS", "submitted-1f8d7f3=REMOVED")),
-        ("gate-drops-r6-pass-marker", lambda root: mutate(root, GATE, "stage5g-f-r6-gate: PASS", "stage5g-f-r6-gate: SKIPPED")),
-        ("contract-r6-status-hidden", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "protective_restart_cleanup_completion_r6"', '"restart_extension_status": "protective_restart_cleanup_completion_r5"')),
-        ("contract-r6-floor-lowered", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 430', '"current_stage5g_f_minimum": 390')),
+        ("gate-drops-submitted-r6", lambda root: mutate(root, GATE, "git checkout --quiet -B stage5g-lifecycle 79c544352a0a5f8c0fc61da33c314a17df5d0e3b", "git checkout --quiet -B stage5g-lifecycle 1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8", count=1)),
+        ("gate-drops-r6-gate", lambda root: mutate(root, GATE, "bash scripts/stage5g_f_r6_gate.sh", "python3 scripts/stage5g_f_check.py")),
+        ("gate-drops-submitted-r6-pass-segment", lambda root: mutate(root, GATE, "submitted-79c5443=PASS", "submitted-79c5443=REMOVED")),
+        ("gate-drops-r7-pass-marker", lambda root: mutate(root, GATE, "stage5g-f-r7-gate: PASS", "stage5g-f-r7-gate: SKIPPED")),
+        ("contract-r7-status-hidden", lambda root: mutate(root, CONTRACT, '"restart_extension_status": "protective_restart_production_oracle_r7"', '"restart_extension_status": "protective_restart_cleanup_completion_r6"')),
+        ("contract-r7-floor-lowered", lambda root: mutate(root, CONTRACT, '"current_stage5g_f_minimum": 460', '"current_stage5g_f_minimum": 430')),
         ("lib-drops-parallel-artifact-export", lambda root: mutate(root, LIB, "stage5g_f_gprt_artifact_rows_parallel_verified", "removed_stage5g_f_gprt_artifact_rows_parallel_verified", count=None)),
+    ]
+
+
+def r7_authenticated_production_oracle_cases() -> list[tuple[str, callable]]:
+    return [
+        ("r7-contract-schema-v2", lambda root: mutate(root, CONTRACT, '"gprt_artifact_schema_version": 3', '"gprt_artifact_schema_version": 2')),
+        ("r7-contract-direct-authority", lambda root: mutate(root, CONTRACT, '"artifact_authority_path": "authenticated_clean_restart_then_prepare"', '"artifact_authority_path": "direct_admission"')),
+        ("r7-contract-fixture-feature-drift", lambda root: mutate(root, CONTRACT, '"artifact_fixture_feature": "stage5g-artifact-fixtures"', '"artifact_fixture_feature": "default"')),
+        ("r7-contract-phase-roundtrip-disabled", lambda root: mutate(root, CONTRACT, '"canonical_package_roundtrip_per_persistable_phase": true', '"canonical_package_roundtrip_per_persistable_phase": false')),
+        ("r7-contract-completed-ledger-disabled", lambda root: mutate(root, CONTRACT, '"completed_retains_final_cleanup_ledger": true', '"completed_retains_final_cleanup_ledger": false')),
+        ("r7-contract-gprt07-receipt-zero", lambda root: mutate(root, CONTRACT, '"gprt07_receipt_count": 1', '"gprt07_receipt_count": 0')),
+        ("r7-contract-gprt07-callback-one", lambda root: mutate(root, CONTRACT, '"gprt07_callback_count": 0', '"gprt07_callback_count": 1')),
+        ("r7-contract-blocked-runtime-mutates", lambda root: mutate(root, CONTRACT, '"blocked_runtime_mutation": false', '"blocked_runtime_mutation": true')),
+        ("r7-cargo-feature-default-enabled", lambda root: mutate(root, CARGO, "default = []", 'default = ["stage5g-artifact-fixtures"]')),
+        ("r7-cargo-feature-declaration-removed", lambda root: mutate(root, CARGO, "stage5g-artifact-fixtures = []", "artifact-fixtures-disabled = []")),
+        ("r7-cargo-bin-feature-gate-removed", lambda root: mutate(root, CARGO, 'required-features = ["stage5g-artifact-fixtures"]', 'required-features = []')),
+        ("r7-stage5d-prepare-authority-removed", lambda root: mutate(root, STAGE5D, "stage5g_artifact_prepare_clean_restart_authority", "artifact_prepare_authority_disabled", count=None)),
+        ("r7-stage5d-clean-authority-feature-open", lambda root: mutate(root, STAGE5D, '#[cfg(all(feature = "stage5g-artifact-fixtures", not(test)))]\npub(crate) fn stage5g_artifact_clean_restart_authority', "pub(crate) fn stage5g_artifact_clean_restart_authority")),
+        ("r7-hybrid-artifact-fixture-removed", lambda root: mutate(root, "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs", "stage5g_artifact_mr_protective_runtime_fixture", "artifact_runtime_fixture_disabled", count=None)),
+        ("r7-hybrid-test-fixture-name-restored", lambda root: mutate(root, "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs", "stage5g_artifact_mr_protective_runtime_fixture", "stage5g_test_mr_protective_runtime_fixture", count=None)),
+        ("r7-artifact-production-prepare-removed", lambda root: mutate(root, SOURCE, "prepare_stage5g_protective_completion(restored)", "protective_prepare_disabled(restored)", count=None)),
+        ("r7-artifact-export-removed", lambda root: mutate(root, SOURCE, "crate::export_stage5g_clean_restart(", "crate::removed_export_stage5g_clean_restart(", count=None)),
+        ("r7-artifact-restore-removed", lambda root: mutate(root, SOURCE, "crate::restore_stage5g_clean_restart(", "crate::removed_restore_stage5g_clean_restart(", count=None)),
+        ("r7-artifact-hmac-key-removed", lambda root: mutate(root, SOURCE, "Stage5gLifecycleCommitmentKey::from_secret_bytes", "ArtifactCommitmentKeyDisabled::from_secret_bytes", count=None)),
+        ("r7-artifact-package-input-removed", lambda root: mutate(root, SOURCE, "Stage5gCleanRestartExportInput", "ArtifactExportInputDisabled", count=None)),
+        ("r7-artifact-pre-package-fingerprint-removed", lambda root: mutate(root, SOURCE, "pre_authenticated_restart_package_fingerprint_sha256", "removed_pre_authenticated_restart_package_fingerprint_sha256", count=None)),
+        ("r7-artifact-phase-a-package-fingerprint-removed", lambda root: mutate(root, SOURCE, "phase_a_canonical_restart_package_fingerprint_sha256", "removed_phase_a_canonical_restart_package_fingerprint_sha256", count=None)),
+        ("r7-artifact-phase-a-restore-flag-removed", lambda root: mutate(root, SOURCE, "phase_a_authenticated_restore_succeeded", "removed_phase_a_authenticated_restore_succeeded", count=None)),
+        ("r7-artifact-phase-b-package-fingerprint-removed", lambda root: mutate(root, SOURCE, "phase_b_completed_canonical_restart_package_fingerprint_sha256", "removed_phase_b_completed_canonical_restart_package_fingerprint_sha256", count=None)),
+        ("r7-artifact-phase-b-restore-flag-removed", lambda root: mutate(root, SOURCE, "phase_b_authenticated_restore_succeeded", "removed_phase_b_authenticated_restore_succeeded", count=None)),
+        ("r7-artifact-callback-count-removed", lambda root: mutate(root, SOURCE, "phase_a_callback_count", "removed_phase_a_callback_count", count=None)),
+        ("r7-completed-final-ledger-field-removed", lambda root: mutate(root, SOURCE, "pub final_cleanup_settlement_ledger: Option<Stage5gProtectiveCleanupSettlementLedgerV1>", "pub removed_final_cleanup_settlement_ledger: Option<Stage5gProtectiveCleanupSettlementLedgerV1>")),
+        ("r7-completed-final-batch-field-removed", lambda root: mutate(root, SOURCE, "pub final_cleanup_batch_restart_projection:", "pub removed_final_cleanup_batch_restart_projection:", count=None)),
+        ("r7-completed-ledger-projection-removed", lambda root: mutate(root, SOURCE, "cleanup_settlement_ledger: completed.final_cleanup_settlement_ledger", "cleanup_settlement_ledger: None", count=None)),
+        ("r7-completed-batch-projection-removed", lambda root: mutate(root, SOURCE, "cleanup_batch_restart_projection: final_cleanup_batch_restart_projection", "cleanup_batch_restart_projection: None", count=None)),
+        ("r7-completed-ledger-validity-removed", lambda root: mutate(root, SOURCE, "stage5g_cleanup_ledger_is_valid(ledger, batch)", "true", count=None)),
+        ("r7-gprt07-receipt-witness-removed", lambda root: mutate(root, SOURCE, "assert_eq!(row.phase_a_execution_receipt_count, 1);", "assert_eq!(row.phase_a_execution_receipt_count, 0);", count=None)),
+        ("r7-gprt07-callback-witness-removed", lambda root: mutate(root, SOURCE, "assert_eq!(row.phase_a_callback_count, 0);", "assert_eq!(row.phase_a_callback_count, 1);", count=None)),
+        ("r7-blocked-runtime-witness-removed", lambda root: mutate(root, SOURCE, "Some(row.pre_runtime_semantic_fingerprint_sha256.as_str())", "None", count=None)),
+        ("r7-gate-feature-debug-removed", lambda root: mutate(root, GATE, "--features stage5g-artifact-fixtures --bin stage5g_f_gprt_artifact", "--bin stage5g_f_gprt_artifact", count=1)),
+        ("r7-gate-r6-checkout-drift", lambda root: mutate(root, GATE, "79c544352a0a5f8c0fc61da33c314a17df5d0e3b", "1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8", count=1)),
+        ("r7-gate-r6-execution-removed", lambda root: mutate(root, GATE, "bash scripts/stage5g_f_r6_gate.sh", "python3 scripts/stage5g_f_check.py")),
+        ("r7-handoff-feature-removed", lambda root: mutate(root, HANDOFF, '"stage5g-artifact-fixtures"', '"removed-stage5g-artifact-fixtures"', count=None)),
+        ("r7-handoff-schema-v2", lambda root: mutate(root, HANDOFF, '"gprt_artifact_schema_version": 3', '"gprt_artifact_schema_version": 2')),
+        ("r7-handoff-floor-lowered", lambda root: mutate(root, HANDOFF, '"negative_floor": 460', '"negative_floor": 430')),
     ]
 
 def cases() -> list[tuple[str, callable]]:
@@ -422,9 +469,10 @@ def cases() -> list[tuple[str, callable]]:
         + r4_cleanup_closure_cases()
         + r5_cleanup_ledger_cases()
         + r6_stable_observation_and_artifact_cases()
+        + r7_authenticated_production_oracle_cases()
     )
-    if len(all_cases) < 430:
-        fail(f"negative floor not met: {len(all_cases)} < 430")
+    if len(all_cases) < 460:
+        fail(f"negative floor not met: {len(all_cases)} < 460")
     names = [name for name, _ in all_cases]
     if len(names) != len(set(names)):
         fail("duplicate mutation names")

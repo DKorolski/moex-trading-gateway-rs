@@ -1055,17 +1055,28 @@ fn source_binding(source: &Stage5gCleanRestartSource) -> (&str, &BrokerAccountId
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_persistence_authority_from_source(
     source: &Stage5gCleanRestartSource,
     persisted_at: DateTime<Utc>,
 ) -> (Stage5dRiskGatePersistence, Stage5dRiskGateLedgerEvidence) {
     let (strategy_id, _, _) = source_binding(source);
-    crate::stage5d_persistence::stage5f_test_seams::stage5g_clean_restart_test_authority(
-        strategy_from_source(source),
-        strategy_id,
-        persisted_at,
-    )
+    #[cfg(test)]
+    {
+        crate::stage5d_persistence::stage5f_test_seams::stage5g_clean_restart_test_authority(
+            strategy_from_source(source),
+            strategy_id,
+            persisted_at,
+        )
+    }
+    #[cfg(all(not(test), feature = "stage5g-artifact-fixtures"))]
+    {
+        crate::stage5d_persistence::stage5g_artifact_clean_restart_authority(
+            strategy_from_source(source),
+            strategy_id,
+            persisted_at,
+        )
+    }
 }
 
 #[cfg(test)]

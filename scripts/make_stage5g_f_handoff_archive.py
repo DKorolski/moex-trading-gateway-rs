@@ -52,7 +52,7 @@ def main() -> None:
         fail("origin/stage5g-lifecycle must equal HEAD")
 
     gate = subprocess.run(
-        ["bash", "scripts/stage5g_f_r6_gate.sh"],
+        ["bash", "scripts/stage5g_f_r7_gate.sh"],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -95,20 +95,30 @@ def main() -> None:
     ).encode()
 
     artifact = subprocess.check_output(
-        ["cargo", "run", "-q", "-p", "strategy-runtime-core", "--bin", "stage5g_f_gprt_artifact"],
+        [
+            "cargo",
+            "run",
+            "-q",
+            "-p",
+            "strategy-runtime-core",
+            "--features",
+            "stage5g-artifact-fixtures",
+            "--bin",
+            "stage5g_f_gprt_artifact",
+        ],
         cwd=ROOT,
     )
     artifact_sha256 = hashlib.sha256(artifact).hexdigest()
 
     evidence = json.dumps({
-        "schema_version": 1,
-        "stage": "Stage 5G-f R6",
+        "schema_version": 2,
+        "stage": "Stage 5G-f R7",
         "source_ref": head,
         "predecessor": checker.BASE,
         "gate_exit_code": 0,
         "scenario_count": len(checker.EXPECTED_SCENARIOS),
         "negative_cases": len(negative.cases()),
-        "negative_floor": 430,
+        "negative_floor": 460,
         "focused_test_count": len(checker.REQUIRED_TESTS),
         "contract": "docs/stage-5/stage5g-f-protective-completion-contract.json",
         "authenticated_protective_restart": True,
@@ -116,6 +126,11 @@ def main() -> None:
         "cleanup_settlement_boundary": "apply_stage5g_protective_cleanup_completion",
         "cleanup_batch_restart_projection": True,
         "deterministic_artifact_scenarios": 8,
+        "gprt_artifact_schema_version": 3,
+        "gprt_artifact_authority_path": "authenticated_stage5d_stage5g_clean_restart_then_production_prepare",
+        "gprt_artifact_fixture_feature": "stage5g-artifact-fixtures",
+        "gprt_phase_a_and_phase_b_authenticated_roundtrip": True,
+        "completed_retains_final_cleanup_ledger": True,
         "gprt_artifact_name": "stage5g-f-gprt-artifact.json",
         "gprt_artifact_sha256": artifact_sha256,
         "raw_protective_evidence_exported": False,

@@ -172,6 +172,7 @@ pub struct Stage5gProtectiveRestartProjectionV1 {
     pub settled_batch_history_fingerprint_sha256: Option<String>,
     pub cleanup_settlement_fingerprint_sha256: Option<String>,
     pub cleanup_settlement_ledger: Option<Stage5gProtectiveCleanupSettlementLedgerV1>,
+    pub completion_fingerprint_sha256: Option<String>,
     pub cleanup_sibling_identity: Option<String>,
     pub callback_count: usize,
     pub cleanup_pending: bool,
@@ -228,15 +229,20 @@ pub struct Stage5gProtectiveGprtArtifactRow {
     pub schema_version: u16,
     pub scenario: String,
     pub protective_leg: Option<Stage5gProtectiveLeg>,
+    pub pre_runtime_semantic_fingerprint_sha256: String,
+    pub pre_authenticated_restart_package_fingerprint_sha256: String,
     pub phase_a_disposition: String,
     pub phase_a_reason: String,
     pub phase_a_runtime_semantic_fingerprint_sha256: Option<String>,
     pub phase_a_execution_receipt_fingerprint_sha256: Option<String>,
     pub phase_a_execution_receipt_count: usize,
+    pub phase_a_callback_count: usize,
     pub phase_a_cleanup_request_ids: Vec<broker_core::StrategyRequestId>,
     pub phase_a_cleanup_batch_fingerprint_sha256: Option<String>,
     pub phase_a_cleanup_ledger_fingerprint_sha256: Option<String>,
     pub phase_a_protective_restart_projection_fingerprint_sha256: Option<String>,
+    pub phase_a_canonical_restart_package_fingerprint_sha256: Option<String>,
+    pub phase_a_authenticated_restore_succeeded: bool,
     pub phase_b_disposition: Option<String>,
     pub phase_b_cleanup_request_states: Vec<Stage5gProtectiveCleanupSettlementState>,
     pub phase_b_cleanup_observation_fingerprints_sha256: Vec<String>,
@@ -247,6 +253,8 @@ pub struct Stage5gProtectiveGprtArtifactRow {
     pub phase_b_final_cycle_id: Option<String>,
     pub phase_b_final_position_qty: Option<Decimal>,
     pub phase_b_completed_restart_projection_fingerprint_sha256: Option<String>,
+    pub phase_b_completed_canonical_restart_package_fingerprint_sha256: Option<String>,
+    pub phase_b_authenticated_restore_succeeded: bool,
     pub cleanup_request_count: usize,
     pub cleanup_settlement_ledger_state: Option<String>,
     pub callback_count: usize,
@@ -256,6 +264,7 @@ pub struct Stage5gProtectiveGprtArtifactRow {
     pub canonical_semantic_fingerprint_sha256: String,
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub fn stage5g_f_gprt_artifact_rows() -> Vec<Stage5gProtectiveGprtArtifactRow> {
     Stage5gProtectiveScenarioId::ALL
         .into_iter()
@@ -263,6 +272,7 @@ pub fn stage5g_f_gprt_artifact_rows() -> Vec<Stage5gProtectiveGprtArtifactRow> {
         .collect()
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub fn stage5g_f_gprt_artifact_rows_parallel_verified() -> Vec<Stage5gProtectiveGprtArtifactRow> {
     let sequential = stage5g_f_gprt_artifact_rows();
     let mut handles = Vec::new();
@@ -283,99 +293,168 @@ pub fn stage5g_f_gprt_artifact_rows_parallel_verified() -> Vec<Stage5gProtective
     sequential
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub fn stage5g_f_gprt_artifact_json_pretty() -> String {
     serde_json::to_string_pretty(&stage5g_f_gprt_artifact_rows_parallel_verified())
         .expect("Stage 5G-f GPRT artifact serializes")
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 const STAGE5G_F_ARTIFACT_STRATEGY_ID: &str = "hybrid_imoexf";
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 const STAGE5G_F_ARTIFACT_CYCLE_ID: &str = "abc1230001";
-const STAGE5G_F_ARTIFACT_SHA: &str =
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+struct Stage5gArtifactPreparedAuthority {
+    authority: Stage5gProtectiveCompletionAuthority,
+    pre_runtime_fingerprint_sha256: String,
+    pre_package_fingerprint_sha256: String,
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_source_produced_gprt_artifact_row(
     scenario: Stage5gProtectiveScenarioId,
 ) -> Stage5gProtectiveGprtArtifactRow {
-    let transition = stage5g_f_artifact_transition(scenario);
+    let prepared = stage5g_f_artifact_authority(stage5g_f_artifact_scenario_side(scenario));
+    let pre_runtime_fingerprint_sha256 = prepared.pre_runtime_fingerprint_sha256;
+    let pre_package_fingerprint_sha256 = prepared.pre_package_fingerprint_sha256;
+    let transition = stage5g_f_artifact_transition(scenario, prepared.authority);
     let mut row = match transition {
         Stage5gProtectiveCompletionTransition::FlatCleanupPending(pending) => {
-            stage5g_f_artifact_row_from_flat_cleanup_pending(scenario, *pending)
+            stage5g_f_artifact_row_from_flat_cleanup_pending(
+                scenario,
+                *pending,
+                pre_runtime_fingerprint_sha256,
+                pre_package_fingerprint_sha256,
+            )
         }
         Stage5gProtectiveCompletionTransition::AwaitingPositionTruth(awaiting) => {
-            stage5g_f_artifact_base_row(
-                scenario,
-                Some(awaiting.leg),
-                "awaiting_position_truth",
-                &format!("{:?}", awaiting.reason).to_ascii_lowercase(),
-                awaiting.authority.accepted_receipts.len(),
+            let leg = awaiting.leg;
+            let reason = format!("{:?}", awaiting.reason).to_ascii_lowercase();
+            let receipt_fingerprint = awaiting.execution_receipt.fingerprint_sha256.clone();
+            let receipt_count = awaiting.authority.accepted_receipts.len();
+            let source = stage5g_protective_restart_source_from_transition(
+                Stage5gProtectiveCompletionTransition::AwaitingPositionTruth(awaiting),
             )
-            .with_phase_a_receipt(Some(awaiting.execution_receipt.fingerprint_sha256))
-        }
-        Stage5gProtectiveCompletionTransition::Blocked(blocked) => stage5g_f_artifact_base_row(
-            scenario,
-            None,
-            "blocked",
-            &format!("{:?}", blocked.reason).to_ascii_lowercase(),
-            blocked.authority.accepted_receipts.len(),
-        ),
-        Stage5gProtectiveCompletionTransition::Completed(completed) => {
+            .expect("Stage 5G-f R7 awaiting transition is restartable");
+            let phase_a_projection_fingerprint = source
+                .projection
+                .replay_protection_fingerprint_sha256
+                .clone();
+            let (restored, phase_a_package_fingerprint) = stage5g_f_authenticated_package_roundtrip(
+                source,
+                &format!("{}-awaiting", scenario.as_id()),
+            );
+            let continuation = restore_stage5g_protective_completion_continuation(restored)
+                .expect("Stage 5G-f R7 awaiting continuation restores");
+            let Stage5gProtectiveRestoredContinuation::AwaitingPositionTruth(awaiting) =
+                continuation
+            else {
+                panic!("Stage 5G-f R7 expected awaiting continuation")
+            };
+            let phase_a_runtime = runtime_stage5c_state_fingerprint(
+                awaiting
+                    .authority
+                    .runtime
+                    .as_ref()
+                    .expect("restored awaiting authority owns runtime"),
+            )
+            .expect("restored awaiting runtime fingerprints");
             let mut row = stage5g_f_artifact_base_row(
                 scenario,
-                Some(completed.leg),
-                "completed",
-                "completed_without_cleanup",
-                completed.callback_count,
+                Some(leg),
+                pre_runtime_fingerprint_sha256,
+                pre_package_fingerprint_sha256,
+                "awaiting_position_truth",
+                &reason,
+                0,
             );
-            row.phase_b_disposition = Some("completed".to_string());
-            row.phase_b_completion_fingerprint_sha256 =
-                Some(completed.completion_fingerprint_sha256);
+            row.phase_a_runtime_semantic_fingerprint_sha256 = Some(phase_a_runtime);
+            row.phase_a_execution_receipt_fingerprint_sha256 = Some(receipt_fingerprint);
+            row.phase_a_execution_receipt_count = receipt_count;
+            row.phase_a_protective_restart_projection_fingerprint_sha256 =
+                Some(phase_a_projection_fingerprint);
+            row.phase_a_canonical_restart_package_fingerprint_sha256 =
+                Some(phase_a_package_fingerprint);
+            row.phase_a_authenticated_restore_succeeded = true;
             row
+        }
+        Stage5gProtectiveCompletionTransition::Blocked(blocked) => {
+            let post_runtime = runtime_stage5c_state_fingerprint(
+                blocked
+                    .authority
+                    .runtime
+                    .as_ref()
+                    .expect("blocked production authority retains runtime"),
+            )
+            .expect("blocked runtime fingerprints");
+            let receipt_count = blocked.authority.accepted_receipts.len();
+            let mut row = stage5g_f_artifact_base_row(
+                scenario,
+                stage5g_f_artifact_scenario_leg(scenario),
+                pre_runtime_fingerprint_sha256,
+                pre_package_fingerprint_sha256,
+                "blocked",
+                &format!("{:?}", blocked.reason).to_ascii_lowercase(),
+                0,
+            );
+            row.phase_a_runtime_semantic_fingerprint_sha256 = Some(post_runtime);
+            row.phase_a_execution_receipt_count = receipt_count;
+            row
+        }
+        Stage5gProtectiveCompletionTransition::Completed(_) => {
+            panic!("Stage 5G-f R7 GPRT01-08 must not bypass cleanup settlement")
         }
     };
     row.canonical_semantic_fingerprint_sha256 =
-        semantic_sha256(&("stage5g-f-r6-source-produced-gprt-artifact-row", &row));
+        semantic_sha256(&("stage5g-f-r7-production-authority-gprt-artifact-row", &row));
     row
 }
 
-impl Stage5gProtectiveGprtArtifactRow {
-    fn with_phase_a_receipt(mut self, receipt: Option<String>) -> Self {
-        self.phase_a_execution_receipt_fingerprint_sha256 = receipt;
-        self
-    }
-}
-
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_row_from_flat_cleanup_pending(
     scenario: Stage5gProtectiveScenarioId,
     pending: Stage5gProtectiveFlatCleanupPending,
+    pre_runtime_fingerprint_sha256: String,
+    pre_package_fingerprint_sha256: String,
 ) -> Stage5gProtectiveGprtArtifactRow {
-    let cleanup_request_count = pending.cleanup_settlement_ledger.requests.len();
-    let cleanup_request_ids: Vec<_> = pending
-        .cleanup_settlement_ledger
-        .requests
-        .iter()
-        .map(|request| request.request_id)
-        .collect();
-    let cleanup_batch_fingerprint = Some(
-        pending
-            .cleanup_settlement_ledger
-            .batch_fingerprint_sha256
-            .clone(),
-    );
-    let phase_a_runtime = pending.post_callback_state_fingerprint_sha256.clone();
-    let phase_a_ledger = pending
-        .cleanup_settlement_ledger
-        .ledger_fingerprint_sha256
-        .clone();
-    let phase_a_receipt = pending.execution_receipt.fingerprint_sha256.clone();
-    let callback_count = pending.callback_count;
     let leg = pending.leg;
-    let mut restored = stage5g_f_restored_pending_from_flat(pending)
-        .expect("Stage 5G-f artifact flat cleanup pending restores internally");
-    let phase_a_restart_projection = restored
+    let source = stage5g_protective_restart_source_from_transition(
+        Stage5gProtectiveCompletionTransition::FlatCleanupPending(Box::new(pending)),
+    )
+    .expect("Stage 5G-f R7 phase-A transition is restartable");
+    let phase_a_restart_projection = source
         .projection
         .replay_protection_fingerprint_sha256
         .clone();
-    let mut observations = Vec::new();
+    let (restored_capability, phase_a_package_fingerprint) =
+        stage5g_f_authenticated_package_roundtrip(source, &format!("{}-phase-a", scenario.as_id()));
+    let continuation = restore_stage5g_protective_completion_continuation(restored_capability)
+        .expect("Stage 5G-f R7 phase-A continuation restores");
+    let Stage5gProtectiveRestoredContinuation::FlatCleanupPending(mut restored) = continuation
+    else {
+        panic!("Stage 5G-f R7 expected flat-cleanup continuation")
+    };
+    let phase_a_ledger = restored.cleanup_settlement_ledger.clone();
+    let cleanup_request_count = phase_a_ledger.requests.len();
+    let cleanup_request_ids = phase_a_ledger
+        .requests
+        .iter()
+        .map(|request| request.request_id)
+        .collect::<Vec<_>>();
+    let cleanup_batch_fingerprint = phase_a_ledger.batch_fingerprint_sha256.clone();
+    let phase_a_runtime = restored
+        .projection
+        .post_runtime_semantic_fingerprint_sha256
+        .clone()
+        .expect("phase-A runtime semantic fingerprint");
+    let phase_a_receipt = restored
+        .projection
+        .accepted_execution_evidence_fingerprint_sha256
+        .clone()
+        .expect("phase-A execution receipt fingerprint");
+    let callback_count = restored.projection.callback_count;
+    let execution_receipt_count = restored.projection.receipt_ledger.len();
     let request_count = restored.cleanup_settlement_ledger.requests.len();
     for index in 0..request_count {
         let record = restored
@@ -393,74 +472,103 @@ fn stage5g_f_artifact_row_from_flat_cleanup_pending(
             record.source_event_ts + 1,
         )
         .expect("Stage 5G-f artifact cleanup truth accepted");
-        observations.push(
-            accepted
-                .evidence
-                .cleanup_observation_fingerprint_sha256
-                .clone(),
-        );
-        let mut expected_ledger = restored.cleanup_settlement_ledger.clone();
-        expected_ledger.requests[index].state =
-            stage5g_cleanup_outcome_state(accepted.evidence.outcome);
-        expected_ledger.requests[index].outcome = Some(accepted.evidence.outcome);
-        expected_ledger.requests[index].cleanup_observation_fingerprint_sha256 = Some(
-            accepted
-                .evidence
-                .cleanup_observation_fingerprint_sha256
-                .clone(),
-        );
-        expected_ledger.requests[index].settlement_fingerprint_sha256 =
-            Some(accepted.evidence.settlement_fingerprint_sha256.clone());
-        expected_ledger.ledger_fingerprint_sha256 =
-            stage5g_cleanup_ledger_fingerprint(&expected_ledger);
         match apply_stage5g_protective_cleanup_completion(*restored, accepted) {
             Stage5gProtectiveCleanupTransition::FlatCleanupPending(next) => {
                 restored = next;
             }
             Stage5gProtectiveCleanupTransition::Completed(completed) => {
-                let completion_fingerprint = completed.completion_fingerprint_sha256.clone();
                 let source = stage5g_protective_restart_source_from_transition(
                     Stage5gProtectiveCompletionTransition::Completed(completed),
                 )
-                .expect("Stage 5G-f artifact completed transition restartable");
-                let projection = source.stage5g_restart_projection();
-                let completed = match restore_stage5g_f_artifact_completed_from_source(source) {
-                    Stage5gProtectiveRestoredContinuation::Completed(restored) => restored,
-                    _ => panic!("Stage 5G-f artifact expected completed continuation"),
-                };
+                .expect("Stage 5G-f R7 completed transition restartable");
+                let phase_b_restart_projection = source
+                    .projection
+                    .replay_protection_fingerprint_sha256
+                    .clone();
+                let (restored_capability, phase_b_package_fingerprint) =
+                    stage5g_f_authenticated_package_roundtrip(
+                        source,
+                        &format!("{}-phase-b", scenario.as_id()),
+                    );
+                let completed =
+                    match restore_stage5g_protective_completion_continuation(restored_capability)
+                        .expect("Stage 5G-f R7 completed continuation restores")
+                    {
+                        Stage5gProtectiveRestoredContinuation::Completed(restored) => restored,
+                        _ => panic!("Stage 5G-f R7 expected completed continuation"),
+                    };
+                let final_ledger = completed
+                    .projection
+                    .cleanup_settlement_ledger
+                    .clone()
+                    .expect("restored Completed owns final cleanup ledger");
+                assert!(stage5g_cleanup_ledger_all_terminal_non_execution(
+                    &final_ledger
+                ));
+                assert_eq!(
+                    completed
+                        .projection
+                        .cleanup_settlement_fingerprint_sha256
+                        .as_deref(),
+                    Some(final_ledger.ledger_fingerprint_sha256.as_str())
+                );
                 let final_summary = completed.post_state.summary();
                 let mut row = stage5g_f_artifact_base_row(
                     scenario,
                     Some(leg),
+                    pre_runtime_fingerprint_sha256,
+                    pre_package_fingerprint_sha256,
                     "flat_cleanup_pending",
                     "execution_and_flat_position_confirmed_cleanup_required",
                     callback_count,
                 );
                 row.phase_a_runtime_semantic_fingerprint_sha256 = Some(phase_a_runtime);
                 row.phase_a_execution_receipt_fingerprint_sha256 = Some(phase_a_receipt);
-                row.phase_a_execution_receipt_count = 1;
+                row.phase_a_execution_receipt_count = execution_receipt_count;
                 row.phase_a_cleanup_request_ids = cleanup_request_ids;
-                row.phase_a_cleanup_batch_fingerprint_sha256 = cleanup_batch_fingerprint;
-                row.phase_a_cleanup_ledger_fingerprint_sha256 = Some(phase_a_ledger);
+                row.phase_a_cleanup_batch_fingerprint_sha256 = Some(cleanup_batch_fingerprint);
+                row.phase_a_cleanup_ledger_fingerprint_sha256 =
+                    Some(phase_a_ledger.ledger_fingerprint_sha256);
                 row.phase_a_protective_restart_projection_fingerprint_sha256 =
                     Some(phase_a_restart_projection);
+                row.phase_a_canonical_restart_package_fingerprint_sha256 =
+                    Some(phase_a_package_fingerprint);
+                row.phase_a_authenticated_restore_succeeded = true;
                 row.phase_b_disposition = Some("completed".to_string());
-                row.phase_b_cleanup_request_states = expected_ledger
+                row.phase_b_cleanup_request_states = final_ledger
                     .requests
                     .iter()
                     .map(|request| request.state)
                     .collect();
-                row.phase_b_cleanup_observation_fingerprints_sha256 = observations;
+                row.phase_b_cleanup_observation_fingerprints_sha256 = final_ledger
+                    .requests
+                    .iter()
+                    .map(|request| {
+                        request
+                            .cleanup_observation_fingerprint_sha256
+                            .clone()
+                            .expect("terminal cleanup observation fingerprint")
+                    })
+                    .collect();
                 row.phase_b_final_cleanup_ledger_fingerprint_sha256 =
-                    Some(expected_ledger.ledger_fingerprint_sha256);
-                row.phase_b_completion_fingerprint_sha256 = Some(completion_fingerprint);
+                    Some(final_ledger.ledger_fingerprint_sha256);
+                row.phase_b_completion_fingerprint_sha256 = Some(
+                    completed
+                        .projection
+                        .completion_fingerprint_sha256
+                        .clone()
+                        .expect("restored Completed owns completion fingerprint"),
+                );
                 row.phase_b_final_runtime_fingerprint_sha256 =
                     Some(final_summary.post_callback_state_fingerprint_sha256.clone());
                 row.phase_b_final_owner = final_summary.final_owner;
                 row.phase_b_final_cycle_id = final_summary.final_cycle_id.clone();
                 row.phase_b_final_position_qty = Some(final_summary.final_position_qty);
                 row.phase_b_completed_restart_projection_fingerprint_sha256 =
-                    Some(projection.replay_protection_fingerprint_sha256);
+                    Some(phase_b_restart_projection);
+                row.phase_b_completed_canonical_restart_package_fingerprint_sha256 =
+                    Some(phase_b_package_fingerprint);
+                row.phase_b_authenticated_restore_succeeded = true;
                 row.cleanup_request_count = cleanup_request_count;
                 row.cleanup_settlement_ledger_state =
                     Some("all_cleanup_requests_terminal_non_execution".to_string());
@@ -475,26 +583,34 @@ fn stage5g_f_artifact_row_from_flat_cleanup_pending(
     panic!("Stage 5G-f artifact cleanup loop did not complete")
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_base_row(
     scenario: Stage5gProtectiveScenarioId,
     protective_leg: Option<Stage5gProtectiveLeg>,
+    pre_runtime_semantic_fingerprint_sha256: String,
+    pre_authenticated_restart_package_fingerprint_sha256: String,
     phase_a_disposition: &str,
     phase_a_reason: &str,
     callback_count: usize,
 ) -> Stage5gProtectiveGprtArtifactRow {
     Stage5gProtectiveGprtArtifactRow {
-        schema_version: 2,
+        schema_version: 3,
         scenario: scenario.as_id().to_string(),
         protective_leg,
+        pre_runtime_semantic_fingerprint_sha256,
+        pre_authenticated_restart_package_fingerprint_sha256,
         phase_a_disposition: phase_a_disposition.to_string(),
         phase_a_reason: phase_a_reason.to_string(),
         phase_a_runtime_semantic_fingerprint_sha256: None,
         phase_a_execution_receipt_fingerprint_sha256: None,
         phase_a_execution_receipt_count: 0,
+        phase_a_callback_count: callback_count,
         phase_a_cleanup_request_ids: Vec::new(),
         phase_a_cleanup_batch_fingerprint_sha256: None,
         phase_a_cleanup_ledger_fingerprint_sha256: None,
         phase_a_protective_restart_projection_fingerprint_sha256: None,
+        phase_a_canonical_restart_package_fingerprint_sha256: None,
+        phase_a_authenticated_restore_succeeded: false,
         phase_b_disposition: None,
         phase_b_cleanup_request_states: Vec::new(),
         phase_b_cleanup_observation_fingerprints_sha256: Vec::new(),
@@ -505,6 +621,8 @@ fn stage5g_f_artifact_base_row(
         phase_b_final_cycle_id: None,
         phase_b_final_position_qty: None,
         phase_b_completed_restart_projection_fingerprint_sha256: None,
+        phase_b_completed_canonical_restart_package_fingerprint_sha256: None,
+        phase_b_authenticated_restore_succeeded: false,
         cleanup_request_count: 0,
         cleanup_settlement_ledger_state: None,
         callback_count,
@@ -515,8 +633,10 @@ fn stage5g_f_artifact_base_row(
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_transition(
     scenario: Stage5gProtectiveScenarioId,
+    authority: Stage5gProtectiveCompletionAuthority,
 ) -> Stage5gProtectiveCompletionTransition {
     let (side, evidence) = match scenario {
         Stage5gProtectiveScenarioId::Gprt01F12MrLongTargetCompletesFlat => (
@@ -592,7 +712,7 @@ fn stage5g_f_artifact_transition(
             ),
         ),
     };
-    let authority = stage5g_f_artifact_authority(side);
+    debug_assert_eq!(side, authority.input.protected_position_side);
     match accept_stage5g_canonical_protective_broker_truth(&authority, evidence)
         .and_then(|accepted| issue_stage5g_canonical_protective_evidence(&authority, accepted))
     {
@@ -605,56 +725,219 @@ fn stage5g_f_artifact_transition(
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_authority(
     side: Stage5gProtectedPositionSide,
-) -> Stage5gProtectiveCompletionAuthority {
-    let (runtime, cycle_id) =
-        crate::HybridIntradayRuntimeStrategy::stage5g_test_mr_protective_runtime_fixture(
+) -> Stage5gArtifactPreparedAuthority {
+    let source = stage5g_f_artifact_pre_execution_source(side);
+    let pre_runtime_fingerprint_sha256 =
+        runtime_stage5c_state_fingerprint(source.stage5g_runtime_strategy())
+            .expect("Stage 5G-f R7 source runtime fingerprints");
+    let (restored, pre_package_fingerprint_sha256) =
+        stage5g_f_authenticated_package_roundtrip(source, &format!("{side:?}-pre"));
+    let authority = prepare_stage5g_protective_completion(restored)
+        .expect("Stage 5G-f R7 production prepare issues protective authority");
+    Stage5gArtifactPreparedAuthority {
+        authority,
+        pre_runtime_fingerprint_sha256,
+        pre_package_fingerprint_sha256,
+    }
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_f_artifact_pre_execution_source(
+    side: Stage5gProtectedPositionSide,
+) -> Stage5gProtectiveRestartSource {
+    let (mut runtime, cycle_id) =
+        crate::HybridIntradayRuntimeStrategy::stage5g_artifact_mr_protective_runtime_fixture(
             side,
             BrokerOrderId::new("TP_STAGE5G_F"),
             BrokerStopOrderId::new("SL_STOP_STAGE5G_F"),
             BrokerOrderId::new("SL_EXCHANGE_STAGE5G_F"),
         );
-    debug_assert_eq!(cycle_id, STAGE5G_F_ARTIFACT_CYCLE_ID);
-    let input = runtime
-        .stage5g_protective_completion_authority_input(
-            STAGE5G_F_ARTIFACT_STRATEGY_ID.to_string(),
-            stage5g_f_artifact_account(),
-            stage5g_f_artifact_instrument(),
-            STAGE5G_F_ARTIFACT_SHA.to_string(),
-            STAGE5G_F_ARTIFACT_SHA.to_string(),
-            STAGE5G_F_ARTIFACT_SHA.to_string(),
-        )
-        .expect("Stage 5G-f artifact source-owned protective authority input");
-    let mut authority = admit_stage5g_protective_completion_authority_from_source(
-        input,
-        Some(runtime),
-        Some(stage5g_f_artifact_restart_seed()),
+    assert_eq!(cycle_id, STAGE5G_F_ARTIFACT_CYCLE_ID);
+    stage5g_f_artifact_set_protective_strategy_state(&mut runtime, side);
+    let persisted_at = stage5g_f_artifact_ts(1_800_000_030);
+    let _ = crate::stage5d_persistence::stage5g_artifact_prepare_clean_restart_authority(
+        &mut runtime,
+        STAGE5G_F_ARTIFACT_STRATEGY_ID,
+        persisted_at,
+    );
+    Stage5gProtectiveRestartSource::pre_execution_ready(
+        runtime,
+        STAGE5G_F_ARTIFACT_STRATEGY_ID.to_string(),
+        stage5g_f_artifact_account(),
+        stage5g_f_artifact_instrument(),
+        stage5g_f_artifact_order_position_summary(),
+        stage5g_f_artifact_timer_checkpoint(),
     )
-    .expect("Stage 5G-f artifact authority");
-    authority.accepted_receipts = Vec::new();
-    authority
+    .expect("Stage 5G-f R7 source-owned pre-execution restart source")
 }
 
-fn stage5g_f_artifact_restart_seed() -> Stage5gProtectiveRestartSeed {
-    Stage5gProtectiveRestartSeed {
-        lifecycle_kind: crate::Stage5gCleanRestartLifecycleKind::ProtectiveLifecycleCommitted,
-        strategy_id: STAGE5G_F_ARTIFACT_STRATEGY_ID.to_string(),
-        account_id: stage5g_f_artifact_account(),
-        instrument: stage5g_f_artifact_instrument(),
-        summary: stage5g_f_artifact_order_position_summary(),
-        checkpoint: stage5g_f_artifact_timer_checkpoint(),
-        order_position_state: None,
-        parent_restart_package_fingerprint_sha256: STAGE5G_F_ARTIFACT_SHA.to_string(),
-        lifecycle_source_authority_sha256: STAGE5G_F_ARTIFACT_SHA.to_string(),
-        source_lifecycle_commit_sha256: STAGE5G_F_ARTIFACT_SHA.to_string(),
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_f_artifact_set_protective_strategy_state(
+    runtime: &mut crate::HybridIntradayRuntimeStrategy,
+    side: Stage5gProtectedPositionSide,
+) {
+    let (runtime_side, position_qty) = match side {
+        Stage5gProtectedPositionSide::Long => (crate::hybrid_intraday::Side::Long, 3.0),
+        Stage5gProtectedPositionSide::Short => (crate::hybrid_intraday::Side::Short, -3.0),
+    };
+    crate::runtime_compat::Strategy::set_state(
+        runtime,
+        crate::runtime_compat::StrategyState::HybridIntradayRuntime {
+            active_cycle_id: Some(STAGE5G_F_ARTIFACT_CYCLE_ID.to_string()),
+            next_cycle_seq: 1,
+            last_position_qty: position_qty,
+            current_owner: Some(crate::hybrid_intraday::Owner::MeanReversion),
+            current_side: Some(runtime_side),
+            pending_entry_owner: None,
+            pending_entry_side: None,
+            pending_entry_cycle_id: None,
+            pending_entry_request_id: None,
+            pending_entry_created_ts_utc: None,
+            deferred_entry_owner: None,
+            deferred_entry_side: None,
+            deferred_entry_cycle_id: None,
+            deferred_entry_entry_style: None,
+            deferred_entry_reason: None,
+            deferred_entry_stop_price: None,
+            deferred_entry_take_price: None,
+            deferred_entry_ts_utc: None,
+            deferred_entry_request_id: None,
+            pending_exit_request_id: None,
+            pending_exit_created_ts_utc: None,
+            deferred_exit_owner: None,
+            deferred_exit_reason: None,
+            deferred_exit_cycle_id: None,
+            deferred_exit_ts_utc: None,
+            deferred_exit_request_id: None,
+            pending_tp_request_id: None,
+            pending_tp_created_ts_utc: None,
+            pending_sl_request_id: None,
+            pending_sl_created_ts_utc: None,
+            tp_order_id: Some(BrokerOrderId::new("TP_STAGE5G_F")),
+            sl_stop_order_id: Some(BrokerStopOrderId::new("SL_STOP_STAGE5G_F")),
+            sl_exchange_order_id: Some(BrokerOrderId::new("SL_EXCHANGE_STAGE5G_F")),
+            sl_triggered_ts: None,
+            mr_take_price: Some(2250.0),
+            mr_stop_price: Some(2190.0),
+            repair_deadline_ts: None,
+            next_repair_at_ts: None,
+            repair_backoff_level: 0,
+            repair_attempts: 0,
+            safe_mode_close_only: false,
+            safe_mode_reason: None,
+            entry_ready: true,
+            last_bar_close: Some(2220.0),
+            prev_day_close: Some(2234.5),
+            last_day_local: Some("2026-07-06".to_string()),
+            current_day_high: Some(2262.0),
+            current_day_low: Some(2165.5),
+            current_day_close: Some(2220.0),
+            prev_day_range: Some(60.5),
+            prev_day_return: Some(0.0),
+            day_before_close: Some(2234.5),
+            today_start_local: Some("2026-07-06T09:00:00".to_string()),
+            was_long_today: matches!(side, Stage5gProtectedPositionSide::Long),
+            was_short_today: matches!(side, Stage5gProtectedPositionSide::Short),
+            overnight_exit_armed_date: None,
+            risk_gate_shadow_session_date: Some("2026-07-06".to_string()),
+            risk_gate_shadow_pnl_points: 0.0,
+            risk_gate_shadow_trade_count: 0,
+            risk_gate_shadow_entry_ts_utc: None,
+            risk_gate_shadow_entry_price: None,
+            risk_gate_shadow_side: None,
+            risk_gate_shadow_target_price: None,
+            risk_gate_shadow_stop_price: None,
+            risk_gate_pending_session_date: None,
+            risk_gate_pending_shadow_pnl_points: 0.0,
+            risk_gate_pending_shadow_trade_count: 0,
+            risk_gate_mr_enabled_current_session: Some(true),
+            risk_gate_rolling_sum_lb120: Some(158.6),
+            risk_gate_last_finalized_session_date: Some("2026-07-03".to_string()),
+            risk_gate_ledger_rows_count: 221,
+        },
+    );
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_f_authenticated_package_roundtrip(
+    source: Stage5gProtectiveRestartSource,
+    snapshot_id: &str,
+) -> (crate::Stage5gCleanRestartedCapability, String) {
+    let fresh_runtime = source
+        .stage5g_runtime_strategy()
+        .stage5g_clean_reconstruction_candidate();
+    let source = crate::Stage5gCleanRestartSource::ProtectiveLifecycle(source);
+    let persisted_at = stage5g_f_artifact_ts(1_800_000_030);
+    let (riskgate, riskgate_evidence) =
+        crate::stage5g_clean_restart::stage5g_test_persistence_authority_from_source(
+            &source,
+            persisted_at,
+        );
+    let input = crate::Stage5gCleanRestartExportInput {
+        snapshot_id: snapshot_id.to_string(),
+        snapshot_revision: 1,
+        previous_revision: None,
+        write_generation: 1,
+        persisted_at_ts_utc: persisted_at,
+        source_commit_or_build_id:
+            crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+        lifecycle_watermarks: crate::Stage5dLifecycleWatermarks {
+            persisted_event_watermark: Some(snapshot_id.to_string()),
+            last_semantic_bar_ts: Some(persisted_at - chrono::Duration::minutes(1)),
+            last_broker_event_ts: Some(persisted_at - chrono::Duration::seconds(1)),
+        },
+        riskgate,
+        riskgate_evidence,
+    };
+    let commitment_key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x6d; 32])
+        .expect("Stage 5G-f R7 artifact commitment key");
+    let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+        .expect("Stage 5G-f R7 canonical authenticated package exports");
+    let package_fingerprint_sha256 = semantic_sha256(&(
+        "moex.stage5g-f.r7.canonical-authenticated-package.v1",
+        &bytes,
+    ));
+    let restored = crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+        .expect("Stage 5G-f R7 canonical package strict-decodes, authenticates and restores");
+    (restored, package_fingerprint_sha256)
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_f_artifact_scenario_side(
+    scenario: Stage5gProtectiveScenarioId,
+) -> Stage5gProtectedPositionSide {
+    match scenario {
+        Stage5gProtectiveScenarioId::Gprt02F13MrShortTargetCompletesFlat
+        | Stage5gProtectiveScenarioId::Gprt04F15MrShortStopCompletesFlat => {
+            Stage5gProtectedPositionSide::Short
+        }
+        _ => Stage5gProtectedPositionSide::Long,
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_f_artifact_scenario_leg(
+    scenario: Stage5gProtectiveScenarioId,
+) -> Option<Stage5gProtectiveLeg> {
+    match scenario {
+        Stage5gProtectiveScenarioId::Gprt03F14MrLongStopCompletesFlat
+        | Stage5gProtectiveScenarioId::Gprt04F15MrShortStopCompletesFlat
+        | Stage5gProtectiveScenarioId::Gprt07TriggerWithoutFlatPositionBlocks => {
+            Some(Stage5gProtectiveLeg::Stop)
+        }
+        _ => Some(Stage5gProtectiveLeg::Target),
+    }
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_account() -> BrokerAccountId {
     BrokerAccountId::new("ACC_STAGE5G_F_TEST")
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_instrument() -> InstrumentId {
     InstrumentId {
         symbol: "IMOEXF".to_string(),
@@ -664,6 +947,7 @@ fn stage5g_f_artifact_instrument() -> InstrumentId {
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_attr(role: &str, cycle: &str, owner: &str) -> HybridRuntimeAttribution {
     HybridRuntimeAttribution::parse_source_comment(format!(
         "HYB|sid={STAGE5G_F_ARTIFACT_STRATEGY_ID}|c={cycle}|o={owner}|r={role}"
@@ -671,10 +955,12 @@ fn stage5g_f_artifact_attr(role: &str, cycle: &str, owner: &str) -> HybridRuntim
     .expect("Stage 5G-f artifact attribution parses")
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_ts(seconds: i64) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::from_timestamp(seconds, 0).expect("Stage 5G-f artifact timestamp")
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_target_order(
     side: Stage5gProtectedPositionSide,
     status: &str,
@@ -699,6 +985,7 @@ fn stage5g_f_artifact_target_order(
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_stop_order(
     side: Stage5gProtectedPositionSide,
     status: &str,
@@ -724,6 +1011,7 @@ fn stage5g_f_artifact_stop_order(
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_flat_position_truth() -> Stage5gProtectivePositionTruth {
     Stage5gProtectivePositionTruth {
         positions_complete: true,
@@ -740,6 +1028,7 @@ fn stage5g_f_artifact_flat_position_truth() -> Stage5gProtectivePositionTruth {
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_nonflat_position_truth() -> Stage5gProtectivePositionTruth {
     Stage5gProtectivePositionTruth {
         positions_complete: true,
@@ -756,6 +1045,7 @@ fn stage5g_f_artifact_nonflat_position_truth() -> Stage5gProtectivePositionTruth
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_target_evidence(
     side: Stage5gProtectedPositionSide,
     status: &str,
@@ -772,6 +1062,7 @@ fn stage5g_f_artifact_target_evidence(
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_stop_evidence(
     side: Stage5gProtectedPositionSide,
     status: &str,
@@ -788,8 +1079,9 @@ fn stage5g_f_artifact_stop_evidence(
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_order_position_summary() -> crate::Stage5gOrderPositionSummary {
-    crate::Stage5gOrderPositionSummary {
+    let mut summary = crate::Stage5gOrderPositionSummary {
         schema_version: crate::STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
         strategy_id: STAGE5G_F_ARTIFACT_STRATEGY_ID.to_string(),
         request_count: 0,
@@ -799,37 +1091,67 @@ fn stage5g_f_artifact_order_position_summary() -> crate::Stage5gOrderPositionSum
         position_confirmation_count: 0,
         duplicate_evidence_count: 0,
         last_total_sequence: Some(1),
-        lifecycle_fingerprint_sha256: STAGE5G_F_ARTIFACT_SHA.to_string(),
+        lifecycle_fingerprint_sha256: String::new(),
         stage5c_callback_count: 0,
         mock_feedback_only: true,
         redis_attached: false,
         finam_transport_attached: false,
         broker_execution_attached: false,
-    }
+    };
+    summary.lifecycle_fingerprint_sha256 = semantic_sha256(&(
+        "moex.stage5g-f.r7.artifact-order-position-summary.v1",
+        &summary,
+    ));
+    summary
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_timer_checkpoint() -> crate::Stage5gTimerCheckpointEnvelope {
+    let received_at = stage5g_f_artifact_ts(1_800_000_020);
+    let package_discriminator = format!(
+        "moex.broker-truth.package.v1:{}:{:09}",
+        received_at.timestamp(),
+        received_at.timestamp_subsec_nanos()
+    );
+    let evidence_identity = format!(
+        "moex.stage5g.order-position-evidence-identity.v3:00000000-0000-4000-8000-000000000001:{}:{}",
+        stage5g_f_artifact_account().0,
+        package_discriminator
+    );
     let payload = crate::Stage5gTimerCheckpointPayload {
         schema_version: crate::STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION,
-        package_discriminator: Some(
-            "moex.stage5g-f-r6-artifact.package:1800000020:000000000".to_string(),
-        ),
-        current_evidence_identity: Some(
-            "moex.stage5g-f-r6-artifact.evidence:00000000-0000-4000-8000-000000000001".to_string(),
-        ),
-        evidence_replay_ledger: Vec::new(),
-        last_broker_truth_received_at: Some(stage5g_f_artifact_ts(1_800_000_020)),
+        package_discriminator: Some(package_discriminator),
+        current_evidence_identity: Some(evidence_identity.clone()),
+        evidence_replay_ledger: vec![crate::Stage5gReplayLedgerEntry {
+            identity: evidence_identity.clone(),
+            fingerprint_sha256: semantic_sha256(&(
+                "moex.stage5g-f.r7.artifact-evidence.v1",
+                &evidence_identity,
+            )),
+        }],
+        last_broker_truth_received_at: Some(received_at),
         last_broker_truth_received_ms: Some(1_800_000_020_000),
         duplicate_evidence_count: 0,
         last_total_sequence: Some(1),
         last_continuation_checkpoint_ts_utc_ms: Some(1_800_000_020_001),
     };
     crate::Stage5gTimerCheckpointEnvelope {
-        payload_sha256: semantic_sha256(&payload),
+        payload_sha256: stage5g_f_artifact_timer_checkpoint_fingerprint(&payload),
         payload,
     }
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage5g_f_artifact_timer_checkpoint_fingerprint(
+    payload: &crate::Stage5gTimerCheckpointPayload,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage5g.timer-checkpoint.v1\0");
+    hasher.update(serde_json::to_vec(payload).expect("Stage 5G-f R7 timer checkpoint serializes"));
+    format!("{:x}", hasher.finalize())
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_cleanup_terminal_status(
     record: &crate::stage5c_paper_host::Stage5gProtectiveCleanupBatchRestartRecordV1,
 ) -> &'static str {
@@ -838,83 +1160,6 @@ fn stage5g_f_artifact_cleanup_terminal_status(
         crate::stage5c_paper_host::Stage5gSourceBaseAction::Cancel => "Canceled",
         _ => "Rejected",
     }
-}
-
-fn stage5g_f_restored_pending_from_flat(
-    pending: Stage5gProtectiveFlatCleanupPending,
-) -> Result<Box<Stage5gProtectiveRestoredFlatCleanupPending>, Stage5gProtectiveBlockReason> {
-    let source = restart_source_from_flat_cleanup_pending(pending)?;
-    let projection = source.projection.clone();
-    let authority_summary = projection.authority_summary.clone();
-    let cleanup_projection = projection
-        .cleanup_batch_restart_projection
-        .as_ref()
-        .ok_or(Stage5gProtectiveBlockReason::ProtectiveRestartProjectionMismatch)?;
-    let generated_cleanup_batch =
-        crate::stage5c_paper_host::restore_stage5g_protective_cleanup_batch_from_projection(
-            cleanup_projection,
-            &authority_summary.strategy_id,
-            &authority_summary.account_id,
-            &authority_summary.instrument,
-        )
-        .map_err(|_| Stage5gProtectiveBlockReason::ProtectiveRestartProjectionMismatch)?;
-    let cleanup_settlement_ledger = projection
-        .cleanup_settlement_ledger
-        .clone()
-        .ok_or(Stage5gProtectiveBlockReason::ProtectiveRestartProjectionMismatch)?;
-    let generated_cleanup_batch_summary = crate::Stage5cPaperIntentBatchSummary {
-        strategy_id: cleanup_projection.strategy_id.clone(),
-        account_id: cleanup_projection.account_id.clone(),
-        instrument: cleanup_projection.instrument.clone(),
-        origin_bar_close_ts: cleanup_projection.origin_bar_close_ts,
-        bar_close_ts: cleanup_projection.bar_close_ts,
-        min_source_event_ts: cleanup_projection
-            .records
-            .iter()
-            .map(|record| record.source_event_ts)
-            .min()
-            .unwrap_or(cleanup_projection.bar_close_ts),
-        max_source_event_ts: cleanup_projection
-            .records
-            .iter()
-            .map(|record| record.source_event_ts)
-            .max()
-            .unwrap_or(cleanup_projection.bar_close_ts),
-        state_fingerprint: cleanup_projection.state_fingerprint.clone(),
-        request_ids: cleanup_projection.request_ids.clone(),
-        intent_count: cleanup_projection.records.len(),
-        observation_only: cleanup_projection.observation_only,
-    };
-    let settled_batch_history = vec![generated_cleanup_batch_summary.clone()];
-    Ok(Box::new(Stage5gProtectiveRestoredFlatCleanupPending {
-        projection,
-        post_state: Stage5gProtectiveCommittedState::new(source.runtime),
-        generated_cleanup_batch,
-        generated_cleanup_batch_summary,
-        settled_batch_history,
-        cleanup_settlement_ledger,
-        restart_seed: Some(Stage5gProtectiveRestartSeed {
-            lifecycle_kind: crate::Stage5gCleanRestartLifecycleKind::ProtectiveLifecycleCommitted,
-            strategy_id: source.strategy_id,
-            account_id: source.account_id,
-            instrument: source.instrument,
-            summary: source.summary,
-            checkpoint: source.checkpoint,
-            order_position_state: source.order_position_state,
-            parent_restart_package_fingerprint_sha256: STAGE5G_F_ARTIFACT_SHA.to_string(),
-            lifecycle_source_authority_sha256: STAGE5G_F_ARTIFACT_SHA.to_string(),
-            source_lifecycle_commit_sha256: STAGE5G_F_ARTIFACT_SHA.to_string(),
-        }),
-    }))
-}
-
-fn restore_stage5g_f_artifact_completed_from_source(
-    source: Stage5gProtectiveRestartSource,
-) -> Stage5gProtectiveRestoredContinuation {
-    Stage5gProtectiveRestoredContinuation::Completed(Stage5gProtectiveRestoredCompleted {
-        projection: source.projection,
-        post_state: Stage5gProtectiveCommittedState::new(source.runtime),
-    })
 }
 
 #[derive(Clone)]
@@ -1201,6 +1446,9 @@ pub struct Stage5gProtectiveCompleted {
     pub bridge_post_state_fingerprint_sha256: String,
     pub post_callback_state_fingerprint_sha256: String,
     pub cleanup_settlement_fingerprint_sha256: Option<String>,
+    pub final_cleanup_settlement_ledger: Option<Stage5gProtectiveCleanupSettlementLedgerV1>,
+    pub final_cleanup_batch_restart_projection:
+        Option<crate::stage5c_paper_host::Stage5gProtectiveCleanupBatchRestartProjectionV1>,
     pub completion_fingerprint_sha256: String,
     post_state: Stage5gProtectiveCommittedState,
     restart_seed: Option<Stage5gProtectiveRestartSeed>,
@@ -1229,6 +1477,14 @@ impl std::fmt::Debug for Stage5gProtectiveCompleted {
             .field(
                 "cleanup_settlement_fingerprint_sha256",
                 &self.cleanup_settlement_fingerprint_sha256,
+            )
+            .field(
+                "final_cleanup_settlement_ledger",
+                &self.final_cleanup_settlement_ledger,
+            )
+            .field(
+                "final_cleanup_batch_restart_projection",
+                &self.final_cleanup_batch_restart_projection,
             )
             .field(
                 "completion_fingerprint_sha256",
@@ -1339,7 +1595,7 @@ impl std::fmt::Debug for Stage5gProtectiveRestartSource {
 }
 
 impl Stage5gProtectiveRestartSource {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     pub(crate) fn pre_execution_ready(
         runtime: crate::HybridIntradayRuntimeStrategy,
         strategy_id: String,
@@ -1396,6 +1652,7 @@ impl Stage5gProtectiveRestartSource {
             settled_batch_history_fingerprint_sha256: None,
             cleanup_settlement_fingerprint_sha256: None,
             cleanup_settlement_ledger: None,
+            completion_fingerprint_sha256: None,
             cleanup_sibling_identity: None,
             callback_count: 0,
             cleanup_pending: false,
@@ -1747,6 +2004,12 @@ pub fn apply_stage5g_protective_cleanup_completion(
         pending.projection.callback_count,
         &pending.projection.post_runtime_semantic_fingerprint_sha256,
     ));
+    let final_cleanup_settlement_ledger = pending.cleanup_settlement_ledger;
+    let cleanup_settlement_fingerprint_sha256 = final_cleanup_settlement_ledger
+        .ledger_fingerprint_sha256
+        .clone();
+    let final_cleanup_batch_restart_projection =
+        pending.projection.cleanup_batch_restart_projection.clone();
     let completed = Stage5gProtectiveCompleted {
         scenario,
         leg,
@@ -1767,9 +2030,9 @@ pub fn apply_stage5g_protective_cleanup_completion(
             }),
         post_callback_state_fingerprint_sha256: post_state_summary
             .post_callback_state_fingerprint_sha256,
-        cleanup_settlement_fingerprint_sha256: Some(
-            pending.cleanup_settlement_ledger.ledger_fingerprint_sha256,
-        ),
+        cleanup_settlement_fingerprint_sha256: Some(cleanup_settlement_fingerprint_sha256),
+        final_cleanup_settlement_ledger: Some(final_cleanup_settlement_ledger),
+        final_cleanup_batch_restart_projection,
         completion_fingerprint_sha256,
         post_state: pending.post_state,
         restart_seed: pending.restart_seed,
@@ -2455,6 +2718,8 @@ pub fn apply_stage5g_protective_completion(
         post_callback_state_fingerprint_sha256: post_state_summary
             .post_callback_state_fingerprint_sha256,
         cleanup_settlement_fingerprint_sha256: None,
+        final_cleanup_settlement_ledger: None,
+        final_cleanup_batch_restart_projection: None,
         completion_fingerprint_sha256,
         post_state: callback.post_state,
         restart_seed: callback.restart_seed,
@@ -2643,6 +2908,7 @@ fn restart_source_from_awaiting(
         settled_batch_history_fingerprint_sha256: None,
         cleanup_settlement_fingerprint_sha256: None,
         cleanup_settlement_ledger: None,
+        completion_fingerprint_sha256: None,
         cleanup_sibling_identity: None,
         callback_count: 0,
         cleanup_pending: false,
@@ -2688,6 +2954,7 @@ fn restart_source_from_flat_cleanup_pending(
         settled_batch_history_fingerprint_sha256,
         cleanup_settlement_fingerprint_sha256: None,
         cleanup_settlement_ledger: Some(pending.cleanup_settlement_ledger),
+        completion_fingerprint_sha256: None,
         cleanup_sibling_identity: Some(cleanup_sibling_identity_from_summary(
             &pending.generated_cleanup_batch_summary,
         )),
@@ -2728,6 +2995,11 @@ fn restart_source_from_completed(
         .restart_seed
         .ok_or(Stage5gProtectiveBlockReason::MissingCleanRestartProtectiveState)?;
     let runtime = completed.post_state.runtime;
+    let final_cleanup_batch_restart_projection =
+        completed.final_cleanup_batch_restart_projection.clone();
+    let generated_cleanup_batch_fingerprint_sha256 = final_cleanup_batch_restart_projection
+        .as_ref()
+        .map(|projection| projection.batch_fingerprint.clone());
     let projection = protective_restart_projection(Stage5gProtectiveRestartProjectionInput {
         projection_kind: Stage5gProtectiveRestartProjectionKind::Completed,
         scenario: Some(completed.scenario),
@@ -2745,11 +3017,12 @@ fn restart_source_from_completed(
         post_runtime_semantic_fingerprint_sha256: Some(
             completed.post_callback_state_fingerprint_sha256,
         ),
-        generated_cleanup_batch_fingerprint_sha256: None,
-        cleanup_batch_restart_projection: None,
+        generated_cleanup_batch_fingerprint_sha256,
+        cleanup_batch_restart_projection: final_cleanup_batch_restart_projection,
         settled_batch_history_fingerprint_sha256: None,
         cleanup_settlement_fingerprint_sha256: completed.cleanup_settlement_fingerprint_sha256,
-        cleanup_settlement_ledger: None,
+        cleanup_settlement_ledger: completed.final_cleanup_settlement_ledger,
+        completion_fingerprint_sha256: Some(completed.completion_fingerprint_sha256),
         cleanup_sibling_identity: None,
         callback_count: completed.callback_count,
         cleanup_pending: false,
@@ -2793,6 +3066,7 @@ struct Stage5gProtectiveRestartProjectionInput {
     settled_batch_history_fingerprint_sha256: Option<String>,
     cleanup_settlement_fingerprint_sha256: Option<String>,
     cleanup_settlement_ledger: Option<Stage5gProtectiveCleanupSettlementLedgerV1>,
+    completion_fingerprint_sha256: Option<String>,
     cleanup_sibling_identity: Option<String>,
     callback_count: usize,
     cleanup_pending: bool,
@@ -2823,6 +3097,7 @@ fn protective_restart_projection(
         settled_batch_history_fingerprint_sha256: input.settled_batch_history_fingerprint_sha256,
         cleanup_settlement_fingerprint_sha256: input.cleanup_settlement_fingerprint_sha256,
         cleanup_settlement_ledger: input.cleanup_settlement_ledger,
+        completion_fingerprint_sha256: input.completion_fingerprint_sha256,
         cleanup_sibling_identity: input.cleanup_sibling_identity,
         callback_count: input.callback_count,
         cleanup_pending: input.cleanup_pending,
@@ -2873,6 +3148,7 @@ fn protective_projection_fingerprint(projection: &Stage5gProtectiveRestartProjec
         settled_batch_history_fingerprint_sha256: &'a Option<String>,
         cleanup_settlement_fingerprint_sha256: &'a Option<String>,
         cleanup_settlement_ledger: &'a Option<Stage5gProtectiveCleanupSettlementLedgerV1>,
+        completion_fingerprint_sha256: &'a Option<String>,
         cleanup_sibling_identity: &'a Option<String>,
         callback_count: usize,
         cleanup_pending: bool,
@@ -2902,6 +3178,7 @@ fn protective_projection_fingerprint(projection: &Stage5gProtectiveRestartProjec
             .settled_batch_history_fingerprint_sha256,
         cleanup_settlement_fingerprint_sha256: &projection.cleanup_settlement_fingerprint_sha256,
         cleanup_settlement_ledger: &projection.cleanup_settlement_ledger,
+        completion_fingerprint_sha256: &projection.completion_fingerprint_sha256,
         cleanup_sibling_identity: &projection.cleanup_sibling_identity,
         callback_count: projection.callback_count,
         cleanup_pending: projection.cleanup_pending,
@@ -2987,6 +3264,7 @@ pub(crate) fn validate_stage5g_protective_restart_projection(
                 || projection.cleanup_batch_restart_projection.is_some()
                 || projection.cleanup_settlement_fingerprint_sha256.is_some()
                 || projection.cleanup_settlement_ledger.is_some()
+                || projection.completion_fingerprint_sha256.is_some()
                 || projection.cleanup_pending
                 || projection.completed
             {
@@ -3000,6 +3278,7 @@ pub(crate) fn validate_stage5g_protective_restart_projection(
                 || projection.cleanup_batch_restart_projection.is_some()
                 || projection.cleanup_settlement_fingerprint_sha256.is_some()
                 || projection.cleanup_settlement_ledger.is_some()
+                || projection.completion_fingerprint_sha256.is_some()
                 || projection.cleanup_pending
                 || projection.completed
             {
@@ -3017,6 +3296,7 @@ pub(crate) fn validate_stage5g_protective_restart_projection(
                     .is_none()
                 || projection.cleanup_settlement_fingerprint_sha256.is_some()
                 || projection.cleanup_settlement_ledger.is_none()
+                || projection.completion_fingerprint_sha256.is_some()
                 || !projection.cleanup_pending
                 || projection.completed
             {
@@ -3045,12 +3325,32 @@ pub(crate) fn validate_stage5g_protective_restart_projection(
         }
         Stage5gProtectiveRestartProjectionKind::Completed => {
             if projection.disposition != Some(Stage5gProtectiveDisposition::Completed)
-                || projection.cleanup_batch_restart_projection.is_some()
-                || projection.cleanup_settlement_ledger.is_some()
+                || projection
+                    .completion_fingerprint_sha256
+                    .as_deref()
+                    .map_or(true, |fingerprint| !sha256_like(fingerprint))
                 || projection.cleanup_pending
                 || !projection.completed
             {
                 return Err(Stage5gProtectiveBlockReason::ProtectiveRestartProjectionMismatch);
+            }
+            match (
+                projection.cleanup_settlement_fingerprint_sha256.as_deref(),
+                projection.cleanup_settlement_ledger.as_ref(),
+                projection.cleanup_batch_restart_projection.as_ref(),
+                projection
+                    .generated_cleanup_batch_fingerprint_sha256
+                    .as_deref(),
+            ) {
+                (None, None, None, None) => {}
+                (Some(fingerprint), Some(ledger), Some(batch), Some(batch_fingerprint))
+                    if fingerprint == ledger.ledger_fingerprint_sha256
+                        && batch_fingerprint == batch.batch_fingerprint
+                        && stage5g_cleanup_ledger_is_valid(ledger, batch)
+                        && stage5g_cleanup_ledger_all_terminal_non_execution(ledger) => {}
+                _ => {
+                    return Err(Stage5gProtectiveBlockReason::ProtectiveRestartProjectionMismatch);
+                }
             }
         }
     }
@@ -3477,6 +3777,8 @@ fn completed_projection(completed: &Stage5gProtectiveCompleted) -> impl Serializ
         &completed.bridge_post_state_fingerprint_sha256,
         &completed.post_callback_state_fingerprint_sha256,
         &completed.cleanup_settlement_fingerprint_sha256,
+        &completed.final_cleanup_settlement_ledger,
+        &completed.final_cleanup_batch_restart_projection,
     )
 }
 
@@ -3529,7 +3831,7 @@ mod tests {
 
     const STRATEGY_ID: &str = "hybrid_imoexf";
     const CYCLE_ID: &str = "abc1230001";
-    const SHA: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const SHA: &str = "14816e91784a75dfd6bf9a5d3d12b60b7fc732c7abb2ec92d26cdca8f493afbf";
 
     fn account() -> BrokerAccountId {
         BrokerAccountId::new("ACC_STAGE5G_F_TEST")
@@ -3557,7 +3859,7 @@ mod tests {
 
     fn authority(side: Stage5gProtectedPositionSide) -> Stage5gProtectiveCompletionAuthority {
         let (runtime, cycle_id) =
-            crate::HybridIntradayRuntimeStrategy::stage5g_test_mr_protective_runtime_fixture(
+            crate::HybridIntradayRuntimeStrategy::stage5g_artifact_mr_protective_runtime_fixture(
                 side,
                 BrokerOrderId::new("TP_STAGE5G_F"),
                 BrokerStopOrderId::new("SL_STOP_STAGE5G_F"),
@@ -3731,7 +4033,7 @@ mod tests {
         side: Stage5gProtectedPositionSide,
     ) -> Stage5gProtectiveRestartSource {
         let (mut runtime, cycle_id) =
-            crate::HybridIntradayRuntimeStrategy::stage5g_test_mr_protective_runtime_fixture(
+            crate::HybridIntradayRuntimeStrategy::stage5g_artifact_mr_protective_runtime_fixture(
                 side,
                 BrokerOrderId::new("TP_STAGE5G_F"),
                 BrokerStopOrderId::new("SL_STOP_STAGE5G_F"),
@@ -5390,6 +5692,135 @@ mod tests {
             .collect::<Vec<_>>();
         for handle in handles {
             assert_eq!(handle.join().expect("thread"), sequential);
+        }
+    }
+
+    #[test]
+    fn stage5g_f_r7_artifact_enters_through_authenticated_production_prepare() {
+        let rows = stage5g_f_gprt_artifact_rows();
+        assert_eq!(rows.len(), 8);
+        assert!(rows.iter().all(|row| {
+            row.schema_version == 3
+                && sha256_like(&row.pre_authenticated_restart_package_fingerprint_sha256)
+                && stage5c_semantic_fingerprint_like(&row.pre_runtime_semantic_fingerprint_sha256)
+        }));
+        assert!(rows[..4].iter().all(|row| {
+            row.phase_a_authenticated_restore_succeeded
+                && row.phase_b_authenticated_restore_succeeded
+                && row
+                    .phase_a_canonical_restart_package_fingerprint_sha256
+                    .as_deref()
+                    .is_some_and(sha256_like)
+                && row
+                    .phase_b_completed_canonical_restart_package_fingerprint_sha256
+                    .as_deref()
+                    .is_some_and(sha256_like)
+        }));
+    }
+
+    #[test]
+    fn stage5g_f_r7_gprt07_receipt_precedes_callback_and_runtime_is_unchanged() {
+        let row = stage5g_f_source_produced_gprt_artifact_row(
+            Stage5gProtectiveScenarioId::Gprt07TriggerWithoutFlatPositionBlocks,
+        );
+        assert_eq!(row.phase_a_disposition, "awaiting_position_truth");
+        assert_eq!(row.phase_a_execution_receipt_count, 1);
+        assert_eq!(row.phase_a_callback_count, 0);
+        assert_eq!(row.callback_count, 0);
+        assert_eq!(
+            row.phase_a_runtime_semantic_fingerprint_sha256.as_deref(),
+            Some(row.pre_runtime_semantic_fingerprint_sha256.as_str())
+        );
+        assert!(row.phase_a_authenticated_restore_succeeded);
+        assert!(row
+            .phase_a_canonical_restart_package_fingerprint_sha256
+            .as_deref()
+            .is_some_and(sha256_like));
+    }
+
+    #[test]
+    fn stage5g_f_r7_blocked_rows_freeze_no_runtime_mutation_and_no_callback() {
+        for scenario in [
+            Stage5gProtectiveScenarioId::Gprt05WrongOwnerOrCycleBlocks,
+            Stage5gProtectiveScenarioId::Gprt06WrongInstrumentOrOrderIdBlocks,
+            Stage5gProtectiveScenarioId::Gprt08NonExecutionTerminalCannotInventExit,
+        ] {
+            let row = stage5g_f_source_produced_gprt_artifact_row(scenario);
+            assert_eq!(row.phase_a_disposition, "blocked");
+            assert_eq!(row.phase_a_callback_count, 0);
+            assert_eq!(row.callback_count, 0);
+            assert_eq!(
+                row.phase_a_runtime_semantic_fingerprint_sha256.as_deref(),
+                Some(row.pre_runtime_semantic_fingerprint_sha256.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn stage5g_f_r7_completed_retains_and_authenticates_final_cleanup_ledger() {
+        let pending = restored_flat_cleanup_pending(
+            Stage5gProtectedPositionSide::Long,
+            Stage5gProtectiveLeg::Target,
+            "stage5g-f-r7-completed-ledger",
+        );
+        let order = (0..pending.cleanup_settlement_ledger.requests.len()).collect::<Vec<_>>();
+        let completed = complete_cleanup_in_order(pending, &order);
+        let final_ledger = completed
+            .final_cleanup_settlement_ledger
+            .clone()
+            .expect("Completed owns the final cleanup ledger");
+        let final_batch = completed
+            .final_cleanup_batch_restart_projection
+            .clone()
+            .expect("Completed owns the original cleanup batch projection");
+        assert!(stage5g_cleanup_ledger_is_valid(&final_ledger, &final_batch));
+        assert!(stage5g_cleanup_ledger_all_terminal_non_execution(
+            &final_ledger
+        ));
+
+        let source = stage5g_protective_restart_source_from_transition(
+            Stage5gProtectiveCompletionTransition::Completed(completed),
+        )
+        .expect("Completed is restartable");
+        let restored = restore_stage5g_protective_completion_continuation(
+            restore_protective_source(source, "stage5g-f-r7-completed-ledger-roundtrip"),
+        )
+        .expect("Completed authenticates and restores");
+        let Stage5gProtectiveRestoredContinuation::Completed(restored) = restored else {
+            panic!("expected restored Completed")
+        };
+        assert_eq!(
+            restored.projection.cleanup_settlement_ledger.as_ref(),
+            Some(&final_ledger)
+        );
+        assert_eq!(
+            restored
+                .projection
+                .cleanup_batch_restart_projection
+                .as_ref(),
+            Some(&final_batch)
+        );
+    }
+
+    #[test]
+    fn stage5g_f_r7_artifact_phase_b_ledger_is_restored_completed_truth() {
+        for row in stage5g_f_gprt_artifact_rows().into_iter().take(4) {
+            assert_eq!(row.phase_b_disposition.as_deref(), Some("completed"));
+            assert!(row.phase_b_cleanup_request_states.iter().all(
+                |state| *state == Stage5gProtectiveCleanupSettlementState::TerminalNonExecution
+            ));
+            assert_eq!(
+                row.phase_b_cleanup_request_states.len(),
+                row.phase_b_cleanup_observation_fingerprints_sha256.len()
+            );
+            assert!(row
+                .phase_b_final_cleanup_ledger_fingerprint_sha256
+                .as_deref()
+                .is_some_and(sha256_like));
+            assert!(row
+                .phase_b_completion_fingerprint_sha256
+                .as_deref()
+                .is_some_and(sha256_like));
         }
     }
 

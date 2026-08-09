@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "5G-f",
-  "base_ref": "1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8",
+  "base_ref": "79c544352a0a5f8c0fc61da33c314a17df5d0e3b",
   "branch": "stage5g-lifecycle",
   "purpose": "paper/mock Mean Reversion protective target/stop completion from canonical broker feedback plus complete flat position truth",
   "protective_completion_type": "Stage5gProtectiveCompletionTransition",
@@ -21,7 +21,7 @@
   "successful_completion_owns_post_runtime": true,
   "flat_cleanup_pending_owns_generated_batch": true,
   "generated_cleanup_intents_retained": true,
-  "restart_extension_status": "protective_restart_cleanup_completion_r6",
+  "restart_extension_status": "protective_restart_production_oracle_r7",
   "authenticated_protective_restart": true,
   "protective_projection_in_clean_restart_package": true,
   "production_canonical_broker_truth_issuer": true,
@@ -128,10 +128,18 @@
     "stage6": false
   },
   "negative_floor": {
-    "current_stage5g_f_minimum": 430
+    "current_stage5g_f_minimum": 460
   },
   "cleanup_settlement_ledger": "per_request_terminal_nonexecution_required",
   "cleanup_truth_pending_authority_binding": true,
   "cleanup_execution_race_policy": "position_truth_required",
-  "debug_release_gprt_artifact": "stage5g-f-gprt-artifact.json"
+  "debug_release_gprt_artifact": "stage5g-f-gprt-artifact.json",
+  "gprt_artifact_schema_version": 3,
+  "artifact_authority_path": "authenticated_clean_restart_then_prepare",
+  "artifact_fixture_feature": "stage5g-artifact-fixtures",
+  "canonical_package_roundtrip_per_persistable_phase": true,
+  "completed_retains_final_cleanup_ledger": true,
+  "gprt07_receipt_count": 1,
+  "gprt07_callback_count": 0,
+  "blocked_runtime_mutation": false
 }

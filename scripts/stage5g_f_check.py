@@ -9,7 +9,8 @@ import re
 import subprocess
 from pathlib import Path
 
-BASE = "1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8"
+BASE = "79c544352a0a5f8c0fc61da33c314a17df5d0e3b"
+SUBMITTED_R6 = "79c544352a0a5f8c0fc61da33c314a17df5d0e3b"
 SUBMITTED_R5 = "1f8d7f3d14aa9cd2cb0f522679cf66787d5dd8a8"
 SUBMITTED_R4 = "430bae6cd02f67844623f9d1b2112b1faedcc40a"
 SUBMITTED_R3 = "7dde2ac181c7a5d3a3312bfb463e384281062a8a"
@@ -21,10 +22,13 @@ SOURCE = Path("crates/strategy-runtime-core/src/stage5g_protective_completion.rs
 RESTART = Path("crates/strategy-runtime-core/src/stage5g_clean_restart.rs")
 STAGE5C = Path("crates/strategy-runtime-core/src/stage5c_paper_host.rs")
 LIB = Path("crates/strategy-runtime-core/src/lib.rs")
+CARGO = Path("crates/strategy-runtime-core/Cargo.toml")
+STAGE5D = Path("crates/strategy-runtime-core/src/stage5d_persistence.rs")
+HYBRID_RUNTIME = Path("crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs")
 GPRT_BIN = Path("crates/strategy-runtime-core/src/bin/stage5g_f_gprt_artifact.rs")
 CONTRACT = Path("docs/stage-5/stage5g-f-protective-completion-contract.json")
 DESIGN = Path("docs/stage-5/stage5g-f-protective-completion-contract.md")
-GATE = Path("scripts/stage5g_f_r6_gate.sh")
+GATE = Path("scripts/stage5g_f_r7_gate.sh")
 NEGATIVE = Path("scripts/stage5g_f_negative_harness.py")
 PRESEAL = Path("scripts/stage5g_f_preseal_check.py")
 HANDOFF = Path("scripts/make_stage5g_f_handoff_archive.py")
@@ -78,6 +82,11 @@ REQUIRED_TESTS = [
     "stage5g_f_r5_cleanup_token_is_bound_to_exact_pending_authority",
     "stage5g_f_r5_cleanup_execution_race_requires_position_truth",
     "stage5g_f_r4_non_terminal_cleanup_truth_keeps_flat_cleanup_pending",
+    "stage5g_f_r7_artifact_enters_through_authenticated_production_prepare",
+    "stage5g_f_r7_gprt07_receipt_precedes_callback_and_runtime_is_unchanged",
+    "stage5g_f_r7_blocked_rows_freeze_no_runtime_mutation_and_no_callback",
+    "stage5g_f_r7_completed_retains_and_authenticates_final_cleanup_ledger",
+    "stage5g_f_r7_artifact_phase_b_ledger_is_restored_completed_truth",
 ]
 
 REQUIRED_SOURCE_MARKERS = [
@@ -370,8 +379,8 @@ def check_contract(root: Path, source: str) -> None:
             "FlatCleanupPending no longer owns generated batch")
     require(contract["generated_cleanup_intents_retained"] is True,
             "generated cleanup intent retention disabled")
-    require(contract["restart_extension_status"] == "protective_restart_cleanup_completion_r6",
-            "restart extension status must be R5 cleanup ledger closure")
+    require(contract["restart_extension_status"] == "protective_restart_production_oracle_r7",
+            "restart extension status must be R7 production oracle closure")
     require(contract["authenticated_protective_restart"] is True,
             "authenticated protective restart not declared")
     require(contract["protective_projection_in_clean_restart_package"] is True,
@@ -420,7 +429,7 @@ def check_contract(root: Path, source: str) -> None:
     ]:
         require(command in required_commands, f"predecessor command missing: {command}")
     require(contract["scenario_order"] == EXPECTED_SCENARIOS, "GPRT scenario order drift")
-    require(contract["negative_floor"]["current_stage5g_f_minimum"] >= 430,
+    require(contract["negative_floor"]["current_stage5g_f_minimum"] >= 460,
             "negative floor drift")
     require(contract["cleanup_settlement_ledger"] == "per_request_terminal_nonexecution_required",
             "cleanup settlement ledger contract drift")
@@ -430,6 +439,22 @@ def check_contract(root: Path, source: str) -> None:
             "cleanup execution race policy drift")
     require(contract["debug_release_gprt_artifact"] == "stage5g-f-gprt-artifact.json",
             "debug/release GPRT artifact contract drift")
+    require(contract["gprt_artifact_schema_version"] == 3,
+            "R7 artifact schema contract drift")
+    require(contract["artifact_authority_path"] == "authenticated_clean_restart_then_prepare",
+            "R7 artifact authority path drift")
+    require(contract["artifact_fixture_feature"] == "stage5g-artifact-fixtures",
+            "R7 artifact fixture feature drift")
+    require(contract["canonical_package_roundtrip_per_persistable_phase"] is True,
+            "R7 canonical package roundtrip disabled")
+    require(contract["completed_retains_final_cleanup_ledger"] is True,
+            "R7 Completed ledger retention disabled")
+    require(contract["gprt07_receipt_count"] == 1,
+            "GPRT07 receipt contract drift")
+    require(contract["gprt07_callback_count"] == 0,
+            "GPRT07 callback contract drift")
+    require(contract["blocked_runtime_mutation"] is False,
+            "blocked artifact runtime mutation reopened")
     require(contract["frozen_stage5f_source_semantics"]["bar_ohlc_completion_authority"] is False,
             "bar OHLC authority opened")
     require(all(value is False for value in contract["closed_surfaces"].values()),
@@ -462,6 +487,9 @@ def check(root: Path, check_git: bool) -> None:
     stage5c = read(root, STAGE5C)
     stage5c_bridge = stage5c_bridge_source(stage5c)
     lib = read(root, LIB)
+    cargo = read(root, CARGO)
+    stage5d = read(root, STAGE5D)
+    hybrid_runtime = read(root, HYBRID_RUNTIME)
     gprt_bin = read(root, GPRT_BIN)
     design = read(root, DESIGN)
     gate = read(root, GATE)
@@ -470,6 +498,20 @@ def check(root: Path, check_git: bool) -> None:
     handoff = read(root, HANDOFF)
 
     check_contract(root, source)
+
+    require("default = []" in cargo, "artifact fixture feature became default")
+    require("stage5g-artifact-fixtures = []" in cargo,
+            "artifact fixture feature declaration missing")
+    require('required-features = ["stage5g-artifact-fixtures"]' in cargo,
+            "artifact binary is not sealed behind its explicit feature")
+    require("stage5g_artifact_prepare_clean_restart_authority" in stage5d,
+            "Stage 5D artifact authority fixture missing")
+    require('#[cfg(all(feature = "stage5g-artifact-fixtures", not(test)))]\npub(crate) fn stage5g_artifact_clean_restart_authority' in stage5d,
+            "non-test Stage 5D artifact authority is not feature-sealed")
+    require("stage5g_artifact_mr_protective_runtime_fixture" in hybrid_runtime,
+            "hybrid artifact runtime fixture missing")
+    require("stage5g_test_mr_protective_runtime_fixture" not in hybrid_runtime,
+            "legacy test-named artifact runtime fixture survived")
 
     require("mod stage5g_protective_completion;" in lib, "module not linked")
     require("pub use stage5g_protective_completion::" in lib, "public Stage 5G-f facade missing")
@@ -579,8 +621,10 @@ def check(root: Path, check_git: bool) -> None:
             "cleanup Pending outcome must remain Pending settlement state")
     require("Stage5gProtectiveCleanupOutcome::ExecutionObserved => {\n            Stage5gProtectiveCleanupSettlementState::ExecutionObserved" in source,
             "cleanup execution-observed outcome must require execution-observed settlement state")
-    require("cleanup_settlement_fingerprint_sha256: Some(\n            pending.cleanup_settlement_ledger.ledger_fingerprint_sha256,\n        )" in source,
-            "completed cleanup must preserve cleanup settlement fingerprint")
+    require("final_cleanup_settlement_ledger: Some(final_cleanup_settlement_ledger)" in source,
+            "Completed must retain the actual final cleanup settlement ledger")
+    require("cleanup_settlement_fingerprint_sha256: Some(cleanup_settlement_fingerprint_sha256)" in source,
+            "Completed must retain the actual final cleanup settlement fingerprint")
     require("cleanup_settlement_fingerprint_sha256: completed.cleanup_settlement_fingerprint_sha256" in source,
             "completed restart projection must preserve cleanup settlement fingerprint")
     require('"filled" | "executed" | "triggered" | "completed-as-execution"' in source,
@@ -605,7 +649,7 @@ def check(root: Path, check_git: bool) -> None:
         "stage5g_f_source_produced_gprt_artifact_row",
         "stage5g_f_artifact_transition",
         "stage5g_f_artifact_row_from_flat_cleanup_pending",
-        "stage5g_f_restored_pending_from_flat",
+        "stage5g_f_authenticated_package_roundtrip",
         "stage5g_f_gprt_artifact_rows_parallel_verified",
     ]:
         require(
@@ -616,10 +660,15 @@ def check(root: Path, check_git: bool) -> None:
         "phase_a_runtime_semantic_fingerprint_sha256",
         "phase_a_execution_receipt_fingerprint_sha256",
         "phase_a_execution_receipt_count",
+        "phase_a_callback_count",
+        "pre_runtime_semantic_fingerprint_sha256",
+        "pre_authenticated_restart_package_fingerprint_sha256",
         "phase_a_cleanup_request_ids",
         "phase_a_cleanup_batch_fingerprint_sha256",
         "phase_a_cleanup_ledger_fingerprint_sha256",
         "phase_a_protective_restart_projection_fingerprint_sha256",
+        "phase_a_canonical_restart_package_fingerprint_sha256",
+        "phase_a_authenticated_restore_succeeded",
         "phase_b_cleanup_request_states",
         "phase_b_cleanup_observation_fingerprints_sha256",
         "phase_b_final_cleanup_ledger_fingerprint_sha256",
@@ -629,22 +678,86 @@ def check(root: Path, check_git: bool) -> None:
         "phase_b_final_cycle_id",
         "phase_b_final_position_qty",
         "phase_b_completed_restart_projection_fingerprint_sha256",
+        "phase_b_completed_canonical_restart_package_fingerprint_sha256",
+        "phase_b_authenticated_restore_succeeded",
     ]:
         require(
             re.search(rf"pub\s+{re.escape(marker)}\s*:", source) is not None,
             f"missing source-produced artifact schema field: {marker}",
         )
-    require("schema_version: 2" in source, "R6 GPRT artifact schema version drift")
+    require("schema_version: 3" in source, "R7 GPRT artifact schema version drift")
     require("Stage5gProtectiveScenarioId::ALL\n        .into_iter()\n        .map(stage5g_f_source_produced_gprt_artifact_row)" in source,
             "GPRT artifact rows must be source-produced, not static scenario summaries")
     require("serde_json::to_vec(&sequential)" in source and "serde_json::to_vec(&parallel)" in source,
             "parallel artifact byte verifier missing")
+    require("stage5g_artifact_mr_protective_runtime_fixture" in source,
+            "artifact-only deterministic runtime fixture missing")
+    require("stage5g_test_mr_protective_runtime_fixture" not in source,
+            "test-named mutable runtime fixture leaked into the artifact path")
+    require('feature = "stage5g-artifact-fixtures"' in source,
+            "artifact fixture path is not feature-sealed")
+    artifact_builder = bounded_section(
+        source,
+        "fn stage5g_f_source_produced_gprt_artifact_row(",
+        "fn stage5g_f_artifact_row_from_flat_cleanup_pending(",
+    )
+    require("admit_stage5g_protective_completion_authority_from_source" not in artifact_builder,
+            "artifact builder bypasses production prepare authority")
+    require("prepare_stage5g_protective_completion(restored)" in source,
+            "artifact does not enter through production clean-restart prepare")
+    package_roundtrip = bounded_section(
+        source,
+        "fn stage5g_f_authenticated_package_roundtrip(",
+        "fn stage5g_f_artifact_scenario_side(",
+    )
+    for marker in [
+        "crate::export_stage5g_clean_restart(",
+        "crate::restore_stage5g_clean_restart(",
+        "stage5g_test_persistence_authority_from_source(",
+        "Stage5gCleanRestartExportInput",
+        "Stage5gLifecycleCommitmentKey::from_secret_bytes",
+    ]:
+        require(marker in package_roundtrip, f"authenticated package roundtrip missing: {marker}")
+    require("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" not in source,
+            "synthetic all-a authority fingerprint survived")
+    require("expected_ledger" not in artifact_builder and
+            "expected_ledger" not in bounded_section(
+                source,
+                "fn stage5g_f_artifact_row_from_flat_cleanup_pending(",
+                "fn stage5g_f_artifact_base_row(",
+            ), "artifact still synthesizes an expected cleanup ledger")
+    for marker in [
+        "pub final_cleanup_settlement_ledger: Option<Stage5gProtectiveCleanupSettlementLedgerV1>",
+        "pub final_cleanup_batch_restart_projection:",
+        "cleanup_settlement_ledger: completed.final_cleanup_settlement_ledger",
+        "cleanup_batch_restart_projection: final_cleanup_batch_restart_projection",
+        "stage5g_cleanup_ledger_all_terminal_non_execution(ledger)",
+        "stage5g_cleanup_ledger_is_valid(ledger, batch)",
+    ]:
+        require(marker in source, f"Completed final-ledger authority missing: {marker}")
+    for test in [
+        "stage5g_f_r7_artifact_enters_through_authenticated_production_prepare",
+        "stage5g_f_r7_gprt07_receipt_precedes_callback_and_runtime_is_unchanged",
+        "stage5g_f_r7_blocked_rows_freeze_no_runtime_mutation_and_no_callback",
+        "stage5g_f_r7_completed_retains_and_authenticates_final_cleanup_ledger",
+        "stage5g_f_r7_artifact_phase_b_ledger_is_restored_completed_truth",
+    ]:
+        require(re.search(rf"fn\s+{re.escape(test)}\s*\(", source) is not None,
+                f"missing R7 focused witness: {test}")
+    require("assert_eq!(row.phase_a_execution_receipt_count, 1);" in source,
+            "GPRT07 receipt-count=1 witness missing")
+    require("assert_eq!(row.phase_a_callback_count, 0);" in source,
+            "GPRT07 callback-count=0 witness missing")
+    require("Some(row.pre_runtime_semantic_fingerprint_sha256.as_str())" in source,
+            "blocked/awaiting runtime no-mutation witness missing")
     require("crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs" in preseal,
             "source-produced GPRT fixture source not sealed by scripts")
     require("stage5g-f-gprt-artifact.debug.json" in gate,
             "gate missing debug GPRT artifact emission")
     require("stage5g-f-gprt-artifact.release.json" in gate,
             "gate missing release GPRT artifact emission")
+    require(gate.count("--features stage5g-artifact-fixtures --bin stage5g_f_gprt_artifact") == 2,
+            "debug/release artifact emission is not sealed behind the explicit fixture feature")
     require('cmp "$artifact_dir/stage5g-f-gprt-artifact.debug.json" "$artifact_dir/stage5g-f-gprt-artifact.release.json"' in gate,
             "gate missing debug/release GPRT artifact cmp")
     require('shasum -a 256 "$artifact_dir/stage5g-f-gprt-artifact.debug.json"' in gate,
@@ -776,20 +889,26 @@ def check(root: Path, check_git: bool) -> None:
     require("cargo test --release -p strategy-runtime-core --lib stage5g_edc_r3_" in gate,
             "gate missing detached e-d-c R3 release tests")
     require(
-        f"git checkout --quiet -B {BRANCH} {SUBMITTED_R5}" in gate,
-        "gate missing exact detached submitted 1f8d7f3 R5 checkout",
+        f"git checkout --quiet -B {BRANCH} {SUBMITTED_R6}" in gate,
+        "gate missing exact detached submitted 79c5443 R6 checkout",
     )
     require(
-        "bash scripts/stage5g_f_r5_gate.sh" in gate,
-        "gate missing exact submitted R5 gate execution",
+        "bash scripts/stage5g_f_r6_gate.sh" in gate,
+        "gate missing exact submitted R6 gate execution",
     )
     require(ACCEPTED_R1 in gate, "gate missing accepted a28cedd R1 lineage verification")
-    require("stage5g-f-r6-gate: PASS" in gate, "gate PASS marker drift")
-    require("submitted-1f8d7f3=PASS" in gate, "gate submitted R5 PASS marker drift")
-    require(">= 430" in negative or "430" in negative, "negative harness lost floor")
+    require("stage5g-f-r7-gate: PASS" in gate, "gate PASS marker drift")
+    require("submitted-79c5443=PASS" in gate, "gate submitted R6 PASS marker drift")
+    require(">= 460" in negative or "460" in negative, "negative harness lost floor")
     require("EXPECTED = sorted([" in preseal, "preseal expected-path allowlist missing")
-    require('["bash", "scripts/stage5g_f_r6_gate.sh"]' in handoff,
-            "handoff builder does not run Stage 5G-f R5 gate")
+    require('["bash", "scripts/stage5g_f_r7_gate.sh"]' in handoff,
+            "handoff builder does not run Stage 5G-f R7 gate")
+    require('"stage5g-artifact-fixtures"' in handoff,
+            "handoff artifact emission is not feature-sealed")
+    require('"gprt_artifact_schema_version": 3' in handoff,
+            "handoff evidence lost GPRT schema v3")
+    require('"negative_floor": 460' in handoff,
+            "handoff evidence negative floor drift")
     require("stage5g-f-gprt-artifact.sha256" in handoff,
             "handoff builder must include GPRT artifact SHA256 sidecar")
     require("removed-stage5g-f-gprt-artifact.sha256" not in handoff,
