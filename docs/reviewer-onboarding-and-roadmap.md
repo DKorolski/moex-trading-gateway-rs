@@ -70,24 +70,18 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-Stage 5G-f was independently accepted and closed at
-`12af52d23218c67bc15b7b79835790e40834dfbb`. The active review target is now
-**Stage 5G-g — lifecycle matrix and fingerprint freeze**.
+Stage 5G-h and the complete Stage 5 were independently accepted and closed at
+`013e63bbee57c4f2d00a0587e9343ab623efba0d`. The active review target is
+**Transition Gate 5→6 — durable identity and persistence authority planning**.
 
-Stage 5G-g adds no trading semantics. It aggregates the complete accepted
-54-case Stage 5G matrix, executes the exact timer/restart witnesses in debug and
-release, reuses source-produced ACK/order/protective artifacts, proves parallel
-identity and keeps every live surface closed.
+The transition commit adds no Stage 6 production code. It freezes the broader
+Hybrid/runtime/identity authority inventory, defines the append-only
+broker-neutral request/client/order/trade chain, assigns persistence ownership,
+and specifies crash windows plus bounded Stage 6A–6E slices.
 
-The Stage 5G-g contract and primary gate are:
-
-- `docs/stage-5/stage5g-g-lifecycle-matrix-freeze.md`
-- `scripts/stage5g_g_gate.sh`
-
-After independent Stage 5G-g acceptance, Stage 5G-h may create the aggregate
-immutable closure package. FINAM native stop/SLTP/bracket endpoints, HTTP
-POST/DELETE, Redis live consumers, broker dispatch, runtime-live, real orders
-and Stage 6 remain forbidden.
+Stage 6 opens only after independent acceptance of this gate. FINAM
+POST/DELETE, Redis live consumers, broker dispatch, runtime-live, real orders,
+native stop/SLTP/bracket and Stage 7+ remain forbidden.
 
 ## Previous e-d-c target
 

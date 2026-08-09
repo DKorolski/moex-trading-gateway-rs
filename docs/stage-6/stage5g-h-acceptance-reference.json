@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "verdict": "ACCEPTED_CLOSED",
+  "stage": "Stage 5G-h",
+  "stage5g_status": "ACCEPTED_CLOSED",
+  "accepted_commit": "013e63bbee57c4f2d00a0587e9343ab623efba0d",
+  "accepted_archive": "moex-trading-project-013e63b.zip",
+  "accepted_archive_sha256": "2d37e701f732b531f7a7c599c2d09c6f3526aae8e6b86988cd87371a4fe03644",
+  "review_document_sha256": "022ea890ef0da7ca5148112dbb405879f658f7bf66cce0e6200fa020bb769304",
+  "independent_checks_sha256": "ce3f4d30d15d2aad0db3046c77424396d15af46e673be5be1b05a640231ee60a",
+  "transition_gate_5_to_6": "OPEN",
+  "stage6": "CLOSED_PENDING_TRANSITION_ACCEPTANCE"
+}

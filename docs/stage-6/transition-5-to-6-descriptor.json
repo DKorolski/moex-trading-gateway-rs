@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "gate": "Transition Gate 5->6",
+  "status": "implementation_candidate",
+  "source_ref_binding": {
+    "kind": "handoff_commit_marker",
+    "required_branch": "stage5g-lifecycle",
+    "required_parent": "013e63bbee57c4f2d00a0587e9343ab623efba0d"
+  },
+  "accepted_stage5": {
+    "closure_commit": "013e63bbee57c4f2d00a0587e9343ab623efba0d",
+    "closure_descriptor_path": "docs/stage-5/stage5g-closure-descriptor.json",
+    "closure_descriptor_sha256": "0ab4997d9fb62f390bb4d7e789ebc12a9b206007046ca2871bd6776031f37743",
+    "authority_inventory_path": "docs/stage-5/stage5g-authority-inventory.json",
+    "authority_inventory_sha256": "546552301c26fe80cd4106221e25aa2ec35c378708fc208cd3b9a46aa6ce2fd0",
+    "lifecycle_artifact_path": "docs/stage-5/accepted-stage5g-g-lifecycle-artifact.json",
+    "lifecycle_artifact_sha256": "0f6698a7256537596071eef762f7d623050d1a1ec3023ecafc9b3799e9ba8bf0",
+    "lifecycle_row_count": 54,
+    "acceptance_reference_path": "docs/stage-6/stage5g-h-acceptance-reference.json",
+    "acceptance_reference_sha256": "beb42e87f558078f1b8362291799739baf4129ef216ff633040581a424be3e86"
+  },
+  "transition_authority_inventory_path": "docs/stage-6/transition-5-to-6-authority-inventory.json",
+  "transition_authority_inventory_sha256": "e9a927bdd623fec3632862177e48c6792c7a362aad1900469ab8d25fd0fc91c0",
+  "stage6_contracts": [
+    "docs/stage-6/stage6-durable-identity-contract.md",
+    "docs/stage-6/stage6-persistence-ownership.md",
+    "docs/stage-6/stage6-crash-window-matrix.md",
+    "docs/stage-6/stage6-slice-plan.md"
+  ],
+  "stage6_slices": ["6A", "6B", "6C", "6D", "6E"],
+  "closed_surfaces": {
+    "finam_http_post": false,
+    "finam_http_delete": false,
+    "native_stop_sltp_bracket": false,
+    "redis_xreadgroup_xautoclaim": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "unattended_scheduler": false,
+    "stage7_plus": false
+  },
+  "stage6_status": "closed_pending_transition_gate_acceptance"
+}

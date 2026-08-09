@@ -27,14 +27,13 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 5 — real strategy semantics attachment.
+Transition Gate 5→6 — durable identity/persistence authority planning.
 
 Stage 2B is closed as the broker-neutral runtime source migration
 contract/foundation. Stage 3 is closed as market-data parity to strategy-input
 level. Stage 4 is accepted/closed as the broker-truth bootstrap foundation.
-Stage 5 attaches the real IMOEXF `HybridIntradayRuntime` semantics behind the
-paper/no-send boundary before any later identity-chain, command-consumer, or
-live execution stage.
+Stage 5 is accepted/closed at its paper/no-send boundary. Transition Gate 5→6
+must be accepted before Stage 6 durable-chain implementation can begin.
 
 ## Still blocked
 

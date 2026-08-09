@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "accepted_stage5_closure": "013e63bbee57c4f2d00a0587e9343ab623efba0d",
+  "authorities": [
+    {"path":"crates/broker-core/src/ids.rs","classifications":["semantic_authority","durable_identity_authority"],"sha256":"39f2b004d812f62f3636292c6b98e86c8a8242ece0bbd1da46986c838b0cf0ed"},
+    {"path":"crates/broker-core/src/command.rs","classifications":["semantic_authority","request_command_authority"],"sha256":"a1d39d7585bda16df4c2e22486874d7658f7bd2a0aaf8cbb7aa909c0fbeb4e6b"},
+    {"path":"crates/broker-core/src/operational_snapshot.rs","classifications":["semantic_authority","broker_truth_authority"],"sha256":"53e78a922b1c1a7948485f3016acdbcd64c3766618274a3b039233fc67d541ca"},
+    {"path":"crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs","classifications":["semantic_authority","selected_runtime_wrapper_authority"],"sha256":"4c0ff91c91348af698bccedf9e1e40f7da3f24d2a44d0a4fa6085c624ac953eb"},
+    {"path":"source-oracles/alor-stage5/hybrid_intraday_runtime.rs","classifications":["semantic_oracle","selected_wrapper_source_oracle"],"sha256":"6e15ab1b7212c56d3ecd8397b2d8991c1feccbde8eaa5e3d0051aec82a55f0aa"},
+    {"path":"crates/strategy-runtime-core/stage5b2-source-correspondence.toml","classifications":["correspondence_authority"],"sha256":"5a53d02d31468cf44f35b623fbddaf7938ce780988a85ed239615a3ba09d3397"},
+    {"path":"crates/strategy-runtime-core/src/stage5c_paper_host.rs","classifications":["semantic_authority","callback_authority"],"sha256":"6bc2d60b1eae9fc22673e9c741dc15c1aec238046be376d9fd688f5b7c642b32"},
+    {"path":"crates/strategy-runtime-core/src/stage5d_persistence.rs","classifications":["semantic_authority","restart_persistence_authority"],"sha256":"90ab3f9253c0b96fee8ea2c2aeb5e0eb9b0e4c99a3dfb0c404648b588c205eb2"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_clean_restart.rs","classifications":["restart_authority"],"sha256":"ab0d5ed1f73bc4cc8da7c377a865142da218fe10360c523c496d7076f02b15ac"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_mock_ack.rs","classifications":["semantic_authority","artifact_fixture_adapter"],"sha256":"79e4f0a17a00cf5e116cd15cbaec16a163ebfb31c8a9891b4ea1bc7ec29401e5"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_order_position.rs","classifications":["semantic_authority","artifact_fixture_adapter"],"sha256":"b77503965c888b80b37922f6a83c3a28dcb0c3a1fd7c56d10b95819cab61766f"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_timer.rs","classifications":["semantic_authority","timer_authority"],"sha256":"4201e99420ed356e45e462b72ac0f5d1d15e9afe3ea9a081c5f70a0a59577a58"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs","classifications":["semantic_authority","broker_reconciliation_authority"],"sha256":"41beb442517dc32cb3478a3e560e759cc1ee722533a434a505259ba92a76a790"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/application.rs","classifications":["semantic_authority","broker_truth_application_authority"],"sha256":"50bbb7a6c6b5c2556c1bcd427553dfa92fe235bb9d3b8bb00c3b6b7343109601"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_protective_completion.rs","classifications":["semantic_authority","protective_cleanup_ledger_authority"],"sha256":"6753adc139723b6921e4a9a2aa159f958ec08dcda2e785f92d7b77bbfb9de014"},
+    {"path":"crates/strategy-runtime-core/src/stage5g_lifecycle_freeze.rs","classifications":["evidence_adapter"],"sha256":"c1894b058ae935686eba198f74e99f2038eb81dd623bed0ba479505e6d69dd13"},
+    {"path":"docs/stage-5/accepted-stage5g-g-lifecycle-artifact.json","classifications":["accepted_evidence_authority"],"sha256":"0f6698a7256537596071eef762f7d623050d1a1ec3023ecafc9b3799e9ba8bf0"}
+  ]
+}

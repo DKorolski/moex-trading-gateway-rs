@@ -12,10 +12,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current transition
 
+- Stage 5G-h and Stage 5G were independently accepted and closed at
+  `013e63bbee57c4f2d00a0587e9343ab623efba0d`. Transition Gate 5→6 is the
+  current planning/authority target. It defines the broker-neutral durable
+  identity chain, single persistence ownership model and crash-window policy;
+  it contains no Stage 6 production implementation.
+- Stage 6 remains closed until independent Transition Gate acceptance. Stage
+  7+, Redis live consumers, FINAM execution, broker dispatch, runtime-live and
+  real orders remain closed.
 - Stage 5G-g was independently accepted and closed at
   `ee0505dfee71f043f3185c16cbdd563e3b36a6c1`. Its exact 54-row artifact SHA-256
   is `0f6698a7256537596071eef762f7d623050d1a1ec3023ecafc9b3799e9ba8bf0`.
-- Stage 5G-h is the current aggregate-closure candidate. It adds no lifecycle
+- Stage 5G-h added no lifecycle
   behavior: it pins the accepted artifact byte-for-byte, rechecks every row
   hash, produces ACK/order-position/protective evidence from independent
   concurrent source adapters, freezes timer/restart witness tuples and records
