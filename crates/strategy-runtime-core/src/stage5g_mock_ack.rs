@@ -1456,12 +1456,14 @@ fn stage5g_block(
     Stage5gMockAckFailure::Blocked(Box::new(Stage5gMockAckBlocked { reason, session }))
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
+pub(crate) mod tests {
     use broker_core::command::{CommandAckReason, CommandAckReasonCode};
     use broker_core::{Exchange, Market};
     use chrono::{Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
     use rust_decimal::Decimal;
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     use uuid::Uuid;
 
     use super::*;
@@ -1505,7 +1507,7 @@ mod tests {
         state: Stage5gMockAckState,
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     mod source_fixture {
         use super::*;
 
@@ -1980,8 +1982,12 @@ mod tests {
                 bar_close_ts - 600,
                 bar,
             );
-        let semantic = crate::apply_stage5c_semantic_bar(recovered, accepted)
-            .expect("production Stage 5C semantic bar");
+        let semantic = crate::stage5c_paper_host::stage5g_fixture_apply_semantic_bar_at(
+            recovered,
+            accepted,
+            Utc.timestamp_opt(bar_close_ts, 0).single().unwrap(),
+        )
+        .expect("production Stage 5C semantic bar");
         let settled = crate::settle_stage5c_semantic_result(semantic)
             .expect("production Stage 5C settled Market batch");
         let request_id = settled.intent_batch().request_ids()[0];
@@ -2039,8 +2045,12 @@ mod tests {
                 bar_close_ts - 600,
                 bar,
             );
-        let semantic = crate::apply_stage5c_semantic_bar(recovered, accepted)
-            .expect("production Stage 5C exit semantic bar");
+        let semantic = crate::stage5c_paper_host::stage5g_fixture_apply_semantic_bar_at(
+            recovered,
+            accepted,
+            Utc.timestamp_opt(bar_close_ts, 0).single().unwrap(),
+        )
+        .expect("production Stage 5C exit semantic bar");
         let settled = crate::settle_stage5c_semantic_result(semantic)
             .expect("production Stage 5C settled Market Exit batch");
         let request_id = settled.intent_batch().request_ids()[0];
@@ -2347,6 +2357,354 @@ mod tests {
             Err(blocked) => *blocked,
             Ok(_) => panic!("expected resolved ACK replay block"),
         }
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    pub(crate) fn stage5g_g_ack_artifact_rows(
+    ) -> Vec<crate::stage5g_lifecycle_freeze::Stage5gLifecycleArtifactRow> {
+        const TS: i64 = ACCEPTED_STAGE5F_BAR_CLOSE_TS;
+        let mut rows = Vec::with_capacity(10);
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let event = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_G_ACK_01"),
+            None,
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK01 accepted")
+            .into_resolved()
+            .expect("GACK01 resolves");
+        rows.push(stage5g_g_resolved_ack_row(
+            "GACK01_PLACE_ACCEPTED_EXACT_IDS",
+            "gack01_place_accepted_exact_ids_resolves_without_broker_truth",
+            "resolved",
+            pre,
+            &resolved,
+        ));
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let event = production_event(&fixture, 1, CommandAckStatus::Submitted, None, None);
+        let pending = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK02 submitted")
+            .into_awaiting()
+            .expect("GACK02 awaits broker id");
+        rows.push(stage5g_g_pending_ack_row(
+            "GACK02_SUBMITTED_MISSING_BROKER_ID_KEEPS_PENDING",
+            "gack02_and_gack03_missing_broker_id_waits_then_recovered_resolves",
+            "awaiting_broker_order_id",
+            pre,
+            &pending,
+        ));
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let event = production_event(&fixture, 1, CommandAckStatus::Submitted, None, None);
+        let pending = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK03 submitted")
+            .into_awaiting()
+            .expect("GACK03 awaits recovery");
+        let fixture = ProductionFixture {
+            session: pending,
+            ..fixture
+        };
+        let event = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Recovered,
+            Some("FINAM_G_ACK_03"),
+            Some(CommandAckReasonCode::RecoveredByBrokerTruth),
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK03 recovered")
+            .into_resolved()
+            .expect("GACK03 resolves");
+        rows.push(stage5g_g_resolved_ack_row(
+            "GACK03_RECOVERED_EXACT_BROKER_ID",
+            "gack02_and_gack03_missing_broker_id_waits_then_recovered_resolves",
+            "resolved_after_reconciliation",
+            pre,
+            &resolved,
+        ));
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let event = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Rejected,
+            None,
+            Some(CommandAckReasonCode::BrokerRejected),
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK04 rejected")
+            .into_resolved()
+            .expect("GACK04 resolves");
+        rows.push(stage5g_g_resolved_ack_row(
+            "GACK04_REJECTED_EXACT_REQUEST_CLEARS_PENDING",
+            "gack04_rejected_exact_request_clears_pending",
+            "resolved_rejected",
+            pre,
+            &resolved,
+        ));
+
+        for (scenario, status, disposition) in [
+            (
+                "GACK05_TIMEOUT_KEEPS_PENDING",
+                CommandAckStatus::Timeout,
+                "reconciliation_pending_timeout",
+            ),
+            (
+                "GACK06_UNKNOWN_PENDING_KEEPS_PENDING",
+                CommandAckStatus::UnknownPending,
+                "reconciliation_pending_unknown",
+            ),
+        ] {
+            let fixture = production_fixture(TS);
+            let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+            let event = production_event(&fixture, 1, status, None, None);
+            let pending = apply_stage5g_mock_ack(fixture.session, event)
+                .expect("ambiguous ACK retained")
+                .into_awaiting()
+                .expect("ambiguous ACK stays pending");
+            rows.push(stage5g_g_pending_ack_row(
+                scenario,
+                "gack05_and_gack06_ambiguous_statuses_keep_pending",
+                disposition,
+                pre,
+                &pending,
+            ));
+        }
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let accepted = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("FINAM_G_ACK_07"),
+            None,
+        );
+        let duplicate = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Duplicate,
+            Some("FINAM_G_ACK_07"),
+            Some(CommandAckReasonCode::DuplicateCommand),
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, accepted)
+            .expect("GACK07 accepted")
+            .into_resolved()
+            .expect("GACK07 resolves");
+        let resolved = apply_stage5g_duplicate_after_resolution(resolved, duplicate)
+            .expect("GACK07 duplicate is idempotent");
+        rows.push(stage5g_g_resolved_ack_row(
+            "GACK07_DUPLICATE_REQUIRES_PRIOR_OUTCOME",
+            "gack07_duplicate_requires_prior_outcome_and_exact_duplicate_is_noop",
+            "exact_duplicate_idempotent",
+            pre,
+            &resolved,
+        ));
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let event = production_event(&fixture, 1, CommandAckStatus::Expired, None, None);
+        let pending = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK08 unproved expiry retained")
+            .into_awaiting()
+            .expect("GACK08 proof required");
+        let fixture = ProductionFixture {
+            session: pending,
+            ..fixture
+        };
+        let event = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Expired,
+            None,
+            Some(CommandAckReasonCode::ExpiredCommand),
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK08 proof accepted")
+            .into_resolved()
+            .expect("GACK08 resolves");
+        rows.push(stage5g_g_resolved_ack_row(
+            "GACK08_EXPIRED_REQUIRES_EXACT_NO_SEND_PROOF",
+            "gack08_expired_requires_exact_no_send_proof",
+            "resolved_after_no_send_proof",
+            pre,
+            &resolved,
+        ));
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let mut event = production_event(&fixture, 1, CommandAckStatus::Accepted, None, None);
+        event.ack.request_id = StrategyRequestId::from(Uuid::from_u128(0x5a09));
+        let blocked = match apply_stage5g_mock_ack(fixture.session, event) {
+            Err(failure) => failure
+                .into_blocked()
+                .expect("GACK09 is retryable pre-callback"),
+            Ok(_) => panic!("GACK09 identity mismatch must block"),
+        };
+        rows.push(stage5g_g_blocked_ack_row(
+            "GACK09_REQUEST_OR_CLIENT_ID_MISMATCH_BLOCKS",
+            "gack09_wrong_request_and_client_ids_block_atomically",
+            "blocked_identity_mismatch",
+            pre,
+            &blocked,
+        ));
+
+        let fixture = production_fixture(TS);
+        let pre = stage5g_g_runtime_fingerprint(&fixture.session);
+        let event = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Timeout,
+            Some("FINAM_G_ACK_10_A"),
+            Some(CommandAckReasonCode::TimeoutUnknownPending),
+        );
+        let pending = apply_stage5g_mock_ack(fixture.session, event)
+            .expect("GACK10 observed id retained")
+            .into_awaiting()
+            .expect("GACK10 pending");
+        let fixture = ProductionFixture {
+            session: pending,
+            ..fixture
+        };
+        let event = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Recovered,
+            Some("FINAM_G_ACK_10_B"),
+            Some(CommandAckReasonCode::RecoveredByBrokerTruth),
+        );
+        let blocked = match apply_stage5g_mock_ack(fixture.session, event) {
+            Err(failure) => failure.into_blocked().expect("GACK10 retryable block"),
+            Ok(_) => panic!("GACK10 conflict must block"),
+        };
+        rows.push(stage5g_g_blocked_ack_row(
+            "GACK10_BROKER_ORDER_ID_CONFLICT_BLOCKS",
+            "gack10_conflicting_broker_order_id_blocks",
+            "blocked_broker_order_id_conflict",
+            pre,
+            &blocked,
+        ));
+
+        rows
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    fn stage5g_g_runtime_fingerprint(session: &Stage5gMockAckSession) -> String {
+        crate::stage5c_paper_host::stage5e_test_owned_strategy_state_fingerprint(
+            session.settled.stage5g_runtime_strategy(),
+        )
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    fn stage5g_g_runtime_outcome(
+        strategy: &HybridIntradayRuntimeStrategy,
+    ) -> (Option<String>, Option<String>, Option<String>) {
+        match Strategy::state(strategy) {
+            crate::runtime_compat::StrategyState::HybridIntradayRuntime {
+                active_cycle_id,
+                last_position_qty,
+                current_owner,
+                ..
+            } => (
+                current_owner.map(|owner| format!("{owner:?}")),
+                active_cycle_id.clone(),
+                Some(last_position_qty.to_string()),
+            ),
+            crate::runtime_compat::StrategyState::Idle => (None, None, None),
+        }
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[allow(clippy::too_many_arguments)]
+    fn stage5g_g_ack_row(
+        scenario: &str,
+        witness: &str,
+        disposition: &str,
+        pre: String,
+        post: String,
+        lifecycle: String,
+        callback_count: usize,
+        strategy: &HybridIntradayRuntimeStrategy,
+    ) -> crate::stage5g_lifecycle_freeze::Stage5gLifecycleArtifactRow {
+        let (owner, cycle, position) = stage5g_g_runtime_outcome(strategy);
+        crate::stage5g_lifecycle_freeze::stage5g_g_source_row(
+            scenario,
+            "ACK",
+            "5G-b",
+            vec![witness.to_string()],
+            disposition,
+            Some(pre),
+            Some(post),
+            lifecycle,
+            None,
+            callback_count,
+            None,
+            None,
+            owner,
+            cycle,
+            position,
+        )
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    fn stage5g_g_resolved_ack_row(
+        scenario: &str,
+        witness: &str,
+        disposition: &str,
+        pre: String,
+        resolved: &Stage5gResolvedMockAckPaperStrategy,
+    ) -> crate::stage5g_lifecycle_freeze::Stage5gLifecycleArtifactRow {
+        stage5g_g_ack_row(
+            scenario,
+            witness,
+            disposition,
+            pre,
+            resolved.post_lifecycle_state_fingerprint(),
+            resolved.transition_fingerprint_sha256().to_string(),
+            resolved.ack_outcomes().len(),
+            resolved.stage5g_runtime_strategy(),
+        )
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    fn stage5g_g_pending_ack_row(
+        scenario: &str,
+        witness: &str,
+        disposition: &str,
+        pre: String,
+        pending: &Stage5gMockAckSession,
+    ) -> crate::stage5g_lifecycle_freeze::Stage5gLifecycleArtifactRow {
+        let strategy = pending.settled.stage5g_runtime_strategy();
+        stage5g_g_ack_row(
+            scenario,
+            witness,
+            disposition,
+            pre,
+            crate::stage5c_paper_host::stage5e_test_owned_strategy_state_fingerprint(strategy),
+            pending.lifecycle_fingerprint_sha256(),
+            0,
+            strategy,
+        )
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    fn stage5g_g_blocked_ack_row(
+        scenario: &str,
+        witness: &str,
+        disposition: &str,
+        pre: String,
+        blocked: &Stage5gMockAckBlocked,
+    ) -> crate::stage5g_lifecycle_freeze::Stage5gLifecycleArtifactRow {
+        stage5g_g_pending_ack_row(scenario, witness, disposition, pre, blocked.session())
     }
 
     #[test]

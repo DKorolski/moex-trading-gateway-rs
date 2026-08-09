@@ -1481,7 +1481,7 @@ impl Stage5gTimerGeneratedIntentEscrow {
     pub fn summary(&self) -> &Stage5gOrderPositionSummary {
         &self.summary
     }
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     pub(crate) fn source_intent_projections(
         &self,
     ) -> Vec<crate::stage5c_paper_host::Stage5gSourceIntentProjection> {
@@ -1943,7 +1943,7 @@ fn replay_from_payload(payload: &Stage5gTimerCheckpointPayload) -> Stage5gReplay
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_reseal_checkpoint(
     payload: &Stage5gTimerCheckpointPayload,
 ) -> Stage5gTimerCheckpointEnvelope {

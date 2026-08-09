@@ -288,6 +288,8 @@ mod stage5f_atomic_hybrid_semantics;
 mod stage5g_clean_restart;
 #[allow(dead_code)] // Stage 5G-e-d-a contract is consumed by the reviewed e-d-b reducer.
 mod stage5g_fresh_broker_truth;
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+mod stage5g_lifecycle_freeze;
 mod stage5g_mock_ack;
 mod stage5g_order_position;
 mod stage5g_protective_completion;
@@ -461,6 +463,11 @@ pub use stage5g_clean_restart::{
     Stage5gCleanRestartExportInput, Stage5gCleanRestartLifecycleKind, Stage5gCleanRestartSource,
     Stage5gCleanRestartedCapability, Stage5gLifecycleCommitmentKey,
     Stage5gLifecycleCommitmentKeyError, STAGE5G_CLEAN_RESTART_EXTENSION_SCHEMA_VERSION,
+};
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+pub use stage5g_lifecycle_freeze::{
+    stage5g_g_lifecycle_artifact_json_pretty, stage5g_g_lifecycle_artifact_rows,
+    stage5g_g_lifecycle_artifact_rows_parallel_verified, Stage5gLifecycleArtifactRow,
 };
 pub use stage5g_mock_ack::{
     apply_stage5g_duplicate_after_resolution, apply_stage5g_mock_ack,

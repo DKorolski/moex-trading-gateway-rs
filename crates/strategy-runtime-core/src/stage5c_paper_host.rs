@@ -230,7 +230,8 @@ impl Stage5cRuntimeStateLoadedPaperStrategy {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[allow(dead_code)]
     pub(crate) fn stage5d_test_loaded_from_parts(
         strategy: HybridIntradayRuntimeStrategy,
         admission: Stage5cPaperHostAdmission,
@@ -602,7 +603,8 @@ pub(crate) enum Stage5cRuntimeStateLoadOrigin {
     },
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 impl Stage5cPaperHostAdmission {
     pub(crate) fn stage5d_test_new(
         strategy_id: String,
@@ -1715,7 +1717,8 @@ pub(crate) fn stage5e_test_sequence_inputs(
 }
 
 // STAGE5F-TEST-OWNERSHIP-FACTORY-BEGIN
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 pub(crate) mod stage5f_test_seams {
     use super::*;
 
@@ -1887,7 +1890,7 @@ pub(crate) fn stage5e_test_pending_recovered_state_fingerprint(
     stage5c_state_fingerprint(Strategy::state(recovered.strategy()))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5e_test_owned_strategy_state_fingerprint(
     strategy: &HybridIntradayRuntimeStrategy,
 ) -> String {
@@ -3143,7 +3146,7 @@ impl Stage5cSettledPaperStrategy {
         false
     }
     // STAGE5G-C-SOURCE-PROJECTION-BEGIN: settled-test-read-only-accessor
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     pub(crate) fn stage5g_source_intent_projections(&self) -> Vec<Stage5gSourceIntentProjection> {
         stage5g_source_intent_projections(&self.strategy, &self.batch)
     }
@@ -6340,6 +6343,15 @@ pub fn apply_stage5c_semantic_bar(
 ) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
     apply_stage5c_semantic_bar_at(recovered, accepted, Utc::now())
 }
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+pub(crate) fn stage5g_fixture_apply_semantic_bar_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    apply_stage5c_semantic_bar_at(recovered, accepted, now)
+}
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: stage5e-b3e-callback-materialization
 // STAGE5E-B3E-CALLBACK-IMPLEMENTATION-BEGIN: private-materialization-v1
 pub(crate) struct Stage5cB3eCallbackMaterialSeal(());
@@ -7206,7 +7218,7 @@ fn apply_stage5c_semantic_bar_at(
     })
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_apply_stage5c_semantic_bar_at(
     recovered: Stage5cPendingRecoveredPaperStrategy,
     accepted: Stage5cAcceptedSemanticBar,

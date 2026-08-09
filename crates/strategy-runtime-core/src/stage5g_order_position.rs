@@ -1687,7 +1687,7 @@ fn validate_component_time(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn apply_to_slot(
     account_id: &broker_core::BrokerAccountId,
     instrument: &InstrumentId,
@@ -2576,7 +2576,7 @@ pub(crate) fn stage5g_account_wide_order_safety(
     Stage5gAccountWideOrderSafety::Safe
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn has_non_target_active_order_for_slots(
     slots: &[Stage5gOrderPositionSlot],
     truth: &BrokerTruthSnapshot,
@@ -3370,7 +3370,8 @@ impl Stage5gMarketTerminalConvergedPaperStrategy {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 pub(crate) mod tests {
     use broker_core::command::CommandAck;
     use broker_core::{
@@ -6019,6 +6020,411 @@ pub(crate) mod tests {
         assert_eq!(final_checkpoint.payload.last_total_sequence, Some(3));
         crate::validate_stage5g_timer_checkpoint(&final_checkpoint)
             .expect("full bar/timer/ACK/truth route restores exactly");
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    pub(crate) fn stage5g_g_order_position_artifact_rows(
+    ) -> Vec<crate::stage5g_lifecycle_freeze::Stage5gLifecycleArtifactRow> {
+        let account = BrokerAccountId::new("ACC_TEST_0001");
+        let instrument = target();
+        let mut rows = Vec::with_capacity(16);
+
+        let mut current = slot();
+        let pre = stage5g_g_slot_fingerprint(&current);
+        apply_to_slot(
+            &account,
+            &instrument,
+            &mut current,
+            &evidence(
+                2,
+                truth(
+                    vec![order(OrderStatus::Working, Decimal::ZERO, 2)],
+                    vec![],
+                    vec![],
+                    2,
+                ),
+            ),
+        )
+        .expect("GOP01 working evidence");
+        rows.push(stage5g_g_gop_row(
+            "GOP01_WORKING_ORDER_REMAINS_ACTIVE",
+            "gop01_working_order_remains_active",
+            "awaiting_working",
+            pre,
+            stage5g_g_slot_fingerprint(&current),
+        ));
+
+        let mut current = slot();
+        let pre = stage5g_g_slot_fingerprint(&current);
+        for (sequence, qty, trades) in [
+            (
+                2,
+                Decimal::new(4, 1),
+                vec![trade("TRADE_1", Decimal::new(4, 1), 2)],
+            ),
+            (
+                3,
+                Decimal::new(7, 1),
+                vec![
+                    trade("TRADE_1", Decimal::new(4, 1), 2),
+                    trade("TRADE_2", Decimal::new(3, 1), 3),
+                ],
+            ),
+        ] {
+            apply_to_slot(
+                &account,
+                &instrument,
+                &mut current,
+                &evidence(
+                    sequence,
+                    truth(
+                        vec![order(
+                            OrderStatus::PartiallyFilled,
+                            qty,
+                            i64::try_from(sequence).unwrap(),
+                        )],
+                        trades,
+                        vec![],
+                        i64::try_from(sequence).unwrap(),
+                    ),
+                ),
+            )
+            .expect("GOP02 monotonic partial fill");
+        }
+        rows.push(stage5g_g_gop_row(
+            "GOP02_PARTIAL_FILL_ADVANCES_MONOTONICALLY",
+            "gop02_partial_fill_advances_monotonically",
+            "awaiting_partial_fill",
+            pre,
+            stage5g_g_slot_fingerprint(&current),
+        ));
+
+        let mut current = slot();
+        let pre = stage5g_g_slot_fingerprint(&current);
+        let first_qty = Decimal::new(7, 1);
+        apply_to_slot(
+            &account,
+            &instrument,
+            &mut current,
+            &evidence(
+                2,
+                truth(
+                    vec![order(OrderStatus::PartiallyFilled, first_qty, 2)],
+                    vec![trade("TRADE_1", first_qty, 2)],
+                    vec![],
+                    2,
+                ),
+            ),
+        )
+        .expect("GOP03 initial partial fill");
+        let regression = evidence(
+            3,
+            truth(
+                vec![order(OrderStatus::PartiallyFilled, Decimal::new(4, 1), 3)],
+                vec![trade("TRADE_1", Decimal::new(4, 1), 3)],
+                vec![],
+                3,
+            ),
+        );
+        assert_eq!(
+            apply_to_slot(&account, &instrument, &mut current, &regression),
+            Err(Stage5gOrderPositionError::FilledQuantityRegression)
+        );
+        rows.push(stage5g_g_gop_row(
+            "GOP03_PARTIAL_FILL_REGRESSION_BLOCKS",
+            "gop03_partial_fill_regression_blocks",
+            "blocked_fill_regression",
+            pre,
+            stage5g_g_slot_fingerprint(&current),
+        ));
+
+        let mut current = slot();
+        let pre = stage5g_g_slot_fingerprint(&current);
+        let filled_without_position = evidence(
+            2,
+            truth(
+                vec![order(OrderStatus::Filled, Decimal::ONE, 2)],
+                vec![trade("TRADE_1", Decimal::ONE, 2)],
+                vec![],
+                2,
+            ),
+        );
+        assert_eq!(
+            apply_to_slot(
+                &account,
+                &instrument,
+                &mut current,
+                &filled_without_position
+            ),
+            Err(Stage5gOrderPositionError::PositionSideMismatch)
+        );
+        rows.push(stage5g_g_gop_row(
+            "GOP04_FILLED_REQUIRES_TARGET_POSITION_CONFIRMATION",
+            "gop04_filled_requires_target_position_confirmation",
+            "blocked_position_confirmation",
+            pre,
+            stage5g_g_slot_fingerprint(&current),
+        ));
+
+        for (scenario, witness, status, disposition) in [
+            (
+                "GOP05_CANCELED_TERMINATES_WITHOUT_POSITION_CHANGE",
+                "gop05_canceled_terminates_without_position_change",
+                OrderStatus::Canceled,
+                "terminal_canceled",
+            ),
+            (
+                "GOP06_REJECTED_TERMINATES_WITHOUT_POSITION_CHANGE",
+                "gop06_rejected_terminates_without_position_change",
+                OrderStatus::Rejected,
+                "terminal_rejected",
+            ),
+            (
+                "GOP07_EXPIRED_TERMINATES_WITHOUT_POSITION_CHANGE",
+                "gop07_expired_terminates_without_position_change",
+                OrderStatus::Expired,
+                "terminal_expired",
+            ),
+        ] {
+            let mut current = slot();
+            let pre = stage5g_g_slot_fingerprint(&current);
+            apply_to_slot(
+                &account,
+                &instrument,
+                &mut current,
+                &evidence(
+                    2,
+                    truth(vec![order(status, Decimal::ZERO, 2)], vec![], vec![], 2),
+                ),
+            )
+            .expect("terminal non-execution evidence");
+            rows.push(stage5g_g_gop_row(
+                scenario,
+                witness,
+                disposition,
+                pre,
+                stage5g_g_slot_fingerprint(&current),
+            ));
+        }
+
+        let mut current = slot();
+        let pre = stage5g_g_slot_fingerprint(&current);
+        let unknown = evidence(
+            2,
+            truth(
+                vec![order(
+                    OrderStatus::Unknown("broker_new".to_string()),
+                    Decimal::ZERO,
+                    2,
+                )],
+                vec![],
+                vec![],
+                2,
+            ),
+        );
+        assert_eq!(
+            apply_to_slot(&account, &instrument, &mut current, &unknown),
+            Err(Stage5gOrderPositionError::UnknownOrderStatus)
+        );
+        rows.push(stage5g_g_gop_row(
+            "GOP08_UNKNOWN_ORDER_STATUS_BLOCKS",
+            "gop08_unknown_order_status_blocks",
+            "blocked_unknown_status",
+            pre,
+            stage5g_g_slot_fingerprint(&current),
+        ));
+
+        let identical = evidence(
+            2,
+            truth(
+                vec![order(OrderStatus::Working, Decimal::ZERO, 2)],
+                vec![],
+                vec![],
+                2,
+            ),
+        );
+        let state = state_with_evidence(&identical);
+        assert_eq!(
+            classify_evidence_replay(
+                &state,
+                &evidence_identity(&identical),
+                &evidence_fingerprint(&identical),
+            ),
+            Ok(true)
+        );
+        let state_fingerprint = stage5g_restart_state_semantic_sha256(&state);
+        rows.push(stage5g_g_gop_row(
+            "GOP09_IDENTICAL_EVENT_REPLAY_IS_IDEMPOTENT",
+            "gop09_identical_event_replay_is_idempotent",
+            "exact_replay_noop",
+            state_fingerprint.clone(),
+            state_fingerprint,
+        ));
+
+        let first = identical;
+        let conflicting = evidence(
+            3,
+            truth(
+                vec![order(OrderStatus::PartiallyFilled, Decimal::new(4, 1), 2)],
+                vec![trade("TRADE_1", Decimal::new(4, 1), 2)],
+                vec![],
+                2,
+            ),
+        );
+        let state = state_with_evidence(&first);
+        assert_eq!(
+            classify_evidence_replay(
+                &state,
+                &evidence_identity(&conflicting),
+                &evidence_fingerprint(&conflicting),
+            ),
+            Err(Stage5gOrderPositionError::ConflictingDuplicateEvidence)
+        );
+        let state_fingerprint = stage5g_restart_state_semantic_sha256(&state);
+        rows.push(stage5g_g_gop_row(
+            "GOP10_CONFLICTING_DUPLICATE_EVENT_BLOCKS",
+            "gop10_conflicting_duplicate_event_is_detectable",
+            "blocked_conflicting_duplicate",
+            state_fingerprint.clone(),
+            state_fingerprint,
+        ));
+
+        let base = slot();
+        let base_fingerprint = stage5g_g_slot_fingerprint(&base);
+        let mut non_target = order(OrderStatus::Filled, Decimal::ONE, 2);
+        non_target.instrument = other();
+        non_target.broker_order_id = Some(BrokerOrderId::new("ORDER_OTHER_1"));
+        assert_eq!(
+            select_target_order(&base, &truth(vec![non_target], vec![], vec![], 2)),
+            Err(Stage5gOrderPositionError::MissingTargetOrder)
+        );
+        rows.push(stage5g_g_gop_row(
+            "GOP11_NON_TARGET_EVENT_CANNOT_SETTLE_TARGET",
+            "gop11_non_target_event_cannot_settle_target",
+            "blocked_missing_target_order",
+            base_fingerprint.clone(),
+            base_fingerprint.clone(),
+        ));
+
+        let mut non_target = order(OrderStatus::Working, Decimal::ZERO, 2);
+        non_target.instrument = other();
+        non_target.broker_order_id = Some(BrokerOrderId::new("ORDER_OTHER_1"));
+        assert!(has_non_target_active_order_for_slots(
+            std::slice::from_ref(&base),
+            &truth(vec![non_target], vec![], vec![], 2)
+        ));
+        rows.push(stage5g_g_gop_row(
+            "GOP12_ACCOUNT_WIDE_ACTIVE_ORDER_IS_SAFETY_GUARD",
+            "gop12_account_wide_active_order_is_safety_guard",
+            "blocked_account_safety_guard",
+            base_fingerprint.clone(),
+            base_fingerprint.clone(),
+        ));
+
+        assert_eq!(
+            validate_source_position(
+                &base,
+                &position(-Decimal::ONE, 2),
+                Some(&order(OrderStatus::Filled, Decimal::ONE, 2)),
+            ),
+            Err(Stage5gOrderPositionError::PositionSideMismatch)
+        );
+        rows.push(stage5g_g_gop_row(
+            "GOP13_TARGET_POSITION_SIDE_MISMATCH_BLOCKS",
+            "gop13_target_position_side_mismatch_blocks",
+            "blocked_position_side",
+            base_fingerprint.clone(),
+            base_fingerprint.clone(),
+        ));
+
+        assert_eq!(
+            validate_source_position(
+                &base,
+                &position(Decimal::new(2, 0), 2),
+                Some(&order(OrderStatus::Filled, Decimal::ONE, 2)),
+            ),
+            Err(Stage5gOrderPositionError::PositionOverfill)
+        );
+        rows.push(stage5g_g_gop_row(
+            "GOP14_TARGET_POSITION_OVERFILL_BLOCKS",
+            "gop14_target_position_overfill_blocks",
+            "blocked_position_overfill",
+            base_fingerprint.clone(),
+            base_fingerprint.clone(),
+        ));
+
+        let mut current = base.clone();
+        let pre = stage5g_g_slot_fingerprint(&current);
+        validate_trades(
+            &mut current,
+            &order(OrderStatus::Filled, Decimal::ONE, 2),
+            &[trade("TRADE_1", Decimal::ONE, 2)],
+        )
+        .expect("GOP15 correlated trade");
+        rows.push(stage5g_g_gop_row(
+            "GOP15_CORRELATED_TRADE_SUPPORTS_FILL_TRUTH",
+            "gop15_correlated_trade_supports_fill_truth",
+            "correlated_trade_accepted",
+            pre,
+            stage5g_g_slot_fingerprint(&current),
+        ));
+
+        let mut current = base;
+        let pre = stage5g_g_slot_fingerprint(&current);
+        assert_eq!(
+            validate_trades(
+                &mut current,
+                &order(OrderStatus::Filled, Decimal::ONE, 2),
+                &[trade("TRADE_1", Decimal::new(5, 1), 2)],
+            ),
+            Err(Stage5gOrderPositionError::TradeQuantityMismatch)
+        );
+        rows.push(stage5g_g_gop_row(
+            "GOP16_TRADE_IDENTITY_OR_QUANTITY_MISMATCH_BLOCKS",
+            "gop16_trade_identity_or_quantity_mismatch_blocks",
+            "blocked_trade_mismatch",
+            pre,
+            stage5g_g_slot_fingerprint(&current),
+        ));
+
+        rows
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    fn stage5g_g_slot_fingerprint(slot: &Stage5gOrderPositionSlot) -> String {
+        format!("{:x}", Sha256::digest(serde_json::to_vec(slot).unwrap()))
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    fn stage5g_g_gop_row(
+        scenario: &str,
+        witness: &str,
+        disposition: &str,
+        pre_lifecycle_fingerprint: String,
+        post_lifecycle_fingerprint: String,
+    ) -> crate::stage5g_lifecycle_freeze::Stage5gLifecycleArtifactRow {
+        crate::stage5g_lifecycle_freeze::stage5g_g_source_row(
+            scenario,
+            "ORDER_POSITION",
+            "5G-c",
+            vec![witness.to_string()],
+            disposition,
+            None,
+            None,
+            format!(
+                "{:x}",
+                Sha256::digest(
+                    format!("{pre_lifecycle_fingerprint}:{post_lifecycle_fingerprint}").as_bytes()
+                )
+            ),
+            None,
+            0,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     }
 
     #[test]

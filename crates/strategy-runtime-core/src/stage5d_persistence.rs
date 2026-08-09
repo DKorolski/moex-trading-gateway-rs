@@ -3879,7 +3879,7 @@ pub(crate) fn stage5d_reconstruct_runtime_from_clean_restart(
     Ok((fresh_strategy, decoded.stage5g_extension_json))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_rehash_clean_restart_package(
     bytes: &[u8],
     mutate_envelope: impl FnOnce(&mut serde_json::Value),
@@ -4009,7 +4009,7 @@ pub(crate) fn stage5g_test_fully_reseal_application_package(
 /// hash after coherent semantic mutations, while deliberately retaining the
 /// original operator HMAC. A package produced here must therefore reach the
 /// keyed boundary and fail there rather than at an unrelated checksum gate.
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_rehash_full_clean_restart_package(
     bytes: &[u8],
     mutate_envelope: impl FnOnce(&mut serde_json::Value),
@@ -6397,7 +6397,8 @@ pub(crate) fn stage5g_artifact_clean_restart_authority(
 }
 
 // STAGE5F-TEST-FULL-RESTART-ORACLE-BEGIN
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 pub(crate) mod stage5f_test_seams {
     use super::*;
     use chrono::{Datelike, Weekday};

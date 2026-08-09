@@ -70,32 +70,24 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-Stage 5G-e-d-c R3 was independently accepted at
-`c38d2e44e083e39552ea716823e43ebae775b881`. The active review target is now
-**Stage 5G-f — paper/mock Mean Reversion protective completion**.
+Stage 5G-f was independently accepted and closed at
+`12af52d23218c67bc15b7b79835790e40834dfbb`. The active review target is now
+**Stage 5G-g — lifecycle matrix and fingerprint freeze**.
 
-Stage 5G-f is one direct successor to `c38d2e4`. It completes only the eight
-frozen GPRT protective cases by consuming an accepted restored lifecycle
-authority and canonical broker/runtime feedback. Target completion requires
-exact `TakeProfit` filled evidence plus complete flat target-position truth.
-Stop completion requires exact `StopLoss` execution-like evidence plus complete
-flat target-position truth. F12–F15 remain no-bar-exit Stage 5F semantics:
-bar OHLC highs/lows are not protective execution authority.
+Stage 5G-g adds no trading semantics. It aggregates the complete accepted
+54-case Stage 5G matrix, executes the exact timer/restart witnesses in debug and
+release, reuses source-produced ACK/order/protective artifacts, proves parallel
+identity and keeps every live surface closed.
 
-The Stage 5G-f contract is:
+The Stage 5G-g contract and primary gate are:
 
-- `docs/stage-5/stage5g-f-protective-completion-contract.json`
-- `docs/stage-5/stage5g-f-protective-completion-contract.md`
+- `docs/stage-5/stage5g-g-lifecycle-matrix-freeze.md`
+- `scripts/stage5g_g_gate.sh`
 
-Primary gate:
-
-```bash
-bash scripts/stage5g_f_gate.sh
-```
-
-The current Stage 5G-f candidate still forbids FINAM native stop/SLTP/bracket
-endpoints, HTTP POST/DELETE, Redis live consumers, broker dispatch, a second
-callback path, runtime-live, real orders, Stage 5G-g/h and Stage 6.
+After independent Stage 5G-g acceptance, Stage 5G-h may create the aggregate
+immutable closure package. FINAM native stop/SLTP/bracket endpoints, HTTP
+POST/DELETE, Redis live consumers, broker dispatch, runtime-live, real orders
+and Stage 6 remain forbidden.
 
 ## Previous e-d-c target
 

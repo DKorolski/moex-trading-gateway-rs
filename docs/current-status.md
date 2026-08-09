@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-07.
+Status date: 2026-08-09.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,21 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current transition
+
+- Stage 5G-f was independently accepted and closed at
+  `12af52d23218c67bc15b7b79835790e40834dfbb`.
+- Stage 5G-g is the current implementation candidate. It freezes the exact
+  54-case lifecycle matrix in one deterministic artifact: 10 ACK, 16
+  order/position, 8 timer, 12 restart and 8 protective rows. ACK and
+  order/position use narrow source-produced artifact adapters; protective rows
+  reuse the accepted Stage 5G-f runtime artifact; timer/restart remain bound to
+  and executed through their exact accepted witnesses without fabricating
+  unavailable runtime fingerprints.
+- The Stage 5G-g gate proves debug/release artifact identity, default parallel
+  identity, exact scenario ordering, closed live surfaces and a 10-case
+  aggregate negative mutation matrix. Independent acceptance is still pending.
+- After Stage 5G-g acceptance, only Stage 5G-h aggregate immutable acceptance
+  remains before Stage 5G can close. Stage 6 is not opened automatically.
 
 - Stage 5G-e-d-c R3 was independently accepted at
   `c38d2e44e083e39552ea716823e43ebae775b881` and pushed to `origin/main`.

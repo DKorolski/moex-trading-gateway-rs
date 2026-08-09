@@ -1079,7 +1079,7 @@ pub(crate) fn stage5g_test_persistence_authority_from_source(
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_projection_from_source(
     source: &Stage5gCleanRestartSource,
 ) -> Result<Stage5gCleanRestartProjectionV1, Stage5gCleanRestartError> {
@@ -1986,7 +1986,7 @@ fn authenticated_restart_package_commitment_sha256(
     semantic_sha256(&canonical)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_source_authority_anchor_sha256(
     projection: &Stage5gCleanRestartProjectionV1,
 ) -> String {
@@ -2168,7 +2168,7 @@ fn lifecycle_authority_sha256(
     Ok(format!("{:x}", Sha256::digest(bytes)))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_reseal_lifecycle_authority(
     projection: &mut Stage5gCleanRestartProjectionV1,
 ) {
@@ -2179,7 +2179,7 @@ pub(crate) fn stage5g_test_reseal_lifecycle_authority(
     stage5g_test_reseal_nested_integrity(projection);
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage5g_test_reseal_nested_integrity(
     projection: &mut Stage5gCleanRestartProjectionV1,
 ) {
