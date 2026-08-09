@@ -467,7 +467,8 @@ pub use stage5g_clean_restart::{
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub use stage5g_lifecycle_freeze::{
     stage5g_g_lifecycle_artifact_json_pretty, stage5g_g_lifecycle_artifact_rows,
-    stage5g_g_lifecycle_artifact_rows_parallel_verified, Stage5gLifecycleArtifactRow,
+    stage5g_g_lifecycle_artifact_rows_parallel_verified,
+    stage5g_h_sequential_lifecycle_artifact_json_pretty, Stage5gLifecycleArtifactRow,
 };
 pub use stage5g_mock_ack::{
     apply_stage5g_duplicate_after_resolution, apply_stage5g_mock_ack,

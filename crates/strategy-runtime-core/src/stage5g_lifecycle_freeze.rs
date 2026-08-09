@@ -544,25 +544,45 @@ pub fn stage5g_g_lifecycle_artifact_rows() -> Vec<Stage5gLifecycleArtifactRow> {
 
 pub fn stage5g_g_lifecycle_artifact_rows_parallel_verified() -> Vec<Stage5gLifecycleArtifactRow> {
     let sequential = stage5g_g_lifecycle_artifact_rows();
-    let handles = sequential
-        .iter()
-        .cloned()
-        .map(|row| std::thread::spawn(move || row))
-        .collect::<Vec<_>>();
-    let parallel = handles
-        .into_iter()
-        .map(|handle| handle.join().expect("Stage 5G-g worker joins"))
-        .collect::<Vec<_>>();
+    let ack = std::thread::spawn(crate::stage5g_mock_ack::tests::stage5g_g_ack_artifact_rows);
+    let order_position = std::thread::spawn(|| {
+        crate::stage5g_order_position::tests::stage5g_g_order_position_artifact_rows()
+    });
+    let protective = std::thread::spawn(|| {
+        crate::stage5g_f_gprt_artifact_rows_parallel_verified()
+            .into_iter()
+            .map(protective_row)
+            .collect::<Vec<_>>()
+    });
+
+    let mut parallel = ack.join().expect("Stage 5G-h ACK source worker joins");
+    parallel.extend(
+        order_position
+            .join()
+            .expect("Stage 5G-h order/position source worker joins"),
+    );
+    parallel.extend(TIMER.into_iter().chain(RESTART).map(accepted_witness_row));
+    parallel.extend(
+        protective
+            .join()
+            .expect("Stage 5G-h protective source worker joins"),
+    );
     assert_eq!(
         serde_json::to_vec(&sequential).expect("sequential artifact serializes"),
-        serde_json::to_vec(&parallel).expect("parallel artifact serializes")
+        serde_json::to_vec(&parallel).expect("parallel artifact serializes"),
+        "Stage 5G-h true-parallel source production must preserve accepted bytes"
     );
-    sequential
+    parallel
 }
 
 pub fn stage5g_g_lifecycle_artifact_json_pretty() -> String {
     serde_json::to_string_pretty(&stage5g_g_lifecycle_artifact_rows_parallel_verified())
         .expect("Stage 5G-g artifact serializes")
+}
+
+pub fn stage5g_h_sequential_lifecycle_artifact_json_pretty() -> String {
+    serde_json::to_string_pretty(&stage5g_g_lifecycle_artifact_rows())
+        .expect("Stage 5G-h sequential artifact serializes")
 }
 
 fn accepted_witness_row(witness: AcceptedWitness) -> Stage5gLifecycleArtifactRow {

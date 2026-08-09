@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 5G-h",
+  "status": "implementation_candidate",
+  "source_ref_binding": {
+    "kind": "handoff_commit_marker",
+    "required_branch": "stage5g-lifecycle",
+    "required_parent": "ee0505dfee71f043f3185c16cbdd563e3b36a6c1"
+  },
+  "accepted_stage5g_g_predecessor": "ee0505dfee71f043f3185c16cbdd563e3b36a6c1",
+  "accepted_stage5g_f_predecessor": "12af52d23218c67bc15b7b79835790e40834dfbb",
+  "accepted_matrix": {
+    "path": "docs/stage-5/accepted-stage5g-g-lifecycle-artifact.json",
+    "sha256": "0f6698a7256537596071eef762f7d623050d1a1ec3023ecafc9b3799e9ba8bf0",
+    "schema_version": 1,
+    "row_count": 54,
+    "family_counts": {"ACK":10,"ORDER_POSITION":16,"TIMER":8,"RESTART":12,"PROTECTIVE":8}
+  },
+  "authority_inventory": "docs/stage-5/stage5g-authority-inventory.json",
+  "authority_inventory_sha256": "546552301c26fe80cd4106221e25aa2ec35c378708fc208cd3b9a46aa6ce2fd0",
+  "parallel_source_families": ["ACK", "ORDER_POSITION", "PROTECTIVE"],
+  "immutable_witness_families": ["TIMER", "RESTART"],
+  "closed_surfaces": {
+    "finam_transport": false,
+    "http_post_delete": false,
+    "redis_live_consumer_groups": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "native_stop_sltp_bracket": false,
+    "stage6": false
+  },
+  "next_transition": "Transition Gate 5->6",
+  "stage6_status": "closed_pending_transition_gate_acceptance"
+}

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 5G-h",
+  "accepted_stage5g_g_predecessor": "ee0505dfee71f043f3185c16cbdd563e3b36a6c1",
+  "authorities": [
+    {"classification":"semantic_authority","path":"crates/broker-core/src/command.rs","sha256":"a1d39d7585bda16df4c2e22486874d7658f7bd2a0aaf8cbb7aa909c0fbeb4e6b"},
+    {"classification":"semantic_authority","path":"crates/broker-core/src/operational_snapshot.rs","sha256":"53e78a922b1c1a7948485f3016acdbcd64c3766618274a3b039233fc67d541ca"},
+    {"classification":"semantic_authority","path":"crates/strategy-runtime-core/src/stage5c_paper_host.rs","sha256":"6bc2d60b1eae9fc22673e9c741dc15c1aec238046be376d9fd688f5b7c642b32"},
+    {"classification":"restart_authority","path":"crates/strategy-runtime-core/src/stage5d_persistence.rs","sha256":"90ab3f9253c0b96fee8ea2c2aeb5e0eb9b0e4c99a3dfb0c404648b588c205eb2"},
+    {"classification":"fixture_only_adapter","path":"crates/strategy-runtime-core/src/stage5g_mock_ack.rs","sha256":"79e4f0a17a00cf5e116cd15cbaec16a163ebfb31c8a9891b4ea1bc7ec29401e5"},
+    {"classification":"fixture_only_adapter","path":"crates/strategy-runtime-core/src/stage5g_order_position.rs","sha256":"b77503965c888b80b37922f6a83c3a28dcb0c3a1fd7c56d10b95819cab61766f"},
+    {"classification":"semantic_authority","path":"crates/strategy-runtime-core/src/stage5g_timer.rs","sha256":"4201e99420ed356e45e462b72ac0f5d1d15e9afe3ea9a081c5f70a0a59577a58"},
+    {"classification":"restart_authority","path":"crates/strategy-runtime-core/src/stage5g_clean_restart.rs","sha256":"ab0d5ed1f73bc4cc8da7c377a865142da218fe10360c523c496d7076f02b15ac"},
+    {"classification":"semantic_authority","path":"crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs","sha256":"41beb442517dc32cb3478a3e560e759cc1ee722533a434a505259ba92a76a790"},
+    {"classification":"semantic_authority","path":"crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/application.rs","sha256":"50bbb7a6c6b5c2556c1bcd427553dfa92fe235bb9d3b8bb00c3b6b7343109601"},
+    {"classification":"semantic_authority","path":"crates/strategy-runtime-core/src/stage5g_protective_completion.rs","sha256":"6753adc139723b6921e4a9a2aa159f958ec08dcda2e785f92d7b77bbfb9de014"},
+    {"classification":"evidence_adapter","path":"crates/strategy-runtime-core/src/stage5g_lifecycle_freeze.rs","sha256":"c1894b058ae935686eba198f74e99f2038eb81dd623bed0ba479505e6d69dd13"},
+    {"classification":"evidence_adapter","path":"docs/stage-5/accepted-stage5g-g-lifecycle-artifact.json","sha256":"0f6698a7256537596071eef762f7d623050d1a1ec3023ecafc9b3799e9ba8bf0"}
+  ]
+}
