@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "stage": "6A",
+  "status": "implementation_candidate",
+  "accepted_predecessor": "14359aadb3178c83692441b748b060d06ce12903",
+  "required_branch": "stage6-durable-chain",
+  "durable_record_schema_version": 1,
+  "positive_test_count": 24,
+  "negative_case_minimum": 80,
+  "logical_record_id_includes_payload_digest": false,
+  "cancel_request_identity_separate_from_target_client_identity": true,
+  "canonical_encoding": "compact_utf8_json_fixed_schema",
+  "stage6a_status": "open_pending_independent_acceptance",
+  "stage6b_plus_open": false,
+  "closed_surfaces": {
+    "filesystem_backend": false,
+    "redis": false,
+    "finam_transport": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "background_worker": false,
+    "scheduler": false,
+    "replace_stop_sltp_bracket": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "accepted_predecessor": "14359aadb3178c83692441b748b060d06ce12903",
+  "accepted_transition_inventory": {
+    "path": "docs/stage-6/transition-5-to-6-authority-inventory.json",
+    "sha256": "e9a927bdd623fec3632862177e48c6792c7a362aad1900469ab8d25fd0fc91c0",
+    "authority_count": 17
+  },
+  "direct_schema_authorities": [
+    {"path": "crates/broker-core/src/instrument.rs", "sha256": "ab4d0b80296a1e99f2c63349efbb8435fb2e0b919de7cc95badb4b5d4aec062e"},
+    {"path": "crates/broker-core/src/order.rs", "sha256": "bd402276b1829e90b5b5c14fb0e133e60b4d877f8296664df964b061e469b52f"},
+    {"path": "crates/broker-core/src/hybrid_strategy_boundary.rs", "sha256": "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d"}
+  ]
+}

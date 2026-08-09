@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "encoding": "compact_utf8_json_with_single_fixture_newline",
+  "fixtures": [
+    {"path": "fixtures/stage6a/place-request-accepted-v1.json", "sha256": "2232e7df43bfd561cfb6b935bc2544acbe2eea7475d71cf8ec45fc331a7b4ab1"},
+    {"path": "fixtures/stage6a/cancel-request-accepted-v1.json", "sha256": "d3189f40b2a1d3c7365b0d43b12697546a3e0753b3b967dfff80857917c5c24e"}
+  ]
+}

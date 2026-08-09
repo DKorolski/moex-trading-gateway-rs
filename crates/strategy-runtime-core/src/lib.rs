@@ -294,6 +294,7 @@ mod stage5g_mock_ack;
 mod stage5g_order_position;
 mod stage5g_protective_completion;
 mod stage5g_timer;
+mod stage6_durable_identity;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -308,6 +309,12 @@ pub use runtime_compat::{
     Intent as BrokerNeutralHybridIntent, IntentClass as BrokerNeutralHybridIntentClass,
     MarketBuyAndCloseLiveOrderStyle as BrokerNeutralMarketOrderStyle,
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
+};
+pub use stage6_durable_identity::{
+    Stage6DurableActionKind, Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError,
+    Stage6DurableRequestIdentityV1, Stage6JournalEventKind, Stage6JournalRecordId,
+    Stage6JournalRecordV1, Stage6LifecycleSequence, Stage6Sha256Digest,
+    STAGE6_DURABLE_RECORD_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]
