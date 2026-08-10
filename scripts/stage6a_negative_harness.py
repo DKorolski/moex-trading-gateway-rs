@@ -33,6 +33,10 @@ def main():
         ("constructor_deserializer_equivalence", False),
         ("strict_canonical_byte_decode", False),
         ("reserved_marker_events_accepted", True),
+        ("supported_place_order_types", ["market", "limit", "stop"]),
+        ("market_requires_absent_limit_price", False),
+        ("limit_requires_positive_limit_price", False),
+        ("place_quantity_positive", False),
     ]
     for field, value in mutations:
         candidate=copy.deepcopy(descriptor); candidate[field]=value
@@ -61,6 +65,33 @@ def main():
         ("empty-account-bypass", source.replace("if account_id.as_str().is_empty()", "if false && account_id.as_str().is_empty()")),
         ("empty-instrument-bypass", source.replace("if instrument.symbol.is_empty()", "if false && instrument.symbol.is_empty()")),
         ("attribution-equivalence-bypass", source.replace("|| attribution.validate_source_equivalence().is_err()", "|| false")),
+        ("allow-all-order-types", source.replace(
+            "Err(Stage6DurableIdentityError::UnsupportedDurablePlaceOrderType)", "Ok(())", 1
+        )),
+        ("allow-Stop", source.replace("OrderType::Stop\n", "OrderType::Market\n", 1)),
+        ("allow-StopLimit", source.replace("| OrderType::StopLimit\n", "| OrderType::Market\n", 1)),
+        ("allow-TakeProfit", source.replace("| OrderType::TakeProfit\n", "| OrderType::Market\n", 1)),
+        ("allow-TakeProfitLimit", source.replace("| OrderType::TakeProfitLimit =>", "| OrderType::Market =>", 1)),
+        ("remove-market-limit-price-check", source.replace(
+            "OrderType::Market if limit_price.is_none()", "OrderType::Market", 1
+        )),
+        ("remove-limit-price-required-check", source.replace(
+            "_ => Err(Stage6DurableIdentityError::InvalidDurablePlacePriceShape)",
+            "_ => Ok(())", 1
+        )),
+        ("remove-positive-limit-price-check", source.replace(
+            "Some(price) if price > &Price::ZERO => Ok(())", "Some(_price) => Ok(())", 1
+        )),
+        ("remove-positive-quantity-check", source.replace(
+            "if quantity <= &Quantity::ZERO", "if false && quantity <= &Quantity::ZERO", 1
+        )),
+        ("constructor-only-shape-validation", source.replace(
+            "validate_durable_place_shape(*order_type, quantity, limit_price)?;", "", 1
+        )),
+        ("deserialize-shape-validation-bypass", source.replace(
+            "value\n            .validate_intrinsic()\n            .map_err(serde::de::Error::custom)?;",
+            "let _ = &value;", 1
+        )),
     ]
     for name, candidate in semantic_mutations:
         rejected(name, lambda c=candidate: checker.validate_source(c)); count += 1
@@ -75,7 +106,7 @@ def main():
     for index in range(2):
         candidate=copy.deepcopy(golden); candidate["fixtures"][index]["sha256"]="0"*64
         rejected(f"golden-sha-{index}", lambda c=candidate: checker.validate_golden(ROOT,c)); count += 1
-    if count < 110: raise SystemExit(f"stage6a-negative: FAIL only {count} cases")
+    if count < 145: raise SystemExit(f"stage6a-negative: FAIL only {count} cases")
     print(f"stage6a-negative: PASS {count}/{count}")
 
 if __name__ == "__main__": main()

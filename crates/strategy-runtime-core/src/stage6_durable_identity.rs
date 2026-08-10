@@ -51,6 +51,9 @@ pub enum Stage6DurableIdentityError {
     InvalidInstrumentIdentity,
     InvalidAttribution,
     ActionRoleMismatch,
+    UnsupportedDurablePlaceOrderType,
+    InvalidDurablePlacePriceShape,
+    InvalidDurablePlaceQuantity,
     NonCanonicalEncoding,
     UnsupportedEventPayload,
 }
@@ -76,6 +79,9 @@ impl std::fmt::Display for Stage6DurableIdentityError {
             Self::InvalidInstrumentIdentity => "invalid durable instrument identity",
             Self::InvalidAttribution => "invalid durable hybrid attribution",
             Self::ActionRoleMismatch => "durable action and attribution role mismatch",
+            Self::UnsupportedDurablePlaceOrderType => "unsupported durable Place order type",
+            Self::InvalidDurablePlacePriceShape => "invalid durable Place price shape",
+            Self::InvalidDurablePlaceQuantity => "durable Place quantity must be positive",
             Self::NonCanonicalEncoding => "journal bytes are not canonical",
             Self::UnsupportedEventPayload => "event payload is reserved for a later stage",
         })
@@ -409,6 +415,9 @@ impl Stage6DurableCommandSnapshotV1 {
                 durable_client_order_id,
                 account_id,
                 instrument,
+                order_type,
+                quantity,
+                limit_price,
                 attribution,
                 ..
             } => {
@@ -421,6 +430,7 @@ impl Stage6DurableCommandSnapshotV1 {
                 if durable_client_order_id != &ClientOrderId::from_strategy_request(*request_id) {
                     return Err(Stage6DurableIdentityError::PlaceClientIdentityMismatch);
                 }
+                validate_durable_place_shape(*order_type, quantity, limit_price)?;
             }
             Stage6DurableCommandPayloadV1::Cancel {
                 request_id,
@@ -444,6 +454,30 @@ impl Stage6DurableCommandSnapshotV1 {
             }
         }
         Ok(())
+    }
+}
+
+fn validate_durable_place_shape(
+    order_type: OrderType,
+    quantity: &Quantity,
+    limit_price: &Option<Price>,
+) -> Result<(), Stage6DurableIdentityError> {
+    if quantity <= &Quantity::ZERO {
+        return Err(Stage6DurableIdentityError::InvalidDurablePlaceQuantity);
+    }
+    match order_type {
+        OrderType::Market if limit_price.is_none() => Ok(()),
+        OrderType::Market => Err(Stage6DurableIdentityError::InvalidDurablePlacePriceShape),
+        OrderType::Limit => match limit_price {
+            Some(price) if price > &Price::ZERO => Ok(()),
+            _ => Err(Stage6DurableIdentityError::InvalidDurablePlacePriceShape),
+        },
+        OrderType::Stop
+        | OrderType::StopLimit
+        | OrderType::TakeProfit
+        | OrderType::TakeProfitLimit => {
+            Err(Stage6DurableIdentityError::UnsupportedDurablePlaceOrderType)
+        }
     }
 }
 
@@ -989,6 +1023,41 @@ mod tests {
         value["canonical_payload_sha256"] =
             serde_json::json!(hex_sha256(&serde_json::to_vec(&value["payload"]).unwrap()));
         assert!(serde_json::from_value::<Stage6JournalRecordV1>(value).is_err());
+    }
+
+    fn assert_place_snapshot_error(command: &PlaceOrder, expected: Stage6DurableIdentityError) {
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(command, attribution("ENTRY")).unwrap();
+        assert_eq!(
+            Stage6DurableCommandSnapshotV1::from_place(&identity, command).unwrap_err(),
+            expected
+        );
+    }
+
+    fn assert_crafted_place_field_rejected(
+        base_order_type: OrderType,
+        field: &str,
+        replacement: serde_json::Value,
+    ) {
+        let command = place(base_order_type);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+        let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+        let mut snapshot_value = serde_json::to_value(snapshot).unwrap();
+        snapshot_value[field] = replacement.clone();
+        assert!(serde_json::from_value::<Stage6DurableCommandSnapshotV1>(snapshot_value).is_err());
+
+        let mut record_value =
+            serde_json::to_value(accepted_place_record(base_order_type)).unwrap();
+        record_value["payload"]["command"][field] = replacement;
+        record_value["canonical_payload_sha256"] = serde_json::json!(hex_sha256(
+            &serde_json::to_vec(&record_value["payload"]).unwrap()
+        ));
+        assert!(serde_json::from_value::<Stage6JournalRecordV1>(record_value.clone()).is_err());
+        assert!(Stage6JournalRecordV1::decode_canonical(
+            &serde_json::to_vec(&record_value).unwrap()
+        )
+        .is_err());
     }
 
     #[test]
@@ -1706,5 +1775,173 @@ mod tests {
     #[test]
     fn stage6a_r1_conflict_marker_is_rejected() {
         assert_reserved_event_rejected("conflict_observed");
+    }
+
+    #[test]
+    fn stage6a_r2_market_without_limit_price_is_accepted() {
+        let command = place(OrderType::Market);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+        Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+    }
+
+    #[test]
+    fn stage6a_r2_limit_with_positive_limit_price_is_accepted() {
+        let command = place(OrderType::Limit);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+        Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+    }
+
+    #[test]
+    fn stage6a_r2_market_public_snapshot_roundtrip_is_exact() {
+        let command = place(OrderType::Market);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+        let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+        let encoded = serde_json::to_vec(&snapshot).unwrap();
+        let decoded: Stage6DurableCommandSnapshotV1 = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(snapshot, decoded);
+        assert_eq!(encoded, serde_json::to_vec(&decoded).unwrap());
+    }
+
+    #[test]
+    fn stage6a_r2_limit_public_snapshot_roundtrip_is_exact() {
+        let command = place(OrderType::Limit);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+        let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+        let encoded = serde_json::to_vec(&snapshot).unwrap();
+        let decoded: Stage6DurableCommandSnapshotV1 = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(snapshot, decoded);
+        assert_eq!(encoded, serde_json::to_vec(&decoded).unwrap());
+    }
+
+    #[test]
+    fn stage6a_r2_stop_place_is_rejected() {
+        assert_place_snapshot_error(
+            &place(OrderType::Stop),
+            Stage6DurableIdentityError::UnsupportedDurablePlaceOrderType,
+        );
+        assert_crafted_place_field_rejected(
+            OrderType::Market,
+            "order_type",
+            serde_json::json!("Stop"),
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_stop_limit_place_is_rejected() {
+        assert_place_snapshot_error(
+            &place(OrderType::StopLimit),
+            Stage6DurableIdentityError::UnsupportedDurablePlaceOrderType,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_take_profit_place_is_rejected() {
+        assert_place_snapshot_error(
+            &place(OrderType::TakeProfit),
+            Stage6DurableIdentityError::UnsupportedDurablePlaceOrderType,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_take_profit_limit_place_is_rejected() {
+        assert_place_snapshot_error(
+            &place(OrderType::TakeProfitLimit),
+            Stage6DurableIdentityError::UnsupportedDurablePlaceOrderType,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_market_with_limit_price_is_rejected() {
+        let mut command = place(OrderType::Market);
+        command.limit_price = Some(Decimal::ONE);
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlacePriceShape,
+        );
+        assert_crafted_place_field_rejected(
+            OrderType::Market,
+            "limit_price",
+            serde_json::json!("1"),
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_limit_without_price_is_rejected() {
+        let mut command = place(OrderType::Limit);
+        command.limit_price = None;
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlacePriceShape,
+        );
+        assert_crafted_place_field_rejected(
+            OrderType::Limit,
+            "limit_price",
+            serde_json::Value::Null,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_limit_with_zero_price_is_rejected() {
+        let mut command = place(OrderType::Limit);
+        command.limit_price = Some(Decimal::ZERO);
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlacePriceShape,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_limit_with_negative_price_is_rejected() {
+        let mut command = place(OrderType::Limit);
+        command.limit_price = Some(-Decimal::ONE);
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlacePriceShape,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_market_with_zero_quantity_is_rejected() {
+        let mut command = place(OrderType::Market);
+        command.qty = Decimal::ZERO;
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlaceQuantity,
+        );
+        assert_crafted_place_field_rejected(OrderType::Market, "quantity", serde_json::json!("0"));
+    }
+
+    #[test]
+    fn stage6a_r2_market_with_negative_quantity_is_rejected() {
+        let mut command = place(OrderType::Market);
+        command.qty = -Decimal::ONE;
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlaceQuantity,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_limit_with_zero_quantity_is_rejected() {
+        let mut command = place(OrderType::Limit);
+        command.qty = Decimal::ZERO;
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlaceQuantity,
+        );
+    }
+
+    #[test]
+    fn stage6a_r2_limit_with_negative_quantity_is_rejected() {
+        let mut command = place(OrderType::Limit);
+        command.qty = -Decimal::ONE;
+        assert_place_snapshot_error(
+            &command,
+            Stage6DurableIdentityError::InvalidDurablePlaceQuantity,
+        );
     }
 }

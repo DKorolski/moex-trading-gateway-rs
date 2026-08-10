@@ -15,6 +15,6 @@ def main() -> None:
         if path not in EXACT and not path.startswith(PREFIXES):
             raise SystemExit(f"stage6a-closed-surface: FAIL: disallowed changed path: {path}")
     checker.validate_source((root / checker.MODULE).read_text())
-    print(f"stage6a-r1-closed-surface: PASS changed={len(changed)} execution=false")
+    print(f"stage6a-r2-closed-surface: PASS changed={len(changed)} execution=false")
 
 if __name__ == "__main__": main()

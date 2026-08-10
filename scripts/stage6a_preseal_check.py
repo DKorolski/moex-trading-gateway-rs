@@ -9,10 +9,10 @@ EXPECTED = sorted([
     "crates/strategy-runtime-core/src/stage6_durable_identity.rs",
     "docs/stage-6/stage6a-durable-identity-schema.md",
     "docs/stage-6/stage6a-schema-descriptor.json",
-    "docs/stage-6/stage6a-r1-hardening.md",
+    "docs/stage-6/stage6a-r2-scope-closure.md",
     "scripts/stage6a_check.py", "scripts/stage6a_closed_surface_check.py",
     "scripts/stage6a_negative_harness.py", "scripts/stage6a_preseal_check.py",
-    "scripts/stage6a_gate.sh", "scripts/stage6a_r1_gate.sh",
+    "scripts/stage6a_gate.sh", "scripts/stage6a_r2_gate.sh",
     "scripts/make_stage6a_handoff_archive.py",
 ])
 
@@ -40,5 +40,5 @@ def main():
             archived.add(member.name)
     if tracked != archived: fail("index/archive mismatch")
     checker.check(root)
-    print(f"stage6a-r1-preseal: PASS delta={len(EXPECTED)} archive={len(archived)}")
+    print(f"stage6a-r2-preseal: PASS delta={len(EXPECTED)} archive={len(archived)}")
 if __name__ == "__main__": main()
