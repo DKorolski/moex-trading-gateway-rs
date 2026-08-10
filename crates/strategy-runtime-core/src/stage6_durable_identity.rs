@@ -56,6 +56,9 @@ pub enum Stage6DurableIdentityError {
     InvalidDurablePlaceQuantity,
     NonCanonicalEncoding,
     UnsupportedEventPayload,
+    InvalidDispatchAttemptOrdinal,
+    InvalidCancelOutcomePayload,
+    InvalidConflictPayload,
 }
 
 impl std::fmt::Display for Stage6DurableIdentityError {
@@ -84,6 +87,9 @@ impl std::fmt::Display for Stage6DurableIdentityError {
             Self::InvalidDurablePlaceQuantity => "durable Place quantity must be positive",
             Self::NonCanonicalEncoding => "journal bytes are not canonical",
             Self::UnsupportedEventPayload => "event payload is reserved for a later stage",
+            Self::InvalidDispatchAttemptOrdinal => "dispatch attempt ordinal must be non-zero",
+            Self::InvalidCancelOutcomePayload => "invalid cancel outcome payload",
+            Self::InvalidConflictPayload => "invalid conflict audit payload",
         })
     }
 }
@@ -621,9 +627,44 @@ pub enum Stage6JournalEventKind {
     ConflictObserved,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "disposition", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Stage6ReconciliationDispositionV1 {
+    NoBrokerOrderFound,
+    BrokerOrderFound { broker_order_id: BrokerOrderId },
+    Inconclusive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage6CancelOutcomeV1 {
+    Canceled,
+    AlreadyTerminalNonExecution,
+    ExecutionObserved,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage6RequestFinalDispositionV1 {
+    Completed,
+    Canceled,
+    Rejected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage6ConflictKindV1 {
+    ConflictingReplay,
+    IdentityDrift,
+    BrokerOrderConflict,
+    BrokerTradeConflict,
+    CausalLinkConflict,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "payload_kind", rename_all = "snake_case", deny_unknown_fields)]
-enum Stage6JournalPayloadV1 {
+pub(crate) enum Stage6JournalPayloadV1 {
     RequestAccepted {
         command: Box<Stage6DurableCommandSnapshotV1>,
     },
@@ -633,6 +674,26 @@ enum Stage6JournalPayloadV1 {
     BrokerTradeObserved {
         broker_trade_id: BrokerTradeId,
         broker_order_id: BrokerOrderId,
+    },
+    DispatchAttemptRecorded {
+        attempt_ordinal: u32,
+        accepted_request_payload_sha256: Stage6Sha256Digest,
+    },
+    CancelOutcomeObserved {
+        target_broker_order_id: BrokerOrderId,
+        outcome: Stage6CancelOutcomeV1,
+    },
+    ReconciliationObserved {
+        disposition: Stage6ReconciliationDispositionV1,
+    },
+    RequestFinalized {
+        disposition: Stage6RequestFinalDispositionV1,
+    },
+    ConflictObserved {
+        conflict_kind: Stage6ConflictKindV1,
+        conflicting_journal_record_id: Option<Stage6JournalRecordId>,
+        expected_digest: Option<Stage6Sha256Digest>,
+        observed_digest: Option<Stage6Sha256Digest>,
     },
     Marker,
 }
@@ -674,6 +735,31 @@ impl Stage6JournalRecordV1 {
         )
     }
 
+    pub fn dispatch_attempt_recorded(
+        identity: Stage6DurableRequestIdentityV1,
+        attempt_ordinal: u32,
+        accepted_request_payload_sha256: Stage6Sha256Digest,
+        sequence: Stage6LifecycleSequence,
+        previous: Option<Stage6JournalRecordId>,
+        source_evidence: Stage6Sha256Digest,
+    ) -> Result<Self, Stage6DurableIdentityError> {
+        if attempt_ordinal == 0 {
+            return Err(Stage6DurableIdentityError::InvalidDispatchAttemptOrdinal);
+        }
+        Self::build(
+            identity,
+            Stage6JournalEventKind::DispatchAttemptRecorded,
+            Stage6JournalPayloadV1::DispatchAttemptRecorded {
+                attempt_ordinal,
+                accepted_request_payload_sha256,
+            },
+            sequence,
+            previous.clone(),
+            previous,
+            source_evidence,
+        )
+    }
+
     pub fn broker_order_observed(
         identity: Stage6DurableRequestIdentityV1,
         broker_order_id: BrokerOrderId,
@@ -706,6 +792,103 @@ impl Stage6JournalRecordV1 {
             Stage6JournalPayloadV1::BrokerTradeObserved {
                 broker_trade_id,
                 broker_order_id,
+            },
+            sequence,
+            previous.clone(),
+            previous,
+            source_evidence,
+        )
+    }
+
+    pub fn cancel_outcome_observed(
+        identity: Stage6DurableRequestIdentityV1,
+        target_broker_order_id: BrokerOrderId,
+        outcome: Stage6CancelOutcomeV1,
+        sequence: Stage6LifecycleSequence,
+        previous: Option<Stage6JournalRecordId>,
+        source_evidence: Stage6Sha256Digest,
+    ) -> Result<Self, Stage6DurableIdentityError> {
+        if identity.action() != Stage6DurableActionKind::Cancel
+            || identity.target_broker_order_id() != Some(&target_broker_order_id)
+        {
+            return Err(Stage6DurableIdentityError::InvalidCancelOutcomePayload);
+        }
+        Self::build(
+            identity,
+            Stage6JournalEventKind::CancelOutcomeObserved,
+            Stage6JournalPayloadV1::CancelOutcomeObserved {
+                target_broker_order_id,
+                outcome,
+            },
+            sequence,
+            previous.clone(),
+            previous,
+            source_evidence,
+        )
+    }
+
+    pub fn reconciliation_observed(
+        identity: Stage6DurableRequestIdentityV1,
+        disposition: Stage6ReconciliationDispositionV1,
+        sequence: Stage6LifecycleSequence,
+        previous: Option<Stage6JournalRecordId>,
+        source_evidence: Stage6Sha256Digest,
+    ) -> Result<Self, Stage6DurableIdentityError> {
+        Self::build(
+            identity,
+            Stage6JournalEventKind::ReconciliationObserved,
+            Stage6JournalPayloadV1::ReconciliationObserved { disposition },
+            sequence,
+            previous.clone(),
+            previous,
+            source_evidence,
+        )
+    }
+
+    pub fn request_finalized(
+        identity: Stage6DurableRequestIdentityV1,
+        disposition: Stage6RequestFinalDispositionV1,
+        sequence: Stage6LifecycleSequence,
+        previous: Option<Stage6JournalRecordId>,
+        source_evidence: Stage6Sha256Digest,
+    ) -> Result<Self, Stage6DurableIdentityError> {
+        Self::build(
+            identity,
+            Stage6JournalEventKind::RequestFinalized,
+            Stage6JournalPayloadV1::RequestFinalized { disposition },
+            sequence,
+            previous.clone(),
+            previous,
+            source_evidence,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn conflict_observed(
+        identity: Stage6DurableRequestIdentityV1,
+        conflict_kind: Stage6ConflictKindV1,
+        conflicting_journal_record_id: Option<Stage6JournalRecordId>,
+        expected_digest: Option<Stage6Sha256Digest>,
+        observed_digest: Option<Stage6Sha256Digest>,
+        sequence: Stage6LifecycleSequence,
+        previous: Option<Stage6JournalRecordId>,
+        source_evidence: Stage6Sha256Digest,
+    ) -> Result<Self, Stage6DurableIdentityError> {
+        if conflicting_journal_record_id.is_none()
+            && expected_digest.is_none()
+            && observed_digest.is_none()
+            || expected_digest.is_some() != observed_digest.is_some()
+        {
+            return Err(Stage6DurableIdentityError::InvalidConflictPayload);
+        }
+        Self::build(
+            identity,
+            Stage6JournalEventKind::ConflictObserved,
+            Stage6JournalPayloadV1::ConflictObserved {
+                conflict_kind,
+                conflicting_journal_record_id,
+                expected_digest,
+                observed_digest,
             },
             sequence,
             previous.clone(),
@@ -785,6 +968,35 @@ impl Stage6JournalRecordV1 {
         if let Stage6JournalPayloadV1::RequestAccepted { command } = &self.payload {
             validate_snapshot_identity(&self.durable_request_identity, command)?;
         }
+        match &self.payload {
+            Stage6JournalPayloadV1::DispatchAttemptRecorded {
+                attempt_ordinal, ..
+            } if *attempt_ordinal == 0 => {
+                return Err(Stage6DurableIdentityError::InvalidDispatchAttemptOrdinal);
+            }
+            Stage6JournalPayloadV1::CancelOutcomeObserved {
+                target_broker_order_id,
+                ..
+            } if self.durable_request_identity.action() != Stage6DurableActionKind::Cancel
+                || self.durable_request_identity.target_broker_order_id()
+                    != Some(target_broker_order_id) =>
+            {
+                return Err(Stage6DurableIdentityError::InvalidCancelOutcomePayload);
+            }
+            Stage6JournalPayloadV1::ConflictObserved {
+                conflicting_journal_record_id,
+                expected_digest,
+                observed_digest,
+                ..
+            } if conflicting_journal_record_id.is_none()
+                && expected_digest.is_none()
+                && observed_digest.is_none()
+                || expected_digest.is_some() != observed_digest.is_some() =>
+            {
+                return Err(Stage6DurableIdentityError::InvalidConflictPayload);
+            }
+            _ => {}
+        }
         self.durable_request_identity.validate_self()?;
         Ok(())
     }
@@ -799,6 +1011,21 @@ impl Stage6JournalRecordV1 {
     }
     pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
         self.lifecycle_sequence
+    }
+    pub(crate) fn durable_request_identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.durable_request_identity
+    }
+    pub(crate) fn event_kind(&self) -> Stage6JournalEventKind {
+        self.event_kind
+    }
+    pub(crate) fn previous_record_id(&self) -> Option<&Stage6JournalRecordId> {
+        self.previous_record_id.as_ref()
+    }
+    pub(crate) fn causal_parent_id(&self) -> Option<&Stage6JournalRecordId> {
+        self.causal_parent_id.as_ref()
+    }
+    pub(crate) fn payload(&self) -> &Stage6JournalPayloadV1 {
+        &self.payload
     }
 }
 
@@ -907,6 +1134,21 @@ fn event_matches_payload(kind: Stage6JournalEventKind, payload: &Stage6JournalPa
         ) | (
             Stage6JournalEventKind::BrokerTradeObserved,
             Stage6JournalPayloadV1::BrokerTradeObserved { .. }
+        ) | (
+            Stage6JournalEventKind::DispatchAttemptRecorded,
+            Stage6JournalPayloadV1::DispatchAttemptRecorded { .. }
+        ) | (
+            Stage6JournalEventKind::CancelOutcomeObserved,
+            Stage6JournalPayloadV1::CancelOutcomeObserved { .. }
+        ) | (
+            Stage6JournalEventKind::ReconciliationObserved,
+            Stage6JournalPayloadV1::ReconciliationObserved { .. }
+        ) | (
+            Stage6JournalEventKind::RequestFinalized,
+            Stage6JournalPayloadV1::RequestFinalized { .. }
+        ) | (
+            Stage6JournalEventKind::ConflictObserved,
+            Stage6JournalPayloadV1::ConflictObserved { .. }
         )
     )
 }

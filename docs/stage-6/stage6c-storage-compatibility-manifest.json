@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "accepted_stage6a_ref": "c399e2bc2c7e62cc2116a6eac970058bb47c4a49",
+  "accepted_stage6b_ref": "f0d5e3912243ba85c6f372722c97e815f254a962",
+  "accepted_stage6a_source_pre_extension_sha256": "42374c406a9d20df2cc2266e752c0b5722ebe7c7fe2a459741359b0bd1f39fd4",
+  "immutable_files": [
+    {
+      "path": "crates/strategy-runtime-core/src/stage6_journal_backend.rs",
+      "sha256": "755f47cb503ce13c24420c47235d4131b92214f89d1a5437aceba0daaff35715"
+    },
+    {
+      "path": "docs/stage-6/stage6a-schema-descriptor.json",
+      "sha256": "f9fb0fdbff083f454bb83d9626bb4d59dcad7bf4b281f51c0e9728d6cee45030"
+    },
+    {
+      "path": "docs/stage-6/stage6a-golden-manifest.json",
+      "sha256": "7e0f9c9ade251c0e1a5f94559cb968f82f607488819fb1e2490cc390e45d8eb6"
+    },
+    {
+      "path": "fixtures/stage6a/place-request-accepted-v1.json",
+      "sha256": "2232e7df43bfd561cfb6b935bc2544acbe2eea7475d71cf8ec45fc331a7b4ab1"
+    },
+    {
+      "path": "fixtures/stage6a/cancel-request-accepted-v1.json",
+      "sha256": "d3189f40b2a1d3c7365b0d43b12697546a3e0753b3b967dfff80857917c5c24e"
+    },
+    {
+      "path": "docs/stage-6/stage6b-golden-manifest.json",
+      "sha256": "e18e1dd2c4b492a0fae62f0365b95403285fdf17345e9898df194d5f3908b9e4"
+    },
+    {
+      "path": "fixtures/stage6b/place-one-frame-v1.hex",
+      "sha256": "e126b6e598a8cb8b7bdc611c999a90c3a04600724362f8dfb39adbcc7e5360e4"
+    },
+    {
+      "path": "fixtures/stage6b/empty-checkpoint-v1.json",
+      "sha256": "d220a56931fa1213be05e9621a6d5b81a37b0469af3f15b55b8bf924b9e1ea29"
+    },
+    {
+      "path": "fixtures/stage6b/one-frame-checkpoint-v1.json",
+      "sha256": "3e9db8b894f7b43edaa47f4faac482e596a5f08b71eef33498ee1820cfed25ff"
+    }
+  ]
+}

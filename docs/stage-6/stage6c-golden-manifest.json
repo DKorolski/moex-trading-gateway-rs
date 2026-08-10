@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "fingerprint_domain": "stage6-replay-snapshot-v1",
+  "fixtures": [
+    {
+      "path": "fixtures/stage6c/replay-fingerprint-v1.txt",
+      "sha256": "1257f7669503b5027d95be8519908051c12c8da0a3efe5ab4d0d21e51f0af568",
+      "semantic_fingerprint": "4826b6e57da8202b0c61991a7b2ff037e2757c550c59e67b475f8ebd49f37214"
+    }
+  ]
+}
