@@ -25,7 +25,10 @@ def main():
         ("checkpoint_hash_domain","changed"),("persisted_record_decode_authority","serde_json"),
         ("filesystem_sync_policy","receipt_before_sync"),("checkpoint_sidecar_persisted",True),
         ("automatic_repair",True),("single_logical_writer",False),
-        ("positive_test_count",49),("negative_case_minimum",127),
+        ("positive_test_count",59),("negative_case_minimum",144),
+        ("open_create_policy","initialize_if_empty"),
+        ("existing_zero_length_policy","initialize_fresh"),
+        ("creation_race_policy","overwrite_existing"),
         ("framing_golden_raw_sha256","0"*64),("stage6b_status","closed"),
         ("stage6c_plus_open",True),
     ]
@@ -63,6 +66,17 @@ def main():
         ("allocation-bound-bypass",source.replace("validate_record_length(u64::from(declared))?","declared",1)),
         ("filesystem-writer-clone",source.replace("#[derive(Debug)]\npub struct Stage6FileJournalBackend","#[derive(Debug, Clone)]\npub struct Stage6FileJournalBackend",1)),
         ("public-failpoint",source.replace("enum TestIoFailpoint","pub enum TestIoFailpoint",1)),
+        ("restore-create-true-open",source.replace(".create_new(true)",".create(true)",1)),
+        ("initialize-existing-zero-length",source.replace("let length = file.metadata()?.len();","let length = file.metadata()?.len();\n        if length == 0 { file.write_all(&journal_header())?; }",1)),
+        ("write-header-before-existing-scan",source.replace("file.seek(SeekFrom::Start(0))?;\n        let scan = scan_reader", "file.write_all(&journal_header())?;\n        file.seek(SeekFrom::Start(0))?;\n        let scan = scan_reader",1)),
+        ("truncate-existing-zero-file",source.replace("let length = file.metadata()?.len();","file.set_len(0)?;\n        let length = file.metadata()?.len();",1)),
+        ("treat-zero-existing-as-new",source.replace("let length = file.metadata()?.len();","let length = file.metadata()?.len();\n        if length == 0 { return Stage6FileJournalBackend::open(path); }",1)),
+        ("create-race-overwrites-existing",source.replace(".create_new(true)",".create(true).truncate(false)",1)),
+        ("skip-existing-header-scan",source.replace("let scan = scan_reader(&mut file, length)?;","let scan = scan_bytes(&journal_header())?;",1)),
+        ("remove-notfound-guard",source.replace("error.kind() == ErrorKind::NotFound","true",1)),
+        ("remove-alreadyexists-retry",source.replace("Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,","Err(error) if error.kind() == ErrorKind::AlreadyExists => return Err(error.into()),",1)),
+        ("remove-new-header-sync",source.replace("file.sync_data()?;","",1)),
+        ("existing-open-create-mode",source.replace("OpenOptions::new().read(true).write(true).open(&path)","OpenOptions::new().read(true).write(true).create(true).open(&path)",1)),
     ]
     for name,candidate in semantic:
         rejected(name,lambda c=candidate:checker.validate_source(c)); count+=1
@@ -80,6 +94,6 @@ def main():
     for index in range(3):
         candidate=copy.deepcopy(golden);candidate["fixtures"][index]["sha256"]="0"*64
         rejected(f"golden-fixture-{index}",lambda c=candidate:checker.validate_golden(ROOT,c));count+=1
-    if count < 128: raise SystemExit(f"stage6b-negative: FAIL only {count} cases")
+    if count < 145: raise SystemExit(f"stage6b-negative: FAIL only {count} cases")
     print(f"stage6b-negative: PASS {count}/{count}")
 if __name__ == "__main__": main()

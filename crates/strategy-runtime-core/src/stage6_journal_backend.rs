@@ -391,18 +391,35 @@ pub struct Stage6FileJournalBackend {
 impl Stage6FileJournalBackend {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
         let path = path.as_ref().to_path_buf();
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)?;
-        let mut length = file.metadata()?.len();
-        if length == 0 {
-            file.write_all(&journal_header())?;
-            file.sync_data()?;
-            length = JOURNAL_HEADER_BYTES as u64;
+        loop {
+            match OpenOptions::new().read(true).write(true).open(&path) {
+                Ok(file) => return Self::from_validated_file(path, file),
+                Err(error) if error.kind() == ErrorKind::NotFound => {
+                    match OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                    {
+                        Ok(mut file) => {
+                            file.write_all(&journal_header())?;
+                            file.sync_data()?;
+                            return Self::from_validated_file(path, file);
+                        }
+                        Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                        Err(error) => return Err(error.into()),
+                    }
+                }
+                Err(error) => return Err(error.into()),
+            }
         }
+    }
+
+    fn from_validated_file(
+        path: PathBuf,
+        mut file: File,
+    ) -> Result<Self, Stage6JournalStorageError> {
+        let length = file.metadata()?.len();
         file.seek(SeekFrom::Start(0))?;
         let scan = scan_reader(&mut file, length)?;
         file.seek(SeekFrom::End(0))?;
@@ -965,6 +982,19 @@ mod tests {
         ))
     }
 
+    fn assert_failed_existing_open_preserves_bytes(
+        label: &str,
+        bytes: &[u8],
+    ) -> Stage6JournalStorageError {
+        let path = temp_path(label);
+        fs::write(&path, bytes).unwrap();
+        let before = fs::read(&path).unwrap();
+        let error = Stage6FileJournalBackend::open(&path).unwrap_err();
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_file(path).unwrap();
+        error
+    }
+
     fn one_frame_bytes() -> Vec<u8> {
         let mut backend = Stage6MemoryJournalBackend::new();
         backend.append(&place_record()).unwrap();
@@ -1029,6 +1059,111 @@ mod tests {
         assert!(backend.records().is_empty());
         assert_eq!(backend.frontier(), &Stage6JournalFrontierV1::empty());
         drop(backend);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage6b_r1_absent_path_creates_exact_empty_journal() {
+        let path = temp_path("r1-absent-create");
+        assert!(!path.exists());
+        let backend = Stage6FileJournalBackend::open(&path).unwrap();
+        assert_eq!(backend.framed_bytes().unwrap(), journal_header());
+        drop(backend);
+        assert_eq!(fs::read(&path).unwrap(), journal_header());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage6b_r1_existing_header_only_opens_without_mutation() {
+        let path = temp_path("r1-existing-header");
+        fs::write(&path, journal_header()).unwrap();
+        let before = fs::read(&path).unwrap();
+        let backend = Stage6FileJournalBackend::open(&path).unwrap();
+        assert!(backend.records().is_empty());
+        drop(backend);
+        assert_eq!(fs::read(&path).unwrap(), before);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage6b_r1_existing_zero_length_fails_closed() {
+        let error = assert_failed_existing_open_preserves_bytes("r1-zero-fails", &[]);
+        assert_eq!(error, Stage6JournalStorageError::InvalidJournalHeader);
+    }
+
+    #[test]
+    fn stage6b_r1_existing_zero_length_remains_unchanged() {
+        let path = temp_path("r1-zero-unchanged");
+        File::create(&path).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+        assert!(Stage6FileJournalBackend::open(&path).is_err());
+        assert_eq!(fs::metadata(&path).unwrap().len(), 0);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage6b_r1_existing_one_byte_remains_unchanged() {
+        assert_eq!(
+            assert_failed_existing_open_preserves_bytes("r1-one-byte", b"S"),
+            Stage6JournalStorageError::InvalidJournalHeader
+        );
+    }
+
+    #[test]
+    fn stage6b_r1_existing_nine_byte_header_remains_unchanged() {
+        assert_eq!(
+            assert_failed_existing_open_preserves_bytes(
+                "r1-nine-byte",
+                &journal_header()[..JOURNAL_HEADER_BYTES - 1],
+            ),
+            Stage6JournalStorageError::InvalidJournalHeader
+        );
+    }
+
+    #[test]
+    fn stage6b_r1_existing_bad_magic_remains_unchanged() {
+        let mut bytes = journal_header();
+        bytes[0] ^= 0xff;
+        assert_eq!(
+            assert_failed_existing_open_preserves_bytes("r1-bad-magic", &bytes),
+            Stage6JournalStorageError::InvalidJournalHeader
+        );
+    }
+
+    #[test]
+    fn stage6b_r1_existing_corrupt_nonempty_frame_remains_unchanged() {
+        let bytes = one_frame_bytes();
+        assert_eq!(
+            assert_failed_existing_open_preserves_bytes(
+                "r1-corrupt-frame",
+                &bytes[..bytes.len() - 1],
+            ),
+            Stage6JournalStorageError::TornFrame
+        );
+    }
+
+    #[test]
+    fn stage6b_r1_valid_nonempty_reopen_does_not_rewrite() {
+        let path = temp_path("r1-valid-nonempty");
+        let bytes = one_frame_bytes();
+        fs::write(&path, &bytes).unwrap();
+        let backend = Stage6FileJournalBackend::open(&path).unwrap();
+        assert_eq!(backend.records(), &[place_record()]);
+        drop(backend);
+        assert_eq!(fs::read(&path).unwrap(), bytes);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage6b_r1_repeated_valid_empty_open_remains_exact() {
+        let path = temp_path("r1-repeat-empty");
+        fs::write(&path, journal_header()).unwrap();
+        for _ in 0..2 {
+            let backend = Stage6FileJournalBackend::open(&path).unwrap();
+            assert_eq!(backend.frontier(), &Stage6JournalFrontierV1::empty());
+            drop(backend);
+            assert_eq!(fs::read(&path).unwrap(), journal_header());
+        }
         fs::remove_file(path).unwrap();
     }
 

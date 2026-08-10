@@ -5,6 +5,7 @@ import hashlib, json, subprocess
 from pathlib import Path
 
 BASE = "c399e2bc2c7e62cc2116a6eac970058bb47c4a49"
+R1_BASE = "6dbc4e021f61860069c599ccd526a83e4bca01a6"
 MAIN = "14359aadb3178c83692441b748b060d06ce12903"
 BRANCH = "stage6-durable-chain"
 MODULE = Path("crates/strategy-runtime-core/src/stage6_journal_backend.rs")
@@ -39,6 +40,19 @@ REQUIRED_SOURCE = (
     "stage6b_sync_failure_returns_durability_uncertain_without_receipt",
     "stage6b_corrupt_journal_is_never_auto_repaired",
     "stage6b_one_frame_bytes_match_exact_golden_hex",
+    ".create_new(true)", "error.kind() == ErrorKind::NotFound",
+    "error.kind() == ErrorKind::AlreadyExists => continue",
+    "fn from_validated_file(",
+    "stage6b_r1_absent_path_creates_exact_empty_journal",
+    "stage6b_r1_existing_header_only_opens_without_mutation",
+    "stage6b_r1_existing_zero_length_fails_closed",
+    "stage6b_r1_existing_zero_length_remains_unchanged",
+    "stage6b_r1_existing_one_byte_remains_unchanged",
+    "stage6b_r1_existing_nine_byte_header_remains_unchanged",
+    "stage6b_r1_existing_bad_magic_remains_unchanged",
+    "stage6b_r1_existing_corrupt_nonempty_frame_remains_unchanged",
+    "stage6b_r1_valid_nonempty_reopen_does_not_rewrite",
+    "stage6b_r1_repeated_valid_empty_open_remains_exact",
 )
 
 FORBIDDEN_PRODUCTION = (
@@ -86,8 +100,11 @@ def validate_descriptor(value: dict) -> None:
     require(value.get("checkpoint_sidecar_persisted") is False, "checkpoint sidecar opened")
     require(value.get("automatic_repair") is False, "automatic repair opened")
     require(value.get("single_logical_writer") is True, "writer model drift")
-    require(value.get("positive_test_count") == 50, "positive count drift")
-    require(value.get("negative_case_minimum") == 128, "negative minimum drift")
+    require(value.get("positive_test_count") == 60, "positive count drift")
+    require(value.get("negative_case_minimum") == 145, "negative minimum drift")
+    require(value.get("open_create_policy") == "validate_existing_or_create_new", "open/create policy drift")
+    require(value.get("existing_zero_length_policy") == "fail_closed_unchanged", "zero-length policy drift")
+    require(value.get("creation_race_policy") == "already_exists_retry_existing_validation", "creation race policy drift")
     require(value.get("framing_golden_raw_sha256") == "5c555efb677d1313de8aa2ece47657d28063969b8bdaf3cdceefae53f610da30", "raw golden drift")
     require(value.get("stage6b_status") == "open_pending_independent_acceptance", "Stage 6B status drift")
     require(value.get("stage6c_plus_open") is False, "Stage 6C+ opened")
@@ -97,7 +114,7 @@ def validate_source(source: str) -> None:
     for token in REQUIRED_SOURCE: require(token in source, f"required source token absent: {token}")
     production=source.split("#[cfg(test)]\nmod tests",1)[0]
     for token in FORBIDDEN_PRODUCTION: require(token not in production, f"forbidden production token: {token}")
-    require(source.count("fn stage6b_") == 50, "Stage 6B test count drift")
+    require(source.count("fn stage6b_") == 60, "Stage 6B test count drift")
     require("derive(Debug)]\npub struct Stage6FileJournalBackend" in source, "filesystem writer shape drift")
     require("derive(Debug, Clone" not in source[source.index("pub struct Stage6FileJournalBackend")-30:source.index("pub struct Stage6FileJournalBackend")], "filesystem writer became Clone")
     append_impl=source.index("impl Stage6JournalBackend for Stage6FileJournalBackend")
@@ -113,6 +130,20 @@ def validate_source(source: str) -> None:
     frame_hash=extract_block(source,source.index("fn frame_digest"),"fn frame_digest")
     require("hasher.update(previous)" in frame_hash and "hasher.update(record_bytes)" in frame_hash, "frame digest lost chain/payload")
     require("pub" not in source[source.index("enum TestIoFailpoint")-20:source.index("enum TestIoFailpoint")], "test failpoint exported")
+    file_impl=source.index("impl Stage6FileJournalBackend")
+    open_block=extract_block(source,file_impl,"pub fn open(")
+    require(".create(true)" not in open_block, "existing open can create or overwrite")
+    require(".truncate(" not in open_block and ".set_len(" not in open_block, "open/create can truncate")
+    require(".create_new(true)" in open_block, "new journal creation is not exclusive")
+    require("error.kind() == ErrorKind::NotFound" in open_block, "creation is not gated by NotFound")
+    require("error.kind() == ErrorKind::AlreadyExists => continue" in open_block, "creation race does not retry existing validation")
+    require(open_block.index(".open(&path)") < open_block.index("ErrorKind::NotFound") < open_block.index(".create_new(true)"), "existing-open must precede exclusive creation")
+    require(open_block.index(".create_new(true)") < open_block.index("file.write_all(&journal_header())?") < open_block.index("file.sync_data()?") < open_block.rindex("Self::from_validated_file"), "new header is not written/synced before validation")
+    validated=extract_block(source,file_impl,"fn from_validated_file(")
+    require("scan_reader(&mut file, length)?" in validated, "existing journal bypasses complete scan")
+    require("if length == 0" not in validated, "existing zero-length journal is treated as new")
+    require("write_all" not in validated and "set_len" not in validated and "sync_data" not in validated, "existing validation mutates journal")
+    require(validated.index("file.metadata()?.len()") < validated.index("scan_reader(&mut file, length)?"), "existing length is not scanned")
 
 def validate_authority(root: Path, value: dict) -> None:
     require(value.get("schema_version") == 1 and value.get("accepted_stage6a_ref") == BASE, "authority header drift")
@@ -136,7 +167,7 @@ def check(root: Path) -> None:
     validate_golden(root,json.loads((root/GOLDEN).read_text()))
     lib=(root/LIB).read_text()
     require("mod stage6_journal_backend;" in lib and "pub use stage6_journal_backend::{" in lib, "Stage 6B linkage absent")
-    print("stage6b-check: PASS positive=50 authorities=5 golden=3")
+    print("stage6b-check: PASS positive=60 authorities=5 golden=3 open_create=fail_closed")
 
 def main() -> None:
     try: check(Path.cwd().resolve())

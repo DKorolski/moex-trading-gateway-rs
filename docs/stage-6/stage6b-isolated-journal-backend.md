@@ -37,7 +37,16 @@ The first previous digest is
 `SHA256("stage6-journal-frame-genesis-v1")`. Record length is strictly in
 `1..=1 MiB` and is checked before allocation.
 
-Filesystem open performs a complete streaming scan before append is allowed.
+Filesystem open first attempts a read/write open without create or truncate.
+Every pre-existing path, including an existing zero-length file, is treated as
+an existing journal and receives a complete streaming scan before any mutation
+is allowed. Invalid existing bytes fail closed and remain byte-identical.
+
+Only `NotFound` permits exclusive `create_new(true)` initialization. The exact
+v1 header is written and synced before the newly-created file is scanned. An
+`AlreadyExists` creation race retries the existing-file validation path and
+never overwrites or initializes the competing file.
+
 Every append verifies the writer frontier, writes one complete frame and calls
 `sync_data()` before returning a receipt. Sync failure returns
 `DurabilityUncertain`; the backend does not truncate, rewrite or compensate.
@@ -56,4 +65,7 @@ Still closed: runtime attachment, Redis, FINAM, HTTP POST/DELETE, broker
 dispatch, workers/schedulers, runtime-live, real orders and native protective
 order schemas.
 
-Acceptance command: `bash scripts/stage6b_gate.sh`.
+Stage 6B-R1 does not add parent-directory fsync or an external durable suffix
+rollback anchor; those remain explicit later durability decisions.
+
+Acceptance command: `bash scripts/stage6b_r1_gate.sh`.
