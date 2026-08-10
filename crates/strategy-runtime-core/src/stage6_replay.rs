@@ -40,6 +40,8 @@ pub enum Stage6ReplayError {
     BrokerOrderConflict,
     BrokerTradeConflict,
     CancelTargetConflict,
+    CancelOutcomeConflict,
+    InvalidActionEvent,
     EventAfterFinalization,
     InvalidTransition,
 }
@@ -58,6 +60,8 @@ impl std::fmt::Display for Stage6ReplayError {
             Self::BrokerOrderConflict => "conflicting Stage 6 broker order identity",
             Self::BrokerTradeConflict => "conflicting Stage 6 broker trade identity",
             Self::CancelTargetConflict => "conflicting Stage 6 cancel target",
+            Self::CancelOutcomeConflict => "conflicting Stage 6 cancel outcome",
+            Self::InvalidActionEvent => "Stage 6 event is invalid for durable action",
             Self::EventAfterFinalization => "Stage 6 lifecycle event follows finalization",
             Self::InvalidTransition => "invalid Stage 6 replay transition",
         })
@@ -242,6 +246,7 @@ impl WorkingRequest {
         if record.previous_record_id() != Some(&self.last_record_id) {
             return Err(Stage6ReplayError::PreviousRecordMismatch);
         }
+        validate_event_for_action(self.identity.action(), record.payload())?;
 
         match record.payload() {
             Stage6JournalPayloadV1::RequestAccepted { .. } => {
@@ -287,6 +292,9 @@ impl WorkingRequest {
                     return Err(Stage6ReplayError::CancelTargetConflict);
                 }
                 self.require_dispatch_attempt()?;
+                if self.cancel_outcome.is_some() {
+                    return Err(Stage6ReplayError::CancelOutcomeConflict);
+                }
                 self.cancel_outcome = Some(*outcome);
                 self.dispatch_safety_state = Stage6DispatchSafetyStateV1::DispatchForbidden;
             }
@@ -337,7 +345,11 @@ impl WorkingRequest {
         match self.dispatch_safety_state {
             Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
                 if self.dispatch_attempt_count == 0 && attempt_ordinal == 1 => {}
-            Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity => {}
+            Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity
+                if self.identity.action() == Stage6DurableActionKind::Place => {}
+            Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity => {
+                return Err(Stage6ReplayError::InvalidActionEvent);
+            }
             Stage6DispatchSafetyStateV1::ReconciliationRequired => {
                 return Err(Stage6ReplayError::BlindRedispatchBlocked);
             }
@@ -358,6 +370,9 @@ impl WorkingRequest {
         self.require_dispatch_attempt()?;
         match disposition {
             Stage6ReconciliationDispositionV1::NoBrokerOrderFound => {
+                if self.identity.action() != Stage6DurableActionKind::Place {
+                    return Err(Stage6ReplayError::InvalidActionEvent);
+                }
                 if self.dispatch_safety_state != Stage6DispatchSafetyStateV1::ReconciliationRequired
                     || self.known_broker_order_id.is_some()
                 {
@@ -366,6 +381,9 @@ impl WorkingRequest {
                 self.dispatch_safety_state = Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity;
             }
             Stage6ReconciliationDispositionV1::BrokerOrderFound { broker_order_id } => {
+                if self.identity.action() != Stage6DurableActionKind::Place {
+                    return Err(Stage6ReplayError::InvalidActionEvent);
+                }
                 self.establish_broker_order(broker_order_id)?;
                 self.dispatch_safety_state = Stage6DispatchSafetyStateV1::DispatchForbidden;
             }
@@ -418,6 +436,40 @@ impl WorkingRequest {
             final_disposition: self.final_disposition,
             conflict_observed: self.conflict_observed,
         }
+    }
+}
+
+fn validate_event_for_action(
+    action: Stage6DurableActionKind,
+    payload: &Stage6JournalPayloadV1,
+) -> Result<(), Stage6ReplayError> {
+    let allowed = matches!(
+        (action, payload),
+        (
+            Stage6DurableActionKind::Place,
+            Stage6JournalPayloadV1::RequestAccepted { .. }
+                | Stage6JournalPayloadV1::DispatchAttemptRecorded { .. }
+                | Stage6JournalPayloadV1::BrokerOrderObserved { .. }
+                | Stage6JournalPayloadV1::BrokerTradeObserved { .. }
+                | Stage6JournalPayloadV1::ReconciliationObserved { .. }
+                | Stage6JournalPayloadV1::RequestFinalized { .. }
+                | Stage6JournalPayloadV1::ConflictObserved { .. },
+        ) | (
+            Stage6DurableActionKind::Cancel,
+            Stage6JournalPayloadV1::RequestAccepted { .. }
+                | Stage6JournalPayloadV1::DispatchAttemptRecorded { .. }
+                | Stage6JournalPayloadV1::CancelOutcomeObserved { .. }
+                | Stage6JournalPayloadV1::ReconciliationObserved {
+                    disposition: Stage6ReconciliationDispositionV1::Inconclusive,
+                }
+                | Stage6JournalPayloadV1::RequestFinalized { .. }
+                | Stage6JournalPayloadV1::ConflictObserved { .. },
+        )
+    );
+    if allowed {
+        Ok(())
+    } else {
+        Err(Stage6ReplayError::InvalidActionEvent)
     }
 }
 
@@ -1502,6 +1554,300 @@ mod tests {
         assert!(only(&snapshot).conflict_observed());
         assert_eq!(
             only(&snapshot).dispatch_safety_state(),
+            Stage6DispatchSafetyStateV1::DispatchForbidden
+        );
+    }
+
+    fn cancel_records_with_outcomes(
+        outcomes: &[Stage6CancelOutcomeV1],
+    ) -> Vec<Stage6JournalRecordV1> {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        let attempt = dispatch(&fixture.identity, &accepted, 1, 2, &accepted);
+        let mut records = vec![accepted, attempt];
+        for (index, outcome) in outcomes.iter().enumerate() {
+            let previous = records.last().unwrap().journal_record_id().clone();
+            records.push(
+                Stage6JournalRecordV1::cancel_outcome_observed(
+                    fixture.identity.clone(),
+                    BrokerOrderId::new("ORDER/TARGET"),
+                    *outcome,
+                    Stage6LifecycleSequence::new(index as u64 + 3).unwrap(),
+                    Some(previous),
+                    digest('8'),
+                )
+                .unwrap(),
+            );
+        }
+        records
+    }
+
+    fn assert_second_cancel_outcome_rejected(
+        first: Stage6CancelOutcomeV1,
+        second: Stage6CancelOutcomeV1,
+    ) {
+        assert_eq!(
+            Stage6ReplayEngineV1::replay(&cancel_records_with_outcomes(&[first, second]))
+                .unwrap_err(),
+            Stage6ReplayError::CancelOutcomeConflict
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_cancel_rejected_first_outcome_is_preserved() {
+        assert_eq!(
+            only(&cancel_outcome_snapshot(Stage6CancelOutcomeV1::Rejected)).cancel_outcome(),
+            Some(Stage6CancelOutcomeV1::Rejected)
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_cancel_inconclusive_stays_reconciliation_required() {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        let attempt = dispatch(&fixture.identity, &accepted, 1, 2, &accepted);
+        let inconclusive = reconcile(
+            &fixture.identity,
+            Stage6ReconciliationDispositionV1::Inconclusive,
+            3,
+            &attempt,
+        );
+        let snapshot = replay(&[accepted, attempt, inconclusive]);
+        assert_eq!(
+            only(&snapshot).dispatch_safety_state(),
+            Stage6DispatchSafetyStateV1::ReconciliationRequired
+        );
+        assert_ne!(
+            only(&snapshot).dispatch_safety_state(),
+            Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_finalization_preserves_execution_observed_cancel_truth() {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        let attempt = dispatch(&fixture.identity, &accepted, 1, 2, &accepted);
+        let outcome = Stage6JournalRecordV1::cancel_outcome_observed(
+            fixture.identity.clone(),
+            BrokerOrderId::new("ORDER/TARGET"),
+            Stage6CancelOutcomeV1::ExecutionObserved,
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(attempt.journal_record_id().clone()),
+            digest('8'),
+        )
+        .unwrap();
+        let finalized = Stage6JournalRecordV1::request_finalized(
+            fixture.identity,
+            Stage6RequestFinalDispositionV1::Completed,
+            Stage6LifecycleSequence::new(4).unwrap(),
+            Some(outcome.journal_record_id().clone()),
+            digest('9'),
+        )
+        .unwrap();
+        let snapshot = replay(&[accepted, attempt, outcome, finalized]);
+        assert_eq!(
+            only(&snapshot).cancel_outcome(),
+            Some(Stage6CancelOutcomeV1::ExecutionObserved)
+        );
+        assert_eq!(
+            only(&snapshot).dispatch_safety_state(),
+            Stage6DispatchSafetyStateV1::DispatchForbidden
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_execution_then_canceled_fails_closed() {
+        assert_second_cancel_outcome_rejected(
+            Stage6CancelOutcomeV1::ExecutionObserved,
+            Stage6CancelOutcomeV1::Canceled,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_execution_then_rejected_fails_closed() {
+        assert_second_cancel_outcome_rejected(
+            Stage6CancelOutcomeV1::ExecutionObserved,
+            Stage6CancelOutcomeV1::Rejected,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_canceled_then_execution_fails_closed() {
+        assert_second_cancel_outcome_rejected(
+            Stage6CancelOutcomeV1::Canceled,
+            Stage6CancelOutcomeV1::ExecutionObserved,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_canceled_then_rejected_fails_closed() {
+        assert_second_cancel_outcome_rejected(
+            Stage6CancelOutcomeV1::Canceled,
+            Stage6CancelOutcomeV1::Rejected,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_rejected_then_canceled_fails_closed() {
+        assert_second_cancel_outcome_rejected(
+            Stage6CancelOutcomeV1::Rejected,
+            Stage6CancelOutcomeV1::Canceled,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_already_terminal_then_canceled_fails_closed() {
+        assert_second_cancel_outcome_rejected(
+            Stage6CancelOutcomeV1::AlreadyTerminalNonExecution,
+            Stage6CancelOutcomeV1::Canceled,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_same_outcome_as_new_sequence_fails_closed() {
+        assert_second_cancel_outcome_rejected(
+            Stage6CancelOutcomeV1::Canceled,
+            Stage6CancelOutcomeV1::Canceled,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_exact_cancel_outcome_replay_remains_idempotent() {
+        let mut records = cancel_records_with_outcomes(&[Stage6CancelOutcomeV1::Canceled]);
+        records.push(records.last().unwrap().clone());
+        let snapshot = replay(&records);
+        assert_eq!(
+            only(&snapshot).cancel_outcome(),
+            Some(Stage6CancelOutcomeV1::Canceled)
+        );
+        assert_eq!(only(&snapshot).last_unique_sequence(), 3);
+    }
+
+    #[test]
+    fn stage6c_r1_cancel_no_broker_order_found_is_rejected_by_record_authority() {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        assert_eq!(
+            Stage6JournalRecordV1::reconciliation_observed(
+                fixture.identity,
+                Stage6ReconciliationDispositionV1::NoBrokerOrderFound,
+                Stage6LifecycleSequence::new(2).unwrap(),
+                Some(accepted.journal_record_id().clone()),
+                digest('3'),
+            )
+            .unwrap_err(),
+            crate::Stage6DurableIdentityError::InvalidActionEvent
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_cancel_broker_order_found_is_rejected_by_record_authority() {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        assert_eq!(
+            Stage6JournalRecordV1::reconciliation_observed(
+                fixture.identity,
+                Stage6ReconciliationDispositionV1::BrokerOrderFound {
+                    broker_order_id: BrokerOrderId::new("ORDER/TARGET"),
+                },
+                Stage6LifecycleSequence::new(2).unwrap(),
+                Some(accepted.journal_record_id().clone()),
+                digest('3'),
+            )
+            .unwrap_err(),
+            crate::Stage6DurableIdentityError::InvalidActionEvent
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_cancel_broker_order_event_is_rejected_by_record_authority() {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        assert_eq!(
+            Stage6JournalRecordV1::broker_order_observed(
+                fixture.identity,
+                BrokerOrderId::new("ORDER/TARGET"),
+                Stage6LifecycleSequence::new(2).unwrap(),
+                Some(accepted.journal_record_id().clone()),
+                digest('4'),
+            )
+            .unwrap_err(),
+            crate::Stage6DurableIdentityError::InvalidActionEvent
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_cancel_broker_trade_event_is_rejected_by_record_authority() {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        assert_eq!(
+            Stage6JournalRecordV1::broker_trade_observed(
+                fixture.identity,
+                BrokerTradeId::new("TRADE/1"),
+                BrokerOrderId::new("ORDER/TARGET"),
+                Stage6LifecycleSequence::new(2).unwrap(),
+                Some(accepted.journal_record_id().clone()),
+                digest('5'),
+            )
+            .unwrap_err(),
+            crate::Stage6DurableIdentityError::InvalidActionEvent
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_cancel_never_enters_retry_eligible_same_identity() {
+        let fixture = cancel_fixture(2, "ORDER/TARGET");
+        let accepted = accepted_cancel(&fixture);
+        let attempt = dispatch(&fixture.identity, &accepted, 1, 2, &accepted);
+        assert_eq!(
+            validate_event_for_action(
+                Stage6DurableActionKind::Cancel,
+                &Stage6JournalPayloadV1::ReconciliationObserved {
+                    disposition: Stage6ReconciliationDispositionV1::NoBrokerOrderFound,
+                },
+            ),
+            Err(Stage6ReplayError::InvalidActionEvent)
+        );
+        let snapshot = replay(&[accepted, attempt]);
+        assert_ne!(
+            only(&snapshot).dispatch_safety_state(),
+            Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_place_no_order_retry_regression_is_preserved() {
+        let fixture = place_fixture(1);
+        let accepted = accepted_place(&fixture);
+        let attempt = dispatch(&fixture.identity, &accepted, 1, 2, &accepted);
+        let no_order = reconcile(
+            &fixture.identity,
+            Stage6ReconciliationDispositionV1::NoBrokerOrderFound,
+            3,
+            &attempt,
+        );
+        assert_eq!(
+            only(&replay(&[accepted, attempt, no_order])).dispatch_safety_state(),
+            Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_place_broker_order_found_regression_is_preserved() {
+        let fixture = place_fixture(1);
+        let accepted = accepted_place(&fixture);
+        let attempt = dispatch(&fixture.identity, &accepted, 1, 2, &accepted);
+        let found = reconcile(
+            &fixture.identity,
+            Stage6ReconciliationDispositionV1::BrokerOrderFound {
+                broker_order_id: BrokerOrderId::new("ORDER/1"),
+            },
+            3,
+            &attempt,
+        );
+        assert_eq!(
+            only(&replay(&[accepted, attempt, found])).dispatch_safety_state(),
             Stage6DispatchSafetyStateV1::DispatchForbidden
         );
     }

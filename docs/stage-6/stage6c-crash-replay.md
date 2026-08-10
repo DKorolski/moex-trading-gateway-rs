@@ -1,5 +1,23 @@
 # Stage 6C — deterministic crash/replay state machine
 
+## R1 cancel-recovery closure
+
+Stage 6C-R1 makes the first unique `CancelOutcomeObserved` authoritative.
+Any later unique cancel outcome fails closed; an exact replay is still handled
+by the existing canonical-record idempotency path. `ExecutionObserved` can
+therefore never be replaced by `Canceled`, `Rejected`, or another outcome.
+
+The action/event matrix is now enforced both when context-free records are
+constructed/decoded and again by replay before mutation. Generic broker-order,
+broker-trade, `NoBrokerOrderFound`, and `BrokerOrderFound` facts are Place-only.
+Cancel accepts only its normalized `CancelOutcomeObserved` truth plus optional
+`Inconclusive` reconciliation. Under the current taxonomy a Cancel request can
+never enter `RetryEligibleSameIdentity`.
+
+Typed source-evidence issuance and authenticated boot/frontier authority remain
+explicit Stage 6D carry-forward items. R1 does not open Stage 6D, Redis, FINAM,
+dispatch, runtime callbacks, paper fills, or live execution.
+
 Stage 6C is the direct successor of accepted Stage 6B-R1 commit
 `f0d5e3912243ba85c6f372722c97e815f254a962`. It adds a pure replay projection
 over canonical Stage 6A records already admitted by Stage 6B storage. It does

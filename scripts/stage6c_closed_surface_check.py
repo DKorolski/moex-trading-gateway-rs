@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Changed-path and closed execution-surface gate for Stage 6C."""
+"""Changed-path and closed execution-surface gate for Stage 6C-R1."""
 from __future__ import annotations
 
 import json
@@ -30,7 +30,7 @@ def main():
     checker.validate_identity((root / checker.IDENTITY).read_text())
     checker.validate_replay((root / checker.REPLAY).read_text())
     checker.validate_compatibility(root, json.loads((root / checker.COMPATIBILITY).read_text()))
-    print(f"stage6c-closed-surface: PASS changed={len(changed)} redis=false finam=false dispatch=false live=false")
+    print(f"stage6c-r1-closed-surface: PASS changed={len(changed)} redis=false finam=false dispatch=false live=false")
 
 
 if __name__ == "__main__":

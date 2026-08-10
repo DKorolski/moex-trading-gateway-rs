@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create immutable Stage 6C source plus evidence handoff."""
+"""Create immutable Stage 6C-R1 source plus evidence handoff."""
 from __future__ import annotations
 
 import hashlib
@@ -54,9 +54,9 @@ def main():
         fail("origin/stage5g-lifecycle moved")
 
     env = dict(os.environ)
-    env["STAGE6C_SKIP_PRESEAL"] = "1"
+    env["STAGE6C_R1_SKIP_PRESEAL"] = "1"
     gate = subprocess.run(
-        ["bash", "scripts/stage6c_gate.sh"],
+        ["bash", "scripts/stage6c_r1_gate.sh"],
         cwd=ROOT,
         text=True,
         stdout=subprocess.PIPE,
@@ -102,17 +102,21 @@ def main():
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "6C",
+            "stage": "6C-R1",
             "source_ref": head,
             "predecessor": checker.BASE,
             "gate_exit_code": 0,
-            "positive_test_count": 54,
+            "positive_test_count": 73,
+            "stage6c_r1_test_count": 19,
             "crash_window_test_count": 10,
-            "negative_case_count": 167,
+            "negative_case_count": 187,
             "compatibility_fixture_count": 9,
             "blind_redispatch_blocked": True,
             "exact_duplicate_idempotent": True,
             "conflicting_duplicate_fail_closed": True,
+            "cancel_outcome_monotonic": True,
+            "cancel_retry_via_generic_reconciliation_blocked": True,
+            "action_event_matrix_fail_closed": True,
             "execution_surfaces_open": False,
             "stage6d_open": False,
             "source_manifest_sha256": hashlib.sha256(manifest).hexdigest(),
@@ -124,10 +128,10 @@ def main():
     members += [
         ("handoff-commit.txt", marker, 0o644),
         ("source-tree-manifest.json", manifest, 0o644),
-        ("handoff-evidence/stage6c-full-gate.txt", redacted, 0o644),
-        ("handoff-evidence/stage6c-evidence.json", evidence, 0o644),
-        ("handoff-evidence/stage6c-negative.txt", negative, 0o644),
-        ("handoff-evidence/stage6c-toolchain.txt", f"{run(['rustc', '--version'])}\n{run(['cargo', '--version'])}\n".encode(), 0o644),
+        ("handoff-evidence/stage6c-r1-full-gate.txt", redacted, 0o644),
+        ("handoff-evidence/stage6c-r1-evidence.json", evidence, 0o644),
+        ("handoff-evidence/stage6c-r1-negative.txt", negative, 0o644),
+        ("handoff-evidence/stage6c-r1-toolchain.txt", f"{run(['rustc', '--version'])}\n{run(['cargo', '--version'])}\n".encode(), 0o644),
     ]
     if len({name for name, _, _ in members}) != len(members):
         fail("duplicate member")

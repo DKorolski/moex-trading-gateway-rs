@@ -58,6 +58,7 @@ pub enum Stage6DurableIdentityError {
     UnsupportedEventPayload,
     InvalidDispatchAttemptOrdinal,
     InvalidCancelOutcomePayload,
+    InvalidActionEvent,
     InvalidConflictPayload,
 }
 
@@ -89,6 +90,7 @@ impl std::fmt::Display for Stage6DurableIdentityError {
             Self::UnsupportedEventPayload => "event payload is reserved for a later stage",
             Self::InvalidDispatchAttemptOrdinal => "dispatch attempt ordinal must be non-zero",
             Self::InvalidCancelOutcomePayload => "invalid cancel outcome payload",
+            Self::InvalidActionEvent => "journal event is invalid for durable action",
             Self::InvalidConflictPayload => "invalid conflict audit payload",
         })
     }
@@ -767,6 +769,9 @@ impl Stage6JournalRecordV1 {
         previous: Option<Stage6JournalRecordId>,
         source_evidence: Stage6Sha256Digest,
     ) -> Result<Self, Stage6DurableIdentityError> {
+        if identity.action() != Stage6DurableActionKind::Place {
+            return Err(Stage6DurableIdentityError::InvalidActionEvent);
+        }
         Self::build(
             identity,
             Stage6JournalEventKind::BrokerOrderObserved,
@@ -786,6 +791,9 @@ impl Stage6JournalRecordV1 {
         previous: Option<Stage6JournalRecordId>,
         source_evidence: Stage6Sha256Digest,
     ) -> Result<Self, Stage6DurableIdentityError> {
+        if identity.action() != Stage6DurableActionKind::Place {
+            return Err(Stage6DurableIdentityError::InvalidActionEvent);
+        }
         Self::build(
             identity,
             Stage6JournalEventKind::BrokerTradeObserved,
@@ -834,6 +842,12 @@ impl Stage6JournalRecordV1 {
         previous: Option<Stage6JournalRecordId>,
         source_evidence: Stage6Sha256Digest,
     ) -> Result<Self, Stage6DurableIdentityError> {
+        validate_action_event(
+            identity.action(),
+            &Stage6JournalPayloadV1::ReconciliationObserved {
+                disposition: disposition.clone(),
+            },
+        )?;
         Self::build(
             identity,
             Stage6JournalEventKind::ReconciliationObserved,
@@ -965,6 +979,7 @@ impl Stage6JournalRecordV1 {
         if !event_matches_payload(self.event_kind, &self.payload) {
             return Err(Stage6DurableIdentityError::EventPayloadMismatch);
         }
+        validate_action_event(self.durable_request_identity.action(), &self.payload)?;
         if let Stage6JournalPayloadV1::RequestAccepted { command } = &self.payload {
             validate_snapshot_identity(&self.durable_request_identity, command)?;
         }
@@ -1151,6 +1166,40 @@ fn event_matches_payload(kind: Stage6JournalEventKind, payload: &Stage6JournalPa
             Stage6JournalPayloadV1::ConflictObserved { .. }
         )
     )
+}
+
+fn validate_action_event(
+    action: Stage6DurableActionKind,
+    payload: &Stage6JournalPayloadV1,
+) -> Result<(), Stage6DurableIdentityError> {
+    let allowed = matches!(
+        (action, payload),
+        (
+            Stage6DurableActionKind::Place,
+            Stage6JournalPayloadV1::RequestAccepted { .. }
+                | Stage6JournalPayloadV1::DispatchAttemptRecorded { .. }
+                | Stage6JournalPayloadV1::BrokerOrderObserved { .. }
+                | Stage6JournalPayloadV1::BrokerTradeObserved { .. }
+                | Stage6JournalPayloadV1::ReconciliationObserved { .. }
+                | Stage6JournalPayloadV1::RequestFinalized { .. }
+                | Stage6JournalPayloadV1::ConflictObserved { .. },
+        ) | (
+            Stage6DurableActionKind::Cancel,
+            Stage6JournalPayloadV1::RequestAccepted { .. }
+                | Stage6JournalPayloadV1::DispatchAttemptRecorded { .. }
+                | Stage6JournalPayloadV1::CancelOutcomeObserved { .. }
+                | Stage6JournalPayloadV1::ReconciliationObserved {
+                    disposition: Stage6ReconciliationDispositionV1::Inconclusive,
+                }
+                | Stage6JournalPayloadV1::RequestFinalized { .. }
+                | Stage6JournalPayloadV1::ConflictObserved { .. },
+        )
+    );
+    if allowed {
+        Ok(())
+    } else {
+        Err(Stage6DurableIdentityError::InvalidActionEvent)
+    }
 }
 
 fn hex_sha256(bytes: &[u8]) -> String {
@@ -2184,6 +2233,40 @@ mod tests {
         assert_place_snapshot_error(
             &command,
             Stage6DurableIdentityError::InvalidDurablePlaceQuantity,
+        );
+    }
+
+    #[test]
+    fn stage6c_r1_crafted_cancel_no_order_record_is_rejected_on_decode() {
+        let place_accepted = accepted_place_record(OrderType::Limit);
+        let place_reconciliation = Stage6JournalRecordV1::reconciliation_observed(
+            place_accepted.durable_request_identity().clone(),
+            Stage6ReconciliationDispositionV1::NoBrokerOrderFound,
+            Stage6LifecycleSequence::new(2).unwrap(),
+            Some(place_accepted.journal_record_id().clone()),
+            evidence(),
+        )
+        .unwrap();
+        let cancel_accepted = accepted_cancel_record();
+        let cancel_identity = cancel_accepted.durable_request_identity().clone();
+        let sequence = Stage6LifecycleSequence::new(2).unwrap();
+        let mut crafted: serde_json::Value =
+            serde_json::from_slice(&place_reconciliation.encode_canonical()).unwrap();
+        crafted["durable_request_identity"] = serde_json::to_value(&cancel_identity).unwrap();
+        crafted["journal_record_id"] = serde_json::to_value(Stage6JournalRecordId::derive(
+            cancel_identity.strategy_request_id(),
+            sequence,
+        ))
+        .unwrap();
+        crafted["previous_record_id"] =
+            serde_json::to_value(cancel_accepted.journal_record_id()).unwrap();
+        crafted["causal_parent_id"] =
+            serde_json::to_value(cancel_accepted.journal_record_id()).unwrap();
+
+        assert_eq!(
+            Stage6JournalRecordV1::decode_canonical(&serde_json::to_vec(&crafted).unwrap())
+                .unwrap_err(),
+            Stage6DurableIdentityError::DecodeFailed
         );
     }
 }

@@ -57,6 +57,46 @@ def main():
         ("cancel-target-unbound", identity.replace("identity.target_broker_order_id() != Some(&target_broker_order_id)", "false", 1)),
         ("conflict-digest-pair-unbound", identity.replace("expected_digest.is_some() != observed_digest.is_some()", "false", 1)),
         ("payload-made-public", identity.replace("pub(crate) enum Stage6JournalPayloadV1", "pub enum Stage6JournalPayloadV1", 1)),
+        (
+            "broker-order-cancel-action-guard-removed",
+            identity.replace(
+                "if identity.action() != Stage6DurableActionKind::Place",
+                "if false",
+                1,
+            ),
+        ),
+        (
+            "broker-trade-cancel-action-guard-removed",
+            identity.replace(
+                "if identity.action() != Stage6DurableActionKind::Place",
+                "if false",
+                2,
+            ),
+        ),
+        (
+            "reconciliation-constructor-action-guard-removed",
+            identity.replace(
+                "validate_action_event(\n            identity.action(),",
+                "validate_action_event(\n            Stage6DurableActionKind::Place,",
+                1,
+            ),
+        ),
+        (
+            "identity-cancel-inconclusive-matrix-removed",
+            identity.replace(
+                "disposition: Stage6ReconciliationDispositionV1::Inconclusive",
+                "disposition: Stage6ReconciliationDispositionV1::NoBrokerOrderFound",
+                1,
+            ),
+        ),
+        (
+            "identity-action-event-error-bypassed",
+            identity.replace(
+                "Err(Stage6DurableIdentityError::InvalidActionEvent)",
+                "Ok(())",
+                1,
+            ),
+        ),
     ]
     for name, candidate in identity_semantic:
         rejected(name, lambda c=candidate: checker.validate_identity(c))
@@ -85,12 +125,63 @@ def main():
         ("accepted-payload-digest-unbound", replay.replace("accepted_request_payload_sha256 != &self.accepted_payload_sha256", "false", 1)),
         ("attempt-ordinal-gap-admitted", replay.replace("attempt_ordinal != self.dispatch_attempt_count + 1", "false", 1)),
         ("blind-redispatch-admitted", replay.replace("return Err(Stage6ReplayError::BlindRedispatchBlocked);", "return Ok(());", 1)),
-        ("retry-before-no-order", replay.replace("Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity => {}", "Stage6DispatchSafetyStateV1::ReconciliationRequired => {}", 1)),
+        (
+            "cancel-retry-dispatch-action-guard-removed",
+            replay.replace(
+                "Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity\n                if self.identity.action() == Stage6DurableActionKind::Place => {}",
+                "Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity => {}",
+                1,
+            ),
+        ),
         ("no-order-does-not-authorize-retry", replay.replace("self.dispatch_safety_state = Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity;", "self.dispatch_safety_state = Stage6DispatchSafetyStateV1::ReconciliationRequired;", 1)),
         ("broker-order-conflict-admitted", replay.replace("known| known != broker_order_id", "known| known == broker_order_id", 1)),
         ("trade-conflict-admitted", replay.replace("return Err(Stage6ReplayError::BrokerTradeConflict);", "return Ok(());", 1)),
         ("event-after-finalization-admitted", replay.replace("return Err(Stage6ReplayError::EventAfterFinalization);", "return Ok(());", 1)),
         ("fingerprint-domain-removed", replay.replace("hasher.update(REPLAY_FINGERPRINT_DOMAIN);", "", 1)),
+        (
+            "pre-mutation-action-event-guard-removed",
+            replay.replace(
+                "validate_event_for_action(self.identity.action(), record.payload())?;",
+                "",
+                1,
+            ),
+        ),
+        (
+            "cancel-existing-outcome-guard-removed",
+            replay.replace("if self.cancel_outcome.is_some()", "if false", 1),
+        ),
+        (
+            "cancel-outcome-conflict-admitted",
+            replay.replace(
+                "return Err(Stage6ReplayError::CancelOutcomeConflict);",
+                "return Ok(());",
+                1,
+            ),
+        ),
+        (
+            "no-order-cancel-action-guard-removed",
+            replay.replace(
+                "if self.identity.action() != Stage6DurableActionKind::Place",
+                "if false",
+                1,
+            ),
+        ),
+        (
+            "broker-order-found-cancel-action-guard-removed",
+            replay.replace(
+                "if self.identity.action() != Stage6DurableActionKind::Place",
+                "if false",
+                2,
+            ),
+        ),
+        (
+            "cancel-inconclusive-matrix-removed",
+            replay.replace(
+                "disposition: Stage6ReconciliationDispositionV1::Inconclusive",
+                "disposition: Stage6ReconciliationDispositionV1::NoBrokerOrderFound",
+                1,
+            ),
+        ),
     ]
     for name, candidate in replay_semantic:
         rejected(name, lambda c=candidate: checker.validate_replay(c))
@@ -123,9 +214,9 @@ def main():
     rejected("golden-semantic-fingerprint", lambda c=candidate: checker.validate_golden(ROOT, c))
     count += 1
 
-    if count < 96:
+    if count < 180:
         raise SystemExit(f"stage6c-negative: FAIL only {count} cases")
-    print(f"stage6c-negative: PASS {count}/{count}")
+    print(f"stage6c-r1-negative: PASS {count}/{count}")
 
 
 if __name__ == "__main__":

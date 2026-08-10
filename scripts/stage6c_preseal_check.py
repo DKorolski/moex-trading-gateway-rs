@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-commit source/archive seal for Stage 6C."""
+"""One-commit source/archive seal for Stage 6C-R1."""
 from __future__ import annotations
 
 import argparse
@@ -11,19 +11,16 @@ from pathlib import Path, PurePosixPath
 import stage6c_check as checker
 
 EXPECTED = sorted([
-    "crates/strategy-runtime-core/src/lib.rs",
     "crates/strategy-runtime-core/src/stage6_durable_identity.rs",
     "crates/strategy-runtime-core/src/stage6_replay.rs",
-    "fixtures/stage6c/replay-fingerprint-v1.txt",
     "docs/stage-6/stage6c-crash-replay.md",
+    "docs/stage-6/stage6c-r1-cancel-recovery.md",
     "docs/stage-6/stage6c-replay-descriptor.json",
-    "docs/stage-6/stage6c-storage-compatibility-manifest.json",
-    "docs/stage-6/stage6c-golden-manifest.json",
     "scripts/stage6c_check.py",
     "scripts/stage6c_negative_harness.py",
     "scripts/stage6c_closed_surface_check.py",
     "scripts/stage6c_preseal_check.py",
-    "scripts/stage6c_gate.sh",
+    "scripts/stage6c_r1_gate.sh",
     "scripts/make_stage6c_handoff_archive.py",
 ])
 
@@ -53,7 +50,7 @@ def main():
     args = parser.parse_args()
     root = Path.cwd().resolve()
     if output("git", "rev-parse", "HEAD^", root=root) != checker.BASE:
-        fail("HEAD is not direct accepted Stage 6B-R1 successor")
+        fail("HEAD is not direct Stage 6C-R1 predecessor successor")
     if output("git", "branch", "--show-current", root=root) != checker.BRANCH:
         fail("wrong branch")
     changed = sorted(output("git", "diff", "--name-only", f"{checker.BASE}..HEAD", root=root).splitlines())
@@ -80,7 +77,7 @@ def main():
     if tracked != archived:
         fail("index/archive mismatch")
     checker.check(root)
-    print(f"stage6c-preseal: PASS delta={len(EXPECTED)} archive={len(archived)}")
+    print(f"stage6c-r1-preseal: PASS delta={len(EXPECTED)} archive={len(archived)}")
 
 
 if __name__ == "__main__":

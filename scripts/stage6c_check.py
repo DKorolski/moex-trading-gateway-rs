@@ -7,7 +7,8 @@ import json
 import subprocess
 from pathlib import Path
 
-BASE = "f0d5e3912243ba85c6f372722c97e815f254a962"
+BASE = "a4e55c42aac6d2470d6ab874c61c19be1b771b3f"
+ACCEPTED_STAGE6B = "f0d5e3912243ba85c6f372722c97e815f254a962"
 STAGE6A = "c399e2bc2c7e62cc2116a6eac970058bb47c4a49"
 MAIN = "14359aadb3178c83692441b748b060d06ce12903"
 BRANCH = "stage6-durable-chain"
@@ -44,7 +45,9 @@ REQUIRED_IDENTITY = (
     "pub(crate) fn payload(",
     "InvalidDispatchAttemptOrdinal",
     "InvalidCancelOutcomePayload",
+    "InvalidActionEvent",
     "InvalidConflictPayload",
+    "fn validate_action_event(",
 )
 
 REQUIRED_REPLAY = (
@@ -67,6 +70,8 @@ REQUIRED_REPLAY = (
     "BrokerOrderConflict",
     "BrokerTradeConflict",
     "CancelTargetConflict",
+    "CancelOutcomeConflict",
+    "InvalidActionEvent",
     "EventAfterFinalization",
     "InvalidTransition",
     "pub struct Stage6RecoveredRequestV1",
@@ -83,6 +88,7 @@ REQUIRED_REPLAY = (
     "record.lifecycle_sequence().get() != self.last_sequence + 1",
     "record.previous_record_id() != Some(&self.last_record_id)",
     "self.validate_identity(record.durable_request_identity())?",
+    "validate_event_for_action(self.identity.action(), record.payload())?",
     "accepted_request_payload_sha256 != &self.accepted_payload_sha256",
     "attempt_ordinal != self.dispatch_attempt_count + 1",
     "return Err(Stage6ReplayError::BlindRedispatchBlocked)",
@@ -91,6 +97,10 @@ REQUIRED_REPLAY = (
     "self.establish_broker_order(broker_order_id)?",
     "return Err(Stage6ReplayError::BrokerTradeConflict)",
     "return Err(Stage6ReplayError::EventAfterFinalization)",
+    "if self.cancel_outcome.is_some()",
+    "return Err(Stage6ReplayError::CancelOutcomeConflict)",
+    "self.identity.action() != Stage6DurableActionKind::Place",
+    "fn validate_event_for_action(",
     "hasher.update(REPLAY_FINGERPRINT_DOMAIN)",
     "stage6c_memory_backend_records_replay_identically",
     "stage6c_old_stage6a_place_golden_is_byte_identical_and_decodable",
@@ -137,22 +147,27 @@ def extract_block(source: str, needle: str, start: int = 0) -> str:
 def validate_descriptor(value: dict) -> None:
     require(value.get("schema_version") == 1 and value.get("stage") == "6C", "descriptor header drift")
     require(value.get("status") == "implementation_candidate", "status drift")
-    require(value.get("accepted_stage6b_ref") == BASE, "Stage 6B ref drift")
+    require(value.get("accepted_stage6b_ref") == ACCEPTED_STAGE6B, "Stage 6B ref drift")
+    require(value.get("stage6c_r1_predecessor_ref") == BASE, "Stage 6C-R1 predecessor drift")
     require(value.get("required_branch") == BRANCH, "branch drift")
     require(value.get("durable_record_schema_version") == 1, "durable schema drift")
     require(value.get("replay_schema_version") == 1, "replay schema drift")
     require(value.get("replay_fingerprint_domain") == "stage6-replay-snapshot-v1", "fingerprint domain drift")
-    require(value.get("positive_test_count") == 54, "positive test count drift")
+    require(value.get("positive_test_count") == 73, "positive test count drift")
+    require(value.get("stage6c_r1_test_count") == 19, "R1 test count drift")
     require(value.get("crash_window_test_count") == 10, "crash-window count drift")
-    require(value.get("negative_case_minimum") == 96, "negative minimum drift")
+    require(value.get("negative_case_minimum") == 180, "negative minimum drift")
     require(value.get("duplicate_policy") == "exact_canonical_bytes_idempotent_conflict_fail_closed", "duplicate policy drift")
     require(value.get("sequence_policy") == "per_request_contiguous_with_exact_previous_record", "sequence policy drift")
     require(value.get("causal_parent_policy") == "must_appear_earlier_in_physical_history", "causal policy drift")
     require(value.get("blind_redispatch_blocked") is True, "blind redispatch opened")
-    require(value.get("retry_authority") == "authoritative_no_broker_order_found_same_identity", "retry authority drift")
+    require(value.get("retry_authority") == "place_only_authoritative_no_broker_order_found_same_identity", "retry authority drift")
+    require(value.get("cancel_outcome_policy") == "first_unique_outcome_authoritative_later_unique_outcome_fail_closed", "cancel outcome policy drift")
+    require(value.get("cancel_retry_policy") == "generic_reconciliation_never_authorizes_cancel_retry", "cancel retry policy drift")
+    require(value.get("action_event_policy") == "place_and_cancel_event_matrix_fail_closed", "action/event policy drift")
     require(value.get("broker_ids_are_opaque") is True, "broker ID policy drift")
     require(value.get("canonical_collections") == "btree_map_and_ordered_vectors", "canonical collection drift")
-    require(value.get("stage6c_status") == "open_pending_independent_acceptance", "Stage 6C status drift")
+    require(value.get("stage6c_status") == "r1_open_pending_independent_acceptance", "Stage 6C status drift")
     require(value.get("stage6d_plus_open") is False, "Stage 6D+ opened")
     require(value.get("closed_surfaces") and not any(value["closed_surfaces"].values()), "closed surface opened")
 
@@ -177,6 +192,33 @@ def validate_identity(source: str) -> None:
         and "UnsupportedEventPayload" in source,
         "reserved marker rejection drift",
     )
+    action_event = extract_block(source, "fn validate_action_event(")
+    for token in (
+        "Stage6DurableActionKind::Place",
+        "Stage6DurableActionKind::Cancel",
+        "Stage6JournalPayloadV1::BrokerOrderObserved",
+        "Stage6JournalPayloadV1::BrokerTradeObserved",
+        "Stage6ReconciliationDispositionV1::Inconclusive",
+        "Stage6DurableIdentityError::InvalidActionEvent",
+    ):
+        require(token in action_event, f"identity action/event guard drift: {token}")
+    broker_order = extract_block(source, "pub fn broker_order_observed(")
+    broker_trade = extract_block(source, "pub fn broker_trade_observed(")
+    reconciliation = extract_block(source, "pub fn reconciliation_observed(")
+    require(
+        "identity.action() != Stage6DurableActionKind::Place" in broker_order
+        and "Stage6DurableIdentityError::InvalidActionEvent" in broker_order,
+        "broker order action guard drift",
+    )
+    require(
+        "identity.action() != Stage6DurableActionKind::Place" in broker_trade
+        and "Stage6DurableIdentityError::InvalidActionEvent" in broker_trade,
+        "broker trade action guard drift",
+    )
+    require(
+        "validate_action_event" in reconciliation and "identity.action()" in reconciliation,
+        "reconciliation constructor action guard drift",
+    )
 
 
 def validate_replay(source: str) -> None:
@@ -185,7 +227,7 @@ def validate_replay(source: str) -> None:
     production = source.split("#[cfg(test)]\nmod tests", 1)[0]
     for token in FORBIDDEN_REPLAY_PRODUCTION:
         require(token not in production, f"forbidden replay production token: {token}")
-    require(source.count("fn stage6c_") == 54, "Stage 6C test count drift")
+    require(source.count("fn stage6c_") == 72, "Stage 6C replay test count drift")
     for window in range(1, 11):
         require(f"fn stage6c_cw{window}_" in source, f"crash window CW{window} absent")
     replay = extract_block(source, "pub fn replay(")
@@ -194,9 +236,29 @@ def validate_replay(source: str) -> None:
     apply = extract_block(source, "fn apply(&mut self, record:")
     require(apply.index("validate_identity") < apply.index("last_sequence + 1") < apply.index("previous_record_id()"), "identity/sequence/previous order drift")
     attempt = extract_block(source, "fn apply_dispatch_attempt(")
-    require("RetryEligibleSameIdentity" in attempt and "BlindRedispatchBlocked" in attempt, "dispatch safety transition drift")
+    require(
+        "Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity" in attempt
+        and "if self.identity.action() == Stage6DurableActionKind::Place" in attempt
+        and "BlindRedispatchBlocked" in attempt,
+        "dispatch safety transition drift",
+    )
     reconciliation = extract_block(source, "fn apply_reconciliation(")
-    require("NoBrokerOrderFound" in reconciliation and "RetryEligibleSameIdentity" in reconciliation, "authoritative retry transition drift")
+    require(
+        "NoBrokerOrderFound" in reconciliation
+        and "RetryEligibleSameIdentity" in reconciliation
+        and reconciliation.count("self.identity.action() != Stage6DurableActionKind::Place") == 2,
+        "Place-only authoritative retry transition drift",
+    )
+    action_event = extract_block(source, "fn validate_event_for_action(")
+    require("Stage6ReconciliationDispositionV1::Inconclusive" in action_event, "replay action/event matrix drift")
+    require("Stage6ReplayError::InvalidActionEvent" in action_event, "replay action/event rejection drift")
+    apply = extract_block(source, "fn apply(&mut self, record:")
+    require(
+        apply.index("validate_event_for_action") < apply.index("match record.payload()")
+        and "if self.cancel_outcome.is_some()" in apply
+        and "CancelOutcomeConflict" in apply,
+        "cancel monotonicity or pre-mutation action guard drift",
+    )
     establish = extract_block(source, "fn establish_broker_order(")
     require("known| known != broker_order_id" in establish, "broker order conflict check drift")
     fingerprint = extract_block(source, "fn replay_fingerprint(")
@@ -206,7 +268,7 @@ def validate_replay(source: str) -> None:
 def validate_compatibility(root: Path, value: dict) -> None:
     require(value.get("schema_version") == 1, "compatibility schema drift")
     require(value.get("accepted_stage6a_ref") == STAGE6A, "compatibility Stage 6A ref drift")
-    require(value.get("accepted_stage6b_ref") == BASE, "compatibility Stage 6B ref drift")
+    require(value.get("accepted_stage6b_ref") == ACCEPTED_STAGE6B, "compatibility Stage 6B ref drift")
     require(value.get("accepted_stage6a_source_pre_extension_sha256") == "42374c406a9d20df2cc2266e752c0b5722ebe7c7fe2a459741359b0bd1f39fd4", "pre-extension authority drift")
     files = value.get("immutable_files", [])
     require(len(files) == 9, "compatibility file count drift")
@@ -234,14 +296,15 @@ def check(root: Path) -> None:
     validate_golden(root, json.loads((root / GOLDEN).read_text()))
     lib = (root / LIB).read_text()
     require("mod stage6_replay;" in lib and "pub use stage6_replay::{" in lib, "Stage 6C linkage absent")
-    print("stage6c-check: PASS positive=54 crash_windows=10 compatibility=9 golden=1")
+    require((root / IDENTITY).read_text().count("fn stage6c_r1_") == 1, "identity R1 test count drift")
+    print("stage6c-r1-check: PASS positive=73 r1=19 crash_windows=10 compatibility=9 golden=1")
 
 
 def main() -> None:
     try:
         check(Path.cwd().resolve())
     except CheckFailure as error:
-        raise SystemExit(f"stage6c-check: FAIL: {error}") from error
+        raise SystemExit(f"stage6c-r1-check: FAIL: {error}") from error
 
 
 if __name__ == "__main__":
