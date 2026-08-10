@@ -295,6 +295,7 @@ mod stage5g_order_position;
 mod stage5g_protective_completion;
 mod stage5g_timer;
 mod stage6_durable_identity;
+mod stage6_journal_backend;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -315,6 +316,12 @@ pub use stage6_durable_identity::{
     Stage6DurableRequestIdentityV1, Stage6JournalEventKind, Stage6JournalRecordId,
     Stage6JournalRecordV1, Stage6LifecycleSequence, Stage6Sha256Digest,
     STAGE6_DURABLE_RECORD_SCHEMA_VERSION,
+};
+pub use stage6_journal_backend::{
+    Stage6FileJournalBackend, Stage6JournalAppendReceipt, Stage6JournalBackend,
+    Stage6JournalCheckpointV1, Stage6JournalFrontierV1, Stage6JournalStorageError,
+    Stage6MemoryJournalBackend, STAGE6_JOURNAL_MAX_RECORD_BYTES,
+    STAGE6_JOURNAL_STORAGE_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]
