@@ -18,8 +18,8 @@ def main():
     if run(["git","rev-parse","HEAD^"]) != checker.BASE: fail("wrong predecessor")
     if run(["git","branch","--show-current"]) != checker.BRANCH: fail("wrong branch")
     if run(["git","rev-parse",f"origin/{checker.BRANCH}"]) != head: fail("origin branch mismatch")
-    env=dict(os.environ); env["STAGE6A_SKIP_PRESEAL"]="1"
-    gate=subprocess.run(["bash","scripts/stage6a_gate.sh"],cwd=ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env=env)
+    env=dict(os.environ); env["STAGE6A_R1_SKIP_PRESEAL"]="1"
+    gate=subprocess.run(["bash","scripts/stage6a_r1_gate.sh"],cwd=ROOT,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,env=env)
     redacted=gate.stdout.replace(str(ROOT),"<REPO>").replace(str(Path.home()),"<HOME>").encode()
     if gate.returncode: print(gate.stdout); fail(f"gate failed: {gate.returncode}")
     raw=subprocess.check_output(["git","archive","--format=tar","HEAD"],cwd=ROOT); members=[]
@@ -30,7 +30,7 @@ def main():
             members.append((member.name,tar.extractfile(member).read(),member.mode))
     manifest=json.dumps({"schema_version":1,"source_ref":head,"predecessor":checker.BASE,"members":[{"path":n,"sha256":hashlib.sha256(d).hexdigest()} for n,d,_ in sorted(members)]},indent=2,sort_keys=True).encode()+b"\n"
     marker=f"source_ref={head}\nsource_short_ref={short}\nsource_branch={checker.BRANCH}\narchive_name=moex-trading-project-{short}.zip\npredecessor={checker.BASE}\n".encode()
-    evidence=json.dumps({"schema_version":1,"stage":"6A","source_ref":head,"predecessor":checker.BASE,"gate_exit_code":0,"positive_test_count":24,"negative_case_minimum":80,"execution_surfaces_open":False,"source_manifest_sha256":hashlib.sha256(manifest).hexdigest(),"gate_sha256":hashlib.sha256(redacted).hexdigest()},indent=2,sort_keys=True).encode()+b"\n"
+    evidence=json.dumps({"schema_version":1,"stage":"6A-R1","source_ref":head,"predecessor":checker.BASE,"gate_exit_code":0,"positive_test_count":57,"negative_case_minimum":110,"execution_surfaces_open":False,"golden_bytes_changed":False,"source_manifest_sha256":hashlib.sha256(manifest).hexdigest(),"gate_sha256":hashlib.sha256(redacted).hexdigest()},indent=2,sort_keys=True).encode()+b"\n"
     members += [("handoff-commit.txt",marker,0o644),("source-tree-manifest.json",manifest,0o644),("handoff-evidence/stage6a-full-gate.txt",redacted,0o644),("handoff-evidence/stage6a-evidence.json",evidence,0o644),("handoff-evidence/stage6a-toolchain.txt",f"{run(['rustc','--version'])}\n{run(['cargo','--version'])}\n".encode(),0o644)]
     if len({n for n,_,_ in members}) != len(members): fail("duplicate member")
     OUT.mkdir(parents=True,exist_ok=True); target=OUT/f"moex-trading-project-{short}.zip"

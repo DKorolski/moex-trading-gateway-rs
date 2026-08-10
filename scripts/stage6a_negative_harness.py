@@ -12,6 +12,13 @@ def rejected(name, action):
     except (checker.CheckFailure, KeyError, ValueError, json.JSONDecodeError): print(f"PASS {name}")
     else: raise SystemExit(f"stage6a-negative: FAIL accepted mutation: {name}")
 
+def replace_nth(value: str, old: str, new: str, occurrence: int) -> str:
+    start = 0
+    for _ in range(occurrence + 1):
+        position = value.index(old, start)
+        start = position + len(old)
+    return value[:position] + new + value[position + len(old):]
+
 def main():
     count = 0
     descriptor = json.loads((ROOT / checker.DESCRIPTOR).read_text())
@@ -22,6 +29,10 @@ def main():
         ("negative_case_minimum", 79), ("logical_record_id_includes_payload_digest", True),
         ("cancel_request_identity_separate_from_target_client_identity", False),
         ("stage6a_status", "closed"), ("stage6b_plus_open", True),
+        ("accepted_transition_gate", "0"*40),
+        ("constructor_deserializer_equivalence", False),
+        ("strict_canonical_byte_decode", False),
+        ("reserved_marker_events_accepted", True),
     ]
     for field, value in mutations:
         candidate=copy.deepcopy(descriptor); candidate[field]=value
@@ -35,6 +46,24 @@ def main():
         rejected(f"missing-required-{index:02d}", lambda c=candidate: checker.validate_source(c)); count += 1
     for index, token in enumerate(checker.FORBIDDEN_SOURCE):
         rejected(f"forbidden-{index:02d}", lambda t=token: checker.validate_source(source+"\n"+t)); count += 1
+    semantic_mutations = [
+        ("identity-place-validator-bypass", replace_nth(source, "value.validate_self()?;", "let _ = &value;", 0)),
+        ("identity-cancel-validator-bypass", replace_nth(source, "value.validate_self()?;", "let _ = &value;", 1)),
+        ("snapshot-place-identity-bypass", replace_nth(source, "identity.validate_self()?;", "let _ = identity;", 0)),
+        ("snapshot-cancel-identity-bypass", replace_nth(source, "identity.validate_self()?;", "let _ = identity;", 1)),
+        ("record-build-identity-bypass", replace_nth(source, "identity.validate_self()?;", "let _ = &identity;", 2)),
+        ("snapshot-place-intrinsic-bypass", replace_nth(source, "value.validate_intrinsic()?;", "let _ = &value;", 0)),
+        ("snapshot-cancel-intrinsic-bypass", replace_nth(source, "value.validate_intrinsic()?;", "let _ = &value;", 1)),
+        ("record-final-validation-bypass", source.replace("value.validate()?;\n        Ok(value)", "Ok(value)", 1)),
+        ("decode-semantic-validation-bypass", source.replace("record.validate()?;\n        if record.encode_canonical()", "if record.encode_canonical()", 1)),
+        ("decode-byte-canonicality-bypass", source.replace("if record.encode_canonical() != bytes", "if false")),
+        ("reserved-marker-bypass", source.replace("return Err(Stage6DurableIdentityError::UnsupportedEventPayload);", "return Ok(());", 1)),
+        ("empty-account-bypass", source.replace("if account_id.as_str().is_empty()", "if false && account_id.as_str().is_empty()")),
+        ("empty-instrument-bypass", source.replace("if instrument.symbol.is_empty()", "if false && instrument.symbol.is_empty()")),
+        ("attribution-equivalence-bypass", source.replace("|| attribution.validate_source_equivalence().is_err()", "|| false")),
+    ]
+    for name, candidate in semantic_mutations:
+        rejected(name, lambda c=candidate: checker.validate_source(c)); count += 1
     inventory=json.loads((ROOT/checker.INVENTORY).read_text())
     for index in range(3):
         candidate=copy.deepcopy(inventory); candidate["direct_schema_authorities"][index]["sha256"]="0"*64
@@ -46,7 +75,7 @@ def main():
     for index in range(2):
         candidate=copy.deepcopy(golden); candidate["fixtures"][index]["sha256"]="0"*64
         rejected(f"golden-sha-{index}", lambda c=candidate: checker.validate_golden(ROOT,c)); count += 1
-    if count < 80: raise SystemExit(f"stage6a-negative: FAIL only {count} cases")
+    if count < 110: raise SystemExit(f"stage6a-negative: FAIL only {count} cases")
     print(f"stage6a-negative: PASS {count}/{count}")
 
 if __name__ == "__main__": main()

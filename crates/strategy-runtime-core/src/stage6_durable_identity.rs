@@ -22,8 +22,8 @@
 
 use broker_core::{
     BrokerAccountId, BrokerOrderId, BrokerTradeId, CancelOrder, ClientOrderId,
-    HybridRuntimeAttribution, InstrumentId, OrderSide, OrderType, PlaceOrder, Price, Quantity,
-    StrategyRequestId, TimeInForce,
+    HybridRuntimeAttribution, HybridRuntimeOrderRole, InstrumentId, OrderSide, OrderType,
+    PlaceOrder, Price, Quantity, StrategyRequestId, TimeInForce,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -47,6 +47,12 @@ pub enum Stage6DurableIdentityError {
     PayloadDigestMismatch,
     EventPayloadMismatch,
     DecodeFailed,
+    InvalidAccountIdentity,
+    InvalidInstrumentIdentity,
+    InvalidAttribution,
+    ActionRoleMismatch,
+    NonCanonicalEncoding,
+    UnsupportedEventPayload,
 }
 
 impl std::fmt::Display for Stage6DurableIdentityError {
@@ -66,6 +72,12 @@ impl std::fmt::Display for Stage6DurableIdentityError {
             Self::PayloadDigestMismatch => "journal payload digest mismatch",
             Self::EventPayloadMismatch => "journal event and payload mismatch",
             Self::DecodeFailed => "journal decode failed",
+            Self::InvalidAccountIdentity => "invalid durable account identity",
+            Self::InvalidInstrumentIdentity => "invalid durable instrument identity",
+            Self::InvalidAttribution => "invalid durable hybrid attribution",
+            Self::ActionRoleMismatch => "durable action and attribution role mismatch",
+            Self::NonCanonicalEncoding => "journal bytes are not canonical",
+            Self::UnsupportedEventPayload => "event payload is reserved for a later stage",
         })
     }
 }
@@ -103,7 +115,7 @@ impl Stage6DurableRequestIdentityV1 {
         if command.comment.as_deref() != Some(attribution.internal_comment()) {
             return Err(Stage6DurableIdentityError::AttributionMismatch);
         }
-        Ok(Self {
+        let value = Self {
             strategy_request_id: command.request_id,
             durable_client_order_id: durable,
             account_id: command.account_id.clone(),
@@ -112,7 +124,9 @@ impl Stage6DurableRequestIdentityV1 {
             action: Stage6DurableActionKind::Place,
             target_broker_order_id: None,
             target_order_client_order_id: None,
-        })
+        };
+        value.validate_self()?;
+        Ok(value)
     }
 
     pub fn from_cancel(
@@ -120,10 +134,7 @@ impl Stage6DurableRequestIdentityV1 {
         instrument: InstrumentId,
         attribution: HybridRuntimeAttribution,
     ) -> Result<Self, Stage6DurableIdentityError> {
-        if attribution.role() != Some(broker_core::HybridRuntimeOrderRole::Cancel) {
-            return Err(Stage6DurableIdentityError::AttributionMismatch);
-        }
-        Ok(Self {
+        let value = Self {
             strategy_request_id: command.request_id,
             durable_client_order_id: ClientOrderId::from_strategy_request(command.request_id),
             account_id: command.account_id.clone(),
@@ -132,7 +143,9 @@ impl Stage6DurableRequestIdentityV1 {
             action: Stage6DurableActionKind::Cancel,
             target_broker_order_id: Some(command.order_id.clone()),
             target_order_client_order_id: command.client_order_id.clone(),
-        })
+        };
+        value.validate_self()?;
+        Ok(value)
     }
 
     pub fn strategy_request_id(&self) -> StrategyRequestId {
@@ -166,13 +179,12 @@ impl Stage6DurableRequestIdentityV1 {
         {
             return Err(Stage6DurableIdentityError::PlaceClientIdentityMismatch);
         }
-        if self.attribution.strategy_id().is_empty()
-            || self.attribution.cycle_id().is_empty()
-            || self.attribution.owner().is_none()
-            || self.attribution.role().is_none()
-        {
-            return Err(Stage6DurableIdentityError::AttributionMismatch);
-        }
+        validate_durable_domain(
+            &self.account_id,
+            &self.instrument,
+            &self.attribution,
+            self.action,
+        )?;
         match self.action {
             Stage6DurableActionKind::Place
                 if self.target_broker_order_id.is_none()
@@ -195,7 +207,54 @@ impl Stage6DurableRequestIdentityV1 {
     }
 }
 
+fn validate_durable_domain(
+    account_id: &BrokerAccountId,
+    instrument: &InstrumentId,
+    attribution: &HybridRuntimeAttribution,
+    action: Stage6DurableActionKind,
+) -> Result<(), Stage6DurableIdentityError> {
+    if account_id.as_str().is_empty() {
+        return Err(Stage6DurableIdentityError::InvalidAccountIdentity);
+    }
+    if instrument.symbol.is_empty()
+        || instrument
+            .venue_symbol
+            .as_deref()
+            .is_some_and(str::is_empty)
+    {
+        return Err(Stage6DurableIdentityError::InvalidInstrumentIdentity);
+    }
+    if attribution.strategy_id().is_empty()
+        || attribution.cycle_id().is_empty()
+        || attribution.owner().is_none()
+        || attribution.role().is_none()
+        || attribution.validate_source_equivalence().is_err()
+    {
+        return Err(Stage6DurableIdentityError::InvalidAttribution);
+    }
+    let compatible = matches!(
+        (action, attribution.role()),
+        (
+            Stage6DurableActionKind::Place,
+            Some(
+                HybridRuntimeOrderRole::Entry
+                    | HybridRuntimeOrderRole::Exit
+                    | HybridRuntimeOrderRole::TakeProfit
+                    | HybridRuntimeOrderRole::StopLoss,
+            ),
+        ) | (
+            Stage6DurableActionKind::Cancel,
+            Some(HybridRuntimeOrderRole::Cancel)
+        )
+    );
+    if !compatible {
+        return Err(Stage6DurableIdentityError::ActionRoleMismatch);
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Stage6DurableRequestIdentityWireV1 {
     strategy_request_id: StrategyRequestId,
     durable_client_order_id: ClientOrderId,
@@ -232,7 +291,7 @@ pub struct Stage6DurableCommandSnapshotV1 {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "command_kind", rename_all = "snake_case")]
+#[serde(tag = "command_kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Stage6DurableCommandPayloadV1 {
     Place {
         request_id: StrategyRequestId,
@@ -266,6 +325,7 @@ impl Stage6DurableCommandSnapshotV1 {
         identity: &Stage6DurableRequestIdentityV1,
         command: &PlaceOrder,
     ) -> Result<Self, Stage6DurableIdentityError> {
+        identity.validate_self()?;
         validate_common(
             identity,
             command.request_id,
@@ -279,7 +339,7 @@ impl Stage6DurableCommandSnapshotV1 {
         if command.comment.as_deref() != Some(identity.attribution().internal_comment()) {
             return Err(Stage6DurableIdentityError::AttributionMismatch);
         }
-        Ok(Self {
+        let value = Self {
             payload: Stage6DurableCommandPayloadV1::Place {
                 request_id: command.request_id,
                 durable_client_order_id: command.client_order_id.clone(),
@@ -294,13 +354,16 @@ impl Stage6DurableCommandSnapshotV1 {
                 created_ts: command.created_ts,
                 attribution: identity.attribution().clone(),
             },
-        })
+        };
+        value.validate_intrinsic()?;
+        Ok(value)
     }
 
     pub fn from_cancel(
         identity: &Stage6DurableRequestIdentityV1,
         command: &CancelOrder,
     ) -> Result<Self, Stage6DurableIdentityError> {
+        identity.validate_self()?;
         if identity.strategy_request_id != command.request_id {
             return Err(Stage6DurableIdentityError::RequestIdentityMismatch);
         }
@@ -315,7 +378,7 @@ impl Stage6DurableCommandSnapshotV1 {
         {
             return Err(Stage6DurableIdentityError::CancelTargetMismatch);
         }
-        Ok(Self {
+        let value = Self {
             payload: Stage6DurableCommandPayloadV1::Cancel {
                 request_id: command.request_id,
                 durable_cancel_client_order_id: identity.durable_client_order_id.clone(),
@@ -327,7 +390,9 @@ impl Stage6DurableCommandSnapshotV1 {
                 created_ts: command.created_ts,
                 attribution: identity.attribution.clone(),
             },
-        })
+        };
+        value.validate_intrinsic()?;
+        Ok(value)
     }
 
     pub fn action(&self) -> Stage6DurableActionKind {
@@ -342,31 +407,39 @@ impl Stage6DurableCommandSnapshotV1 {
             Stage6DurableCommandPayloadV1::Place {
                 request_id,
                 durable_client_order_id,
+                account_id,
+                instrument,
                 attribution,
                 ..
             } => {
+                validate_durable_domain(
+                    account_id,
+                    instrument,
+                    attribution,
+                    Stage6DurableActionKind::Place,
+                )?;
                 if durable_client_order_id != &ClientOrderId::from_strategy_request(*request_id) {
                     return Err(Stage6DurableIdentityError::PlaceClientIdentityMismatch);
-                }
-                if attribution.owner().is_none() || attribution.role().is_none() {
-                    return Err(Stage6DurableIdentityError::AttributionMismatch);
                 }
             }
             Stage6DurableCommandPayloadV1::Cancel {
                 request_id,
                 durable_cancel_client_order_id,
+                account_id,
+                instrument,
                 attribution,
                 ..
             } => {
+                validate_durable_domain(
+                    account_id,
+                    instrument,
+                    attribution,
+                    Stage6DurableActionKind::Cancel,
+                )?;
                 if durable_cancel_client_order_id
                     != &ClientOrderId::from_strategy_request(*request_id)
                 {
                     return Err(Stage6DurableIdentityError::CancelTargetMismatch);
-                }
-                if attribution.owner().is_none()
-                    || attribution.role() != Some(broker_core::HybridRuntimeOrderRole::Cancel)
-                {
-                    return Err(Stage6DurableIdentityError::AttributionMismatch);
                 }
             }
         }
@@ -515,7 +588,7 @@ pub enum Stage6JournalEventKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "payload_kind", rename_all = "snake_case")]
+#[serde(tag = "payload_kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Stage6JournalPayloadV1 {
     RequestAccepted {
         command: Box<Stage6DurableCommandSnapshotV1>,
@@ -616,9 +689,10 @@ impl Stage6JournalRecordV1 {
         causal_parent: Option<Stage6JournalRecordId>,
         source_evidence: Stage6Sha256Digest,
     ) -> Result<Self, Stage6DurableIdentityError> {
+        identity.validate_self()?;
         let payload_bytes =
             serde_json::to_vec(&payload).expect("fixed Stage 6A payload serializes");
-        Ok(Self {
+        let value = Self {
             schema_version: STAGE6_DURABLE_RECORD_SCHEMA_VERSION,
             journal_record_id: Stage6JournalRecordId::derive(
                 identity.strategy_request_id,
@@ -632,7 +706,9 @@ impl Stage6JournalRecordV1 {
             payload,
             canonical_payload_sha256: Stage6Sha256Digest::of(&payload_bytes),
             source_evidence_sha256: source_evidence,
-        })
+        };
+        value.validate()?;
+        Ok(value)
     }
 
     pub fn encode_canonical(&self) -> Vec<u8> {
@@ -642,6 +718,9 @@ impl Stage6JournalRecordV1 {
         let record: Self =
             serde_json::from_slice(bytes).map_err(|_| Stage6DurableIdentityError::DecodeFailed)?;
         record.validate()?;
+        if record.encode_canonical() != bytes {
+            return Err(Stage6DurableIdentityError::NonCanonicalEncoding);
+        }
         Ok(record)
     }
     fn validate(&self) -> Result<(), Stage6DurableIdentityError> {
@@ -662,6 +741,9 @@ impl Stage6JournalRecordV1 {
         );
         if self.canonical_payload_sha256 != digest {
             return Err(Stage6DurableIdentityError::PayloadDigestMismatch);
+        }
+        if matches!(self.payload, Stage6JournalPayloadV1::Marker) {
+            return Err(Stage6DurableIdentityError::UnsupportedEventPayload);
         }
         if !event_matches_payload(self.event_kind, &self.payload) {
             return Err(Stage6DurableIdentityError::EventPayloadMismatch);
@@ -687,6 +769,7 @@ impl Stage6JournalRecordV1 {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Stage6JournalRecordWireV1 {
     schema_version: u16,
     journal_record_id: Stage6JournalRecordId,
@@ -790,13 +873,6 @@ fn event_matches_payload(kind: Stage6JournalEventKind, payload: &Stage6JournalPa
         ) | (
             Stage6JournalEventKind::BrokerTradeObserved,
             Stage6JournalPayloadV1::BrokerTradeObserved { .. }
-        ) | (
-            Stage6JournalEventKind::DispatchAttemptRecorded
-                | Stage6JournalEventKind::CancelOutcomeObserved
-                | Stage6JournalEventKind::ReconciliationObserved
-                | Stage6JournalEventKind::RequestFinalized
-                | Stage6JournalEventKind::ConflictObserved,
-            Stage6JournalPayloadV1::Marker
         )
     )
 }
@@ -836,6 +912,9 @@ mod tests {
         ))
         .unwrap()
     }
+    fn parsed_attribution(comment: &str) -> HybridRuntimeAttribution {
+        HybridRuntimeAttribution::parse_source_comment(comment).unwrap()
+    }
     fn place(kind: OrderType) -> PlaceOrder {
         let request_id = request(1);
         PlaceOrder {
@@ -870,6 +949,46 @@ mod tests {
             evidence(),
         )
         .unwrap()
+    }
+    fn cancel(role: &str) -> (CancelOrder, HybridRuntimeAttribution) {
+        let command = CancelOrder {
+            request_id: request(2),
+            created_ts: Utc.with_ymd_and_hms(2026, 8, 9, 9, 1, 0).unwrap(),
+            ttl_ms: Some(5000),
+            account_id: account(),
+            order_id: BrokerOrderId::new("ORDER/NON_NUMERIC"),
+            client_order_id: Some(ClientOrderId::from_strategy_request(request(1))),
+        };
+        (command, attribution(role))
+    }
+    fn accepted_cancel_record() -> Stage6JournalRecordV1 {
+        let (command, attribution) = cancel("CANCEL");
+        let identity =
+            Stage6DurableRequestIdentityV1::from_cancel(&command, instrument(), attribution)
+                .unwrap();
+        let snapshot = Stage6DurableCommandSnapshotV1::from_cancel(&identity, &command).unwrap();
+        Stage6JournalRecordV1::request_accepted(
+            identity,
+            snapshot,
+            Stage6LifecycleSequence::new(1).unwrap(),
+            None,
+            None,
+            evidence(),
+        )
+        .unwrap()
+    }
+    fn place_with_comment(comment: &str) -> (PlaceOrder, HybridRuntimeAttribution) {
+        let mut command = place(OrderType::Market);
+        command.comment = Some(comment.to_string());
+        (command, parsed_attribution(comment))
+    }
+    fn assert_reserved_event_rejected(event_kind: &str) {
+        let mut value = serde_json::to_value(accepted_place_record(OrderType::Market)).unwrap();
+        value["event_kind"] = serde_json::json!(event_kind);
+        value["payload"] = serde_json::json!({"payload_kind": "marker"});
+        value["canonical_payload_sha256"] =
+            serde_json::json!(hex_sha256(&serde_json::to_vec(&value["payload"]).unwrap()));
+        assert!(serde_json::from_value::<Stage6JournalRecordV1>(value).is_err());
     }
 
     #[test]
@@ -1232,5 +1351,360 @@ mod tests {
                 .strip_suffix(b"\n")
                 .unwrap()
         );
+    }
+
+    #[test]
+    fn stage6a_r1_place_identity_constructor_roundtrips() {
+        let command = place(OrderType::Market);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+        let encoded = serde_json::to_vec(&identity).unwrap();
+        assert_eq!(identity, serde_json::from_slice(&encoded).unwrap());
+    }
+
+    #[test]
+    fn stage6a_r1_cancel_identity_constructor_roundtrips() {
+        let (command, attribution) = cancel("CANCEL");
+        let identity =
+            Stage6DurableRequestIdentityV1::from_cancel(&command, instrument(), attribution)
+                .unwrap();
+        let encoded = serde_json::to_vec(&identity).unwrap();
+        assert_eq!(identity, serde_json::from_slice(&encoded).unwrap());
+    }
+
+    #[test]
+    fn stage6a_r1_all_public_snapshot_constructors_roundtrip() {
+        for kind in [OrderType::Market, OrderType::Limit] {
+            let command = place(kind);
+            let identity =
+                Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+            let value = Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+            assert_eq!(
+                value,
+                serde_json::from_slice(&serde_json::to_vec(&value).unwrap()).unwrap()
+            );
+        }
+        let (command, attribution) = cancel("CANCEL");
+        let identity =
+            Stage6DurableRequestIdentityV1::from_cancel(&command, instrument(), attribution)
+                .unwrap();
+        let value = Stage6DurableCommandSnapshotV1::from_cancel(&identity, &command).unwrap();
+        assert_eq!(
+            value,
+            serde_json::from_slice(&serde_json::to_vec(&value).unwrap()).unwrap()
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_all_public_record_constructors_roundtrip_exactly() {
+        let place_record = accepted_place_record(OrderType::Market);
+        let cancel_record = accepted_cancel_record();
+        let command = place(OrderType::Market);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
+        let order = Stage6JournalRecordV1::broker_order_observed(
+            identity.clone(),
+            BrokerOrderId::new("ORDER/OPAQUE"),
+            Stage6LifecycleSequence::new(2).unwrap(),
+            None,
+            evidence(),
+        )
+        .unwrap();
+        let trade = Stage6JournalRecordV1::broker_trade_observed(
+            identity,
+            BrokerTradeId::new("TRADE/OPAQUE"),
+            BrokerOrderId::new("ORDER/OPAQUE"),
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(order.journal_record_id().clone()),
+            evidence(),
+        )
+        .unwrap();
+        let mut records = vec![place_record, cancel_record, order, trade];
+        for comment in [
+            "HYB|sid=hybrid_imoexf|c=cycle0001|o=BO|r=EXIT",
+            "HYB|sid=hybrid_imoexf|c=cycle0001|o=MR|r=TP",
+            "HYB|sid=hybrid_imoexf|c=cycle0001|o=MR|r=SL",
+        ] {
+            let (command, attribution) = place_with_comment(comment);
+            let identity =
+                Stage6DurableRequestIdentityV1::from_place(&command, attribution).unwrap();
+            let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+            records.push(
+                Stage6JournalRecordV1::request_accepted(
+                    identity,
+                    snapshot,
+                    Stage6LifecycleSequence::new(1).unwrap(),
+                    None,
+                    None,
+                    evidence(),
+                )
+                .unwrap(),
+            );
+        }
+        for record in records {
+            let bytes = record.encode_canonical();
+            assert_eq!(
+                record,
+                Stage6JournalRecordV1::decode_canonical(&bytes).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn stage6a_r1_entry_place_role_is_accepted() {
+        assert!(Stage6DurableRequestIdentityV1::from_place(
+            &place(OrderType::Market),
+            attribution("ENTRY")
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn stage6a_r1_exit_place_role_is_accepted() {
+        let (command, attribution) =
+            place_with_comment("HYB|sid=hybrid_imoexf|c=cycle0001|o=BO|r=EXIT");
+        assert!(Stage6DurableRequestIdentityV1::from_place(&command, attribution).is_ok());
+    }
+
+    #[test]
+    fn stage6a_r1_take_profit_place_role_is_accepted() {
+        let (command, attribution) =
+            place_with_comment("HYB|sid=hybrid_imoexf|c=cycle0001|o=MR|r=TP");
+        assert!(Stage6DurableRequestIdentityV1::from_place(&command, attribution).is_ok());
+    }
+
+    #[test]
+    fn stage6a_r1_stop_loss_place_role_is_accepted() {
+        let (command, attribution) =
+            place_with_comment("HYB|sid=hybrid_imoexf|c=cycle0001|o=MR|r=SL");
+        assert!(Stage6DurableRequestIdentityV1::from_place(&command, attribution).is_ok());
+    }
+
+    #[test]
+    fn stage6a_r1_empty_account_place_is_rejected() {
+        let mut command = place(OrderType::Market);
+        command.account_id = BrokerAccountId::new("");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap_err(),
+            Stage6DurableIdentityError::InvalidAccountIdentity
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_empty_account_cancel_is_rejected() {
+        let (mut command, attribution) = cancel("CANCEL");
+        command.account_id = BrokerAccountId::new("");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_cancel(&command, instrument(), attribution)
+                .unwrap_err(),
+            Stage6DurableIdentityError::InvalidAccountIdentity
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_empty_instrument_symbol_place_is_rejected() {
+        let mut command = place(OrderType::Market);
+        command.instrument.symbol.clear();
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap_err(),
+            Stage6DurableIdentityError::InvalidInstrumentIdentity
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_empty_instrument_symbol_cancel_is_rejected() {
+        let (command, attribution) = cancel("CANCEL");
+        let mut invalid = instrument();
+        invalid.symbol.clear();
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_cancel(&command, invalid, attribution)
+                .unwrap_err(),
+            Stage6DurableIdentityError::InvalidInstrumentIdentity
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_empty_venue_symbol_is_rejected() {
+        let mut command = place(OrderType::Market);
+        command.instrument.venue_symbol = Some(String::new());
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap_err(),
+            Stage6DurableIdentityError::InvalidInstrumentIdentity
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_empty_strategy_id_is_rejected_at_constructor() {
+        let (command, attribution) = place_with_comment("HYB|sid=|c=cycle0001|o=BO|r=ENTRY");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution).unwrap_err(),
+            Stage6DurableIdentityError::InvalidAttribution
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_empty_cycle_id_is_rejected_at_constructor() {
+        let (command, attribution) = place_with_comment("HYB|sid=hybrid_imoexf|c=|o=BO|r=ENTRY");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution).unwrap_err(),
+            Stage6DurableIdentityError::InvalidAttribution
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_missing_owner_is_rejected_at_constructor() {
+        let (command, attribution) =
+            place_with_comment("HYB|sid=hybrid_imoexf|c=cycle0001|o=UNKNOWN|r=ENTRY");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution).unwrap_err(),
+            Stage6DurableIdentityError::InvalidAttribution
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_cancel_missing_owner_is_rejected_at_constructor() {
+        let (command, _) = cancel("CANCEL");
+        let attribution =
+            parsed_attribution("HYB|sid=hybrid_imoexf|c=cycle0001|o=UNKNOWN|r=CANCEL");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_cancel(&command, instrument(), attribution)
+                .unwrap_err(),
+            Stage6DurableIdentityError::InvalidAttribution
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_missing_role_is_rejected_at_constructor() {
+        let (command, attribution) =
+            place_with_comment("HYB|sid=hybrid_imoexf|c=cycle0001|o=BO|r=UNKNOWN");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution).unwrap_err(),
+            Stage6DurableIdentityError::InvalidAttribution
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_place_cancel_role_is_rejected() {
+        let (command, attribution) =
+            place_with_comment("HYB|sid=hybrid_imoexf|c=cycle0001|o=BO|r=CANCEL");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_place(&command, attribution).unwrap_err(),
+            Stage6DurableIdentityError::ActionRoleMismatch
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_cancel_non_cancel_role_is_rejected() {
+        let (command, _) = cancel("CANCEL");
+        assert_eq!(
+            Stage6DurableRequestIdentityV1::from_cancel(
+                &command,
+                instrument(),
+                attribution("ENTRY")
+            )
+            .unwrap_err(),
+            Stage6DurableIdentityError::ActionRoleMismatch
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_trailing_newline() {
+        let mut bytes = accepted_place_record(OrderType::Market).encode_canonical();
+        bytes.push(b'\n');
+        assert_eq!(
+            Stage6JournalRecordV1::decode_canonical(&bytes).unwrap_err(),
+            Stage6DurableIdentityError::NonCanonicalEncoding
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_leading_whitespace() {
+        let mut bytes = vec![b' '];
+        bytes.extend(accepted_place_record(OrderType::Market).encode_canonical());
+        assert_eq!(
+            Stage6JournalRecordV1::decode_canonical(&bytes).unwrap_err(),
+            Stage6DurableIdentityError::NonCanonicalEncoding
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_reordered_top_level_fields() {
+        let value = serde_json::to_value(accepted_place_record(OrderType::Market)).unwrap();
+        let bytes = serde_json::to_vec(&value).unwrap();
+        assert!(Stage6JournalRecordV1::decode_canonical(&bytes).is_err());
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_unknown_top_level_field() {
+        let mut value = serde_json::to_value(accepted_place_record(OrderType::Market)).unwrap();
+        value["unknown_stage6a"] = serde_json::json!(true);
+        assert!(
+            Stage6JournalRecordV1::decode_canonical(&serde_json::to_vec(&value).unwrap()).is_err()
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_unknown_identity_field() {
+        let mut value = serde_json::to_value(accepted_place_record(OrderType::Market)).unwrap();
+        value["durable_request_identity"]["unknown_stage6a"] = serde_json::json!(true);
+        assert!(
+            Stage6JournalRecordV1::decode_canonical(&serde_json::to_vec(&value).unwrap()).is_err()
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_unknown_payload_field() {
+        let mut value = serde_json::to_value(accepted_place_record(OrderType::Market)).unwrap();
+        value["payload"]["unknown_stage6a"] = serde_json::json!(true);
+        assert!(
+            Stage6JournalRecordV1::decode_canonical(&serde_json::to_vec(&value).unwrap()).is_err()
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_unknown_command_snapshot_field() {
+        let mut value = serde_json::to_value(accepted_place_record(OrderType::Market)).unwrap();
+        value["payload"]["command"]["unknown_stage6a"] = serde_json::json!(true);
+        assert!(
+            Stage6JournalRecordV1::decode_canonical(&serde_json::to_vec(&value).unwrap()).is_err()
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_canonical_decode_rejects_equivalent_timestamp_spelling() {
+        let bytes = accepted_place_record(OrderType::Market).encode_canonical();
+        let changed = String::from_utf8(bytes)
+            .unwrap()
+            .replace("2026-08-09T09:00:00Z", "2026-08-09T09:00:00+00:00")
+            .into_bytes();
+        assert_eq!(
+            Stage6JournalRecordV1::decode_canonical(&changed).unwrap_err(),
+            Stage6DurableIdentityError::NonCanonicalEncoding
+        );
+    }
+
+    #[test]
+    fn stage6a_r1_dispatch_marker_is_rejected() {
+        assert_reserved_event_rejected("dispatch_attempt_recorded");
+    }
+
+    #[test]
+    fn stage6a_r1_cancel_outcome_marker_is_rejected() {
+        assert_reserved_event_rejected("cancel_outcome_observed");
+    }
+
+    #[test]
+    fn stage6a_r1_reconciliation_marker_is_rejected() {
+        assert_reserved_event_rejected("reconciliation_observed");
+    }
+
+    #[test]
+    fn stage6a_r1_request_finalized_marker_is_rejected() {
+        assert_reserved_event_rejected("request_finalized");
+    }
+
+    #[test]
+    fn stage6a_r1_conflict_marker_is_rejected() {
+        assert_reserved_event_rejected("conflict_observed");
     }
 }
