@@ -14,27 +14,27 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 - Stage 6E-R1 is independently accepted at
   `10e357825a701193d964975bb5769bd0745d4986`; Stage 6 is CLOSED.
-- Stage 7A-R1 is the only active review-candidate slice, repairing the five
-  P1 closure findings against candidate `6e53f5428f7f79f3c9c84fbbd15d32b3c26d5d2d`.
+- Stage 7A-R2 is the only active review-candidate slice, repairing the five
+  remaining P1 closure findings against rejected R1 candidate
+  `ac8fa7f2f3ff42ae1b351c298ff0b3abd62599b5`.
   It attaches a Redis
   consumer group only to the validated paper namespace and process outcomes
   through the accepted Stage 6 authority plus a process-local paper/mock
   provider.
 - The candidate implementation lives in `runtime-command-bridge`; focused
   Stage 6 admission tests and isolated real-Redis tests are green locally.
-  ACK publication replay now distinguishes unpublished canonical ACK from a
-  published runtime-compatible Duplicate, working/non-final orders remain
-  current, readiness tracks exact blocked Redis entries, and XAUTOCLAIM keeps
-  its cursor across bounded calls. Stage 7A is not accepted until an executable
-  52/52 evidence report and independent R1 review close it.
+  R2 preserves the ACK/cursor repairs, enforces exactly one non-final command
+  lifecycle, finalizes PLACE before a sequential CANCEL, tracks source/claim
+  freshness independently, externally observes task death, and binds F1-F15
+  plus all 52 acceptance rows to exact semantic evidence. Stage 7A remains an
+  implementation candidate until independent R2 acceptance.
 - Stage 7B, FINAM runtime POST/DELETE, broker network dispatch, runtime-live,
   real strategy orders and native Stop/SLTP/bracket remain CLOSED.
-- Until a separately reviewed multi-slot reducer exists, Stage 7A permits at
-  most one unresolved execution lifecycle per strategy instance, except for
-  one source-correlated CANCEL targeting the known broker order of that
-  current PLACE; another current CANCEL remains blocked. Local
-  collection and receipt timestamps are minted by the trusted host/provider,
-  never accepted as authority from Redis or broker source timestamps.
+- Stage 7A permits at most one non-final command lifecycle per strategy
+  instance without exceptions. A source-correlated CANCEL is admitted only
+  after the target PLACE request has an explicit final disposition while its
+  broker-order identity remains available. Stage 7A constructs no fresh broker
+  truth, so fresh-truth temporal rows are explicitly closed-surface N/A here.
 
 ### Historical accepted transition record
 

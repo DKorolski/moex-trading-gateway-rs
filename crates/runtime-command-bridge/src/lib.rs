@@ -15,15 +15,20 @@ use redis::streams::{StreamAutoClaimReply, StreamId, StreamReadReply};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use strategy_runtime_core::{
-    admit_stage7a_paper_command, execute_stage6d_paper_outcome,
-    resolve_stage7a_cancel_command_context, Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError,
-    Stage6dPaperOutcome, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
-    Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
+    admit_stage7a_paper_command, execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
+    finalize_stage7a_replayed_paper_request, resolve_stage7a_cancel_command_context,
+    Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError, Stage6dPaperOutcome,
+    Stage7aPaperAdmission, Stage7aPaperAdmissionDecision, Stage7aPaperCommandContext,
+    Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
 };
 
 pub const STAGE7A_PAPER_NAMESPACE: &str = "finam_imoexf_paper:";
+pub const STAGE7A_CONSTRUCTS_FRESH_BROKER_TRUTH: bool = false;
+pub const STAGE7A_FRESH_TRUTH_TEMPORAL_POLICY: &str = "not_applicable_closed_surface";
 const DLQ_DOMAIN: &[u8] = b"moex.stage7a.redacted-dlq.v1";
 static CONSUMER_INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -162,7 +167,8 @@ pub enum Stage7aReadinessReason {
     ConsumerNotAlive,
     RedisUnavailable,
     SettlementUnavailable,
-    PollStale,
+    SourcePollStale,
+    ClaimScanStale,
     CommandLifecycleBlocked,
 }
 
@@ -176,7 +182,8 @@ pub struct Stage7aConsumerHealthSnapshot {
     pub stage6_authority_healthy: bool,
     pub redis_healthy: bool,
     pub settlement_healthy: bool,
-    pub last_successful_poll_at: Option<DateTime<Utc>>,
+    pub last_successful_source_poll_at: Option<DateTime<Utc>>,
+    pub last_successful_claim_scan_at: Option<DateTime<Utc>>,
     pub checked_at: DateTime<Utc>,
 }
 
@@ -238,36 +245,80 @@ pub struct Stage7aBoundedRunSummary {
     pub reclaimed_entries_examined: usize,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Stage7aTaskReadinessHandle {
+    alive: Arc<AtomicBool>,
+}
+
+impl Stage7aTaskReadinessHandle {
+    pub fn is_alive(&self) -> bool {
+        self.alive.load(Ordering::Acquire)
+    }
+
+    fn mark_started(&self) {
+        self.alive.store(true, Ordering::Release);
+    }
+
+    fn mark_stopped(&self) {
+        self.alive.store(false, Ordering::Release);
+    }
+}
+
+struct Stage7aTaskStopGuard(Stage7aTaskReadinessHandle);
+
+impl Drop for Stage7aTaskStopGuard {
+    fn drop(&mut self) {
+        self.0.mark_stopped();
+    }
+}
+
+/// Spawns a paper command-consumer task with an external liveness observer.
+/// The drop guard clears readiness on normal return, returned error, panic,
+/// cancellation, and JoinError; no code inside the task is trusted to do so.
+pub fn spawn_stage7a_supervised_task<F, T>(
+    readiness: Stage7aTaskReadinessHandle,
+    future: F,
+) -> tokio::task::JoinHandle<T>
+where
+    F: Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    readiness.mark_started();
+    tokio::spawn(async move {
+        let _stop_guard = Stage7aTaskStopGuard(readiness);
+        future.await
+    })
+}
+
 #[derive(Debug, Default)]
 pub struct Stage7aConsumerSupervisor {
-    alive: bool,
+    task_readiness: Stage7aTaskReadinessHandle,
     source_read_healthy: bool,
     claim_scan_healthy: bool,
-    last_successful_poll_at: Option<DateTime<Utc>>,
+    last_successful_source_poll_at: Option<DateTime<Utc>>,
+    last_successful_claim_scan_at: Option<DateTime<Utc>>,
     blocked_entries: BTreeMap<String, Stage7aBlockedEntry>,
 }
 
 impl Stage7aConsumerSupervisor {
     pub fn mark_started(&mut self) {
-        self.alive = true;
+        self.task_readiness.mark_started();
     }
 
     pub fn mark_group_attached(&mut self) {
-        self.alive = true;
-        self.source_read_healthy = true;
-        self.claim_scan_healthy = true;
+        self.task_readiness.mark_started();
     }
 
     pub fn mark_source_poll_success(&mut self, observed_at: DateTime<Utc>) {
-        self.alive = true;
+        self.task_readiness.mark_started();
         self.source_read_healthy = true;
-        self.last_successful_poll_at = Some(observed_at);
+        self.last_successful_source_poll_at = Some(observed_at);
     }
 
     pub fn mark_claim_scan_success(&mut self, observed_at: DateTime<Utc>) {
-        self.alive = true;
+        self.task_readiness.mark_started();
         self.claim_scan_healthy = true;
-        self.last_successful_poll_at = Some(observed_at);
+        self.last_successful_claim_scan_at = Some(observed_at);
     }
 
     pub fn mark_source_failure(&mut self) {
@@ -293,7 +344,11 @@ impl Stage7aConsumerSupervisor {
     }
 
     pub fn mark_stopped(&mut self) {
-        self.alive = false;
+        self.task_readiness.mark_stopped();
+    }
+
+    pub fn task_readiness_handle(&self) -> Stage7aTaskReadinessHandle {
+        self.task_readiness.clone()
     }
 
     pub fn snapshots(
@@ -304,6 +359,7 @@ impl Stage7aConsumerSupervisor {
         Stage7aConsumerHealthSnapshot,
         Stage7aConsumerReadinessSnapshot,
     ) {
+        let alive = self.task_readiness.is_alive();
         let ack_settlement_healthy = !self
             .blocked_entries
             .values()
@@ -320,7 +376,7 @@ impl Stage7aConsumerSupervisor {
         let settlement_healthy =
             ack_settlement_healthy && dlq_settlement_healthy && stage6_authority_healthy;
         let mut reasons = Vec::new();
-        if !self.alive {
+        if !alive {
             reasons.push(Stage7aReadinessReason::ConsumerNotAlive);
         }
         if !redis_healthy {
@@ -330,15 +386,21 @@ impl Stage7aConsumerSupervisor {
             reasons.push(Stage7aReadinessReason::SettlementUnavailable);
         }
         if self
-            .last_successful_poll_at
+            .last_successful_source_poll_at
             .map_or(true, |last| checked_at - last > freshness)
         {
-            reasons.push(Stage7aReadinessReason::PollStale);
+            reasons.push(Stage7aReadinessReason::SourcePollStale);
+        }
+        if self
+            .last_successful_claim_scan_at
+            .map_or(true, |last| checked_at - last > freshness)
+        {
+            reasons.push(Stage7aReadinessReason::ClaimScanStale);
         }
         if !self.blocked_entries.is_empty() {
             reasons.push(Stage7aReadinessReason::CommandLifecycleBlocked);
         }
-        let phase = if !self.alive {
+        let phase = if !alive {
             Stage7aReadinessPhase::Stopped
         } else if reasons.is_empty() {
             Stage7aReadinessPhase::PaperReady
@@ -347,7 +409,7 @@ impl Stage7aConsumerSupervisor {
         };
         (
             Stage7aConsumerHealthSnapshot {
-                command_consumer_alive: self.alive,
+                command_consumer_alive: alive,
                 source_read_healthy: self.source_read_healthy,
                 claim_scan_healthy: self.claim_scan_healthy,
                 ack_settlement_healthy,
@@ -355,7 +417,8 @@ impl Stage7aConsumerSupervisor {
                 stage6_authority_healthy,
                 redis_healthy,
                 settlement_healthy,
-                last_successful_poll_at: self.last_successful_poll_at,
+                last_successful_source_poll_at: self.last_successful_source_poll_at,
+                last_successful_claim_scan_at: self.last_successful_claim_scan_at,
                 checked_at,
             },
             Stage7aConsumerReadinessSnapshot {
@@ -386,13 +449,22 @@ pub enum Stage7aHandleOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage7aFaultPoint {
     None,
+    AfterDecodeBeforeAdmission,
     BeforePaperOutcome,
+    AfterPaperOutcomeRecord,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage7aSettlementFault {
     None,
+    AfterSourceReadBeforeDecode,
+    RedisSourceOutage,
+    BeforeAckPublish,
+    AckStreamOutage,
     AfterAckPublishBeforeXack,
+    DuringXack,
+    DuringDlqPublish,
+    DlqStreamOutage,
     AfterDlqPublishBeforeXack,
 }
 
@@ -579,6 +651,12 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
             )));
         }
         let command = envelope.payload;
+        if self.fault_point == Stage7aFaultPoint::AfterDecodeBeforeAdmission {
+            return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                strategy_request_id: command_request_id(&command),
+                reason: Stage7aPaperHoldReason::ReconciliationRequired,
+            }));
+        }
         let command_sha256 = command_sha256(&command)?;
         let request_id = command_request_id(&command);
         if let Some(publication) = self.ack_publications.get(&request_id) {
@@ -638,6 +716,12 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
                     }
                 };
                 let report = execute_stage6d_paper_outcome(&mut self.recovered, *receipt, outcome)?;
+                if self.fault_point == Stage7aFaultPoint::AfterPaperOutcomeRecord {
+                    return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                        strategy_request_id: report.strategy_request_id,
+                        reason: Stage7aPaperHoldReason::ReconciliationRequired,
+                    }));
+                }
                 if report.dispatch_safety_state
                     != strategy_runtime_core::Stage6DispatchSafetyStateV1::DispatchForbidden
                 {
@@ -646,6 +730,8 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
                         reason: Stage7aPaperHoldReason::ReconciliationRequired,
                     }));
                 }
+                let report =
+                    finalize_stage7a_paper_request(&mut self.recovered, report, observed_at)?;
                 let ack = ack_envelope(
                     &self.source,
                     Stage7aPaperAdmissionDecision {
@@ -662,6 +748,11 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
                 ))
             }
             Stage7aPaperAdmission::Duplicate(decision) => {
+                finalize_stage7a_replayed_paper_request(
+                    &mut self.recovered,
+                    decision.strategy_request_id,
+                    observed_at,
+                )?;
                 Ok(Stage7aHandleOutcome::Ack(ack_envelope(
                     &self.source,
                     decision,
@@ -705,6 +796,12 @@ pub struct Stage7aRedisConsumer<P> {
     claim_cursor: String,
 }
 
+pub type Stage7aConsumerTaskOutput<P> = (
+    Stage7aRedisConsumer<P>,
+    Result<Stage7aBoundedRunSummary, Stage7aBridgeError>,
+);
+pub type Stage7aConsumerTaskHandle<P> = tokio::task::JoinHandle<Stage7aConsumerTaskOutput<P>>;
+
 impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
     pub async fn connect(
         redis_url: &str,
@@ -734,6 +831,23 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
 
     pub fn mark_stopped(&mut self) {
         self.supervisor.mark_stopped();
+    }
+
+    pub fn spawn_supervised_bounded(
+        self,
+        max_iterations: usize,
+        retry_policy: Stage7aRetryPolicy,
+    ) -> (Stage7aTaskReadinessHandle, Stage7aConsumerTaskHandle<P>)
+    where
+        P: Send + 'static,
+    {
+        let readiness = self.supervisor.task_readiness_handle();
+        let join = spawn_stage7a_supervised_task(readiness.clone(), async move {
+            let mut consumer = self;
+            let result = consumer.run_bounded(max_iterations, retry_policy).await;
+            (consumer, result)
+        });
+        (readiness, join)
     }
 
     pub async fn run_bounded(
@@ -818,6 +932,11 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
     }
 
     async fn poll_new_once_inner(&mut self) -> Result<usize, Stage7aBridgeError> {
+        if self.settlement_fault == Stage7aSettlementFault::RedisSourceOutage {
+            self.settlement_fault = Stage7aSettlementFault::None;
+            self.supervisor.mark_source_failure();
+            return Err(Stage7aBridgeError::InjectedSettlementFault);
+        }
         let mut command = redis::cmd("XREADGROUP");
         command
             .arg("GROUP")
@@ -847,6 +966,12 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
             .flat_map(|key| key.ids)
             .collect::<Vec<_>>();
         let count = entries.len();
+        if count > 0 && self.settlement_fault == Stage7aSettlementFault::AfterSourceReadBeforeDecode
+        {
+            self.settlement_fault = Stage7aSettlementFault::None;
+            self.supervisor.mark_source_failure();
+            return Err(Stage7aBridgeError::InjectedSettlementFault);
+        }
         for entry in entries {
             self.settle_entry(entry, Utc::now()).await?;
         }
@@ -976,6 +1101,19 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
         match outcome {
             Stage7aHandleOutcome::Ack(ack) => {
                 let payload = serde_json::to_string(&ack)?;
+                if matches!(
+                    self.settlement_fault,
+                    Stage7aSettlementFault::BeforeAckPublish
+                        | Stage7aSettlementFault::AckStreamOutage
+                ) {
+                    self.settlement_fault = Stage7aSettlementFault::None;
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        Some(ack.payload.request_id),
+                        Stage7aBlockedKind::AckSettlement,
+                    );
+                    return Err(Stage7aBridgeError::InjectedSettlementFault);
+                }
                 if let Err(error) = self
                     .publish(&self.config.ack_stream.clone(), &payload)
                     .await
@@ -997,6 +1135,15 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
                     );
                     return Err(Stage7aBridgeError::InjectedSettlementFault);
                 }
+                if self.settlement_fault == Stage7aSettlementFault::DuringXack {
+                    self.settlement_fault = Stage7aSettlementFault::None;
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        Some(ack.payload.request_id),
+                        Stage7aBlockedKind::AckSettlement,
+                    );
+                    return Err(Stage7aBridgeError::InjectedSettlementFault);
+                }
                 if let Err(error) = self.xack(&entry.id).await {
                     self.supervisor.mark_blocked(
                         entry.id.clone(),
@@ -1009,6 +1156,19 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
             }
             Stage7aHandleOutcome::Dlq(dlq) => {
                 let payload = serde_json::to_string(&dlq)?;
+                if matches!(
+                    self.settlement_fault,
+                    Stage7aSettlementFault::DuringDlqPublish
+                        | Stage7aSettlementFault::DlqStreamOutage
+                ) {
+                    self.settlement_fault = Stage7aSettlementFault::None;
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        None,
+                        Stage7aBlockedKind::DlqSettlement,
+                    );
+                    return Err(Stage7aBridgeError::InjectedSettlementFault);
+                }
                 if let Err(error) = self
                     .publish(&self.config.dlq_stream.clone(), &payload)
                     .await
@@ -1363,6 +1523,23 @@ mod tests {
         .unwrap()
     }
 
+    fn encoded_market_command(number: u128) -> String {
+        let mut command = match command(number) {
+            BrokerCommand::PlaceOrder(command) => command,
+            BrokerCommand::CancelOrder(_) => unreachable!(),
+        };
+        command.order_type = OrderType::Market;
+        command.limit_price = None;
+        serde_json::to_string(&Envelope {
+            schema_version: SCHEMA_VERSION,
+            ts_utc: command.created_ts,
+            source: "stage7a-paper-test".to_string(),
+            msg_type: MessageType::Command,
+            payload: BrokerCommand::PlaceOrder(command),
+        })
+        .unwrap()
+    }
+
     fn encoded_cancel(number: u128, target_request: u128) -> String {
         let request_id = StrategyRequestId::from(Uuid::from_u128(number));
         let target_request_id = StrategyRequestId::from(Uuid::from_u128(target_request));
@@ -1435,6 +1612,135 @@ mod tests {
         }
     }
 
+    async fn pending_len(manager: &mut ConnectionManager, config: &Stage7aRedisConfig) -> usize {
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&config.command_stream)
+            .arg(&config.consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(100)
+            .query_async(manager)
+            .await
+            .unwrap();
+        pending.ids.len()
+    }
+
+    async fn stream_len(manager: &mut ConnectionManager, stream: &str) -> i64 {
+        redis::cmd("XLEN")
+            .arg(stream)
+            .query_async(manager)
+            .await
+            .unwrap()
+    }
+
+    async fn assert_ack_fault_window(
+        redis: &RedisServer,
+        suffix: &str,
+        request_number: u128,
+        fault: Stage7aSettlementFault,
+        initially_published: i64,
+        finally_published: i64,
+    ) {
+        let mut config = Stage7aRedisConfig::paper_default(suffix).unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let mut consumer = Stage7aRedisConsumer::connect(&redis.url, config.clone(), authority())
+            .await
+            .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encoded_command(request_number))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        consumer.set_settlement_fault(fault);
+        assert!(matches!(
+            consumer.poll_new_once().await,
+            Err(Stage7aBridgeError::InjectedSettlementFault)
+        ));
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+        assert_eq!(
+            stream_len(&mut manager, &config.ack_stream).await,
+            initially_published
+        );
+        assert_eq!(
+            consumer
+                .authority
+                .recovered()
+                .replay()
+                .requests()
+                .iter()
+                .filter(|request| request.final_disposition().is_none())
+                .count(),
+            0
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert_eq!(consumer.reclaim_stale_once().await.unwrap(), 1);
+        assert_eq!(pending_len(&mut manager, &config).await, 0);
+        assert_eq!(
+            stream_len(&mut manager, &config.ack_stream).await,
+            finally_published
+        );
+    }
+
+    async fn assert_dlq_fault_window(
+        redis: &RedisServer,
+        suffix: &str,
+        fault: Stage7aSettlementFault,
+        initially_published: i64,
+        finally_published: i64,
+    ) {
+        let mut config = Stage7aRedisConfig::paper_default(suffix).unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let mut consumer = Stage7aRedisConsumer::connect(&redis.url, config.clone(), authority())
+            .await
+            .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg("poison-token=REDACT-ME")
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        consumer.set_settlement_fault(fault);
+        assert!(matches!(
+            consumer.poll_new_once().await,
+            Err(Stage7aBridgeError::InjectedSettlementFault)
+        ));
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+        assert_eq!(
+            stream_len(&mut manager, &config.dlq_stream).await,
+            initially_published
+        );
+        assert!(consumer
+            .authority
+            .recovered()
+            .replay()
+            .requests()
+            .is_empty());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert_eq!(consumer.reclaim_stale_once().await.unwrap(), 1);
+        assert_eq!(pending_len(&mut manager, &config).await, 0);
+        assert_eq!(
+            stream_len(&mut manager, &config.dlq_stream).await,
+            finally_published
+        );
+    }
+
     #[test]
     fn non_paper_stream_is_rejected_before_redis() {
         let mut config = Stage7aRedisConfig::paper_default("process-1").unwrap();
@@ -1449,6 +1755,8 @@ mod tests {
     fn auto_consumer_names_are_process_unique_and_not_execution_ids() {
         let a = Stage7aRedisConfig::paper_default_auto().unwrap();
         let b = Stage7aRedisConfig::paper_default_auto().unwrap();
+        assert_eq!(a.group_start, Stage7aGroupStart::Tail);
+        assert_eq!(b.group_start, Stage7aGroupStart::Tail);
         assert_ne!(a.consumer_name, b.consumer_name);
         assert!(!a.consumer_name.contains("request"));
         let mut beginning = Stage7aRedisConfig::paper_default("controlled-replay").unwrap();
@@ -1663,7 +1971,22 @@ mod tests {
     }
 
     #[test]
-    fn place_then_cancel_use_one_profile_without_redis_identity_authority() {
+    fn market_limit_and_cancel_use_one_profile_without_redis_identity_authority() {
+        let mut market_authority = authority();
+        let market_ack = match market_authority
+            .handle_payload(
+                "9-0",
+                encoded_market_command(805).as_bytes(),
+                Utc.with_ymd_and_hms(2026, 8, 11, 8, 59, 1).unwrap(),
+            )
+            .unwrap()
+        {
+            Stage7aHandleOutcome::Ack(ack) => ack,
+            _ => panic!("market place must settle"),
+        };
+        assert_eq!(market_ack.payload.status, CommandAckStatus::Accepted);
+        assert!(market_ack.payload.broker_order_id.is_some());
+
         let mut authority = authority();
         let place = encoded_command(806);
         let place_ack = match authority
@@ -1700,7 +2023,7 @@ mod tests {
     }
 
     #[test]
-    fn cancel_overlap_policy_is_explicit_and_fail_closed() {
+    fn strict_max_one_lifecycle_finalizes_place_before_cancel() {
         let observed_place = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
         let observed_cancel = Utc.with_ymd_and_hms(2026, 8, 11, 9, 1, 1).unwrap();
         let mut command_authority = authority();
@@ -1720,6 +2043,16 @@ mod tests {
                 ..
             })
         ));
+        assert_eq!(
+            command_authority
+                .recovered()
+                .replay()
+                .requests()
+                .iter()
+                .filter(|request| request.final_disposition().is_none())
+                .count(),
+            0
+        );
         assert!(matches!(
             command_authority
                 .handle_payload(
@@ -1736,11 +2069,34 @@ mod tests {
                 ..
             })
         ));
-        assert!(matches!(
+        assert_eq!(
             command_authority
+                .recovered()
+                .replay()
+                .requests()
+                .iter()
+                .filter(|request| request.final_disposition().is_none())
+                .count(),
+            0
+        );
+
+        let mut interrupted = authority();
+        interrupted.set_fault_point(Stage7aFaultPoint::AfterPaperOutcomeRecord);
+        assert!(matches!(
+            interrupted
                 .handle_payload(
-                    "cancel-3",
-                    encoded_cancel(8_403, 8_401).as_bytes(),
+                    "cancel-interrupted-place",
+                    encoded_command(8_403).as_bytes(),
+                    observed_place,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        assert!(matches!(
+            interrupted
+                .handle_payload(
+                    "cancel-blocked",
+                    encoded_cancel(8_405, 8_403).as_bytes(),
                     observed_cancel,
                 )
                 .unwrap(),
@@ -1828,6 +2184,7 @@ mod tests {
         let mut supervisor = Stage7aConsumerSupervisor::default();
         supervisor.mark_group_attached();
         supervisor.mark_source_poll_success(now);
+        supervisor.mark_claim_scan_success(now);
         let (_, ready) = supervisor.snapshots(now, chrono::Duration::seconds(5));
         assert_eq!(ready.phase, Stage7aReadinessPhase::PaperReady);
         supervisor.mark_source_failure();
@@ -1851,6 +2208,344 @@ mod tests {
     }
 
     #[test]
+    fn source_and_claim_freshness_are_independent_readiness_authorities() {
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 10).unwrap();
+        let fresh = now - chrono::Duration::seconds(1);
+        let stale = now - chrono::Duration::seconds(10);
+        let threshold = chrono::Duration::seconds(5);
+
+        let mut attached = Stage7aConsumerSupervisor::default();
+        attached.mark_group_attached();
+        let (_, readiness) = attached.snapshots(now, threshold);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+
+        let mut claim_only = Stage7aConsumerSupervisor::default();
+        claim_only.mark_group_attached();
+        claim_only.mark_claim_scan_success(fresh);
+        let (_, readiness) = claim_only.snapshots(now, threshold);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+        assert!(readiness
+            .reasons
+            .contains(&Stage7aReadinessReason::SourcePollStale));
+
+        let mut source_only = Stage7aConsumerSupervisor::default();
+        source_only.mark_group_attached();
+        source_only.mark_source_poll_success(fresh);
+        let (_, readiness) = source_only.snapshots(now, threshold);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+        assert!(readiness
+            .reasons
+            .contains(&Stage7aReadinessReason::ClaimScanStale));
+
+        let mut both_fresh = Stage7aConsumerSupervisor::default();
+        both_fresh.mark_group_attached();
+        both_fresh.mark_source_poll_success(fresh);
+        both_fresh.mark_claim_scan_success(fresh);
+        let (health, readiness) = both_fresh.snapshots(now, threshold);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::PaperReady);
+        assert_eq!(health.last_successful_source_poll_at, Some(fresh));
+        assert_eq!(health.last_successful_claim_scan_at, Some(fresh));
+
+        let mut source_stale = Stage7aConsumerSupervisor::default();
+        source_stale.mark_group_attached();
+        source_stale.mark_source_poll_success(stale);
+        source_stale.mark_claim_scan_success(fresh);
+        let (_, readiness) = source_stale.snapshots(now, threshold);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+        assert!(readiness
+            .reasons
+            .contains(&Stage7aReadinessReason::SourcePollStale));
+
+        let mut claim_stale = Stage7aConsumerSupervisor::default();
+        claim_stale.mark_group_attached();
+        claim_stale.mark_source_poll_success(fresh);
+        claim_stale.mark_claim_scan_success(stale);
+        let (_, readiness) = claim_stale.snapshots(now, threshold);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+        assert!(readiness
+            .reasons
+            .contains(&Stage7aReadinessReason::ClaimScanStale));
+    }
+
+    #[tokio::test]
+    async fn external_supervisor_observes_normal_error_and_panic_task_death() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("task-supervisor-normal").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        let consumer = Stage7aRedisConsumer::connect(&redis.url, config, authority())
+            .await
+            .unwrap();
+        let retry = Stage7aRetryPolicy {
+            initial_delay_ms: 1,
+            max_delay_ms: 1,
+        };
+        let (normal_readiness, normal_task) = consumer.spawn_supervised_bounded(1, retry);
+        assert!(normal_readiness.is_alive());
+        let (_, normal_result) = normal_task.await.unwrap();
+        assert!(normal_result.is_ok());
+        assert!(!normal_readiness.is_alive());
+
+        let error_config = Stage7aRedisConfig::paper_default("task-supervisor-error").unwrap();
+        let consumer = Stage7aRedisConsumer::connect(&redis.url, error_config, authority())
+            .await
+            .unwrap();
+        let (error_readiness, error_task) = consumer.spawn_supervised_bounded(0, retry);
+        assert!(error_readiness.is_alive());
+        let (_, error_result) = error_task.await.unwrap();
+        assert!(matches!(
+            error_result,
+            Err(Stage7aBridgeError::InvalidBound)
+        ));
+        assert!(!error_readiness.is_alive());
+
+        let panic_readiness = Stage7aTaskReadinessHandle::default();
+        let panic_task = spawn_stage7a_supervised_task(panic_readiness.clone(), async move {
+            panic!("injected consumer task panic")
+        });
+        assert!(panic_readiness.is_alive());
+        assert!(panic_task.await.unwrap_err().is_panic());
+        assert!(!panic_readiness.is_alive());
+    }
+
+    #[test]
+    fn fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed() {
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+
+        let mut after_decode = authority();
+        after_decode.set_fault_point(Stage7aFaultPoint::AfterDecodeBeforeAdmission);
+        assert!(matches!(
+            after_decode
+                .handle_payload("f02", encoded_command(9_002).as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        assert!(after_decode.recovered().replay().requests().is_empty());
+
+        let mut after_dispatch = authority();
+        after_dispatch.set_fault_point(Stage7aFaultPoint::BeforePaperOutcome);
+        assert!(matches!(
+            after_dispatch
+                .handle_payload("f04", encoded_command(9_004).as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        assert_eq!(
+            after_dispatch.recovered().journal_frontier().frame_count(),
+            2
+        );
+        after_dispatch.set_fault_point(Stage7aFaultPoint::None);
+        assert!(matches!(
+            after_dispatch
+                .handle_payload("f04", encoded_command(9_004).as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        assert_eq!(
+            after_dispatch.recovered().journal_frontier().frame_count(),
+            2
+        );
+
+        let mut during_provider = Stage7aCommandAuthority::new(
+            recovered(),
+            profile(),
+            UncertainPaperProvider,
+            "stage7a-f05-provider",
+        )
+        .unwrap();
+        assert!(matches!(
+            during_provider
+                .handle_payload("f05", encoded_command(9_005).as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        assert_eq!(
+            during_provider.recovered().journal_frontier().frame_count(),
+            2
+        );
+
+        let mut after_outcome = authority();
+        after_outcome.set_fault_point(Stage7aFaultPoint::AfterPaperOutcomeRecord);
+        assert!(matches!(
+            after_outcome
+                .handle_payload("f06", encoded_command(9_006).as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        let frames_after_outcome = after_outcome.recovered().journal_frontier().frame_count();
+        assert!(after_outcome
+            .recovered()
+            .replay()
+            .request(StrategyRequestId::from(Uuid::from_u128(9_006)))
+            .unwrap()
+            .final_disposition()
+            .is_none());
+        after_outcome.set_fault_point(Stage7aFaultPoint::None);
+        assert!(matches!(
+            after_outcome
+                .handle_payload("f06", encoded_command(9_006).as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Ack(Envelope {
+                payload: CommandAck {
+                    status: CommandAckStatus::Duplicate,
+                    ..
+                },
+                ..
+            })
+        ));
+        assert_eq!(
+            after_outcome.recovered().journal_frontier().frame_count(),
+            frames_after_outcome + 1
+        );
+        assert!(after_outcome
+            .recovered()
+            .replay()
+            .request(StrategyRequestId::from(Uuid::from_u128(9_006)))
+            .unwrap()
+            .final_disposition()
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn fault_matrix_f01_source_read_before_decode_retains_pending() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("fault-f01").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let mut consumer = Stage7aRedisConsumer::connect(&redis.url, config.clone(), authority())
+            .await
+            .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encoded_command(9_001))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        consumer.set_settlement_fault(Stage7aSettlementFault::AfterSourceReadBeforeDecode);
+        assert!(matches!(
+            consumer.poll_new_once().await,
+            Err(Stage7aBridgeError::InjectedSettlementFault)
+        ));
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+        assert!(consumer
+            .authority
+            .recovered()
+            .replay()
+            .requests()
+            .is_empty());
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert_eq!(consumer.reclaim_stale_once().await.unwrap(), 1);
+        assert_eq!(pending_len(&mut manager, &config).await, 0);
+        assert_eq!(stream_len(&mut manager, &config.ack_stream).await, 1);
+    }
+
+    #[tokio::test]
+    async fn fault_matrix_f07_f09_f14_ack_windows_recover_without_second_effect() {
+        let redis = RedisServer::start().await;
+        assert_ack_fault_window(
+            &redis,
+            "fault-f07",
+            9_007,
+            Stage7aSettlementFault::BeforeAckPublish,
+            0,
+            1,
+        )
+        .await;
+        drop(redis);
+        let redis = RedisServer::start().await;
+        assert_ack_fault_window(
+            &redis,
+            "fault-f09",
+            9_009,
+            Stage7aSettlementFault::DuringXack,
+            1,
+            2,
+        )
+        .await;
+        drop(redis);
+        let redis = RedisServer::start().await;
+        assert_ack_fault_window(
+            &redis,
+            "fault-f14",
+            9_014,
+            Stage7aSettlementFault::AckStreamOutage,
+            0,
+            1,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn fault_matrix_f10_f11_f15_dlq_windows_recover_without_stage6_effect() {
+        let redis = RedisServer::start().await;
+        assert_dlq_fault_window(
+            &redis,
+            "fault-f10",
+            Stage7aSettlementFault::DuringDlqPublish,
+            0,
+            1,
+        )
+        .await;
+        drop(redis);
+        let redis = RedisServer::start().await;
+        assert_dlq_fault_window(
+            &redis,
+            "fault-f11",
+            Stage7aSettlementFault::AfterDlqPublishBeforeXack,
+            1,
+            2,
+        )
+        .await;
+        drop(redis);
+        let redis = RedisServer::start().await;
+        assert_dlq_fault_window(
+            &redis,
+            "fault-f15",
+            Stage7aSettlementFault::DlqStreamOutage,
+            0,
+            1,
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn fault_matrix_f13_source_outage_is_bounded_and_never_stale_ready() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("fault-f13").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        let mut consumer = Stage7aRedisConsumer::connect(&redis.url, config, authority())
+            .await
+            .unwrap();
+        consumer.set_settlement_fault(Stage7aSettlementFault::RedisSourceOutage);
+        let summary = consumer
+            .run_bounded(
+                1,
+                Stage7aRetryPolicy {
+                    initial_delay_ms: 1,
+                    max_delay_ms: 1,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(summary.failed_iterations, 1);
+        let (health, readiness) = consumer
+            .supervisor()
+            .snapshots(Utc::now(), chrono::Duration::seconds(5));
+        assert!(!health.source_read_healthy);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Stopped);
+    }
+
+    #[test]
     fn unrelated_success_does_not_clear_blocked_request() {
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 0).unwrap();
         let request_a = StrategyRequestId::from(Uuid::from_u128(8_201));
@@ -1858,6 +2553,7 @@ mod tests {
         let mut supervisor = Stage7aConsumerSupervisor::default();
         supervisor.mark_group_attached();
         supervisor.mark_source_poll_success(now);
+        supervisor.mark_claim_scan_success(now);
         supervisor.mark_blocked("8201-0", Some(request_a), Stage7aBlockedKind::Authority);
         supervisor.mark_blocked("8202-0", Some(request_b), Stage7aBlockedKind::AckSettlement);
         supervisor.clear_blocked_entry("8202-0");
@@ -1883,6 +2579,7 @@ mod tests {
             .unwrap();
         consumer.ensure_group().await.unwrap();
         consumer.ensure_group().await.unwrap();
+        assert_eq!(consumer.reclaim_stale_once().await.unwrap(), 0);
 
         let client = redis::Client::open(redis.url.as_str()).unwrap();
         let mut manager = ConnectionManager::new(client).await.unwrap();
@@ -2028,6 +2725,11 @@ mod tests {
             duplicate.payload.reason.map(|reason| reason.code),
             Some(CommandAckReasonCode::DuplicateCommand)
         );
+        let (_, degraded) = consumer
+            .supervisor()
+            .snapshots(Utc::now(), chrono::Duration::seconds(5));
+        assert_eq!(degraded.phase, Stage7aReadinessPhase::Degraded);
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 0);
         let (_, readiness) = consumer
             .supervisor()
             .snapshots(Utc::now(), chrono::Duration::seconds(5));

@@ -28,7 +28,7 @@ use crate::{
     Stage6JournalFrontierV1, Stage6JournalRecordId, Stage6JournalRecordV1,
     Stage6JournalStorageError, Stage6LifecycleSequence, Stage6MemoryJournalBackend,
     Stage6ReconciliationDispositionV1, Stage6ReplayEngineV1, Stage6ReplayError,
-    Stage6ReplaySnapshotV1, Stage6Sha256Digest,
+    Stage6ReplaySnapshotV1, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
 };
 use broker_core::{
     BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId,
@@ -1390,22 +1390,139 @@ fn stage7a_has_other_unresolved_lifecycle(
             let same_scope = existing.account_id() == candidate.account_id()
                 && existing.instrument() == candidate.instrument()
                 && existing.attribution().strategy_id() == candidate.attribution().strategy_id();
-            if !same_scope {
-                return false;
-            }
-
-            // Stage 7A permits exactly one reviewed overlap: a CANCEL may
-            // target the known broker order of the one current PLACE that
-            // established it. DispatchForbidden is deliberately insufficient
-            // on its own: working and filled-but-nonfinal PLACE lifecycles use
-            // that dispatch state too.
-            let is_source_correlated_cancel = candidate.action() == Stage6DurableActionKind::Cancel
-                && existing.action() == Stage6DurableActionKind::Place
-                && request.known_broker_order_id().is_some()
-                && candidate.target_broker_order_id() == request.known_broker_order_id();
-            !is_source_correlated_cancel
+            same_scope
         })
     })
+}
+
+/// Appends the explicit command-request terminal record required by the
+/// frozen Stage 7A max-one lifecycle contract. Broker order lifecycle remains
+/// independent: a finalized LIMIT PLACE request may still expose a working
+/// broker order identity that a later, sequential CANCEL request targets.
+pub fn finalize_stage7a_paper_request(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    mut report: Stage6dPaperExecutionReport,
+    observed_at: DateTime<Utc>,
+) -> Result<Stage6dPaperExecutionReport, Stage6dLiveCoreError> {
+    if report.final_disposition.is_some() {
+        return Ok(report);
+    }
+    let accepted = stage7a_accepted_record(recovered, report.strategy_request_id)
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let identity = accepted.durable_request_identity().clone();
+    let request = recovered
+        .replay()
+        .request(report.strategy_request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if request.final_disposition().is_some()
+        || request.last_unique_record_id().as_str() != report.final_record_id
+        || request.last_unique_sequence() != report.final_sequence
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let disposition = if report.cancel_outcome == Some(Stage6CancelOutcomeV1::Rejected) {
+        Stage6RequestFinalDispositionV1::Rejected
+    } else {
+        Stage6RequestFinalDispositionV1::Completed
+    };
+    #[derive(Serialize)]
+    struct FinalizationEvidence<'a> {
+        domain: &'static str,
+        observed_at: DateTime<Utc>,
+        strategy_request_id: StrategyRequestId,
+        final_record_id: &'a str,
+        disposition: Stage6RequestFinalDispositionV1,
+    }
+    let evidence = serde_json::to_vec(&FinalizationEvidence {
+        domain: "moex.stage7a.paper-command-finalization.v1",
+        observed_at,
+        strategy_request_id: report.strategy_request_id,
+        final_record_id: &report.final_record_id,
+        disposition,
+    })
+    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    let finalized = Stage6JournalRecordV1::request_finalized(
+        identity,
+        disposition,
+        Stage6LifecycleSequence::new(report.final_sequence.saturating_add(1))?,
+        Some(request.last_unique_record_id().clone()),
+        Stage6Sha256Digest::parse(sha256_hex(&evidence))?,
+    )?;
+    recovered.journal_mut().append(&finalized)?;
+    recovered.refresh_after_append()?;
+    let request = recovered
+        .replay()
+        .request(report.strategy_request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    report.final_record_id = request.last_unique_record_id().as_str().to_string();
+    report.final_sequence = request.last_unique_sequence();
+    report.final_disposition = request.final_disposition();
+    report.dispatch_safety_state = request.dispatch_safety_state();
+    report.runtime_post_fingerprint_sha256 =
+        stage5_runtime_authority_fingerprint(&recovered.stage5_runtime)?;
+    report.journal_frontier_sha256 = frontier_fingerprint(recovered.journal_frontier())?;
+    report.integration_fingerprint_sha256 = recovered
+        .integration_fingerprint_sha256()
+        .as_str()
+        .to_string();
+    Ok(report)
+}
+
+/// Completes the same Stage 7A request-finalization step after a same-process
+/// redelivery that observes a normalized paper outcome but no final record.
+/// It never re-invokes the paper outcome provider.
+pub fn finalize_stage7a_replayed_paper_request(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+    observed_at: DateTime<Utc>,
+) -> Result<(), Stage6dLiveCoreError> {
+    let request = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if request.final_disposition().is_some() {
+        return Ok(());
+    }
+    if request.dispatch_safety_state() != crate::Stage6DispatchSafetyStateV1::DispatchForbidden {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let previous = request.last_unique_record_id().clone();
+    let sequence = request.last_unique_sequence();
+    let disposition = if request.cancel_outcome() == Some(Stage6CancelOutcomeV1::Rejected) {
+        Stage6RequestFinalDispositionV1::Rejected
+    } else {
+        Stage6RequestFinalDispositionV1::Completed
+    };
+    let identity = stage7a_accepted_record(recovered, request_id)
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?
+        .durable_request_identity()
+        .clone();
+    #[derive(Serialize)]
+    struct ReplayFinalizationEvidence<'a> {
+        domain: &'static str,
+        observed_at: DateTime<Utc>,
+        strategy_request_id: StrategyRequestId,
+        previous_record_id: &'a str,
+        disposition: Stage6RequestFinalDispositionV1,
+    }
+    let evidence = serde_json::to_vec(&ReplayFinalizationEvidence {
+        domain: "moex.stage7a.paper-command-replay-finalization.v1",
+        observed_at,
+        strategy_request_id: request_id,
+        previous_record_id: previous.as_str(),
+        disposition,
+    })
+    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    let finalized = Stage6JournalRecordV1::request_finalized(
+        identity,
+        disposition,
+        Stage6LifecycleSequence::new(sequence.saturating_add(1))?,
+        Some(previous),
+        Stage6Sha256Digest::parse(sha256_hex(&evidence))?,
+    )?;
+    recovered.journal_mut().append(&finalized)?;
+    recovered.refresh_after_append()?;
+    Ok(())
 }
 
 fn stage7a_source_evidence(
@@ -4523,6 +4640,59 @@ mod tests {
             Stage6dPaperOutcome::LimitPending {
                 broker_order_id: BrokerOrderId::new("PAPER-WORKING-710"),
             },
+        );
+    }
+
+    #[test]
+    fn stage7a_nonfinal_place_blocks_source_correlated_cancel() {
+        let mut recovered = recovered();
+        let place = place_fixture(715, OrderType::Limit);
+        let place_client_order_id = place.command.client_order_id.clone();
+        let place_command = BrokerCommand::PlaceOrder(place.command);
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let receipt = match admit_stage7a_paper_command(
+            &mut recovered,
+            &place_command,
+            &Stage7aPaperCommandContext::new(instrument(), attribution("ENTRY")),
+            observed_at,
+        )
+        .unwrap()
+        {
+            Stage7aPaperAdmission::DispatchReady(receipt) => *receipt,
+            _ => panic!("first PLACE must dispatch"),
+        };
+        let target = BrokerOrderId::new("PAPER-WORKING-715");
+        execute_stage6d_paper_outcome(
+            &mut recovered,
+            receipt,
+            Stage6dPaperOutcome::LimitPending {
+                broker_order_id: target.clone(),
+            },
+        )
+        .unwrap();
+        let mut cancel = cancel_fixture(716, target.as_str());
+        cancel.command.client_order_id = Some(place_client_order_id);
+        assert!(matches!(
+            admit_stage7a_paper_command(
+                &mut recovered,
+                &BrokerCommand::CancelOrder(cancel.command),
+                &Stage7aPaperCommandContext::new(instrument(), attribution("CANCEL")),
+                observed_at,
+            )
+            .unwrap(),
+            Stage7aPaperAdmission::Hold {
+                reason: Stage7aPaperHoldReason::AnotherLifecycleUnresolved,
+                ..
+            }
+        ));
+        assert_eq!(
+            recovered
+                .replay()
+                .requests()
+                .iter()
+                .filter(|request| request.final_disposition().is_none())
+                .count(),
+            1
         );
     }
 

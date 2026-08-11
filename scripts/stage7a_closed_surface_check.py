@@ -22,6 +22,9 @@ EXACT = {
     "docs/stage-7/stage7a-entry-descriptor.json",
     "docs/stage-7/stage7a-implementation.md",
     "docs/stage-7/stage7a-r1-review-closure.md",
+    "docs/stage-7/stage7a-r2-review-closure.md",
+    "docs/stage-7/stage7a-r2-fault-matrix.json",
+    "docs/stage-7/stage7a-r2-acceptance-proof-map.json",
     "docs/stage-7/stage7a-slice-plan.md",
     "scripts/make_stage7a_handoff_archive.py",
     "scripts/stage7a_check.py",
@@ -29,7 +32,8 @@ EXACT = {
     "scripts/stage7a_gate.sh",
     "scripts/stage7a_negative_harness.py",
     "scripts/stage7a_preseal_check.py",
-    "scripts/stage7a_r1_acceptance_report.py",
+    "scripts/stage7a_r2_acceptance_report.py",
+    "scripts/stage7a_r2_fault_matrix_check.py",
 }
 
 

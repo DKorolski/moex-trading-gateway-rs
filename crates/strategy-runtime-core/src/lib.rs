@@ -332,7 +332,8 @@ pub use stage6_replay::{
 };
 pub use stage6d_live_core::{
     admit_stage7a_paper_command, apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
-    execute_stage6d_paper_outcome, first_boot_stage6d_paper,
+    execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
+    finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
     issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
     resolve_stage7a_cancel_command_context, restart_stage6d_paper, seal_stage6d_restart_package,
     Stage6dBootMode, Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization,

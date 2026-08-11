@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "stage": "7A-R2",
+  "closed_surfaces": {
+    "broker_network_dispatch": false,
+    "finam_post_delete": false,
+    "runtime_live": false
+  },
+  "faults": [
+    {
+      "id": "F1",
+      "point": "after XREADGROUP / before decode",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f01_source_read_before_decode_retains_pending ... ok",
+      "redis_pending": "retained_until_redelivery",
+      "stage6_reentry": "no_request_before_decode",
+      "paper_effect_repeat": "zero_then_one",
+      "ack_repeat": "single_after_redelivery",
+      "xack": "only_after_ack",
+      "readiness": "source_unhealthy_until_new_poll"
+    },
+    {
+      "id": "F2",
+      "point": "after decode / before Stage 6 admission",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "no_request_created",
+      "paper_effect_repeat": "zero",
+      "ack_repeat": "none",
+      "xack": "forbidden",
+      "readiness": "authority_blocked"
+    },
+    {
+      "id": "F3",
+      "point": "after RequestAccepted",
+      "artifact": "core-debug.txt",
+      "witness": "stage7a_resumes_only_the_dispatch_after_accepted_crash_window ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "existing_accepted_resumed_once",
+      "paper_effect_repeat": "not_started",
+      "ack_repeat": "none",
+      "xack": "forbidden",
+      "readiness": "reconciliation_until_resume"
+    },
+    {
+      "id": "F4",
+      "point": "after DispatchAttemptRecorded",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "blind_redispatch_forbidden",
+      "paper_effect_repeat": "zero",
+      "ack_repeat": "none",
+      "xack": "forbidden",
+      "readiness": "authority_blocked"
+    },
+    {
+      "id": "F5",
+      "point": "during paper outcome provider",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "dispatch_not_repeated",
+      "paper_effect_repeat": "uncertain_never_retried_blindly",
+      "ack_repeat": "none",
+      "xack": "forbidden",
+      "readiness": "authority_blocked"
+    },
+    {
+      "id": "F6",
+      "point": "after Stage 6 paper outcome record",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "replay_finalizes_existing_request",
+      "paper_effect_repeat": "not_repeated",
+      "ack_repeat": "duplicate_after_replay_finalization",
+      "xack": "only_after_ack",
+      "readiness": "blocked_until_redelivery_settlement"
+    },
+    {
+      "id": "F7",
+      "point": "before ACK XADD",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f07_f09_f14_ack_windows_recover_without_second_effect ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "request_already_finalized",
+      "paper_effect_repeat": "not_repeated",
+      "ack_repeat": "canonical_once_after_redelivery",
+      "xack": "forbidden_before_ack",
+      "readiness": "ack_settlement_blocked"
+    },
+    {
+      "id": "F8",
+      "point": "after ACK XADD / before XACK",
+      "artifact": "bridge-debug.txt",
+      "witness": "ack_xadd_success_before_xack_redelivery_emits_runtime_duplicate ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "same_finalized_request",
+      "paper_effect_repeat": "not_repeated",
+      "ack_repeat": "runtime_compatible_duplicate",
+      "xack": "after_redelivery_ack",
+      "readiness": "degraded_until_source_and_claim_recover"
+    },
+    {
+      "id": "F9",
+      "point": "during XACK",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f07_f09_f14_ack_windows_recover_without_second_effect ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "same_finalized_request",
+      "paper_effect_repeat": "not_repeated",
+      "ack_repeat": "runtime_compatible_duplicate",
+      "xack": "retried_after_redelivery",
+      "readiness": "ack_settlement_blocked_until_xack"
+    },
+    {
+      "id": "F10",
+      "point": "during DLQ XADD",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f10_f11_f15_dlq_windows_recover_without_stage6_effect ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "no_request_created",
+      "paper_effect_repeat": "zero",
+      "ack_repeat": "not_applicable",
+      "xack": "forbidden_before_dlq",
+      "readiness": "dlq_settlement_blocked"
+    },
+    {
+      "id": "F11",
+      "point": "after DLQ XADD / before XACK",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f10_f11_f15_dlq_windows_recover_without_stage6_effect ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "no_request_created",
+      "paper_effect_repeat": "zero",
+      "ack_repeat": "not_applicable",
+      "xack": "retried_after_redelivery_dlq",
+      "readiness": "dlq_settlement_blocked_until_xack"
+    },
+    {
+      "id": "F12",
+      "point": "consumer task fatal exit",
+      "artifact": "bridge-debug.txt",
+      "witness": "external_supervisor_observes_normal_error_and_panic_task_death ... ok",
+      "redis_pending": "unchanged_by_task_guard",
+      "stage6_reentry": "unchanged_by_task_guard",
+      "paper_effect_repeat": "none_from_supervisor",
+      "ack_repeat": "none_from_supervisor",
+      "xack": "none_from_supervisor",
+      "readiness": "external_handle_not_alive"
+    },
+    {
+      "id": "F13",
+      "point": "Redis source outage",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f13_source_outage_is_bounded_and_never_stale_ready ... ok",
+      "redis_pending": "no_xack_assumption",
+      "stage6_reentry": "no_new_request",
+      "paper_effect_repeat": "zero",
+      "ack_repeat": "none",
+      "xack": "none",
+      "readiness": "source_unhealthy_and_stopped"
+    },
+    {
+      "id": "F14",
+      "point": "ACK stream outage",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f07_f09_f14_ack_windows_recover_without_second_effect ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "request_already_finalized",
+      "paper_effect_repeat": "not_repeated",
+      "ack_repeat": "canonical_after_recovery",
+      "xack": "forbidden_until_ack",
+      "readiness": "ack_settlement_blocked"
+    },
+    {
+      "id": "F15",
+      "point": "DLQ stream outage",
+      "artifact": "bridge-debug.txt",
+      "witness": "fault_matrix_f10_f11_f15_dlq_windows_recover_without_stage6_effect ... ok",
+      "redis_pending": "retained",
+      "stage6_reentry": "no_request_created",
+      "paper_effect_repeat": "zero",
+      "ack_repeat": "not_applicable",
+      "xack": "forbidden_until_dlq",
+      "readiness": "dlq_settlement_blocked"
+    }
+  ]
+}

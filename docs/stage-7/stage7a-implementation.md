@@ -1,4 +1,4 @@
-# Stage 7A-R1 implementation candidate
+# Stage 7A-R2 implementation candidate
 
 Accepted predecessor: `10e357825a701193d964975bb5769bd0745d4986`.
 
@@ -24,7 +24,7 @@ paper Envelope<BrokerCommand>
   -> Stage 6 command-admission facade
   -> RequestAccepted + DispatchAttemptRecorded
   -> deterministic process-local paper provider
-  -> Stage 6 normalized outcome
+  -> Stage 6 normalized outcome + explicit RequestFinalized
   -> Envelope<CommandAck>
   -> ACK XADD
   -> XACK
@@ -52,17 +52,21 @@ entry metadata are emitted.
   emits `Duplicate/DuplicateCommand` with exact request/client/broker identity.
   This matches the accepted Stage 5G ACK lifecycle. No cross-process
   exactly-once claim is made.
-- `DispatchForbidden` is not treated as lifecycle terminality. A working,
-  filled or reconciled-but-nonfinal PLACE blocks another PLACE. Only one
-  source-correlated CANCEL may overlap its known target order.
-- Source-read and claim health cannot heal ACK/DLQ/Stage-6 settlement state.
+- `DispatchForbidden` is not treated as lifecycle terminality. Every different
+  command, including a source-correlated CANCEL, is blocked while another
+  request is non-final. Normalized paper outcomes append an explicit
+  `RequestFinalized` before ACK, preserving working broker-order identity for a
+  later sequential CANCEL.
+- Source-read and claim health have independent timestamps and neither is
+  forged by group attachment. Both must be fresh for `PaperReady`, and neither
+  can heal ACK/DLQ/Stage-6 settlement state.
   Blocked state is keyed by exact Redis entry and request where available.
 - XAUTOCLAIM retains its returned cursor across bounded calls and resets only
   after Redis reports a completed scan.
 - `Beginning` group attachment is rejected unless controlled replay is
   explicitly authorized. Default attachment is `Tail`.
-- All local observation/receipt timestamps are minted inside the host bridge;
-  envelope/source timestamps are not local temporal authority.
+- Stage 7A constructs no fresh broker-truth package. A-040/A-041 therefore use
+  an explicit closed-surface N/A proof; they are not bound to unrelated tests.
 
 ## Tested crash and failure windows
 
@@ -74,15 +78,20 @@ entry metadata are emitted.
 - ACK published before XACK;
 - stale pending ownership reclaimed by XAUTOCLAIM;
 - exact Redis redelivery under a different entry ID;
-- consumer Redis failure, stale polling and explicit stop readiness.
+- consumer Redis failure, separate source/claim staleness and explicit stop;
+- normal task exit, returned error and panic/JoinError through an external
+  liveness observer;
+- the complete machine-readable F1-F15 matrix covering source, authority,
+  provider, outcome, ACK, DLQ, XACK, task death and stream outages.
 
 The real-Redis test starts an isolated local `redis-server` with persistence
 disabled and exercises `XGROUP`, `XREADGROUP`, `XPENDING`, `XAUTOCLAIM`, `XADD`
 and `XACK`. It does not contact FINAM or any external broker endpoint.
 
-The R1 gate emits a row-by-row JSON report for all 52 blocking acceptance
-rows. Every PASS is bound to one or more concrete saved gate logs and required
-tokens; inventory count alone cannot close the stage.
+The R2 gate loads a reviewable JSON proof map and emits a row-by-row report for
+all 52 blocking acceptance rows. Every row contains the frozen scenario/result,
+proof type, exact artifacts/tokens and the semantic rationale. The evaluator
+fails when a mapping is absent, incomplete or uses the wrong pinned proof type.
 
 ## Deliberately deferred to Stage 7B+
 

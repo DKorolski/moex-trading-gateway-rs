@@ -24,14 +24,19 @@ cargo test --workspace --all-targets 2>&1 | tee "$artifact_dir/workspace-tests.t
 cargo test --workspace --doc 2>&1 | tee "$artifact_dir/workspace-docs.txt"
 cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 | tee "$artifact_dir/clippy.txt"
 
+python3 scripts/stage7a_r2_fault_matrix_check.py \
+  --artifact-dir "$artifact_dir" \
+  --output "$artifact_dir/stage7a-r2-fault-matrix.json" \
+  | tee "$artifact_dir/stage7a-r2-fault-matrix.txt"
+
 if [[ "${STAGE7A_SKIP_PRESEAL:-0}" != "1" ]]; then
   python3 scripts/stage7a_preseal_check.py | tee "$artifact_dir/preseal.txt"
-  python3 scripts/stage7a_r1_acceptance_report.py \
+  python3 scripts/stage7a_r2_acceptance_report.py \
     --artifact-dir "$artifact_dir" \
-    --output "$artifact_dir/stage7a-r1-acceptance.json" \
-    | tee "$artifact_dir/stage7a-r1-acceptance.txt"
+    --output "$artifact_dir/stage7a-r2-acceptance.json" \
+    | tee "$artifact_dir/stage7a-r2-acceptance.txt"
 else
-  echo "stage7a-r1-acceptance: DEFERRED until clean committed preseal"
+  echo "stage7a-r2-acceptance: DEFERRED until clean committed preseal"
 fi
 rustc --version | tee "$artifact_dir/toolchain.txt"
 cargo --version | tee -a "$artifact_dir/toolchain.txt"

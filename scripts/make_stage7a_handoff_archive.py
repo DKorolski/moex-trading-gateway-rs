@@ -43,7 +43,7 @@ def main() -> None:
         fail("worktree not clean")
     head = run(["git", "rev-parse", "HEAD"])
     short = run(["git", "rev-parse", "--short=7", "HEAD"])
-    if run(["git", "rev-parse", "HEAD^"]) != checker.R1_PREDECESSOR:
+    if run(["git", "rev-parse", "HEAD^"]) != checker.R2_PREDECESSOR:
         fail("wrong predecessor")
     if run(["git", "branch", "--show-current"]) != checker.BRANCH:
         fail("wrong branch")
@@ -68,7 +68,8 @@ def main() -> None:
         if gate.returncode:
             print(gate.stdout)
             fail(f"gate failed: {gate.returncode}")
-        acceptance = json.loads((artifact_dir / "stage7a-r1-acceptance.json").read_text())
+        acceptance = json.loads((artifact_dir / "stage7a-r2-acceptance.json").read_text())
+        fault_matrix = json.loads((artifact_dir / "stage7a-r2-fault-matrix.json").read_text())
         negative = (artifact_dir / "negative.txt").read_bytes()
         negative_count = sum(line.startswith(b"PASS ") for line in negative.splitlines())
         artifact_members = []
@@ -97,7 +98,7 @@ def main() -> None:
         {
             "schema_version": 1,
             "source_ref": head,
-            "predecessor": checker.R1_PREDECESSOR,
+            "predecessor": checker.R2_PREDECESSOR,
             "accepted_stage6_base": checker.BASE,
             "members": [
                 {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
@@ -112,16 +113,16 @@ def main() -> None:
         f"source_short_ref={short}\n"
         f"source_branch={checker.BRANCH}\n"
         f"archive_name=moex-trading-project-{short}.zip\n"
-        f"predecessor={checker.R1_PREDECESSOR}\n"
+        f"predecessor={checker.R2_PREDECESSOR}\n"
         f"accepted_stage6_base={checker.BASE}\n"
     ).encode()
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7A-R1",
+            "stage": "7A-R2",
             "status": "review_closure_candidate",
             "source_ref": head,
-            "predecessor": checker.R1_PREDECESSOR,
+            "predecessor": checker.R2_PREDECESSOR,
             "accepted_stage6_base": checker.BASE,
             "gate_exit_code": 0,
             "acceptance_row_count": acceptance["acceptance_row_count"],
@@ -129,8 +130,12 @@ def main() -> None:
             "acceptance_pass_count": acceptance["acceptance_pass_count"],
             "all_blocking_rows_passed": acceptance["all_blocking_rows_passed"],
             "negative_case_count": negative_count,
-            "focused_runtime_bridge_test_count": 16,
-            "focused_stage6_admission_test_count": 7,
+            "focused_runtime_bridge_test_count": 23,
+            "focused_stage6_admission_test_count": 8,
+            "fault_matrix_count": fault_matrix["fault_count"],
+            "fault_matrix_pass_count": fault_matrix["pass_count"],
+            "all_faults_passed": fault_matrix["all_faults_passed"],
+            "semantic_proof_map": "docs/stage-7/stage7a-r2-acceptance-proof-map.json",
             "real_redis_integration_passed": True,
             "stage6_execution_authority_exclusive": True,
             "paper_namespace_only": True,

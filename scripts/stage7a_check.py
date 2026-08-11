@@ -10,6 +10,7 @@ from pathlib import Path
 
 BASE = "10e357825a701193d964975bb5769bd0745d4986"
 R1_PREDECESSOR = "6e53f5428f7f79f3c9c84fbbd15d32b3c26d5d2d"
+R2_PREDECESSOR = "ac8fa7f2f3ff42ae1b351c298ff0b3abd62599b5"
 BRANCH = "stage7a-paper-command-consumer"
 BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
 BRIDGE_CARGO = Path("crates/runtime-command-bridge/Cargo.toml")
@@ -69,6 +70,8 @@ def validate_bridge(source: str, cargo: str) -> None:
         "fn handle_payload(",
         "admit_stage7a_paper_command",
         "execute_stage6d_paper_outcome",
+        "finalize_stage7a_paper_request",
+        "finalize_stage7a_replayed_paper_request",
         "pub async fn ensure_group",
         'redis::cmd("XREADGROUP")',
         'redis::cmd("XAUTOCLAIM")',
@@ -93,6 +96,11 @@ def validate_bridge(source: str, cargo: str) -> None:
         "stage6_authority_healthy",
         "\n    blocked_entries: BTreeMap<String, Stage7aBlockedEntry>",
         "claim_cursor",
+        "STAGE7A_CONSTRUCTS_FRESH_BROKER_TRUTH: bool = false",
+        'STAGE7A_FRESH_TRUTH_TEMPORAL_POLICY: &str = "not_applicable_closed_surface"',
+        "last_successful_source_poll_at",
+        "last_successful_claim_scan_at",
+        "pub fn spawn_stage7a_supervised_task",
     )
     for token in required:
         require(token in production, f"required Stage 7A token absent: {token}")
@@ -128,6 +136,9 @@ def validate_bridge(source: str, cargo: str) -> None:
     source_success = block(source, "pub fn mark_source_poll_success(")
     for forbidden in ("blocked_entries.clear", "ack_settlement_healthy", "dlq_settlement_healthy"):
         require(forbidden not in source_success, f"source poll heals settlement state: {forbidden}")
+    group_attach = block(source, "pub fn mark_group_attached(")
+    for forbidden in ("source_read_healthy = true", "claim_scan_healthy = true"):
+        require(forbidden not in group_attach, f"group attach forges operation health: {forbidden}")
     profile = block(source, "pub struct Stage7aCommandProfile")
     require("\n    account_id: BrokerAccountId," in profile, "trusted profile is not account-bound")
 
@@ -147,9 +158,16 @@ def validate_bridge(source: str, cargo: str) -> None:
         "dlq_outage_empty_polls_do_not_restore_readiness",
         "xautoclaim_tail_eventually_reached_with_claim_count_1_max_pages_1",
         "unrelated_success_does_not_clear_blocked_request",
-        "cancel_overlap_policy_is_explicit_and_fail_closed",
+        "strict_max_one_lifecycle_finalizes_place_before_cancel",
+        "source_and_claim_freshness_are_independent_readiness_authorities",
+        "external_supervisor_observes_normal_error_and_panic_task_death",
+        "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed",
+        "fault_matrix_f01_source_read_before_decode_retains_pending",
+        "fault_matrix_f07_f09_f14_ack_windows_recover_without_second_effect",
+        "fault_matrix_f10_f11_f15_dlq_windows_recover_without_stage6_effect",
+        "fault_matrix_f13_source_outage_is_bounded_and_never_stale_ready",
         "uncertain_provider_and_post_dispatch_crash_remain_pending",
-        "place_then_cancel_use_one_profile_without_redis_identity_authority",
+        "market_limit_and_cancel_use_one_profile_without_redis_identity_authority",
         "envelope_policy_and_ttl_fail_before_paper_effect",
         "stop_shape_and_profile_drift_cannot_reach_provider",
         "supervisor_never_leaves_stale_ready_after_failure_or_stop",
@@ -168,6 +186,8 @@ def validate_core(source: str) -> None:
         "Stage7aPaperHoldReason::AnotherLifecycleUnresolved",
         "Stage7aPaperHoldReason::ReconciliationRequired",
         "prepare_stage6d_existing_accepted_paper_dispatch",
+        "pub fn finalize_stage7a_paper_request(",
+        "pub fn finalize_stage7a_replayed_paper_request(",
         "Stage6LifecycleSequence::new(1)",
     ):
         require(token in production, f"Stage 6 admission token absent: {token}")
@@ -175,18 +195,21 @@ def validate_core(source: str) -> None:
         require(token not in production, f"transport leaked into Stage 6 authority: {token}")
     tests = source.split("#[cfg(test)]", 1)[1]
     test_count = sum(line.startswith("    fn stage7a_") for line in tests.splitlines())
-    require(test_count == 7, f"Stage 6 admission test count drift: {test_count}")
+    require(test_count == 8, f"Stage 6 admission test count drift: {test_count}")
     lifecycle_guard = block(source, "fn stage7a_has_other_unresolved_lifecycle(")
     for token in (
         "request.final_disposition().is_some()",
-        "let is_source_correlated_cancel =",
-        "!is_source_correlated_cancel",
+        "same_scope",
     ):
-        require(token in lifecycle_guard, f"Stage 7A-R1 lifecycle guard absent: {token}")
+        require(token in lifecycle_guard, f"Stage 7A-R2 lifecycle guard absent: {token}")
+    for token in ("is_source_correlated_cancel", "permits exactly one reviewed overlap"):
+        require(token not in lifecycle_guard, f"Stage 7A-R2 overlap exception remains: {token}")
+    require("candidate.action()" not in lifecycle_guard, "action-specific lifecycle overlap restored")
     for token in (
         "stage7a_limit_pending_blocks_second_new_place",
         "stage7a_market_filled_nonfinal_blocks_second_new_place",
         "stage7a_broker_order_found_nonfinal_blocks_second_new_place",
+        "stage7a_nonfinal_place_blocks_source_correlated_cancel",
     ):
         require(token in tests, f"Stage 7A-R1 lifecycle witness absent: {token}")
 
@@ -215,15 +238,20 @@ def check(root: Path) -> None:
     descriptor = json.loads((root / DESCRIPTOR).read_text())
     expected = {
         "stage": "7A",
-        "status": "r1_implementation_candidate",
+        "status": "r2_implementation_candidate",
         "accepted_predecessor": BASE,
         "r1_predecessor": R1_PREDECESSOR,
+        "r2_predecessor": R2_PREDECESSOR,
         "blocking_acceptance_rows": 52,
         "stage6_execution_authority": "exclusive",
         "max_unresolved_lifecycles_per_strategy_instance": 1,
         "runtime_command_bridge_crate": True,
         "canonical_handler_for_read_and_claim": True,
         "real_redis_integration": True,
+        "focused_runtime_bridge_test_count": 23,
+        "focused_stage6_admission_test_count": 8,
+        "fault_matrix_count": 15,
+        "semantic_proof_map_count": 52,
         "cross_process_exactly_once_claimed": False,
         "stage7b_open": False,
         "finam_post_delete_open": False,
@@ -248,6 +276,7 @@ def main() -> None:
     except (CheckFailure, subprocess.CalledProcessError, ValueError, KeyError) as error:
         raise SystemExit(f"stage7a-check: FAIL: {error}") from error
     print("stage7a-check: PASS rows=52 stage6_authority=exclusive real_redis=true live=false")
+    print("fresh_truth_provider_surface_absent=true temporal_policy=not_applicable_closed_surface")
 
 
 if __name__ == "__main__":

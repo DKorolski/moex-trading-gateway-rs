@@ -27,6 +27,8 @@ def main() -> None:
         ("public-observed-at-injection", replace_once(bridge, "    fn handle_payload(\n", "    pub fn handle_payload(\n"), cargo),
         ("remove-stage6-admission", bridge.replace("admit_stage7a_paper_command", "missing_stage6_admission"), cargo),
         ("remove-stage6-outcome", bridge.replace("execute_stage6d_paper_outcome", "missing_stage6_outcome"), cargo),
+        ("remove-stage7a-finalization", bridge.replace("finalize_stage7a_paper_request", "missing_stage7a_finalization"), cargo),
+        ("remove-stage7a-replay-finalization", bridge.replace("finalize_stage7a_replayed_paper_request", "missing_replay_finalization"), cargo),
         ("remove-xreadgroup", bridge.replace('redis::cmd("XREADGROUP")', 'redis::cmd("REMOVED")'), cargo),
         ("remove-xautoclaim", bridge.replace('redis::cmd("XAUTOCLAIM")', 'redis::cmd("REMOVED")'), cargo),
         ("remove-xack", bridge.replace('redis::cmd("XACK")', 'redis::cmd("REMOVED")'), cargo),
@@ -48,11 +50,20 @@ def main() -> None:
         ("remove-persistent-claim-cursor", bridge.replace("self.claim_cursor = next.clone();", "let _ = next.clone();", 1), cargo),
         ("remove-exact-blocked-entry-map", bridge.replace("blocked_entries", "removed_blocked_entries"), cargo),
         ("source-poll-clears-blocked", bridge.replace("self.source_read_healthy = true;", "self.source_read_healthy = true; self.blocked_entries.clear();"), cargo),
+        ("group-attach-forges-source-health", bridge.replace("pub fn mark_group_attached(&mut self) {\n        self.task_readiness.mark_started();", "pub fn mark_group_attached(&mut self) {\n        self.task_readiness.mark_started(); self.source_read_healthy = true;", 1), cargo),
+        ("remove-independent-source-freshness", bridge.replace("last_successful_source_poll_at", "removed_source_freshness"), cargo),
+        ("remove-independent-claim-freshness", bridge.replace("last_successful_claim_scan_at", "removed_claim_freshness"), cargo),
+        ("remove-external-task-supervision", bridge.replace("pub fn spawn_stage7a_supervised_task", "fn removed_task_supervision"), cargo),
+        ("remove-fault-matrix-authority-witness", bridge.replace("fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed", "removed_fault_matrix_authority"), cargo),
+        ("remove-fresh-truth-closed-surface", bridge.replace("STAGE7A_CONSTRUCTS_FRESH_BROKER_TRUTH: bool = false", "STAGE7A_CONSTRUCTS_FRESH_BROKER_TRUTH: bool = true"), cargo),
     ]
     core_cases = [
         ("restore-dispatch-forbidden-terminality", core.replace("|| request.final_disposition().is_some()", "|| request.dispatch_safety_state() == crate::Stage6DispatchSafetyStateV1::DispatchForbidden", 1)),
-        ("remove-source-correlated-cancel-exception", core.replace("let is_source_correlated_cancel =", "let removed_source_correlated_cancel =", 1)),
+        ("restore-action-specific-overlap", core.replace("            same_scope\n", "            if candidate.action() == Stage6DurableActionKind::Cancel { false } else { same_scope }\n", 1)),
         ("remove-limit-pending-guard-witness", core.replace("stage7a_limit_pending_blocks_second_new_place", "removed_limit_pending_guard_witness")),
+        ("remove-linked-cancel-guard-witness", core.replace("stage7a_nonfinal_place_blocks_source_correlated_cancel", "removed_linked_cancel_guard_witness")),
+        ("remove-core-stage7a-finalization", core.replace("pub fn finalize_stage7a_paper_request(", "fn removed_stage7a_paper_request(")),
+        ("remove-core-replay-finalization", core.replace("pub fn finalize_stage7a_replayed_paper_request(", "fn removed_replay_finalization(")),
     ]
     passed = 0
     for name, mutated_source, mutated_cargo in bridge_cases:
