@@ -644,6 +644,12 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
         Ok(self.remember_canonical_ack(recovery.command_sha256, recovery.canonical_ack))
     }
 
+    fn request_identity_is_established(&self, request_id: StrategyRequestId) -> bool {
+        self.ack_publications.contains_key(&request_id)
+            || self.canonical_ack_recoveries.contains_key(&request_id)
+            || self.recovered.replay().request(request_id).is_some()
+    }
+
     pub fn handle_payload_now(
         &mut self,
         redis_entry_id: &str,
@@ -711,6 +717,12 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
         let context = match self.profile.context_for(&command, &self.recovered) {
             Ok(context) => context,
             Err(Stage7aBridgeError::CommandProfileMismatch) => {
+                if self.request_identity_is_established(request_id) {
+                    return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                        strategy_request_id: request_id,
+                        reason: Stage7aPaperHoldReason::IdentityConflict,
+                    }));
+                }
                 let decision = Stage7aPaperAdmissionDecision {
                     strategy_request_id: request_id,
                     durable_client_order_id: broker_core::ClientOrderId::from_strategy_request(
@@ -1441,6 +1453,9 @@ mod tests {
 
     struct DeterministicPaperProvider;
     struct UncertainPaperProvider;
+    struct CountingPaperProvider {
+        invocations: Arc<AtomicU64>,
+    }
 
     impl Stage7aPaperOutcomeProvider for UncertainPaperProvider {
         fn paper_outcome(
@@ -1472,6 +1487,17 @@ mod tests {
                 },
                 BrokerCommand::CancelOrder(_) => Stage6dPaperOutcome::CancelCanceled,
             })
+        }
+    }
+
+    impl Stage7aPaperOutcomeProvider for CountingPaperProvider {
+        fn paper_outcome(
+            &mut self,
+            command: &BrokerCommand,
+            observed_at: DateTime<Utc>,
+        ) -> Result<Stage6dPaperOutcome, Stage7aPaperProviderError> {
+            self.invocations.fetch_add(1, Ordering::SeqCst);
+            DeterministicPaperProvider.paper_outcome(command, observed_at)
         }
     }
 
@@ -1572,15 +1598,23 @@ mod tests {
         })
     }
 
-    fn encoded_command(number: u128) -> String {
+    fn encode_command_payload(command: BrokerCommand) -> String {
+        let ts_utc = match &command {
+            BrokerCommand::PlaceOrder(command) => command.created_ts,
+            BrokerCommand::CancelOrder(command) => command.created_ts,
+        };
         serde_json::to_string(&Envelope {
             schema_version: SCHEMA_VERSION,
-            ts_utc: Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 0).unwrap(),
+            ts_utc,
             source: "stage7a-paper-test".to_string(),
             msg_type: MessageType::Command,
-            payload: command(number),
+            payload: command,
         })
         .unwrap()
+    }
+
+    fn encoded_command(number: u128) -> String {
+        encode_command_payload(command(number))
     }
 
     fn encoded_market_command(number: u128) -> String {
@@ -1590,14 +1624,7 @@ mod tests {
         };
         command.order_type = OrderType::Market;
         command.limit_price = None;
-        serde_json::to_string(&Envelope {
-            schema_version: SCHEMA_VERSION,
-            ts_utc: command.created_ts,
-            source: "stage7a-paper-test".to_string(),
-            msg_type: MessageType::Command,
-            payload: BrokerCommand::PlaceOrder(command),
-        })
-        .unwrap()
+        encode_command_payload(BrokerCommand::PlaceOrder(command))
     }
 
     fn encoded_cancel(number: u128, target_request: u128) -> String {
@@ -1611,14 +1638,7 @@ mod tests {
             order_id: BrokerOrderId::new(format!("PAPER-{target_request_id}")),
             client_order_id: Some(ClientOrderId::from_strategy_request(target_request_id)),
         });
-        serde_json::to_string(&Envelope {
-            schema_version: SCHEMA_VERSION,
-            ts_utc: Utc.with_ymd_and_hms(2026, 8, 11, 9, 1, 0).unwrap(),
-            source: "stage7a-paper-test".to_string(),
-            msg_type: MessageType::Command,
-            payload: command,
-        })
-        .unwrap()
+        encode_command_payload(command)
     }
 
     struct RedisServer {
@@ -1628,39 +1648,45 @@ mod tests {
 
     impl RedisServer {
         async fn start() -> Self {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-            let port = listener.local_addr().unwrap().port();
-            drop(listener);
-            let mut child = Command::new("redis-server")
-                .args([
-                    "--bind",
-                    "127.0.0.1",
-                    "--port",
-                    &port.to_string(),
-                    "--save",
-                    "",
-                    "--appendonly",
-                    "no",
-                ])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .expect("redis-server must be installed for Stage 7A integration");
-            let url = format!("redis://127.0.0.1:{port}/");
-            for _ in 0..100 {
-                if let Ok(client) = redis::Client::open(url.as_str()) {
-                    if let Ok(mut manager) = ConnectionManager::new(client).await {
-                        let ping: redis::RedisResult<String> =
-                            redis::cmd("PING").query_async(&mut manager).await;
-                        if ping.as_deref() == Ok("PONG") {
-                            return Self { child, url };
+            for _ in 0..10 {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                let port = listener.local_addr().unwrap().port();
+                drop(listener);
+                let mut child = Command::new("redis-server")
+                    .args([
+                        "--bind",
+                        "127.0.0.1",
+                        "--port",
+                        &port.to_string(),
+                        "--save",
+                        "",
+                        "--appendonly",
+                        "no",
+                    ])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .expect("redis-server must be installed for Stage 7A integration");
+                let url = format!("redis://127.0.0.1:{port}/");
+                for _ in 0..100 {
+                    if child.try_wait().unwrap().is_some() {
+                        break;
+                    }
+                    if let Ok(client) = redis::Client::open(url.as_str()) {
+                        if let Ok(mut manager) = ConnectionManager::new(client).await {
+                            let ping: redis::RedisResult<String> =
+                                redis::cmd("PING").query_async(&mut manager).await;
+                            if ping.as_deref() == Ok("PONG") && child.try_wait().unwrap().is_none()
+                            {
+                                return Self { child, url };
+                            }
                         }
                     }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(10)).await;
+                let _ = child.kill();
+                let _ = child.wait();
             }
-            let _ = child.kill();
-            let _ = child.wait();
             panic!("temporary Redis did not start")
         }
     }
@@ -1974,6 +2000,157 @@ mod tests {
             })
         ));
         assert_eq!(authority.recovered().journal_frontier().frame_count(), 0);
+    }
+
+    #[test]
+    fn established_request_profile_conflict_precedes_local_validation_rejection() {
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+
+        let mut account_conflict = authority();
+        account_conflict.set_fault_point(Stage7aFaultPoint::BeforePaperOutcome);
+        assert!(matches!(
+            account_conflict
+                .handle_payload(
+                    "account-original",
+                    encoded_command(8_101).as_bytes(),
+                    observed_at
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                reason: Stage7aPaperHoldReason::ReconciliationRequired,
+                ..
+            })
+        ));
+        let mut changed_account = match command(8_101) {
+            BrokerCommand::PlaceOrder(command) => command,
+            BrokerCommand::CancelOrder(_) => unreachable!(),
+        };
+        changed_account.account_id = BrokerAccountId::new("ACC_CONFLICT_0002");
+        assert!(matches!(
+            account_conflict
+                .handle_payload(
+                    "account-conflict",
+                    encode_command_payload(BrokerCommand::PlaceOrder(changed_account)).as_bytes(),
+                    observed_at,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                reason: Stage7aPaperHoldReason::IdentityConflict,
+                ..
+            })
+        ));
+        assert!(account_conflict.ack_publications.is_empty());
+
+        let mut action_target_conflict = authority();
+        action_target_conflict.set_fault_point(Stage7aFaultPoint::BeforePaperOutcome);
+        assert!(matches!(
+            action_target_conflict
+                .handle_payload(
+                    "place-original",
+                    encoded_command(8_102).as_bytes(),
+                    observed_at
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        assert!(matches!(
+            action_target_conflict
+                .handle_payload(
+                    "cancel-conflict",
+                    encoded_cancel(8_102, 99_999).as_bytes(),
+                    observed_at,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                reason: Stage7aPaperHoldReason::IdentityConflict,
+                ..
+            })
+        ));
+        assert!(action_target_conflict.ack_publications.is_empty());
+
+        let mut new_request = authority();
+        let mut out_of_profile = match command(8_103) {
+            BrokerCommand::PlaceOrder(command) => command,
+            BrokerCommand::CancelOrder(_) => unreachable!(),
+        };
+        out_of_profile.account_id = BrokerAccountId::new("ACC_OUT_OF_PROFILE");
+        assert!(matches!(
+            new_request
+                .handle_payload(
+                    "new-out-of-profile",
+                    encode_command_payload(BrokerCommand::PlaceOrder(out_of_profile)).as_bytes(),
+                    observed_at,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Ack(Envelope {
+                payload: CommandAck {
+                    status: CommandAckStatus::Rejected,
+                    reason: Some(CommandAckReason {
+                        code: CommandAckReasonCode::LocalValidationRejected,
+                    }),
+                    ..
+                },
+                ..
+            })
+        ));
+        assert!(new_request.recovered().replay().requests().is_empty());
+    }
+
+    #[test]
+    fn f06_recovery_survives_mutated_instrument_identity_conflict() {
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let request_id = StrategyRequestId::from(Uuid::from_u128(8_104));
+        let original = encoded_command(8_104);
+        let mut command_authority = authority();
+        command_authority.set_fault_point(Stage7aFaultPoint::AfterPaperOutcomeRecord);
+        assert!(matches!(
+            command_authority
+                .handle_payload("f06-original", original.as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        let recovery = command_authority
+            .canonical_ack_recoveries
+            .get(&request_id)
+            .unwrap()
+            .clone();
+        let mut changed_instrument = match command(8_104) {
+            BrokerCommand::PlaceOrder(command) => command,
+            BrokerCommand::CancelOrder(_) => unreachable!(),
+        };
+        changed_instrument.instrument.symbol = "RTS-9.26".to_string();
+        assert!(matches!(
+            command_authority
+                .handle_payload(
+                    "f06-instrument-conflict",
+                    encode_command_payload(BrokerCommand::PlaceOrder(changed_instrument))
+                        .as_bytes(),
+                    observed_at,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                reason: Stage7aPaperHoldReason::IdentityConflict,
+                ..
+            })
+        ));
+        let retained = command_authority
+            .canonical_ack_recoveries
+            .get(&request_id)
+            .unwrap();
+        assert_eq!(retained.command_sha256, recovery.command_sha256);
+        assert_eq!(retained.canonical_ack, recovery.canonical_ack);
+        assert!(!command_authority.ack_publications.contains_key(&request_id));
+
+        command_authority.set_fault_point(Stage7aFaultPoint::None);
+        let canonical = match command_authority
+            .handle_payload("f06-redelivery", original.as_bytes(), observed_at)
+            .unwrap()
+        {
+            Stage7aHandleOutcome::Ack(ack) => ack,
+            _ => panic!("original request must retain canonical ACK recovery"),
+        };
+        assert_eq!(canonical.payload.status, CommandAckStatus::Accepted);
+        assert_eq!(canonical.payload.request_id, request_id);
     }
 
     #[test]
@@ -2847,6 +3024,116 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(acks.ids.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn redis_conflicting_duplicate_stays_pending_without_ack_dlq_or_xack() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("identity-conflict").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        let mut command_authority = authority();
+        command_authority.set_fault_point(Stage7aFaultPoint::BeforePaperOutcome);
+        let mut consumer =
+            Stage7aRedisConsumer::connect(&redis.url, config.clone(), command_authority)
+                .await
+                .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encoded_command(8_105))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 1);
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+
+        let mut changed_account = match command(8_105) {
+            BrokerCommand::PlaceOrder(command) => command,
+            BrokerCommand::CancelOrder(_) => unreachable!(),
+        };
+        changed_account.account_id = BrokerAccountId::new("ACC_CONFLICT_0002");
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encode_command_payload(BrokerCommand::PlaceOrder(
+                changed_account,
+            )))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 1);
+        assert_eq!(pending_len(&mut manager, &config).await, 2);
+        assert_eq!(stream_len(&mut manager, &config.ack_stream).await, 0);
+        assert_eq!(stream_len(&mut manager, &config.dlq_stream).await, 0);
+        assert!(consumer.authority.ack_publications.is_empty());
+        assert_eq!(consumer.authority.recovered().replay().requests().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn client_order_id_mismatch_is_pending_without_paper_effect_or_xack() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("client-id-conflict").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        let invocations = Arc::new(AtomicU64::new(0));
+        let command_authority = Stage7aCommandAuthority::new(
+            recovered(),
+            profile(),
+            CountingPaperProvider {
+                invocations: Arc::clone(&invocations),
+            },
+            "stage7a-client-id-conflict",
+        )
+        .unwrap();
+        let mut consumer =
+            Stage7aRedisConsumer::connect(&redis.url, config.clone(), command_authority)
+                .await
+                .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        let mut mismatch = match command(8_106) {
+            BrokerCommand::PlaceOrder(command) => command,
+            BrokerCommand::CancelOrder(_) => unreachable!(),
+        };
+        mismatch.client_order_id = ClientOrderId::new("CLIENT-ID-MISMATCH").unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encode_command_payload(BrokerCommand::PlaceOrder(mismatch)))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 1);
+        assert_eq!(invocations.load(Ordering::SeqCst), 0);
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+        assert_eq!(stream_len(&mut manager, &config.ack_stream).await, 0);
+        assert_eq!(stream_len(&mut manager, &config.dlq_stream).await, 0);
+        assert!(consumer
+            .authority
+            .recovered()
+            .replay()
+            .requests()
+            .is_empty());
+        assert_eq!(
+            consumer
+                .authority
+                .recovered()
+                .journal_frontier()
+                .frame_count(),
+            0
+        );
     }
 
     #[tokio::test]

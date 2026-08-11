@@ -1,4 +1,4 @@
-# Stage 7A-R2a implementation candidate
+# Stage 7A-R2b implementation candidate
 
 Accepted predecessor: `10e357825a701193d964975bb5769bd0745d4986`.
 
@@ -48,6 +48,11 @@ entry metadata are emitted.
   a second paper effect.
 - A conflicting duplicate, unresolved prior lifecycle or uncertain effect is
   retained pending and degrades command-path readiness.
+- An already-established request in Stage 6 replay, canonical ACK recovery or
+  ACK-publication state takes precedence over ordinary profile rejection.
+  Account, instrument, action/target or client identity drift therefore cannot
+  overwrite a known lifecycle with `LocalValidationRejected` or cause XACK.
+  A genuinely new out-of-profile request remains deterministically rejected.
 - Within one Stage 7A authority lifetime, ACK XADD failure republishes the
   canonical terminal ACK; ACK XADD success followed by command-XACK failure
   emits `Duplicate/DuplicateCommand` with exact request/client/broker identity.
@@ -95,11 +100,13 @@ The real-Redis test starts an isolated local `redis-server` with persistence
 disabled and exercises `XGROUP`, `XREADGROUP`, `XPENDING`, `XAUTOCLAIM`, `XADD`
 and `XACK`. It does not contact FINAM or any external broker endpoint.
 
-The R2a gate first executes the accepted Stage 6E-R1 gate in a detached frozen
+The R2b gate first executes the accepted Stage 6E-R1 gate in a detached frozen
 checkout. It then loads a reviewable JSON proof map and emits a row-by-row report for
 all 52 blocking acceptance rows. Every row contains the frozen scenario/result,
 proof type, exact artifacts/tokens and the semantic rationale. The evaluator
 fails when a mapping is absent, incomplete or uses the wrong pinned proof type.
+The descriptor and negative harness independently pin the exact 49-case
+mutation inventory.
 
 ## Deliberately deferred to Stage 7B+
 

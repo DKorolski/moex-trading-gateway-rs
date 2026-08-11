@@ -2,6 +2,7 @@
 """Pinned mutation harness for Stage 7A critical guards."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import stage7a_check as checker
@@ -85,6 +86,23 @@ def main() -> None:
             gate.replace("stage6e_r1_gate.sh", "removed_stage6e_r1_gate.sh"),
         ),
     ]
+    descriptor = json.loads(Path(checker.DESCRIPTOR).read_text())
+    checker.validate_descriptor(descriptor)
+    expected = descriptor["negative_case_count"]
+    actual_inventory = len(bridge_cases) + len(core_cases) + len(stage5g_cases) + len(gate_cases)
+    if actual_inventory != expected:
+        raise SystemExit(
+            "stage7a-negative: FAIL pinned inventory "
+            f"descriptor={expected} actual={actual_inventory}"
+        )
+    mutated_descriptor = dict(descriptor)
+    mutated_descriptor["negative_case_count"] = expected - 1
+    try:
+        checker.validate_descriptor(mutated_descriptor)
+    except checker.CheckFailure:
+        print(f"PIN negative-case-count={expected}")
+    else:
+        raise SystemExit("stage7a-negative: FAIL descriptor count mutation survived")
     passed = 0
     for name, mutated_source, mutated_cargo in bridge_cases:
         try:
@@ -118,7 +136,6 @@ def main() -> None:
             print(f"PASS {name}")
         else:
             raise SystemExit(f"stage7a-negative: FAIL mutation survived: {name}")
-    expected = len(bridge_cases) + len(core_cases) + len(stage5g_cases) + len(gate_cases)
     if passed != expected:
         raise SystemExit(f"stage7a-negative: FAIL count={passed}")
     print(f"stage7a-negative: PASS cases={passed}")

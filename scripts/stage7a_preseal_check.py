@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Direct-successor source/archive seal for Stage 7A-R2a."""
+"""Direct-successor source/archive seal for Stage 7A-R2b."""
 from __future__ import annotations
 
 import argparse
@@ -36,8 +36,8 @@ def main() -> None:
     parser.add_argument("--require-origin", action="store_true")
     args = parser.parse_args()
     root = Path.cwd().resolve()
-    if output("git", "rev-parse", "HEAD^", root=root) != checker.R2A_PREDECESSOR:
-        fail("HEAD is not the direct successor of rejected Stage 7A-R2 candidate")
+    if output("git", "rev-parse", "HEAD^", root=root) != checker.R2B_PREDECESSOR:
+        fail("HEAD is not the direct successor of rejected Stage 7A-R2a candidate")
     if output("git", "branch", "--show-current", root=root) != checker.BRANCH:
         fail("wrong branch")
     if output("git", "status", "--porcelain", root=root):

@@ -12,6 +12,7 @@ BASE = "10e357825a701193d964975bb5769bd0745d4986"
 R1_PREDECESSOR = "6e53f5428f7f79f3c9c84fbbd15d32b3c26d5d2d"
 R2_PREDECESSOR = "ac8fa7f2f3ff42ae1b351c298ff0b3abd62599b5"
 R2A_PREDECESSOR = "a50cd7e40993b826247320ad5e2c02364964ad77"
+R2B_PREDECESSOR = "340845ccb3a22e5d235dec58b3380e01b2919462"
 BRANCH = "stage7a-paper-command-consumer"
 BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
 BRIDGE_CARGO = Path("crates/runtime-command-bridge/Cargo.toml")
@@ -108,6 +109,7 @@ def validate_bridge(source: str, cargo: str) -> None:
         "canonical_ack_recoveries",
         "remember_recoverable_canonical_ack",
         "promote_recoverable_canonical_ack",
+        "request_identity_is_established",
         "Stage7aFaultPoint::AfterRequestFinalizedBeforeAckMemory",
         "Stage7aSettlementFault::RedisClaimOutage",
     )
@@ -115,11 +117,29 @@ def validate_bridge(source: str, cargo: str) -> None:
         require(token in production, f"required Stage 7A token absent: {token}")
     require("pub fn handle_payload(" not in production, "caller can inject local observed_at")
 
+    established = block(source, "fn request_identity_is_established(")
+    for token in (
+        "ack_publications.contains_key",
+        "canonical_ack_recoveries.contains_key",
+        "recovered.replay().request",
+    ):
+        require(token in established, f"established identity source absent: {token}")
+
     handler = block(source, "fn handle_payload(")
     require(
         handler.index("self.profile.context_for")
         < handler.index("admit_stage7a_paper_command"),
         "profile/admission ordering drift",
+    )
+    profile_mismatch = block(handler, "Err(Stage7aBridgeError::CommandProfileMismatch)")
+    require(
+        profile_mismatch.index("request_identity_is_established")
+        < profile_mismatch.index("remember_canonical_ack"),
+        "known request identity does not outrank profile rejection",
+    )
+    require(
+        "Stage7aPaperHoldReason::IdentityConflict" in profile_mismatch,
+        "known profile conflict is not retained as identity conflict",
     )
     dispatch_branch = block(handler, "Stage7aPaperAdmission::DispatchReady")
     handler_order = ("self.provider.paper_outcome", "execute_stage6d_paper_outcome", "ack_envelope")
@@ -202,6 +222,10 @@ def validate_bridge(source: str, cargo: str) -> None:
         "envelope_policy_and_ttl_fail_before_paper_effect",
         "stop_shape_and_profile_drift_cannot_reach_provider",
         "supervisor_never_leaves_stale_ready_after_failure_or_stop",
+        "established_request_profile_conflict_precedes_local_validation_rejection",
+        "f06_recovery_survives_mutated_instrument_identity_conflict",
+        "redis_conflicting_duplicate_stays_pending_without_ack_dlq_or_xack",
+        "client_order_id_mismatch_is_pending_without_paper_effect_or_xack",
     )
     for witness in witnesses:
         require(any(f"fn {witness}(" in line for line in test_names), f"test witness absent: {witness}")
@@ -261,6 +285,39 @@ def validate_core(source: str) -> None:
         require(token in tests, f"Stage 7A-R1 lifecycle witness absent: {token}")
 
 
+def validate_descriptor(descriptor: dict[str, object]) -> None:
+    expected = {
+        "stage": "7A",
+        "status": "r2b_implementation_candidate",
+        "accepted_predecessor": BASE,
+        "r1_predecessor": R1_PREDECESSOR,
+        "r2_predecessor": R2_PREDECESSOR,
+        "r2a_predecessor": R2A_PREDECESSOR,
+        "r2b_predecessor": R2B_PREDECESSOR,
+        "blocking_acceptance_rows": 52,
+        "stage6_execution_authority": "exclusive",
+        "max_unresolved_lifecycles_per_strategy_instance": 1,
+        "runtime_command_bridge_crate": True,
+        "canonical_handler_for_read_and_claim": True,
+        "real_redis_integration": True,
+        "focused_runtime_bridge_test_count": 30,
+        "focused_stage6_admission_test_count": 8,
+        "focused_strategy_runtime_test_count": 9,
+        "fault_matrix_count": 15,
+        "semantic_proof_map_count": 52,
+        "negative_case_count": 49,
+        "inherited_stage6e_r1_gate_required": True,
+        "canonical_ack_recovery_scope": "same_authority_only",
+        "cross_process_exactly_once_claimed": False,
+        "stage7b_open": False,
+        "finam_post_delete_open": False,
+        "broker_network_dispatch_open": False,
+        "runtime_live_open": False,
+    }
+    for key, value in expected.items():
+        require(descriptor.get(key) == value, f"descriptor drift: {key}")
+
+
 def check(root: Path) -> None:
     require(subprocess.check_output(["git", "merge-base", "HEAD", BASE], cwd=root, text=True).strip() == BASE,
             "branch is not based on accepted Stage 6 closure")
@@ -299,35 +356,7 @@ def check(root: Path) -> None:
     require([row["ID"] for row in rows] == [f"A-{index:03d}" for index in range(1, 53)], "acceptance IDs drift")
     require(all(row["Blocking"] == "YES" for row in rows), "nonblocking acceptance row introduced")
 
-    descriptor = json.loads((root / DESCRIPTOR).read_text())
-    expected = {
-        "stage": "7A",
-        "status": "r2a_implementation_candidate",
-        "accepted_predecessor": BASE,
-        "r1_predecessor": R1_PREDECESSOR,
-        "r2_predecessor": R2_PREDECESSOR,
-        "r2a_predecessor": R2A_PREDECESSOR,
-        "blocking_acceptance_rows": 52,
-        "stage6_execution_authority": "exclusive",
-        "max_unresolved_lifecycles_per_strategy_instance": 1,
-        "runtime_command_bridge_crate": True,
-        "canonical_handler_for_read_and_claim": True,
-        "real_redis_integration": True,
-        "focused_runtime_bridge_test_count": 26,
-        "focused_stage6_admission_test_count": 8,
-        "focused_strategy_runtime_test_count": 9,
-        "fault_matrix_count": 15,
-        "semantic_proof_map_count": 52,
-        "inherited_stage6e_r1_gate_required": True,
-        "canonical_ack_recovery_scope": "same_authority_only",
-        "cross_process_exactly_once_claimed": False,
-        "stage7b_open": False,
-        "finam_post_delete_open": False,
-        "broker_network_dispatch_open": False,
-        "runtime_live_open": False,
-    }
-    for key, value in expected.items():
-        require(descriptor.get(key) == value, f"descriptor drift: {key}")
+    validate_descriptor(json.loads((root / DESCRIPTOR).read_text()))
 
     docs = "\n".join((root / path).read_text() for path in (
         Path("docs/current-status.md"), Path("docs/roadmap.md"),
@@ -343,7 +372,7 @@ def main() -> None:
         check(Path.cwd().resolve())
     except (CheckFailure, subprocess.CalledProcessError, ValueError, KeyError) as error:
         raise SystemExit(f"stage7a-check: FAIL: {error}") from error
-    print("stage7a-check: PASS rows=52 stage6_authority=exclusive real_redis=true live=false")
+    print("stage7a-check: PASS rows=52 negative_cases=49 stage6_authority=exclusive real_redis=true live=false")
     print("fresh_truth_provider_surface_absent=true temporal_policy=not_applicable_closed_surface")
     print("a019_erratum=stage5g_compatible_duplicate_after_canonical_publication")
     print("inherited_stage6e_r1_gate_required=true")

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "7A-R2a",
+  "stage": "7A-R2b",
   "closed_surfaces": {
     "broker_network_dispatch": false,
     "finam_post_delete": false,
