@@ -35,15 +35,19 @@ use broker_core::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION: u16 = 1;
-pub const STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION: u16 = 2;
-pub const STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION: u16 = 1;
+pub const STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
+pub const STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION: u16 = 2;
 
 const STAGE6D_RESTART_COMMITMENT_DOMAIN: &str = "moex.stage6d.authenticated-restart-frontier.v1";
-const STAGE6D_INTEGRATION_FINGERPRINT_DOMAIN: &str = "moex.stage6e.durable-runtime-recovered.v2";
+const STAGE6D_INTEGRATION_FINGERPRINT_DOMAIN: &str = "moex.stage6e-r1.durable-runtime-recovered.v3";
 const STAGE6E_SEMANTIC_CROSS_BINDING_DOMAIN: &str =
     "moex.stage6e.stage5-stage6-semantic-cross-binding.v1";
+const STAGE6E_RESTORE_EPOCH_DOMAIN: &str = "moex.stage6e-r1.current-process-restore-epoch.v1";
+
+static STAGE6E_PROCESS_GENERATION_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -81,6 +85,8 @@ pub enum Stage6dLiveCoreError {
     RestartBrokerTruthMismatch,
     RestartSemanticCrossBindingMismatch,
     AcceptedFreshTruthBindingMismatch,
+    FreshTruthRequestNotCrossBound,
+    FreshTruthTemporalAuthorityMismatch,
 }
 
 impl std::fmt::Display for Stage6dLiveCoreError {
@@ -126,6 +132,12 @@ impl std::fmt::Display for Stage6dLiveCoreError {
             }
             Self::AcceptedFreshTruthBindingMismatch => {
                 "accepted fresh broker truth is not bound to the recovered durable authority"
+            }
+            Self::FreshTruthRequestNotCrossBound => {
+                "fresh broker truth request is not an active Stage 5/Stage 6 cross-bound request"
+            }
+            Self::FreshTruthTemporalAuthorityMismatch => {
+                "fresh broker truth is outside the current process restore/validation epoch"
             }
         })
     }
@@ -300,6 +312,62 @@ struct Stage6eSemanticCrossBinding {
     fingerprint_sha256: Stage6Sha256Digest,
 }
 
+/// Current-process temporal authority created only after authenticated Stage 5
+/// restore, Stage 6 checkpoint validation, replay and semantic cross-binding
+/// have all succeeded. It is never decoded from the prior restart package and
+/// is not constructible from broker timestamps.
+struct Stage6RestoreEpoch {
+    process_generation_id: Stage6Sha256Digest,
+    restore_completed_at: DateTime<Utc>,
+    fingerprint_sha256: Stage6Sha256Digest,
+}
+
+impl Stage6RestoreEpoch {
+    fn from_current_host_process() -> Result<Self, Stage6dLiveCoreError> {
+        let restore_completed_at = Utc::now();
+        let counter = STAGE6E_PROCESS_GENERATION_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let generation_material = format!(
+            "{STAGE6E_RESTORE_EPOCH_DOMAIN}\0{}\0{}\0{}",
+            std::process::id(),
+            restore_completed_at
+                .timestamp_nanos_opt()
+                .ok_or(Stage6dLiveCoreError::IntegrationFingerprint)?,
+            counter,
+        );
+        let process_generation_id =
+            Stage6Sha256Digest::parse(sha256_hex(generation_material.as_bytes()))
+                .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+        Self::build(process_generation_id, restore_completed_at)
+    }
+
+    fn build(
+        process_generation_id: Stage6Sha256Digest,
+        restore_completed_at: DateTime<Utc>,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        #[derive(Serialize)]
+        struct RestoreEpochFingerprint<'a> {
+            schema_version: u16,
+            domain: &'static str,
+            process_generation_id: &'a Stage6Sha256Digest,
+            restore_completed_at: DateTime<Utc>,
+        }
+        let bytes = serde_json::to_vec(&RestoreEpochFingerprint {
+            schema_version: 1,
+            domain: STAGE6E_RESTORE_EPOCH_DOMAIN,
+            process_generation_id: &process_generation_id,
+            restore_completed_at,
+        })
+        .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+        let fingerprint_sha256 = Stage6Sha256Digest::parse(sha256_hex(&bytes))
+            .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+        Ok(Self {
+            process_generation_id,
+            restore_completed_at,
+            fingerprint_sha256,
+        })
+    }
+}
+
 /// The only Stage 6D post-boot authority. It owns the Stage 5 runtime
 /// authority, validated journal and deterministic replay snapshot together.
 /// It intentionally has no `Clone`, `Debug`, `Serialize` or `Deserialize`.
@@ -313,6 +381,7 @@ pub struct Stage6dDurableRuntimeRecovered {
     first_boot_deployment_id: Option<String>,
     authenticated_operational_identity: Option<Stage6dOperationalIdentityConfig>,
     semantic_cross_binding: Option<Stage6eSemanticCrossBinding>,
+    restore_epoch: Option<Stage6RestoreEpoch>,
 }
 
 impl Stage6dDurableRuntimeRecovered {
@@ -356,6 +425,18 @@ impl Stage6dDurableRuntimeRecovered {
             .map_or(&[], |binding| binding.request_ids.as_slice())
     }
 
+    pub fn current_process_generation_id(&self) -> Option<&str> {
+        self.restore_epoch
+            .as_ref()
+            .map(|epoch| epoch.process_generation_id.as_str())
+    }
+
+    pub fn current_restore_completed_at(&self) -> Option<DateTime<Utc>> {
+        self.restore_epoch
+            .as_ref()
+            .map(|epoch| epoch.restore_completed_at)
+    }
+
     pub fn redis_command_consumer_attached(&self) -> bool {
         false
     }
@@ -396,6 +477,7 @@ impl Stage6dDurableRuntimeRecovered {
             &self.replay,
             &self.authenticated_checkpoint,
             self.semantic_cross_binding.as_ref(),
+            self.restore_epoch.as_ref(),
         )?;
         Ok(())
     }
@@ -427,6 +509,7 @@ pub fn first_boot_stage6d_paper(
         &replay,
         &authenticated_checkpoint,
         None,
+        None,
     )?;
     Ok(Stage6dDurableRuntimeRecovered {
         boot_mode: Stage6dBootMode::FirstBoot,
@@ -438,6 +521,7 @@ pub fn first_boot_stage6d_paper(
         first_boot_deployment_id: Some(authorization.deployment_id),
         authenticated_operational_identity: None,
         semantic_cross_binding: None,
+        restore_epoch: None,
     })
 }
 
@@ -481,12 +565,14 @@ fn recover_stage6d_restart_from_authorities(
         ),
         Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
     };
+    let restore_epoch = Stage6RestoreEpoch::from_current_host_process()?;
     let integration_fingerprint_sha256 = integration_fingerprint(
         Stage6dBootMode::Restart,
         &stage5_runtime,
         &replay,
         &authenticated_checkpoint,
         semantic_cross_binding.as_ref(),
+        Some(&restore_epoch),
     )?;
     Ok(Stage6dDurableRuntimeRecovered {
         boot_mode: Stage6dBootMode::Restart,
@@ -498,6 +584,7 @@ fn recover_stage6d_restart_from_authorities(
         first_boot_deployment_id: None,
         authenticated_operational_identity,
         semantic_cross_binding,
+        restore_epoch: Some(restore_epoch),
     })
 }
 
@@ -585,6 +672,10 @@ struct Stage6dAcceptedBrokerTruth {
 pub struct Stage6ePaperFreshBrokerTruthInput {
     pub package_id: String,
     pub snapshot_epoch: String,
+    /// Local collector interval start. This is not a broker/source timestamp.
+    pub collection_started_at: DateTime<Utc>,
+    /// Local collector interval completion passed to the accepted Stage 5G
+    /// package as `captured_at`.
     pub captured_at: DateTime<Utc>,
     pub orders_observed_at: DateTime<Utc>,
     pub trades_observed_at: DateTime<Utc>,
@@ -635,6 +726,8 @@ pub struct Stage6eAcceptedFreshBrokerTruth {
     journal_frontier_sha256: String,
     authenticated_checkpoint_sha256: String,
     semantic_cross_binding_fingerprint_sha256: Stage6Sha256Digest,
+    restore_epoch_fingerprint_sha256: Stage6Sha256Digest,
+    validation_observed_at: DateTime<Utc>,
 }
 
 /// Broker-neutral collection seam for a future reviewed read-only provider.
@@ -711,9 +804,19 @@ impl Stage6dFreshTruthTransition {
 /// Deterministic process-local paper issuer. Raw normalized observations are
 /// admitted only after exact restart/replay correlation and the accepted
 /// Stage 5G validator; the returned authority is opaque and linear.
-pub fn issue_stage6e_paper_fresh_broker_truth(
+pub fn issue_stage6e_paper_fresh_broker_truth_for_request(
     recovered: &Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
     input: Stage6ePaperFreshBrokerTruthInput,
+) -> Result<Stage6eAcceptedFreshBrokerTruth, Stage6dLiveCoreError> {
+    issue_stage6e_paper_fresh_broker_truth_for_request_at(recovered, request_id, input, Utc::now())
+}
+
+fn issue_stage6e_paper_fresh_broker_truth_for_request_at(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+    input: Stage6ePaperFreshBrokerTruthInput,
+    validation_observed_at: DateTime<Utc>,
 ) -> Result<Stage6eAcceptedFreshBrokerTruth, Stage6dLiveCoreError> {
     let operational_config = recovered
         .authenticated_operational_identity
@@ -726,7 +829,7 @@ pub fn issue_stage6e_paper_fresh_broker_truth(
         }
     };
     let projection = restart.fresh_truth_reducer_projection();
-    let request_id = stage6d_match_restart_request(&recovered.replay, &projection)?;
+    stage6d_validate_selected_restart_request(&recovered.replay, &projection, request_id)?;
     stage6d_validate_replayed_facts_against_truth(&recovered.replay, request_id, &input)?;
     let semantic_cross_binding_fingerprint_sha256 = recovered
         .semantic_cross_binding_fingerprint_sha256()
@@ -736,8 +839,13 @@ pub fn issue_stage6e_paper_fresh_broker_truth(
         .active_cross_bound_request_ids()
         .contains(&request_id)
     {
-        return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);
+        return Err(Stage6dLiveCoreError::FreshTruthRequestNotCrossBound);
     }
+    let restore_epoch = recovered
+        .restore_epoch
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)?;
+    validate_stage6e_temporal_authority(&input, restore_epoch, validation_observed_at)?;
 
     let operational_identity = Stage5gOperationalIdentityInput {
         broker_id: operational_config.broker_id,
@@ -783,13 +891,7 @@ pub fn issue_stage6e_paper_fresh_broker_truth(
         current_fingerprint,
     )?;
     let accepted_history = stage6d_stage5g_accepted_history(&projection, &current_id)?;
-    let clean_restore_floor = projection
-        .checkpoint
-        .payload
-        .last_broker_truth_received_at
-        .unwrap_or(DateTime::<Utc>::MIN_UTC);
     let package_id = input.package_id.clone();
-    let validation_observed_at = input.captured_at;
     let validated = validate_stage5g_fresh_broker_truth_package(
         Stage5gFreshBrokerTruthPackageV1 {
             schema_version: STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
@@ -814,7 +916,7 @@ pub fn issue_stage6e_paper_fresh_broker_truth(
             untrusted_last_reconciled_hint: Some(&last_reconciled),
             untrusted_accepted_replay_hints: &accepted_history,
             untrusted_known_historical_hints: &[],
-            clean_restore_completed_at: clean_restore_floor,
+            clean_restore_completed_at: restore_epoch.restore_completed_at,
             validation_observed_at,
         },
     )?;
@@ -828,6 +930,8 @@ pub fn issue_stage6e_paper_fresh_broker_truth(
             &recovered.authenticated_checkpoint.encode_canonical(),
         ),
         semantic_cross_binding_fingerprint_sha256,
+        restore_epoch_fingerprint_sha256: restore_epoch.fingerprint_sha256.clone(),
+        validation_observed_at,
     })
 }
 
@@ -841,11 +945,17 @@ pub fn apply_stage6e_accepted_fresh_truth(
     let current_binding = recovered
         .semantic_cross_binding_fingerprint_sha256()
         .ok_or(Stage6dLiveCoreError::AcceptedFreshTruthBindingMismatch)?;
+    let current_restore_epoch = recovered
+        .restore_epoch
+        .as_ref()
+        .ok_or(Stage6dLiveCoreError::AcceptedFreshTruthBindingMismatch)?;
     if recovered.replay.semantic_fingerprint_sha256() != &accepted.stage6_replay_fingerprint_sha256
         || frontier_fingerprint(recovered.journal_frontier())? != accepted.journal_frontier_sha256
         || sha256_hex(&recovered.authenticated_checkpoint.encode_canonical())
             != accepted.authenticated_checkpoint_sha256
         || current_binding != &accepted.semantic_cross_binding_fingerprint_sha256
+        || current_restore_epoch.fingerprint_sha256 != accepted.restore_epoch_fingerprint_sha256
+        || accepted.validation_observed_at < current_restore_epoch.restore_completed_at
         || !recovered
             .active_cross_bound_request_ids()
             .contains(&accepted.strategy_request_id)
@@ -1274,26 +1384,58 @@ fn stage6e_semantic_cross_bind_restart(
     })
 }
 
-fn stage6d_match_restart_request(
+fn stage6d_validate_selected_restart_request(
     replay: &Stage6ReplaySnapshotV1,
     projection: &crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection,
-) -> Result<StrategyRequestId, Stage6dLiveCoreError> {
-    let matches = replay
-        .requests()
+    request_id: StrategyRequestId,
+) -> Result<(), Stage6dLiveCoreError> {
+    let replay_request = replay
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::FreshTruthRequestNotCrossBound)?;
+    let slot = projection
+        .slots
         .iter()
-        .filter(|request| {
-            projection.slots.iter().any(|slot| {
-                slot.command_request_id == request.strategy_request_id().to_string()
-                    && slot.command_client_order_id == *request.durable_client_order_id()
-            })
-        })
-        .map(|request| request.strategy_request_id())
-        .collect::<Vec<_>>();
-    if matches.len() == 1 {
-        Ok(matches[0])
-    } else {
-        Err(Stage6dLiveCoreError::RestartRequestIdentityMismatch)
+        .find(|slot| slot.command_request_id == request_id.to_string())
+        .ok_or(Stage6dLiveCoreError::FreshTruthRequestNotCrossBound)?;
+    if slot.command_client_order_id != *replay_request.durable_client_order_id() {
+        return Err(Stage6dLiveCoreError::RestartRequestIdentityMismatch);
     }
+    Ok(())
+}
+
+fn validate_stage6e_temporal_authority(
+    input: &Stage6ePaperFreshBrokerTruthInput,
+    restore_epoch: &Stage6RestoreEpoch,
+    validation_observed_at: DateTime<Utc>,
+) -> Result<(), Stage6dLiveCoreError> {
+    let restore_completed_at = restore_epoch.restore_completed_at;
+    let sections = [
+        input.orders_observed_at,
+        input.trades_observed_at,
+        input.positions_observed_at,
+    ];
+    if input.collection_started_at <= restore_completed_at
+        || input.captured_at < input.collection_started_at
+        || input.captured_at > validation_observed_at
+        || sections.iter().any(|observed_at| {
+            *observed_at <= restore_completed_at
+                || *observed_at < input.collection_started_at
+                || *observed_at > input.captured_at
+                || *observed_at > validation_observed_at
+        })
+        || input.orders.iter().any(|row| {
+            row.received_ts <= restore_completed_at || row.received_ts > validation_observed_at
+        })
+        || input.trades.iter().any(|row| {
+            row.received_ts <= restore_completed_at || row.received_ts > validation_observed_at
+        })
+        || input.positions.iter().any(|row| {
+            row.received_ts <= restore_completed_at || row.received_ts > validation_observed_at
+        })
+    {
+        return Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch);
+    }
+    Ok(())
 }
 
 fn stage6d_validate_replayed_facts_against_truth(
@@ -1558,6 +1700,7 @@ fn integration_fingerprint(
     replay: &Stage6ReplaySnapshotV1,
     checkpoint: &Stage6JournalCheckpointV1,
     semantic_cross_binding: Option<&Stage6eSemanticCrossBinding>,
+    restore_epoch: Option<&Stage6RestoreEpoch>,
 ) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
     #[derive(Serialize)]
     struct IntegrationFingerprintV1<'a> {
@@ -1569,6 +1712,7 @@ fn integration_fingerprint(
         stage6_checkpoint: &'a Stage6JournalCheckpointV1,
         recovered_requests: &'a [crate::Stage6RecoveredRequestV1],
         active_cross_bound_request_identity_sha256: Option<&'a Stage6Sha256Digest>,
+        current_process_restore_epoch_sha256: Option<&'a Stage6Sha256Digest>,
     }
 
     let stage5_semantic_authority = stage5_runtime_authority_fingerprint(stage5_runtime)?;
@@ -1583,6 +1727,7 @@ fn integration_fingerprint(
         recovered_requests: replay.requests(),
         active_cross_bound_request_identity_sha256: semantic_cross_binding
             .map(|binding| &binding.fingerprint_sha256),
+        current_process_restore_epoch_sha256: restore_epoch.map(|epoch| &epoch.fingerprint_sha256),
     };
     let bytes =
         serde_json::to_vec(&input).map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
@@ -1926,6 +2071,7 @@ mod tests {
         let input = Stage6ePaperFreshBrokerTruthInput {
             package_id: "stage6d-working-package-1".to_string(),
             snapshot_epoch: "stage6d-working-epoch-1".to_string(),
+            collection_started_at: observed_at,
             captured_at: observed_at,
             orders_observed_at: observed_at,
             trades_observed_at: observed_at,
@@ -2026,6 +2172,7 @@ mod tests {
         let input = Stage6ePaperFreshBrokerTruthInput {
             package_id: "stage6d-terminal-exact-package".to_string(),
             snapshot_epoch: "stage6d-terminal-exact-epoch".to_string(),
+            collection_started_at: observed_at,
             captured_at: observed_at,
             orders_observed_at: observed_at,
             trades_observed_at: observed_at,
@@ -2046,6 +2193,54 @@ mod tests {
         .unwrap();
         let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap();
         (recovered, input, key)
+    }
+
+    fn issue_first_stage6e_fixture(
+        recovered: &Stage6dDurableRuntimeRecovered,
+        input: Stage6ePaperFreshBrokerTruthInput,
+    ) -> Result<Stage6eAcceptedFreshBrokerTruth, Stage6dLiveCoreError> {
+        let request_id = *recovered
+            .active_cross_bound_request_ids()
+            .first()
+            .expect("Stage 6E fixture has one active cross-bound request");
+        let validation_observed_at = input.captured_at;
+        issue_stage6e_paper_fresh_broker_truth_for_request_at(
+            recovered,
+            request_id,
+            input,
+            validation_observed_at,
+        )
+    }
+
+    fn retime_stage6e_input_after_current_restore(
+        recovered: &Stage6dDurableRuntimeRecovered,
+        mut input: Stage6ePaperFreshBrokerTruthInput,
+    ) -> (Stage6ePaperFreshBrokerTruthInput, DateTime<Utc>) {
+        let restore = recovered
+            .current_restore_completed_at()
+            .expect("restart fixture owns current-process restore epoch");
+        let collection_started_at = restore + chrono::Duration::seconds(1);
+        let section_observed_at = restore + chrono::Duration::seconds(2);
+        let captured_at = restore + chrono::Duration::seconds(3);
+        let validation_observed_at = restore + chrono::Duration::seconds(4);
+        input.collection_started_at = collection_started_at;
+        input.orders_observed_at = section_observed_at;
+        input.trades_observed_at = section_observed_at;
+        input.positions_observed_at = section_observed_at;
+        input.captured_at = captured_at;
+        for order in &mut input.orders {
+            order.received_ts = section_observed_at;
+            order.source_ts = Some(section_observed_at);
+        }
+        for trade in &mut input.trades {
+            trade.received_ts = section_observed_at;
+            trade.source_ts = section_observed_at;
+        }
+        for position in &mut input.positions {
+            position.received_ts = section_observed_at;
+            position.source_ts = Some(section_observed_at);
+        }
+        (input, validation_observed_at)
     }
 
     #[derive(Clone, Copy)]
@@ -2260,6 +2455,194 @@ mod tests {
         )
     }
 
+    fn stage6e_two_place_cross_binding_recovery() -> (
+        Stage6dDurableRuntimeRecovered,
+        Vec<StrategyRequestId>,
+        Stage6ePaperFreshBrokerTruthInput,
+        Stage5gLifecycleCommitmentKey,
+    ) {
+        let (restart, attributions) = crate::stage5g_order_position::tests::
+            stage6e_restored_two_place_fixture_with_attributions();
+        let projection = restart.fresh_truth_reducer_projection();
+        assert_eq!(projection.slots.len(), 2);
+        assert_eq!(attributions.len(), 2);
+        assert_ne!(
+            stage5g_attribution_fingerprint_sha256(&attributions[0]),
+            stage5g_attribution_fingerprint_sha256(&attributions[1]),
+            "two current requests retain distinct source attribution authority"
+        );
+        let mut journal = Stage6MemoryJournalBackend::new();
+        let mut request_ids = Vec::new();
+        for (index, (slot, attribution)) in projection.slots.iter().zip(attributions).enumerate() {
+            let request_id = StrategyRequestId::from(
+                Uuid::parse_str(&slot.command_request_id).expect("request UUID"),
+            );
+            request_ids.push(request_id);
+            let command = PlaceOrder {
+                request_id,
+                created_ts: Utc
+                    .with_ymd_and_hms(2032, 1, 1, 0, 0, index as u32)
+                    .unwrap(),
+                ttl_ms: Some(5_000),
+                account_id: projection.account_id.clone(),
+                client_order_id: slot.command_client_order_id.clone(),
+                instrument: projection.instrument_id.clone(),
+                side: slot.side.unwrap_or(OrderSide::Buy),
+                order_type: OrderType::Market,
+                qty: slot.target_qty.unwrap_or(Decimal::ONE),
+                limit_price: None,
+                time_in_force: TimeInForce::Day,
+                comment: Some(attribution.internal_comment().to_string()),
+            };
+            let identity = Stage6DurableRequestIdentityV1::from_place(&command, attribution)
+                .expect("two-place durable identity");
+            let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command)
+                .expect("two-place command snapshot");
+            let accepted = Stage6JournalRecordV1::request_accepted(
+                identity.clone(),
+                snapshot,
+                Stage6LifecycleSequence::new(1).unwrap(),
+                None,
+                None,
+                digest(if index == 0 { '1' } else { '3' }),
+            )
+            .unwrap();
+            let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+                identity,
+                1,
+                accepted.canonical_payload_sha256().clone(),
+                Stage6LifecycleSequence::new(2).unwrap(),
+                Some(accepted.journal_record_id().clone()),
+                digest(if index == 0 { '2' } else { '4' }),
+            )
+            .unwrap();
+            journal.append(&accepted).unwrap();
+            journal.append(&dispatch).unwrap();
+        }
+        let checkpoint = Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())
+            .expect("two-place checkpoint");
+        let recovered = recover_stage6d_restart_from_authorities(
+            Stage6dStage5RuntimeAuthority::Restart(Box::new(restart)),
+            journal,
+            checkpoint,
+            Some(operational_config()),
+        )
+        .expect("two-place cross-binding recovery");
+        let observed_at = Utc.with_ymd_and_hms(2032, 1, 1, 0, 1, 0).unwrap();
+        let input = Stage6ePaperFreshBrokerTruthInput {
+            package_id: "stage6e-r1-two-place-package".to_string(),
+            snapshot_epoch: "stage6e-r1-two-place-epoch".to_string(),
+            collection_started_at: observed_at,
+            captured_at: observed_at,
+            orders_observed_at: observed_at,
+            trades_observed_at: observed_at,
+            positions_observed_at: observed_at,
+            orders_complete: true,
+            trades_complete: true,
+            positions_complete: true,
+            orders: vec![],
+            trades: vec![],
+            positions: vec![],
+        };
+        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap();
+        (recovered, request_ids, input, key)
+    }
+
+    fn stage6e_mixed_place_cancel_cross_binding_recovery(
+        drift_cancel_target: bool,
+    ) -> Result<(Stage6dDurableRuntimeRecovered, Vec<StrategyRequestId>), Stage6dLiveCoreError>
+    {
+        let (restart, attributions) = crate::stage5g_order_position::tests::
+            stage6e_restored_mixed_place_cancel_fixture_with_attributions();
+        let projection = restart.fresh_truth_reducer_projection();
+        if projection.slots.len() != 2 || attributions.len() != 2 {
+            return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);
+        }
+        let mut journal = Stage6MemoryJournalBackend::new();
+        let mut request_ids = Vec::new();
+        for (index, (slot, attribution)) in projection.slots.iter().zip(attributions).enumerate() {
+            let request_id = StrategyRequestId::from(
+                Uuid::parse_str(&slot.command_request_id).expect("mixed request UUID"),
+            );
+            request_ids.push(request_id);
+            let identity_and_snapshot = match &slot.source_action {
+                crate::Stage5gMockIntentAction::Place { .. } => {
+                    let command = PlaceOrder {
+                        request_id,
+                        created_ts: Utc
+                            .with_ymd_and_hms(2033, 1, 1, 0, 0, index as u32)
+                            .unwrap(),
+                        ttl_ms: Some(5_000),
+                        account_id: projection.account_id.clone(),
+                        client_order_id: slot.command_client_order_id.clone(),
+                        instrument: projection.instrument_id.clone(),
+                        side: slot.side.unwrap_or(OrderSide::Buy),
+                        order_type: OrderType::Market,
+                        qty: slot.target_qty.unwrap_or(Decimal::ONE),
+                        limit_price: None,
+                        time_in_force: TimeInForce::Day,
+                        comment: Some(attribution.internal_comment().to_string()),
+                    };
+                    let identity =
+                        Stage6DurableRequestIdentityV1::from_place(&command, attribution)?;
+                    let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command)?;
+                    (identity, snapshot)
+                }
+                crate::Stage5gMockIntentAction::Cancel { target_order_id } => {
+                    let command = CancelOrder {
+                        request_id,
+                        created_ts: Utc
+                            .with_ymd_and_hms(2033, 1, 1, 0, 0, index as u32)
+                            .unwrap(),
+                        ttl_ms: Some(5_000),
+                        account_id: projection.account_id.clone(),
+                        order_id: if drift_cancel_target {
+                            BrokerOrderId::new("STAGE6E-R1-WRONG-MIXED-TARGET")
+                        } else {
+                            target_order_id.clone()
+                        },
+                        client_order_id: slot.target_order_client_order_id.clone(),
+                    };
+                    let identity = Stage6DurableRequestIdentityV1::from_cancel(
+                        &command,
+                        projection.instrument_id.clone(),
+                        attribution,
+                    )?;
+                    let snapshot =
+                        Stage6DurableCommandSnapshotV1::from_cancel(&identity, &command)?;
+                    (identity, snapshot)
+                }
+            };
+            let (identity, snapshot) = identity_and_snapshot;
+            let accepted = Stage6JournalRecordV1::request_accepted(
+                identity.clone(),
+                snapshot,
+                Stage6LifecycleSequence::new(1)?,
+                None,
+                None,
+                digest(if index == 0 { '5' } else { '7' }),
+            )?;
+            let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+                identity,
+                1,
+                accepted.canonical_payload_sha256().clone(),
+                Stage6LifecycleSequence::new(2)?,
+                Some(accepted.journal_record_id().clone()),
+                digest(if index == 0 { '6' } else { '8' }),
+            )?;
+            journal.append(&accepted)?;
+            journal.append(&dispatch)?;
+        }
+        let checkpoint = Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())?;
+        let recovered = recover_stage6d_restart_from_authorities(
+            Stage6dStage5RuntimeAuthority::Restart(Box::new(restart)),
+            journal,
+            checkpoint,
+            Some(operational_config()),
+        )?;
+        Ok((recovered, request_ids))
+    }
+
     #[test]
     fn stage6d_first_boot_requires_explicit_create_authority() {
         let runtime = runtime();
@@ -2309,6 +2692,8 @@ mod tests {
             a.integration_fingerprint_sha256(),
             b.integration_fingerprint_sha256()
         );
+        assert_eq!(a.current_process_generation_id(), None);
+        assert_eq!(b.current_process_generation_id(), None);
     }
 
     #[test]
@@ -2835,8 +3220,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
+            a.replay().semantic_fingerprint_sha256(),
+            b.replay().semantic_fingerprint_sha256()
+        );
+        assert_ne!(
             a.integration_fingerprint_sha256(),
             b.integration_fingerprint_sha256()
+        );
+        assert_ne!(
+            a.current_process_generation_id(),
+            b.current_process_generation_id()
         );
         assert_eq!(a.journal_frontier().frame_count(), 2);
     }
@@ -2910,6 +3303,330 @@ mod tests {
     }
 
     #[test]
+    fn stage6e_r1_two_active_place_requests_are_cross_bound() {
+        let (recovered, request_ids, _, _) = stage6e_two_place_cross_binding_recovery();
+        assert_eq!(request_ids.len(), 2);
+        assert_eq!(recovered.active_cross_bound_request_ids().len(), 2);
+        assert!(request_ids.iter().all(|request_id| recovered
+            .active_cross_bound_request_ids()
+            .contains(request_id)));
+    }
+
+    #[test]
+    fn stage6e_r1_request_scoped_issuer_selects_each_of_two_current_requests() {
+        let (recovered, request_ids, input, _) = stage6e_two_place_cross_binding_recovery();
+        let validation_observed_at = input.captured_at;
+        for request_id in request_ids {
+            let accepted = issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input.clone(),
+                validation_observed_at,
+            )
+            .expect("each current request has independent issuance authority");
+            assert_eq!(accepted.strategy_request_id, request_id);
+        }
+    }
+
+    #[test]
+    fn stage6e_r1_finalized_only_request_cannot_be_selected() {
+        let recovered = stage6e_working_cross_binding_recovery(
+            Stage6eWorkingBindingMutation::None,
+            Stage6eExtraStage6History::Finalized,
+        )
+        .unwrap();
+        let (_, input, _) = stage6d_stage5g_working_restart_fixture();
+        let finalized = recovered
+            .replay()
+            .requests()
+            .iter()
+            .find(|request| {
+                !recovered
+                    .active_cross_bound_request_ids()
+                    .contains(&request.strategy_request_id())
+            })
+            .expect("fixture has finalized historical request")
+            .strategy_request_id();
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                finalized,
+                input.clone(),
+                input.captured_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthRequestNotCrossBound)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_current_request_with_finalized_history_can_be_issued() {
+        let recovered = stage6e_working_cross_binding_recovery(
+            Stage6eWorkingBindingMutation::None,
+            Stage6eExtraStage6History::Finalized,
+        )
+        .unwrap();
+        let (_, input, _) = stage6d_stage5g_working_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        issue_stage6e_paper_fresh_broker_truth_for_request_at(
+            &recovered,
+            request_id,
+            input.clone(),
+            input.captured_at,
+        )
+        .expect("finalized history cannot make current request selection ambiguous");
+    }
+
+    #[test]
+    fn stage6e_r1_selected_request_apply_is_deterministic_with_two_current_slots() {
+        let (recovered, request_ids, input, key) = stage6e_two_place_cross_binding_recovery();
+        let selected = request_ids[1];
+        let accepted = issue_stage6e_paper_fresh_broker_truth_for_request_at(
+            &recovered,
+            selected,
+            input.clone(),
+            input.captured_at,
+        )
+        .unwrap();
+        let transition = apply_stage6e_accepted_fresh_truth(recovered, accepted, &key).unwrap();
+        assert_eq!(transition.report().strategy_request_id, selected);
+        assert_eq!(
+            transition
+                .recovered()
+                .active_cross_bound_request_ids()
+                .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn stage6e_r1_mixed_current_place_cancel_exact_target_is_cross_bound() {
+        let (recovered, request_ids) =
+            stage6e_mixed_place_cancel_cross_binding_recovery(false).unwrap();
+        assert_eq!(request_ids.len(), 2);
+        assert_eq!(recovered.active_cross_bound_request_ids().len(), 2);
+        assert!(request_ids.iter().all(|request_id| recovered
+            .active_cross_bound_request_ids()
+            .contains(request_id)));
+    }
+
+    #[test]
+    fn stage6e_r1_mixed_current_place_cancel_target_mismatch_fails_closed() {
+        assert!(matches!(
+            stage6e_mixed_place_cancel_cross_binding_recovery(true),
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_valid_package_is_strictly_after_current_restore() {
+        let (recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let (input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        issue_stage6e_paper_fresh_broker_truth_for_request_at(
+            &recovered,
+            request_id,
+            input,
+            validation_observed_at,
+        )
+        .expect("all local collection sections are post-restore and pre-validation");
+    }
+
+    #[test]
+    fn stage6e_r1_public_issuer_uses_host_validation_clock() {
+        let (recovered, mut input, _) = stage6d_stage5g_working_restart_fixture();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+        let observed_at = Utc::now();
+        input.collection_started_at = observed_at;
+        input.captured_at = observed_at;
+        input.orders_observed_at = observed_at;
+        input.trades_observed_at = observed_at;
+        input.positions_observed_at = observed_at;
+        for order in &mut input.orders {
+            order.received_ts = observed_at;
+            order.source_ts = Some(observed_at);
+        }
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        issue_stage6e_paper_fresh_broker_truth_for_request(&recovered, request_id, input)
+            .expect("production issuer observes validation time from the host boundary");
+    }
+
+    #[test]
+    fn stage6e_r1_package_before_current_restore_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let restore = recovered.current_restore_completed_at().unwrap();
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.captured_at = restore - chrono::Duration::nanoseconds(1);
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_package_equal_to_current_restore_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let restore = recovered.current_restore_completed_at().unwrap();
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.collection_started_at = restore;
+        input.captured_at = restore;
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_orders_section_before_current_restore_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let restore = recovered.current_restore_completed_at().unwrap();
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.orders_observed_at = restore;
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_trades_section_before_current_restore_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_terminal_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let restore = recovered.current_restore_completed_at().unwrap();
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.trades_observed_at = restore;
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_positions_section_before_current_restore_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_terminal_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let restore = recovered.current_restore_completed_at().unwrap();
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.positions_observed_at = restore;
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_mixed_stale_section_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_terminal_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let restore = recovered.current_restore_completed_at().unwrap();
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.positions_observed_at = restore - chrono::Duration::nanoseconds(1);
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_future_package_beyond_trusted_validation_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.captured_at = validation_observed_at + chrono::Duration::nanoseconds(1);
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_row_received_in_trusted_future_is_rejected() {
+        let (recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let request_id = recovered.active_cross_bound_request_ids()[0];
+        let (mut input, validation_observed_at) =
+            retime_stage6e_input_after_current_restore(&recovered, input);
+        input.orders[0].received_ts = validation_observed_at + chrono::Duration::nanoseconds(1);
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth_for_request_at(
+                &recovered,
+                request_id,
+                input,
+                validation_observed_at,
+            ),
+            Err(Stage6dLiveCoreError::FreshTruthTemporalAuthorityMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_r1_prior_process_capability_is_rejected_after_new_restart() {
+        let (first, first_input, _) = stage6d_stage5g_working_restart_fixture();
+        let first_request = first.active_cross_bound_request_ids()[0];
+        let (first_input, first_validation) =
+            retime_stage6e_input_after_current_restore(&first, first_input);
+        let accepted = issue_stage6e_paper_fresh_broker_truth_for_request_at(
+            &first,
+            first_request,
+            first_input,
+            first_validation,
+        )
+        .unwrap();
+        let (second, _, key) = stage6d_stage5g_working_restart_fixture();
+        assert_ne!(
+            first.current_process_generation_id(),
+            second.current_process_generation_id()
+        );
+        assert!(matches!(
+            apply_stage6e_accepted_fresh_truth(second, accepted, &key),
+            Err(Stage6dLiveCoreError::AcceptedFreshTruthBindingMismatch)
+        ));
+    }
+
+    #[test]
     fn stage6e_cancel_target_mismatch_is_rejected_during_restart() {
         assert!(matches!(
             stage6e_cancel_cross_binding_recovery(true),
@@ -2949,7 +3666,7 @@ mod tests {
     }
 
     #[test]
-    fn stage6e_integration_and_cross_binding_fingerprints_are_deterministic() {
+    fn stage6e_cross_binding_is_deterministic_but_process_epoch_is_unique() {
         let a = stage6e_working_cross_binding_recovery(
             Stage6eWorkingBindingMutation::None,
             Stage6eExtraStage6History::None,
@@ -2964,17 +3681,23 @@ mod tests {
             a.semantic_cross_binding_fingerprint_sha256(),
             b.semantic_cross_binding_fingerprint_sha256()
         );
-        assert_eq!(
+        assert_ne!(
             a.integration_fingerprint_sha256(),
             b.integration_fingerprint_sha256()
         );
+        assert_ne!(
+            a.current_process_generation_id(),
+            b.current_process_generation_id()
+        );
+        assert!(a.current_restore_completed_at().is_some());
+        assert!(b.current_restore_completed_at().is_some());
     }
 
     #[test]
     fn stage6d_restart_truth_uses_accepted_stage5g_application_boundary_once() {
         let (recovered, input, key) = stage6d_stage5g_working_restart_fixture();
         let before = recovered.integration_fingerprint_sha256().clone();
-        let accepted = issue_stage6e_paper_fresh_broker_truth(&recovered, input).unwrap();
+        let accepted = issue_first_stage6e_fixture(&recovered, input).unwrap();
         let transition = apply_stage6e_accepted_fresh_truth(recovered, accepted, &key).unwrap();
         let report = transition.report();
         assert!(
@@ -3027,7 +3750,7 @@ mod tests {
         recovered.journal_mut().append(&observed).unwrap();
         recovered.refresh_after_append().unwrap();
         assert!(matches!(
-            issue_stage6e_paper_fresh_broker_truth(&recovered, input),
+            issue_first_stage6e_fixture(&recovered, input),
             Err(Stage6dLiveCoreError::RestartBrokerTruthMismatch)
         ));
     }
@@ -3071,7 +3794,7 @@ mod tests {
         recovered.journal_mut().append(&trade).unwrap();
         recovered.refresh_after_append().unwrap();
         assert!(matches!(
-            issue_stage6e_paper_fresh_broker_truth(&recovered, input),
+            issue_first_stage6e_fixture(&recovered, input),
             Err(Stage6dLiveCoreError::RestartBrokerTruthMismatch)
         ));
     }
@@ -3080,7 +3803,7 @@ mod tests {
     fn stage6e_accepted_truth_is_bound_to_exact_replay_and_frontier() {
         let (mut recovered, input, key) = stage6d_stage5g_working_restart_fixture();
         let broker_order_id = input.orders[0].broker_order_id.clone().unwrap();
-        let accepted_truth = issue_stage6e_paper_fresh_broker_truth(&recovered, input).unwrap();
+        let accepted_truth = issue_first_stage6e_fixture(&recovered, input).unwrap();
         let identity = recovered
             .journal
             .records()
@@ -3138,7 +3861,7 @@ mod tests {
     fn stage6d_already_applied_terminal_truth_is_noop_through_stage5g() {
         let (recovered, input, key) = stage6d_stage5g_terminal_restart_fixture();
         let before = recovered.integration_fingerprint_sha256().clone();
-        let accepted = issue_stage6e_paper_fresh_broker_truth(&recovered, input).unwrap();
+        let accepted = issue_first_stage6e_fixture(&recovered, input).unwrap();
         let transition = apply_stage6e_accepted_fresh_truth(recovered, accepted, &key).unwrap();
         assert!(
             matches!(

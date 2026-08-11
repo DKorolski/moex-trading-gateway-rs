@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "stage": "6E-R1",
+  "status": "implementation_candidate",
+  "superseded_stage6e_ref": "ec71791563a933889eb825f6f8f0846915ba6415",
+  "required_branch": "stage6-durable-chain",
+  "source_ref_bound_by_handoff": true,
+  "multi_current_request_issuance": "request_scoped",
+  "selected_request_must_be_active_cross_bound_member": true,
+  "current_process_restore_epoch": true,
+  "restore_epoch_loaded_from_restart_package": false,
+  "restore_epoch_loaded_from_broker_input": false,
+  "trusted_validation_time_source": "internal_host_clock",
+  "collection_interval_explicit": true,
+  "section_local_observation_times_explicit": true,
+  "integration_fingerprint_schema_version": 3,
+  "accepted_fresh_truth_schema_version": 2,
+  "focused_test_count": 18,
+  "negative_case_minimum": 48,
+  "stage6a_b_c_compatibility_unchanged": true,
+  "closed_surfaces": {
+    "redis_production_command_consumer": false,
+    "finam_post_delete": false,
+    "network_broker_dispatch": false,
+    "runtime_live": false,
+    "real_strategy_orders": false,
+    "native_stop_sltp_bracket": false
+  },
+  "stage6_closed_after_independent_acceptance": true,
+  "stage7_open_after_independent_acceptance": true
+}

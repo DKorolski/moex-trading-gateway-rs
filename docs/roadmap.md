@@ -27,18 +27,18 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Transition Gate 5→6 — durable identity/persistence authority planning.
+Stage 6E-R1 — final durable-chain closure repair.
 
-Stage 2B is closed as the broker-neutral runtime source migration
-contract/foundation. Stage 3 is closed as market-data parity to strategy-input
-level. Stage 4 is accepted/closed as the broker-truth bootstrap foundation.
-Stage 5 is accepted/closed at its paper/no-send boundary. Transition Gate 5→6
-must be accepted before Stage 6 durable-chain implementation can begin.
+Stage 2B is closed as the broker-neutral runtime source migration foundation;
+Stages 3, 4 and 5 are accepted/closed. Stage 6A, 6B, 6C, 6C-R1 and 6D are
+accepted. Stage 6E is superseded by the narrow Stage 6E-R1 review candidate.
+Stage 7 remains closed until independent R1 acceptance.
 
 ## Still blocked
 
 - Runtime-live.
-- Real FINAM command consumer.
+- Redis production command consumer.
+- FINAM runtime POST/DELETE and broker dispatch.
 - Strategy-driven real FINAM orders.
 - Stop/SLTP/bracket/replace/multi-leg live behavior.
 - RI/RTS and USDRUBF expansion.

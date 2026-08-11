@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-09.
+Status date: 2026-08-11.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,20 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current transition
+
+- Stage 6A, 6B, 6C and 6C-R1 are independently accepted. Stage 6D is
+  independently accepted at `8d4c1f437c02cfb023aa75fb4a411b9394d2d293`.
+- Stage 6E at `ec71791563a933889eb825f6f8f0846915ba6415` is superseded by the
+  narrow Stage 6E-R1 review candidate. R1 makes fresh-truth issuance
+  request-scoped for multiple current lifecycle slots, creates a trusted
+  current-process restore epoch, and binds all post-restore local collection
+  timestamps to a host-observed validation time.
+- Stage 7 is CLOSED pending independent acceptance of Stage 6E-R1. FINAM
+  runtime POST/DELETE, Redis production command consumption, broker dispatch,
+  runtime-live, real strategy orders and native Stop/SLTP/bracket remain
+  CLOSED.
+
+### Historical accepted transition record
 
 - Stage 5G-h and Stage 5G were independently accepted and closed at
   `013e63bbee57c4f2d00a0587e9343ab623efba0d`. Transition Gate 5→6 is the

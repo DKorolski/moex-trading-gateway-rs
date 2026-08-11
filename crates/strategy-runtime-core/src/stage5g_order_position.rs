@@ -9241,6 +9241,69 @@ pub(crate) mod tests {
         (restored, attribution)
     }
 
+    pub(crate) fn stage6e_restored_two_place_fixture_with_attributions() -> (
+        crate::Stage5gCleanRestartedCapability,
+        Vec<HybridRuntimeAttribution>,
+    ) {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (mut source, input, fresh_runtime) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::GeneratedIntentEscrow);
+        let attributions = match &mut source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => {
+                let first = session
+                    .state
+                    .slots
+                    .first()
+                    .cloned()
+                    .expect("Stage 6E-R1 two-place fixture retains first slot");
+                let first_attribution = first
+                    .source
+                    .expected_attribution
+                    .clone()
+                    .expect("first slot attribution");
+                let second_request_id = StrategyRequestId::from(
+                    uuid::Uuid::parse_str("916ae4d8-3f94-5c3e-a7a6-4309fa2e2002")
+                        .expect("fixed second request UUID"),
+                );
+                let second_comment = first_attribution
+                    .internal_comment()
+                    .split('|')
+                    .map(|part| {
+                        if part.starts_with("c=") {
+                            "c=stage6e-r1-second".to_string()
+                        } else {
+                            part.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("|");
+                let second_attribution =
+                    HybridRuntimeAttribution::parse_source_comment(second_comment)
+                        .expect("second attribution remains source canonical");
+                let mut second = first;
+                second.ack.request_id = second_request_id;
+                second.ack.expected_client_order_id =
+                    ClientOrderId::from_strategy_request(second_request_id);
+                second.source.request_id = second_request_id;
+                second.source.expected_attribution = Some(second_attribution.clone());
+                second.broker_order_id = None;
+                second.order_events.clear();
+                second.trades.clear();
+                second.position = None;
+                second.market_terminal_truth = None;
+                second.terminal = false;
+                session.state.slots.push(second);
+                vec![first_attribution, second_attribution]
+            }
+            _ => panic!("Stage 6E-R1 two-place fixture must remain order-position awaiting"),
+        };
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("Stage 6E-R1 two-place fixture exports authenticated restart bytes");
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("Stage 6E-R1 two-place fixture reconstructs through accepted boundary");
+        (restored, attributions)
+    }
+
     pub(crate) fn stage5g_edb_restored_generated_limit_escrow_fixture(
     ) -> crate::Stage5gCleanRestartedCapability {
         let commitment_key = stage5ge_c_commitment_key();
@@ -9314,6 +9377,92 @@ pub(crate) mod tests {
         let restored = crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
             .expect("Stage 6E cancel fixture reconstructs through accepted byte boundary");
         (restored, attribution)
+    }
+
+    pub(crate) fn stage6e_restored_mixed_place_cancel_fixture_with_attributions() -> (
+        crate::Stage5gCleanRestartedCapability,
+        Vec<HybridRuntimeAttribution>,
+    ) {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (mut source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedCancelTargetAuthority,
+        );
+        let (place_source, _, _) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::GeneratedIntentEscrow);
+        let mut place_slot = match place_source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => session
+                .state
+                .slots
+                .first()
+                .cloned()
+                .expect("mixed fixture place slot"),
+            _ => panic!("mixed fixture place source must remain awaiting"),
+        };
+        let attributions = match &mut source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => {
+                let cancel_slot = session
+                    .state
+                    .slots
+                    .first_mut()
+                    .expect("mixed fixture cancel slot");
+                cancel_slot.ack.expected_client_order_id =
+                    ClientOrderId::from_strategy_request(cancel_slot.ack.request_id);
+                let cancel_comment = cancel_slot
+                    .source
+                    .expected_attribution
+                    .as_ref()
+                    .expect("mixed cancel attribution")
+                    .internal_comment()
+                    .replace("|r=ENTRY", "|r=CANCEL");
+                let cancel_attribution =
+                    HybridRuntimeAttribution::parse_source_comment(cancel_comment)
+                        .expect("mixed cancel attribution remains canonical");
+                cancel_slot.source.expected_attribution = Some(cancel_attribution.clone());
+
+                let place_request_id = StrategyRequestId::from(
+                    uuid::Uuid::parse_str("916ae4d8-3f94-5c3e-a7a6-4309fa2e2003")
+                        .expect("fixed mixed place request UUID"),
+                );
+                let place_comment = place_slot
+                    .source
+                    .expected_attribution
+                    .as_ref()
+                    .expect("mixed place attribution")
+                    .internal_comment()
+                    .split('|')
+                    .map(|part| {
+                        if part.starts_with("c=") {
+                            "c=stage6e-r1-mixed-place".to_string()
+                        } else {
+                            part.to_string()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("|");
+                let place_attribution =
+                    HybridRuntimeAttribution::parse_source_comment(place_comment)
+                        .expect("mixed place attribution remains canonical");
+                place_slot.ack.request_id = place_request_id;
+                place_slot.ack.expected_client_order_id =
+                    ClientOrderId::from_strategy_request(place_request_id);
+                place_slot.source.request_id = place_request_id;
+                place_slot.source.expected_attribution = Some(place_attribution.clone());
+                place_slot.broker_order_id = None;
+                place_slot.order_events.clear();
+                place_slot.trades.clear();
+                place_slot.position = None;
+                place_slot.market_terminal_truth = None;
+                place_slot.terminal = false;
+                session.state.slots.push(place_slot);
+                vec![cancel_attribution, place_attribution]
+            }
+            _ => panic!("mixed fixture cancel source must remain awaiting"),
+        };
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("Stage 6E-R1 mixed fixture exports authenticated restart bytes");
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("Stage 6E-R1 mixed fixture reconstructs through accepted boundary");
+        (restored, attributions)
     }
 
     pub(crate) fn stage5g_edb_restored_generated_fractional_escrow_fixture(

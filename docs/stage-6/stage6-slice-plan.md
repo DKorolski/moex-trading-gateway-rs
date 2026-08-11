@@ -1,6 +1,7 @@
 # Stage 6 bounded implementation plan
 
-Stage 6 opens only after independent acceptance of Transition Gate 5→6.
+Stage 6A–6D are accepted. Stage 6E-R1 is the current final closure candidate;
+Stage 7 remains closed until its independent acceptance.
 
 1. **6A — durable identity/schema.** Broker-neutral versioned record types,
    canonical encoding, causal IDs and compile/fixture tests. No filesystem,
@@ -18,6 +19,11 @@ Stage 6 opens only after independent acceptance of Transition Gate 5→6.
    authority, debug/release evidence, negative matrix, immutable descriptor
    and closure package. Implementation candidate is documented in
    [stage6e-live-durable-chain-closure.md](stage6e-live-durable-chain-closure.md).
+6. **6E-R1 — closure repair.** Supersedes the 6E candidate with request-scoped
+   multi-current fresh-truth issuance, a host-created current-process restore
+   epoch, strict collection/validation chronology and canonical status drift
+   enforcement. The bounded candidate is documented in
+   [stage6e-r1-closure.md](stage6e-r1-closure.md).
 
 Each slice requires independent acceptance before the next opens. Stage 7,
 Redis `XREADGROUP`/`XAUTOCLAIM`, FINAM POST/DELETE, broker dispatch,

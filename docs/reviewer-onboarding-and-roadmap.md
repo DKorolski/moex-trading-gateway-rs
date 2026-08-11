@@ -70,18 +70,15 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-Stage 5G-h and the complete Stage 5 were independently accepted and closed at
-`013e63bbee57c4f2d00a0587e9343ab623efba0d`. The active review target is
-**Transition Gate 5→6 — durable identity and persistence authority planning**.
+Stages 6A, 6B, 6C, 6C-R1 and 6D are independently accepted. Stage 6E commit
+`ec71791563a933889eb825f6f8f0846915ba6415` was accepted in direction but not
+as final Stage 6 closure. The active review target is **Stage 6E-R1**: narrow
+multi-current request issuance, current-process restore freshness authority
+and canonical status synchronization.
 
-The transition commit adds no Stage 6 production code. It freezes the broader
-Hybrid/runtime/identity authority inventory, defines the append-only
-broker-neutral request/client/order/trade chain, assigns persistence ownership,
-and specifies crash windows plus bounded Stage 6A–6E slices.
-
-Stage 6 opens only after independent acceptance of this gate. FINAM
-POST/DELETE, Redis live consumers, broker dispatch, runtime-live, real orders,
-native stop/SLTP/bracket and Stage 7+ remain forbidden.
+Stage 7 opens only after independent acceptance of Stage 6E-R1. FINAM
+POST/DELETE, Redis production consumers, broker dispatch, runtime-live, real
+orders and native Stop/SLTP/bracket remain forbidden.
 
 ## Previous e-d-c target
 
