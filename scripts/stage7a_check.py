@@ -11,10 +11,14 @@ from pathlib import Path
 BASE = "10e357825a701193d964975bb5769bd0745d4986"
 R1_PREDECESSOR = "6e53f5428f7f79f3c9c84fbbd15d32b3c26d5d2d"
 R2_PREDECESSOR = "ac8fa7f2f3ff42ae1b351c298ff0b3abd62599b5"
+R2A_PREDECESSOR = "a50cd7e40993b826247320ad5e2c02364964ad77"
 BRANCH = "stage7a-paper-command-consumer"
 BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
 BRIDGE_CARGO = Path("crates/runtime-command-bridge/Cargo.toml")
 CORE = Path("crates/strategy-runtime-core/src/stage6d_live_core.rs")
+STAGE5G_ACK = Path("crates/strategy-runtime-core/src/stage5g_mock_ack.rs")
+GATE = Path("scripts/stage7a_gate.sh")
+ERRATUM = Path("docs/stage-7/stage7a-r2a-acceptance-erratum.md")
 DESCRIPTOR = Path("docs/stage-7/stage7a-entry-descriptor.json")
 MATRIX = Path("docs/stage-7/STAGE7A_ACCEPTANCE_MATRIX_2026-08-11.csv")
 TZ = Path("docs/stage-7/TZ_STAGE7A_REDIS_COMMAND_CONSUMER_PAPER_MOCK_2026-08-11.md")
@@ -101,6 +105,11 @@ def validate_bridge(source: str, cargo: str) -> None:
         "last_successful_source_poll_at",
         "last_successful_claim_scan_at",
         "pub fn spawn_stage7a_supervised_task",
+        "canonical_ack_recoveries",
+        "remember_recoverable_canonical_ack",
+        "promote_recoverable_canonical_ack",
+        "Stage7aFaultPoint::AfterRequestFinalizedBeforeAckMemory",
+        "Stage7aSettlementFault::RedisClaimOutage",
     )
     for token in required:
         require(token in production, f"required Stage 7A token absent: {token}")
@@ -116,6 +125,25 @@ def validate_bridge(source: str, cargo: str) -> None:
     handler_order = ("self.provider.paper_outcome", "execute_stage6d_paper_outcome", "ack_envelope")
     positions = [dispatch_branch.index(token) for token in handler_order]
     require(positions == sorted(positions), "canonical authority ordering drift")
+    recovery_order = (
+        "remember_recoverable_canonical_ack",
+        "Stage7aFaultPoint::AfterPaperOutcomeRecord",
+        "finalize_stage7a_paper_request",
+        "Stage7aFaultPoint::AfterRequestFinalizedBeforeAckMemory",
+        "promote_recoverable_canonical_ack",
+    )
+    recovery_positions = [dispatch_branch.index(token) for token in recovery_order]
+    require(
+        recovery_positions == sorted(recovery_positions),
+        "recoverable canonical ACK/finalization ordering drift",
+    )
+    duplicate_branch = block(handler, "Stage7aPaperAdmission::Duplicate")
+    require(
+        duplicate_branch.index("canonical_ack_recoveries")
+        < duplicate_branch.index("finalize_stage7a_replayed_paper_request")
+        < duplicate_branch.index("promote_recoverable_canonical_ack"),
+        "same-authority canonical ACK recovery ordering drift",
+    )
 
     settle = block(source, "async fn settle_entry(")
     ack_start = settle.index("Stage7aHandleOutcome::Ack")
@@ -161,11 +189,14 @@ def validate_bridge(source: str, cargo: str) -> None:
         "strict_max_one_lifecycle_finalizes_place_before_cancel",
         "source_and_claim_freshness_are_independent_readiness_authorities",
         "external_supervisor_observes_normal_error_and_panic_task_death",
-        "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed",
+        "fault_matrix_authority_windows_f02_f04_f05_are_fail_closed",
+        "f06_outcome_record_without_prior_ack_redelivery_emits_canonical_ack",
+        "request_finalized_before_ack_memory_redelivery_is_runtime_compatible",
+        "f06_canonical_ack_xadd_then_xack_failure_redelivery_becomes_duplicate_noop",
         "fault_matrix_f01_source_read_before_decode_retains_pending",
         "fault_matrix_f07_f09_f14_ack_windows_recover_without_second_effect",
         "fault_matrix_f10_f11_f15_dlq_windows_recover_without_stage6_effect",
-        "fault_matrix_f13_source_outage_is_bounded_and_never_stale_ready",
+        "fault_matrix_f13_source_and_claim_outages_are_bounded_and_never_stale_ready",
         "uncertain_provider_and_post_dispatch_crash_remain_pending",
         "market_limit_and_cancel_use_one_profile_without_redis_identity_authority",
         "envelope_policy_and_ttl_fail_before_paper_effect",
@@ -174,6 +205,22 @@ def validate_bridge(source: str, cargo: str) -> None:
     )
     for witness in witnesses:
         require(any(f"fn {witness}(" in line for line in test_names), f"test witness absent: {witness}")
+
+
+def validate_stage5g_ack_oracle(source: str) -> None:
+    require(
+        "fn stage7a_recovered_canonical_ack_resolves_and_subsequent_duplicate_is_noop(" in source,
+        "direct Stage 5G recovered-canonical ACK oracle absent",
+    )
+
+
+def validate_gate(source: str) -> None:
+    for token in (
+        "10e357825a701193d964975bb5769bd0745d4986",
+        "bash \"$inherited/scripts/stage6e_r1_gate.sh\"",
+        "inherited-stage6e-r1-gate.txt",
+    ):
+        require(token in source, f"inherited Stage 6 gate token absent: {token}")
 
 
 def validate_core(source: str) -> None:
@@ -201,9 +248,9 @@ def validate_core(source: str) -> None:
         "request.final_disposition().is_some()",
         "same_scope",
     ):
-        require(token in lifecycle_guard, f"Stage 7A-R2 lifecycle guard absent: {token}")
+        require(token in lifecycle_guard, f"Stage 7A-R2a lifecycle guard absent: {token}")
     for token in ("is_source_correlated_cancel", "permits exactly one reviewed overlap"):
-        require(token not in lifecycle_guard, f"Stage 7A-R2 overlap exception remains: {token}")
+        require(token not in lifecycle_guard, f"Stage 7A-R2a overlap exception remains: {token}")
     require("candidate.action()" not in lifecycle_guard, "action-specific lifecycle overlap restored")
     for token in (
         "stage7a_limit_pending_blocks_second_new_place",
@@ -226,6 +273,23 @@ def check(root: Path) -> None:
 
     validate_bridge((root / BRIDGE).read_text(), (root / BRIDGE_CARGO).read_text())
     validate_core((root / CORE).read_text())
+    stage5g_source = (root / STAGE5G_ACK).read_text()
+    validate_stage5g_ack_oracle(stage5g_source)
+    accepted_stage5g_source = subprocess.check_output(
+        ["git", "show", f"{BASE}:{STAGE5G_ACK}"], cwd=root, text=True
+    )
+    production_marker = "#[cfg(any(test, feature = \"stage5g-artifact-fixtures\"))]"
+    require(
+        stage5g_source.split(production_marker, 1)[0]
+        == accepted_stage5g_source.split(production_marker, 1)[0],
+        "accepted Stage 5G production source changed",
+    )
+    validate_gate((root / GATE).read_text())
+    require(
+        "stage5g_compatible_duplicate_after_canonical_publication"
+        in (root / ERRATUM).read_text().replace("-", "_"),
+        "A-019 erratum absent",
+    )
 
     require(hashlib.sha256((root / TZ).read_bytes()).hexdigest() == TZ_SHA256, "Stage 7A TZ digest drift")
     require(hashlib.sha256((root / MATRIX).read_bytes()).hexdigest() == MATRIX_SHA256, "Stage 7A matrix digest drift")
@@ -238,20 +302,24 @@ def check(root: Path) -> None:
     descriptor = json.loads((root / DESCRIPTOR).read_text())
     expected = {
         "stage": "7A",
-        "status": "r2_implementation_candidate",
+        "status": "r2a_implementation_candidate",
         "accepted_predecessor": BASE,
         "r1_predecessor": R1_PREDECESSOR,
         "r2_predecessor": R2_PREDECESSOR,
+        "r2a_predecessor": R2A_PREDECESSOR,
         "blocking_acceptance_rows": 52,
         "stage6_execution_authority": "exclusive",
         "max_unresolved_lifecycles_per_strategy_instance": 1,
         "runtime_command_bridge_crate": True,
         "canonical_handler_for_read_and_claim": True,
         "real_redis_integration": True,
-        "focused_runtime_bridge_test_count": 23,
+        "focused_runtime_bridge_test_count": 26,
         "focused_stage6_admission_test_count": 8,
+        "focused_strategy_runtime_test_count": 9,
         "fault_matrix_count": 15,
         "semantic_proof_map_count": 52,
+        "inherited_stage6e_r1_gate_required": True,
+        "canonical_ack_recovery_scope": "same_authority_only",
         "cross_process_exactly_once_claimed": False,
         "stage7b_open": False,
         "finam_post_delete_open": False,
@@ -277,6 +345,8 @@ def main() -> None:
         raise SystemExit(f"stage7a-check: FAIL: {error}") from error
     print("stage7a-check: PASS rows=52 stage6_authority=exclusive real_redis=true live=false")
     print("fresh_truth_provider_surface_absent=true temporal_policy=not_applicable_closed_surface")
+    print("a019_erratum=stage5g_compatible_duplicate_after_canonical_publication")
+    print("inherited_stage6e_r1_gate_required=true")
 
 
 if __name__ == "__main__":

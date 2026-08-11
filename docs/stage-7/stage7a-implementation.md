@@ -1,4 +1,4 @@
-# Stage 7A-R2 implementation candidate
+# Stage 7A-R2a implementation candidate
 
 Accepted predecessor: `10e357825a701193d964975bb5769bd0745d4986`.
 
@@ -24,7 +24,8 @@ paper Envelope<BrokerCommand>
   -> Stage 6 command-admission facade
   -> RequestAccepted + DispatchAttemptRecorded
   -> deterministic process-local paper provider
-  -> Stage 6 normalized outcome + explicit RequestFinalized
+  -> Stage 6 normalized outcome + recoverable canonical ACK proof
+  -> explicit RequestFinalized
   -> Envelope<CommandAck>
   -> ACK XADD
   -> XACK
@@ -52,6 +53,11 @@ entry metadata are emitted.
   emits `Duplicate/DuplicateCommand` with exact request/client/broker identity.
   This matches the accepted Stage 5G ACK lifecycle. No cross-process
   exactly-once claim is made.
+- A crash after normalized outcome or after `RequestFinalized`, but before ACK
+  memory, retains a command-digest-bound same-authority recovery record. Exact
+  redelivery finishes finalization if needed and emits the first canonical
+  terminal ACK. A final request without that process-local proof remains
+  reconciliation-only; Stage 7A does not infer a cross-process prior outcome.
 - `DispatchForbidden` is not treated as lifecycle terminality. Every different
   command, including a source-correlated CANCEL, is blocked while another
   request is non-final. Normalized paper outcomes append an explicit
@@ -78,7 +84,8 @@ entry metadata are emitted.
 - ACK published before XACK;
 - stale pending ownership reclaimed by XAUTOCLAIM;
 - exact Redis redelivery under a different entry ID;
-- consumer Redis failure, separate source/claim staleness and explicit stop;
+- injected source-read and claim-scan failure, separate source/claim staleness,
+  retained claim-side PEL entry and explicit stop;
 - normal task exit, returned error and panic/JoinError through an external
   liveness observer;
 - the complete machine-readable F1-F15 matrix covering source, authority,
@@ -88,7 +95,8 @@ The real-Redis test starts an isolated local `redis-server` with persistence
 disabled and exercises `XGROUP`, `XREADGROUP`, `XPENDING`, `XAUTOCLAIM`, `XADD`
 and `XACK`. It does not contact FINAM or any external broker endpoint.
 
-The R2 gate loads a reviewable JSON proof map and emits a row-by-row report for
+The R2a gate first executes the accepted Stage 6E-R1 gate in a detached frozen
+checkout. It then loads a reviewable JSON proof map and emits a row-by-row report for
 all 52 blocking acceptance rows. Every row contains the frozen scenario/result,
 proof type, exact artifacts/tokens and the semantic rationale. The evaluator
 fails when a mapping is absent, incomplete or uses the wrong pinned proof type.

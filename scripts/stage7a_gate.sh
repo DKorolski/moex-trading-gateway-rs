@@ -12,6 +12,14 @@ python3 scripts/stage7a_check.py | tee "$artifact_dir/stage7a-check.txt"
 python3 scripts/stage7a_negative_harness.py | tee "$artifact_dir/negative.txt"
 python3 scripts/stage7a_closed_surface_check.py | tee "$artifact_dir/closed-surface.txt"
 
+inherited="$artifact_dir/detached-stage6e-r1-10e3578"
+git clone --quiet --no-hardlinks --shared . "$inherited"
+git -C "$inherited" checkout --quiet -B stage6-durable-chain 10e357825a701193d964975bb5769bd0745d4986
+STAGE6E_R1_ARTIFACT_DIR="$artifact_dir/inherited-stage6e-r1-artifacts" \
+  bash "$inherited/scripts/stage6e_r1_gate.sh" 2>&1 \
+  | tee "$artifact_dir/inherited-stage6e-r1-gate.txt"
+rm -rf "$inherited"
+
 cargo test -p runtime-command-bridge --no-fail-fast 2>&1 | tee "$artifact_dir/bridge-debug.txt"
 cargo test --release -p runtime-command-bridge --no-fail-fast 2>&1 | tee "$artifact_dir/bridge-release.txt"
 cargo test -p strategy-runtime-core stage7a_ --no-fail-fast 2>&1 | tee "$artifact_dir/core-debug.txt"
@@ -24,19 +32,19 @@ cargo test --workspace --all-targets 2>&1 | tee "$artifact_dir/workspace-tests.t
 cargo test --workspace --doc 2>&1 | tee "$artifact_dir/workspace-docs.txt"
 cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 | tee "$artifact_dir/clippy.txt"
 
-python3 scripts/stage7a_r2_fault_matrix_check.py \
+python3 scripts/stage7a_r2a_fault_matrix_check.py \
   --artifact-dir "$artifact_dir" \
-  --output "$artifact_dir/stage7a-r2-fault-matrix.json" \
-  | tee "$artifact_dir/stage7a-r2-fault-matrix.txt"
+  --output "$artifact_dir/stage7a-r2a-fault-matrix.json" \
+  | tee "$artifact_dir/stage7a-r2a-fault-matrix.txt"
 
 if [[ "${STAGE7A_SKIP_PRESEAL:-0}" != "1" ]]; then
   python3 scripts/stage7a_preseal_check.py | tee "$artifact_dir/preseal.txt"
-  python3 scripts/stage7a_r2_acceptance_report.py \
+  python3 scripts/stage7a_r2a_acceptance_report.py \
     --artifact-dir "$artifact_dir" \
-    --output "$artifact_dir/stage7a-r2-acceptance.json" \
-    | tee "$artifact_dir/stage7a-r2-acceptance.txt"
+    --output "$artifact_dir/stage7a-r2a-acceptance.json" \
+    | tee "$artifact_dir/stage7a-r2a-acceptance.txt"
 else
-  echo "stage7a-r2-acceptance: DEFERRED until clean committed preseal"
+  echo "stage7a-r2a-acceptance: DEFERRED until clean committed preseal"
 fi
 rustc --version | tee "$artifact_dir/toolchain.txt"
 cargo --version | tee -a "$artifact_dir/toolchain.txt"

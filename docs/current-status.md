@@ -14,20 +14,22 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 - Stage 6E-R1 is independently accepted at
   `10e357825a701193d964975bb5769bd0745d4986`; Stage 6 is CLOSED.
-- Stage 7A-R2 is the only active review-candidate slice, repairing the five
-  remaining P1 closure findings against rejected R1 candidate
-  `ac8fa7f2f3ff42ae1b351c298ff0b3abd62599b5`.
+- Stage 7A-R2a is the only active review-candidate slice, repairing the three
+  remaining P1 closure findings against rejected R2 candidate
+  `a50cd7e40993b826247320ad5e2c02364964ad77`.
   It attaches a Redis
   consumer group only to the validated paper namespace and process outcomes
   through the accepted Stage 6 authority plus a process-local paper/mock
   provider.
 - The candidate implementation lives in `runtime-command-bridge`; focused
   Stage 6 admission tests and isolated real-Redis tests are green locally.
-  R2 preserves the ACK/cursor repairs, enforces exactly one non-final command
+  R2a preserves the ACK/cursor repairs, enforces exactly one non-final command
   lifecycle, finalizes PLACE before a sequential CANCEL, tracks source/claim
-  freshness independently, externally observes task death, and binds F1-F15
-  plus all 52 acceptance rows to exact semantic evidence. Stage 7A remains an
-  implementation candidate until independent R2 acceptance.
+  freshness independently, externally observes task death, recovers the first
+  canonical ACK across same-authority outcome/finalization crash windows,
+  executes the inherited Stage 6E-R1 gate, and binds source/claim outages,
+  F1-F15 plus all 52 acceptance rows to exact semantic evidence. Stage 7A
+  remains an implementation candidate until independent R2a acceptance.
 - Stage 7B, FINAM runtime POST/DELETE, broker network dispatch, runtime-live,
   real strategy orders and native Stop/SLTP/bracket remain CLOSED.
 - Stage 7A permits at most one non-final command lifecycle per strategy

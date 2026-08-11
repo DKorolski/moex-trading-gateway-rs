@@ -72,16 +72,18 @@ current runtime branch to send orders continuously.
 
 Stage 6E-R1 is independently accepted at
 `10e357825a701193d964975bb5769bd0745d4986`, closing Stage 6. The active
-implementation candidate and next review target is **Stage 7A-R2**: the narrow
-closure repair over rejected R1 `ac8fa7f2f3ff42ae1b351c298ff0b3abd62599b5`, with real Redis
+implementation candidate and next review target is **Stage 7A-R2a**: the narrow
+closure repair over rejected R2 `a50cd7e40993b826247320ad5e2c02364964ad77`, with real Redis
 consumer-group delivery/recovery feeding only the accepted Stage 6 paper/mock
 authority.
 
-Stage 7A-R2 enforces strict max-one non-final lifecycle semantics, sequential
-source-correlated CANCEL, publication-aware runtime-compatible ACK replay,
-independent source/claim freshness, externally observed task death, complete
-F1-F15 evidence, persistent bounded XAUTOCLAIM cursors and a semantic 52/52
-proof map. Stage 7A constructs no fresh-truth package. Stage 7B, FINAM POST/DELETE, broker
+Stage 7A-R2a preserves strict max-one non-final lifecycle semantics and adds
+same-authority canonical ACK recovery across outcome/finalization crash windows,
+sequential source-correlated CANCEL, independent source/claim freshness with an
+exact claim-outage witness, externally observed task death, inherited Stage 6
+gate evidence, complete F1-F15 evidence, persistent bounded XAUTOCLAIM cursors
+and a semantic 52/52 proof map. Stage 7A constructs no fresh-truth package.
+Stage 7B, FINAM POST/DELETE, broker
 dispatch, runtime-live, real orders and native Stop/SLTP/bracket remain
 forbidden.
 

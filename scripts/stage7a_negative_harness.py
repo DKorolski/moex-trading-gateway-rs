@@ -17,6 +17,8 @@ def main() -> None:
     bridge = Path(checker.BRIDGE).read_text()
     cargo = Path(checker.BRIDGE_CARGO).read_text()
     core = Path(checker.CORE).read_text()
+    stage5g_ack = Path(checker.STAGE5G_ACK).read_text()
+    gate = Path(checker.GATE).read_text()
     bridge_cases = [
         ("add-broker-finam-dependency", bridge, cargo + '\nbroker-finam = "*"\n'),
         ("add-reqwest-dependency", bridge, cargo + '\nreqwest = "*"\n'),
@@ -54,8 +56,11 @@ def main() -> None:
         ("remove-independent-source-freshness", bridge.replace("last_successful_source_poll_at", "removed_source_freshness"), cargo),
         ("remove-independent-claim-freshness", bridge.replace("last_successful_claim_scan_at", "removed_claim_freshness"), cargo),
         ("remove-external-task-supervision", bridge.replace("pub fn spawn_stage7a_supervised_task", "fn removed_task_supervision"), cargo),
-        ("remove-fault-matrix-authority-witness", bridge.replace("fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed", "removed_fault_matrix_authority"), cargo),
+        ("remove-fault-matrix-authority-witness", bridge.replace("fault_matrix_authority_windows_f02_f04_f05_are_fail_closed", "removed_fault_matrix_authority"), cargo),
         ("remove-fresh-truth-closed-surface", bridge.replace("STAGE7A_CONSTRUCTS_FRESH_BROKER_TRUTH: bool = false", "STAGE7A_CONSTRUCTS_FRESH_BROKER_TRUTH: bool = true"), cargo),
+        ("remove-canonical-ack-recovery", bridge.replace("canonical_ack_recoveries", "removed_ack_recoveries"), cargo),
+        ("remove-finalized-before-ack-fault", bridge.replace("AfterRequestFinalizedBeforeAckMemory", "RemovedFinalizationFault"), cargo),
+        ("remove-claim-outage-fault", bridge.replace("RedisClaimOutage", "RemovedClaimOutage"), cargo),
     ]
     core_cases = [
         ("restore-dispatch-forbidden-terminality", core.replace("|| request.final_disposition().is_some()", "|| request.dispatch_safety_state() == crate::Stage6DispatchSafetyStateV1::DispatchForbidden", 1)),
@@ -64,6 +69,21 @@ def main() -> None:
         ("remove-linked-cancel-guard-witness", core.replace("stage7a_nonfinal_place_blocks_source_correlated_cancel", "removed_linked_cancel_guard_witness")),
         ("remove-core-stage7a-finalization", core.replace("pub fn finalize_stage7a_paper_request(", "fn removed_stage7a_paper_request(")),
         ("remove-core-replay-finalization", core.replace("pub fn finalize_stage7a_replayed_paper_request(", "fn removed_replay_finalization(")),
+    ]
+    stage5g_cases = [
+        (
+            "remove-direct-stage5g-recovered-ack-oracle",
+            stage5g_ack.replace(
+                "stage7a_recovered_canonical_ack_resolves_and_subsequent_duplicate_is_noop",
+                "removed_stage7a_recovered_ack_oracle",
+            ),
+        ),
+    ]
+    gate_cases = [
+        (
+            "remove-inherited-stage6e-r1-gate",
+            gate.replace("stage6e_r1_gate.sh", "removed_stage6e_r1_gate.sh"),
+        ),
     ]
     passed = 0
     for name, mutated_source, mutated_cargo in bridge_cases:
@@ -82,7 +102,23 @@ def main() -> None:
             print(f"PASS {name}")
         else:
             raise SystemExit(f"stage7a-negative: FAIL mutation survived: {name}")
-    expected = len(bridge_cases) + len(core_cases)
+    for name, mutated_stage5g in stage5g_cases:
+        try:
+            checker.validate_stage5g_ack_oracle(mutated_stage5g)
+        except (checker.CheckFailure, ValueError):
+            passed += 1
+            print(f"PASS {name}")
+        else:
+            raise SystemExit(f"stage7a-negative: FAIL mutation survived: {name}")
+    for name, mutated_gate in gate_cases:
+        try:
+            checker.validate_gate(mutated_gate)
+        except (checker.CheckFailure, ValueError):
+            passed += 1
+            print(f"PASS {name}")
+        else:
+            raise SystemExit(f"stage7a-negative: FAIL mutation survived: {name}")
+    expected = len(bridge_cases) + len(core_cases) + len(stage5g_cases) + len(gate_cases)
     if passed != expected:
         raise SystemExit(f"stage7a-negative: FAIL count={passed}")
     print(f"stage7a-negative: PASS cases={passed}")

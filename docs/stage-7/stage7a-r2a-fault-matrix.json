@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "stage": "7A-R2",
+  "stage": "7A-R2a",
   "closed_surfaces": {
     "broker_network_dispatch": false,
     "finam_post_delete": false,
@@ -23,7 +23,7 @@
       "id": "F2",
       "point": "after decode / before Stage 6 admission",
       "artifact": "bridge-debug.txt",
-      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "witness": "fault_matrix_authority_windows_f02_f04_f05_are_fail_closed ... ok",
       "redis_pending": "retained",
       "stage6_reentry": "no_request_created",
       "paper_effect_repeat": "zero",
@@ -47,7 +47,7 @@
       "id": "F4",
       "point": "after DispatchAttemptRecorded",
       "artifact": "bridge-debug.txt",
-      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "witness": "fault_matrix_authority_windows_f02_f04_f05_are_fail_closed ... ok",
       "redis_pending": "retained",
       "stage6_reentry": "blind_redispatch_forbidden",
       "paper_effect_repeat": "zero",
@@ -59,7 +59,7 @@
       "id": "F5",
       "point": "during paper outcome provider",
       "artifact": "bridge-debug.txt",
-      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "witness": "fault_matrix_authority_windows_f02_f04_f05_are_fail_closed ... ok",
       "redis_pending": "retained",
       "stage6_reentry": "dispatch_not_repeated",
       "paper_effect_repeat": "uncertain_never_retried_blindly",
@@ -69,13 +69,17 @@
     },
     {
       "id": "F6",
-      "point": "after Stage 6 paper outcome record",
+      "point": "after Stage 6 paper outcome record, including finalized-before-ACK-memory sub-window",
       "artifact": "bridge-debug.txt",
-      "witness": "fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed ... ok",
+      "witness": "f06_canonical_ack_xadd_then_xack_failure_redelivery_becomes_duplicate_noop ... ok",
+      "supplemental_witnesses": [
+        "f06_outcome_record_without_prior_ack_redelivery_emits_canonical_ack ... ok",
+        "request_finalized_before_ack_memory_redelivery_is_runtime_compatible ... ok"
+      ],
       "redis_pending": "retained",
-      "stage6_reentry": "replay_finalizes_existing_request",
+      "stage6_reentry": "same_authority_replay_finalizes_existing_request_without_provider_reentry",
       "paper_effect_repeat": "not_repeated",
-      "ack_repeat": "duplicate_after_replay_finalization",
+      "ack_repeat": "first_recovered_ack_is_canonical_then_post_publication_redelivery_is_duplicate",
       "xack": "only_after_ack",
       "readiness": "blocked_until_redelivery_settlement"
     },
@@ -153,15 +157,15 @@
     },
     {
       "id": "F13",
-      "point": "Redis source outage",
+      "point": "Redis source-read or claim-scan outage",
       "artifact": "bridge-debug.txt",
-      "witness": "fault_matrix_f13_source_outage_is_bounded_and_never_stale_ready ... ok",
-      "redis_pending": "no_xack_assumption",
+      "witness": "fault_matrix_f13_source_and_claim_outages_are_bounded_and_never_stale_ready ... ok",
+      "redis_pending": "claim_outage_retains_existing_pel_entry_without_xack",
       "stage6_reentry": "no_new_request",
       "paper_effect_repeat": "zero",
       "ack_repeat": "none",
       "xack": "none",
-      "readiness": "source_unhealthy_and_stopped"
+      "readiness": "failing_operation_unhealthy_and_stopped_without_cross_healing"
     },
     {
       "id": "F14",

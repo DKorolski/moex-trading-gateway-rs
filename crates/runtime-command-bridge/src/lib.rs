@@ -274,7 +274,7 @@ impl Drop for Stage7aTaskStopGuard {
 
 /// Spawns a paper command-consumer task with an external liveness observer.
 /// The drop guard clears readiness on normal return, returned error, panic,
-/// cancellation, and JoinError; no code inside the task is trusted to do so.
+/// and JoinError; no code inside the task is trusted to do so.
 pub fn spawn_stage7a_supervised_task<F, T>(
     readiness: Stage7aTaskReadinessHandle,
     future: F,
@@ -452,6 +452,7 @@ pub enum Stage7aFaultPoint {
     AfterDecodeBeforeAdmission,
     BeforePaperOutcome,
     AfterPaperOutcomeRecord,
+    AfterRequestFinalizedBeforeAckMemory,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -459,6 +460,7 @@ pub enum Stage7aSettlementFault {
     None,
     AfterSourceReadBeforeDecode,
     RedisSourceOutage,
+    RedisClaimOutage,
     BeforeAckPublish,
     AckStreamOutage,
     AfterAckPublishBeforeXack,
@@ -552,6 +554,12 @@ struct Stage7aAckPublication {
     published: bool,
 }
 
+#[derive(Clone)]
+struct Stage7aCanonicalAckRecovery {
+    command_sha256: String,
+    canonical_ack: Envelope<CommandAck>,
+}
+
 pub struct Stage7aCommandAuthority<P> {
     recovered: Stage6dDurableRuntimeRecovered,
     profile: Stage7aCommandProfile,
@@ -559,6 +567,7 @@ pub struct Stage7aCommandAuthority<P> {
     source: String,
     fault_point: Stage7aFaultPoint,
     ack_publications: HashMap<StrategyRequestId, Stage7aAckPublication>,
+    canonical_ack_recoveries: HashMap<StrategyRequestId, Stage7aCanonicalAckRecovery>,
 }
 
 impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
@@ -576,6 +585,7 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
             source,
             fault_point: Stage7aFaultPoint::None,
             ack_publications: HashMap::new(),
+            canonical_ack_recoveries: HashMap::new(),
         })
     }
 
@@ -607,6 +617,31 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
             },
         );
         ack
+    }
+
+    fn remember_recoverable_canonical_ack(
+        &mut self,
+        command_sha256: String,
+        ack: Envelope<CommandAck>,
+    ) {
+        self.canonical_ack_recoveries.insert(
+            ack.payload.request_id,
+            Stage7aCanonicalAckRecovery {
+                command_sha256,
+                canonical_ack: ack,
+            },
+        );
+    }
+
+    fn promote_recoverable_canonical_ack(
+        &mut self,
+        request_id: StrategyRequestId,
+    ) -> Result<Envelope<CommandAck>, Stage7aBridgeError> {
+        let recovery = self
+            .canonical_ack_recoveries
+            .remove(&request_id)
+            .ok_or(Stage7aBridgeError::CanonicalAckRecoveryRequired)?;
+        Ok(self.remember_canonical_ack(recovery.command_sha256, recovery.canonical_ack))
     }
 
     pub fn handle_payload_now(
@@ -716,12 +751,6 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
                     }
                 };
                 let report = execute_stage6d_paper_outcome(&mut self.recovered, *receipt, outcome)?;
-                if self.fault_point == Stage7aFaultPoint::AfterPaperOutcomeRecord {
-                    return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
-                        strategy_request_id: report.strategy_request_id,
-                        reason: Stage7aPaperHoldReason::ReconciliationRequired,
-                    }));
-                }
                 if report.dispatch_safety_state
                     != strategy_runtime_core::Stage6DispatchSafetyStateV1::DispatchForbidden
                 {
@@ -730,36 +759,60 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
                         reason: Stage7aPaperHoldReason::ReconciliationRequired,
                     }));
                 }
-                let report =
-                    finalize_stage7a_paper_request(&mut self.recovered, report, observed_at)?;
-                let ack = ack_envelope(
+                let recoverable_ack = ack_envelope(
                     &self.source,
                     Stage7aPaperAdmissionDecision {
                         strategy_request_id: report.strategy_request_id,
-                        durable_client_order_id: report.durable_client_order_id,
-                        broker_order_id: report.broker_order_id,
+                        durable_client_order_id: report.durable_client_order_id.clone(),
+                        broker_order_id: report.broker_order_id.clone(),
                     },
                     CommandAckStatus::Accepted,
                     None,
                     observed_at,
                 );
+                self.remember_recoverable_canonical_ack(command_sha256.clone(), recoverable_ack);
+                if self.fault_point == Stage7aFaultPoint::AfterPaperOutcomeRecord {
+                    return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                        strategy_request_id: report.strategy_request_id,
+                        reason: Stage7aPaperHoldReason::ReconciliationRequired,
+                    }));
+                }
+                let report =
+                    finalize_stage7a_paper_request(&mut self.recovered, report, observed_at)?;
+                if self.fault_point == Stage7aFaultPoint::AfterRequestFinalizedBeforeAckMemory {
+                    return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                        strategy_request_id: report.strategy_request_id,
+                        reason: Stage7aPaperHoldReason::ReconciliationRequired,
+                    }));
+                }
                 Ok(Stage7aHandleOutcome::Ack(
-                    self.remember_canonical_ack(command_sha256, ack),
+                    self.promote_recoverable_canonical_ack(report.strategy_request_id)?,
                 ))
             }
             Stage7aPaperAdmission::Duplicate(decision) => {
+                let Some(recovery) = self
+                    .canonical_ack_recoveries
+                    .get(&decision.strategy_request_id)
+                else {
+                    return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                        strategy_request_id: decision.strategy_request_id,
+                        reason: Stage7aPaperHoldReason::ReconciliationRequired,
+                    }));
+                };
+                if recovery.command_sha256 != command_sha256 {
+                    return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                        strategy_request_id: decision.strategy_request_id,
+                        reason: Stage7aPaperHoldReason::IdentityConflict,
+                    }));
+                }
                 finalize_stage7a_replayed_paper_request(
                     &mut self.recovered,
                     decision.strategy_request_id,
                     observed_at,
                 )?;
-                Ok(Stage7aHandleOutcome::Ack(ack_envelope(
-                    &self.source,
-                    decision,
-                    CommandAckStatus::Duplicate,
-                    Some(CommandAckReasonCode::DuplicateCommand),
-                    observed_at,
-                )))
+                Ok(Stage7aHandleOutcome::Ack(
+                    self.promote_recoverable_canonical_ack(decision.strategy_request_id)?,
+                ))
             }
             Stage7aPaperAdmission::PolicyRejected { decision, reason } => {
                 let (status, code) = match reason {
@@ -987,6 +1040,11 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
     }
 
     async fn reclaim_stale_once_inner(&mut self) -> Result<usize, Stage7aBridgeError> {
+        if self.settlement_fault == Stage7aSettlementFault::RedisClaimOutage {
+            self.settlement_fault = Stage7aSettlementFault::None;
+            self.supervisor.mark_claim_failure();
+            return Err(Stage7aBridgeError::InjectedSettlementFault);
+        }
         let mut examined = 0usize;
         for _ in 0..self.config.max_claim_pages {
             let start = self.claim_cursor.clone();
@@ -1254,6 +1312,8 @@ pub enum Stage7aBridgeError {
     Redis(#[from] redis::RedisError),
     #[error("JSON encoding failed")]
     Json(#[from] serde_json::Error),
+    #[error("same-authority canonical ACK recovery evidence is missing")]
+    CanonicalAckRecoveryRequired,
     #[error("injected Stage 7A settlement fault")]
     InjectedSettlementFault,
 }
@@ -2310,7 +2370,7 @@ mod tests {
     }
 
     #[test]
-    fn fault_matrix_authority_windows_f02_f04_f05_f06_are_fail_closed() {
+    fn fault_matrix_authority_windows_f02_f04_f05_are_fail_closed() {
         let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
 
         let mut after_decode = authority();
@@ -2364,47 +2424,117 @@ mod tests {
             during_provider.recovered().journal_frontier().frame_count(),
             2
         );
+    }
 
-        let mut after_outcome = authority();
-        after_outcome.set_fault_point(Stage7aFaultPoint::AfterPaperOutcomeRecord);
+    #[test]
+    fn f06_outcome_record_without_prior_ack_redelivery_emits_canonical_ack() {
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let request_id = StrategyRequestId::from(Uuid::from_u128(9_006));
+        let payload = encoded_command(9_006);
+        let mut command_authority = authority();
+        command_authority.set_fault_point(Stage7aFaultPoint::AfterPaperOutcomeRecord);
         assert!(matches!(
-            after_outcome
-                .handle_payload("f06", encoded_command(9_006).as_bytes(), observed_at)
+            command_authority
+                .handle_payload("f06", payload.as_bytes(), observed_at)
                 .unwrap(),
             Stage7aHandleOutcome::Pending(_)
         ));
-        let frames_after_outcome = after_outcome.recovered().journal_frontier().frame_count();
-        assert!(after_outcome
+        let frames_after_outcome = command_authority
+            .recovered()
+            .journal_frontier()
+            .frame_count();
+        assert!(!command_authority.ack_publications.contains_key(&request_id));
+        assert!(command_authority
+            .canonical_ack_recoveries
+            .contains_key(&request_id));
+        assert!(command_authority
             .recovered()
             .replay()
-            .request(StrategyRequestId::from(Uuid::from_u128(9_006)))
+            .request(request_id)
             .unwrap()
             .final_disposition()
             .is_none());
-        after_outcome.set_fault_point(Stage7aFaultPoint::None);
-        assert!(matches!(
-            after_outcome
-                .handle_payload("f06", encoded_command(9_006).as_bytes(), observed_at)
-                .unwrap(),
-            Stage7aHandleOutcome::Ack(Envelope {
-                payload: CommandAck {
-                    status: CommandAckStatus::Duplicate,
-                    ..
-                },
-                ..
-            })
-        ));
+
+        command_authority.set_fault_point(Stage7aFaultPoint::None);
+        let recovered = match command_authority
+            .handle_payload("f06", payload.as_bytes(), observed_at)
+            .unwrap()
+        {
+            Stage7aHandleOutcome::Ack(ack) => ack,
+            _ => panic!("F6 redelivery must recover the first canonical ACK"),
+        };
+        assert_eq!(recovered.payload.status, CommandAckStatus::Accepted);
+        assert!(recovered.payload.reason.is_none());
+        assert_eq!(recovered.payload.request_id, request_id);
         assert_eq!(
-            after_outcome.recovered().journal_frontier().frame_count(),
+            command_authority
+                .recovered()
+                .journal_frontier()
+                .frame_count(),
             frames_after_outcome + 1
         );
-        assert!(after_outcome
+        assert!(command_authority
             .recovered()
             .replay()
-            .request(StrategyRequestId::from(Uuid::from_u128(9_006)))
+            .request(request_id)
             .unwrap()
             .final_disposition()
             .is_some());
+    }
+
+    #[test]
+    fn request_finalized_before_ack_memory_redelivery_is_runtime_compatible() {
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let request_id = StrategyRequestId::from(Uuid::from_u128(9_016));
+        let payload = encoded_command(9_016);
+        let mut command_authority = authority();
+        command_authority.set_fault_point(Stage7aFaultPoint::AfterRequestFinalizedBeforeAckMemory);
+        assert!(matches!(
+            command_authority
+                .handle_payload("f06-finalized", payload.as_bytes(), observed_at)
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(_)
+        ));
+        assert!(command_authority
+            .recovered()
+            .replay()
+            .request(request_id)
+            .unwrap()
+            .final_disposition()
+            .is_some());
+        assert!(!command_authority.ack_publications.contains_key(&request_id));
+
+        command_authority.set_fault_point(Stage7aFaultPoint::None);
+        let canonical = match command_authority
+            .handle_payload("f06-finalized", payload.as_bytes(), observed_at)
+            .unwrap()
+        {
+            Stage7aHandleOutcome::Ack(ack) => ack,
+            _ => panic!("post-finalization redelivery must recover canonical ACK"),
+        };
+        assert_eq!(canonical.payload.status, CommandAckStatus::Accepted);
+        command_authority.mark_ack_published(&canonical);
+        let duplicate = match command_authority
+            .handle_payload(
+                "f06-finalized",
+                payload.as_bytes(),
+                observed_at + chrono::Duration::seconds(1),
+            )
+            .unwrap()
+        {
+            Stage7aHandleOutcome::Ack(ack) => ack,
+            _ => panic!("published canonical ACK redelivery must be Duplicate"),
+        };
+        assert_eq!(duplicate.payload.status, CommandAckStatus::Duplicate);
+        assert_eq!(canonical.payload.request_id, duplicate.payload.request_id);
+        assert_eq!(
+            canonical.payload.client_order_id,
+            duplicate.payload.client_order_id
+        );
+        assert_eq!(
+            canonical.payload.broker_order_id,
+            duplicate.payload.broker_order_id
+        );
     }
 
     #[tokio::test]
@@ -2517,9 +2647,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fault_matrix_f13_source_outage_is_bounded_and_never_stale_ready() {
+    async fn fault_matrix_f13_source_and_claim_outages_are_bounded_and_never_stale_ready() {
         let redis = RedisServer::start().await;
-        let mut config = Stage7aRedisConfig::paper_default("fault-f13").unwrap();
+        let mut config = Stage7aRedisConfig::paper_default("fault-f13-source").unwrap();
         config.group_start = Stage7aGroupStart::Beginning;
         config.allow_controlled_beginning = true;
         config.block_ms = 0;
@@ -2543,6 +2673,66 @@ mod tests {
             .snapshots(Utc::now(), chrono::Duration::seconds(5));
         assert!(!health.source_read_healthy);
         assert_eq!(readiness.phase, Stage7aReadinessPhase::Stopped);
+
+        let mut config = Stage7aRedisConfig::paper_default("fault-f13-claim").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let mut claim_consumer =
+            Stage7aRedisConsumer::connect(&redis.url, config.clone(), authority())
+                .await
+                .unwrap();
+        claim_consumer.ensure_group().await.unwrap();
+        assert_eq!(claim_consumer.reclaim_stale_once().await.unwrap(), 0);
+        assert_eq!(claim_consumer.poll_new_once().await.unwrap(), 0);
+
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encoded_command(9_013))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        let claimed_elsewhere: StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(&config.consumer_group)
+            .arg("fault-f13-crashed-consumer")
+            .arg("COUNT")
+            .arg(1)
+            .arg("STREAMS")
+            .arg(&config.command_stream)
+            .arg(">")
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(claimed_elsewhere.keys[0].ids.len(), 1);
+
+        claim_consumer.set_settlement_fault(Stage7aSettlementFault::RedisClaimOutage);
+        let claim_summary = claim_consumer
+            .run_bounded(
+                1,
+                Stage7aRetryPolicy {
+                    initial_delay_ms: 1,
+                    max_delay_ms: 1,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(claim_summary.failed_iterations, 1);
+        assert_eq!(claim_summary.reclaimed_entries_examined, 0);
+        assert_eq!(claim_summary.new_entries_examined, 0);
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+        assert_eq!(stream_len(&mut manager, &config.ack_stream).await, 0);
+        let (claim_health, claim_readiness) = claim_consumer
+            .supervisor()
+            .snapshots(Utc::now(), chrono::Duration::seconds(5));
+        assert!(claim_health.source_read_healthy);
+        assert!(!claim_health.claim_scan_healthy);
+        assert_eq!(claim_readiness.phase, Stage7aReadinessPhase::Stopped);
     }
 
     #[test]
@@ -2657,6 +2847,78 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(acks.ids.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn f06_canonical_ack_xadd_then_xack_failure_redelivery_becomes_duplicate_noop() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("f06-ack-xack").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let mut consumer = Stage7aRedisConsumer::connect(&redis.url, config.clone(), authority())
+            .await
+            .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encoded_command(9_106))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+
+        consumer
+            .authority
+            .set_fault_point(Stage7aFaultPoint::AfterPaperOutcomeRecord);
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 1);
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+        assert_eq!(stream_len(&mut manager, &config.ack_stream).await, 0);
+
+        consumer.authority.set_fault_point(Stage7aFaultPoint::None);
+        consumer.set_settlement_fault(Stage7aSettlementFault::AfterAckPublishBeforeXack);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert!(matches!(
+            consumer.reclaim_stale_once().await,
+            Err(Stage7aBridgeError::InjectedSettlementFault)
+        ));
+        assert_eq!(pending_len(&mut manager, &config).await, 1);
+        assert_eq!(stream_len(&mut manager, &config.ack_stream).await, 1);
+
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert_eq!(consumer.reclaim_stale_once().await.unwrap(), 1);
+        assert_eq!(pending_len(&mut manager, &config).await, 0);
+        let acks: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&config.ack_stream)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(acks.ids.len(), 2);
+        let canonical: Envelope<CommandAck> =
+            serde_json::from_str(&acks.ids[0].get::<String>("payload").unwrap()).unwrap();
+        let duplicate: Envelope<CommandAck> =
+            serde_json::from_str(&acks.ids[1].get::<String>("payload").unwrap()).unwrap();
+        assert_eq!(canonical.payload.status, CommandAckStatus::Accepted);
+        assert_eq!(duplicate.payload.status, CommandAckStatus::Duplicate);
+        assert_eq!(canonical.payload.request_id, duplicate.payload.request_id);
+        assert_eq!(
+            canonical.payload.client_order_id,
+            duplicate.payload.client_order_id
+        );
+        assert_eq!(
+            canonical.payload.broker_order_id,
+            duplicate.payload.broker_order_id
+        );
+        assert_eq!(
+            duplicate.payload.reason.map(|reason| reason.code),
+            Some(CommandAckReasonCode::DuplicateCommand)
+        );
     }
 
     #[tokio::test]

@@ -3327,6 +3327,36 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn stage7a_recovered_canonical_ack_resolves_and_subsequent_duplicate_is_noop() {
+        let fixture = production_fixture(production_bar_close_ts());
+        let canonical = production_event(
+            &fixture,
+            1,
+            CommandAckStatus::Accepted,
+            Some("PAPER-STAGE7A-RECOVERED-0001"),
+            None,
+        );
+        let duplicate = production_event(
+            &fixture,
+            2,
+            CommandAckStatus::Duplicate,
+            Some("PAPER-STAGE7A-RECOVERED-0001"),
+            Some(CommandAckReasonCode::DuplicateCommand),
+        );
+        let resolved = apply_stage5g_mock_ack(fixture.session, canonical)
+            .expect("recovered canonical ACK must resolve the pending Stage 5G slot")
+            .into_resolved()
+            .expect("single canonical ACK resolves the one-slot fixture");
+        assert_eq!(resolved.ack_outcomes().len(), 1);
+        let post_callback = resolved.post_lifecycle_state_fingerprint();
+        let resolved = apply_stage5g_duplicate_after_resolution(resolved, duplicate)
+            .expect("subsequent exact Duplicate must be the Stage 5G no-op");
+        assert_eq!(resolved.duplicate_status_count(), 1);
+        assert_eq!(resolved.ack_outcomes().len(), 1);
+        assert_eq!(resolved.post_lifecycle_state_fingerprint(), post_callback);
+    }
+
+    #[test]
     fn duplicate_requires_exact_broker_identity_and_coherent_reason() {
         let resolve = |broker_order_id: Option<&str>, reason| {
             let fixture = make_fixture();

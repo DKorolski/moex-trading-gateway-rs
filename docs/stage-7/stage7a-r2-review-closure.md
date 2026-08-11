@@ -15,14 +15,14 @@ The five blocking repairs are:
    Group attachment, source-only, or claim-only operation cannot produce
    `PaperReady`.
 3. Consumer task liveness has an external `Arc<AtomicBool>` observer and a
-   drop guard. Normal return, returned error, panic, cancellation and JoinError
+   drop guard. Normal return, returned error, panic and JoinError
    all clear liveness without trusting a finally path inside the task.
-4. `stage7a-r2-fault-matrix.json` enumerates F1-F15 and records Redis pending,
-   Stage 6 re-entry, repeated paper effect, ACK, XACK and readiness semantics.
-   Its checker requires exact executable witnesses.
-5. `stage7a-r2-acceptance-proof-map.json` is the acceptance authority for all
-   52 frozen rows. The evaluator joins it to the frozen CSV and rejects missing
-   or semantically wrong pinned proof types.
+4. The original R2 fault matrix is superseded by
+   `stage7a-r2a-fault-matrix.json`; the replacement preserves F1-F15 while
+   closing canonical-ACK recovery and Redis claim-outage gaps.
+5. The original R2 proof map is superseded by
+   `stage7a-r2a-acceptance-proof-map.json`, the sole current acceptance
+   authority for all 52 frozen rows.
 
 A-040/A-041 are closed explicitly as N/A-by-closed-surface because Stage 7A
 does not construct fresh broker-truth packages. This is a static policy proof,

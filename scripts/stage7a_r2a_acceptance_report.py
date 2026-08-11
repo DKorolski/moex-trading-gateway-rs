@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate all frozen Stage 7A rows from the reviewable R2 proof map."""
+"""Evaluate all frozen Stage 7A rows from the reviewable R2a proof map."""
 from __future__ import annotations
 
 import argparse
@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 MATRIX = Path("docs/stage-7/STAGE7A_ACCEPTANCE_MATRIX_2026-08-11.csv")
-PROOF_MAP = Path("docs/stage-7/stage7a-r2-acceptance-proof-map.json")
+PROOF_MAP = Path("docs/stage-7/stage7a-r2a-acceptance-proof-map.json")
 PINNED_PROOF_TYPES = {
     "A-025": "strict_behavioral_tests",
     "A-032": "task_supervision_test",
@@ -30,13 +30,13 @@ def main() -> None:
     ids = [row["ID"] for row in rows]
     expected_ids = [f"A-{index:03d}" for index in range(1, 53)]
     if ids != expected_ids or not all(row["Blocking"] == "YES" for row in rows):
-        raise SystemExit("stage7a-r2-acceptance: FAIL: frozen matrix identity drift")
+        raise SystemExit("stage7a-r2a-acceptance: FAIL: frozen matrix identity drift")
 
     proof_document = json.loads(PROOF_MAP.read_text())
     proofs = proof_document.get("proofs", [])
     proof_ids = [proof.get("id") for proof in proofs]
     if proof_ids != expected_ids or len(set(proof_ids)) != 52:
-        raise SystemExit("stage7a-r2-acceptance: FAIL: proof map incomplete or unordered")
+        raise SystemExit("stage7a-r2a-acceptance: FAIL: proof map incomplete or unordered")
     proof_by_id = {proof["id"]: proof for proof in proofs}
 
     evaluated = []
@@ -80,7 +80,7 @@ def main() -> None:
     pass_count = sum(item["status"] == "PASS" for item in evaluated)
     report = {
         "schema_version": 2,
-        "stage": "7A-R2",
+        "stage": "7A-R2a",
         "proof_map": str(PROOF_MAP),
         "acceptance_row_count": len(rows),
         "acceptance_evaluated_count": len(evaluated),
@@ -92,8 +92,8 @@ def main() -> None:
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     if pass_count != 52:
         failed = [item["id"] for item in evaluated if item["status"] != "PASS"]
-        raise SystemExit(f"stage7a-r2-acceptance: FAIL rows={failed}")
-    print("stage7a-r2-acceptance: PASS evaluated=52 passed=52 semantic_map=complete")
+        raise SystemExit(f"stage7a-r2a-acceptance: FAIL rows={failed}")
+    print("stage7a-r2a-acceptance: PASS evaluated=52 passed=52 semantic_map=complete")
 
 
 if __name__ == "__main__":
