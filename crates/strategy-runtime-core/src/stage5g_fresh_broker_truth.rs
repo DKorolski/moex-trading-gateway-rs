@@ -21,8 +21,9 @@ mod application;
 mod reducer;
 
 pub(crate) use application::{
-    stage5g_application_authority_sha256, stage5g_application_evidence_is_valid,
-    stage5g_application_evidence_matches_state, Stage5gFreshTruthApplicationEvidenceV1,
+    apply_stage5g_fresh_truth_reduction, stage5g_application_authority_sha256,
+    stage5g_application_evidence_is_valid, stage5g_application_evidence_matches_state,
+    Stage5gFreshTruthApplicationEvidenceV1, Stage5gFreshTruthApplicationResult,
     Stage5gValidatedPostApplication,
 };
 #[cfg(test)]
@@ -38,6 +39,7 @@ pub(crate) use application::{
 pub(crate) use application::{
     Stage5gFreshTruthApplicationBlocked, Stage5gFreshTruthApplied, Stage5gFreshTruthContinued,
 };
+pub(crate) use reducer::reduce_stage5g_fresh_broker_truth;
 #[cfg(doctest)]
 pub(crate) use reducer::{Stage5gFreshTruthReduction, Stage5gOwnedReconciliationCandidate};
 
@@ -298,6 +300,28 @@ pub(crate) fn authorize_stage5g_fresh_truth_operational_identity(
         expected_identity,
         restart_authority_commitment_sha256,
     })
+}
+
+/// Stage 6D is the first integration owner allowed to turn its authenticated
+/// restart-bound operational configuration into the already accepted Stage
+/// 5G reviewed authority.  The caller cannot override account, strategy,
+/// instrument or runtime-config identity: those fields must match the
+/// authenticated clean-restart projection exactly.
+pub(crate) fn stage5g_review_operational_identity_for_stage6d(
+    restart: &crate::Stage5gCleanRestartedCapability,
+    input: Stage5gOperationalIdentityInput,
+) -> Result<Stage5gReviewedOperationalIdentityAuthority, Stage5gFreshBrokerTruthError> {
+    let expected_identity = Stage5gOperationalIdentityV1::validate(input)?;
+    let projection = restart.fresh_truth_reducer_projection();
+    if projection.account_id != expected_identity.account_id
+        || projection.strategy_id != expected_identity.strategy_definition_id.as_str()
+        || projection.config_fingerprint_sha256
+            != expected_identity.config_fingerprint_sha256.as_str()
+        || projection.instrument_id != expected_identity.target_instrument
+    {
+        return Err(Stage5gFreshBrokerTruthError::OperationalRestartBindingMismatch);
+    }
+    Ok(Stage5gReviewedOperationalIdentityAuthority { expected_identity })
 }
 
 #[cfg(test)]

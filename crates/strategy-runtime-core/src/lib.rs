@@ -297,6 +297,7 @@ mod stage5g_timer;
 mod stage6_durable_identity;
 mod stage6_journal_backend;
 mod stage6_replay;
+mod stage6d_live_core;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -328,6 +329,16 @@ pub use stage6_journal_backend::{
 pub use stage6_replay::{
     Stage6DispatchSafetyStateV1, Stage6RecoveredRequestV1, Stage6ReplayEngineV1, Stage6ReplayError,
     Stage6ReplaySnapshotV1, STAGE6_REPLAY_SCHEMA_VERSION,
+};
+pub use stage6d_live_core::{
+    apply_stage6d_restart_fresh_truth, authorize_stage6d_first_boot, execute_stage6d_paper_outcome,
+    first_boot_stage6d_paper, prepare_stage6d_paper_dispatch, restart_stage6d_paper,
+    seal_stage6d_restart_package, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
+    Stage6dFirstBootAuthorization, Stage6dFirstBootConfig, Stage6dFreshBrokerTruthInput,
+    Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION,
+    STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]

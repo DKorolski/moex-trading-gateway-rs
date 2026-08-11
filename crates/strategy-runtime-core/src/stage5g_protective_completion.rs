@@ -905,6 +905,46 @@ fn stage5g_f_authenticated_package_roundtrip(
     (restored, package_fingerprint_sha256)
 }
 
+#[cfg(test)]
+pub(crate) fn stage6d_test_authenticated_restart_fixture() -> (
+    Vec<u8>,
+    crate::Stage5gLifecycleCommitmentKey,
+    crate::HybridIntradayRuntimeStrategy,
+) {
+    let source = stage5g_f_artifact_pre_execution_source(Stage5gProtectedPositionSide::Long);
+    let fresh_runtime = source
+        .stage5g_runtime_strategy()
+        .stage5g_clean_reconstruction_candidate();
+    let source = crate::Stage5gCleanRestartSource::ProtectiveLifecycle(source);
+    let persisted_at = stage5g_f_artifact_ts(1_800_000_030);
+    let (riskgate, riskgate_evidence) =
+        crate::stage5g_clean_restart::stage5g_test_persistence_authority_from_source(
+            &source,
+            persisted_at,
+        );
+    let input = crate::Stage5gCleanRestartExportInput {
+        snapshot_id: "stage6d-authenticated-restart-fixture".to_string(),
+        snapshot_revision: 1,
+        previous_revision: None,
+        write_generation: 1,
+        persisted_at_ts_utc: persisted_at,
+        source_commit_or_build_id:
+            crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+        lifecycle_watermarks: crate::Stage5dLifecycleWatermarks {
+            persisted_event_watermark: Some("stage6d-authenticated-restart-fixture".to_string()),
+            last_semantic_bar_ts: Some(persisted_at - chrono::Duration::minutes(1)),
+            last_broker_event_ts: Some(persisted_at - chrono::Duration::seconds(1)),
+        },
+        riskgate,
+        riskgate_evidence,
+    };
+    let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x6d; 32])
+        .expect("Stage 6D test commitment key");
+    let bytes = crate::export_stage5g_clean_restart(source, input, &key)
+        .expect("Stage 6D source-produced Stage 5G package exports");
+    (bytes, key, fresh_runtime)
+}
+
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 fn stage5g_f_artifact_scenario_side(
     scenario: Stage5gProtectiveScenarioId,

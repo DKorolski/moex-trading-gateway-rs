@@ -954,6 +954,10 @@ impl Stage5gFreshTruthContinued {
             self.ignored_historical_trade_count,
         )
     }
+
+    pub(crate) fn into_restart(self) -> Stage5gCleanRestartedCapability {
+        self.restart
+    }
 }
 
 pub(crate) struct Stage5gFreshTruthApplicationBlocked {
@@ -992,6 +996,10 @@ impl Stage5gFreshTruthApplicationBlocked {
             self.ignored_terminal_order_count,
             self.ignored_historical_trade_count,
         )
+    }
+
+    pub(crate) fn into_restart(self) -> Stage5gCleanRestartedCapability {
+        self.restart
     }
 }
 

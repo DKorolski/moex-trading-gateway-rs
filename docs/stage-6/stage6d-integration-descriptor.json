@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "stage": "6D",
+  "status": "implementation_candidate",
+  "accepted_stage6c_ref": "e10d8fb0f9e095a849b1e56779a0597606d22111",
+  "accepted_stage6b_ref": "f0d5e3912243ba85c6f372722c97e815f254a962",
+  "required_branch": "stage6-durable-chain",
+  "boot_modes": [
+    "first_boot",
+    "restart"
+  ],
+  "authenticated_restart_bindings": [
+    "stage5g_restart_package",
+    "stage6_checkpoint",
+    "operational_identity"
+  ],
+  "durable_before_effect": true,
+  "accepted_stage5_application_boundary": "stage5g_fresh_truth_reducer_authenticated_roundtrip",
+  "paper_outcomes": [
+    "market_filled",
+    "limit_pending",
+    "limit_filled",
+    "place_broker_order_found",
+    "place_no_broker_order_found",
+    "inconclusive",
+    "cancel_canceled",
+    "cancel_execution_observed",
+    "cancel_rejected",
+    "cancel_already_terminal_non_execution"
+  ],
+  "restart_scenario_count": 10,
+  "focused_test_count": 32,
+  "negative_case_minimum": 72,
+  "soak_format": "ndjson",
+  "stage6a_bytes_unchanged": true,
+  "stage6b_backend_unchanged": true,
+  "stage6c_replay_unchanged": true,
+  "closed_surfaces": {
+    "redis_command_consumer": false,
+    "finam_transport": false,
+    "network_broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "native_stop_sltp_bracket": false
+  },
+  "stage6e_open": false
+}
