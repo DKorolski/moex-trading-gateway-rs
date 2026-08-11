@@ -3094,6 +3094,13 @@ fn exact_id_hash(domain: &str, value: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+/// Exact Stage 5G attribution authority reused by the Stage 6E semantic
+/// restart cross-binding. Keeping this crate-private avoids a parallel hash
+/// policy at the durable-chain boundary.
+pub(crate) fn stage5g_attribution_fingerprint_sha256(value: &HybridRuntimeAttribution) -> String {
+    exact_id_hash("attribution", value.internal_comment())
+}
+
 fn intent_class_name(value: crate::BrokerNeutralHybridIntentClass) -> &'static str {
     match value {
         crate::BrokerNeutralHybridIntentClass::Entry => "entry",
@@ -3267,7 +3274,7 @@ impl Stage5gOrderPositionSession {
                         .source
                         .expected_attribution
                         .as_ref()
-                        .map(|value| exact_id_hash("attribution", value.internal_comment())),
+                        .map(stage5g_attribution_fingerprint_sha256),
                     latest_order,
                     trades: slot.trades.clone(),
                     position: slot.position.as_ref().map(|(_, position)| position.clone()),
@@ -9210,6 +9217,30 @@ pub(crate) mod tests {
             .expect("e-d-b working escrow fixture reconstructs through accepted byte boundary")
     }
 
+    pub(crate) fn stage6e_restored_generated_working_fixture_with_attribution() -> (
+        crate::Stage5gCleanRestartedCapability,
+        HybridRuntimeAttribution,
+    ) {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedWorkingIntentEscrow,
+        );
+        let attribution = match &source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => session
+                .state
+                .slots
+                .first()
+                .and_then(|slot| slot.source.expected_attribution.clone())
+                .expect("Stage 6E working fixture retains source attribution"),
+            _ => panic!("Stage 6E working fixture must remain order-position awaiting"),
+        };
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("Stage 6E working fixture exports authenticated restart bytes");
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("Stage 6E working fixture reconstructs through accepted byte boundary");
+        (restored, attribution)
+    }
+
     pub(crate) fn stage5g_edb_restored_generated_limit_escrow_fixture(
     ) -> crate::Stage5gCleanRestartedCapability {
         let commitment_key = stage5ge_c_commitment_key();
@@ -9246,6 +9277,45 @@ pub(crate) mod tests {
             .expect("e-d-b cancel target authority reconstructs through accepted byte boundary")
     }
 
+    pub(crate) fn stage6e_restored_cancel_fixture_with_attribution() -> (
+        crate::Stage5gCleanRestartedCapability,
+        HybridRuntimeAttribution,
+    ) {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (mut source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedCancelTargetAuthority,
+        );
+        let attribution = match &mut source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => {
+                let slot = session
+                    .state
+                    .slots
+                    .first_mut()
+                    .expect("Stage 6E cancel fixture retains one current slot");
+                slot.ack.expected_client_order_id =
+                    ClientOrderId::from_strategy_request(slot.ack.request_id);
+                let source_attribution = slot
+                    .source
+                    .expected_attribution
+                    .as_ref()
+                    .expect("Stage 6E cancel fixture retains source attribution")
+                    .internal_comment()
+                    .replace("|r=ENTRY", "|r=CANCEL");
+                let attribution =
+                    HybridRuntimeAttribution::parse_source_comment(source_attribution)
+                        .expect("Stage 6E cancel attribution remains canonical");
+                slot.source.expected_attribution = Some(attribution.clone());
+                attribution
+            }
+            _ => panic!("Stage 6E cancel fixture must remain order-position awaiting"),
+        };
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("Stage 6E cancel fixture exports authenticated restart bytes");
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("Stage 6E cancel fixture reconstructs through accepted byte boundary");
+        (restored, attribution)
+    }
+
     pub(crate) fn stage5g_edb_restored_generated_fractional_escrow_fixture(
     ) -> crate::Stage5gCleanRestartedCapability {
         let commitment_key = stage5ge_c_commitment_key();
@@ -9278,6 +9348,29 @@ pub(crate) mod tests {
             .expect("e-d-b terminal fixture exports authenticated restart bytes");
         crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
             .expect("e-d-b terminal fixture reconstructs through the accepted byte boundary")
+    }
+
+    pub(crate) fn stage6e_restored_terminal_fixture_with_attribution() -> (
+        crate::Stage5gCleanRestartedCapability,
+        HybridRuntimeAttribution,
+    ) {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) =
+            stage5ge_c_public_roundtrip_fixture(Stage5geCTestSourceKind::TerminalPositionApplied);
+        let attribution = match &source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => session
+                .state
+                .slots
+                .first()
+                .and_then(|slot| slot.source.expected_attribution.clone())
+                .expect("Stage 6E terminal fixture retains source attribution"),
+            _ => panic!("Stage 6E terminal fixture must remain order-position awaiting"),
+        };
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("Stage 6E terminal fixture exports authenticated restart bytes");
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &commitment_key, fresh_runtime)
+            .expect("Stage 6E terminal fixture reconstructs through accepted byte boundary");
+        (restored, attribution)
     }
 
     pub(crate) fn stage5g_edb_restored_terminal_rejected_fixture(

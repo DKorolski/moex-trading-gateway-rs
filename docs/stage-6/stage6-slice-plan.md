@@ -14,7 +14,10 @@ Stage 6 opens only after independent acceptance of Transition Gate 5→6.
    accepted Stage 5 callback/lifecycle boundary without Redis, FINAM or broker
    dispatch.
 5. **6E — aggregate durable-chain acceptance.** Debug/release/restart evidence,
-   negative matrix, immutable descriptor and closure package.
+   semantic Stage 5↔Stage 6 boot cross-binding, opaque accepted broker-truth
+   authority, debug/release evidence, negative matrix, immutable descriptor
+   and closure package. Implementation candidate is documented in
+   [stage6e-live-durable-chain-closure.md](stage6e-live-durable-chain-closure.md).
 
 Each slice requires independent acceptance before the next opens. Stage 7,
 Redis `XREADGROUP`/`XAUTOCLAIM`, FINAM POST/DELETE, broker dispatch,

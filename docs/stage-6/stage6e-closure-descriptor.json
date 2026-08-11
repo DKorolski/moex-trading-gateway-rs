@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "stage": "6E",
+  "status": "implementation_candidate",
+  "accepted_stage6d_ref": "8d4c1f437c02cfb023aa75fb4a411b9394d2d293",
+  "accepted_stage6c_r1_ref": "e10d8fb0f9e095a849b1e56779a0597606d22111",
+  "required_branch": "stage6-durable-chain",
+  "restart_cross_binding_before_capability": true,
+  "cross_bound_fields": [
+    "strategy_request_id",
+    "durable_client_order_id",
+    "account_id",
+    "instrument",
+    "strategy_definition_id",
+    "stage5_attribution_fingerprint",
+    "action",
+    "cancel_target_broker_order_id",
+    "cancel_target_client_order_id"
+  ],
+  "unmatched_effect_capable_stage6_request_rejected": true,
+  "finalized_historical_stage6_request_allowed": true,
+  "accepted_fresh_truth_capability": "Stage6eAcceptedFreshBrokerTruth",
+  "raw_truth_application_allowed": false,
+  "paper_issuer_enabled": true,
+  "future_provider_is_authority": false,
+  "integration_fingerprint_schema_version": 2,
+  "focused_test_count": 16,
+  "negative_case_minimum": 48,
+  "stage6a_bytes_unchanged": true,
+  "stage6b_backend_unchanged": true,
+  "stage6c_replay_unchanged": true,
+  "closed_surfaces": {
+    "redis_command_consumer": false,
+    "finam_transport": false,
+    "network_broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "native_stop_sltp_bracket": false
+  },
+  "stage6_closed_after_independent_acceptance": true,
+  "stage7_open_after_independent_acceptance": true
+}

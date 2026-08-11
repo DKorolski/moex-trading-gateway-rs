@@ -17,8 +17,9 @@ use crate::stage5g_fresh_broker_truth::{
     Stage5gFreshBrokerTruthError, Stage5gFreshBrokerTruthPackageV1,
     Stage5gFreshBrokerTruthValidationContext, Stage5gFreshTruthApplicationResult,
     Stage5gOperationalIdentityInput, Stage5gReconciledFreshPackageIdentity,
-    STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
+    Stage5gValidatedFreshBrokerTruthPackage, STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
 };
+use crate::stage5g_order_position::stage5g_attribution_fingerprint_sha256;
 use crate::{
     HybridIntradayRuntimeStrategy, Stage6CancelOutcomeV1, Stage6DurableActionKind,
     Stage6DurableIdentityError, Stage6DurableRequestIdentityV1, Stage6JournalBackend,
@@ -36,10 +37,13 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION: u16 = 1;
-pub const STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION: u16 = 1;
+pub const STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION: u16 = 2;
+pub const STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION: u16 = 1;
 
 const STAGE6D_RESTART_COMMITMENT_DOMAIN: &str = "moex.stage6d.authenticated-restart-frontier.v1";
-const STAGE6D_INTEGRATION_FINGERPRINT_DOMAIN: &str = "moex.stage6d.durable-runtime-recovered.v1";
+const STAGE6D_INTEGRATION_FINGERPRINT_DOMAIN: &str = "moex.stage6e.durable-runtime-recovered.v2";
+const STAGE6E_SEMANTIC_CROSS_BINDING_DOMAIN: &str =
+    "moex.stage6e.stage5-stage6-semantic-cross-binding.v1";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -75,6 +79,8 @@ pub enum Stage6dLiveCoreError {
     RestartRuntimeRequired,
     RestartRequestIdentityMismatch,
     RestartBrokerTruthMismatch,
+    RestartSemanticCrossBindingMismatch,
+    AcceptedFreshTruthBindingMismatch,
 }
 
 impl std::fmt::Display for Stage6dLiveCoreError {
@@ -114,6 +120,12 @@ impl std::fmt::Display for Stage6dLiveCoreError {
             }
             Self::RestartBrokerTruthMismatch => {
                 "Stage 6 journal facts are not represented by Stage 5 broker truth"
+            }
+            Self::RestartSemanticCrossBindingMismatch => {
+                "Stage 5 and Stage 6 restart authorities are not semantically cross-bound"
+            }
+            Self::AcceptedFreshTruthBindingMismatch => {
+                "accepted fresh broker truth is not bound to the recovered durable authority"
             }
         })
     }
@@ -267,6 +279,27 @@ enum Stage6dStage5RuntimeAuthority {
     Restart(Box<Stage5gCleanRestartedCapability>),
 }
 
+#[derive(Serialize)]
+struct Stage6eCrossBoundRequestWitness {
+    strategy_request_id: StrategyRequestId,
+    durable_client_order_id: broker_core::ClientOrderId,
+    account_id: broker_core::BrokerAccountId,
+    instrument: broker_core::InstrumentId,
+    strategy_definition_id: String,
+    attribution_fingerprint_sha256: String,
+    action: Stage6DurableActionKind,
+    target_broker_order_id: Option<BrokerOrderId>,
+    target_order_client_order_id: Option<broker_core::ClientOrderId>,
+}
+
+/// Private proof that every current Stage 5G lifecycle slot has an exact
+/// semantic peer in the accepted Stage 6 journal. Historical Stage 6 requests
+/// may remain outside this set.
+struct Stage6eSemanticCrossBinding {
+    request_ids: Vec<StrategyRequestId>,
+    fingerprint_sha256: Stage6Sha256Digest,
+}
+
 /// The only Stage 6D post-boot authority. It owns the Stage 5 runtime
 /// authority, validated journal and deterministic replay snapshot together.
 /// It intentionally has no `Clone`, `Debug`, `Serialize` or `Deserialize`.
@@ -279,6 +312,7 @@ pub struct Stage6dDurableRuntimeRecovered {
     integration_fingerprint_sha256: Stage6Sha256Digest,
     first_boot_deployment_id: Option<String>,
     authenticated_operational_identity: Option<Stage6dOperationalIdentityConfig>,
+    semantic_cross_binding: Option<Stage6eSemanticCrossBinding>,
 }
 
 impl Stage6dDurableRuntimeRecovered {
@@ -310,6 +344,18 @@ impl Stage6dDurableRuntimeRecovered {
         self.authenticated_operational_identity.as_ref()
     }
 
+    pub fn semantic_cross_binding_fingerprint_sha256(&self) -> Option<&Stage6Sha256Digest> {
+        self.semantic_cross_binding
+            .as_ref()
+            .map(|binding| &binding.fingerprint_sha256)
+    }
+
+    pub fn active_cross_bound_request_ids(&self) -> &[StrategyRequestId] {
+        self.semantic_cross_binding
+            .as_ref()
+            .map_or(&[], |binding| binding.request_ids.as_slice())
+    }
+
     pub fn redis_command_consumer_attached(&self) -> bool {
         false
     }
@@ -338,11 +384,18 @@ impl Stage6dDurableRuntimeRecovered {
         self.replay = Stage6ReplayEngineV1::replay(self.journal.records())?;
         self.authenticated_checkpoint =
             Stage6JournalCheckpointV1::from_frontier(self.journal.frontier().clone())?;
+        self.semantic_cross_binding = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => Some(
+                stage6e_semantic_cross_bind_restart(restart, &self.journal, &self.replay)?,
+            ),
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+        };
         self.integration_fingerprint_sha256 = integration_fingerprint(
             self.boot_mode,
             &self.stage5_runtime,
             &self.replay,
             &self.authenticated_checkpoint,
+            self.semantic_cross_binding.as_ref(),
         )?;
         Ok(())
     }
@@ -373,6 +426,7 @@ pub fn first_boot_stage6d_paper(
         &stage5_runtime,
         &replay,
         &authenticated_checkpoint,
+        None,
     )?;
     Ok(Stage6dDurableRuntimeRecovered {
         boot_mode: Stage6dBootMode::FirstBoot,
@@ -383,6 +437,7 @@ pub fn first_boot_stage6d_paper(
         integration_fingerprint_sha256,
         first_boot_deployment_id: Some(authorization.deployment_id),
         authenticated_operational_identity: None,
+        semantic_cross_binding: None,
     })
 }
 
@@ -420,11 +475,18 @@ fn recover_stage6d_restart_from_authorities(
 ) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
     journal.validate_checkpoint(&authenticated_checkpoint)?;
     let replay = Stage6ReplayEngineV1::replay(journal.records())?;
+    let semantic_cross_binding = match &stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => Some(
+            stage6e_semantic_cross_bind_restart(restart, &journal, &replay)?,
+        ),
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+    };
     let integration_fingerprint_sha256 = integration_fingerprint(
         Stage6dBootMode::Restart,
         &stage5_runtime,
         &replay,
         &authenticated_checkpoint,
+        semantic_cross_binding.as_ref(),
     )?;
     Ok(Stage6dDurableRuntimeRecovered {
         boot_mode: Stage6dBootMode::Restart,
@@ -435,6 +497,7 @@ fn recover_stage6d_restart_from_authorities(
         integration_fingerprint_sha256,
         first_boot_deployment_id: None,
         authenticated_operational_identity,
+        semantic_cross_binding,
     })
 }
 
@@ -519,7 +582,7 @@ struct Stage6dAcceptedBrokerTruth {
 /// operational identity from the HMAC-bound restart package and passes these
 /// rows through the accepted Stage 5G validator/reducer/application boundary.
 #[derive(Debug, Clone)]
-pub struct Stage6dFreshBrokerTruthInput {
+pub struct Stage6ePaperFreshBrokerTruthInput {
     pub package_id: String,
     pub snapshot_epoch: String,
     pub captured_at: DateTime<Utc>,
@@ -532,6 +595,58 @@ pub struct Stage6dFreshBrokerTruthInput {
     pub orders: Vec<BrokerOrderSnapshot>,
     pub trades: Vec<BrokerTradeSnapshot>,
     pub positions: Vec<BrokerPositionSnapshot>,
+}
+
+/// Opaque, linear fresh-truth authority. It is issued only after the provider
+/// input has passed Stage 6 replay/correlation checks and the accepted Stage
+/// 5G package validator. It deliberately has no Clone, Debug, Serialize,
+/// Deserialize or public constructor.
+///
+/// Raw observations cannot call the production application boundary:
+///
+/// ```compile_fail
+/// use strategy_runtime_core::{
+///     apply_stage6e_accepted_fresh_truth, Stage5gLifecycleCommitmentKey,
+///     Stage6dDurableRuntimeRecovered, Stage6ePaperFreshBrokerTruthInput,
+/// };
+/// fn raw_cannot_apply(
+///     recovered: Stage6dDurableRuntimeRecovered,
+///     raw: Stage6ePaperFreshBrokerTruthInput,
+///     key: &Stage5gLifecycleCommitmentKey,
+/// ) {
+///     let _ = apply_stage6e_accepted_fresh_truth(recovered, raw, key);
+/// }
+/// ```
+///
+/// The accepted capability is linear and non-serializable:
+///
+/// ```compile_fail
+/// use strategy_runtime_core::Stage6eAcceptedFreshBrokerTruth;
+/// fn cannot_clone_or_serialize(value: Stage6eAcceptedFreshBrokerTruth) {
+///     let duplicate = value.clone();
+///     let _ = serde_json::to_vec(&duplicate);
+/// }
+/// ```
+pub struct Stage6eAcceptedFreshBrokerTruth {
+    validated: Stage5gValidatedFreshBrokerTruthPackage,
+    strategy_request_id: StrategyRequestId,
+    package_id: String,
+    stage6_replay_fingerprint_sha256: Stage6Sha256Digest,
+    journal_frontier_sha256: String,
+    authenticated_checkpoint_sha256: String,
+    semantic_cross_binding_fingerprint_sha256: Stage6Sha256Digest,
+}
+
+/// Broker-neutral collection seam for a future reviewed read-only provider.
+/// Implementing this trait does not grant authority to issue an accepted
+/// capability; provider admission remains a separate Stage 7+ gate.
+pub trait Stage6eFreshBrokerTruthProviderBoundary {
+    type Error;
+
+    fn provider_id(&self) -> &str;
+    fn collect_normalized_fresh_truth(
+        &mut self,
+    ) -> Result<Stage6ePaperFreshBrokerTruthInput, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -593,15 +708,13 @@ impl Stage6dFreshTruthTransition {
     }
 }
 
-/// Applies restart broker truth through the already accepted Stage 5G
-/// reconciliation path. The function consumes the single recovered authority
-/// and returns it in every classified outcome; no direct runtime field is
-/// reachable here.
-pub fn apply_stage6d_restart_fresh_truth(
-    mut recovered: Stage6dDurableRuntimeRecovered,
-    input: Stage6dFreshBrokerTruthInput,
-    commitment_key: &Stage5gLifecycleCommitmentKey,
-) -> Result<Stage6dFreshTruthTransition, Stage6dLiveCoreError> {
+/// Deterministic process-local paper issuer. Raw normalized observations are
+/// admitted only after exact restart/replay correlation and the accepted
+/// Stage 5G validator; the returned authority is opaque and linear.
+pub fn issue_stage6e_paper_fresh_broker_truth(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    input: Stage6ePaperFreshBrokerTruthInput,
+) -> Result<Stage6eAcceptedFreshBrokerTruth, Stage6dLiveCoreError> {
     let operational_config = recovered
         .authenticated_operational_identity
         .clone()
@@ -615,6 +728,16 @@ pub fn apply_stage6d_restart_fresh_truth(
     let projection = restart.fresh_truth_reducer_projection();
     let request_id = stage6d_match_restart_request(&recovered.replay, &projection)?;
     stage6d_validate_replayed_facts_against_truth(&recovered.replay, request_id, &input)?;
+    let semantic_cross_binding_fingerprint_sha256 = recovered
+        .semantic_cross_binding_fingerprint_sha256()
+        .cloned()
+        .ok_or(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)?;
+    if !recovered
+        .active_cross_bound_request_ids()
+        .contains(&request_id)
+    {
+        return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);
+    }
 
     let operational_identity = Stage5gOperationalIdentityInput {
         broker_id: operational_config.broker_id,
@@ -665,6 +788,8 @@ pub fn apply_stage6d_restart_fresh_truth(
         .payload
         .last_broker_truth_received_at
         .unwrap_or(DateTime::<Utc>::MIN_UTC);
+    let package_id = input.package_id.clone();
+    let validation_observed_at = input.captured_at;
     let validated = validate_stage5g_fresh_broker_truth_package(
         Stage5gFreshBrokerTruthPackageV1 {
             schema_version: STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
@@ -690,10 +815,52 @@ pub fn apply_stage6d_restart_fresh_truth(
             untrusted_accepted_replay_hints: &accepted_history,
             untrusted_known_historical_hints: &[],
             clean_restore_completed_at: clean_restore_floor,
-            validation_observed_at: input.captured_at,
+            validation_observed_at,
         },
     )?;
-    let bound = bind_stage5g_fresh_truth_to_clean_restart(restart, validated)?;
+    Ok(Stage6eAcceptedFreshBrokerTruth {
+        validated,
+        strategy_request_id: request_id,
+        package_id,
+        stage6_replay_fingerprint_sha256: recovered.replay.semantic_fingerprint_sha256().clone(),
+        journal_frontier_sha256: frontier_fingerprint(recovered.journal_frontier())?,
+        authenticated_checkpoint_sha256: sha256_hex(
+            &recovered.authenticated_checkpoint.encode_canonical(),
+        ),
+        semantic_cross_binding_fingerprint_sha256,
+    })
+}
+
+/// Applies only capability-issued broker truth through the accepted Stage 5G
+/// reconciliation path. Raw snapshots are not an application input.
+pub fn apply_stage6e_accepted_fresh_truth(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    accepted: Stage6eAcceptedFreshBrokerTruth,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6dFreshTruthTransition, Stage6dLiveCoreError> {
+    let current_binding = recovered
+        .semantic_cross_binding_fingerprint_sha256()
+        .ok_or(Stage6dLiveCoreError::AcceptedFreshTruthBindingMismatch)?;
+    if recovered.replay.semantic_fingerprint_sha256() != &accepted.stage6_replay_fingerprint_sha256
+        || frontier_fingerprint(recovered.journal_frontier())? != accepted.journal_frontier_sha256
+        || sha256_hex(&recovered.authenticated_checkpoint.encode_canonical())
+            != accepted.authenticated_checkpoint_sha256
+        || current_binding != &accepted.semantic_cross_binding_fingerprint_sha256
+        || !recovered
+            .active_cross_bound_request_ids()
+            .contains(&accepted.strategy_request_id)
+    {
+        return Err(Stage6dLiveCoreError::AcceptedFreshTruthBindingMismatch);
+    }
+    let restart = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => restart.as_ref(),
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired);
+        }
+    };
+    let request_id = accepted.strategy_request_id;
+    let package_id = accepted.package_id;
+    let bound = bind_stage5g_fresh_truth_to_clean_restart(restart, accepted.validated)?;
     let replacement_runtime = restart.stage5g_fresh_reconstruction_candidate();
 
     let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
@@ -719,7 +886,7 @@ pub fn apply_stage6d_restart_fresh_truth(
             let report = stage6d_fresh_truth_report(
                 &recovered,
                 request_id,
-                input.package_id,
+                package_id,
                 evidence.scenario_id(),
                 evidence.disposition(),
                 evidence.reason(),
@@ -745,7 +912,7 @@ pub fn apply_stage6d_restart_fresh_truth(
             let report = stage6d_fresh_truth_report(
                 &recovered,
                 request_id,
-                input.package_id,
+                package_id,
                 &scenario_id,
                 "continue_from_authenticated_checkpoint",
                 &reason,
@@ -772,7 +939,7 @@ pub fn apply_stage6d_restart_fresh_truth(
             let report = stage6d_fresh_truth_report(
                 &recovered,
                 request_id,
-                input.package_id,
+                package_id,
                 &scenario_id,
                 &disposition,
                 &reason,
@@ -994,6 +1161,119 @@ pub fn execute_stage6d_paper_outcome(
     })
 }
 
+fn stage6e_semantic_cross_bind_restart(
+    restart: &Stage5gCleanRestartedCapability,
+    journal: &Stage6MemoryJournalBackend,
+    replay: &Stage6ReplaySnapshotV1,
+) -> Result<Stage6eSemanticCrossBinding, Stage6dLiveCoreError> {
+    #[derive(Serialize)]
+    struct CrossBindingV1<'a> {
+        schema_version: u16,
+        domain: &'static str,
+        stage5_source_lifecycle_commit_sha256: &'a str,
+        stage5_lifecycle_source_authority_sha256: &'a str,
+        current_requests: &'a [Stage6eCrossBoundRequestWitness],
+    }
+
+    let projection = restart.fresh_truth_reducer_projection();
+    let mut witnesses = Vec::with_capacity(projection.slots.len());
+    for slot in &projection.slots {
+        if witnesses
+            .iter()
+            .any(|witness: &Stage6eCrossBoundRequestWitness| {
+                witness.strategy_request_id.to_string() == slot.command_request_id
+            })
+        {
+            return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);
+        }
+        let identity = journal
+            .records()
+            .iter()
+            .find(|record| {
+                record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                    && record
+                        .durable_request_identity()
+                        .strategy_request_id()
+                        .to_string()
+                        == slot.command_request_id
+            })
+            .map(Stage6JournalRecordV1::durable_request_identity)
+            .ok_or(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)?;
+        let replay_request = replay
+            .request(identity.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)?;
+        let expected_action = match &slot.source_action {
+            crate::Stage5gMockIntentAction::Place { .. } => Stage6DurableActionKind::Place,
+            crate::Stage5gMockIntentAction::Cancel { .. } => Stage6DurableActionKind::Cancel,
+        };
+        let expected_cancel_target = match &slot.source_action {
+            crate::Stage5gMockIntentAction::Cancel { target_order_id } => Some(target_order_id),
+            crate::Stage5gMockIntentAction::Place { .. } => None,
+        };
+        let attribution_fingerprint_sha256 =
+            stage5g_attribution_fingerprint_sha256(identity.attribution());
+        if identity.durable_client_order_id() != &slot.command_client_order_id
+            || replay_request.durable_client_order_id() != &slot.command_client_order_id
+            || identity.account_id() != &projection.account_id
+            || identity.instrument() != &projection.instrument_id
+            || !identity.attribution().belongs_to(&projection.strategy_id)
+            || slot
+                .expected_attribution_fingerprint_sha256
+                .as_ref()
+                .is_some_and(|expected| expected != &attribution_fingerprint_sha256)
+            || identity.action() != expected_action
+            || replay_request.action() != expected_action
+            || identity.target_broker_order_id() != expected_cancel_target
+            || (expected_action == Stage6DurableActionKind::Cancel
+                && slot
+                    .target_order_client_order_id
+                    .as_ref()
+                    .is_some_and(|expected| {
+                        identity.target_order_client_order_id() != Some(expected)
+                    }))
+        {
+            return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);
+        }
+        witnesses.push(Stage6eCrossBoundRequestWitness {
+            strategy_request_id: identity.strategy_request_id(),
+            durable_client_order_id: identity.durable_client_order_id().clone(),
+            account_id: identity.account_id().clone(),
+            instrument: identity.instrument().clone(),
+            strategy_definition_id: projection.strategy_id.clone(),
+            attribution_fingerprint_sha256,
+            action: identity.action(),
+            target_broker_order_id: identity.target_broker_order_id().cloned(),
+            target_order_client_order_id: identity.target_order_client_order_id().cloned(),
+        });
+    }
+    if replay.requests().iter().any(|request| {
+        !witnesses
+            .iter()
+            .any(|witness| witness.strategy_request_id == request.strategy_request_id())
+            && request.final_disposition().is_none()
+    }) {
+        return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);
+    }
+    witnesses.sort_by_key(|witness| witness.strategy_request_id.to_string());
+    let bytes = serde_json::to_vec(&CrossBindingV1 {
+        schema_version: 1,
+        domain: STAGE6E_SEMANTIC_CROSS_BINDING_DOMAIN,
+        stage5_source_lifecycle_commit_sha256: &projection.source_lifecycle_commit_sha256,
+        stage5_lifecycle_source_authority_sha256: &projection.lifecycle_source_authority_sha256,
+        current_requests: &witnesses,
+    })
+    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    let fingerprint_sha256 = Stage6Sha256Digest::parse(sha256_hex(&bytes))
+        .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    Ok(Stage6eSemanticCrossBinding {
+        request_ids: witnesses
+            .iter()
+            .map(|witness| witness.strategy_request_id)
+            .collect(),
+        fingerprint_sha256,
+    })
+}
+
 fn stage6d_match_restart_request(
     replay: &Stage6ReplaySnapshotV1,
     projection: &crate::stage5g_clean_restart::Stage5gFreshTruthRestartProjection,
@@ -1019,7 +1299,7 @@ fn stage6d_match_restart_request(
 fn stage6d_validate_replayed_facts_against_truth(
     replay: &Stage6ReplaySnapshotV1,
     request_id: StrategyRequestId,
-    input: &Stage6dFreshBrokerTruthInput,
+    input: &Stage6ePaperFreshBrokerTruthInput,
 ) -> Result<(), Stage6dLiveCoreError> {
     let request = replay
         .request(request_id)
@@ -1277,6 +1557,7 @@ fn integration_fingerprint(
     stage5_runtime: &Stage6dStage5RuntimeAuthority,
     replay: &Stage6ReplaySnapshotV1,
     checkpoint: &Stage6JournalCheckpointV1,
+    semantic_cross_binding: Option<&Stage6eSemanticCrossBinding>,
 ) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
     #[derive(Serialize)]
     struct IntegrationFingerprintV1<'a> {
@@ -1287,6 +1568,7 @@ fn integration_fingerprint(
         stage6_replay_semantic_fingerprint_sha256: &'a Stage6Sha256Digest,
         stage6_checkpoint: &'a Stage6JournalCheckpointV1,
         recovered_requests: &'a [crate::Stage6RecoveredRequestV1],
+        active_cross_bound_request_identity_sha256: Option<&'a Stage6Sha256Digest>,
     }
 
     let stage5_semantic_authority = stage5_runtime_authority_fingerprint(stage5_runtime)?;
@@ -1299,6 +1581,8 @@ fn integration_fingerprint(
         stage6_replay_semantic_fingerprint_sha256: replay.semantic_fingerprint_sha256(),
         stage6_checkpoint: checkpoint,
         recovered_requests: replay.requests(),
+        active_cross_bound_request_identity_sha256: semantic_cross_binding
+            .map(|binding| &binding.fingerprint_sha256),
     };
     let bytes =
         serde_json::to_vec(&input).map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
@@ -1339,6 +1623,7 @@ mod tests {
     use crate::{
         BrokerNeutralMarketOrderStyle, HybridIntradayProfile, HybridIntradayRuntimeConfig,
         MeanReversionVariant, MrGatePolicy, RiskGateMode, Stage6DurableCommandSnapshotV1,
+        Stage6RequestFinalDispositionV1,
     };
     use broker_core::{
         BrokerAccountId, CancelOrder, ClientOrderId, Exchange, HybridRuntimeAttribution,
@@ -1551,11 +1836,11 @@ mod tests {
 
     fn stage6d_stage5g_working_restart_fixture() -> (
         Stage6dDurableRuntimeRecovered,
-        Stage6dFreshBrokerTruthInput,
+        Stage6ePaperFreshBrokerTruthInput,
         Stage5gLifecycleCommitmentKey,
     ) {
-        let restart = crate::stage5g_order_position::tests::
-            stage5g_edb_restored_generated_working_escrow_fixture();
+        let (restart, attribution) = crate::stage5g_order_position::tests::
+            stage6e_restored_generated_working_fixture_with_attribution();
         let projection = restart.fresh_truth_reducer_projection();
         let slot = projection.slots.first().expect("working Stage 5G slot");
         let request_uuid = Uuid::parse_str(&slot.command_request_id).expect("request UUID");
@@ -1573,7 +1858,6 @@ mod tests {
                 panic!("working fixture must be Place")
             }
         };
-        let attribution = attribution("ENTRY");
         let command = PlaceOrder {
             request_id,
             created_ts: Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 0).unwrap(),
@@ -1639,7 +1923,7 @@ mod tests {
             source_ts: Some(observed_at),
             received_ts: observed_at,
         };
-        let input = Stage6dFreshBrokerTruthInput {
+        let input = Stage6ePaperFreshBrokerTruthInput {
             package_id: "stage6d-working-package-1".to_string(),
             snapshot_epoch: "stage6d-working-epoch-1".to_string(),
             captured_at: observed_at,
@@ -1666,11 +1950,11 @@ mod tests {
 
     fn stage6d_stage5g_terminal_restart_fixture() -> (
         Stage6dDurableRuntimeRecovered,
-        Stage6dFreshBrokerTruthInput,
+        Stage6ePaperFreshBrokerTruthInput,
         Stage5gLifecycleCommitmentKey,
     ) {
-        let restart =
-            crate::stage5g_order_position::tests::stage5g_edb_restored_terminal_applied_fixture();
+        let (restart, attribution) = crate::stage5g_order_position::tests::
+            stage6e_restored_terminal_fixture_with_attribution();
         let projection = restart.fresh_truth_reducer_projection();
         let slot = projection.slots.first().expect("terminal Stage 5G slot");
         let request_id = StrategyRequestId::from(
@@ -1683,7 +1967,6 @@ mod tests {
             .as_ref()
             .map(|order| order.order_type)
             .unwrap_or(OrderType::Market);
-        let attribution = attribution("ENTRY");
         let command = PlaceOrder {
             request_id,
             created_ts: Utc.with_ymd_and_hms(2031, 1, 1, 0, 0, 0).unwrap(),
@@ -1740,7 +2023,7 @@ mod tests {
         for position in &mut positions {
             position.received_ts = observed_at;
         }
-        let input = Stage6dFreshBrokerTruthInput {
+        let input = Stage6ePaperFreshBrokerTruthInput {
             package_id: "stage6d-terminal-exact-package".to_string(),
             snapshot_epoch: "stage6d-terminal-exact-epoch".to_string(),
             captured_at: observed_at,
@@ -1763,6 +2046,218 @@ mod tests {
         .unwrap();
         let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap();
         (recovered, input, key)
+    }
+
+    #[derive(Clone, Copy)]
+    enum Stage6eWorkingBindingMutation {
+        None,
+        Account,
+        Instrument,
+        Attribution,
+        Action,
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Stage6eExtraStage6History {
+        None,
+        Finalized,
+        Unresolved,
+    }
+
+    fn stage6e_working_cross_binding_recovery(
+        mutation: Stage6eWorkingBindingMutation,
+        extra_history: Stage6eExtraStage6History,
+    ) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
+        let (restart, source_attribution) = crate::stage5g_order_position::tests::
+            stage6e_restored_generated_working_fixture_with_attribution();
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("working Stage 5G slot");
+        let request_id = StrategyRequestId::from(
+            Uuid::parse_str(&slot.command_request_id).expect("request UUID"),
+        );
+        let mut account_id = projection.account_id.clone();
+        let mut target_instrument = projection.instrument_id.clone();
+        let mut command_attribution = source_attribution;
+        match mutation {
+            Stage6eWorkingBindingMutation::Account => {
+                account_id = BrokerAccountId::new("ACC_WRONG_0001")
+            }
+            Stage6eWorkingBindingMutation::Instrument => {
+                target_instrument.symbol = "RTS-9.26".to_string();
+                target_instrument.venue_symbol = Some("RTS-9.26@RTSX".to_string());
+            }
+            Stage6eWorkingBindingMutation::Attribution => {
+                command_attribution = HybridRuntimeAttribution::parse_source_comment(
+                    command_attribution
+                        .internal_comment()
+                        .replace("|c=", "|c=drift"),
+                )
+                .expect("drifted attribution remains structurally valid");
+            }
+            Stage6eWorkingBindingMutation::None | Stage6eWorkingBindingMutation::Action => {}
+        }
+
+        let (accepted, dispatch) = if matches!(mutation, Stage6eWorkingBindingMutation::Action) {
+            let command = CancelOrder {
+                request_id,
+                created_ts: Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 0).unwrap(),
+                ttl_ms: Some(5_000),
+                account_id,
+                order_id: BrokerOrderId::new("UNRELATED-CANCEL-TARGET"),
+                client_order_id: None,
+            };
+            let cancel_attribution = HybridRuntimeAttribution::parse_source_comment(
+                command_attribution
+                    .internal_comment()
+                    .replace("|r=ENTRY", "|r=CANCEL"),
+            )
+            .expect("cancel attribution remains canonical");
+            let identity = Stage6DurableRequestIdentityV1::from_cancel(
+                &command,
+                target_instrument,
+                cancel_attribution,
+            )?;
+            let snapshot = Stage6DurableCommandSnapshotV1::from_cancel(&identity, &command)?;
+            let accepted = Stage6JournalRecordV1::request_accepted(
+                identity.clone(),
+                snapshot,
+                Stage6LifecycleSequence::new(1)?,
+                None,
+                None,
+                digest('d'),
+            )?;
+            let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+                identity,
+                1,
+                accepted.canonical_payload_sha256().clone(),
+                Stage6LifecycleSequence::new(2)?,
+                Some(accepted.journal_record_id().clone()),
+                digest('e'),
+            )?;
+            (accepted, dispatch)
+        } else {
+            let command = PlaceOrder {
+                request_id,
+                created_ts: Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 0).unwrap(),
+                ttl_ms: Some(5_000),
+                account_id,
+                client_order_id: slot.command_client_order_id.clone(),
+                instrument: target_instrument,
+                side: slot.side.unwrap_or(OrderSide::Buy),
+                order_type: OrderType::Market,
+                qty: slot.target_qty.unwrap_or(Decimal::ONE),
+                limit_price: None,
+                time_in_force: TimeInForce::Day,
+                comment: Some(command_attribution.internal_comment().to_string()),
+            };
+            let identity =
+                Stage6DurableRequestIdentityV1::from_place(&command, command_attribution)?;
+            let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command)?;
+            let accepted = Stage6JournalRecordV1::request_accepted(
+                identity.clone(),
+                snapshot,
+                Stage6LifecycleSequence::new(1)?,
+                None,
+                None,
+                digest('d'),
+            )?;
+            let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+                identity,
+                1,
+                accepted.canonical_payload_sha256().clone(),
+                Stage6LifecycleSequence::new(2)?,
+                Some(accepted.journal_record_id().clone()),
+                digest('e'),
+            )?;
+            (accepted, dispatch)
+        };
+
+        let mut journal = Stage6MemoryJournalBackend::new();
+        if extra_history != Stage6eExtraStage6History::None {
+            let historical = place_fixture(800, OrderType::Limit);
+            let (historical_accepted, _) = accepted_and_dispatch_place(&historical);
+            journal.append(&historical_accepted)?;
+            if extra_history == Stage6eExtraStage6History::Finalized {
+                let historical_finalized = Stage6JournalRecordV1::request_finalized(
+                    historical.identity,
+                    Stage6RequestFinalDispositionV1::Completed,
+                    Stage6LifecycleSequence::new(2)?,
+                    Some(historical_accepted.journal_record_id().clone()),
+                    digest('f'),
+                )?;
+                journal.append(&historical_finalized)?;
+            }
+        }
+        journal.append(&accepted)?;
+        journal.append(&dispatch)?;
+        let checkpoint = Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())?;
+        recover_stage6d_restart_from_authorities(
+            Stage6dStage5RuntimeAuthority::Restart(Box::new(restart)),
+            journal,
+            checkpoint,
+            Some(operational_config()),
+        )
+    }
+
+    fn stage6e_cancel_cross_binding_recovery(
+        drift_target: bool,
+    ) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
+        let (restart, attribution) =
+            crate::stage5g_order_position::tests::stage6e_restored_cancel_fixture_with_attribution(
+            );
+        let projection = restart.fresh_truth_reducer_projection();
+        let slot = projection.slots.first().expect("cancel Stage 5G slot");
+        let request_id = StrategyRequestId::from(
+            Uuid::parse_str(&slot.command_request_id).expect("request UUID"),
+        );
+        let expected_target = match &slot.source_action {
+            crate::Stage5gMockIntentAction::Cancel { target_order_id } => target_order_id.clone(),
+            crate::Stage5gMockIntentAction::Place { .. } => panic!("cancel fixture action drift"),
+        };
+        let command = CancelOrder {
+            request_id,
+            created_ts: Utc.with_ymd_and_hms(2030, 1, 1, 0, 1, 0).unwrap(),
+            ttl_ms: Some(5_000),
+            account_id: projection.account_id.clone(),
+            order_id: if drift_target {
+                BrokerOrderId::new("WRONG-CANCEL-TARGET")
+            } else {
+                expected_target
+            },
+            client_order_id: slot.target_order_client_order_id.clone(),
+        };
+        let identity = Stage6DurableRequestIdentityV1::from_cancel(
+            &command,
+            projection.instrument_id.clone(),
+            attribution,
+        )?;
+        let snapshot = Stage6DurableCommandSnapshotV1::from_cancel(&identity, &command)?;
+        let accepted = Stage6JournalRecordV1::request_accepted(
+            identity.clone(),
+            snapshot,
+            Stage6LifecycleSequence::new(1)?,
+            None,
+            None,
+            digest('6'),
+        )?;
+        let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+            identity,
+            1,
+            accepted.canonical_payload_sha256().clone(),
+            Stage6LifecycleSequence::new(2)?,
+            Some(accepted.journal_record_id().clone()),
+            digest('7'),
+        )?;
+        let mut journal = Stage6MemoryJournalBackend::new();
+        journal.append(&accepted)?;
+        journal.append(&dispatch)?;
+        let checkpoint = Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())?;
+        recover_stage6d_restart_from_authorities(
+            Stage6dStage5RuntimeAuthority::Restart(Box::new(restart)),
+            journal,
+            checkpoint,
+            Some(operational_config()),
+        )
     }
 
     #[test]
@@ -2347,10 +2842,140 @@ mod tests {
     }
 
     #[test]
+    fn stage6e_matching_stage5_stage6_pair_is_cross_bound_before_capability() {
+        let recovered = stage6e_working_cross_binding_recovery(
+            Stage6eWorkingBindingMutation::None,
+            Stage6eExtraStage6History::None,
+        )
+        .unwrap();
+        assert_eq!(recovered.active_cross_bound_request_ids().len(), 1);
+        assert_eq!(
+            recovered
+                .semantic_cross_binding_fingerprint_sha256()
+                .unwrap()
+                .as_str()
+                .len(),
+            64
+        );
+    }
+
+    #[test]
+    fn stage6e_account_mismatch_is_rejected_during_restart() {
+        assert!(matches!(
+            stage6e_working_cross_binding_recovery(
+                Stage6eWorkingBindingMutation::Account,
+                Stage6eExtraStage6History::None,
+            ),
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_instrument_mismatch_is_rejected_during_restart() {
+        assert!(matches!(
+            stage6e_working_cross_binding_recovery(
+                Stage6eWorkingBindingMutation::Instrument,
+                Stage6eExtraStage6History::None,
+            ),
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_attribution_mismatch_is_rejected_during_restart() {
+        assert!(matches!(
+            stage6e_working_cross_binding_recovery(
+                Stage6eWorkingBindingMutation::Attribution,
+                Stage6eExtraStage6History::None,
+            ),
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_place_cancel_action_mismatch_is_rejected_during_restart() {
+        assert!(matches!(
+            stage6e_working_cross_binding_recovery(
+                Stage6eWorkingBindingMutation::Action,
+                Stage6eExtraStage6History::None,
+            ),
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_exact_cancel_target_is_cross_bound() {
+        let recovered = stage6e_cancel_cross_binding_recovery(false).unwrap();
+        assert_eq!(recovered.active_cross_bound_request_ids().len(), 1);
+    }
+
+    #[test]
+    fn stage6e_cancel_target_mismatch_is_rejected_during_restart() {
+        assert!(matches!(
+            stage6e_cancel_cross_binding_recovery(true),
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_extra_finalized_stage6_history_does_not_need_current_stage5_slot() {
+        let recovered = stage6e_working_cross_binding_recovery(
+            Stage6eWorkingBindingMutation::None,
+            Stage6eExtraStage6History::Finalized,
+        )
+        .unwrap();
+        assert_eq!(recovered.replay().requests().len(), 2);
+        assert_eq!(recovered.active_cross_bound_request_ids().len(), 1);
+        assert_eq!(
+            recovered
+                .replay()
+                .requests()
+                .iter()
+                .filter(|request| request.final_disposition().is_some())
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn stage6e_extra_unresolved_stage6_authority_is_rejected() {
+        assert!(matches!(
+            stage6e_working_cross_binding_recovery(
+                Stage6eWorkingBindingMutation::None,
+                Stage6eExtraStage6History::Unresolved,
+            ),
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_integration_and_cross_binding_fingerprints_are_deterministic() {
+        let a = stage6e_working_cross_binding_recovery(
+            Stage6eWorkingBindingMutation::None,
+            Stage6eExtraStage6History::None,
+        )
+        .unwrap();
+        let b = stage6e_working_cross_binding_recovery(
+            Stage6eWorkingBindingMutation::None,
+            Stage6eExtraStage6History::None,
+        )
+        .unwrap();
+        assert_eq!(
+            a.semantic_cross_binding_fingerprint_sha256(),
+            b.semantic_cross_binding_fingerprint_sha256()
+        );
+        assert_eq!(
+            a.integration_fingerprint_sha256(),
+            b.integration_fingerprint_sha256()
+        );
+    }
+
+    #[test]
     fn stage6d_restart_truth_uses_accepted_stage5g_application_boundary_once() {
         let (recovered, input, key) = stage6d_stage5g_working_restart_fixture();
         let before = recovered.integration_fingerprint_sha256().clone();
-        let transition = apply_stage6d_restart_fresh_truth(recovered, input, &key).unwrap();
+        let accepted = issue_stage6e_paper_fresh_broker_truth(&recovered, input).unwrap();
+        let transition = apply_stage6e_accepted_fresh_truth(recovered, accepted, &key).unwrap();
         let report = transition.report();
         assert!(
             matches!(transition, Stage6dFreshTruthTransition::Applied { .. }),
@@ -2375,7 +3000,119 @@ mod tests {
     }
 
     #[test]
-    fn stage6d_restart_truth_rejects_stage6_request_identity_drift() {
+    fn stage6e_paper_issuer_rejects_known_broker_order_absent_from_fresh_truth() {
+        let (mut recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let identity = recovered
+            .journal
+            .records()
+            .iter()
+            .find(|record| record.event_kind() == Stage6JournalEventKind::RequestAccepted)
+            .unwrap()
+            .durable_request_identity()
+            .clone();
+        let previous = recovered
+            .replay()
+            .request(identity.strategy_request_id())
+            .unwrap()
+            .last_unique_record_id()
+            .clone();
+        let observed = Stage6JournalRecordV1::broker_order_observed(
+            identity,
+            BrokerOrderId::new("BROKER-ORDER-NOT-IN-TRUTH"),
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(previous),
+            digest('c'),
+        )
+        .unwrap();
+        recovered.journal_mut().append(&observed).unwrap();
+        recovered.refresh_after_append().unwrap();
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth(&recovered, input),
+            Err(Stage6dLiveCoreError::RestartBrokerTruthMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_paper_issuer_rejects_known_broker_trade_absent_from_fresh_truth() {
+        let (mut recovered, input, _) = stage6d_stage5g_working_restart_fixture();
+        let identity = recovered
+            .journal
+            .records()
+            .iter()
+            .find(|record| record.event_kind() == Stage6JournalEventKind::RequestAccepted)
+            .unwrap()
+            .durable_request_identity()
+            .clone();
+        let broker_order_id = input.orders[0].broker_order_id.clone().unwrap();
+        let previous = recovered
+            .replay()
+            .request(identity.strategy_request_id())
+            .unwrap()
+            .last_unique_record_id()
+            .clone();
+        let order = Stage6JournalRecordV1::broker_order_observed(
+            identity.clone(),
+            broker_order_id.clone(),
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(previous),
+            digest('c'),
+        )
+        .unwrap();
+        let trade = Stage6JournalRecordV1::broker_trade_observed(
+            identity,
+            BrokerTradeId::new("BROKER-TRADE-NOT-IN-TRUTH"),
+            broker_order_id,
+            Stage6LifecycleSequence::new(4).unwrap(),
+            Some(order.journal_record_id().clone()),
+            digest('a'),
+        )
+        .unwrap();
+        recovered.journal_mut().append(&order).unwrap();
+        recovered.journal_mut().append(&trade).unwrap();
+        recovered.refresh_after_append().unwrap();
+        assert!(matches!(
+            issue_stage6e_paper_fresh_broker_truth(&recovered, input),
+            Err(Stage6dLiveCoreError::RestartBrokerTruthMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_accepted_truth_is_bound_to_exact_replay_and_frontier() {
+        let (mut recovered, input, key) = stage6d_stage5g_working_restart_fixture();
+        let broker_order_id = input.orders[0].broker_order_id.clone().unwrap();
+        let accepted_truth = issue_stage6e_paper_fresh_broker_truth(&recovered, input).unwrap();
+        let identity = recovered
+            .journal
+            .records()
+            .iter()
+            .find(|record| record.event_kind() == Stage6JournalEventKind::RequestAccepted)
+            .unwrap()
+            .durable_request_identity()
+            .clone();
+        let previous = recovered
+            .replay()
+            .request(identity.strategy_request_id())
+            .unwrap()
+            .last_unique_record_id()
+            .clone();
+        let order = Stage6JournalRecordV1::broker_order_observed(
+            identity,
+            broker_order_id,
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(previous),
+            digest('c'),
+        )
+        .unwrap();
+        recovered.journal_mut().append(&order).unwrap();
+        recovered.refresh_after_append().unwrap();
+        assert!(matches!(
+            apply_stage6e_accepted_fresh_truth(recovered, accepted_truth, &key),
+            Err(Stage6dLiveCoreError::AcceptedFreshTruthBindingMismatch)
+        ));
+    }
+
+    #[test]
+    fn stage6e_restart_rejects_stage6_request_identity_drift_before_capability() {
         let restart = crate::stage5g_order_position::tests::
             stage5g_edb_restored_generated_working_escrow_fixture();
         let fixture = place_fixture(99, OrderType::Market);
@@ -2385,32 +3122,15 @@ mod tests {
         journal.append(&dispatch).unwrap();
         let checkpoint =
             Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone()).unwrap();
-        let recovered = recover_stage6d_restart_from_authorities(
+        let result = recover_stage6d_restart_from_authorities(
             Stage6dStage5RuntimeAuthority::Restart(Box::new(restart)),
             journal,
             checkpoint,
             Some(operational_config()),
-        )
-        .unwrap();
-        let observed_at = Utc.with_ymd_and_hms(2030, 1, 1, 0, 0, 10).unwrap();
-        let input = Stage6dFreshBrokerTruthInput {
-            package_id: "stage6d-wrong-request".to_string(),
-            snapshot_epoch: "stage6d-wrong-request-epoch".to_string(),
-            captured_at: observed_at,
-            orders_observed_at: observed_at,
-            trades_observed_at: observed_at,
-            positions_observed_at: observed_at,
-            orders_complete: true,
-            trades_complete: true,
-            positions_complete: true,
-            orders: vec![],
-            trades: vec![],
-            positions: vec![],
-        };
-        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap();
+        );
         assert!(matches!(
-            apply_stage6d_restart_fresh_truth(recovered, input, &key),
-            Err(Stage6dLiveCoreError::RestartRequestIdentityMismatch)
+            result,
+            Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch)
         ));
     }
 
@@ -2418,7 +3138,8 @@ mod tests {
     fn stage6d_already_applied_terminal_truth_is_noop_through_stage5g() {
         let (recovered, input, key) = stage6d_stage5g_terminal_restart_fixture();
         let before = recovered.integration_fingerprint_sha256().clone();
-        let transition = apply_stage6d_restart_fresh_truth(recovered, input, &key).unwrap();
+        let accepted = issue_stage6e_paper_fresh_broker_truth(&recovered, input).unwrap();
+        let transition = apply_stage6e_accepted_fresh_truth(recovered, accepted, &key).unwrap();
         assert!(
             matches!(
                 transition,
