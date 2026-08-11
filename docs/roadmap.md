@@ -27,17 +27,19 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 6E-R1 — final durable-chain closure repair.
+Stage 7A — Redis runtime command consumer, paper/mock only (implementation
+candidate; independent acceptance pending).
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
-Stages 3, 4 and 5 are accepted/closed. Stage 6A, 6B, 6C, 6C-R1 and 6D are
-accepted. Stage 6E is superseded by the narrow Stage 6E-R1 review candidate.
-Stage 7 remains closed until independent R1 acceptance.
+Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and
+closed at `10e357825a701193d964975bb5769bd0745d4986`. Stage 7A may prove Redis
+consumer-group delivery/recovery against the paper/mock Stage 6 authority.
+Stage 7B and Stage 8+ remain closed pending separate acceptance.
 
 ## Still blocked
 
 - Runtime-live.
-- Redis production command consumer.
+- Redis attachment outside the validated Stage 7A paper namespace.
 - FINAM runtime POST/DELETE and broker dispatch.
 - Strategy-driven real FINAM orders.
 - Stop/SLTP/bracket/replace/multi-leg live behavior.

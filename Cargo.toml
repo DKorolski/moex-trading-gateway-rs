@@ -6,6 +6,7 @@ members = [
     "crates/finam-gateway",
     "crates/broker-cli",
     "crates/strategy-runtime-core",
+    "crates/runtime-command-bridge",
 ]
 
 [workspace.package]

@@ -70,15 +70,16 @@ current runtime branch to send orders continuously.
 
 ## Current review target
 
-Stages 6A, 6B, 6C, 6C-R1 and 6D are independently accepted. Stage 6E commit
-`ec71791563a933889eb825f6f8f0846915ba6415` was accepted in direction but not
-as final Stage 6 closure. The active review target is **Stage 6E-R1**: narrow
-multi-current request issuance, current-process restore freshness authority
-and canonical status synchronization.
+Stage 6E-R1 is independently accepted at
+`10e357825a701193d964975bb5769bd0745d4986`, closing Stage 6. The active
+implementation candidate and next review target is **Stage 7A**: real Redis
+consumer-group delivery/recovery feeding only the accepted Stage 6 paper/mock
+authority.
 
-Stage 7 opens only after independent acceptance of Stage 6E-R1. FINAM
-POST/DELETE, Redis production consumers, broker dispatch, runtime-live, real
-orders and native Stop/SLTP/bracket remain forbidden.
+Stage 7A must enforce one unresolved lifecycle per strategy instance and
+trusted host/provider receipt times. Stage 7B, FINAM POST/DELETE, broker
+dispatch, runtime-live, real orders and native Stop/SLTP/bracket remain
+forbidden.
 
 ## Previous e-d-c target
 

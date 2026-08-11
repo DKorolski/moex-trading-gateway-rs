@@ -20,17 +20,19 @@ use crate::stage5g_fresh_broker_truth::{
     Stage5gValidatedFreshBrokerTruthPackage, STAGE5G_FRESH_BROKER_TRUTH_SCHEMA_VERSION,
 };
 use crate::stage5g_order_position::stage5g_attribution_fingerprint_sha256;
+use crate::stage6_durable_identity::Stage6JournalPayloadV1;
 use crate::{
     HybridIntradayRuntimeStrategy, Stage6CancelOutcomeV1, Stage6DurableActionKind,
-    Stage6DurableIdentityError, Stage6DurableRequestIdentityV1, Stage6JournalBackend,
-    Stage6JournalCheckpointV1, Stage6JournalEventKind, Stage6JournalFrontierV1,
-    Stage6JournalRecordId, Stage6JournalRecordV1, Stage6JournalStorageError,
-    Stage6LifecycleSequence, Stage6MemoryJournalBackend, Stage6ReconciliationDispositionV1,
-    Stage6ReplayEngineV1, Stage6ReplayError, Stage6ReplaySnapshotV1, Stage6Sha256Digest,
+    Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurableRequestIdentityV1,
+    Stage6JournalBackend, Stage6JournalCheckpointV1, Stage6JournalEventKind,
+    Stage6JournalFrontierV1, Stage6JournalRecordId, Stage6JournalRecordV1,
+    Stage6JournalStorageError, Stage6LifecycleSequence, Stage6MemoryJournalBackend,
+    Stage6ReconciliationDispositionV1, Stage6ReplayEngineV1, Stage6ReplayError,
+    Stage6ReplaySnapshotV1, Stage6Sha256Digest,
 };
 use broker_core::{
-    BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId, BrokerTradeSnapshot,
-    StrategyRequestId,
+    BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId,
+    BrokerTradeSnapshot, ClientOrderId, HybridRuntimeAttribution, InstrumentId, StrategyRequestId,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -87,6 +89,71 @@ pub enum Stage6dLiveCoreError {
     AcceptedFreshTruthBindingMismatch,
     FreshTruthRequestNotCrossBound,
     FreshTruthTemporalAuthorityMismatch,
+}
+
+/// Trusted, process-local context for Stage 7A command admission. Redis may
+/// carry the command envelope, but it is never trusted to invent the missing
+/// instrument/attribution of a cancel command or to redefine a place command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage7aPaperCommandContext {
+    instrument: InstrumentId,
+    attribution: HybridRuntimeAttribution,
+}
+
+impl Stage7aPaperCommandContext {
+    pub fn new(instrument: InstrumentId, attribution: HybridRuntimeAttribution) -> Self {
+        Self {
+            instrument,
+            attribution,
+        }
+    }
+
+    pub fn instrument(&self) -> &InstrumentId {
+        &self.instrument
+    }
+
+    pub fn attribution(&self) -> &HybridRuntimeAttribution {
+        &self.attribution
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage7aPaperPolicyRejection {
+    Expired,
+    UnsupportedCommandShape,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage7aPaperHoldReason {
+    IdentityConflict,
+    ConflictingDuplicate,
+    AnotherLifecycleUnresolved,
+    ReconciliationRequired,
+    DurableFrontierConflict,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage7aPaperAdmissionDecision {
+    pub strategy_request_id: StrategyRequestId,
+    pub durable_client_order_id: ClientOrderId,
+    pub broker_order_id: Option<BrokerOrderId>,
+}
+
+/// The only Stage 7A admission result. `DispatchReady` contains the existing
+/// linear Stage 6 receipt; no Redis transport identifier appears in this API.
+pub enum Stage7aPaperAdmission {
+    DispatchReady(Box<Stage6dPaperDispatchReceipt>),
+    Duplicate(Stage7aPaperAdmissionDecision),
+    PolicyRejected {
+        decision: Stage7aPaperAdmissionDecision,
+        reason: Stage7aPaperPolicyRejection,
+    },
+    Hold {
+        decision: Stage7aPaperAdmissionDecision,
+        reason: Stage7aPaperHoldReason,
+    },
 }
 
 impl std::fmt::Display for Stage6dLiveCoreError {
@@ -1061,6 +1128,354 @@ pub fn apply_stage6e_accepted_fresh_truth(
             Ok(Stage6dFreshTruthTransition::Blocked { recovered, report })
         }
     }
+}
+
+/// Admits one broker-neutral command into the accepted Stage 6 authority.
+///
+/// The caller supplies trusted strategy context and host-observed time, but
+/// cannot supply lifecycle sequences, record links, evidence digests or a
+/// dispatch capability. Exact redelivery is deduplicated by Stage 6 identity;
+/// ambiguity remains a hold and is never converted into a benign transport
+/// poison result.
+pub fn admit_stage7a_paper_command(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    command: &BrokerCommand,
+    context: &Stage7aPaperCommandContext,
+    observed_at: DateTime<Utc>,
+) -> Result<Stage7aPaperAdmission, Stage6dLiveCoreError> {
+    let request_id = stage7a_request_id(command);
+    let fallback_decision = Stage7aPaperAdmissionDecision {
+        strategy_request_id: request_id,
+        durable_client_order_id: ClientOrderId::from_strategy_request(request_id),
+        broker_order_id: None,
+    };
+    let (identity, snapshot) = match stage7a_identity_and_snapshot(command, context) {
+        Ok(value) => value,
+        Err(error) => {
+            let reason = match error {
+                Stage6DurableIdentityError::UnsupportedDurablePlaceOrderType
+                | Stage6DurableIdentityError::InvalidDurablePlacePriceShape
+                | Stage6DurableIdentityError::InvalidDurablePlaceQuantity => {
+                    return Ok(Stage7aPaperAdmission::PolicyRejected {
+                        decision: fallback_decision,
+                        reason: Stage7aPaperPolicyRejection::UnsupportedCommandShape,
+                    });
+                }
+                _ => Stage7aPaperHoldReason::IdentityConflict,
+            };
+            return Ok(Stage7aPaperAdmission::Hold {
+                decision: fallback_decision,
+                reason,
+            });
+        }
+    };
+    let decision = Stage7aPaperAdmissionDecision {
+        strategy_request_id: identity.strategy_request_id(),
+        durable_client_order_id: identity.durable_client_order_id().clone(),
+        broker_order_id: None,
+    };
+
+    if stage7a_command_expired(command, observed_at) {
+        return Ok(Stage7aPaperAdmission::PolicyRejected {
+            decision,
+            reason: Stage7aPaperPolicyRejection::Expired,
+        });
+    }
+
+    if let Some(accepted) = stage7a_accepted_record(recovered, request_id).cloned() {
+        let exact_snapshot = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref() == &snapshot,
+            _ => false,
+        };
+        if accepted.durable_request_identity() != &identity || !exact_snapshot {
+            return Ok(Stage7aPaperAdmission::Hold {
+                decision,
+                reason: Stage7aPaperHoldReason::ConflictingDuplicate,
+            });
+        }
+        let replayed = recovered
+            .replay()
+            .request(request_id)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let duplicate_decision = Stage7aPaperAdmissionDecision {
+            broker_order_id: replayed.known_broker_order_id().cloned(),
+            ..decision
+        };
+        return match replayed.dispatch_safety_state() {
+            crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch => {
+                if recovered.journal_frontier().last_record_id()
+                    != Some(accepted.journal_record_id())
+                {
+                    Ok(Stage7aPaperAdmission::Hold {
+                        decision: duplicate_decision,
+                        reason: Stage7aPaperHoldReason::DurableFrontierConflict,
+                    })
+                } else {
+                    let dispatch = stage7a_dispatch_record(&identity, &accepted, observed_at)?;
+                    let receipt = prepare_stage6d_existing_accepted_paper_dispatch(
+                        recovered, &accepted, dispatch,
+                    )?;
+                    Ok(Stage7aPaperAdmission::DispatchReady(Box::new(receipt)))
+                }
+            }
+            crate::Stage6DispatchSafetyStateV1::DispatchForbidden => {
+                Ok(Stage7aPaperAdmission::Duplicate(duplicate_decision))
+            }
+            crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+            | crate::Stage6DispatchSafetyStateV1::RetryEligibleSameIdentity => {
+                Ok(Stage7aPaperAdmission::Hold {
+                    decision: duplicate_decision,
+                    reason: Stage7aPaperHoldReason::ReconciliationRequired,
+                })
+            }
+        };
+    }
+
+    if stage7a_has_other_unresolved_lifecycle(recovered, &identity) {
+        return Ok(Stage7aPaperAdmission::Hold {
+            decision,
+            reason: Stage7aPaperHoldReason::AnotherLifecycleUnresolved,
+        });
+    }
+
+    let accepted_sequence = Stage6LifecycleSequence::new(1)?;
+    let accepted = Stage6JournalRecordV1::request_accepted(
+        identity.clone(),
+        snapshot,
+        accepted_sequence,
+        None,
+        None,
+        stage7a_source_evidence(command, observed_at, "request_accepted")?,
+    )?;
+    let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+        identity,
+        1,
+        accepted.canonical_payload_sha256().clone(),
+        Stage6LifecycleSequence::new(accepted_sequence.get().saturating_add(1))?,
+        Some(accepted.journal_record_id().clone()),
+        stage7a_source_evidence(command, observed_at, "dispatch_attempt_recorded")?,
+    )?;
+    prepare_stage6d_paper_dispatch(recovered, accepted, dispatch)
+        .map(Box::new)
+        .map(Stage7aPaperAdmission::DispatchReady)
+}
+
+/// Resolves CANCEL context only from a Stage 6-correlated paper order. The
+/// cancel DTO intentionally carries no strategy attribution, so transport
+/// configuration cannot invent a cycle/owner for an unrelated broker order.
+pub fn resolve_stage7a_cancel_command_context(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    command: &broker_core::CancelOrder,
+    expected_instrument: &InstrumentId,
+    expected_strategy_id: &str,
+) -> Option<Stage7aPaperCommandContext> {
+    let request = recovered.replay().requests().iter().find(|request| {
+        request.action() == Stage6DurableActionKind::Place
+            && request.known_broker_order_id() == Some(&command.order_id)
+    })?;
+    let accepted = stage7a_accepted_record(recovered, request.strategy_request_id())?;
+    let identity = accepted.durable_request_identity();
+    if identity.account_id() != &command.account_id
+        || identity.instrument() != expected_instrument
+        || !identity.attribution().belongs_to(expected_strategy_id)
+    {
+        return None;
+    }
+    if let Some(target_client_order_id) = command.client_order_id.as_ref() {
+        if target_client_order_id != identity.durable_client_order_id() {
+            return None;
+        }
+    }
+    let mut role_seen = false;
+    let cancel_comment = identity
+        .attribution()
+        .internal_comment()
+        .split('|')
+        .map(|part| {
+            if part.starts_with("r=") {
+                role_seen = true;
+                "r=CANCEL"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    if !role_seen {
+        return None;
+    }
+    let attribution = HybridRuntimeAttribution::parse_source_comment(cancel_comment).ok()?;
+    Some(Stage7aPaperCommandContext::new(
+        expected_instrument.clone(),
+        attribution,
+    ))
+}
+
+fn stage7a_request_id(command: &BrokerCommand) -> StrategyRequestId {
+    match command {
+        BrokerCommand::PlaceOrder(command) => command.request_id,
+        BrokerCommand::CancelOrder(command) => command.request_id,
+    }
+}
+
+fn stage7a_identity_and_snapshot(
+    command: &BrokerCommand,
+    context: &Stage7aPaperCommandContext,
+) -> Result<
+    (
+        Stage6DurableRequestIdentityV1,
+        Stage6DurableCommandSnapshotV1,
+    ),
+    Stage6DurableIdentityError,
+> {
+    match command {
+        BrokerCommand::PlaceOrder(command) => {
+            if command.instrument != context.instrument {
+                return Err(Stage6DurableIdentityError::InstrumentMismatch);
+            }
+            let identity =
+                Stage6DurableRequestIdentityV1::from_place(command, context.attribution.clone())?;
+            let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, command)?;
+            Ok((identity, snapshot))
+        }
+        BrokerCommand::CancelOrder(command) => {
+            let identity = Stage6DurableRequestIdentityV1::from_cancel(
+                command,
+                context.instrument.clone(),
+                context.attribution.clone(),
+            )?;
+            let snapshot = Stage6DurableCommandSnapshotV1::from_cancel(&identity, command)?;
+            Ok((identity, snapshot))
+        }
+    }
+}
+
+fn stage7a_command_expired(command: &BrokerCommand, observed_at: DateTime<Utc>) -> bool {
+    let (created_at, ttl_ms) = match command {
+        BrokerCommand::PlaceOrder(command) => (command.created_ts, command.ttl_ms),
+        BrokerCommand::CancelOrder(command) => (command.created_ts, command.ttl_ms),
+    };
+    ttl_ms.is_some_and(|ttl_ms| {
+        let Ok(ttl_ms) = i64::try_from(ttl_ms) else {
+            return false;
+        };
+        created_at
+            .checked_add_signed(chrono::Duration::milliseconds(ttl_ms))
+            .is_some_and(|deadline| observed_at > deadline)
+    })
+}
+
+fn stage7a_accepted_record(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+) -> Option<&Stage6JournalRecordV1> {
+    recovered.journal.records().iter().find(|record| {
+        record.event_kind() == Stage6JournalEventKind::RequestAccepted
+            && record.durable_request_identity().strategy_request_id() == request_id
+    })
+}
+
+fn stage7a_has_other_unresolved_lifecycle(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    candidate: &Stage6DurableRequestIdentityV1,
+) -> bool {
+    recovered.replay().requests().iter().any(|request| {
+        if request.strategy_request_id() == candidate.strategy_request_id()
+            || request.dispatch_safety_state()
+                == crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+        {
+            return false;
+        }
+        stage7a_accepted_record(recovered, request.strategy_request_id()).is_some_and(|record| {
+            let existing = record.durable_request_identity();
+            existing.account_id() == candidate.account_id()
+                && existing.instrument() == candidate.instrument()
+                && existing.attribution().strategy_id() == candidate.attribution().strategy_id()
+        })
+    })
+}
+
+fn stage7a_source_evidence(
+    command: &BrokerCommand,
+    observed_at: DateTime<Utc>,
+    phase: &str,
+) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
+    #[derive(Serialize)]
+    struct Evidence<'a> {
+        domain: &'static str,
+        phase: &'a str,
+        observed_at: DateTime<Utc>,
+        command: &'a BrokerCommand,
+    }
+    let bytes = serde_json::to_vec(&Evidence {
+        domain: "moex.stage7a.paper-command-admission.v1",
+        phase,
+        observed_at,
+        command,
+    })
+    .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    Stage6Sha256Digest::parse(sha256_hex(&bytes)).map_err(Into::into)
+}
+
+fn stage7a_dispatch_record(
+    identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
+    observed_at: DateTime<Utc>,
+) -> Result<Stage6JournalRecordV1, Stage6dLiveCoreError> {
+    let command = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command,
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
+    let bytes = serde_json::to_vec(command.as_ref())
+        .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+    let evidence = Stage6Sha256Digest::parse(sha256_hex(
+        [
+            b"moex.stage7a.resume-dispatch.v1".as_slice(),
+            observed_at.to_rfc3339().as_bytes(),
+            bytes.as_slice(),
+        ]
+        .concat()
+        .as_slice(),
+    ))?;
+    Ok(Stage6JournalRecordV1::dispatch_attempt_recorded(
+        identity.clone(),
+        1,
+        accepted.canonical_payload_sha256().clone(),
+        Stage6LifecycleSequence::new(accepted.lifecycle_sequence().get().saturating_add(1))?,
+        Some(accepted.journal_record_id().clone()),
+        evidence,
+    )?)
+}
+
+fn prepare_stage6d_existing_accepted_paper_dispatch(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    accepted: &Stage6JournalRecordV1,
+    dispatch_attempt: Stage6JournalRecordV1,
+) -> Result<Stage6dPaperDispatchReceipt, Stage6dLiveCoreError> {
+    if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
+        || dispatch_attempt.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
+        || accepted.durable_request_identity() != dispatch_attempt.durable_request_identity()
+        || dispatch_attempt.previous_record_id() != Some(accepted.journal_record_id())
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    recovered.journal_mut().append(&dispatch_attempt)?;
+    recovered.refresh_after_append()?;
+    let request = recovered
+        .replay()
+        .request(accepted.durable_request_identity().strategy_request_id())
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if request.dispatch_safety_state() != crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+        || request.last_unique_record_id() != dispatch_attempt.journal_record_id()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(Stage6dPaperDispatchReceipt {
+        identity: accepted.durable_request_identity().clone(),
+        dispatch_record_id: dispatch_attempt.journal_record_id().clone(),
+        dispatch_sequence: dispatch_attempt.lifecycle_sequence(),
+        durable_frontier_sha256: frontier_fingerprint(recovered.journal_frontier())?,
+    })
 }
 
 /// Appends and validates the exact durable pre-effect ordering.  If either
@@ -3878,6 +4293,169 @@ mod tests {
         assert_eq!(
             transition.recovered().integration_fingerprint_sha256(),
             &before
+        );
+    }
+
+    #[test]
+    fn stage7a_admission_deduplicates_exact_command_without_second_effect() {
+        let mut recovered = recovered();
+        let fixture = place_fixture(701, OrderType::Limit);
+        let command = BrokerCommand::PlaceOrder(fixture.command.clone());
+        let context = Stage7aPaperCommandContext::new(instrument(), attribution("ENTRY"));
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+
+        let receipt =
+            match admit_stage7a_paper_command(&mut recovered, &command, &context, observed_at)
+                .unwrap()
+            {
+                Stage7aPaperAdmission::DispatchReady(receipt) => *receipt,
+                _ => panic!("first exact command must enter the Stage 6 effect boundary"),
+            };
+        assert_eq!(recovered.journal.records().len(), 2);
+        assert!(matches!(
+            admit_stage7a_paper_command(&mut recovered, &command, &context, observed_at).unwrap(),
+            Stage7aPaperAdmission::Hold {
+                reason: Stage7aPaperHoldReason::ReconciliationRequired,
+                ..
+            }
+        ));
+        assert_eq!(recovered.journal.records().len(), 2);
+
+        execute_stage6d_paper_outcome(
+            &mut recovered,
+            receipt,
+            Stage6dPaperOutcome::LimitPending {
+                broker_order_id: BrokerOrderId::new("PAPER-IMOEXF-701"),
+            },
+        )
+        .unwrap();
+        let records_after_effect = recovered.journal.records().len();
+        assert!(matches!(
+            admit_stage7a_paper_command(&mut recovered, &command, &context, observed_at).unwrap(),
+            Stage7aPaperAdmission::Duplicate(Stage7aPaperAdmissionDecision {
+                broker_order_id: Some(_),
+                ..
+            })
+        ));
+        assert_eq!(recovered.journal.records().len(), records_after_effect);
+    }
+
+    #[test]
+    fn stage7a_conflicting_duplicate_is_held_without_mutation() {
+        let mut recovered = recovered();
+        let fixture = place_fixture(702, OrderType::Market);
+        let command = BrokerCommand::PlaceOrder(fixture.command.clone());
+        let context = Stage7aPaperCommandContext::new(instrument(), attribution("ENTRY"));
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let _receipt =
+            match admit_stage7a_paper_command(&mut recovered, &command, &context, observed_at)
+                .unwrap()
+            {
+                Stage7aPaperAdmission::DispatchReady(receipt) => *receipt,
+                _ => panic!("first command must dispatch"),
+            };
+        let before = recovered.journal.records().len();
+        let mut conflict = fixture.command;
+        conflict.account_id = BrokerAccountId::new("ACC_CONFLICT_0001");
+        assert!(matches!(
+            admit_stage7a_paper_command(
+                &mut recovered,
+                &BrokerCommand::PlaceOrder(conflict),
+                &context,
+                observed_at,
+            )
+            .unwrap(),
+            Stage7aPaperAdmission::Hold {
+                reason: Stage7aPaperHoldReason::ConflictingDuplicate,
+                ..
+            }
+        ));
+        assert_eq!(recovered.journal.records().len(), before);
+    }
+
+    #[test]
+    fn stage7a_expired_command_and_second_unresolved_are_fail_closed() {
+        let mut recovered = recovered();
+        let first = place_fixture(703, OrderType::Market);
+        let context = Stage7aPaperCommandContext::new(instrument(), attribution("ENTRY"));
+        let expired_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 6).unwrap();
+        assert!(matches!(
+            admit_stage7a_paper_command(
+                &mut recovered,
+                &BrokerCommand::PlaceOrder(first.command.clone()),
+                &context,
+                expired_at,
+            )
+            .unwrap(),
+            Stage7aPaperAdmission::PolicyRejected {
+                reason: Stage7aPaperPolicyRejection::Expired,
+                ..
+            }
+        ));
+        assert!(recovered.journal.records().is_empty());
+
+        let live_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let _receipt = match admit_stage7a_paper_command(
+            &mut recovered,
+            &BrokerCommand::PlaceOrder(first.command),
+            &context,
+            live_at,
+        )
+        .unwrap()
+        {
+            Stage7aPaperAdmission::DispatchReady(receipt) => *receipt,
+            _ => panic!("first live command must dispatch"),
+        };
+        let second = place_fixture(704, OrderType::Market);
+        assert!(matches!(
+            admit_stage7a_paper_command(
+                &mut recovered,
+                &BrokerCommand::PlaceOrder(second.command),
+                &context,
+                live_at,
+            )
+            .unwrap(),
+            Stage7aPaperAdmission::Hold {
+                reason: Stage7aPaperHoldReason::AnotherLifecycleUnresolved,
+                ..
+            }
+        ));
+        assert_eq!(recovered.journal.records().len(), 2);
+    }
+
+    #[test]
+    fn stage7a_resumes_only_the_dispatch_after_accepted_crash_window() {
+        let mut recovered = recovered();
+        let fixture = place_fixture(705, OrderType::Market);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let accepted = Stage6JournalRecordV1::request_accepted(
+            fixture.identity,
+            snapshot,
+            Stage6LifecycleSequence::new(1).unwrap(),
+            None,
+            None,
+            digest('9'),
+        )
+        .unwrap();
+        recovered.journal_mut().append(&accepted).unwrap();
+        recovered.refresh_after_append().unwrap();
+        let context = Stage7aPaperCommandContext::new(instrument(), attribution("ENTRY"));
+        assert!(matches!(
+            admit_stage7a_paper_command(
+                &mut recovered,
+                &BrokerCommand::PlaceOrder(fixture.command),
+                &context,
+                Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap(),
+            )
+            .unwrap(),
+            Stage7aPaperAdmission::DispatchReady(_)
+        ));
+        assert_eq!(recovered.journal.records().len(), 2);
+        assert_eq!(
+            recovered.journal.records()[1].event_kind(),
+            Stage6JournalEventKind::DispatchAttemptRecorded
         );
     }
 }

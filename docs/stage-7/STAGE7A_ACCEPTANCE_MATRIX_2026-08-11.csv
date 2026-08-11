@@ -1,0 +1,54 @@
+ID,Area,Scenario,Expected Result,Blocking,Evidence
+A-001,Handoff / lineage,Stage 7A branch is based exactly on accepted Stage 6 closure ref 10e357825a701193d964975bb5769bd0745d4986.,Gate passes only when merge-base/predecessor is exact accepted ref; otherwise fail.,YES,gate + Git lineage evidence
+A-002,Closed surface,"Stage 7A production delta contains no broker-finam, reqwest, FINAM POST/DELETE, external endpoint invocation, stop/SLTP/bracket, runtime-live.",Static scanner must fail on any forbidden surface or dependency.,YES,closed-surface checker
+A-003,Architecture,Stage 7A bridge has no authoritative M3e/M3h lifecycle store and does not use legacy SQLite OrderPathStore as execution authority.,Only Stage 6 durable authority may classify execution lifecycle.,YES,source checker + dependency graph
+A-004,Transport identity,Two Redis entries with different stream IDs contain the same StrategyRequestId.,Both resolve to the same execution identity; second delivery must not mint a new StrategyRequestId/ClientOrderId.,YES,unit + integration
+A-005,Transport identity,Same Redis stream ID is redelivered.,No new execution identity and no duplicate Stage 6 RequestAccepted record.,YES,unit + Redis integration
+A-006,ClientOrderId,Valid PlaceOrder carries ClientOrderId inconsistent with the accepted Stage 6 derivation/identity.,Fail closed before paper effect; no new Stage 6 execution branch; no XACK as benign success.,YES,negative test
+A-007,Envelope,"Valid broker_core Envelope<BrokerCommand>, schema v2, MessageType::Command.",Decodes and enters canonical Stage 7A path.,YES,unit
+A-008,Envelope,Malformed JSON.,Publish redacted DLQ record; XACK only after DLQ publish succeeds; no Stage 6 mutation.,YES,Redis integration
+A-009,Envelope,Wrong schema version.,Redacted DLQ + XACK after DLQ; no Stage 6 mutation.,YES,unit + integration
+A-010,Envelope,Wrong MessageType.,Redacted DLQ + XACK after DLQ; no Stage 6 mutation.,YES,unit + integration
+A-011,DLQ privacy,Poison payload includes token/comment/raw body-like sensitive text.,DLQ contains payload SHA-256 and safe metadata only; raw payload/comment/token/body absent.,YES,negative
+A-012,DLQ failure,"Poison message, DLQ XADD fails.",Message remains pending; XACK not sent.,YES,fault injection
+A-013,XREADGROUP,New command delivered by XREADGROUP '>' path.,Processed by exact same canonical handler used by XAUTOCLAIM.,YES,Redis integration
+A-014,XAUTOCLAIM,Stale pending command is reclaimed by XAUTOCLAIM.,Processed by same canonical handler and same StrategyRequestId identity.,YES,Redis integration
+A-015,XAUTOCLAIM cursor,Claim batch contains more entries than one XAUTOCLAIM page.,Consumer advances using returned next-start cursor; does not restart each page at 0-0; all eligible entries eventually examined.,YES,Redis integration
+A-016,XAUTOCLAIM cursor,No more claimable entries.,Cursor loop terminates/bounds correctly; no busy loop.,YES,Redis integration
+A-017,XACK ordering,Valid command completes paper/mock lifecycle and ACK publish succeeds.,XACK occurs only after Stage 6 state transition and ACK publication succeed.,YES,ordered event trace
+A-018,ACK failure,Stage 6 processing succeeds but ACK stream publish fails.,No XACK; Redis entry stays pending; redelivery is safe.,YES,fault injection
+A-019,ACK redelivery,Crash/failure is simulated after ACK publication but before XACK within the same Stage 7A authority lifetime.,Redelivery may republish an equivalent ACK but must not create a new Stage 6 execution lifecycle; ACK fingerprint/request identity identical.,YES,fault injection
+A-020,ACK semantics,Paper/mock success ACK is published.,"ACK preserves exact StrategyRequestId, durable ClientOrderId and broker-order identity if the paper outcome has one; payload is broker_core CommandAck in MessageType::CommandAck envelope.",YES,unit + integration
+A-021,ACK at-least-once,Equivalent ACK is observed twice by a test runtime consumer.,Runtime-compatible ACK application is idempotent for exact request/fingerprint; no second strategy lifecycle mutation.,YES,integration with broker-core/runtime compatibility
+A-022,TTL,Command TTL is expired before Stage 6 admission.,No paper effect; deterministic Expired/Rejected compatible ACK; XACK only after ACK publication.,YES,unit
+A-023,Unsupported shape,Unsupported/future live order shape reaches Stage 7A boundary.,No effect; deterministic policy rejection or permanent poison classification as specified; never broker dispatch.,YES,negative
+A-024,Allowed command shape,"Place MARKET, Place LIMIT and CANCEL source-produced canonical fixtures.",Accepted by Stage 7A paper boundary when all identity/policy gates pass.,YES,focused tests
+A-025,One unresolved lifecycle,A different unresolved current lifecycle already exists for the same strategy instance and a second command arrives.,Second command is fail-closed/deferred before creating a second current Stage 6 lifecycle; policy is deterministic and observable.,YES,focused negative
+A-026,Exact duplicate,Same StrategyRequestId and identical command arrives while/after already represented lifecycle exists.,Replay/dedupe path; no second RequestAccepted and no second paper effect.,YES,focused
+A-027,Conflicting duplicate,Same StrategyRequestId arrives with different account/instrument/action/target/client ID.,"Fail closed as identity conflict/manual intervention; no DLQ-as-benign-poison, no XACK that loses the conflict.",YES,negative
+A-028,Execution uncertainty,Injected paper authority returns inconclusive/reconciliation-required state.,"No DLQ, no blind retry, no XACK as terminal success; readiness becomes degraded/blocked for command path.",YES,fault injection
+A-029,Stage 6 ordering,Paper effect provider is invoked.,Trace proves Stage 6 RequestAccepted then DispatchAttemptRecorded precede provider invocation.,YES,ordered trace
+A-030,No blind redispatch,Redelivery occurs after DispatchAttemptRecorded and before a resolved outcome.,Stage 6 replay blocks a new dispatch; consumer keeps pending/reconciliation state.,YES,fault injection
+A-031,Consumer health,Consumer loop is running and Redis polls/claims within configured freshness threshold.,command_consumer_alive=true and readiness may be paper-ready if all other dependencies are healthy.,YES,unit + integration
+A-032,Consumer death,Consumer task exits/panics/errors.,Supervisor marks command-path readiness false; no stale ready state survives.,YES,supervision test
+A-033,Redis outage,Redis read/claim connection fails.,No XACK assumption; readiness false/degraded; bounded retry/backoff; no task silently dies while ready remains true.,YES,fault injection
+A-034,ACK Redis outage,ACK stream unavailable.,No XACK; pending retained; readiness reflects command settlement failure.,YES,fault injection
+A-035,DLQ Redis outage,DLQ stream unavailable for poison command.,No XACK; pending retained; readiness/degraded reason explicit.,YES,fault injection
+A-036,Consumer name,Two process instances use auto consumer names.,Names are process-instance unique; Redis consumer name never participates in execution identity.,YES,unit
+A-037,Group creation,Consumer group already exists.,"BUSYGROUP is treated as idempotent attach, not fatal; group is not recreated/reset.",YES,Redis integration
+A-038,Group start,New group start policy is explicit/configured (Tail for operator-like attach; Beginning allowed only for controlled test/replay).,No implicit replay of historical command backlog.,YES,config test
+A-039,Readiness,Stage 7A has a second unresolved lifecycle blocked by CF-1 policy.,Readiness/reason exposes blocked/deferred command state; no hidden queue-to-effect progression.,YES,unit
+A-040,Temporal authority,Any Stage 7A provider/fixture that constructs fresh-truth timestamps.,Local receive/collection/observed timestamps are minted inside trusted host/provider boundary; Redis/broker source timestamps are not trusted as local authority.,YES,source check + negative
+A-041,Temporal interval,Fresh-truth row receipt is before collection_started_at.,Reject/fail closed or provider cannot construct such accepted input; document exact policy.,YES,focused negative
+A-042,Legacy M3e,Legacy M3e/M3h code exists in repository.,May be used as oracle/fixtures only; Stage 7A execution decision never consults its lifecycle store.,YES,source scanner
+A-043,Old SQLite order path,Legacy OrderPathStore state disagrees with Stage 6 in a test fixture.,Stage 7A ignores it for execution authority; Stage 6 remains sole authority.,YES,negative/source check
+A-044,No production restart claim,Process is killed and restarted while Stage 7A uses memory-backed Stage 6 integration.,Stage 7A documentation/gate MUST NOT claim crash-safe cross-process exactly-once; this remains Stage 7B.,YES,documentation checker
+A-045,Same-process crash windows,"Fault points: after XREADGROUP, after Stage6 accepted, after dispatch-attempt record, after paper outcome, after ACK XADD, before XACK.",Every point has explicit pending/redelivery outcome and never creates a second semantic execution within the same accepted Stage6 authority.,YES,fault matrix
+A-046,Real Redis,"Integration test uses an actual Redis server/service, not only a mocked command API.",XGROUP/XREADGROUP/XAUTOCLAIM/XACK semantics proven against Redis.,YES,CI integration
+A-047,No FINAM network,All Stage 7A tests run with network broker dispatch disabled.,Zero FINAM POST/DELETE requests; no external order endpoint.,YES,forbidden-surface + test witness
+A-048,Debug/release,Focused Stage 7A tests.,All pass in debug and release.,YES,gate
+A-049,Workspace regression,"Workspace tests, doctests/compile-fail, fmt, clippy -D warnings and inherited Stage 6 gates.",All green.,YES,full gate
+A-050,Negative harness,Mutation/negative harness removes or weakens each critical guard.,Every mutation is detected; expected matrix count is pinned in descriptor.,YES,negative harness
+A-051,Handoff,Review archive generated from clean exact commit with source-tree manifest and SHA sidecar.,Archive safe; manifest all members hash-match; evidence hashes bound to commit.,YES,preseal/handoff
+A-052,Governance,current-status/roadmap after implementation.,Stage 6 closed at 10e3578; Stage 7A review candidate; Stage 7B/8+ remain closed.,YES,doc checker
+

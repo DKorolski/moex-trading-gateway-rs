@@ -12,17 +12,21 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current transition
 
-- Stage 6A, 6B, 6C and 6C-R1 are independently accepted. Stage 6D is
-  independently accepted at `8d4c1f437c02cfb023aa75fb4a411b9394d2d293`.
-- Stage 6E at `ec71791563a933889eb825f6f8f0846915ba6415` is superseded by the
-  narrow Stage 6E-R1 review candidate. R1 makes fresh-truth issuance
-  request-scoped for multiple current lifecycle slots, creates a trusted
-  current-process restore epoch, and binds all post-restore local collection
-  timestamps to a host-observed validation time.
-- Stage 7 is CLOSED pending independent acceptance of Stage 6E-R1. FINAM
-  runtime POST/DELETE, Redis production command consumption, broker dispatch,
-  runtime-live, real strategy orders and native Stop/SLTP/bracket remain
-  CLOSED.
+- Stage 6E-R1 is independently accepted at
+  `10e357825a701193d964975bb5769bd0745d4986`; Stage 6 is CLOSED.
+- Stage 7A is the only active review-candidate slice. It attaches a Redis
+  consumer group only to the validated paper namespace and process outcomes
+  through the accepted Stage 6 authority plus a process-local paper/mock
+  provider.
+- The candidate implementation lives in `runtime-command-bridge`; focused
+  Stage 6 admission tests and isolated real-Redis tests are green locally.
+  Stage 7A is not accepted until the independent 52-row review closes it.
+- Stage 7B, FINAM runtime POST/DELETE, broker network dispatch, runtime-live,
+  real strategy orders and native Stop/SLTP/bracket remain CLOSED.
+- Until a separately reviewed multi-slot reducer exists, Stage 7A permits at
+  most one unresolved execution lifecycle per strategy instance. Local
+  collection and receipt timestamps are minted by the trusted host/provider,
+  never accepted as authority from Redis or broker source timestamps.
 
 ### Historical accepted transition record
 

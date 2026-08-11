@@ -1425,6 +1425,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-command-bridge"
+version = "0.1.0"
+dependencies = [
+ "broker-core",
+ "chrono",
+ "redis",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "sha2",
+ "strategy-runtime-core",
+ "thiserror 1.0.69",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "rusqlite"
 version = "0.32.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

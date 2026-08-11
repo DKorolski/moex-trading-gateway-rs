@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Static architecture, lineage and governance checks for Stage 7A."""
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import subprocess
+from pathlib import Path
+
+BASE = "10e357825a701193d964975bb5769bd0745d4986"
+BRANCH = "stage7a-paper-command-consumer"
+BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
+BRIDGE_CARGO = Path("crates/runtime-command-bridge/Cargo.toml")
+CORE = Path("crates/strategy-runtime-core/src/stage6d_live_core.rs")
+DESCRIPTOR = Path("docs/stage-7/stage7a-entry-descriptor.json")
+MATRIX = Path("docs/stage-7/STAGE7A_ACCEPTANCE_MATRIX_2026-08-11.csv")
+TZ = Path("docs/stage-7/TZ_STAGE7A_REDIS_COMMAND_CONSUMER_PAPER_MOCK_2026-08-11.md")
+
+TZ_SHA256 = "812da33d1917cbe3408392f81c5be50ff63a07f5173eff93258316e29c5c9d4e"
+MATRIX_SHA256 = "e80ff88da6be58ec1660f0c5cc43afc5aef84a99f3c952c9a56aa7b6243677bb"
+
+UNCHANGED_STAGE6 = (
+    "crates/strategy-runtime-core/src/stage6_durable_identity.rs",
+    "crates/strategy-runtime-core/src/stage6_journal_backend.rs",
+    "crates/strategy-runtime-core/src/stage6_replay.rs",
+)
+
+
+class CheckFailure(ValueError):
+    pass
+
+
+def require(value: bool, message: str) -> None:
+    if not value:
+        raise CheckFailure(message)
+
+
+def block(source: str, needle: str) -> str:
+    start = source.index(needle)
+    opening = source.index("{", start)
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening:index + 1]
+    raise CheckFailure(f"unterminated block: {needle}")
+
+
+def validate_bridge(source: str, cargo: str) -> None:
+    production = source.split("#[cfg(test)]", 1)[0]
+    for dependency in ("broker-finam", "finam-gateway", "reqwest", "rusqlite"):
+        require(dependency not in cargo, f"forbidden dependency: {dependency}")
+    for token in (
+        "Method::POST", "Method::DELETE", ".post(", ".delete(",
+        "OrderPathStore", "M3eCommandLifecycleStore", "M3hRuntimeDryCommandEmitter",
+    ):
+        require(token not in production, f"forbidden execution authority: {token}")
+    required = (
+        "STAGE7A_PAPER_NAMESPACE",
+        "finam_imoexf_paper:runtime:commands",
+        "pub struct Stage7aCommandProfile",
+        "resolve_stage7a_cancel_command_context",
+        "pub fn handle_payload_now(",
+        "fn handle_payload(",
+        "admit_stage7a_paper_command",
+        "execute_stage6d_paper_outcome",
+        "pub async fn ensure_group",
+        'redis::cmd("XREADGROUP")',
+        'redis::cmd("XAUTOCLAIM")',
+        'redis::cmd("XACK")',
+        "fn xautoclaim_cursor_done",
+        "pub struct Stage7aConsumerSupervisor",
+        "pub async fn publish_observability",
+        "pub async fn run_bounded",
+        "Stage7aSettlementFault::AfterAckPublishBeforeXack",
+        "Stage7aSettlementFault::AfterDlqPublishBeforeXack",
+        "payload_sha256",
+        "allow_controlled_beginning",
+        "BeginningNotAuthorized",
+        "settled_acks",
+    )
+    for token in required:
+        require(token in production, f"required Stage 7A token absent: {token}")
+    require("pub fn handle_payload(" not in production, "caller can inject local observed_at")
+
+    handler = block(source, "fn handle_payload(")
+    handler_order = (
+        "self.profile.context_for",
+        "admit_stage7a_paper_command",
+        "self.provider.paper_outcome",
+        "execute_stage6d_paper_outcome",
+        "ack_envelope",
+    )
+    positions = [handler.index(token) for token in handler_order]
+    require(positions == sorted(positions), "canonical authority ordering drift")
+
+    settle = block(source, "async fn settle_entry(")
+    ack_start = settle.index("Stage7aHandleOutcome::Ack")
+    dlq_start = settle.index("Stage7aHandleOutcome::Dlq", ack_start)
+    pending_start = settle.index("Stage7aHandleOutcome::Pending", dlq_start)
+    ack_branch = settle[ack_start:dlq_start]
+    dlq_branch = settle[dlq_start:pending_start]
+    require(ack_branch.index("self.publish") < ack_branch.index("self.xack"), "ACK XACK ordering drift")
+    require(dlq_branch.index("self.publish") < dlq_branch.index("self.xack"), "DLQ XACK ordering drift")
+    pending = settle[pending_start:]
+    require("self.xack" not in pending, "pending path XACKs uncertainty")
+
+    read = block(source, "async fn poll_new_once_inner(")
+    claim = block(source, "async fn reclaim_stale_once_inner(")
+    require("self.settle_entry" in read, "XREADGROUP bypasses canonical handler")
+    require("self.settle_entry" in claim, "XAUTOCLAIM bypasses canonical handler")
+    for token in ("max_claim_pages", "reply.next_stream_id", "start = next", "xautoclaim_cursor_done"):
+        require(token in claim, f"claim cursor/bound absent: {token}")
+
+    test_names = [line for line in source.splitlines() if line.startswith("    fn ") or line.startswith("    async fn ")]
+    witnesses = (
+        "same_authority_redelivery_republishes_identical_ack",
+        "real_redis_xreadgroup_ack_and_xautoclaim_share_canonical_handler",
+        "real_redis_ack_before_xack_fault_replays_identical_ack",
+        "real_redis_ack_and_dlq_publish_failure_leave_entries_pending",
+        "uncertain_provider_and_post_dispatch_crash_remain_pending",
+        "place_then_cancel_use_one_profile_without_redis_identity_authority",
+        "envelope_policy_and_ttl_fail_before_paper_effect",
+        "stop_shape_and_profile_drift_cannot_reach_provider",
+        "supervisor_never_leaves_stale_ready_after_failure_or_stop",
+    )
+    for witness in witnesses:
+        require(any(f"fn {witness}(" in line for line in test_names), f"test witness absent: {witness}")
+
+
+def validate_core(source: str) -> None:
+    production = source.split("#[cfg(test)]", 1)[0]
+    for token in (
+        "pub fn admit_stage7a_paper_command(",
+        "pub fn resolve_stage7a_cancel_command_context(",
+        "Stage7aPaperAdmission::DispatchReady",
+        "Stage7aPaperHoldReason::ConflictingDuplicate",
+        "Stage7aPaperHoldReason::AnotherLifecycleUnresolved",
+        "Stage7aPaperHoldReason::ReconciliationRequired",
+        "prepare_stage6d_existing_accepted_paper_dispatch",
+        "Stage6LifecycleSequence::new(1)",
+    ):
+        require(token in production, f"Stage 6 admission token absent: {token}")
+    for token in ("redis::", "XREADGROUP", "XAUTOCLAIM", "reqwest"):
+        require(token not in production, f"transport leaked into Stage 6 authority: {token}")
+    tests = source.split("#[cfg(test)]", 1)[1]
+    test_count = sum(line.startswith("    fn stage7a_") for line in tests.splitlines())
+    require(test_count == 4, f"Stage 6 admission test count drift: {test_count}")
+
+
+def check(root: Path) -> None:
+    require(subprocess.check_output(["git", "merge-base", "HEAD", BASE], cwd=root, text=True).strip() == BASE,
+            "branch is not based on accepted Stage 6 closure")
+    require(subprocess.check_output(["git", "branch", "--show-current"], cwd=root, text=True).strip() == BRANCH,
+            "wrong Stage 7A branch")
+    for path in UNCHANGED_STAGE6:
+        current = (root / path).read_bytes()
+        accepted = subprocess.check_output(["git", "show", f"{BASE}:{path}"], cwd=root)
+        require(current == accepted, f"accepted Stage 6 authority changed: {path}")
+
+    validate_bridge((root / BRIDGE).read_text(), (root / BRIDGE_CARGO).read_text())
+    validate_core((root / CORE).read_text())
+
+    require(hashlib.sha256((root / TZ).read_bytes()).hexdigest() == TZ_SHA256, "Stage 7A TZ digest drift")
+    require(hashlib.sha256((root / MATRIX).read_bytes()).hexdigest() == MATRIX_SHA256, "Stage 7A matrix digest drift")
+    with (root / MATRIX).open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    require(len(rows) == 52, f"acceptance row count drift: {len(rows)}")
+    require([row["ID"] for row in rows] == [f"A-{index:03d}" for index in range(1, 53)], "acceptance IDs drift")
+    require(all(row["Blocking"] == "YES" for row in rows), "nonblocking acceptance row introduced")
+
+    descriptor = json.loads((root / DESCRIPTOR).read_text())
+    expected = {
+        "stage": "7A",
+        "status": "implementation_candidate",
+        "accepted_predecessor": BASE,
+        "blocking_acceptance_rows": 52,
+        "stage6_execution_authority": "exclusive",
+        "max_unresolved_lifecycles_per_strategy_instance": 1,
+        "runtime_command_bridge_crate": True,
+        "canonical_handler_for_read_and_claim": True,
+        "real_redis_integration": True,
+        "cross_process_exactly_once_claimed": False,
+        "stage7b_open": False,
+        "finam_post_delete_open": False,
+        "broker_network_dispatch_open": False,
+        "runtime_live_open": False,
+    }
+    for key, value in expected.items():
+        require(descriptor.get(key) == value, f"descriptor drift: {key}")
+
+    docs = "\n".join((root / path).read_text() for path in (
+        Path("docs/current-status.md"), Path("docs/roadmap.md"),
+        Path("docs/reviewer-onboarding-and-roadmap.md"),
+        Path("docs/stage-7/stage7a-implementation.md"),
+    ))
+    for token in ("Stage 6 is CLOSED", "Stage 7A", "Stage 7B", "runtime-live", "CLOSED"):
+        require(token in docs, f"governance token absent: {token}")
+
+
+def main() -> None:
+    try:
+        check(Path.cwd().resolve())
+    except (CheckFailure, subprocess.CalledProcessError, ValueError, KeyError) as error:
+        raise SystemExit(f"stage7a-check: FAIL: {error}") from error
+    print("stage7a-check: PASS rows=52 stage6_authority=exclusive real_redis=true live=false")
+
+
+if __name__ == "__main__":
+    main()
