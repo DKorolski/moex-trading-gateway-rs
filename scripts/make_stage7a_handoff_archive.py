@@ -9,6 +9,7 @@ import os
 import stat
 import subprocess
 import tarfile
+import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
@@ -42,7 +43,7 @@ def main() -> None:
         fail("worktree not clean")
     head = run(["git", "rev-parse", "HEAD"])
     short = run(["git", "rev-parse", "--short=7", "HEAD"])
-    if run(["git", "rev-parse", "HEAD^"]) != checker.BASE:
+    if run(["git", "rev-parse", "HEAD^"]) != checker.R1_PREDECESSOR:
         fail("wrong predecessor")
     if run(["git", "branch", "--show-current"]) != checker.BRANCH:
         fail("wrong branch")
@@ -50,22 +51,34 @@ def main() -> None:
         if run(["git", "rev-parse", f"origin/{checker.BRANCH}"]) != head:
             fail("origin branch mismatch")
 
-    env = dict(os.environ)
-    env["STAGE7A_SKIP_PRESEAL"] = "1"
-    gate = subprocess.run(
-        ["bash", "scripts/stage7a_gate.sh"],
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=env,
-    )
-    redacted = gate.stdout.replace(str(ROOT), "<REPO>").replace(str(Path.home()), "<HOME>").encode()
-    if gate.returncode:
-        print(gate.stdout)
-        fail(f"gate failed: {gate.returncode}")
-    negative = subprocess.check_output(["python3", "scripts/stage7a_negative_harness.py"], cwd=ROOT)
-    negative_count = sum(line.startswith(b"PASS ") for line in negative.splitlines())
+    with tempfile.TemporaryDirectory(prefix="stage7a-handoff-") as temp:
+        artifact_dir = Path(temp)
+        env = dict(os.environ)
+        env.pop("STAGE7A_SKIP_PRESEAL", None)
+        env["STAGE7A_ARTIFACT_DIR"] = str(artifact_dir)
+        gate = subprocess.run(
+            ["bash", "scripts/stage7a_gate.sh"],
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            env=env,
+        )
+        redacted = gate.stdout.replace(str(ROOT), "<REPO>").replace(str(Path.home()), "<HOME>").encode()
+        if gate.returncode:
+            print(gate.stdout)
+            fail(f"gate failed: {gate.returncode}")
+        acceptance = json.loads((artifact_dir / "stage7a-r1-acceptance.json").read_text())
+        negative = (artifact_dir / "negative.txt").read_bytes()
+        negative_count = sum(line.startswith(b"PASS ") for line in negative.splitlines())
+        artifact_members = []
+        for path in sorted(artifact_dir.iterdir()):
+            if not path.is_file():
+                continue
+            data = path.read_bytes()
+            if path.suffix in {".txt", ".json"}:
+                data = data.replace(str(ROOT).encode(), b"<REPO>").replace(str(Path.home()).encode(), b"<HOME>")
+            artifact_members.append((f"handoff-evidence/gate-artifacts/{path.name}", data, 0o644))
 
     raw = subprocess.check_output(["git", "archive", "--format=tar", "HEAD"], cwd=ROOT)
     members: list[tuple[str, bytes, int]] = []
@@ -84,7 +97,8 @@ def main() -> None:
         {
             "schema_version": 1,
             "source_ref": head,
-            "predecessor": checker.BASE,
+            "predecessor": checker.R1_PREDECESSOR,
+            "accepted_stage6_base": checker.BASE,
             "members": [
                 {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
                 for name, data, _ in sorted(members)
@@ -98,20 +112,25 @@ def main() -> None:
         f"source_short_ref={short}\n"
         f"source_branch={checker.BRANCH}\n"
         f"archive_name=moex-trading-project-{short}.zip\n"
-        f"predecessor={checker.BASE}\n"
+        f"predecessor={checker.R1_PREDECESSOR}\n"
+        f"accepted_stage6_base={checker.BASE}\n"
     ).encode()
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7A",
-            "status": "implementation_candidate",
+            "stage": "7A-R1",
+            "status": "review_closure_candidate",
             "source_ref": head,
-            "predecessor": checker.BASE,
+            "predecessor": checker.R1_PREDECESSOR,
+            "accepted_stage6_base": checker.BASE,
             "gate_exit_code": 0,
-            "acceptance_row_count": 52,
+            "acceptance_row_count": acceptance["acceptance_row_count"],
+            "acceptance_evaluated_count": acceptance["acceptance_evaluated_count"],
+            "acceptance_pass_count": acceptance["acceptance_pass_count"],
+            "all_blocking_rows_passed": acceptance["all_blocking_rows_passed"],
             "negative_case_count": negative_count,
-            "focused_runtime_bridge_test_count": 12,
-            "focused_stage6_admission_test_count": 4,
+            "focused_runtime_bridge_test_count": 16,
+            "focused_stage6_admission_test_count": 7,
             "real_redis_integration_passed": True,
             "stage6_execution_authority_exclusive": True,
             "paper_namespace_only": True,
@@ -136,7 +155,7 @@ def main() -> None:
             f"{run(['rustc', '--version'])}\n{run(['cargo', '--version'])}\n".encode(),
             0o644,
         ),
-    ]
+    ] + artifact_members
     if len({name for name, _, _ in members}) != len(members):
         fail("duplicate archive member")
 

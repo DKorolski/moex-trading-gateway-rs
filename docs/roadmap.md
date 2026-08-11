@@ -27,8 +27,8 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7A — Redis runtime command consumer, paper/mock only (implementation
-candidate; independent acceptance pending).
+Stage 7A-R1 — Redis runtime command consumer closure repair, paper/mock only
+(implementation candidate; independent acceptance pending).
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

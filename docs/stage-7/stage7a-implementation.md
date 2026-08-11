@@ -1,4 +1,4 @@
-# Stage 7A implementation candidate
+# Stage 7A-R1 implementation candidate
 
 Accepted predecessor: `10e357825a701193d964975bb5769bd0745d4986`.
 
@@ -39,7 +39,7 @@ entry metadata are emitted.
 - Redis entry ID, group, consumer and delivery count are transport metadata.
 - Stage 6 remains the sole lifecycle authority.
 - PLACE attribution is parsed from the canonical source comment and checked
-  against a local strategy/instrument profile.
+  against a local account/strategy/instrument profile.
 - CANCEL attribution is resolved from the Stage 6-correlated target paper
   order; configuration cannot invent a cycle/owner for an unrelated order.
 - Each new request starts its own Stage 6 lifecycle sequence at 1.
@@ -47,8 +47,18 @@ entry metadata are emitted.
   a second paper effect.
 - A conflicting duplicate, unresolved prior lifecycle or uncertain effect is
   retained pending and degrades command-path readiness.
-- Within one Stage 7A authority lifetime, ACK redelivery republishes the exact
-  settled ACK bytes. No cross-process exactly-once claim is made.
+- Within one Stage 7A authority lifetime, ACK XADD failure republishes the
+  canonical terminal ACK; ACK XADD success followed by command-XACK failure
+  emits `Duplicate/DuplicateCommand` with exact request/client/broker identity.
+  This matches the accepted Stage 5G ACK lifecycle. No cross-process
+  exactly-once claim is made.
+- `DispatchForbidden` is not treated as lifecycle terminality. A working,
+  filled or reconciled-but-nonfinal PLACE blocks another PLACE. Only one
+  source-correlated CANCEL may overlap its known target order.
+- Source-read and claim health cannot heal ACK/DLQ/Stage-6 settlement state.
+  Blocked state is keyed by exact Redis entry and request where available.
+- XAUTOCLAIM retains its returned cursor across bounded calls and resets only
+  after Redis reports a completed scan.
 - `Beginning` group attachment is rejected unless controlled replay is
   explicitly authorized. Default attachment is `Tail`.
 - All local observation/receipt timestamps are minted inside the host bridge;
@@ -69,6 +79,10 @@ entry metadata are emitted.
 The real-Redis test starts an isolated local `redis-server` with persistence
 disabled and exercises `XGROUP`, `XREADGROUP`, `XPENDING`, `XAUTOCLAIM`, `XADD`
 and `XACK`. It does not contact FINAM or any external broker endpoint.
+
+The R1 gate emits a row-by-row JSON report for all 52 blocking acceptance
+rows. Every PASS is bound to one or more concrete saved gate logs and required
+tokens; inventory count alone cannot close the stage.
 
 ## Deliberately deferred to Stage 7B+
 

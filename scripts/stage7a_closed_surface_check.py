@@ -21,6 +21,7 @@ EXACT = {
     "docs/stage-7/TZ_STAGE7A_REDIS_COMMAND_CONSUMER_PAPER_MOCK_2026-08-11.md",
     "docs/stage-7/stage7a-entry-descriptor.json",
     "docs/stage-7/stage7a-implementation.md",
+    "docs/stage-7/stage7a-r1-review-closure.md",
     "docs/stage-7/stage7a-slice-plan.md",
     "scripts/make_stage7a_handoff_archive.py",
     "scripts/stage7a_check.py",
@@ -28,6 +29,7 @@ EXACT = {
     "scripts/stage7a_gate.sh",
     "scripts/stage7a_negative_harness.py",
     "scripts/stage7a_preseal_check.py",
+    "scripts/stage7a_r1_acceptance_report.py",
 }
 
 

@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 BASE = "10e357825a701193d964975bb5769bd0745d4986"
+R1_PREDECESSOR = "6e53f5428f7f79f3c9c84fbbd15d32b3c26d5d2d"
 BRANCH = "stage7a-paper-command-consumer"
 BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
 BRIDGE_CARGO = Path("crates/runtime-command-bridge/Cargo.toml")
@@ -81,21 +82,31 @@ def validate_bridge(source: str, cargo: str) -> None:
         "payload_sha256",
         "allow_controlled_beginning",
         "BeginningNotAuthorized",
-        "settled_acks",
+        "self.ack_publications",
+        "mark_ack_published",
+        "\n                duplicate_ack_envelope(&self.source",
+        "BrokerAccountId",
+        "source_read_healthy",
+        "claim_scan_healthy",
+        "ack_settlement_healthy",
+        "dlq_settlement_healthy",
+        "stage6_authority_healthy",
+        "\n    blocked_entries: BTreeMap<String, Stage7aBlockedEntry>",
+        "claim_cursor",
     )
     for token in required:
         require(token in production, f"required Stage 7A token absent: {token}")
     require("pub fn handle_payload(" not in production, "caller can inject local observed_at")
 
     handler = block(source, "fn handle_payload(")
-    handler_order = (
-        "self.profile.context_for",
-        "admit_stage7a_paper_command",
-        "self.provider.paper_outcome",
-        "execute_stage6d_paper_outcome",
-        "ack_envelope",
+    require(
+        handler.index("self.profile.context_for")
+        < handler.index("admit_stage7a_paper_command"),
+        "profile/admission ordering drift",
     )
-    positions = [handler.index(token) for token in handler_order]
+    dispatch_branch = block(handler, "Stage7aPaperAdmission::DispatchReady")
+    handler_order = ("self.provider.paper_outcome", "execute_stage6d_paper_outcome", "ack_envelope")
+    positions = [dispatch_branch.index(token) for token in handler_order]
     require(positions == sorted(positions), "canonical authority ordering drift")
 
     settle = block(source, "async fn settle_entry(")
@@ -104,24 +115,39 @@ def validate_bridge(source: str, cargo: str) -> None:
     pending_start = settle.index("Stage7aHandleOutcome::Pending", dlq_start)
     ack_branch = settle[ack_start:dlq_start]
     dlq_branch = settle[dlq_start:pending_start]
-    require(ack_branch.index("self.publish") < ack_branch.index("self.xack"), "ACK XACK ordering drift")
-    require(dlq_branch.index("self.publish") < dlq_branch.index("self.xack"), "DLQ XACK ordering drift")
+    require(ack_branch.index(".publish(") < ack_branch.index("self.xack"), "ACK XACK ordering drift")
+    require(dlq_branch.index(".publish(") < dlq_branch.index("self.xack"), "DLQ XACK ordering drift")
     pending = settle[pending_start:]
     require("self.xack" not in pending, "pending path XACKs uncertainty")
+    require(
+        ack_branch.index(".publish(")
+        < ack_branch.index("self.authority.mark_ack_published")
+        < ack_branch.index("self.xack"),
+        "ACK publication state ordering drift",
+    )
+    source_success = block(source, "pub fn mark_source_poll_success(")
+    for forbidden in ("blocked_entries.clear", "ack_settlement_healthy", "dlq_settlement_healthy"):
+        require(forbidden not in source_success, f"source poll heals settlement state: {forbidden}")
+    profile = block(source, "pub struct Stage7aCommandProfile")
+    require("\n    account_id: BrokerAccountId," in profile, "trusted profile is not account-bound")
 
     read = block(source, "async fn poll_new_once_inner(")
     claim = block(source, "async fn reclaim_stale_once_inner(")
     require("self.settle_entry" in read, "XREADGROUP bypasses canonical handler")
     require("self.settle_entry" in claim, "XAUTOCLAIM bypasses canonical handler")
-    for token in ("max_claim_pages", "reply.next_stream_id", "start = next", "xautoclaim_cursor_done"):
+    for token in ("max_claim_pages", "reply.next_stream_id", "self.claim_cursor = next.clone()", "xautoclaim_cursor_done"):
         require(token in claim, f"claim cursor/bound absent: {token}")
 
     test_names = [line for line in source.splitlines() if line.startswith("    fn ") or line.startswith("    async fn ")]
     witnesses = (
-        "same_authority_redelivery_republishes_identical_ack",
+        "accepted_ack_then_runtime_duplicate_is_stage5g_noop",
         "real_redis_xreadgroup_ack_and_xautoclaim_share_canonical_handler",
-        "real_redis_ack_before_xack_fault_replays_identical_ack",
-        "real_redis_ack_and_dlq_publish_failure_leave_entries_pending",
+        "ack_xadd_success_before_xack_redelivery_emits_runtime_duplicate",
+        "ack_xadd_failure_redelivery_republishes_canonical_accepted",
+        "dlq_outage_empty_polls_do_not_restore_readiness",
+        "xautoclaim_tail_eventually_reached_with_claim_count_1_max_pages_1",
+        "unrelated_success_does_not_clear_blocked_request",
+        "cancel_overlap_policy_is_explicit_and_fail_closed",
         "uncertain_provider_and_post_dispatch_crash_remain_pending",
         "place_then_cancel_use_one_profile_without_redis_identity_authority",
         "envelope_policy_and_ttl_fail_before_paper_effect",
@@ -149,7 +175,20 @@ def validate_core(source: str) -> None:
         require(token not in production, f"transport leaked into Stage 6 authority: {token}")
     tests = source.split("#[cfg(test)]", 1)[1]
     test_count = sum(line.startswith("    fn stage7a_") for line in tests.splitlines())
-    require(test_count == 4, f"Stage 6 admission test count drift: {test_count}")
+    require(test_count == 7, f"Stage 6 admission test count drift: {test_count}")
+    lifecycle_guard = block(source, "fn stage7a_has_other_unresolved_lifecycle(")
+    for token in (
+        "request.final_disposition().is_some()",
+        "let is_source_correlated_cancel =",
+        "!is_source_correlated_cancel",
+    ):
+        require(token in lifecycle_guard, f"Stage 7A-R1 lifecycle guard absent: {token}")
+    for token in (
+        "stage7a_limit_pending_blocks_second_new_place",
+        "stage7a_market_filled_nonfinal_blocks_second_new_place",
+        "stage7a_broker_order_found_nonfinal_blocks_second_new_place",
+    ):
+        require(token in tests, f"Stage 7A-R1 lifecycle witness absent: {token}")
 
 
 def check(root: Path) -> None:
@@ -176,8 +215,9 @@ def check(root: Path) -> None:
     descriptor = json.loads((root / DESCRIPTOR).read_text())
     expected = {
         "stage": "7A",
-        "status": "implementation_candidate",
+        "status": "r1_implementation_candidate",
         "accepted_predecessor": BASE,
+        "r1_predecessor": R1_PREDECESSOR,
         "blocking_acceptance_rows": 52,
         "stage6_execution_authority": "exclusive",
         "max_unresolved_lifecycles_per_strategy_instance": 1,

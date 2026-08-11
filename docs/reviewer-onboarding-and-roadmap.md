@@ -72,12 +72,15 @@ current runtime branch to send orders continuously.
 
 Stage 6E-R1 is independently accepted at
 `10e357825a701193d964975bb5769bd0745d4986`, closing Stage 6. The active
-implementation candidate and next review target is **Stage 7A**: real Redis
+implementation candidate and next review target is **Stage 7A-R1**: the narrow
+closure repair over `6e53f5428f7f79f3c9c84fbbd15d32b3c26d5d2d`, with real Redis
 consumer-group delivery/recovery feeding only the accepted Stage 6 paper/mock
 authority.
 
-Stage 7A must enforce one unresolved lifecycle per strategy instance and
-trusted host/provider receipt times. Stage 7B, FINAM POST/DELETE, broker
+Stage 7A-R1 enforces non-final lifecycle classification, source-correlated
+CANCEL overlap, publication-aware runtime-compatible ACK replay, exact blocked
+entry readiness, persistent bounded XAUTOCLAIM cursors and an executable 52/52
+report. It retains trusted host/provider receipt times. Stage 7B, FINAM POST/DELETE, broker
 dispatch, runtime-live, real orders and native Stop/SLTP/bracket remain
 forbidden.
 

@@ -1381,16 +1381,29 @@ fn stage7a_has_other_unresolved_lifecycle(
 ) -> bool {
     recovered.replay().requests().iter().any(|request| {
         if request.strategy_request_id() == candidate.strategy_request_id()
-            || request.dispatch_safety_state()
-                == crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+            || request.final_disposition().is_some()
         {
             return false;
         }
         stage7a_accepted_record(recovered, request.strategy_request_id()).is_some_and(|record| {
             let existing = record.durable_request_identity();
-            existing.account_id() == candidate.account_id()
+            let same_scope = existing.account_id() == candidate.account_id()
                 && existing.instrument() == candidate.instrument()
-                && existing.attribution().strategy_id() == candidate.attribution().strategy_id()
+                && existing.attribution().strategy_id() == candidate.attribution().strategy_id();
+            if !same_scope {
+                return false;
+            }
+
+            // Stage 7A permits exactly one reviewed overlap: a CANCEL may
+            // target the known broker order of the one current PLACE that
+            // established it. DispatchForbidden is deliberately insufficient
+            // on its own: working and filled-but-nonfinal PLACE lifecycles use
+            // that dispatch state too.
+            let is_source_correlated_cancel = candidate.action() == Stage6DurableActionKind::Cancel
+                && existing.action() == Stage6DurableActionKind::Place
+                && request.known_broker_order_id().is_some()
+                && candidate.target_broker_order_id() == request.known_broker_order_id();
+            !is_source_correlated_cancel
         })
     })
 }
@@ -4456,6 +4469,81 @@ mod tests {
         assert_eq!(
             recovered.journal.records()[1].event_kind(),
             Stage6JournalEventKind::DispatchAttemptRecorded
+        );
+    }
+
+    fn assert_stage7a_nonfinal_place_blocks_second_place(
+        first_number: u128,
+        outcome: Stage6dPaperOutcome,
+    ) {
+        let mut recovered = recovered();
+        let first = place_fixture(first_number, OrderType::Limit);
+        let first_command = BrokerCommand::PlaceOrder(first.command);
+        let context = Stage7aPaperCommandContext::new(instrument(), attribution("ENTRY"));
+        let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let receipt = match admit_stage7a_paper_command(
+            &mut recovered,
+            &first_command,
+            &context,
+            observed_at,
+        )
+        .unwrap()
+        {
+            Stage7aPaperAdmission::DispatchReady(receipt) => *receipt,
+            _ => panic!("first command must dispatch"),
+        };
+        execute_stage6d_paper_outcome(&mut recovered, receipt, outcome).unwrap();
+        assert!(recovered
+            .replay()
+            .request(stage7a_request_id(&first_command))
+            .unwrap()
+            .final_disposition()
+            .is_none());
+
+        let second = place_fixture(first_number + 1, OrderType::Market);
+        assert!(matches!(
+            admit_stage7a_paper_command(
+                &mut recovered,
+                &BrokerCommand::PlaceOrder(second.command),
+                &context,
+                observed_at,
+            )
+            .unwrap(),
+            Stage7aPaperAdmission::Hold {
+                reason: Stage7aPaperHoldReason::AnotherLifecycleUnresolved,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn stage7a_limit_pending_blocks_second_new_place() {
+        assert_stage7a_nonfinal_place_blocks_second_place(
+            710,
+            Stage6dPaperOutcome::LimitPending {
+                broker_order_id: BrokerOrderId::new("PAPER-WORKING-710"),
+            },
+        );
+    }
+
+    #[test]
+    fn stage7a_market_filled_nonfinal_blocks_second_new_place() {
+        assert_stage7a_nonfinal_place_blocks_second_place(
+            720,
+            Stage6dPaperOutcome::MarketFilled {
+                broker_order_id: BrokerOrderId::new("PAPER-FILLED-720"),
+                broker_trade_id: BrokerTradeId::new("PAPER-TRADE-720"),
+            },
+        );
+    }
+
+    #[test]
+    fn stage7a_broker_order_found_nonfinal_blocks_second_new_place() {
+        assert_stage7a_nonfinal_place_blocks_second_place(
+            730,
+            Stage6dPaperOutcome::PlaceBrokerOrderFound {
+                broker_order_id: BrokerOrderId::new("PAPER-FOUND-730"),
+            },
         );
     }
 }

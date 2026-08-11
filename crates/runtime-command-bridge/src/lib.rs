@@ -6,7 +6,7 @@
 
 use broker_core::command::CommandAckStatus;
 use broker_core::{
-    BrokerCommand, CommandAck, CommandAckReason, CommandAckReasonCode, Envelope,
+    BrokerAccountId, BrokerCommand, CommandAck, CommandAckReason, CommandAckReasonCode, Envelope,
     HybridRuntimeAttribution, InstrumentId, MessageType, StrategyRequestId, SCHEMA_VERSION,
 };
 use chrono::{DateTime, Utc};
@@ -14,7 +14,7 @@ use redis::aio::ConnectionManager;
 use redis::streams::{StreamAutoClaimReply, StreamId, StreamReadReply};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use strategy_runtime_core::{
     admit_stage7a_paper_command, execute_stage6d_paper_outcome,
@@ -169,6 +169,11 @@ pub enum Stage7aReadinessReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Stage7aConsumerHealthSnapshot {
     pub command_consumer_alive: bool,
+    pub source_read_healthy: bool,
+    pub claim_scan_healthy: bool,
+    pub ack_settlement_healthy: bool,
+    pub dlq_settlement_healthy: bool,
+    pub stage6_authority_healthy: bool,
     pub redis_healthy: bool,
     pub settlement_healthy: bool,
     pub last_successful_poll_at: Option<DateTime<Utc>>,
@@ -180,7 +185,22 @@ pub struct Stage7aConsumerReadinessSnapshot {
     pub phase: Stage7aReadinessPhase,
     pub reasons: Vec<Stage7aReadinessReason>,
     pub blocked_request_id: Option<StrategyRequestId>,
+    pub blocked_entry_ids: Vec<String>,
+    pub blocked_request_ids: Vec<StrategyRequestId>,
     pub checked_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage7aBlockedKind {
+    Authority,
+    AckSettlement,
+    DlqSettlement,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stage7aBlockedEntry {
+    request_id: Option<StrategyRequestId>,
+    kind: Stage7aBlockedKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,10 +241,10 @@ pub struct Stage7aBoundedRunSummary {
 #[derive(Debug, Default)]
 pub struct Stage7aConsumerSupervisor {
     alive: bool,
-    redis_healthy: bool,
-    settlement_healthy: bool,
+    source_read_healthy: bool,
+    claim_scan_healthy: bool,
     last_successful_poll_at: Option<DateTime<Utc>>,
-    blocked_request_id: Option<StrategyRequestId>,
+    blocked_entries: BTreeMap<String, Stage7aBlockedEntry>,
 }
 
 impl Stage7aConsumerSupervisor {
@@ -232,28 +252,44 @@ impl Stage7aConsumerSupervisor {
         self.alive = true;
     }
 
-    pub fn mark_poll_success(&mut self, observed_at: DateTime<Utc>) {
+    pub fn mark_group_attached(&mut self) {
         self.alive = true;
-        self.redis_healthy = true;
-        self.settlement_healthy = true;
+        self.source_read_healthy = true;
+        self.claim_scan_healthy = true;
+    }
+
+    pub fn mark_source_poll_success(&mut self, observed_at: DateTime<Utc>) {
+        self.alive = true;
+        self.source_read_healthy = true;
         self.last_successful_poll_at = Some(observed_at);
     }
 
-    pub fn mark_redis_failure(&mut self) {
-        self.redis_healthy = false;
-        self.settlement_healthy = false;
+    pub fn mark_claim_scan_success(&mut self, observed_at: DateTime<Utc>) {
+        self.alive = true;
+        self.claim_scan_healthy = true;
+        self.last_successful_poll_at = Some(observed_at);
     }
 
-    pub fn mark_settlement_failure(&mut self) {
-        self.settlement_healthy = false;
+    pub fn mark_source_failure(&mut self) {
+        self.source_read_healthy = false;
     }
 
-    pub fn mark_blocked(&mut self, request_id: StrategyRequestId) {
-        self.blocked_request_id = Some(request_id);
+    pub fn mark_claim_failure(&mut self) {
+        self.claim_scan_healthy = false;
     }
 
-    pub fn clear_blocked(&mut self) {
-        self.blocked_request_id = None;
+    fn mark_blocked(
+        &mut self,
+        entry_id: impl Into<String>,
+        request_id: Option<StrategyRequestId>,
+        kind: Stage7aBlockedKind,
+    ) {
+        self.blocked_entries
+            .insert(entry_id.into(), Stage7aBlockedEntry { request_id, kind });
+    }
+
+    fn clear_blocked_entry(&mut self, entry_id: &str) {
+        self.blocked_entries.remove(entry_id);
     }
 
     pub fn mark_stopped(&mut self) {
@@ -268,14 +304,29 @@ impl Stage7aConsumerSupervisor {
         Stage7aConsumerHealthSnapshot,
         Stage7aConsumerReadinessSnapshot,
     ) {
+        let ack_settlement_healthy = !self
+            .blocked_entries
+            .values()
+            .any(|entry| entry.kind == Stage7aBlockedKind::AckSettlement);
+        let dlq_settlement_healthy = !self
+            .blocked_entries
+            .values()
+            .any(|entry| entry.kind == Stage7aBlockedKind::DlqSettlement);
+        let stage6_authority_healthy = !self
+            .blocked_entries
+            .values()
+            .any(|entry| entry.kind == Stage7aBlockedKind::Authority);
+        let redis_healthy = self.source_read_healthy && self.claim_scan_healthy;
+        let settlement_healthy =
+            ack_settlement_healthy && dlq_settlement_healthy && stage6_authority_healthy;
         let mut reasons = Vec::new();
         if !self.alive {
             reasons.push(Stage7aReadinessReason::ConsumerNotAlive);
         }
-        if !self.redis_healthy {
+        if !redis_healthy {
             reasons.push(Stage7aReadinessReason::RedisUnavailable);
         }
-        if !self.settlement_healthy {
+        if !settlement_healthy {
             reasons.push(Stage7aReadinessReason::SettlementUnavailable);
         }
         if self
@@ -284,7 +335,7 @@ impl Stage7aConsumerSupervisor {
         {
             reasons.push(Stage7aReadinessReason::PollStale);
         }
-        if self.blocked_request_id.is_some() {
+        if !self.blocked_entries.is_empty() {
             reasons.push(Stage7aReadinessReason::CommandLifecycleBlocked);
         }
         let phase = if !self.alive {
@@ -297,15 +348,29 @@ impl Stage7aConsumerSupervisor {
         (
             Stage7aConsumerHealthSnapshot {
                 command_consumer_alive: self.alive,
-                redis_healthy: self.redis_healthy,
-                settlement_healthy: self.settlement_healthy,
+                source_read_healthy: self.source_read_healthy,
+                claim_scan_healthy: self.claim_scan_healthy,
+                ack_settlement_healthy,
+                dlq_settlement_healthy,
+                stage6_authority_healthy,
+                redis_healthy,
+                settlement_healthy,
                 last_successful_poll_at: self.last_successful_poll_at,
                 checked_at,
             },
             Stage7aConsumerReadinessSnapshot {
                 phase,
                 reasons,
-                blocked_request_id: self.blocked_request_id,
+                blocked_request_id: self
+                    .blocked_entries
+                    .values()
+                    .find_map(|entry| entry.request_id),
+                blocked_entry_ids: self.blocked_entries.keys().cloned().collect(),
+                blocked_request_ids: self
+                    .blocked_entries
+                    .values()
+                    .filter_map(|entry| entry.request_id)
+                    .collect(),
                 checked_at,
             },
         )
@@ -341,17 +406,20 @@ pub trait Stage7aPaperOutcomeProvider {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stage7aCommandProfile {
+    account_id: BrokerAccountId,
     instrument: InstrumentId,
     strategy_id: String,
 }
 
 impl Stage7aCommandProfile {
     pub fn new(
+        account_id: BrokerAccountId,
         instrument: InstrumentId,
         strategy_id: impl Into<String>,
     ) -> Result<Self, Stage7aBridgeError> {
         let strategy_id = canonical_token(&strategy_id.into())?.to_string();
         Ok(Self {
+            account_id,
             instrument,
             strategy_id,
         })
@@ -364,7 +432,7 @@ impl Stage7aCommandProfile {
     ) -> Result<Stage7aPaperCommandContext, Stage7aBridgeError> {
         match command {
             BrokerCommand::PlaceOrder(place) => {
-                if place.instrument != self.instrument {
+                if place.account_id != self.account_id || place.instrument != self.instrument {
                     return Err(Stage7aBridgeError::CommandProfileMismatch);
                 }
                 let comment = place
@@ -383,13 +451,18 @@ impl Stage7aCommandProfile {
                     attribution,
                 ))
             }
-            BrokerCommand::CancelOrder(cancel) => resolve_stage7a_cancel_command_context(
-                recovered,
-                cancel,
-                &self.instrument,
-                &self.strategy_id,
-            )
-            .ok_or(Stage7aBridgeError::CommandProfileMismatch),
+            BrokerCommand::CancelOrder(cancel) => {
+                if cancel.account_id != self.account_id {
+                    return Err(Stage7aBridgeError::CommandProfileMismatch);
+                }
+                resolve_stage7a_cancel_command_context(
+                    recovered,
+                    cancel,
+                    &self.instrument,
+                    &self.strategy_id,
+                )
+                .ok_or(Stage7aBridgeError::CommandProfileMismatch)
+            }
         }
     }
 }
@@ -400,13 +473,20 @@ pub enum Stage7aPaperProviderError {
     Uncertain,
 }
 
+#[derive(Clone)]
+struct Stage7aAckPublication {
+    command_sha256: String,
+    canonical_ack: Envelope<CommandAck>,
+    published: bool,
+}
+
 pub struct Stage7aCommandAuthority<P> {
     recovered: Stage6dDurableRuntimeRecovered,
     profile: Stage7aCommandProfile,
     provider: P,
     source: String,
     fault_point: Stage7aFaultPoint,
-    settled_acks: HashMap<StrategyRequestId, Envelope<CommandAck>>,
+    ack_publications: HashMap<StrategyRequestId, Stage7aAckPublication>,
 }
 
 impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
@@ -423,7 +503,7 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
             provider,
             source,
             fault_point: Stage7aFaultPoint::None,
-            settled_acks: HashMap::new(),
+            ack_publications: HashMap::new(),
         })
     }
 
@@ -433,6 +513,28 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
 
     pub fn recovered(&self) -> &Stage6dDurableRuntimeRecovered {
         &self.recovered
+    }
+
+    fn mark_ack_published(&mut self, ack: &Envelope<CommandAck>) {
+        if let Some(publication) = self.ack_publications.get_mut(&ack.payload.request_id) {
+            publication.published = true;
+        }
+    }
+
+    fn remember_canonical_ack(
+        &mut self,
+        command_sha256: String,
+        ack: Envelope<CommandAck>,
+    ) -> Envelope<CommandAck> {
+        self.ack_publications.insert(
+            ack.payload.request_id,
+            Stage7aAckPublication {
+                command_sha256,
+                canonical_ack: ack.clone(),
+                published: false,
+            },
+        );
+        ack
     }
 
     pub fn handle_payload_now(
@@ -477,13 +579,42 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
             )));
         }
         let command = envelope.payload;
+        let command_sha256 = command_sha256(&command)?;
+        let request_id = command_request_id(&command);
+        if let Some(publication) = self.ack_publications.get(&request_id) {
+            if publication.command_sha256 != command_sha256 {
+                return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                    strategy_request_id: request_id,
+                    reason: Stage7aPaperHoldReason::IdentityConflict,
+                }));
+            }
+            let ack = if publication.published {
+                duplicate_ack_envelope(&self.source, &publication.canonical_ack, observed_at)
+            } else {
+                publication.canonical_ack.clone()
+            };
+            return Ok(Stage7aHandleOutcome::Ack(ack));
+        }
         let context = match self.profile.context_for(&command, &self.recovered) {
             Ok(context) => context,
             Err(Stage7aBridgeError::CommandProfileMismatch) => {
-                return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
-                    strategy_request_id: command_request_id(&command),
-                    reason: Stage7aPaperHoldReason::IdentityConflict,
-                }))
+                let decision = Stage7aPaperAdmissionDecision {
+                    strategy_request_id: request_id,
+                    durable_client_order_id: broker_core::ClientOrderId::from_strategy_request(
+                        request_id,
+                    ),
+                    broker_order_id: None,
+                };
+                let ack = ack_envelope(
+                    &self.source,
+                    decision,
+                    CommandAckStatus::Rejected,
+                    Some(CommandAckReasonCode::LocalValidationRejected),
+                    observed_at,
+                );
+                return Ok(Stage7aHandleOutcome::Ack(
+                    self.remember_canonical_ack(command_sha256, ack),
+                ));
             }
             Err(error) => return Err(error),
         };
@@ -526,14 +657,11 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
                     None,
                     observed_at,
                 );
-                self.settled_acks
-                    .insert(ack.payload.request_id, ack.clone());
-                Ok(Stage7aHandleOutcome::Ack(ack))
+                Ok(Stage7aHandleOutcome::Ack(
+                    self.remember_canonical_ack(command_sha256, ack),
+                ))
             }
             Stage7aPaperAdmission::Duplicate(decision) => {
-                if let Some(ack) = self.settled_acks.get(&decision.strategy_request_id) {
-                    return Ok(Stage7aHandleOutcome::Ack(ack.clone()));
-                }
                 Ok(Stage7aHandleOutcome::Ack(ack_envelope(
                     &self.source,
                     decision,
@@ -553,13 +681,10 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
                         CommandAckReasonCode::FeatureDisabled,
                     ),
                 };
-                Ok(Stage7aHandleOutcome::Ack(ack_envelope(
-                    &self.source,
-                    decision,
-                    status,
-                    Some(code),
-                    observed_at,
-                )))
+                let ack = ack_envelope(&self.source, decision, status, Some(code), observed_at);
+                Ok(Stage7aHandleOutcome::Ack(
+                    self.remember_canonical_ack(command_sha256, ack),
+                ))
             }
             Stage7aPaperAdmission::Hold { decision, reason } => {
                 Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
@@ -577,6 +702,7 @@ pub struct Stage7aRedisConsumer<P> {
     authority: Stage7aCommandAuthority<P>,
     supervisor: Stage7aConsumerSupervisor,
     settlement_fault: Stage7aSettlementFault,
+    claim_cursor: String,
 }
 
 impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
@@ -594,6 +720,7 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
             authority,
             supervisor: Stage7aConsumerSupervisor::default(),
             settlement_fault: Stage7aSettlementFault::None,
+            claim_cursor: "0-0".to_string(),
         })
     }
 
@@ -667,15 +794,16 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
             .await;
         match result {
             Ok(()) => {
-                self.supervisor.mark_started();
+                self.supervisor.mark_group_attached();
                 Ok(())
             }
             Err(error) if error.to_string().contains("BUSYGROUP") => {
-                self.supervisor.mark_started();
+                self.supervisor.mark_group_attached();
                 Ok(())
             }
             Err(error) => {
-                self.supervisor.mark_redis_failure();
+                self.supervisor.mark_source_failure();
+                self.supervisor.mark_claim_failure();
                 Err(error.into())
             }
         }
@@ -683,10 +811,8 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
 
     pub async fn poll_new_once(&mut self) -> Result<usize, Stage7aBridgeError> {
         let result = self.poll_new_once_inner().await;
-        match &result {
-            Ok(_) => self.supervisor.mark_poll_success(Utc::now()),
-            Err(Stage7aBridgeError::Redis(_)) => self.supervisor.mark_redis_failure(),
-            Err(_) => self.supervisor.mark_settlement_failure(),
+        if result.is_ok() {
+            self.supervisor.mark_source_poll_success(Utc::now());
         }
         result
     }
@@ -702,12 +828,19 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
         if self.config.block_ms > 0 {
             command.arg("BLOCK").arg(self.config.block_ms);
         }
-        let reply: StreamReadReply = command
+        let reply: StreamReadReply = match command
             .arg("STREAMS")
             .arg(&self.config.command_stream)
             .arg(">")
             .query_async(&mut self.connection)
-            .await?;
+            .await
+        {
+            Ok(reply) => reply,
+            Err(error) => {
+                self.supervisor.mark_source_failure();
+                return Err(error.into());
+            }
+        };
         let entries = reply
             .keys
             .into_iter()
@@ -722,19 +855,17 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
 
     pub async fn reclaim_stale_once(&mut self) -> Result<usize, Stage7aBridgeError> {
         let result = self.reclaim_stale_once_inner().await;
-        match &result {
-            Ok(_) => self.supervisor.mark_poll_success(Utc::now()),
-            Err(Stage7aBridgeError::Redis(_)) => self.supervisor.mark_redis_failure(),
-            Err(_) => self.supervisor.mark_settlement_failure(),
+        if result.is_ok() {
+            self.supervisor.mark_claim_scan_success(Utc::now());
         }
         result
     }
 
     async fn reclaim_stale_once_inner(&mut self) -> Result<usize, Stage7aBridgeError> {
-        let mut start = "0-0".to_string();
         let mut examined = 0usize;
         for _ in 0..self.config.max_claim_pages {
-            let reply: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
+            let start = self.claim_cursor.clone();
+            let reply: StreamAutoClaimReply = match redis::cmd("XAUTOCLAIM")
                 .arg(&self.config.command_stream)
                 .arg(&self.config.consumer_group)
                 .arg(&self.config.consumer_name)
@@ -743,16 +874,24 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
                 .arg("COUNT")
                 .arg(self.config.claim_count)
                 .query_async(&mut self.connection)
-                .await?;
+                .await
+            {
+                Ok(reply) => reply,
+                Err(error) => {
+                    self.supervisor.mark_claim_failure();
+                    return Err(error.into());
+                }
+            };
             let next = reply.next_stream_id;
+            self.claim_cursor = next.clone();
             examined = examined.saturating_add(reply.claimed.len());
             for entry in reply.claimed {
                 self.settle_entry(entry, Utc::now()).await?;
             }
             if xautoclaim_cursor_done(&start, &next) {
+                self.claim_cursor = "0-0".to_string();
                 return Ok(examined);
             }
-            start = next;
         }
         Ok(examined)
     }
@@ -789,14 +928,14 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
             .publish(&self.config.health_stream.clone(), &health_payload)
             .await
         {
-            self.supervisor.mark_redis_failure();
+            self.supervisor.mark_source_failure();
             return Err(error);
         }
         if let Err(error) = self
             .publish(&self.config.readiness_stream.clone(), &readiness_payload)
             .await
         {
-            self.supervisor.mark_redis_failure();
+            self.supervisor.mark_source_failure();
             return Err(error);
         }
         Ok((health, readiness))
@@ -809,8 +948,23 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
     ) -> Result<(), Stage7aBridgeError> {
         let outcome = match entry.get::<String>("payload") {
             Some(payload) => {
-                self.authority
-                    .handle_payload(&entry.id, payload.as_bytes(), observed_at)?
+                match self
+                    .authority
+                    .handle_payload(&entry.id, payload.as_bytes(), observed_at)
+                {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        let request_id = serde_json::from_str::<Envelope<BrokerCommand>>(&payload)
+                            .ok()
+                            .map(|envelope| command_request_id(&envelope.payload));
+                        self.supervisor.mark_blocked(
+                            entry.id.clone(),
+                            request_id,
+                            Stage7aBlockedKind::Authority,
+                        );
+                        return Err(error);
+                    }
+                }
             }
             None => Stage7aHandleOutcome::Dlq(redacted_dlq(
                 &entry.id,
@@ -822,27 +976,75 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aRedisConsumer<P> {
         match outcome {
             Stage7aHandleOutcome::Ack(ack) => {
                 let payload = serde_json::to_string(&ack)?;
-                self.publish(&self.config.ack_stream.clone(), &payload)
-                    .await?;
+                if let Err(error) = self
+                    .publish(&self.config.ack_stream.clone(), &payload)
+                    .await
+                {
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        Some(ack.payload.request_id),
+                        Stage7aBlockedKind::AckSettlement,
+                    );
+                    return Err(error);
+                }
+                self.authority.mark_ack_published(&ack);
                 if self.settlement_fault == Stage7aSettlementFault::AfterAckPublishBeforeXack {
                     self.settlement_fault = Stage7aSettlementFault::None;
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        Some(ack.payload.request_id),
+                        Stage7aBlockedKind::AckSettlement,
+                    );
                     return Err(Stage7aBridgeError::InjectedSettlementFault);
                 }
-                self.xack(&entry.id).await?;
-                self.supervisor.clear_blocked();
+                if let Err(error) = self.xack(&entry.id).await {
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        Some(ack.payload.request_id),
+                        Stage7aBlockedKind::AckSettlement,
+                    );
+                    return Err(error);
+                }
+                self.supervisor.clear_blocked_entry(&entry.id);
             }
             Stage7aHandleOutcome::Dlq(dlq) => {
                 let payload = serde_json::to_string(&dlq)?;
-                self.publish(&self.config.dlq_stream.clone(), &payload)
-                    .await?;
+                if let Err(error) = self
+                    .publish(&self.config.dlq_stream.clone(), &payload)
+                    .await
+                {
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        None,
+                        Stage7aBlockedKind::DlqSettlement,
+                    );
+                    return Err(error);
+                }
                 if self.settlement_fault == Stage7aSettlementFault::AfterDlqPublishBeforeXack {
                     self.settlement_fault = Stage7aSettlementFault::None;
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        None,
+                        Stage7aBlockedKind::DlqSettlement,
+                    );
                     return Err(Stage7aBridgeError::InjectedSettlementFault);
                 }
-                self.xack(&entry.id).await?;
+                if let Err(error) = self.xack(&entry.id).await {
+                    self.supervisor.mark_blocked(
+                        entry.id.clone(),
+                        None,
+                        Stage7aBlockedKind::DlqSettlement,
+                    );
+                    return Err(error);
+                }
+                self.supervisor.clear_blocked_entry(&entry.id);
             }
             Stage7aHandleOutcome::Pending(pending) => {
-                self.supervisor.mark_blocked(pending.strategy_request_id);
+                self.supervisor.mark_blocked(
+                    entry.id,
+                    Some(pending.strategy_request_id),
+                    Stage7aBlockedKind::Authority,
+                );
             }
         }
         Ok(())
@@ -903,6 +1105,14 @@ fn command_request_id(command: &BrokerCommand) -> StrategyRequestId {
     }
 }
 
+fn command_sha256(command: &BrokerCommand) -> Result<String, Stage7aBridgeError> {
+    let bytes = serde_json::to_vec(command)?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage7a.command-publication.v1");
+    hasher.update(bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 fn ack_envelope(
     source: &str,
     decision: Stage7aPaperAdmissionDecision,
@@ -921,6 +1131,29 @@ fn ack_envelope(
             broker_order_id: decision.broker_order_id,
             status,
             reason: reason.map(CommandAckReason::new),
+            received_ts,
+        },
+    }
+}
+
+fn duplicate_ack_envelope(
+    source: &str,
+    canonical: &Envelope<CommandAck>,
+    received_ts: DateTime<Utc>,
+) -> Envelope<CommandAck> {
+    Envelope {
+        schema_version: SCHEMA_VERSION,
+        ts_utc: received_ts,
+        source: source.to_string(),
+        msg_type: MessageType::CommandAck,
+        payload: CommandAck {
+            request_id: canonical.payload.request_id,
+            client_order_id: canonical.payload.client_order_id.clone(),
+            broker_order_id: canonical.payload.broker_order_id.clone(),
+            status: CommandAckStatus::Duplicate,
+            reason: Some(CommandAckReason::new(
+                CommandAckReasonCode::DuplicateCommand,
+            )),
             received_ts,
         },
     }
@@ -1083,7 +1316,12 @@ mod tests {
     }
 
     fn profile() -> Stage7aCommandProfile {
-        Stage7aCommandProfile::new(instrument(), "hybrid_imoexf").unwrap()
+        Stage7aCommandProfile::new(
+            BrokerAccountId::new("ACC_TEST_0001"),
+            instrument(),
+            "hybrid_imoexf",
+        )
+        .unwrap()
     }
 
     fn authority() -> Stage7aCommandAuthority<DeterministicPaperProvider> {
@@ -1356,8 +1594,14 @@ mod tests {
                     Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap(),
                 )
                 .unwrap(),
-            Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
-                reason: Stage7aPaperHoldReason::IdentityConflict,
+            Stage7aHandleOutcome::Ack(Envelope {
+                payload: CommandAck {
+                    status: CommandAckStatus::Rejected,
+                    reason: Some(CommandAckReason {
+                        code: CommandAckReasonCode::LocalValidationRejected,
+                    }),
+                    ..
+                },
                 ..
             })
         ));
@@ -1365,7 +1609,7 @@ mod tests {
     }
 
     #[test]
-    fn same_authority_redelivery_republishes_identical_ack() {
+    fn accepted_ack_then_runtime_duplicate_is_stage5g_noop() {
         let mut authority = authority();
         let payload = encoded_command(801);
         let observed_at = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
@@ -1376,15 +1620,42 @@ mod tests {
             Stage7aHandleOutcome::Ack(ack) => ack,
             _ => panic!("first delivery must settle"),
         };
+        assert_eq!(first.payload.status, CommandAckStatus::Accepted);
         let frontier = authority.recovered().journal_frontier().frame_count();
-        let second = match authority
+        let unpublished_redelivery = match authority
             .handle_payload("2-0", payload.as_bytes(), observed_at)
             .unwrap()
         {
             Stage7aHandleOutcome::Ack(ack) => ack,
             _ => panic!("exact redelivery must replay ACK"),
         };
-        assert_eq!(first, second);
+        assert_eq!(first, unpublished_redelivery);
+        authority.mark_ack_published(&first);
+        let duplicate = match authority
+            .handle_payload(
+                "2-0",
+                payload.as_bytes(),
+                observed_at + chrono::Duration::seconds(1),
+            )
+            .unwrap()
+        {
+            Stage7aHandleOutcome::Ack(ack) => ack,
+            _ => panic!("published ACK redelivery must be a runtime duplicate"),
+        };
+        assert_eq!(duplicate.payload.status, CommandAckStatus::Duplicate);
+        assert_eq!(
+            duplicate.payload.reason.as_ref().map(|reason| reason.code),
+            Some(CommandAckReasonCode::DuplicateCommand)
+        );
+        assert_eq!(duplicate.payload.request_id, first.payload.request_id);
+        assert_eq!(
+            duplicate.payload.client_order_id,
+            first.payload.client_order_id
+        );
+        assert_eq!(
+            duplicate.payload.broker_order_id,
+            first.payload.broker_order_id
+        );
         assert_eq!(
             authority.recovered().journal_frontier().frame_count(),
             frontier
@@ -1425,6 +1696,83 @@ mod tests {
             Some(ClientOrderId::from_strategy_request(
                 StrategyRequestId::from(Uuid::from_u128(807))
             ))
+        );
+    }
+
+    #[test]
+    fn cancel_overlap_policy_is_explicit_and_fail_closed() {
+        let observed_place = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 1).unwrap();
+        let observed_cancel = Utc.with_ymd_and_hms(2026, 8, 11, 9, 1, 1).unwrap();
+        let mut command_authority = authority();
+        assert!(matches!(
+            command_authority
+                .handle_payload(
+                    "cancel-1",
+                    encoded_command(8_401).as_bytes(),
+                    observed_place
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Ack(Envelope {
+                payload: CommandAck {
+                    status: CommandAckStatus::Accepted,
+                    ..
+                },
+                ..
+            })
+        ));
+        assert!(matches!(
+            command_authority
+                .handle_payload(
+                    "cancel-2",
+                    encoded_cancel(8_402, 8_401).as_bytes(),
+                    observed_cancel,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Ack(Envelope {
+                payload: CommandAck {
+                    status: CommandAckStatus::Accepted,
+                    ..
+                },
+                ..
+            })
+        ));
+        assert!(matches!(
+            command_authority
+                .handle_payload(
+                    "cancel-3",
+                    encoded_cancel(8_403, 8_401).as_bytes(),
+                    observed_cancel,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
+                reason: Stage7aPaperHoldReason::AnotherLifecycleUnresolved,
+                ..
+            })
+        ));
+
+        let mut unknown_target = authority();
+        assert!(matches!(
+            unknown_target
+                .handle_payload(
+                    "cancel-unknown",
+                    encoded_cancel(8_404, 9_999).as_bytes(),
+                    observed_cancel,
+                )
+                .unwrap(),
+            Stage7aHandleOutcome::Ack(Envelope {
+                payload: CommandAck {
+                    status: CommandAckStatus::Rejected,
+                    reason: Some(CommandAckReason {
+                        code: CommandAckReasonCode::LocalValidationRejected,
+                    }),
+                    ..
+                },
+                ..
+            })
+        ));
+        assert_eq!(
+            unknown_target.recovered().journal_frontier().frame_count(),
+            0
         );
     }
 
@@ -1478,11 +1826,11 @@ mod tests {
     fn supervisor_never_leaves_stale_ready_after_failure_or_stop() {
         let now = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 0).unwrap();
         let mut supervisor = Stage7aConsumerSupervisor::default();
-        supervisor.mark_started();
-        supervisor.mark_poll_success(now);
+        supervisor.mark_group_attached();
+        supervisor.mark_source_poll_success(now);
         let (_, ready) = supervisor.snapshots(now, chrono::Duration::seconds(5));
         assert_eq!(ready.phase, Stage7aReadinessPhase::PaperReady);
-        supervisor.mark_redis_failure();
+        supervisor.mark_source_failure();
         let (_, degraded) = supervisor.snapshots(now, chrono::Duration::seconds(5));
         assert_eq!(degraded.phase, Stage7aReadinessPhase::Degraded);
         supervisor.mark_stopped();
@@ -1500,6 +1848,25 @@ mod tests {
         assert_eq!(retry.delay_for_failure(1), Duration::from_millis(10));
         assert_eq!(retry.delay_for_failure(4), Duration::from_millis(80));
         assert_eq!(retry.delay_for_failure(20), Duration::from_millis(80));
+    }
+
+    #[test]
+    fn unrelated_success_does_not_clear_blocked_request() {
+        let now = Utc.with_ymd_and_hms(2026, 8, 11, 9, 0, 0).unwrap();
+        let request_a = StrategyRequestId::from(Uuid::from_u128(8_201));
+        let request_b = StrategyRequestId::from(Uuid::from_u128(8_202));
+        let mut supervisor = Stage7aConsumerSupervisor::default();
+        supervisor.mark_group_attached();
+        supervisor.mark_source_poll_success(now);
+        supervisor.mark_blocked("8201-0", Some(request_a), Stage7aBlockedKind::Authority);
+        supervisor.mark_blocked("8202-0", Some(request_b), Stage7aBlockedKind::AckSettlement);
+        supervisor.clear_blocked_entry("8202-0");
+        let (health, readiness) = supervisor.snapshots(now, chrono::Duration::seconds(5));
+        assert!(!health.stage6_authority_healthy);
+        assert!(health.ack_settlement_healthy);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+        assert_eq!(readiness.blocked_entry_ids, vec!["8201-0"]);
+        assert_eq!(readiness.blocked_request_ids, vec![request_a]);
     }
 
     #[tokio::test]
@@ -1566,7 +1933,7 @@ mod tests {
             .arg(&config.command_stream)
             .arg("*")
             .arg("payload")
-            .arg(encoded_command(803))
+            .arg(&payload)
             .query_async(&mut manager)
             .await
             .unwrap();
@@ -1596,7 +1963,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn real_redis_ack_before_xack_fault_replays_identical_ack() {
+    async fn ack_xadd_success_before_xack_redelivery_emits_runtime_duplicate() {
         let redis = RedisServer::start().await;
         let mut config = Stage7aRedisConfig::paper_default("ack-xack-fault").unwrap();
         config.group_start = Stage7aGroupStart::Beginning;
@@ -1642,9 +2009,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(acks.ids.len(), 2);
+        let accepted: Envelope<CommandAck> =
+            serde_json::from_str(&acks.ids[0].get::<String>("payload").unwrap()).unwrap();
+        let duplicate: Envelope<CommandAck> =
+            serde_json::from_str(&acks.ids[1].get::<String>("payload").unwrap()).unwrap();
+        assert_eq!(accepted.payload.status, CommandAckStatus::Accepted);
+        assert_eq!(duplicate.payload.status, CommandAckStatus::Duplicate);
+        assert_eq!(accepted.payload.request_id, duplicate.payload.request_id);
         assert_eq!(
-            acks.ids[0].get::<String>("payload"),
-            acks.ids[1].get::<String>("payload")
+            accepted.payload.client_order_id,
+            duplicate.payload.client_order_id
+        );
+        assert_eq!(
+            accepted.payload.broker_order_id,
+            duplicate.payload.broker_order_id
+        );
+        assert_eq!(
+            duplicate.payload.reason.map(|reason| reason.code),
+            Some(CommandAckReasonCode::DuplicateCommand)
         );
         let (_, readiness) = consumer
             .supervisor()
@@ -1653,7 +2035,152 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn real_redis_ack_and_dlq_publish_failure_leave_entries_pending() {
+    async fn ack_xadd_failure_redelivery_republishes_canonical_accepted() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("ack-xadd-failure").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let mut consumer = Stage7aRedisConsumer::connect(&redis.url, config.clone(), authority())
+            .await
+            .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        let _: () = redis::cmd("SET")
+            .arg(&config.ack_stream)
+            .arg("wrong-type")
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(&config.command_stream)
+            .arg("*")
+            .arg("payload")
+            .arg(encoded_command(8_301))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert!(matches!(
+            consumer.poll_new_once().await,
+            Err(Stage7aBridgeError::Redis(_))
+        ));
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 0);
+        let (health, readiness) = consumer
+            .supervisor()
+            .snapshots(Utc::now(), chrono::Duration::seconds(5));
+        assert!(!health.ack_settlement_healthy);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+
+        let _: i64 = redis::cmd("DEL")
+            .arg(&config.ack_stream)
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        assert_eq!(consumer.reclaim_stale_once().await.unwrap(), 1);
+        let acks: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&config.ack_stream)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(acks.ids.len(), 1);
+        let accepted: Envelope<CommandAck> =
+            serde_json::from_str(&acks.ids[0].get::<String>("payload").unwrap()).unwrap();
+        assert_eq!(accepted.payload.status, CommandAckStatus::Accepted);
+        let (health, readiness) = consumer
+            .supervisor()
+            .snapshots(Utc::now(), chrono::Duration::seconds(5));
+        assert!(health.ack_settlement_healthy);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::PaperReady);
+    }
+
+    #[tokio::test]
+    async fn xautoclaim_tail_eventually_reached_with_claim_count_1_max_pages_1() {
+        let redis = RedisServer::start().await;
+        let mut config = Stage7aRedisConfig::paper_default("claim-cursor-r1").unwrap();
+        config.group_start = Stage7aGroupStart::Beginning;
+        config.allow_controlled_beginning = true;
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        config.claim_count = 1;
+        config.max_claim_pages = 1;
+        let mut consumer = Stage7aRedisConsumer::connect(&redis.url, config.clone(), authority())
+            .await
+            .unwrap();
+        consumer.ensure_group().await.unwrap();
+        let client = redis::Client::open(redis.url.as_str()).unwrap();
+        let mut manager = ConnectionManager::new(client).await.unwrap();
+        for suffix in 1..=3 {
+            let _: String = redis::cmd("XADD")
+                .arg(&config.command_stream)
+                .arg("*")
+                .arg("payload")
+                .arg(format!("poison-{suffix}"))
+                .query_async(&mut manager)
+                .await
+                .unwrap();
+        }
+        let pending_read: StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(&config.consumer_group)
+            .arg("stalled-consumer")
+            .arg("COUNT")
+            .arg(3)
+            .arg("STREAMS")
+            .arg(&config.command_stream)
+            .arg(">")
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(pending_read.keys[0].ids.len(), 3);
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        let mut examined = 0usize;
+        let mut observed_nonzero_cursor = false;
+        for _ in 0..6 {
+            examined += consumer.reclaim_stale_once().await.unwrap();
+            observed_nonzero_cursor |= consumer.claim_cursor != "0-0";
+            let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+                .arg(&config.command_stream)
+                .arg(&config.consumer_group)
+                .arg("-")
+                .arg("+")
+                .arg(10)
+                .query_async(&mut manager)
+                .await
+                .unwrap();
+            if pending.ids.is_empty() {
+                break;
+            }
+        }
+        assert!(observed_nonzero_cursor);
+        assert_eq!(examined, 3);
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&config.command_stream)
+            .arg(&config.consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert!(pending.ids.is_empty());
+        let dlq: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&config.dlq_stream)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert_eq!(dlq.ids.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn dlq_outage_empty_polls_do_not_restore_readiness() {
         let redis = RedisServer::start().await;
         let mut config = Stage7aRedisConfig::paper_default("publish-failure").unwrap();
         config.group_start = Stage7aGroupStart::Beginning;
@@ -1695,6 +2222,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending_ack.ids.len(), 1);
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 0);
+        let (health, readiness) = consumer
+            .supervisor()
+            .snapshots(Utc::now(), chrono::Duration::seconds(5));
+        assert!(!health.ack_settlement_healthy);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+        assert_eq!(readiness.blocked_entry_ids.len(), 1);
         let _: i64 = redis::cmd("DEL")
             .arg(&config.ack_stream)
             .query_async(&mut manager)
@@ -1731,6 +2265,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending_dlq.ids.len(), 1);
+        assert_eq!(consumer.poll_new_once().await.unwrap(), 0);
+        let (health, readiness) = consumer
+            .supervisor()
+            .snapshots(Utc::now(), chrono::Duration::seconds(5));
+        assert!(!health.dlq_settlement_healthy);
+        assert_eq!(readiness.phase, Stage7aReadinessPhase::Degraded);
+        assert_eq!(readiness.blocked_entry_ids.len(), 1);
         let _: i64 = redis::cmd("DEL")
             .arg(&config.dlq_stream)
             .query_async(&mut manager)
