@@ -24,15 +24,31 @@
 //! let authority: Stage7bWritableDurableAuthority = unreachable!();
 //! let _ = serde_json::to_vec(&authority).unwrap();
 //! ```
+//!
+//! The anchored durable-root capability is also linear and cannot be cloned or
+//! serialized:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bDurableRootAuthority;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage7bDurableRootAuthority>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bDurableRootAuthority;
+//! let root: Stage7bDurableRootAuthority = unreachable!();
+//! let _ = serde_json::to_vec(&root).unwrap();
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
 
 use std::{
-    fs::{self, File, OpenOptions},
+    ffi::CString,
+    fs::{self, File},
     io::ErrorKind,
-    os::fd::AsRawFd,
-    os::unix::fs::{MetadataExt, OpenOptionsExt},
+    os::fd::{AsRawFd, FromRawFd},
+    os::unix::{ffi::OsStrExt, fs::MetadataExt},
     path::{Path, PathBuf},
 };
 
@@ -79,6 +95,8 @@ pub enum Stage7bDurableStorageError {
     UnsafeWriterLockPath,
     UnsafeRecoverySealPath,
     UnsafeTmpPath,
+    RootIdentityDrift,
+    WriterLockIdentityDrift,
     WriterAlreadyHeld,
     Io(ErrorKind),
     Journal(Stage6JournalStorageError),
@@ -99,6 +117,8 @@ impl std::fmt::Display for Stage7bDurableStorageError {
             Self::UnsafeWriterLockPath => "unsafe writer-lock path",
             Self::UnsafeRecoverySealPath => "unsafe recovery-seal path",
             Self::UnsafeTmpPath => "unsafe durable tmp path",
+            Self::RootIdentityDrift => "anchored durable-root identity drift",
+            Self::WriterLockIdentityDrift => "writer-lock namespace identity drift",
             Self::WriterAlreadyHeld => "durable writer lock is already held",
             Self::Io(_) => "durable storage I/O failure",
             Self::Journal(_) => "durable journal failure",
@@ -121,12 +141,19 @@ impl From<Stage6JournalStorageError> for Stage7bDurableStorageError {
 }
 
 #[derive(Debug)]
-pub struct Stage7bDurablePaths {
-    root: PathBuf,
+pub struct Stage7bDurableRootAuthority {
+    parent_path: PathBuf,
+    parent_directory: File,
+    parent_dev: u64,
+    parent_ino: u64,
+    root_path: PathBuf,
+    root_directory: File,
+    root_dev: u64,
+    root_ino: u64,
     operational_identity_sha256: Stage6Sha256Digest,
 }
 
-impl Stage7bDurablePaths {
+impl Stage7bDurableRootAuthority {
     pub fn expected_directory_name(
         identity: &Stage6dOperationalIdentityConfig,
     ) -> Result<String, Stage7bDurableStorageError> {
@@ -166,133 +193,316 @@ impl Stage7bDurablePaths {
         if canonical.file_name().and_then(|value| value.to_str()) != Some(expected.as_str()) {
             return Err(Stage7bDurableStorageError::IdentityDirectoryMismatch);
         }
-        validate_optional_regular(
-            &canonical.join(STAGE7B_JOURNAL_FILE),
+        let parent_path = canonical
+            .parent()
+            .ok_or(Stage7bDurableStorageError::RootNotCanonical)?
+            .to_path_buf();
+        let parent_directory = open_root_directory(&parent_path)?;
+        let parent_metadata = parent_directory.metadata()?;
+        let root_directory = open_child_at(
+            &parent_directory,
+            &expected,
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0,
+        )?;
+        let opened = root_directory.metadata()?;
+        if opened.dev() != metadata.dev() || opened.ino() != metadata.ino() {
+            return Err(Stage7bDurableStorageError::RootIdentityDrift);
+        }
+        validate_optional_regular_at(
+            &root_directory,
+            STAGE7B_JOURNAL_FILE,
             Stage7bDurableStorageError::UnsafeJournalPath,
         )?;
-        validate_optional_regular(
-            &canonical.join(STAGE7B_WRITER_LOCK_FILE),
+        validate_optional_regular_at(
+            &root_directory,
+            STAGE7B_WRITER_LOCK_FILE,
             Stage7bDurableStorageError::UnsafeWriterLockPath,
         )?;
-        validate_optional_regular(
-            &canonical.join(STAGE7B_RECOVERY_SEAL_FILE),
+        validate_optional_regular_at(
+            &root_directory,
+            STAGE7B_RECOVERY_SEAL_FILE,
             Stage7bDurableStorageError::UnsafeRecoverySealPath,
         )?;
-        validate_optional_directory(
-            &canonical.join(STAGE7B_TMP_DIRECTORY),
+        validate_optional_directory_at(
+            &root_directory,
+            STAGE7B_TMP_DIRECTORY,
             Stage7bDurableStorageError::UnsafeTmpPath,
         )?;
         Ok(Self {
-            root: canonical,
+            parent_path,
+            parent_directory,
+            parent_dev: parent_metadata.dev(),
+            parent_ino: parent_metadata.ino(),
+            root_path: canonical,
+            root_directory,
+            root_dev: opened.dev(),
+            root_ino: opened.ino(),
             operational_identity_sha256: digest,
         })
     }
 
     pub fn root(&self) -> &Path {
-        &self.root
+        &self.root_path
     }
 
     pub fn operational_identity_sha256(&self) -> &Stage6Sha256Digest {
         &self.operational_identity_sha256
     }
 
-    fn journal_path(&self) -> PathBuf {
-        self.root.join(STAGE7B_JOURNAL_FILE)
+    fn namespace_lock_name(&self) -> String {
+        format!(
+            ".stage7b-{}.namespace.lock",
+            self.operational_identity_sha256.as_str()
+        )
     }
 
-    fn writer_lock_path(&self) -> PathBuf {
-        self.root.join(STAGE7B_WRITER_LOCK_FILE)
-    }
-
-    fn revalidate(
-        &self,
-        identity: &Stage6dOperationalIdentityConfig,
-    ) -> Result<(), Stage7bDurableStorageError> {
-        let observed = Self::validate(&self.root, identity)?;
-        if observed.operational_identity_sha256 != self.operational_identity_sha256 {
-            return Err(Stage7bDurableStorageError::IdentityDirectoryMismatch);
+    fn validate_external_root_identity(&self) -> Result<(), Stage7bDurableStorageError> {
+        let named_parent = fs::symlink_metadata(&self.parent_path)
+            .map_err(|_| Stage7bDurableStorageError::RootIdentityDrift)?;
+        let opened_parent = self.parent_directory.metadata()?;
+        let named = fs::symlink_metadata(&self.root_path)
+            .map_err(|_| Stage7bDurableStorageError::RootIdentityDrift)?;
+        let opened = self.root_directory.metadata()?;
+        if named_parent.file_type().is_symlink()
+            || !named_parent.file_type().is_dir()
+            || !opened_parent.file_type().is_dir()
+            || named_parent.dev() != self.parent_dev
+            || named_parent.ino() != self.parent_ino
+            || opened_parent.dev() != self.parent_dev
+            || opened_parent.ino() != self.parent_ino
+            || named.file_type().is_symlink()
+            || !named.file_type().is_dir()
+            || !opened.file_type().is_dir()
+            || named.dev() != self.root_dev
+            || named.ino() != self.root_ino
+            || opened.dev() != self.root_dev
+            || opened.ino() != self.root_ino
+        {
+            return Err(Stage7bDurableStorageError::RootIdentityDrift);
         }
         Ok(())
     }
 }
 
-fn validate_optional_regular(
-    path: &Path,
+fn open_root_directory(path: &Path) -> Result<File, Stage7bDurableStorageError> {
+    let path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| Stage7bDurableStorageError::Io(ErrorKind::InvalidInput))?;
+    // SAFETY: `path` is NUL terminated and the returned descriptor is adopted
+    // exactly once on success.
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: `fd` is a fresh descriptor owned by this function.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+fn open_child_at(
+    root: &File,
+    name: &str,
+    flags: libc::c_int,
+    mode: libc::mode_t,
+) -> Result<File, std::io::Error> {
+    let name =
+        CString::new(name.as_bytes()).map_err(|_| std::io::Error::from(ErrorKind::InvalidInput))?;
+    // SAFETY: the root descriptor is live, `name` is NUL terminated, and the
+    // returned descriptor is adopted exactly once on success.
+    let fd = unsafe { libc::openat(root.as_raw_fd(), name.as_ptr(), flags, mode as libc::c_uint) };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `fd` is a fresh descriptor owned by this function.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+fn validate_optional_regular_at(
+    root: &File,
+    name: &str,
     unsafe_error: Stage7bDurableStorageError,
 ) -> Result<(), Stage7bDurableStorageError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_file() && metadata.nlink() == 1 => Ok(()),
-        Ok(_) => Err(unsafe_error),
+    match open_child_at(
+        root,
+        name,
+        libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        0,
+    ) {
+        Ok(file) => {
+            let metadata = file.metadata()?;
+            if metadata.file_type().is_file() && metadata.nlink() == 1 {
+                Ok(())
+            } else {
+                Err(unsafe_error)
+            }
+        }
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
+        Err(_) => Err(unsafe_error),
     }
 }
 
-fn validate_optional_directory(
-    path: &Path,
+fn validate_optional_directory_at(
+    root: &File,
+    name: &str,
     unsafe_error: Stage7bDurableStorageError,
 ) -> Result<(), Stage7bDurableStorageError> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
+    match open_child_at(
+        root,
+        name,
+        libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        0,
+    ) {
+        Ok(file) if file.metadata()?.file_type().is_dir() => Ok(()),
         Ok(_) => Err(unsafe_error),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.into()),
+        Err(_) => Err(unsafe_error),
     }
 }
 
 struct Stage7bKernelWriterLease {
-    file: File,
+    root: Stage7bDurableRootAuthority,
+    namespace_lock_file: File,
+    lock_file: File,
 }
 
 impl Stage7bKernelWriterLease {
-    fn acquire(path: &Path) -> Result<Self, Stage7bDurableStorageError> {
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .mode(0o600)
-            .open(path)?;
-        if !same_regular_file_identity(path, &file)? {
+    fn acquire(root: Stage7bDurableRootAuthority) -> Result<Self, Stage7bDurableStorageError> {
+        let namespace_lock_file = open_child_at(
+            &root.parent_directory,
+            &root.namespace_lock_name(),
+            libc::O_RDWR | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )?;
+        if !is_single_linked_regular(&namespace_lock_file)? {
             return Err(Stage7bDurableStorageError::UnsafeWriterLockPath);
         }
-        // SAFETY: `file` owns a live descriptor for the entire lease. `flock`
-        // does not dereference memory and the descriptor remains open on success.
-        let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-        if result != 0 {
-            let error = std::io::Error::last_os_error();
-            if matches!(error.raw_os_error(), Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
-            {
-                return Err(Stage7bDurableStorageError::WriterAlreadyHeld);
-            }
-            return Err(error.into());
-        }
-        if !same_regular_file_identity(path, &file)? {
+        acquire_nonblocking_exclusive_lock(&namespace_lock_file)?;
+        acquire_nonblocking_exclusive_lock(&root.root_directory)?;
+        root.validate_external_root_identity()?;
+        let lock_file = open_child_at(
+            &root.root_directory,
+            STAGE7B_WRITER_LOCK_FILE,
+            libc::O_RDWR | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )?;
+        if !is_single_linked_regular(&lock_file)? {
             return Err(Stage7bDurableStorageError::UnsafeWriterLockPath);
         }
-        Ok(Self { file })
+        acquire_nonblocking_exclusive_lock(&lock_file)?;
+        root.root_directory.sync_all()?;
+        root.parent_directory.sync_all()?;
+        let lease = Self {
+            root,
+            namespace_lock_file,
+            lock_file,
+        };
+        lease.validate_namespace()?;
+        Ok(lease)
+    }
+
+    fn validate_namespace(&self) -> Result<(), Stage7bDurableStorageError> {
+        let named_namespace = open_child_at(
+            &self.root.parent_directory,
+            &self.root.namespace_lock_name(),
+            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0,
+        )
+        .map_err(|_| Stage7bDurableStorageError::WriterLockIdentityDrift)?;
+        if !same_file_identity(&named_namespace, &self.namespace_lock_file)? {
+            return Err(Stage7bDurableStorageError::WriterLockIdentityDrift);
+        }
+        self.root.validate_external_root_identity()?;
+        let named = open_child_at(
+            &self.root.root_directory,
+            STAGE7B_WRITER_LOCK_FILE,
+            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0,
+        )
+        .map_err(|_| Stage7bDurableStorageError::WriterLockIdentityDrift)?;
+        if !same_file_identity(&named, &self.lock_file)? {
+            return Err(Stage7bDurableStorageError::WriterLockIdentityDrift);
+        }
+        Ok(())
+    }
+
+    fn open_journal(
+        &self,
+        create: bool,
+    ) -> Result<Stage6FileJournalBackend, Stage7bDurableStorageError> {
+        self.validate_namespace()?;
+        let flags = libc::O_RDWR
+            | libc::O_NOFOLLOW
+            | libc::O_CLOEXEC
+            | if create {
+                libc::O_CREAT | libc::O_EXCL
+            } else {
+                0
+            };
+        let file = open_child_at(
+            &self.root.root_directory,
+            STAGE7B_JOURNAL_FILE,
+            flags,
+            0o600,
+        )?;
+        if !is_single_linked_regular(&file)? {
+            return Err(Stage7bDurableStorageError::UnsafeJournalPath);
+        }
+        let diagnostic_path = self.root.root_path.join(STAGE7B_JOURNAL_FILE);
+        let journal = if create {
+            let journal =
+                Stage6FileJournalBackend::create_new_from_owned_file(diagnostic_path, file)?;
+            self.root.root_directory.sync_all()?;
+            journal
+        } else {
+            Stage6FileJournalBackend::open_existing_from_owned_file(diagnostic_path, file)?
+        };
+        self.validate_namespace()?;
+        Ok(journal)
     }
 }
 
-fn same_regular_file_identity(
-    path: &Path,
-    file: &File,
-) -> Result<bool, Stage7bDurableStorageError> {
-    let opened = file.metadata()?;
-    let named = fs::symlink_metadata(path)?;
-    Ok(opened.file_type().is_file()
-        && named.file_type().is_file()
-        && opened.nlink() == 1
-        && named.nlink() == 1
-        && opened.dev() == named.dev()
-        && opened.ino() == named.ino())
+fn acquire_nonblocking_exclusive_lock(file: &File) -> Result<(), Stage7bDurableStorageError> {
+    // SAFETY: `file` owns a live descriptor. `flock` does not dereference
+    // memory and the descriptor remains live for the entire lease on success.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == 0 {
+        return Ok(());
+    }
+    let error = std::io::Error::last_os_error();
+    if matches!(error.raw_os_error(), Some(code) if code == libc::EWOULDBLOCK || code == libc::EAGAIN)
+    {
+        return Err(Stage7bDurableStorageError::WriterAlreadyHeld);
+    }
+    Err(error.into())
+}
+
+fn is_single_linked_regular(file: &File) -> Result<bool, Stage7bDurableStorageError> {
+    let metadata = file.metadata()?;
+    Ok(metadata.file_type().is_file() && metadata.nlink() == 1)
+}
+
+fn same_file_identity(left: &File, right: &File) -> Result<bool, Stage7bDurableStorageError> {
+    let left = left.metadata()?;
+    let right = right.metadata()?;
+    Ok(left.file_type().is_file()
+        && right.file_type().is_file()
+        && left.nlink() == 1
+        && right.nlink() == 1
+        && left.dev() == right.dev()
+        && left.ino() == right.ino())
 }
 
 impl Drop for Stage7bKernelWriterLease {
     fn drop(&mut self) {
         // SAFETY: this descriptor is owned by the lease and remains valid until
         // `File` is dropped immediately after this method returns.
-        let _ = unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        let _ = unsafe { libc::flock(self.lock_file.as_raw_fd(), libc::LOCK_UN) };
+        let _ = unsafe { libc::flock(self.root.root_directory.as_raw_fd(), libc::LOCK_UN) };
+        let _ = unsafe { libc::flock(self.namespace_lock_file.as_raw_fd(), libc::LOCK_UN) };
     }
 }
 
@@ -307,39 +517,65 @@ pub struct Stage7bWritableDurableAuthority {
 
 impl Stage7bWritableDurableAuthority {
     pub fn create_new(
-        paths: Stage7bDurablePaths,
+        root: Stage7bDurableRootAuthority,
         identity: &Stage6dOperationalIdentityConfig,
         authorization: &Stage6dFirstBootAuthorization,
     ) -> Result<Self, Stage7bDurableStorageError> {
         if !authorization.authorizes_deployment(&identity.deployment_id) {
             return Err(Stage7bDurableStorageError::FirstBootAuthorizationMismatch);
         }
-        Self::open(paths, identity, true)
+        Self::open(root, true, |_| {})
     }
 
     pub fn open_existing(
-        paths: Stage7bDurablePaths,
-        identity: &Stage6dOperationalIdentityConfig,
+        root: Stage7bDurableRootAuthority,
+        _identity: &Stage6dOperationalIdentityConfig,
     ) -> Result<Self, Stage7bDurableStorageError> {
-        Self::open(paths, identity, false)
+        Self::open(root, false, |_| {})
     }
 
-    fn open(
-        paths: Stage7bDurablePaths,
-        identity: &Stage6dOperationalIdentityConfig,
+    /// Opens existing storage while reporting ordered phases. The callback
+    /// receives no filesystem handles and every callback boundary is followed
+    /// by anchored namespace validation before writable progress continues.
+    /// This is primarily an deterministic fault-injection seam for real
+    /// filesystem/process acceptance tests.
+    #[doc(hidden)]
+    pub fn open_existing_with_phase_observer<F>(
+        root: Stage7bDurableRootAuthority,
+        _identity: &Stage6dOperationalIdentityConfig,
+        observer: F,
+    ) -> Result<Self, Stage7bDurableStorageError>
+    where
+        F: FnMut(Stage7bStorageOpenPhase),
+    {
+        Self::open(root, false, observer)
+    }
+
+    fn open<F>(
+        root: Stage7bDurableRootAuthority,
         create: bool,
-    ) -> Result<Self, Stage7bDurableStorageError> {
-        let writer_lease = Stage7bKernelWriterLease::acquire(&paths.writer_lock_path())?;
-        paths.revalidate(identity)?;
-        let journal = if create {
-            Stage6FileJournalBackend::create_new(paths.journal_path())?
-        } else {
-            Stage6FileJournalBackend::open_existing(paths.journal_path())?
-        };
+        mut observer: F,
+    ) -> Result<Self, Stage7bDurableStorageError>
+    where
+        F: FnMut(Stage7bStorageOpenPhase),
+    {
+        observer(Stage7bStorageOpenPhase::PathValidated);
+        root.validate_external_root_identity()?;
+        let writer_lease = Stage7bKernelWriterLease::acquire(root)?;
+        observer(Stage7bStorageOpenPhase::WriterLockAcquired);
+        writer_lease.validate_namespace()?;
+        observer(Stage7bStorageOpenPhase::PathRevalidated);
+        writer_lease.validate_namespace()?;
+        let journal = writer_lease.open_journal(create)?;
+        observer(Stage7bStorageOpenPhase::JournalOpened);
+        writer_lease.validate_namespace()?;
+        observer(Stage7bStorageOpenPhase::StorageReady);
+        writer_lease.validate_namespace()?;
+        let operational_identity_sha256 = writer_lease.root.operational_identity_sha256.clone();
         Ok(Self {
             journal,
             _writer_lease: writer_lease,
-            operational_identity_sha256: paths.operational_identity_sha256,
+            operational_identity_sha256,
         })
     }
 
@@ -353,6 +589,9 @@ impl Stage6JournalBackend for Stage7bWritableDurableAuthority {
         &mut self,
         record: &Stage6JournalRecordV1,
     ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
+        self._writer_lease
+            .validate_namespace()
+            .map_err(|_| Stage6JournalStorageError::ExternalMutationDetected)?;
         self.journal.append(record)
     }
 
@@ -365,6 +604,9 @@ impl Stage6JournalBackend for Stage7bWritableDurableAuthority {
     }
 
     fn framed_bytes(&self) -> Result<Vec<u8>, Stage6JournalStorageError> {
+        self._writer_lease
+            .validate_namespace()
+            .map_err(|_| Stage6JournalStorageError::ExternalMutationDetected)?;
         self.journal.framed_bytes()
     }
 
@@ -415,7 +657,8 @@ mod tests {
     }
 
     fn durable_root(parent: &Path, identity: &Stage6dOperationalIdentityConfig) -> PathBuf {
-        let root = parent.join(Stage7bDurablePaths::expected_directory_name(identity).unwrap());
+        let root =
+            parent.join(Stage7bDurableRootAuthority::expected_directory_name(identity).unwrap());
         fs::create_dir(&root).unwrap();
         root
     }
@@ -448,7 +691,7 @@ mod tests {
         let identity = identity();
         let parent = parent();
         let root = durable_root(&parent, &identity);
-        let paths = Stage7bDurablePaths::validate(&root, &identity).unwrap();
+        let paths = Stage7bDurableRootAuthority::validate(&root, &identity).unwrap();
         let authorization = authorization(&identity.deployment_id);
         let authority =
             Stage7bWritableDurableAuthority::create_new(paths, &identity, &authorization).unwrap();
@@ -465,7 +708,7 @@ mod tests {
         let identity = identity();
         let parent = parent();
         let root = durable_root(&parent, &identity);
-        let paths = Stage7bDurablePaths::validate(&root, &identity).unwrap();
+        let paths = Stage7bDurableRootAuthority::validate(&root, &identity).unwrap();
         let wrong = authorization("another-deployment");
         assert!(matches!(
             Stage7bWritableDurableAuthority::create_new(paths, &identity, &wrong),
@@ -484,12 +727,12 @@ mod tests {
         let mut wrong = identity.clone();
         wrong.deployment_generation = 2;
         assert_eq!(
-            Stage7bDurablePaths::validate(&root, &wrong).unwrap_err(),
+            Stage7bDurableRootAuthority::validate(&root, &wrong).unwrap_err(),
             Stage7bDurableStorageError::IdentityDirectoryMismatch
         );
         let alias = root.join("..").join(root.file_name().unwrap());
         assert_eq!(
-            Stage7bDurablePaths::validate(alias, &identity).unwrap_err(),
+            Stage7bDurableRootAuthority::validate(alias, &identity).unwrap_err(),
             Stage7bDurableStorageError::RootNotCanonical
         );
         fs::remove_dir_all(parent).unwrap();
@@ -499,19 +742,20 @@ mod tests {
     fn stage7b_b_relative_missing_and_wrong_directory_fail_closed() {
         let identity = identity();
         assert_eq!(
-            Stage7bDurablePaths::validate("relative", &identity).unwrap_err(),
+            Stage7bDurableRootAuthority::validate("relative", &identity).unwrap_err(),
             Stage7bDurableStorageError::RootMustBeAbsolute
         );
         let parent = parent();
-        let missing = parent.join(Stage7bDurablePaths::expected_directory_name(&identity).unwrap());
+        let missing =
+            parent.join(Stage7bDurableRootAuthority::expected_directory_name(&identity).unwrap());
         assert_eq!(
-            Stage7bDurablePaths::validate(&missing, &identity).unwrap_err(),
+            Stage7bDurableRootAuthority::validate(&missing, &identity).unwrap_err(),
             Stage7bDurableStorageError::RootMissing
         );
         let wrong = parent.join("wrong-identity");
         fs::create_dir(&wrong).unwrap();
         assert_eq!(
-            Stage7bDurablePaths::validate(&wrong, &identity).unwrap_err(),
+            Stage7bDurableRootAuthority::validate(&wrong, &identity).unwrap_err(),
             Stage7bDurableStorageError::IdentityDirectoryMismatch
         );
         fs::remove_dir_all(parent).unwrap();
@@ -527,7 +771,7 @@ mod tests {
         let root_alias = parent.join("root-alias");
         symlink(&root, &root_alias).unwrap();
         assert_eq!(
-            Stage7bDurablePaths::validate(&root_alias, &identity).unwrap_err(),
+            Stage7bDurableRootAuthority::validate(&root_alias, &identity).unwrap_err(),
             Stage7bDurableStorageError::RootIsSymlink
         );
 
@@ -550,14 +794,14 @@ mod tests {
             let path = root.join(name);
             symlink(&outside, &path).unwrap();
             assert_eq!(
-                Stage7bDurablePaths::validate(&root, &identity).unwrap_err(),
+                Stage7bDurableRootAuthority::validate(&root, &identity).unwrap_err(),
                 expected
             );
             fs::remove_file(path).unwrap();
         }
         symlink(&parent, root.join(STAGE7B_TMP_DIRECTORY)).unwrap();
         assert_eq!(
-            Stage7bDurablePaths::validate(&root, &identity).unwrap_err(),
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap_err(),
             Stage7bDurableStorageError::UnsafeTmpPath
         );
         fs::remove_dir_all(parent).unwrap();
@@ -587,11 +831,111 @@ mod tests {
             let path = root.join(name);
             fs::hard_link(&outside, &path).unwrap();
             assert_eq!(
-                Stage7bDurablePaths::validate(&root, &identity).unwrap_err(),
+                Stage7bDurableRootAuthority::validate(&root, &identity).unwrap_err(),
                 expected
             );
             fs::remove_file(path).unwrap();
         }
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_b_anchored_root_fd_is_not_redirected_after_path_rename() {
+        let identity = identity();
+        let parent = parent();
+        let root = durable_root(&parent, &identity);
+        let authority = Stage7bDurableRootAuthority::validate(&root, &identity).unwrap();
+        let anchored = authority.root_directory.metadata().unwrap();
+        let renamed = parent.join("renamed-original-root");
+        fs::rename(&root, &renamed).unwrap();
+        fs::create_dir(&root).unwrap();
+
+        let witness = open_child_at(
+            &authority.root_directory,
+            "anchored-root-witness",
+            libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+        .unwrap();
+        drop(witness);
+        let still_anchored = authority.root_directory.metadata().unwrap();
+        assert_eq!(
+            (anchored.dev(), anchored.ino()),
+            (still_anchored.dev(), still_anchored.ino())
+        );
+        assert!(renamed.join("anchored-root-witness").is_file());
+        assert!(!root.join("anchored-root-witness").exists());
+        assert_eq!(
+            authority.validate_external_root_identity().unwrap_err(),
+            Stage7bDurableStorageError::RootIdentityDrift
+        );
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_b_parent_namespace_lock_is_identity_scoped() {
+        let first_identity = identity();
+        let mut second_identity = identity();
+        second_identity.deployment_id = "stage7b-test-second".to_string();
+        let parent = parent();
+        let first_root = durable_root(&parent, &first_identity);
+        let second_root = durable_root(&parent, &second_identity);
+        let first = Stage7bWritableDurableAuthority::create_new(
+            Stage7bDurableRootAuthority::validate(&first_root, &first_identity).unwrap(),
+            &first_identity,
+            &authorization(&first_identity.deployment_id),
+        )
+        .unwrap();
+        let second = Stage7bWritableDurableAuthority::create_new(
+            Stage7bDurableRootAuthority::validate(&second_root, &second_identity).unwrap(),
+            &second_identity,
+            &authorization(&second_identity.deployment_id),
+        )
+        .unwrap();
+        drop((first, second));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_b_live_authority_rejects_root_drift_before_journal_access() {
+        let identity = identity();
+        let parent = parent();
+        let root = durable_root(&parent, &identity);
+        let authority = Stage7bWritableDurableAuthority::create_new(
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap(),
+            &identity,
+            &authorization(&identity.deployment_id),
+        )
+        .unwrap();
+        let renamed = parent.join("live-authority-original-root");
+        fs::rename(&root, &renamed).unwrap();
+        fs::create_dir(&root).unwrap();
+        assert_eq!(
+            authority.framed_bytes().unwrap_err(),
+            Stage6JournalStorageError::ExternalMutationDetected
+        );
+        drop(authority);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_b_live_authority_rejects_lock_drift_before_journal_access() {
+        let identity = identity();
+        let parent = parent();
+        let root = durable_root(&parent, &identity);
+        let authority = Stage7bWritableDurableAuthority::create_new(
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap(),
+            &identity,
+            &authorization(&identity.deployment_id),
+        )
+        .unwrap();
+        fs::remove_file(root.join(STAGE7B_WRITER_LOCK_FILE)).unwrap();
+        fs::write(root.join(STAGE7B_WRITER_LOCK_FILE), b"replacement").unwrap();
+        assert_eq!(
+            authority.framed_bytes().unwrap_err(),
+            Stage6JournalStorageError::ExternalMutationDetected
+        );
+        drop(authority);
         fs::remove_dir_all(parent).unwrap();
     }
 }

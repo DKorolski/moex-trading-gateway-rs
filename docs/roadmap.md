@@ -27,7 +27,7 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-b — durable path validation and kernel single-writer ownership,
+Stage 7B-b-R1 — anchored durable-root and kernel single-writer ownership,
 paper/mock only (implementation candidate; independent acceptance pending).
 Stage 7B-a-R1 is accepted at `a947c24bb413a91c5eb0ad97f4ac0b402bfd0641`.
 Recovery-seal and Redis-settlement work remain closed.

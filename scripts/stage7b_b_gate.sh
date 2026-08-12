@@ -38,4 +38,4 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings 2>&1 \
   | tee "$artifact_dir/clippy.txt"
 rustc --version | tee "$artifact_dir/toolchain.txt"
 cargo --version | tee -a "$artifact_dir/toolchain.txt"
-echo "stage7b-b-gate: PASS artifact_dir=$artifact_dir"
+echo "stage7b-b-r1-gate: PASS artifact_dir=$artifact_dir"

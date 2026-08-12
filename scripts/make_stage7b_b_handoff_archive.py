@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an immutable Stage 7B-b source and evidence handoff."""
+"""Create an immutable Stage 7B-b-R1 source and evidence handoff."""
 from __future__ import annotations
 
 import hashlib
@@ -134,7 +134,7 @@ def main() -> None:
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7B-b",
+            "stage": "7B-b-R1",
             "status": "independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
@@ -145,9 +145,9 @@ def main() -> None:
             "implemented_count": proof_map["implemented_count"],
             "pending_count": proof_map["pending_count"],
             "stage7b_accepted": proof_map["stage7b_accepted"],
-            "focused_stage7b_b_test_count": 8,
+            "focused_stage7b_b_test_count": 15,
             "focused_stage7b_core_test_count": 9,
-            "real_subprocess_test_count": 1,
+            "real_subprocess_test_count": 4,
             "negative_case_count": negative_count,
             "inherited_stage7b_a_r1_gate_passed": True,
             "workspace_tests_passed": True,
@@ -155,6 +155,11 @@ def main() -> None:
             "workspace_clippy_passed": True,
             "durable_path_validation": True,
             "single_writer_implemented": True,
+            "root_directory_fd_anchored": True,
+            "trusted_parent_directory_fd_anchored": True,
+            "anchored_child_openat": True,
+            "identity_scoped_parent_namespace_lock": True,
+            "lock_namespace_lifetime_validation": True,
             "recovery_seal_implemented": False,
             "redis_consumer_attached": False,
             "cross_process_fault_matrix_implemented": False,

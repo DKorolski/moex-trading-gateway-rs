@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 7B-b path and kernel single-writer acceptance checker."""
+"""Stage 7B-b-R1 anchored-root and kernel single-writer acceptance checker."""
 from __future__ import annotations
 
 import csv
@@ -60,10 +60,10 @@ def check_governance(root: Path) -> None:
     for token in (
         "Stage 7B-a-R1 is independently accepted and CLOSED",
         BASE,
-        "Stage 7B-b is the only active implementation candidate",
+        "Stage 7B-b-R1 is the only active implementation candidate",
     ):
         require(token in status, f"current status token absent: {token}")
-    require("Stage 7B-b — durable path validation" in roadmap, "roadmap active slice drift")
+    require("Stage 7B-b-R1 — anchored durable-root" in roadmap, "roadmap active slice drift")
     require("Recovery-seal and Redis-settlement work remain closed" in roadmap, "follow-on boundary absent")
 
 
@@ -80,6 +80,13 @@ def check_dependencies(workspace: str, service_manifest: str) -> None:
 
 def validate_source(service: str, journal: str, subprocess_test: str) -> None:
     required = (
+        "pub struct Stage7bDurableRootAuthority",
+        "parent_directory: File",
+        "parent_dev: u64",
+        "parent_ino: u64",
+        "root_directory: File",
+        "root_dev: u64",
+        "root_ino: u64",
         "stage6d_operational_identity_sha256(identity)",
         "if !root.is_absolute()",
         "fs::symlink_metadata(root)",
@@ -88,44 +95,69 @@ def validate_source(service: str, journal: str, subprocess_test: str) -> None:
         "if canonical != root",
         "if canonical.file_name().and_then(|value| value.to_str()) != Some(expected.as_str())",
         "IdentityDirectoryMismatch",
-        "validate_optional_regular(\n            &canonical.join(STAGE7B_JOURNAL_FILE)",
-        "validate_optional_regular(\n            &canonical.join(STAGE7B_WRITER_LOCK_FILE)",
-        "validate_optional_regular(\n            &canonical.join(STAGE7B_RECOVERY_SEAL_FILE)",
-        "validate_optional_directory(\n            &canonical.join(STAGE7B_TMP_DIRECTORY)",
-        "libc::O_NOFOLLOW | libc::O_CLOEXEC",
+        "validate_optional_regular_at(\n            &root_directory,\n            STAGE7B_JOURNAL_FILE",
+        "validate_optional_regular_at(\n            &root_directory,\n            STAGE7B_WRITER_LOCK_FILE",
+        "validate_optional_regular_at(\n            &root_directory,\n            STAGE7B_RECOVERY_SEAL_FILE",
+        "validate_optional_directory_at(\n            &root_directory,\n            STAGE7B_TMP_DIRECTORY",
+        "metadata.file_type().is_file() && metadata.nlink() == 1",
+        "libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC",
+        "libc::openat(",
+        "libc::O_RDWR | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC",
         "libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB)",
         "Stage7bDurableStorageError::WriterAlreadyHeld",
         "STAGE7B_STORAGE_OPEN_ORDER",
         "authorization.authorizes_deployment(&identity.deployment_id)",
         "FirstBootAuthorizationMismatch",
-        "metadata.file_type().is_file() && metadata.nlink() == 1",
-        "opened.nlink() == 1",
-        "named.nlink() == 1",
+        "root.validate_external_root_identity()?",
+        "acquire_nonblocking_exclusive_lock(&root.root_directory)?",
+        "namespace_lock_file = open_child_at(",
+        "acquire_nonblocking_exclusive_lock(&namespace_lock_file)?",
+        "acquire_nonblocking_exclusive_lock(&lock_file)?",
+        "lease.validate_namespace()?",
+        "writer_lease.validate_namespace()?",
+        "writer_lease.open_journal(create)?",
+        "Stage6FileJournalBackend::create_new_from_owned_file",
+        "Stage6FileJournalBackend::open_existing_from_owned_file",
+        "stage7b_b_parent_namespace_lock_is_identity_scoped",
+        "stage7b_b_live_authority_rejects_root_drift_before_journal_access",
+        "stage7b_b_live_authority_rejects_lock_drift_before_journal_access",
     )
     for token in required:
         require(token in service, f"durable service invariant absent: {token}")
-    require(
-        service.count("same_regular_file_identity(path, &file)?") == 2,
-        "writer-lock pathname/inode identity must be checked before and after flock",
+    require(service.count("open_child_at(") >= 6, "children are not root-FD relative")
+    require(service.count("validate_namespace()?") >= 7, "root/lock lifetime checks are incomplete")
+    acquire = block(service, "    fn acquire(")
+    acquire_order = (
+        "let namespace_lock_file = open_child_at(",
+        "acquire_nonblocking_exclusive_lock(&namespace_lock_file)?",
+        "acquire_nonblocking_exclusive_lock(&root.root_directory)?",
+        "root.validate_external_root_identity()?",
+        "let lock_file = open_child_at(",
+        "acquire_nonblocking_exclusive_lock(&lock_file)?",
+        "lease.validate_namespace()?",
     )
+    acquire_positions = [acquire.index(token) for token in acquire_order]
+    require(acquire_positions == sorted(acquire_positions), "anchored root/sidecar lease ordering drift")
     require("custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)" in journal, "journal no-follow open absent")
+    require("let mut file = self.file.try_clone()?" in journal, "journal read re-resolves diagnostic pathname")
     require(
         journal.count("validate_open_file_identity(&path, &file)?") == 2,
         "journal inode/link identity must be checked on create and reopen",
     )
 
-    opening = block(service, "fn open(\n")
+    opening = block(service, "    fn open<F>(\n")
     order = (
-        "Stage7bKernelWriterLease::acquire",
-        "paths.revalidate(identity)?",
-        "Stage6FileJournalBackend::create_new",
+        "root.validate_external_root_identity()?",
+        "Stage7bKernelWriterLease::acquire(root)?",
+        "writer_lease.validate_namespace()?",
+        "writer_lease.open_journal(create)?",
     )
     positions = [opening.index(token) for token in order]
     require(positions == sorted(positions), "writer lock/path validation must precede journal open")
     creation = block(service, "pub fn create_new(\n")
     require(
         creation.index("authorization.authorizes_deployment")
-        < creation.index("Self::open(paths, identity, true)"),
+        < creation.index("Self::open(root, true"),
         "first-boot authorization must precede lock/journal creation",
     )
 
@@ -144,6 +176,12 @@ def validate_source(service: str, journal: str, subprocess_test: str) -> None:
         "Serialize for Stage7bWritableDurableAuthority" not in service,
         "writable authority became serializable",
     )
+    root_authority = block(service, "pub struct Stage7bDurableRootAuthority")
+    require("root_directory: File" in root_authority, "root FD is not retained")
+    require("parent_directory: File" in root_authority, "trusted parent FD is not retained")
+    require("root_dev: u64" in root_authority and "root_ino: u64" in root_authority, "root inode is not retained")
+    require("Clone for Stage7bDurableRootAuthority" not in service, "root authority became cloneable")
+    require("Serialize for Stage7bDurableRootAuthority" not in service, "root authority became serializable")
 
     for token in (
         "stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock",
@@ -151,6 +189,11 @@ def validate_source(service: str, journal: str, subprocess_test: str) -> None:
         "child.kill().unwrap()",
         "child.wait().unwrap()",
         "Stage7bWritableDurableAuthority::open_existing(recovered_paths",
+        "stage7b_b_root_replacement_between_lock_and_journal_fails_closed",
+        "stage7b_b_replaced_lock_path_cannot_admit_second_writer",
+        "stage7b_b_replaced_root_after_ready_cannot_admit_second_writer",
+        "Stage7bStorageOpenPhase::WriterLockAcquired",
+        "Err(Stage7bDurableStorageError::RootIdentityDrift)",
     ):
         require(token in subprocess_test, f"subprocess lock witness absent: {token}")
 
@@ -158,7 +201,7 @@ def validate_source(service: str, journal: str, subprocess_test: str) -> None:
 def validate_descriptor(descriptor: dict) -> None:
     expected = {
         "stage": "7B",
-        "slice": "7B-b",
+        "slice": "7B-b-R1",
         "accepted_stage7a_predecessor": STAGE7A_BASE,
         "accepted_slice_predecessor": BASE,
         "branch": BRANCH,
@@ -166,10 +209,18 @@ def validate_descriptor(descriptor: dict) -> None:
         "semantic_proof_map_count": 80,
         "implemented_count": 26,
         "pending_count": 54,
-        "negative_case_count": 24,
+        "negative_case_count": 44,
         "kernel_writer_lock": True,
         "single_writer_implemented": True,
         "durable_path_validation": True,
+        "root_directory_fd_anchored": True,
+        "trusted_parent_directory_fd_anchored": True,
+        "root_inode_bound": True,
+        "anchored_child_openat": True,
+        "root_directory_kernel_lock": True,
+        "identity_scoped_parent_namespace_lock": True,
+        "lock_namespace_lifetime_validation": True,
+        "local_filesystem_only": True,
         "recovery_seal_implemented": False,
         "redis_consumer_attached": False,
         "cross_process_fault_matrix_implemented": False,
@@ -208,7 +259,7 @@ def check(root: Path) -> None:
     descriptor = json.loads((root / "docs/stage-7/stage7b-b-entry-descriptor.json").read_text())
     validate_descriptor(descriptor)
     subprocess.run(["python3", "scripts/stage7b_proof_map.py"], cwd=root, check=True)
-    print("stage7b-b-check: PASS rows=80 implemented=26 pending=54 accepted=false")
+    print("stage7b-b-r1-check: PASS rows=80 implemented=26 pending=54 accepted=false")
 
 
 if __name__ == "__main__":

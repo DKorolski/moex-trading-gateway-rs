@@ -18,13 +18,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
 - Stage 7B-a-R1 is independently accepted and CLOSED at
   `a947c24bb413a91c5eb0ad97f4ac0b402bfd0641`.
-- Stage 7B-b is the only active implementation candidate. It adds an
-  identity-bound canonical durable directory, no-follow authoritative paths,
-  and one kernel/OS writer lease held together with the writable journal for
-  the complete linear storage-authority lifetime. Real subprocess tests prove
-  second-writer exclusion and lock release after abrupt process death.
-- The remaining Stage 7B work is still pending: durable-path validation,
-  kernel single-writer lock, recovery seal, cross-process recovery, idempotent
+- Stage 7B-b at `cf65ff6183b3a9be5c4df9e1a1adb2510da42b43` was not accepted
+  because pathname re-resolution could detach the held lock inode from the
+  journal selected after a durable-root replacement race.
+- Stage 7B-b-R1 is the only active implementation candidate. It retains a
+  linear directory FD plus exact root `dev/ino`, resolves lock/journal children
+  through `openat`, locks an identity-scoped trusted-parent namespace file, anchored root directory and sidecar inode,
+  and fails closed on root or lock namespace drift before StorageReady and
+  every later journal operation. Real subprocess tests inject root replacement
+  between lock and journal open and replace the live lock pathname.
+- The remaining Stage 7B work is still pending: recovery seal, cross-process recovery, idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
   B-001..B-080 acceptance closure.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real

@@ -466,7 +466,7 @@ impl Stage6JournalBackend for Stage6OwnedJournalBackend {
 
 #[derive(Debug)]
 pub struct Stage6FileJournalBackend {
-    path: PathBuf,
+    _diagnostic_path: PathBuf,
     file: File,
     scan: ScannedJournal,
     durability_uncertain: bool,
@@ -505,6 +505,33 @@ impl Stage6FileJournalBackend {
         Self::from_validated_file(path, file)
     }
 
+    /// Adopts an already-opened, exclusively-created journal capability.
+    ///
+    /// The caller owns pathname resolution and must have opened `file` with
+    /// create-new semantics. This constructor verifies that the descriptor is
+    /// a single-linked regular file, initializes the canonical journal header,
+    /// and durably syncs the file. The caller remains responsible for syncing
+    /// the directory capability through which the file was created.
+    pub fn create_new_from_owned_file(
+        diagnostic_path: impl Into<PathBuf>,
+        mut file: File,
+    ) -> Result<Self, Stage6JournalStorageError> {
+        validate_owned_regular_file(&file)?;
+        file.write_all(&journal_header())?;
+        file.sync_data()?;
+        Self::from_validated_file(diagnostic_path.into(), file)
+    }
+
+    /// Adopts an already-opened existing journal capability without resolving
+    /// its diagnostic pathname again.
+    pub fn open_existing_from_owned_file(
+        diagnostic_path: impl Into<PathBuf>,
+        file: File,
+    ) -> Result<Self, Stage6JournalStorageError> {
+        validate_owned_regular_file(&file)?;
+        Self::from_validated_file(diagnostic_path.into(), file)
+    }
+
     #[cfg(test)]
     fn open_for_test(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
         let path = path.as_ref();
@@ -524,7 +551,7 @@ impl Stage6FileJournalBackend {
         let scan = scan_reader(&mut file, length)?;
         file.seek(SeekFrom::End(0))?;
         Ok(Self {
-            path,
+            _diagnostic_path: path,
             file,
             scan,
             durability_uncertain: false,
@@ -573,6 +600,18 @@ fn validate_open_file_identity(path: &Path, file: &File) -> Result<(), Stage6Jou
         {
             return Err(Stage6JournalStorageError::ExternalMutationDetected);
         }
+    }
+    Ok(())
+}
+
+fn validate_owned_regular_file(file: &File) -> Result<(), Stage6JournalStorageError> {
+    let opened = file.metadata()?;
+    if !opened.file_type().is_file() {
+        return Err(Stage6JournalStorageError::ExternalMutationDetected);
+    }
+    #[cfg(unix)]
+    if opened.nlink() != 1 {
+        return Err(Stage6JournalStorageError::ExternalMutationDetected);
     }
     Ok(())
 }
@@ -656,7 +695,11 @@ impl Stage6JournalBackend for Stage6FileJournalBackend {
         &self.scan.frontier
     }
     fn framed_bytes(&self) -> Result<Vec<u8>, Stage6JournalStorageError> {
-        let mut file = File::open(&self.path)?;
+        // Read through the already-owned file capability. Re-resolving
+        // `self.path` here would allow a renamed/replaced durable namespace to
+        // redirect a read to a different inode.
+        let mut file = self.file.try_clone()?;
+        file.seek(SeekFrom::Start(0))?;
         let length = file.metadata()?.len();
         if length != self.scan.frontier.journal_byte_length {
             return Err(Stage6JournalStorageError::ExternalMutationDetected);
