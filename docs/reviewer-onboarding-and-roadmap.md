@@ -75,19 +75,18 @@ Stage 6E-R1 is independently accepted at
 independently accepted and closed at
 `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
 
-Stage 7B-a at `73189245da2c8ab101cd9d897ddf4c187c34d6a0` was not accepted;
-its architecture was retained. The active implementation candidate and next
-review target is **Stage 7B-a-R1**, the narrow journal-foundation repair. It
-keeps one
-non-cloneable owned journal backend in the recovered runtime, explicit and
-disjoint file `create_new` / `open_existing` operations, parent-directory sync
-after durable creation, and adds full pre-append journal rescan plus exact
-checkpoint/replay fingerprint parity and descriptor-pinned negative evidence.
+Stage 7B-a-R1 is independently accepted at
+`a947c24bb413a91c5eb0ad97f4ac0b402bfd0641`. The active implementation
+candidate and next review target is **Stage 7B-b**, limited to durable path
+validation and kernel single-writer ownership. The broker-neutral
+`runtime-durable-service` authority binds one canonical directory to the
+authenticated Stage 6 operational identity, acquires a no-follow kernel lock
+before journal open, and retains lock and journal as one linear authority.
 It remains paper/mock only.
 
 Kernel writer locking, the canonical recovery seal, cross-process restart,
 idempotent Redis settlement and the complete X01-X20/B-001..B-080 closure are
-planned follow-on Stage 7B slices and are not claimed by Stage 7B-a-R1.
+planned follow-on Stage 7B slices and are not claimed by Stage 7B-b.
 Redis consumer names remain transport metadata and never enter request/client
 or Stage 6 durable identity. Stage 7A constructs no fresh-truth package.
 Stage 7B, FINAM POST/DELETE, broker

@@ -27,9 +27,10 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-a-R1 — journal foundation repair, paper/mock only (review closure
-candidate; independent acceptance pending). Stage 7B-b writer-lock work is not
-open until R1 is accepted.
+Stage 7B-b — durable path validation and kernel single-writer ownership,
+paper/mock only (implementation candidate; independent acceptance pending).
+Stage 7B-a-R1 is accepted at `a947c24bb413a91c5eb0ad97f4ac0b402bfd0641`.
+Recovery-seal and Redis-settlement work remain closed.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

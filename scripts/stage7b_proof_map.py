@@ -12,11 +12,12 @@ MATRIX = ROOT / "docs/stage-7/STAGE7B_ACCEPTANCE_MATRIX_2026-08-12.csv"
 OUTPUT = ROOT / "docs/stage-7/stage7b-acceptance-proof-map.json"
 
 FOUNDATION_WITNESSES = {
-    "B-001": ("git_gate", "scripts/stage7b_check.py::check_lineage"),
-    "B-002": ("governance_gate", "scripts/stage7b_check.py::check_governance"),
-    "B-003": ("static_gate", "scripts/stage7b_closed_surface_check.py"),
+    "B-001": ("git_gate", "scripts/stage7b_b_check.py::check_lineage"),
+    "B-002": ("governance_gate", "scripts/stage7b_b_check.py::check_governance"),
+    "B-003": ("static_gate", "scripts/stage7b_b_closed_surface_check.py"),
+    "B-004": ("static_gate", "scripts/stage7b_b_check.py::check_dependencies"),
     "B-008": ("unit", "stage7b_owned_backend_preserves_memory_file_and_reopen_parity"),
-    "B-010": ("unit", "stage6d_first_boot_requires_explicit_create_authority"),
+    "B-010": ("unit", "stage6d_first_boot_requires_explicit_create_authority + stage7b_b_first_boot_creation_requires_matching_linear_authorization"),
     "B-011": ("fs_integration", "stage7b_open_existing_never_creates_missing_journal"),
     "B-012": ("fs_integration", "stage7b_create_new_and_open_existing_are_explicit_and_disjoint"),
     "B-014": ("fs_integration", "stage7b_owned_backend_preserves_memory_file_and_reopen_parity"),
@@ -35,10 +36,17 @@ FOUNDATION_WITNESSES = {
         "fs_integration",
         "stage7b_file_reopen_checkpoint_and_replay_fingerprints_are_identical",
     ),
-    "B-071": ("governance_gate", "docs/stage-7/stage7b-entry-descriptor.json"),
-    "B-075": ("inherited_gate", "scripts/stage7b_a_gate.sh"),
-    "B-076": ("negative_harness", "scripts/stage7b_negative_harness.py cases=11 descriptor-pinned"),
-    "B-079": ("closed_surface", "scripts/stage7b_closed_surface_check.py"),
+    "B-009": ("negative", "runtime-durable-service symlink/hard-link path tests + stage7b_b_journal_hard_link_alias_fails_closed"),
+    "B-021": ("subprocess", "stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock + source ordering gate"),
+    "B-022": ("subprocess", "stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock"),
+    "B-023": ("subprocess", "stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock"),
+    "B-024": ("integration", "linear Stage7bWritableDurableAuthority owns lease for full value lifetime"),
+    "B-025": ("ordered_trace", "STAGE7B_STORAGE_OPEN_ORDER ends at StorageReady; crate has no Redis dependency"),
+    "B-026": ("compile_fail", "runtime-durable-service linear authority doctests + privacy checker"),
+    "B-071": ("governance_gate", "docs/stage-7/stage7b-b-entry-descriptor.json"),
+    "B-075": ("inherited_gate", "scripts/stage7b_b_gate.sh"),
+    "B-076": ("negative_harness", "scripts/stage7b_b_negative_harness.py cases=24 descriptor-pinned"),
+    "B-079": ("closed_surface", "scripts/stage7b_b_closed_surface_check.py"),
 }
 
 
@@ -60,12 +68,12 @@ def build() -> dict:
                 "requirement": row["Scenario / Requirement"],
                 "proof_type": proof_type,
                 "rationale": (
-                    "Stage 7B-a exact foundation witness"
+                    "Stage 7B accepted foundation or exact Stage 7B-b witness"
                     if implemented
                     else "Frozen requirement retained pending its designated Stage 7B slice"
                 ),
                 "artifact": (
-                    "strategy-runtime-core + Stage 7B-a gate"
+                    "Stage 7B-a-R1 inherited gate + Stage 7B-b gate"
                     if implemented
                     else "pending"
                 ),
@@ -76,8 +84,9 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-a-R1",
+        "slice": "7B-b",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
+        "accepted_slice_predecessor": "a947c24bb413a91c5eb0ad97f4ac0b402bfd0641",
         "row_count": len(proofs),
         "implemented_count": sum(p["status"] == "implemented" for p in proofs),
         "pending_count": sum(p["status"] == "pending" for p in proofs),
@@ -89,10 +98,18 @@ def build() -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--emit", action="store_true")
+    parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
     expected = build()
     if args.emit:
         print(json.dumps(expected, ensure_ascii=False, indent=2) + "\n", end="")
+        return
+    if args.write:
+        OUTPUT.write_text(
+            json.dumps(expected, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(f"stage7b-proof-map: WROTE {OUTPUT}")
         return
     actual = json.loads(OUTPUT.read_text(encoding="utf-8"))
     if actual != expected:

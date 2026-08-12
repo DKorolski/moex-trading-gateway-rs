@@ -1,0 +1,14 @@
+[package]
+name = "runtime-durable-service"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libc.workspace = true
+strategy-runtime-core = { path = "../strategy-runtime-core" }
+
+[dev-dependencies]
+serde_json.workspace = true

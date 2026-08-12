@@ -266,11 +266,30 @@ pub struct Stage6dOperationalIdentityConfig {
     pub command_consumer_generation: u64,
 }
 
+/// Returns the canonical digest used to bind durable storage to an already
+/// authenticated operational identity. Invalid identity input fails before a
+/// storage path or writer lock may be opened.
+pub fn stage6d_operational_identity_sha256(
+    config: &Stage6dOperationalIdentityConfig,
+) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
+    validate_operational_identity_config(config)?;
+    let bytes =
+        serde_json::to_vec(config).map_err(|_| Stage6dLiveCoreError::OperationalIdentityInvalid)?;
+    Stage6Sha256Digest::parse(sha256_hex(&bytes))
+        .map_err(|_| Stage6dLiveCoreError::OperationalIdentityInvalid)
+}
+
 /// Linear authorization proving that journal creation was an explicit boot
 /// decision. It has no `Clone`, `Copy`, `Serialize` or `Deserialize`.
 pub struct Stage6dFirstBootAuthorization {
     deployment_id: String,
     expected_runtime_config_fingerprint_sha256: Stage6Sha256Digest,
+}
+
+impl Stage6dFirstBootAuthorization {
+    pub fn authorizes_deployment(&self, deployment_id: &str) -> bool {
+        self.deployment_id == deployment_id
+    }
 }
 
 pub fn authorize_stage6d_first_boot(
@@ -327,11 +346,9 @@ pub fn seal_stage6d_restart_package(
     Stage6JournalCheckpointV1::decode_canonical(&checkpoint_bytes)?;
     let stage5g_restart_package_sha256 = sha256_hex(stage5g_restart_package);
     let stage6_checkpoint_bytes_sha256 = sha256_hex(&checkpoint_bytes);
-    validate_operational_identity_config(&operational_identity)?;
-    let operational_identity_sha256 = sha256_hex(
-        &serde_json::to_vec(&operational_identity)
-            .map_err(|_| Stage6dLiveCoreError::OperationalIdentityInvalid)?,
-    );
+    let operational_identity_sha256 = stage6d_operational_identity_sha256(&operational_identity)?
+        .as_str()
+        .to_string();
     let restart_commitment_sha256 = restart_commitment_sha256(
         &stage5g_restart_package_sha256,
         &stage6_checkpoint_bytes_sha256,

@@ -20,6 +20,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 pub const STAGE6_JOURNAL_STORAGE_SCHEMA_VERSION: u16 = 1;
@@ -476,11 +478,14 @@ impl Stage6FileJournalBackend {
     /// Creates a new journal and fails if the path already exists.
     pub fn create_new(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
         let path = path.as_ref().to_path_buf();
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        options
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .mode(0o600);
+        let mut file = options.open(&path)?;
+        validate_open_file_identity(&path, &file)?;
         file.write_all(&journal_header())?;
         file.sync_data()?;
         sync_parent_directory(&path)?;
@@ -491,7 +496,12 @@ impl Stage6FileJournalBackend {
     /// any bytes. Missing, empty, torn and corrupt journals fail closed.
     pub fn open_existing(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
         let path = path.as_ref().to_path_buf();
-        let file = OpenOptions::new().read(true).write(true).open(&path)?;
+        let mut options = OpenOptions::new();
+        options.read(true).write(true);
+        #[cfg(unix)]
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+        let file = options.open(&path)?;
+        validate_open_file_identity(&path, &file)?;
         Self::from_validated_file(path, file)
     }
 
@@ -547,6 +557,24 @@ impl Stage6FileJournalBackend {
         self.file.seek(SeekFrom::End(0))?;
         Ok(())
     }
+}
+
+fn validate_open_file_identity(path: &Path, file: &File) -> Result<(), Stage6JournalStorageError> {
+    #[cfg(unix)]
+    {
+        let opened = file.metadata()?;
+        let named = std::fs::symlink_metadata(path)?;
+        if !opened.file_type().is_file()
+            || !named.file_type().is_file()
+            || opened.nlink() != 1
+            || named.nlink() != 1
+            || opened.dev() != named.dev()
+            || opened.ino() != named.ino()
+        {
+            return Err(Stage6JournalStorageError::ExternalMutationDetected);
+        }
+    }
+    Ok(())
 }
 
 fn sync_parent_directory(path: &Path) -> Result<(), Stage6JournalStorageError> {
@@ -1223,6 +1251,20 @@ mod tests {
             }
         );
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn stage7b_b_journal_hard_link_alias_fails_closed() {
+        let path = temp_path("stage7b-hard-link-journal");
+        let alias = temp_path("stage7b-hard-link-journal-alias");
+        drop(Stage6FileJournalBackend::create_new(&path).unwrap());
+        fs::hard_link(&path, &alias).unwrap();
+        assert_eq!(
+            Stage6FileJournalBackend::open_existing(&path).unwrap_err(),
+            Stage6JournalStorageError::ExternalMutationDetected
+        );
+        fs::remove_file(alias).unwrap();
+        fs::remove_file(path).unwrap();
     }
 
     #[test]
