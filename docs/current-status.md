@@ -16,11 +16,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `10e357825a701193d964975bb5769bd0745d4986`; Stage 6 is CLOSED.
 - Stage 7A-R2c is independently accepted and Stage 7A is CLOSED at
   `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
-- Stage 7B-a is the only active implementation candidate. It starts the
-  production-durability composition without opening execution: the Stage 6
-  recovered runtime owns exactly one `Stage6OwnedJournalBackend`, file create
-  and restart-open are explicit disjoint operations, journal creation syncs the
-  file and parent directory, and memory/file/reopen parity is regression-tested.
+- Stage 7B-a at `73189245da2c8ab101cd9d897ddf4c187c34d6a0` was not accepted;
+  its owned-backend architecture was retained. Stage 7B-a-R1 is the only active
+  implementation candidate. It adds complete pre-append rescanning so
+  same-length external journal mutation is rejected before any new bytes are
+  written, direct checkpoint/replay-fingerprint parity witnesses, a
+  descriptor-pinned negative inventory and exact proof-map references.
 - The remaining Stage 7B work is still pending: durable-path validation,
   kernel single-writer lock, recovery seal, cross-process recovery, idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate

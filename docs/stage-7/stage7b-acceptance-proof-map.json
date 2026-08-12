@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "7B",
-  "slice": "7B-a",
+  "slice": "7B-a-R1",
   "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
   "row_count": 80,
   "implemented_count": 18,
@@ -149,7 +149,7 @@
       "proof_type": "unit",
       "rationale": "Stage 7B-a exact foundation witness",
       "artifact": "strategy-runtime-core + Stage 7B-a gate",
-      "exact_witness": "stage6b_external_file_length_mutation_blocks_append",
+      "exact_witness": "stage7b_same_length_earlier_record_mutation_is_detected_before_append + stage7b_same_length_last_record_mutation_is_detected_before_append",
       "status": "implemented"
     },
     {
@@ -176,7 +176,7 @@
       "proof_type": "unit",
       "rationale": "Stage 7B-a exact foundation witness",
       "artifact": "strategy-runtime-core + Stage 7B-a gate",
-      "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
+      "exact_witness": "stage7b_memory_file_checkpoint_and_replay_fingerprints_are_identical",
       "status": "implemented"
     },
     {
@@ -185,7 +185,7 @@
       "proof_type": "fs_integration",
       "rationale": "Stage 7B-a exact foundation witness",
       "artifact": "strategy-runtime-core + Stage 7B-a gate",
-      "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
+      "exact_witness": "stage7b_file_reopen_checkpoint_and_replay_fingerprints_are_identical",
       "status": "implemented"
     },
     {
@@ -689,7 +689,7 @@
       "proof_type": "negative_harness",
       "rationale": "Stage 7B-a exact foundation witness",
       "artifact": "strategy-runtime-core + Stage 7B-a gate",
-      "exact_witness": "scripts/stage7b_negative_harness.py cases=10",
+      "exact_witness": "scripts/stage7b_negative_harness.py cases=11 descriptor-pinned",
       "status": "implemented"
     },
     {

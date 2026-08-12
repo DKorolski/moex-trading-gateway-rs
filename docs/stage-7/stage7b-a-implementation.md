@@ -1,9 +1,13 @@
-# Stage 7B-a — durability composition foundation
+# Stage 7B-a-R1 — durability composition foundation repair
 
-Status: implementation candidate; independent acceptance pending.
+Status: review closure candidate; independent acceptance pending.
 
 Accepted predecessor:
 `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64` (Stage 7A CLOSED).
+
+Rejected predecessor:
+`73189245da2c8ab101cd9d897ddf4c187c34d6a0` (Stage 7B-a; architecture
+retained, narrow durability/evidence repair required).
 
 ## Scope
 
@@ -23,6 +27,30 @@ boundary needed by the later durable service:
   directory before returning;
 - open-existing never creates, truncates or repairs a missing/corrupt journal;
 - focused tests prove memory/file/reopen parity and file authority ownership.
+
+## R1 closure repairs
+
+- every file append performs a complete scan of the current pre-existing
+  journal and compares records, all frontiers, current frontier and final
+  digest with the cached authority before writing any bytes;
+- same-length mutation of an earlier or final record body, with the stored tail
+  hash left untouched, returns `ExternalMutationDetected` and the failed append
+  leaves the externally modified file byte-identical;
+- memory/file and pre/post-reopen parity directly compare canonical checkpoint
+  bytes and `Stage6ReplaySnapshotV1::semantic_fingerprint_sha256` using a
+  replay-valid record sequence;
+- the negative harness derives its reported case count from an explicit
+  inventory and requires equality with the descriptor pin;
+- proof-map witnesses refer to real functions and exact R1 tests.
+
+## Frozen matrix byte policy
+
+The supplied CSV used CRLF and had SHA-256
+`a665d8638f4dfdfea6e13b680c8e5dce23f76811bf208c22f809668a8cd24b5c`.
+The repository canonical form uses LF and has SHA-256
+`083cc6e1e0925f11efa4bc093fd7c2d3d4cbeb05fd275f68ed71be3bdac1931d`.
+Normalizing the supplied bytes from CRLF to LF produces the committed bytes;
+there is no semantic row drift.
 
 ## Intentionally not implemented in 7B-a
 

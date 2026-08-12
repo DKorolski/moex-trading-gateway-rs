@@ -63,6 +63,28 @@ def validate_backend(source: str, live_core: str) -> None:
     require("#[cfg(test)]\n    fn open_for_test(" in source, "legacy ambiguous helper escaped test-only boundary")
     require("File::open(parent)?.sync_all()?" in source, "parent directory fsync absent")
 
+    verify = block(source, "fn verify_external_frontier(")
+    for token in (
+        "scan_reader(&mut self.file, actual)",
+        "observed.records != self.scan.records",
+        "observed.frontiers != self.scan.frontiers",
+        "observed.frontier != self.scan.frontier",
+        "observed.last_frame_digest != self.scan.last_frame_digest",
+    ):
+        require(token in verify, f"full pre-append external-state verification missing: {token}")
+    file_backend = block(source, "impl Stage6JournalBackend for Stage6FileJournalBackend")
+    append_order = (
+        "self.verify_external_frontier()?",
+        "validate_record_for_storage(record)?",
+        "self.file.write_all(&frame.prefix)?",
+        "self.file.sync_data()",
+    )
+    append_positions = [file_backend.index(token) for token in append_order]
+    require(
+        append_positions == sorted(append_positions),
+        "full external-state verification must precede every append write",
+    )
+
     require(
         "journal: Stage6OwnedJournalBackend," in live_core,
         "recovered runtime does not own the backend enum",
@@ -82,12 +104,12 @@ def validate_backend(source: str, live_core: str) -> None:
 def validate_descriptor(descriptor: dict) -> None:
     expected = {
         "stage": "7B",
-        "slice": "7B-a",
+        "slice": "7B-a-R1",
         "accepted_predecessor": BASE,
         "blocking_acceptance_rows": 80,
         "semantic_proof_map_count": 80,
         "cross_process_fault_count": 20,
-        "negative_case_count": 10,
+        "negative_case_count": 11,
         "single_writer_required": True,
         "single_writer_implemented": False,
         "recovery_seal_required": True,
@@ -98,6 +120,8 @@ def validate_descriptor(descriptor: dict) -> None:
         "broker_network_dispatch": False,
         "runtime_live": False,
         "real_orders": False,
+        "normative_matrix_repository_eol": "LF",
+        "normative_matrix_source_crlf_sha256": "a665d8638f4dfdfea6e13b680c8e5dce23f76811bf208c22f809668a8cd24b5c",
     }
     for key, value in expected.items():
         require(descriptor.get(key) == value, f"descriptor drift: {key}")
@@ -105,11 +129,26 @@ def validate_descriptor(descriptor: dict) -> None:
     require(descriptor.get("normative_matrix_sha256") == MATRIX_SHA256, "descriptor matrix hash drift")
 
 
-def check(root: Path) -> None:
+def check_lineage(root: Path) -> None:
     merge_base = subprocess.check_output(
         ["git", "merge-base", "HEAD", BASE], cwd=root, text=True
     ).strip()
     require(merge_base == BASE, "candidate is not based on accepted Stage 7A closure")
+
+
+def check_governance(root: Path) -> None:
+    status = (root / "docs/current-status.md").read_text(encoding="utf-8")
+    roadmap = (root / "docs/roadmap.md").read_text(encoding="utf-8")
+    status_words = " ".join(status.split())
+    roadmap_words = " ".join(roadmap.split())
+    for token in ("Stage 7A is CLOSED", BASE, "Stage 7B-a-R1 is the only active implementation candidate"):
+        require(token in status_words, f"current status token absent: {token}")
+    require("Stage 7B-a-R1 — journal foundation repair" in roadmap, "roadmap active slice drift")
+    require("Stage 8+ remain closed" in roadmap_words, "Stage 8 closed boundary absent")
+
+
+def check(root: Path) -> None:
+    check_lineage(root)
 
     tz = root / "docs/stage-7/TZ_STAGE7B_PRODUCTION_DURABILITY_COMPOSITION_2026-08-12.md"
     matrix = root / "docs/stage-7/STAGE7B_ACCEPTANCE_MATRIX_2026-08-12.csv"
@@ -120,13 +159,7 @@ def check(root: Path) -> None:
     require(len(rows) == 80, "Stage 7B matrix must contain exactly 80 rows")
     require([r["ID"] for r in rows] == [f"B-{i:03d}" for i in range(1, 81)], "matrix IDs drift")
 
-    status = (root / "docs/current-status.md").read_text(encoding="utf-8")
-    roadmap = (root / "docs/roadmap.md").read_text(encoding="utf-8")
-    roadmap_words = " ".join(roadmap.split())
-    for token in ("Stage 7A is CLOSED", BASE, "Stage 7B-a is the only active implementation candidate"):
-        require(token in status, f"current status token absent: {token}")
-    require("Stage 7B-a — production durability composition foundation" in roadmap, "roadmap active slice drift")
-    require("Stage 8+ remain closed" in roadmap_words, "Stage 8 closed boundary absent")
+    check_governance(root)
 
     validate_backend(
         (root / "crates/strategy-runtime-core/src/stage6_journal_backend.rs").read_text(),
@@ -135,7 +168,7 @@ def check(root: Path) -> None:
     descriptor = json.loads((root / "docs/stage-7/stage7b-entry-descriptor.json").read_text())
     validate_descriptor(descriptor)
     subprocess.run(["python3", "scripts/stage7b_proof_map.py"], cwd=root, check=True)
-    print("stage7b-check: PASS rows=80 slice=7B-a stage7b_accepted=false")
+    print("stage7b-check: PASS rows=80 slice=7B-a-R1 stage7b_accepted=false")
 
 
 if __name__ == "__main__":

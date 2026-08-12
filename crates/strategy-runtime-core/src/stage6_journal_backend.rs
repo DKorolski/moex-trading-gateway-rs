@@ -528,21 +528,21 @@ impl Stage6FileJournalBackend {
         if actual != self.scan.frontier.journal_byte_length {
             return Err(Stage6JournalStorageError::ExternalMutationDetected);
         }
-        if self.scan.frontier.frame_count == 0 {
-            let mut header = [0_u8; JOURNAL_HEADER_BYTES];
-            self.file.seek(SeekFrom::Start(0))?;
-            self.file.read_exact(&mut header)?;
-            if header != journal_header() {
-                return Err(Stage6JournalStorageError::ExternalMutationDetected);
-            }
-        } else {
-            let mut digest = [0_u8; FRAME_HASH_BYTES];
-            self.file
-                .seek(SeekFrom::Start(actual - FRAME_HASH_BYTES as u64))?;
-            self.file.read_exact(&mut digest)?;
-            if digest != self.scan.last_frame_digest {
-                return Err(Stage6JournalStorageError::ExternalMutationDetected);
-            }
+
+        // Length plus the stored tail digest is not sufficient: an external
+        // writer can alter an earlier record without changing either. Rescan
+        // the complete pre-existing authority before writing a single byte.
+        self.file.seek(SeekFrom::Start(0))?;
+        let observed = scan_reader(&mut self.file, actual).map_err(|error| match error {
+            Stage6JournalStorageError::Io { .. } => error,
+            _ => Stage6JournalStorageError::ExternalMutationDetected,
+        })?;
+        if observed.records != self.scan.records
+            || observed.frontiers != self.scan.frontiers
+            || observed.frontier != self.scan.frontier
+            || observed.last_frame_digest != self.scan.last_frame_digest
+        {
+            return Err(Stage6JournalStorageError::ExternalMutationDetected);
         }
         self.file.seek(SeekFrom::End(0))?;
         Ok(())
@@ -943,7 +943,7 @@ mod tests {
     use super::*;
     use crate::{
         Stage6DurableCommandSnapshotV1, Stage6DurableRequestIdentityV1, Stage6JournalCheckpointV1,
-        Stage6Sha256Digest,
+        Stage6ReplayEngineV1, Stage6Sha256Digest,
     };
     use broker_core::{
         BrokerAccountId, BrokerOrderId, BrokerTradeId, CancelOrder, ClientOrderId, Exchange,
@@ -1120,6 +1120,38 @@ mod tests {
         unreachable!()
     }
 
+    fn mutate_record_body_without_changing_length_or_tail_hash(path: &Path, frame_index: usize) {
+        let before = fs::read(path).unwrap();
+        let range = frame_range(&before, frame_index);
+        let body_offset = range.start + FRAME_PREFIX_BYTES;
+        let tail_hash = before[before.len() - FRAME_HASH_BYTES..].to_vec();
+        let mut external = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        external.seek(SeekFrom::Start(body_offset as u64)).unwrap();
+        external.write_all(&[before[body_offset] ^ 0x01]).unwrap();
+        external.sync_data().unwrap();
+        drop(external);
+        let after = fs::read(path).unwrap();
+        assert_eq!(after.len(), before.len());
+        assert_eq!(&after[after.len() - FRAME_HASH_BYTES..], tail_hash);
+        assert_ne!(after, before);
+    }
+
+    fn checkpoint_and_replay_fingerprints(
+        backend: &impl Stage6JournalBackend,
+    ) -> (Vec<u8>, Stage6Sha256Digest) {
+        let checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(backend.frontier().clone()).unwrap();
+        let replay = Stage6ReplayEngineV1::replay(backend.records()).unwrap();
+        (
+            checkpoint.encode_canonical(),
+            replay.semantic_fingerprint_sha256().clone(),
+        )
+    }
+
     fn framed_single_record(record_bytes: &[u8]) -> Vec<u8> {
         let frame = encode_frame(record_bytes, genesis_digest()).unwrap();
         let mut bytes = journal_header().to_vec();
@@ -1224,6 +1256,76 @@ mod tests {
             memory.framed_bytes().unwrap()
         );
         drop(reopened);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage7b_memory_file_checkpoint_and_replay_fingerprints_are_identical() {
+        let path = temp_path("stage7b-checkpoint-replay-parity");
+        let mut memory = Stage6MemoryJournalBackend::new();
+        let mut file = Stage6FileJournalBackend::create_new(&path).unwrap();
+        for record in [place_record(), cancel_record()] {
+            memory.append(&record).unwrap();
+            file.append(&record).unwrap();
+        }
+
+        assert_eq!(
+            checkpoint_and_replay_fingerprints(&memory),
+            checkpoint_and_replay_fingerprints(&file)
+        );
+        drop(file);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage7b_file_reopen_checkpoint_and_replay_fingerprints_are_identical() {
+        let path = temp_path("stage7b-reopen-checkpoint-replay-parity");
+        let mut file = Stage6FileJournalBackend::create_new(&path).unwrap();
+        for record in [place_record(), cancel_record()] {
+            file.append(&record).unwrap();
+        }
+        let before = checkpoint_and_replay_fingerprints(&file);
+        drop(file);
+
+        let reopened = Stage6FileJournalBackend::open_existing(&path).unwrap();
+        assert_eq!(checkpoint_and_replay_fingerprints(&reopened), before);
+        drop(reopened);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage7b_same_length_earlier_record_mutation_is_detected_before_append() {
+        let path = temp_path("stage7b-earlier-external-mutation");
+        let mut backend = Stage6FileJournalBackend::create_new(&path).unwrap();
+        backend.append(&place_record()).unwrap();
+        backend.append(&cancel_record()).unwrap();
+        mutate_record_body_without_changing_length_or_tail_hash(&path, 0);
+        let externally_mutated = fs::read(&path).unwrap();
+
+        assert_eq!(
+            backend.append(&place_record()).unwrap_err(),
+            Stage6JournalStorageError::ExternalMutationDetected
+        );
+        assert_eq!(fs::read(&path).unwrap(), externally_mutated);
+        drop(backend);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage7b_same_length_last_record_mutation_is_detected_before_append() {
+        let path = temp_path("stage7b-last-external-mutation");
+        let mut backend = Stage6FileJournalBackend::create_new(&path).unwrap();
+        backend.append(&place_record()).unwrap();
+        backend.append(&cancel_record()).unwrap();
+        mutate_record_body_without_changing_length_or_tail_hash(&path, 1);
+        let externally_mutated = fs::read(&path).unwrap();
+
+        assert_eq!(
+            backend.append(&place_record()).unwrap_err(),
+            Stage6JournalStorageError::ExternalMutationDetected
+        );
+        assert_eq!(fs::read(&path).unwrap(), externally_mutated);
+        drop(backend);
         fs::remove_file(path).unwrap();
     }
 

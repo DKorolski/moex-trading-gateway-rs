@@ -27,8 +27,9 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-a — production durability composition foundation, paper/mock only
-(implementation candidate; independent acceptance pending).
+Stage 7B-a-R1 — journal foundation repair, paper/mock only (review closure
+candidate; independent acceptance pending). Stage 7B-b writer-lock work is not
+open until R1 is accepted.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

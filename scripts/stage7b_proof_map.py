@@ -21,14 +21,23 @@ FOUNDATION_WITNESSES = {
     "B-012": ("fs_integration", "stage7b_create_new_and_open_existing_are_explicit_and_disjoint"),
     "B-014": ("fs_integration", "stage7b_owned_backend_preserves_memory_file_and_reopen_parity"),
     "B-015": ("unit", "stage6b_torn_write_failpoints_leave_reopen_fail_closed"),
-    "B-016": ("unit", "stage6b_external_file_length_mutation_blocks_append"),
+    "B-016": (
+        "unit",
+        "stage7b_same_length_earlier_record_mutation_is_detected_before_append + stage7b_same_length_last_record_mutation_is_detected_before_append",
+    ),
     "B-017": ("unit", "stage6b_sync_failure_returns_durability_uncertain_without_receipt"),
     "B-018": ("unit", "stage6b_file_receipt_is_returned_after_sync_path"),
-    "B-019": ("unit", "stage7b_owned_backend_preserves_memory_file_and_reopen_parity"),
-    "B-020": ("fs_integration", "stage7b_owned_backend_preserves_memory_file_and_reopen_parity"),
+    "B-019": (
+        "unit",
+        "stage7b_memory_file_checkpoint_and_replay_fingerprints_are_identical",
+    ),
+    "B-020": (
+        "fs_integration",
+        "stage7b_file_reopen_checkpoint_and_replay_fingerprints_are_identical",
+    ),
     "B-071": ("governance_gate", "docs/stage-7/stage7b-entry-descriptor.json"),
     "B-075": ("inherited_gate", "scripts/stage7b_a_gate.sh"),
-    "B-076": ("negative_harness", "scripts/stage7b_negative_harness.py cases=10"),
+    "B-076": ("negative_harness", "scripts/stage7b_negative_harness.py cases=11 descriptor-pinned"),
     "B-079": ("closed_surface", "scripts/stage7b_closed_surface_check.py"),
 }
 
@@ -67,7 +76,7 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-a",
+        "slice": "7B-a-R1",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
         "row_count": len(proofs),
         "implemented_count": sum(p["status"] == "implemented" for p in proofs),

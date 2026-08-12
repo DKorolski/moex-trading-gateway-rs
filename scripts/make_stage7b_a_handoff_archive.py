@@ -136,7 +136,7 @@ def main() -> None:
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7B-a",
+            "stage": "7B-a-R1",
             "status": "independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
@@ -146,7 +146,7 @@ def main() -> None:
             "implemented_count": proof_map["implemented_count"],
             "pending_count": proof_map["pending_count"],
             "stage7b_accepted": proof_map["stage7b_accepted"],
-            "focused_stage7b_test_count": 4,
+            "focused_stage7b_test_count": 8,
             "negative_case_count": negative_count,
             "inherited_stage7a_gate_passed": True,
             "workspace_tests_passed": True,
