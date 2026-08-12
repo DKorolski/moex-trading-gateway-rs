@@ -39,9 +39,40 @@
 //! let root: Stage7bDurableRootAuthority = unreachable!();
 //! let _ = serde_json::to_vec(&root).unwrap();
 //! ```
+//!
+//! The recovery-ready owner is the only object that owns both the recovered
+//! Stage 6 runtime and its Stage 7B writer lease. It is linear, non-serializable
+//! and does not expose a mutable runtime or raw lease extractor:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bRecoveryReadyOwner;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage7bRecoveryReadyOwner>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bRecoveryReadyOwner;
+//! let owner: Stage7bRecoveryReadyOwner = unreachable!();
+//! let _ = serde_json::to_vec(&owner).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bRecoveryReadyOwner;
+//! fn mutate(owner: &mut Stage7bRecoveryReadyOwner) {
+//!     let _runtime = owner.recovered_mut();
+//! }
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
+
+mod recovery;
+
+pub use recovery::{
+    Stage7bRecoveryBlockReason, Stage7bRecoveryBlocked, Stage7bRecoveryError,
+    Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRestartOutcome,
+    STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
+};
 
 use std::{
     ffi::CString,

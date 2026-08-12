@@ -75,19 +75,17 @@ Stage 6E-R1 is independently accepted at
 independently accepted and closed at
 `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
 
-Stage 7B-a-R1 is independently accepted at
-`a947c24bb413a91c5eb0ad97f4ac0b402bfd0641`. The active implementation
-candidate and next review target is **Stage 7B-b-R2**, limited to anchored
-durable-root validation and kernel single-writer ownership. The broker-neutral
-`runtime-durable-service` authority binds one canonical directory to the
-authenticated Stage 6 operational identity, retains its directory FD and exact
-inode, resolves children via `openat`, and retains root/sidecar locks and journal
-as one linear authority.
-It remains paper/mock only.
+Stage 7B-b-R2 is independently accepted and Stage 7B-b is closed at
+`ff3fa2e8908440863b40b838991d4716b33caad4`. The active implementation
+candidate and next review target is **Stage 7B-c**, limited to the canonical
+authenticated recovery seal, Stage 5G/Stage 6 restart composition and one
+linear owner retaining the recovered runtime plus the Stage 7B writer/root
+lease for the same lifetime. Cached state never establishes readiness without
+namespace validation before StorageReady and every later writable or
+authority-sensitive boundary. It remains paper/mock only.
 
-Kernel writer locking, the canonical recovery seal, cross-process restart,
-idempotent Redis settlement and the complete X01-X20/B-001..B-080 closure are
-planned follow-on Stage 7B slices and are not claimed by Stage 7B-b-R2.
+Idempotent Redis settlement and the complete X01-X20/B-001..B-080 closure are
+planned follow-on Stage 7B slices and are not claimed by Stage 7B-c.
 Redis consumer names remain transport metadata and never enter request/client
 or Stage 6 durable identity. Stage 7A constructs no fresh-truth package.
 Stage 7B, FINAM POST/DELETE, broker

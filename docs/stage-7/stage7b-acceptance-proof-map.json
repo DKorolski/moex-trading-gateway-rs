@@ -1,20 +1,20 @@
 {
   "schema_version": 1,
   "stage": "7B",
-  "slice": "7B-b-R2",
+  "slice": "7B-c",
   "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
-  "accepted_slice_predecessor": "a947c24bb413a91c5eb0ad97f4ac0b402bfd0641",
+  "accepted_slice_predecessor": "ff3fa2e8908440863b40b838991d4716b33caad4",
   "row_count": 80,
-  "implemented_count": 26,
-  "pending_count": 54,
+  "implemented_count": 42,
+  "pending_count": 38,
   "stage7b_accepted": false,
   "proofs": [
     {
       "row_id": "B-001",
       "requirement": "Candidate Stage 7B branch/commit is based on the exact accepted Stage 7A closure ref.",
       "proof_type": "git_gate",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "scripts/stage7b_b_check.py::check_lineage",
       "status": "implemented"
     },
@@ -22,8 +22,8 @@
       "row_id": "B-002",
       "requirement": "Stage 7A is recorded CLOSED and Stage 7B is the only active implementation slice.",
       "proof_type": "governance_gate",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "scripts/stage7b_b_check.py::check_governance",
       "status": "implemented"
     },
@@ -31,8 +31,8 @@
       "row_id": "B-003",
       "requirement": "Stage 7B production delta is inspected for broker execution surfaces.",
       "proof_type": "static_gate",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "scripts/stage7b_b_closed_surface_check.py",
       "status": "implemented"
     },
@@ -40,8 +40,8 @@
       "row_id": "B-004",
       "requirement": "New Stage 7B service/composition dependencies are resolved.",
       "proof_type": "static_gate",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "scripts/stage7b_b_check.py::check_dependencies",
       "status": "implemented"
     },
@@ -76,8 +76,8 @@
       "row_id": "B-008",
       "requirement": "Existing Stage 6/7A APIs run after backend abstraction/refactor.",
       "proof_type": "unit",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
       "status": "implemented"
     },
@@ -85,8 +85,8 @@
       "row_id": "B-009",
       "requirement": "Configured durable data directory/path is invalid, relative when forbidden, aliases another identity, or is a symlink escape.",
       "proof_type": "negative",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "anchored root/openat witnesses + direct post-validation full-digest rebind rejection",
       "status": "implemented"
     },
@@ -94,8 +94,8 @@
       "row_id": "B-010",
       "requirement": "Journal is missing and operator did not explicitly authorize durable initialization.",
       "proof_type": "unit",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage6d_first_boot_requires_explicit_create_authority + stage7b_b_first_boot_creation_requires_matching_linear_authorization",
       "status": "implemented"
     },
@@ -103,8 +103,8 @@
       "row_id": "B-011",
       "requirement": "Restart path has no journal file.",
       "proof_type": "fs_integration",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_open_existing_never_creates_missing_journal",
       "status": "implemented"
     },
@@ -112,8 +112,8 @@
       "row_id": "B-012",
       "requirement": "Explicit first boot creates a new journal.",
       "proof_type": "fs_integration",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_create_new_and_open_existing_are_explicit_and_disjoint",
       "status": "implemented"
     },
@@ -130,8 +130,8 @@
       "row_id": "B-014",
       "requirement": "Existing valid file journal is reopened.",
       "proof_type": "fs_integration",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
       "status": "implemented"
     },
@@ -139,8 +139,8 @@
       "row_id": "B-015",
       "requirement": "File ends in a partial/torn/corrupt frame.",
       "proof_type": "unit",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage6b_torn_write_failpoints_leave_reopen_fail_closed",
       "status": "implemented"
     },
@@ -148,8 +148,8 @@
       "row_id": "B-016",
       "requirement": "Journal length/hash frontier changes outside the owned writer.",
       "proof_type": "unit",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_same_length_earlier_record_mutation_is_detected_before_append + stage7b_same_length_last_record_mutation_is_detected_before_append",
       "status": "implemented"
     },
@@ -157,8 +157,8 @@
       "row_id": "B-017",
       "requirement": "sync_data reports failure/uncertainty during append.",
       "proof_type": "unit",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage6b_sync_failure_returns_durability_uncertain_without_receipt",
       "status": "implemented"
     },
@@ -166,8 +166,8 @@
       "row_id": "B-018",
       "requirement": "Stage 6 append returns a durable append receipt.",
       "proof_type": "unit",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage6b_file_receipt_is_returned_after_sync_path",
       "status": "implemented"
     },
@@ -175,8 +175,8 @@
       "row_id": "B-019",
       "requirement": "Same canonical Stage 6 record sequence is applied to Memory and File backends.",
       "proof_type": "unit",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_memory_file_checkpoint_and_replay_fingerprints_are_identical",
       "status": "implemented"
     },
@@ -184,8 +184,8 @@
       "row_id": "B-020",
       "requirement": "File backend is closed and reopened after valid frames.",
       "proof_type": "fs_integration",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_file_reopen_checkpoint_and_replay_fingerprints_are_identical",
       "status": "implemented"
     },
@@ -193,8 +193,8 @@
       "row_id": "B-021",
       "requirement": "Stage 7B process starts.",
       "proof_type": "subprocess",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "root-FD and sidecar flock before openat journal + root-race barrier witness",
       "status": "implemented"
     },
@@ -202,8 +202,8 @@
       "row_id": "B-022",
       "requirement": "Second process targets the same durable identity/data directory while first holds lock.",
       "proof_type": "subprocess",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "normal and replaced-lock-path second-writer rejection witnesses",
       "status": "implemented"
     },
@@ -211,8 +211,8 @@
       "row_id": "B-023",
       "requirement": "Lock-holding child process is killed abruptly.",
       "proof_type": "subprocess",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock",
       "status": "implemented"
     },
@@ -220,8 +220,8 @@
       "row_id": "B-024",
       "requirement": "Service is running/processing Redis.",
       "proof_type": "integration",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "linear authority owns anchored root FD, root/sidecar leases and journal for full lifetime",
       "status": "implemented"
     },
@@ -229,8 +229,8 @@
       "row_id": "B-025",
       "requirement": "Service starts but writer lock/recovery validation has not completed.",
       "proof_type": "ordered_trace",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "STAGE7B_STORAGE_OPEN_ORDER ends at StorageReady; crate has no Redis dependency",
       "status": "implemented"
     },
@@ -238,8 +238,8 @@
       "row_id": "B-026",
       "requirement": "File journal/writer lease type is inspected.",
       "proof_type": "compile_fail",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "root and writable authority linear compile-fail doctests + privacy checker",
       "status": "implemented"
     },
@@ -247,145 +247,145 @@
       "row_id": "B-027",
       "requirement": "First durable boot is requested.",
       "proof_type": "integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: first_boot_requires_stage5g_seed",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "first_boot_requires_stage5g_seed",
+      "status": "implemented"
     },
     {
       "row_id": "B-028",
       "requirement": "Stage 5G seed/restart package is supplied.",
       "proof_type": "negative",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: invalid_stage5g_seed_rejected",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "invalid_stage5g_seed_rejected_before_journal_creation",
+      "status": "implemented"
     },
     {
       "row_id": "B-029",
       "requirement": "First durable boot completes empty Stage 6 journal initialization.",
       "proof_type": "ordered_trace",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: initial_recovery_seal_before_ready",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "initial_recovery_seal_before_ready_and_lease_lifetime",
+      "status": "implemented"
     },
     {
       "row_id": "B-030",
       "requirement": "Recovery seal is serialized.",
       "proof_type": "unit+static",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: recovery_seal_canonical_roundtrip",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "recovery_seal_canonical_roundtrip_and_restart + Stage7bRecoverySealV1 deny_unknown_fields",
+      "status": "implemented"
     },
     {
       "row_id": "B-031",
       "requirement": "Recovery seal is updated.",
       "proof_type": "fault_injection",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: recovery_seal_atomic_replace",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "recovery_seal_atomic_replace_and_orphan_temp_is_not_authority + root-FD-relative temp/sync/rename/root-sync/reread ordering",
+      "status": "implemented"
     },
     {
       "row_id": "B-032",
       "requirement": "Crash leaves recovery-seal temp file before rename.",
       "proof_type": "subprocess_fault",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: orphan_temp_never_authoritative",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "recovery_seal_atomic_replace_and_orphan_temp_is_not_authority",
+      "status": "implemented"
     },
     {
       "row_id": "B-033",
       "requirement": "Committed recovery seal is malformed, noncanonical or hash-invalid.",
       "proof_type": "negative",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: corrupt_recovery_seal_rejected",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "corrupt_recovery_seal_rejected_and_blocked_has_zero_effect",
+      "status": "implemented"
     },
     {
       "row_id": "B-034",
       "requirement": "Recovery seal references a Stage 6 checkpoint.",
       "proof_type": "integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: seal_checkpoint_validates_journal",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "Stage7bWritableDurableAuthority::validate_checkpoint before restart_stage6d_paper_with_owned_journal",
+      "status": "implemented"
     },
     {
       "row_id": "B-035",
       "requirement": "Recovery seal exists but journal is absent.",
       "proof_type": "fs_integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: seal_without_journal_rejected",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "seal_without_journal_rejected_without_creating_journal",
+      "status": "implemented"
     },
     {
       "row_id": "B-036",
       "requirement": "Journal exists but committed recovery seal is absent on restart.",
       "proof_type": "fs_integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: journal_without_seal_recovery_blocked",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "journal_without_seal_is_explicit_recovery_blocked",
+      "status": "implemented"
     },
     {
       "row_id": "B-037",
       "requirement": "Seal/restart package operational identity differs from configured account/strategy/deployment generation.",
       "proof_type": "negative",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: recovery_operational_identity_mismatch",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "recovery_operational_identity_mismatch_is_blocked",
+      "status": "implemented"
     },
     {
       "row_id": "B-038",
       "requirement": "Stage6D restart package digest/HMAC/checkpoint digest is mutated.",
       "proof_type": "negative",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: recovery_hmac_digest_mismatch",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "recovery_hmac_digest_mismatch_is_blocked + domain-separated Stage7B seal HMAC verification",
+      "status": "implemented"
     },
     {
       "row_id": "B-039",
       "requirement": "Journal contains only additional finalized Stage 6 requests beyond the Stage5 seed/checkpoint.",
       "proof_type": "restart_integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: finalized_journal_ahead_restarts",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "Stage7B owned-file restart delegates to stage6e_extra_finalized_stage6_history_does_not_need_current_stage5_slot",
+      "status": "implemented"
     },
     {
       "row_id": "B-040",
       "requirement": "Journal has a non-final request not represented by the Stage5 restart package.",
       "proof_type": "restart_integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: unbound_nonfinal_request_blocks",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "Stage7B owned-file restart maps stage6e_extra_unresolved_stage6_authority_is_rejected to RecoveryBlocked",
+      "status": "implemented"
     },
     {
       "row_id": "B-041",
       "requirement": "Stage5 restart package represents the same active request as the file journal.",
       "proof_type": "restart_integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: cross_bound_active_request_restarts",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "Stage7B owned-file restart delegates to stage6e_matching_stage5_stage6_pair_is_cross_bound_before_capability",
+      "status": "implemented"
     },
     {
       "row_id": "B-042",
       "requirement": "Service is in RecoveryBlocked due to missing/mismatched Stage5/Stage6 authority.",
       "proof_type": "integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: recovery_blocked_has_zero_effect",
-      "status": "pending"
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
+      "exact_witness": "corrupt_recovery_seal_rejected_and_blocked_has_zero_effect + RecoveryBlocked false capabilities",
+      "status": "implemented"
     },
     {
       "row_id": "B-043",
@@ -643,8 +643,8 @@
       "row_id": "B-071",
       "requirement": "Stage7B documentation/status/descriptor is inspected.",
       "proof_type": "governance_gate",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "docs/stage-7/stage7b-b-entry-descriptor.json",
       "status": "implemented"
     },
@@ -679,8 +679,8 @@
       "row_id": "B-075",
       "requirement": "Full regression is run.",
       "proof_type": "inherited_gate",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "scripts/stage7b_b_gate.sh",
       "status": "implemented"
     },
@@ -688,8 +688,8 @@
       "row_id": "B-076",
       "requirement": "Stage7B negative mutation harness runs.",
       "proof_type": "negative_harness",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "scripts/stage7b_b_negative_harness.py cases=24 descriptor-pinned",
       "status": "implemented"
     },
@@ -715,8 +715,8 @@
       "row_id": "B-079",
       "requirement": "Stage7B changed-path/dependency scan is inspected.",
       "proof_type": "closed_surface",
-      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
-      "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
+      "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
+      "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
       "exact_witness": "scripts/stage7b_b_closed_surface_check.py",
       "status": "implemented"
     },

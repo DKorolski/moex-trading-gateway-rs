@@ -77,6 +77,32 @@ impl Stage5gLifecycleCommitmentKey {
         mac.update(commitment_sha256.as_bytes());
         mac.verify_slice(&tag).is_ok()
     }
+
+    /// Domain-separated Stage 7B recovery-seal authentication. The key stays
+    /// opaque and non-serializable; only the HMAC tag crosses the boundary.
+    pub fn stage7b_recovery_seal_hmac_sha256(&self, commitment_sha256: &str) -> String {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage7b.recovery-seal.v1\0");
+        mac.update(commitment_sha256.as_bytes());
+        let tag = mac.finalize().into_bytes();
+        tag.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    pub fn stage7b_verify_recovery_seal_hmac_sha256(
+        &self,
+        commitment_sha256: &str,
+        expected_hmac_sha256: &str,
+    ) -> bool {
+        let Some(tag) = decode_sha256_hex(expected_hmac_sha256) else {
+            return false;
+        };
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage7b.recovery-seal.v1\0");
+        mac.update(commitment_sha256.as_bytes());
+        mac.verify_slice(&tag).is_ok()
+    }
 }
 
 impl Drop for Stage5gLifecycleCommitmentKey {
@@ -422,6 +448,10 @@ fn stage5g_reconstruct_runtime_from_clean_restart(
 }
 
 impl Stage5gCleanRestartedCapability {
+    pub fn config_fingerprint_sha256(&self) -> &str {
+        &self.projection.binding.stage5c_config_fingerprint
+    }
+
     pub fn lifecycle_kind(&self) -> Stage5gCleanRestartLifecycleKind {
         self.projection.lifecycle_kind
     }

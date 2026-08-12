@@ -334,6 +334,7 @@ pub use stage6d_live_core::{
     admit_stage7a_paper_command, apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
     execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
     finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
+    first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     first_boot_stage6d_paper_with_owned_journal,
     issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
     resolve_stage7a_cancel_command_context, restart_stage6d_paper,
@@ -527,6 +528,9 @@ pub use stage5g_order_position::{
     Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal, Stage5gOrderPositionTransition,
     STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
 };
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage5g_protective_completion::stage6d_test_authenticated_restart_fixture;
 pub use stage5g_protective_completion::{
     accept_stage5g_protective_cleanup_truth, apply_stage5g_protective_cleanup_completion,
     apply_stage5g_protective_completion, issue_stage5g_canonical_protective_evidence,

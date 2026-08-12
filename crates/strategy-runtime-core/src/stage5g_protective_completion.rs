@@ -905,8 +905,9 @@ fn stage5g_f_authenticated_package_roundtrip(
     (restored, package_fingerprint_sha256)
 }
 
-#[cfg(test)]
-pub(crate) fn stage6d_test_authenticated_restart_fixture() -> (
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub fn stage6d_test_authenticated_restart_fixture() -> (
     Vec<u8>,
     crate::Stage5gLifecycleCommitmentKey,
     crate::HybridIntradayRuntimeStrategy,

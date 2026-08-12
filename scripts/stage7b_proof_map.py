@@ -43,6 +43,22 @@ FOUNDATION_WITNESSES = {
     "B-024": ("integration", "linear authority owns anchored root FD, root/sidecar leases and journal for full lifetime"),
     "B-025": ("ordered_trace", "STAGE7B_STORAGE_OPEN_ORDER ends at StorageReady; crate has no Redis dependency"),
     "B-026": ("compile_fail", "root and writable authority linear compile-fail doctests + privacy checker"),
+    "B-027": ("integration", "first_boot_requires_stage5g_seed"),
+    "B-028": ("negative", "invalid_stage5g_seed_rejected_before_journal_creation"),
+    "B-029": ("ordered_trace", "initial_recovery_seal_before_ready_and_lease_lifetime"),
+    "B-030": ("unit+static", "recovery_seal_canonical_roundtrip_and_restart + Stage7bRecoverySealV1 deny_unknown_fields"),
+    "B-031": ("fault_injection", "recovery_seal_atomic_replace_and_orphan_temp_is_not_authority + root-FD-relative temp/sync/rename/root-sync/reread ordering"),
+    "B-032": ("subprocess_fault", "recovery_seal_atomic_replace_and_orphan_temp_is_not_authority"),
+    "B-033": ("negative", "corrupt_recovery_seal_rejected_and_blocked_has_zero_effect"),
+    "B-034": ("integration", "Stage7bWritableDurableAuthority::validate_checkpoint before restart_stage6d_paper_with_owned_journal"),
+    "B-035": ("fs_integration", "seal_without_journal_rejected_without_creating_journal"),
+    "B-036": ("fs_integration", "journal_without_seal_is_explicit_recovery_blocked"),
+    "B-037": ("negative", "recovery_operational_identity_mismatch_is_blocked"),
+    "B-038": ("negative", "recovery_hmac_digest_mismatch_is_blocked + domain-separated Stage7B seal HMAC verification"),
+    "B-039": ("restart_integration", "Stage7B owned-file restart delegates to stage6e_extra_finalized_stage6_history_does_not_need_current_stage5_slot"),
+    "B-040": ("restart_integration", "Stage7B owned-file restart maps stage6e_extra_unresolved_stage6_authority_is_rejected to RecoveryBlocked"),
+    "B-041": ("restart_integration", "Stage7B owned-file restart delegates to stage6e_matching_stage5_stage6_pair_is_cross_bound_before_capability"),
+    "B-042": ("integration", "corrupt_recovery_seal_rejected_and_blocked_has_zero_effect + RecoveryBlocked false capabilities"),
     "B-071": ("governance_gate", "docs/stage-7/stage7b-b-entry-descriptor.json"),
     "B-075": ("inherited_gate", "scripts/stage7b_b_gate.sh"),
     "B-076": ("negative_harness", "scripts/stage7b_b_negative_harness.py cases=24 descriptor-pinned"),
@@ -68,12 +84,12 @@ def build() -> dict:
                 "requirement": row["Scenario / Requirement"],
                 "proof_type": proof_type,
                 "rationale": (
-                    "Stage 7B accepted foundation or exact Stage 7B-b witness"
+                    "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness"
                     if implemented
                     else "Frozen requirement retained pending its designated Stage 7B slice"
                 ),
                 "artifact": (
-                    "Stage 7B-a-R1 inherited gate + Stage 7B-b gate"
+                    "Stage 7B-b-R2 inherited gate + Stage 7B-c gate"
                     if implemented
                     else "pending"
                 ),
@@ -84,9 +100,9 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-b-R2",
+        "slice": "7B-c",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
-        "accepted_slice_predecessor": "a947c24bb413a91c5eb0ad97f4ac0b402bfd0641",
+        "accepted_slice_predecessor": "ff3fa2e8908440863b40b838991d4716b33caad4",
         "row_count": len(proofs),
         "implemented_count": sum(p["status"] == "implemented" for p in proofs),
         "pending_count": sum(p["status"] == "pending" for p in proofs),

@@ -24,16 +24,24 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 7B-b-R1 at `f3298fe23f5ab18bc78c98dfbceb1c53baab19fc`
   closed the filesystem TOCTOU but was held because writable constructors
   could accept a second operational identity after root validation.
-- Stage 7B-b-R2 is the only active implementation candidate. It retains a
+- Stage 7B-b-R2 is independently accepted and Stage 7B-b is CLOSED at
+  `ff3fa2e8908440863b40b838991d4716b33caad4`. It retains a
   linear directory FD plus exact root `dev/ino`, resolves lock/journal children
   through `openat`, locks an identity-scoped trusted-parent namespace file, anchored root directory and sidecar inode,
   and fails closed on root or lock namespace drift before StorageReady and
   every later journal operation. Real subprocess tests inject root replacement
   between lock and journal open and replace the live lock pathname.
-  Every writable constructor now recomputes the complete operational-identity
+  Every writable constructor recomputes the complete operational-identity
   digest and compares it with the root-bound digest before authorization,
   locking or any journal effect.
-- The remaining Stage 7B work is still pending: recovery seal, cross-process recovery, idempotent
+- Stage 7B-c is the only active implementation candidate. It composes the
+  accepted Stage 5G clean-restart seed and Stage 6 file journal into one linear
+  recovery owner, commits a canonical HMAC-authenticated recovery seal before
+  readiness, and fails closed into an explicit zero-effect RecoveryBlocked
+  state for missing, corrupt or cross-binding-invalid authority. Namespace
+  validation is required before StorageReady and every later writable or
+  authority-sensitive boundary.
+- The remaining Stage 7B work is still pending: idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
   B-001..B-080 acceptance closure.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real

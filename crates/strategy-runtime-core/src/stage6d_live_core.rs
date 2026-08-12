@@ -290,6 +290,13 @@ impl Stage6dFirstBootAuthorization {
     pub fn authorizes_deployment(&self, deployment_id: &str) -> bool {
         self.deployment_id == deployment_id
     }
+
+    /// Allows a composition owner to preserve the accepted first-boot
+    /// runtime/config check while it validates a source-produced Stage 5G
+    /// seed through the authenticated restart path.
+    pub fn authorizes_runtime_config_fingerprint(&self, fingerprint_sha256: &str) -> bool {
+        self.expected_runtime_config_fingerprint_sha256.as_str() == fingerprint_sha256
+    }
 }
 
 pub fn authorize_stage6d_first_boot(
@@ -622,6 +629,62 @@ pub fn first_boot_stage6d_paper_with_owned_journal(
         first_boot_deployment_id: Some(authorization.deployment_id),
         authenticated_operational_identity: None,
         semantic_cross_binding: None,
+        restore_epoch: None,
+    })
+}
+
+/// Stage 7B first-durable-boot entry after a source-produced Stage 5G seed has
+/// already strict-decoded, authenticated and reconstructed against the fresh
+/// runtime. The validated capability is consumed into the one Stage 6 owner;
+/// no transport-derived or fabricated Stage 5 state is accepted here.
+pub fn first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal(
+    authorization: Stage6dFirstBootAuthorization,
+    validated_stage5g_seed: Stage5gCleanRestartedCapability,
+    journal: Stage6OwnedJournalBackend,
+    operational_identity: Stage6dOperationalIdentityConfig,
+) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
+    if !authorization.authorizes_deployment(&operational_identity.deployment_id) {
+        return Err(Stage6dLiveCoreError::FirstBootNotAuthorized);
+    }
+    if !authorization
+        .authorizes_runtime_config_fingerprint(validated_stage5g_seed.config_fingerprint_sha256())
+    {
+        return Err(Stage6dLiveCoreError::FirstBootRuntimeConfigMismatch);
+    }
+    stage6d_operational_identity_sha256(&operational_identity)?;
+    if journal.frontier().frame_count() != 0 || !journal.records().is_empty() {
+        return Err(Stage6dLiveCoreError::FirstBootJournalNotEmpty);
+    }
+    let replay = Stage6ReplayEngineV1::replay(journal.records())?;
+    let authenticated_checkpoint =
+        Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())?;
+    let stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(validated_stage5g_seed));
+    let semantic_cross_binding = Some(stage6e_semantic_cross_bind_restart(
+        match &stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => unreachable!(),
+        },
+        &journal,
+        &replay,
+    )?);
+    let integration_fingerprint_sha256 = integration_fingerprint(
+        Stage6dBootMode::FirstBoot,
+        &stage5_runtime,
+        &replay,
+        &authenticated_checkpoint,
+        semantic_cross_binding.as_ref(),
+        None,
+    )?;
+    Ok(Stage6dDurableRuntimeRecovered {
+        boot_mode: Stage6dBootMode::FirstBoot,
+        stage5_runtime,
+        journal,
+        replay,
+        authenticated_checkpoint,
+        integration_fingerprint_sha256,
+        first_boot_deployment_id: Some(authorization.deployment_id),
+        authenticated_operational_identity: Some(operational_identity),
+        semantic_cross_binding,
         restore_epoch: None,
     })
 }

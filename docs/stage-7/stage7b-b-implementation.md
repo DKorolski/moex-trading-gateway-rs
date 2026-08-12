@@ -1,6 +1,7 @@
 # Stage 7B-b — durable path and single-writer ownership
 
-Status: Stage 7B-b-R2 review-closure candidate; independent acceptance pending.
+Status: Stage 7B-b-R2 independently accepted and CLOSED at
+`ff3fa2e8908440863b40b838991d4716b33caad4`.
 
 Accepted predecessor:
 `a947c24bb413a91c5eb0ad97f4ac0b402bfd0641` (Stage 7B-a-R1 CLOSED).
@@ -69,10 +70,12 @@ map rows must be supplemented with service-path witnesses showing that the
 lease survives the entire consumer lifetime and consumer attach occurs only
 after `StorageReady`.
 
-## Intentionally closed
+## Intentionally closed in the accepted Stage 7B-b slice
 
-- authenticated recovery seal and atomic seal replacement;
-- Stage 5G + Stage 6 cross-process restart composition;
+- authenticated recovery seal and atomic seal replacement (opened only by the
+  follow-on Stage 7B-c candidate);
+- Stage 5G + Stage 6 cross-process restart composition (opened only by the
+  follow-on Stage 7B-c candidate);
 - Redis consumer, ACK/DLQ/XACK settlement and readiness;
 - broker/FINAM transport, POST/DELETE and runtime-live;
 - X01-X20 aggregate crash matrix beyond the writer-lock subprocess cases.
