@@ -1,0 +1,732 @@
+{
+  "schema_version": 1,
+  "stage": "7B",
+  "slice": "7B-a",
+  "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
+  "row_count": 80,
+  "implemented_count": 18,
+  "pending_count": 62,
+  "stage7b_accepted": false,
+  "proofs": [
+    {
+      "row_id": "B-001",
+      "requirement": "Candidate Stage 7B branch/commit is based on the exact accepted Stage 7A closure ref.",
+      "proof_type": "git_gate",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "scripts/stage7b_check.py::check_lineage",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-002",
+      "requirement": "Stage 7A is recorded CLOSED and Stage 7B is the only active implementation slice.",
+      "proof_type": "governance_gate",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "scripts/stage7b_check.py::check_governance",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-003",
+      "requirement": "Stage 7B production delta is inspected for broker execution surfaces.",
+      "proof_type": "static_gate",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "scripts/stage7b_closed_surface_check.py",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-004",
+      "requirement": "New Stage 7B service/composition dependencies are resolved.",
+      "proof_type": "static_gate",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: Cargo dependency surface report",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-005",
+      "requirement": "Execution lifecycle decision is inspected across Stage 7B.",
+      "proof_type": "source_gate",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: authority dependency/source scan",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-006",
+      "requirement": "Stage 7B production command path is instantiated.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: stage7b_production_authority_is_file_backed",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-007",
+      "requirement": "A command is processed through Stage 7B.",
+      "proof_type": "source_gate",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: single journal owner checker",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-008",
+      "requirement": "Existing Stage 6/7A APIs run after backend abstraction/refactor.",
+      "proof_type": "unit",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-009",
+      "requirement": "Configured durable data directory/path is invalid, relative when forbidden, aliases another identity, or is a symlink escape.",
+      "proof_type": "negative",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: durable_path_validation",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-010",
+      "requirement": "Journal is missing and operator did not explicitly authorize durable initialization.",
+      "proof_type": "unit",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage6d_first_boot_requires_explicit_create_authority",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-011",
+      "requirement": "Restart path has no journal file.",
+      "proof_type": "fs_integration",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage7b_open_existing_never_creates_missing_journal",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-012",
+      "requirement": "Explicit first boot creates a new journal.",
+      "proof_type": "fs_integration",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage7b_create_new_and_open_existing_are_explicit_and_disjoint",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-013",
+      "requirement": "New journal/recovery files are created or recovery seal is atomically replaced.",
+      "proof_type": "source+fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: parent_directory_fsync_required",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-014",
+      "requirement": "Existing valid file journal is reopened.",
+      "proof_type": "fs_integration",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-015",
+      "requirement": "File ends in a partial/torn/corrupt frame.",
+      "proof_type": "unit",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage6b_torn_write_failpoints_leave_reopen_fail_closed",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-016",
+      "requirement": "Journal length/hash frontier changes outside the owned writer.",
+      "proof_type": "unit",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage6b_external_file_length_mutation_blocks_append",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-017",
+      "requirement": "sync_data reports failure/uncertainty during append.",
+      "proof_type": "unit",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage6b_sync_failure_returns_durability_uncertain_without_receipt",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-018",
+      "requirement": "Stage 6 append returns a durable append receipt.",
+      "proof_type": "unit",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage6b_file_receipt_is_returned_after_sync_path",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-019",
+      "requirement": "Same canonical Stage 6 record sequence is applied to Memory and File backends.",
+      "proof_type": "unit",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-020",
+      "requirement": "File backend is closed and reopened after valid frames.",
+      "proof_type": "fs_integration",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "stage7b_owned_backend_preserves_memory_file_and_reopen_parity",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-021",
+      "requirement": "Stage 7B process starts.",
+      "proof_type": "subprocess",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: writer_lock_precedes_journal_open",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-022",
+      "requirement": "Second process targets the same durable identity/data directory while first holds lock.",
+      "proof_type": "subprocess",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: second_process_writer_lock_rejected",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-023",
+      "requirement": "Lock-holding child process is killed abruptly.",
+      "proof_type": "subprocess",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: killed_writer_releases_kernel_lock",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-024",
+      "requirement": "Service is running/processing Redis.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: writer_lock_lifetime_covers_consumer",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-025",
+      "requirement": "Service starts but writer lock/recovery validation has not completed.",
+      "proof_type": "ordered_trace",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: redis_attach_after_storage_ready",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-026",
+      "requirement": "File journal/writer lease type is inspected.",
+      "proof_type": "compile_fail",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: file_authority_linear_ownership",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-027",
+      "requirement": "First durable boot is requested.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: first_boot_requires_stage5g_seed",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-028",
+      "requirement": "Stage 5G seed/restart package is supplied.",
+      "proof_type": "negative",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: invalid_stage5g_seed_rejected",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-029",
+      "requirement": "First durable boot completes empty Stage 6 journal initialization.",
+      "proof_type": "ordered_trace",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: initial_recovery_seal_before_ready",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-030",
+      "requirement": "Recovery seal is serialized.",
+      "proof_type": "unit+static",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: recovery_seal_canonical_roundtrip",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-031",
+      "requirement": "Recovery seal is updated.",
+      "proof_type": "fault_injection",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: recovery_seal_atomic_replace",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-032",
+      "requirement": "Crash leaves recovery-seal temp file before rename.",
+      "proof_type": "subprocess_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: orphan_temp_never_authoritative",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-033",
+      "requirement": "Committed recovery seal is malformed, noncanonical or hash-invalid.",
+      "proof_type": "negative",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: corrupt_recovery_seal_rejected",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-034",
+      "requirement": "Recovery seal references a Stage 6 checkpoint.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: seal_checkpoint_validates_journal",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-035",
+      "requirement": "Recovery seal exists but journal is absent.",
+      "proof_type": "fs_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: seal_without_journal_rejected",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-036",
+      "requirement": "Journal exists but committed recovery seal is absent on restart.",
+      "proof_type": "fs_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: journal_without_seal_recovery_blocked",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-037",
+      "requirement": "Seal/restart package operational identity differs from configured account/strategy/deployment generation.",
+      "proof_type": "negative",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: recovery_operational_identity_mismatch",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-038",
+      "requirement": "Stage6D restart package digest/HMAC/checkpoint digest is mutated.",
+      "proof_type": "negative",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: recovery_hmac_digest_mismatch",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-039",
+      "requirement": "Journal contains only additional finalized Stage 6 requests beyond the Stage5 seed/checkpoint.",
+      "proof_type": "restart_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: finalized_journal_ahead_restarts",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-040",
+      "requirement": "Journal has a non-final request not represented by the Stage5 restart package.",
+      "proof_type": "restart_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: unbound_nonfinal_request_blocks",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-041",
+      "requirement": "Stage5 restart package represents the same active request as the file journal.",
+      "proof_type": "restart_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: cross_bound_active_request_restarts",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-042",
+      "requirement": "Service is in RecoveryBlocked due to missing/mismatched Stage5/Stage6 authority.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: recovery_blocked_has_zero_effect",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-043",
+      "requirement": "New valid command is admitted in Stage 7B.",
+      "proof_type": "ordered_trace",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: file_fsync_before_paper_effect",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-044",
+      "requirement": "Process is killed after durable RequestAccepted but before durable DispatchAttemptRecorded.",
+      "proof_type": "subprocess_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: crash_after_accepted_recovers_once",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-045",
+      "requirement": "Process is killed after durable DispatchAttemptRecorded but before provider call.",
+      "proof_type": "subprocess_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: crash_after_dispatch_never_blind_redispatch",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-046",
+      "requirement": "Paper provider may have executed but no durable outcome record exists when process dies.",
+      "proof_type": "subprocess_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: crash_during_effect_requires_reconciliation",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-047",
+      "requirement": "Durable broker/paper outcome exists but RequestFinalized/ACK settlement does not.",
+      "proof_type": "subprocess_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: outcome_record_reconstructs_finalization_and_ack",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-048",
+      "requirement": "RequestFinalized is durable but Redis ACK settlement has not committed.",
+      "proof_type": "subprocess_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: finalized_request_reconstructs_canonical_ack",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-049",
+      "requirement": "A command reaches durable RequestFinalized.",
+      "proof_type": "ordered_trace",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: recovery_seal_before_xack",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-050",
+      "requirement": "Request is finalized but recovery seal update fails.",
+      "proof_type": "fault_injection",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: seal_failure_blocks_settlement",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-051",
+      "requirement": "Recovery seal is committed but Redis ACK settlement has not committed.",
+      "proof_type": "subprocess_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: crash_after_seal_before_ack_settlement",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-052",
+      "requirement": "After process restart a new Redis entry carries the exact same StrategyRequestId/command.",
+      "proof_type": "real_redis_restart",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: exact_duplicate_after_restart_is_noop",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-053",
+      "requirement": "After restart same StrategyRequestId carries changed immutable identity.",
+      "proof_type": "real_redis_restart",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: conflicting_duplicate_after_restart_pending",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-054",
+      "requirement": "Finalized LIMIT PLACE with working broker-order identity survives restart; subsequent correlated CANCEL arrives.",
+      "proof_type": "restart_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: sequential_cancel_after_restart",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-055",
+      "requirement": "Process restarts with a finalized request and no Stage7A in-memory ack_publications/canonical_ack_recoveries.",
+      "proof_type": "restart_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: canonical_ack_from_journal_not_cache",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-056",
+      "requirement": "No canonical ACK has ever been durably/transport-published for a recovered finalized request.",
+      "proof_type": "oracle_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: first_ack_after_restart_is_canonical",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-057",
+      "requirement": "ACK settlement is executed for a pending command.",
+      "proof_type": "real_redis",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: atomic_idempotent_ack_settlement",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-058",
+      "requirement": "Settlement marker/fingerprint is inspected.",
+      "proof_type": "static+unit",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: settlement_identity_not_execution_identity",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-059",
+      "requirement": "Redis settlement commits but client/process receives an injected response error/unknown result.",
+      "proof_type": "real_redis_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: settlement_response_loss_is_idempotent",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-060",
+      "requirement": "Redis settlement primitive fails before commit or Redis is unavailable.",
+      "proof_type": "real_redis_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: settlement_failure_keeps_pel",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-061",
+      "requirement": "Permanent poison input is settled in Stage 7B.",
+      "proof_type": "real_redis",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: atomic_idempotent_dlq_settlement",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-062",
+      "requirement": "Stage6/recovery result is IdentityConflict/ReconciliationRequired/RecoveryBlocked.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: holds_never_xack",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-063",
+      "requirement": "ACK/DLQ settlement backend is unavailable or uncertain.",
+      "proof_type": "real_redis_fault",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: settlement_outage_not_ready",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-064",
+      "requirement": "Writer lock, journal, durability flag or recovery seal is invalid/unavailable.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: storage_failure_dominates_readiness",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-065",
+      "requirement": "Stage7A source-poll and claim-scan freshness rules run under Stage7B.",
+      "proof_type": "regression",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: source_claim_freshness_preserved",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-066",
+      "requirement": "Normal Stage7B service reports PaperReady.",
+      "proof_type": "integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: composite_paper_ready_requires_all",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-067",
+      "requirement": "Supervised Stage7B service task is normally returned, errors, panics, or is explicitly aborted/cancelled.",
+      "proof_type": "async_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: stage7b_supervisor_normal_error_panic_abort",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-068",
+      "requirement": "Service process restarts after crash.",
+      "proof_type": "subprocess+redis",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: new_boot_consumer_reclaims_old_pel",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-069",
+      "requirement": "New process starts with a fresh transport scan cursor.",
+      "proof_type": "real_redis_restart",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: restart_claim_scan_eventually_reaches_tail",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-070",
+      "requirement": "Stage7B recovery encounters legacy SQLite/M3 state that disagrees with Stage6.",
+      "proof_type": "negative+source",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: legacy_order_path_not_authoritative",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-071",
+      "requirement": "Stage7B documentation/status/descriptor is inspected.",
+      "proof_type": "governance_gate",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "docs/stage-7/stage7b-entry-descriptor.json",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-072",
+      "requirement": "Stage7B integration suite runs.",
+      "proof_type": "ci_integration",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: real_redis_real_fs_subprocess=true",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-073",
+      "requirement": "Pinned Stage7B crash/fault matrix is evaluated.",
+      "proof_type": "fault_matrix",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: stage7b_fault_matrix 20/20",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-074",
+      "requirement": "Stage7B focused core/service tests are run.",
+      "proof_type": "gate",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: focused debug + release artifacts",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-075",
+      "requirement": "Full regression is run.",
+      "proof_type": "inherited_gate",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "scripts/stage7b_a_gate.sh",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-076",
+      "requirement": "Stage7B negative mutation harness runs.",
+      "proof_type": "negative_harness",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "scripts/stage7b_negative_harness.py cases=10",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-077",
+      "requirement": "Stage7B acceptance generator runs.",
+      "proof_type": "acceptance_report",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: 80/80 semantic proof map",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-078",
+      "requirement": "Review handoff is generated.",
+      "proof_type": "preseal",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: handoff source manifest + sidecar",
+      "status": "pending"
+    },
+    {
+      "row_id": "B-079",
+      "requirement": "Stage7B changed-path/dependency scan is inspected.",
+      "proof_type": "closed_surface",
+      "rationale": "Stage 7B-a exact foundation witness",
+      "artifact": "strategy-runtime-core + Stage 7B-a gate",
+      "exact_witness": "scripts/stage7b_closed_surface_check.py",
+      "status": "implemented"
+    },
+    {
+      "row_id": "B-080",
+      "requirement": "Stage7B candidate is independently accepted.",
+      "proof_type": "governance_gate",
+      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
+      "artifact": "pending",
+      "exact_witness": "pending Stage 7B follow-up: post-acceptance roadmap rule",
+      "status": "pending"
+    }
+  ]
+}

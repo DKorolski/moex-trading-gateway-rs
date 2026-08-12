@@ -378,6 +378,90 @@ impl Stage6JournalBackend for Stage6MemoryJournalBackend {
     }
 }
 
+/// The single journal authority owned by a recovered runtime.
+///
+/// The enum is deliberately non-cloneable and non-serializable. Selecting a
+/// variant transfers one backend into the runtime; it does not create a
+/// memory/file mirror or a dual-write path.
+#[derive(Debug)]
+pub enum Stage6OwnedJournalBackend {
+    Memory(Stage6MemoryJournalBackend),
+    File(Stage6FileJournalBackend),
+}
+
+impl Stage6OwnedJournalBackend {
+    pub fn memory() -> Self {
+        Self::Memory(Stage6MemoryJournalBackend::new())
+    }
+
+    pub fn from_memory(backend: Stage6MemoryJournalBackend) -> Self {
+        Self::Memory(backend)
+    }
+
+    pub fn from_file(backend: Stage6FileJournalBackend) -> Self {
+        Self::File(backend)
+    }
+
+    pub fn is_file_backed(&self) -> bool {
+        matches!(self, Self::File(_))
+    }
+}
+
+impl From<Stage6MemoryJournalBackend> for Stage6OwnedJournalBackend {
+    fn from(backend: Stage6MemoryJournalBackend) -> Self {
+        Self::from_memory(backend)
+    }
+}
+
+impl From<Stage6FileJournalBackend> for Stage6OwnedJournalBackend {
+    fn from(backend: Stage6FileJournalBackend) -> Self {
+        Self::from_file(backend)
+    }
+}
+
+impl Stage6JournalBackend for Stage6OwnedJournalBackend {
+    fn append(
+        &mut self,
+        record: &Stage6JournalRecordV1,
+    ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
+        match self {
+            Self::Memory(backend) => backend.append(record),
+            Self::File(backend) => backend.append(record),
+        }
+    }
+
+    fn records(&self) -> &[Stage6JournalRecordV1] {
+        match self {
+            Self::Memory(backend) => backend.records(),
+            Self::File(backend) => backend.records(),
+        }
+    }
+
+    fn frontier(&self) -> &Stage6JournalFrontierV1 {
+        match self {
+            Self::Memory(backend) => backend.frontier(),
+            Self::File(backend) => backend.frontier(),
+        }
+    }
+
+    fn framed_bytes(&self) -> Result<Vec<u8>, Stage6JournalStorageError> {
+        match self {
+            Self::Memory(backend) => backend.framed_bytes(),
+            Self::File(backend) => backend.framed_bytes(),
+        }
+    }
+
+    fn validate_checkpoint(
+        &self,
+        checkpoint: &Stage6JournalCheckpointV1,
+    ) -> Result<(), Stage6JournalStorageError> {
+        match self {
+            Self::Memory(backend) => backend.validate_checkpoint(checkpoint),
+            Self::File(backend) => backend.validate_checkpoint(checkpoint),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Stage6FileJournalBackend {
     path: PathBuf,
@@ -389,29 +473,35 @@ pub struct Stage6FileJournalBackend {
 }
 
 impl Stage6FileJournalBackend {
-    pub fn open(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
+    /// Creates a new journal and fails if the path already exists.
+    pub fn create_new(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
         let path = path.as_ref().to_path_buf();
-        loop {
-            match OpenOptions::new().read(true).write(true).open(&path) {
-                Ok(file) => return Self::from_validated_file(path, file),
-                Err(error) if error.kind() == ErrorKind::NotFound => {
-                    match OpenOptions::new()
-                        .read(true)
-                        .write(true)
-                        .create_new(true)
-                        .open(&path)
-                    {
-                        Ok(mut file) => {
-                            file.write_all(&journal_header())?;
-                            file.sync_data()?;
-                            return Self::from_validated_file(path, file);
-                        }
-                        Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
-                        Err(error) => return Err(error.into()),
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        file.write_all(&journal_header())?;
+        file.sync_data()?;
+        sync_parent_directory(&path)?;
+        Self::from_validated_file(path, file)
+    }
+
+    /// Opens and validates an existing journal without creating or repairing
+    /// any bytes. Missing, empty, torn and corrupt journals fail closed.
+    pub fn open_existing(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
+        let path = path.as_ref().to_path_buf();
+        let file = OpenOptions::new().read(true).write(true).open(&path)?;
+        Self::from_validated_file(path, file)
+    }
+
+    #[cfg(test)]
+    fn open_for_test(path: impl AsRef<Path>) -> Result<Self, Stage6JournalStorageError> {
+        let path = path.as_ref();
+        if path.exists() {
+            Self::open_existing(path)
+        } else {
+            Self::create_new(path)
         }
     }
 
@@ -457,6 +547,14 @@ impl Stage6FileJournalBackend {
         self.file.seek(SeekFrom::End(0))?;
         Ok(())
     }
+}
+
+fn sync_parent_directory(path: &Path) -> Result<(), Stage6JournalStorageError> {
+    let parent = path.parent().ok_or(Stage6JournalStorageError::Io {
+        kind: ErrorKind::InvalidInput,
+    })?;
+    File::open(parent)?.sync_all()?;
+    Ok(())
 }
 
 impl Stage6JournalBackend for Stage6FileJournalBackend {
@@ -989,7 +1087,7 @@ mod tests {
         let path = temp_path(label);
         fs::write(&path, bytes).unwrap();
         let before = fs::read(&path).unwrap();
-        let error = Stage6FileJournalBackend::open(&path).unwrap_err();
+        let error = Stage6FileJournalBackend::open_for_test(&path).unwrap_err();
         assert_eq!(fs::read(&path).unwrap(), before);
         fs::remove_file(path).unwrap();
         error
@@ -1055,7 +1153,7 @@ mod tests {
     #[test]
     fn stage6b_filesystem_journal_opens_empty() {
         let path = temp_path("empty");
-        let backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         assert!(backend.records().is_empty());
         assert_eq!(backend.frontier(), &Stage6JournalFrontierV1::empty());
         drop(backend);
@@ -1063,10 +1161,77 @@ mod tests {
     }
 
     #[test]
+    fn stage7b_create_new_and_open_existing_are_explicit_and_disjoint() {
+        let path = temp_path("stage7b-explicit-open");
+        assert!(!path.exists());
+
+        let created = Stage6FileJournalBackend::create_new(&path).unwrap();
+        assert!(created.records().is_empty());
+        drop(created);
+
+        assert_eq!(
+            Stage6FileJournalBackend::create_new(&path).unwrap_err(),
+            Stage6JournalStorageError::Io {
+                kind: ErrorKind::AlreadyExists,
+            }
+        );
+        let reopened = Stage6FileJournalBackend::open_existing(&path).unwrap();
+        assert!(reopened.records().is_empty());
+        drop(reopened);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage7b_open_existing_never_creates_missing_journal() {
+        let path = temp_path("stage7b-open-missing");
+        assert_eq!(
+            Stage6FileJournalBackend::open_existing(&path).unwrap_err(),
+            Stage6JournalStorageError::Io {
+                kind: ErrorKind::NotFound,
+            }
+        );
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn stage7b_owned_backend_preserves_memory_file_and_reopen_parity() {
+        let path = temp_path("stage7b-owned-parity");
+        let mut memory = Stage6OwnedJournalBackend::memory();
+        let mut file = Stage6OwnedJournalBackend::from_file(
+            Stage6FileJournalBackend::create_new(&path).unwrap(),
+        );
+        assert!(!memory.is_file_backed());
+        assert!(file.is_file_backed());
+
+        for record in [place_record(), cancel_record(), broker_order_record()] {
+            assert_eq!(
+                memory.append(&record).unwrap(),
+                file.append(&record).unwrap()
+            );
+        }
+        assert_eq!(memory.records(), file.records());
+        assert_eq!(memory.frontier(), file.frontier());
+        assert_eq!(memory.framed_bytes().unwrap(), file.framed_bytes().unwrap());
+        drop(file);
+
+        let reopened = Stage6OwnedJournalBackend::from_file(
+            Stage6FileJournalBackend::open_existing(&path).unwrap(),
+        );
+        assert_eq!(reopened.records(), memory.records());
+        assert_eq!(reopened.frontier(), memory.frontier());
+        assert_eq!(
+            reopened.framed_bytes().unwrap(),
+            memory.framed_bytes().unwrap()
+        );
+        drop(reopened);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
     fn stage6b_r1_absent_path_creates_exact_empty_journal() {
         let path = temp_path("r1-absent-create");
         assert!(!path.exists());
-        let backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         assert_eq!(backend.framed_bytes().unwrap(), journal_header());
         drop(backend);
         assert_eq!(fs::read(&path).unwrap(), journal_header());
@@ -1078,7 +1243,7 @@ mod tests {
         let path = temp_path("r1-existing-header");
         fs::write(&path, journal_header()).unwrap();
         let before = fs::read(&path).unwrap();
-        let backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         assert!(backend.records().is_empty());
         drop(backend);
         assert_eq!(fs::read(&path).unwrap(), before);
@@ -1096,7 +1261,7 @@ mod tests {
         let path = temp_path("r1-zero-unchanged");
         File::create(&path).unwrap();
         assert_eq!(fs::metadata(&path).unwrap().len(), 0);
-        assert!(Stage6FileJournalBackend::open(&path).is_err());
+        assert!(Stage6FileJournalBackend::open_for_test(&path).is_err());
         assert_eq!(fs::metadata(&path).unwrap().len(), 0);
         fs::remove_file(path).unwrap();
     }
@@ -1147,7 +1312,7 @@ mod tests {
         let path = temp_path("r1-valid-nonempty");
         let bytes = one_frame_bytes();
         fs::write(&path, &bytes).unwrap();
-        let backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         assert_eq!(backend.records(), &[place_record()]);
         drop(backend);
         assert_eq!(fs::read(&path).unwrap(), bytes);
@@ -1159,7 +1324,7 @@ mod tests {
         let path = temp_path("r1-repeat-empty");
         fs::write(&path, journal_header()).unwrap();
         for _ in 0..2 {
-            let backend = Stage6FileJournalBackend::open(&path).unwrap();
+            let backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
             assert_eq!(backend.frontier(), &Stage6JournalFrontierV1::empty());
             drop(backend);
             assert_eq!(fs::read(&path).unwrap(), journal_header());
@@ -1199,7 +1364,7 @@ mod tests {
     #[test]
     fn stage6b_file_receipt_is_returned_after_sync_path() {
         let path = temp_path("receipt");
-        let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         let receipt = backend.append(&place_record()).unwrap();
         assert_eq!(receipt.durable_frontier(), backend.frontier());
         assert_eq!(
@@ -1213,10 +1378,10 @@ mod tests {
     #[test]
     fn stage6b_reopen_reads_exact_canonical_record() {
         let path = temp_path("reopen");
-        let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         backend.append(&place_record()).unwrap();
         drop(backend);
-        let reopened = Stage6FileJournalBackend::open(&path).unwrap();
+        let reopened = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         assert_eq!(
             reopened.records()[0].encode_canonical(),
             place_record().encode_canonical()
@@ -1239,7 +1404,7 @@ mod tests {
     fn stage6b_memory_and_file_framed_bytes_are_identical() {
         let path = temp_path("parity-bytes");
         let mut memory = Stage6MemoryJournalBackend::new();
-        let mut file = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut file = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         for record in [place_record(), cancel_record(), broker_order_record()] {
             memory.append(&record).unwrap();
             file.append(&record).unwrap();
@@ -1253,7 +1418,7 @@ mod tests {
     fn stage6b_memory_and_file_frontiers_are_identical() {
         let path = temp_path("parity-frontier");
         let mut memory = Stage6MemoryJournalBackend::new();
-        let mut file = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut file = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         for record in [place_record(), cancel_record()] {
             assert_eq!(
                 memory.append(&record).unwrap(),
@@ -1268,13 +1433,13 @@ mod tests {
     #[test]
     fn stage6b_reopen_reproduces_exact_frontier() {
         let path = temp_path("frontier");
-        let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         for record in [place_record(), cancel_record(), broker_trade_record()] {
             backend.append(&record).unwrap();
         }
         let expected = backend.frontier().clone();
         drop(backend);
-        let reopened = Stage6FileJournalBackend::open(&path).unwrap();
+        let reopened = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         assert_eq!(reopened.frontier(), &expected);
         drop(reopened);
         fs::remove_file(path).unwrap();
@@ -1600,7 +1765,7 @@ mod tests {
     #[test]
     fn stage6b_sync_failure_returns_durability_uncertain_without_receipt() {
         let path = temp_path("sync-failure");
-        let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         backend.failpoint = Some(TestIoFailpoint::SyncFailure);
         assert_eq!(
             backend.append(&place_record()).unwrap_err(),
@@ -1618,7 +1783,7 @@ mod tests {
     #[test]
     fn stage6b_before_sync_failure_returns_no_receipt() {
         let path = temp_path("before-sync");
-        let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         backend.failpoint = Some(TestIoFailpoint::BeforeSync);
         assert!(backend.append(&place_record()).is_err());
         assert!(backend.records().is_empty());
@@ -1633,11 +1798,11 @@ mod tests {
             TestIoFailpoint::AfterPartialRecordWrite,
         ] {
             let path = temp_path("torn-write");
-            let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+            let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
             backend.failpoint = Some(failpoint);
             assert!(backend.append(&place_record()).is_err());
             drop(backend);
-            assert!(Stage6FileJournalBackend::open(&path).is_err());
+            assert!(Stage6FileJournalBackend::open_for_test(&path).is_err());
             fs::remove_file(path).unwrap();
         }
     }
@@ -1645,11 +1810,11 @@ mod tests {
     #[test]
     fn stage6b_complete_frame_before_sync_is_decided_by_reopen_scan() {
         let path = temp_path("complete-unsynced");
-        let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         backend.failpoint = Some(TestIoFailpoint::AfterFrameHashWrite);
         assert!(backend.append(&place_record()).is_err());
         drop(backend);
-        let reopened = Stage6FileJournalBackend::open(&path).unwrap();
+        let reopened = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         assert_eq!(reopened.records(), &[place_record()]);
         drop(reopened);
         fs::remove_file(path).unwrap();
@@ -1694,7 +1859,7 @@ mod tests {
     #[test]
     fn stage6b_external_file_length_mutation_blocks_append() {
         let path = temp_path("external-length");
-        let mut backend = Stage6FileJournalBackend::open(&path).unwrap();
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         OpenOptions::new()
             .append(true)
             .open(&path)
@@ -1715,7 +1880,7 @@ mod tests {
         let bytes = one_frame_bytes();
         fs::write(&path, &bytes[..bytes.len() - 1]).unwrap();
         let before = fs::read(&path).unwrap();
-        assert!(Stage6FileJournalBackend::open(&path).is_err());
+        assert!(Stage6FileJournalBackend::open_for_test(&path).is_err());
         assert_eq!(fs::read(&path).unwrap(), before);
         fs::remove_file(path).unwrap();
     }

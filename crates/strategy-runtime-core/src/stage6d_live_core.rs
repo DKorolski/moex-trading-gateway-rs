@@ -27,8 +27,8 @@ use crate::{
     Stage6JournalBackend, Stage6JournalCheckpointV1, Stage6JournalEventKind,
     Stage6JournalFrontierV1, Stage6JournalRecordId, Stage6JournalRecordV1,
     Stage6JournalStorageError, Stage6LifecycleSequence, Stage6MemoryJournalBackend,
-    Stage6ReconciliationDispositionV1, Stage6ReplayEngineV1, Stage6ReplayError,
-    Stage6ReplaySnapshotV1, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
+    Stage6OwnedJournalBackend, Stage6ReconciliationDispositionV1, Stage6ReplayEngineV1,
+    Stage6ReplayError, Stage6ReplaySnapshotV1, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
 };
 use broker_core::{
     BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId,
@@ -441,7 +441,7 @@ impl Stage6RestoreEpoch {
 pub struct Stage6dDurableRuntimeRecovered {
     boot_mode: Stage6dBootMode,
     stage5_runtime: Stage6dStage5RuntimeAuthority,
-    journal: Stage6MemoryJournalBackend,
+    journal: Stage6OwnedJournalBackend,
     replay: Stage6ReplaySnapshotV1,
     authenticated_checkpoint: Stage6JournalCheckpointV1,
     integration_fingerprint_sha256: Stage6Sha256Digest,
@@ -524,7 +524,11 @@ impl Stage6dDurableRuntimeRecovered {
         false
     }
 
-    pub(crate) fn journal_mut(&mut self) -> &mut Stage6MemoryJournalBackend {
+    pub fn journal_is_file_backed(&self) -> bool {
+        self.journal.is_file_backed()
+    }
+
+    pub(crate) fn journal_mut(&mut self) -> &mut Stage6OwnedJournalBackend {
         &mut self.journal
     }
 
@@ -554,6 +558,20 @@ pub fn first_boot_stage6d_paper(
     authorization: Stage6dFirstBootAuthorization,
     fresh_runtime: HybridIntradayRuntimeStrategy,
 ) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
+    first_boot_stage6d_paper_with_owned_journal(
+        authorization,
+        fresh_runtime,
+        Stage6OwnedJournalBackend::memory(),
+    )
+}
+
+/// Stage 7B composition entry for transferring exactly one already-opened
+/// journal authority into the recovered paper runtime.
+pub fn first_boot_stage6d_paper_with_owned_journal(
+    authorization: Stage6dFirstBootAuthorization,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+    journal: Stage6OwnedJournalBackend,
+) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
     let actual = fresh_runtime.stage5c_config_fingerprint();
     if actual
         != authorization
@@ -562,7 +580,6 @@ pub fn first_boot_stage6d_paper(
     {
         return Err(Stage6dLiveCoreError::FirstBootRuntimeConfigMismatch);
     }
-    let journal = Stage6MemoryJournalBackend::new();
     if journal.frontier().frame_count() != 0 || !journal.records().is_empty() {
         return Err(Stage6dLiveCoreError::FirstBootJournalNotEmpty);
     }
@@ -602,9 +619,27 @@ pub fn restart_stage6d_paper(
 ) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
     let journal_bytes =
         existing_journal_framed_bytes.ok_or(Stage6dLiveCoreError::RestartJournalMissing)?;
+    let journal = Stage6OwnedJournalBackend::from_memory(
+        Stage6MemoryJournalBackend::from_framed_bytes(journal_bytes)?,
+    );
+    restart_stage6d_paper_with_owned_journal(
+        authenticated_restart_package,
+        commitment_key,
+        fresh_runtime,
+        journal,
+    )
+}
+
+/// Stage 7B composition entry for restart from one validated journal backend.
+/// No journal bytes are copied into a second writable authority.
+pub fn restart_stage6d_paper_with_owned_journal(
+    authenticated_restart_package: &[u8],
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+    journal: Stage6OwnedJournalBackend,
+) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
     let package =
         decode_and_authenticate_restart_package(authenticated_restart_package, commitment_key)?;
-    let journal = Stage6MemoryJournalBackend::from_framed_bytes(journal_bytes)?;
     let restored = restore_stage5g_clean_restart(
         &package.stage5g_restart_package,
         commitment_key,
@@ -620,10 +655,11 @@ pub fn restart_stage6d_paper(
 
 fn recover_stage6d_restart_from_authorities(
     stage5_runtime: Stage6dStage5RuntimeAuthority,
-    journal: Stage6MemoryJournalBackend,
+    journal: impl Into<Stage6OwnedJournalBackend>,
     authenticated_checkpoint: Stage6JournalCheckpointV1,
     authenticated_operational_identity: Option<Stage6dOperationalIdentityConfig>,
 ) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
+    let journal = journal.into();
     journal.validate_checkpoint(&authenticated_checkpoint)?;
     let replay = Stage6ReplayEngineV1::replay(journal.records())?;
     let semantic_cross_binding = match &stage5_runtime {
@@ -1818,7 +1854,7 @@ pub fn execute_stage6d_paper_outcome(
 
 fn stage6e_semantic_cross_bind_restart(
     restart: &Stage5gCleanRestartedCapability,
-    journal: &Stage6MemoryJournalBackend,
+    journal: &impl Stage6JournalBackend,
     replay: &Stage6ReplaySnapshotV1,
 ) -> Result<Stage6eSemanticCrossBinding, Stage6dLiveCoreError> {
     #[derive(Serialize)]
@@ -2322,6 +2358,8 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use rust_decimal::Decimal;
     use uuid::Uuid;
+
+    static STAGE7B_TEST_FILE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
     #[derive(Clone)]
     struct PlaceFixture {
@@ -3223,6 +3261,26 @@ mod tests {
             recovered.first_boot_deployment_id(),
             Some("paper-imoexf-stage6d")
         );
+    }
+
+    #[test]
+    fn stage7b_first_boot_transfers_single_file_journal_authority() {
+        let path = std::env::temp_dir().join(format!(
+            "stage7b-owned-runtime-{}-{}.journal",
+            std::process::id(),
+            STAGE7B_TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let runtime = runtime();
+        let authority = authorize_stage6d_first_boot(first_boot_config(&runtime)).unwrap();
+        let journal = Stage6OwnedJournalBackend::from_file(
+            crate::Stage6FileJournalBackend::create_new(&path).unwrap(),
+        );
+        let recovered =
+            first_boot_stage6d_paper_with_owned_journal(authority, runtime, journal).unwrap();
+        assert!(recovered.journal_is_file_backed());
+        assert_eq!(recovered.journal_frontier().frame_count(), 0);
+        drop(recovered);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

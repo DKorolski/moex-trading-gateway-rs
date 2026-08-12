@@ -14,30 +14,19 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 - Stage 6E-R1 is independently accepted at
   `10e357825a701193d964975bb5769bd0745d4986`; Stage 6 is CLOSED.
-- Stage 7A-R2c is the only active review-candidate slice and direct successor
-  of reviewed R2b candidate
-  `be62ed0bd6f4cf8786efb6a2935b30fd0fa69ccd`.
-  It attaches a Redis
-  consumer group only to the validated paper namespace and process outcomes
-  through the accepted Stage 6 authority plus a process-local paper/mock
-  provider.
-- The candidate implementation lives in `runtime-command-bridge`; focused
-  Stage 6 admission tests and isolated real-Redis tests are green locally.
-  R2c preserves the ACK/cursor repairs, enforces exactly one non-final command
-  lifecycle, finalizes PLACE before a sequential CANCEL, tracks source/claim
-  freshness independently, externally observes task death, recovers the first
-  canonical ACK across same-authority outcome/finalization crash windows,
-  executes the inherited Stage 6E-R1 gate, and binds source/claim outages,
-  F1-F15 plus all 52 acceptance rows to exact semantic evidence. Existing
-  request identity now outranks ordinary profile rejection; exact account,
-  instrument, action/target and ClientOrderId conflicts remain pending without
-  ACK, DLQ or XACK. Automatic Redis consumer names now bind a process-lifetime
-  random boot UUID, PID and per-consumer generation; transport identity remains
-  outside Stage 6 execution identity. The 50-case negative inventory includes
-  removal of that nonce and is descriptor-pinned. Stage 7A remains an
-  implementation candidate until independent R2c acceptance.
-- Stage 7B, FINAM runtime POST/DELETE, broker network dispatch, runtime-live,
-  real strategy orders and native Stop/SLTP/bracket remain CLOSED.
+- Stage 7A-R2c is independently accepted and Stage 7A is CLOSED at
+  `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
+- Stage 7B-a is the only active implementation candidate. It starts the
+  production-durability composition without opening execution: the Stage 6
+  recovered runtime owns exactly one `Stage6OwnedJournalBackend`, file create
+  and restart-open are explicit disjoint operations, journal creation syncs the
+  file and parent directory, and memory/file/reopen parity is regression-tested.
+- The remaining Stage 7B work is still pending: durable-path validation,
+  kernel single-writer lock, recovery seal, cross-process recovery, idempotent
+  Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
+  B-001..B-080 acceptance closure.
+- FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real
+  strategy orders and native Stop/SLTP/bracket remain CLOSED.
 - Stage 7A permits at most one non-final command lifecycle per strategy
   instance without exceptions. A source-correlated CANCEL is admitted only
   after the target PLACE request has an explicit final disposition while its

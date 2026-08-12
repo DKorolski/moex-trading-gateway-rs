@@ -323,7 +323,7 @@ pub use stage6_durable_identity::{
 pub use stage6_journal_backend::{
     Stage6FileJournalBackend, Stage6JournalAppendReceipt, Stage6JournalBackend,
     Stage6JournalCheckpointV1, Stage6JournalFrontierV1, Stage6JournalStorageError,
-    Stage6MemoryJournalBackend, STAGE6_JOURNAL_MAX_RECORD_BYTES,
+    Stage6MemoryJournalBackend, Stage6OwnedJournalBackend, STAGE6_JOURNAL_MAX_RECORD_BYTES,
     STAGE6_JOURNAL_STORAGE_SCHEMA_VERSION,
 };
 pub use stage6_replay::{
@@ -334,15 +334,16 @@ pub use stage6d_live_core::{
     admit_stage7a_paper_command, apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
     execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
     finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
+    first_boot_stage6d_paper_with_owned_journal,
     issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
-    resolve_stage7a_cancel_command_context, restart_stage6d_paper, seal_stage6d_restart_package,
-    Stage6dBootMode, Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization,
-    Stage6dFirstBootConfig, Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition,
-    Stage6dLiveCoreError, Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt,
-    Stage6dPaperExecutionReport, Stage6dPaperOutcome, Stage6eAcceptedFreshBrokerTruth,
-    Stage6eFreshBrokerTruthProviderBoundary, Stage6ePaperFreshBrokerTruthInput,
-    Stage7aPaperAdmission, Stage7aPaperAdmissionDecision, Stage7aPaperCommandContext,
-    Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
+    resolve_stage7a_cancel_command_context, restart_stage6d_paper,
+    restart_stage6d_paper_with_owned_journal, seal_stage6d_restart_package, Stage6dBootMode,
+    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dFirstBootConfig,
+    Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
+    Stage6ePaperFreshBrokerTruthInput, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
+    Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
     STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION, STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION,
     STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
 };

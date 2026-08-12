@@ -71,23 +71,20 @@ current runtime branch to send orders continuously.
 ## Current review target
 
 Stage 6E-R1 is independently accepted at
-`10e357825a701193d964975bb5769bd0745d4986`, closing Stage 6. The active
-implementation candidate and next review target is **Stage 7A-R2c**: the final
-A-036-only closure repair over reviewed R2b
-`be62ed0bd6f4cf8786efb6a2935b30fd0fa69ccd`, with real Redis
-consumer-group delivery/recovery feeding only the accepted Stage 6 paper/mock
-authority.
+`10e357825a701193d964975bb5769bd0745d4986`, closing Stage 6. Stage 7A is
+independently accepted and closed at
+`2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
 
-Stage 7A-R2c preserves strict max-one non-final lifecycle semantics and adds
-same-authority canonical ACK recovery across outcome/finalization crash windows,
-sequential source-correlated CANCEL, independent source/claim freshness with an
-exact claim-outage witness, externally observed task death, inherited Stage 6
-gate evidence, complete F1-F15 evidence, persistent bounded XAUTOCLAIM cursors
-and a semantic 52/52 proof map. It also makes established Stage 6/F6 request
-identity outrank profile rejection, adds exact ClientOrderId and Redis conflict
-witnesses. R2c binds auto consumer names to a process-lifetime random boot UUID
-plus PID and per-consumer generation, proves distinct names for equal PID and
-generation under different boots, and pins the 50-case negative inventory.
+The active implementation candidate and next review target is **Stage 7B-a**,
+the production-durability composition foundation. It introduces one
+non-cloneable owned journal backend in the recovered runtime, explicit and
+disjoint file `create_new` / `open_existing` operations, parent-directory sync
+after durable creation, and memory/file/reopen parity tests. It remains
+paper/mock only.
+
+Kernel writer locking, the canonical recovery seal, cross-process restart,
+idempotent Redis settlement and the complete X01-X20/B-001..B-080 closure are
+planned follow-on Stage 7B slices and are not claimed by Stage 7B-a.
 Redis consumer names remain transport metadata and never enter request/client
 or Stage 6 durable identity. Stage 7A constructs no fresh-truth package.
 Stage 7B, FINAM POST/DELETE, broker
