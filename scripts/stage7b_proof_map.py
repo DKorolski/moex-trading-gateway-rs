@@ -36,7 +36,7 @@ FOUNDATION_WITNESSES = {
         "fs_integration",
         "stage7b_file_reopen_checkpoint_and_replay_fingerprints_are_identical",
     ),
-    "B-009": ("negative", "anchored root dev/ino + openat symlink/hard-link/root-replacement witnesses"),
+    "B-009": ("negative", "anchored root/openat witnesses + direct post-validation full-digest rebind rejection"),
     "B-021": ("subprocess", "root-FD and sidecar flock before openat journal + root-race barrier witness"),
     "B-022": ("subprocess", "normal and replaced-lock-path second-writer rejection witnesses"),
     "B-023": ("subprocess", "stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock"),
@@ -84,7 +84,7 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-b-R1",
+        "slice": "7B-b-R2",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
         "accepted_slice_predecessor": "a947c24bb413a91c5eb0ad97f4ac0b402bfd0641",
         "row_count": len(proofs),

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 7B-b-R1 anchored-root and kernel single-writer acceptance checker."""
+"""Stage 7B-b-R2 identity-bound anchored-root acceptance checker."""
 from __future__ import annotations
 
 import csv
@@ -60,10 +60,10 @@ def check_governance(root: Path) -> None:
     for token in (
         "Stage 7B-a-R1 is independently accepted and CLOSED",
         BASE,
-        "Stage 7B-b-R1 is the only active implementation candidate",
+        "Stage 7B-b-R2 is the only active implementation candidate",
     ):
         require(token in status, f"current status token absent: {token}")
-    require("Stage 7B-b-R1 — anchored durable-root" in roadmap, "roadmap active slice drift")
+    require("Stage 7B-b-R2 — anchored durable-root" in roadmap, "roadmap active slice drift")
     require("Recovery-seal and Redis-settlement work remain closed" in roadmap, "follow-on boundary absent")
 
 
@@ -121,6 +121,12 @@ def validate_source(service: str, journal: str, subprocess_test: str) -> None:
         "stage7b_b_parent_namespace_lock_is_identity_scoped",
         "stage7b_b_live_authority_rejects_root_drift_before_journal_access",
         "stage7b_b_live_authority_rejects_lock_drift_before_journal_access",
+        "fn validate_bound_identity(",
+        "if observed != self.operational_identity_sha256",
+        "Stage7bDurableStorageError::OperationalIdentityMismatch",
+        "stage7b_b_r2_first_boot_rebind_fails_before_any_filesystem_effect",
+        "stage7b_b_r2_same_deployment_different_generation_cannot_rebind_root",
+        "stage7b_b_r2_restart_rebind_fails_before_lock_and_preserves_journal",
     )
     for token in required:
         require(token in service, f"durable service invariant absent: {token}")
@@ -156,9 +162,26 @@ def validate_source(service: str, journal: str, subprocess_test: str) -> None:
     require(positions == sorted(positions), "writer lock/path validation must precede journal open")
     creation = block(service, "pub fn create_new(\n")
     require(
-        creation.index("authorization.authorizes_deployment")
+        creation.index("root.validate_bound_identity(identity)?")
+        < creation.index("authorization.authorizes_deployment")
         < creation.index("Self::open(root, true"),
-        "first-boot authorization must precede lock/journal creation",
+        "full identity then first-boot authorization must precede filesystem effects",
+    )
+    restart = block(service, "pub fn open_existing(\n")
+    require(
+        restart.index("root.validate_bound_identity(identity)?")
+        < restart.index("Self::open(root, false"),
+        "restart identity rebind guard must precede filesystem effects",
+    )
+    observed_restart = block(service, "pub fn open_existing_with_phase_observer")
+    require(
+        observed_restart.index("root.validate_bound_identity(identity)?")
+        < observed_restart.index("Self::open(root, false"),
+        "phase-observer identity guard must precede filesystem effects",
+    )
+    require(
+        service.count("root.validate_bound_identity(identity)?") == 3,
+        "every public writable constructor must validate root-bound identity",
     )
 
     authority = block(service, "pub struct Stage7bWritableDurableAuthority")
@@ -201,7 +224,7 @@ def validate_source(service: str, journal: str, subprocess_test: str) -> None:
 def validate_descriptor(descriptor: dict) -> None:
     expected = {
         "stage": "7B",
-        "slice": "7B-b-R1",
+        "slice": "7B-b-R2",
         "accepted_stage7a_predecessor": STAGE7A_BASE,
         "accepted_slice_predecessor": BASE,
         "branch": BRANCH,
@@ -209,7 +232,7 @@ def validate_descriptor(descriptor: dict) -> None:
         "semantic_proof_map_count": 80,
         "implemented_count": 26,
         "pending_count": 54,
-        "negative_case_count": 44,
+        "negative_case_count": 48,
         "kernel_writer_lock": True,
         "single_writer_implemented": True,
         "durable_path_validation": True,
@@ -220,6 +243,8 @@ def validate_descriptor(descriptor: dict) -> None:
         "root_directory_kernel_lock": True,
         "identity_scoped_parent_namespace_lock": True,
         "lock_namespace_lifetime_validation": True,
+        "constructor_identity_rebind_guard": True,
+        "full_identity_digest_revalidated": True,
         "local_filesystem_only": True,
         "recovery_seal_implemented": False,
         "redis_consumer_attached": False,
@@ -259,7 +284,7 @@ def check(root: Path) -> None:
     descriptor = json.loads((root / "docs/stage-7/stage7b-b-entry-descriptor.json").read_text())
     validate_descriptor(descriptor)
     subprocess.run(["python3", "scripts/stage7b_proof_map.py"], cwd=root, check=True)
-    print("stage7b-b-r1-check: PASS rows=80 implemented=26 pending=54 accepted=false")
+    print("stage7b-b-r2-check: PASS rows=80 implemented=26 pending=54 accepted=false")
 
 
 if __name__ == "__main__":

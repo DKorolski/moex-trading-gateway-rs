@@ -21,12 +21,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 7B-b at `cf65ff6183b3a9be5c4df9e1a1adb2510da42b43` was not accepted
   because pathname re-resolution could detach the held lock inode from the
   journal selected after a durable-root replacement race.
-- Stage 7B-b-R1 is the only active implementation candidate. It retains a
+- Stage 7B-b-R1 at `f3298fe23f5ab18bc78c98dfbceb1c53baab19fc`
+  closed the filesystem TOCTOU but was held because writable constructors
+  could accept a second operational identity after root validation.
+- Stage 7B-b-R2 is the only active implementation candidate. It retains a
   linear directory FD plus exact root `dev/ino`, resolves lock/journal children
   through `openat`, locks an identity-scoped trusted-parent namespace file, anchored root directory and sidecar inode,
   and fails closed on root or lock namespace drift before StorageReady and
   every later journal operation. Real subprocess tests inject root replacement
   between lock and journal open and replace the live lock pathname.
+  Every writable constructor now recomputes the complete operational-identity
+  digest and compares it with the root-bound digest before authorization,
+  locking or any journal effect.
 - The remaining Stage 7B work is still pending: recovery seal, cross-process recovery, idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
   B-001..B-080 acceptance closure.

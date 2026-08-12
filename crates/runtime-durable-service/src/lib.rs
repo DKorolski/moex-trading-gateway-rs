@@ -90,6 +90,7 @@ pub enum Stage7bDurableStorageError {
     RootNotDirectory,
     RootNotCanonical,
     IdentityDirectoryMismatch,
+    OperationalIdentityMismatch,
     FirstBootAuthorizationMismatch,
     UnsafeJournalPath,
     UnsafeWriterLockPath,
@@ -112,6 +113,9 @@ impl std::fmt::Display for Stage7bDurableStorageError {
             Self::RootNotDirectory => "durable root is not a directory",
             Self::RootNotCanonical => "durable root is not its canonical path",
             Self::IdentityDirectoryMismatch => "durable directory identity mismatch",
+            Self::OperationalIdentityMismatch => {
+                "operational identity does not match durable-root authority"
+            }
             Self::FirstBootAuthorizationMismatch => "first-boot authorization mismatch",
             Self::UnsafeJournalPath => "unsafe durable journal path",
             Self::UnsafeWriterLockPath => "unsafe writer-lock path",
@@ -255,6 +259,18 @@ impl Stage7bDurableRootAuthority {
             ".stage7b-{}.namespace.lock",
             self.operational_identity_sha256.as_str()
         )
+    }
+
+    fn validate_bound_identity(
+        &self,
+        identity: &Stage6dOperationalIdentityConfig,
+    ) -> Result<(), Stage7bDurableStorageError> {
+        let observed = stage6d_operational_identity_sha256(identity)
+            .map_err(|_| Stage7bDurableStorageError::InvalidOperationalIdentity)?;
+        if observed != self.operational_identity_sha256 {
+            return Err(Stage7bDurableStorageError::OperationalIdentityMismatch);
+        }
+        Ok(())
     }
 
     fn validate_external_root_identity(&self) -> Result<(), Stage7bDurableStorageError> {
@@ -521,6 +537,7 @@ impl Stage7bWritableDurableAuthority {
         identity: &Stage6dOperationalIdentityConfig,
         authorization: &Stage6dFirstBootAuthorization,
     ) -> Result<Self, Stage7bDurableStorageError> {
+        root.validate_bound_identity(identity)?;
         if !authorization.authorizes_deployment(&identity.deployment_id) {
             return Err(Stage7bDurableStorageError::FirstBootAuthorizationMismatch);
         }
@@ -529,8 +546,9 @@ impl Stage7bWritableDurableAuthority {
 
     pub fn open_existing(
         root: Stage7bDurableRootAuthority,
-        _identity: &Stage6dOperationalIdentityConfig,
+        identity: &Stage6dOperationalIdentityConfig,
     ) -> Result<Self, Stage7bDurableStorageError> {
+        root.validate_bound_identity(identity)?;
         Self::open(root, false, |_| {})
     }
 
@@ -542,12 +560,13 @@ impl Stage7bWritableDurableAuthority {
     #[doc(hidden)]
     pub fn open_existing_with_phase_observer<F>(
         root: Stage7bDurableRootAuthority,
-        _identity: &Stage6dOperationalIdentityConfig,
+        identity: &Stage6dOperationalIdentityConfig,
         observer: F,
     ) -> Result<Self, Stage7bDurableStorageError>
     where
         F: FnMut(Stage7bStorageOpenPhase),
     {
+        root.validate_bound_identity(identity)?;
         Self::open(root, false, observer)
     }
 
@@ -936,6 +955,94 @@ mod tests {
             Stage6JournalStorageError::ExternalMutationDetected
         );
         drop(authority);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_b_r2_first_boot_rebind_fails_before_any_filesystem_effect() {
+        let identity_a = identity();
+        let mut identity_b = identity();
+        identity_b.deployment_id = "stage7b-rebound-deployment".to_string();
+        let parent = parent();
+        let root = durable_root(&parent, &identity_a);
+        let authority = Stage7bDurableRootAuthority::validate(&root, &identity_a).unwrap();
+        let result = Stage7bWritableDurableAuthority::create_new(
+            authority,
+            &identity_b,
+            &authorization(&identity_b.deployment_id),
+        );
+        assert!(matches!(
+            result,
+            Err(Stage7bDurableStorageError::OperationalIdentityMismatch)
+        ));
+        assert!(!parent
+            .join(format!(
+                ".stage7b-{}.namespace.lock",
+                stage6d_operational_identity_sha256(&identity_a)
+                    .unwrap()
+                    .as_str()
+            ))
+            .exists());
+        assert!(!root.join(STAGE7B_WRITER_LOCK_FILE).exists());
+        assert!(!root.join(STAGE7B_JOURNAL_FILE).exists());
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_b_r2_same_deployment_different_generation_cannot_rebind_root() {
+        let identity_a = identity();
+        let mut identity_b = identity();
+        identity_b.deployment_generation += 1;
+        assert_eq!(identity_a.deployment_id, identity_b.deployment_id);
+        let parent = parent();
+        let root = durable_root(&parent, &identity_a);
+        let authority = Stage7bDurableRootAuthority::validate(&root, &identity_a).unwrap();
+        let result = Stage7bWritableDurableAuthority::create_new(
+            authority,
+            &identity_b,
+            &authorization(&identity_b.deployment_id),
+        );
+        assert!(matches!(
+            result,
+            Err(Stage7bDurableStorageError::OperationalIdentityMismatch)
+        ));
+        assert!(!root.join(STAGE7B_WRITER_LOCK_FILE).exists());
+        assert!(!root.join(STAGE7B_JOURNAL_FILE).exists());
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_b_r2_restart_rebind_fails_before_lock_and_preserves_journal() {
+        let identity_a = identity();
+        let mut identity_b = identity();
+        identity_b.gateway_instance_id = "rebound-gateway".to_string();
+        let parent = parent();
+        let root = durable_root(&parent, &identity_a);
+        drop(
+            Stage7bWritableDurableAuthority::create_new(
+                Stage7bDurableRootAuthority::validate(&root, &identity_a).unwrap(),
+                &identity_a,
+                &authorization(&identity_a.deployment_id),
+            )
+            .unwrap(),
+        );
+        let lock_before = fs::metadata(root.join(STAGE7B_WRITER_LOCK_FILE)).unwrap();
+        let journal_before = fs::read(root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        let authority = Stage7bDurableRootAuthority::validate(&root, &identity_a).unwrap();
+        let result = Stage7bWritableDurableAuthority::open_existing(authority, &identity_b);
+        assert!(matches!(
+            result,
+            Err(Stage7bDurableStorageError::OperationalIdentityMismatch)
+        ));
+        let lock_after = fs::metadata(root.join(STAGE7B_WRITER_LOCK_FILE)).unwrap();
+        assert_eq!(
+            (lock_before.dev(), lock_before.ino()),
+            (lock_after.dev(), lock_after.ino())
+        );
+        assert_eq!(
+            fs::read(root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            journal_before
+        );
         fs::remove_dir_all(parent).unwrap();
     }
 }

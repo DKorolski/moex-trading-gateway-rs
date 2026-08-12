@@ -1,6 +1,6 @@
 # Stage 7B-b — durable path and single-writer ownership
 
-Status: Stage 7B-b-R1 review-closure candidate; independent acceptance pending.
+Status: Stage 7B-b-R2 review-closure candidate; independent acceptance pending.
 
 Accepted predecessor:
 `a947c24bb413a91c5eb0ad97f4ac0b402bfd0641` (Stage 7B-a-R1 CLOSED).
@@ -34,6 +34,9 @@ Accepted predecessor:
   retained inside the same non-cloneable authority;
 - root and named-lock inode identity are rechecked across every open phase and
   before every later journal operation;
+- all public writable constructors recompute the complete operational identity
+  digest and require exact equality with the root-bound digest before first-boot
+  authorization, kernel lock acquisition or any journal mutation;
 - real subprocess proof that a second process is rejected while the first
   holds the authority and that abrupt child death releases the kernel lock;
 - real phase-barrier proof that root replacement after lock acquisition fails

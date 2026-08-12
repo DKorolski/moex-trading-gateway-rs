@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an immutable Stage 7B-b-R1 source and evidence handoff."""
+"""Create an immutable Stage 7B-b-R2 source and evidence handoff."""
 from __future__ import annotations
 
 import hashlib
@@ -134,7 +134,7 @@ def main() -> None:
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7B-b-R1",
+            "stage": "7B-b-R2",
             "status": "independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
@@ -145,7 +145,7 @@ def main() -> None:
             "implemented_count": proof_map["implemented_count"],
             "pending_count": proof_map["pending_count"],
             "stage7b_accepted": proof_map["stage7b_accepted"],
-            "focused_stage7b_b_test_count": 15,
+            "focused_stage7b_b_test_count": 18,
             "focused_stage7b_core_test_count": 9,
             "real_subprocess_test_count": 4,
             "negative_case_count": negative_count,
@@ -160,6 +160,8 @@ def main() -> None:
             "anchored_child_openat": True,
             "identity_scoped_parent_namespace_lock": True,
             "lock_namespace_lifetime_validation": True,
+            "constructor_identity_rebind_guard": True,
+            "full_identity_digest_revalidated": True,
             "recovery_seal_implemented": False,
             "redis_consumer_attached": False,
             "cross_process_fault_matrix_implemented": False,

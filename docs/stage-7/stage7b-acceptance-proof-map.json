@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "7B",
-  "slice": "7B-b-R1",
+  "slice": "7B-b-R2",
   "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
   "accepted_slice_predecessor": "a947c24bb413a91c5eb0ad97f4ac0b402bfd0641",
   "row_count": 80,
@@ -87,7 +87,7 @@
       "proof_type": "negative",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b witness",
       "artifact": "Stage 7B-a-R1 inherited gate + Stage 7B-b gate",
-      "exact_witness": "anchored root dev/ino + openat symlink/hard-link/root-replacement witnesses",
+      "exact_witness": "anchored root/openat witnesses + direct post-validation full-digest rebind rejection",
       "status": "implemented"
     },
     {

@@ -26,6 +26,16 @@ def changed_descriptor(key: str, value: object) -> dict:
     return changed
 
 
+def replace_nth(source: str, old: str, new: str, occurrence: int) -> str:
+    start = 0
+    for _ in range(occurrence):
+        index = source.find(old, start)
+        if index < 0:
+            raise ValueError(f"mutation source token absent at occurrence {occurrence}: {old}")
+        start = index + len(old)
+    return source[:index] + new + source[index + len(old) :]
+
+
 CASES = [
     {
         "name": "workspace-service-removed",
@@ -159,6 +169,34 @@ CASES = [
         ),
     },
     {
+        "name": "create-root-identity-rebind-guard-removed",
+        "service": replace_nth(SERVICE, "        root.validate_bound_identity(identity)?;\n", "", 1),
+    },
+    {
+        "name": "open-existing-root-identity-rebind-guard-removed",
+        "service": replace_nth(SERVICE, "        root.validate_bound_identity(identity)?;\n", "", 2),
+    },
+    {
+        "name": "full-digest-guard-weakened-to-deployment-only",
+        "service": SERVICE.replace(
+            "if observed != self.operational_identity_sha256",
+            "if identity.deployment_id.is_empty()",
+            1,
+        ),
+    },
+    {
+        "name": "identity-rebind-check-moved-after-filesystem-effect",
+        "service": SERVICE.replace(
+            "        root.validate_bound_identity(identity)?;\n        if !authorization.authorizes_deployment(&identity.deployment_id)",
+            "        if !authorization.authorizes_deployment(&identity.deployment_id)",
+            1,
+        ).replace(
+            "        Self::open(root, true, |_| {})",
+            "        let result = Self::open(root, true, |_| {});\n        root.validate_bound_identity(identity)?;\n        result",
+            1,
+        ),
+    },
+    {
         "name": "writable-authority-clone",
         "service": SERVICE.replace(
             "pub struct Stage7bWritableDurableAuthority",
@@ -225,7 +263,7 @@ CASES = [
     },
     {
         "name": "negative-count-drift",
-        "descriptor": changed_descriptor("negative_case_count", 43),
+        "descriptor": changed_descriptor("negative_case_count", 47),
     },
 ]
 
