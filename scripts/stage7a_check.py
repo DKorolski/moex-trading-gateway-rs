@@ -13,6 +13,7 @@ R1_PREDECESSOR = "6e53f5428f7f79f3c9c84fbbd15d32b3c26d5d2d"
 R2_PREDECESSOR = "ac8fa7f2f3ff42ae1b351c298ff0b3abd62599b5"
 R2A_PREDECESSOR = "a50cd7e40993b826247320ad5e2c02364964ad77"
 R2B_PREDECESSOR = "340845ccb3a22e5d235dec58b3380e01b2919462"
+R2C_PREDECESSOR = "be62ed0bd6f4cf8786efb6a2935b30fd0fa69ccd"
 BRANCH = "stage7a-paper-command-consumer"
 BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
 BRIDGE_CARGO = Path("crates/runtime-command-bridge/Cargo.toml")
@@ -116,6 +117,21 @@ def validate_bridge(source: str, cargo: str) -> None:
     for token in required:
         require(token in production, f"required Stage 7A token absent: {token}")
     require("pub fn handle_payload(" not in production, "caller can inject local observed_at")
+    require('features = ["v4"]' in cargo, "UUID v4 boot nonce feature absent")
+
+    auto = block(source, "pub fn paper_default_auto(")
+    for token in (
+        "CONSUMER_INSTANCE_COUNTER.fetch_add",
+        "PROCESS_BOOT_NONCE.get_or_init(Uuid::new_v4)",
+        "paper_default_auto_for",
+    ):
+        require(token in auto, f"automatic consumer boot identity absent: {token}")
+    injected_auto = block(source, "fn paper_default_auto_for(")
+    for token in ("process_id: u32", "boot_nonce: Uuid", "generation: u64"):
+        require(token in source, f"injectable consumer boot identity absent: {token}")
+    for token in ("boot_nonce.simple()",):
+        require(token in injected_auto, f"injectable consumer boot identity absent: {token}")
+    require("-boot{}-gen{generation}" in injected_auto, "consumer name omits boot nonce")
 
     established = block(source, "fn request_identity_is_established(")
     for token in (
@@ -126,6 +142,7 @@ def validate_bridge(source: str, cargo: str) -> None:
         require(token in established, f"established identity source absent: {token}")
 
     handler = block(source, "fn handle_payload(")
+    require("consumer_name" not in handler, "Redis consumer name entered execution identity path")
     require(
         handler.index("self.profile.context_for")
         < handler.index("admit_stage7a_paper_command"),
@@ -226,9 +243,19 @@ def validate_bridge(source: str, cargo: str) -> None:
         "f06_recovery_survives_mutated_instrument_identity_conflict",
         "redis_conflicting_duplicate_stays_pending_without_ack_dlq_or_xack",
         "client_order_id_mismatch_is_pending_without_paper_effect_or_xack",
+        "auto_consumer_names_are_boot_instance_unique_and_not_execution_ids",
     )
     for witness in witnesses:
         require(any(f"fn {witness}(" in line for line in test_names), f"test witness absent: {witness}")
+    boot_test = block(source, "fn auto_consumer_names_are_boot_instance_unique_and_not_execution_ids(")
+    for token in (
+        "paper_default_auto_for(1, boot_a, 1)",
+        "paper_default_auto_for(1, boot_b, 1)",
+        "assert_ne!(same_pid_a.consumer_name, same_pid_b.consumer_name)",
+        "assert_eq!(a_boot, b_boot)",
+        "ClientOrderId::from_strategy_request(request_id)",
+    ):
+        require(token in boot_test, f"A-036 exact witness absent: {token}")
 
 
 def validate_stage5g_ack_oracle(source: str) -> None:
@@ -288,12 +315,13 @@ def validate_core(source: str) -> None:
 def validate_descriptor(descriptor: dict[str, object]) -> None:
     expected = {
         "stage": "7A",
-        "status": "r2b_implementation_candidate",
+        "status": "r2c_implementation_candidate",
         "accepted_predecessor": BASE,
         "r1_predecessor": R1_PREDECESSOR,
         "r2_predecessor": R2_PREDECESSOR,
         "r2a_predecessor": R2A_PREDECESSOR,
         "r2b_predecessor": R2B_PREDECESSOR,
+        "r2c_predecessor": R2C_PREDECESSOR,
         "blocking_acceptance_rows": 52,
         "stage6_execution_authority": "exclusive",
         "max_unresolved_lifecycles_per_strategy_instance": 1,
@@ -305,7 +333,7 @@ def validate_descriptor(descriptor: dict[str, object]) -> None:
         "focused_strategy_runtime_test_count": 9,
         "fault_matrix_count": 15,
         "semantic_proof_map_count": 52,
-        "negative_case_count": 49,
+        "negative_case_count": 50,
         "inherited_stage6e_r1_gate_required": True,
         "canonical_ack_recovery_scope": "same_authority_only",
         "cross_process_exactly_once_claimed": False,
@@ -372,7 +400,9 @@ def main() -> None:
         check(Path.cwd().resolve())
     except (CheckFailure, subprocess.CalledProcessError, ValueError, KeyError) as error:
         raise SystemExit(f"stage7a-check: FAIL: {error}") from error
-    print("stage7a-check: PASS rows=52 negative_cases=49 stage6_authority=exclusive real_redis=true live=false")
+    print("stage7a-check: PASS rows=52 negative_cases=50 stage6_authority=exclusive real_redis=true live=false")
+    print("consumer_boot_nonce=true consumer_name_execution_identity=false")
+    print("cross_process_exactly_once_claimed=false")
     print("fresh_truth_provider_surface_absent=true temporal_policy=not_applicable_closed_surface")
     print("a019_erratum=stage5g_compatible_duplicate_after_canonical_publication")
     print("inherited_stage6e_r1_gate_required=true")

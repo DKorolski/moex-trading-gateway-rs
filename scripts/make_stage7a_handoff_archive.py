@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create immutable Stage 7A-R2b source plus evidence handoff."""
+"""Create immutable Stage 7A-R2c source plus evidence handoff."""
 from __future__ import annotations
 
 import hashlib
@@ -43,7 +43,7 @@ def main() -> None:
         fail("worktree not clean")
     head = run(["git", "rev-parse", "HEAD"])
     short = run(["git", "rev-parse", "--short=7", "HEAD"])
-    if run(["git", "rev-parse", "HEAD^"]) != checker.R2B_PREDECESSOR:
+    if run(["git", "rev-parse", "HEAD^"]) != checker.R2C_PREDECESSOR:
         fail("wrong predecessor")
     if run(["git", "branch", "--show-current"]) != checker.BRANCH:
         fail("wrong branch")
@@ -68,8 +68,8 @@ def main() -> None:
         if gate.returncode:
             print(gate.stdout)
             fail(f"gate failed: {gate.returncode}")
-        acceptance = json.loads((artifact_dir / "stage7a-r2b-acceptance.json").read_text())
-        fault_matrix = json.loads((artifact_dir / "stage7a-r2b-fault-matrix.json").read_text())
+        acceptance = json.loads((artifact_dir / "stage7a-r2c-acceptance.json").read_text())
+        fault_matrix = json.loads((artifact_dir / "stage7a-r2c-fault-matrix.json").read_text())
         negative = (artifact_dir / "negative.txt").read_bytes()
         negative_count = sum(line.startswith(b"PASS ") for line in negative.splitlines())
         artifact_members = []
@@ -98,7 +98,7 @@ def main() -> None:
         {
             "schema_version": 1,
             "source_ref": head,
-            "predecessor": checker.R2B_PREDECESSOR,
+            "predecessor": checker.R2C_PREDECESSOR,
             "accepted_stage6_base": checker.BASE,
             "members": [
                 {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
@@ -113,16 +113,16 @@ def main() -> None:
         f"source_short_ref={short}\n"
         f"source_branch={checker.BRANCH}\n"
         f"archive_name=moex-trading-project-{short}.zip\n"
-        f"predecessor={checker.R2B_PREDECESSOR}\n"
+        f"predecessor={checker.R2C_PREDECESSOR}\n"
         f"accepted_stage6_base={checker.BASE}\n"
     ).encode()
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7A-R2b",
+            "stage": "7A-R2c",
             "status": "review_closure_candidate",
             "source_ref": head,
-            "predecessor": checker.R2B_PREDECESSOR,
+            "predecessor": checker.R2C_PREDECESSOR,
             "accepted_stage6_base": checker.BASE,
             "gate_exit_code": 0,
             "acceptance_row_count": acceptance["acceptance_row_count"],
@@ -136,7 +136,7 @@ def main() -> None:
             "fault_matrix_count": fault_matrix["fault_count"],
             "fault_matrix_pass_count": fault_matrix["pass_count"],
             "all_faults_passed": fault_matrix["all_faults_passed"],
-            "semantic_proof_map": "docs/stage-7/stage7a-r2b-acceptance-proof-map.json",
+            "semantic_proof_map": "docs/stage-7/stage7a-r2c-acceptance-proof-map.json",
             "inherited_stage6e_r1_gate_passed": True,
             "canonical_ack_recovery_scope": "same_authority_only",
             "real_redis_integration_passed": True,

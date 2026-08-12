@@ -1,4 +1,4 @@
-# Stage 7A-R2b implementation candidate
+# Stage 7A-R2c implementation candidate
 
 Accepted predecessor: `10e357825a701193d964975bb5769bd0745d4986`.
 
@@ -38,6 +38,11 @@ entry metadata are emitted.
 ## Authority decisions
 
 - Redis entry ID, group, consumer and delivery count are transport metadata.
+- Automatic consumer names combine one random UUID generated once per process
+  boot, the process ID and a per-consumer generation. The boot UUID is stable
+  for the process lifetime and prevents PID/counter reuse after restart from
+  reusing a consumer name. It never participates in request, client-order or
+  Stage 6 durable identity.
 - Stage 6 remains the sole lifecycle authority.
 - PLACE attribution is parsed from the canonical source comment and checked
   against a local account/strategy/instrument profile.
@@ -100,13 +105,13 @@ The real-Redis test starts an isolated local `redis-server` with persistence
 disabled and exercises `XGROUP`, `XREADGROUP`, `XPENDING`, `XAUTOCLAIM`, `XADD`
 and `XACK`. It does not contact FINAM or any external broker endpoint.
 
-The R2b gate first executes the accepted Stage 6E-R1 gate in a detached frozen
+The R2c gate first executes the accepted Stage 6E-R1 gate in a detached frozen
 checkout. It then loads a reviewable JSON proof map and emits a row-by-row report for
 all 52 blocking acceptance rows. Every row contains the frozen scenario/result,
 proof type, exact artifacts/tokens and the semantic rationale. The evaluator
 fails when a mapping is absent, incomplete or uses the wrong pinned proof type.
-The descriptor and negative harness independently pin the exact 49-case
-mutation inventory.
+The descriptor and negative harness independently pin the exact 50-case
+mutation inventory, including removal of the automatic consumer boot nonce.
 
 ## Deliberately deferred to Stage 7B+
 

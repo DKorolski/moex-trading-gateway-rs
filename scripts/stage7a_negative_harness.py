@@ -62,6 +62,15 @@ def main() -> None:
         ("remove-canonical-ack-recovery", bridge.replace("canonical_ack_recoveries", "removed_ack_recoveries"), cargo),
         ("remove-finalized-before-ack-fault", bridge.replace("AfterRequestFinalizedBeforeAckMemory", "RemovedFinalizationFault"), cargo),
         ("remove-claim-outage-fault", bridge.replace("RedisClaimOutage", "RemovedClaimOutage"), cargo),
+        (
+            "remove-auto-consumer-boot-nonce",
+            replace_once(
+                bridge,
+                '"pid{process_id}-boot{}-gen{generation}"',
+                '"pid{process_id}-gen{generation}-ignored{}"',
+            ),
+            cargo,
+        ),
     ]
     core_cases = [
         ("restore-dispatch-forbidden-terminality", core.replace("|| request.final_disposition().is_some()", "|| request.dispatch_safety_state() == crate::Stage6DispatchSafetyStateV1::DispatchForbidden", 1)),

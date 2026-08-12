@@ -27,8 +27,9 @@ EXACT = {
     "docs/stage-7/stage7a-r2a-acceptance-erratum.md",
     "docs/stage-7/stage7a-r2a-review-closure.md",
     "docs/stage-7/stage7a-r2b-review-closure.md",
-    "docs/stage-7/stage7a-r2b-fault-matrix.json",
-    "docs/stage-7/stage7a-r2b-acceptance-proof-map.json",
+    "docs/stage-7/stage7a-r2c-review-closure.md",
+    "docs/stage-7/stage7a-r2c-fault-matrix.json",
+    "docs/stage-7/stage7a-r2c-acceptance-proof-map.json",
     "docs/stage-7/stage7a-slice-plan.md",
     "scripts/make_stage7a_handoff_archive.py",
     "scripts/stage7a_check.py",
@@ -36,8 +37,8 @@ EXACT = {
     "scripts/stage7a_gate.sh",
     "scripts/stage7a_negative_harness.py",
     "scripts/stage7a_preseal_check.py",
-    "scripts/stage7a_r2b_acceptance_report.py",
-    "scripts/stage7a_r2b_fault_matrix_check.py",
+    "scripts/stage7a_r2c_acceptance_report.py",
+    "scripts/stage7a_r2c_fault_matrix_check.py",
 }
 
 

@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use strategy_runtime_core::{
     admit_stage7a_paper_command, execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
     finalize_stage7a_replayed_paper_request, resolve_stage7a_cancel_command_context,
@@ -25,12 +25,14 @@ use strategy_runtime_core::{
     Stage7aPaperAdmission, Stage7aPaperAdmissionDecision, Stage7aPaperCommandContext,
     Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
 };
+use uuid::Uuid;
 
 pub const STAGE7A_PAPER_NAMESPACE: &str = "finam_imoexf_paper:";
 pub const STAGE7A_CONSTRUCTS_FRESH_BROKER_TRUTH: bool = false;
 pub const STAGE7A_FRESH_TRUTH_TEMPORAL_POLICY: &str = "not_applicable_closed_surface";
 const DLQ_DOMAIN: &[u8] = b"moex.stage7a.redacted-dlq.v1";
 static CONSUMER_INSTANCE_COUNTER: AtomicU64 = AtomicU64::new(1);
+static PROCESS_BOOT_NONCE: OnceLock<Uuid> = OnceLock::new();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage7aGroupStart {
@@ -90,7 +92,19 @@ impl Stage7aRedisConfig {
 
     pub fn paper_default_auto() -> Result<Self, Stage7aBridgeError> {
         let generation = CONSUMER_INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed);
-        Self::paper_default(&format!("pid{}-gen{generation}", std::process::id()))
+        let boot_nonce = PROCESS_BOOT_NONCE.get_or_init(Uuid::new_v4);
+        Self::paper_default_auto_for(std::process::id(), *boot_nonce, generation)
+    }
+
+    fn paper_default_auto_for(
+        process_id: u32,
+        boot_nonce: Uuid,
+        generation: u64,
+    ) -> Result<Self, Stage7aBridgeError> {
+        Self::paper_default(&format!(
+            "pid{process_id}-boot{}-gen{generation}",
+            boot_nonce.simple()
+        ))
     }
 
     pub fn validate(&self) -> Result<(), Stage7aBridgeError> {
@@ -1449,7 +1463,6 @@ mod tests {
         HybridIntradayProfile, HybridIntradayRuntimeConfig, HybridIntradayRuntimeStrategy,
         MeanReversionVariant, MrGatePolicy, RiskGateMode, Stage6dFirstBootConfig,
     };
-    use uuid::Uuid;
 
     struct DeterministicPaperProvider;
     struct UncertainPaperProvider;
@@ -1646,8 +1659,11 @@ mod tests {
         url: String,
     }
 
+    static REDIS_START_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     impl RedisServer {
         async fn start() -> Self {
+            let _start_guard = REDIS_START_LOCK.lock().await;
             for _ in 0..10 {
                 let listener = TcpListener::bind("127.0.0.1:0").unwrap();
                 let port = listener.local_addr().unwrap().port();
@@ -1838,13 +1854,45 @@ mod tests {
     }
 
     #[test]
-    fn auto_consumer_names_are_process_unique_and_not_execution_ids() {
+    fn auto_consumer_names_are_boot_instance_unique_and_not_execution_ids() {
+        let boot_a = Uuid::from_u128(0xaaaaaaaa_aaaa_4aaa_8aaa_aaaaaaaaaaaa);
+        let boot_b = Uuid::from_u128(0xbbbbbbbb_bbbb_4bbb_8bbb_bbbbbbbbbbbb);
+        let same_pid_a = Stage7aRedisConfig::paper_default_auto_for(1, boot_a, 1).unwrap();
+        let same_pid_b = Stage7aRedisConfig::paper_default_auto_for(1, boot_b, 1).unwrap();
+        assert_ne!(same_pid_a.consumer_name, same_pid_b.consumer_name);
+        assert!(same_pid_a
+            .consumer_name
+            .contains(&boot_a.simple().to_string()));
+        assert!(same_pid_b
+            .consumer_name
+            .contains(&boot_b.simple().to_string()));
+
         let a = Stage7aRedisConfig::paper_default_auto().unwrap();
         let b = Stage7aRedisConfig::paper_default_auto().unwrap();
         assert_eq!(a.group_start, Stage7aGroupStart::Tail);
         assert_eq!(b.group_start, Stage7aGroupStart::Tail);
         assert_ne!(a.consumer_name, b.consumer_name);
+        assert!(a.consumer_name.contains("-boot"));
+        let a_boot = a
+            .consumer_name
+            .split("-boot")
+            .nth(1)
+            .unwrap()
+            .split("-gen")
+            .next();
+        let b_boot = b
+            .consumer_name
+            .split("-boot")
+            .nth(1)
+            .unwrap()
+            .split("-gen")
+            .next();
+        assert_eq!(a_boot, b_boot);
         assert!(!a.consumer_name.contains("request"));
+        let request_id = StrategyRequestId::new(Uuid::from_u128(42));
+        let client_order_id = ClientOrderId::from_strategy_request(request_id);
+        assert!(!a.consumer_name.contains(&request_id.to_string()));
+        assert!(!a.consumer_name.contains(client_order_id.as_str()));
         let mut beginning = Stage7aRedisConfig::paper_default("controlled-replay").unwrap();
         beginning.group_start = Stage7aGroupStart::Beginning;
         assert!(matches!(

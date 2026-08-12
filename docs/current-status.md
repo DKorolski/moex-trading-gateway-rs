@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-11.
+Status date: 2026-08-12.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -14,16 +14,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 - Stage 6E-R1 is independently accepted at
   `10e357825a701193d964975bb5769bd0745d4986`; Stage 6 is CLOSED.
-- Stage 7A-R2b is the only active review-candidate slice and direct successor
-  of rejected R2a candidate
-  `340845ccb3a22e5d235dec58b3380e01b2919462`.
+- Stage 7A-R2c is the only active review-candidate slice and direct successor
+  of reviewed R2b candidate
+  `be62ed0bd6f4cf8786efb6a2935b30fd0fa69ccd`.
   It attaches a Redis
   consumer group only to the validated paper namespace and process outcomes
   through the accepted Stage 6 authority plus a process-local paper/mock
   provider.
 - The candidate implementation lives in `runtime-command-bridge`; focused
   Stage 6 admission tests and isolated real-Redis tests are green locally.
-  R2b preserves the ACK/cursor repairs, enforces exactly one non-final command
+  R2c preserves the ACK/cursor repairs, enforces exactly one non-final command
   lifecycle, finalizes PLACE before a sequential CANCEL, tracks source/claim
   freshness independently, externally observes task death, recovers the first
   canonical ACK across same-authority outcome/finalization crash windows,
@@ -31,8 +31,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   F1-F15 plus all 52 acceptance rows to exact semantic evidence. Existing
   request identity now outranks ordinary profile rejection; exact account,
   instrument, action/target and ClientOrderId conflicts remain pending without
-  ACK, DLQ or XACK. The 49-case negative inventory is descriptor-pinned. Stage
-  7A remains an implementation candidate until independent R2b acceptance.
+  ACK, DLQ or XACK. Automatic Redis consumer names now bind a process-lifetime
+  random boot UUID, PID and per-consumer generation; transport identity remains
+  outside Stage 6 execution identity. The 50-case negative inventory includes
+  removal of that nonce and is descriptor-pinned. Stage 7A remains an
+  implementation candidate until independent R2c acceptance.
 - Stage 7B, FINAM runtime POST/DELETE, broker network dispatch, runtime-live,
   real strategy orders and native Stop/SLTP/bracket remain CLOSED.
 - Stage 7A permits at most one non-final command lifecycle per strategy

@@ -72,20 +72,24 @@ current runtime branch to send orders continuously.
 
 Stage 6E-R1 is independently accepted at
 `10e357825a701193d964975bb5769bd0745d4986`, closing Stage 6. The active
-implementation candidate and next review target is **Stage 7A-R2b**: the narrow
-closure repair over rejected R2a `340845ccb3a22e5d235dec58b3380e01b2919462`, with real Redis
+implementation candidate and next review target is **Stage 7A-R2c**: the final
+A-036-only closure repair over reviewed R2b
+`be62ed0bd6f4cf8786efb6a2935b30fd0fa69ccd`, with real Redis
 consumer-group delivery/recovery feeding only the accepted Stage 6 paper/mock
 authority.
 
-Stage 7A-R2b preserves strict max-one non-final lifecycle semantics and adds
+Stage 7A-R2c preserves strict max-one non-final lifecycle semantics and adds
 same-authority canonical ACK recovery across outcome/finalization crash windows,
 sequential source-correlated CANCEL, independent source/claim freshness with an
 exact claim-outage witness, externally observed task death, inherited Stage 6
 gate evidence, complete F1-F15 evidence, persistent bounded XAUTOCLAIM cursors
 and a semantic 52/52 proof map. It also makes established Stage 6/F6 request
 identity outrank profile rejection, adds exact ClientOrderId and Redis conflict
-witnesses, and pins the 49-case negative inventory. Stage 7A constructs no
-fresh-truth package.
+witnesses. R2c binds auto consumer names to a process-lifetime random boot UUID
+plus PID and per-consumer generation, proves distinct names for equal PID and
+generation under different boots, and pins the 50-case negative inventory.
+Redis consumer names remain transport metadata and never enter request/client
+or Stage 6 durable identity. Stage 7A constructs no fresh-truth package.
 Stage 7B, FINAM POST/DELETE, broker
 dispatch, runtime-live, real orders and native Stop/SLTP/bracket remain
 forbidden.
