@@ -27,8 +27,10 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-d-a — Redis-free durable lifecycle and seal-before-settlement
-authorization, still paper/mock only. The original
+Stage 7B-d-a-R1 — Redis-free durable lifecycle and seal-before-settlement
+authorization, still paper/mock only. The original implementation candidate
+`f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted; R1 closes exact
+current on-disk seal revalidation and a real fsynced B-046 effect witness. The original
 design candidate `09a22765ae6ee37b304bfed6492bd103da44360d` was not accepted
 as frozen; Design R1 was independently accepted/frozen at
 `00cead2989493b44e0d86ead29b95d57a7fbcbe2`. Stage 7B-c-R1 is independently
@@ -36,7 +38,7 @@ accepted and Stage 7B-c is closed at
 `c57ae8d5f98bbb11df0a81f78262d3916b276d81`; Stage 7B-b-R2 is closed at
 `ff3fa2e8908440863b40b838991d4716b33caad4`. Stage 7B-d implementation is
 split into lifecycle/seal barrier, atomic Redis settlement and composite
-readiness/restart transport slices. The active d-a candidate implements only
+readiness/restart transport slices. The active d-a R1 candidate implements only
 B-043..B-051 and B-054..B-056 with file-backed/SIGKILL/fault witnesses. B-052/
 B-053 stay pending until d-c supplies real-Redis restart evidence. Redis
 settlement/XACK first becomes eligible in d-b after separate d-a acceptance.

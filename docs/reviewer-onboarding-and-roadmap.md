@@ -89,9 +89,13 @@ provenance, stable-key/value Redis conflict semantics and corrected proof-row
 ownership. It proposes three
 implementation slices: owner-held lifecycle plus seal-before-settlement,
 atomic Redis ACK/DLQ+XACK, and composite readiness/supervision/restart PEL
-reclaim. The active review target is **Stage 7B-d-a**: the Redis-free
+reclaim. The active review target is **Stage 7B-d-a-R1**: the Redis-free
 owner-held lifecycle, covering-seal and ACK-authorization slice. It implements
 B-043..B-051 and B-054..B-056 with direct file-backed and SIGKILL witnesses.
+The first implementation candidate
+`f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted. R1 requires an
+exact authenticated reread of the current disk seal before ACK authority and
+uses a separately fsynced B-046 provider-effect witness before SIGKILL.
 B-052/B-053 remain pending for d-c real-Redis restart evidence. Stage
 6 remains the sole lifecycle authority; process-memory ACK maps
 and Redis transport IDs cannot become restart/execution authority. d-a does

@@ -420,7 +420,7 @@
       "proof_type": "subprocess_fault",
       "rationale": "Accepted Stage 7B foundation or Stage 7B-d-a exact witness",
       "artifact": "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence",
-      "exact_witness": "stage7b_d_a_b046_sigkill_during_unknown_effect_requires_reconciliation",
+      "exact_witness": "stage7b_d_a_b046_sigkill_during_unknown_effect_requires_reconciliation + fsynced exactly-once provider-effect witness before SIGKILL",
       "status": "implemented"
     },
     {
@@ -465,7 +465,7 @@
       "proof_type": "subprocess_fault",
       "rationale": "Accepted Stage 7B foundation or Stage 7B-d-a exact witness",
       "artifact": "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence",
-      "exact_witness": "stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider",
+      "exact_witness": "stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider + deleted/corrupt/valid-different current on-disk seal fail-closed tests",
       "status": "implemented"
     },
     {

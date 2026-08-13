@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DESIGN_BASE = "00cead2989493b44e0d86ead29b95d57a7fbcbe2"
 STAGE7B_C_BASE = "c57ae8d5f98bbb11df0a81f78262d3916b276d81"
+REJECTED_D_A_BASE = "f71eeb926464f6634d485d5720b25c5e026b40d5"
 BRANCH = "stage7b-production-durability"
 OWNED = {f"B-{value:03d}" for value in range(43, 52)} | {
     "B-054",
@@ -93,7 +94,9 @@ def check_descriptors() -> None:
     )
     expected = {
         "slice": "7B-d-a",
-        "status": "implementation_candidate",
+        "status": "implementation_r1_candidate",
+        "candidate_revision": "R1",
+        "rejected_stage7b_d_a_ref": REJECTED_D_A_BASE,
         "accepted_design_r1_ref": DESIGN_BASE,
         "implemented_count": 54,
         "pending_count": 26,
@@ -105,7 +108,10 @@ def check_descriptors() -> None:
         "d_a_owned_rows_implemented": True,
         "d_a_rows_exclude_b052_b053": True,
         "b052_b053_implemented": False,
-        "d_a_negative_case_count": 29,
+        "current_on_disk_seal_exact_revalidation": True,
+        "b046_effect_witness_fsync": True,
+        "stale_crash_barrier_rejected": True,
+        "d_a_negative_case_count": 32,
         "redis_consumer_attached": False,
         "redis_settlement_enabled": False,
         "xack_enabled": False,
@@ -118,7 +124,9 @@ def check_descriptors() -> None:
         require(descriptor.get(key) == value, f"d-a descriptor drift: {key}")
     aggregate_expected = {
         "slice": "7B-d-a",
-        "status": "implementation_candidate",
+        "status": "implementation_r1_candidate",
+        "candidate_revision": "R1",
+        "rejected_stage7b_d_a_ref": REJECTED_D_A_BASE,
         "implemented_count": 54,
         "pending_count": 26,
         "stage7b_d_design_frozen": True,
@@ -128,6 +136,8 @@ def check_descriptors() -> None:
         "stage7b_d_a_acceptance_pending": True,
         "stage7b_d_b_open": False,
         "stage7b_d_c_open": False,
+        "current_on_disk_seal_exact_revalidation": True,
+        "b046_effect_witness_fsync": True,
         "redis_consumer_attached": False,
         "redis_settlement_enabled": False,
         "xack_enabled": False,
@@ -192,6 +202,11 @@ def check_source() -> None:
         "stage7b_d_a_b050_seal_failure_blocks_authorization_and_readiness",
         "stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider",
         "stage7b_d_a_b054_sequential_cancel_survives_restart_and_reseals",
+        "stage7b_d_a_r1_deleted_current_seal_blocks_ack_authority",
+        "stage7b_d_a_r1_corrupt_current_seal_blocks_ack_authority",
+        "stage7b_d_a_r1_valid_but_different_current_seal_blocks_ack_authority",
+        "commit_stage7b_d_a_provider_effect_witness(&effect_witness)",
+        "stale Stage 7B crash barrier marker",
     ):
         require(token in recovery, f"d-a source invariant absent: {token}")
     authority_token = "pub(crate) struct Stage7bDurableAckAuthorized"
@@ -215,15 +230,31 @@ def check_source() -> None:
         "first publication no longer canonical",
     )
     authorize = source_block(recovery, "    pub(crate) fn authorize_finalized_ack(")
+    require(
+        authorize.count("self.revalidate_cached_committed_seal(commitment_key)?") == 2,
+        "current seal must be reread before frontier refresh and before current-path ACK mint",
+    )
     ordered = (
         "self.require_lifecycle_available()?",
         "stage7b_finalized_request_facts(",
+        "self.revalidate_cached_committed_seal(commitment_key)?",
         "refresh_stage7b_durable_frontier(&mut self.recovered)?",
         "self.advance_recovery_seal(commitment_key)?",
+        "validate_recovered_binding(&self.recovered, &self.committed_seal, identity)?",
         "durable_ack_authority(&self.committed_seal, current)",
     )
     positions = [authorize.index(token) for token in ordered]
     require(positions == sorted(positions), "finalize/seal/ACK ordering drift")
+    revalidate = source_block(recovery, "    fn revalidate_cached_committed_seal(")
+    ordered = (
+        "self.writer_lease.validate_namespace()?",
+        "read_committed_recovery_seal()?",
+        "Stage7bRecoverySealV1::decode_canonical(",
+        "if on_disk != self.committed_seal",
+        "self.seal_commit_uncertain = true",
+    )
+    positions = [revalidate.index(token) for token in ordered]
+    require(positions == sorted(positions), "current on-disk seal revalidation ordering drift")
     advance = source_block(recovery, "    fn advance_recovery_seal(")
     ordered = (
         "advance_stage6d_restart_package(",
@@ -238,6 +269,19 @@ def check_source() -> None:
     positions = [advance.index(token) for token in ordered]
     require(positions == sorted(positions), "seal commit/reread/update ordering drift")
     require("use runtime_durable_service::Stage7bDurableAckAuthorized;" in service_lib, "compile-fail ACK privacy witness absent")
+    crash_child = source_block(recovery, "    fn stage7b_d_a_crash_barrier_child()")
+    effect_position = crash_child.index(
+        "commit_stage7b_d_a_provider_effect_witness(&effect_witness)"
+    )
+    barrier_position = crash_child.index(
+        'fs::write(&marker, b"provider-effect-durable-before-outcome")'
+    )
+    require(effect_position < barrier_position, "B-046 barrier no longer follows durable effect witness")
+    effect_commit = source_block(
+        recovery, "    fn commit_stage7b_d_a_provider_effect_witness("
+    )
+    for token in ("create_new(true)", "witness.sync_all()", ".sync_all()"):
+        require(token in effect_commit, f"B-046 durable effect witness drift: {token}")
     for token in (
         "pub fn advance_stage6d_restart_package(",
         "pub fn refresh_stage7b_durable_frontier(",

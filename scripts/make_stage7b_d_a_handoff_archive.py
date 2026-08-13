@@ -63,10 +63,10 @@ def require_artifacts(directory: Path) -> None:
     markers = {
         "fmt.txt": "fmt: PASS",
         "stage7b-d-a-check.txt": "stage7b-d-a-check: PASS rows=12",
-        "negative.txt": "stage7b-d-a-negative: PASS cases=29",
+        "negative.txt": "stage7b-d-a-negative: PASS cases=32",
         "inherited-design-gate.txt": "stage7b-d-design-gate: PASS",
-        "stage7b-d-a-debug.txt": "9 passed; 0 failed; 1 ignored",
-        "stage7b-d-a-release.txt": "9 passed; 0 failed; 1 ignored",
+        "stage7b-d-a-debug.txt": "12 passed; 0 failed; 1 ignored",
+        "stage7b-d-a-release.txt": "12 passed; 0 failed; 1 ignored",
     }
     for name, marker in markers.items():
         if marker not in (directory / name).read_text(errors="replace"):
@@ -159,18 +159,21 @@ def main() -> None:
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7B-d-a",
+            "stage": "7B-d-a-R1",
             "status": "independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
             "accepted_design_r1_ref": checker.DESIGN_BASE,
+            "rejected_stage7b_d_a_ref": checker.REJECTED_D_A_BASE,
             "implemented_rows": 54,
             "pending_rows": 26,
             "d_a_owned_rows": sorted(checker.OWNED),
             "b052_b053_status": "pending_real_redis_restart",
-            "focused_debug_tests_passed": 9,
-            "focused_release_tests_passed": 9,
-            "negative_case_count": 29,
+            "focused_debug_tests_passed": 12,
+            "focused_release_tests_passed": 12,
+            "negative_case_count": 32,
+            "current_on_disk_seal_exact_revalidation": True,
+            "b046_effect_witness_fsync": True,
             "artifact_sha256": artifact_hashes,
             "source_manifest_sha256": hashlib.sha256(manifest).hexdigest(),
             "redis_consumer_attached": False,

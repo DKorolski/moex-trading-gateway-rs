@@ -53,6 +53,17 @@ def replace(path: Path, old: str, new: str, *, all_matches: bool = False) -> Non
     path.write_text(source)
 
 
+def replace_after(path: Path, anchor: str, old: str, new: str) -> None:
+    source = path.read_text()
+    start = source.find(anchor)
+    if start < 0:
+        raise SystemExit(f"stage7b-d-a-negative: fixture anchor absent: {path}: {anchor}")
+    position = source.find(old, start)
+    if position < 0:
+        raise SystemExit(f"stage7b-d-a-negative: fixture token absent after anchor: {path}: {old}")
+    path.write_text(source[:position] + new + source[position + len(old) :])
+
+
 CASES = (
     ("design-unfrozen", lambda root: mutate_json(root / DESCRIPTOR, "stage7b_d_design_frozen", False)),
     ("implementation-not-started", lambda root: mutate_json(root / DESCRIPTOR, "stage7b_d_a_implementation_started", False)),
@@ -65,11 +76,14 @@ CASES = (
     ("enable-xack", lambda root: mutate_json(root / DESCRIPTOR, "xack_enabled", True)),
     ("enable-runtime-live", lambda root: mutate_json(root / DESCRIPTOR, "runtime_live", True)),
     ("enable-real-orders", lambda root: mutate_json(root / DESCRIPTOR, "real_orders", True)),
-    ("negative-count-drift", lambda root: mutate_json(root / DESCRIPTOR, "d_a_negative_case_count", 27)),
+    ("negative-count-drift", lambda root: mutate_json(root / DESCRIPTOR, "d_a_negative_case_count", 31)),
     ("publish-ack-authority", lambda root: replace(root / RECOVERY, "pub(crate) struct Stage7bDurableAckAuthorized", "pub struct Stage7bDurableAckAuthorized")),
     ("clone-ack-authority", lambda root: replace(root / RECOVERY, "pub(crate) struct Stage7bDurableAckAuthorized", "#[derive(Clone)]\npub(crate) struct Stage7bDurableAckAuthorized")),
     ("drop-frontier-refresh", lambda root: replace(root / RECOVERY, "refresh_stage7b_durable_frontier(&mut self.recovered)?;", "/* frontier refresh removed */")),
     ("drop-seal-advance", lambda root: replace(root / RECOVERY, "self.advance_recovery_seal(commitment_key)?;", "/* seal advance removed */")),
+    ("drop-current-seal-reread", lambda root: replace(root / RECOVERY, "self.revalidate_cached_committed_seal(commitment_key)?;", "/* current seal reread removed */", all_matches=True)),
+    ("drop-current-seal-canonical-hmac", lambda root: replace_after(root / RECOVERY, "fn revalidate_cached_committed_seal(", "Stage7bRecoverySealV1::decode_canonical(", "Stage7bRecoverySealV1::decode_unchecked_forbidden(")),
+    ("weaken-b046-to-dispatch-only", lambda root: replace(root / RECOVERY, "commit_stage7b_d_a_provider_effect_witness(&effect_witness);", "/* provider effect removed */")),
     ("ignore-seal-uncertainty", lambda root: replace(root / RECOVERY, "self.seal_commit_uncertain = true;", "self.seal_commit_uncertain = false;", all_matches=True)),
     ("first-recovered-ack-duplicate", lambda root: replace(root / RECOVERY, "None => Stage7bAckPublicationDecision::Canonical", "None => Stage7bAckPublicationDecision::Duplicate")),
     ("add-redis-dependency", lambda root: replace(root / MANIFEST, "chrono.workspace = true", "chrono.workspace = true\nredis = \"0.32\"")),

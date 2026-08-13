@@ -677,10 +677,18 @@ impl Stage7bRecoveryReadyOwner {
         if !same_finalized_facts(&current, &finalized.facts) {
             return Err(Stage7bRecoveryError::FinalizedBindingMismatch);
         }
+        // Never overwrite or trust through an unexpected on-disk authority.
+        // This first exact reread authenticates the cached predecessor before
+        // replay may advance the current Stage 6 frontier.
+        self.revalidate_cached_committed_seal(commitment_key)?;
         refresh_stage7b_durable_frontier(&mut self.recovered)?;
         if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
             self.advance_recovery_seal(commitment_key)?;
         } else {
+            // The already-current path has no seal write whose post-fsync
+            // reread could serve as the final barrier. Reread the committed
+            // file again immediately before minting ACK authority.
+            self.revalidate_cached_committed_seal(commitment_key)?;
             let identity = self
                 .recovered
                 .authenticated_operational_identity()
@@ -696,6 +704,38 @@ impl Stage7bRecoveryReadyOwner {
             return Err(Stage7bRecoveryError::SealCommitUncertain);
         }
         Ok(())
+    }
+
+    #[allow(dead_code, reason = "consumed by the closed Stage 7B-d-b seam")]
+    fn revalidate_cached_committed_seal(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<(), Stage7bRecoveryError> {
+        let result = (|| {
+            self.writer_lease.validate_namespace()?;
+            let identity = self
+                .recovered
+                .authenticated_operational_identity()
+                .ok_or(Stage7bRecoveryError::SealInvalid)?;
+            let expected_identity = stage6d_operational_identity_sha256(identity)?;
+            let bytes = self
+                .writer_lease
+                .read_committed_recovery_seal()?
+                .ok_or(Stage7bRecoveryError::SealInvalid)?;
+            let on_disk = Stage7bRecoverySealV1::decode_canonical(
+                &bytes,
+                expected_identity.as_str(),
+                commitment_key,
+            )?;
+            if on_disk != self.committed_seal {
+                return Err(Stage7bRecoveryError::SealInvalid);
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.seal_commit_uncertain = true;
+        }
+        result
     }
 
     #[allow(dead_code, reason = "consumed by the closed Stage 7B-d-b seam")]
@@ -1077,7 +1117,7 @@ mod tests {
         StrategyRequestId,
     };
     use std::{
-        fs,
+        fs::{self, OpenOptions},
         path::{Path, PathBuf},
         process::{Command, Stdio},
         thread,
@@ -1310,8 +1350,34 @@ mod tests {
         assert!(marker.exists(), "Stage 7B recovery child missed barrier");
     }
 
-    fn kill_stage7b_d_a_child_at(setup: &PreparedWorkingRestart, phase: &str) {
+    fn stage7b_d_a_effect_witness(setup: &PreparedWorkingRestart) -> PathBuf {
+        setup.parent.join("stage7b-d-a-provider-effect.count")
+    }
+
+    fn commit_stage7b_d_a_provider_effect_witness(path: &Path) {
+        let mut witness = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .expect("provider effect witness must be invoked exactly once");
+        witness.write_all(b"1\n").unwrap();
+        witness.sync_all().unwrap();
+        File::open(path.parent().unwrap())
+            .unwrap()
+            .sync_all()
+            .unwrap();
+    }
+
+    fn kill_stage7b_d_a_child_at(setup: &PreparedWorkingRestart, phase: &str) -> PathBuf {
         let marker = setup.parent.join(format!("stage7b-d-a-{phase}.barrier"));
+        let effect_witness = stage7b_d_a_effect_witness(setup);
+        assert!(!marker.exists(), "stale Stage 7B crash barrier marker");
+        if phase == "during-effect" {
+            assert!(
+                !effect_witness.exists(),
+                "stale Stage 7B provider-effect witness"
+            );
+        }
         let mut child = Command::new(std::env::current_exe().unwrap())
             .arg("--ignored")
             .arg("--exact")
@@ -1320,6 +1386,7 @@ mod tests {
             .env("STAGE7B_D_A_CHILD_ROOT", &setup.root)
             .env("STAGE7B_D_A_CHILD_MARKER", &marker)
             .env("STAGE7B_D_A_CHILD_PHASE", phase)
+            .env("STAGE7B_D_A_CHILD_EFFECT_WITNESS", &effect_witness)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -1327,6 +1394,7 @@ mod tests {
         wait_for_child(&mut child, &marker);
         child.kill().unwrap();
         child.wait().unwrap();
+        effect_witness
     }
 
     fn restart_working_setup(setup: &PreparedWorkingRestart) -> Stage7bRecoveryReadyOwner {
@@ -1478,6 +1546,8 @@ mod tests {
         let root = PathBuf::from(std::env::var_os("STAGE7B_D_A_CHILD_ROOT").unwrap());
         let marker = PathBuf::from(std::env::var_os("STAGE7B_D_A_CHILD_MARKER").unwrap());
         let phase = std::env::var("STAGE7B_D_A_CHILD_PHASE").unwrap();
+        let effect_witness =
+            PathBuf::from(std::env::var_os("STAGE7B_D_A_CHILD_EFFECT_WITNESS").unwrap());
         let identity = identity();
         let fixture =
             stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None);
@@ -1503,8 +1573,15 @@ mod tests {
         else {
             panic!("accepted-only child must append one dispatch attempt");
         };
-        if phase == "dispatch" || phase == "during-effect" {
+        if phase == "dispatch" {
             fs::write(&marker, phase.as_bytes()).unwrap();
+            loop {
+                thread::sleep(Duration::from_secs(1));
+            }
+        }
+        if phase == "during-effect" {
+            commit_stage7b_d_a_provider_effect_witness(&effect_witness);
+            fs::write(&marker, b"provider-effect-durable-before-outcome").unwrap();
             loop {
                 thread::sleep(Duration::from_secs(1));
             }
@@ -1688,7 +1765,12 @@ mod tests {
 
     fn assert_post_dispatch_crash_holds(phase: &str) {
         let setup = prepare_active_restart_prefix(1);
-        kill_stage7b_d_a_child_at(&setup, phase);
+        let effect_witness = kill_stage7b_d_a_child_at(&setup, phase);
+        if phase == "during-effect" {
+            assert_eq!(fs::read(&effect_witness).unwrap(), b"1\n");
+        } else {
+            assert!(!effect_witness.exists());
+        }
         let before = fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap();
         let mut owner = restart_working_setup(&setup);
         let observed_at = command_created_at(&setup.command) + chrono::Duration::seconds(2);
@@ -1717,6 +1799,13 @@ mod tests {
             before,
             "recovery hold must not append or reinvoke the provider"
         );
+        if phase == "during-effect" {
+            assert_eq!(
+                fs::read(&effect_witness).unwrap(),
+                b"1\n",
+                "redelivery must not invoke the provider effect a second time"
+            );
+        }
         drop(owner);
         fs::remove_dir_all(setup.parent).unwrap();
     }
@@ -1790,6 +1879,62 @@ mod tests {
         fs::remove_dir_all(setup.parent).unwrap();
     }
 
+    fn prepare_current_finalized_seal_owner() -> (
+        PreparedWorkingRestart,
+        Stage7bRecoveryReadyOwner,
+        StrategyRequestId,
+    ) {
+        let setup = prepare_active_restart_prefix(1);
+        let mut owner = restart_working_setup(&setup);
+        let request_id = request_id(&setup.command);
+        let observed_at = command_created_at(&setup.command) + chrono::Duration::seconds(1);
+        let Stage7aPaperAdmission::DispatchReady(receipt) = owner
+            .admit_paper_command(&setup.command, &setup.command_context, observed_at)
+            .unwrap()
+        else {
+            panic!("current-seal fault fixture must dispatch");
+        };
+        let report = owner
+            .record_paper_outcome(
+                *receipt,
+                Stage6dPaperOutcome::MarketFilled {
+                    broker_order_id: BrokerOrderId::new("paper-order-stage7b-da-disk-seal"),
+                    broker_trade_id: BrokerTradeId::new("paper-trade-stage7b-da-disk-seal"),
+                },
+            )
+            .unwrap();
+        let (_, finalized) = owner
+            .finalize_paper_request(report, observed_at + chrono::Duration::seconds(1))
+            .unwrap();
+        let authority = owner
+            .authorize_finalized_ack(finalized, &setup.key)
+            .unwrap();
+        assert_eq!(authority.seal_generation(), 2);
+        drop(authority);
+        drop(owner);
+        let owner = restart_working_setup(&setup);
+        assert_eq!(owner.committed_seal().unwrap().seal_generation(), 2);
+        (setup, owner, request_id)
+    }
+
+    fn assert_current_seal_drift_blocks_ack(
+        setup: &PreparedWorkingRestart,
+        owner: &mut Stage7bRecoveryReadyOwner,
+        request_id: StrategyRequestId,
+    ) {
+        let finalized = owner.finalized_request(request_id).unwrap();
+        assert!(matches!(
+            owner.authorize_finalized_ack(finalized, &setup.key),
+            Err(Stage7bRecoveryError::SealInvalid)
+        ));
+        assert!(!owner.recovery_ready());
+        let reconstructed = owner.finalized_request(request_id).unwrap();
+        assert!(matches!(
+            owner.authorize_finalized_ack(reconstructed, &setup.key),
+            Err(Stage7bRecoveryError::SealCommitUncertain)
+        ));
+    }
+
     #[test]
     fn stage7b_d_a_b048_sigkill_after_finalization_reconstructs_canonical_ack() {
         assert_post_finalization_restart_is_canonical("finalized", 2);
@@ -1798,6 +1943,50 @@ mod tests {
     #[test]
     fn stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider() {
         assert_post_finalization_restart_is_canonical("sealed", 2);
+    }
+
+    #[test]
+    fn stage7b_d_a_r1_deleted_current_seal_blocks_ack_authority() {
+        let (setup, mut owner, request_id) = prepare_current_finalized_seal_owner();
+        fs::remove_file(setup.root.join(STAGE7B_RECOVERY_SEAL_FILE)).unwrap();
+        File::open(&setup.root).unwrap().sync_all().unwrap();
+        assert_current_seal_drift_blocks_ack(&setup, &mut owner, request_id);
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_d_a_r1_corrupt_current_seal_blocks_ack_authority() {
+        let (setup, mut owner, request_id) = prepare_current_finalized_seal_owner();
+        let seal_path = setup.root.join(STAGE7B_RECOVERY_SEAL_FILE);
+        fs::write(&seal_path, b"corrupt-current-seal").unwrap();
+        File::open(&seal_path).unwrap().sync_all().unwrap();
+        File::open(&setup.root).unwrap().sync_all().unwrap();
+        assert_current_seal_drift_blocks_ack(&setup, &mut owner, request_id);
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_d_a_r1_valid_but_different_current_seal_blocks_ack_authority() {
+        let (setup, mut owner, request_id) = prepare_current_finalized_seal_owner();
+        let cached = owner.committed_seal.clone();
+        let replacement = Stage7bRecoverySealV1::new(
+            cached.seal_generation() + 1,
+            cached.stage6d_authenticated_restart_package.clone(),
+            cached.stage6_checkpoint.clone(),
+            cached.operational_identity_sha256.clone(),
+            &setup.key,
+        )
+        .unwrap();
+        owner
+            .writer_lease
+            .commit_recovery_seal(&replacement)
+            .unwrap();
+        assert_ne!(replacement, cached);
+        assert_current_seal_drift_blocks_ack(&setup, &mut owner, request_id);
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
     }
 
     #[cfg(unix)]

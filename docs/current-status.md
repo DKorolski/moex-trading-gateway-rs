@@ -52,12 +52,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   paper-service composition into: (a) lifecycle/seal-before-settlement,
   (b) atomic idempotent ACK/DLQ plus XACK, and (c) composite readiness,
   supervision and restart PEL reclaim.
-- Stage 7B-d-a is the active implementation candidate. It adds an owner-held,
+- Stage 7B-d-a-R1 is the active implementation candidate after the original
+  `f71eeb926464f6634d485d5720b25c5e026b40d5` candidate was not accepted. It adds an owner-held,
   Redis-free lifecycle facade and exact-bound non-serializable terminal ACK
-  authority. ACK authorization first refreshes the actual file-journal
-  frontier, commits/rereads a covering authenticated recovery seal, and fails
-  stop on ambiguous seal commit. Real SIGKILL witnesses cover accepted,
-  dispatch, unknown-effect, durable-outcome, finalized and sealed crash states;
+  authority. R1 authenticates and exactly compares the current on-disk seal
+  before frontier refresh and again before a no-advance ACK mint; deleted,
+  corrupt or valid-but-different seals fail stop. Real SIGKILL witnesses cover
+  accepted, dispatch, unknown-effect, durable-outcome, finalized and sealed
+  crash states; B-046 now fsyncs a test-only provider-effect witness before its
+  during-effect barrier and proves redelivery does not invoke it twice;
   correlated sequential CANCEL is reconstructed from source-bound Stage 5G and
   Stage 6 history. B-043..B-051 and B-054..B-056 are candidate-implemented.
   B-052/B-053 remain pending for d-c real-Redis restart evidence. Stage 7B-d-b,
