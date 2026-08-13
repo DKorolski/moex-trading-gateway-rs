@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "7B",
-  "slice": "7B-d-design",
+  "slice": "7B-d-design-R1",
   "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
   "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
   "row_count": 80,

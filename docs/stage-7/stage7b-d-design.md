@@ -1,6 +1,7 @@
 # Stage 7B-d — durable Redis settlement and paper-service composition
 
-Status: design/entry candidate; implementation is not yet claimed.
+Status: Design R1 authority-clarification candidate; implementation is not yet
+opened or claimed.
 
 Accepted predecessor:
 `c57ae8d5f98bbb11df0a81f78262d3916b276d81`
@@ -32,10 +33,23 @@ Stage 7B-d paper command coordinator
         |
         | after durable finalization and committed seal only
         v
-opaque SettlementAuthorized capability
+opaque linear DurableAckAuthorized capability
+        |
+        | combine with one exact Redis source-entry context
+        v
+opaque linear RedisAckSettlementPlan
         |
         v
 Redis atomic settlement primitive
+
+Permanent pre-Stage6 poison follows a separate, mutually exclusive path:
+
+```text
+deterministic decode/schema failure
+  -> proof of no Stage6 admission or journal/request mutation
+  -> opaque linear PoisonDlqAuthorized
+  -> Redis atomic redacted DLQ + XACK
+```
 ```
 
 Forbidden designs:
@@ -52,7 +66,10 @@ Forbidden designs:
 
 ## Stage 7B-d-a — lifecycle and seal barrier
 
-Rows: B-043 through B-056.
+Rows eligible for closure: B-043 through B-051 and B-054 through B-056.
+B-052/B-053 remain pending until Stage 7B-d-c supplies their required
+real-Redis restart witnesses. Pure semantic helpers for those rows do not close
+them.
 
 The recovery owner receives narrow broker-neutral paper lifecycle methods that
 delegate directly to accepted Stage 6 functions. A provider callback can be
@@ -73,13 +90,30 @@ derive current Stage6 checkpoint from the owned journal frontier
 -> root-directory sync_all
 -> committed bytes reread
 -> canonical/HMAC/checkpoint validation against the live owner
--> issue one opaque SettlementAuthorized capability
+-> issue one opaque linear DurableAckAuthorized capability
 ```
 
 The commitment key remains out-of-band and is borrowed for each seal advance;
 it is not cloned, serialized or stored in Redis. Seal generation must increase
 exactly by one. A seal failure leaves the command pending and makes composite
-readiness false.
+readiness false. If rename/fsync outcome is ambiguous, no settlement capability
+is minted, readiness is false and cached `generation + 1` retry is forbidden.
+The owner must reread and validate the committed on-disk seal or be restarted
+and reconstructed before another advance is attempted.
+
+`DurableAckAuthorized` is crate-private, non-Clone, non-Copy,
+non-Serialize/non-Deserialize, non-reconstructible from Redis or process input,
+and single-consumption/linear. It binds the exact operational identity digest,
+`StrategyRequestId`, canonical command digest, durable client/request identity,
+Stage6 final disposition and ACK classification, current Stage6
+checkpoint/frontier fingerprint, committed seal generation and commitment,
+canonical ACK fingerprint, and settlement kind `ACK`. Authority for request A
+cannot settle request B.
+
+Combining that durable authority with one validated paper transport context
+produces a linear `RedisAckSettlementPlan`. The plan additionally binds command
+stream, consumer group, Redis entry ID and validated namespace. These transport
+facts remain transport-only and never feed Stage6 execution identity.
 
 Canonical terminal ACK semantics are reconstructed from Stage 6 replay facts.
 The first transport publication remains canonical until durable Redis
@@ -102,18 +136,51 @@ operation it:
 5. returns the already committed result on an exact retry;
 6. rejects marker/fingerprint conflicts without `XACK`.
 
-The marker is derived from command stream, consumer group, Redis entry ID,
-settlement kind and canonical ACK/DLQ fingerprint. It is transport-only. The
-script and all keys must use one validated paper namespace and one Redis
-cluster hash slot. Response loss after script commit is resolved by reading the
-marker/output identity; it does not repeat publication or semantic effect.
+The stable entry-settlement key is derived only from the validated paper
+namespace/hash tag, command stream, consumer group, Redis entry ID and
+settlement kind. The key never includes the proposed ACK/DLQ payload
+fingerprint. Its value stores schema/version, exact payload fingerprint,
+published output stream and Redis output ID, plus canonical/duplicate
+classification where applicable. Therefore the same key and same fingerprint
+returns the committed result without a second `XADD`, while the same key with a
+different fingerprint fails before `XADD` or `XACK`.
 
-Permanent poison payloads may enter the redacted DLQ path. Authority holds are
-not poison and never enter ACK/DLQ/XACK settlement.
+The request-level canonical ACK publication marker is stable across Redis
+entries carrying the same exact request. It records stable request lookup
+identity, canonical terminal ACK fingerprint, canonical output Redis ID and
+publication-known state. First publication creates the canonical marker. A
+same-entry response-loss retry returns its entry marker. A later exact duplicate
+entry receives a Duplicate/DuplicateCommand ACK without changing the canonical
+marker. A conflicting duplicate receives no ACK, DLQ or XACK.
+
+For a brand-new entry marker, the Lua primitive validates all key types,
+schema, hash slot, arguments, marker conflicts and payload fingerprints, and
+proves that the source entry is pending in the expected consumer group before
+its first mutation. An exact already-committed marker retry does not require PEL
+membership. No expected semantic/type/conflict error is reachable after the
+first mutation. Lua atomicity is not treated as rollback.
+
+The script and all keys use one validated paper namespace and one intentional
+Redis cluster hash slot. B-059 response-loss idempotency covers a committed
+script whose client/process loses the response. Source stream, markers and
+ACK/DLQ streams must share one Redis durability/failover domain; Redis storage
+rollback after server/storage/failover failure is outside that guarantee and is
+not described as exactly-once transport durability.
+
+Permanent pre-Stage6 poison payloads use only `PoisonDlqAuthorized`, which is
+entry-bound, reason-bound, redacted-payload-fingerprint-bound, crate-private,
+linear and non-serializable. It requires proof that Stage6 admission did not
+occur and that no Stage6 journal/request mutation exists for the entry. Because
+Stage6 state did not change, poison settlement does not advance or fabricate a
+Stage6 recovery seal. IdentityConflict, ConflictingDuplicate,
+ReconciliationRequired, RecoveryBlocked, DurabilityUncertain, provider
+uncertainty and all post-admission authority holds are never poison and never
+enter ACK/DLQ/XACK settlement.
 
 ## Stage 7B-d-c — composite service readiness and restart transport
 
-Rows: B-064 through B-070.
+Rows: B-064 through B-070, plus final real-Redis restart closure of B-052 and
+B-053.
 
 `PaperReady` requires all of the following at the same observation boundary:
 
@@ -157,11 +224,13 @@ unknown outcome, restart holds for reconciliation.
 ## Planned implementation order
 
 1. `7B-d-a`: recovery-owner lifecycle facade, authenticated checkpoint
-   advance, seal-before-settlement capability and restart ACK reconstruction.
+   advance, exact linear seal-before-settlement authority and restart ACK
+   reconstruction. It may close B-043..B-051 and B-054..B-056 only.
 2. `7B-d-b`: atomic/idempotent ACK and DLQ settlement plus response-loss
-   recovery on real isolated Redis.
+   recovery on real isolated Redis; it owns B-057..B-063.
 3. `7B-d-c`: composite readiness, task supervision, new-boot PEL reclaim,
-   cursor restart and legacy isolation.
+   cursor restart and legacy isolation; it owns B-064..B-070 and the required
+   real-Redis restart closure of B-052/B-053.
 4. Independent Stage 7B-d acceptance.
 5. `7B-e`: remaining X01-X20 matrix and aggregate B-001..B-080 closure.
 

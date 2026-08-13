@@ -64,7 +64,7 @@ def collect_artifacts() -> list[tuple[str, bytes, int]]:
     markers = {
         "fmt.txt": "fmt: PASS",
         "design-check.txt": "stage7b-d-design-check: PASS",
-        "negative.txt": "stage7b-d-design-negative: PASS cases=15",
+        "negative.txt": "stage7b-d-design-negative: PASS cases=44",
         "python-compile.txt": "python-compile: PASS",
         "production-diff.txt": "accepted-stage7b-c-production-tree-unchanged: PASS",
         "diff-check.txt": "diff-check: PASS",
@@ -129,7 +129,7 @@ def main() -> None:
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7B-d-design",
+            "stage": "7B-d-design-R1",
             "status": "independent_design_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
@@ -137,7 +137,7 @@ def main() -> None:
             "proof_map_rows": 80,
             "implemented_count": 42,
             "pending_count": 38,
-            "design_negative_cases": 15,
+            "design_negative_cases": 44,
             "production_diff_from_accepted_stage7b_c": False,
             "redis_consumer_attached": False,
             "redis_settlement_enabled": False,

@@ -27,13 +27,17 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-d design/entry — durable Redis ACK/DLQ/XACK settlement and paper
-service composition, still paper/mock only. Stage 7B-c-R1 is independently
+Stage 7B-d-design-R1 — authority clarification for durable Redis ACK/DLQ/XACK
+settlement and paper service composition, still paper/mock only. The original
+design candidate `09a22765ae6ee37b304bfed6492bd103da44360d` was not accepted
+as frozen; R1 is design/docs/checkers only. Stage 7B-c-R1 is independently
 accepted and Stage 7B-c is closed at
 `c57ae8d5f98bbb11df0a81f78262d3916b276d81`; Stage 7B-b-R2 is closed at
 `ff3fa2e8908440863b40b838991d4716b33caad4`. Stage 7B-d implementation is
 split into lifecycle/seal barrier, atomic Redis settlement and composite
-readiness/restart transport slices. This design commit does not attach Redis.
+readiness/restart transport slices. B-052/B-053 stay pending until d-c supplies
+real-Redis restart evidence. This R1 does not attach Redis, and only independent
+R1 acceptance may open d-a.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

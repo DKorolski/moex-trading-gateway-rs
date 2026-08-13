@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "stage": "7B-d-design-R1",
+  "accepted_stage7b_c_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
+  "slices": {
+    "7B-d-a": {
+      "owned_rows": [
+        "B-043..B-051",
+        "B-054..B-056"
+      ],
+      "b052_b053_status": "pending_real_redis_restart"
+    },
+    "7B-d-b": {
+      "owned_rows": [
+        "B-057..B-063"
+      ]
+    },
+    "7B-d-c": {
+      "owned_rows": [
+        "B-064..B-070"
+      ],
+      "also_closes_with_real_redis_restart": [
+        "B-052",
+        "B-053"
+      ]
+    }
+  },
+  "implemented_rows": 42,
+  "pending_rows": 38,
+  "b052_b053_implemented": false
+}

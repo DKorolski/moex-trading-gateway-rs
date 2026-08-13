@@ -43,11 +43,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   validation is required before StorageReady and every later writable or
   authority-sensitive boundary. R1 adds direct file-backed B-034/B-039/B-040/
   B-041 witnesses and a real SIGKILL B-032 pre-rename crash witness.
-- Stage 7B-d design is the active entry candidate. It divides durable Redis
+- Stage 7B-d design at `09a22765ae6ee37b304bfed6492bd103da44360d`
+  was not accepted as frozen because settlement authority, ACK-versus-poison
+  provenance, Redis stable-key semantics and B-052/B-053 slice ownership were
+  underspecified. Stage 7B-d-design-R1 is the active review candidate. It
+  resolves those design blockers without changing production code and divides durable Redis
   paper-service composition into: (a) lifecycle/seal-before-settlement,
   (b) atomic idempotent ACK/DLQ plus XACK, and (c) composite readiness,
-  supervision and restart PEL reclaim. No Stage 7B-d implementation is yet
-  claimed.
+  supervision and restart PEL reclaim. B-052/B-053 remain pending for the
+  real-Redis restart witnesses in d-c. No Stage 7B-d implementation is opened
+  or claimed until independent R1 acceptance.
 - The remaining Stage 7B work is still pending: idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
   B-001..B-080 acceptance closure.

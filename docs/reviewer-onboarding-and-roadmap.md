@@ -81,12 +81,18 @@ file-backed authenticated recovery seal, Stage 5G/Stage 6 restart composition,
 linear runtime/writer ownership and B-032/B-034/B-039/B-040/B-041 recovery
 boundaries.
 
-The active review target is **Stage 7B-d design/entry**. It freezes three
+The active review target is **Stage 7B-d-design-R1**. The original design
+candidate at `09a22765ae6ee37b304bfed6492bd103da44360d` was not accepted as
+frozen. R1 adds exact linear settlement authority, separate ACK/poison
+provenance, stable-key/value Redis conflict semantics and corrected proof-row
+ownership. It proposes three
 implementation slices: owner-held lifecycle plus seal-before-settlement,
 atomic Redis ACK/DLQ+XACK, and composite readiness/supervision/restart PEL
-reclaim. Stage 6 remains the sole lifecycle authority; process-memory ACK maps
+reclaim. B-052/B-053 remain pending for d-c real-Redis restart evidence. Stage
+6 remains the sole lifecycle authority; process-memory ACK maps
 and Redis transport IDs cannot become restart/execution authority. The design
-does not yet attach Redis or claim any B-043..B-070 row implemented.
+does not attach Redis or claim any B-043..B-070 row implemented. Only
+independent R1 acceptance may open d-a; d-b and d-c remain closed.
 
 The complete X01-X20/B-001..B-080 closure remains a later Stage 7B-e slice.
 Redis consumer names remain transport metadata and never enter request/client
