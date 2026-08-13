@@ -59,10 +59,10 @@ FOUNDATION_WITNESSES = {
     "B-040": ("restart_integration", "stage7b_c_b040_unbound_nonfinal_file_journal_blocks_without_effect"),
     "B-041": ("restart_integration", "stage7b_c_b041_cross_bound_active_file_journal_preserves_dispatch_safety"),
     "B-042": ("integration", "corrupt_recovery_seal_rejected_and_blocked_has_zero_effect + RecoveryBlocked false capabilities"),
-    "B-071": ("governance_gate", "stage7b-entry-descriptor.json + stage7b-c-entry-descriptor.json current and cross-checked; exactly-once claim false"),
-    "B-075": ("inherited+current_gate", "scripts/stage7b_c_r1_gate.sh + inherited scripts/stage7b_b_gate.sh"),
-    "B-076": ("negative_harness", "scripts/stage7b_c_negative_harness.py cases=34 descriptor-pinned"),
-    "B-079": ("closed_surface", "scripts/stage7b_c_closed_surface_check.py"),
+    "B-071": ("governance_gate", "stage7b-entry-descriptor.json + accepted stage7b-c descriptor + stage7b-d design descriptor; exactly-once claim false"),
+    "B-075": ("accepted_gate", "accepted Stage 7B-c-R1 gate at c57ae8d5f98bbb11df0a81f78262d3916b276d81"),
+    "B-076": ("negative_harness", "accepted Stage 7B-c-R1 negative harness cases=34 descriptor-pinned"),
+    "B-079": ("closed_surface", "accepted Stage 7B-c-R1 closed-surface gate + Stage 7B-d design no-production-diff gate"),
 }
 
 
@@ -84,12 +84,12 @@ def build() -> dict:
                 "requirement": row["Scenario / Requirement"],
                 "proof_type": proof_type,
                 "rationale": (
-                    "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness"
+                    "Stage 7B accepted foundation or exact accepted Stage 7B-b/7B-c witness"
                     if implemented
                     else "Frozen requirement retained pending its designated Stage 7B slice"
                 ),
                 "artifact": (
-                    "Stage 7B-b-R2 inherited gate + Stage 7B-c gate"
+                    "Accepted Stage 7B-b-R2 + Stage 7B-c-R1 evidence"
                     if implemented
                     else "pending"
                 ),
@@ -100,9 +100,9 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-c-R1",
+        "slice": "7B-d-design",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
-        "accepted_slice_predecessor": "ff3fa2e8908440863b40b838991d4716b33caad4",
+        "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
         "row_count": len(proofs),
         "implemented_count": sum(p["status"] == "implemented" for p in proofs),
         "pending_count": sum(p["status"] == "pending" for p in proofs),

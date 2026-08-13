@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-12.
+Status date: 2026-08-13.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -34,9 +34,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Every writable constructor recomputes the complete operational-identity
   digest and compares it with the root-bound digest before authorization,
   locking or any journal effect.
-- Stage 7B-c-R1 is the only active review-closure candidate after the
-  architecture at `3d443be72b8a6eb24d1295c800849d11789dba6f` passed substantive
-  review but retained evidence blockers. It composes the
+- Stage 7B-c-R1 is independently accepted and Stage 7B-c is CLOSED at
+  `c57ae8d5f98bbb11df0a81f78262d3916b276d81`. It composes the
   accepted Stage 5G clean-restart seed and Stage 6 file journal into one linear
   recovery owner, commits a canonical HMAC-authenticated recovery seal before
   readiness, and fails closed into an explicit zero-effect RecoveryBlocked
@@ -44,6 +43,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   validation is required before StorageReady and every later writable or
   authority-sensitive boundary. R1 adds direct file-backed B-034/B-039/B-040/
   B-041 witnesses and a real SIGKILL B-032 pre-rename crash witness.
+- Stage 7B-d design is the active entry candidate. It divides durable Redis
+  paper-service composition into: (a) lifecycle/seal-before-settlement,
+  (b) atomic idempotent ACK/DLQ plus XACK, and (c) composite readiness,
+  supervision and restart PEL reclaim. No Stage 7B-d implementation is yet
+  claimed.
 - The remaining Stage 7B work is still pending: idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
   B-001..B-080 acceptance closure.

@@ -27,22 +27,23 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-c-R1 — direct file-backed restart/crash evidence closure for the
-authenticated recovery seal and linear ready-owner lifetime, paper/mock only
-(review-closure candidate; independent acceptance pending). Stage 7B-c at
-`3d443be72b8a6eb24d1295c800849d11789dba6f` passed architecture review but was
-not accepted as closure. Stage 7B-b-R2 is accepted and Stage 7B-b is
-closed at `ff3fa2e8908440863b40b838991d4716b33caad4`.
-Redis-settlement work remains closed for Stage 7B-d.
+Stage 7B-d design/entry — durable Redis ACK/DLQ/XACK settlement and paper
+service composition, still paper/mock only. Stage 7B-c-R1 is independently
+accepted and Stage 7B-c is closed at
+`c57ae8d5f98bbb11df0a81f78262d3916b276d81`; Stage 7B-b-R2 is closed at
+`ff3fa2e8908440863b40b838991d4716b33caad4`. Stage 7B-d implementation is
+split into lifecycle/seal barrier, atomic Redis settlement and composite
+readiness/restart transport slices. This design commit does not attach Redis.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and
 closed at `10e357825a701193d964975bb5769bd0745d4986`. Stage 7A is independently
 accepted and closed at `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
 Stage 7B-c-R1 composes one file-backed Stage 6 authority, OS locking, recovery
-seals and paper restart ownership. Stage 7B-d may later compose the accepted
-Redis consumer only after independent Stage 7B-c-R1 acceptance. Stage
-8+ remain closed pending separate acceptance.
+seals and paper restart ownership. Its acceptance opens only the Stage 7B-d
+paper-service composition described in
+[stage7b-d-design.md](stage-7/stage7b-d-design.md). Stage 8+ remain closed
+pending separate acceptance.
 
 ## Still blocked
 

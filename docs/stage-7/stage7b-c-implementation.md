@@ -1,6 +1,7 @@
 # Stage 7B-c — recovery seal and restart ownership
 
-Status: Stage 7B-c-R1 review-closure candidate; independent acceptance pending.
+Status: independently accepted and CLOSED at
+`c57ae8d5f98bbb11df0a81f78262d3916b276d81`.
 
 Accepted predecessor: `ff3fa2e8908440863b40b838991d4716b33caad4`
 (Stage 7B-b-R2 / Stage 7B-b CLOSED).

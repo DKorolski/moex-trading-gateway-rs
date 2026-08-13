@@ -75,20 +75,20 @@ Stage 6E-R1 is independently accepted at
 independently accepted and closed at
 `2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64`.
 
-Stage 7B-b-R2 is independently accepted and Stage 7B-b is closed at
-`ff3fa2e8908440863b40b838991d4716b33caad4`. The active implementation
-candidate and next review target is **Stage 7B-c-R1**, limited to direct
-file-backed and subprocess evidence closure for the canonical
-authenticated recovery seal, Stage 5G/Stage 6 restart composition and one
-linear owner retaining the recovered runtime plus the Stage 7B writer/root
-lease for the same lifetime. Cached state never establishes readiness without
-namespace validation before StorageReady and every later writable or
-authority-sensitive boundary. The architecture candidate at `3d443be...`
-passed substantive review but was not accepted as closure. It remains
-paper/mock only.
+Stage 7B-c-R1 is independently accepted and Stage 7B-c is closed at
+`c57ae8d5f98bbb11df0a81f78262d3916b276d81`. It directly proves the
+file-backed authenticated recovery seal, Stage 5G/Stage 6 restart composition,
+linear runtime/writer ownership and B-032/B-034/B-039/B-040/B-041 recovery
+boundaries.
 
-Idempotent Redis settlement and the complete X01-X20/B-001..B-080 closure are
-planned follow-on Stage 7B slices and are not claimed by Stage 7B-c-R1.
+The active review target is **Stage 7B-d design/entry**. It freezes three
+implementation slices: owner-held lifecycle plus seal-before-settlement,
+atomic Redis ACK/DLQ+XACK, and composite readiness/supervision/restart PEL
+reclaim. Stage 6 remains the sole lifecycle authority; process-memory ACK maps
+and Redis transport IDs cannot become restart/execution authority. The design
+does not yet attach Redis or claim any B-043..B-070 row implemented.
+
+The complete X01-X20/B-001..B-080 closure remains a later Stage 7B-e slice.
 Redis consumer names remain transport metadata and never enter request/client
 or Stage 6 durable identity. Stage 7A constructs no fresh-truth package.
 Stage 7B, FINAM POST/DELETE, broker
