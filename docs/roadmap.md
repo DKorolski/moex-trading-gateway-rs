@@ -42,8 +42,11 @@ split into lifecycle/seal barrier, atomic Redis settlement and composite
 readiness/restart transport slices. The accepted d-a R1 implementation covers
 B-043..B-051 and B-054..B-056 with file-backed/SIGKILL/fault witnesses. B-052/
 B-053 stay pending until d-c supplies real-Redis restart evidence. The d-b
-candidate implements only atomic/idempotent Redis ACK or redacted poison DLQ
+R1 candidate implements only atomic/idempotent Redis ACK or redacted poison DLQ
 publication plus XACK (`B-057..B-063`) against an isolated paper namespace.
+It separates stable terminal-request ACK identity from dynamic seal authority,
+uses opaque canonical Stage 7A poison evidence and tracks unresolved settlement
+health per stable entry key.
 The command consumer is not attached. d-c and its real-Redis restart closure
 remain closed pending separate acceptance.
 

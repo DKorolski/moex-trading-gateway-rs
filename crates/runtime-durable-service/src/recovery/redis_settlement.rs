@@ -6,8 +6,10 @@
 use super::Stage7bDurableAckAuthorized;
 use broker_core::StrategyRequestId;
 use redis::aio::ConnectionManager;
+use runtime_command_bridge::{Stage7aDlqReason, Stage7aPermanentPoisonEvidence};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use strategy_runtime_core::Stage6RequestFinalDispositionV1;
 
 const PAPER_PREFIX: &str = "finam_imoexf_paper:";
@@ -32,7 +34,7 @@ local canonical_payload = ARGV[5]
 local duplicate_fp = ARGV[6]
 local duplicate_payload = ARGV[7]
 local request_identity = ARGV[8]
-local authority_fp = ARGV[9]
+local terminal_request_ack_identity = ARGV[9]
 local schema = tonumber(ARGV[10])
 
 if schema ~= 1 then return redis.error_reply('STAGE7B_SCHEMA') end
@@ -77,7 +79,7 @@ if kind == 'ack' then
     local ok, marker = pcall(cjson.decode, existing_request)
     if not ok or marker['schema_version'] ~= schema
        or marker['request_identity'] ~= request_identity
-       or marker['canonical_ack_fingerprint'] ~= authority_fp then
+       or marker['terminal_request_ack_identity'] ~= terminal_request_ack_identity then
       return redis.error_reply('STAGE7B_CONFLICT_REQUEST_MARKER')
     end
     classification = 'duplicate'
@@ -104,7 +106,7 @@ if kind == 'ack' and not existing_request then
   redis.call('SET', request_marker, cjson.encode({
     schema_version = schema,
     request_identity = request_identity,
-    canonical_ack_fingerprint = authority_fp,
+    terminal_request_ack_identity = terminal_request_ack_identity,
     canonical_output_id = output_id,
     publication_known = true
   }))
@@ -230,7 +232,8 @@ struct Stage7bAckPayload<'a> {
     stage6_checkpoint_sha256: &'a str,
     seal_generation: u64,
     seal_commitment_sha256: &'a str,
-    canonical_ack_fingerprint_sha256: &'a str,
+    settlement_authority_fingerprint_sha256: &'a str,
+    terminal_request_ack_identity_sha256: &'a str,
     publication: &'static str,
 }
 
@@ -247,7 +250,7 @@ struct Stage7bDlqPayload<'a> {
 pub(super) struct Stage7bRedisAckSettlementPlan {
     context: Stage7bRedisSettlementContext,
     request_id: StrategyRequestId,
-    authority_fingerprint: String,
+    terminal_request_ack_identity: String,
     canonical_payload: String,
     canonical_payload_fingerprint: String,
     duplicate_payload: String,
@@ -256,6 +259,7 @@ pub(super) struct Stage7bRedisAckSettlementPlan {
 
 pub(crate) struct Stage7bPreStage6PoisonObservation {
     context: Stage7bRedisSettlementContext,
+    poison_reason: Stage7aDlqReason,
     payload_len: usize,
     redacted_payload_sha256: String,
     stage6_checkpoint_sha256: String,
@@ -295,7 +299,8 @@ pub(super) fn ack_plan(
         stage6_checkpoint_sha256: &authority.stage6_checkpoint_sha256,
         seal_generation: authority.seal_generation,
         seal_commitment_sha256: &authority.seal_commitment_sha256,
-        canonical_ack_fingerprint_sha256: &authority.canonical_ack_fingerprint_sha256,
+        settlement_authority_fingerprint_sha256: &authority.settlement_authority_fingerprint_sha256,
+        terminal_request_ack_identity_sha256: &authority.terminal_request_ack_identity_sha256,
         publication: "canonical",
     })?;
     let duplicate_payload = serde_json::to_string(&Stage7bAckPayload {
@@ -313,13 +318,14 @@ pub(super) fn ack_plan(
         stage6_checkpoint_sha256: &authority.stage6_checkpoint_sha256,
         seal_generation: authority.seal_generation,
         seal_commitment_sha256: &authority.seal_commitment_sha256,
-        canonical_ack_fingerprint_sha256: &authority.canonical_ack_fingerprint_sha256,
+        settlement_authority_fingerprint_sha256: &authority.settlement_authority_fingerprint_sha256,
+        terminal_request_ack_identity_sha256: &authority.terminal_request_ack_identity_sha256,
         publication: "duplicate",
     })?;
     Ok(Stage7bRedisAckSettlementPlan {
         context,
         request_id: authority.strategy_request_id,
-        authority_fingerprint: authority.canonical_ack_fingerprint_sha256,
+        terminal_request_ack_identity: authority.terminal_request_ack_identity_sha256,
         canonical_payload_fingerprint: sha256_hex(canonical_payload.as_bytes()),
         duplicate_payload_fingerprint: sha256_hex(duplicate_payload.as_bytes()),
         canonical_payload,
@@ -329,33 +335,31 @@ pub(super) fn ack_plan(
 
 pub(super) fn poison_observation(
     context: Stage7bRedisSettlementContext,
-    raw_payload: &[u8],
+    evidence: Stage7aPermanentPoisonEvidence,
     stage6_checkpoint_sha256: String,
-) -> Stage7bPreStage6PoisonObservation {
-    Stage7bPreStage6PoisonObservation {
-        context,
-        payload_len: raw_payload.len(),
-        redacted_payload_sha256: sha256_hex(raw_payload),
-        stage6_checkpoint_sha256,
+) -> Result<Stage7bPreStage6PoisonObservation, Stage7bRedisSettlementError> {
+    if context.redis_entry_id != evidence.redis_entry_id() {
+        return Err(Stage7bRedisSettlementError::PoisonAuthorityDrift);
     }
+    Ok(Stage7bPreStage6PoisonObservation {
+        context,
+        poison_reason: evidence.reason(),
+        payload_len: evidence.payload_len(),
+        redacted_payload_sha256: evidence.redacted_payload_sha256().to_string(),
+        stage6_checkpoint_sha256,
+    })
 }
 
 pub(super) fn authorize_poison(
     observation: Stage7bPreStage6PoisonObservation,
-    raw_payload: &[u8],
-    poison_reason: &str,
     current_stage6_checkpoint_sha256: &str,
 ) -> Result<Stage7bPoisonDlqAuthorized, Stage7bRedisSettlementError> {
-    if !poison_reason_token(poison_reason)
-        || observation.payload_len != raw_payload.len()
-        || observation.redacted_payload_sha256 != sha256_hex(raw_payload)
-        || observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256
-    {
+    if observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256 {
         return Err(Stage7bRedisSettlementError::PoisonAuthorityDrift);
     }
     Ok(Stage7bPoisonDlqAuthorized {
         context: observation.context,
-        poison_reason: poison_reason.to_string(),
+        poison_reason: observation.poison_reason.as_str().to_string(),
         payload_len: observation.payload_len,
         redacted_payload_sha256: observation.redacted_payload_sha256,
         stage6_checkpoint_sha256: observation.stage6_checkpoint_sha256,
@@ -388,7 +392,8 @@ pub(crate) struct Stage7bRedisSettlementOutcome {
 
 pub(crate) struct Stage7bRedisSettlementBackend {
     connection: ConnectionManager,
-    healthy: bool,
+    transport_healthy: bool,
+    unresolved_settlement_keys: HashSet<String>,
 }
 
 impl Stage7bRedisSettlementBackend {
@@ -397,12 +402,13 @@ impl Stage7bRedisSettlementBackend {
         let connection = ConnectionManager::new(client).await?;
         Ok(Self {
             connection,
-            healthy: true,
+            transport_healthy: true,
+            unresolved_settlement_keys: HashSet::new(),
         })
     }
 
     pub(crate) fn healthy(&self) -> bool {
-        self.healthy
+        self.transport_healthy && self.unresolved_settlement_keys.is_empty()
     }
 
     pub(super) async fn settle_ack(
@@ -440,16 +446,32 @@ impl Stage7bRedisSettlementBackend {
                 duplicate_fingerprint: &plan.duplicate_payload_fingerprint,
                 duplicate_payload: &plan.duplicate_payload,
                 request_identity: &request_identity,
-                authority_fingerprint: &plan.authority_fingerprint,
+                terminal_request_ack_identity: &plan.terminal_request_ack_identity,
             },
         )
         .await;
-        self.finish(result, lose_response_after_commit)
+        self.finish(&marker, result, lose_response_after_commit)
     }
 
     pub(super) async fn settle_dlq(
         &mut self,
         plan: Stage7bRedisDlqSettlementPlan,
+    ) -> Result<Stage7bRedisSettlementOutcome, Stage7bRedisSettlementError> {
+        self.settle_dlq_inner(plan, false).await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn settle_dlq_with_lost_response(
+        &mut self,
+        plan: Stage7bRedisDlqSettlementPlan,
+    ) -> Result<Stage7bRedisSettlementOutcome, Stage7bRedisSettlementError> {
+        self.settle_dlq_inner(plan, true).await
+    }
+
+    async fn settle_dlq_inner(
+        &mut self,
+        plan: Stage7bRedisDlqSettlementPlan,
+        lose_response_after_commit: bool,
     ) -> Result<Stage7bRedisSettlementOutcome, Stage7bRedisSettlementError> {
         let marker = plan.context.entry_marker_key(Stage7bSettlementKind::Dlq);
         let request_marker = plan.context.request_marker_key(None);
@@ -465,25 +487,29 @@ impl Stage7bRedisSettlementBackend {
                 duplicate_fingerprint: &plan.payload_fingerprint,
                 duplicate_payload: &plan.payload,
                 request_identity: "",
-                authority_fingerprint: "",
+                terminal_request_ack_identity: "",
             },
         )
         .await;
-        self.finish(result, false)
+        self.finish(&marker, result, lose_response_after_commit)
     }
 
     fn finish(
         &mut self,
+        settlement_key: &str,
         result: Result<Stage7bRedisSettlementOutcome, Stage7bRedisSettlementError>,
         lose_response_after_commit: bool,
     ) -> Result<Stage7bRedisSettlementOutcome, Stage7bRedisSettlementError> {
         match result {
             Ok(_) if lose_response_after_commit => {
-                self.healthy = false;
+                self.transport_healthy = false;
+                self.unresolved_settlement_keys
+                    .insert(settlement_key.to_string());
                 Err(Stage7bRedisSettlementError::ResponseLostAfterCommit)
             }
             Ok(outcome) => {
-                self.healthy = true;
+                self.transport_healthy = true;
+                self.unresolved_settlement_keys.remove(settlement_key);
                 Ok(outcome)
             }
             Err(error) => {
@@ -492,7 +518,9 @@ impl Stage7bRedisSettlementBackend {
                     Stage7bRedisSettlementError::Conflict
                         | Stage7bRedisSettlementError::SourceNotPending
                 ) {
-                    self.healthy = false;
+                    self.transport_healthy = false;
+                    self.unresolved_settlement_keys
+                        .insert(settlement_key.to_string());
                 }
                 Err(error)
             }
@@ -510,7 +538,7 @@ struct SettlementInvocation<'a> {
     duplicate_fingerprint: &'a str,
     duplicate_payload: &'a str,
     request_identity: &'a str,
-    authority_fingerprint: &'a str,
+    terminal_request_ack_identity: &'a str,
 }
 
 async fn invoke(
@@ -533,7 +561,7 @@ async fn invoke(
         .arg(invocation.duplicate_fingerprint)
         .arg(invocation.duplicate_payload)
         .arg(invocation.request_identity)
-        .arg(invocation.authority_fingerprint)
+        .arg(invocation.terminal_request_ack_identity)
         .arg(MARKER_SCHEMA)
         .query_async(connection)
         .await;
@@ -586,10 +614,6 @@ fn token(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-fn poison_reason_token(value: &str) -> bool {
-    token(value) && value.starts_with("permanent_")
-}
-
 fn stream_id(value: &str) -> bool {
     let Some((milliseconds, sequence)) = value.split_once('-') else {
         return false;
@@ -610,6 +634,7 @@ mod tests {
     use super::*;
     use broker_core::{BrokerOrderId, ClientOrderId};
     use redis::streams::{StreamPendingCountReply, StreamRangeReply, StreamReadReply};
+    use runtime_command_bridge::classify_stage7a_permanent_pre_admission_poison;
     use std::net::TcpListener;
     use std::process::{Child, Command, Stdio};
     use std::time::Duration;
@@ -673,6 +698,14 @@ mod tests {
     }
 
     fn authority(request: u128, canonical_byte: char) -> Stage7bDurableAckAuthorized {
+        authority_with_fingerprints(request, canonical_byte, canonical_byte)
+    }
+
+    fn authority_with_fingerprints(
+        request: u128,
+        settlement_authority_byte: char,
+        terminal_identity_byte: char,
+    ) -> Stage7bDurableAckAuthorized {
         let request_id = StrategyRequestId::from(Uuid::from_u128(request));
         Stage7bDurableAckAuthorized {
             operational_identity_sha256: "1".repeat(64),
@@ -686,7 +719,10 @@ mod tests {
             stage6_checkpoint_sha256: "3".repeat(64),
             seal_generation: 2,
             seal_commitment_sha256: "4".repeat(64),
-            canonical_ack_fingerprint_sha256: canonical_byte.to_string().repeat(64),
+            settlement_authority_fingerprint_sha256: settlement_authority_byte
+                .to_string()
+                .repeat(64),
+            terminal_request_ack_identity_sha256: terminal_identity_byte.to_string().repeat(64),
         }
     }
 
@@ -770,6 +806,20 @@ mod tests {
             .unwrap()
     }
 
+    fn poison_plan(
+        context: Stage7bRedisSettlementContext,
+        raw_payload: &[u8],
+        checkpoint: &str,
+    ) -> Stage7bRedisDlqSettlementPlan {
+        let evidence = classify_stage7a_permanent_pre_admission_poison(
+            &context.redis_entry_id,
+            Some(raw_payload),
+        )
+        .unwrap();
+        let observation = poison_observation(context, evidence, checkpoint.to_string()).unwrap();
+        dlq_plan(authorize_poison(observation, checkpoint).unwrap()).unwrap()
+    }
+
     #[test]
     fn stage7b_d_b_b058_stable_transport_identity_never_uses_payload_fingerprint() {
         let context = Stage7bRedisSettlementContext::new(
@@ -816,6 +866,13 @@ mod tests {
         assert!(outcome.output_id.contains('-'));
         assert_eq!(pending_len(&mut inspector, &context).await, 0);
         assert_eq!(stream_len(&mut inspector, &context.ack_stream).await, 1);
+        let marker: String = redis::cmd("GET")
+            .arg(context.entry_marker_key(Stage7bSettlementKind::Ack))
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let marker: serde_json::Value = serde_json::from_str(&marker).unwrap();
+        assert_eq!(marker["output_id"], outcome.output_id);
         assert!(backend.healthy());
     }
 
@@ -848,7 +905,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stage7b_d_b_later_exact_entry_is_duplicate_and_conflict_stays_pending() {
+    async fn stage7b_d_b_seal_advanced_duplicate_and_true_identity_conflict() {
         let redis = RedisServer::start().await;
         let mut inspector = connection(&redis).await;
         let first = pending_context(&mut inspector, "duplicate", "command-1").await;
@@ -861,7 +918,13 @@ mod tests {
             .unwrap();
         let duplicate = pending_context(&mut inspector, "duplicate", "command-2").await;
         let outcome = backend
-            .settle_ack(ack_plan(authority(100, 'a'), duplicate.clone()).unwrap())
+            .settle_ack(
+                ack_plan(
+                    authority_with_fingerprints(100, 'b', 'a'),
+                    duplicate.clone(),
+                )
+                .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(outcome.classification, "duplicate");
@@ -869,7 +932,10 @@ mod tests {
         let conflict = pending_context(&mut inspector, "duplicate", "command-3").await;
         assert!(matches!(
             backend
-                .settle_ack(ack_plan(authority(100, 'b'), conflict.clone()).unwrap())
+                .settle_ack(
+                    ack_plan(authority_with_fingerprints(100, 'c', 'c'), conflict.clone(),)
+                        .unwrap()
+                )
                 .await,
             Err(Stage7bRedisSettlementError::Conflict)
         ));
@@ -970,25 +1036,23 @@ mod tests {
         let mut inspector = connection(&redis).await;
         let context = pending_context(&mut inspector, "b061", "raw-secret-value").await;
         let checkpoint = "c".repeat(64);
-        let rejected = poison_observation(context.clone(), b"raw-secret-value", checkpoint.clone());
+        let rejected_evidence =
+            classify_stage7a_permanent_pre_admission_poison("999-0", Some(b"raw-secret-value"))
+                .unwrap();
+        let rejected = poison_observation(context.clone(), rejected_evidence, checkpoint.clone());
         assert!(matches!(
-            authorize_poison(
-                rejected,
-                b"changed-secret",
-                "permanent_invalid_json",
-                &checkpoint
-            ),
+            rejected,
             Err(Stage7bRedisSettlementError::PoisonAuthorityDrift)
         ));
-        let observation =
-            poison_observation(context.clone(), b"raw-secret-value", checkpoint.clone());
-        let authority = authorize_poison(
-            observation,
-            b"raw-secret-value",
-            "permanent_invalid_json",
-            &checkpoint,
+        let evidence = classify_stage7a_permanent_pre_admission_poison(
+            &context.redis_entry_id,
+            Some(b"raw-secret-value"),
         )
         .unwrap();
+        let expected_sha = evidence.redacted_payload_sha256().to_string();
+        let observation =
+            poison_observation(context.clone(), evidence, checkpoint.clone()).unwrap();
+        let authority = authorize_poison(observation, &checkpoint).unwrap();
         let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
             .await
             .unwrap();
@@ -1007,6 +1071,107 @@ mod tests {
         assert_eq!(records.ids.len(), 1);
         let payload: String = records.ids[0].get("payload").unwrap();
         assert!(!payload.contains("raw-secret-value"));
-        assert!(payload.contains(&sha256_hex(b"raw-secret-value")));
+        assert!(payload.contains(&expected_sha));
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_b_unrelated_success_does_not_heal_failed_entry() {
+        let redis = RedisServer::start().await;
+        let mut inspector = connection(&redis).await;
+        let failed = pending_context(&mut inspector, "health-precommit", "command-a").await;
+        let _: () = redis::cmd("SET")
+            .arg(&failed.ack_stream)
+            .arg("wrong-type")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
+            .await
+            .unwrap();
+        assert!(matches!(
+            backend
+                .settle_ack(ack_plan(authority(610, 'a'), failed.clone()).unwrap())
+                .await,
+            Err(Stage7bRedisSettlementError::Redis(_))
+        ));
+        let _: i64 = redis::cmd("DEL")
+            .arg(&failed.ack_stream)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let unrelated = pending_context(&mut inspector, "health-precommit", "command-b").await;
+        backend
+            .settle_ack(ack_plan(authority(611, 'b'), unrelated).unwrap())
+            .await
+            .unwrap();
+        assert!(!backend.healthy());
+        assert_eq!(pending_len(&mut inspector, &failed).await, 1);
+        backend
+            .settle_ack(ack_plan(authority(610, 'a'), failed.clone()).unwrap())
+            .await
+            .unwrap();
+        assert!(backend.healthy());
+        assert_eq!(pending_len(&mut inspector, &failed).await, 0);
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_b_response_loss_is_entry_scoped_until_exact_marker_retry() {
+        let redis = RedisServer::start().await;
+        let mut inspector = connection(&redis).await;
+        let uncertain = pending_context(&mut inspector, "health-lost", "command-a").await;
+        let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
+            .await
+            .unwrap();
+        assert!(matches!(
+            backend
+                .settle_ack_with_lost_response(
+                    ack_plan(authority(620, 'a'), uncertain.clone()).unwrap()
+                )
+                .await,
+            Err(Stage7bRedisSettlementError::ResponseLostAfterCommit)
+        ));
+        let unrelated = pending_context(&mut inspector, "health-lost", "command-b").await;
+        backend
+            .settle_ack(ack_plan(authority(621, 'b'), unrelated).unwrap())
+            .await
+            .unwrap();
+        assert!(!backend.healthy());
+        backend
+            .settle_ack(ack_plan(authority(620, 'a'), uncertain).unwrap())
+            .await
+            .unwrap();
+        assert!(backend.healthy());
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_b_dlq_response_loss_is_entry_scoped_until_exact_retry() {
+        let redis = RedisServer::start().await;
+        let mut inspector = connection(&redis).await;
+        let checkpoint = "d".repeat(64);
+        let uncertain = pending_context(&mut inspector, "health-dlq", "not-json-a").await;
+        let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
+            .await
+            .unwrap();
+        assert!(matches!(
+            backend
+                .settle_dlq_with_lost_response(poison_plan(
+                    uncertain.clone(),
+                    b"not-json-a",
+                    &checkpoint
+                ))
+                .await,
+            Err(Stage7bRedisSettlementError::ResponseLostAfterCommit)
+        ));
+        let unrelated = pending_context(&mut inspector, "health-dlq", "not-json-b").await;
+        backend
+            .settle_dlq(poison_plan(unrelated, b"not-json-b", &checkpoint))
+            .await
+            .unwrap();
+        assert!(!backend.healthy());
+        backend
+            .settle_dlq(poison_plan(uncertain, b"not-json-a", &checkpoint))
+            .await
+            .unwrap();
+        assert!(backend.healthy());
     }
 }

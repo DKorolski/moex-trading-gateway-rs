@@ -1,6 +1,7 @@
 # Stage 7B-d-b — atomic Redis ACK/DLQ settlement
 
-Status: implementation candidate for independent review.
+Status: R1 implementation candidate for independent review after the original
+`2ef739f8b0863e198c7b7fa8694cad864cc6b94f` candidate was not accepted.
 
 Accepted predecessor: Stage 7B-d-a-R1 at
 `8418cfb63ecee6702bf8a2873592b7cad1e711ee`.
@@ -27,8 +28,15 @@ It deliberately excludes the payload fingerprint. The marker value stores the
 selected exact payload fingerprint, output stream/ID and canonical/duplicate
 classification. An exact committed retry returns that marker result without a
 second publication and without requiring the entry to remain in the PEL. A
-conflicting marker or request-level canonical fingerprint fails before any
+conflicting marker or request-level terminal identity fails before any
 publication or acknowledgement.
+
+The short-lived settlement authority fingerprint remains bound to the current
+Stage 6 checkpoint and disk seal. A separate terminal-request ACK identity is
+derived only from immutable finalized request facts and is used by the
+request-level marker. Therefore unrelated journal/seal advancement cannot turn
+an exact later delivery into a conflict, while a real command/client/order
+identity change still remains pending without `XACK`.
 
 All keys use one validated `{hash-tag}` and the isolated
 `finam_imoexf_paper:` namespace. The guarantee covers a committed script whose
@@ -41,12 +49,16 @@ The recovery owner consumes the accepted d-a `Stage7bDurableAckAuthorized`
 directly into a private ACK plan. The plan adds only transport identity; none
 of its stream/group/entry/marker facts can become Stage 6 execution identity.
 
-Permanent pre-Stage6 poison has a separate non-serializable authority. It is
-bound to the exact entry context, permanent reason, redacted payload SHA-256,
-payload length and an unchanged Stage 6 checkpoint. The owner rereads the
+Permanent pre-Stage6 poison has a separate non-serializable authority. It can
+only be minted from opaque evidence returned by the canonical Stage 7A
+pre-admission decoder and its frozen MissingPayload/InvalidJson/
+UnsupportedSchemaVersion/MessageTypeMismatch taxonomy. A valid BrokerCommand
+cannot produce that evidence. It is bound to the exact entry context, reason,
+redacted payload SHA-256, payload length and an unchanged Stage 6 checkpoint.
+The owner rereads the
 authenticated disk seal and durable frontier both when observing and when
-settling poison. Any intervening Stage 6 mutation or payload drift blocks the
-DLQ path. Raw payload bytes are never published.
+settling poison. Any intervening Stage 6 mutation blocks the DLQ path. Raw
+payload bytes are never published.
 
 There is no settlement entry for IdentityConflict, ConflictingDuplicate,
 ReconciliationRequired, RecoveryBlocked, durability uncertainty or provider
@@ -64,7 +76,13 @@ Real isolated `redis-server` tests prove:
 - `B-061`: redacted, checkpoint-bound atomic poison DLQ/XACK;
 - `B-062`: only finalized ACK authority reaches the owner-mediated ACK path;
 - `B-063`: backend health stays degraded after failure and becomes healthy
-  only after an exact successful retry clears the pending entry.
+  only after exact successful retries clear every entry-scoped unresolved
+  settlement key; an unrelated ACK/DLQ success cannot heal it.
+
+R1 focused regressions also prove dynamic-seal/stable-request fingerprint
+separation, true immutable conflicts, all canonical poison classes, rejection
+of valid commands as poison, ACK/DLQ response-loss recovery and marker/output
+ID consistency. The mutation inventory contains 34 pinned cases.
 
 The checker and mutation harness pin the Lua ordering, marker identities,
 linear capability separation, row counts and closed surfaces. The gate runs

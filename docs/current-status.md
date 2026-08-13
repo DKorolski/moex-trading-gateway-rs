@@ -66,11 +66,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Stage 6 history. B-043..B-051 and B-054..B-056 are candidate-implemented.
   B-052/B-053 remain pending for d-c real-Redis restart evidence. Acceptance
   opens only Stage 7B-d-b atomic Redis ACK/DLQ + XACK; d-c remains closed.
-- Stage 7B-d-b is the active implementation candidate. It adds one private
+- Stage 7B-d-b-R1 is the active implementation candidate after independent
+  review did not accept `2ef739f8b0863e198c7b7fa8694cad864cc6b94f`. It adds one private
   owner-mediated, Lua-atomic Redis primitive for ACK or redacted permanent
   pre-Stage6 poison DLQ publication plus source `XACK`. Stable entry markers,
   request-level canonical ACK markers, exact PEL preconditions, response-loss
-  retry and settlement health are exercised against isolated real Redis.
+  retry and entry-scoped unresolved settlement health are exercised against
+  isolated real Redis. R1 separates stable terminal-request identity from the
+  dynamic seal authority and requires opaque canonical Stage 7A poison
+  evidence; a valid command cannot be caller-labelled as poison.
   Rows B-057..B-063 are candidate-implemented. No command consumer is attached;
   d-c, B-052/B-053, B-064..B-070 and every FINAM/live surface remain closed.
 - The remaining Stage 7B work is still pending: d-b independent acceptance,

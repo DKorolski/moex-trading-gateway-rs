@@ -5,6 +5,7 @@ use super::{
 };
 use broker_core::{BrokerCommand, BrokerOrderId, ClientOrderId, StrategyRequestId};
 use chrono::{DateTime, Utc};
+use runtime_command_bridge::Stage7aPermanentPoisonEvidence;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -336,7 +337,8 @@ pub(crate) struct Stage7bDurableAckAuthorized {
     stage6_checkpoint_sha256: String,
     seal_generation: u64,
     seal_commitment_sha256: String,
-    canonical_ack_fingerprint_sha256: String,
+    settlement_authority_fingerprint_sha256: String,
+    terminal_request_ack_identity_sha256: String,
 }
 
 #[allow(dead_code, reason = "consumed by the closed Stage 7B-d-b seam")]
@@ -385,8 +387,12 @@ impl Stage7bDurableAckAuthorized {
         &self.seal_commitment_sha256
     }
 
-    pub(crate) fn canonical_ack_fingerprint_sha256(&self) -> &str {
-        &self.canonical_ack_fingerprint_sha256
+    pub(crate) fn settlement_authority_fingerprint_sha256(&self) -> &str {
+        &self.settlement_authority_fingerprint_sha256
+    }
+
+    pub(crate) fn terminal_request_ack_identity_sha256(&self) -> &str {
+        &self.terminal_request_ack_identity_sha256
     }
 
     /// Pure d-a classifier. Future d-b supplies only publication knowledge;
@@ -397,7 +403,7 @@ impl Stage7bDurableAckAuthorized {
     ) -> Stage7bAckPublicationDecision {
         match known_canonical_ack_fingerprint_sha256 {
             None => Stage7bAckPublicationDecision::Canonical,
-            Some(known) if known == self.canonical_ack_fingerprint_sha256 => {
+            Some(known) if known == self.terminal_request_ack_identity_sha256 => {
                 Stage7bAckPublicationDecision::Duplicate
             }
             Some(_) => Stage7bAckPublicationDecision::Conflict,
@@ -737,7 +743,7 @@ impl Stage7bRecoveryReadyOwner {
         &mut self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
         context: Stage7bRedisSettlementContext,
-        raw_payload: &[u8],
+        evidence: Stage7aPermanentPoisonEvidence,
     ) -> Result<Stage7bPreStage6PoisonObservation, Stage7bDbError> {
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
@@ -749,9 +755,9 @@ impl Stage7bRecoveryReadyOwner {
         self.revalidate_cached_committed_seal(commitment_key)?;
         Ok(redis_settlement::poison_observation(
             context,
-            raw_payload,
+            evidence,
             sha256_hex(&self.recovered.authenticated_checkpoint().encode_canonical()),
-        ))
+        )?)
     }
 
     /// Completes a permanent pre-Stage6 poison path only if the journal
@@ -761,8 +767,6 @@ impl Stage7bRecoveryReadyOwner {
         &mut self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
         observation: Stage7bPreStage6PoisonObservation,
-        raw_payload: &[u8],
-        poison_reason: &str,
         backend: &mut Stage7bRedisSettlementBackend,
     ) -> Result<Stage7bRedisSettlementOutcome, Stage7bDbError> {
         self.require_lifecycle_available()?;
@@ -774,12 +778,7 @@ impl Stage7bRecoveryReadyOwner {
         }
         self.revalidate_cached_committed_seal(commitment_key)?;
         let checkpoint = sha256_hex(&self.recovered.authenticated_checkpoint().encode_canonical());
-        let authority = redis_settlement::authorize_poison(
-            observation,
-            raw_payload,
-            poison_reason,
-            &checkpoint,
-        )?;
+        let authority = redis_settlement::authorize_poison(observation, &checkpoint)?;
         let plan = redis_settlement::dlq_plan(authority)?;
         Ok(backend.settle_dlq(plan).await?)
     }
@@ -1077,7 +1076,7 @@ fn durable_ack_authority(
     facts: Stage7bFinalizedRequestFacts,
 ) -> Result<Stage7bDurableAckAuthorized, Stage7bRecoveryError> {
     #[derive(Serialize)]
-    struct AckFingerprint<'a> {
+    struct SettlementAuthorityFingerprint<'a> {
         schema_version: u16,
         domain: &'static str,
         operational_identity_sha256: &'a str,
@@ -1094,9 +1093,24 @@ fn durable_ack_authority(
         settlement_kind: &'static str,
     }
 
+    #[derive(Serialize)]
+    struct TerminalRequestAckIdentity<'a> {
+        schema_version: u16,
+        domain: &'static str,
+        operational_identity_sha256: &'a str,
+        strategy_request_id: StrategyRequestId,
+        durable_client_order_id: &'a ClientOrderId,
+        broker_order_id: Option<&'a BrokerOrderId>,
+        canonical_command_sha256: &'a str,
+        final_disposition: Stage6RequestFinalDispositionV1,
+        final_record_id: &'a str,
+        final_sequence: u64,
+        terminal_ack_schema: u16,
+    }
+
     let stage6_checkpoint_sha256 = sha256_hex(&seal.stage6_checkpoint().encode_canonical());
-    let canonical_ack_fingerprint_sha256 = sha256_hex(
-        &serde_json::to_vec(&AckFingerprint {
+    let settlement_authority_fingerprint_sha256 = sha256_hex(
+        &serde_json::to_vec(&SettlementAuthorityFingerprint {
             schema_version: 1,
             domain: "moex.stage7b.durable-ack-authority.v1",
             operational_identity_sha256: seal.operational_identity_sha256(),
@@ -1114,6 +1128,22 @@ fn durable_ack_authority(
         })
         .map_err(|_| Stage7bRecoveryError::SealInvalid)?,
     );
+    let terminal_request_ack_identity_sha256 = sha256_hex(
+        &serde_json::to_vec(&TerminalRequestAckIdentity {
+            schema_version: 1,
+            domain: "moex.stage7b.terminal-request-ack-identity.v1",
+            operational_identity_sha256: seal.operational_identity_sha256(),
+            strategy_request_id: facts.strategy_request_id(),
+            durable_client_order_id: facts.durable_client_order_id(),
+            broker_order_id: facts.broker_order_id(),
+            canonical_command_sha256: facts.canonical_command_sha256().as_str(),
+            final_disposition: facts.final_disposition(),
+            final_record_id: facts.final_record_id().as_str(),
+            final_sequence: facts.final_sequence(),
+            terminal_ack_schema: 1,
+        })
+        .map_err(|_| Stage7bRecoveryError::SealInvalid)?,
+    );
     Ok(Stage7bDurableAckAuthorized {
         operational_identity_sha256: seal.operational_identity_sha256().to_string(),
         strategy_request_id: facts.strategy_request_id(),
@@ -1126,7 +1156,8 @@ fn durable_ack_authority(
         stage6_checkpoint_sha256,
         seal_generation: seal.seal_generation(),
         seal_commitment_sha256: seal.seal_commitment_sha256().to_string(),
-        canonical_ack_fingerprint_sha256,
+        settlement_authority_fingerprint_sha256,
+        terminal_request_ack_identity_sha256,
     })
 }
 
@@ -1765,6 +1796,33 @@ mod tests {
         assert_eq!(owner.committed_seal().unwrap().seal_generation(), 1);
         assert!(!owner.recovery_ready());
 
+        let initial_seal = owner.committed_seal().unwrap().clone();
+        let mut globally_advanced_seal = initial_seal.clone();
+        globally_advanced_seal.seal_generation += 1;
+        globally_advanced_seal.seal_commitment_sha256 = "e".repeat(64);
+        let initial_identity = durable_ack_authority(
+            &initial_seal,
+            owner.finalized_request(request_id).unwrap().facts,
+        )
+        .unwrap();
+        let advanced_identity = durable_ack_authority(
+            &globally_advanced_seal,
+            owner.finalized_request(request_id).unwrap().facts,
+        )
+        .unwrap();
+        assert_ne!(
+            initial_identity.settlement_authority_fingerprint_sha256(),
+            advanced_identity.settlement_authority_fingerprint_sha256(),
+            "global seal advancement must rotate short-lived settlement authority"
+        );
+        assert_eq!(
+            initial_identity.terminal_request_ack_identity_sha256(),
+            advanced_identity.terminal_request_ack_identity_sha256(),
+            "global seal advancement must not change finalized request identity"
+        );
+        drop(initial_identity);
+        drop(advanced_identity);
+
         let authority = owner
             .authorize_finalized_ack(finalized, &setup.key)
             .unwrap();
@@ -1775,7 +1833,7 @@ mod tests {
             Stage7bAckPublicationDecision::Canonical
         );
         assert_eq!(
-            authority.classify_publication(Some(authority.canonical_ack_fingerprint_sha256())),
+            authority.classify_publication(Some(authority.terminal_request_ack_identity_sha256())),
             Stage7bAckPublicationDecision::Duplicate
         );
         assert_eq!(
@@ -1783,7 +1841,7 @@ mod tests {
             Stage7bAckPublicationDecision::Conflict
         );
         assert!(owner.recovery_ready());
-        let fingerprint = authority.canonical_ack_fingerprint_sha256().to_string();
+        let fingerprint = authority.terminal_request_ack_identity_sha256().to_string();
         drop(authority);
         drop(owner);
 
@@ -1806,7 +1864,7 @@ mod tests {
             .unwrap();
         assert_eq!(reconstructed_authority.seal_generation(), 2);
         assert_eq!(
-            reconstructed_authority.canonical_ack_fingerprint_sha256(),
+            reconstructed_authority.terminal_request_ack_identity_sha256(),
             fingerprint
         );
         assert_eq!(

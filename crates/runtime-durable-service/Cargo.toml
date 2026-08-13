@@ -11,6 +11,7 @@ broker-core = { path = "../broker-core" }
 chrono.workspace = true
 libc.workspace = true
 redis.workspace = true
+runtime-command-bridge = { path = "../runtime-command-bridge" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

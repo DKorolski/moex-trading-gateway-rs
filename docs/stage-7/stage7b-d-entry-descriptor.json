@@ -79,7 +79,7 @@
   "b046_effect_witness_fsync": true,
   "stale_crash_barrier_rejected": true,
   "d_a_negative_case_count": 32,
-  "d_b_negative_case_count": 26,
+  "d_b_negative_case_count": 34,
   "redis_consumer_attached": false,
   "redis_settlement_enabled": true,
   "xack_enabled": true,

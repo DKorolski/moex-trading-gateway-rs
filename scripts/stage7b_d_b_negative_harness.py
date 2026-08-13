@@ -15,6 +15,7 @@ AGGREGATE = Path("docs/stage-7/stage7b-entry-descriptor.json")
 OWNERSHIP = Path("docs/stage-7/stage7b-d-row-ownership.json")
 SETTLEMENT = Path("crates/runtime-durable-service/src/recovery/redis_settlement.rs")
 RECOVERY = Path("crates/runtime-durable-service/src/recovery.rs")
+BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
 MANIFEST = Path("crates/runtime-durable-service/Cargo.toml")
 PROOF_GENERATOR = Path("scripts/stage7b_proof_map.py")
 
@@ -23,6 +24,7 @@ COPY_PATHS = (
     MANIFEST,
     RECOVERY,
     SETTLEMENT,
+    BRIDGE,
     Path("docs/current-status.md"),
     Path("docs/roadmap.md"),
     Path("docs/reviewer-onboarding-and-roadmap.md"),
@@ -74,10 +76,18 @@ CASES = (
     ("merge-ack-and-poison-authority", lambda root: replace(root / SETTLEMENT, "pub(super) struct Stage7bPoisonDlqAuthorized", "pub(super) struct Stage7bRedisAckSettlementPlan")),
     ("clone-poison-authority", lambda root: replace(root / SETTLEMENT, "pub(super) struct Stage7bPoisonDlqAuthorized", "#[derive(Clone)]\npub(super) struct Stage7bPoisonDlqAuthorized")),
     ("publish-raw-payload-field", lambda root: replace(root / SETTLEMENT, "redacted_payload_sha256: &'a str,", "raw_payload: &'a str,")),
-    ("drop-poison-checkpoint-binding", lambda root: replace(root / SETTLEMENT, "|| observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256", "|| false")),
+    ("drop-poison-checkpoint-binding", lambda root: replace(root / SETTLEMENT, "observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256", "false")),
     ("open-xautoclaim-consumer", lambda root: replace(root / SETTLEMENT, "#[cfg(test)]", "const FORBIDDEN_D_C: &str = \"XAUTOCLAIM\";\n\n#[cfg(test)]")),
     ("add-finam-http-dependency", lambda root: replace(root / MANIFEST, "redis.workspace = true", "redis.workspace = true\nreqwest = \"0.12\"")),
     ("premature-b052-proof", lambda root: replace(root / PROOF_GENERATOR, '"B-057": (', '"B-052": (')),
+    ("request-marker-uses-dynamic-authority", lambda root: replace(root / SETTLEMENT, "marker['terminal_request_ack_identity'] ~= terminal_request_ack_identity", "marker['canonical_ack_fingerprint'] ~= authority_fp")),
+    ("stable-request-identity-includes-seal", lambda root: replace(root / RECOVERY, "terminal_ack_schema: u16,", "terminal_ack_schema: u16,\n        seal_generation: u64,")),
+    ("restore-free-form-poison-reason", lambda root: replace(root / SETTLEMENT, "current_stage6_checkpoint_sha256: &str,", "poison_reason: &str,\n    current_stage6_checkpoint_sha256: &str,")),
+    ("bypass-canonical-poison-evidence", lambda root: replace(root / SETTLEMENT, "evidence: Stage7aPermanentPoisonEvidence,", "evidence: &[u8],")),
+    ("valid-command-mints-poison", lambda root: replace(root / BRIDGE, "Ok(_) => return Err(Stage7aBridgeError::NotPermanentPoison),", "Ok(_) => (Stage7aDlqReason::InvalidJson, payload),")),
+    ("clone-permanent-poison-evidence", lambda root: replace(root / BRIDGE, "pub struct Stage7aPermanentPoisonEvidence", "#[derive(Clone)]\npub struct Stage7aPermanentPoisonEvidence")),
+    ("unrelated-success-clears-unresolved", lambda root: replace(root / SETTLEMENT, "self.unresolved_settlement_keys.remove(settlement_key);", "self.unresolved_settlement_keys.clear();")),
+    ("failure-not-recorded-by-entry", lambda root: replace(root / SETTLEMENT, "self.unresolved_settlement_keys\n                    .insert(settlement_key.to_string());", "// unresolved settlement key dropped", all_matches=True)),
 )
 
 

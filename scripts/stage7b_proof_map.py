@@ -77,7 +77,7 @@ D_A_WITNESSES = {
     "B-051": ("subprocess_fault", "stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider + deleted/corrupt/valid-different current on-disk seal fail-closed tests"),
     "B-054": ("restart_integration", "stage7b_d_a_b054_sequential_cancel_survives_restart_and_reseals"),
     "B-055": ("restart_integration", "stage7b_d_a_b043_b049_b051_b055_b056_seals_before_ack_authority"),
-    "B-056": ("oracle_integration", "Stage7bDurableAckAuthorized::classify_publication + recovered canonical ACK tests"),
+    "B-056": ("oracle_integration", "Stage7bDurableAckAuthorized::classify_publication + stable terminal request identity + stage7b_d_b_seal_advanced_duplicate_and_true_identity_conflict"),
 }
 
 D_B_WITNESSES = {
@@ -85,9 +85,9 @@ D_B_WITNESSES = {
     "B-058": ("static+unit", "stage7b_d_b_b058_stable_transport_identity_never_uses_payload_fingerprint + stage7b_d_b_check.py::check_source"),
     "B-059": ("real_redis_fault", "stage7b_d_b_b059_response_loss_exact_retry_is_idempotent"),
     "B-060": ("real_redis_fault", "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend"),
-    "B-061": ("real_redis", "stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound"),
+    "B-061": ("real_redis", "canonical_pre_admission_classifier_pins_permanent_reason_matrix + stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound"),
     "B-062": ("integration", "stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement + separate private ACK/poison authorities; no hold settlement entry"),
-    "B-063": ("real_redis_fault", "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend exact-success health recovery"),
+    "B-063": ("real_redis_fault", "stage7b_d_b_unrelated_success_does_not_heal_failed_entry + response-loss ACK/DLQ entry-scoped exact recovery"),
 }
 
 

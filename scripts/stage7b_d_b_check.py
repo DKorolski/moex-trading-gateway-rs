@@ -55,6 +55,7 @@ def check_production_scope() -> None:
     )
     allowed = {
         "Cargo.lock",
+        "crates/runtime-command-bridge/src/lib.rs",
         "crates/runtime-durable-service/Cargo.toml",
         "crates/runtime-durable-service/src/recovery.rs",
         "crates/runtime-durable-service/src/recovery/redis_settlement.rs",
@@ -68,7 +69,6 @@ def check_production_scope() -> None:
     for prefix in (
         "crates/finam-client/",
         "crates/finam-gateway/",
-        "crates/runtime-command-bridge/",
         ".github/workflows/",
     ):
         require(not any(path.startswith(prefix) for path in changed), f"closed surface changed: {prefix}")
@@ -92,7 +92,7 @@ def check_descriptors() -> None:
         "stage7b_d_c_open": False,
         "d_b_owned_rows_implemented": True,
         "b052_b053_implemented": False,
-        "d_b_negative_case_count": 26,
+        "d_b_negative_case_count": 34,
         "redis_consumer_attached": False,
         "redis_settlement_enabled": True,
         "xack_enabled": True,
@@ -152,9 +152,14 @@ def check_proof_map() -> None:
 def check_source() -> None:
     recovery = (ROOT / "crates/runtime-durable-service/src/recovery.rs").read_text()
     settlement = (ROOT / "crates/runtime-durable-service/src/recovery/redis_settlement.rs").read_text()
+    bridge = (ROOT / "crates/runtime-command-bridge/src/lib.rs").read_text()
     production = settlement.split("#[cfg(test)]", 1)[0]
     manifest = (ROOT / "crates/runtime-durable-service/Cargo.toml").read_text()
     require("redis.workspace = true" in manifest, "Redis dependency absent")
+    require(
+        'runtime-command-bridge = { path = "../runtime-command-bridge" }' in manifest,
+        "canonical Stage 7A poison classifier dependency absent",
+    )
     for forbidden in ("reqwest", "broker-finam", "finam-gateway"):
         require(forbidden not in manifest, f"d-b forbidden dependency: {forbidden}")
 
@@ -216,14 +221,78 @@ def check_source() -> None:
     dlq_payload = source_block(settlement, "struct Stage7bDlqPayload")
     require("redacted_payload_sha256" in dlq_payload, "DLQ redacted payload digest absent")
     require("raw_payload" not in dlq_payload, "raw payload entered DLQ schema")
-    poison_authorize = source_block(settlement, "pub(super) fn authorize_poison(")
+    dynamic_identity = source_block(recovery, "    struct SettlementAuthorityFingerprint")
+    stable_identity = source_block(recovery, "    struct TerminalRequestAckIdentity")
+    for token in ("stage6_checkpoint_sha256", "seal_generation", "seal_commitment_sha256"):
+        require(token in dynamic_identity, f"dynamic settlement authority lost {token}")
+        require(token not in stable_identity, f"stable request identity includes global {token}")
     for token in (
-        "poison_reason_token(poison_reason)",
-        "observation.payload_len != raw_payload.len()",
-        "observation.redacted_payload_sha256 != sha256_hex(raw_payload)",
-        "observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256",
+        "strategy_request_id",
+        "durable_client_order_id",
+        "canonical_command_sha256",
+        "final_disposition",
+        "final_record_id",
+        "final_sequence",
     ):
-        require(token in poison_authorize, f"poison proof weakened: {token}")
+        require(token in stable_identity, f"stable request identity missing {token}")
+    require(
+        "marker['terminal_request_ack_identity'] ~= terminal_request_ack_identity" in lua,
+        "request marker is not bound to stable terminal identity",
+    )
+    require(
+        "canonical_ack_fingerprint = authority_fp" not in lua,
+        "request marker regressed to dynamic authority fingerprint",
+    )
+
+    evidence_position = bridge.index("pub struct Stage7aPermanentPoisonEvidence")
+    evidence_prefix = bridge[max(0, evidence_position - 120) : evidence_position]
+    require("#[derive(Clone" not in evidence_prefix, "permanent poison evidence became Clone")
+    require("#[derive(Serialize" not in evidence_prefix, "permanent poison evidence became serializable")
+    classifier = source_block(
+        bridge, "pub fn classify_stage7a_permanent_pre_admission_poison("
+    )
+    decoder = source_block(bridge, "fn decode_stage7a_pre_admission(")
+    for token in (
+        "Stage7aDlqReason::InvalidJson",
+        "Stage7aDlqReason::UnsupportedSchemaVersion",
+        "Stage7aDlqReason::MessageTypeMismatch",
+    ):
+        require(token in decoder, f"canonical poison decoder drift: {token}")
+    for token in (
+        "Stage7aDlqReason::MissingPayload",
+        "decode_stage7a_pre_admission(payload)",
+        "Ok(_) => return Err(Stage7aBridgeError::NotPermanentPoison)",
+    ):
+        require(token in classifier, f"canonical poison classifier drift: {token}")
+    handler = source_block(bridge, "    fn handle_payload(")
+    require(
+        "decode_stage7a_pre_admission(raw_payload)" in handler,
+        "Stage 7A handler diverged from canonical poison decoder",
+    )
+    observation = source_block(settlement, "pub(super) fn poison_observation(")
+    require("evidence: Stage7aPermanentPoisonEvidence" in observation, "opaque poison evidence bypassed")
+    require("context.redis_entry_id != evidence.redis_entry_id()" in observation, "poison entry binding absent")
+    poison_authorize = source_block(settlement, "pub(super) fn authorize_poison(")
+    require("poison_reason: &str" not in poison_authorize, "free-form poison reason restored")
+    require("raw_payload: &[u8]" not in poison_authorize, "raw caller payload restored to poison authority")
+    require(
+        "observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256"
+        in poison_authorize,
+        "poison checkpoint binding absent",
+    )
+
+    backend = source_block(settlement, "impl Stage7bRedisSettlementBackend")
+    for token in (
+        "unresolved_settlement_keys: HashSet<String>",
+        "self.unresolved_settlement_keys.remove(settlement_key)",
+        "self.transport_healthy && self.unresolved_settlement_keys.is_empty()",
+    ):
+        require(token in settlement, f"entry-scoped settlement health drift: {token}")
+    require(
+        settlement.count(".insert(settlement_key.to_string())") == 2,
+        "failed/uncertain settlement keys are not both retained",
+    )
+    require("self.unresolved_settlement_keys.clear()" not in backend, "unrelated success clears unresolved entries")
     require(
         "ack_plan(\n    authority: Stage7bDurableAckAuthorized" in settlement,
         "ACK plan no longer requires d-a authority",
@@ -259,10 +328,18 @@ def check_source() -> None:
         "stage7b_d_b_b059_response_loss_exact_retry_is_idempotent",
         "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend",
         "stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound",
-        "stage7b_d_b_later_exact_entry_is_duplicate_and_conflict_stays_pending",
+        "stage7b_d_b_seal_advanced_duplicate_and_true_identity_conflict",
         "stage7b_d_b_new_settlement_requires_expected_pel_before_mutation",
+        "canonical_pre_admission_classifier_rejects_valid_command_as_poison",
+        "canonical_pre_admission_classifier_pins_permanent_reason_matrix",
+        "stage7b_d_b_unrelated_success_does_not_heal_failed_entry",
+        "stage7b_d_b_response_loss_is_entry_scoped_until_exact_marker_retry",
+        "stage7b_d_b_dlq_response_loss_is_entry_scoped_until_exact_retry",
     ):
-        require(test_name in recovery or test_name in settlement, f"d-b test absent: {test_name}")
+        require(
+            test_name in recovery or test_name in settlement or test_name in bridge,
+            f"d-b test absent: {test_name}",
+        )
 
 
 def check_docs() -> None:
@@ -271,8 +348,8 @@ def check_docs() -> None:
     roadmap = (ROOT / "docs/roadmap.md").read_text()
     for token in ("B-057..B-063", "Stage 7B-d-c remains", "FINAM POST/DELETE"):
         require(token in implementation, f"d-b implementation document drift: {token}")
-    require("Stage 7B-d-b is the active implementation candidate" in status, "current status not updated")
-    require("Stage 7B-d-b — active implementation candidate" in roadmap, "roadmap not updated")
+    require("Stage 7B-d-b-R1 is the active implementation candidate" in status, "current status not updated")
+    require("R1 candidate implements only atomic/idempotent Redis ACK" in roadmap, "roadmap not updated")
 
 
 def main() -> None:

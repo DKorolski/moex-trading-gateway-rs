@@ -151,6 +151,82 @@ pub enum Stage7aDlqReason {
     MessageTypeMismatch,
 }
 
+impl Stage7aDlqReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingPayload => "missing_payload",
+            Self::InvalidJson => "invalid_json",
+            Self::UnsupportedSchemaVersion => "unsupported_schema_version",
+            Self::MessageTypeMismatch => "message_type_mismatch",
+        }
+    }
+}
+
+/// Opaque proof that the canonical Stage 7A pre-admission classifier rejected
+/// one exact Redis payload permanently. The private fields intentionally keep
+/// downstream crates from minting poison authority from a caller label.
+pub struct Stage7aPermanentPoisonEvidence {
+    redis_entry_id: String,
+    reason: Stage7aDlqReason,
+    payload_len: usize,
+    redacted_payload_sha256: String,
+}
+
+impl Stage7aPermanentPoisonEvidence {
+    pub fn redis_entry_id(&self) -> &str {
+        &self.redis_entry_id
+    }
+
+    pub fn reason(&self) -> Stage7aDlqReason {
+        self.reason
+    }
+
+    pub fn payload_len(&self) -> usize {
+        self.payload_len
+    }
+
+    pub fn redacted_payload_sha256(&self) -> &str {
+        &self.redacted_payload_sha256
+    }
+}
+
+fn decode_stage7a_pre_admission(
+    raw_payload: &[u8],
+) -> Result<Envelope<BrokerCommand>, Stage7aDlqReason> {
+    let envelope = serde_json::from_slice::<Envelope<BrokerCommand>>(raw_payload)
+        .map_err(|_| Stage7aDlqReason::InvalidJson)?;
+    if envelope.schema_version != SCHEMA_VERSION {
+        return Err(Stage7aDlqReason::UnsupportedSchemaVersion);
+    }
+    if envelope.msg_type != MessageType::Command {
+        return Err(Stage7aDlqReason::MessageTypeMismatch);
+    }
+    Ok(envelope)
+}
+
+/// Runs the accepted Stage 7A schema/envelope decoder without admitting a
+/// command into Stage 6. A valid BrokerCommand can never produce evidence.
+pub fn classify_stage7a_permanent_pre_admission_poison(
+    redis_entry_id: &str,
+    raw_payload: Option<&[u8]>,
+) -> Result<Stage7aPermanentPoisonEvidence, Stage7aBridgeError> {
+    canonical_token(redis_entry_id)?;
+    let (reason, payload) = match raw_payload {
+        None => (Stage7aDlqReason::MissingPayload, &[][..]),
+        Some(payload) => match decode_stage7a_pre_admission(payload) {
+            Err(reason) => (reason, payload),
+            Ok(_) => return Err(Stage7aBridgeError::NotPermanentPoison),
+        },
+    };
+    let record = redacted_dlq(redis_entry_id, payload, reason, Utc::now());
+    Ok(Stage7aPermanentPoisonEvidence {
+        redis_entry_id: record.redis_entry_id,
+        reason: record.reason,
+        payload_len: record.payload_len,
+        redacted_payload_sha256: record.payload_sha256,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Stage7aRedactedDlqRecord {
     pub schema_version: u16,
@@ -678,33 +754,17 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
         raw_payload: &[u8],
         observed_at: DateTime<Utc>,
     ) -> Result<Stage7aHandleOutcome, Stage7aBridgeError> {
-        let envelope = match serde_json::from_slice::<Envelope<BrokerCommand>>(raw_payload) {
+        let envelope = match decode_stage7a_pre_admission(raw_payload) {
             Ok(envelope) => envelope,
-            Err(_) => {
+            Err(reason) => {
                 return Ok(Stage7aHandleOutcome::Dlq(redacted_dlq(
                     redis_entry_id,
                     raw_payload,
-                    Stage7aDlqReason::InvalidJson,
+                    reason,
                     observed_at,
                 )))
             }
         };
-        if envelope.schema_version != SCHEMA_VERSION {
-            return Ok(Stage7aHandleOutcome::Dlq(redacted_dlq(
-                redis_entry_id,
-                raw_payload,
-                Stage7aDlqReason::UnsupportedSchemaVersion,
-                observed_at,
-            )));
-        }
-        if envelope.msg_type != MessageType::Command {
-            return Ok(Stage7aHandleOutcome::Dlq(redacted_dlq(
-                redis_entry_id,
-                raw_payload,
-                Stage7aDlqReason::MessageTypeMismatch,
-                observed_at,
-            )));
-        }
         let command = envelope.payload;
         if self.fault_point == Stage7aFaultPoint::AfterDecodeBeforeAdmission {
             return Ok(Stage7aHandleOutcome::Pending(Stage7aPendingDecision {
@@ -1342,6 +1402,8 @@ pub enum Stage7aBridgeError {
     CanonicalAckRecoveryRequired,
     #[error("injected Stage 7A settlement fault")]
     InjectedSettlementFault,
+    #[error("payload is a valid Stage 7A BrokerCommand and is not permanent poison")]
+    NotPermanentPoison,
 }
 
 fn command_request_id(command: &BrokerCommand) -> StrategyRequestId {
@@ -1638,6 +1700,50 @@ mod tests {
         command.order_type = OrderType::Market;
         command.limit_price = None;
         encode_command_payload(BrokerCommand::PlaceOrder(command))
+    }
+
+    #[test]
+    fn canonical_pre_admission_classifier_rejects_valid_command_as_poison() {
+        let payload = encoded_command(0x7100);
+        assert!(matches!(
+            classify_stage7a_permanent_pre_admission_poison("7100-0", Some(payload.as_bytes())),
+            Err(Stage7aBridgeError::NotPermanentPoison)
+        ));
+    }
+
+    #[test]
+    fn canonical_pre_admission_classifier_pins_permanent_reason_matrix() {
+        let missing = classify_stage7a_permanent_pre_admission_poison("7101-0", None).unwrap();
+        assert_eq!(missing.reason(), Stage7aDlqReason::MissingPayload);
+        assert_eq!(missing.payload_len(), 0);
+
+        let invalid =
+            classify_stage7a_permanent_pre_admission_poison("7102-0", Some(b"secret=NOT-JSON"))
+                .unwrap();
+        assert_eq!(invalid.reason(), Stage7aDlqReason::InvalidJson);
+        assert_eq!(invalid.redis_entry_id(), "7102-0");
+        assert_eq!(invalid.redacted_payload_sha256().len(), 64);
+
+        let valid = encoded_command(0x7103);
+        let mut wrong_schema: serde_json::Value = serde_json::from_str(&valid).unwrap();
+        wrong_schema["schema_version"] = serde_json::json!(SCHEMA_VERSION + 1);
+        let wrong_schema = serde_json::to_vec(&wrong_schema).unwrap();
+        assert_eq!(
+            classify_stage7a_permanent_pre_admission_poison("7103-0", Some(&wrong_schema))
+                .unwrap()
+                .reason(),
+            Stage7aDlqReason::UnsupportedSchemaVersion
+        );
+
+        let mut wrong_type: serde_json::Value = serde_json::from_str(&valid).unwrap();
+        wrong_type["msg_type"] = serde_json::json!("Health");
+        let wrong_type = serde_json::to_vec(&wrong_type).unwrap();
+        assert_eq!(
+            classify_stage7a_permanent_pre_admission_poison("7104-0", Some(&wrong_type))
+                .unwrap()
+                .reason(),
+            Stage7aDlqReason::MessageTypeMismatch
+        );
     }
 
     fn encoded_cancel(number: u128, target_request: u128) -> String {

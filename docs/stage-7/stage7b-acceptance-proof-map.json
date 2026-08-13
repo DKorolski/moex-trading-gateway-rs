@@ -510,7 +510,7 @@
       "proof_type": "oracle_integration",
       "rationale": "Accepted Stage 7B foundation or Stage 7B-d-a exact witness",
       "artifact": "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence",
-      "exact_witness": "Stage7bDurableAckAuthorized::classify_publication + recovered canonical ACK tests",
+      "exact_witness": "Stage7bDurableAckAuthorized::classify_publication + stable terminal request identity + stage7b_d_b_seal_advanced_duplicate_and_true_identity_conflict",
       "status": "implemented"
     },
     {
@@ -555,7 +555,7 @@
       "proof_type": "real_redis",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
       "artifact": "Stage 7B-d-b candidate real-Redis evidence",
-      "exact_witness": "stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound",
+      "exact_witness": "canonical_pre_admission_classifier_pins_permanent_reason_matrix + stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound",
       "status": "implemented"
     },
     {
@@ -573,7 +573,7 @@
       "proof_type": "real_redis_fault",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
       "artifact": "Stage 7B-d-b candidate real-Redis evidence",
-      "exact_witness": "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend exact-success health recovery",
+      "exact_witness": "stage7b_d_b_unrelated_success_does_not_heal_failed_entry + response-loss ACK/DLQ entry-scoped exact recovery",
       "status": "implemented"
     },
     {
