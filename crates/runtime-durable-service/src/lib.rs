@@ -62,6 +62,12 @@
 //!     let _runtime = owner.recovered_mut();
 //! }
 //! ```
+//!
+//! The terminal ACK authority is crate-private:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bDurableAckAuthorized;
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");

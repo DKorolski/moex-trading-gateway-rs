@@ -7,6 +7,8 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+broker-core = { path = "../broker-core" }
+chrono.workspace = true
 libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -16,3 +18,4 @@ strategy-runtime-core = { path = "../strategy-runtime-core" }
 [dev-dependencies]
 serde_json.workspace = true
 strategy-runtime-core = { path = "../strategy-runtime-core", features = ["stage5g-artifact-fixtures"] }
+uuid.workspace = true

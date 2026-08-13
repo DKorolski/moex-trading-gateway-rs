@@ -61,6 +61,14 @@ CASES = (
 
 
 def main() -> None:
+    descriptor = json.loads(
+        (ROOT / "docs/stage-7/stage7b-d-entry-descriptor.json").read_text()
+    )
+    if len(CASES) != descriptor.get("design_negative_case_count"):
+        raise SystemExit(
+            "stage7b-d-design-negative: FAIL descriptor/case-count drift "
+            f"descriptor={descriptor.get('design_negative_case_count')} actual={len(CASES)}"
+        )
     for name, kind, key, replacement in CASES:
         with tempfile.TemporaryDirectory(prefix=f"stage7b-d-design-negative-{name}-") as tmp:
             clone = Path(tmp) / "repo"

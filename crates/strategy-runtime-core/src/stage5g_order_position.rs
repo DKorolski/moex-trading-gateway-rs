@@ -9265,6 +9265,54 @@ pub(crate) mod tests {
         (bytes, commitment_key, fresh_runtime, attribution)
     }
 
+    pub(crate) fn stage7b_authenticated_cancel_package_fixture() -> (
+        Vec<u8>,
+        crate::Stage5gLifecycleCommitmentKey,
+        HybridIntradayRuntimeStrategy,
+        HybridRuntimeAttribution,
+    ) {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (mut source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedCancelTargetAuthority,
+        );
+        let attribution = match &mut source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => {
+                let slot = session
+                    .state
+                    .slots
+                    .first_mut()
+                    .expect("Stage 7B cancel fixture retains one active slot");
+                slot.ack.expected_client_order_id =
+                    ClientOrderId::from_strategy_request(slot.ack.request_id);
+                let target_request_id = StrategyRequestId::from(
+                    uuid::Uuid::parse_str("80000000-0000-0000-0000-000000000805")
+                        .expect("fixed Stage 7B target request UUID"),
+                );
+                let target_client_order_id =
+                    ClientOrderId::from_strategy_request(target_request_id);
+                for event in &mut slot.order_events {
+                    event.order.client_order_id = Some(target_client_order_id.clone());
+                }
+                let source_attribution = slot
+                    .source
+                    .expected_attribution
+                    .as_ref()
+                    .expect("Stage 7B cancel fixture retains source attribution")
+                    .internal_comment()
+                    .replace("|r=ENTRY", "|r=CANCEL");
+                let attribution =
+                    HybridRuntimeAttribution::parse_source_comment(source_attribution)
+                        .expect("Stage 7B cancel attribution remains canonical");
+                slot.source.expected_attribution = Some(attribution.clone());
+                attribution
+            }
+            _ => panic!("Stage 7B cancel fixture must remain order-position awaiting"),
+        };
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("Stage 7B cancel fixture exports authenticated restart bytes");
+        (bytes, commitment_key, fresh_runtime, attribution)
+    }
+
     pub(crate) fn stage6e_restored_two_place_fixture_with_attributions() -> (
         crate::Stage5gCleanRestartedCapability,
         Vec<HybridRuntimeAttribution>,

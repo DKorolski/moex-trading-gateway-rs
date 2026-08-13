@@ -1,6 +1,7 @@
-# Stage 7B-d Design R1 — review-closure candidate
+# Stage 7B-d Design R1 — accepted freeze
 
-Status: independent acceptance pending.
+Status: independently accepted/frozen at
+`00cead2989493b44e0d86ead29b95d57a7fbcbe2`.
 
 Predecessors:
 
@@ -25,7 +26,8 @@ The design also freezes fail-stop reconciliation after an ambiguous recovery
 seal commit and limits B-059 to client/process response loss within one Redis
 durability/failover domain.
 
-No production source, Cargo dependency or workflow changed from accepted
+No production source, Cargo dependency or workflow changed in this accepted
+design freeze from accepted
 Stage 7B-c. Redis settlement, XACK, FINAM transport, runtime-live and real orders
-remain disabled. Independent acceptance of this R1 may open only Stage 7B-d-a;
-d-b and d-c remain closed.
+remain disabled. Its acceptance opened only Stage 7B-d-a; d-b and d-c remain
+closed.

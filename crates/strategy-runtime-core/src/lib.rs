@@ -331,27 +331,29 @@ pub use stage6_replay::{
     Stage6ReplaySnapshotV1, STAGE6_REPLAY_SCHEMA_VERSION,
 };
 pub use stage6d_live_core::{
-    admit_stage7a_paper_command, apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
+    admit_stage7a_paper_command, advance_stage6d_restart_package,
+    apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
     execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
     finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     first_boot_stage6d_paper_with_owned_journal,
     issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
-    resolve_stage7a_cancel_command_context, restart_stage6d_paper,
-    restart_stage6d_paper_with_owned_journal, seal_stage6d_restart_package,
-    stage6d_operational_identity_sha256, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
-    Stage6dFirstBootAuthorization, Stage6dFirstBootConfig, Stage6dFreshTruthApplicationReport,
-    Stage6dFreshTruthTransition, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
-    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
-    Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
+    refresh_stage7b_durable_frontier, resolve_stage7a_cancel_command_context,
+    restart_stage6d_paper, restart_stage6d_paper_with_owned_journal, seal_stage6d_restart_package,
+    stage6d_operational_identity_sha256, stage7b_finalized_request_facts, Stage6dBootMode,
+    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dFirstBootConfig,
+    Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
     Stage6ePaperFreshBrokerTruthInput, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
     Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
-    STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION, STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION,
-    STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
+    Stage7bFinalizedRequestFacts, STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION,
+    STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION, STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage5g-artifact-fixtures")]
 #[doc(hidden)]
 pub use stage6d_live_core::{
+    stage7b_test_authenticated_cancel_restart_fixture,
     stage7b_test_authenticated_working_restart_fixture, Stage7bTestExtraStage6History,
     Stage7bTestRestartFixture,
 };

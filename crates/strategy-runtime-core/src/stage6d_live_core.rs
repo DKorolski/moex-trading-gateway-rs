@@ -69,6 +69,7 @@ pub enum Stage6dLiveCoreError {
     UnsupportedRestartPackageSchema,
     Stage5gPackageDigestMismatch,
     CheckpointDigestMismatch,
+    RestartPackageBindingMismatch,
     RestartCommitmentMismatch,
     RestartAuthenticationFailed,
     Stage5gRestart(Stage5gCleanRestartError),
@@ -170,6 +171,9 @@ impl std::fmt::Display for Stage6dLiveCoreError {
             Self::UnsupportedRestartPackageSchema => "unsupported Stage 6D restart package schema",
             Self::Stage5gPackageDigestMismatch => "Stage 5G restart package digest mismatch",
             Self::CheckpointDigestMismatch => "Stage 6 checkpoint digest mismatch",
+            Self::RestartPackageBindingMismatch => {
+                "Stage 6D restart package binding does not match the live owner"
+            }
             Self::RestartCommitmentMismatch => "Stage 6D restart commitment mismatch",
             Self::RestartAuthenticationFailed => "Stage 6D restart authentication failed",
             Self::Stage5gRestart(_) => "authenticated Stage 5G restart failed",
@@ -375,6 +379,32 @@ pub fn seal_stage6d_restart_package(
         restart_commitment_hmac_sha256,
     };
     serde_json::to_vec(&package).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)
+}
+
+/// Authenticates the currently committed Stage 6 restart package and advances
+/// only its journal checkpoint while preserving the exact embedded Stage 5G
+/// authority and operational identity. This is the Stage 7B seal-advance seam;
+/// callers cannot substitute a different Stage 5 package.
+pub fn advance_stage6d_restart_package(
+    authenticated_restart_package: &[u8],
+    expected_current_checkpoint: &Stage6JournalCheckpointV1,
+    next_checkpoint: Stage6JournalCheckpointV1,
+    expected_operational_identity: &Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+    let current =
+        decode_and_authenticate_restart_package(authenticated_restart_package, commitment_key)?;
+    if &current.stage6_checkpoint != expected_current_checkpoint
+        || &current.operational_identity != expected_operational_identity
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    seal_stage6d_restart_package(
+        &current.stage5g_restart_package,
+        next_checkpoint,
+        current.operational_identity,
+        commitment_key,
+    )
 }
 
 enum Stage6dStage5RuntimeAuthority {
@@ -706,6 +736,8 @@ pub struct Stage7bTestRestartFixture {
     pub fresh_runtime: HybridIntradayRuntimeStrategy,
     pub journal_records: Vec<Stage6JournalRecordV1>,
     pub active_request_id: StrategyRequestId,
+    pub command: BrokerCommand,
+    pub command_context: Stage7aPaperCommandContext,
 }
 
 /// Source-exact Stage 5G/Stage 6 fixture used only to prove the composed
@@ -747,6 +779,8 @@ pub fn stage7b_test_authenticated_working_restart_fixture(
         time_in_force: TimeInForce::Day,
         comment: Some(attribution.internal_comment().to_string()),
     };
+    let command_context =
+        Stage7aPaperCommandContext::new(projection.instrument_id.clone(), attribution.clone());
     let identity = Stage6DurableRequestIdentityV1::from_place(&command, attribution)
         .expect("Stage 7B active identity");
     let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command)
@@ -835,6 +869,158 @@ pub fn stage7b_test_authenticated_working_restart_fixture(
         fresh_runtime,
         journal_records,
         active_request_id,
+        command: BrokerCommand::PlaceOrder(command),
+        command_context,
+    }
+}
+
+/// Source-exact Stage 5G CANCEL fixture with the corresponding finalized
+/// working PLACE retained as Stage 6 history. The current lifecycle contains
+/// only the accepted CANCEL so restart can prove a single safe redelivery.
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub fn stage7b_test_authenticated_cancel_restart_fixture() -> Stage7bTestRestartFixture {
+    use broker_core::{CancelOrder, OrderSide, OrderType, PlaceOrder, TimeInForce};
+    use rust_decimal::Decimal;
+    use uuid::Uuid;
+
+    let (package, commitment_key, fresh_runtime, cancel_attribution) =
+        crate::stage5g_order_position::tests::stage7b_authenticated_cancel_package_fixture();
+    let restored = restore_stage5g_clean_restart(&package, &commitment_key, fresh_runtime.clone())
+        .expect("Stage 7B cancel fixture package remains source-authenticated");
+    let projection = restored.fresh_truth_reducer_projection();
+    let slot = projection
+        .slots
+        .first()
+        .expect("Stage 7B cancel fixture retains one active slot");
+    let active_request_id = StrategyRequestId::from(
+        Uuid::parse_str(&slot.command_request_id).expect("Stage 7B cancel request UUID"),
+    );
+    let target_broker_order_id = match &slot.source_action {
+        crate::Stage5gMockIntentAction::Cancel { target_order_id } => target_order_id.clone(),
+        crate::Stage5gMockIntentAction::Place { .. } => {
+            panic!("Stage 7B cancel fixture action drift")
+        }
+    };
+    let target_request_id = StrategyRequestId::from(
+        Uuid::parse_str("80000000-0000-0000-0000-000000000805")
+            .expect("fixed Stage 7B target request UUID"),
+    );
+    let target_client_order_id = slot
+        .target_order_client_order_id
+        .clone()
+        .expect("Stage 7B cancel target retains its durable client id");
+    assert_eq!(
+        target_client_order_id,
+        ClientOrderId::from_strategy_request(target_request_id),
+        "Stage 5 target client id remains bound to the historical PLACE"
+    );
+    let historical_attribution = HybridRuntimeAttribution::parse_source_comment(
+        cancel_attribution
+            .internal_comment()
+            .replace("|r=CANCEL", "|r=ENTRY"),
+    )
+    .expect("historical PLACE attribution remains canonical");
+    let historical_command = PlaceOrder {
+        request_id: target_request_id,
+        created_ts: DateTime::from_timestamp(1_893_455_000, 0)
+            .expect("historical Stage 7B timestamp"),
+        ttl_ms: Some(5_000),
+        account_id: projection.account_id.clone(),
+        client_order_id: target_client_order_id.clone(),
+        instrument: projection.instrument_id.clone(),
+        side: OrderSide::Buy,
+        order_type: OrderType::Limit,
+        qty: Decimal::ONE,
+        limit_price: Some(Decimal::new(2_210, 0)),
+        time_in_force: TimeInForce::Day,
+        comment: Some(historical_attribution.internal_comment().to_string()),
+    };
+    let historical_identity =
+        Stage6DurableRequestIdentityV1::from_place(&historical_command, historical_attribution)
+            .expect("Stage 7B historical PLACE identity");
+    let historical_snapshot =
+        Stage6DurableCommandSnapshotV1::from_place(&historical_identity, &historical_command)
+            .expect("Stage 7B historical PLACE snapshot");
+    let historical_accepted = Stage6JournalRecordV1::request_accepted(
+        historical_identity.clone(),
+        historical_snapshot,
+        Stage6LifecycleSequence::new(1).expect("historical sequence one"),
+        None,
+        None,
+        Stage6Sha256Digest::parse("1".repeat(64)).expect("digest"),
+    )
+    .expect("Stage 7B historical PLACE accepted record");
+    let historical_dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+        historical_identity.clone(),
+        1,
+        historical_accepted.canonical_payload_sha256().clone(),
+        Stage6LifecycleSequence::new(2).expect("historical sequence two"),
+        Some(historical_accepted.journal_record_id().clone()),
+        Stage6Sha256Digest::parse("2".repeat(64)).expect("digest"),
+    )
+    .expect("Stage 7B historical PLACE dispatch record");
+    let historical_order = Stage6JournalRecordV1::broker_order_observed(
+        historical_identity.clone(),
+        target_broker_order_id.clone(),
+        Stage6LifecycleSequence::new(3).expect("historical sequence three"),
+        Some(historical_dispatch.journal_record_id().clone()),
+        Stage6Sha256Digest::parse("3".repeat(64)).expect("digest"),
+    )
+    .expect("Stage 7B historical working order record");
+    let historical_finalized = Stage6JournalRecordV1::request_finalized(
+        historical_identity,
+        Stage6RequestFinalDispositionV1::Completed,
+        Stage6LifecycleSequence::new(4).expect("historical sequence four"),
+        Some(historical_order.journal_record_id().clone()),
+        Stage6Sha256Digest::parse("4".repeat(64)).expect("digest"),
+    )
+    .expect("Stage 7B historical PLACE finalization");
+
+    let cancel = CancelOrder {
+        request_id: active_request_id,
+        created_ts: DateTime::from_timestamp(1_893_456_000, 0).expect("fixture timestamp"),
+        ttl_ms: Some(5_000),
+        account_id: projection.account_id.clone(),
+        order_id: target_broker_order_id,
+        client_order_id: Some(target_client_order_id),
+    };
+    let command_context = Stage7aPaperCommandContext::new(
+        projection.instrument_id.clone(),
+        cancel_attribution.clone(),
+    );
+    let cancel_identity = Stage6DurableRequestIdentityV1::from_cancel(
+        &cancel,
+        projection.instrument_id.clone(),
+        cancel_attribution,
+    )
+    .expect("Stage 7B current CANCEL identity");
+    let cancel_snapshot = Stage6DurableCommandSnapshotV1::from_cancel(&cancel_identity, &cancel)
+        .expect("Stage 7B current CANCEL snapshot");
+    let cancel_accepted = Stage6JournalRecordV1::request_accepted(
+        cancel_identity,
+        cancel_snapshot,
+        Stage6LifecycleSequence::new(1).expect("cancel sequence one"),
+        None,
+        None,
+        Stage6Sha256Digest::parse("5".repeat(64)).expect("digest"),
+    )
+    .expect("Stage 7B current CANCEL accepted record");
+
+    Stage7bTestRestartFixture {
+        stage5g_authenticated_package: package,
+        commitment_key,
+        fresh_runtime,
+        journal_records: vec![
+            historical_accepted,
+            historical_dispatch,
+            historical_order,
+            historical_finalized,
+            cancel_accepted,
+        ],
+        active_request_id,
+        command: BrokerCommand::CancelOrder(cancel),
+        command_context,
     }
 }
 
@@ -979,6 +1165,85 @@ pub struct Stage6dPaperExecutionReport {
     pub journal_frontier_sha256: String,
     pub integration_fingerprint_sha256: String,
     pub restart_recovery_marker: bool,
+}
+
+/// Source-derived, read-only facts for one durably finalized Stage 7A request.
+/// This is evidence input to the Stage 7B seal authority, not a settlement
+/// capability and not a transport identity.
+pub struct Stage7bFinalizedRequestFacts {
+    strategy_request_id: StrategyRequestId,
+    durable_client_order_id: broker_core::ClientOrderId,
+    broker_order_id: Option<BrokerOrderId>,
+    canonical_command_sha256: Stage6Sha256Digest,
+    final_disposition: Stage6RequestFinalDispositionV1,
+    final_record_id: Stage6JournalRecordId,
+    final_sequence: u64,
+}
+
+impl Stage7bFinalizedRequestFacts {
+    pub fn strategy_request_id(&self) -> StrategyRequestId {
+        self.strategy_request_id
+    }
+
+    pub fn durable_client_order_id(&self) -> &broker_core::ClientOrderId {
+        &self.durable_client_order_id
+    }
+
+    pub fn broker_order_id(&self) -> Option<&BrokerOrderId> {
+        self.broker_order_id.as_ref()
+    }
+
+    pub fn canonical_command_sha256(&self) -> &Stage6Sha256Digest {
+        &self.canonical_command_sha256
+    }
+
+    pub fn final_disposition(&self) -> Stage6RequestFinalDispositionV1 {
+        self.final_disposition
+    }
+
+    pub fn final_record_id(&self) -> &Stage6JournalRecordId {
+        &self.final_record_id
+    }
+
+    pub fn final_sequence(&self) -> u64 {
+        self.final_sequence
+    }
+}
+
+/// Reconstructs exact finalized request facts solely from the owned Stage 6
+/// journal/replay state. Process-memory ACK caches are not consulted.
+pub fn stage7b_finalized_request_facts(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+) -> Result<Stage7bFinalizedRequestFacts, Stage6dLiveCoreError> {
+    let accepted = stage7a_accepted_record(recovered, request_id)
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+    let request = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let final_disposition = request
+        .final_disposition()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    Ok(Stage7bFinalizedRequestFacts {
+        strategy_request_id: request_id,
+        durable_client_order_id: request.durable_client_order_id().clone(),
+        broker_order_id: request.known_broker_order_id().cloned(),
+        canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
+        final_disposition,
+        final_record_id: request.last_unique_record_id().clone(),
+        final_sequence: request.last_unique_sequence(),
+    })
+}
+
+/// Replays the already-owned durable journal and promotes its exact current
+/// frontier into the recovered authority. It accepts no caller-supplied
+/// checkpoint and performs no effect; Stage 7B uses it immediately before
+/// committing a covering recovery seal after restart.
+pub fn refresh_stage7b_durable_frontier(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+) -> Result<(), Stage6dLiveCoreError> {
+    recovered.refresh_after_append()
 }
 
 impl Stage6dPaperExecutionReport {

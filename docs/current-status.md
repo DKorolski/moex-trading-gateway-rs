@@ -46,13 +46,22 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 7B-d design at `09a22765ae6ee37b304bfed6492bd103da44360d`
   was not accepted as frozen because settlement authority, ACK-versus-poison
   provenance, Redis stable-key semantics and B-052/B-053 slice ownership were
-  underspecified. Stage 7B-d-design-R1 is the active review candidate. It
-  resolves those design blockers without changing production code and divides durable Redis
+  underspecified. Stage 7B-d-design-R1 was independently accepted/frozen at
+  `00cead2989493b44e0d86ead29b95d57a7fbcbe2`. It resolves those design
+  blockers and divides durable Redis
   paper-service composition into: (a) lifecycle/seal-before-settlement,
   (b) atomic idempotent ACK/DLQ plus XACK, and (c) composite readiness,
-  supervision and restart PEL reclaim. B-052/B-053 remain pending for the
-  real-Redis restart witnesses in d-c. No Stage 7B-d implementation is opened
-  or claimed until independent R1 acceptance.
+  supervision and restart PEL reclaim.
+- Stage 7B-d-a is the active implementation candidate. It adds an owner-held,
+  Redis-free lifecycle facade and exact-bound non-serializable terminal ACK
+  authority. ACK authorization first refreshes the actual file-journal
+  frontier, commits/rereads a covering authenticated recovery seal, and fails
+  stop on ambiguous seal commit. Real SIGKILL witnesses cover accepted,
+  dispatch, unknown-effect, durable-outcome, finalized and sealed crash states;
+  correlated sequential CANCEL is reconstructed from source-bound Stage 5G and
+  Stage 6 history. B-043..B-051 and B-054..B-056 are candidate-implemented.
+  B-052/B-053 remain pending for d-c real-Redis restart evidence. Stage 7B-d-b,
+  d-c and all Redis production settlement remain closed.
 - The remaining Stage 7B work is still pending: idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
   B-001..B-080 acceptance closure.

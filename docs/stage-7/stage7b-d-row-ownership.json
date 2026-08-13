@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "7B-d-design-R1",
+  "stage": "7B-d-a",
+  "accepted_design_r1_ref": "00cead2989493b44e0d86ead29b95d57a7fbcbe2",
   "accepted_stage7b_c_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
   "slices": {
     "7B-d-a": {
@@ -25,7 +26,8 @@
       ]
     }
   },
-  "implemented_rows": 42,
-  "pending_rows": 38,
+  "implemented_rows": 54,
+  "pending_rows": 26,
+  "d_a_owned_rows_implemented": true,
   "b052_b053_implemented": false
 }

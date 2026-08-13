@@ -65,6 +65,21 @@ FOUNDATION_WITNESSES = {
     "B-079": ("closed_surface", "accepted Stage 7B-c-R1 closed-surface gate + Stage 7B-d design no-production-diff gate"),
 }
 
+D_A_WITNESSES = {
+    "B-043": ("ordered_trace", "stage7b_d_a_b043_b049_b051_b055_b056_seals_before_ack_authority"),
+    "B-044": ("subprocess_fault", "stage7b_d_a_b044_sigkill_after_accepted_recovers_dispatch_once"),
+    "B-045": ("subprocess_fault", "stage7b_d_a_b045_sigkill_after_dispatch_never_blind_redispatches"),
+    "B-046": ("subprocess_fault", "stage7b_d_a_b046_sigkill_during_unknown_effect_requires_reconciliation"),
+    "B-047": ("subprocess_fault", "stage7b_d_a_b047_sigkill_after_outcome_reconstructs_finalization_and_ack"),
+    "B-048": ("subprocess_fault", "stage7b_d_a_b048_sigkill_after_finalization_reconstructs_canonical_ack"),
+    "B-049": ("ordered_trace", "stage7b_d_a_b043_b049_b051_b055_b056_seals_before_ack_authority"),
+    "B-050": ("fault_injection", "stage7b_d_a_b050_seal_failure_blocks_authorization_and_readiness"),
+    "B-051": ("subprocess_fault", "stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider"),
+    "B-054": ("restart_integration", "stage7b_d_a_b054_sequential_cancel_survives_restart_and_reseals"),
+    "B-055": ("restart_integration", "stage7b_d_a_b043_b049_b051_b055_b056_seals_before_ack_authority"),
+    "B-056": ("oracle_integration", "Stage7bDurableAckAuthorized::classify_publication + recovered canonical ACK tests"),
+}
+
 
 def build() -> dict:
     with MATRIX.open(newline="", encoding="utf-8") as handle:
@@ -73,8 +88,9 @@ def build() -> dict:
         raise SystemExit("stage7b-proof-map: frozen matrix IDs/count drift")
     proofs = []
     for row in rows:
-        implemented = row["ID"] in FOUNDATION_WITNESSES
-        proof_type, witness = FOUNDATION_WITNESSES.get(
+        witnesses = {**FOUNDATION_WITNESSES, **D_A_WITNESSES}
+        implemented = row["ID"] in witnesses
+        proof_type, witness = witnesses.get(
             row["ID"],
             (row["Proof Type"], f"pending Stage 7B follow-up: {row['Required Witness']}"),
         )
@@ -84,12 +100,12 @@ def build() -> dict:
                 "requirement": row["Scenario / Requirement"],
                 "proof_type": proof_type,
                 "rationale": (
-                    "Stage 7B accepted foundation or exact accepted Stage 7B-b/7B-c witness"
+                    "Accepted Stage 7B foundation or Stage 7B-d-a exact witness"
                     if implemented
                     else "Frozen requirement retained pending its designated Stage 7B slice"
                 ),
                 "artifact": (
-                    "Accepted Stage 7B-b-R2 + Stage 7B-c-R1 evidence"
+                    "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence"
                     if implemented
                     else "pending"
                 ),
@@ -100,7 +116,7 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-d-design-R1",
+        "slice": "7B-d-a",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
         "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
         "row_count": len(proofs),
