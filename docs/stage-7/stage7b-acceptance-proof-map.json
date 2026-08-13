@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "stage": "7B",
-  "slice": "7B-d-a",
+  "slice": "7B-d-b",
   "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
   "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
   "row_count": 80,
-  "implemented_count": 54,
-  "pending_count": 26,
+  "implemented_count": 61,
+  "pending_count": 19,
   "stage7b_accepted": false,
   "proofs": [
     {
@@ -517,64 +517,64 @@
       "row_id": "B-057",
       "requirement": "ACK settlement is executed for a pending command.",
       "proof_type": "real_redis",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: atomic_idempotent_ack_settlement",
-      "status": "pending"
+      "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
+      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "exact_witness": "stage7b_d_b_b057_atomic_ack_xadd_marker_and_xack + stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement",
+      "status": "implemented"
     },
     {
       "row_id": "B-058",
       "requirement": "Settlement marker/fingerprint is inspected.",
       "proof_type": "static+unit",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: settlement_identity_not_execution_identity",
-      "status": "pending"
+      "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
+      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "exact_witness": "stage7b_d_b_b058_stable_transport_identity_never_uses_payload_fingerprint + stage7b_d_b_check.py::check_source",
+      "status": "implemented"
     },
     {
       "row_id": "B-059",
       "requirement": "Redis settlement commits but client/process receives an injected response error/unknown result.",
       "proof_type": "real_redis_fault",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: settlement_response_loss_is_idempotent",
-      "status": "pending"
+      "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
+      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "exact_witness": "stage7b_d_b_b059_response_loss_exact_retry_is_idempotent",
+      "status": "implemented"
     },
     {
       "row_id": "B-060",
       "requirement": "Redis settlement primitive fails before commit or Redis is unavailable.",
       "proof_type": "real_redis_fault",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: settlement_failure_keeps_pel",
-      "status": "pending"
+      "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
+      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "exact_witness": "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend",
+      "status": "implemented"
     },
     {
       "row_id": "B-061",
       "requirement": "Permanent poison input is settled in Stage 7B.",
       "proof_type": "real_redis",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: atomic_idempotent_dlq_settlement",
-      "status": "pending"
+      "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
+      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "exact_witness": "stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound",
+      "status": "implemented"
     },
     {
       "row_id": "B-062",
       "requirement": "Stage6/recovery result is IdentityConflict/ReconciliationRequired/RecoveryBlocked.",
       "proof_type": "integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: holds_never_xack",
-      "status": "pending"
+      "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
+      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "exact_witness": "stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement + separate private ACK/poison authorities; no hold settlement entry",
+      "status": "implemented"
     },
     {
       "row_id": "B-063",
       "requirement": "ACK/DLQ settlement backend is unavailable or uncertain.",
       "proof_type": "real_redis_fault",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: settlement_outage_not_ready",
-      "status": "pending"
+      "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
+      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "exact_witness": "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend exact-success health recovery",
+      "status": "implemented"
     },
     {
       "row_id": "B-064",

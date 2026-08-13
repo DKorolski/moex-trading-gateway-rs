@@ -99,9 +99,11 @@ exact authenticated reread of the current disk seal before ACK authority and
 uses a separately fsynced B-046 provider-effect witness before SIGKILL.
 B-052/B-053 remain pending for d-c real-Redis restart evidence. The active
 implementation target is now only **Stage 7B-d-b**, rows B-057..B-063, atomic
-Redis ACK/DLQ + XACK. Stage 6 remains the sole lifecycle authority; process-memory ACK maps
-and Redis transport IDs cannot become restart/execution authority. d-a does
-not attach Redis; d-b and d-c remain closed pending separate acceptance.
+ACK/redacted-DLQ publication plus XACK. Stage 6 remains the sole lifecycle
+authority; process-memory ACK maps and Redis transport IDs cannot become
+restart/execution authority. The d-b candidate now attaches only an
+isolated Redis settlement backend inside the recovery owner; it does not attach
+the command consumer. d-c remains closed pending separate acceptance.
 
 The complete X01-X20/B-001..B-080 closure remains a later Stage 7B-e slice.
 Redis consumer names remain transport metadata and never enter request/client

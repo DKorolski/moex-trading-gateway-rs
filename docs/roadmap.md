@@ -27,8 +27,8 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-d-a-R1 — independently accepted and closed at
-`8418cfb63ecee6702bf8a2873592b7cad1e711ee`. The Redis-free durable lifecycle
+Stage 7B-d-b — active implementation candidate on independently accepted
+Stage 7B-d-a-R1 at `8418cfb63ecee6702bf8a2873592b7cad1e711ee`. The Redis-free durable lifecycle
 and seal-before-settlement authorization remains paper/mock only. The original implementation candidate
 `f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted; R1 closes exact
 current on-disk seal revalidation and a real fsynced B-046 effect witness. The original
@@ -39,11 +39,13 @@ accepted and Stage 7B-c is closed at
 `c57ae8d5f98bbb11df0a81f78262d3916b276d81`; Stage 7B-b-R2 is closed at
 `ff3fa2e8908440863b40b838991d4716b33caad4`. Stage 7B-d implementation is
 split into lifecycle/seal barrier, atomic Redis settlement and composite
-readiness/restart transport slices. The active d-a R1 candidate implements only
+readiness/restart transport slices. The accepted d-a R1 implementation covers
 B-043..B-051 and B-054..B-056 with file-backed/SIGKILL/fault witnesses. B-052/
-B-053 stay pending until d-c supplies real-Redis restart evidence. Redis
-settlement/XACK is now eligible only in Stage 7B-d-b (`B-057..B-063`). d-c and
-its real-Redis restart closure remain closed.
+B-053 stay pending until d-c supplies real-Redis restart evidence. The d-b
+candidate implements only atomic/idempotent Redis ACK or redacted poison DLQ
+publication plus XACK (`B-057..B-063`) against an isolated paper namespace.
+The command consumer is not attached. d-c and its real-Redis restart closure
+remain closed pending separate acceptance.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

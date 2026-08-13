@@ -66,9 +66,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Stage 6 history. B-043..B-051 and B-054..B-056 are candidate-implemented.
   B-052/B-053 remain pending for d-c real-Redis restart evidence. Acceptance
   opens only Stage 7B-d-b atomic Redis ACK/DLQ + XACK; d-c remains closed.
-- The remaining Stage 7B work is still pending: idempotent
-  Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
-  B-001..B-080 acceptance closure.
+- Stage 7B-d-b is the active implementation candidate. It adds one private
+  owner-mediated, Lua-atomic Redis primitive for ACK or redacted permanent
+  pre-Stage6 poison DLQ publication plus source `XACK`. Stable entry markers,
+  request-level canonical ACK markers, exact PEL preconditions, response-loss
+  retry and settlement health are exercised against isolated real Redis.
+  Rows B-057..B-063 are candidate-implemented. No command consumer is attached;
+  d-c, B-052/B-053, B-064..B-070 and every FINAM/live surface remain closed.
+- The remaining Stage 7B work is still pending: d-b independent acceptance,
+  d-c supervision/readiness/PEL restart composition, real subprocess crash
+  matrix X01-X20 and aggregate B-001..B-080 acceptance closure.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real
   strategy orders and native Stop/SLTP/bracket remain CLOSED.
 - Stage 7A permits at most one non-final command lifecycle per strategy

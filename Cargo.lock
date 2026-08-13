@@ -1465,10 +1465,13 @@ dependencies = [
  "broker-core",
  "chrono",
  "libc",
+ "redis",
  "serde",
  "serde_json",
  "sha2",
  "strategy-runtime-core",
+ "thiserror 1.0.69",
+ "tokio",
  "uuid",
 ]
 

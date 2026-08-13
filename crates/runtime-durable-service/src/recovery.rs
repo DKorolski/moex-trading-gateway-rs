@@ -30,6 +30,13 @@ use strategy_runtime_core::{
     Stage7bFinalizedRequestFacts,
 };
 
+pub(crate) mod redis_settlement;
+
+use redis_settlement::{
+    Stage7bPreStage6PoisonObservation, Stage7bRedisSettlementBackend,
+    Stage7bRedisSettlementContext, Stage7bRedisSettlementError, Stage7bRedisSettlementOutcome,
+};
+
 pub const STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION: u16 = 1;
 const STAGE7B_RECOVERY_SEAL_COMMITMENT_DOMAIN: &str = "moex.stage7b.recovery-seal.commitment.v1";
 const STAGE7B_RECOVERY_SEAL_MAX_BYTES: u64 = 16 * 1024 * 1024;
@@ -72,6 +79,15 @@ impl std::fmt::Display for Stage7bRecoveryError {
 }
 
 impl std::error::Error for Stage7bRecoveryError {}
+
+#[derive(Debug, thiserror::Error)]
+#[allow(dead_code, reason = "Stage 7B-d-b is attached only by closed d-c")]
+pub(crate) enum Stage7bDbError {
+    #[error("Stage 7B recovery authority rejected settlement")]
+    Recovery(#[from] Stage7bRecoveryError),
+    #[error("Stage 7B Redis settlement rejected operation")]
+    Settlement(#[from] Stage7bRedisSettlementError),
+}
 
 impl From<Stage7bDurableStorageError> for Stage7bRecoveryError {
     fn from(value: Stage7bDurableStorageError) -> Self {
@@ -681,7 +697,8 @@ impl Stage7bRecoveryReadyOwner {
         // This first exact reread authenticates the cached predecessor before
         // replay may advance the current Stage 6 frontier.
         self.revalidate_cached_committed_seal(commitment_key)?;
-        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)
+            .map_err(Stage7bRecoveryError::from)?;
         if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
             self.advance_recovery_seal(commitment_key)?;
         } else {
@@ -696,6 +713,75 @@ impl Stage7bRecoveryReadyOwner {
             validate_recovered_binding(&self.recovered, &self.committed_seal, identity)?;
         }
         durable_ack_authority(&self.committed_seal, current)
+    }
+
+    /// Owner-mediated d-b transition. The linear d-a authority is consumed
+    /// directly into one exact Redis plan and is never exported or serialized.
+    #[allow(dead_code, reason = "Stage 7B-d-b is attached only by closed d-c")]
+    pub(crate) async fn settle_finalized_ack(
+        &mut self,
+        finalized: Stage7bFinalizedPaperRequest,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        context: Stage7bRedisSettlementContext,
+        backend: &mut Stage7bRedisSettlementBackend,
+    ) -> Result<Stage7bRedisSettlementOutcome, Stage7bDbError> {
+        let authority = self.authorize_finalized_ack(finalized, commitment_key)?;
+        let plan = redis_settlement::ack_plan(authority, context)?;
+        Ok(backend.settle_ack(plan).await?)
+    }
+
+    /// Captures the exact checkpoint before malformed input is classified.
+    /// No Stage 6 admission API is available through this observation.
+    #[allow(dead_code, reason = "Stage 7B-d-b is attached only by closed d-c")]
+    pub(crate) fn observe_pre_stage6_poison(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        context: Stage7bRedisSettlementContext,
+        raw_payload: &[u8],
+    ) -> Result<Stage7bPreStage6PoisonObservation, Stage7bDbError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)
+            .map_err(Stage7bRecoveryError::from)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            return Err(Stage7bRecoveryError::SealInvalid.into());
+        }
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        Ok(redis_settlement::poison_observation(
+            context,
+            raw_payload,
+            sha256_hex(&self.recovered.authenticated_checkpoint().encode_canonical()),
+        ))
+    }
+
+    /// Completes a permanent pre-Stage6 poison path only if the journal
+    /// checkpoint and redacted payload fingerprint are unchanged.
+    #[allow(dead_code, reason = "Stage 7B-d-b is attached only by closed d-c")]
+    pub(crate) async fn settle_pre_stage6_poison(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        observation: Stage7bPreStage6PoisonObservation,
+        raw_payload: &[u8],
+        poison_reason: &str,
+        backend: &mut Stage7bRedisSettlementBackend,
+    ) -> Result<Stage7bRedisSettlementOutcome, Stage7bDbError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)
+            .map_err(Stage7bRecoveryError::from)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            return Err(Stage7bRecoveryError::SealInvalid.into());
+        }
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        let checkpoint = sha256_hex(&self.recovered.authenticated_checkpoint().encode_canonical());
+        let authority = redis_settlement::authorize_poison(
+            observation,
+            raw_payload,
+            poison_reason,
+            &checkpoint,
+        )?;
+        let plan = redis_settlement::dlq_plan(authority)?;
+        Ok(backend.settle_dlq(plan).await?)
     }
 
     fn require_lifecycle_available(&self) -> Result<(), Stage7bRecoveryError> {
@@ -1116,10 +1202,13 @@ mod tests {
         BrokerCommand, BrokerOrderId, BrokerTradeId, Exchange, InstrumentId, Market,
         StrategyRequestId,
     };
+    use redis::aio::ConnectionManager;
+    use redis::streams::{StreamPendingCountReply, StreamReadReply};
     use std::{
         fs::{self, OpenOptions},
+        net::TcpListener,
         path::{Path, PathBuf},
-        process::{Command, Stdio},
+        process::{Child, Command, Stdio},
         thread,
         time::{Duration, Instant},
     };
@@ -1915,6 +2004,137 @@ mod tests {
         let owner = restart_working_setup(&setup);
         assert_eq!(owner.committed_seal().unwrap().seal_generation(), 2);
         (setup, owner, request_id)
+    }
+
+    struct Stage7bDbRedisServer {
+        child: Child,
+        url: String,
+    }
+
+    impl Stage7bDbRedisServer {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+            let mut child = Command::new("redis-server")
+                .args([
+                    "--bind",
+                    "127.0.0.1",
+                    "--port",
+                    &port.to_string(),
+                    "--save",
+                    "",
+                    "--appendonly",
+                    "no",
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("redis-server is required for Stage 7B-d-b tests");
+            let url = format!("redis://127.0.0.1:{port}/");
+            for _ in 0..100 {
+                if let Ok(client) = redis::Client::open(url.as_str()) {
+                    if let Ok(mut connection) = ConnectionManager::new(client).await {
+                        let pong: redis::RedisResult<String> =
+                            redis::cmd("PING").query_async(&mut connection).await;
+                        if pong.as_deref() == Ok("PONG") && child.try_wait().unwrap().is_none() {
+                            return Self { child, url };
+                        }
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("temporary Stage 7B-d-b Redis did not start")
+        }
+    }
+
+    impl Drop for Stage7bDbRedisServer {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement() {
+        let (setup, mut owner, request_id) = prepare_current_finalized_seal_owner();
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let source = "finam_imoexf_paper:{owner-mediated}:commands";
+        let ack = "finam_imoexf_paper:{owner-mediated}:acks";
+        let dlq = "finam_imoexf_paper:{owner-mediated}:dlq";
+        let group = "stage7b-owner-mediated";
+        let _: () = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(source)
+            .arg(group)
+            .arg("0-0")
+            .arg("MKSTREAM")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(source)
+            .arg("*")
+            .arg("payload")
+            .arg("redacted-command")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let delivered: StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(group)
+            .arg("consumer-owner-mediated")
+            .arg("COUNT")
+            .arg(1)
+            .arg("STREAMS")
+            .arg(source)
+            .arg(">")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let context = Stage7bRedisSettlementContext::new(
+            "owner-mediated",
+            source,
+            ack,
+            dlq,
+            group,
+            delivered.keys[0].ids[0].id.clone(),
+        )
+        .unwrap();
+        let finalized = owner.finalized_request(request_id).unwrap();
+        let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
+            .await
+            .unwrap();
+        let outcome = owner
+            .settle_finalized_ack(finalized, &setup.key, context, &mut backend)
+            .await
+            .unwrap();
+        assert_eq!(outcome.classification, "canonical");
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(source)
+            .arg(group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert!(pending.ids.is_empty());
+        let ack_count: i64 = redis::cmd("XLEN")
+            .arg(ack)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(ack_count, 1);
+        assert!(backend.healthy());
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
     }
 
     fn assert_current_seal_drift_blocks_ack(

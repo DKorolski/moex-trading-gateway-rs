@@ -80,6 +80,16 @@ D_A_WITNESSES = {
     "B-056": ("oracle_integration", "Stage7bDurableAckAuthorized::classify_publication + recovered canonical ACK tests"),
 }
 
+D_B_WITNESSES = {
+    "B-057": ("real_redis", "stage7b_d_b_b057_atomic_ack_xadd_marker_and_xack + stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement"),
+    "B-058": ("static+unit", "stage7b_d_b_b058_stable_transport_identity_never_uses_payload_fingerprint + stage7b_d_b_check.py::check_source"),
+    "B-059": ("real_redis_fault", "stage7b_d_b_b059_response_loss_exact_retry_is_idempotent"),
+    "B-060": ("real_redis_fault", "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend"),
+    "B-061": ("real_redis", "stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound"),
+    "B-062": ("integration", "stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement + separate private ACK/poison authorities; no hold settlement entry"),
+    "B-063": ("real_redis_fault", "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend exact-success health recovery"),
+}
+
 
 def build() -> dict:
     with MATRIX.open(newline="", encoding="utf-8") as handle:
@@ -88,7 +98,7 @@ def build() -> dict:
         raise SystemExit("stage7b-proof-map: frozen matrix IDs/count drift")
     proofs = []
     for row in rows:
-        witnesses = {**FOUNDATION_WITNESSES, **D_A_WITNESSES}
+        witnesses = {**FOUNDATION_WITNESSES, **D_A_WITNESSES, **D_B_WITNESSES}
         implemented = row["ID"] in witnesses
         proof_type, witness = witnesses.get(
             row["ID"],
@@ -100,12 +110,16 @@ def build() -> dict:
                 "requirement": row["Scenario / Requirement"],
                 "proof_type": proof_type,
                 "rationale": (
-                    "Accepted Stage 7B foundation or Stage 7B-d-a exact witness"
+                    "Stage 7B-d-b exact atomic Redis settlement witness"
+                    if row["ID"] in D_B_WITNESSES
+                    else "Accepted Stage 7B foundation or Stage 7B-d-a exact witness"
                     if implemented
                     else "Frozen requirement retained pending its designated Stage 7B slice"
                 ),
                 "artifact": (
-                    "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence"
+                    "Stage 7B-d-b candidate real-Redis evidence"
+                    if row["ID"] in D_B_WITNESSES
+                    else "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence"
                     if implemented
                     else "pending"
                 ),
@@ -116,7 +130,7 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-d-a",
+        "slice": "7B-d-b",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
         "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
         "row_count": len(proofs),
