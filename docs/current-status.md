@@ -52,7 +52,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   paper-service composition into: (a) lifecycle/seal-before-settlement,
   (b) atomic idempotent ACK/DLQ plus XACK, and (c) composite readiness,
   supervision and restart PEL reclaim.
-- Stage 7B-d-a-R1 is the active implementation candidate after the original
+- Stage 7B-d-a-R1 is independently accepted and closed at
+  `8418cfb63ecee6702bf8a2873592b7cad1e711ee` after the original
   `f71eeb926464f6634d485d5720b25c5e026b40d5` candidate was not accepted. It adds an owner-held,
   Redis-free lifecycle facade and exact-bound non-serializable terminal ACK
   authority. R1 authenticates and exactly compares the current on-disk seal
@@ -63,8 +64,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   during-effect barrier and proves redelivery does not invoke it twice;
   correlated sequential CANCEL is reconstructed from source-bound Stage 5G and
   Stage 6 history. B-043..B-051 and B-054..B-056 are candidate-implemented.
-  B-052/B-053 remain pending for d-c real-Redis restart evidence. Stage 7B-d-b,
-  d-c and all Redis production settlement remain closed.
+  B-052/B-053 remain pending for d-c real-Redis restart evidence. Acceptance
+  opens only Stage 7B-d-b atomic Redis ACK/DLQ + XACK; d-c remains closed.
 - The remaining Stage 7B work is still pending: idempotent
   Redis ACK/DLQ settlement, real subprocess crash matrix X01-X20 and aggregate
   B-001..B-080 acceptance closure.

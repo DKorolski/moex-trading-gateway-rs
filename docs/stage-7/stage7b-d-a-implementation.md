@@ -1,6 +1,7 @@
 # Stage 7B-d-a — durable lifecycle and covering-seal authority
 
-Status: implementation R1 candidate; independent acceptance pending.
+Status: independently accepted and closed at
+`8418cfb63ecee6702bf8a2873592b7cad1e711ee`.
 
 The original implementation candidate
 `f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted. R1 is the

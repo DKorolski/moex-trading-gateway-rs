@@ -27,8 +27,9 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-d-a-R1 — Redis-free durable lifecycle and seal-before-settlement
-authorization, still paper/mock only. The original implementation candidate
+Stage 7B-d-a-R1 — independently accepted and closed at
+`8418cfb63ecee6702bf8a2873592b7cad1e711ee`. The Redis-free durable lifecycle
+and seal-before-settlement authorization remains paper/mock only. The original implementation candidate
 `f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted; R1 closes exact
 current on-disk seal revalidation and a real fsynced B-046 effect witness. The original
 design candidate `09a22765ae6ee37b304bfed6492bd103da44360d` was not accepted
@@ -41,7 +42,8 @@ split into lifecycle/seal barrier, atomic Redis settlement and composite
 readiness/restart transport slices. The active d-a R1 candidate implements only
 B-043..B-051 and B-054..B-056 with file-backed/SIGKILL/fault witnesses. B-052/
 B-053 stay pending until d-c supplies real-Redis restart evidence. Redis
-settlement/XACK first becomes eligible in d-b after separate d-a acceptance.
+settlement/XACK is now eligible only in Stage 7B-d-b (`B-057..B-063`). d-c and
+its real-Redis restart closure remain closed.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and
