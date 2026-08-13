@@ -27,7 +27,7 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-d-b — active implementation candidate on independently accepted
+Stage 7B-d-c — active implementation candidate on independently accepted
 Stage 7B-d-a-R1 at `8418cfb63ecee6702bf8a2873592b7cad1e711ee`. The Redis-free durable lifecycle
 and seal-before-settlement authorization remains paper/mock only. The original implementation candidate
 `f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted; R1 closes exact
@@ -40,15 +40,14 @@ accepted and Stage 7B-c is closed at
 `ff3fa2e8908440863b40b838991d4716b33caad4`. Stage 7B-d implementation is
 split into lifecycle/seal barrier, atomic Redis settlement and composite
 readiness/restart transport slices. The accepted d-a R1 implementation covers
-B-043..B-051 and B-054..B-056 with file-backed/SIGKILL/fault witnesses. B-052/
-B-053 stay pending until d-c supplies real-Redis restart evidence. The d-b
-R1 candidate implements only atomic/idempotent Redis ACK or redacted poison DLQ
-publication plus XACK (`B-057..B-063`) against an isolated paper namespace.
-It separates stable terminal-request ACK identity from dynamic seal authority,
-uses opaque canonical Stage 7A poison evidence and tracks unresolved settlement
-health per stable entry key.
-The command consumer is not attached. d-c and its real-Redis restart closure
-remain closed pending separate acceptance.
+B-043..B-051 and B-054..B-056 with file-backed/SIGKILL/fault witnesses.
+Stage 7B-d-b-R1 is independently accepted at
+`e0bf9b7d9eb209e19b875f199511a493ddcd0da9`. The d-c candidate attaches only
+the isolated paper consumer and implements composite storage/seal/Redis
+readiness, external task supervision, fresh per-boot consumer identity,
+bounded old-PEL reclaim and restart duplicate/conflict evidence for B-052,
+B-053 and B-064..B-070. FINAM
+transport, runtime-live and real orders remain closed pending later stages.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

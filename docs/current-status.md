@@ -66,8 +66,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Stage 6 history. B-043..B-051 and B-054..B-056 are candidate-implemented.
   B-052/B-053 remain pending for d-c real-Redis restart evidence. Acceptance
   opens only Stage 7B-d-b atomic Redis ACK/DLQ + XACK; d-c remains closed.
-- Stage 7B-d-b-R1 is the active implementation candidate after independent
-  review did not accept `2ef739f8b0863e198c7b7fa8694cad864cc6b94f`. It adds one private
+- Stage 7B-d-b-R1 is independently accepted and closed at
+  `e0bf9b7d9eb209e19b875f199511a493ddcd0da9`. It adds one private
   owner-mediated, Lua-atomic Redis primitive for ACK or redacted permanent
   pre-Stage6 poison DLQ publication plus source `XACK`. Stable entry markers,
   request-level canonical ACK markers, exact PEL preconditions, response-loss
@@ -75,11 +75,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   isolated real Redis. R1 separates stable terminal-request identity from the
   dynamic seal authority and requires opaque canonical Stage 7A poison
   evidence; a valid command cannot be caller-labelled as poison.
-  Rows B-057..B-063 are candidate-implemented. No command consumer is attached;
-  d-c, B-052/B-053, B-064..B-070 and every FINAM/live surface remain closed.
-- The remaining Stage 7B work is still pending: d-b independent acceptance,
-  d-c supervision/readiness/PEL restart composition, real subprocess crash
-  matrix X01-X20 and aggregate B-001..B-080 acceptance closure.
+  Rows B-057..B-063 are accepted/closed.
+- Stage 7B-d-c is the active implementation candidate. It composes the
+  recovery owner and atomic settlement backend into an isolated paper Redis
+  consumer with per-boot identity, bounded old-PEL reclaim, durable PEL
+  reconstruction, independent source/claim freshness, external task
+  supervision and storage/seal-aware composite readiness. Real-Redis restart
+  evidence closes candidate rows B-052/B-053 and B-064..B-070; 70/80 rows are
+  now implemented and 10 remain pending. Every FINAM/live surface stays closed.
+- The remaining Stage 7B work is d-c independent acceptance followed by the
+  real subprocess crash matrix X01-X20 and aggregate B-001..B-080 acceptance
+  closure.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real
   strategy orders and native Stop/SLTP/bracket remain CLOSED.
 - Stage 7A permits at most one non-final command lifecycle per strategy

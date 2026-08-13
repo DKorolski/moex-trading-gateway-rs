@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "stage": "7B",
-  "slice": "7B-d-b",
+  "slice": "7B-d-c",
   "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
   "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
   "row_count": 80,
-  "implemented_count": 61,
-  "pending_count": 19,
+  "implemented_count": 70,
+  "pending_count": 10,
   "stage7b_accepted": false,
   "proofs": [
     {
@@ -472,19 +472,19 @@
       "row_id": "B-052",
       "requirement": "After process restart a new Redis entry carries the exact same StrategyRequestId/command.",
       "proof_type": "real_redis_restart",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: exact_duplicate_after_restart_is_noop",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel exact duplicate branch; unchanged Stage 6 journal and provider count",
+      "status": "implemented"
     },
     {
       "row_id": "B-053",
       "requirement": "After restart same StrategyRequestId carries changed immutable identity.",
       "proof_type": "real_redis_restart",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: conflicting_duplicate_after_restart_pending",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel conflicting duplicate branch; PEL retained and ACK/provider counts unchanged",
+      "status": "implemented"
     },
     {
       "row_id": "B-054",
@@ -518,7 +518,7 @@
       "requirement": "ACK settlement is executed for a pending command.",
       "proof_type": "real_redis",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
-      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "artifact": "Stage 7B-d-b accepted real-Redis evidence",
       "exact_witness": "stage7b_d_b_b057_atomic_ack_xadd_marker_and_xack + stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement",
       "status": "implemented"
     },
@@ -527,7 +527,7 @@
       "requirement": "Settlement marker/fingerprint is inspected.",
       "proof_type": "static+unit",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
-      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "artifact": "Stage 7B-d-b accepted real-Redis evidence",
       "exact_witness": "stage7b_d_b_b058_stable_transport_identity_never_uses_payload_fingerprint + stage7b_d_b_check.py::check_source",
       "status": "implemented"
     },
@@ -536,7 +536,7 @@
       "requirement": "Redis settlement commits but client/process receives an injected response error/unknown result.",
       "proof_type": "real_redis_fault",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
-      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "artifact": "Stage 7B-d-b accepted real-Redis evidence",
       "exact_witness": "stage7b_d_b_b059_response_loss_exact_retry_is_idempotent",
       "status": "implemented"
     },
@@ -545,7 +545,7 @@
       "requirement": "Redis settlement primitive fails before commit or Redis is unavailable.",
       "proof_type": "real_redis_fault",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
-      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "artifact": "Stage 7B-d-b accepted real-Redis evidence",
       "exact_witness": "stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend",
       "status": "implemented"
     },
@@ -554,7 +554,7 @@
       "requirement": "Permanent poison input is settled in Stage 7B.",
       "proof_type": "real_redis",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
-      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "artifact": "Stage 7B-d-b accepted real-Redis evidence",
       "exact_witness": "canonical_pre_admission_classifier_pins_permanent_reason_matrix + stage7b_d_b_b061_poison_dlq_is_redacted_atomic_and_checkpoint_bound",
       "status": "implemented"
     },
@@ -563,7 +563,7 @@
       "requirement": "Stage6/recovery result is IdentityConflict/ReconciliationRequired/RecoveryBlocked.",
       "proof_type": "integration",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
-      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "artifact": "Stage 7B-d-b accepted real-Redis evidence",
       "exact_witness": "stage7b_d_b_b057_b062_owner_mediates_only_finalized_ack_settlement + separate private ACK/poison authorities; no hold settlement entry",
       "status": "implemented"
     },
@@ -572,7 +572,7 @@
       "requirement": "ACK/DLQ settlement backend is unavailable or uncertain.",
       "proof_type": "real_redis_fault",
       "rationale": "Stage 7B-d-b exact atomic Redis settlement witness",
-      "artifact": "Stage 7B-d-b candidate real-Redis evidence",
+      "artifact": "Stage 7B-d-b accepted real-Redis evidence",
       "exact_witness": "stage7b_d_b_unrelated_success_does_not_heal_failed_entry + response-loss ACK/DLQ entry-scoped exact recovery",
       "status": "implemented"
     },
@@ -580,64 +580,64 @@
       "row_id": "B-064",
       "requirement": "Writer lock, journal, durability flag or recovery seal is invalid/unavailable.",
       "proof_type": "integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: storage_failure_dominates_readiness",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b064_storage_failure_dominates_redis_health",
+      "status": "implemented"
     },
     {
       "row_id": "B-065",
       "requirement": "Stage7A source-poll and claim-scan freshness rules run under Stage7B.",
       "proof_type": "regression",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: source_claim_freshness_preserved",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs",
+      "status": "implemented"
     },
     {
       "row_id": "B-066",
       "requirement": "Normal Stage7B service reports PaperReady.",
       "proof_type": "integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: composite_paper_ready_requires_all",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs + Stage7bRecoveryReadyOwner::validate_composite_readiness",
+      "status": "implemented"
     },
     {
       "row_id": "B-067",
       "requirement": "Supervised Stage7B service task is normally returned, errors, panics, or is explicitly aborted/cancelled.",
       "proof_type": "async_integration",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: stage7b_supervisor_normal_error_panic_abort",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b067_supervision_clears_normal_error_panic_and_abort",
+      "status": "implemented"
     },
     {
       "row_id": "B-068",
       "requirement": "Service process restarts after crash.",
       "proof_type": "subprocess+redis",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: new_boot_consumer_reclaims_old_pel",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b068_new_process_boot_uuid_is_unique across two child processes + stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel old-consumer PEL reclaim",
+      "status": "implemented"
     },
     {
       "row_id": "B-069",
       "requirement": "New process starts with a fresh transport scan cursor.",
       "proof_type": "real_redis_restart",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: restart_claim_scan_eventually_reaches_tail",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel bounded one-entry XAUTOCLAIM pages reach tail from fresh 0-0 cursor",
+      "status": "implemented"
     },
     {
       "row_id": "B-070",
       "requirement": "Stage7B recovery encounters legacy SQLite/M3 state that disagrees with Stage6.",
       "proof_type": "negative+source",
-      "rationale": "Frozen requirement retained pending its designated Stage 7B slice",
-      "artifact": "pending",
-      "exact_witness": "pending Stage 7B follow-up: legacy_order_path_not_authoritative",
-      "status": "pending"
+      "rationale": "Stage 7B-d-c supervised restart/readiness witness",
+      "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
+      "exact_witness": "stage7b_d_c_b070_has_no_legacy_execution_authority_dependency + Stage 6 owner-only admission source gate",
+      "status": "implemented"
     },
     {
       "row_id": "B-071",

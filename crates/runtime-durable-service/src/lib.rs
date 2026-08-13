@@ -75,9 +75,13 @@ compile_error!("runtime-durable-service requires Unix kernel file locking");
 mod recovery;
 
 pub use recovery::{
+    spawn_stage7b_supervised_task, Stage7bCompositeHealthSnapshot,
+    Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bPaperReadinessReason,
     Stage7bRecoveryBlockReason, Stage7bRecoveryBlocked, Stage7bRecoveryError,
-    Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRestartOutcome,
-    STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
+    Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
+    Stage7bRedisServiceConfig, Stage7bRedisServiceError, Stage7bRestartOutcome,
+    Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
+    Stage7bServiceTaskOutput, Stage7bTaskReadinessHandle, STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 
 use std::{

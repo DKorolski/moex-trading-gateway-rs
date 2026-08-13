@@ -90,6 +90,18 @@ D_B_WITNESSES = {
     "B-063": ("real_redis_fault", "stage7b_d_b_unrelated_success_does_not_heal_failed_entry + response-loss ACK/DLQ entry-scoped exact recovery"),
 }
 
+D_C_WITNESSES = {
+    "B-052": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel exact duplicate branch; unchanged Stage 6 journal and provider count"),
+    "B-053": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel conflicting duplicate branch; PEL retained and ACK/provider counts unchanged"),
+    "B-064": ("integration", "stage7b_d_c_b064_storage_failure_dominates_redis_health"),
+    "B-065": ("regression", "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs"),
+    "B-066": ("integration", "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs + Stage7bRecoveryReadyOwner::validate_composite_readiness"),
+    "B-067": ("async_integration", "stage7b_d_c_b067_supervision_clears_normal_error_panic_and_abort"),
+    "B-068": ("subprocess+redis", "stage7b_d_c_b068_new_process_boot_uuid_is_unique across two child processes + stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel old-consumer PEL reclaim"),
+    "B-069": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel bounded one-entry XAUTOCLAIM pages reach tail from fresh 0-0 cursor"),
+    "B-070": ("negative+source", "stage7b_d_c_b070_has_no_legacy_execution_authority_dependency + Stage 6 owner-only admission source gate"),
+}
+
 
 def build() -> dict:
     with MATRIX.open(newline="", encoding="utf-8") as handle:
@@ -98,7 +110,12 @@ def build() -> dict:
         raise SystemExit("stage7b-proof-map: frozen matrix IDs/count drift")
     proofs = []
     for row in rows:
-        witnesses = {**FOUNDATION_WITNESSES, **D_A_WITNESSES, **D_B_WITNESSES}
+        witnesses = {
+            **FOUNDATION_WITNESSES,
+            **D_A_WITNESSES,
+            **D_B_WITNESSES,
+            **D_C_WITNESSES,
+        }
         implemented = row["ID"] in witnesses
         proof_type, witness = witnesses.get(
             row["ID"],
@@ -110,14 +127,18 @@ def build() -> dict:
                 "requirement": row["Scenario / Requirement"],
                 "proof_type": proof_type,
                 "rationale": (
-                    "Stage 7B-d-b exact atomic Redis settlement witness"
+                    "Stage 7B-d-c supervised restart/readiness witness"
+                    if row["ID"] in D_C_WITNESSES
+                    else "Stage 7B-d-b exact atomic Redis settlement witness"
                     if row["ID"] in D_B_WITNESSES
                     else "Accepted Stage 7B foundation or Stage 7B-d-a exact witness"
                     if implemented
                     else "Frozen requirement retained pending its designated Stage 7B slice"
                 ),
                 "artifact": (
-                    "Stage 7B-d-b candidate real-Redis evidence"
+                    "Stage 7B-d-c candidate real-Redis and supervision evidence"
+                    if row["ID"] in D_C_WITNESSES
+                    else "Stage 7B-d-b accepted real-Redis evidence"
                     if row["ID"] in D_B_WITNESSES
                     else "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence"
                     if implemented
@@ -130,7 +151,7 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-d-b",
+        "slice": "7B-d-c",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
         "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
         "row_count": len(proofs),

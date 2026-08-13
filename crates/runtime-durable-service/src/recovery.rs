@@ -31,7 +31,16 @@ use strategy_runtime_core::{
     Stage7bFinalizedRequestFacts,
 };
 
+mod redis_service;
 pub(crate) mod redis_settlement;
+
+pub use redis_service::{
+    spawn_stage7b_supervised_task, Stage7bCompositeHealthSnapshot,
+    Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bPaperReadinessReason,
+    Stage7bRedisService, Stage7bRedisServiceConfig, Stage7bRedisServiceError,
+    Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
+    Stage7bServiceTaskOutput, Stage7bTaskReadinessHandle,
+};
 
 use redis_settlement::{
     Stage7bPreStage6PoisonObservation, Stage7bRedisSettlementBackend,
@@ -585,6 +594,33 @@ impl Stage7bRecoveryReadyOwner {
         };
         self.writer_lease.validate_namespace().is_ok()
             && validate_recovered_binding(&self.recovered, &self.committed_seal, identity).is_ok()
+    }
+
+    /// Revalidates every local durable authority needed by the externally
+    /// reported Stage 7B PaperReady state. A failed check is sticky and
+    /// prevents a later Redis success from healing storage uncertainty.
+    pub(crate) fn validate_composite_readiness(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> bool {
+        if self.require_lifecycle_available().is_err() {
+            return false;
+        }
+        if self
+            .revalidate_cached_committed_seal(commitment_key)
+            .is_err()
+        {
+            return false;
+        }
+        let Some(identity) = self.recovered.authenticated_operational_identity() else {
+            self.seal_commit_uncertain = true;
+            return false;
+        };
+        if validate_recovered_binding(&self.recovered, &self.committed_seal, identity).is_err() {
+            self.seal_commit_uncertain = true;
+            return false;
+        }
+        true
     }
 
     pub fn recovered(&self) -> Result<&Stage6dDurableRuntimeRecovered, Stage7bRecoveryError> {
@@ -1230,16 +1266,23 @@ mod tests {
     use super::*;
     use crate::Stage7bDurableRootAuthority;
     use broker_core::{
-        BrokerCommand, BrokerOrderId, BrokerTradeId, Exchange, InstrumentId, Market,
-        StrategyRequestId,
+        BrokerCommand, BrokerOrderId, BrokerTradeId, Envelope, Exchange, InstrumentId, Market,
+        MessageType, StrategyRequestId, SCHEMA_VERSION,
     };
     use redis::aio::ConnectionManager;
     use redis::streams::{StreamPendingCountReply, StreamReadReply};
+    use runtime_command_bridge::{
+        Stage7aCommandProfile, Stage7aPaperOutcomeProvider, Stage7aPaperProviderError,
+    };
     use std::{
         fs::{self, OpenOptions},
         net::TcpListener,
         path::{Path, PathBuf},
         process::{Child, Command, Stdio},
+        sync::{
+            atomic::{AtomicUsize, Ordering as AtomicOrdering},
+            Arc,
+        },
         thread,
         time::{Duration, Instant},
     };
@@ -2775,5 +2818,286 @@ mod tests {
         );
         drop(blocked);
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[derive(Clone)]
+    struct Stage7bDcProvider {
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl Stage7aPaperOutcomeProvider for Stage7bDcProvider {
+        fn paper_outcome(
+            &mut self,
+            command: &BrokerCommand,
+            _observed_at: DateTime<Utc>,
+        ) -> Result<Stage6dPaperOutcome, Stage7aPaperProviderError> {
+            self.calls.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(match command {
+                BrokerCommand::PlaceOrder(_) => Stage6dPaperOutcome::MarketFilled {
+                    broker_order_id: BrokerOrderId::new("paper-stage7b-dc-order"),
+                    broker_trade_id: BrokerTradeId::new("paper-stage7b-dc-trade"),
+                },
+                BrokerCommand::CancelOrder(_) => Stage6dPaperOutcome::CancelCanceled,
+            })
+        }
+    }
+
+    fn stage7b_d_c_payload(command: &BrokerCommand) -> String {
+        serde_json::to_string(&Envelope {
+            schema_version: SCHEMA_VERSION,
+            ts_utc: Utc::now(),
+            source: "stage7b-d-c-test".to_string(),
+            msg_type: MessageType::Command,
+            payload: command,
+        })
+        .unwrap()
+    }
+
+    fn stage7b_d_c_profile(command: &BrokerCommand) -> Stage7aCommandProfile {
+        let account = match command {
+            BrokerCommand::PlaceOrder(command) => command.account_id.clone(),
+            BrokerCommand::CancelOrder(command) => command.account_id.clone(),
+        };
+        Stage7aCommandProfile::new(account, instrument(), "hybrid_imoexf").unwrap()
+    }
+
+    async fn stage7b_d_c_xadd(
+        connection: &mut ConnectionManager,
+        stream: &str,
+        payload: &str,
+    ) -> String {
+        redis::cmd("XADD")
+            .arg(stream)
+            .arg("*")
+            .arg("payload")
+            .arg(payload)
+            .query_async(connection)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel() {
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let mut first_config = Stage7bRedisServiceConfig::paper_default_auto("dc-restart").unwrap();
+        first_config.block_ms = 0;
+        first_config.claim_idle_ms = 1;
+        first_config.claim_count = 1;
+        first_config.max_claim_pages = 1;
+        let _: () = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(&first_config.command_stream)
+            .arg(&first_config.consumer_group)
+            .arg("0-0")
+            .arg("MKSTREAM")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let payload = stage7b_d_c_payload(&setup.command);
+        let mut source_entry_ids = Vec::new();
+        for _ in 0..3 {
+            source_entry_ids.push(
+                stage7b_d_c_xadd(&mut inspector, &first_config.command_stream, &payload).await,
+            );
+        }
+        let old_delivery: StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(&first_config.consumer_group)
+            .arg("stage7b-dead-boot")
+            .arg("COUNT")
+            .arg(3)
+            .arg("STREAMS")
+            .arg(&first_config.command_stream)
+            .arg(">")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(
+            old_delivery.keys[0]
+                .ids
+                .iter()
+                .map(|entry| entry.id.clone())
+                .collect::<Vec<_>>(),
+            source_entry_ids
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let profile = stage7b_d_c_profile(&setup.command);
+        let first_consumer = first_config.consumer_name.clone();
+        let mut service = Stage7bRedisService::connect(
+            &redis.url,
+            first_config.clone(),
+            owner,
+            setup.key,
+            profile.clone(),
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        let first_run = service.run_bounded(3).await.unwrap();
+        assert_eq!(first_run.reclaimed_entries_examined, 3);
+        assert_eq!(service.claim_cursor(), "0-0");
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 1);
+        let journal_after_first = fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        drop(service);
+
+        let key2 =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None)
+                .commitment_key;
+        let Stage7bRestartOutcome::Ready(owner2) = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &key2,
+            setup.runtime.clone(),
+        )
+        .unwrap() else {
+            panic!("finalized d-c command must restart ready");
+        };
+        let mut second_config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-restart").unwrap();
+        second_config.block_ms = 0;
+        second_config.claim_idle_ms = 1;
+        second_config.max_claim_pages = 1;
+        assert_ne!(first_consumer, second_config.consumer_name);
+        stage7b_d_c_xadd(&mut inspector, &second_config.command_stream, &payload).await;
+        let mut second = Stage7bRedisService::connect(
+            &redis.url,
+            second_config.clone(),
+            *owner2,
+            key2,
+            profile.clone(),
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        second.run_bounded(1).await.unwrap();
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 1);
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            journal_after_first,
+            "exact restart duplicate must not append a second Stage 6 effect"
+        );
+        drop(second);
+
+        let key3 =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None)
+                .commitment_key;
+        let Stage7bRestartOutcome::Ready(owner3) = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &key3,
+            setup.runtime.clone(),
+        )
+        .unwrap() else {
+            panic!("exact duplicate settlement must retain restart readiness");
+        };
+        let mut conflicting = setup.command.clone();
+        match &mut conflicting {
+            BrokerCommand::PlaceOrder(command) => command.qty += command.qty,
+            BrokerCommand::CancelOrder(command) => {
+                command.order_id = BrokerOrderId::new("changed-target")
+            }
+        }
+        let conflicting_payload = stage7b_d_c_payload(&conflicting);
+        stage7b_d_c_xadd(
+            &mut inspector,
+            &second_config.command_stream,
+            &conflicting_payload,
+        )
+        .await;
+        let mut third_config = Stage7bRedisServiceConfig::paper_default_auto("dc-restart").unwrap();
+        third_config.block_ms = 0;
+        third_config.claim_idle_ms = 1;
+        third_config.max_claim_pages = 1;
+        let mut third = Stage7bRedisService::connect(
+            &redis.url,
+            third_config,
+            *owner3,
+            key3,
+            profile,
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        third.run_bounded(1).await.unwrap();
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 1);
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&second_config.command_stream)
+            .arg(&second_config.consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(pending.ids.len(), 1);
+        let ack_count: i64 = redis::cmd("XLEN")
+            .arg(&second_config.ack_stream)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(ack_count, 4, "conflict cannot publish or XACK");
+        let (_, readiness) = third.supervisor().snapshots(
+            Utc::now(),
+            chrono::Duration::milliseconds(second_config.freshness_ms),
+        );
+        assert!(readiness
+            .reasons
+            .contains(&Stage7bPaperReadinessReason::CommandLifecycleBlocked));
+        drop(third);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_b064_storage_failure_dominates_redis_health() {
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut config = Stage7bRedisServiceConfig::paper_default_auto("dc-storage").unwrap();
+        config.block_ms = 0;
+        let supervisor;
+        let mut service = Stage7bRedisService::connect(
+            &redis.url,
+            config.clone(),
+            owner,
+            setup.key,
+            stage7b_d_c_profile(&setup.command),
+            Stage7bDcProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+        )
+        .await
+        .unwrap();
+        supervisor = service.supervisor();
+        service.ensure_group().await.unwrap();
+        fs::remove_file(setup.root.join(STAGE7B_RECOVERY_SEAL_FILE)).unwrap();
+        File::open(&setup.root).unwrap().sync_all().unwrap();
+        assert!(matches!(
+            service.run_bounded(1).await,
+            Err(Stage7bRedisServiceError::StorageUnavailable)
+        ));
+        let (_, readiness) = supervisor.snapshots(
+            Utc::now(),
+            chrono::Duration::milliseconds(config.freshness_ms),
+        );
+        assert!(readiness
+            .reasons
+            .contains(&Stage7bPaperReadinessReason::StorageUnavailable));
+        assert_ne!(readiness.phase, Stage7bPaperReadinessPhase::PaperReady);
+        drop(service);
+        fs::remove_dir_all(setup.parent).unwrap();
     }
 }

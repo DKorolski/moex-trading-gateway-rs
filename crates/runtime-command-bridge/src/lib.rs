@@ -190,7 +190,7 @@ impl Stage7aPermanentPoisonEvidence {
     }
 }
 
-fn decode_stage7a_pre_admission(
+pub fn decode_stage7a_pre_admission(
     raw_payload: &[u8],
 ) -> Result<Envelope<BrokerCommand>, Stage7aDlqReason> {
     let envelope = serde_json::from_slice::<Envelope<BrokerCommand>>(raw_payload)
@@ -589,7 +589,7 @@ impl Stage7aCommandProfile {
         })
     }
 
-    fn context_for(
+    pub fn context_for_recovered(
         &self,
         command: &BrokerCommand,
         recovered: &Stage6dDurableRuntimeRecovered,
@@ -788,7 +788,10 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7aCommandAuthority<P> {
             };
             return Ok(Stage7aHandleOutcome::Ack(ack));
         }
-        let context = match self.profile.context_for(&command, &self.recovered) {
+        let context = match self
+            .profile
+            .context_for_recovered(&command, &self.recovered)
+        {
             Ok(context) => context,
             Err(Stage7aBridgeError::CommandProfileMismatch) => {
                 if self.request_identity_is_established(request_id) {
