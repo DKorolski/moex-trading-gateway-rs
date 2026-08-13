@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "7B",
-  "slice": "7B-c",
+  "slice": "7B-c-R1",
   "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
   "accepted_slice_predecessor": "ff3fa2e8908440863b40b838991d4716b33caad4",
   "row_count": 80,
@@ -285,7 +285,7 @@
       "proof_type": "fault_injection",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "recovery_seal_atomic_replace_and_orphan_temp_is_not_authority + root-FD-relative temp/sync/rename/root-sync/reread ordering",
+      "exact_witness": "stage7b_c_b032_sigkill_after_temp_sync_keeps_old_committed_seal + root-FD-relative temp/sync/rename/root-sync/reread ordering",
       "status": "implemented"
     },
     {
@@ -294,7 +294,7 @@
       "proof_type": "subprocess_fault",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "recovery_seal_atomic_replace_and_orphan_temp_is_not_authority",
+      "exact_witness": "stage7b_c_b032_sigkill_after_temp_sync_keeps_old_committed_seal",
       "status": "implemented"
     },
     {
@@ -312,7 +312,7 @@
       "proof_type": "integration",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "Stage7bWritableDurableAuthority::validate_checkpoint before restart_stage6d_paper_with_owned_journal",
+      "exact_witness": "stage7b_c_b034_authenticated_checkpoint_ahead_of_file_journal_blocks",
       "status": "implemented"
     },
     {
@@ -357,7 +357,7 @@
       "proof_type": "restart_integration",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "Stage7B owned-file restart delegates to stage6e_extra_finalized_stage6_history_does_not_need_current_stage5_slot",
+      "exact_witness": "stage7b_c_b039_finalized_file_journal_ahead_restarts_ready",
       "status": "implemented"
     },
     {
@@ -366,7 +366,7 @@
       "proof_type": "restart_integration",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "Stage7B owned-file restart maps stage6e_extra_unresolved_stage6_authority_is_rejected to RecoveryBlocked",
+      "exact_witness": "stage7b_c_b040_unbound_nonfinal_file_journal_blocks_without_effect",
       "status": "implemented"
     },
     {
@@ -375,7 +375,7 @@
       "proof_type": "restart_integration",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "Stage7B owned-file restart delegates to stage6e_matching_stage5_stage6_pair_is_cross_bound_before_capability",
+      "exact_witness": "stage7b_c_b041_cross_bound_active_file_journal_preserves_dispatch_safety",
       "status": "implemented"
     },
     {
@@ -645,7 +645,7 @@
       "proof_type": "governance_gate",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "docs/stage-7/stage7b-b-entry-descriptor.json",
+      "exact_witness": "stage7b-entry-descriptor.json + stage7b-c-entry-descriptor.json current and cross-checked; exactly-once claim false",
       "status": "implemented"
     },
     {
@@ -678,10 +678,10 @@
     {
       "row_id": "B-075",
       "requirement": "Full regression is run.",
-      "proof_type": "inherited_gate",
+      "proof_type": "inherited+current_gate",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "scripts/stage7b_b_gate.sh",
+      "exact_witness": "scripts/stage7b_c_r1_gate.sh + inherited scripts/stage7b_b_gate.sh",
       "status": "implemented"
     },
     {
@@ -690,7 +690,7 @@
       "proof_type": "negative_harness",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "scripts/stage7b_b_negative_harness.py cases=24 descriptor-pinned",
+      "exact_witness": "scripts/stage7b_c_negative_harness.py cases=34 descriptor-pinned",
       "status": "implemented"
     },
     {
@@ -717,7 +717,7 @@
       "proof_type": "closed_surface",
       "rationale": "Stage 7B accepted foundation or exact Stage 7B-b/7B-c witness",
       "artifact": "Stage 7B-b-R2 inherited gate + Stage 7B-c gate",
-      "exact_witness": "scripts/stage7b_b_closed_surface_check.py",
+      "exact_witness": "scripts/stage7b_c_closed_surface_check.py",
       "status": "implemented"
     },
     {

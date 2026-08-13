@@ -77,15 +77,18 @@ independently accepted and closed at
 
 Stage 7B-b-R2 is independently accepted and Stage 7B-b is closed at
 `ff3fa2e8908440863b40b838991d4716b33caad4`. The active implementation
-candidate and next review target is **Stage 7B-c**, limited to the canonical
+candidate and next review target is **Stage 7B-c-R1**, limited to direct
+file-backed and subprocess evidence closure for the canonical
 authenticated recovery seal, Stage 5G/Stage 6 restart composition and one
 linear owner retaining the recovered runtime plus the Stage 7B writer/root
 lease for the same lifetime. Cached state never establishes readiness without
 namespace validation before StorageReady and every later writable or
-authority-sensitive boundary. It remains paper/mock only.
+authority-sensitive boundary. The architecture candidate at `3d443be...`
+passed substantive review but was not accepted as closure. It remains
+paper/mock only.
 
 Idempotent Redis settlement and the complete X01-X20/B-001..B-080 closure are
-planned follow-on Stage 7B slices and are not claimed by Stage 7B-c.
+planned follow-on Stage 7B slices and are not claimed by Stage 7B-c-R1.
 Redis consumer names remain transport metadata and never enter request/client
 or Stage 6 durable identity. Stage 7A constructs no fresh-truth package.
 Stage 7B, FINAM POST/DELETE, broker

@@ -9241,6 +9241,30 @@ pub(crate) mod tests {
         (restored, attribution)
     }
 
+    pub(crate) fn stage7b_authenticated_working_package_fixture() -> (
+        Vec<u8>,
+        crate::Stage5gLifecycleCommitmentKey,
+        HybridIntradayRuntimeStrategy,
+        HybridRuntimeAttribution,
+    ) {
+        let commitment_key = stage5ge_c_commitment_key();
+        let (source, input, fresh_runtime) = stage5ge_c_public_roundtrip_fixture(
+            Stage5geCTestSourceKind::GeneratedWorkingIntentEscrow,
+        );
+        let attribution = match &source {
+            crate::Stage5gCleanRestartSource::OrderPositionAwaiting(session) => session
+                .state
+                .slots
+                .first()
+                .and_then(|slot| slot.source.expected_attribution.clone())
+                .expect("Stage 7B working fixture retains source attribution"),
+            _ => panic!("Stage 7B working fixture must remain order-position awaiting"),
+        };
+        let bytes = crate::export_stage5g_clean_restart(source, input, &commitment_key)
+            .expect("Stage 7B working fixture exports authenticated restart bytes");
+        (bytes, commitment_key, fresh_runtime, attribution)
+    }
+
     pub(crate) fn stage6e_restored_two_place_fixture_with_attributions() -> (
         crate::Stage5gCleanRestartedCapability,
         Vec<HybridRuntimeAttribution>,

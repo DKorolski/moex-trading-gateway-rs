@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "ff3fa2e8908440863b40b838991d4716b33caad4"
+R1_BASE = "3d443be72b8a6eb24d1295c800849d11789dba6f"
 STAGE7A_BASE = "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64"
 BRANCH = "stage7b-production-durability"
 TZ_SHA256 = "200e42acef2bb30cf24e3d2a5bc38df99ed853d70d6310653f315e76d1f4c1e0"
@@ -48,6 +49,10 @@ def check_lineage(root: Path) -> None:
         ["git", "merge-base", "HEAD", BASE], cwd=root, text=True
     ).strip()
     require(merge_base == BASE, "candidate is not based on accepted Stage 7B-b-R2")
+    r1_merge_base = subprocess.check_output(
+        ["git", "merge-base", "HEAD", R1_BASE], cwd=root, text=True
+    ).strip()
+    require(r1_merge_base == R1_BASE, "candidate is not based on Stage 7B-c review target")
     branch = subprocess.check_output(
         ["git", "branch", "--show-current"], cwd=root, text=True
     ).strip()
@@ -121,6 +126,11 @@ def validate_source(recovery: str, clean_restart: str, live_core: str, lib: str)
         "initial_recovery_seal_before_ready_and_lease_lifetime",
         "recovery_seal_canonical_roundtrip_and_restart",
         "recovery_seal_atomic_replace_and_orphan_temp_is_not_authority",
+        "stage7b_c_b032_sigkill_after_temp_sync_keeps_old_committed_seal",
+        "stage7b_c_b034_authenticated_checkpoint_ahead_of_file_journal_blocks",
+        "stage7b_c_b039_finalized_file_journal_ahead_restarts_ready",
+        "stage7b_c_b040_unbound_nonfinal_file_journal_blocks_without_effect",
+        "stage7b_c_b041_cross_bound_active_file_journal_preserves_dispatch_safety",
         "corrupt_recovery_seal_rejected_and_blocked_has_zero_effect",
         "seal_without_journal_rejected_without_creating_journal",
         "journal_without_seal_is_explicit_recovery_blocked",
@@ -157,11 +167,12 @@ def validate_source(recovery: str, clean_restart: str, live_core: str, lib: str)
     positions = [restart.index(token) for token in restart_order]
     require(positions == sorted(positions), "restart validation/ready ordering drift")
 
-    commit = block(recovery, "    fn commit_recovery_seal(")
+    commit = block(recovery, "    fn commit_recovery_seal_with_pre_rename_observer")
     atomic_order = (
         "libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW",
         "temp.write_all(&bytes)",
         "temp.sync_all()",
+        "after_temp_sync()",
         "rename_child_at(",
         ".root_directory\n                .sync_all()",
         "read_committed_recovery_seal()?",
@@ -199,24 +210,28 @@ def validate_source(recovery: str, clean_restart: str, live_core: str, lib: str)
 def validate_descriptor(descriptor: dict) -> None:
     expected = {
         "stage": "7B",
-        "slice": "7B-c",
+        "slice": "7B-c-R1",
         "accepted_stage7a_predecessor": STAGE7A_BASE,
         "accepted_slice_predecessor": BASE,
+        "r1_candidate_predecessor": R1_BASE,
         "branch": BRANCH,
         "blocking_acceptance_rows": 80,
         "semantic_proof_map_count": 80,
         "implemented_count": 42,
         "pending_count": 38,
-        "negative_case_count": 26,
+        "negative_case_count": 34,
         "source_stage5g_seed_required": True,
         "recovery_seal_implemented": True,
         "recovery_seal_hmac_authenticated": True,
         "atomic_recovery_seal_commit": True,
+        "subprocess_pre_rename_crash_witness": True,
+        "direct_file_backed_restart_integration": True,
         "linear_recovered_runtime_and_writer_lease_owner": True,
         "recovery_blocked_zero_effect": True,
         "redis_consumer_attached": False,
         "redis_settlement_enabled": False,
         "xack_enabled": False,
+        "cross_process_exactly_once_claimed": False,
         "finam_post_delete": False,
         "broker_network_dispatch": False,
         "runtime_live": False,
@@ -226,6 +241,40 @@ def validate_descriptor(descriptor: dict) -> None:
     }
     for key, value in expected.items():
         require(descriptor.get(key) == value, f"descriptor drift: {key}")
+
+
+def validate_aggregate_descriptor(descriptor: dict) -> None:
+    expected = {
+        "schema_version": 2,
+        "stage": "7B",
+        "slice": "7B-c-R1",
+        "status": "review_closure_candidate",
+        "accepted_stage7a_predecessor": STAGE7A_BASE,
+        "accepted_slice_predecessor": BASE,
+        "r1_candidate_predecessor": R1_BASE,
+        "branch": BRANCH,
+        "blocking_acceptance_rows": 80,
+        "semantic_proof_map_count": 80,
+        "implemented_count": 42,
+        "pending_count": 38,
+        "negative_case_count": 34,
+        "single_writer_implemented": True,
+        "recovery_seal_implemented": True,
+        "subprocess_pre_rename_crash_witness": True,
+        "direct_file_backed_restart_integration": True,
+        "redis_consumer_attached": False,
+        "redis_settlement_enabled": False,
+        "xack_enabled": False,
+        "cross_process_exactly_once_claimed": False,
+        "finam_post_delete": False,
+        "broker_network_dispatch": False,
+        "runtime_live": False,
+        "real_orders": False,
+        "normative_tz_sha256": TZ_SHA256,
+        "normative_matrix_sha256": MATRIX_SHA256,
+    }
+    for key, value in expected.items():
+        require(descriptor.get(key) == value, f"aggregate descriptor drift: {key}")
 
 
 def check(root: Path) -> None:
@@ -250,8 +299,11 @@ def check(root: Path) -> None:
         (root / "crates/runtime-durable-service/src/lib.rs").read_text(),
     )
     validate_descriptor(json.loads((root / "docs/stage-7/stage7b-c-entry-descriptor.json").read_text()))
+    validate_aggregate_descriptor(
+        json.loads((root / "docs/stage-7/stage7b-entry-descriptor.json").read_text())
+    )
     subprocess.run(["python3", "scripts/stage7b_proof_map.py"], cwd=root, check=True)
-    print("stage7b-c-check: PASS rows=80 implemented=42 pending=38 accepted=false")
+    print("stage7b-c-r1-check: PASS rows=80 implemented=42 pending=38 accepted=false")
 
 
 if __name__ == "__main__":

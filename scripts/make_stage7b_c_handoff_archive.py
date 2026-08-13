@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an immutable Stage 7B-c source/evidence handoff archive."""
+"""Create an immutable Stage 7B-c-R1 source/evidence handoff archive."""
 from __future__ import annotations
 
 import hashlib
@@ -19,16 +19,13 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "reports" / "handoff"
 EXPECTED_ARTIFACTS = (
     "fmt.txt",
-    "stage7b-c-check.txt",
+    "stage7b-c-r1-check.txt",
     "closed-surface.txt",
     "negative.txt",
-    "inherited-stage7b-b-r2-gate.txt",
-    "stage7b-c-debug.txt",
-    "stage7b-c-release.txt",
-    "stage6-finalized-ahead.txt",
-    "stage6-unbound-nonfinal.txt",
-    "stage6-cross-bound-active.txt",
-    "stage6-regression.txt",
+    "inherited-stage7b-c-gate.txt",
+    "stage7b-c-r1-debug.txt",
+    "stage7b-c-r1-release.txt",
+    "stage7b-c-r1-direct-witnesses.txt",
     "workspace-tests.txt",
     "workspace-docs.txt",
     "clippy.txt",
@@ -70,12 +67,13 @@ def require_artifacts(path: Path) -> None:
         fail(f"missing gate artifacts: {', '.join(missing)}")
     required_markers = {
         "fmt.txt": "fmt: PASS",
-        "stage7b-c-check.txt": "stage7b-c-check: PASS",
+        "stage7b-c-r1-check.txt": "stage7b-c-r1-check: PASS",
         "closed-surface.txt": "stage7b-c-closed-surface: PASS",
-        "negative.txt": "stage7b-c-negative: PASS cases=26",
-        "inherited-stage7b-b-r2-gate.txt": "stage7b-b-r2-gate: PASS",
-        "stage7b-c-debug.txt": "test result: ok. 10 passed",
-        "stage7b-c-release.txt": "test result: ok. 10 passed",
+        "negative.txt": "stage7b-c-negative: PASS cases=34",
+        "inherited-stage7b-c-gate.txt": "stage7b-c-gate: PASS",
+        "stage7b-c-r1-debug.txt": "test result: ok. 15 passed",
+        "stage7b-c-r1-release.txt": "test result: ok. 15 passed",
+        "stage7b-c-r1-direct-witnesses.txt": "test result: ok. 5 passed",
     }
     for name, marker in required_markers.items():
         if marker not in (path / name).read_text(errors="replace"):
@@ -83,18 +81,18 @@ def require_artifacts(path: Path) -> None:
 
 
 def collect_gate_artifacts() -> tuple[list[tuple[str, bytes, int]], bytes, int]:
-    supplied = os.environ.get("STAGE7B_C_PRECOMPUTED_ARTIFACT_DIR")
+    supplied = os.environ.get("STAGE7B_C_R1_PRECOMPUTED_ARTIFACT_DIR")
     if supplied:
         artifact_dir = Path(supplied).resolve()
         require_artifacts(artifact_dir)
         cleanup = None
     else:
-        cleanup = tempfile.TemporaryDirectory(prefix="stage7b-c-handoff-")
+        cleanup = tempfile.TemporaryDirectory(prefix="stage7b-c-r1-handoff-")
         artifact_dir = Path(cleanup.name)
         env = dict(os.environ)
-        env["STAGE7B_C_ARTIFACT_DIR"] = str(artifact_dir)
+        env["STAGE7B_C_R1_ARTIFACT_DIR"] = str(artifact_dir)
         gate = subprocess.run(
-            ["bash", "scripts/stage7b_c_gate.sh"],
+            ["bash", "scripts/stage7b_c_r1_gate.sh"],
             cwd=ROOT,
             text=True,
             stdout=subprocess.PIPE,
@@ -117,7 +115,7 @@ def collect_gate_artifacts() -> tuple[list[tuple[str, bytes, int]], bytes, int]:
     summary = json.dumps(
         {
             "schema_version": 1,
-            "stage7b_c_gate": "PASS",
+            "stage7b_c_r1_gate": "PASS",
             "artifact_sha256": artifact_hashes,
         },
         indent=2,
@@ -136,6 +134,8 @@ def main() -> None:
     branch = run(["git", "branch", "--show-current"])
     if run(["git", "merge-base", "HEAD", checker.BASE]) != checker.BASE:
         fail("wrong accepted Stage 7B-b-R2 predecessor")
+    if run(["git", "merge-base", "HEAD", checker.R1_BASE]) != checker.R1_BASE:
+        fail("wrong Stage 7B-c review predecessor")
     if branch != checker.BRANCH:
         fail("wrong branch")
     if os.environ.get("STAGE7B_REQUIRE_ORIGIN") == "1":
@@ -162,6 +162,7 @@ def main() -> None:
             "source_ref": head,
             "source_branch": branch,
             "accepted_slice_predecessor": checker.BASE,
+            "r1_candidate_predecessor": checker.R1_BASE,
             "members": [
                 {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
                 for name, data, _ in sorted(members)
@@ -174,6 +175,7 @@ def main() -> None:
     marker = (
         f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
         f"archive_name={archive_name}\naccepted_slice_predecessor={checker.BASE}\n"
+        f"r1_candidate_predecessor={checker.R1_BASE}\n"
     ).encode()
     proof_map = json.loads(
         (ROOT / "docs/stage-7/stage7b-acceptance-proof-map.json").read_text()
@@ -181,25 +183,29 @@ def main() -> None:
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "stage": "7B-c",
+            "stage": "7B-c-R1",
             "status": "independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
             "accepted_stage7b_b_predecessor": checker.BASE,
+            "stage7b_c_review_predecessor": checker.R1_BASE,
             "proof_map_row_count": proof_map["row_count"],
             "implemented_count": proof_map["implemented_count"],
             "pending_count": proof_map["pending_count"],
             "stage7b_accepted": proof_map["stage7b_accepted"],
-            "focused_recovery_test_count_debug": 10,
-            "focused_recovery_test_count_release": 10,
+            "focused_recovery_test_count_debug": 15,
+            "focused_recovery_test_count_release": 15,
+            "direct_composed_witness_test_count": 5,
             "negative_case_count": negative_count,
-            "inherited_stage7b_b_r2_gate_passed": True,
+            "inherited_stage7b_c_gate_passed": True,
             "workspace_tests_passed": True,
             "workspace_doc_tests_passed": True,
             "workspace_clippy_passed": True,
             "recovery_seal_implemented": True,
             "recovery_seal_hmac_authenticated": True,
             "atomic_recovery_seal_commit": True,
+            "subprocess_pre_rename_crash_witness": True,
+            "direct_file_backed_restart_integration": True,
             "linear_recovered_runtime_and_writer_lease_owner": True,
             "recovery_blocked_zero_effect": True,
             "redis_consumer_attached": False,
@@ -218,8 +224,8 @@ def main() -> None:
     members += artifact_members + [
         ("handoff-commit.txt", marker, 0o644),
         ("source-tree-manifest.json", manifest, 0o644),
-        ("handoff-evidence/stage7b-c-gate-summary.json", gate_summary, 0o644),
-        ("handoff-evidence/stage7b-c-evidence.json", evidence, 0o644),
+        ("handoff-evidence/stage7b-c-r1-gate-summary.json", gate_summary, 0o644),
+        ("handoff-evidence/stage7b-c-r1-evidence.json", evidence, 0o644),
     ]
     if len({name for name, _, _ in members}) != len(members):
         fail("duplicate archive member")

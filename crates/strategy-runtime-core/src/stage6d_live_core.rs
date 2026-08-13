@@ -689,6 +689,155 @@ pub fn first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal(
     })
 }
 
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[doc(hidden)]
+pub enum Stage7bTestExtraStage6History {
+    None,
+    Finalized,
+    UnboundNonFinal,
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub struct Stage7bTestRestartFixture {
+    pub stage5g_authenticated_package: Vec<u8>,
+    pub commitment_key: Stage5gLifecycleCommitmentKey,
+    pub fresh_runtime: HybridIntradayRuntimeStrategy,
+    pub journal_records: Vec<Stage6JournalRecordV1>,
+    pub active_request_id: StrategyRequestId,
+}
+
+/// Source-exact Stage 5G/Stage 6 fixture used only to prove the composed
+/// Stage 7B file-backed restart boundary. It exposes no execution transport.
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub fn stage7b_test_authenticated_working_restart_fixture(
+    extra_history: Stage7bTestExtraStage6History,
+) -> Stage7bTestRestartFixture {
+    use broker_core::{
+        BrokerAccountId, Exchange, Market, OrderSide, OrderType, PlaceOrder, TimeInForce,
+    };
+    use rust_decimal::Decimal;
+    use uuid::Uuid;
+
+    let (package, commitment_key, fresh_runtime, attribution) =
+        crate::stage5g_order_position::tests::stage7b_authenticated_working_package_fixture();
+    let restored = restore_stage5g_clean_restart(&package, &commitment_key, fresh_runtime.clone())
+        .expect("Stage 7B fixture package remains source-authenticated");
+    let projection = restored.fresh_truth_reducer_projection();
+    let slot = projection
+        .slots
+        .first()
+        .expect("Stage 7B working fixture retains one active slot");
+    let active_request_id = StrategyRequestId::from(
+        Uuid::parse_str(&slot.command_request_id).expect("Stage 7B request UUID"),
+    );
+    let command = PlaceOrder {
+        request_id: active_request_id,
+        created_ts: DateTime::from_timestamp(1_893_456_000, 0).expect("fixture timestamp"),
+        ttl_ms: Some(5_000),
+        account_id: projection.account_id.clone(),
+        client_order_id: slot.command_client_order_id.clone(),
+        instrument: projection.instrument_id.clone(),
+        side: slot.side.unwrap_or(OrderSide::Buy),
+        order_type: OrderType::Market,
+        qty: slot.target_qty.unwrap_or(Decimal::ONE),
+        limit_price: None,
+        time_in_force: TimeInForce::Day,
+        comment: Some(attribution.internal_comment().to_string()),
+    };
+    let identity = Stage6DurableRequestIdentityV1::from_place(&command, attribution)
+        .expect("Stage 7B active identity");
+    let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command)
+        .expect("Stage 7B active command snapshot");
+    let accepted = Stage6JournalRecordV1::request_accepted(
+        identity.clone(),
+        snapshot,
+        Stage6LifecycleSequence::new(1).expect("sequence one"),
+        None,
+        None,
+        Stage6Sha256Digest::parse("d".repeat(64)).expect("digest"),
+    )
+    .expect("Stage 7B active accepted record");
+    let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+        identity,
+        1,
+        accepted.canonical_payload_sha256().clone(),
+        Stage6LifecycleSequence::new(2).expect("sequence two"),
+        Some(accepted.journal_record_id().clone()),
+        Stage6Sha256Digest::parse("e".repeat(64)).expect("digest"),
+    )
+    .expect("Stage 7B active dispatch record");
+
+    let mut journal_records = Vec::new();
+    if extra_history != Stage7bTestExtraStage6History::None {
+        let historical_request = StrategyRequestId::from(
+            Uuid::parse_str("80000000-0000-0000-0000-000000000800")
+                .expect("historical request UUID"),
+        );
+        let historical_attribution = HybridRuntimeAttribution::parse_source_comment(
+            "HYB|sid=hybrid_imoexf|c=history001|o=BO|r=ENTRY",
+        )
+        .expect("historical attribution");
+        let historical_command = PlaceOrder {
+            request_id: historical_request,
+            created_ts: DateTime::from_timestamp(1_893_455_000, 0).expect("historical timestamp"),
+            ttl_ms: Some(5_000),
+            account_id: BrokerAccountId::new("ACC_TEST_HISTORY"),
+            client_order_id: ClientOrderId::from_strategy_request(historical_request),
+            instrument: InstrumentId {
+                symbol: "IMOEXF".to_string(),
+                venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
+            },
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            qty: Decimal::ONE,
+            limit_price: Some(Decimal::new(2200, 0)),
+            time_in_force: TimeInForce::Day,
+            comment: Some(historical_attribution.internal_comment().to_string()),
+        };
+        let historical_identity =
+            Stage6DurableRequestIdentityV1::from_place(&historical_command, historical_attribution)
+                .expect("historical identity");
+        let historical_snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&historical_identity, &historical_command)
+                .expect("historical snapshot");
+        let historical_accepted = Stage6JournalRecordV1::request_accepted(
+            historical_identity.clone(),
+            historical_snapshot,
+            Stage6LifecycleSequence::new(1).expect("historical sequence one"),
+            None,
+            None,
+            Stage6Sha256Digest::parse("a".repeat(64)).expect("digest"),
+        )
+        .expect("historical accepted record");
+        journal_records.push(historical_accepted.clone());
+        if extra_history == Stage7bTestExtraStage6History::Finalized {
+            journal_records.push(
+                Stage6JournalRecordV1::request_finalized(
+                    historical_identity,
+                    Stage6RequestFinalDispositionV1::Completed,
+                    Stage6LifecycleSequence::new(2).expect("historical sequence two"),
+                    Some(historical_accepted.journal_record_id().clone()),
+                    Stage6Sha256Digest::parse("f".repeat(64)).expect("digest"),
+                )
+                .expect("historical finalized record"),
+            );
+        }
+    }
+    journal_records.extend([accepted, dispatch]);
+    Stage7bTestRestartFixture {
+        stage5g_authenticated_package: package,
+        commitment_key,
+        fresh_runtime,
+        journal_records,
+        active_request_id,
+    }
+}
+
 /// Restores only from explicitly supplied existing journal bytes. `None`
 /// means missing journal and fails before Stage 5 runtime reconstruction.
 pub fn restart_stage6d_paper(

@@ -545,6 +545,17 @@ impl Stage7bKernelWriterLease {
         &self,
         seal: &Stage7bRecoverySealV1,
     ) -> Result<(), Stage7bRecoveryError> {
+        self.commit_recovery_seal_with_pre_rename_observer(seal, || {})
+    }
+
+    fn commit_recovery_seal_with_pre_rename_observer<F>(
+        &self,
+        seal: &Stage7bRecoverySealV1,
+        mut after_temp_sync: F,
+    ) -> Result<(), Stage7bRecoveryError>
+    where
+        F: FnMut(),
+    {
         self.validate_namespace()?;
         let bytes = seal.encode_canonical()?;
         if bytes.len() as u64 > STAGE7B_RECOVERY_SEAL_MAX_BYTES {
@@ -570,6 +581,7 @@ impl Stage7bKernelWriterLease {
                 .map_err(|error| Stage7bRecoveryError::SealWriteFailed(error.kind()))?;
             temp.sync_all()
                 .map_err(|error| Stage7bRecoveryError::SealWriteFailed(error.kind()))?;
+            after_temp_sync();
             self.validate_namespace()?;
             rename_child_at(
                 &self.root.root_directory,
@@ -680,10 +692,18 @@ fn unlink_child_at(root: &File, name: &str) {
 mod tests {
     use super::*;
     use crate::Stage7bDurableRootAuthority;
-    use std::{fs, path::PathBuf};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        process::{Command, Stdio},
+        thread,
+        time::{Duration, Instant},
+    };
     use strategy_runtime_core::{
-        authorize_stage6d_first_boot, stage6d_test_authenticated_restart_fixture, Stage6dBootMode,
-        Stage6dFirstBootConfig,
+        authorize_stage6d_first_boot, stage6d_test_authenticated_restart_fixture,
+        stage7b_test_authenticated_working_restart_fixture, Stage6DispatchSafetyStateV1,
+        Stage6MemoryJournalBackend, Stage6dBootMode, Stage6dFirstBootConfig,
+        Stage7bTestExtraStage6History,
     };
 
     fn identity() -> Stage6dOperationalIdentityConfig {
@@ -745,6 +765,77 @@ mod tests {
         )
         .unwrap();
         (parent, root, identity, owner)
+    }
+
+    struct PreparedWorkingRestart {
+        parent: PathBuf,
+        root: PathBuf,
+        identity: Stage6dOperationalIdentityConfig,
+        key: Stage5gLifecycleCommitmentKey,
+        runtime: HybridIntradayRuntimeStrategy,
+        active_request_id: String,
+        journal_before_restart: Vec<u8>,
+    }
+
+    fn prepare_working_restart(
+        extra_history: Stage7bTestExtraStage6History,
+    ) -> PreparedWorkingRestart {
+        let identity = identity();
+        let (parent, root) = root(&identity);
+        let fixture = stage7b_test_authenticated_working_restart_fixture(extra_history);
+        let authorization = authorization(&identity, &fixture.fresh_runtime);
+        let mut storage = Stage7bWritableDurableAuthority::create_new(
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap(),
+            &identity,
+            &authorization,
+        )
+        .unwrap();
+        let prefix_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(storage.journal.frontier().clone()).unwrap();
+        for record in &fixture.journal_records {
+            storage.journal.append(record).unwrap();
+        }
+        let package = seal_stage6d_restart_package(
+            &fixture.stage5g_authenticated_package,
+            prefix_checkpoint.clone(),
+            identity.clone(),
+            &fixture.commitment_key,
+        )
+        .unwrap();
+        let seal = Stage7bRecoverySealV1::new(
+            1,
+            package,
+            prefix_checkpoint,
+            stage6d_operational_identity_sha256(&identity)
+                .unwrap()
+                .as_str()
+                .to_string(),
+            &fixture.commitment_key,
+        )
+        .unwrap();
+        storage._writer_lease.commit_recovery_seal(&seal).unwrap();
+        let journal_before_restart = fs::read(root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        drop(storage);
+        PreparedWorkingRestart {
+            parent,
+            root,
+            identity,
+            key: fixture.commitment_key,
+            runtime: fixture.fresh_runtime,
+            active_request_id: fixture.active_request_id.to_string(),
+            journal_before_restart,
+        }
+    }
+
+    fn wait_for_child(child: &mut std::process::Child, marker: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !marker.exists() && Instant::now() < deadline {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("Stage 7B recovery child exited before barrier: {status}");
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(marker.exists(), "Stage 7B recovery child missed barrier");
     }
 
     #[test]
@@ -872,6 +963,273 @@ mod tests {
             panic!("orphan temp must not replace committed seal");
         };
         assert_eq!(restarted.committed_seal().unwrap().seal_generation(), 2);
+        drop(restarted);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_c_b034_authenticated_checkpoint_ahead_of_file_journal_blocks() {
+        let identity = identity();
+        let (parent, root) = root(&identity);
+        let fixture =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None);
+        let authorization = authorization(&identity, &fixture.fresh_runtime);
+        let storage = Stage7bWritableDurableAuthority::create_new(
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap(),
+            &identity,
+            &authorization,
+        )
+        .unwrap();
+        let mut ahead = Stage6MemoryJournalBackend::new();
+        ahead.append(&fixture.journal_records[0]).unwrap();
+        let ahead_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(ahead.frontier().clone()).unwrap();
+        let package = seal_stage6d_restart_package(
+            &fixture.stage5g_authenticated_package,
+            ahead_checkpoint.clone(),
+            identity.clone(),
+            &fixture.commitment_key,
+        )
+        .unwrap();
+        let seal = Stage7bRecoverySealV1::new(
+            1,
+            package,
+            ahead_checkpoint,
+            stage6d_operational_identity_sha256(&identity)
+                .unwrap()
+                .as_str()
+                .to_string(),
+            &fixture.commitment_key,
+        )
+        .unwrap();
+        storage._writer_lease.commit_recovery_seal(&seal).unwrap();
+        let before = fs::read(root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        drop(storage);
+        let outcome = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap(),
+            identity,
+            &fixture.commitment_key,
+            fixture.fresh_runtime,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Blocked(blocked) = outcome else {
+            panic!("ahead checkpoint must block Stage 7B recovery");
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage7bRecoveryBlockReason::CheckpointMismatch
+        );
+        assert!(!blocked.paper_provider_invocation_allowed());
+        assert!(!blocked.redis_settlement_allowed());
+        assert!(!blocked.xack_allowed());
+        assert_eq!(fs::read(root.join(STAGE7B_JOURNAL_FILE)).unwrap(), before);
+        drop(blocked);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_c_b039_finalized_file_journal_ahead_restarts_ready() {
+        let setup = prepare_working_restart(Stage7bTestExtraStage6History::Finalized);
+        let outcome = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &setup.key,
+            setup.runtime,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Ready(owner) = outcome else {
+            panic!("finalized journal suffix must remain restart-safe");
+        };
+        let recovered = owner.recovered().unwrap();
+        assert_eq!(recovered.replay().requests().len(), 2);
+        assert_eq!(
+            recovered.active_cross_bound_request_ids()[0].to_string(),
+            setup.active_request_id
+        );
+        assert_eq!(
+            recovered
+                .replay()
+                .requests()
+                .iter()
+                .filter(|request| request.final_disposition().is_some())
+                .count(),
+            1
+        );
+        assert_eq!(
+            owner
+                .committed_seal()
+                .unwrap()
+                .stage6_checkpoint()
+                .frontier()
+                .frame_count(),
+            0
+        );
+        assert_eq!(recovered.journal_frontier().frame_count(), 4);
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            setup.journal_before_restart
+        );
+        assert!(matches!(
+            Stage7bWritableDurableAuthority::open_existing(
+                Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+                &setup.identity,
+            ),
+            Err(Stage7bDurableStorageError::WriterAlreadyHeld)
+        ));
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_c_b040_unbound_nonfinal_file_journal_blocks_without_effect() {
+        let setup = prepare_working_restart(Stage7bTestExtraStage6History::UnboundNonFinal);
+        let outcome = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &setup.key,
+            setup.runtime,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Blocked(blocked) = outcome else {
+            panic!("unbound non-final Stage 6 request must block Stage 7B recovery");
+        };
+        assert_eq!(
+            blocked.reason(),
+            Stage7bRecoveryBlockReason::AuthenticatedRestartRejected
+        );
+        assert!(!blocked.recovery_ready());
+        assert!(!blocked.paper_provider_invocation_allowed());
+        assert!(!blocked.redis_settlement_allowed());
+        assert!(!blocked.xack_allowed());
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            setup.journal_before_restart
+        );
+        drop(blocked);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[test]
+    fn stage7b_c_b041_cross_bound_active_file_journal_preserves_dispatch_safety() {
+        let setup = prepare_working_restart(Stage7bTestExtraStage6History::None);
+        let outcome = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &setup.key,
+            setup.runtime,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Ready(owner) = outcome else {
+            panic!("matching active Stage 5G/Stage 6 request must recover Ready");
+        };
+        let recovered = owner.recovered().unwrap();
+        assert_eq!(
+            recovered.active_cross_bound_request_ids()[0].to_string(),
+            setup.active_request_id
+        );
+        let active_request_id = recovered.active_cross_bound_request_ids()[0];
+        assert_eq!(
+            recovered
+                .replay()
+                .request(active_request_id)
+                .unwrap()
+                .dispatch_safety_state(),
+            Stage6DispatchSafetyStateV1::ReconciliationRequired
+        );
+        assert!(matches!(
+            Stage7bWritableDurableAuthority::open_existing(
+                Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+                &setup.identity,
+            ),
+            Err(Stage7bDurableStorageError::WriterAlreadyHeld)
+        ));
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn stage7b_c_b032_pre_rename_crash_barrier_child() {
+        let root = PathBuf::from(std::env::var_os("STAGE7B_C_CHILD_ROOT").unwrap());
+        let marker = PathBuf::from(std::env::var_os("STAGE7B_C_CHILD_MARKER").unwrap());
+        let identity = identity();
+        let (_, key, runtime) = stage6d_test_authenticated_restart_fixture();
+        let outcome = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap(),
+            identity,
+            &key,
+            runtime,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Ready(owner) = outcome else {
+            panic!("child must recover generation one before replacement");
+        };
+        let replacement = Stage7bRecoverySealV1::new(
+            2,
+            owner
+                .committed_seal
+                .stage6d_authenticated_restart_package
+                .clone(),
+            owner.committed_seal.stage6_checkpoint.clone(),
+            owner.committed_seal.operational_identity_sha256.clone(),
+            &key,
+        )
+        .unwrap();
+        owner
+            .writer_lease
+            .commit_recovery_seal_with_pre_rename_observer(&replacement, || {
+                fs::write(&marker, b"temp-synced-before-rename").unwrap();
+                loop {
+                    thread::sleep(Duration::from_secs(1));
+                }
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn stage7b_c_b032_sigkill_after_temp_sync_keeps_old_committed_seal() {
+        let (parent, root, identity, owner) = first_boot();
+        assert_eq!(owner.committed_seal().unwrap().seal_generation(), 1);
+        let old_seal = fs::read(root.join(STAGE7B_RECOVERY_SEAL_FILE)).unwrap();
+        drop(owner);
+        let marker = parent.join("seal-temp-synced");
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .arg("--ignored")
+            .arg("--exact")
+            .arg("recovery::tests::stage7b_c_b032_pre_rename_crash_barrier_child")
+            .arg("--nocapture")
+            .env("STAGE7B_C_CHILD_ROOT", &root)
+            .env("STAGE7B_C_CHILD_MARKER", &marker)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        wait_for_child(&mut child, &marker);
+        child.kill().unwrap();
+        child.wait().unwrap();
+        assert_eq!(
+            fs::read(root.join(STAGE7B_RECOVERY_SEAL_FILE)).unwrap(),
+            old_seal
+        );
+        assert!(fs::read_dir(&root).unwrap().any(|entry| {
+            entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(STAGE7B_RECOVERY_SEAL_TEMP_PREFIX)
+        }));
+        let (_, key, runtime) = stage6d_test_authenticated_restart_fixture();
+        let restarted = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&root, &identity).unwrap(),
+            identity,
+            &key,
+            runtime,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Ready(restarted) = restarted else {
+            panic!("old committed seal must survive child crash before rename");
+        };
+        assert_eq!(restarted.committed_seal().unwrap().seal_generation(), 1);
         drop(restarted);
         fs::remove_dir_all(parent).unwrap();
     }

@@ -1,6 +1,6 @@
 # Stage 7B-c — recovery seal and restart ownership
 
-Status: implementation candidate; independent acceptance pending.
+Status: Stage 7B-c-R1 review-closure candidate; independent acceptance pending.
 
 Accepted predecessor: `ff3fa2e8908440863b40b838991d4716b33caad4`
 (Stage 7B-b-R2 / Stage 7B-b CLOSED).
@@ -28,6 +28,14 @@ FINAM, broker dispatch or runtime-live:
   filesystem namespace. Future writable boundaries must do the same;
 - `RecoveryBlocked` has no provider invocation, Redis settlement or XACK
   capability and reports readiness false.
+
+R1 adds direct file-backed Stage 7B witnesses rather than relying only on
+inherited Stage 6 unit tests: finalized history ahead restarts Ready, an
+unbound non-final request blocks without effects, a matching active request
+preserves `ReconciliationRequired`, and an authenticated checkpoint ahead of
+the file journal blocks with `CheckpointMismatch`. A real child process is
+killed after replacement-temp fsync but before rename; restart then proves the
+old committed seal remains authoritative and the orphan temp is ignored.
 
 Rows B-039 through B-041 are composed through the exact accepted Stage 6
 authenticated restart implementation. Its regression witnesses prove that

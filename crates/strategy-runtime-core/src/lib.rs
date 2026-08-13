@@ -349,6 +349,12 @@ pub use stage6d_live_core::{
     STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION, STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION,
     STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
 };
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage6d_live_core::{
+    stage7b_test_authenticated_working_restart_fixture, Stage7bTestExtraStage6History,
+    Stage7bTestRestartFixture,
+};
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]
 #[doc(hidden)]

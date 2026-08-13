@@ -15,10 +15,17 @@ CLEAN = (ROOT / "crates/strategy-runtime-core/src/stage5g_clean_restart.rs").rea
 LIVE = (ROOT / "crates/strategy-runtime-core/src/stage6d_live_core.rs").read_text()
 LIB = (ROOT / "crates/runtime-durable-service/src/lib.rs").read_text()
 DESCRIPTOR = json.loads((ROOT / "docs/stage-7/stage7b-c-entry-descriptor.json").read_text())
+AGGREGATE = json.loads((ROOT / "docs/stage-7/stage7b-entry-descriptor.json").read_text())
 
 
 def changed_descriptor(key: str, value: object) -> dict:
     changed = dict(DESCRIPTOR)
+    changed[key] = value
+    return changed
+
+
+def changed_aggregate(key: str, value: object) -> dict:
+    changed = dict(AGGREGATE)
     changed[key] = value
     return changed
 
@@ -48,14 +55,24 @@ CASES = [
     ("mutable-runtime-escape", {"recovery": RECOVERY + "\nimpl Stage7bRecoveryReadyOwner { pub fn recovered_mut(&mut self) {} }\n"}),
     ("cached-readiness", {"recovery": RECOVERY.replace("self.writer_lease.validate_namespace().is_ok()", "true", 1)}),
     ("blocked-provider-enabled", {"recovery": RECOVERY.replace("pub fn paper_provider_invocation_allowed(&self) -> bool {\n        false", "pub fn paper_provider_invocation_allowed(&self) -> bool {\n        true", 1)}),
+    ("pre-rename-observer-removed", {"recovery": RECOVERY.replace("            after_temp_sync();\n", "", 1)}),
+    ("b032-subprocess-witness-removed", {"recovery": RECOVERY.replace("stage7b_c_b032_sigkill_after_temp_sync_keeps_old_committed_seal", "removed_b032_witness", 1)}),
+    ("b034-checkpoint-witness-removed", {"recovery": RECOVERY.replace("stage7b_c_b034_authenticated_checkpoint_ahead_of_file_journal_blocks", "removed_b034_witness", 1)}),
+    ("b039-finalized-ahead-witness-removed", {"recovery": RECOVERY.replace("stage7b_c_b039_finalized_file_journal_ahead_restarts_ready", "removed_b039_witness", 1)}),
+    ("b040-unbound-nonfinal-witness-removed", {"recovery": RECOVERY.replace("stage7b_c_b040_unbound_nonfinal_file_journal_blocks_without_effect", "removed_b040_witness", 1)}),
+    ("b041-cross-bound-witness-removed", {"recovery": RECOVERY.replace("stage7b_c_b041_cross_bound_active_file_journal_preserves_dispatch_safety", "removed_b041_witness", 1)}),
     ("descriptor-overclaim-redis", {"descriptor": changed_descriptor("redis_consumer_attached", True)}),
+    ("descriptor-overclaim-exactly-once", {"descriptor": changed_descriptor("cross_process_exactly_once_claimed", True)}),
+    ("aggregate-descriptor-stale-slice", {"aggregate": changed_aggregate("slice", "7B-a-R1")}),
     ("negative-count-drift", {"descriptor": changed_descriptor("negative_case_count", 25)}),
 ]
 
 
 def must_fail(name: str, mutation: dict) -> None:
     try:
-        if "descriptor" in mutation:
+        if "aggregate" in mutation:
+            checker.validate_aggregate_descriptor(mutation["aggregate"])
+        elif "descriptor" in mutation:
             checker.validate_descriptor(mutation["descriptor"])
         elif "manifest" in mutation:
             checker.check_dependencies(WORKSPACE, mutation["manifest"])
