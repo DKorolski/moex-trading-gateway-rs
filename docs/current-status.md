@@ -1012,3 +1012,10 @@ runtime-driven live micro be discussed.
 - Independent Stage 8A-0 acceptance is still pending and may open only 8A-1.
 - FINAM POST/DELETE, broker dispatch, runtime-live and real orders remain
   closed.
+
+Stage 8A-0 R0 at `104cdf8f1ff0a645a5681eae653962ba59016123` was not
+independently accepted due to regression-runner and handoff-evidence gaps. The
+R1 candidate restores all-target serialized workspace/doc tests, packages and
+SHA-binds every gate log, records the inherited Redis timing witness and raises
+the mandatory matrix/negative count to 41/41. FINAM contract snapshot/parity
+remain unchanged at `MATCH`; Stage 8A-1 remains closed pending R1 acceptance.

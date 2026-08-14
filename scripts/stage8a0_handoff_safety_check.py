@@ -45,6 +45,15 @@ def verify(archive_path: Path) -> dict:
             "handoff-evidence/stage8a0-evidence.json",
             "handoff-evidence/stage8a0-preseal-safety.json",
         }
+        required.update({
+            f"handoff-evidence/gate-artifacts/{name}"
+            for name in (
+                "contract-check.txt", "closed-surface.txt", "negative.txt",
+                "proof-map.json", "python-compile.txt", "fmt.txt", "test.txt",
+                "doctest.txt", "clippy.txt", "diff-check.txt", "toolchain.txt",
+                "timing-flake-evidence.json",
+            )
+        })
         missing = sorted(required - set(names))
         if missing:
             raise SystemExit(f"stage8a0-handoff-safety: FAIL missing: {missing}")
@@ -62,6 +71,20 @@ def verify(archive_path: Path) -> dict:
         evidence = json.loads(archive.read("handoff-evidence/stage8a0-evidence.json"))
         if evidence["source_ref"] != source_ref or evidence["candidate_status"] != "independent_acceptance_pending":
             raise SystemExit("stage8a0-handoff-safety: FAIL evidence binding/status")
+        artifact_hashes = evidence.get("gate_artifact_sha256")
+        if set(artifact_hashes or {}) != {
+            "contract-check.txt", "closed-surface.txt", "negative.txt",
+            "proof-map.json", "python-compile.txt", "fmt.txt", "test.txt",
+            "doctest.txt", "clippy.txt", "diff-check.txt", "toolchain.txt",
+            "timing-flake-evidence.json",
+        }:
+            raise SystemExit("stage8a0-handoff-safety: FAIL artifact hash inventory")
+        for name, digest in artifact_hashes.items():
+            payload = archive.read(f"handoff-evidence/gate-artifacts/{name}")
+            if hashlib.sha256(payload).hexdigest() != digest:
+                raise SystemExit(f"stage8a0-handoff-safety: FAIL artifact hash: {name}")
+        if evidence.get("final_serialized_gate_passed") is not True:
+            raise SystemExit("stage8a0-handoff-safety: FAIL serialized gate evidence")
         return {
             "schema_version": 1,
             "result": "PASS",

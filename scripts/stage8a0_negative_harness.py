@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact 36 reviewed negative mutations for Stage 8A-0."""
+"""Exact 41 reviewed negative mutations for Stage 8A-0 R1."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ FILES = {
     checker.INVENTORY, checker.POLICY, checker.ORDER_REQUEST, checker.IDS,
     checker.MAPPER, checker.DTO, checker.REGISTRY, checker.INSTRUMENT,
     checker.ENUM_FIXTURE, checker.ORDER_PATH, checker.STAGE7B,
+    checker.TIMING_EVIDENCE, checker.GATE_SCRIPT, checker.HANDOFF_SCRIPT,
+    checker.SAFETY_SCRIPT,
 }
 
 
@@ -49,6 +51,22 @@ def parity(root: Path, mutate: Callable[[dict], None]) -> None:
 def append(root: Path, path: Path, text: str) -> None:
     target = root / path
     target.write_text(target.read_text() + text)
+
+
+def replace(root: Path, path: Path, old: str, new: str) -> None:
+    target = root / path
+    text = target.read_text()
+    if old not in text:
+        raise RuntimeError(f"mutation source missing: {path}: {old}")
+    target.write_text(text.replace(old, new, 1))
+
+
+def replace_all(root: Path, path: Path, old: str, new: str) -> None:
+    target = root / path
+    text = target.read_text()
+    if old not in text:
+        raise RuntimeError(f"mutation source missing: {path}: {old}")
+    target.write_text(text.replace(old, new))
 
 
 CASES: list[tuple[str, Callable[[Path], None]]] = [
@@ -88,13 +106,18 @@ CASES: list[tuple[str, Callable[[Path], None]]] = [
     ("unpin-negative-count", lambda root: descriptor(root, lambda value: value.__setitem__("negative_case_count", 35))),
     ("skip-workspace-regression", lambda root: descriptor(root, lambda value: value.__setitem__("workspace_regression_required", False))),
     ("self-accept-and-open-8a2", lambda root: descriptor(root, lambda value: (value.__setitem__("status", "ACCEPTED"), value.__setitem__("stage8a_2_through_8a_5_open", True)))),
+    ("remove-all-targets", lambda root: replace_all(root, checker.GATE_SCRIPT, "cargo test --workspace --all-targets -- --test-threads=1", "cargo test --workspace -- --test-threads=1")),
+    ("remove-serialized-test-policy", lambda root: replace_all(root, checker.GATE_SCRIPT, " -- --test-threads=1", "")),
+    ("omit-regression-log-from-handoff", lambda root: replace_all(root, checker.HANDOFF_SCRIPT, '"test.txt"', '"workspace-regression.txt"')),
+    ("stop-hash-binding-regression-artifacts", lambda root: replace(root, checker.HANDOFF_SCRIPT, '"gate_artifact_sha256": artifact_hashes,', '"gate_artifact_sha256": {},')),
+    ("omit-timing-flake-witness", lambda root: edit_json(root, checker.TIMING_EVIDENCE, lambda value: value["exact_reconstructed_witness"].__setitem__("failure_signature", ""))),
 ]
 
 
 def main() -> None:
     checker.check(ROOT, check_git_scope=False)
-    if len(CASES) != 36:
-        raise SystemExit(f"stage8a0-negative: FAIL inventory={len(CASES)}/36")
+    if len(CASES) != 41:
+        raise SystemExit(f"stage8a0-negative: FAIL inventory={len(CASES)}/41")
     passed = 0
     for name, mutate in CASES:
         with tempfile.TemporaryDirectory(prefix="stage8a0-negative-") as raw:
@@ -108,9 +131,9 @@ def main() -> None:
                 print(f"PASS {name}")
             else:
                 raise SystemExit(f"stage8a0-negative: FAIL accepted mutation {name}")
-    if passed != 36:
-        raise SystemExit(f"stage8a0-negative: FAIL cases={passed}/36")
-    print("stage8a0-negative: PASS cases=36/36")
+    if passed != 41:
+        raise SystemExit(f"stage8a0-negative: FAIL cases={passed}/41")
+    print("stage8a0-negative: PASS cases=41/41")
 
 
 if __name__ == "__main__":

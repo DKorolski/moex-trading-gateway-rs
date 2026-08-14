@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "stage": "8A-0-R1",
+  "evidence_kind": "inherited_redis_subprocess_timing_flake_closure",
+  "r0_base_candidate": "104cdf8f1ff0a645a5681eae653962ba59016123",
+  "observed_failure_count": 2,
+  "root_cause_classification": "acceptance_runner_parallel_timing_contention_not_production_source_change",
+  "exact_reconstructed_witness": {
+    "test_name": "stage7b_e_x16_sigkill_during_claim_is_reclaimable_by_next_boot",
+    "source": "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs:375:5",
+    "failure_signature": "X16 child did not reach claim barrier",
+    "failed_parallel_command": "cargo test --workspace",
+    "failed_log_sha256": "b4c3038a2e33f8cef0a819f8193602a8d51f3c3f8e4f9225ac384ce05ce56f38",
+    "failed_result": "FAILED: 2 passed; 1 failed; 3 ignored in inherited subprocess test binary"
+  },
+  "second_observation": {
+    "context": "first R0 immutable handoff-builder rerun",
+    "result": "cargo test exit code 101",
+    "exact_temporary_log_retained": false,
+    "retention_gap_closed_by_r1": "all final gate logs are now packaged and hash-bound"
+  },
+  "isolated_rerun": {
+    "command": "cargo test -p runtime-durable-service --test stage7b_redis_service_subprocess stage7b_e_x16_sigkill_during_claim_is_reclaimable_by_next_boot -- --nocapture",
+    "result": "PASS: 1 passed; 0 failed; 5 filtered out; finished in 1.55s"
+  },
+  "r1_final_policy": {
+    "workspace_command": "cargo test --workspace --all-targets -- --test-threads=1",
+    "doctest_command": "cargo test --workspace --doc -- --test-threads=1",
+    "serialized_final_gate_result": "PASS required and proven by packaged test.txt/doctest.txt plus handoff evidence hash map",
+    "test_weakened_or_ignored": false,
+    "bounded_retry_added": false
+  },
+  "production_scope": {
+    "production_rust_changed_from_accepted_gate_r3": false,
+    "production_rust_changed_from_r0_candidate": false,
+    "cargo_changed": false,
+    "github_workflow_changed": false,
+    "finam_contract_snapshot_changed": false,
+    "finam_contract_parity_changed": false
+  }
+}

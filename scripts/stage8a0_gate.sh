@@ -21,13 +21,17 @@ python3 -m py_compile \
   >"$ARTIFACT_DIR/python-compile.txt" 2>&1
 printf '%s\n' 'python-compile: PASS' >>"$ARTIFACT_DIR/python-compile.txt"
 
-cargo fmt --all -- --check >"$ARTIFACT_DIR/fmt.txt" 2>&1
+printf '%s\n' 'command: cargo fmt --all -- --check' >"$ARTIFACT_DIR/fmt.txt"
+cargo fmt --all -- --check >>"$ARTIFACT_DIR/fmt.txt" 2>&1
 printf '%s\n' 'fmt: PASS' >>"$ARTIFACT_DIR/fmt.txt"
-cargo test --workspace >"$ARTIFACT_DIR/test.txt" 2>&1
+printf '%s\n' 'command: cargo test --workspace --all-targets -- --test-threads=1' >"$ARTIFACT_DIR/test.txt"
+cargo test --workspace --all-targets -- --test-threads=1 >>"$ARTIFACT_DIR/test.txt" 2>&1
 printf '%s\n' 'test: PASS' >>"$ARTIFACT_DIR/test.txt"
-cargo test --workspace --doc >"$ARTIFACT_DIR/doctest.txt" 2>&1
+printf '%s\n' 'command: cargo test --workspace --doc -- --test-threads=1' >"$ARTIFACT_DIR/doctest.txt"
+cargo test --workspace --doc -- --test-threads=1 >>"$ARTIFACT_DIR/doctest.txt" 2>&1
 printf '%s\n' 'doctest: PASS' >>"$ARTIFACT_DIR/doctest.txt"
-cargo clippy --workspace --all-targets --all-features -- -D warnings >"$ARTIFACT_DIR/clippy.txt" 2>&1
+printf '%s\n' 'command: cargo clippy --workspace --all-targets --all-features -- -D warnings' >"$ARTIFACT_DIR/clippy.txt"
+cargo clippy --workspace --all-targets --all-features -- -D warnings >>"$ARTIFACT_DIR/clippy.txt" 2>&1
 printf '%s\n' 'clippy: PASS' >>"$ARTIFACT_DIR/clippy.txt"
 git diff --check >"$ARTIFACT_DIR/diff-check.txt" 2>&1
 printf '%s\n' 'diff-check: PASS' >>"$ARTIFACT_DIR/diff-check.txt"
@@ -35,4 +39,4 @@ rustc --version >"$ARTIFACT_DIR/toolchain.txt"
 cargo --version >>"$ARTIFACT_DIR/toolchain.txt"
 python3 --version >>"$ARTIFACT_DIR/toolchain.txt"
 
-printf 'stage8a0-gate: PASS rows=36 negatives=36 parity=MATCH next=8A-1-pending production=closed artifact_dir=%s\n' "$ARTIFACT_DIR"
+printf 'stage8a0-gate: PASS rows=41 negatives=41 parity=MATCH next=8A-1-pending production=closed artifact_dir=%s\n' "$ARTIFACT_DIR"

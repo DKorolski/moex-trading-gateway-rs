@@ -17,9 +17,13 @@ BRANCH = "stage8a0-contract-freeze"
 DESCRIPTOR = Path("docs/stage-8/stage8a0-descriptor.json")
 SNAPSHOT = Path("docs/stage-8/stage8a0-finam-contract-snapshot-2026-08-14.json")
 PARITY = Path("docs/stage-8/stage8a0-contract-parity-evidence-2026-08-14.json")
-MATRIX = Path("docs/stage-8/STAGE8A_0_ACCEPTANCE_MATRIX_2026-08-14.csv")
-INVENTORY = Path("docs/stage-8/STAGE8A_0_NEGATIVE_INVENTORY_2026-08-14.md")
+MATRIX = Path("docs/stage-8/STAGE8A_0_R1_ACCEPTANCE_MATRIX_2026-08-14.csv")
+INVENTORY = Path("docs/stage-8/STAGE8A_0_R1_NEGATIVE_INVENTORY_2026-08-14.md")
 POLICY = Path("docs/stage-8/stage8a0-contract-freeze.md")
+TIMING_EVIDENCE = Path("docs/stage-8/stage8a0-r1-timing-flake-evidence.json")
+GATE_SCRIPT = Path("scripts/stage8a0_gate.sh")
+HANDOFF_SCRIPT = Path("scripts/make_stage8a0_handoff_archive.py")
+SAFETY_SCRIPT = Path("scripts/stage8a0_handoff_safety_check.py")
 ORDER_REQUEST = Path("crates/broker-finam/src/order_request.rs")
 IDS = Path("crates/broker-core/src/ids.rs")
 MAPPER = Path("crates/broker-finam/src/mapper.rs")
@@ -30,9 +34,10 @@ ENUM_FIXTURE = Path("crates/broker-finam/tests/fixtures/finam_spec/order_contrac
 ORDER_PATH = Path("crates/broker-core/src/order_path.rs")
 STAGE7B = Path("docs/stage-7/stage7b-closure-descriptor.json")
 
-MATRIX_SHA = "7c0e7ec47055c33b9a25bf4188016f845a5d8d867fc6c9e95b3da89aaf51e62b"
-NORMATIVE_PACKAGE_MATRIX_SHA = "2c9c6df6ef30aa13eb6bed9c48b3cec309ad2ff619e3f35bdde53c8d29d49e44"
-INVENTORY_SHA = "dd6cc0ea3f411b83d382d8a8a7bbbce05db5a846c65182534994f3e9b0fe0b5a"
+MATRIX_SHA = "2f3692a26df9dfa4d8d5bb14ef36f5ca0a86ada7c85179ebf9d9263fb8be41b6"
+NORMATIVE_PACKAGE_MATRIX_SHA = "b1fc4f2cbd6b861b1d956b4327e7b2502eb4bb61870a50adf2fcb256f785cecf"
+INVENTORY_SHA = "ec67a816a8a1dfa061d09178342d0864369dd55b4ea5e517cf2823392ef926b0"
+TIMING_EVIDENCE_SHA = "fa461397721c0cddc19b2ff0eba9930958a35f6b5383821491e6174d5e7552eb"
 SNAPSHOT_SHA = "11062063c5f1f4f83f645af6b3a2e2716af363dca0bafdbdf3ee2b00da5d572e"
 PARITY_SHA = "d7247d3a8802cc2600bdf3a9eda20fd5075cadf313ff81ad44217b826b431d6f"
 SOURCE_HASHES = {
@@ -71,18 +76,26 @@ def check(root: Path = ROOT, *, check_git_scope: bool = True) -> None:
     parity = load_json(root, PARITY)
     fixture = load_json(root, ENUM_FIXTURE)
 
-    require(descriptor["status"] == "candidate_independent_acceptance_pending", "self-acceptance/status drift")
+    require(descriptor["status"] == "r1_candidate_independent_acceptance_pending", "self-acceptance/status drift")
+    require(descriptor["r0_base_candidate"] == "104cdf8f1ff0a645a5681eae653962ba59016123", "R0 base drift")
+    require(descriptor["r0_independent_review_sha256"] == "212c2cb795353e9b0488c2a77c013e80734c6d94b84e2eee8f01852d221a6807", "R0 review hash drift")
+    require(descriptor["r1_tz_sha256"] == "d3914cdb7d12e0c7b0b41316006038b544b5fe1fcf3c06892e8d00740fc4289c", "R1 TZ hash drift")
     require(descriptor["accepted_gate7_to_8_ref"] == BASE, "accepted Gate R3 ref drift")
     require(descriptor["accepted_gate7_to_8_review_sha256"] == "3df1d4fda8f1b6d68d7960398971646968214c88e13836d00559ad0ae09e9230", "accepted review hash drift")
     require(descriptor["accepted_stage7b_ref"] == "a1044e0dbe324c722b637498ca80ffafd9f0cbee", "Stage7B ref drift")
     require(descriptor["scope"] == "docs_evidence_checkers_only", "scope drift")
-    require(descriptor["acceptance_row_count"] == 36, "matrix count drift")
-    require(descriptor["negative_case_count"] == 36, "negative count drift")
+    require(descriptor["acceptance_row_count"] == 41, "matrix count drift")
+    require(descriptor["negative_case_count"] == 41, "negative count drift")
     require(descriptor["acceptance_matrix_sha256"] == MATRIX_SHA == sha256(root / MATRIX), "matrix hash drift")
     require(descriptor["normative_package_matrix_sha256"] == NORMATIVE_PACKAGE_MATRIX_SHA, "normative package matrix hash drift")
     require(descriptor["negative_inventory_sha256"] == INVENTORY_SHA == sha256(root / INVENTORY), "inventory hash drift")
     require(descriptor["contract_snapshot_sha256"] == SNAPSHOT_SHA == sha256(root / SNAPSHOT), "snapshot hash drift")
     require(descriptor["contract_parity_sha256"] == PARITY_SHA == sha256(root / PARITY), "parity hash drift")
+    require(descriptor["timing_flake_evidence_sha256"] == TIMING_EVIDENCE_SHA == sha256(root / TIMING_EVIDENCE), "timing evidence hash drift")
+    require(descriptor["workspace_test_all_targets_required"] is True, "all-target coverage disabled")
+    require(descriptor["workspace_and_doc_test_threads"] == 1, "serialized test policy drift")
+    require(descriptor["all_gate_logs_packaged"] is True, "gate log packaging disabled")
+    require(descriptor["all_gate_logs_sha256_bound"] is True, "gate log hash binding disabled")
 
     false_fields = (
         "production_rust_changes_allowed", "cargo_changes_allowed", "github_workflow_changes_allowed",
@@ -167,11 +180,35 @@ def check(root: Path = ROOT, *, check_git_scope: bool = True) -> None:
         token = status.removeprefix("ORDER_STATUS_")
         require(f'"{token}"' in mapper_source or token == "UNSPECIFIED", f"status classifier provenance missing: {status}")
 
+    gate_text = (root / GATE_SCRIPT).read_text()
+    require("cargo test --workspace --all-targets -- --test-threads=1" in gate_text, "all-target serialized test command absent")
+    require("cargo test --workspace --doc -- --test-threads=1" in gate_text, "serialized doctest command absent")
+    require("cargo clippy --workspace --all-targets --all-features -- -D warnings" in gate_text, "clippy coverage drift")
+    handoff_text = (root / HANDOFF_SCRIPT).read_text()
+    safety_text = (root / SAFETY_SCRIPT).read_text()
+    required_artifacts = {
+        "contract-check.txt", "closed-surface.txt", "negative.txt", "proof-map.json",
+        "python-compile.txt", "fmt.txt", "test.txt", "doctest.txt", "clippy.txt",
+        "diff-check.txt", "toolchain.txt", "timing-flake-evidence.json",
+    }
+    for name in required_artifacts:
+        require(f'"{name}"' in handoff_text, f"handoff artifact omitted: {name}")
+        require(f'"{name}"' in safety_text, f"safety artifact omitted: {name}")
+    for token in ("artifact_hashes = {", '"gate_artifact_sha256": artifact_hashes,', "hashlib.sha256(payload).hexdigest()"):
+        require(token in handoff_text, f"artifact hash binding absent: {token}")
+    require("artifact_hashes = evidence.get(\"gate_artifact_sha256\")" in safety_text, "safety hash map validation absent")
+    timing = load_json(root, TIMING_EVIDENCE)
+    require(timing["exact_reconstructed_witness"]["test_name"] == "stage7b_e_x16_sigkill_during_claim_is_reclaimable_by_next_boot", "timing witness test drift")
+    require(timing["exact_reconstructed_witness"]["failure_signature"] == "X16 child did not reach claim barrier", "timing signature drift")
+    require(timing["isolated_rerun"]["result"].startswith("PASS"), "isolated rerun not proven")
+    require(timing["r1_final_policy"]["workspace_command"] == "cargo test --workspace --all-targets -- --test-threads=1", "timing final command drift")
+    require(timing["production_scope"]["production_rust_changed_from_r0_candidate"] is False, "production scope changed")
+
     with (root / MATRIX).open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 36 and all(row["mandatory"] == "YES" for row in rows), "acceptance matrix rows drift")
+    require(len(rows) == 41 and all(row["mandatory"] == "YES" for row in rows), "acceptance matrix rows drift")
     inventory_cases = re.findall(r"^\d+\. `.+`$", (root / INVENTORY).read_text(), re.M)
-    require(len(inventory_cases) == 36, "negative inventory rows drift")
+    require(len(inventory_cases) == 41, "negative inventory rows drift")
     policy = (root / POLICY).read_text()
     for token in ("independent acceptance pending", "MATERIAL_DRIFT_BLOCKED", "DefinitelyNotSent", "Stage 8A-1 only", "Disabled/None"):
         require(token in policy, f"policy token absent: {token}")
@@ -187,7 +224,7 @@ def main() -> None:
         check()
     except (GateFailure, closed.ClosedSurfaceFailure) as error:
         raise SystemExit(f"stage8a0-check: FAIL {error}") from error
-    print("stage8a0-check: PASS rows=36 parity=MATCH next=8A-1-pending production=closed")
+    print("stage8a0-check: PASS r1 rows=41 parity=MATCH serialized-regression=true logs=hash-bound next=8A-1-pending production=closed")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,42 @@
+id,category,requirement,expected,mandatory,evidence,negative_mutation
+S8A0R1-001,predecessor,Accepted Gate 7→8 R3 is exact,Gate ref=630bef3fb9aa07bbc377498fc052f085155a043c and independent review SHA=3df1d4fda8f1b6d68d7960398971646968214c88e13836d00559ad0ae09e9230,YES,descriptor_hash,forge Gate R3 ref/review SHA
+S8A0R1-002,scope,8A-0 is docs/evidence/checkers only,"No crates/**, Cargo.*, .github/** production delta",YES,git_scope,add Rust production change
+S8A0R1-003,scope,8A-1 through 8A-5 remain closed,8A-0 acceptance may open only 8A-1,YES,governance,open 8A-2 directly
+S8A0R1-004,scope,Real FINAM execution remains closed,"No POST/DELETE, broker dispatch, runtime-live or real order",YES,closed_surface,enable FINAM POST
+S8A0R1-005,source,Official REST source is current and explicit,Source URL=https://api.finam.ru/docs/rest/ plus UTC retrieval timestamp,YES,source_evidence,omit source URL/timestamp
+S8A0R1-006,source,Official enum/protobuf source is explicit,"Current official enum/status source URL(s), including FINAM gRPC/protobuf docs where needed",YES,source_evidence,use only stale local fixture
+S8A0R1-007,snapshot,REST order contract is normalized and hash-pinned,Machine-readable normalized snapshot SHA-256 recorded,YES,artifact_integrity,change snapshot without hash
+S8A0R1-008,snapshot,Raw/public source excerpt provenance is reproducible,Evidence records how normalized fields/statuses were obtained without credentials,YES,artifact_integrity,unverifiable hand-edited snapshot
+S8A0R1-009,place,PLACE endpoint path is frozen,POST /v1/accounts/{account_id}/orders,YES,contract_parity,change PLACE endpoint
+S8A0R1-010,cancel,CANCEL endpoint path is frozen,DELETE /v1/accounts/{account_id}/orders/{order_id},YES,contract_parity,change CANCEL endpoint
+S8A0R1-011,place,Full current PLACE field set is captured,"symbol, quantity, side, type, time_in_force, limit_price, stop fields, legs, client_order_id, valid_before, comment as currently documented",YES,contract_parity,omit documented PLACE field
+S8A0R1-012,enum,Full current OrderType enum is frozen,Official values captured; Stage8 policy still permits MARKET/LIMIT only,YES,enum_fixture,allow STOP in Stage8 policy
+S8A0R1-013,enum,Full current TimeInForce enum is frozen,Official values captured; Stage8 initial policy remains Day only,YES,enum_fixture,drop current TIF enum value
+S8A0R1-014,enum,ValidBefore enum is frozen,Official values captured; Stage8 plain MARKET/LIMIT policy does not use conditional/GTD semantics,YES,enum_fixture,enable GTD plain order
+S8A0R1-015,identity,ClientOrderId broker contract is frozen,Official optional/auto-generation behavior and maximum 20 chars recorded,YES,contract_parity,omit max-20 rule
+S8A0R1-016,identity,Stage8 identity policy remains stricter than broker contract,"client_order_id mandatory, exact durable ID, non-empty, <=20, no broker-generated fallback",YES,policy_gate,allow omitted client ID
+S8A0R1-017,comment,Initial outgoing comment policy is closed,Stage8 initial order comment = Disabled/None,YES,policy_gate,enable arbitrary comment
+S8A0R1-018,place,PLACE documented response statuses are frozen,200/400/401/404/429/500/503/504/default,YES,status_fixture,drop PLACE default
+S8A0R1-019,cancel,CANCEL documented response statuses are frozen,200/400/401/404/429/500/503/504/default,YES,status_fixture,drop CANCEL 401
+S8A0R1-020,cancel,CANCEL 400 meaning is frozen,"Already-executed condition maps to future reconciliation policy, not ordinary rejection",YES,status_policy,cancel400 -> BrokerRejected
+S8A0R1-021,cancel,CANCEL 401 policy is carried forward,Auth/readiness block + disarm + unresolved target + fresh truth + no same-request retry,YES,status_policy,cancel401 -> ordinary reject/retry
+S8A0R1-022,cancel,CANCEL 404 policy is carried forward,Reconciliation required; no terminal cancel inference,YES,status_policy,cancel404 -> success
+S8A0R1-023,cancel,Defensive 409/410 project policy remains explicit,Undocumented comparable outcomes remain reconciliation until separately waived,YES,status_policy,cancel409 -> success
+S8A0R1-024,builder,Existing PLACE builder source hash is pinned,broker-finam build_place_order_request source/hash recorded,YES,source_hash,introduce second serializer
+S8A0R1-025,builder,Existing CANCEL builder source hash is pinned,broker-finam build_cancel_order_request source/hash recorded,YES,source_hash,introduce second cancel serializer
+S8A0R1-026,builder,Builder parity report is explicit,Current official contract vs current builder/fixture = match or MATERIAL_DRIFT_BLOCKED,YES,parity_report,silently accept drift
+S8A0R1-027,status,Current OrderStatus provenance is refreshed,Official current status enum/source compared with project classifier fixture,YES,enum_fixture,ignore new status
+S8A0R1-028,instrument,Instrument prerequisites are pinned,Current tick/lot/qty-step/multiplier/symbol/schedule sources used by later preflight are identified and hashed,YES,fixture_inventory,omit schedule source
+S8A0R1-029,durability,One-attempt-per-durable-request invariant is restated,DefinitelyNotSent never enables same durable request re-execution after DispatchAttemptRecorded,YES,policy_gate,same request retry after DefinitelyNotSent
+S8A0R1-030,authority,Stage7B remains sole lifecycle authority,No Stage8 journal/reducer/ClientOrderId allocator/settlement owner introduced,YES,closed_surface,add Stage8 journal
+S8A0R1-031,scanner,Stage8-specific closed-surface scanner is introduced for 8A-0,Pins docs-only scope now and is designed to evolve per accepted Stage8 slice; historical Stage5 scanner is not sole authority,YES,closed_surface,use stale Stage5 scanner as sole authority
+S8A0R1-032,drift,Material contract drift blocks progression,Any material official-vs-project mismatch => 8A-0 NOT ACCEPTED; no production fix in same slice,YES,governance,auto-fix mapper inside 8A-0
+S8A0R1-033,negative,8A-0 negative inventory is descriptor-pinned,Exact expected case count equals actual CASES,YES,negative_harness,unpin negative count
+S8A0R1-034,regression,Workspace regression gate remains green,fmt/tests/doctests/clippy pass despite docs/checker-only slice,YES,aggregate_gate,skip inherited regression
+S8A0R1-035,handoff,Immutable 8A-0 handoff is complete,commit/branch/ZIP/sidecar/source manifest/descriptor/snapshots/evidence/toolchain/gate logs,YES,handoff,drop source manifest
+S8A0R1-036,governance,Independent 8A-0 acceptance opens only 8A-1,No builder/capability/send work opens before independent 8A-0 review,YES,independent_review,self-open 8A-2
+S8A0R1-037,regression,Workspace test coverage inherits accepted Gate policy,"Final handoff runs cargo test --workspace --all-targets, not a reduced workspace target set",YES,aggregate_gate,remove --all-targets
+S8A0R1-038,regression,Inherited infrastructure tests are serialized,Final workspace and doc test commands use -- --test-threads=1 as accepted Gate 7→8 timing-barrier policy,YES,aggregate_gate,remove --test-threads=1
+S8A0R1-039,evidence,Regression logs are packaged,test/doctest/clippy/fmt/contract-check/python-compile/diff-check logs are present in handoff,YES,handoff,omit regression logs
+S8A0R1-040,evidence,Regression logs are hash-bound,"Evidence JSON records SHA-256 of each packaged gate artifact, not only the one-line completion marker",YES,artifact_integrity,omit regression artifact hashes
+S8A0R1-041,regression,Observed timing flake is explicitly accounted for,Exact inherited Redis subprocess test/failure signature and isolated rerun are recorded; serialized final gate passes with unchanged production source,YES,timing_witness,suppress known timing-flake witness

@@ -127,3 +127,8 @@ The reviewed sequence remains:
 
 No step in 8A-0 opens FINAM POST/DELETE, broker dispatch, runtime-live or real
 strategy orders.
+
+Stage 8A-0 R0 was not accepted for evidence-runner reasons, not contract drift.
+The active R1 candidate is limited to serialized all-target regression,
+complete hash-bound gate logs and timing-flake disclosure. Independent R1
+acceptance is still the only event that may open Stage 8A-1.

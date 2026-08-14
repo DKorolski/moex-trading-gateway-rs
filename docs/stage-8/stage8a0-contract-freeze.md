@@ -2,6 +2,11 @@
 
 Status: candidate; independent acceptance pending.
 
+R0 at `104cdf8f1ff0a645a5681eae653962ba59016123` was not accepted because its
+regression runner dropped the inherited all-target/serialized policy and its
+handoff omitted detailed gate logs. R1 changes only the runner and evidence
+packaging: contract snapshot and parity remain unchanged.
+
 This slice refreshes and freezes the public FINAM order and instrument
 prerequisite contracts before any Stage 8 production implementation. It is
 limited to documentation, evidence and checkers. It does not authorize or add
@@ -53,3 +58,18 @@ futures policy and must not be described as broker-observed data.
 production code. Independent
 acceptance of this package may open Stage 8A-1 only. It does not open 8A-2,
 Stage 8B or any order transport.
+
+## R1 regression evidence hardening
+
+R1 restores the accepted inherited commands:
+
+```text
+cargo test --workspace --all-targets -- --test-threads=1
+cargo test --workspace --doc -- --test-threads=1
+```
+
+The immutable handoff must package and SHA-bind every checker, negative,
+proof-map, format, test, doctest, clippy, diff and toolchain artifact. The
+candidate-specific Redis timing witness is preserved separately and the test
+is neither ignored nor weakened. The R1 matrix and negative inventory contain
+exactly 41 mandatory cases.
