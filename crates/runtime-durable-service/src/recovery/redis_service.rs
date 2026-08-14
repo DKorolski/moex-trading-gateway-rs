@@ -5,8 +5,8 @@
 //! only: Stage 6 journal/replay is the sole command execution authority.
 
 use super::redis_settlement::{
-    Stage7bPreStage6CommandObservation, Stage7bRedisSettlementBackend,
-    Stage7bRedisSettlementContext,
+    Stage7bCanonicalRequestPublicationLookup, Stage7bPreStage6CommandObservation,
+    Stage7bRedisSettlementBackend, Stage7bRedisSettlementContext,
 };
 use super::Stage7bRecoveryReadyOwner;
 use broker_core::{BrokerCommand, Envelope, StrategyRequestId};
@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use redis::aio::ConnectionManager;
 use redis::streams::{StreamAutoClaimReply, StreamId, StreamPendingReply, StreamReadReply};
 use runtime_command_bridge::{
-    classify_stage7a_deterministic_policy_rejection,
+    canonical_stage7a_command_identity, classify_stage7a_deterministic_policy_rejection,
     classify_stage7a_permanent_pre_admission_poison, decode_stage7a_pre_admission,
     Stage7aCommandProfile, Stage7aDeterministicRejectionEvidence, Stage7aPaperOutcomeProvider,
     Stage7aPaperProviderError, Stage7aRecoveredProfileClassification,
@@ -586,6 +586,42 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7bRedisService<P> {
             .owner
             .observe_pre_stage6_command(&self.commitment_key, request_id)
             .map_err(|error| Stage7bRedisServiceError::Authority(error.to_string()))?;
+        let command_identity = canonical_stage7a_command_identity(&envelope.payload)?;
+        if !observation.request_identity_was_established() {
+            let marker_context = self.context(&entry_id)?;
+            let lookup = self
+                .settlement
+                .lookup_canonical_request_publication(&marker_context, request_id)
+                .await;
+            let lookup = match lookup {
+                Ok(lookup) => lookup,
+                Err(error) => {
+                    self.supervisor.block(entry_id, Some(request_id));
+                    self.supervisor.mark_settlement(false);
+                    return Err(Stage7bRedisServiceError::Authority(error.to_string()));
+                }
+            };
+            match lookup {
+                Stage7bCanonicalRequestPublicationLookup::Absent => {}
+                Stage7bCanonicalRequestPublicationLookup::Present(evidence)
+                    if evidence.matches(&command_identity) =>
+                {
+                    return self
+                        .settle_marker_duplicate(
+                            entry_id,
+                            observation,
+                            command_identity,
+                            evidence,
+                            marker_context,
+                        )
+                        .await;
+                }
+                Stage7bCanonicalRequestPublicationLookup::Present(_) => {
+                    self.supervisor.block(entry_id, Some(request_id));
+                    return Ok(false);
+                }
+            }
+        }
         let context = match self
             .profile
             .classify_for_recovered(&envelope.payload, self.owner.recovered()?)?
@@ -669,6 +705,40 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7bRedisService<P> {
             .settle_pre_stage6_rejection(
                 &self.commitment_key,
                 observation,
+                evidence,
+                context,
+                &mut self.settlement,
+            )
+            .await
+        {
+            Ok(_) => {
+                self.supervisor.clear(&entry_id);
+                self.supervisor.mark_settlement(self.settlement.healthy());
+                Ok(true)
+            }
+            Err(error) => {
+                self.supervisor.block(entry_id, Some(request_id));
+                self.supervisor.mark_settlement(false);
+                Err(Stage7bRedisServiceError::Authority(error.to_string()))
+            }
+        }
+    }
+
+    async fn settle_marker_duplicate(
+        &mut self,
+        entry_id: String,
+        observation: Stage7bPreStage6CommandObservation,
+        identity: runtime_command_bridge::Stage7aCanonicalCommandIdentity,
+        evidence: super::redis_settlement::Stage7bCanonicalRequestPublicationEvidence,
+        context: Stage7bRedisSettlementContext,
+    ) -> Result<bool, Stage7bRedisServiceError> {
+        let request_id = identity.strategy_request_id();
+        match self
+            .owner
+            .settle_canonical_marker_duplicate(
+                &self.commitment_key,
+                observation,
+                identity,
                 evidence,
                 context,
                 &mut self.settlement,

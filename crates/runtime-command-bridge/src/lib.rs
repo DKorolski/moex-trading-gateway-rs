@@ -202,6 +202,33 @@ pub struct Stage7aDeterministicRejectionEvidence {
     rejection_class: Stage7aDeterministicRejectionClass,
 }
 
+/// Opaque immutable identity of one decoded Stage 7A command.  Redis may use
+/// this value only to veto or reproduce already-published terminal transport
+/// history; it is not Stage 6 execution authority.
+pub struct Stage7aCanonicalCommandIdentity {
+    strategy_request_id: StrategyRequestId,
+    canonical_command_sha256: String,
+}
+
+impl Stage7aCanonicalCommandIdentity {
+    pub fn strategy_request_id(&self) -> StrategyRequestId {
+        self.strategy_request_id
+    }
+
+    pub fn canonical_command_sha256(&self) -> &str {
+        &self.canonical_command_sha256
+    }
+}
+
+pub fn canonical_stage7a_command_identity(
+    command: &BrokerCommand,
+) -> Result<Stage7aCanonicalCommandIdentity, Stage7aBridgeError> {
+    Ok(Stage7aCanonicalCommandIdentity {
+        strategy_request_id: command_request_id(command),
+        canonical_command_sha256: command_sha256(command)?,
+    })
+}
+
 impl Stage7aDeterministicRejectionEvidence {
     pub fn strategy_request_id(&self) -> StrategyRequestId {
         self.strategy_request_id

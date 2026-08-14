@@ -474,7 +474,7 @@
       "proof_type": "real_redis_restart",
       "rationale": "Stage 7B-d-c supervised restart/readiness witness",
       "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
-      "exact_witness": "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel exact duplicate branch; unchanged Stage 6 journal and provider count",
+      "exact_witness": "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel plus stage7b_d_c_r1_rejection_restart_is_idempotent_and_established_conflict_stays_pending and stage7b_d_c_r2_prior_profile_rejection_now_matching_is_marker_duplicate_only; exact Stage6-backed and marker-only duplicates have no provider/Stage6 effect",
       "status": "implemented"
     },
     {
@@ -483,7 +483,7 @@
       "proof_type": "real_redis_restart",
       "rationale": "Stage 7B-d-c supervised restart/readiness witness",
       "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
-      "exact_witness": "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel conflicting duplicate branch; PEL retained and ACK/provider counts unchanged",
+      "exact_witness": "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel plus stage7b_d_c_r2_marker_only_changed_identity_blocks_before_stage6_and_provider; Stage6-backed and marker-only conflicts retain PEL with unchanged ACK/DLQ/provider/Stage6 state",
       "status": "implemented"
     },
     {

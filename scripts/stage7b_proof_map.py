@@ -91,8 +91,8 @@ D_B_WITNESSES = {
 }
 
 D_C_WITNESSES = {
-    "B-052": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel exact duplicate branch; unchanged Stage 6 journal and provider count"),
-    "B-053": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel conflicting duplicate branch; PEL retained and ACK/provider counts unchanged"),
+    "B-052": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel plus stage7b_d_c_r1_rejection_restart_is_idempotent_and_established_conflict_stays_pending and stage7b_d_c_r2_prior_profile_rejection_now_matching_is_marker_duplicate_only; exact Stage6-backed and marker-only duplicates have no provider/Stage6 effect"),
+    "B-053": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel plus stage7b_d_c_r2_marker_only_changed_identity_blocks_before_stage6_and_provider; Stage6-backed and marker-only conflicts retain PEL with unchanged ACK/DLQ/provider/Stage6 state"),
     "B-064": ("integration", "stage7b_d_c_b064_storage_failure_dominates_redis_health"),
     "B-065": ("regression", "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs"),
     "B-066": ("integration", "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives with real owner + Redis + supervised Stage7bRedisService"),

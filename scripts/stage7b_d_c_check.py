@@ -79,8 +79,8 @@ def check_descriptors() -> None:
     expected = {
         "slice": "7B-d-c",
         "status": "implementation_candidate",
-        "candidate_revision": "r1",
-        "rejected_stage7b_d_c_ref": "c427ad1c83a27e6a80f45c7e09311ffcae26c913",
+        "candidate_revision": "r2",
+        "rejected_stage7b_d_c_ref": "9b98c360e1153e79971b5935d03fd0a0bdd1f4f4",
         "accepted_stage7b_d_b_ref": ACCEPTED_D_B,
         "implemented_count": 70,
         "pending_count": 10,
@@ -91,7 +91,7 @@ def check_descriptors() -> None:
         "stage7b_d_c_acceptance_pending": True,
         "b052_b053_implemented": True,
         "d_c_owned_rows_implemented": True,
-        "d_c_negative_case_count": 33,
+        "d_c_negative_case_count": 40,
         "composite_readiness_implemented": True,
         "real_service_paper_ready_integration": True,
         "durable_pel_reconstruction": True,
@@ -100,6 +100,11 @@ def check_descriptors() -> None:
         "deterministic_pre_stage6_rejection_ack": True,
         "deterministic_rejection_zero_stage6_mutation": True,
         "established_profile_mismatch_stays_pending": True,
+        "request_marker_pre_admission_veto": True,
+        "request_marker_stable_command_identity": True,
+        "marker_only_conflict_no_effect": True,
+        "marker_only_exact_duplicate_no_effect": True,
+        "legacy_request_marker_fail_closed": True,
         "claim_cursor_transport_only": True,
         "legacy_execution_authority_ignored": True,
         "redis_consumer_attached": True,
@@ -125,17 +130,20 @@ def check_descriptors() -> None:
         "deterministic_pre_stage6_rejection_ack",
         "deterministic_rejection_zero_stage6_mutation",
         "established_profile_mismatch_stays_pending",
+        "request_marker_pre_admission_veto", "request_marker_stable_command_identity",
+        "marker_only_conflict_no_effect", "marker_only_exact_duplicate_no_effect",
+        "legacy_request_marker_fail_closed",
         "claim_cursor_transport_only", "legacy_execution_authority_ignored",
         "redis_consumer_attached", "redis_settlement_enabled", "xack_enabled",
         "finam_post_delete", "broker_network_dispatch", "runtime_live", "real_orders",
     ):
         require(aggregate.get(key) == expected[key], f"aggregate descriptor drift: {key}")
-    require(aggregate.get("negative_case_count") == 33, "aggregate negative count drift")
+    require(aggregate.get("negative_case_count") == 40, "aggregate negative count drift")
     require(ownership.get("accepted_stage7b_d_b_ref") == ACCEPTED_D_B, "ownership d-b ref drift")
-    require(ownership.get("candidate_revision") == "r1", "ownership revision drift")
+    require(ownership.get("candidate_revision") == "r2", "ownership revision drift")
     require(
         ownership.get("rejected_stage7b_d_c_ref")
-        == "c427ad1c83a27e6a80f45c7e09311ffcae26c913",
+        == "9b98c360e1153e79971b5935d03fd0a0bdd1f4f4",
         "ownership rejected d-c ref drift",
     )
     require(ownership.get("implemented_rows") == 70, "ownership implemented count drift")
@@ -216,13 +224,24 @@ def check_source() -> None:
         "Stage7aRecoveredProfileClassification::IdentityConflict",
         "classify_stage7a_deterministic_policy_rejection",
         "settle_deterministic_rejection",
+        "canonical_stage7a_command_identity",
+        "lookup_canonical_request_publication",
+        "Stage7bCanonicalRequestPublicationLookup::Absent",
+        "Stage7bCanonicalRequestPublicationLookup::Present(evidence)",
+        "Stage7bCanonicalRequestPublicationLookup::Present(_)",
+        "settle_marker_duplicate",
     ):
         require(token in valid, f"deterministic rejection path absent: {token}")
     require(
         valid.index("observe_pre_stage6_command")
+        < valid.index("lookup_canonical_request_publication")
         < valid.index("classify_for_recovered")
         < valid.index("admit_paper_command"),
         "pre-Stage6 observation/classification ordering drift",
+    )
+    require(
+        "if !observation.request_identity_was_established() {" in valid,
+        "marker lookup is not required for Stage6-absent requests",
     )
     require(valid.index("admit_paper_command") < valid.index("paper_outcome"), "provider called before Stage 6 admission")
     require(valid.index("record_paper_outcome") < valid.index("settle_finalized_ack"), "ACK settled before durable outcome")
@@ -231,6 +250,10 @@ def check_source() -> None:
         "settle_pre_stage6_rejection" in rejection_helper,
         "deterministic rejection bypasses owner settlement authority",
     )
+    marker_helper = source_block(service, "    async fn settle_marker_duplicate(")
+    require("settle_canonical_marker_duplicate" in marker_helper, "marker duplicate bypasses owner")
+    require("paper_outcome" not in marker_helper, "marker duplicate can invoke provider")
+    require("admit_paper_command" not in marker_helper, "marker duplicate creates Stage 6 lifecycle")
     readiness = source_block(recovery, "    pub(crate) fn validate_composite_readiness(")
     for token in ("require_lifecycle_available", "revalidate_cached_committed_seal", "validate_recovered_binding"):
         require(token in readiness, f"storage readiness missing {token}")
@@ -250,6 +273,30 @@ def check_source() -> None:
         "backend.settle_ack(plan)",
     ):
         require(token in rejection, f"pre-Stage6 rejection settlement absent: {token}")
+    marker_owner = source_block(recovery, "    pub(crate) async fn settle_canonical_marker_duplicate(")
+    for token in (
+        "refresh_stage7b_durable_frontier",
+        "authorize_canonical_marker_duplicate",
+        "canonical_marker_duplicate_ack_plan",
+        "backend.settle_ack(plan)",
+    ):
+        require(token in marker_owner, f"marker-only duplicate authority absent: {token}")
+    lookup = source_block(settlement, "    pub(crate) async fn lookup_canonical_request_publication(")
+    require("lookup_canonical_request_publication_inner" in lookup, "read-only marker lookup absent")
+    marker_match = source_block(settlement, "    pub(crate) fn matches(")
+    require(
+        "self.canonical_command_sha256 == identity.canonical_command_sha256()" in marker_match,
+        "marker comparison does not use stable command identity",
+    )
+    require("checkpoint" not in marker_match and "seal" not in marker_match, "dynamic marker identity used")
+    for token in (
+        "canonical_command_sha256 = canonical_command_sha256",
+        "canonical_output_stream = output",
+        "marker['canonical_command_sha256'] ~= canonical_command_sha256",
+        "marker['canonical_output_stream'] ~= output",
+        "if kind == 'ack' and not existing_request then",
+    ):
+        require(token in settlement, f"request-marker schema/immutability drift: {token}")
     authority = source_block(settlement, "pub(super) fn authorize_pre_stage6_rejection(")
     require("stage6_mutation: true" not in settlement, "Stage 6 mutation claim opened")
     for token in (
@@ -266,6 +313,8 @@ def check_source() -> None:
         "Stage7aDeterministicRejectionClass::CommandProfileMismatch",
         "classify_stage7a_deterministic_policy_rejection",
         "Stage7aRecoveredProfileClassification::IdentityConflict",
+        "pub struct Stage7aCanonicalCommandIdentity",
+        "pub fn canonical_stage7a_command_identity",
     ):
         require(token in bridge, f"accepted Stage 7A rejection classifier absent: {token}")
     require("pub fn decode_stage7a_pre_admission(" in bridge, "canonical decoder not shared")
@@ -281,10 +330,13 @@ def check_source() -> None:
         "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives",
         "stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis",
         "async fn stage7b_d_c_r1_b068_subprocess_redis_reclaim_child",
+        "stage7b_d_c_r2_marker_only_changed_identity_blocks_before_stage6_and_provider",
+        "stage7b_d_c_r2_prior_profile_rejection_now_matching_is_marker_duplicate_only",
+        "stage7b_d_c_r2_legacy_or_incomplete_request_marker_fails_closed",
         "stage7b_d_c_b070_has_no_legacy_execution_authority_dependency",
     ):
         require(
-            test in service or test in recovery or test in subprocess_test,
+            test in service or test in recovery or test in settlement or test in subprocess_test,
             f"d-c witness absent: {test}",
         )
     for method in ("finam_transport_attached", "runtime_live_enabled", "real_orders_enabled"):
@@ -297,6 +349,7 @@ def check_docs() -> None:
         (ROOT / path).read_text()
         for path in (
             "docs/stage-7/stage7b-d-c-implementation.md",
+            "docs/stage-7/stage7b-d-c-r2-review-closure.md",
             "docs/current-status.md",
             "docs/roadmap.md",
         )
@@ -308,6 +361,9 @@ def check_docs() -> None:
         "FINAM",
         "runtime-live",
         "real orders",
+        "9b98c360e1153e79971b5935d03fd0a0bdd1f4f4",
+        "marker-only",
+        "canonical_command_sha256",
     ):
         require(token in docs, f"d-c documentation invariant absent: {token}")
 

@@ -27,7 +27,7 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-d-c-R1 — active implementation candidate on independently accepted
+Stage 7B-d-c-R2 — active implementation candidate on independently accepted
 Stage 7B-d-a-R1 at `8418cfb63ecee6702bf8a2873592b7cad1e711ee`. The Redis-free durable lifecycle
 and seal-before-settlement authorization remains paper/mock only. The original implementation candidate
 `f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted; R1 closes exact
@@ -51,8 +51,11 @@ transport, runtime-live and real orders remain closed pending later stages.
 The original d-c candidate `c427ad1c83a27e6a80f45c7e09311ffcae26c913`
 was not accepted. R1 restores accepted deterministic pre-Stage6 rejection
 ACKs without Stage 6 mutation and adds integrated real-service `PaperReady`
-and child-process Redis `XAUTOCLAIM` witnesses. Stage 7B-e remains closed
-until independent R1 acceptance.
+and child-process Redis `XAUTOCLAIM` witnesses. R1 at
+`9b98c360e1153e79971b5935d03fd0a0bdd1f4f4` was not accepted because
+marker-only terminal history was checked only after effect. R2 adds the
+read-only pre-admission marker veto and exact duplicate-publication path.
+Stage 7B-e remains closed until independent R2 acceptance.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

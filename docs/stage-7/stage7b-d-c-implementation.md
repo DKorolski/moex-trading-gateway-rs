@@ -1,7 +1,8 @@
 # Stage 7B-d-c — supervised Redis restart/readiness composition
 
-Status: R1 implementation candidate for independent review. The original
-candidate `c427ad1c83a27e6a80f45c7e09311ffcae26c913` was not accepted.
+Status: R2 implementation candidate for independent review. The R1 candidate
+`9b98c360e1153e79971b5935d03fd0a0bdd1f4f4` was not accepted; its three
+original closure findings remain closed.
 
 Accepted predecessor: Stage 7B-d-b-R1 at
 `e0bf9b7d9eb209e19b875f199511a493ddcd0da9`.
@@ -35,6 +36,17 @@ ACK+XACK primitive is called. The evidence payload records
 request identity are rechecked immediately before authorization. An already
 established request with a profile mismatch remains pending as
 `IdentityConflict` and cannot use this path.
+
+R2 closes the marker-only terminal-history edge introduced by that path. When
+Stage 6 has no request identity, the service performs a read-only lookup of
+the d-b canonical request marker before profile classification, Stage 6
+admission or provider invocation. The marker and its canonical ACK are
+validated together and bind a stable `canonical_command_sha256`; dynamic
+checkpoint, seal, Redis entry and consumer facts are excluded from command
+identity. Changed identity is a pending conflict with no effect. Exact
+identity is settled as a duplicate ACK through the existing atomic Lua
+primitive, without creating a Stage 6 lifecycle. Legacy/incomplete markers
+are explicitly fail-closed and never treated as absent.
 
 ## Restart transport
 
@@ -88,6 +100,9 @@ consumer restart:
 - an exact duplicate adds no Stage 6 journal record and invokes no provider;
 - a conflicting duplicate stays pending, emits no ACK/DLQ, performs no XACK
   and invokes no provider.
+- a marker-only conflicting duplicate is vetoed before Stage 6/provider;
+- an exact marker-only duplicate republishes the validated prior terminal ACK
+  as duplicate and leaves the canonical request marker unchanged.
 
 Legacy SQLite/M3 state is absent from the dependency and authority graph.
 Stage 6 file journal/replay is the only execution authority.

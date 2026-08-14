@@ -76,8 +76,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   dynamic seal authority and requires opaque canonical Stage 7A poison
   evidence; a valid command cannot be caller-labelled as poison.
   Rows B-057..B-063 are accepted/closed.
-- Stage 7B-d-c-R1 is the active implementation candidate after the original
-  `c427ad1c83a27e6a80f45c7e09311ffcae26c913` candidate was not accepted. It composes the
+- Stage 7B-d-c-R2 is the active implementation candidate after R1 at
+  `9b98c360e1153e79971b5935d03fd0a0bdd1f4f4` was not accepted. It composes the
   recovery owner and atomic settlement backend into an isolated paper Redis
   consumer with per-boot identity, bounded old-PEL reclaim, durable PEL
   reconstruction, independent source/claim freshness, external task
@@ -86,7 +86,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   now implemented and 10 remain pending. R1 restores deterministic Stage 7A
   pre-Stage6 ACK semantics with zero Stage 6 mutation, adds a real-service
   positive `PaperReady` witness and one child-process Redis old-PEL reclaim
-  witness. Every FINAM/live surface stays closed.
+  witness. R2 adds a read-only pre-admission request-marker guard: changed
+  marker-only history remains pending before Stage 6/provider, while exact
+  history emits only an atomic duplicate ACK. Stable command hash and canonical
+  ACK stream/output are validated; incomplete legacy markers fail closed.
+  Every FINAM/live surface stays closed.
 - The remaining Stage 7B work is d-c independent acceptance followed by the
   real subprocess crash matrix X01-X20 and aggregate B-001..B-080 acceptance
   closure.

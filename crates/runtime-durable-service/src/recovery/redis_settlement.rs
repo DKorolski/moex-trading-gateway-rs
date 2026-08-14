@@ -7,11 +7,12 @@ use super::Stage7bDurableAckAuthorized;
 use broker_core::command::CommandAckStatus;
 use broker_core::{ClientOrderId, CommandAckReasonCode, StrategyRequestId};
 use redis::aio::ConnectionManager;
+use redis::streams::StreamRangeReply;
 use runtime_command_bridge::{
-    Stage7aDeterministicRejectionClass, Stage7aDeterministicRejectionEvidence, Stage7aDlqReason,
-    Stage7aPermanentPoisonEvidence,
+    Stage7aCanonicalCommandIdentity, Stage7aDeterministicRejectionClass,
+    Stage7aDeterministicRejectionEvidence, Stage7aDlqReason, Stage7aPermanentPoisonEvidence,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use strategy_runtime_core::Stage6RequestFinalDispositionV1;
@@ -39,7 +40,8 @@ local duplicate_fp = ARGV[6]
 local duplicate_payload = ARGV[7]
 local request_identity = ARGV[8]
 local terminal_request_ack_identity = ARGV[9]
-local schema = tonumber(ARGV[10])
+local canonical_command_sha256 = ARGV[10]
+local schema = tonumber(ARGV[11])
 
 if schema ~= 1 then return redis.error_reply('STAGE7B_SCHEMA') end
 if kind ~= 'ack' and kind ~= 'dlq' then return redis.error_reply('STAGE7B_KIND') end
@@ -83,7 +85,10 @@ if kind == 'ack' then
     local ok, marker = pcall(cjson.decode, existing_request)
     if not ok or marker['schema_version'] ~= schema
        or marker['request_identity'] ~= request_identity
-       or marker['terminal_request_ack_identity'] ~= terminal_request_ack_identity then
+       or marker['terminal_request_ack_identity'] ~= terminal_request_ack_identity
+       or marker['canonical_command_sha256'] ~= canonical_command_sha256
+       or marker['canonical_output_stream'] ~= output
+       or marker['publication_known'] ~= true then
       return redis.error_reply('STAGE7B_CONFLICT_REQUEST_MARKER')
     end
     classification = 'duplicate'
@@ -111,6 +116,8 @@ if kind == 'ack' and not existing_request then
     schema_version = schema,
     request_identity = request_identity,
     terminal_request_ack_identity = terminal_request_ack_identity,
+    canonical_command_sha256 = canonical_command_sha256,
+    canonical_output_stream = output,
     canonical_output_id = output_id,
     publication_known = true
   }))
@@ -274,6 +281,7 @@ pub(super) struct Stage7bRedisAckSettlementPlan {
     context: Stage7bRedisSettlementContext,
     request_id: StrategyRequestId,
     terminal_request_ack_identity: String,
+    canonical_command_sha256: String,
     canonical_payload: String,
     canonical_payload_fingerprint: String,
     duplicate_payload: String,
@@ -294,6 +302,40 @@ pub(crate) struct Stage7bPreStage6CommandObservation {
     request_identity_was_established: bool,
 }
 
+impl Stage7bPreStage6CommandObservation {
+    pub(crate) fn request_identity_was_established(&self) -> bool {
+        self.request_identity_was_established
+    }
+}
+
+/// Validated publication-only history read from the d-b request marker and
+/// its canonical ACK stream entry.  Fields remain private so this proof cannot
+/// be converted into Stage 6 admission or provider authority.
+pub(crate) struct Stage7bCanonicalRequestPublicationEvidence {
+    request_id: StrategyRequestId,
+    canonical_command_sha256: String,
+    terminal_request_ack_identity: String,
+    canonical_output_id: String,
+    canonical_payload: String,
+    duplicate_payload: String,
+}
+
+impl Stage7bCanonicalRequestPublicationEvidence {
+    pub(crate) fn matches(&self, identity: &Stage7aCanonicalCommandIdentity) -> bool {
+        self.request_id == identity.strategy_request_id()
+            && self.canonical_command_sha256 == identity.canonical_command_sha256()
+    }
+}
+
+pub(crate) enum Stage7bCanonicalRequestPublicationLookup {
+    Absent,
+    Present(Stage7bCanonicalRequestPublicationEvidence),
+}
+
+pub(super) struct Stage7bCanonicalMarkerDuplicateAuthorized {
+    evidence: Stage7bCanonicalRequestPublicationEvidence,
+}
+
 pub(super) struct Stage7bPreStage6AckAuthorized {
     operational_identity_sha256: String,
     strategy_request_id: StrategyRequestId,
@@ -307,6 +349,42 @@ pub(super) struct Stage7bPreStage6AckAuthorized {
     seal_commitment_sha256: String,
     settlement_authority_fingerprint_sha256: String,
     terminal_request_ack_identity_sha256: String,
+}
+
+pub(super) fn authorize_canonical_marker_duplicate(
+    observation: Stage7bPreStage6CommandObservation,
+    identity: &Stage7aCanonicalCommandIdentity,
+    evidence: Stage7bCanonicalRequestPublicationEvidence,
+    current_stage6_checkpoint_sha256: &str,
+    current_request_identity_exists: bool,
+) -> Result<Stage7bCanonicalMarkerDuplicateAuthorized, Stage7bRedisSettlementError> {
+    if observation.request_id != identity.strategy_request_id()
+        || observation.request_identity_was_established
+        || current_request_identity_exists
+        || observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256
+        || !evidence.matches(identity)
+    {
+        return Err(Stage7bRedisSettlementError::RequestMarkerAuthorityDrift);
+    }
+    Ok(Stage7bCanonicalMarkerDuplicateAuthorized { evidence })
+}
+
+pub(super) fn canonical_marker_duplicate_ack_plan(
+    authority: Stage7bCanonicalMarkerDuplicateAuthorized,
+    context: Stage7bRedisSettlementContext,
+) -> Result<Stage7bRedisAckSettlementPlan, Stage7bRedisSettlementError> {
+    context.validate()?;
+    let evidence = authority.evidence;
+    Ok(Stage7bRedisAckSettlementPlan {
+        context,
+        request_id: evidence.request_id,
+        terminal_request_ack_identity: evidence.terminal_request_ack_identity,
+        canonical_command_sha256: evidence.canonical_command_sha256,
+        canonical_payload_fingerprint: sha256_hex(evidence.canonical_payload.as_bytes()),
+        duplicate_payload_fingerprint: sha256_hex(evidence.duplicate_payload.as_bytes()),
+        canonical_payload: evidence.canonical_payload,
+        duplicate_payload: evidence.duplicate_payload,
+    })
 }
 
 pub(super) struct Stage7bPoisonDlqAuthorized {
@@ -370,6 +448,7 @@ pub(super) fn ack_plan(
         context,
         request_id: authority.strategy_request_id,
         terminal_request_ack_identity: authority.terminal_request_ack_identity_sha256,
+        canonical_command_sha256: authority.canonical_command_sha256,
         canonical_payload_fingerprint: sha256_hex(canonical_payload.as_bytes()),
         duplicate_payload_fingerprint: sha256_hex(duplicate_payload.as_bytes()),
         canonical_payload,
@@ -516,6 +595,7 @@ pub(super) fn pre_stage6_rejection_ack_plan(
         context,
         request_id: authority.strategy_request_id,
         terminal_request_ack_identity: authority.terminal_request_ack_identity_sha256,
+        canonical_command_sha256: authority.canonical_command_sha256,
         canonical_payload_fingerprint: sha256_hex(canonical_payload.as_bytes()),
         duplicate_payload_fingerprint: sha256_hex(duplicate_payload.as_bytes()),
         canonical_payload,
@@ -601,6 +681,121 @@ impl Stage7bRedisSettlementBackend {
         self.transport_healthy && self.unresolved_settlement_keys.is_empty()
     }
 
+    /// Reads publication history only.  The returned opaque proof can veto a
+    /// new Stage 6 admission or reproduce an existing ACK; it cannot authorize
+    /// provider execution.
+    pub(crate) async fn lookup_canonical_request_publication(
+        &mut self,
+        context: &Stage7bRedisSettlementContext,
+        request_id: StrategyRequestId,
+    ) -> Result<Stage7bCanonicalRequestPublicationLookup, Stage7bRedisSettlementError> {
+        context.validate()?;
+        let request_marker = context.request_marker_key(Some(request_id));
+        let result = self
+            .lookup_canonical_request_publication_inner(context, request_id, &request_marker)
+            .await;
+        match result {
+            Ok(lookup) => {
+                self.transport_healthy = true;
+                self.unresolved_settlement_keys.remove(&request_marker);
+                Ok(lookup)
+            }
+            Err(error) => {
+                self.transport_healthy = false;
+                self.unresolved_settlement_keys.insert(request_marker);
+                Err(error)
+            }
+        }
+    }
+
+    async fn lookup_canonical_request_publication_inner(
+        &mut self,
+        context: &Stage7bRedisSettlementContext,
+        request_id: StrategyRequestId,
+        request_marker: &str,
+    ) -> Result<Stage7bCanonicalRequestPublicationLookup, Stage7bRedisSettlementError> {
+        #[derive(Deserialize)]
+        struct RequestMarker {
+            schema_version: u16,
+            request_identity: String,
+            terminal_request_ack_identity: String,
+            canonical_command_sha256: String,
+            canonical_output_stream: String,
+            canonical_output_id: String,
+            publication_known: bool,
+        }
+
+        #[derive(Deserialize)]
+        struct CanonicalAckProbe {
+            schema_version: u16,
+            request_id: StrategyRequestId,
+            canonical_command_sha256: String,
+            terminal_request_ack_identity_sha256: String,
+            publication: String,
+        }
+
+        let encoded: Option<String> = redis::cmd("GET")
+            .arg(request_marker)
+            .query_async(&mut self.connection)
+            .await?;
+        let Some(encoded) = encoded else {
+            return Ok(Stage7bCanonicalRequestPublicationLookup::Absent);
+        };
+        let marker: RequestMarker = serde_json::from_str(&encoded)
+            .map_err(|_| Stage7bRedisSettlementError::InvalidRequestMarker)?;
+        if marker.schema_version != MARKER_SCHEMA
+            || marker.request_identity != request_id.to_string()
+            || !marker.publication_known
+            || marker.canonical_output_stream != context.ack_stream
+            || !sha256(&marker.canonical_command_sha256)
+            || !sha256(&marker.terminal_request_ack_identity)
+            || !stream_id(&marker.canonical_output_id)
+        {
+            return Err(Stage7bRedisSettlementError::InvalidRequestMarker);
+        }
+        let output: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&context.ack_stream)
+            .arg(&marker.canonical_output_id)
+            .arg(&marker.canonical_output_id)
+            .arg("COUNT")
+            .arg(1)
+            .query_async(&mut self.connection)
+            .await?;
+        if output.ids.len() != 1 || output.ids[0].id != marker.canonical_output_id {
+            return Err(Stage7bRedisSettlementError::InvalidCanonicalOutput);
+        }
+        let canonical_payload = output.ids[0]
+            .get::<String>("payload")
+            .ok_or(Stage7bRedisSettlementError::InvalidCanonicalOutput)?;
+        let probe: CanonicalAckProbe = serde_json::from_str(&canonical_payload)
+            .map_err(|_| Stage7bRedisSettlementError::InvalidCanonicalOutput)?;
+        if probe.schema_version != MARKER_SCHEMA
+            || probe.request_id != request_id
+            || probe.canonical_command_sha256 != marker.canonical_command_sha256
+            || probe.terminal_request_ack_identity_sha256 != marker.terminal_request_ack_identity
+            || probe.publication != "canonical"
+        {
+            return Err(Stage7bRedisSettlementError::InvalidCanonicalOutput);
+        }
+        let mut duplicate: serde_json::Value = serde_json::from_str(&canonical_payload)
+            .map_err(|_| Stage7bRedisSettlementError::InvalidCanonicalOutput)?;
+        let Some(publication) = duplicate.get_mut("publication") else {
+            return Err(Stage7bRedisSettlementError::InvalidCanonicalOutput);
+        };
+        *publication = serde_json::Value::String("duplicate".to_string());
+        let duplicate_payload = serde_json::to_string(&duplicate)?;
+        Ok(Stage7bCanonicalRequestPublicationLookup::Present(
+            Stage7bCanonicalRequestPublicationEvidence {
+                request_id,
+                canonical_command_sha256: marker.canonical_command_sha256,
+                terminal_request_ack_identity: marker.terminal_request_ack_identity,
+                canonical_output_id: marker.canonical_output_id,
+                canonical_payload,
+                duplicate_payload,
+            },
+        ))
+    }
+
     pub(super) async fn settle_ack(
         &mut self,
         plan: Stage7bRedisAckSettlementPlan,
@@ -637,6 +832,7 @@ impl Stage7bRedisSettlementBackend {
                 duplicate_payload: &plan.duplicate_payload,
                 request_identity: &request_identity,
                 terminal_request_ack_identity: &plan.terminal_request_ack_identity,
+                canonical_command_sha256: &plan.canonical_command_sha256,
             },
         )
         .await;
@@ -678,6 +874,7 @@ impl Stage7bRedisSettlementBackend {
                 duplicate_payload: &plan.payload,
                 request_identity: "",
                 terminal_request_ack_identity: "",
+                canonical_command_sha256: "",
             },
         )
         .await;
@@ -729,6 +926,7 @@ struct SettlementInvocation<'a> {
     duplicate_payload: &'a str,
     request_identity: &'a str,
     terminal_request_ack_identity: &'a str,
+    canonical_command_sha256: &'a str,
 }
 
 async fn invoke(
@@ -752,6 +950,7 @@ async fn invoke(
         .arg(invocation.duplicate_payload)
         .arg(invocation.request_identity)
         .arg(invocation.terminal_request_ack_identity)
+        .arg(invocation.canonical_command_sha256)
         .arg(MARKER_SCHEMA)
         .query_async(connection)
         .await;
@@ -784,6 +983,12 @@ pub(crate) enum Stage7bRedisSettlementError {
     PoisonAuthorityDrift,
     #[error("Stage 7B deterministic rejection authority drifted after pre-Stage6 observation")]
     PreStage6RejectionAuthorityDrift,
+    #[error("Stage 7B request-marker publication authority drifted after observation")]
+    RequestMarkerAuthorityDrift,
+    #[error("Stage 7B request marker is absent-schema, malformed or inconsistent")]
+    InvalidRequestMarker,
+    #[error("Stage 7B canonical ACK output is missing or inconsistent with its marker")]
+    InvalidCanonicalOutput,
     #[error("Stage 7B settlement identity conflict")]
     Conflict,
     #[error("Stage 7B source entry is not pending in the expected group")]
@@ -813,6 +1018,10 @@ fn stream_id(value: &str) -> bool {
     milliseconds.parse::<u64>().is_ok()
         && sequence.parse::<u64>().is_ok()
         && !value.contains(char::is_whitespace)
+}
+
+fn sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -1365,5 +1574,40 @@ mod tests {
             .await
             .unwrap();
         assert!(backend.healthy());
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_r2_legacy_or_incomplete_request_marker_fails_closed() {
+        let redis = RedisServer::start().await;
+        let mut inspector = connection(&redis).await;
+        let context = pending_context(&mut inspector, "marker-schema", "command-a").await;
+        let request_id = StrategyRequestId::from(Uuid::from_u128(701));
+        let marker_key = context.request_marker_key(Some(request_id));
+        let _: () = redis::cmd("SET")
+            .arg(&marker_key)
+            .arg(
+                serde_json::json!({
+                    "schema_version": MARKER_SCHEMA,
+                    "request_identity": request_id.to_string(),
+                    "terminal_request_ack_identity": "a".repeat(64),
+                    "canonical_output_id": "1-0",
+                    "publication_known": true
+                })
+                .to_string(),
+            )
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
+            .await
+            .unwrap();
+        assert!(matches!(
+            backend
+                .lookup_canonical_request_publication(&context, request_id)
+                .await,
+            Err(Stage7bRedisSettlementError::InvalidRequestMarker)
+        ));
+        assert!(!backend.healthy());
+        assert_eq!(pending_len(&mut inspector, &context).await, 1);
     }
 }

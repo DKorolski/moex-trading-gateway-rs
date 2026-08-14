@@ -6,7 +6,8 @@ use super::{
 use broker_core::{BrokerCommand, BrokerOrderId, ClientOrderId, StrategyRequestId};
 use chrono::{DateTime, Utc};
 use runtime_command_bridge::{
-    Stage7aDeterministicRejectionEvidence, Stage7aPermanentPoisonEvidence,
+    Stage7aCanonicalCommandIdentity, Stage7aDeterministicRejectionEvidence,
+    Stage7aPermanentPoisonEvidence,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -45,9 +46,9 @@ pub use redis_service::{
 };
 
 use redis_settlement::{
-    Stage7bPreStage6CommandObservation, Stage7bPreStage6PoisonObservation,
-    Stage7bRedisSettlementBackend, Stage7bRedisSettlementContext, Stage7bRedisSettlementError,
-    Stage7bRedisSettlementOutcome,
+    Stage7bCanonicalRequestPublicationEvidence, Stage7bPreStage6CommandObservation,
+    Stage7bPreStage6PoisonObservation, Stage7bRedisSettlementBackend,
+    Stage7bRedisSettlementContext, Stage7bRedisSettlementError, Stage7bRedisSettlementOutcome,
 };
 
 pub const STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION: u16 = 1;
@@ -831,6 +832,39 @@ impl Stage7bRecoveryReadyOwner {
             self.committed_seal.seal_commitment_sha256(),
         )?;
         let plan = redis_settlement::pre_stage6_rejection_ack_plan(authority, context)?;
+        Ok(backend.settle_ack(plan).await?)
+    }
+
+    /// Reproduces terminal Redis publication history without creating a Stage
+    /// 6 request.  The current seal, checkpoint and request absence must still
+    /// match the pre-admission observation immediately before atomic XADD/XACK.
+    pub(crate) async fn settle_canonical_marker_duplicate(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        observation: Stage7bPreStage6CommandObservation,
+        identity: Stage7aCanonicalCommandIdentity,
+        evidence: Stage7bCanonicalRequestPublicationEvidence,
+        context: Stage7bRedisSettlementContext,
+        backend: &mut Stage7bRedisSettlementBackend,
+    ) -> Result<Stage7bRedisSettlementOutcome, Stage7bDbError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)
+            .map_err(Stage7bRecoveryError::from)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            return Err(Stage7bRecoveryError::SealInvalid.into());
+        }
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        let checkpoint = sha256_hex(&self.recovered.authenticated_checkpoint().encode_canonical());
+        let request_id = identity.strategy_request_id();
+        let authority = redis_settlement::authorize_canonical_marker_duplicate(
+            observation,
+            &identity,
+            evidence,
+            &checkpoint,
+            self.recovered.replay().request(request_id).is_some(),
+        )?;
+        let plan = redis_settlement::canonical_marker_duplicate_ack_plan(authority, context)?;
         Ok(backend.settle_ack(plan).await?)
     }
 
@@ -2954,6 +2988,27 @@ mod tests {
         command
     }
 
+    async fn stage7b_d_c_single_request_marker(
+        connection: &mut ConnectionManager,
+        config: &Stage7bRedisServiceConfig,
+    ) -> (String, String) {
+        let keys: Vec<String> = redis::cmd("KEYS")
+            .arg(format!(
+                "finam_imoexf_paper:{{{}}}:stage7b:settlement:request:*",
+                config.hash_tag
+            ))
+            .query_async(connection)
+            .await
+            .unwrap();
+        assert_eq!(keys.len(), 1, "expected exactly one request marker");
+        let value: String = redis::cmd("GET")
+            .arg(&keys[0])
+            .query_async(connection)
+            .await
+            .unwrap();
+        (keys[0].clone(), value)
+    }
+
     #[tokio::test]
     async fn stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel() {
         let setup = prepare_active_restart_prefix(1);
@@ -3314,6 +3369,7 @@ mod tests {
         first.ensure_group().await.unwrap();
         stage7b_d_c_xadd(&mut inspector, &first_config.command_stream, &payload).await;
         first.run_bounded(1).await.unwrap();
+        let marker_before = stage7b_d_c_single_request_marker(&mut inspector, &first_config).await;
         drop(first);
 
         let key2 =
@@ -3362,6 +3418,11 @@ mod tests {
         let duplicate = acks.ids[1].get::<String>("payload").unwrap();
         let duplicate: serde_json::Value = serde_json::from_str(&duplicate).unwrap();
         assert_eq!(duplicate["publication"], "duplicate");
+        assert_eq!(
+            stage7b_d_c_single_request_marker(&mut inspector, &second_config).await,
+            marker_before,
+            "exact deterministic duplicate must not rewrite canonical request marker"
+        );
         drop(second);
         fs::remove_dir_all(setup.parent).unwrap();
 
@@ -3418,6 +3479,251 @@ mod tests {
             .unwrap();
         assert_eq!(ack_count, 0);
         drop(service);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_r2_marker_only_changed_identity_blocks_before_stage6_and_provider() {
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let journal_before = fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let mut rejected = stage7b_d_c_fresh_request(setup.command.clone());
+        match &mut rejected {
+            BrokerCommand::PlaceOrder(command) => {
+                command.created_ts = Utc::now() - chrono::Duration::seconds(10);
+                command.ttl_ms = Some(1);
+            }
+            BrokerCommand::CancelOrder(command) => {
+                command.created_ts = Utc::now() - chrono::Duration::seconds(10);
+                command.ttl_ms = Some(1);
+            }
+        }
+        let mut first_config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-r2-marker-conflict").unwrap();
+        first_config.block_ms = 0;
+        first_config.claim_idle_ms = 1;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut first = Stage7bRedisService::connect(
+            &redis.url,
+            first_config.clone(),
+            owner,
+            setup.key,
+            stage7b_d_c_profile(&setup.command),
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        first.ensure_group().await.unwrap();
+        stage7b_d_c_xadd(
+            &mut inspector,
+            &first_config.command_stream,
+            &stage7b_d_c_payload(&rejected),
+        )
+        .await;
+        first.run_bounded(1).await.unwrap();
+        let marker_before = stage7b_d_c_single_request_marker(&mut inspector, &first_config).await;
+        drop(first);
+
+        let mut changed = rejected.clone();
+        match &mut changed {
+            BrokerCommand::PlaceOrder(command) => {
+                command.created_ts = Utc::now();
+                command.ttl_ms = None;
+            }
+            BrokerCommand::CancelOrder(command) => {
+                command.created_ts = Utc::now();
+                command.ttl_ms = None;
+            }
+        }
+        let key2 =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None)
+                .commitment_key;
+        let Stage7bRestartOutcome::Ready(owner) = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &key2,
+            setup.runtime.clone(),
+        )
+        .unwrap() else {
+            panic!("marker-only conflict fixture must restart ready");
+        };
+        let matching_profile = stage7b_d_c_profile(&setup.command);
+        assert!(matches!(
+            matching_profile
+                .classify_for_recovered(&changed, owner.recovered().unwrap())
+                .unwrap(),
+            runtime_command_bridge::Stage7aRecoveredProfileClassification::Matched(_)
+        ));
+        let mut second_config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-r2-marker-conflict").unwrap();
+        second_config.block_ms = 0;
+        second_config.claim_idle_ms = 1;
+        let mut second = Stage7bRedisService::connect(
+            &redis.url,
+            second_config.clone(),
+            *owner,
+            key2,
+            matching_profile,
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        stage7b_d_c_xadd(
+            &mut inspector,
+            &second_config.command_stream,
+            &stage7b_d_c_payload(&changed),
+        )
+        .await;
+        second.run_bounded(1).await.unwrap();
+
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            journal_before
+        );
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&second_config.command_stream)
+            .arg(&second_config.consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(pending.ids.len(), 1);
+        let ack_count: i64 = redis::cmd("XLEN")
+            .arg(&second_config.ack_stream)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let dlq_count: i64 = redis::cmd("XLEN")
+            .arg(&second_config.dlq_stream)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(ack_count, 1);
+        assert_eq!(dlq_count, 0);
+        assert_eq!(
+            stage7b_d_c_single_request_marker(&mut inspector, &second_config).await,
+            marker_before,
+            "changed identity must not overwrite canonical request marker"
+        );
+        drop(second);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_r2_prior_profile_rejection_now_matching_is_marker_duplicate_only() {
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let journal_before = fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let command = stage7b_d_c_fresh_request(setup.command.clone());
+        let payload = stage7b_d_c_payload(&command);
+        let mut first_config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-r2-profile-transition").unwrap();
+        first_config.block_ms = 0;
+        first_config.claim_idle_ms = 1;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut first = Stage7bRedisService::connect(
+            &redis.url,
+            first_config.clone(),
+            owner,
+            setup.key,
+            Stage7aCommandProfile::new(
+                BrokerAccountId::new("ACC_PROFILE_MISMATCH"),
+                instrument(),
+                "hybrid_imoexf",
+            )
+            .unwrap(),
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        first.ensure_group().await.unwrap();
+        stage7b_d_c_xadd(&mut inspector, &first_config.command_stream, &payload).await;
+        first.run_bounded(1).await.unwrap();
+        let marker_before = stage7b_d_c_single_request_marker(&mut inspector, &first_config).await;
+        drop(first);
+
+        let key2 =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None)
+                .commitment_key;
+        let Stage7bRestartOutcome::Ready(owner) = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &key2,
+            setup.runtime.clone(),
+        )
+        .unwrap() else {
+            panic!("profile-transition fixture must restart ready");
+        };
+        let mut second_config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-r2-profile-transition").unwrap();
+        second_config.block_ms = 0;
+        second_config.claim_idle_ms = 1;
+        stage7b_d_c_xadd(&mut inspector, &second_config.command_stream, &payload).await;
+        let mut second = Stage7bRedisService::connect(
+            &redis.url,
+            second_config.clone(),
+            *owner,
+            key2,
+            stage7b_d_c_profile(&command),
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        second.run_bounded(1).await.unwrap();
+
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            journal_before
+        );
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&second_config.command_stream)
+            .arg(&second_config.consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert!(pending.ids.is_empty());
+        let acks: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&second_config.ack_stream)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(acks.ids.len(), 2);
+        let duplicate: serde_json::Value =
+            serde_json::from_str(&acks.ids[1].get::<String>("payload").unwrap()).unwrap();
+        assert_eq!(duplicate["publication"], "duplicate");
+        assert_eq!(
+            stage7b_d_c_single_request_marker(&mut inspector, &second_config).await,
+            marker_before,
+            "exact marker duplicate must not rewrite canonical request marker"
+        );
+        drop(second);
         fs::remove_dir_all(setup.parent).unwrap();
     }
 

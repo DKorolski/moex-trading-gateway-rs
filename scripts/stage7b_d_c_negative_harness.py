@@ -27,6 +27,7 @@ COPY_PATHS = (
     SUBPROCESS_TEST,
     Path("docs/current-status.md"), Path("docs/roadmap.md"),
     Path("docs/stage-7/stage7b-d-c-implementation.md"),
+    Path("docs/stage-7/stage7b-d-c-r2-review-closure.md"),
     DESCRIPTOR, AGGREGATE, OWNERSHIP,
     Path("docs/stage-7/stage7b-acceptance-proof-map.json"), CHECK, PROOF,
 )
@@ -79,6 +80,13 @@ CASES = (
     ("remove-real-paper-ready-proof", lambda root: replace(root / RECOVERY, "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives", "stage7b_d_c_r1_b066_manual_state_only")),
     ("remove-subprocess-redis-parent-proof", lambda root: replace(root / SUBPROCESS_TEST, "stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis", "stage7b_d_c_r1_b068_same_process_reclaim_only")),
     ("remove-subprocess-redis-child-proof", lambda root: replace(root / SUBPROCESS_TEST, "async fn stage7b_d_c_r1_b068_subprocess_redis_reclaim_child", "async fn stage7b_d_c_r1_b068_no_redis_child")),
+    ("remove-pre-admission-request-marker-lookup", lambda root: replace(root / SERVICE, "lookup_canonical_request_publication", "skip_canonical_request_publication")),
+    ("ignore-marker-when-stage6-request-absent", lambda root: replace(root / SERVICE, "if !observation.request_identity_was_established() {", "if observation.request_identity_was_established() {")),
+    ("allow-changed-command-after-marker-hit", lambda root: replace(root / SERVICE, "Stage7bCanonicalRequestPublicationLookup::Present(_) => {", "Stage7bCanonicalRequestPublicationLookup::ChangedIdentityAllowed => {")),
+    ("compare-marker-using-dynamic-authority", lambda root: replace(root / SETTLEMENT, "self.canonical_command_sha256 == identity.canonical_command_sha256()", "self.terminal_request_ack_identity == identity.canonical_command_sha256()")),
+    ("allow-exact-marker-duplicate-provider-call", lambda root: replace(root / SERVICE, "settle_marker_duplicate(", "provider_marker_duplicate(")),
+    ("create-stage6-lifecycle-for-marker-duplicate", lambda root: replace(root / SERVICE, "settle_canonical_marker_duplicate(", "admit_paper_command(")),
+    ("overwrite-canonical-request-marker", lambda root: replace(root / SETTLEMENT, "if kind == 'ack' and not existing_request then", "if kind == 'ack' then")),
 )
 
 
