@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate Stage 7B-e mutation harness (11 new + 40 inherited cases)."""
+"""Aggregate Stage 7B-e mutation harness (17 new + 40 inherited cases)."""
 from __future__ import annotations
 
 import json
@@ -12,16 +12,21 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECK = Path("scripts/stage7b_e_check.py")
 DESCRIPTOR = Path("docs/stage-7/stage7b-entry-descriptor.json")
 FAULTS = Path("docs/stage-7/stage7b-fault-matrix.json")
+NORMATIVE = Path("docs/stage-7/stage7b-fault-matrix-normative.json")
+TZ = Path("docs/stage-7/TZ_STAGE7B_PRODUCTION_DURABILITY_COMPOSITION_2026-08-12.md")
 PROOF_GENERATOR = Path("scripts/stage7b_proof_map.py")
 LIVE = Path("crates/strategy-runtime-core/src/stage6d_live_core.rs")
 JOURNAL = Path("crates/strategy-runtime-core/src/stage6_journal_backend.rs")
 RECOVERY = Path("crates/runtime-durable-service/src/recovery.rs")
 SUBPROCESS = Path("crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs")
 HANDOFF = Path("scripts/make_stage7b_e_handoff_archive.py")
+GATE = Path("scripts/stage7b_e_gate.sh")
 
 COPY_PATHS = (
     DESCRIPTOR,
     FAULTS,
+    NORMATIVE,
+    TZ,
     PROOF_GENERATOR,
     Path("docs/stage-7/stage7b-acceptance-proof-map.json"),
     Path("docs/stage-7/stage7b-e-aggregate-closure.md"),
@@ -29,8 +34,10 @@ COPY_PATHS = (
     Path("docs/current-status.md"),
     Path("docs/roadmap.md"),
     CHECK,
+    GATE,
     Path("scripts/stage7b_fault_matrix_check.py"),
     HANDOFF,
+    Path("crates/runtime-durable-service/src/lib.rs"),
     LIVE,
     JOURNAL,
     RECOVERY,
@@ -56,9 +63,17 @@ def replace(path: Path, old: str, new: str) -> None:
 
 
 def delete_fault(root: Path) -> None:
-    path = root / FAULTS
+    path = root / NORMATIVE
     document = json.loads(path.read_text())
     document["faults"] = document["faults"][:-1]
+    path.write_text(json.dumps(document, indent=2) + "\n")
+
+
+def mutate_fault(root: Path, fault_id: str, key: str, value: object) -> None:
+    path = root / NORMATIVE
+    document = json.loads(path.read_text())
+    row = next(row for row in document["faults"] if row["id"] == fault_id)
+    row[key] = value
     path.write_text(json.dumps(document, indent=2) + "\n")
 
 
@@ -74,6 +89,12 @@ CASES = (
     ("remove-x16-real-subprocess-witness", lambda root: replace(root / SUBPROCESS, "stage7b_e_x16_sigkill_during_claim_is_reclaimable_by_next_boot", "removed_x16_witness")),
     ("remove-source-manifest-from-preseal", lambda root: replace(root / HANDOFF, '"source-tree-manifest.json"', '"omitted-source-tree-manifest.json"')),
     ("self-accept-stage7b-before-review", lambda root: mutate_json(root / DESCRIPTOR, "stage7b_accepted", True)),
+    ("remove-inherited-stage7a-gate", lambda root: replace(root / GATE, "inherited-stage7a-gate.txt", "omitted-stage7a-gate.txt")),
+    ("weaken-x12-required-result", lambda root: mutate_fault(root, "X12", "required_result", "restart may settle an ACK")),
+    ("map-x02-to-old-torn-frame-test", lambda root: mutate_fault(root, "X02", "witnesses", ["stage6b_torn_write_failpoints_leave_reopen_fail_closed"])),
+    ("map-x12-to-redis-free-d-a-test", lambda root: mutate_fault(root, "X12", "witnesses", ["stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider"])),
+    ("remove-x19-restart-witness", lambda root: replace(root / JOURNAL, "stage7b_e_x19_sync_failure_reopen_validates_actual_disk_state_conservatively", "removed_x19_restart_witness")),
+    ("mutate-normative-x02-boundary", lambda root: mutate_fault(root, "X02", "boundary", "Journal create: adjacent torn-frame boundary.")),
 )
 
 
@@ -104,7 +125,7 @@ def main() -> None:
             if result.returncode == 0:
                 raise SystemExit(f"stage7b-e-negative: FAIL mutation survived: {name}")
             print(f"PASS {name}")
-    print(f"stage7b-e-negative: PASS cases={len(CASES)} inherited=40 aggregate=51")
+    print(f"stage7b-e-negative: PASS cases={len(CASES)} inherited=40 aggregate=57")
 
 
 if __name__ == "__main__":

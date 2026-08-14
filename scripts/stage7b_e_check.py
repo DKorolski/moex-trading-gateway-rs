@@ -9,6 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BRANCH = "stage7b-production-durability"
 ACCEPTED_D_C = "2b6371adb905654e0ddd8b6714159bcef737b577"
+ACCEPTED_STAGE7A = "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64"
+NORMATIVE_MATRIX_SHA256 = "d4f5dc4ee8a65ee007a2fe01075927dd6136ec1df8557c8dc37e8105dd0936c9"
 
 
 class CheckFailure(RuntimeError):
@@ -70,10 +72,12 @@ def check_no_functional_delta() -> None:
         ["git", "diff", "--name-only", ACCEPTED_D_C, "--"], cwd=ROOT, text=True
     ).splitlines()
     allowed_crates = {
+        "crates/runtime-durable-service/src/lib.rs",
         "crates/runtime-durable-service/src/recovery.rs",
         "crates/runtime-durable-service/src/recovery/redis_settlement.rs",
         "crates/runtime-durable-service/tests/stage7b_writer_lock_subprocess.rs",
         "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs",
+        "crates/strategy-runtime-core/src/stage6_journal_backend.rs",
     }
     crate_delta = {path for path in changed if path.startswith("crates/")}
     require(crate_delta <= allowed_crates, f"aggregate production scope expanded: {sorted(crate_delta - allowed_crates)}")
@@ -114,14 +118,45 @@ def check_journal_parent_directory_fsync() -> None:
         "Self::from_validated_file",
     )]
     require(order == sorted(order), "direct journal creation directory durability order drift")
-    owned_create = source_block(journal, "pub fn create_new_from_owned_file(")
-    require(owned_create.index("file.write_all(&journal_header())?") < owned_create.index("file.sync_data()?"), "owned journal header is not synced")
-    open_journal = source_block(service_root, "fn open_journal(")
+    owned_create = source_block(
+        journal, "pub fn create_new_from_owned_file_with_pre_sync_observer<F>("
+    )
+    owned_order = [
+        owned_create.index("file.write_all(&journal_header())?"),
+        owned_create.index("observer();"),
+        owned_create.index("file.sync_data()?"),
+        owned_create.index("Self::from_validated_file"),
+    ]
+    require(owned_order == sorted(owned_order), "X02 owned-journal observer ordering drift")
+    ordinary_owned = source_block(journal, "pub fn create_new_from_owned_file(")
     require(
-        open_journal.index("create_new_from_owned_file")
+        "create_new_from_owned_file_with_pre_sync_observer(diagnostic_path, file, || {})"
+        in ordinary_owned,
+        "ordinary owned-journal path does not bind the X02 seam to a no-op",
+    )
+    open_journal = source_block(service_root, "fn open_journal<F>(")
+    require(
+        open_journal.index("create_new_from_owned_file_with_pre_sync_observer")
         < open_journal.index("self.root.root_directory.sync_all()?")
         < open_journal.index("journal\n        }"),
         "owned journal parent-directory barrier drift",
+    )
+    ordinary_create = source_block(service_root, "pub fn create_new(")
+    require(
+        "Self::open(root, true, |_| {}, || {})" in ordinary_create,
+        "ordinary runtime create path does not bind the X02 seam to a no-op",
+    )
+    x02_create = source_block(
+        service_root, "pub fn create_new_with_pre_journal_sync_observer<F>("
+    )
+    for forbidden in ("File", "Stage7bWritableDurableAuthority", "Stage6FileJournalBackend"):
+        require(
+            forbidden not in x02_create.split("where", 1)[0],
+            f"X02 observer signature exposes authority: {forbidden}",
+        )
+    require(
+        "Self::open(root, true, |_| {}, observer)" in x02_create,
+        "X02 seam no longer uses the ordinary production create path",
     )
 
 
@@ -143,13 +178,18 @@ def check_descriptors() -> None:
     expected = {
         "slice": "7B-e",
         "status": "aggregate_acceptance_candidate",
-        "candidate_revision": "r1",
+        "candidate_revision": "r2",
+        "accepted_predecessor": ACCEPTED_STAGE7A,
         "accepted_stage7b_d_c_ref": ACCEPTED_D_C,
         "implemented_count": 80,
         "pending_count": 0,
         "cross_process_fault_count": 20,
-        "negative_case_count": 51,
-        "e_negative_case_count": 11,
+        "negative_case_count": 57,
+        "e_negative_case_count": 17,
+        "single_writer_required": True,
+        "recovery_seal_required": True,
+        "inherited_stage7a_gate_required": True,
+        "normative_matrix_sha256": NORMATIVE_MATRIX_SHA256,
         "stage7b_d_c_open": False,
         "stage7b_d_c_acceptance_pending": False,
         "stage7b_e_open": True,
@@ -175,6 +215,16 @@ def check_proof_map() -> None:
     for row in proof["proofs"]:
         require(row["status"] == "implemented", f"pending proof row: {row['row_id']}")
         require(not row["exact_witness"].startswith("pending"), f"missing witness: {row['row_id']}")
+    by_id = {row["row_id"]: row for row in proof["proofs"]}
+    for row_id, tokens in {
+        "B-073": ("normative", "X01-X20", "X02", "X12", "X19"),
+        "B-075": ("inherited-stage7a-gate.txt", "workspace", "clippy", "fmt"),
+        "B-076": ("cases=17", "inherited=40", "aggregate=57"),
+        "B-077": ("B-073", "B-075", "B-076", "accepted=false"),
+    }.items():
+        witness = by_id[row_id]["exact_witness"]
+        for token in tokens:
+            require(token in witness, f"{row_id} aggregate proof token absent: {token}")
 
 
 def check_docs() -> None:
@@ -191,6 +241,8 @@ def check_docs() -> None:
         ACCEPTED_D_C,
         "X01-X20",
         "80/80",
+        "R2",
+        "inherited Stage 7A",
         "independent acceptance pending",
         "FINAM POST/DELETE",
         "runtime-live",
@@ -198,6 +250,17 @@ def check_docs() -> None:
         "Gate 7→8",
     ):
         require(token in docs, f"aggregate documentation invariant absent: {token}")
+
+
+def check_inherited_gate_contract() -> None:
+    gate = (ROOT / "scripts/stage7b_e_gate.sh").read_text()
+    for token in (
+        ACCEPTED_STAGE7A,
+        "scripts/stage7a_gate.sh",
+        "inherited-stage7a-gate.txt",
+        "inherited-stage7a-artifacts",
+    ):
+        require(token in gate, f"mandatory inherited Stage 7A gate token absent: {token}")
 
 
 def check_preseal_contract() -> None:
@@ -210,6 +273,8 @@ def check_preseal_contract() -> None:
         '"source_manifest_sha256"',
         'target.with_suffix(".zip.sha256")',
         '"stage7b_accepted": False',
+        '"inherited_stage7a_gate_required": True',
+        '"candidate_revision": "r2"',
         'STAGE7B_REQUIRE_ORIGIN',
     ):
         require(token in handoff, f"preseal contract absent: {token}")
@@ -225,6 +290,7 @@ def main() -> None:
     check_proof_map()
     subprocess.run(["python3", "scripts/stage7b_fault_matrix_check.py"], cwd=ROOT, check=True)
     check_docs()
+    check_inherited_gate_contract()
     check_preseal_contract()
     print("stage7b-e-check: PASS rows=80/80 faults=20/20 accepted=false")
 

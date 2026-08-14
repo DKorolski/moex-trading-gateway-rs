@@ -22,6 +22,7 @@ ARTIFACTS = (
     "fmt.txt",
     "stage7b-e-check.txt",
     "stage7b-e-negative.txt",
+    "inherited-stage7a-gate.txt",
     "inherited-d-c-gate.txt",
     "runtime-debug.txt",
     "runtime-release.txt",
@@ -68,9 +69,10 @@ def require_artifacts(directory: Path) -> None:
     markers = {
         "fmt.txt": "fmt: PASS",
         "stage7b-e-check.txt": "stage7b-e-check: PASS rows=80/80 faults=20/20 accepted=false",
-        "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=11 inherited=40 aggregate=51",
+        "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=17 inherited=40 aggregate=57",
+        "inherited-stage7a-gate.txt": "stage7a-gate: PASS",
         "inherited-d-c-gate.txt": "stage7b-d-c-gate: PASS",
-        "fault-matrix.txt": "stage7b-fault-matrix: PASS faults=20/20 debug_release_bound=true",
+        "fault-matrix.txt": "stage7b-fault-matrix: PASS faults=20/20 normative=true debug_release_bound=true",
         "acceptance-report.txt": "stage7b-acceptance-report: PASS rows=80/80 faults=20/20 accepted=false",
         "workspace-tests.txt": "test result: ok",
         "workspace-docs.txt": "test result: ok",
@@ -168,7 +170,7 @@ def main() -> None:
     marker = (
         f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
         f"archive_name={archive_name}\naccepted_stage7b_d_c_ref={checker.ACCEPTED_D_C}\n"
-        "candidate_stage=7B-e\ncandidate_revision=r1\nstage7b_accepted=false\n"
+        "candidate_stage=7B-e\ncandidate_revision=r2\nstage7b_accepted=false\n"
     ).encode()
     evidence = json.dumps(
         {
@@ -181,7 +183,9 @@ def main() -> None:
             "proof_rows_implemented": 80,
             "proof_rows_pending": 0,
             "fault_matrix_passed": "20/20",
-            "aggregate_negative_case_count": 51,
+            "aggregate_negative_case_count": 57,
+            "inherited_stage7a_gate_required": True,
+            "candidate_revision": "r2",
             "stage7b_accepted": False,
             "finam_post_delete_enabled": False,
             "broker_network_dispatch_enabled": False,

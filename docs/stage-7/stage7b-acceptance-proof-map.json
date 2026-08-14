@@ -663,7 +663,7 @@
       "proof_type": "fault_matrix",
       "rationale": "Stage 7B-e aggregate closure witness",
       "artifact": "Stage 7B-e aggregate gate/fault/preseal evidence",
-      "exact_witness": "docs/stage-7/stage7b-fault-matrix.json + scripts/stage7b_fault_matrix_check.py: X01-X20=20/20",
+      "exact_witness": "immutable normative docs/stage-7/stage7b-fault-matrix-normative.json + scripts/stage7b_fault_matrix_check.py: exact X01-X20=20/20, including exact X02/X12/X19 boundaries, results, proof types and witnesses",
       "status": "implemented"
     },
     {
@@ -679,18 +679,18 @@
       "row_id": "B-075",
       "requirement": "Full regression is run.",
       "proof_type": "accepted_gate",
-      "rationale": "Accepted Stage 7B foundation or Stage 7B-d-a exact witness",
-      "artifact": "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence",
-      "exact_witness": "accepted Stage 7B-c-R1 gate at c57ae8d5f98bbb11df0a81f78262d3916b276d81",
+      "rationale": "Stage 7B-e aggregate closure witness",
+      "artifact": "Stage 7B-e aggregate gate/fault/preseal evidence",
+      "exact_witness": "scripts/stage7b_e_gate.sh standalone inherited Stage 7A full gate at 2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64 -> inherited-stage7a-gate.txt, plus current fmt, workspace tests/docs and clippy gates",
       "status": "implemented"
     },
     {
       "row_id": "B-076",
       "requirement": "Stage7B negative mutation harness runs.",
       "proof_type": "negative_harness",
-      "rationale": "Accepted Stage 7B foundation or Stage 7B-d-a exact witness",
-      "artifact": "Accepted Stage 7B-b/7B-c evidence or Stage 7B-d-a candidate evidence",
-      "exact_witness": "accepted Stage 7B-c-R1 negative harness cases=34 descriptor-pinned",
+      "rationale": "Stage 7B-e aggregate closure witness",
+      "artifact": "Stage 7B-e aggregate gate/fault/preseal evidence",
+      "exact_witness": "current Stage 7B-e negative harness cases=17 inherited=40 aggregate=57 descriptor-pinned",
       "status": "implemented"
     },
     {
@@ -699,7 +699,7 @@
       "proof_type": "acceptance_report",
       "rationale": "Stage 7B-e aggregate closure witness",
       "artifact": "Stage 7B-e aggregate gate/fault/preseal evidence",
-      "exact_witness": "scripts/stage7b_acceptance_report.py: exact semantic proof map 80/80 with accepted=false candidate governance",
+      "exact_witness": "scripts/stage7b_acceptance_report.py aggregates exact B-073 + B-075 + B-076 proof rows at 80/80 with accepted=false candidate governance",
       "status": "implemented"
     },
     {

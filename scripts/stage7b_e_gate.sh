@@ -12,6 +12,15 @@ echo "fmt: PASS" | tee "$artifact_dir/fmt.txt"
 python3 scripts/stage7b_e_check.py | tee "$artifact_dir/stage7b-e-check.txt"
 python3 scripts/stage7b_e_negative_harness.py | tee "$artifact_dir/stage7b-e-negative.txt"
 
+inherited_stage7a="$artifact_dir/detached-stage7a-r2c"
+git clone --quiet --no-hardlinks --shared . "$inherited_stage7a"
+git -C "$inherited_stage7a" checkout --quiet -B stage7a-paper-command-consumer \
+  2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64
+STAGE7A_ARTIFACT_DIR="$artifact_dir/inherited-stage7a-artifacts" \
+  bash "$inherited_stage7a/scripts/stage7a_gate.sh" 2>&1 \
+  | tee "$artifact_dir/inherited-stage7a-gate.txt"
+rm -rf "$inherited_stage7a"
+
 inherited="$artifact_dir/detached-stage7b-d-c-r2"
 git clone --quiet --no-hardlinks . "$inherited"
 git -C "$inherited" checkout --quiet -B stage7b-production-durability \

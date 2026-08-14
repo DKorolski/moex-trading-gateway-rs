@@ -514,10 +514,30 @@ impl Stage6FileJournalBackend {
     /// the directory capability through which the file was created.
     pub fn create_new_from_owned_file(
         diagnostic_path: impl Into<PathBuf>,
-        mut file: File,
+        file: File,
     ) -> Result<Self, Stage6JournalStorageError> {
+        Self::create_new_from_owned_file_with_pre_sync_observer(diagnostic_path, file, || {})
+    }
+
+    /// Creates a journal through the production owned-file path and reports
+    /// the exact crash boundary after the complete journal header write but
+    /// before the first file sync.
+    ///
+    /// This observer receives no file capability and exists only so an
+    /// external-process acceptance test can terminate at the frozen Stage 7B
+    /// X02 boundary. The ordinary constructor above always supplies a no-op.
+    #[doc(hidden)]
+    pub fn create_new_from_owned_file_with_pre_sync_observer<F>(
+        diagnostic_path: impl Into<PathBuf>,
+        mut file: File,
+        observer: F,
+    ) -> Result<Self, Stage6JournalStorageError>
+    where
+        F: FnOnce(),
+    {
         validate_owned_regular_file(&file)?;
         file.write_all(&journal_header())?;
+        observer();
         file.sync_data()?;
         Self::from_validated_file(diagnostic_path.into(), file)
     }
@@ -1950,7 +1970,7 @@ mod tests {
     }
 
     #[test]
-    fn stage6b_sync_failure_returns_durability_uncertain_without_receipt() {
+    fn stage7b_e_x19_sync_failure_reopen_validates_actual_disk_state_conservatively() {
         let path = temp_path("sync-failure");
         let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         backend.failpoint = Some(TestIoFailpoint::SyncFailure);
@@ -1964,6 +1984,16 @@ mod tests {
             Stage6JournalStorageError::DurabilityUncertain
         );
         drop(backend);
+
+        // The failed process cache is never used as restart truth. Reopen and
+        // scan the exact same file. With this deterministic process-level
+        // failpoint the complete frame bytes are present, so conservative
+        // validation may accept that complete canonical frame. A torn or
+        // corrupt realization would instead fail closed in the same scanner.
+        let reopened = Stage6FileJournalBackend::open_existing(&path).unwrap();
+        assert_eq!(reopened.records(), &[place_record()]);
+        assert_eq!(reopened.frontier().frame_count(), 1);
+        drop(reopened);
         fs::remove_file(path).unwrap();
     }
 

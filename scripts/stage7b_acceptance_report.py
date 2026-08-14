@@ -26,13 +26,15 @@ def main() -> None:
     args = parser.parse_args()
     proof_path = ROOT / "docs/stage-7/stage7b-acceptance-proof-map.json"
     matrix_path = ROOT / "docs/stage-7/stage7b-fault-matrix.json"
+    normative_matrix_path = ROOT / "docs/stage-7/stage7b-fault-matrix-normative.json"
     descriptor_path = ROOT / "docs/stage-7/stage7b-entry-descriptor.json"
     proof = json.loads(proof_path.read_text())
     matrix = json.loads(matrix_path.read_text())
+    normative_matrix = json.loads(normative_matrix_path.read_text())
     descriptor = json.loads(descriptor_path.read_text())
     if proof.get("implemented_count") != 80 or proof.get("pending_count") != 0:
         fail("proof map is not 80/80")
-    if matrix.get("fault_count") != 20 or len(matrix.get("faults", [])) != 20:
+    if matrix.get("fault_count") != 20 or len(normative_matrix.get("faults", [])) != 20:
         fail("fault matrix is not 20/20")
     if descriptor.get("accepted_stage7b_d_c_ref") != ACCEPTED_D_C:
         fail("accepted d-c ref drift")
@@ -44,9 +46,10 @@ def main() -> None:
         required = {
             "fmt.txt": "fmt: PASS",
             "stage7b-e-check.txt": "stage7b-e-check: PASS rows=80/80 faults=20/20 accepted=false",
-            "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=11 inherited=40 aggregate=51",
+            "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=17 inherited=40 aggregate=57",
+            "inherited-stage7a-gate.txt": "stage7a-gate: PASS",
             "inherited-d-c-gate.txt": "stage7b-d-c-gate: PASS",
-            "fault-matrix.txt": "stage7b-fault-matrix: PASS faults=20/20 debug_release_bound=true",
+            "fault-matrix.txt": "stage7b-fault-matrix: PASS faults=20/20 normative=true debug_release_bound=true",
             "runtime-debug.txt": "test result: ok",
             "runtime-release.txt": "test result: ok",
             "core-debug.txt": "test result: ok",
@@ -70,7 +73,7 @@ def main() -> None:
         "proof_rows_pending": 0,
         "fault_rows": 20,
         "fault_rows_passed": 20,
-        "aggregate_negative_cases": 51,
+        "aggregate_negative_cases": 57,
         "all_required_candidate_gates_passed": bool(args.artifact_dir),
         "stage7b_accepted": False,
         "verdict": "INDEPENDENT_ACCEPTANCE_PENDING",
@@ -81,6 +84,7 @@ def main() -> None:
         "real_orders_enabled": False,
         "proof_map_sha256": sha256(proof_path),
         "fault_matrix_sha256": sha256(matrix_path),
+        "normative_fault_matrix_sha256": sha256(normative_matrix_path),
         "descriptor_sha256": sha256(descriptor_path),
         "artifact_sha256": artifacts,
     }

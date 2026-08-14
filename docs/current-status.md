@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-13.
+Status date: 2026-08-14.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -91,9 +91,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   history emits only an atomic duplicate ACK. Stable command hash and canonical
   ACK stream/output are validated; incomplete legacy markers fail closed.
   Every FINAM/live surface stays closed.
-- Stage 7B-e is now the only active aggregate acceptance candidate. It adds no
-  execution behavior: X01-X20, complete file/Redis/subprocess evidence and the
-  80/80 proof map are assembled for independent acceptance pending. Only an
+- Stage 7B-e R1 at `422bd1a8b45bfd3397aa588f914494cc11f5c401` was not accepted.
+  Stage 7B-e R2 is now the only active aggregate acceptance candidate. It adds
+  no execution behavior: exact normative X01-X20, the mandatory inherited Stage 7A
+  full gate, complete file/Redis/subprocess evidence and the 80/80 proof map
+  are assembled for independent acceptance pending. Only an
   accepted Stage 7B-e may permit preparation of Gate 7→8.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real
   strategy orders and native Stop/SLTP/bracket remain CLOSED.

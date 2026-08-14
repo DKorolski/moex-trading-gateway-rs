@@ -2344,6 +2344,134 @@ mod tests {
         fs::remove_dir_all(setup.parent).unwrap();
     }
 
+    #[tokio::test]
+    async fn stage7b_e_x12_sigkill_after_seal_before_redis_settlement_recovers_once() {
+        let setup = prepare_active_restart_prefix(1);
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let source = "finam_imoexf_paper:{stage7b-e-x12}:commands";
+        let ack = "finam_imoexf_paper:{stage7b-e-x12}:acks";
+        let dlq = "finam_imoexf_paper:{stage7b-e-x12}:dlq";
+        let group = "stage7b-e-x12";
+        let _: () = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(source)
+            .arg(group)
+            .arg("0-0")
+            .arg("MKSTREAM")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(source)
+            .arg("*")
+            .arg("payload")
+            .arg(stage7b_d_c_payload(&setup.command))
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let delivered: StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(group)
+            .arg("stage7b-e-x12-crashed-consumer")
+            .arg("COUNT")
+            .arg(1)
+            .arg("STREAMS")
+            .arg(source)
+            .arg(">")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let entry_id = delivered.keys[0].ids[0].id.clone();
+
+        // The existing d-a child follows the production Stage 6 lifecycle and
+        // pauses only after the covering recovery seal is durably committed and
+        // reread. It has no Redis capability, so killing it at this barrier is
+        // exactly before d-b Lua settlement.
+        kill_stage7b_d_a_child_at(&setup, "sealed");
+        let journal_after_crash = fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(source)
+            .arg(group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(pending.ids.len(), 1);
+        assert_eq!(pending.ids[0].id, entry_id);
+        let ack_count: i64 = redis::cmd("XLEN")
+            .arg(ack)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(ack_count, 0, "crashed process cannot publish an ACK");
+
+        let fixture =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None);
+        let Stage7bRestartOutcome::Ready(owner) = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &fixture.commitment_key,
+            fixture.fresh_runtime,
+        )
+        .unwrap() else {
+            panic!("X12 finalized crash state must restart ready");
+        };
+        let mut owner = *owner;
+        let finalized = owner.finalized_request(request_id(&setup.command)).unwrap();
+        let context =
+            Stage7bRedisSettlementContext::new("stage7b-e-x12", source, ack, dlq, group, entry_id)
+                .unwrap();
+        let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
+            .await
+            .unwrap();
+        let outcome = owner
+            .settle_finalized_ack(finalized, &fixture.commitment_key, context, &mut backend)
+            .await
+            .unwrap();
+        assert_eq!(outcome.classification, "canonical");
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            journal_after_crash,
+            "restart settlement cannot reinvoke provider or append a second effect"
+        );
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(source)
+            .arg(group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert!(pending.ids.is_empty());
+        let acks: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(ack)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(
+            acks.ids.len(),
+            1,
+            "canonical ACK must be emitted exactly once"
+        );
+        let markers: Vec<String> = redis::cmd("KEYS")
+            .arg("finam_imoexf_paper:{stage7b-e-x12}:stage7b:settlement:request:*")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(markers.len(), 1);
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
     fn assert_current_seal_drift_blocks_ack(
         setup: &PreparedWorkingRestart,
         owner: &mut Stage7bRecoveryReadyOwner,

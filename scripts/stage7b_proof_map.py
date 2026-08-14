@@ -108,9 +108,11 @@ E_WITNESSES = {
     "B-007": ("source_gate", "scripts/stage7b_e_check.py::check_single_execution_authority; one Stage6OwnedJournalBackend owner and no mirrored write authority"),
     "B-013": ("source+fault", "scripts/stage7b_e_check.py::check_journal_parent_directory_fsync + check_seal_parent_directory_fsync + X03/X11 matrix rows"),
     "B-072": ("ci_integration", "scripts/stage7b_e_gate.sh real Redis + real filesystem + kernel lock + SIGKILL/subprocess aggregate suite"),
-    "B-073": ("fault_matrix", "docs/stage-7/stage7b-fault-matrix.json + scripts/stage7b_fault_matrix_check.py: X01-X20=20/20"),
+    "B-073": ("fault_matrix", "immutable normative docs/stage-7/stage7b-fault-matrix-normative.json + scripts/stage7b_fault_matrix_check.py: exact X01-X20=20/20, including exact X02/X12/X19 boundaries, results, proof types and witnesses"),
     "B-074": ("gate", "scripts/stage7b_e_gate.sh focused core/runtime debug and release artifacts"),
-    "B-077": ("acceptance_report", "scripts/stage7b_acceptance_report.py: exact semantic proof map 80/80 with accepted=false candidate governance"),
+    "B-075": ("accepted_gate", "scripts/stage7b_e_gate.sh standalone inherited Stage 7A full gate at 2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64 -> inherited-stage7a-gate.txt, plus current fmt, workspace tests/docs and clippy gates"),
+    "B-076": ("negative_harness", "current Stage 7B-e negative harness cases=17 inherited=40 aggregate=57 descriptor-pinned"),
+    "B-077": ("acceptance_report", "scripts/stage7b_acceptance_report.py aggregates exact B-073 + B-075 + B-076 proof rows at 80/80 with accepted=false candidate governance"),
     "B-078": ("preseal", "scripts/make_stage7b_e_handoff_archive.py: clean source manifest, evidence hashes, handoff marker and SHA-256 sidecar"),
     "B-080": ("governance_gate", "Stage 7B-e candidate remains accepted=false; independent acceptance alone may open Gate 7→8 specification"),
 }

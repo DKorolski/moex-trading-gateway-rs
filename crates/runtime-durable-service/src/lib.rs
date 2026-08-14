@@ -486,10 +486,14 @@ impl Stage7bKernelWriterLease {
         Ok(())
     }
 
-    fn open_journal(
+    fn open_journal<F>(
         &self,
         create: bool,
-    ) -> Result<Stage6FileJournalBackend, Stage7bDurableStorageError> {
+        pre_create_sync_observer: F,
+    ) -> Result<Stage6FileJournalBackend, Stage7bDurableStorageError>
+    where
+        F: FnOnce(),
+    {
         self.validate_namespace()?;
         let flags = libc::O_RDWR
             | libc::O_NOFOLLOW
@@ -511,7 +515,11 @@ impl Stage7bKernelWriterLease {
         let diagnostic_path = self.root.root_path.join(STAGE7B_JOURNAL_FILE);
         let journal = if create {
             let journal =
-                Stage6FileJournalBackend::create_new_from_owned_file(diagnostic_path, file)?;
+                Stage6FileJournalBackend::create_new_from_owned_file_with_pre_sync_observer(
+                    diagnostic_path,
+                    file,
+                    pre_create_sync_observer,
+                )?;
             self.root.root_directory.sync_all()?;
             journal
         } else {
@@ -582,7 +590,7 @@ impl Stage7bWritableDurableAuthority {
         if !authorization.authorizes_deployment(&identity.deployment_id) {
             return Err(Stage7bDurableStorageError::FirstBootAuthorizationMismatch);
         }
-        Self::open(root, true, |_| {})
+        Self::open(root, true, |_| {}, || {})
     }
 
     pub fn open_existing(
@@ -590,13 +598,13 @@ impl Stage7bWritableDurableAuthority {
         identity: &Stage6dOperationalIdentityConfig,
     ) -> Result<Self, Stage7bDurableStorageError> {
         root.validate_bound_identity(identity)?;
-        Self::open(root, false, |_| {})
+        Self::open(root, false, |_| {}, || {})
     }
 
     /// Opens existing storage while reporting ordered phases. The callback
     /// receives no filesystem handles and every callback boundary is followed
     /// by anchored namespace validation before writable progress continues.
-    /// This is primarily an deterministic fault-injection seam for real
+    /// This is primarily a deterministic fault-injection seam for real
     /// filesystem/process acceptance tests.
     #[doc(hidden)]
     pub fn open_existing_with_phase_observer<F>(
@@ -608,16 +616,39 @@ impl Stage7bWritableDurableAuthority {
         F: FnMut(Stage7bStorageOpenPhase),
     {
         root.validate_bound_identity(identity)?;
-        Self::open(root, false, observer)
+        Self::open(root, false, observer, || {})
     }
 
-    fn open<F>(
+    /// Creates storage through the normal owned production path while
+    /// exposing only the frozen X02 boundary: complete journal header written,
+    /// first file sync not yet attempted. No file descriptor or authority is
+    /// exposed to the observer.
+    #[doc(hidden)]
+    pub fn create_new_with_pre_journal_sync_observer<F>(
+        root: Stage7bDurableRootAuthority,
+        identity: &Stage6dOperationalIdentityConfig,
+        authorization: &Stage6dFirstBootAuthorization,
+        observer: F,
+    ) -> Result<Self, Stage7bDurableStorageError>
+    where
+        F: FnOnce(),
+    {
+        root.validate_bound_identity(identity)?;
+        if !authorization.authorizes_deployment(&identity.deployment_id) {
+            return Err(Stage7bDurableStorageError::FirstBootAuthorizationMismatch);
+        }
+        Self::open(root, true, |_| {}, observer)
+    }
+
+    fn open<F, G>(
         root: Stage7bDurableRootAuthority,
         create: bool,
         mut observer: F,
+        pre_create_sync_observer: G,
     ) -> Result<Self, Stage7bDurableStorageError>
     where
         F: FnMut(Stage7bStorageOpenPhase),
+        G: FnOnce(),
     {
         observer(Stage7bStorageOpenPhase::PathValidated);
         root.validate_external_root_identity()?;
@@ -626,7 +657,7 @@ impl Stage7bWritableDurableAuthority {
         writer_lease.validate_namespace()?;
         observer(Stage7bStorageOpenPhase::PathRevalidated);
         writer_lease.validate_namespace()?;
-        let journal = writer_lease.open_journal(create)?;
+        let journal = writer_lease.open_journal(create, pre_create_sync_observer)?;
         observer(Stage7bStorageOpenPhase::JournalOpened);
         writer_lease.validate_namespace()?;
         observer(Stage7bStorageOpenPhase::StorageReady);

@@ -27,7 +27,7 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-d-c-R2 — active implementation candidate on independently accepted
+Stage 7B-e R2 — active aggregate acceptance candidate on independently accepted
 Stage 7B-d-a-R1 at `8418cfb63ecee6702bf8a2873592b7cad1e711ee`. The Redis-free durable lifecycle
 and seal-before-settlement authorization remains paper/mock only. The original implementation candidate
 `f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted; R1 closes exact
@@ -57,8 +57,11 @@ marker-only terminal history was checked only after effect. R2 adds the
 read-only pre-admission marker veto and exact duplicate-publication path.
 Stage 7B-d-c-R2 is accepted at
 `2b6371adb905654e0ddd8b6714159bcef737b577`. Stage 7B-e aggregate closure is
-the only active slice: X01-X20, real infrastructure evidence and the 80/80
-proof map are prepared while independent acceptance pending. FINAM POST/DELETE,
+the only active slice: exact normative X01-X20, the inherited Stage 7A full
+gate, real infrastructure evidence and the 80/80 proof map are prepared while
+independent acceptance pending. R1 at
+`422bd1a8b45bfd3397aa588f914494cc11f5c401` was not accepted; R2 closes its
+gate, fault-semantics and proof-map findings. FINAM POST/DELETE,
 runtime-live and real orders remain closed; only accepted Stage 7B-e may open
 planning for Gate 7→8.
 

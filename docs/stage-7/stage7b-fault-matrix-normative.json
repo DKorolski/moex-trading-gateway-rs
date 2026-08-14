@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "stage": "7B-e",
+  "source_tz": "docs/stage-7/TZ_STAGE7B_PRODUCTION_DURABILITY_COMPOSITION_2026-08-12.md",
+  "source_tz_sha256": "200e42acef2bb30cf24e3d2a5bc38df99ed853d70d6310653f315e76d1f4c1e0",
+  "fault_count": 20,
+  "faults": [
+    {
+      "id": "X01",
+      "boundary": "Boot/lock: Kill/error after writer lock acquisition but before journal open.",
+      "required_result": "New process reacquires lock; no Redis attach/effect occurred.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_e_x01_sigkill_after_lock_before_journal_open_releases_lock"]
+    },
+    {
+      "id": "X02",
+      "boundary": "Journal create: Crash after new journal header write but before file sync.",
+      "required_result": "No readiness/effect; restart either sees invalid/uncommitted state and fails closed or valid header after explicit recovery policy.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_e_x02_sigkill_after_new_journal_header_before_sync_is_conservative"]
+    },
+    {
+      "id": "X03",
+      "boundary": "Directory durability: Crash after journal file sync but before parent-directory fsync on first creation.",
+      "required_result": "No PaperReady/consumer attach before directory fsync barrier.",
+      "proof_type": "source_fault_gate",
+      "witnesses": ["stage7b_e_check.py::check_journal_parent_directory_fsync"],
+      "power_loss_static_exception": true,
+      "exception_rationale": "The production ordering is enforced statically and by a negative mutation; no portable process-level harness can deterministically stop between file sync completion and parent-directory fsync while also proving power-loss persistence semantics."
+    },
+    {
+      "id": "X04",
+      "boundary": "RequestAccepted: Kill immediately after RequestAccepted fsync.",
+      "required_result": "Restart/redelivery has one accepted record; may append missing dispatch once; no duplicate accepted.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_d_a_b044_sigkill_after_accepted_recovers_dispatch_once"]
+    },
+    {
+      "id": "X05",
+      "boundary": "DispatchAttempt: Kill immediately after DispatchAttemptRecorded fsync before provider.",
+      "required_result": "Restart is ReconciliationRequired/hold; no blind redispatch.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_d_a_b045_sigkill_after_dispatch_never_blind_redispatches"]
+    },
+    {
+      "id": "X06",
+      "boundary": "Provider boundary: Kill during/after provider effect before durable outcome append.",
+      "required_result": "Restart is ReconciliationRequired/hold; provider not blindly reinvoked.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_d_a_b046_sigkill_during_unknown_effect_requires_reconciliation"]
+    },
+    {
+      "id": "X07",
+      "boundary": "Outcome record: Kill immediately after durable outcome append.",
+      "required_result": "Restart reconstructs finalization/canonical ACK without provider.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_d_a_b047_sigkill_after_outcome_reconstructs_finalization_and_ack"]
+    },
+    {
+      "id": "X08",
+      "boundary": "RequestFinalized: Kill immediately after RequestFinalized fsync.",
+      "required_result": "Restart reconstructs canonical ACK; no provider.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_d_a_b048_sigkill_after_finalization_reconstructs_canonical_ack"]
+    },
+    {
+      "id": "X09",
+      "boundary": "Seal temp write: Crash while writing replacement recovery-seal temp file.",
+      "required_result": "Old committed seal remains authority; temp ignored.",
+      "proof_type": "fs_fault",
+      "witnesses": ["recovery_seal_atomic_replace_and_orphan_temp_is_not_authority"]
+    },
+    {
+      "id": "X10",
+      "boundary": "Seal temp sync: Crash after temp seal sync but before rename.",
+      "required_result": "Old committed seal remains authority; synced temp not auto-promoted.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_c_b032_sigkill_after_temp_sync_keeps_old_committed_seal"]
+    },
+    {
+      "id": "X11",
+      "boundary": "Seal rename: Crash after atomic rename but before parent-dir fsync.",
+      "required_result": "Restart accepts only a fully valid canonical old/new committed seal; never temp/partial data.",
+      "proof_type": "source_fault_gate",
+      "witnesses": [
+        "stage7b_e_check.py::check_seal_parent_directory_fsync",
+        "stage7b_d_a_r1_valid_but_different_current_seal_blocks_ack_authority"
+      ],
+      "power_loss_static_exception": true,
+      "exception_rationale": "The rename-to-directory-sync ordering is enforced statically and by a negative mutation; the restart witness separately proves that only exact canonical committed seal authority is accepted."
+    },
+    {
+      "id": "X12",
+      "boundary": "Pre-settlement: Kill after valid recovery seal but before ACK settlement.",
+      "required_result": "PEL remains; restart settles canonical ACK once.",
+      "proof_type": "subprocess_real_redis_fault",
+      "witnesses": ["stage7b_e_x12_sigkill_after_seal_before_redis_settlement_recovers_once"]
+    },
+    {
+      "id": "X13",
+      "boundary": "Settlement response loss: Redis settlement commits but client receives injected unknown/error.",
+      "required_result": "Redis PEL/settlement marker resolves outcome; no duplicate canonical ACK.",
+      "proof_type": "real_redis_fault",
+      "witnesses": ["stage7b_d_b_b059_response_loss_exact_retry_is_idempotent"]
+    },
+    {
+      "id": "X14",
+      "boundary": "ACK Redis outage: ACK settlement backend unavailable.",
+      "required_result": "PEL remains; readiness degraded; no XACK.",
+      "proof_type": "real_redis_fault",
+      "witnesses": ["stage7b_d_b_b060_precommit_failure_keeps_pel_and_degrades_backend"]
+    },
+    {
+      "id": "X15",
+      "boundary": "DLQ Redis outage: DLQ settlement backend unavailable.",
+      "required_result": "Poison entry remains pending; readiness degraded; no XACK.",
+      "proof_type": "real_redis_fault",
+      "witnesses": ["stage7b_e_x15_dlq_outage_keeps_pel_and_degrades_backend"]
+    },
+    {
+      "id": "X16",
+      "boundary": "PEL recovery: Kill new process during XAUTOCLAIM recovery.",
+      "required_result": "Next boot can reclaim again; execution identity unchanged; no blind effect.",
+      "proof_type": "subprocess_real_redis_fault",
+      "witnesses": ["stage7b_e_x16_sigkill_during_claim_is_reclaimable_by_next_boot"]
+    },
+    {
+      "id": "X17",
+      "boundary": "Writer death: SIGKILL/abrupt kill of lock holder.",
+      "required_result": "Kernel lock releases; next process acquires and validates storage before Redis attach.",
+      "proof_type": "subprocess_fault",
+      "witnesses": ["stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock"]
+    },
+    {
+      "id": "X18",
+      "boundary": "External mutation: Modify journal externally while service owns it.",
+      "required_result": "Next append/read validation detects mutation and blocks effects.",
+      "proof_type": "fs_fault",
+      "witnesses": [
+        "stage7b_same_length_earlier_record_mutation_is_detected_before_append",
+        "stage7b_same_length_last_record_mutation_is_detected_before_append"
+      ]
+    },
+    {
+      "id": "X19",
+      "boundary": "Durability uncertain: Inject journal sync failure after full frame bytes written.",
+      "required_result": "No append receipt/effect; current process locked out; restart validates actual disk state conservatively.",
+      "proof_type": "fs_restart_fault",
+      "witnesses": ["stage7b_e_x19_sync_failure_reopen_validates_actual_disk_state_conservatively"]
+    },
+    {
+      "id": "X20",
+      "boundary": "Lagging Stage5 seal: Restart with non-final Stage6 request absent from Stage5 package.",
+      "required_result": "RecoveryBlocked; no effect/ACK/DLQ/XACK; no journal truncation.",
+      "proof_type": "restart_integration",
+      "witnesses": ["stage7b_c_b040_unbound_nonfinal_file_journal_blocks_without_effect"]
+    }
+  ]
+}
