@@ -27,15 +27,20 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Transition Gate 7→8 R2 specification — current authorized planning target. The
+Transition Gate 7→8 R3 specification — current authorized planning target. The
 initial `4d1106e` package was rejected without discarding its architecture. R1
 was docs/scripts-only and added a current FINAM REST contract snapshot, the
 existing-builder-only rule, Day-only initial TIF, endpoint-specific status
 semantics, closed `ProvenNoMatch`, fail-closed kill-switch wording, 66 mandatory
 acceptance rows and 32 exact negative cases. R1 `f7afc1c` was not accepted
 because documented CANCEL 401 and same-request re-execution after
-`DefinitelyNotSent` were not explicit. R2 remains docs/scripts-only, closes
-those two gaps, and pins 68 acceptance rows plus 34 exact negatives. Stage 7B-e R4 was
+`DefinitelyNotSent` were not explicit. R2 was docs/scripts-only, closed
+those two gaps and pinned 68 acceptance rows plus 34 exact negatives, but was
+not accepted because the post-acceptance transition authority was
+contradictory. R3 is docs/scripts-only, closes that final governance gap, and
+pins 69 acceptance rows plus 36 exact negatives. Independent R3 acceptance
+opens only Stage 8A-0 contract refresh/freeze for docs/evidence/checkers;
+production Rust and 8A-1 through 8A-5 remain closed. Stage 7B-e R4 was
 independently accepted and Stage 7B formally closed at
 `a1044e0dbe324c722b637498ca80ffafd9f0cbee`. The accepted Stage 7B chain rests on
 independently accepted
@@ -81,8 +86,9 @@ post-test-module hidden-Stage8 mutation. The independent final review closed
 the aggregate stage with 80/80 proof rows, 20/20 fault rows and 59/59 negative
 cases. Stage 8 implementation, runtime-live and real orders remain closed while
 the specification is prepared and reviewed. Even after gate acceptance, real
-FINAM POST/DELETE remains closed during Stage 8A. If R2 is accepted, Stage 8A
-must proceed in separately reviewed order 8A-0 through 8A-5; bounded execution requires a
+FINAM POST/DELETE remains closed during Stage 8A. If R3 is accepted, only
+Stage 8A-0 opens; Stage 8A must then proceed in separately reviewed order
+8A-0 through 8A-5. Bounded execution requires a
 separate accepted Stage 8B and explicit operator authorization.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;

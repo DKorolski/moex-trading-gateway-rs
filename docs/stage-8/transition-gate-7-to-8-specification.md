@@ -1,12 +1,15 @@
 # Transition Gate 7→8 — protected FINAM execution specification
 
-Status: Gate 7→8 R2 specification candidate pending independent review.
+Status: Gate 7→8 R3 specification candidate pending independent review.
 
 R1 `f7afc1c612c25de608783850ab2e8c0ae14b0687` closed the findings against
 rejected base `4d1106e72bc1437d990a8bd949db4867d41c09b6`, but was not accepted because
 CANCEL 401 and same-durable-request re-execution after `DefinitelyNotSent`
-were not pinned. R2 closes only those gaps. It remains docs/scripts-only and
-changes no production Rust, Cargo or GitHub workflow surface.
+were not pinned. R2 `5da0db6cd1fd4c2c2eea6731d615ddd48a87b8ae`
+closed those gaps but was not accepted because its post-acceptance transition
+authority was contradictory. R3 closes only that transition-rule gap. It
+remains docs/scripts-only and changes no production Rust, Cargo or GitHub
+workflow surface.
 
 This gate is a pre-implementation contract. It decides how the accepted Stage
 7B durable paper service may later attach to a protected FINAM adapter without
@@ -28,18 +31,25 @@ reducer or settlement owner.
 
 ## 2. Gate decision
 
-Independent acceptance of this specification authorizes only Stage 8A:
+Independent acceptance of this specification authorizes exactly one next
+slice: **Stage 8A-0 current FINAM contract refresh/freeze**.
 
 ```text
-protected broker-neutral execution adapter
-+ exact FINAM MARKET/LIMIT/CANCEL mapping
-+ mock/no-send transport boundary
-+ ambiguous-outcome reconciliation authority
+8A-0 contract refresh/freeze  OPEN for docs/evidence/checkers only
+8A-1 protected capability     CLOSED pending independent 8A-0 acceptance
+8A-2 builder composition      CLOSED pending independent 8A-1 acceptance
+8A-3 endpoint classifier      CLOSED pending independent 8A-2 acceptance
+8A-4 reconciliation           CLOSED pending independent 8A-3 acceptance
+8A-5 aggregate acceptance     CLOSED pending independent 8A-4 acceptance
 ```
 
-It does not authorize real FINAM POST/DELETE. Bounded real execution belongs to
-a separately accepted Stage 8B and requires explicit operator authorization
-for the exact micro run.
+Gate acceptance does not authorize Stage 8 production Rust, a protected
+capability implementation, builder composition, classifiers, reconciliation
+implementation or real FINAM POST/DELETE. Stage 8B remains closed and requires
+a separate specification, independent acceptance and explicit operator
+authorization for the exact micro run.
+
+It does not authorize real FINAM POST/DELETE.
 
 ## 3. Execution capability boundary
 
@@ -351,24 +361,32 @@ post-run broker reconciliation evidence requirements.
 
 ## 16. Gate acceptance rule
 
-This specification is accepted only when all 68 mandatory rows in
-`GATE7_TO_8_R2_ACCEPTANCE_MATRIX_2026-08-14.csv` pass, all exact 34 negative
+This specification is accepted only when all 69 mandatory rows in
+`GATE7_TO_8_R3_ACCEPTANCE_MATRIX_2026-08-14.csv` pass, all exact 36 negative
 mutations are rejected, the current FINAM contract evidence remains hash-bound,
 and an independent reviewer records acceptance against an exact commit and
 immutable archive.
 
 The historical Stage 5 `forbidden_surface_scan.sh` is not rebaselined here and
-cannot be the sole Stage 8 authority. Gate R2 instead proves zero production,
-Cargo and `.github` delta from reviewed R1 `f7afc1c`. Stage 8A must introduce
-a new Stage 8-specific closed-surface scanner.
+cannot be the sole Stage 8 authority. Gate R3 instead proves zero production,
+Cargo and `.github` delta from reviewed R2 `5da0db6`. Stage 8A-0 must define a
+new Stage 8-specific closed-surface scanner before later implementation slices.
 
-Until then, and even after acceptance until the relevant later gate:
+Before independent R3 acceptance every Stage 8 slice is closed. After
+independent R3 acceptance the explicit transition is:
 
 ```text
-Stage 8 implementation  CLOSED
-FINAM POST/DELETE       CLOSED
-broker dispatch         CLOSED
-runtime-live            CLOSED
-real strategy orders    CLOSED
-native protective orders CLOSED
+8A-0 contract refresh/freeze  OPEN for docs/evidence/checkers only
+8A-1                          CLOSED pending 8A-0 acceptance
+8A-2                          CLOSED pending 8A-1 acceptance
+8A-3                          CLOSED pending 8A-2 acceptance
+8A-4                          CLOSED pending 8A-3 acceptance
+8A-5                          CLOSED pending 8A-4 acceptance
+Stage 8 production Rust       CLOSED
+FINAM POST/DELETE             CLOSED
+broker dispatch               CLOSED
+runtime-live                  CLOSED
+real strategy orders          CLOSED
+native protective orders      CLOSED
+Stage 8B                      CLOSED
 ```

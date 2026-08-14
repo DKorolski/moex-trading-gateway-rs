@@ -1,0 +1,70 @@
+id,category,requirement,expected,mandatory,evidence,negative_mutation
+G78R3-001,predecessor,Accepted Stage 7B source is exact,Accepted source ref is a1044e0dbe324c722b637498ca80ffafd9f0cbee,YES,descriptor+hash,forge Stage7B accepted ref
+G78R3-002,predecessor,Stage 7B external acceptance is exact,Independent review SHA is e66d87ae88cf1c1a8f2ec12ac5d4338374c26bfcc417624b0fa1f007a5c81bf2,YES,descriptor+hash,forge independent review SHA
+G78R3-003,predecessor,Stage 7B closure records are immutable,Closure descriptor and final acceptance record hashes match accepted governance record,YES,static_hash,alter Stage7B closure record
+G78R3-004,scope,Gate is specification-only,"No crates/**, Cargo.*, or .github/** delta from governance predecessor",YES,git_scope,add production crate delta
+G78R3-005,scope,Gate acceptance opens only Stage 8A-0 contract refresh,Only 8A-0 docs/evidence/checkers work becomes authorized; Stage8 production Rust and 8A-1..8A-5 remain closed,YES,descriptor+independent_review,open Stage8A production capability directly
+G78R3-006,scope,Stage 8B remains separately gated,No real engineering micro is authorized by Gate 7→8,YES,governance,open Stage8B in gate
+G78R3-007,scope,Later stages remain closed,"Stage 9+, runtime-live, real strategy orders, Stop/SLTP/bracket remain closed",YES,descriptor,open later stage
+G78R3-008,finam_contract,Official FINAM REST order contract is refreshed before Stage8A code,"Gate records retrieval date, official source URL, normalized snapshot SHA and reviewed diff against current pinned project fixture",YES,contract_snapshot,omit current FINAM contract refresh
+G78R3-009,finam_contract,Order endpoints are pinned,PLACE=/v1/accounts/{account_id}/orders; CANCEL=/v1/accounts/{account_id}/orders/{order_id},YES,contract_snapshot,change endpoint path
+G78R3-010,finam_contract,PLACE request field set is pinned,"symbol, quantity, side, type, time_in_force, limit_price when required, client_order_id; STOP/legs/conditional fields prohibited",YES,contract_snapshot+golden,drop time_in_force
+G78R3-011,finam_contract,FINAM ClientOrderId constraint is pinned,"client_order_id must be explicitly sent, non-empty, exact durable ID, and <=20 characters; broker-generated fallback forbidden",YES,contract_snapshot+negative,omit client_order_id
+G78R3-012,finam_contract,Existing vetted FINAM request builder is the sole serializer,Stage8A must compose broker-finam::build_place_order_request/build_cancel_order_request; no second Stage8 JSON serializer,YES,source_contract,introduce second Stage8 serializer
+G78R3-013,finam_contract,TimeInForce initial live scope is narrowed,Initial protected PLACE capability allows TimeInForce::Day only; all other TIF values fail before transport until separately opened,YES,policy+negative,allow non-DAY TIF
+G78R3-014,finam_contract,Current FINAM response statuses are pinned per endpoint,PLACE and CANCEL documented status sets are recorded independently; unknown/default responses remain fail-closed,YES,contract_snapshot,replace endpoint-specific status policy with generic 4xx rule
+G78R3-015,capability,Execution capability has private construction,No public/default constructor,YES,compile_fail,make capability constructor public
+G78R3-016,capability,Execution capability is linear,No Clone/Copy/Serialize/Deserialize,YES,compile_fail,derive Clone
+G78R3-017,capability,Capability binds one durable request and exact command,"Request, ClientOrderId, account, instrument, strategy, action, side, qty, price/TIF as applicable match",YES,behavioral,drop command binding
+G78R3-018,capability,Capability is consumed before possible broker send,Second invocation impossible even if transport reports failure,YES,behavioral,consume only after HTTP response
+G78R3-019,capability,Durable dispatch attempt precedes send seam,Fsync-confirmed Stage6 DispatchAttemptRecorded exists before possible broker transport,YES,crash_ordering,send before durable attempt
+G78R3-020,capability,Capability cannot be reconstructed from transport/publication state,"Redis payload, broker response, diagnostics, request marker cannot mint capability",YES,compile_fail+negative,mint capability from Redis
+G78R3-021,capability,Restart invalidates process-local execution capability,Recovery requires fresh operator authorization and current preflight,YES,restart,persist/deserialize capability
+G78R3-022,operator,Operator arm is one-shot and exact-scope,First possible send consumes the arm; arm binds exact request/account/instrument/strategy/action/limits/config/nonce,YES,behavioral,auto-rearm operator arm
+G78R3-023,operator,Operator arm TTL and restart semantics are fail-closed,"Expired, restarted or drifted arm cannot authorize transport",YES,restart,reuse arm after restart
+G78R3-024,kill_switch,Kill-switch terminology is unambiguous,Mechanism must be available/fresh/readable; state RunAllowed required before PLACE; StopRequested blocks PLACE,YES,policy,use ambiguous 'active kill switch' wording
+G78R3-025,kill_switch,Kill switch is checked at every send boundary,"Before capability issuance, after durable attempt, immediately before send, and before any continuation",YES,fault_injection,remove immediate pre-send kill-switch check
+G78R3-026,kill_switch,Kill-switch read/staleness/conflict fails closed,"Unreadable, stale or generation-conflicting switch blocks PLACE",YES,fault_injection,treat read failure as RunAllowed
+G78R3-027,kill_switch,Emergency CANCEL cannot become a bypass,Only exact owned working order may use separately scoped emergency-cancel policy,YES,negative,allow generic cancel bypass
+G78R3-028,ownership,Single-broker strategy ownership is required,No same strategy/account scope may have simultaneous ALOR and FINAM execution ownership,YES,negative,allow dual-broker live ownership
+G78R3-029,mapping,MARKET mapping is exact,"Existing builder emits ORDER_TYPE_MARKET, exact side/qty/symbol, TIME_IN_FORCE_DAY, exact client_order_id, no limit_price",YES,golden,MARKET includes limit_price
+G78R3-030,mapping,LIMIT mapping is exact,"Existing builder emits ORDER_TYPE_LIMIT, exact Decimal tick-aligned limit_price, TIME_IN_FORCE_DAY, exact client_order_id",YES,golden,LIMIT omits price
+G78R3-031,mapping,CANCEL mapping is exact,DELETE targets only exact Stage6-correlated broker-native string order ID and exact account,YES,golden,cancel unknown/foreign order
+G78R3-032,mapping,Stable identity is never replaced,"No numeric surrogate, broker-generated client ID or transport-generated replacement",YES,restart+golden,replace client_order_id
+G78R3-033,mapping,Unsupported command families fail before transport,REPLACE/STOP/STOP_LIMIT/SLTP/bracket/multi-leg fail locally,YES,negative,allow STOP
+G78R3-034,mapping,Unsupported TIF fails before transport,Anything other than Day in initial Stage8 scope is local blocked/rejected,YES,negative,allow IOC/FOK/GTC in initial Stage8
+G78R3-035,mapping,Decimal/instrument validation is current,Qty/price/tick/lot/multiplier/schedule validation uses current instrument registry and fails closed,YES,fixture_matrix,allow stale tick parameters
+G78R3-036,outcome_place,PLACE 200 requires usable exact broker identity,AcceptedObserved only when response is authenticated/decoded/correlated and broker order identity is usable,YES,local_mock,accept 200 without broker ID
+G78R3-037,outcome_place,PLACE documented 400 is local/broker rejection only when safely decoded,Invalid trading parameters -> BrokerRejected; malformed/contradictory body -> ReconciliationRequired,YES,local_mock,classify malformed 400 as final reject
+G78R3-038,outcome_place,PLACE 401 disarms and blocks further execution,No blind retry; authentication/readiness must be re-established,YES,local_mock,retry PLACE after 401
+G78R3-039,outcome_place,PLACE documented 404 is configuration rejection,Account/instrument not found -> no blind retry; configuration/instrument readiness becomes blocked,YES,local_mock,retry PLACE after 404
+G78R3-040,outcome_place,PLACE 429/500/503/504/default after possible send are ambiguous,ReconciliationRequired; never automatic retry,YES,fault_matrix,treat 503 as definitely not sent
+G78R3-041,outcome_place,PLACE malformed/truncated/unknown 2xx is ambiguous,ReconciliationRequired,YES,fault_matrix,accept unknown 2xx
+G78R3-042,outcome_cancel,CANCEL 200 is endpoint-specific accepted observation,Response must correlate exact target; does not itself prove no intervening fill/position change,YES,local_mock,treat 200 cancel as proof of flat
+G78R3-043,outcome_cancel,CANCEL 400 already executed requires reconciliation,Must reconcile target order/trades/position; never ordinary BrokerRejected,YES,local_mock,cancel 400 -> BrokerRejected
+G78R3-044,outcome_cancel,CANCEL 404 requires reconciliation,Not-found/account ambiguity never terminal cancel confirmation,YES,local_mock,cancel 404 -> BrokerRejected
+G78R3-045,outcome_cancel,CANCEL undocumented 409/410 remain defensive reconciliation,Do not coerce into success/rejection absent separately accepted waiver,YES,local_mock,cancel 409 -> success
+G78R3-046,outcome_cancel,CANCEL 429/5xx/504/default are ambiguous,ReconciliationRequired; no blind retry,YES,fault_matrix,retry CANCEL on 429
+G78R3-047,outcome,Generic all-4xx classifier is forbidden,Endpoint-specific tables override generic HTTP class,YES,static_gate,replace endpoint tables with generic 4xx -> reject
+G78R3-048,outcome,DefinitelyNotSent requires transport proof,Only a pre-send/local connect failure with proof that no bytes could leave may use this class,YES,fault_matrix,infer definitely-not-sent from timeout
+G78R3-049,reconciliation,Broker truth is fresh/account-scoped/instrument-scoped,"Orders, trades, positions and account truth satisfy freshness policy",YES,behavioral,allow stale truth
+G78R3-050,reconciliation,Primary correlation uses exact durable identity,ClientOrderId first; BrokerOrderId when known; heuristics only supporting and bounded,YES,behavioral,heuristic match before client ID
+G78R3-051,reconciliation,Orders/trades/positions normalize before decisions,FINAM rows map to broker-neutral canonical snapshots,YES,fixture_parity,decide on raw FINAM payload
+G78R3-052,reconciliation,Multiple candidates fail closed,Conflict/manual intervention; no new live command,YES,negative,pick first multiple match
+G78R3-053,reconciliation,Empty/missing/stale truth proves nothing,No rejected/flat inference from absence,YES,negative,empty snapshot -> rejection
+G78R3-054,reconciliation,ProvenNoMatch is CLOSED in Stage8A,Stage8A cannot construct ProvenNoMatch; absence remains StillUnknown/ReconciliationRequired,YES,compile_fail+negative,single empty snapshot -> ProvenNoMatch
+G78R3-055,reconciliation,Old ambiguous request is never redispatched,Reconciliation may close/hold old request; any new send requires a new durable request + new arm,YES,restart,redispatch old request after no-match
+G78R3-056,reconciliation,Unresolved ambiguity blocks new execution,Zero unresolved ambiguous outcomes required before capability issuance,YES,negative,allow new PLACE with unresolved ambiguity
+G78R3-057,limits,Allowlist is exact and deny-by-default,"One account, instrument, strategy owner and permitted command scope; any drift blocks",YES,negative,wildcard allowlist
+G78R3-058,limits,Qty/price/notional/slippage are bounded,"Overflow, precision loss, missing multiplier, stale reference price fail closed",YES,negative,remove notional limit
+G78R3-059,limits,Schedule/session eligibility is required,Closed/clearing/unknown schedule blocks PLACE,YES,fixture_matrix,ignore schedule
+G78R3-060,micro,Stage8A contains no real micro execution,Micro budget types/policies may be modeled but no real POST/DELETE is possible,YES,closed_surface,open real micro in 8A
+G78R3-061,micro,Stage8B remains separately accepted,"Real engineering micro requires dedicated Stage8B TZ, matrix and independent review",YES,governance,let Gate acceptance open 8B
+G78R3-062,evidence,Stage8A starts with contract-refresh slice,No execution code before Stage8A-0 contract snapshot is independently accepted,YES,governance,skip Stage8A-0
+G78R3-063,evidence,Stage8A reruns accepted Stage7B full gate,Exact accepted predecessor evidence remains green,YES,inherited_gate,remove Stage7B inherited gate
+G78R3-064,evidence,Stage8A uses a new Stage8-specific closed-surface scanner,"Scanner pins no real FINAM send, no runtime-live, no second lifecycle/mapper authority",YES,closed_surface,reuse stale Stage5 scanner as sole authority
+G78R3-065,evidence,Gate R2 checker pins all critical semantic clauses,"Endpoint status, TIF, ClientOrderId, ProvenNoMatch closed and kill-switch wording are mutation-tested",YES,negative_harness,remove endpoint-specific policy
+G78R3-066,governance,Independent Gate R3 acceptance is the only transition event,Independent acceptance records next active slice=8A-0 only; no later slice or real execution is opened,YES,independent_review,self-accept Gate or open later Stage8A slice
+G78R3-067,outcome_cancel,CANCEL documented 401 is endpoint-specific fail-closed,Authentication/readiness block and disarm; target remains unresolved; ReconciliationRequired hold until fresh read-only truth; no blind or same-request CANCEL retry,YES,local_mock+policy,cancel 401 -> BrokerRejected and same-request retry
+G78R3-068,capability,One durable request permits one execution attempt after DispatchAttemptRecorded,DefinitelyNotSent cannot re-arm or resend the same durable request; later execution requires terminal/no-effect disposition plus new StrategyRequestId ClientOrderId arm and capability,YES,restart+compile_fail+negative,DefinitelyNotSent -> re-arm and resend same durable request
+G78R3-069,governance,Post-acceptance transition state is internally consistent,"Specification, descriptor, slice-plan, current-status and checker all agree: 8A-0 OPEN after acceptance; Stage8 production Rust, 8A-1..8A-5 and Stage8B CLOSED",YES,static_gate+negative_harness,retain contradictory post-acceptance Stage8 implementation CLOSED wording without explicit 8A-0 authorization

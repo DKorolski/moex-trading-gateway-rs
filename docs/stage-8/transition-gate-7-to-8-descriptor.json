@@ -1,12 +1,13 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "gate": "Transition Gate 7->8",
-  "status": "r2_specification_candidate_pending_independent_review",
+  "status": "r3_specification_candidate_pending_independent_review",
   "base_rejected_candidate": "4d1106e72bc1437d990a8bd949db4867d41c09b6",
   "reviewed_r1_not_accepted": "f7afc1c612c25de608783850ab2e8c0ae14b0687",
+  "reviewed_r2_not_accepted": "5da0db6cd1fd4c2c2eea6731d615ddd48a87b8ae",
   "source_ref_binding": {
     "required_branch": "gate7-to-8-spec",
-    "required_predecessor": "f7afc1c612c25de608783850ab2e8c0ae14b0687"
+    "required_predecessor": "5da0db6cd1fd4c2c2eea6731d615ddd48a87b8ae"
   },
   "accepted_stage7b": {
     "accepted_source_ref": "a1044e0dbe324c722b637498ca80ffafd9f0cbee",
@@ -21,8 +22,8 @@
   "contracts": {
     "specification": "docs/stage-8/transition-gate-7-to-8-specification.md",
     "acceptance_matrix": {
-      "path": "docs/stage-8/GATE7_TO_8_R2_ACCEPTANCE_MATRIX_2026-08-14.csv",
-      "sha256": "04667acfbf5df93e9937545cbb229fda0949aac0264e71f1bbd7ce8d8c994aec"
+      "path": "docs/stage-8/GATE7_TO_8_R3_ACCEPTANCE_MATRIX_2026-08-14.csv",
+      "sha256": "20781c5e2c03bfb5d7e652ee77a6210e97dd510dac76bb89b63ee057c1b684f2"
     },
     "stage8_slice_plan": "docs/stage-8/stage8-slice-plan.md",
     "finam_contract_snapshot": {
@@ -37,10 +38,15 @@
     "sole_cancel_serializer": "broker_finam::build_cancel_order_request"
   },
   "decision_after_independent_acceptance": {
-    "stage8a_protected_adapter_and_reconciliation": "implementation_authorized_no_send",
-    "stage8b_bounded_real_execution": "closed_pending_stage8a5_and_separate_acceptance",
-    "stage9_continuous_reconciliation": "closed",
-    "stage10_runtime_live": "closed"
+    "next_active_slice_after_gate_acceptance": "8A-0",
+    "stage8a_0_contract_refresh": "authorized_docs_evidence_checkers_only",
+    "stage8a_1_protected_capability": "closed_pending_8a0_acceptance",
+    "stage8a_2_builder_composition": "closed_pending_8a1_acceptance",
+    "stage8a_3_endpoint_classifier": "closed_pending_8a2_acceptance",
+    "stage8a_4_reconciliation": "closed_pending_8a3_acceptance",
+    "stage8a_5_aggregate": "closed_pending_8a4_acceptance",
+    "stage8_production_rust_authorized": false,
+    "stage8b_real_execution": "closed"
   },
   "stage8a_slice_order": [
     "8A-0",
@@ -100,7 +106,7 @@
     "unattended_execution": false,
     "stage8b_real_micro": false
   },
-  "acceptance_row_count": 68,
-  "negative_case_count": 34,
+  "acceptance_row_count": 69,
+  "negative_case_count": 36,
   "independent_acceptance_required": true
 }

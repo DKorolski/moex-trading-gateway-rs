@@ -1,16 +1,21 @@
 # Stage 8 slice plan
 
-Status: Gate 7→8 R2 candidate; Stage 8 implementation remains CLOSED pending
+Status: Gate 7→8 R3 candidate; every Stage 8 slice remains CLOSED pending
 independent acceptance.
 
-Acceptance of Gate R2 opens only Stage 8A protected FINAM adapter no-send work.
-It does not authorize a real FINAM POST/DELETE, broker dispatch, runtime-live,
-real strategy orders, native protective orders or unattended execution.
+Acceptance of Gate R3 opens only Stage 8A-0 current FINAM contract
+refresh/freeze for docs, evidence and checkers. Stage 8 production Rust,
+8A-1 through 8A-5, real FINAM POST/DELETE, broker dispatch, runtime-live, real
+strategy orders, native protective orders and unattended execution remain
+CLOSED.
+
+It does not authorize a real FINAM POST/DELETE.
 
 ## Mandatory Stage 8A order
 
 Each slice requires its own immutable handoff and independent acceptance before
-the next slice starts.
+the next slice starts. Acceptance of 8A-0 opens only 8A-1; no Gate acceptance
+may skip or open a later slice directly.
 
 1. **Stage 8A-0 — current contract refresh.** Re-fetch the official FINAM REST
    order contract, normalize and hash it, compare it with the project fixture

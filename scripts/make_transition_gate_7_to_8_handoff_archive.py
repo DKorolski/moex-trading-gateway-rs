@@ -67,7 +67,7 @@ def main() -> None:
     if gate.returncode:
         print(gate_output.decode(errors="replace"), end="")
         fail(f"gate failed: {gate.returncode}")
-    if b"transition-gate-7-to-8: PASS r2 rows=68 negatives=34 contract=current stage8-implementation=closed" not in gate_output:
+    if b"transition-gate-7-to-8: PASS r3 rows=69 negatives=36 contract=current next=8A-0 production-rust=closed stage8b=closed" not in gate_output:
         fail("full gate completion marker missing")
 
     raw = subprocess.check_output(["git", "archive", "--format=tar", "HEAD"], cwd=ROOT)
@@ -103,8 +103,10 @@ def main() -> None:
         f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
         f"archive_name={archive_name}\npredecessor={checker.PREDECESSOR}\n"
         f"accepted_stage7b_ref={checker.ACCEPTED_STAGE7B}\n"
-        "candidate_gate=Transition Gate 7->8 R2\n"
-        "candidate_status=r2_independent_acceptance_pending\n"
+        "candidate_gate=Transition Gate 7->8 R3\n"
+        "candidate_status=r3_independent_acceptance_pending\n"
+        "next_active_slice_after_acceptance=8A-0\n"
+        "stage8a0_scope=docs_evidence_checkers_only\n"
         "stage8_implementation_authorized=false\n"
         "real_finam_execution_authorized=false\n"
     ).encode()
@@ -112,14 +114,16 @@ def main() -> None:
     evidence = json.dumps(
         {
             "schema_version": 1,
-            "gate": "Transition Gate 7->8 R2",
-            "status": "r2_independent_acceptance_pending",
+            "gate": "Transition Gate 7->8 R3",
+            "status": "r3_independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
             "predecessor": checker.PREDECESSOR,
             "accepted_stage7b_ref": checker.ACCEPTED_STAGE7B,
-            "acceptance_rows": 68,
-            "negative_cases": 34,
+            "acceptance_rows": 69,
+            "negative_cases": 36,
+            "next_active_slice_after_acceptance": "8A-0",
+            "stage8a0_scope": "docs_evidence_checkers_only",
             "finam_contract_snapshot_sha256": checker.SNAPSHOT_SHA,
             "finam_contract_evidence_sha256": checker.EVIDENCE_SHA,
             "full_gate_exit_code": 0,

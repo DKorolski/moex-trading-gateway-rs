@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed checks for the Gate 7->8 R2 specification correction."""
+"""Fail-closed checks for the Gate 7->8 R3 transition-rule closure."""
 
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ from pathlib import Path
 
 BASE_REJECTED = "4d1106e72bc1437d990a8bd949db4867d41c09b6"
 R1_REVIEWED_NOT_ACCEPTED = "f7afc1c612c25de608783850ab2e8c0ae14b0687"
-PREDECESSOR = R1_REVIEWED_NOT_ACCEPTED
+R2_REVIEWED_NOT_ACCEPTED = "5da0db6cd1fd4c2c2eea6731d615ddd48a87b8ae"
+PREDECESSOR = R2_REVIEWED_NOT_ACCEPTED
 ACCEPTED_STAGE7B = "a1044e0dbe324c722b637498ca80ffafd9f0cbee"
 STAGE7B_CLOSURE = "7c3ffffcfec012f3c96c65a3fcaf366c1740b88e"
 BRANCH = "gate7-to-8-spec"
@@ -22,8 +23,9 @@ ACCEPTANCE_RECORD_SHA = "f50b45318132124af0516d32df4f4fa4d358719a07e5cbe6603bead
 
 DESCRIPTOR = Path("docs/stage-8/transition-gate-7-to-8-descriptor.json")
 SPEC = Path("docs/stage-8/transition-gate-7-to-8-specification.md")
-MATRIX = Path("docs/stage-8/GATE7_TO_8_R2_ACCEPTANCE_MATRIX_2026-08-14.csv")
+MATRIX = Path("docs/stage-8/GATE7_TO_8_R3_ACCEPTANCE_MATRIX_2026-08-14.csv")
 OLD_MATRICES = {
+    Path("docs/stage-8/GATE7_TO_8_R2_ACCEPTANCE_MATRIX_2026-08-14.csv"),
     Path("docs/stage-8/GATE7_TO_8_R1_ACCEPTANCE_MATRIX_2026-08-14.csv"),
     Path("docs/stage-8/TRANSITION_GATE_7_TO_8_ACCEPTANCE_MATRIX_2026-08-14.csv"),
 }
@@ -37,7 +39,7 @@ ACCEPTANCE_RECORD = Path("docs/stage-7/stage7b-final-acceptance-record.md")
 
 SNAPSHOT_SHA = "bf885782ffda757b2c2b9bdb01822c925ce08df983b7ff9779811f5365886bc6"
 EVIDENCE_SHA = "5a434b0474844296566b3ad6e1a610d6b0fdd99d2ae90ac06de2cb4c9ce5d870"
-MATRIX_SHA = "04667acfbf5df93e9937545cbb229fda0949aac0264e71f1bbd7ce8d8c994aec"
+MATRIX_SHA = "20781c5e2c03bfb5d7e652ee77a6210e97dd510dac76bb89b63ee057c1b684f2"
 ORDER_REQUEST_SHA = "e57789a15d4a33fad08b93580d50c5efa8aba92ea4f547a45a898c6e300b80e6"
 ORDER_ENUM_FIXTURE_SHA = "212ab404fbccc0a7bcb77a43a2ec73f460c7d90629b14daf00020eb9f6041dcf"
 
@@ -72,17 +74,18 @@ def sha(path: Path) -> str:
 
 
 def validate_descriptor(value: dict) -> None:
-    require(value.get("schema_version") == 3, "descriptor schema drift")
+    require(value.get("schema_version") == 4, "descriptor schema drift")
     require(value.get("gate") == "Transition Gate 7->8", "gate identity drift")
     require(
-        value.get("status") == "r2_specification_candidate_pending_independent_review",
-        "Gate R2 self-accepted or status drift",
+        value.get("status") == "r3_specification_candidate_pending_independent_review",
+        "Gate R3 self-accepted or status drift",
     )
     require(value.get("base_rejected_candidate") == BASE_REJECTED, "base candidate drift")
     require(value.get("reviewed_r1_not_accepted") == R1_REVIEWED_NOT_ACCEPTED, "reviewed R1 binding drift")
+    require(value.get("reviewed_r2_not_accepted") == R2_REVIEWED_NOT_ACCEPTED, "reviewed R2 binding drift")
     binding = value.get("source_ref_binding", {})
     require(binding.get("required_branch") == BRANCH, "required branch drift")
-    require(binding.get("required_predecessor") == PREDECESSOR, "R2 predecessor drift")
+    require(binding.get("required_predecessor") == PREDECESSOR, "R3 predecessor drift")
     accepted = value.get("accepted_stage7b", {})
     require(accepted.get("accepted_source_ref") == ACCEPTED_STAGE7B, "accepted Stage 7B ref drift")
     require(accepted.get("closure_record_ref") == STAGE7B_CLOSURE, "closure record ref drift")
@@ -100,10 +103,18 @@ def validate_descriptor(value: dict) -> None:
     require(contracts.get("sole_cancel_serializer") == "broker_finam::build_cancel_order_request", "cancel serializer authority drift")
 
     decision = value.get("decision_after_independent_acceptance", {})
-    require(decision.get("stage8a_protected_adapter_and_reconciliation") == "implementation_authorized_no_send", "Stage 8A network boundary opened")
-    require(decision.get("stage8b_bounded_real_execution") == "closed_pending_stage8a5_and_separate_acceptance", "Stage 8B opened")
-    require(decision.get("stage9_continuous_reconciliation") == "closed", "Stage 9 opened")
-    require(decision.get("stage10_runtime_live") == "closed", "Stage 10 opened")
+    expected_decision = {
+        "next_active_slice_after_gate_acceptance": "8A-0",
+        "stage8a_0_contract_refresh": "authorized_docs_evidence_checkers_only",
+        "stage8a_1_protected_capability": "closed_pending_8a0_acceptance",
+        "stage8a_2_builder_composition": "closed_pending_8a1_acceptance",
+        "stage8a_3_endpoint_classifier": "closed_pending_8a2_acceptance",
+        "stage8a_4_reconciliation": "closed_pending_8a3_acceptance",
+        "stage8a_5_aggregate": "closed_pending_8a4_acceptance",
+        "stage8_production_rust_authorized": False,
+        "stage8b_real_execution": "closed",
+    }
+    require(decision == expected_decision, "post-acceptance slice transition drift")
     require(value.get("stage8a_slice_order") == ["8A-0", "8A-1", "8A-2", "8A-3", "8A-4", "8A-5"], "Stage 8A order drift")
     require(value.get("allowed_initial_commands") == ["PLACE_MARKET", "PLACE_LIMIT", "CANCEL"], "initial command allowlist drift")
     require(value.get("allowed_initial_time_in_force") == ["TIME_IN_FORCE_DAY"], "initial TIF is not Day-only")
@@ -132,8 +143,8 @@ def validate_descriptor(value: dict) -> None:
     }
     require(safety == expected_safety, "safety invariant drift")
     require(value.get("endpoint_outcome_invariants") == {"cancel_401": "auth_readiness_block_disarm_target_unresolved_reconciliation_hold_fresh_truth_no_same_request_retry"}, "CANCEL 401 invariant drift")
-    require(value.get("acceptance_row_count") == 68, "acceptance row count drift")
-    require(value.get("negative_case_count") == 34, "negative case count drift")
+    require(value.get("acceptance_row_count") == 69, "acceptance row count drift")
+    require(value.get("negative_case_count") == 36, "negative case count drift")
     require(value.get("independent_acceptance_required") is True, "independent acceptance removed")
     surfaces = value.get("currently_open_surfaces", {})
     require(len(surfaces) == 9 and not any(surfaces.values()), "execution surface opened")
@@ -183,7 +194,8 @@ def validate_contract_evidence(value: dict, root: Path) -> None:
 
 
 SPEC_TOKENS = [
-    "Status: Gate 7→8 R2 specification candidate pending independent review.",
+    "Status: Gate 7→8 R3 specification candidate pending independent review.",
+    "5da0db6cd1fd4c2c2eea6731d615ddd48a87b8ae",
     "f7afc1c612c25de608783850ab2e8c0ae14b0687",
     "4d1106e72bc1437d990a8bd949db4867d41c09b6",
     "Stage8ExecutionCapability",
@@ -222,9 +234,11 @@ SPEC_TOKENS = [
     "ALOR and FINAM must not both have live execution authority",
     "historical Stage 5 `forbidden_surface_scan.sh` is not rebaselined here",
     "Stage 8-specific closed-surface scanner",
-    "all 68 mandatory rows",
-    "all exact 34 negative",
-    "Stage 8 implementation CLOSED",
+    "all 69 mandatory rows",
+    "all exact 36 negative",
+    "8A-0 contract refresh/freeze OPEN for docs/evidence/checkers only",
+    "8A-1 CLOSED pending 8A-0 acceptance",
+    "Stage 8 production Rust CLOSED",
     "FINAM POST/DELETE CLOSED",
 ]
 
@@ -234,6 +248,8 @@ def validate_spec(text: str) -> None:
     for token in SPEC_TOKENS:
         require(token in text, f"specification token missing: {token}")
     require("It does not authorize real FINAM POST/DELETE" in text, "real endpoint prohibition missing")
+    require("Independent acceptance of this specification authorizes exactly one next slice: **Stage 8A-0 current FINAM contract refresh/freeze**." in text, "8A-0-only transition missing")
+    require("Gate acceptance does not authorize Stage 8 production Rust" in text, "production Rust closure missing")
     require("No outcome after a possible send is automatically retried." in text, "blind retry prohibition missing")
     require("multiple candidates" in text and "no new live command" in text, "multiple-candidate closure missing")
     require(text.count("429, 500, 503, 504 or default | `ReconciliationRequired`") == 2, "PLACE/CANCEL ambiguous status tables drift")
@@ -245,17 +261,21 @@ def validate_spec(text: str) -> None:
         "same cancel request may be retried",
         "new arm may reuse the same durable request",
         "resend the same durable request",
+        "Independent acceptance of this specification authorizes only Stage 8A:",
+        "Until then, and even after acceptance until the relevant later gate:",
+        "8A-1 protected capability OPEN",
+        "8A-2 builder composition OPEN",
     ]:
-        require(forbidden not in text, f"unsafe R2 interpretation present: {forbidden}")
+        require(forbidden not in text, f"unsafe R3 interpretation present: {forbidden}")
 
 
 def validate_matrix(path: Path) -> None:
     with path.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     header = ["id", "category", "requirement", "expected", "mandatory", "evidence", "negative_mutation"]
-    require(len(rows) == 68, "acceptance matrix is not 68 rows")
+    require(len(rows) == 69, "acceptance matrix is not 69 rows")
     require(list(rows[0]) == header, "matrix header drift")
-    require([row["id"] for row in rows] == [f"G78R2-{index:03d}" for index in range(1, 69)], "matrix IDs missing reordered or duplicated")
+    require([row["id"] for row in rows] == [f"G78R3-{index:03d}" for index in range(1, 70)], "matrix IDs missing reordered or duplicated")
     require(all(row["mandatory"] == "YES" for row in rows), "optional acceptance row introduced")
     require(all(all(row[field].strip() for field in header) for row in rows), "empty acceptance field")
     required_categories = {"predecessor", "scope", "finam_contract", "capability", "operator", "kill_switch", "ownership", "mapping", "outcome_place", "outcome_cancel", "outcome", "reconciliation", "limits", "micro", "evidence", "governance"}
@@ -265,9 +285,10 @@ def validate_matrix(path: Path) -> None:
 def validate_slice_plan(text: str) -> None:
     normalized = " ".join(text.split())
     for token in [
-        "Status: Gate 7→8 R2 candidate",
-        "Acceptance of Gate R2 opens only Stage 8A protected FINAM adapter no-send work.",
-        "Stage 8 implementation remains CLOSED",
+        "Status: Gate 7→8 R3 candidate",
+        "Acceptance of Gate R3 opens only Stage 8A-0 current FINAM contract refresh/freeze for docs, evidence and checkers.",
+        "Stage 8 production Rust",
+        "8A-1 through 8A-5",
         "8A-0 — current contract refresh",
         "8A-1 — protected capability",
         "8A-2 — builder composition",
@@ -288,11 +309,11 @@ def git_output(root: Path, *args: str) -> str:
 
 
 def validate_git_scope(root: Path) -> None:
-    require(git_output(root, "merge-base", "--is-ancestor", PREDECESSOR, "HEAD") == "", "reviewed R1 is not ancestor")
+    require(git_output(root, "merge-base", "--is-ancestor", PREDECESSOR, "HEAD") == "", "reviewed R2 is not ancestor")
     tracked = set(filter(None, git_output(root, "diff", "--name-only", PREDECESSOR).splitlines()))
     untracked = set(filter(None, git_output(root, "ls-files", "--others", "--exclude-standard").splitlines()))
     changed = tracked | untracked
-    require(changed, "empty Gate R2 correction delta")
+    require(changed, "empty Gate R3 correction delta")
     require(not (changed - ALLOWED_DELTA), f"out-of-scope path changed: {sorted(changed - ALLOWED_DELTA)}")
     require(not any(path.startswith(("crates/", ".github/")) or path in {"Cargo.toml", "Cargo.lock"} for path in changed), "production/Cargo/CI delta present")
 
@@ -303,7 +324,7 @@ def check(root: Path, *, check_git_scope: bool = True) -> None:
     require(sha(root / CONTRACT_SNAPSHOT) == SNAPSHOT_SHA, "normalized FINAM snapshot hash drift")
     require(sha(root / CONTRACT_EVIDENCE) == EVIDENCE_SHA, "FINAM evidence hash drift")
     require(sha(root / MATRIX) == MATRIX_SHA, "acceptance matrix hash drift")
-    require(not any((root / path).exists() for path in OLD_MATRICES), "obsolete pre-R2 matrix remains authoritative")
+    require(not any((root / path).exists() for path in OLD_MATRICES), "obsolete pre-R3 matrix remains authoritative")
     validate_descriptor(json.loads((root / DESCRIPTOR).read_text()))
     validate_contract_snapshot(json.loads((root / CONTRACT_SNAPSHOT).read_text()))
     validate_contract_evidence(json.loads((root / CONTRACT_EVIDENCE).read_text()), root)
@@ -312,13 +333,15 @@ def check(root: Path, *, check_git_scope: bool = True) -> None:
     validate_slice_plan((root / SLICE_PLAN).read_text())
     status = " ".join((root / "docs/current-status.md").read_text().split())
     roadmap = " ".join((root / "docs/roadmap.md").read_text().split())
-    require("Transition Gate 7→8 R2 specification" in status, "current status not moved to R2")
-    require("Stage 8 implementation remains CLOSED" in status, "current status opened Stage 8")
-    require("Transition Gate 7→8 R2 specification" in roadmap, "roadmap R2 target missing")
+    require("Transition Gate 7→8 R3 specification" in status, "current status not moved to R3")
+    require("Independent R3 acceptance opens only Stage 8A-0" in status, "current status transition drift")
+    require("Stage 8 production Rust" in status and "8A-1 through 8A-5 remain CLOSED" in status, "current status opened implementation")
+    require("Transition Gate 7→8 R3 specification" in roadmap, "roadmap R3 target missing")
+    require("Independent R3 acceptance opens only Stage 8A-0" in roadmap, "roadmap transition drift")
     require("FINAM POST/DELETE remains closed" in roadmap, "roadmap endpoint boundary missing")
     if check_git_scope:
         validate_git_scope(root)
-    print("transition-gate-7-to-8-check: PASS r2 rows=68 contract=current stage8a=no-send stage8b=closed")
+    print("transition-gate-7-to-8-check: PASS r3 rows=69 contract=current next=8A-0 production-rust=closed stage8b=closed")
 
 
 def main() -> None:

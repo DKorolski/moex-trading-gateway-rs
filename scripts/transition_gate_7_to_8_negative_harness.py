@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact 32 negative mutations for the Gate 7->8 R1 contract."""
+"""Exact 36 negative mutations for the Gate 7->8 R3 contract."""
 
 from __future__ import annotations
 
@@ -65,16 +65,16 @@ def append(root: Path, path: Path, value: str) -> None:
 
 CASES: list[tuple[str, Callable[[Path], None]]] = [
     (
-        "self-accept-gate-r2",
+        "self-accept-gate-r3",
         lambda root: descriptor(root, lambda value: value.__setitem__("status", "ACCEPTED")),
     ),
     (
         "open-stage8a-network-send",
-        lambda root: descriptor(root, lambda value: value["decision_after_independent_acceptance"].__setitem__("stage8a_protected_adapter_and_reconciliation", "implementation_authorized_real_send")),
+        lambda root: descriptor(root, lambda value: value["decision_after_independent_acceptance"].__setitem__("stage8_production_rust_authorized", True)),
     ),
     (
         "open-stage8b-real-execution",
-        lambda root: descriptor(root, lambda value: value["decision_after_independent_acceptance"].__setitem__("stage8b_bounded_real_execution", "open")),
+        lambda root: descriptor(root, lambda value: value["decision_after_independent_acceptance"].__setitem__("stage8b_real_execution", "open")),
     ),
     (
         "open-finam-post",
@@ -200,16 +200,24 @@ CASES: list[tuple[str, Callable[[Path], None]]] = [
         "definitely-not-sent-rearm-same-durable-request",
         lambda root: append(root, checker.SPEC, "\nDefinitelyNotSent: new arm may reuse the same durable request and resend the same durable request.\n"),
     ),
+    (
+        "gate-opens-8a1-or-later-directly",
+        lambda root: descriptor(root, lambda value: value["decision_after_independent_acceptance"].__setitem__("stage8a_1_protected_capability", "authorized_no_send")),
+    ),
+    (
+        "post-acceptance-transition-contradiction",
+        lambda root: append(root, checker.SPEC, "\nUntil then, and even after acceptance until the relevant later gate: Stage 8 implementation CLOSED.\n"),
+    ),
 ]
 
 
 def main() -> None:
     checker.check(ROOT, check_git_scope=False)
-    if len(CASES) != 34:
-        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL inventory={len(CASES)}/34")
+    if len(CASES) != 36:
+        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL inventory={len(CASES)}/36")
     passed = 0
     for name, mutate in CASES:
-        with tempfile.TemporaryDirectory(prefix="gate7-to-8-r1-negative-") as raw:
+        with tempfile.TemporaryDirectory(prefix="gate7-to-8-r3-negative-") as raw:
             root = Path(raw)
             copy_contracts(root)
             mutate(root)
@@ -220,9 +228,9 @@ def main() -> None:
                 print(f"PASS {name}")
             else:
                 raise SystemExit(f"transition-gate-7-to-8-negative: FAIL accepted mutation {name}")
-    if passed != 34:
-        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL cases={passed}/34")
-    print("transition-gate-7-to-8-negative: PASS cases=34/34")
+    if passed != 36:
+        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL cases={passed}/36")
+    print("transition-gate-7-to-8-negative: PASS cases=36/36")
 
 
 if __name__ == "__main__":
