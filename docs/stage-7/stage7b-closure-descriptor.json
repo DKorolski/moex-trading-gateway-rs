@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 7B",
+  "status": "independently_accepted_closed",
+  "accepted_ref": "a1044e0dbe324c722b637498ca80ffafd9f0cbee",
+  "accepted_branch": "stage7b-production-durability",
+  "accepted_predecessors": {
+    "stage7a": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
+    "stage7b_d_c": "2b6371adb905654e0ddd8b6714159bcef737b577"
+  },
+  "independent_review": {
+    "artifact_name": "REVIEW_STAGE7B_E_R4_a1044e0_FINAL_ACCEPTANCE_2026-08-14.md",
+    "sha256": "e66d87ae88cf1c1a8f2ec12ac5d4338374c26bfcc417624b0fa1f007a5c81bf2",
+    "review_date": "2026-08-14",
+    "verdict": "ACCEPTED"
+  },
+  "accepted_evidence": {
+    "proof_rows": 80,
+    "fault_rows": 20,
+    "local_negative_cases": 19,
+    "inherited_negative_cases": 40,
+    "aggregate_negative_cases": 59
+  },
+  "closed_surfaces": {
+    "stage8_implementation": false,
+    "finam_post_delete": false,
+    "broker_network_dispatch": false,
+    "runtime_live": false,
+    "real_strategy_orders": false,
+    "native_stop_sltp_bracket": false
+  },
+  "next_authorized_work": "Gate 7->8 specification only",
+  "gate_7_to_8_status": "specification_authorized_implementation_closed"
+}

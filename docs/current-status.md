@@ -95,15 +95,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `8cc72f148032bedda6a0ef86f6edda2c1394abc7` and R3 at
   `d501d62543cde890bfbb8d8ea0dc878e28a711b2` were not accepted. R3 closed the
   intended production-prefix B-079 mutation but retained a suffix-after-tests
-  scanner gap. R4 is now the only active aggregate acceptance candidate and
-  requires the exact changed-path set and exact full-file SHA-256 for all six
-  allowed crate deltas, plus before-test and after-test hidden-Stage8
-  mutations. It adds
+  scanner gap. R4 required the exact changed-path set and exact full-file
+  SHA-256 for all six allowed crate deltas, plus before-test and after-test
+  hidden-Stage8 mutations. R4 was independently accepted at
+  `a1044e0dbe324c722b637498ca80ffafd9f0cbee`; Stage 7B is formally CLOSED.
+  The final accepted evidence contains
   no execution behavior: exact normative X01-X20, the mandatory inherited Stage 7A
   full gate, complete file/Redis/subprocess evidence and the 80/80 proof map
-  are assembled for independent acceptance pending, with 59 aggregate negative
-  cases. Only an
-  accepted Stage 7B-e may permit preparation of Gate 7→8.
+  with 59 aggregate negative cases. Only preparation of the Gate 7→8
+  specification is now authorized; Stage 8 implementation remains closed.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real
   strategy orders and native Stop/SLTP/bracket remain CLOSED.
 - Stage 7A permits at most one non-final command lifecycle per strategy

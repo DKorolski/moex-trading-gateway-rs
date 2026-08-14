@@ -27,7 +27,10 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 7B-e R4 — active aggregate acceptance candidate on independently accepted
+Gate 7→8 specification — current authorized planning target. Stage 7B-e R4 was
+independently accepted and Stage 7B formally closed at
+`a1044e0dbe324c722b637498ca80ffafd9f0cbee`. The accepted Stage 7B chain rests on
+independently accepted
 Stage 7B-d-a-R1 at `8418cfb63ecee6702bf8a2873592b7cad1e711ee`. The Redis-free durable lifecycle
 and seal-before-settlement authorization remains paper/mock only. The original implementation candidate
 `f71eeb926464f6634d485d5720b25c5e026b40d5` was not accepted; R1 closes exact
@@ -56,10 +59,9 @@ and child-process Redis `XAUTOCLAIM` witnesses. R1 at
 marker-only terminal history was checked only after effect. R2 adds the
 read-only pre-admission marker veto and exact duplicate-publication path.
 Stage 7B-d-c-R2 is accepted at
-`2b6371adb905654e0ddd8b6714159bcef737b577`. Stage 7B-e aggregate closure is
-the only active slice: exact normative X01-X20, the inherited Stage 7A full
-gate, real infrastructure evidence and the 80/80 proof map are prepared while
-independent acceptance pending. R1 at
+`2b6371adb905654e0ddd8b6714159bcef737b577`. Stage 7B-e aggregate closure
+assembled exact normative X01-X20, the inherited Stage 7A full gate, real
+infrastructure evidence and the 80/80 proof map. R1 at
 `422bd1a8b45bfd3397aa588f914494cc11f5c401` was not accepted; R2 at
 `8cc72f148032bedda6a0ef86f6edda2c1394abc7` closed its gate, fault-semantics
 and proof-map findings but retained a stale B-079 proof. R3 at
@@ -67,9 +69,10 @@ and proof-map findings but retained a stale B-079 proof. R3 at
 mutation but was not accepted because the prefix model did not cover a
 production item after the test module. R4 pins the exact changed-path set and
 full-file SHA-256 of every allowed crate delta and adds the 59th,
-post-test-module hidden-Stage8 mutation. FINAM POST/DELETE,
-runtime-live and real orders remain closed; only accepted Stage 7B-e may open
-planning for Gate 7→8.
+post-test-module hidden-Stage8 mutation. The independent final review closed
+the aggregate stage with 80/80 proof rows, 20/20 fault rows and 59/59 negative
+cases. FINAM POST/DELETE, runtime-live, real orders and Stage 8 implementation
+remain closed while the Gate 7→8 specification is prepared and reviewed.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and
