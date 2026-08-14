@@ -2,6 +2,8 @@
 """Stage 7B-e aggregate durability closure checker."""
 from __future__ import annotations
 
+import difflib
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -11,6 +13,10 @@ BRANCH = "stage7b-production-durability"
 ACCEPTED_D_C = "2b6371adb905654e0ddd8b6714159bcef737b577"
 ACCEPTED_STAGE7A = "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64"
 NORMATIVE_MATRIX_SHA256 = "d4f5dc4ee8a65ee007a2fe01075927dd6136ec1df8557c8dc37e8105dd0936c9"
+ALLOWED_R3_PRODUCTION_PREFIX_SHA256 = {
+    "crates/runtime-durable-service/src/lib.rs": "a19cf7393a89a271592f3eceb64c48446310a756f261843da085b2af01a4fff4",
+    "crates/strategy-runtime-core/src/stage6_journal_backend.rs": "13ca5b838fbe01b33a86d1cc97f6422edceb9d0cf98df1da2d3f06c7160b611f",
+}
 
 
 class CheckFailure(RuntimeError):
@@ -57,7 +63,7 @@ def check_lineage() -> None:
     require(branch == BRANCH, "Stage 7B-e branch drift")
 
 
-def check_no_functional_delta() -> None:
+def check_closed_surface() -> None:
     for path in (
         "crates/runtime-durable-service/src/recovery.rs",
         "crates/runtime-durable-service/src/recovery/redis_settlement.rs",
@@ -82,6 +88,44 @@ def check_no_functional_delta() -> None:
     crate_delta = {path for path in changed if path.startswith("crates/")}
     require(crate_delta <= allowed_crates, f"aggregate production scope expanded: {sorted(crate_delta - allowed_crates)}")
     require(not any(path.startswith(".github/") for path in changed), "CI governance scope changed")
+    require(
+        not any("stage8" in path.lower() or "stage-8" in path.lower() for path in changed),
+        "Stage 8 changed path introduced before Gate 7→8",
+    )
+
+    forbidden_added_tokens = (
+        "stage8",
+        "stage 8",
+        "finam",
+        "broker-finam",
+        "finam-gateway",
+        "reqwest",
+        "runtime_live",
+        "runtime-live",
+        "real_order",
+        "broker_network_dispatch",
+        ".post(",
+        ".delete(",
+        "method::post",
+        "method::delete",
+    )
+    for path, expected_sha256 in ALLOWED_R3_PRODUCTION_PREFIX_SHA256.items():
+        current_prefix = production_prefix((ROOT / path).read_text())
+        actual_sha256 = hashlib.sha256(current_prefix.encode()).hexdigest()
+        require(
+            actual_sha256 == expected_sha256,
+            f"non-whitelisted production-prefix delta in R2 diagnostic seam: {path}",
+        )
+        accepted_prefix = production_prefix(git_show(ACCEPTED_D_C, path))
+        added = "\n".join(
+            line[1:]
+            for line in difflib.unified_diff(
+                accepted_prefix.splitlines(), current_prefix.splitlines(), lineterm=""
+            )
+            if line.startswith("+") and not line.startswith("+++")
+        ).lower()
+        for token in forbidden_added_tokens:
+            require(token not in added, f"hidden Stage8/live token in production delta: {path}: {token}")
 
 
 def check_single_execution_authority() -> None:
@@ -178,14 +222,14 @@ def check_descriptors() -> None:
     expected = {
         "slice": "7B-e",
         "status": "aggregate_acceptance_candidate",
-        "candidate_revision": "r2",
+        "candidate_revision": "r3",
         "accepted_predecessor": ACCEPTED_STAGE7A,
         "accepted_stage7b_d_c_ref": ACCEPTED_D_C,
         "implemented_count": 80,
         "pending_count": 0,
         "cross_process_fault_count": 20,
-        "negative_case_count": 57,
-        "e_negative_case_count": 17,
+        "negative_case_count": 58,
+        "e_negative_case_count": 18,
         "single_writer_required": True,
         "recovery_seal_required": True,
         "inherited_stage7a_gate_required": True,
@@ -219,8 +263,9 @@ def check_proof_map() -> None:
     for row_id, tokens in {
         "B-073": ("normative", "X01-X20", "X02", "X12", "X19"),
         "B-075": ("inherited-stage7a-gate.txt", "workspace", "clippy", "fmt"),
-        "B-076": ("cases=17", "inherited=40", "aggregate=57"),
-        "B-077": ("B-073", "B-075", "B-076", "accepted=false"),
+        "B-076": ("cases=18", "inherited=40", "aggregate=58"),
+        "B-077": ("B-073", "B-075", "B-076", "B-079", "accepted=false"),
+        "B-079": ("check_closed_surface", "accepted d-c-R2", "exact production-prefix"),
     }.items():
         witness = by_id[row_id]["exact_witness"]
         for token in tokens:
@@ -274,7 +319,7 @@ def check_preseal_contract() -> None:
         'target.with_suffix(".zip.sha256")',
         '"stage7b_accepted": False',
         '"inherited_stage7a_gate_required": True',
-        '"candidate_revision": "r2"',
+        '"candidate_revision": "r3"',
         'STAGE7B_REQUIRE_ORIGIN',
     ):
         require(token in handoff, f"preseal contract absent: {token}")
@@ -282,7 +327,7 @@ def check_preseal_contract() -> None:
 
 def main() -> None:
     check_lineage()
-    check_no_functional_delta()
+    check_closed_surface()
     check_single_execution_authority()
     check_journal_parent_directory_fsync()
     check_seal_parent_directory_fsync()

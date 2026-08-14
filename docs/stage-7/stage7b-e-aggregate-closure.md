@@ -1,6 +1,13 @@
 # Stage 7B-e — aggregate durability closure
 
-Status: R2 aggregate acceptance candidate; independent acceptance pending.
+Status: R3 aggregate acceptance candidate; independent acceptance pending.
+
+R2 at `8cc72f148032bedda6a0ef86f6edda2c1394abc7` closed every prior durability
+finding but was not accepted because B-079 still pointed to an earlier
+closed-surface proof. R3 adds no functional behavior: it pins the exact
+production-prefix SHA-256 of both R2 X02 seam files, scans their added lines
+for Stage 8/FINAM/runtime-live surfaces, and adds the frozen hidden-Stage8
+negative mutation. The aggregate negative count is now 18 + 40 = 58.
 
 R1 at `422bd1a8b45bfd3397aa588f914494cc11f5c401` was not accepted. R2 restores
 the mandatory inherited Stage 7A full gate, pins the descriptor's inherited

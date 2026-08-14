@@ -91,11 +91,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   history emits only an atomic duplicate ACK. Stable command hash and canonical
   ACK stream/output are validated; incomplete legacy markers fail closed.
   Every FINAM/live surface stays closed.
-- Stage 7B-e R1 at `422bd1a8b45bfd3397aa588f914494cc11f5c401` was not accepted.
-  Stage 7B-e R2 is now the only active aggregate acceptance candidate. It adds
+- Stage 7B-e R1 at `422bd1a8b45bfd3397aa588f914494cc11f5c401` and R2 at
+  `8cc72f148032bedda6a0ef86f6edda2c1394abc7` were not accepted. R2 closed all
+  previous durability findings; R3 is now the only active aggregate acceptance
+  candidate and adds the final exact changed-path/production-prefix B-079
+  closed-surface proof plus a hidden-Stage8 mutation. It adds
   no execution behavior: exact normative X01-X20, the mandatory inherited Stage 7A
   full gate, complete file/Redis/subprocess evidence and the 80/80 proof map
-  are assembled for independent acceptance pending. Only an
+  are assembled for independent acceptance pending, with 58 aggregate negative
+  cases. Only an
   accepted Stage 7B-e may permit preparation of Gate 7→8.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real
   strategy orders and native Stop/SLTP/bracket remain CLOSED.

@@ -34,6 +34,11 @@ def main() -> None:
     descriptor = json.loads(descriptor_path.read_text())
     if proof.get("implemented_count") != 80 or proof.get("pending_count") != 0:
         fail("proof map is not 80/80")
+    proof_by_id = {row["row_id"]: row for row in proof.get("proofs", [])}
+    if "check_closed_surface" not in proof_by_id.get("B-079", {}).get("exact_witness", ""):
+        fail("B-079 current changed-path scanner witness absent")
+    if "B-079" not in proof_by_id.get("B-077", {}).get("exact_witness", ""):
+        fail("B-077 does not aggregate B-079")
     if matrix.get("fault_count") != 20 or len(normative_matrix.get("faults", [])) != 20:
         fail("fault matrix is not 20/20")
     if descriptor.get("accepted_stage7b_d_c_ref") != ACCEPTED_D_C:
@@ -46,7 +51,7 @@ def main() -> None:
         required = {
             "fmt.txt": "fmt: PASS",
             "stage7b-e-check.txt": "stage7b-e-check: PASS rows=80/80 faults=20/20 accepted=false",
-            "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=17 inherited=40 aggregate=57",
+            "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=18 inherited=40 aggregate=58",
             "inherited-stage7a-gate.txt": "stage7a-gate: PASS",
             "inherited-d-c-gate.txt": "stage7b-d-c-gate: PASS",
             "fault-matrix.txt": "stage7b-fault-matrix: PASS faults=20/20 normative=true debug_release_bound=true",
@@ -73,7 +78,7 @@ def main() -> None:
         "proof_rows_pending": 0,
         "fault_rows": 20,
         "fault_rows_passed": 20,
-        "aggregate_negative_cases": 57,
+        "aggregate_negative_cases": 58,
         "all_required_candidate_gates_passed": bool(args.artifact_dir),
         "stage7b_accepted": False,
         "verdict": "INDEPENDENT_ACCEPTANCE_PENDING",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate Stage 7B-e mutation harness (17 new + 40 inherited cases)."""
+"""Aggregate Stage 7B-e mutation harness (18 new + 40 inherited cases)."""
 from __future__ import annotations
 
 import json
@@ -16,6 +16,7 @@ NORMATIVE = Path("docs/stage-7/stage7b-fault-matrix-normative.json")
 TZ = Path("docs/stage-7/TZ_STAGE7B_PRODUCTION_DURABILITY_COMPOSITION_2026-08-12.md")
 PROOF_GENERATOR = Path("scripts/stage7b_proof_map.py")
 LIVE = Path("crates/strategy-runtime-core/src/stage6d_live_core.rs")
+SERVICE_ROOT = Path("crates/runtime-durable-service/src/lib.rs")
 JOURNAL = Path("crates/strategy-runtime-core/src/stage6_journal_backend.rs")
 RECOVERY = Path("crates/runtime-durable-service/src/recovery.rs")
 SUBPROCESS = Path("crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs")
@@ -37,7 +38,7 @@ COPY_PATHS = (
     GATE,
     Path("scripts/stage7b_fault_matrix_check.py"),
     HANDOFF,
-    Path("crates/runtime-durable-service/src/lib.rs"),
+    SERVICE_ROOT,
     LIVE,
     JOURNAL,
     RECOVERY,
@@ -95,6 +96,7 @@ CASES = (
     ("map-x12-to-redis-free-d-a-test", lambda root: mutate_fault(root, "X12", "witnesses", ["stage7b_d_a_b051_sigkill_after_seal_reconstructs_without_provider"])),
     ("remove-x19-restart-witness", lambda root: replace(root / JOURNAL, "stage7b_e_x19_sync_failure_reopen_validates_actual_disk_state_conservatively", "removed_x19_restart_witness")),
     ("mutate-normative-x02-boundary", lambda root: mutate_fault(root, "X02", "boundary", "Journal create: adjacent torn-frame boundary.")),
+    ("inject-hidden-stage8-adapter", lambda root: replace(root / SERVICE_ROOT, "pub struct Stage7bWritableDurableAuthority {", "pub struct Stage8ProtectedExecutionAdapter;\n\npub struct Stage7bWritableDurableAuthority {")),
 )
 
 
@@ -125,7 +127,7 @@ def main() -> None:
             if result.returncode == 0:
                 raise SystemExit(f"stage7b-e-negative: FAIL mutation survived: {name}")
             print(f"PASS {name}")
-    print(f"stage7b-e-negative: PASS cases={len(CASES)} inherited=40 aggregate=57")
+    print(f"stage7b-e-negative: PASS cases={len(CASES)} inherited=40 aggregate=58")
 
 
 if __name__ == "__main__":

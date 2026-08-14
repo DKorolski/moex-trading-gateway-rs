@@ -69,7 +69,7 @@ def require_artifacts(directory: Path) -> None:
     markers = {
         "fmt.txt": "fmt: PASS",
         "stage7b-e-check.txt": "stage7b-e-check: PASS rows=80/80 faults=20/20 accepted=false",
-        "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=17 inherited=40 aggregate=57",
+        "stage7b-e-negative.txt": "stage7b-e-negative: PASS cases=18 inherited=40 aggregate=58",
         "inherited-stage7a-gate.txt": "stage7a-gate: PASS",
         "inherited-d-c-gate.txt": "stage7b-d-c-gate: PASS",
         "fault-matrix.txt": "stage7b-fault-matrix: PASS faults=20/20 normative=true debug_release_bound=true",
@@ -170,7 +170,7 @@ def main() -> None:
     marker = (
         f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
         f"archive_name={archive_name}\naccepted_stage7b_d_c_ref={checker.ACCEPTED_D_C}\n"
-        "candidate_stage=7B-e\ncandidate_revision=r2\nstage7b_accepted=false\n"
+        "candidate_stage=7B-e\ncandidate_revision=r3\nstage7b_accepted=false\n"
     ).encode()
     evidence = json.dumps(
         {
@@ -183,9 +183,9 @@ def main() -> None:
             "proof_rows_implemented": 80,
             "proof_rows_pending": 0,
             "fault_matrix_passed": "20/20",
-            "aggregate_negative_case_count": 57,
+            "aggregate_negative_case_count": 58,
             "inherited_stage7a_gate_required": True,
-            "candidate_revision": "r2",
+            "candidate_revision": "r3",
             "stage7b_accepted": False,
             "finam_post_delete_enabled": False,
             "broker_network_dispatch_enabled": False,
