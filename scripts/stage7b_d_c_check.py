@@ -59,6 +59,7 @@ def check_production_scope() -> None:
         "crates/runtime-durable-service/src/lib.rs",
         "crates/runtime-durable-service/src/recovery.rs",
         "crates/runtime-durable-service/src/recovery/redis_service.rs",
+        "crates/runtime-durable-service/src/recovery/redis_settlement.rs",
         "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs",
     }
     production = {
@@ -78,6 +79,8 @@ def check_descriptors() -> None:
     expected = {
         "slice": "7B-d-c",
         "status": "implementation_candidate",
+        "candidate_revision": "r1",
+        "rejected_stage7b_d_c_ref": "c427ad1c83a27e6a80f45c7e09311ffcae26c913",
         "accepted_stage7b_d_b_ref": ACCEPTED_D_B,
         "implemented_count": 70,
         "pending_count": 10,
@@ -88,10 +91,15 @@ def check_descriptors() -> None:
         "stage7b_d_c_acceptance_pending": True,
         "b052_b053_implemented": True,
         "d_c_owned_rows_implemented": True,
-        "d_c_negative_case_count": 25,
+        "d_c_negative_case_count": 33,
         "composite_readiness_implemented": True,
+        "real_service_paper_ready_integration": True,
         "durable_pel_reconstruction": True,
         "per_boot_consumer_identity": True,
+        "subprocess_redis_reclaim_integration": True,
+        "deterministic_pre_stage6_rejection_ack": True,
+        "deterministic_rejection_zero_stage6_mutation": True,
+        "established_profile_mismatch_stays_pending": True,
         "claim_cursor_transport_only": True,
         "legacy_execution_authority_ignored": True,
         "redis_consumer_attached": True,
@@ -106,19 +114,30 @@ def check_descriptors() -> None:
     for key, value in expected.items():
         require(descriptor.get(key) == value, f"d-c descriptor drift: {key}")
     for key in (
-        "slice", "status", "accepted_stage7b_d_b_ref", "implemented_count",
+        "slice", "status", "candidate_revision", "rejected_stage7b_d_c_ref",
+        "accepted_stage7b_d_b_ref", "implemented_count",
         "pending_count", "stage7b_d_b_open", "stage7b_d_b_acceptance_pending",
         "stage7b_d_c_open", "stage7b_d_c_implementation_started",
         "stage7b_d_c_acceptance_pending", "b052_b053_implemented",
         "d_c_owned_rows_implemented", "composite_readiness_implemented",
-        "durable_pel_reconstruction", "per_boot_consumer_identity",
+        "real_service_paper_ready_integration", "durable_pel_reconstruction",
+        "per_boot_consumer_identity", "subprocess_redis_reclaim_integration",
+        "deterministic_pre_stage6_rejection_ack",
+        "deterministic_rejection_zero_stage6_mutation",
+        "established_profile_mismatch_stays_pending",
         "claim_cursor_transport_only", "legacy_execution_authority_ignored",
         "redis_consumer_attached", "redis_settlement_enabled", "xack_enabled",
         "finam_post_delete", "broker_network_dispatch", "runtime_live", "real_orders",
     ):
         require(aggregate.get(key) == expected[key], f"aggregate descriptor drift: {key}")
-    require(aggregate.get("negative_case_count") == 25, "aggregate negative count drift")
+    require(aggregate.get("negative_case_count") == 33, "aggregate negative count drift")
     require(ownership.get("accepted_stage7b_d_b_ref") == ACCEPTED_D_B, "ownership d-b ref drift")
+    require(ownership.get("candidate_revision") == "r1", "ownership revision drift")
+    require(
+        ownership.get("rejected_stage7b_d_c_ref")
+        == "c427ad1c83a27e6a80f45c7e09311ffcae26c913",
+        "ownership rejected d-c ref drift",
+    )
     require(ownership.get("implemented_rows") == 70, "ownership implemented count drift")
     require(ownership.get("pending_rows") == 10, "ownership pending count drift")
     require(ownership.get("b052_b053_implemented") is True, "restart rows not closed")
@@ -144,6 +163,9 @@ def check_source() -> None:
         ROOT / "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs"
     ).read_text()
     bridge = (ROOT / "crates/runtime-command-bridge/src/lib.rs").read_text()
+    settlement = (
+        ROOT / "crates/runtime-durable-service/src/recovery/redis_settlement.rs"
+    ).read_text()
     manifest = (ROOT / "crates/runtime-durable-service/Cargo.toml").read_text().lower()
     for forbidden in ("reqwest", "broker-finam", "finam-gateway", "rusqlite", "sqlx"):
         require(forbidden not in manifest, f"d-c forbidden dependency: {forbidden}")
@@ -187,11 +209,65 @@ def check_source() -> None:
     require("observe_pre_stage6_poison" in poison, "poison not passed immediately to owner")
     require(poison.index("classify_stage7a") < poison.index("observe_pre_stage6_poison"), "poison evidence pairing order drift")
     valid = source_block(service, "    async fn process_valid_command(")
+    for token in (
+        "observe_pre_stage6_command",
+        "classify_for_recovered",
+        "Stage7aRecoveredProfileClassification::DeterministicRejection",
+        "Stage7aRecoveredProfileClassification::IdentityConflict",
+        "classify_stage7a_deterministic_policy_rejection",
+        "settle_deterministic_rejection",
+    ):
+        require(token in valid, f"deterministic rejection path absent: {token}")
+    require(
+        valid.index("observe_pre_stage6_command")
+        < valid.index("classify_for_recovered")
+        < valid.index("admit_paper_command"),
+        "pre-Stage6 observation/classification ordering drift",
+    )
     require(valid.index("admit_paper_command") < valid.index("paper_outcome"), "provider called before Stage 6 admission")
     require(valid.index("record_paper_outcome") < valid.index("settle_finalized_ack"), "ACK settled before durable outcome")
+    rejection_helper = source_block(service, "    async fn settle_deterministic_rejection(")
+    require(
+        "settle_pre_stage6_rejection" in rejection_helper,
+        "deterministic rejection bypasses owner settlement authority",
+    )
     readiness = source_block(recovery, "    pub(crate) fn validate_composite_readiness(")
     for token in ("require_lifecycle_available", "revalidate_cached_committed_seal", "validate_recovered_binding"):
         require(token in readiness, f"storage readiness missing {token}")
+    observation = source_block(recovery, "    pub(crate) fn observe_pre_stage6_command(")
+    for token in (
+        "refresh_stage7b_durable_frontier",
+        "advance_recovery_seal",
+        "authenticated_checkpoint",
+        ".replay().request(request_id).is_some()",
+    ):
+        require(token in observation, f"pre-Stage6 observation proof absent: {token}")
+    rejection = source_block(recovery, "    pub(crate) async fn settle_pre_stage6_rejection(")
+    for token in (
+        "refresh_stage7b_durable_frontier",
+        "authorize_pre_stage6_rejection",
+        "pre_stage6_rejection_ack_plan",
+        "backend.settle_ack(plan)",
+    ):
+        require(token in rejection, f"pre-Stage6 rejection settlement absent: {token}")
+    authority = source_block(settlement, "pub(super) fn authorize_pre_stage6_rejection(")
+    require("stage6_mutation: true" not in settlement, "Stage 6 mutation claim opened")
+    for token in (
+        "observation.request_identity_was_established",
+        "current_request_identity_exists",
+        "observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256",
+        "stage6_mutation: false",
+    ):
+        require(token in authority, f"zero-Stage6 rejection authority absent: {token}")
+    for token in (
+        "pub struct Stage7aDeterministicRejectionEvidence",
+        "Stage7aDeterministicRejectionClass::Expired",
+        "Stage7aDeterministicRejectionClass::UnsupportedCommandShape",
+        "Stage7aDeterministicRejectionClass::CommandProfileMismatch",
+        "classify_stage7a_deterministic_policy_rejection",
+        "Stage7aRecoveredProfileClassification::IdentityConflict",
+    ):
+        require(token in bridge, f"accepted Stage 7A rejection classifier absent: {token}")
     require("pub fn decode_stage7a_pre_admission(" in bridge, "canonical decoder not shared")
     for test in (
         "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel",
@@ -200,6 +276,11 @@ def check_source() -> None:
         "stage7b_d_c_b067_supervision_clears_normal_error_panic_and_abort",
         "stage7b_d_c_b068_each_boot_gets_new_consumer_identity",
         "stage7b_d_c_b068_new_process_boot_uuid_is_unique",
+        "stage7b_d_c_r1_deterministic_rejections_ack_without_stage6_mutation",
+        "stage7b_d_c_r1_rejection_restart_is_idempotent_and_established_conflict_stays_pending",
+        "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives",
+        "stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis",
+        "async fn stage7b_d_c_r1_b068_subprocess_redis_reclaim_child",
         "stage7b_d_c_b070_has_no_legacy_execution_authority_dependency",
     ):
         require(

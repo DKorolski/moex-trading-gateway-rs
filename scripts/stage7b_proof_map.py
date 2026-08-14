@@ -95,9 +95,9 @@ D_C_WITNESSES = {
     "B-053": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel conflicting duplicate branch; PEL retained and ACK/provider counts unchanged"),
     "B-064": ("integration", "stage7b_d_c_b064_storage_failure_dominates_redis_health"),
     "B-065": ("regression", "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs"),
-    "B-066": ("integration", "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs + Stage7bRecoveryReadyOwner::validate_composite_readiness"),
+    "B-066": ("integration", "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives with real owner + Redis + supervised Stage7bRedisService"),
     "B-067": ("async_integration", "stage7b_d_c_b067_supervision_clears_normal_error_panic_and_abort"),
-    "B-068": ("subprocess+redis", "stage7b_d_c_b068_new_process_boot_uuid_is_unique across two child processes + stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel old-consumer PEL reclaim"),
+    "B-068": ("subprocess+redis", "stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis; child generates boot UUID and XAUTOCLAIMs parent-created old PEL"),
     "B-069": ("real_redis_restart", "stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel bounded one-entry XAUTOCLAIM pages reach tail from fresh 0-0 cursor"),
     "B-070": ("negative+source", "stage7b_d_c_b070_has_no_legacy_execution_authority_dependency + Stage 6 owner-only admission source gate"),
 }

@@ -76,13 +76,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   dynamic seal authority and requires opaque canonical Stage 7A poison
   evidence; a valid command cannot be caller-labelled as poison.
   Rows B-057..B-063 are accepted/closed.
-- Stage 7B-d-c is the active implementation candidate. It composes the
+- Stage 7B-d-c-R1 is the active implementation candidate after the original
+  `c427ad1c83a27e6a80f45c7e09311ffcae26c913` candidate was not accepted. It composes the
   recovery owner and atomic settlement backend into an isolated paper Redis
   consumer with per-boot identity, bounded old-PEL reclaim, durable PEL
   reconstruction, independent source/claim freshness, external task
   supervision and storage/seal-aware composite readiness. Real-Redis restart
   evidence closes candidate rows B-052/B-053 and B-064..B-070; 70/80 rows are
-  now implemented and 10 remain pending. Every FINAM/live surface stays closed.
+  now implemented and 10 remain pending. R1 restores deterministic Stage 7A
+  pre-Stage6 ACK semantics with zero Stage 6 mutation, adds a real-service
+  positive `PaperReady` witness and one child-process Redis old-PEL reclaim
+  witness. Every FINAM/live surface stays closed.
 - The remaining Stage 7B work is d-c independent acceptance followed by the
   real subprocess crash matrix X01-X20 and aggregate B-001..B-080 acceptance
   closure.

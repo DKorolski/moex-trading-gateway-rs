@@ -4,15 +4,20 @@
 //! d-b Redis settlement primitive. Redis delivery metadata remains transport
 //! only: Stage 6 journal/replay is the sole command execution authority.
 
-use super::redis_settlement::{Stage7bRedisSettlementBackend, Stage7bRedisSettlementContext};
+use super::redis_settlement::{
+    Stage7bPreStage6CommandObservation, Stage7bRedisSettlementBackend,
+    Stage7bRedisSettlementContext,
+};
 use super::Stage7bRecoveryReadyOwner;
 use broker_core::{BrokerCommand, Envelope, StrategyRequestId};
 use chrono::{DateTime, Utc};
 use redis::aio::ConnectionManager;
 use redis::streams::{StreamAutoClaimReply, StreamId, StreamPendingReply, StreamReadReply};
 use runtime_command_bridge::{
+    classify_stage7a_deterministic_policy_rejection,
     classify_stage7a_permanent_pre_admission_poison, decode_stage7a_pre_admission,
-    Stage7aCommandProfile, Stage7aPaperOutcomeProvider, Stage7aPaperProviderError,
+    Stage7aCommandProfile, Stage7aDeterministicRejectionEvidence, Stage7aPaperOutcomeProvider,
+    Stage7aPaperProviderError, Stage7aRecoveredProfileClassification,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -577,12 +582,21 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7bRedisService<P> {
         envelope: Envelope<BrokerCommand>,
     ) -> Result<bool, Stage7bRedisServiceError> {
         let request_id = command_request_id(&envelope.payload);
+        let observation = self
+            .owner
+            .observe_pre_stage6_command(&self.commitment_key, request_id)
+            .map_err(|error| Stage7bRedisServiceError::Authority(error.to_string()))?;
         let context = match self
             .profile
-            .context_for_recovered(&envelope.payload, self.owner.recovered()?)
+            .classify_for_recovered(&envelope.payload, self.owner.recovered()?)?
         {
-            Ok(context) => context,
-            Err(_) => {
+            Stage7aRecoveredProfileClassification::Matched(context) => context,
+            Stage7aRecoveredProfileClassification::DeterministicRejection(evidence) => {
+                return self
+                    .settle_deterministic_rejection(entry_id, observation, evidence)
+                    .await;
+            }
+            Stage7aRecoveredProfileClassification::IdentityConflict { .. } => {
                 self.supervisor.block(entry_id, Some(request_id));
                 return Ok(false);
             }
@@ -606,7 +620,14 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7bRedisService<P> {
             Stage7aPaperAdmission::Duplicate(_) => self
                 .owner
                 .finalize_replayed_paper_request(request_id, Utc::now())?,
-            Stage7aPaperAdmission::Hold { .. } | Stage7aPaperAdmission::PolicyRejected { .. } => {
+            rejected @ Stage7aPaperAdmission::PolicyRejected { .. } => {
+                let evidence =
+                    classify_stage7a_deterministic_policy_rejection(&envelope.payload, rejected)?;
+                return self
+                    .settle_deterministic_rejection(entry_id, observation, evidence)
+                    .await;
+            }
+            Stage7aPaperAdmission::Hold { .. } => {
                 self.supervisor.block(entry_id, Some(request_id));
                 return Ok(false);
             }
@@ -618,6 +639,38 @@ impl<P: Stage7aPaperOutcomeProvider> Stage7bRedisService<P> {
                 finalized,
                 &self.commitment_key,
                 settlement_context,
+                &mut self.settlement,
+            )
+            .await
+        {
+            Ok(_) => {
+                self.supervisor.clear(&entry_id);
+                self.supervisor.mark_settlement(self.settlement.healthy());
+                Ok(true)
+            }
+            Err(error) => {
+                self.supervisor.block(entry_id, Some(request_id));
+                self.supervisor.mark_settlement(false);
+                Err(Stage7bRedisServiceError::Authority(error.to_string()))
+            }
+        }
+    }
+
+    async fn settle_deterministic_rejection(
+        &mut self,
+        entry_id: String,
+        observation: Stage7bPreStage6CommandObservation,
+        evidence: Stage7aDeterministicRejectionEvidence,
+    ) -> Result<bool, Stage7bRedisServiceError> {
+        let request_id = evidence.strategy_request_id();
+        let context = self.context(&entry_id)?;
+        match self
+            .owner
+            .settle_pre_stage6_rejection(
+                &self.commitment_key,
+                observation,
+                evidence,
+                context,
                 &mut self.settlement,
             )
             .await

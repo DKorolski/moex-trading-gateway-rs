@@ -4,9 +4,13 @@
 )]
 
 use super::Stage7bDurableAckAuthorized;
-use broker_core::StrategyRequestId;
+use broker_core::command::CommandAckStatus;
+use broker_core::{ClientOrderId, CommandAckReasonCode, StrategyRequestId};
 use redis::aio::ConnectionManager;
-use runtime_command_bridge::{Stage7aDlqReason, Stage7aPermanentPoisonEvidence};
+use runtime_command_bridge::{
+    Stage7aDeterministicRejectionClass, Stage7aDeterministicRejectionEvidence, Stage7aDlqReason,
+    Stage7aPermanentPoisonEvidence,
+};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -238,6 +242,25 @@ struct Stage7bAckPayload<'a> {
 }
 
 #[derive(Serialize)]
+struct Stage7bPreStage6AckPayload<'a> {
+    schema_version: u16,
+    request_id: StrategyRequestId,
+    client_order_id: &'a str,
+    broker_order_id: Option<&'a str>,
+    canonical_command_sha256: &'a str,
+    status: CommandAckStatus,
+    reason_code: CommandAckReasonCode,
+    rejection_class: Stage7aDeterministicRejectionClass,
+    stage6_checkpoint_sha256: &'a str,
+    seal_generation: u64,
+    seal_commitment_sha256: &'a str,
+    settlement_authority_fingerprint_sha256: &'a str,
+    terminal_request_ack_identity_sha256: &'a str,
+    stage6_mutation: bool,
+    publication: &'static str,
+}
+
+#[derive(Serialize)]
 struct Stage7bDlqPayload<'a> {
     schema_version: u16,
     redis_entry_id: &'a str,
@@ -263,6 +286,27 @@ pub(crate) struct Stage7bPreStage6PoisonObservation {
     payload_len: usize,
     redacted_payload_sha256: String,
     stage6_checkpoint_sha256: String,
+}
+
+pub(crate) struct Stage7bPreStage6CommandObservation {
+    request_id: StrategyRequestId,
+    stage6_checkpoint_sha256: String,
+    request_identity_was_established: bool,
+}
+
+pub(super) struct Stage7bPreStage6AckAuthorized {
+    operational_identity_sha256: String,
+    strategy_request_id: StrategyRequestId,
+    durable_client_order_id: ClientOrderId,
+    canonical_command_sha256: String,
+    status: CommandAckStatus,
+    reason_code: CommandAckReasonCode,
+    rejection_class: Stage7aDeterministicRejectionClass,
+    stage6_checkpoint_sha256: String,
+    seal_generation: u64,
+    seal_commitment_sha256: String,
+    settlement_authority_fingerprint_sha256: String,
+    terminal_request_ack_identity_sha256: String,
 }
 
 pub(super) struct Stage7bPoisonDlqAuthorized {
@@ -322,6 +366,152 @@ pub(super) fn ack_plan(
         terminal_request_ack_identity_sha256: &authority.terminal_request_ack_identity_sha256,
         publication: "duplicate",
     })?;
+    Ok(Stage7bRedisAckSettlementPlan {
+        context,
+        request_id: authority.strategy_request_id,
+        terminal_request_ack_identity: authority.terminal_request_ack_identity_sha256,
+        canonical_payload_fingerprint: sha256_hex(canonical_payload.as_bytes()),
+        duplicate_payload_fingerprint: sha256_hex(duplicate_payload.as_bytes()),
+        canonical_payload,
+        duplicate_payload,
+    })
+}
+
+pub(super) fn pre_stage6_command_observation(
+    request_id: StrategyRequestId,
+    stage6_checkpoint_sha256: String,
+    request_identity_was_established: bool,
+) -> Stage7bPreStage6CommandObservation {
+    Stage7bPreStage6CommandObservation {
+        request_id,
+        stage6_checkpoint_sha256,
+        request_identity_was_established,
+    }
+}
+
+pub(super) fn authorize_pre_stage6_rejection(
+    observation: Stage7bPreStage6CommandObservation,
+    evidence: Stage7aDeterministicRejectionEvidence,
+    current_stage6_checkpoint_sha256: &str,
+    current_request_identity_exists: bool,
+    operational_identity_sha256: &str,
+    seal_generation: u64,
+    seal_commitment_sha256: &str,
+) -> Result<Stage7bPreStage6AckAuthorized, Stage7bRedisSettlementError> {
+    if observation.request_id != evidence.strategy_request_id()
+        || observation.request_identity_was_established
+        || current_request_identity_exists
+        || observation.stage6_checkpoint_sha256 != current_stage6_checkpoint_sha256
+    {
+        return Err(Stage7bRedisSettlementError::PreStage6RejectionAuthorityDrift);
+    }
+
+    #[derive(Serialize)]
+    struct SettlementAuthority<'a> {
+        schema_version: u16,
+        domain: &'static str,
+        operational_identity_sha256: &'a str,
+        strategy_request_id: StrategyRequestId,
+        durable_client_order_id: &'a str,
+        canonical_command_sha256: &'a str,
+        status: CommandAckStatus,
+        reason_code: CommandAckReasonCode,
+        rejection_class: Stage7aDeterministicRejectionClass,
+        stage6_checkpoint_sha256: &'a str,
+        seal_generation: u64,
+        seal_commitment_sha256: &'a str,
+        stage6_mutation: bool,
+    }
+
+    #[derive(Serialize)]
+    struct TerminalIdentity<'a> {
+        schema_version: u16,
+        domain: &'static str,
+        operational_identity_sha256: &'a str,
+        strategy_request_id: StrategyRequestId,
+        durable_client_order_id: &'a str,
+        canonical_command_sha256: &'a str,
+        status: CommandAckStatus,
+        reason_code: CommandAckReasonCode,
+        rejection_class: Stage7aDeterministicRejectionClass,
+        stage6_mutation: bool,
+        terminal_ack_schema: u16,
+    }
+
+    let settlement_authority_fingerprint_sha256 =
+        sha256_hex(&serde_json::to_vec(&SettlementAuthority {
+            schema_version: 1,
+            domain: "moex.stage7b.pre-stage6-rejection-authority.v1",
+            operational_identity_sha256,
+            strategy_request_id: evidence.strategy_request_id(),
+            durable_client_order_id: evidence.durable_client_order_id().as_str(),
+            canonical_command_sha256: evidence.canonical_command_sha256(),
+            status: evidence.status(),
+            reason_code: evidence.reason_code(),
+            rejection_class: evidence.rejection_class(),
+            stage6_checkpoint_sha256: current_stage6_checkpoint_sha256,
+            seal_generation,
+            seal_commitment_sha256,
+            stage6_mutation: false,
+        })?);
+    let terminal_request_ack_identity_sha256 =
+        sha256_hex(&serde_json::to_vec(&TerminalIdentity {
+            schema_version: 1,
+            domain: "moex.stage7b.pre-stage6-rejection-terminal-identity.v1",
+            operational_identity_sha256,
+            strategy_request_id: evidence.strategy_request_id(),
+            durable_client_order_id: evidence.durable_client_order_id().as_str(),
+            canonical_command_sha256: evidence.canonical_command_sha256(),
+            status: evidence.status(),
+            reason_code: evidence.reason_code(),
+            rejection_class: evidence.rejection_class(),
+            stage6_mutation: false,
+            terminal_ack_schema: MARKER_SCHEMA,
+        })?);
+
+    Ok(Stage7bPreStage6AckAuthorized {
+        operational_identity_sha256: operational_identity_sha256.to_string(),
+        strategy_request_id: evidence.strategy_request_id(),
+        durable_client_order_id: evidence.durable_client_order_id().clone(),
+        canonical_command_sha256: evidence.canonical_command_sha256().to_string(),
+        status: evidence.status(),
+        reason_code: evidence.reason_code(),
+        rejection_class: evidence.rejection_class(),
+        stage6_checkpoint_sha256: current_stage6_checkpoint_sha256.to_string(),
+        seal_generation,
+        seal_commitment_sha256: seal_commitment_sha256.to_string(),
+        settlement_authority_fingerprint_sha256,
+        terminal_request_ack_identity_sha256,
+    })
+}
+
+pub(super) fn pre_stage6_rejection_ack_plan(
+    authority: Stage7bPreStage6AckAuthorized,
+    context: Stage7bRedisSettlementContext,
+) -> Result<Stage7bRedisAckSettlementPlan, Stage7bRedisSettlementError> {
+    context.validate()?;
+    let payload = |publication| {
+        serde_json::to_string(&Stage7bPreStage6AckPayload {
+            schema_version: MARKER_SCHEMA,
+            request_id: authority.strategy_request_id,
+            client_order_id: authority.durable_client_order_id.as_str(),
+            broker_order_id: None,
+            canonical_command_sha256: &authority.canonical_command_sha256,
+            status: authority.status,
+            reason_code: authority.reason_code,
+            rejection_class: authority.rejection_class,
+            stage6_checkpoint_sha256: &authority.stage6_checkpoint_sha256,
+            seal_generation: authority.seal_generation,
+            seal_commitment_sha256: &authority.seal_commitment_sha256,
+            settlement_authority_fingerprint_sha256: &authority
+                .settlement_authority_fingerprint_sha256,
+            terminal_request_ack_identity_sha256: &authority.terminal_request_ack_identity_sha256,
+            stage6_mutation: false,
+            publication,
+        })
+    };
+    let canonical_payload = payload("canonical")?;
+    let duplicate_payload = payload("duplicate")?;
     Ok(Stage7bRedisAckSettlementPlan {
         context,
         request_id: authority.strategy_request_id,
@@ -592,6 +782,8 @@ pub(crate) enum Stage7bRedisSettlementError {
     InvalidContext,
     #[error("Stage 7B poison authority drifted after pre-Stage6 observation")]
     PoisonAuthorityDrift,
+    #[error("Stage 7B deterministic rejection authority drifted after pre-Stage6 observation")]
+    PreStage6RejectionAuthorityDrift,
     #[error("Stage 7B settlement identity conflict")]
     Conflict,
     #[error("Stage 7B source entry is not pending in the expected group")]

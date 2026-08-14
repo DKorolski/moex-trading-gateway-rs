@@ -172,6 +172,68 @@ pub struct Stage7aPermanentPoisonEvidence {
     redacted_payload_sha256: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage7aDeterministicRejectionClass {
+    Expired,
+    UnsupportedCommandShape,
+    CommandProfileMismatch,
+}
+
+impl Stage7aDeterministicRejectionClass {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Expired => "expired",
+            Self::UnsupportedCommandShape => "unsupported_command_shape",
+            Self::CommandProfileMismatch => "command_profile_mismatch",
+        }
+    }
+}
+
+/// Opaque accepted-Stage-7A proof for one deterministic pre-Stage6 ACK.
+/// Private fields prevent downstream code from choosing a benign rejection
+/// label independently of the canonical profile/admission classifier.
+pub struct Stage7aDeterministicRejectionEvidence {
+    strategy_request_id: StrategyRequestId,
+    durable_client_order_id: broker_core::ClientOrderId,
+    canonical_command_sha256: String,
+    status: CommandAckStatus,
+    reason_code: CommandAckReasonCode,
+    rejection_class: Stage7aDeterministicRejectionClass,
+}
+
+impl Stage7aDeterministicRejectionEvidence {
+    pub fn strategy_request_id(&self) -> StrategyRequestId {
+        self.strategy_request_id
+    }
+
+    pub fn durable_client_order_id(&self) -> &broker_core::ClientOrderId {
+        &self.durable_client_order_id
+    }
+
+    pub fn canonical_command_sha256(&self) -> &str {
+        &self.canonical_command_sha256
+    }
+
+    pub fn status(&self) -> CommandAckStatus {
+        self.status
+    }
+
+    pub fn reason_code(&self) -> CommandAckReasonCode {
+        self.reason_code
+    }
+
+    pub fn rejection_class(&self) -> Stage7aDeterministicRejectionClass {
+        self.rejection_class
+    }
+}
+
+pub enum Stage7aRecoveredProfileClassification {
+    Matched(Stage7aPaperCommandContext),
+    DeterministicRejection(Stage7aDeterministicRejectionEvidence),
+    IdentityConflict { request_id: StrategyRequestId },
+}
+
 impl Stage7aPermanentPoisonEvidence {
     pub fn redis_entry_id(&self) -> &str {
         &self.redis_entry_id
@@ -627,6 +689,38 @@ impl Stage7aCommandProfile {
                 )
                 .ok_or(Stage7aBridgeError::CommandProfileMismatch)
             }
+        }
+    }
+
+    /// Applies the accepted Stage 7A profile-mismatch policy using only the
+    /// Stage 6 replay authority available after restart. A request already
+    /// represented in Stage 6 remains an identity hold; a new mismatched
+    /// request receives opaque deterministic-rejection evidence.
+    pub fn classify_for_recovered(
+        &self,
+        command: &BrokerCommand,
+        recovered: &Stage6dDurableRuntimeRecovered,
+    ) -> Result<Stage7aRecoveredProfileClassification, Stage7aBridgeError> {
+        match self.context_for_recovered(command, recovered) {
+            Ok(context) => Ok(Stage7aRecoveredProfileClassification::Matched(context)),
+            Err(Stage7aBridgeError::CommandProfileMismatch) => {
+                let request_id = command_request_id(command);
+                if recovered.replay().request(request_id).is_some() {
+                    Ok(Stage7aRecoveredProfileClassification::IdentityConflict { request_id })
+                } else {
+                    Ok(
+                        Stage7aRecoveredProfileClassification::DeterministicRejection(
+                            deterministic_rejection_evidence(
+                                command,
+                                Stage7aDeterministicRejectionClass::CommandProfileMismatch,
+                                CommandAckStatus::Rejected,
+                                CommandAckReasonCode::LocalValidationRejected,
+                            )?,
+                        ),
+                    )
+                }
+            }
+            Err(error) => Err(error),
         }
     }
 }
@@ -1407,6 +1501,8 @@ pub enum Stage7aBridgeError {
     InjectedSettlementFault,
     #[error("payload is a valid Stage 7A BrokerCommand and is not permanent poison")]
     NotPermanentPoison,
+    #[error("Stage 7A result is not a deterministic pre-Stage6 rejection")]
+    NotDeterministicRejection,
 }
 
 fn command_request_id(command: &BrokerCommand) -> StrategyRequestId {
@@ -1422,6 +1518,57 @@ fn command_sha256(command: &BrokerCommand) -> Result<String, Stage7aBridgeError>
     hasher.update(b"moex.stage7a.command-publication.v1");
     hasher.update(bytes);
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn deterministic_rejection_evidence(
+    command: &BrokerCommand,
+    rejection_class: Stage7aDeterministicRejectionClass,
+    status: CommandAckStatus,
+    reason_code: CommandAckReasonCode,
+) -> Result<Stage7aDeterministicRejectionEvidence, Stage7aBridgeError> {
+    let strategy_request_id = command_request_id(command);
+    Ok(Stage7aDeterministicRejectionEvidence {
+        strategy_request_id,
+        durable_client_order_id: broker_core::ClientOrderId::from_strategy_request(
+            strategy_request_id,
+        ),
+        canonical_command_sha256: command_sha256(command)?,
+        status,
+        reason_code,
+        rejection_class,
+    })
+}
+
+/// Consumes the actual Stage 6 admission result and mints evidence only for
+/// the two deterministic policy rejections accepted by Stage 7A.
+pub fn classify_stage7a_deterministic_policy_rejection(
+    command: &BrokerCommand,
+    admission: Stage7aPaperAdmission,
+) -> Result<Stage7aDeterministicRejectionEvidence, Stage7aBridgeError> {
+    let Stage7aPaperAdmission::PolicyRejected { decision, reason } = admission else {
+        return Err(Stage7aBridgeError::NotDeterministicRejection);
+    };
+    let request_id = command_request_id(command);
+    let expected_client = broker_core::ClientOrderId::from_strategy_request(request_id);
+    if decision.strategy_request_id != request_id
+        || decision.durable_client_order_id != expected_client
+        || decision.broker_order_id.is_some()
+    {
+        return Err(Stage7aBridgeError::NotDeterministicRejection);
+    }
+    let (class, status, code) = match reason {
+        Stage7aPaperPolicyRejection::Expired => (
+            Stage7aDeterministicRejectionClass::Expired,
+            CommandAckStatus::Expired,
+            CommandAckReasonCode::ExpiredCommand,
+        ),
+        Stage7aPaperPolicyRejection::UnsupportedCommandShape => (
+            Stage7aDeterministicRejectionClass::UnsupportedCommandShape,
+            CommandAckStatus::Rejected,
+            CommandAckReasonCode::FeatureDisabled,
+        ),
+    };
+    deterministic_rejection_evidence(command, class, status, code)
 }
 
 fn ack_envelope(

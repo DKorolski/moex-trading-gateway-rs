@@ -600,7 +600,7 @@
       "proof_type": "integration",
       "rationale": "Stage 7B-d-c supervised restart/readiness witness",
       "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
-      "exact_witness": "stage7b_d_c_b065_b066_composite_readiness_requires_independent_inputs + Stage7bRecoveryReadyOwner::validate_composite_readiness",
+      "exact_witness": "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives with real owner + Redis + supervised Stage7bRedisService",
       "status": "implemented"
     },
     {
@@ -618,7 +618,7 @@
       "proof_type": "subprocess+redis",
       "rationale": "Stage 7B-d-c supervised restart/readiness witness",
       "artifact": "Stage 7B-d-c candidate real-Redis and supervision evidence",
-      "exact_witness": "stage7b_d_c_b068_new_process_boot_uuid_is_unique across two child processes + stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel old-consumer PEL reclaim",
+      "exact_witness": "stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis; child generates boot UUID and XAUTOCLAIMs parent-created old PEL",
       "status": "implemented"
     },
     {

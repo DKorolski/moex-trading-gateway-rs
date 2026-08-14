@@ -62,10 +62,10 @@ def require_artifacts(directory: Path) -> None:
     markers = {
         "fmt.txt": "fmt: PASS",
         "stage7b-d-c-check.txt": "stage7b-d-c-check: PASS rows=9 implemented=70 pending=10",
-        "negative.txt": "stage7b-d-c-negative: PASS cases=25",
+        "negative.txt": "stage7b-d-c-negative: PASS cases=33",
         "inherited-d-b-gate.txt": "stage7b-d-b-gate: PASS",
-        "stage7b-d-c-debug.txt": "6 passed; 0 failed",
-        "stage7b-d-c-release.txt": "6 passed; 0 failed",
+        "stage7b-d-c-debug.txt": "9 passed; 0 failed",
+        "stage7b-d-c-release.txt": "9 passed; 0 failed",
         "workspace-tests.txt": "test result: ok",
         "workspace-docs.txt": "test result: ok",
         "clippy.txt": "Finished `dev` profile",
@@ -73,11 +73,17 @@ def require_artifacts(directory: Path) -> None:
     for name, marker in markers.items():
         if marker not in (directory / name).read_text(errors="replace"):
             fail(f"gate artifact lacks marker: {name}: {marker}")
+    required_focused_witnesses = (
+        "stage7b_d_c_r1_deterministic_rejections_ack_without_stage6_mutation ... ok",
+        "stage7b_d_c_r1_rejection_restart_is_idempotent_and_established_conflict_stays_pending ... ok",
+        "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives ... ok",
+        "stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis ... ok",
+    )
     for name in ("stage7b-d-c-debug.txt", "stage7b-d-c-release.txt"):
-        if "stage7b_d_c_b068_new_process_boot_uuid_is_unique ... ok" not in (
-            directory / name
-        ).read_text(errors="replace"):
-            fail(f"gate artifact lacks subprocess B-068 witness: {name}")
+        text = (directory / name).read_text(errors="replace")
+        for witness in required_focused_witnesses:
+            if witness not in text:
+                fail(f"gate artifact lacks R1 witness: {name}: {witness}")
 
 
 def collect_artifacts() -> tuple[list[tuple[str, bytes, int]], dict[str, str]]:
@@ -156,24 +162,34 @@ def main() -> None:
     marker = (
         f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
         f"archive_name={archive_name}\naccepted_stage7b_d_b_ref={checker.ACCEPTED_D_B}\n"
+        "candidate_revision=r1\n"
+        "rejected_stage7b_d_c_ref=c427ad1c83a27e6a80f45c7e09311ffcae26c913\n"
     ).encode()
     evidence = json.dumps(
         {
             "schema_version": 1,
             "stage": "7B-d-c",
             "status": "independent_acceptance_pending",
+            "candidate_revision": "r1",
+            "rejected_stage7b_d_c_ref": "c427ad1c83a27e6a80f45c7e09311ffcae26c913",
             "source_ref": head,
             "source_branch": branch,
             "accepted_stage7b_d_b_ref": checker.ACCEPTED_D_B,
             "implemented_rows": 70,
             "pending_rows": 10,
             "d_c_owned_rows": sorted(checker.OWNED),
-            "focused_debug_tests_passed": 7,
-            "focused_release_tests_passed": 7,
-            "negative_case_count": 25,
+            "focused_debug_tests_passed": 11,
+            "focused_release_tests_passed": 11,
+            "focused_ignored_child_helpers": 2,
+            "negative_case_count": 33,
             "composite_readiness": True,
+            "real_service_paper_ready_integration": True,
             "durable_pel_reconstruction": True,
             "per_boot_consumer_identity": True,
+            "subprocess_redis_reclaim_integration": True,
+            "deterministic_pre_stage6_rejection_ack": True,
+            "deterministic_rejection_zero_stage6_mutation": True,
+            "established_profile_mismatch_stays_pending": True,
             "bounded_claim_cursor": True,
             "exact_duplicate_restart_no_effect": True,
             "conflicting_duplicate_restart_pending": True,

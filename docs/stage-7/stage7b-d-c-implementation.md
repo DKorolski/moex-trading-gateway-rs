@@ -1,6 +1,7 @@
 # Stage 7B-d-c — supervised Redis restart/readiness composition
 
-Status: implementation candidate for independent review.
+Status: R1 implementation candidate for independent review. The original
+candidate `c427ad1c83a27e6a80f45c7e09311ffcae26c913` was not accepted.
 
 Accepted predecessor: Stage 7B-d-b-R1 at
 `e0bf9b7d9eb209e19b875f199511a493ddcd0da9`.
@@ -25,10 +26,22 @@ Redis entry. The opaque evidence is immediately consumed by the Stage 7B
 observation and DLQ settlement path. There is no independently pairable
 poison queue or caller-supplied poison reason.
 
+R1 restores the accepted Stage 7A deterministic pre-Stage6 rejection policy.
+Expired commands, unsupported command shapes and a new command profile
+mismatch produce opaque classifier evidence and pass through a checkpoint-,
+seal-, request- and command-bound authorization before the existing d-b Lua
+ACK+XACK primitive is called. The evidence payload records
+`stage6_mutation=false`; the journal bytes/checkpoint and absence of the
+request identity are rechecked immediately before authorization. An already
+established request with a profile mismatch remains pending as
+`IdentityConflict` and cannot use this path.
+
 ## Restart transport
 
-Every process boot creates a fresh UUID-based consumer name; two independent
-child-process boots prove that the identity is not reused. The process-local
+Every process boot creates a fresh UUID-based consumer name. A real Redis
+subprocess witness creates old PEL in the parent and proves that a fresh child
+starts its cursor at `0-0`, executes `XAUTOCLAIM`, takes ownership of the exact
+old entry IDs and reaches the tail/reset cursor. The process-local
 claim cursor starts at `0-0`; bounded `XAUTOCLAIM` pages advance it and reset
 only after the scan reaches the tail. The cursor is transport-only. A real
 Redis witness proves that old PEL ownership is reclaimed after the configured
@@ -58,6 +71,12 @@ Redis rollback/failover rollback remains outside the guarantee.
 Normal return, returned error, panic and explicit task abort all drop the
 external liveness guard. Storage/seal uncertainty is sticky and cannot be
 healed by later Redis success.
+
+The positive B-066 witness uses a real recovery owner, temporary Redis,
+`Stage7bRedisService` and its supervised task. It observes actual
+`PaperReady` only after source poll, claim scan, storage/seal validation,
+settlement health and zero PEL/blocked state are established, then proves an
+abort immediately changes the phase to `Stopped`.
 
 ## Restart evidence
 

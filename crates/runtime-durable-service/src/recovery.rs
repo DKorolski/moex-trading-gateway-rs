@@ -5,7 +5,9 @@ use super::{
 };
 use broker_core::{BrokerCommand, BrokerOrderId, ClientOrderId, StrategyRequestId};
 use chrono::{DateTime, Utc};
-use runtime_command_bridge::Stage7aPermanentPoisonEvidence;
+use runtime_command_bridge::{
+    Stage7aDeterministicRejectionEvidence, Stage7aPermanentPoisonEvidence,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -43,8 +45,9 @@ pub use redis_service::{
 };
 
 use redis_settlement::{
-    Stage7bPreStage6PoisonObservation, Stage7bRedisSettlementBackend,
-    Stage7bRedisSettlementContext, Stage7bRedisSettlementError, Stage7bRedisSettlementOutcome,
+    Stage7bPreStage6CommandObservation, Stage7bPreStage6PoisonObservation,
+    Stage7bRedisSettlementBackend, Stage7bRedisSettlementContext, Stage7bRedisSettlementError,
+    Stage7bRedisSettlementOutcome,
 };
 
 pub const STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION: u16 = 1;
@@ -772,6 +775,65 @@ impl Stage7bRecoveryReadyOwner {
         Ok(backend.settle_ack(plan).await?)
     }
 
+    /// Captures the Stage 6 frontier before profile/policy classification.
+    /// The observation records whether the request identity already exists so
+    /// an established identity conflict can never be converted into an ACK.
+    pub(crate) fn observe_pre_stage6_command(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        request_id: StrategyRequestId,
+    ) -> Result<Stage7bPreStage6CommandObservation, Stage7bDbError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)
+            .map_err(Stage7bRecoveryError::from)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            self.advance_recovery_seal(commitment_key)?;
+        } else {
+            self.revalidate_cached_committed_seal(commitment_key)?;
+        }
+        Ok(redis_settlement::pre_stage6_command_observation(
+            request_id,
+            sha256_hex(&self.recovered.authenticated_checkpoint().encode_canonical()),
+            self.recovered.replay().request(request_id).is_some(),
+        ))
+    }
+
+    /// Settles one accepted Stage 7A deterministic rejection using the same
+    /// atomic ACK+XACK Lua primitive as finalized Stage 6 requests. Authority
+    /// is minted only when the Stage 6 checkpoint and request index are still
+    /// exactly equal to the pre-admission observation.
+    pub(crate) async fn settle_pre_stage6_rejection(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        observation: Stage7bPreStage6CommandObservation,
+        evidence: Stage7aDeterministicRejectionEvidence,
+        context: Stage7bRedisSettlementContext,
+        backend: &mut Stage7bRedisSettlementBackend,
+    ) -> Result<Stage7bRedisSettlementOutcome, Stage7bDbError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)
+            .map_err(Stage7bRecoveryError::from)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            return Err(Stage7bRecoveryError::SealInvalid.into());
+        }
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        let checkpoint = sha256_hex(&self.recovered.authenticated_checkpoint().encode_canonical());
+        let request_id = evidence.strategy_request_id();
+        let authority = redis_settlement::authorize_pre_stage6_rejection(
+            observation,
+            evidence,
+            &checkpoint,
+            self.recovered.replay().request(request_id).is_some(),
+            self.committed_seal.operational_identity_sha256(),
+            self.committed_seal.seal_generation(),
+            self.committed_seal.seal_commitment_sha256(),
+        )?;
+        let plan = redis_settlement::pre_stage6_rejection_ack_plan(authority, context)?;
+        Ok(backend.settle_ack(plan).await?)
+    }
+
     /// Captures the exact checkpoint before malformed input is classified.
     /// No Stage 6 admission API is available through this observation.
     #[allow(dead_code, reason = "Stage 7B-d-b is attached only by closed d-c")]
@@ -1266,11 +1328,11 @@ mod tests {
     use super::*;
     use crate::Stage7bDurableRootAuthority;
     use broker_core::{
-        BrokerCommand, BrokerOrderId, BrokerTradeId, Envelope, Exchange, InstrumentId, Market,
-        MessageType, StrategyRequestId, SCHEMA_VERSION,
+        BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerTradeId, Envelope, Exchange,
+        InstrumentId, Market, MessageType, StrategyRequestId, SCHEMA_VERSION,
     };
     use redis::aio::ConnectionManager;
-    use redis::streams::{StreamPendingCountReply, StreamReadReply};
+    use redis::streams::{StreamPendingCountReply, StreamRangeReply, StreamReadReply};
     use runtime_command_bridge::{
         Stage7aCommandProfile, Stage7aPaperOutcomeProvider, Stage7aPaperProviderError,
     };
@@ -2876,6 +2938,22 @@ mod tests {
             .unwrap()
     }
 
+    fn stage7b_d_c_fresh_request(mut command: BrokerCommand) -> BrokerCommand {
+        let fresh = StrategyRequestId::new(uuid::Uuid::new_v4());
+        match &mut command {
+            BrokerCommand::PlaceOrder(command) => {
+                command.request_id = fresh;
+                command.client_order_id = broker_core::ClientOrderId::from_strategy_request(fresh);
+            }
+            BrokerCommand::CancelOrder(command) => {
+                command.request_id = fresh;
+                command.client_order_id =
+                    Some(broker_core::ClientOrderId::from_strategy_request(fresh));
+            }
+        }
+        command
+    }
+
     #[tokio::test]
     async fn stage7b_d_c_b052_b053_b068_b069_restart_and_old_pel() {
         let setup = prepare_active_restart_prefix(1);
@@ -3058,6 +3136,348 @@ mod tests {
             .reasons
             .contains(&Stage7bPaperReadinessReason::CommandLifecycleBlocked));
         drop(third);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    async fn assert_stage7b_d_c_r1_deterministic_rejection(
+        hash_tag: &str,
+        mutate_command: impl FnOnce(&mut BrokerCommand),
+        mismatch_profile: bool,
+        expected_status: &str,
+        expected_reason: &str,
+        expected_class: &str,
+    ) {
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let journal_before = fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let mut config = Stage7bRedisServiceConfig::paper_default_auto(hash_tag).unwrap();
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let profile = if mismatch_profile {
+            Stage7aCommandProfile::new(
+                BrokerAccountId::new("ACC_PROFILE_MISMATCH"),
+                instrument(),
+                "hybrid_imoexf",
+            )
+            .unwrap()
+        } else {
+            stage7b_d_c_profile(&setup.command)
+        };
+        let mut command = stage7b_d_c_fresh_request(setup.command.clone());
+        mutate_command(&mut command);
+        let mut service = Stage7bRedisService::connect(
+            &redis.url,
+            config.clone(),
+            owner,
+            setup.key,
+            profile,
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        service.ensure_group().await.unwrap();
+        stage7b_d_c_xadd(
+            &mut inspector,
+            &config.command_stream,
+            &stage7b_d_c_payload(&command),
+        )
+        .await;
+        service.run_bounded(1).await.unwrap();
+
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            journal_before,
+            "deterministic pre-Stage6 rejection must not mutate the journal"
+        );
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&config.command_stream)
+            .arg(&config.consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert!(pending.ids.is_empty());
+        let acks: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&config.ack_stream)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(acks.ids.len(), 1);
+        let payload = acks.ids[0].get::<String>("payload").unwrap();
+        let payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
+        assert_eq!(payload["status"], expected_status);
+        assert_eq!(payload["reason_code"], expected_reason);
+        assert_eq!(payload["rejection_class"], expected_class);
+        assert_eq!(payload["stage6_mutation"], false);
+        assert_eq!(payload["publication"], "canonical");
+        assert_eq!(payload["broker_order_id"], serde_json::Value::Null);
+        drop(service);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_r1_deterministic_rejections_ack_without_stage6_mutation() {
+        assert_stage7b_d_c_r1_deterministic_rejection(
+            "dc-r1-expired",
+            |command| match command {
+                BrokerCommand::PlaceOrder(command) => {
+                    command.created_ts = Utc::now() - chrono::Duration::seconds(10);
+                    command.ttl_ms = Some(1);
+                }
+                BrokerCommand::CancelOrder(command) => {
+                    command.created_ts = Utc::now() - chrono::Duration::seconds(10);
+                    command.ttl_ms = Some(1);
+                }
+            },
+            false,
+            "Expired",
+            "expired_command",
+            "expired",
+        )
+        .await;
+        assert_stage7b_d_c_r1_deterministic_rejection(
+            "dc-r1-unsupported",
+            |command| match command {
+                BrokerCommand::PlaceOrder(command) => command.qty -= command.qty,
+                BrokerCommand::CancelOrder(_) => panic!("working fixture must be a place order"),
+            },
+            false,
+            "Rejected",
+            "feature_disabled",
+            "unsupported_command_shape",
+        )
+        .await;
+        assert_stage7b_d_c_r1_deterministic_rejection(
+            "dc-r1-profile",
+            |_| {},
+            true,
+            "Rejected",
+            "local_validation_rejected",
+            "command_profile_mismatch",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_r1_rejection_restart_is_idempotent_and_established_conflict_stays_pending()
+    {
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let journal_before = fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap();
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let mut command = stage7b_d_c_fresh_request(setup.command.clone());
+        match &mut command {
+            BrokerCommand::PlaceOrder(command) => {
+                command.created_ts = Utc::now() - chrono::Duration::seconds(10);
+                command.ttl_ms = Some(1);
+            }
+            BrokerCommand::CancelOrder(command) => {
+                command.created_ts = Utc::now() - chrono::Duration::seconds(10);
+                command.ttl_ms = Some(1);
+            }
+        }
+        let payload = stage7b_d_c_payload(&command);
+        let mut first_config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-r1-duplicate").unwrap();
+        first_config.block_ms = 0;
+        first_config.claim_idle_ms = 1;
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut first = Stage7bRedisService::connect(
+            &redis.url,
+            first_config.clone(),
+            owner,
+            setup.key,
+            stage7b_d_c_profile(&setup.command),
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        first.ensure_group().await.unwrap();
+        stage7b_d_c_xadd(&mut inspector, &first_config.command_stream, &payload).await;
+        first.run_bounded(1).await.unwrap();
+        drop(first);
+
+        let key2 =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None)
+                .commitment_key;
+        let Stage7bRestartOutcome::Ready(owner) = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &key2,
+            setup.runtime.clone(),
+        )
+        .unwrap() else {
+            panic!("deterministic rejection must retain restart readiness");
+        };
+        let mut second_config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-r1-duplicate").unwrap();
+        second_config.block_ms = 0;
+        second_config.claim_idle_ms = 1;
+        stage7b_d_c_xadd(&mut inspector, &second_config.command_stream, &payload).await;
+        let mut second = Stage7bRedisService::connect(
+            &redis.url,
+            second_config.clone(),
+            *owner,
+            key2,
+            stage7b_d_c_profile(&setup.command),
+            Stage7bDcProvider {
+                calls: calls.clone(),
+            },
+        )
+        .await
+        .unwrap();
+        second.run_bounded(1).await.unwrap();
+        assert_eq!(calls.load(AtomicOrdering::SeqCst), 0);
+        assert_eq!(
+            fs::read(setup.root.join(STAGE7B_JOURNAL_FILE)).unwrap(),
+            journal_before
+        );
+        let acks: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&second_config.ack_stream)
+            .arg("-")
+            .arg("+")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(acks.ids.len(), 2);
+        let duplicate = acks.ids[1].get::<String>("payload").unwrap();
+        let duplicate: serde_json::Value = serde_json::from_str(&duplicate).unwrap();
+        assert_eq!(duplicate["publication"], "duplicate");
+        drop(second);
+        fs::remove_dir_all(setup.parent).unwrap();
+
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut inspector =
+            ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let mut config =
+            Stage7bRedisServiceConfig::paper_default_auto("dc-r1-established").unwrap();
+        config.block_ms = 0;
+        config.claim_idle_ms = 1;
+        let mut service = Stage7bRedisService::connect(
+            &redis.url,
+            config.clone(),
+            owner,
+            setup.key,
+            Stage7aCommandProfile::new(
+                BrokerAccountId::new("ACC_PROFILE_MISMATCH"),
+                instrument(),
+                "hybrid_imoexf",
+            )
+            .unwrap(),
+            Stage7bDcProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+        )
+        .await
+        .unwrap();
+        service.ensure_group().await.unwrap();
+        stage7b_d_c_xadd(
+            &mut inspector,
+            &config.command_stream,
+            &stage7b_d_c_payload(&setup.command),
+        )
+        .await;
+        service.run_bounded(1).await.unwrap();
+        let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&config.command_stream)
+            .arg(&config.consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(10)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(pending.ids.len(), 1);
+        let ack_count: i64 = redis::cmd("XLEN")
+            .arg(&config.ack_stream)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(ack_count, 0);
+        drop(service);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives() {
+        let setup = prepare_active_restart_prefix(1);
+        let owner = restart_working_setup(&setup);
+        let redis = Stage7bDbRedisServer::start().await;
+        let mut config = Stage7bRedisServiceConfig::paper_default_auto("dc-r1-ready").unwrap();
+        config.block_ms = 20;
+        config.claim_idle_ms = 1;
+        config.freshness_ms = 2_000;
+        let service = Stage7bRedisService::connect(
+            &redis.url,
+            config.clone(),
+            owner,
+            setup.key,
+            stage7b_d_c_profile(&setup.command),
+            Stage7bDcProvider {
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+        )
+        .await
+        .unwrap();
+        let (supervisor, join) = service.spawn_supervised_bounded(10_000);
+        let mut observed_ready = false;
+        for _ in 0..100 {
+            let (health, readiness) = supervisor.snapshots(
+                Utc::now(),
+                chrono::Duration::milliseconds(config.freshness_ms),
+            );
+            if readiness.phase == Stage7bPaperReadinessPhase::PaperReady {
+                assert!(health.command_consumer_alive);
+                assert!(health.durable_storage_ready);
+                assert!(health.source_poll_fresh);
+                assert!(health.claim_scan_fresh);
+                assert!(health.settlement_healthy);
+                assert_eq!(health.durable_pending_count, 0);
+                assert_eq!(health.blocked_entry_count, 0);
+                observed_ready = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            observed_ready,
+            "real supervised Redis service never became PaperReady"
+        );
+        join.abort();
+        let aborted = join.await;
+        assert!(matches!(aborted, Err(error) if error.is_cancelled()));
+        let (health, readiness) = supervisor.snapshots(
+            Utc::now(),
+            chrono::Duration::milliseconds(config.freshness_ms),
+        );
+        assert!(!health.command_consumer_alive);
+        assert_eq!(readiness.phase, Stage7bPaperReadinessPhase::Stopped);
+        assert!(readiness
+            .reasons
+            .contains(&Stage7bPaperReadinessReason::ConsumerNotAlive));
         fs::remove_dir_all(setup.parent).unwrap();
     }
 

@@ -16,12 +16,13 @@ OWNERSHIP = Path("docs/stage-7/stage7b-d-row-ownership.json")
 SERVICE = Path("crates/runtime-durable-service/src/recovery/redis_service.rs")
 SUBPROCESS_TEST = Path("crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs")
 RECOVERY = Path("crates/runtime-durable-service/src/recovery.rs")
+SETTLEMENT = Path("crates/runtime-durable-service/src/recovery/redis_settlement.rs")
 BRIDGE = Path("crates/runtime-command-bridge/src/lib.rs")
 MANIFEST = Path("crates/runtime-durable-service/Cargo.toml")
 PROOF = Path("scripts/stage7b_proof_map.py")
 
 COPY_PATHS = (
-    Path("Cargo.lock"), MANIFEST, SERVICE, RECOVERY, BRIDGE,
+    Path("Cargo.lock"), MANIFEST, SERVICE, RECOVERY, SETTLEMENT, BRIDGE,
     Path("crates/runtime-durable-service/src/lib.rs"),
     SUBPROCESS_TEST,
     Path("docs/current-status.md"), Path("docs/roadmap.md"),
@@ -70,6 +71,14 @@ CASES = (
     ("remove-xautoclaim", lambda root: replace(root / SERVICE, 'redis::cmd("XAUTOCLAIM")', 'redis::cmd("XREAD")')),
     ("remove-pel-reconstruction", lambda root: replace(root / SERVICE, 'redis::cmd("XPENDING")', 'redis::cmd("PING")')),
     ("add-legacy-authority", lambda root: replace(root / MANIFEST, "redis.workspace = true", 'redis.workspace = true\nrusqlite = "0.32"')),
+    ("block-deterministic-profile-rejection", lambda root: replace(root / SERVICE, "Stage7aRecoveredProfileClassification::DeterministicRejection(evidence)", "Stage7aRecoveredProfileClassification::Matched(evidence)")),
+    ("drop-policy-rejection-classifier", lambda root: replace(root / SERVICE, "classify_stage7a_deterministic_policy_rejection(&envelope.payload, rejected)", "classify_stage7a_permanent_pre_admission_poison(&envelope.payload, rejected)")),
+    ("bypass-owner-rejection-settlement", lambda root: replace(root / SERVICE, "settle_pre_stage6_rejection", "settle_finalized_ack")),
+    ("forge-stage6-mutation-claim", lambda root: replace(root / SETTLEMENT, "stage6_mutation: false", "stage6_mutation: true")),
+    ("settle-established-profile-conflict", lambda root: replace(root / SERVICE, "Stage7aRecoveredProfileClassification::IdentityConflict", "Stage7aRecoveredProfileClassification::DeterministicConflict")),
+    ("remove-real-paper-ready-proof", lambda root: replace(root / RECOVERY, "stage7b_d_c_r1_b066_real_service_reports_ready_only_while_supervised_task_lives", "stage7b_d_c_r1_b066_manual_state_only")),
+    ("remove-subprocess-redis-parent-proof", lambda root: replace(root / SUBPROCESS_TEST, "stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis", "stage7b_d_c_r1_b068_same_process_reclaim_only")),
+    ("remove-subprocess-redis-child-proof", lambda root: replace(root / SUBPROCESS_TEST, "async fn stage7b_d_c_r1_b068_subprocess_redis_reclaim_child", "async fn stage7b_d_c_r1_b068_no_redis_child")),
 )
 
 
