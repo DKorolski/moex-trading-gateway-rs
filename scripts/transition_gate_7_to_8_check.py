@@ -265,6 +265,8 @@ def validate_matrix(path: Path) -> None:
 def validate_slice_plan(text: str) -> None:
     normalized = " ".join(text.split())
     for token in [
+        "Status: Gate 7→8 R2 candidate",
+        "Acceptance of Gate R2 opens only Stage 8A protected FINAM adapter no-send work.",
         "Stage 8 implementation remains CLOSED",
         "8A-0 — current contract refresh",
         "8A-1 — protected capability",

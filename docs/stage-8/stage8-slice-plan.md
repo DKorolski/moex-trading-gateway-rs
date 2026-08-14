@@ -1,9 +1,9 @@
 # Stage 8 slice plan
 
-Status: Gate 7→8 R1 candidate; Stage 8 implementation remains CLOSED pending
+Status: Gate 7→8 R2 candidate; Stage 8 implementation remains CLOSED pending
 independent acceptance.
 
-Acceptance of Gate R1 opens only Stage 8A protected FINAM adapter no-send work.
+Acceptance of Gate R2 opens only Stage 8A protected FINAM adapter no-send work.
 It does not authorize a real FINAM POST/DELETE, broker dispatch, runtime-live,
 real strategy orders, native protective orders or unattended execution.
 
