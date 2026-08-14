@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "gate": "Transition Gate 7->8",
+  "status": "specification_candidate_pending_independent_review",
+  "source_ref_binding": {
+    "required_branch": "gate7-to-8-spec",
+    "required_predecessor": "7c3ffffcfec012f3c96c65a3fcaf366c1740b88e"
+  },
+  "accepted_stage7b": {
+    "accepted_source_ref": "a1044e0dbe324c722b637498ca80ffafd9f0cbee",
+    "closure_record_ref": "7c3ffffcfec012f3c96c65a3fcaf366c1740b88e",
+    "closure_descriptor_path": "docs/stage-7/stage7b-closure-descriptor.json",
+    "closure_descriptor_sha256": "ee3e3555def13b5da6f699c4be62c2fff2c9bca1b82487036f7d9816b0a2c003",
+    "acceptance_record_path": "docs/stage-7/stage7b-final-acceptance-record.md",
+    "acceptance_record_sha256": "f50b45318132124af0516d32df4f4fa4d358719a07e5cbe6603bead9caa52b1d",
+    "independent_review_artifact": "REVIEW_STAGE7B_E_R4_a1044e0_FINAL_ACCEPTANCE_2026-08-14.md",
+    "independent_review_sha256": "e66d87ae88cf1c1a8f2ec12ac5d4338374c26bfcc417624b0fa1f007a5c81bf2"
+  },
+  "contracts": {
+    "specification": "docs/stage-8/transition-gate-7-to-8-specification.md",
+    "acceptance_matrix": "docs/stage-8/TRANSITION_GATE_7_TO_8_ACCEPTANCE_MATRIX_2026-08-14.csv",
+    "stage8_slice_plan": "docs/stage-8/stage8-slice-plan.md"
+  },
+  "decision_after_independent_acceptance": {
+    "stage8a_protected_adapter_and_reconciliation": "implementation_authorized_network_send_closed",
+    "stage8b_bounded_real_execution": "closed_pending_separate_acceptance_and_operator_authorization",
+    "stage9_continuous_reconciliation": "closed",
+    "stage10_runtime_live": "closed"
+  },
+  "allowed_initial_commands": [
+    "PLACE_MARKET",
+    "PLACE_LIMIT",
+    "CANCEL"
+  ],
+  "forbidden_initial_commands": [
+    "REPLACE",
+    "STOP",
+    "SLTP",
+    "BRACKET",
+    "MULTI_LEG"
+  ],
+  "safety_invariants": {
+    "stable_client_order_id_required": true,
+    "durable_attempt_before_possible_send": true,
+    "blind_retry_after_ambiguous_outcome": false,
+    "fresh_broker_truth_required_for_reconciliation": true,
+    "max_nonfinal_lifecycles_per_strategy": 1,
+    "max_live_engineering_micro_commands": 1,
+    "autonomous_strategy_live_attachment": false,
+    "simultaneous_alor_finam_live_for_same_strategy": false,
+    "operator_arm_one_shot": true,
+    "kill_switch_fail_closed": true
+  },
+  "currently_open_surfaces": {
+    "stage8_implementation": false,
+    "finam_http_post": false,
+    "finam_http_delete": false,
+    "broker_network_dispatch": false,
+    "runtime_live": false,
+    "real_strategy_orders": false,
+    "native_stop_sltp_bracket": false,
+    "unattended_execution": false
+  },
+  "acceptance_row_count": 45,
+  "negative_case_count": 20,
+  "independent_acceptance_required": true
+}

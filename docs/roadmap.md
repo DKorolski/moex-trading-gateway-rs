@@ -27,7 +27,7 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Gate 7→8 specification — current authorized planning target. Stage 7B-e R4 was
+Transition Gate 7→8 specification — current authorized planning target. Stage 7B-e R4 was
 independently accepted and Stage 7B formally closed at
 `a1044e0dbe324c722b637498ca80ffafd9f0cbee`. The accepted Stage 7B chain rests on
 independently accepted
@@ -71,8 +71,10 @@ production item after the test module. R4 pins the exact changed-path set and
 full-file SHA-256 of every allowed crate delta and adds the 59th,
 post-test-module hidden-Stage8 mutation. The independent final review closed
 the aggregate stage with 80/80 proof rows, 20/20 fault rows and 59/59 negative
-cases. FINAM POST/DELETE, runtime-live, real orders and Stage 8 implementation
-remain closed while the Gate 7→8 specification is prepared and reviewed.
+cases. Stage 8 implementation, runtime-live and real orders remain closed while
+the specification is prepared and reviewed. Even after gate acceptance, real
+FINAM POST/DELETE remains closed during Stage 8A; bounded execution requires a
+separate accepted Stage 8B and explicit operator authorization.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

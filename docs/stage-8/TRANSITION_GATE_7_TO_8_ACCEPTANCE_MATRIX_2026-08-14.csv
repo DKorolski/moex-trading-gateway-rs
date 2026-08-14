@@ -1,0 +1,46 @@
+id,category,requirement,expected,mandatory,evidence
+G78-001,predecessor,"Accepted Stage 7B source is exact","Source ref equals a1044e0dbe324c722b637498ca80ffafd9f0cbee",YES,descriptor
+G78-002,predecessor,"Stage 7B external acceptance is bound","Review artifact name and SHA-256 are exact",YES,descriptor
+G78-003,predecessor,"Stage 7B closure records are immutable","Closure descriptor and acceptance record hashes match",YES,static_hash
+G78-004,capability,"Execution capability has private construction","No public/default construction path exists",YES,compile_fail
+G78-005,capability,"Execution capability is linear","No Clone Copy Serialize or Deserialize implementation exists",YES,compile_fail
+G78-006,capability,"Capability binds one durable identity","Request client account instrument strategy and action all match",YES,behavioral
+G78-007,capability,"Capability is consumed before possible transport","A second invocation with the same capability is impossible",YES,behavioral
+G78-008,capability,"Durable attempt precedes possible send","Fsync-confirmed DispatchAttemptRecorded exists first",YES,crash_ordering
+G78-009,operator,"Operator arm is one-shot","First possible transport attempt consumes the arm",YES,behavioral
+G78-010,operator,"Operator arm is exact-scope","Identity command limits build config endpoint and nonce are bound",YES,negative_matrix
+G78-011,operator,"Operator arm expires and never auto-rearms","TTL restart or drift leaves execution disabled",YES,restart
+G78-012,operator,"Readiness loss disarms","Stale truth unresolved lifecycle or kill switch blocks issuance",YES,fault_injection
+G78-013,mapping,"MARKET mapping is exact","No limit price and all identity quantity side fields are validated",YES,golden
+G78-014,mapping,"LIMIT mapping is exact","Canonical Decimal positive tick-aligned price is required",YES,golden
+G78-015,mapping,"CANCEL mapping is exact","Cancel targets only the Stage6-correlated broker order",YES,golden
+G78-016,mapping,"Stable ClientOrderId is preserved","No numeric surrogate or transport-generated replacement is used",YES,restart
+G78-017,mapping,"Unsupported commands fail before transport","REPLACE STOP SLTP BRACKET and MULTI_LEG are rejected",YES,negative_matrix
+G78-018,ambiguity,"Timeout after possible send is ambiguous","State becomes ReconciliationRequired and no retry occurs",YES,fault_injection
+G78-019,ambiguity,"Disconnect after possible send is ambiguous","State becomes ReconciliationRequired and no retry occurs",YES,fault_injection
+G78-020,ambiguity,"429 or 5xx after possible send is ambiguous","No transport or operator retry bypass exists",YES,fault_injection
+G78-021,ambiguity,"Malformed or incomplete success is ambiguous","2xx without usable broker identity requires reconciliation",YES,fault_injection
+G78-022,ambiguity,"Response-loss recovery is broker-truth-only","Accepted-but-unobserved order is never blindly repeated",YES,restart
+G78-023,reconciliation,"Broker truth is fresh and scoped","Account and target instrument snapshots satisfy freshness policy",YES,behavioral
+G78-024,reconciliation,"Primary correlation uses stable identity","ClientOrderId and known broker order ID precede heuristic matching",YES,behavioral
+G78-025,reconciliation,"Orders trades and positions are canonical","FINAM rows map to broker-neutral snapshots before decisions",YES,fixture_parity
+G78-026,reconciliation,"Empty or stale truth proves nothing","No-match or flat is not inferred from missing rows",YES,negative_matrix
+G78-027,reconciliation,"Multiple candidates fail closed","Conflict blocks new commands and requires manual intervention",YES,negative_matrix
+G78-028,reconciliation,"Proven no-match does not repeat old request","Only a new request plus new arm may be considered",YES,behavioral
+G78-029,micro_budget,"At most one engineering micro command is authorized","Budget is durable and consumed before possible send",YES,restart
+G78-030,micro_budget,"Max-one non-final lifecycle is inherited","A second non-final strategy lifecycle is rejected",YES,inherited_stage7b
+G78-031,micro_budget,"LimitCancel is not an implicit one-command exception","Two-action scenario requires separate explicit review",YES,governance
+G78-032,scope,"Account instrument and strategy allowlists are exact","Any absent stale or mismatched entry blocks capability issuance",YES,negative_matrix
+G78-033,limits,"Quantity price and notional are bounded","Overflow precision loss missing multiplier and invalid lot fail closed",YES,negative_matrix
+G78-034,limits,"MARKET reference-price guard is fresh","Stale reference or excessive slippage blocks MARKET",YES,fault_injection
+G78-035,limits,"Schedule eligibility is required","Closed clearing or unknown session state blocks PLACE",YES,fixture_matrix
+G78-036,kill_switch,"Persistent kill switch is checked at every boundary","Read failure stale generation or active switch blocks new PLACE",YES,fault_injection
+G78-037,kill_switch,"Emergency CANCEL cannot bypass ownership","Only an exact owned working order may enter separately scoped cancel policy",YES,negative_matrix
+G78-038,durability,"Stage 7B remains sole lifecycle authority","No second journal reducer identity allocator or settlement owner exists",YES,source_scan
+G78-039,durability,"Redis settlement never repeats broker effect","Settlement retry may repeat publication only",YES,response_loss
+G78-040,durability,"Restart retains exact Stage 6 identity","Unknown dispatch remains blocked after process and Redis recovery",YES,inherited_stage7b
+G78-041,ownership,"ALOR and FINAM cannot both execute one strategy scope","Missing stale or conflicting broker ownership lease blocks execution",YES,negative_matrix
+G78-042,evidence,"Stage 8A re-runs accepted Stage 7B gate","Exact accepted predecessor gate passes unchanged",YES,inherited_gate
+G78-043,evidence,"Stage 8A proves full debug and release fault matrix","All mapping ambiguity restart limits and kill-switch rows pass",YES,aggregate_gate
+G78-044,evidence,"Immutable handoff binds source tools and results","Exact commit archive SHA toolchain and evidence hashes are present",YES,handoff
+G78-045,governance,"Independent gate acceptance opens only Stage 8A no-send implementation","Stage 8B real execution runtime-live and protective orders remain closed",YES,independent_review
