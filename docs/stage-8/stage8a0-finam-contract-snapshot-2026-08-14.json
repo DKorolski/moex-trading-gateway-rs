@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "snapshot_kind": "stage8a0_normalized_finam_order_and_instrument_contract",
+  "retrieved_at_utc": "2026-08-14T16:40:58Z",
+  "retrieval": {
+    "method": "HTTP GET with Accept: text/markdown; normalized from public FINAM documentation without credentials, account ids, or live payloads",
+    "official_rest_index": "https://api.finam.ru/docs/rest/",
+    "official_grpc_index": "https://api.finam.ru/docs/grpc/",
+    "responses": [
+      {"name":"rest_place_order","url":"https://api.finam.ru/docs/rest/ordersservice_placeorder.md","sha256":"0fc4494e2f06a9bc8aebb10eb0a7de0500b661c9988a9fdfda526364348ff589","bytes":23736},
+      {"name":"rest_cancel_order","url":"https://api.finam.ru/docs/rest/ordersservice_cancelorder.md","sha256":"595f123796fca321e9027c81ea1dc54d61b85862b9a1031fea73eaa2ef92b63e","bytes":6727},
+      {"name":"grpc_place_order","url":"https://api.finam.ru/docs/grpc/placeorder.md","sha256":"3df67157308a1add9c27953912bd279ac66e6a715438c5034cec3a5b5d7bca12","bytes":59500},
+      {"name":"grpc_get_order","url":"https://api.finam.ru/docs/grpc/getorder.md","sha256":"71cc118c771c9c960594f4e0cc3a0f2466ed76377c8f6e48a87a88d19df74dd8","bytes":45948},
+      {"name":"rest_get_asset","url":"https://api.finam.ru/docs/rest/assetsservice_getasset.md","sha256":"a7292fe5e0948bd926075baba3f1d9f318f380e3531e7d2f5b6698c353f9d6d3","bytes":6421},
+      {"name":"rest_get_asset_params","url":"https://api.finam.ru/docs/rest/assetsservice_getassetparams.md","sha256":"bb7c07ebadb6b3fdd0ed531ffab64aae91f547687348ffddc02209c46281b98d","bytes":6552},
+      {"name":"rest_schedule","url":"https://api.finam.ru/docs/rest/assetsservice_schedule.md","sha256":"9739d401763845a82c8a401b8e174694a0f6689cc760f54dc3b4792b4c1dd5d7","bytes":5139}
+    ]
+  },
+  "place_order": {
+    "method": "POST",
+    "path": "/v1/accounts/{account_id}/orders",
+    "request_fields": ["symbol","quantity","side","type","time_in_force","limit_price","stop_price","stop_condition","legs","client_order_id","valid_before","comment"],
+    "response_identity_fields": ["order_id","exec_id","status","order","transact_at","accept_at","withdraw_at","initial_quantity","executed_quantity","remaining_quantity","sltp_order","triggered_order_id"],
+    "response_statuses": ["200","400","401","404","429","500","503","504","default"],
+    "status_meanings": {"200":"successful_response","400":"invalid_trading_parameters","401":"expired_or_invalid_token","404":"account_or_instrument_not_found","429":"rate_limit","500":"internal_service_error","503":"service_unavailable","504":"deadline_exceeded","default":"unexpected_error_response"}
+  },
+  "cancel_order": {
+    "method": "DELETE",
+    "path": "/v1/accounts/{account_id}/orders/{order_id}",
+    "response_statuses": ["200","400","401","404","429","500","503","504","default"],
+    "status_meanings": {"200":"accepted_cancel_observation_only","400":"order_already_executed_cannot_cancel","401":"expired_or_invalid_token","404":"account_or_order_not_found","429":"rate_limit","500":"internal_service_error","503":"service_unavailable","504":"deadline_exceeded","default":"unexpected_error_response"}
+  },
+  "enums": {
+    "order_type": ["ORDER_TYPE_UNSPECIFIED","ORDER_TYPE_MARKET","ORDER_TYPE_LIMIT","ORDER_TYPE_STOP","ORDER_TYPE_STOP_LIMIT","ORDER_TYPE_MULTI_LEG"],
+    "time_in_force": ["TIME_IN_FORCE_UNSPECIFIED","TIME_IN_FORCE_DAY","TIME_IN_FORCE_GOOD_TILL_CANCEL","TIME_IN_FORCE_GOOD_TILL_CROSSING","TIME_IN_FORCE_EXT","TIME_IN_FORCE_ON_OPEN","TIME_IN_FORCE_ON_CLOSE","TIME_IN_FORCE_IOC","TIME_IN_FORCE_FOK"],
+    "valid_before": ["VALID_BEFORE_UNSPECIFIED","VALID_BEFORE_END_OF_DAY","VALID_BEFORE_GOOD_TILL_CANCEL","VALID_BEFORE_GOOD_TILL_DATE"],
+    "order_status": ["ORDER_STATUS_UNSPECIFIED","ORDER_STATUS_NEW","ORDER_STATUS_PARTIALLY_FILLED","ORDER_STATUS_FILLED","ORDER_STATUS_DONE_FOR_DAY","ORDER_STATUS_CANCELED","ORDER_STATUS_REPLACED","ORDER_STATUS_PENDING_CANCEL","ORDER_STATUS_REJECTED","ORDER_STATUS_SUSPENDED","ORDER_STATUS_PENDING_NEW","ORDER_STATUS_EXPIRED","ORDER_STATUS_FAILED","ORDER_STATUS_FORWARDING","ORDER_STATUS_WAIT","ORDER_STATUS_DENIED_BY_BROKER","ORDER_STATUS_REJECTED_BY_EXCHANGE","ORDER_STATUS_WATCHING","ORDER_STATUS_EXECUTED","ORDER_STATUS_DISABLED","ORDER_STATUS_LINK_WAIT","ORDER_STATUS_SL_GUARD_TIME","ORDER_STATUS_SL_EXECUTED","ORDER_STATUS_SL_FORWARDING","ORDER_STATUS_TP_GUARD_TIME","ORDER_STATUS_TP_EXECUTED","ORDER_STATUS_TP_CORRECTION","ORDER_STATUS_TP_FORWARDING","ORDER_STATUS_TP_CORR_GUARD_TIME"]
+  },
+  "client_order_id_broker_contract": {"documented_optional":true,"broker_auto_generates_when_omitted":true,"maximum_characters":20},
+  "instrument_prerequisites": {
+    "asset_path":"/v1/assets/{symbol}",
+    "asset_fields":["ticker","mic","board","min_step","lot_size","quote_currency","future_details.contract_size","future_details.expiration_date"],
+    "asset_params_path":"/v1/assets/{symbol}/params",
+    "asset_params_fields":["symbol","account_id","tradeable","is_tradable","trade_lot_size","long_initial_margin","short_initial_margin"],
+    "schedule_path":"/v1/assets/{symbol}/schedule",
+    "schedule_fields":["symbol","sessions[].type","sessions[].interval.start_time","sessions[].interval.end_time"],
+    "qty_step_source":"project broker-neutral futures policy Decimal::ONE; FINAM public REST contract has no separate qty_step field",
+    "step_value_source":"future_details.step_price when present in decoded payload, otherwise min_step * future_details.contract_size/lot_size; official current REST documents min_step, contract_size and lot_size"
+  },
+  "stage8_initial_policy": {
+    "allowed_order_types":["ORDER_TYPE_MARKET","ORDER_TYPE_LIMIT"],
+    "allowed_time_in_force":["TIME_IN_FORCE_DAY"],
+    "conditional_fields_forbidden":["stop_price","stop_condition","legs","valid_before"],
+    "client_order_id":"explicit exact durable non-empty max-20 no broker-generated fallback",
+    "outgoing_comment":"Disabled/None",
+    "cancel_400":"ReconciliationRequired",
+    "cancel_401":"auth/readiness blocked; disarm; target unresolved; fresh read-only truth; no same-request retry",
+    "cancel_404":"ReconciliationRequired",
+    "cancel_409_410":"defensive ReconciliationRequired although undocumented",
+    "transient_or_default":"ReconciliationRequired; no blind same-request retry"
+  },
+  "durable_retry_invariant":"after DispatchAttemptRecorded and send-capability consumption, one durable request has no second execution attempt; DefinitelyNotSent does not permit same-request resend"
+}

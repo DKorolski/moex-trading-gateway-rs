@@ -998,3 +998,17 @@ Red / not yet implemented:
 
 Only after these gates should `command-consumer-to-real-FINAM` or
 runtime-driven live micro be discussed.
+
+## Stage 8A-0 candidate (2026-08-14)
+
+- Transition Gate 7→8 R3 was independently accepted at
+  `630bef3fb9aa07bbc377498fc052f085155a043c`.
+- Stage 8A-0 refreshes the current public FINAM PLACE/CANCEL, enum/status and
+  instrument prerequisite contracts and reports `MATCH` against the existing
+  builder, classifier and registry sources.
+- The slice is docs/evidence/checkers only. No production Rust, Cargo or CI
+  workflow files change.
+- The Stage 8-specific scanner and exact 36-case negative harness are active.
+- Independent Stage 8A-0 acceptance is still pending and may open only 8A-1.
+- FINAM POST/DELETE, broker dispatch, runtime-live and real orders remain
+  closed.

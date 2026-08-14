@@ -110,3 +110,20 @@ pending separate acceptance.
 - Stop/SLTP/bracket/replace/multi-leg live behavior.
 - RI/RTS and USDRUBF expansion.
 - `i64` surrogate adapter without a separate ADR.
+
+## Stage 8 entry sequence
+
+Transition Gate 7→8 R3 is independently accepted. The active candidate is
+Stage 8A-0, a current FINAM contract refresh/freeze with no production code.
+Its local parity result is `MATCH`; independent acceptance remains required.
+
+The reviewed sequence remains:
+
+1. 8A-0 — contract/provenance freeze (current candidate).
+2. 8A-1 — protected capability and strict preflight, only after 8A-0 acceptance.
+3. 8A-2 through 8A-5 — separately reviewed builder invocation, outcome and
+   reconciliation slices, still bounded by their own gates.
+4. 8B — separately accepted bounded execution authority.
+
+No step in 8A-0 opens FINAM POST/DELETE, broker dispatch, runtime-live or real
+strategy orders.

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "stage": "8A-0",
+  "evidence_kind": "finam_contract_refresh_builder_status_instrument_parity",
+  "retrieved_at_utc": "2026-08-14T16:40:58Z",
+  "normalized_snapshot": {
+    "path": "docs/stage-8/stage8a0-finam-contract-snapshot-2026-08-14.json",
+    "sha256": "11062063c5f1f4f83f645af6b3a2e2716af363dca0bafdbdf3ee2b00da5d572e"
+  },
+  "project_sources": [
+    {"path":"crates/broker-finam/src/order_request.rs","sha256":"e57789a15d4a33fad08b93580d50c5efa8aba92ea4f547a45a898c6e300b80e6","role":"sole existing PLACE/CANCEL serializer and response policy"},
+    {"path":"crates/broker-core/src/ids.rs","sha256":"39f2b004d812f62f3636292c6b98e86c8a8242ece0bbd1da46986c838b0cf0ed","role":"ClientOrderId non-empty/max-20/safe-character validation"},
+    {"path":"crates/broker-finam/src/mapper.rs","sha256":"e1e91a075a8b73c99a6c2a76a3ec045e630de4da0943ed9d50d4756648b09b97","role":"OrderStatus classifier and instrument mapping"},
+    {"path":"crates/broker-finam/src/dto.rs","sha256":"01816b3e62aa72623238efe934470f663fd4a081710044d8ac15fd321a9b4f08","role":"FINAM asset/params/schedule response DTOs"},
+    {"path":"crates/broker-finam/src/instrument_registry.rs","sha256":"3423fe0381c15017de65398525658276a4079c443b940ab1df3ce01ee8499593","role":"tick/lot/symbol/schedule readiness validator"},
+    {"path":"crates/broker-core/src/instrument.rs","sha256":"ab4d0b80296a1e99f2c63349efbb8435fb2e0b919de7cc95badb4b5d4aec062e","role":"broker-neutral instrument prerequisite schema"},
+    {"path":"crates/broker-finam/tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json","sha256":"212ab404fbccc0a7bcb77a43a2ec73f460c7d90629b14daf00020eb9f6041dcf","role":"previously pinned FINAM TIF/ValidBefore/OrderStatus fixture"},
+    {"path":"crates/broker-core/src/order_path.rs","sha256":"67dd132d40b6d1de773013a1c03e892f1aef03e3d40ac56ee43105aeb5cdce69","role":"durable request lifecycle and reconciliation authority"},
+    {"path":"docs/stage-7/stage7b-closure-descriptor.json","sha256":"ee3e3555def13b5da6f699c4be62c2fff2c9bca1b82487036f7d9816b0a2c003","role":"accepted Stage7B sole lifecycle authority closure"}
+  ],
+  "comparisons": {
+    "place_path":"MATCH",
+    "cancel_path":"MATCH",
+    "stage8_market_limit_builder_subset":"MATCH",
+    "full_time_in_force_fixture":"MATCH",
+    "full_valid_before_fixture":"MATCH",
+    "full_order_status_fixture":"MATCH",
+    "client_order_id_max_20":"MATCH",
+    "client_order_id_exact_serialization":"MATCH",
+    "unknown_status_fail_closed":"MATCH",
+    "instrument_symbol_tick_lot_multiplier_schedule_sources":"MATCH",
+    "second_serializer_present":false,
+    "material_contract_drift":false
+  },
+  "explicit_narrowing_and_source_notes": [
+    "The official API permits more OrderType and TimeInForce values than the initial Stage8 policy; Stage8 remains MARKET/LIMIT and DAY only.",
+    "The existing builder can serialize GTC/IOC/FOK, so the future Stage8 capability preflight must reject every non-DAY value before invoking it.",
+    "The existing July fixture has the complete current TIF, ValidBefore and OrderStatus sets but no separate OrderType array; the current full official OrderType set is frozen in the Stage8A-0 normalized snapshot.",
+    "FINAM public REST does not expose a distinct qty_step field; Decimal::ONE is an explicit local futures policy and must not be represented as broker-observed truth.",
+    "The mapper can decode optional legacy/extended future detail fields but has documented top-level min_step/lot_size and contract_size fallback paths for the current public contract.",
+    "Outgoing comments remain Disabled/None in the initial Stage8 policy even though the existing builder supports a vetted optional OutgoingOrderComment."
+  ],
+  "required_future_preflight": [
+    "exact durable ClientOrderId is non-empty and <=20",
+    "OrderType is MARKET or LIMIT",
+    "TimeInForce is DAY",
+    "outgoing comment is None",
+    "instrument symbol/tick/lot/qty-step/multiplier/schedule prerequisites are current and validated"
+  ],
+  "parity_verdict": "MATCH",
+  "production_fix_in_stage8a0": false,
+  "stage8a1_open": false,
+  "next_step_after_independent_acceptance": "Stage 8A-1 only"
+}
