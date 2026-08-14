@@ -157,6 +157,43 @@ fn stage7b_b_second_process_is_rejected_and_sigkill_releases_kernel_lock() {
 }
 
 #[test]
+fn stage7b_e_x01_sigkill_after_lock_before_journal_open_releases_lock() {
+    let parent = test_parent();
+    let root = create_durable_root(&parent);
+    let paths = Stage7bDurableRootAuthority::validate(&root, &identity()).unwrap();
+    drop(
+        Stage7bWritableDurableAuthority::create_new(paths, &identity(), &authorization()).unwrap(),
+    );
+    let journal_before = fs::read(root.join("stage6.journal")).unwrap();
+
+    let ready = parent.join("x01-lock-acquired");
+    let never_resume = parent.join("x01-never-resume");
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .arg("--ignored")
+        .arg("--exact")
+        .arg("stage7b_root_replacement_barrier_child")
+        .arg("--nocapture")
+        .env("STAGE7B_CHILD_ROOT", &root)
+        .env("STAGE7B_CHILD_READY", &ready)
+        .env("STAGE7B_CHILD_RESUME", &never_resume)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    wait_until_ready(&mut child, &ready);
+    child.kill().unwrap();
+    child.wait().unwrap();
+
+    let recovered = Stage7bDurableRootAuthority::validate(&root, &identity()).unwrap();
+    drop(Stage7bWritableDurableAuthority::open_existing(recovered, &identity()).unwrap());
+    assert_eq!(
+        fs::read(root.join("stage6.journal")).unwrap(),
+        journal_before
+    );
+    fs::remove_dir_all(parent).unwrap();
+}
+
+#[test]
 fn stage7b_b_root_replacement_between_lock_and_journal_fails_closed() {
     let parent = test_parent();
     let root = create_durable_root(&parent);

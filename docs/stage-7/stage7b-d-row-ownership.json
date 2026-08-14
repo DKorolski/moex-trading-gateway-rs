@@ -1,13 +1,14 @@
 {
   "schema_version": 1,
-  "stage": "7B-d-c",
-  "candidate_revision": "r2",
+  "stage": "7B-d",
+  "candidate_revision": "accepted-r2",
   "rejected_stage7b_d_c_ref": "9b98c360e1153e79971b5935d03fd0a0bdd1f4f4",
   "rejected_stage7b_d_a_ref": "f71eeb926464f6634d485d5720b25c5e026b40d5",
   "accepted_design_r1_ref": "00cead2989493b44e0d86ead29b95d57a7fbcbe2",
   "accepted_stage7b_c_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
   "accepted_stage7b_d_a_ref": "8418cfb63ecee6702bf8a2873592b7cad1e711ee",
   "accepted_stage7b_d_b_ref": "e0bf9b7d9eb209e19b875f199511a493ddcd0da9",
+  "accepted_stage7b_d_c_ref": "2b6371adb905654e0ddd8b6714159bcef737b577",
   "slices": {
     "7B-d-a": {
       "owned_rows": [
@@ -30,7 +31,7 @@
         "B-052",
         "B-053"
       ],
-      "status": "implementation_candidate"
+      "status": "accepted_closed"
     }
   },
   "implemented_rows": 70,

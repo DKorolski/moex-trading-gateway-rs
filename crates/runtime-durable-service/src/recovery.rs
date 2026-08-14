@@ -1759,6 +1759,16 @@ mod tests {
     }
 
     #[test]
+    fn stage7b_e_production_authority_is_file_backed_and_single_owned() {
+        let (parent, _root, _identity, owner) = first_boot();
+        let recovered = owner.recovered().unwrap();
+        assert!(recovered.journal_is_file_backed());
+        assert!(owner.recovery_ready());
+        drop(owner);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
     fn recovery_seal_atomic_replace_and_orphan_temp_is_not_authority() {
         let (parent, root, identity, mut owner) = first_boot();
         let (_, key, runtime) = stage6d_test_authenticated_restart_fixture();

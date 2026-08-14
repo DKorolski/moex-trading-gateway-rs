@@ -102,6 +102,19 @@ D_C_WITNESSES = {
     "B-070": ("negative+source", "stage7b_d_c_b070_has_no_legacy_execution_authority_dependency + Stage 6 owner-only admission source gate"),
 }
 
+E_WITNESSES = {
+    "B-005": ("source_gate", "scripts/stage7b_e_check.py::check_single_execution_authority"),
+    "B-006": ("integration", "stage7b_e_production_authority_is_file_backed_and_single_owned + complete Stage7bRedisService focused suite"),
+    "B-007": ("source_gate", "scripts/stage7b_e_check.py::check_single_execution_authority; one Stage6OwnedJournalBackend owner and no mirrored write authority"),
+    "B-013": ("source+fault", "scripts/stage7b_e_check.py::check_journal_parent_directory_fsync + check_seal_parent_directory_fsync + X03/X11 matrix rows"),
+    "B-072": ("ci_integration", "scripts/stage7b_e_gate.sh real Redis + real filesystem + kernel lock + SIGKILL/subprocess aggregate suite"),
+    "B-073": ("fault_matrix", "docs/stage-7/stage7b-fault-matrix.json + scripts/stage7b_fault_matrix_check.py: X01-X20=20/20"),
+    "B-074": ("gate", "scripts/stage7b_e_gate.sh focused core/runtime debug and release artifacts"),
+    "B-077": ("acceptance_report", "scripts/stage7b_acceptance_report.py: exact semantic proof map 80/80 with accepted=false candidate governance"),
+    "B-078": ("preseal", "scripts/make_stage7b_e_handoff_archive.py: clean source manifest, evidence hashes, handoff marker and SHA-256 sidecar"),
+    "B-080": ("governance_gate", "Stage 7B-e candidate remains accepted=false; independent acceptance alone may open Gate 7→8 specification"),
+}
+
 
 def build() -> dict:
     with MATRIX.open(newline="", encoding="utf-8") as handle:
@@ -115,6 +128,7 @@ def build() -> dict:
             **D_A_WITNESSES,
             **D_B_WITNESSES,
             **D_C_WITNESSES,
+            **E_WITNESSES,
         }
         implemented = row["ID"] in witnesses
         proof_type, witness = witnesses.get(
@@ -127,7 +141,9 @@ def build() -> dict:
                 "requirement": row["Scenario / Requirement"],
                 "proof_type": proof_type,
                 "rationale": (
-                    "Stage 7B-d-c supervised restart/readiness witness"
+                    "Stage 7B-e aggregate closure witness"
+                    if row["ID"] in E_WITNESSES
+                    else "Stage 7B-d-c supervised restart/readiness witness"
                     if row["ID"] in D_C_WITNESSES
                     else "Stage 7B-d-b exact atomic Redis settlement witness"
                     if row["ID"] in D_B_WITNESSES
@@ -136,7 +152,9 @@ def build() -> dict:
                     else "Frozen requirement retained pending its designated Stage 7B slice"
                 ),
                 "artifact": (
-                    "Stage 7B-d-c candidate real-Redis and supervision evidence"
+                    "Stage 7B-e aggregate gate/fault/preseal evidence"
+                    if row["ID"] in E_WITNESSES
+                    else "Stage 7B-d-c accepted real-Redis and supervision evidence"
                     if row["ID"] in D_C_WITNESSES
                     else "Stage 7B-d-b accepted real-Redis evidence"
                     if row["ID"] in D_B_WITNESSES
@@ -151,9 +169,9 @@ def build() -> dict:
     return {
         "schema_version": 1,
         "stage": "7B",
-        "slice": "7B-d-c",
+        "slice": "7B-e",
         "accepted_predecessor": "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64",
-        "accepted_slice_predecessor": "c57ae8d5f98bbb11df0a81f78262d3916b276d81",
+        "accepted_slice_predecessor": "2b6371adb905654e0ddd8b6714159bcef737b577",
         "row_count": len(proofs),
         "implemented_count": sum(p["status"] == "implemented" for p in proofs),
         "pending_count": sum(p["status"] == "pending" for p in proofs),

@@ -55,7 +55,12 @@ and child-process Redis `XAUTOCLAIM` witnesses. R1 at
 `9b98c360e1153e79971b5935d03fd0a0bdd1f4f4` was not accepted because
 marker-only terminal history was checked only after effect. R2 adds the
 read-only pre-admission marker veto and exact duplicate-publication path.
-Stage 7B-e remains closed until independent R2 acceptance.
+Stage 7B-d-c-R2 is accepted at
+`2b6371adb905654e0ddd8b6714159bcef737b577`. Stage 7B-e aggregate closure is
+the only active slice: X01-X20, real infrastructure evidence and the 80/80
+proof map are prepared while independent acceptance pending. FINAM POST/DELETE,
+runtime-live and real orders remain closed; only accepted Stage 7B-e may open
+planning for Gate 7→8.
 
 Stage 2B is closed as the broker-neutral runtime source migration foundation;
 Stages 3, 4 and 5 are accepted/closed. Stage 6 is independently accepted and

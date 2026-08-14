@@ -1577,6 +1577,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stage7b_e_x15_dlq_outage_keeps_pel_and_degrades_backend() {
+        let redis = RedisServer::start().await;
+        let mut inspector = connection(&redis).await;
+        let checkpoint = "e".repeat(64);
+        let context = pending_context(&mut inspector, "x15-dlq-outage", "not-json").await;
+        let _: () = redis::cmd("SET")
+            .arg(&context.dlq_stream)
+            .arg("wrong-type")
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        let mut backend = Stage7bRedisSettlementBackend::connect(&redis.url)
+            .await
+            .unwrap();
+        assert!(matches!(
+            backend
+                .settle_dlq(poison_plan(context.clone(), b"not-json", &checkpoint))
+                .await,
+            Err(Stage7bRedisSettlementError::Redis(_))
+        ));
+        assert!(!backend.healthy());
+        assert_eq!(pending_len(&mut inspector, &context).await, 1);
+        let unchanged: String = redis::cmd("GET")
+            .arg(&context.dlq_stream)
+            .query_async(&mut inspector)
+            .await
+            .unwrap();
+        assert_eq!(unchanged, "wrong-type");
+    }
+
+    #[tokio::test]
     async fn stage7b_d_c_r2_legacy_or_incomplete_request_marker_fails_closed() {
         let redis = RedisServer::start().await;
         let mut inspector = connection(&redis).await;

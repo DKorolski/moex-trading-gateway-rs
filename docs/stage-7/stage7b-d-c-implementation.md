@@ -1,8 +1,8 @@
 # Stage 7B-d-c — supervised Redis restart/readiness composition
 
-Status: R2 implementation candidate for independent review. The R1 candidate
-`9b98c360e1153e79971b5935d03fd0a0bdd1f4f4` was not accepted; its three
-original closure findings remain closed.
+Status: R2 independently accepted and closed at
+`2b6371adb905654e0ddd8b6714159bcef737b577`. The R1 candidate
+`9b98c360e1153e79971b5935d03fd0a0bdd1f4f4` was not accepted.
 
 Accepted predecessor: Stage 7B-d-b-R1 at
 `e0bf9b7d9eb209e19b875f199511a493ddcd0da9`.
@@ -109,7 +109,6 @@ Stage 6 file journal/replay is the only execution authority.
 
 ## Still closed
 
-- Stage 7B-d aggregate independent acceptance;
-- remaining Stage 7B X01-X20/aggregate closure rows;
+- Stage 7B-e X01-X20/aggregate acceptance candidate;
 - FINAM POST/DELETE and broker network dispatch;
 - runtime-live, real orders and protective live orders.

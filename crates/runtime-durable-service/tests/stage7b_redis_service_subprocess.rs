@@ -182,6 +182,38 @@ async fn stage7b_d_c_r1_b068_subprocess_redis_reclaim_child() {
 }
 
 #[tokio::test]
+#[ignore]
+async fn stage7b_e_x16_reclaim_then_wait_for_sigkill_child() {
+    let redis_url =
+        std::env::var("STAGE7B_D_C_RECLAIM_REDIS_URL").expect("child Redis URL must be supplied");
+    let barrier = PathBuf::from(
+        std::env::var_os("STAGE7B_E_X16_BARRIER").expect("child barrier path must be supplied"),
+    );
+    let config =
+        Stage7bRedisServiceConfig::paper_default_auto("subprocess-reclaim").expect("child config");
+    let client = redis::Client::open(redis_url.as_str()).expect("child Redis client");
+    let mut connection = ConnectionManager::new(client)
+        .await
+        .expect("child Redis connection");
+    let reply: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
+        .arg(&config.command_stream)
+        .arg(&config.consumer_group)
+        .arg(&config.consumer_name)
+        .arg(1)
+        .arg("0-0")
+        .arg("COUNT")
+        .arg(1)
+        .query_async(&mut connection)
+        .await
+        .expect("child first XAUTOCLAIM page");
+    assert_eq!(reply.claimed.len(), 1);
+    fs::write(&barrier, config.consumer_name).expect("persist X16 crash barrier");
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
+#[tokio::test]
 async fn stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis() {
     let redis = RedisServer::start().await;
     let config =
@@ -273,4 +305,109 @@ async fn stage7b_d_c_r1_b068_fresh_process_reclaims_old_pel_with_real_redis() {
         source_ids
     );
     fs::remove_dir_all(scratch).expect("remove reclaim scratch directory");
+}
+
+#[tokio::test]
+async fn stage7b_e_x16_sigkill_during_claim_is_reclaimable_by_next_boot() {
+    let redis = RedisServer::start().await;
+    let config =
+        Stage7bRedisServiceConfig::paper_default_auto("subprocess-reclaim").expect("parent config");
+    let client = redis::Client::open(redis.url.as_str()).expect("parent Redis client");
+    let mut connection = ConnectionManager::new(client)
+        .await
+        .expect("parent Redis connection");
+    let _: () = redis::cmd("XGROUP")
+        .arg("CREATE")
+        .arg(&config.command_stream)
+        .arg(&config.consumer_group)
+        .arg("0-0")
+        .arg("MKSTREAM")
+        .query_async(&mut connection)
+        .await
+        .expect("create X16 consumer group");
+    let mut source_ids = Vec::new();
+    for payload in ["x16-a", "x16-b", "x16-c"] {
+        source_ids.push(
+            redis::cmd("XADD")
+                .arg(&config.command_stream)
+                .arg("*")
+                .arg("payload")
+                .arg(payload)
+                .query_async::<String>(&mut connection)
+                .await
+                .expect("add X16 source entry"),
+        );
+    }
+    let _: StreamReadReply = redis::cmd("XREADGROUP")
+        .arg("GROUP")
+        .arg(&config.consumer_group)
+        .arg("stage7b-x16-dead-origin")
+        .arg("COUNT")
+        .arg(3)
+        .arg("STREAMS")
+        .arg(&config.command_stream)
+        .arg(">")
+        .query_async(&mut connection)
+        .await
+        .expect("create X16 old PEL");
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    let scratch = scratch_directory();
+    let barrier = scratch.join("x16-first-claim");
+    let mut interrupted = Command::new(std::env::current_exe().expect("current test executable"))
+        .arg("--ignored")
+        .arg("--exact")
+        .arg("stage7b_e_x16_reclaim_then_wait_for_sigkill_child")
+        .arg("--nocapture")
+        .env("STAGE7B_D_C_RECLAIM_REDIS_URL", &redis.url)
+        .env("STAGE7B_E_X16_BARRIER", &barrier)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn interrupted X16 child");
+    for _ in 0..200 {
+        if barrier.exists() {
+            break;
+        }
+        assert!(interrupted.try_wait().unwrap().is_none());
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(barrier.exists(), "X16 child did not reach claim barrier");
+    let interrupted_consumer = fs::read_to_string(&barrier).unwrap();
+    interrupted.kill().unwrap();
+    interrupted.wait().unwrap();
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    let output = scratch.join("x16-reclaim-report.json");
+    let status = Command::new(std::env::current_exe().expect("current test executable"))
+        .arg("--ignored")
+        .arg("--exact")
+        .arg("stage7b_d_c_r1_b068_subprocess_redis_reclaim_child")
+        .arg("--nocapture")
+        .env("STAGE7B_D_C_RECLAIM_REDIS_URL", &redis.url)
+        .env("STAGE7B_D_C_RECLAIM_OUTPUT", &output)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .expect("spawn replacement X16 child");
+    assert!(status.success());
+    let report: ReclaimReport = serde_json::from_slice(&fs::read(&output).unwrap()).unwrap();
+    assert_ne!(report.consumer_name, interrupted_consumer);
+    assert_eq!(report.initial_cursor, "0-0");
+    assert_eq!(report.final_cursor, "0-0");
+    assert_eq!(report.reclaimed_entry_ids, source_ids);
+    let pending: StreamPendingCountReply = redis::cmd("XPENDING")
+        .arg(&config.command_stream)
+        .arg(&config.consumer_group)
+        .arg("-")
+        .arg("+")
+        .arg(10)
+        .query_async(&mut connection)
+        .await
+        .unwrap();
+    assert!(pending
+        .ids
+        .iter()
+        .all(|entry| entry.consumer == report.consumer_name));
+    fs::remove_dir_all(scratch).unwrap();
 }

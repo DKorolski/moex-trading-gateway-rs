@@ -1,6 +1,7 @@
 # Stage 7B-d-c-R2 review closure
 
-Status: implementation candidate; independent acceptance pending.
+Status: independently accepted and closed at
+`2b6371adb905654e0ddd8b6714159bcef737b577` on 2026-08-14.
 
 Rejected predecessor:
 `9b98c360e1153e79971b5935d03fd0a0bdd1f4f4`.
@@ -38,4 +39,5 @@ journal, expected PEL/ACK/DLQ state and an unchanged canonical request marker.
 An additional schema test proves legacy/incomplete marker rejection.
 
 The d-c mutation matrix has 40 cases, including all seven R2 regressions from
-the review. Stage 7B-e and all real execution surfaces remain closed.
+the review. Independent review found no remaining P0/P1 blocker and opened
+only Stage 7B-e aggregate closure. All real execution surfaces remain closed.
