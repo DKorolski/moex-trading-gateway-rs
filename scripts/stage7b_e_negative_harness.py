@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aggregate Stage 7B-e mutation harness (18 new + 40 inherited cases)."""
+"""Aggregate Stage 7B-e mutation harness (19 new + 40 inherited cases)."""
 from __future__ import annotations
 
 import json
@@ -63,6 +63,10 @@ def replace(path: Path, old: str, new: str) -> None:
     path.write_text(source.replace(old, new, 1))
 
 
+def append(path: Path, suffix: str) -> None:
+    path.write_text(path.read_text() + suffix)
+
+
 def delete_fault(root: Path) -> None:
     path = root / NORMATIVE
     document = json.loads(path.read_text())
@@ -97,6 +101,7 @@ CASES = (
     ("remove-x19-restart-witness", lambda root: replace(root / JOURNAL, "stage7b_e_x19_sync_failure_reopen_validates_actual_disk_state_conservatively", "removed_x19_restart_witness")),
     ("mutate-normative-x02-boundary", lambda root: mutate_fault(root, "X02", "boundary", "Journal create: adjacent torn-frame boundary.")),
     ("inject-hidden-stage8-adapter", lambda root: replace(root / SERVICE_ROOT, "pub struct Stage7bWritableDurableAuthority {", "pub struct Stage8ProtectedExecutionAdapter;\n\npub struct Stage7bWritableDurableAuthority {")),
+    ("inject-hidden-stage8-after-test-module", lambda root: append(root / SERVICE_ROOT, "\n\npub struct Stage8ProtectedExecutionAdapter;\n")),
 )
 
 
@@ -127,7 +132,7 @@ def main() -> None:
             if result.returncode == 0:
                 raise SystemExit(f"stage7b-e-negative: FAIL mutation survived: {name}")
             print(f"PASS {name}")
-    print(f"stage7b-e-negative: PASS cases={len(CASES)} inherited=40 aggregate=58")
+    print(f"stage7b-e-negative: PASS cases={len(CASES)} inherited=40 aggregate=59")
 
 
 if __name__ == "__main__":

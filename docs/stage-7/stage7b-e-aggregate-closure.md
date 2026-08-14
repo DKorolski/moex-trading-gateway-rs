@@ -1,6 +1,13 @@
 # Stage 7B-e — aggregate durability closure
 
-Status: R3 aggregate acceptance candidate; independent acceptance pending.
+Status: R4 aggregate acceptance candidate; independent acceptance pending.
+
+R3 at `d501d62543cde890bfbb8d8ea0dc878e28a711b2` closed the intended
+production-prefix B-079 mutation but was not accepted because a production
+item could still be appended after the test module. R4 adds no functional
+behavior: it pins the exact full-file SHA-256 of every allowed crate delta and
+adds the post-test-module hidden-Stage8 mutation. The aggregate negative count
+is now 19 + 40 = 59.
 
 R2 at `8cc72f148032bedda6a0ef86f6edda2c1394abc7` closed every prior durability
 finding but was not accepted because B-079 still pointed to an earlier
@@ -41,9 +48,11 @@ production recovery owner owns that core linearly. `Stage7bRedisService` owns
 the recovery owner but no journal or alternative lifecycle store. Memory
 journals remain test/fixture facilities; Redis markers remain transport-only.
 
-The Stage 7B-e checker compares production code before each test-module
-boundary with the accepted d-c ref, so the aggregate slice can add witnesses
-but cannot silently alter the accepted functional implementation.
+The Stage 7B-e checker requires the exact crate changed-path set and exact
+full-file SHA-256 for every allowed delta from accepted d-c. Any byte change
+before, inside or after a test module therefore fails the aggregate gate. The
+existing dependency/live token scan remains an additional closed-surface
+check.
 
 ## Directory durability
 

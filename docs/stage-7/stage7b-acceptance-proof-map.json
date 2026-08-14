@@ -690,7 +690,7 @@
       "proof_type": "negative_harness",
       "rationale": "Stage 7B-e aggregate closure witness",
       "artifact": "Stage 7B-e aggregate gate/fault/preseal evidence",
-      "exact_witness": "current Stage 7B-e negative harness cases=18 inherited=40 aggregate=58 descriptor-pinned",
+      "exact_witness": "current Stage 7B-e negative harness cases=19 inherited=40 aggregate=59 descriptor-pinned",
       "status": "implemented"
     },
     {
@@ -717,7 +717,7 @@
       "proof_type": "closed_surface",
       "rationale": "Stage 7B-e aggregate closure witness",
       "artifact": "Stage 7B-e aggregate gate/fault/preseal evidence",
-      "exact_witness": "scripts/stage7b_e_check.py::check_closed_surface scans the full candidate delta from accepted d-c-R2 and pins exact production-prefix SHA-256 for both R2 X02 diagnostic-seam files; inherited accepted d-c closed-surface gate remains mandatory",
+      "exact_witness": "scripts/stage7b_e_check.py::check_closed_surface enforces the exact changed-path allowlist and exact full-file SHA-256 for every allowed Stage 7B crate delta from accepted d-c-R2, with dependency/live token scanning and the inherited accepted d-c closed-surface gate mandatory",
       "status": "implemented"
     },
     {

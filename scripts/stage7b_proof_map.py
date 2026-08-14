@@ -110,10 +110,10 @@ E_WITNESSES = {
     "B-073": ("fault_matrix", "immutable normative docs/stage-7/stage7b-fault-matrix-normative.json + scripts/stage7b_fault_matrix_check.py: exact X01-X20=20/20, including exact X02/X12/X19 boundaries, results, proof types and witnesses"),
     "B-074": ("gate", "scripts/stage7b_e_gate.sh focused core/runtime debug and release artifacts"),
     "B-075": ("accepted_gate", "scripts/stage7b_e_gate.sh standalone inherited Stage 7A full gate at 2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64 -> inherited-stage7a-gate.txt, plus current fmt, workspace tests/docs and clippy gates"),
-    "B-076": ("negative_harness", "current Stage 7B-e negative harness cases=18 inherited=40 aggregate=58 descriptor-pinned"),
+    "B-076": ("negative_harness", "current Stage 7B-e negative harness cases=19 inherited=40 aggregate=59 descriptor-pinned"),
     "B-077": ("acceptance_report", "scripts/stage7b_acceptance_report.py aggregates exact B-073 + B-075 + B-076 + B-079 proof rows at 80/80 with accepted=false candidate governance"),
     "B-078": ("preseal", "scripts/make_stage7b_e_handoff_archive.py: clean source manifest, evidence hashes, handoff marker and SHA-256 sidecar"),
-    "B-079": ("closed_surface", "scripts/stage7b_e_check.py::check_closed_surface scans the full candidate delta from accepted d-c-R2 and pins exact production-prefix SHA-256 for both R2 X02 diagnostic-seam files; inherited accepted d-c closed-surface gate remains mandatory"),
+    "B-079": ("closed_surface", "scripts/stage7b_e_check.py::check_closed_surface enforces the exact changed-path allowlist and exact full-file SHA-256 for every allowed Stage 7B crate delta from accepted d-c-R2, with dependency/live token scanning and the inherited accepted d-c closed-surface gate mandatory"),
     "B-080": ("governance_gate", "Stage 7B-e candidate remains accepted=false; independent acceptance alone may open Gate 7→8 specification"),
 }
 

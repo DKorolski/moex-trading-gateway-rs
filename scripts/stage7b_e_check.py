@@ -13,9 +13,13 @@ BRANCH = "stage7b-production-durability"
 ACCEPTED_D_C = "2b6371adb905654e0ddd8b6714159bcef737b577"
 ACCEPTED_STAGE7A = "2b6d6e90f2350b77fc1d79aa7381e6d9c6566c64"
 NORMATIVE_MATRIX_SHA256 = "d4f5dc4ee8a65ee007a2fe01075927dd6136ec1df8557c8dc37e8105dd0936c9"
-ALLOWED_R3_PRODUCTION_PREFIX_SHA256 = {
-    "crates/runtime-durable-service/src/lib.rs": "a19cf7393a89a271592f3eceb64c48446310a756f261843da085b2af01a4fff4",
-    "crates/strategy-runtime-core/src/stage6_journal_backend.rs": "13ca5b838fbe01b33a86d1cc97f6422edceb9d0cf98df1da2d3f06c7160b611f",
+ALLOWED_R4_FULL_FILE_SHA256 = {
+    "crates/runtime-durable-service/src/lib.rs": "179f71bb7e7f21d1417e539f3eb20c955cc1bd5c8783d7564992bb3f4ea3135f",
+    "crates/runtime-durable-service/src/recovery.rs": "613e6cc1fb0e1272efdc402571f0f29554221ef81b0618ecd677ce390557324e",
+    "crates/runtime-durable-service/src/recovery/redis_settlement.rs": "d209cb601b7e7cb528252804c8cd1f13b369127b858e4de515e92d80da07fcd3",
+    "crates/runtime-durable-service/tests/stage7b_writer_lock_subprocess.rs": "ef5d2cd398f49f3539b4acb6ffb005669f31764cc697b9de1b2387ab4ba69ad2",
+    "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs": "2e71ac63a99d3fef7bfe69aa8486fe4d56fd5ba228c263e1c098c5920ccd3c6b",
+    "crates/strategy-runtime-core/src/stage6_journal_backend.rs": "84aff9674b68aec7f88cde75d5e416e089f11b831154990fc0dde758a84c3c24",
 }
 
 
@@ -64,29 +68,16 @@ def check_lineage() -> None:
 
 
 def check_closed_surface() -> None:
-    for path in (
-        "crates/runtime-durable-service/src/recovery.rs",
-        "crates/runtime-durable-service/src/recovery/redis_settlement.rs",
-    ):
-        current = (ROOT / path).read_text()
-        accepted = git_show(ACCEPTED_D_C, path)
-        require(
-            production_prefix(current) == production_prefix(accepted),
-            f"Stage 7B-e changed production code before test boundary: {path}",
-        )
     changed = subprocess.check_output(
         ["git", "diff", "--name-only", ACCEPTED_D_C, "--"], cwd=ROOT, text=True
     ).splitlines()
-    allowed_crates = {
-        "crates/runtime-durable-service/src/lib.rs",
-        "crates/runtime-durable-service/src/recovery.rs",
-        "crates/runtime-durable-service/src/recovery/redis_settlement.rs",
-        "crates/runtime-durable-service/tests/stage7b_writer_lock_subprocess.rs",
-        "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs",
-        "crates/strategy-runtime-core/src/stage6_journal_backend.rs",
-    }
+    allowed_crates = set(ALLOWED_R4_FULL_FILE_SHA256)
     crate_delta = {path for path in changed if path.startswith("crates/")}
-    require(crate_delta <= allowed_crates, f"aggregate production scope expanded: {sorted(crate_delta - allowed_crates)}")
+    require(
+        crate_delta == allowed_crates,
+        f"aggregate crate delta drift: added={sorted(crate_delta - allowed_crates)} "
+        f"missing={sorted(allowed_crates - crate_delta)}",
+    )
     require(not any(path.startswith(".github/") for path in changed), "CI governance scope changed")
     require(
         not any("stage8" in path.lower() or "stage-8" in path.lower() for path in changed),
@@ -109,13 +100,18 @@ def check_closed_surface() -> None:
         "method::post",
         "method::delete",
     )
-    for path, expected_sha256 in ALLOWED_R3_PRODUCTION_PREFIX_SHA256.items():
-        current_prefix = production_prefix((ROOT / path).read_text())
-        actual_sha256 = hashlib.sha256(current_prefix.encode()).hexdigest()
+    for path, expected_sha256 in ALLOWED_R4_FULL_FILE_SHA256.items():
+        actual_sha256 = hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
         require(
             actual_sha256 == expected_sha256,
-            f"non-whitelisted production-prefix delta in R2 diagnostic seam: {path}",
+            f"non-whitelisted full-file delta in final Stage 7B crate surface: {path}",
         )
+
+    for path in (
+        "crates/runtime-durable-service/src/lib.rs",
+        "crates/strategy-runtime-core/src/stage6_journal_backend.rs",
+    ):
+        current_prefix = production_prefix((ROOT / path).read_text())
         accepted_prefix = production_prefix(git_show(ACCEPTED_D_C, path))
         added = "\n".join(
             line[1:]
@@ -222,14 +218,14 @@ def check_descriptors() -> None:
     expected = {
         "slice": "7B-e",
         "status": "aggregate_acceptance_candidate",
-        "candidate_revision": "r3",
+        "candidate_revision": "r4",
         "accepted_predecessor": ACCEPTED_STAGE7A,
         "accepted_stage7b_d_c_ref": ACCEPTED_D_C,
         "implemented_count": 80,
         "pending_count": 0,
         "cross_process_fault_count": 20,
-        "negative_case_count": 58,
-        "e_negative_case_count": 18,
+        "negative_case_count": 59,
+        "e_negative_case_count": 19,
         "single_writer_required": True,
         "recovery_seal_required": True,
         "inherited_stage7a_gate_required": True,
@@ -263,9 +259,9 @@ def check_proof_map() -> None:
     for row_id, tokens in {
         "B-073": ("normative", "X01-X20", "X02", "X12", "X19"),
         "B-075": ("inherited-stage7a-gate.txt", "workspace", "clippy", "fmt"),
-        "B-076": ("cases=18", "inherited=40", "aggregate=58"),
+        "B-076": ("cases=19", "inherited=40", "aggregate=59"),
         "B-077": ("B-073", "B-075", "B-076", "B-079", "accepted=false"),
-        "B-079": ("check_closed_surface", "accepted d-c-R2", "exact production-prefix"),
+        "B-079": ("check_closed_surface", "accepted d-c-R2", "exact full-file SHA"),
     }.items():
         witness = by_id[row_id]["exact_witness"]
         for token in tokens:
@@ -319,7 +315,7 @@ def check_preseal_contract() -> None:
         'target.with_suffix(".zip.sha256")',
         '"stage7b_accepted": False',
         '"inherited_stage7a_gate_required": True',
-        '"candidate_revision": "r3"',
+        '"candidate_revision": "r4"',
         'STAGE7B_REQUIRE_ORIGIN',
     ):
         require(token in handoff, f"preseal contract absent: {token}")
