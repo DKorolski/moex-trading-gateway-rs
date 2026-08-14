@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed specification checks for Transition Gate 7->8."""
+"""Fail-closed checks for the Gate 7->8 R1 specification correction."""
 
 from __future__ import annotations
 
@@ -10,8 +10,10 @@ import json
 import subprocess
 from pathlib import Path
 
-PREDECESSOR = "7c3ffffcfec012f3c96c65a3fcaf366c1740b88e"
+BASE_REJECTED = "4d1106e72bc1437d990a8bd949db4867d41c09b6"
+PREDECESSOR = BASE_REJECTED
 ACCEPTED_STAGE7B = "a1044e0dbe324c722b637498ca80ffafd9f0cbee"
+STAGE7B_CLOSURE = "7c3ffffcfec012f3c96c65a3fcaf366c1740b88e"
 BRANCH = "gate7-to-8-spec"
 REVIEW_SHA = "e66d87ae88cf1c1a8f2ec12ac5d4338374c26bfcc417624b0fa1f007a5c81bf2"
 CLOSURE_DESCRIPTOR_SHA = "ee3e3555def13b5da6f699c4be62c2fff2c9bca1b82487036f7d9816b0a2c003"
@@ -19,10 +21,21 @@ ACCEPTANCE_RECORD_SHA = "f50b45318132124af0516d32df4f4fa4d358719a07e5cbe6603bead
 
 DESCRIPTOR = Path("docs/stage-8/transition-gate-7-to-8-descriptor.json")
 SPEC = Path("docs/stage-8/transition-gate-7-to-8-specification.md")
-MATRIX = Path("docs/stage-8/TRANSITION_GATE_7_TO_8_ACCEPTANCE_MATRIX_2026-08-14.csv")
+MATRIX = Path("docs/stage-8/GATE7_TO_8_R1_ACCEPTANCE_MATRIX_2026-08-14.csv")
+OLD_MATRIX = Path("docs/stage-8/TRANSITION_GATE_7_TO_8_ACCEPTANCE_MATRIX_2026-08-14.csv")
 SLICE_PLAN = Path("docs/stage-8/stage8-slice-plan.md")
+CONTRACT_SNAPSHOT = Path("docs/stage-8/finam-rest-order-contract-snapshot-2026-08-14.json")
+CONTRACT_EVIDENCE = Path("docs/stage-8/finam-rest-order-contract-evidence-2026-08-14.json")
+ORDER_REQUEST_SOURCE = Path("crates/broker-finam/src/order_request.rs")
+ORDER_ENUM_FIXTURE = Path("crates/broker-finam/tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json")
 CLOSURE_DESCRIPTOR = Path("docs/stage-7/stage7b-closure-descriptor.json")
 ACCEPTANCE_RECORD = Path("docs/stage-7/stage7b-final-acceptance-record.md")
+
+SNAPSHOT_SHA = "bf885782ffda757b2c2b9bdb01822c925ce08df983b7ff9779811f5365886bc6"
+EVIDENCE_SHA = "5a434b0474844296566b3ad6e1a610d6b0fdd99d2ae90ac06de2cb4c9ce5d870"
+MATRIX_SHA = "69ad43361d3b6be99d8d0755d8a449eb65fad0e24b10932cf49ea2f219b3bad7"
+ORDER_REQUEST_SHA = "e57789a15d4a33fad08b93580d50c5efa8aba92ea4f547a45a898c6e300b80e6"
+ORDER_ENUM_FIXTURE_SHA = "212ab404fbccc0a7bcb77a43a2ec73f460c7d90629b14daf00020eb9f6041dcf"
 
 ALLOWED_DELTA = {
     "docs/current-status.md",
@@ -30,7 +43,10 @@ ALLOWED_DELTA = {
     str(DESCRIPTOR),
     str(SPEC),
     str(MATRIX),
+    str(OLD_MATRIX),
     str(SLICE_PLAN),
+    str(CONTRACT_SNAPSHOT),
+    str(CONTRACT_EVIDENCE),
     "scripts/transition_gate_7_to_8_check.py",
     "scripts/transition_gate_7_to_8_negative_harness.py",
     "scripts/transition_gate_7_to_8.sh",
@@ -52,100 +68,192 @@ def sha(path: Path) -> str:
 
 
 def validate_descriptor(value: dict) -> None:
-    require(value.get("schema_version") == 1, "descriptor schema drift")
+    require(value.get("schema_version") == 2, "descriptor schema drift")
     require(value.get("gate") == "Transition Gate 7->8", "gate identity drift")
-    require(value.get("status") == "specification_candidate_pending_independent_review", "gate self-accepted or status drift")
+    require(
+        value.get("status") == "r1_specification_candidate_pending_independent_review",
+        "Gate R1 self-accepted or status drift",
+    )
+    require(value.get("base_rejected_candidate") == BASE_REJECTED, "base candidate drift")
     binding = value.get("source_ref_binding", {})
     require(binding.get("required_branch") == BRANCH, "required branch drift")
-    require(binding.get("required_predecessor") == PREDECESSOR, "predecessor drift")
+    require(binding.get("required_predecessor") == BASE_REJECTED, "R1 predecessor drift")
     accepted = value.get("accepted_stage7b", {})
     require(accepted.get("accepted_source_ref") == ACCEPTED_STAGE7B, "accepted Stage 7B ref drift")
-    require(accepted.get("closure_record_ref") == PREDECESSOR, "closure record ref drift")
+    require(accepted.get("closure_record_ref") == STAGE7B_CLOSURE, "closure record ref drift")
     require(accepted.get("closure_descriptor_sha256") == CLOSURE_DESCRIPTOR_SHA, "closure descriptor binding drift")
     require(accepted.get("acceptance_record_sha256") == ACCEPTANCE_RECORD_SHA, "acceptance record binding drift")
     require(accepted.get("independent_review_sha256") == REVIEW_SHA, "independent review binding drift")
+
+    contracts = value.get("contracts", {})
+    require(contracts.get("specification") == str(SPEC), "specification path drift")
+    require(contracts.get("acceptance_matrix") == {"path": str(MATRIX), "sha256": MATRIX_SHA}, "matrix binding drift")
+    require(contracts.get("stage8_slice_plan") == str(SLICE_PLAN), "slice plan path drift")
+    require(contracts.get("finam_contract_snapshot") == {"path": str(CONTRACT_SNAPSHOT), "sha256": SNAPSHOT_SHA}, "snapshot binding drift")
+    require(contracts.get("finam_contract_evidence") == {"path": str(CONTRACT_EVIDENCE), "sha256": EVIDENCE_SHA}, "contract evidence binding drift")
+    require(contracts.get("sole_place_serializer") == "broker_finam::build_place_order_request", "place serializer authority drift")
+    require(contracts.get("sole_cancel_serializer") == "broker_finam::build_cancel_order_request", "cancel serializer authority drift")
+
     decision = value.get("decision_after_independent_acceptance", {})
-    require(decision.get("stage8a_protected_adapter_and_reconciliation") == "implementation_authorized_network_send_closed", "Stage 8A network boundary opened")
-    require(decision.get("stage8b_bounded_real_execution") == "closed_pending_separate_acceptance_and_operator_authorization", "Stage 8B opened")
+    require(decision.get("stage8a_protected_adapter_and_reconciliation") == "implementation_authorized_no_send", "Stage 8A network boundary opened")
+    require(decision.get("stage8b_bounded_real_execution") == "closed_pending_stage8a5_and_separate_acceptance", "Stage 8B opened")
     require(decision.get("stage9_continuous_reconciliation") == "closed", "Stage 9 opened")
     require(decision.get("stage10_runtime_live") == "closed", "Stage 10 opened")
+    require(value.get("stage8a_slice_order") == ["8A-0", "8A-1", "8A-2", "8A-3", "8A-4", "8A-5"], "Stage 8A order drift")
     require(value.get("allowed_initial_commands") == ["PLACE_MARKET", "PLACE_LIMIT", "CANCEL"], "initial command allowlist drift")
-    require(value.get("forbidden_initial_commands") == ["REPLACE", "STOP", "SLTP", "BRACKET", "MULTI_LEG"], "forbidden command list drift")
+    require(value.get("allowed_initial_time_in_force") == ["TIME_IN_FORCE_DAY"], "initial TIF is not Day-only")
+    require(value.get("forbidden_initial_commands") == ["REPLACE", "STOP", "STOP_LIMIT", "SLTP", "BRACKET", "MULTI_LEG"], "forbidden command list drift")
+
     safety = value.get("safety_invariants", {})
     expected_safety = {
         "stable_client_order_id_required": True,
+        "client_order_id_explicit_nonempty_max_20": True,
+        "broker_generated_client_order_id_fallback": False,
         "durable_attempt_before_possible_send": True,
         "blind_retry_after_ambiguous_outcome": False,
         "fresh_broker_truth_required_for_reconciliation": True,
+        "proven_no_match_constructible_in_stage8a": False,
         "max_nonfinal_lifecycles_per_strategy": 1,
         "max_live_engineering_micro_commands": 1,
         "autonomous_strategy_live_attachment": False,
         "simultaneous_alor_finam_live_for_same_strategy": False,
         "operator_arm_one_shot": True,
-        "kill_switch_fail_closed": True,
+        "kill_switch_mechanism_required": True,
+        "kill_switch_required_place_state": "RunAllowed",
+        "kill_switch_unreadable_or_stale_fails_closed": True,
+        "generic_all_4xx_classifier_allowed": False,
+        "second_stage8_serializer_allowed": False,
     }
     require(safety == expected_safety, "safety invariant drift")
-    require(value.get("acceptance_row_count") == 45, "acceptance row count drift")
-    require(value.get("negative_case_count") == 20, "negative case count drift")
+    require(value.get("acceptance_row_count") == 66, "acceptance row count drift")
+    require(value.get("negative_case_count") == 32, "negative case count drift")
     require(value.get("independent_acceptance_required") is True, "independent acceptance removed")
-    require(value.get("currently_open_surfaces") and not any(value["currently_open_surfaces"].values()), "execution surface opened")
+    surfaces = value.get("currently_open_surfaces", {})
+    require(len(surfaces) == 9 and not any(surfaces.values()), "execution surface opened")
+
+
+def validate_contract_snapshot(value: dict) -> None:
+    require(value.get("schema_version") == 1, "contract snapshot schema drift")
+    require(value.get("retrieved_at_utc") == "2026-08-14T15:00:32Z", "contract retrieval timestamp drift")
+    source = value.get("official_source", {})
+    require(source.get("rest_documentation_url") == "https://api.finam.ru/docs/rest/", "official REST source removed")
+    place = value.get("place_order", {})
+    cancel = value.get("cancel_order", {})
+    require((place.get("method"), place.get("path")) == ("POST", "/v1/accounts/{account_id}/orders"), "PLACE endpoint drift")
+    require((cancel.get("method"), cancel.get("path")) == ("DELETE", "/v1/accounts/{account_id}/orders/{order_id}"), "CANCEL endpoint drift")
+    required_fields = {"symbol", "quantity", "side", "type", "time_in_force", "limit_price", "stop_price", "stop_condition", "legs", "client_order_id", "valid_before", "comment"}
+    require(set(place.get("documented_body_fields", [])) == required_fields, "PLACE documented fields drift")
+    statuses = ["200", "400", "401", "404", "429", "500", "503", "504", "default"]
+    require(place.get("documented_response_statuses") == statuses, "PLACE response statuses drift")
+    require(cancel.get("documented_response_statuses") == statuses, "CANCEL response statuses drift")
+    client = place.get("client_order_id", {})
+    require(client == {"documented_optional": True, "broker_auto_generates_when_omitted": True, "maximum_characters": 20}, "official client_order_id contract drift")
+    policy = value.get("stage8_initial_policy", {})
+    require(policy.get("allowed_time_in_force") == ["TIME_IN_FORCE_DAY"], "Stage 8 contract policy is not Day-only")
+    require(policy.get("client_order_id_rule") == "explicit_exact_durable_nonempty_max_20_no_generated_fallback", "Stage 8 client_order_id rule drift")
+    require(set(policy.get("forbidden_place_fields", [])) == {"stop_price", "stop_condition", "legs", "valid_before"}, "conditional field closure drift")
+    require(policy.get("material_contract_drift_action") == "block_gate_and_require_separate_review", "material drift no longer blocks")
+
+
+def validate_contract_evidence(value: dict, root: Path) -> None:
+    require(value.get("evidence_kind") == "gate7_to_8_r1_finam_contract_refresh", "contract evidence kind drift")
+    require(value.get("normalized_snapshot") == {"path": str(CONTRACT_SNAPSHOT), "sha256": SNAPSHOT_SHA}, "evidence snapshot binding drift")
+    require(value.get("material_contract_drift") is False, "material FINAM contract drift detected")
+    require(value.get("gate_decision") == "contract_refresh_passed_for_specification_only_no_stage8_code_authorized", "contract refresh opened implementation")
+    contracts = {item.get("path"): item for item in value.get("project_contracts_reviewed", [])}
+    require(contracts.get(str(ORDER_REQUEST_SOURCE), {}).get("sha256") == ORDER_REQUEST_SHA, "order request source evidence drift")
+    require(contracts.get(str(ORDER_ENUM_FIXTURE), {}).get("sha256") == ORDER_ENUM_FIXTURE_SHA, "enum fixture evidence drift")
+    findings = value.get("parity_findings", {})
+    require(findings.get("place_path_matches") is True and findings.get("cancel_path_matches") is True, "endpoint parity failed")
+    require(findings.get("client_order_id_is_explicitly_serialized") is True, "client_order_id explicit serialization lost")
+    require(findings.get("required_stage8_action") == "enforce_TimeInForce_Day_in_capability_preflight_before_calling_existing_builder", "Day-only composition rule drift")
+    require(findings.get("second_stage8_serializer_allowed") is False, "second serializer authorized")
+    require(sha(root / ORDER_REQUEST_SOURCE) == ORDER_REQUEST_SHA, "vetted order builder changed")
+    require(sha(root / ORDER_ENUM_FIXTURE) == ORDER_ENUM_FIXTURE_SHA, "pinned enum fixture changed")
+    source = (root / ORDER_REQUEST_SOURCE).read_text()
+    require("pub fn build_place_order_request(" in source, "sole PLACE builder missing")
+    require("pub fn build_cancel_order_request(" in source, "sole CANCEL builder missing")
 
 
 SPEC_TOKENS = [
-    "Status: specification candidate pending independent review.",
+    "Status: Gate 7→8 R1 specification candidate pending independent review.",
+    "4d1106e72bc1437d990a8bd949db4867d41c09b6",
     "Stage8ExecutionCapability",
     "not implement `Clone`, `Copy`, `Serialize` or `Deserialize`",
-    "DispatchAttemptRecorded",
-    "one-shot operator arm",
-    "PLACE MARKET",
-    "PLACE LIMIT",
-    "CANCEL",
-    "AmbiguousAfterPossibleSend",
-    "ReconciliationRequired",
-    "No outcome after a possible send is automatically retried.",
-    "fresh broker truth",
-    "max-one engineering-micro budget",
-    "one broker ownership lease",
-    "Stage 8 implementation  CLOSED",
-    "FINAM POST/DELETE       CLOSED",
-    "native protective orders CLOSED",
+    "broker_finam::build_place_order_request()",
+    "broker_finam::build_cancel_order_request()",
+    "A second Stage 8 FINAM JSON/request serializer is forbidden.",
+    "TimeInForce::Day -> TIME_IN_FORCE_DAY",
+    "non-empty, at most 20 characters",
+    "PLACE classification is endpoint-specific:",
+    "malformed or contradictory 400",
+    "documented 404 account/instrument not found",
+    "malformed, truncated or unknown 2xx",
+    "CANCEL classification is separately endpoint-specific:",
+    "documented 400 already executed",
+    "documented 404 account/order not found",
+    "undocumented 409 or 410",
+    "A generic `all 4xx -> BrokerRejected` classifier is forbidden.",
+    "Only a pre-send/local connect failure with proof that no bytes could leave",
+    "`ProvenNoMatch` is CLOSED and unconstructible throughout Stage 8A.",
+    "Empty, missing, stale or merely absent truth always remains `StillUnknown`",
+    "Reconciliation never redispatches an old ambiguous request",
+    "Conflict and still-unknown states block new live commands",
+    "persistent kill-switch mechanism must be available, fresh and readable",
+    "exactly `RunAllowed` before PLACE",
+    "`StopRequested`, stale state, unreadable state or a generation conflict blocks PLACE",
+    "immediately before transport",
+    "same kill-switch mechanism",
+    "ALOR and FINAM must not both have live execution authority",
+    "historical Stage 5 `forbidden_surface_scan.sh` is not rebaselined here",
+    "Stage 8-specific closed-surface scanner",
+    "all 66 mandatory rows",
+    "all exact 32 negative",
+    "Stage 8 implementation CLOSED",
+    "FINAM POST/DELETE CLOSED",
 ]
 
 
 def validate_spec(text: str) -> None:
+    text = " ".join(text.split())
     for token in SPEC_TOKENS:
         require(token in text, f"specification token missing: {token}")
-    require("Independent acceptance of this specification authorizes only Stage 8A" in text, "Stage 8A authorization rule missing")
     require("It does not authorize real FINAM POST/DELETE" in text, "real endpoint prohibition missing")
-    require("ALOR and FINAM must not both have live execution authority" in text, "single broker ownership rule missing")
-    require("LimitCancel exercise" in text and "two-action scenario" in text, "LimitCancel budget rule missing")
+    require("No outcome after a possible send is automatically retried." in text, "blind retry prohibition missing")
+    require("multiple candidates" in text and "no new live command" in text, "multiple-candidate closure missing")
+    require(text.count("429, 500, 503, 504 or default | `ReconciliationRequired`") == 2, "PLACE/CANCEL ambiguous status tables drift")
+    require("malformed, truncated or unknown 2xx, or 2xx without usable broker order identity | `ReconciliationRequired`" in text, "PLACE malformed 2xx classification drift")
 
 
 def validate_matrix(path: Path) -> None:
     with path.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 45, "acceptance matrix is not 45 rows")
-    require(list(rows[0]) == ["id", "category", "requirement", "expected", "mandatory", "evidence"], "matrix header drift")
-    expected_ids = [f"G78-{index:03d}" for index in range(1, 46)]
-    require([row["id"] for row in rows] == expected_ids, "matrix IDs missing reordered or duplicated")
+    header = ["id", "category", "requirement", "expected", "mandatory", "evidence", "negative_mutation"]
+    require(len(rows) == 66, "acceptance matrix is not 66 rows")
+    require(list(rows[0]) == header, "matrix header drift")
+    require([row["id"] for row in rows] == [f"G78R1-{index:03d}" for index in range(1, 67)], "matrix IDs missing reordered or duplicated")
     require(all(row["mandatory"] == "YES" for row in rows), "optional acceptance row introduced")
-    require(all(all(row[field].strip() for field in rows[0]) for row in rows), "empty acceptance field")
-    categories = {row["category"] for row in rows}
-    required = {"predecessor", "capability", "operator", "mapping", "ambiguity", "reconciliation", "micro_budget", "scope", "limits", "kill_switch", "durability", "ownership", "evidence", "governance"}
-    require(categories == required, "acceptance category drift")
+    require(all(all(row[field].strip() for field in header) for row in rows), "empty acceptance field")
+    required_categories = {"predecessor", "scope", "finam_contract", "capability", "operator", "kill_switch", "ownership", "mapping", "outcome_place", "outcome_cancel", "outcome", "reconciliation", "limits", "micro", "evidence", "governance"}
+    require({row["category"] for row in rows} == required_categories, "acceptance category drift")
 
 
 def validate_slice_plan(text: str) -> None:
     normalized = " ".join(text.split())
-    required = [
-        "Stage 8A — protected adapter and reconciliation",
-        "Stage 8A does not authorize a real FINAM POST/DELETE",
-        "Stage 8B — bounded real engineering micro",
-        "at most one explicitly armed engineering command",
-        "It does not attach an autonomous strategy runtime",
+    for token in [
+        "Stage 8 implementation remains CLOSED",
+        "8A-0 — current contract refresh",
+        "8A-1 — protected capability",
+        "8A-2 — builder composition",
+        "8A-3 — endpoint classifier",
+        "8A-4 — reconciliation",
+        "8A-5 — aggregate acceptance",
+        "It does not authorize a real FINAM POST/DELETE",
+        "A second Stage 8 serializer is forbidden",
+        "`ProvenNoMatch` unconstructible",
+        "same fail-closed kill switch",
         "No later stage is opened by this plan.",
-    ]
-    for token in required:
+    ]:
         require(" ".join(token.split()) in normalized, f"slice plan token missing: {token}")
 
 
@@ -154,34 +262,37 @@ def git_output(root: Path, *args: str) -> str:
 
 
 def validate_git_scope(root: Path) -> None:
-    require(git_output(root, "merge-base", "--is-ancestor", PREDECESSOR, "HEAD") == "", "predecessor is not ancestor")
-    tracked = set(filter(None, git_output(root, "diff", "--name-only", PREDECESSOR).splitlines()))
+    require(git_output(root, "merge-base", "--is-ancestor", BASE_REJECTED, "HEAD") == "", "base rejected candidate is not ancestor")
+    tracked = set(filter(None, git_output(root, "diff", "--name-only", BASE_REJECTED).splitlines()))
     untracked = set(filter(None, git_output(root, "ls-files", "--others", "--exclude-standard").splitlines()))
     changed = tracked | untracked
-    require(changed, "empty gate specification delta")
-    unexpected = changed - ALLOWED_DELTA
-    require(not unexpected, f"out-of-scope path changed: {sorted(unexpected)}")
-    require(not any(path.startswith(("crates/", ".github/")) or path in {"Cargo.toml", "Cargo.lock"} for path in changed), "production or CI delta present")
+    require(changed, "empty Gate R1 correction delta")
+    require(not (changed - ALLOWED_DELTA), f"out-of-scope path changed: {sorted(changed - ALLOWED_DELTA)}")
+    require(not any(path.startswith(("crates/", ".github/")) or path in {"Cargo.toml", "Cargo.lock"} for path in changed), "production/Cargo/CI delta present")
 
 
 def check(root: Path, *, check_git_scope: bool = True) -> None:
     require(sha(root / CLOSURE_DESCRIPTOR) == CLOSURE_DESCRIPTOR_SHA, "accepted closure descriptor changed")
     require(sha(root / ACCEPTANCE_RECORD) == ACCEPTANCE_RECORD_SHA, "accepted acceptance record changed")
+    require(sha(root / CONTRACT_SNAPSHOT) == SNAPSHOT_SHA, "normalized FINAM snapshot hash drift")
+    require(sha(root / CONTRACT_EVIDENCE) == EVIDENCE_SHA, "FINAM evidence hash drift")
+    require(sha(root / MATRIX) == MATRIX_SHA, "acceptance matrix hash drift")
+    require(not (root / OLD_MATRIX).exists(), "obsolete 45-row matrix remains authoritative")
     validate_descriptor(json.loads((root / DESCRIPTOR).read_text()))
+    validate_contract_snapshot(json.loads((root / CONTRACT_SNAPSHOT).read_text()))
+    validate_contract_evidence(json.loads((root / CONTRACT_EVIDENCE).read_text()), root)
     validate_spec((root / SPEC).read_text())
     validate_matrix(root / MATRIX)
     validate_slice_plan((root / SLICE_PLAN).read_text())
-    status = (root / "docs/current-status.md").read_text()
-    roadmap = (root / "docs/roadmap.md").read_text()
-    status_words = " ".join(status.split())
-    roadmap_words = " ".join(roadmap.split())
-    require("Transition Gate 7→8 specification" in status_words, "current status not moved to gate candidate")
-    require("Stage 8 implementation remains CLOSED" in status_words, "current status opened Stage 8")
-    require("Transition Gate 7→8 specification" in roadmap_words, "roadmap gate target missing")
-    require("real FINAM POST/DELETE remains closed" in roadmap_words, "roadmap real endpoint boundary missing")
+    status = " ".join((root / "docs/current-status.md").read_text().split())
+    roadmap = " ".join((root / "docs/roadmap.md").read_text().split())
+    require("Transition Gate 7→8 R1 specification" in status, "current status not moved to R1")
+    require("Stage 8 implementation remains CLOSED" in status, "current status opened Stage 8")
+    require("Transition Gate 7→8 R1 specification" in roadmap, "roadmap R1 target missing")
+    require("FINAM POST/DELETE remains closed" in roadmap, "roadmap endpoint boundary missing")
     if check_git_scope:
         validate_git_scope(root)
-    print("transition-gate-7-to-8-check: PASS rows=45 stage8a=no-send stage8b=closed")
+    print("transition-gate-7-to-8-check: PASS rows=66 contract=current stage8a=no-send stage8b=closed")
 
 
 def main() -> None:

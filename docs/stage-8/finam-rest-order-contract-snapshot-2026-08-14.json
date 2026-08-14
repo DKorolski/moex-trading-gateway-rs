@@ -1,0 +1,116 @@
+{
+  "schema_version": 1,
+  "snapshot_kind": "normalized_finam_rest_order_contract",
+  "retrieved_at_utc": "2026-08-14T15:00:32Z",
+  "official_source": {
+    "base_url": "https://api.finam.ru",
+    "rest_documentation_url": "https://api.finam.ru/docs/rest/",
+    "supporting_grpc_documentation_url": "https://api.finam.ru/docs/grpc/"
+  },
+  "place_order": {
+    "method": "POST",
+    "path": "/v1/accounts/{account_id}/orders",
+    "path_fields": [
+      "account_id"
+    ],
+    "documented_body_fields": [
+      "symbol",
+      "quantity",
+      "side",
+      "type",
+      "time_in_force",
+      "limit_price",
+      "stop_price",
+      "stop_condition",
+      "legs",
+      "client_order_id",
+      "valid_before",
+      "comment"
+    ],
+    "documented_response_statuses": [
+      "200",
+      "400",
+      "401",
+      "404",
+      "429",
+      "500",
+      "503",
+      "504",
+      "default"
+    ],
+    "documented_status_meanings": {
+      "200": "successful_response",
+      "400": "invalid_trading_parameters",
+      "401": "expired_or_invalid_token",
+      "404": "account_or_instrument_not_found",
+      "429": "rate_limit",
+      "500": "internal_service_error",
+      "503": "service_unavailable",
+      "504": "deadline_exceeded",
+      "default": "unexpected_error_response"
+    },
+    "client_order_id": {
+      "documented_optional": true,
+      "broker_auto_generates_when_omitted": true,
+      "maximum_characters": 20
+    }
+  },
+  "cancel_order": {
+    "method": "DELETE",
+    "path": "/v1/accounts/{account_id}/orders/{order_id}",
+    "path_fields": [
+      "account_id",
+      "order_id"
+    ],
+    "documented_response_statuses": [
+      "200",
+      "400",
+      "401",
+      "404",
+      "429",
+      "500",
+      "503",
+      "504",
+      "default"
+    ],
+    "documented_status_meanings": {
+      "200": "successful_response",
+      "400": "order_already_executed_and_cannot_be_cancelled",
+      "401": "expired_or_invalid_token",
+      "404": "account_or_order_not_found",
+      "429": "rate_limit",
+      "500": "internal_service_error",
+      "503": "service_unavailable",
+      "504": "deadline_exceeded",
+      "default": "unexpected_error_response"
+    }
+  },
+  "stage8_initial_policy": {
+    "allowed_commands": [
+      "PLACE_MARKET",
+      "PLACE_LIMIT",
+      "CANCEL"
+    ],
+    "allowed_place_fields": [
+      "symbol",
+      "quantity",
+      "side",
+      "type",
+      "time_in_force",
+      "limit_price_when_limit",
+      "client_order_id",
+      "comment_when_vetted"
+    ],
+    "forbidden_place_fields": [
+      "stop_price",
+      "stop_condition",
+      "legs",
+      "valid_before"
+    ],
+    "allowed_time_in_force": [
+      "TIME_IN_FORCE_DAY"
+    ],
+    "client_order_id_rule": "explicit_exact_durable_nonempty_max_20_no_generated_fallback",
+    "material_contract_drift_action": "block_gate_and_require_separate_review"
+  }
+}

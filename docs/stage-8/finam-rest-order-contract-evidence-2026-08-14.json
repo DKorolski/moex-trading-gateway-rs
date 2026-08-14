@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "gate7_to_8_r1_finam_contract_refresh",
+  "retrieved_at_utc": "2026-08-14T15:00:32Z",
+  "official_sources": [
+    "https://api.finam.ru/docs/rest/",
+    "https://api.finam.ru/docs/grpc/"
+  ],
+  "normalized_snapshot": {
+    "path": "docs/stage-8/finam-rest-order-contract-snapshot-2026-08-14.json",
+    "sha256": "bf885782ffda757b2c2b9bdb01822c925ce08df983b7ff9779811f5365886bc6"
+  },
+  "project_contracts_reviewed": [
+    {
+      "path": "crates/broker-finam/src/order_request.rs",
+      "sha256": "e57789a15d4a33fad08b93580d50c5efa8aba92ea4f547a45a898c6e300b80e6",
+      "symbols": [
+        "build_place_order_request",
+        "build_cancel_order_request"
+      ]
+    },
+    {
+      "path": "crates/broker-finam/tests/fixtures/finam_spec/order_contract_enums_v2026_07_03.json",
+      "sha256": "212ab404fbccc0a7bcb77a43a2ec73f460c7d90629b14daf00020eb9f6041dcf"
+    }
+  ],
+  "parity_findings": {
+    "place_path_matches": true,
+    "cancel_path_matches": true,
+    "market_and_limit_mapping_matches": true,
+    "client_order_id_is_explicitly_serialized": true,
+    "client_order_id_source_is_durable_order_identity": true,
+    "conditional_fields_absent_from_existing_plain_order_builder": true,
+    "existing_builder_is_broader_than_stage8_initial_tif_policy": true,
+    "required_stage8_action": "enforce_TimeInForce_Day_in_capability_preflight_before_calling_existing_builder",
+    "second_stage8_serializer_allowed": false
+  },
+  "material_contract_drift": false,
+  "gate_decision": "contract_refresh_passed_for_specification_only_no_stage8_code_authorized"
+}

@@ -1,10 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "gate": "Transition Gate 7->8",
-  "status": "specification_candidate_pending_independent_review",
+  "status": "r1_specification_candidate_pending_independent_review",
+  "base_rejected_candidate": "4d1106e72bc1437d990a8bd949db4867d41c09b6",
   "source_ref_binding": {
     "required_branch": "gate7-to-8-spec",
-    "required_predecessor": "7c3ffffcfec012f3c96c65a3fcaf366c1740b88e"
+    "required_predecessor": "4d1106e72bc1437d990a8bd949db4867d41c09b6"
   },
   "accepted_stage7b": {
     "accepted_source_ref": "a1044e0dbe324c722b637498ca80ffafd9f0cbee",
@@ -18,38 +19,70 @@
   },
   "contracts": {
     "specification": "docs/stage-8/transition-gate-7-to-8-specification.md",
-    "acceptance_matrix": "docs/stage-8/TRANSITION_GATE_7_TO_8_ACCEPTANCE_MATRIX_2026-08-14.csv",
-    "stage8_slice_plan": "docs/stage-8/stage8-slice-plan.md"
+    "acceptance_matrix": {
+      "path": "docs/stage-8/GATE7_TO_8_R1_ACCEPTANCE_MATRIX_2026-08-14.csv",
+      "sha256": "69ad43361d3b6be99d8d0755d8a449eb65fad0e24b10932cf49ea2f219b3bad7"
+    },
+    "stage8_slice_plan": "docs/stage-8/stage8-slice-plan.md",
+    "finam_contract_snapshot": {
+      "path": "docs/stage-8/finam-rest-order-contract-snapshot-2026-08-14.json",
+      "sha256": "bf885782ffda757b2c2b9bdb01822c925ce08df983b7ff9779811f5365886bc6"
+    },
+    "finam_contract_evidence": {
+      "path": "docs/stage-8/finam-rest-order-contract-evidence-2026-08-14.json",
+      "sha256": "5a434b0474844296566b3ad6e1a610d6b0fdd99d2ae90ac06de2cb4c9ce5d870"
+    },
+    "sole_place_serializer": "broker_finam::build_place_order_request",
+    "sole_cancel_serializer": "broker_finam::build_cancel_order_request"
   },
   "decision_after_independent_acceptance": {
-    "stage8a_protected_adapter_and_reconciliation": "implementation_authorized_network_send_closed",
-    "stage8b_bounded_real_execution": "closed_pending_separate_acceptance_and_operator_authorization",
+    "stage8a_protected_adapter_and_reconciliation": "implementation_authorized_no_send",
+    "stage8b_bounded_real_execution": "closed_pending_stage8a5_and_separate_acceptance",
     "stage9_continuous_reconciliation": "closed",
     "stage10_runtime_live": "closed"
   },
+  "stage8a_slice_order": [
+    "8A-0",
+    "8A-1",
+    "8A-2",
+    "8A-3",
+    "8A-4",
+    "8A-5"
+  ],
   "allowed_initial_commands": [
     "PLACE_MARKET",
     "PLACE_LIMIT",
     "CANCEL"
   ],
+  "allowed_initial_time_in_force": [
+    "TIME_IN_FORCE_DAY"
+  ],
   "forbidden_initial_commands": [
     "REPLACE",
     "STOP",
+    "STOP_LIMIT",
     "SLTP",
     "BRACKET",
     "MULTI_LEG"
   ],
   "safety_invariants": {
     "stable_client_order_id_required": true,
+    "client_order_id_explicit_nonempty_max_20": true,
+    "broker_generated_client_order_id_fallback": false,
     "durable_attempt_before_possible_send": true,
     "blind_retry_after_ambiguous_outcome": false,
     "fresh_broker_truth_required_for_reconciliation": true,
+    "proven_no_match_constructible_in_stage8a": false,
     "max_nonfinal_lifecycles_per_strategy": 1,
     "max_live_engineering_micro_commands": 1,
     "autonomous_strategy_live_attachment": false,
     "simultaneous_alor_finam_live_for_same_strategy": false,
     "operator_arm_one_shot": true,
-    "kill_switch_fail_closed": true
+    "kill_switch_mechanism_required": true,
+    "kill_switch_required_place_state": "RunAllowed",
+    "kill_switch_unreadable_or_stale_fails_closed": true,
+    "generic_all_4xx_classifier_allowed": false,
+    "second_stage8_serializer_allowed": false
   },
   "currently_open_surfaces": {
     "stage8_implementation": false,
@@ -59,9 +92,10 @@
     "runtime_live": false,
     "real_strategy_orders": false,
     "native_stop_sltp_bracket": false,
-    "unattended_execution": false
+    "unattended_execution": false,
+    "stage8b_real_micro": false
   },
-  "acceptance_row_count": 45,
-  "negative_case_count": 20,
+  "acceptance_row_count": 66,
+  "negative_case_count": 32,
   "independent_acceptance_required": true
 }

@@ -1,39 +1,44 @@
 # Stage 8 slice plan
 
-Status: proposed by Transition Gate 7→8; no Stage 8 implementation is yet
-authorized.
+Status: Gate 7→8 R1 candidate; Stage 8 implementation remains CLOSED pending
+independent acceptance.
 
-## Stage 8A — protected adapter and reconciliation
+Acceptance of Gate R1 opens only Stage 8A protected FINAM adapter no-send work.
+It does not authorize a real FINAM POST/DELETE, broker dispatch, runtime-live,
+real strategy orders, native protective orders or unattended execution.
 
-Stage 8A may begin only after independent acceptance of Transition Gate 7→8.
-It implements the broker-neutral protected execution boundary, exact FINAM
-MARKET/LIMIT/CANCEL mapping and broker-truth reconciliation using mock/no-send
-transport first. It must retain the Stage 7B journal, recovery seal, max-one
-lifecycle and Redis settlement authorities unchanged.
+## Mandatory Stage 8A order
 
-Stage 8A does not authorize a real FINAM POST/DELETE. Its exit review must prove
-that transport cannot be reached without an opaque, one-shot capability and
-that every ambiguous result enters reconciliation without blind retry.
+Each slice requires its own immutable handoff and independent acceptance before
+the next slice starts.
 
-## Stage 8B — bounded real engineering micro
+1. **Stage 8A-0 — current contract refresh.** Re-fetch the official FINAM REST
+   order contract, normalize and hash it, compare it with the project fixture
+   and existing vetted builders. Material drift blocks progression.
+2. **Stage 8A-1 — protected capability.** Add the private linear no-send
+   capability, exact operator arm, allowlist, limits, Day-only TIF policy and
+   fail-closed kill-switch preflight. No serializer or transport.
+3. **Stage 8A-2 — builder composition.** Compose only
+   `broker_finam::build_place_order_request()` and
+   `broker_finam::build_cancel_order_request()` behind a mock/no-send seam. A
+   second Stage 8 serializer is forbidden.
+4. **Stage 8A-3 — endpoint classifier.** Implement distinct PLACE and CANCEL
+   status tables. Generic all-4xx rejection is forbidden.
+5. **Stage 8A-4 — reconciliation.** Normalize fresh broker truth, correlate by
+   exact durable identity and keep `ProvenNoMatch` unconstructible. Empty,
+   missing or stale truth remains `StillUnknown`.
+6. **Stage 8A-5 — aggregate acceptance.** Re-run inherited Stage 7B gates, the
+   Stage 8-specific scanner, exact negatives, debug/release tests and immutable
+   source/evidence binding. All network-send surfaces remain closed.
 
-Stage 8B is a separate gate after accepted Stage 8A. It may authorize at most
-one explicitly armed engineering command for one account, instrument and
-strategy. The initial scope is MARKET, LIMIT or CANCEL only. The exact command,
-side, quantity, price bounds and validity window must be approved by the
-operator for that run.
+## Later work
 
-Stage 8B requires fresh read-only broker truth before and after the boundary,
-an active kill switch, durable attempt evidence before send, response-loss
-recovery evidence and independent review. It does not attach an autonomous
-strategy runtime.
+Stage 8B is a separately specified and independently accepted bounded real
+engineering micro. It may be designed only after accepted Stage 8A-5. It
+requires at most one explicitly armed engineering command, current read-only
+broker truth, durable attempt-before-send evidence, the same fail-closed kill
+switch and operator authorization. It does not attach an autonomous strategy
+runtime.
 
-## Later stages
-
-- Stage 9: continuous order/trade/position reconciliation.
-- Stage 10: runtime-live readiness and observability.
-- Stage 11: broker shadow parity without dual live ownership.
-- Stage 12: controlled runtime-driven FINAM live micro.
-- Stage 13: native Stop/SLTP/bracket after dedicated lifecycle contracts.
-
-No later stage is opened by this plan.
+Stages 9+, continuous reconciliation, runtime-live and native Stop/SLTP/bracket
+remain closed. No later stage is opened by this plan.
