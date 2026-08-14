@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed checks for the Gate 7->8 R1 specification correction."""
+"""Fail-closed checks for the Gate 7->8 R2 specification correction."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ import subprocess
 from pathlib import Path
 
 BASE_REJECTED = "4d1106e72bc1437d990a8bd949db4867d41c09b6"
-PREDECESSOR = BASE_REJECTED
+R1_REVIEWED_NOT_ACCEPTED = "f7afc1c612c25de608783850ab2e8c0ae14b0687"
+PREDECESSOR = R1_REVIEWED_NOT_ACCEPTED
 ACCEPTED_STAGE7B = "a1044e0dbe324c722b637498ca80ffafd9f0cbee"
 STAGE7B_CLOSURE = "7c3ffffcfec012f3c96c65a3fcaf366c1740b88e"
 BRANCH = "gate7-to-8-spec"
@@ -21,8 +22,11 @@ ACCEPTANCE_RECORD_SHA = "f50b45318132124af0516d32df4f4fa4d358719a07e5cbe6603bead
 
 DESCRIPTOR = Path("docs/stage-8/transition-gate-7-to-8-descriptor.json")
 SPEC = Path("docs/stage-8/transition-gate-7-to-8-specification.md")
-MATRIX = Path("docs/stage-8/GATE7_TO_8_R1_ACCEPTANCE_MATRIX_2026-08-14.csv")
-OLD_MATRIX = Path("docs/stage-8/TRANSITION_GATE_7_TO_8_ACCEPTANCE_MATRIX_2026-08-14.csv")
+MATRIX = Path("docs/stage-8/GATE7_TO_8_R2_ACCEPTANCE_MATRIX_2026-08-14.csv")
+OLD_MATRICES = {
+    Path("docs/stage-8/GATE7_TO_8_R1_ACCEPTANCE_MATRIX_2026-08-14.csv"),
+    Path("docs/stage-8/TRANSITION_GATE_7_TO_8_ACCEPTANCE_MATRIX_2026-08-14.csv"),
+}
 SLICE_PLAN = Path("docs/stage-8/stage8-slice-plan.md")
 CONTRACT_SNAPSHOT = Path("docs/stage-8/finam-rest-order-contract-snapshot-2026-08-14.json")
 CONTRACT_EVIDENCE = Path("docs/stage-8/finam-rest-order-contract-evidence-2026-08-14.json")
@@ -33,7 +37,7 @@ ACCEPTANCE_RECORD = Path("docs/stage-7/stage7b-final-acceptance-record.md")
 
 SNAPSHOT_SHA = "bf885782ffda757b2c2b9bdb01822c925ce08df983b7ff9779811f5365886bc6"
 EVIDENCE_SHA = "5a434b0474844296566b3ad6e1a610d6b0fdd99d2ae90ac06de2cb4c9ce5d870"
-MATRIX_SHA = "69ad43361d3b6be99d8d0755d8a449eb65fad0e24b10932cf49ea2f219b3bad7"
+MATRIX_SHA = "04667acfbf5df93e9937545cbb229fda0949aac0264e71f1bbd7ce8d8c994aec"
 ORDER_REQUEST_SHA = "e57789a15d4a33fad08b93580d50c5efa8aba92ea4f547a45a898c6e300b80e6"
 ORDER_ENUM_FIXTURE_SHA = "212ab404fbccc0a7bcb77a43a2ec73f460c7d90629b14daf00020eb9f6041dcf"
 
@@ -43,7 +47,7 @@ ALLOWED_DELTA = {
     str(DESCRIPTOR),
     str(SPEC),
     str(MATRIX),
-    str(OLD_MATRIX),
+    *(str(path) for path in OLD_MATRICES),
     str(SLICE_PLAN),
     str(CONTRACT_SNAPSHOT),
     str(CONTRACT_EVIDENCE),
@@ -68,16 +72,17 @@ def sha(path: Path) -> str:
 
 
 def validate_descriptor(value: dict) -> None:
-    require(value.get("schema_version") == 2, "descriptor schema drift")
+    require(value.get("schema_version") == 3, "descriptor schema drift")
     require(value.get("gate") == "Transition Gate 7->8", "gate identity drift")
     require(
-        value.get("status") == "r1_specification_candidate_pending_independent_review",
-        "Gate R1 self-accepted or status drift",
+        value.get("status") == "r2_specification_candidate_pending_independent_review",
+        "Gate R2 self-accepted or status drift",
     )
     require(value.get("base_rejected_candidate") == BASE_REJECTED, "base candidate drift")
+    require(value.get("reviewed_r1_not_accepted") == R1_REVIEWED_NOT_ACCEPTED, "reviewed R1 binding drift")
     binding = value.get("source_ref_binding", {})
     require(binding.get("required_branch") == BRANCH, "required branch drift")
-    require(binding.get("required_predecessor") == BASE_REJECTED, "R1 predecessor drift")
+    require(binding.get("required_predecessor") == PREDECESSOR, "R2 predecessor drift")
     accepted = value.get("accepted_stage7b", {})
     require(accepted.get("accepted_source_ref") == ACCEPTED_STAGE7B, "accepted Stage 7B ref drift")
     require(accepted.get("closure_record_ref") == STAGE7B_CLOSURE, "closure record ref drift")
@@ -122,11 +127,13 @@ def validate_descriptor(value: dict) -> None:
         "kill_switch_required_place_state": "RunAllowed",
         "kill_switch_unreadable_or_stale_fails_closed": True,
         "generic_all_4xx_classifier_allowed": False,
+        "same_durable_request_reexecution_after_dispatch_allowed": False,
         "second_stage8_serializer_allowed": False,
     }
     require(safety == expected_safety, "safety invariant drift")
-    require(value.get("acceptance_row_count") == 66, "acceptance row count drift")
-    require(value.get("negative_case_count") == 32, "negative case count drift")
+    require(value.get("endpoint_outcome_invariants") == {"cancel_401": "auth_readiness_block_disarm_target_unresolved_reconciliation_hold_fresh_truth_no_same_request_retry"}, "CANCEL 401 invariant drift")
+    require(value.get("acceptance_row_count") == 68, "acceptance row count drift")
+    require(value.get("negative_case_count") == 34, "negative case count drift")
     require(value.get("independent_acceptance_required") is True, "independent acceptance removed")
     surfaces = value.get("currently_open_surfaces", {})
     require(len(surfaces) == 9 and not any(surfaces.values()), "execution surface opened")
@@ -176,7 +183,8 @@ def validate_contract_evidence(value: dict, root: Path) -> None:
 
 
 SPEC_TOKENS = [
-    "Status: Gate 7→8 R1 specification candidate pending independent review.",
+    "Status: Gate 7→8 R2 specification candidate pending independent review.",
+    "f7afc1c612c25de608783850ab2e8c0ae14b0687",
     "4d1106e72bc1437d990a8bd949db4867d41c09b6",
     "Stage8ExecutionCapability",
     "not implement `Clone`, `Copy`, `Serialize` or `Deserialize`",
@@ -191,10 +199,17 @@ SPEC_TOKENS = [
     "malformed, truncated or unknown 2xx",
     "CANCEL classification is separately endpoint-specific:",
     "documented 400 already executed",
+    "documented 401 expired/invalid authentication",
+    "target order remains unresolved",
+    "no blind or same-request CANCEL retry",
     "documented 404 account/order not found",
     "undocumented 409 or 410",
     "A generic `all 4xx -> BrokerRejected` classifier is forbidden.",
     "Only a pre-send/local connect failure with proof that no bytes could leave",
+    "that durable request's execution allowance is consumed permanently",
+    "it never permits a second send-capable capability, arm or execution attempt for the same `StrategyRequestId` or durable request",
+    "NEW `StrategyRequestId`, NEW derived `ClientOrderId`, NEW operator arm and NEW `Stage8ExecutionCapability`",
+    "Same-request retry remains CLOSED",
     "`ProvenNoMatch` is CLOSED and unconstructible throughout Stage 8A.",
     "Empty, missing, stale or merely absent truth always remains `StillUnknown`",
     "Reconciliation never redispatches an old ambiguous request",
@@ -207,8 +222,8 @@ SPEC_TOKENS = [
     "ALOR and FINAM must not both have live execution authority",
     "historical Stage 5 `forbidden_surface_scan.sh` is not rebaselined here",
     "Stage 8-specific closed-surface scanner",
-    "all 66 mandatory rows",
-    "all exact 32 negative",
+    "all 68 mandatory rows",
+    "all exact 34 negative",
     "Stage 8 implementation CLOSED",
     "FINAM POST/DELETE CLOSED",
 ]
@@ -223,15 +238,24 @@ def validate_spec(text: str) -> None:
     require("multiple candidates" in text and "no new live command" in text, "multiple-candidate closure missing")
     require(text.count("429, 500, 503, 504 or default | `ReconciliationRequired`") == 2, "PLACE/CANCEL ambiguous status tables drift")
     require("malformed, truncated or unknown 2xx, or 2xx without usable broker order identity | `ReconciliationRequired`" in text, "PLACE malformed 2xx classification drift")
+    require("documented 401 expired/invalid authentication | disarm and authentication/readiness block; target order remains unresolved; `ReconciliationRequired` hold until fresh read-only broker truth; no blind or same-request CANCEL retry" in text, "CANCEL 401 endpoint policy drift")
+    require("`DefinitelyNotSent` may prove that the attempt caused no broker effect, but it never permits a second send-capable capability" in text, "DefinitelyNotSent same-request closure drift")
+    for forbidden in [
+        "CANCEL 401 -> BrokerRejected",
+        "same cancel request may be retried",
+        "new arm may reuse the same durable request",
+        "resend the same durable request",
+    ]:
+        require(forbidden not in text, f"unsafe R2 interpretation present: {forbidden}")
 
 
 def validate_matrix(path: Path) -> None:
     with path.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     header = ["id", "category", "requirement", "expected", "mandatory", "evidence", "negative_mutation"]
-    require(len(rows) == 66, "acceptance matrix is not 66 rows")
+    require(len(rows) == 68, "acceptance matrix is not 68 rows")
     require(list(rows[0]) == header, "matrix header drift")
-    require([row["id"] for row in rows] == [f"G78R1-{index:03d}" for index in range(1, 67)], "matrix IDs missing reordered or duplicated")
+    require([row["id"] for row in rows] == [f"G78R2-{index:03d}" for index in range(1, 69)], "matrix IDs missing reordered or duplicated")
     require(all(row["mandatory"] == "YES" for row in rows), "optional acceptance row introduced")
     require(all(all(row[field].strip() for field in header) for row in rows), "empty acceptance field")
     required_categories = {"predecessor", "scope", "finam_contract", "capability", "operator", "kill_switch", "ownership", "mapping", "outcome_place", "outcome_cancel", "outcome", "reconciliation", "limits", "micro", "evidence", "governance"}
@@ -262,11 +286,11 @@ def git_output(root: Path, *args: str) -> str:
 
 
 def validate_git_scope(root: Path) -> None:
-    require(git_output(root, "merge-base", "--is-ancestor", BASE_REJECTED, "HEAD") == "", "base rejected candidate is not ancestor")
-    tracked = set(filter(None, git_output(root, "diff", "--name-only", BASE_REJECTED).splitlines()))
+    require(git_output(root, "merge-base", "--is-ancestor", PREDECESSOR, "HEAD") == "", "reviewed R1 is not ancestor")
+    tracked = set(filter(None, git_output(root, "diff", "--name-only", PREDECESSOR).splitlines()))
     untracked = set(filter(None, git_output(root, "ls-files", "--others", "--exclude-standard").splitlines()))
     changed = tracked | untracked
-    require(changed, "empty Gate R1 correction delta")
+    require(changed, "empty Gate R2 correction delta")
     require(not (changed - ALLOWED_DELTA), f"out-of-scope path changed: {sorted(changed - ALLOWED_DELTA)}")
     require(not any(path.startswith(("crates/", ".github/")) or path in {"Cargo.toml", "Cargo.lock"} for path in changed), "production/Cargo/CI delta present")
 
@@ -277,7 +301,7 @@ def check(root: Path, *, check_git_scope: bool = True) -> None:
     require(sha(root / CONTRACT_SNAPSHOT) == SNAPSHOT_SHA, "normalized FINAM snapshot hash drift")
     require(sha(root / CONTRACT_EVIDENCE) == EVIDENCE_SHA, "FINAM evidence hash drift")
     require(sha(root / MATRIX) == MATRIX_SHA, "acceptance matrix hash drift")
-    require(not (root / OLD_MATRIX).exists(), "obsolete 45-row matrix remains authoritative")
+    require(not any((root / path).exists() for path in OLD_MATRICES), "obsolete pre-R2 matrix remains authoritative")
     validate_descriptor(json.loads((root / DESCRIPTOR).read_text()))
     validate_contract_snapshot(json.loads((root / CONTRACT_SNAPSHOT).read_text()))
     validate_contract_evidence(json.loads((root / CONTRACT_EVIDENCE).read_text()), root)
@@ -286,13 +310,13 @@ def check(root: Path, *, check_git_scope: bool = True) -> None:
     validate_slice_plan((root / SLICE_PLAN).read_text())
     status = " ".join((root / "docs/current-status.md").read_text().split())
     roadmap = " ".join((root / "docs/roadmap.md").read_text().split())
-    require("Transition Gate 7→8 R1 specification" in status, "current status not moved to R1")
+    require("Transition Gate 7→8 R2 specification" in status, "current status not moved to R2")
     require("Stage 8 implementation remains CLOSED" in status, "current status opened Stage 8")
-    require("Transition Gate 7→8 R1 specification" in roadmap, "roadmap R1 target missing")
+    require("Transition Gate 7→8 R2 specification" in roadmap, "roadmap R2 target missing")
     require("FINAM POST/DELETE remains closed" in roadmap, "roadmap endpoint boundary missing")
     if check_git_scope:
         validate_git_scope(root)
-    print("transition-gate-7-to-8-check: PASS rows=66 contract=current stage8a=no-send stage8b=closed")
+    print("transition-gate-7-to-8-check: PASS r2 rows=68 contract=current stage8a=no-send stage8b=closed")
 
 
 def main() -> None:

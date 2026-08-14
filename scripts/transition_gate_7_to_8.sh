@@ -17,4 +17,4 @@ cargo test --workspace --all-targets -- --test-threads=1
 cargo test --workspace --doc -- --test-threads=1
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-echo "transition-gate-7-to-8: PASS r1 rows=66 negatives=32 contract=current stage8-implementation=closed"
+echo "transition-gate-7-to-8: PASS r2 rows=68 negatives=34 contract=current stage8-implementation=closed"

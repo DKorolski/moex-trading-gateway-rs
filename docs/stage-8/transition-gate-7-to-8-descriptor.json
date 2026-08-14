@@ -1,11 +1,12 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "gate": "Transition Gate 7->8",
-  "status": "r1_specification_candidate_pending_independent_review",
+  "status": "r2_specification_candidate_pending_independent_review",
   "base_rejected_candidate": "4d1106e72bc1437d990a8bd949db4867d41c09b6",
+  "reviewed_r1_not_accepted": "f7afc1c612c25de608783850ab2e8c0ae14b0687",
   "source_ref_binding": {
     "required_branch": "gate7-to-8-spec",
-    "required_predecessor": "4d1106e72bc1437d990a8bd949db4867d41c09b6"
+    "required_predecessor": "f7afc1c612c25de608783850ab2e8c0ae14b0687"
   },
   "accepted_stage7b": {
     "accepted_source_ref": "a1044e0dbe324c722b637498ca80ffafd9f0cbee",
@@ -20,8 +21,8 @@
   "contracts": {
     "specification": "docs/stage-8/transition-gate-7-to-8-specification.md",
     "acceptance_matrix": {
-      "path": "docs/stage-8/GATE7_TO_8_R1_ACCEPTANCE_MATRIX_2026-08-14.csv",
-      "sha256": "69ad43361d3b6be99d8d0755d8a449eb65fad0e24b10932cf49ea2f219b3bad7"
+      "path": "docs/stage-8/GATE7_TO_8_R2_ACCEPTANCE_MATRIX_2026-08-14.csv",
+      "sha256": "04667acfbf5df93e9937545cbb229fda0949aac0264e71f1bbd7ce8d8c994aec"
     },
     "stage8_slice_plan": "docs/stage-8/stage8-slice-plan.md",
     "finam_contract_snapshot": {
@@ -82,7 +83,11 @@
     "kill_switch_required_place_state": "RunAllowed",
     "kill_switch_unreadable_or_stale_fails_closed": true,
     "generic_all_4xx_classifier_allowed": false,
+    "same_durable_request_reexecution_after_dispatch_allowed": false,
     "second_stage8_serializer_allowed": false
+  },
+  "endpoint_outcome_invariants": {
+    "cancel_401": "auth_readiness_block_disarm_target_unresolved_reconciliation_hold_fresh_truth_no_same_request_retry"
   },
   "currently_open_surfaces": {
     "stage8_implementation": false,
@@ -95,7 +100,7 @@
     "unattended_execution": false,
     "stage8b_real_micro": false
   },
-  "acceptance_row_count": 66,
-  "negative_case_count": 32,
+  "acceptance_row_count": 68,
+  "negative_case_count": 34,
   "independent_acceptance_required": true
 }

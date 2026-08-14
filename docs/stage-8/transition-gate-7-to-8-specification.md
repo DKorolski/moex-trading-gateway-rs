@@ -1,11 +1,12 @@
 # Transition Gate 7→8 — protected FINAM execution specification
 
-Status: Gate 7→8 R1 specification candidate pending independent review.
+Status: Gate 7→8 R2 specification candidate pending independent review.
 
-This R1 corrects rejected base candidate
-`4d1106e72bc1437d990a8bd949db4867d41c09b6`. Its architecture is retained,
-but it has no acceptance authority. R1 remains docs/scripts-only and changes
-no production Rust, Cargo or GitHub workflow surface.
+R1 `f7afc1c612c25de608783850ab2e8c0ae14b0687` closed the findings against
+rejected base `4d1106e72bc1437d990a8bd949db4867d41c09b6`, but was not accepted because
+CANCEL 401 and same-durable-request re-execution after `DefinitelyNotSent`
+were not pinned. R2 closes only those gaps. It remains docs/scripts-only and
+changes no production Rust, Cargo or GitHub workflow surface.
 
 This gate is a pre-implementation contract. It decides how the accepted Stage
 7B durable paper service may later attach to a protected FINAM adapter without
@@ -147,9 +148,9 @@ and fail before transport.
 
 The first boundary distinguishes:
 
-- `DefinitelyNotSent`: local validation or connect failure before bytes may
-  have left the process; capability remains consumed and operator review is
-  required before a new arm;
+- `DefinitelyNotSent`: local validation or connect failure with proof that no
+  bytes left the process; capability remains consumed permanently for that
+  durable request;
 - `BrokerRejected`: authenticated broker rejection with stable classified
   response and no evidence of acceptance;
 - `AcceptedObserved`: accepted broker order identity is durably recorded;
@@ -175,6 +176,7 @@ CANCEL classification is separately endpoint-specific:
 | --- | --- |
 | decoded 200 with exact target correlation | accepted cancellation observation only; it does not prove flatness or no intervening fill |
 | documented 400 already executed | `ReconciliationRequired` |
+| documented 401 expired/invalid authentication | disarm and authentication/readiness block; target order remains unresolved; `ReconciliationRequired` hold until fresh read-only broker truth; no blind or same-request CANCEL retry |
 | documented 404 account/order not found | `ReconciliationRequired` |
 | undocumented 409 or 410 | defensive `ReconciliationRequired` |
 | 429, 500, 503, 504 or default | `ReconciliationRequired` |
@@ -189,6 +191,16 @@ must not bypass reconciliation.
 
 Only a pre-send/local connect failure with proof that no bytes could leave may
 be classified as `DefinitelyNotSent`; timeout alone is never that proof.
+
+Once `DispatchAttemptRecorded` exists and a `Stage8ExecutionCapability` enters
+an operation that may send bytes, that durable request's execution allowance
+is consumed permanently. `DefinitelyNotSent` may prove that the attempt caused
+no broker effect, but it never permits a second send-capable capability, arm or
+execution attempt for the same `StrategyRequestId` or durable request. Any
+later execution requires a durable terminal/no-effect disposition for the old
+request plus a NEW `StrategyRequestId`, NEW derived `ClientOrderId`, NEW
+operator arm and NEW `Stage8ExecutionCapability`. Same-request retry remains
+CLOSED unless a later separately accepted durable retry protocol opens it.
 
 ## 8. Reconciliation authority
 
@@ -339,15 +351,15 @@ post-run broker reconciliation evidence requirements.
 
 ## 16. Gate acceptance rule
 
-This specification is accepted only when all 66 mandatory rows in
-`GATE7_TO_8_R1_ACCEPTANCE_MATRIX_2026-08-14.csv` pass, all exact 32 negative
+This specification is accepted only when all 68 mandatory rows in
+`GATE7_TO_8_R2_ACCEPTANCE_MATRIX_2026-08-14.csv` pass, all exact 34 negative
 mutations are rejected, the current FINAM contract evidence remains hash-bound,
 and an independent reviewer records acceptance against an exact commit and
 immutable archive.
 
 The historical Stage 5 `forbidden_surface_scan.sh` is not rebaselined here and
-cannot be the sole Stage 8 authority. Gate R1 instead proves zero production,
-Cargo and `.github` delta from rejected base `4d1106e`. Stage 8A must introduce
+cannot be the sole Stage 8 authority. Gate R2 instead proves zero production,
+Cargo and `.github` delta from reviewed R1 `f7afc1c`. Stage 8A must introduce
 a new Stage 8-specific closed-surface scanner.
 
 Until then, and even after acceptance until the relevant later gate:

@@ -103,16 +103,19 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   no execution behavior: exact normative X01-X20, the mandatory inherited Stage 7A
   full gate, complete file/Redis/subprocess evidence and the 80/80 proof map
   with 59 aggregate negative cases.
-- The Transition Gate 7→8 R1 specification is the active design-only candidate
+- The Transition Gate 7→8 R2 specification is the active design-only candidate
   on branch `gate7-to-8-spec`. Candidate `4d1106e` was rejected as an
-  acceptance package while its architecture was retained. R1 adds the current
+  acceptance package while its architecture was retained. R1 `f7afc1c` closed
+  the original findings but was not accepted because CANCEL 401 and
+  same-durable-request re-execution after `DefinitelyNotSent` were not pinned.
+  R2 closes both gaps and retains the current
   official FINAM contract snapshot, sole-builder rule, Day-only TIF,
   endpoint-specific outcome tables, closed `ProvenNoMatch`, exact kill-switch
-  semantics, 66 mandatory rows and 32 negative mutations. It freezes the
+  semantics, 68 mandatory rows and 34 negative mutations. It freezes the
   protected capability, operator arm,
   MARKET/LIMIT/CANCEL mapping, ambiguous-outcome reconciliation, max-one micro
   budget, allowlists, limits, kill switch, single-broker ownership and required
-  evidence. Independent R1 acceptance may open only Stage 8A no-send protected
+  evidence. Independent R2 acceptance may open only Stage 8A no-send protected
   adapter/reconciliation implementation. Stage 8 implementation remains CLOSED
   until that acceptance; Stage 8B real execution requires another gate.
 - FINAM runtime POST/DELETE, broker network dispatch, runtime-live, real

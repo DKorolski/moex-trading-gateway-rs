@@ -58,9 +58,14 @@ def replace(root: Path, path: Path, old: str, new: str) -> None:
     target.write_text(text.replace(old, new, 1))
 
 
+def append(root: Path, path: Path, value: str) -> None:
+    target = root / path
+    target.write_text(target.read_text() + value)
+
+
 CASES: list[tuple[str, Callable[[Path], None]]] = [
     (
-        "self-accept-gate-r1",
+        "self-accept-gate-r2",
         lambda root: descriptor(root, lambda value: value.__setitem__("status", "ACCEPTED")),
     ),
     (
@@ -187,13 +192,21 @@ CASES: list[tuple[str, Callable[[Path], None]]] = [
         "reuse-stale-stage5-scanner-as-sole-authority",
         lambda root: replace(root, checker.SPEC, "historical Stage 5 `forbidden_surface_scan.sh` is not rebaselined here", "historical Stage 5 `forbidden_surface_scan.sh` is the sole authority"),
     ),
+    (
+        "cancel-401-broker-rejected-and-same-request-retry",
+        lambda root: append(root, checker.SPEC, "\nCANCEL 401 -> BrokerRejected; same cancel request may be retried.\n"),
+    ),
+    (
+        "definitely-not-sent-rearm-same-durable-request",
+        lambda root: append(root, checker.SPEC, "\nDefinitelyNotSent: new arm may reuse the same durable request and resend the same durable request.\n"),
+    ),
 ]
 
 
 def main() -> None:
     checker.check(ROOT, check_git_scope=False)
-    if len(CASES) != 32:
-        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL inventory={len(CASES)}/32")
+    if len(CASES) != 34:
+        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL inventory={len(CASES)}/34")
     passed = 0
     for name, mutate in CASES:
         with tempfile.TemporaryDirectory(prefix="gate7-to-8-r1-negative-") as raw:
@@ -207,9 +220,9 @@ def main() -> None:
                 print(f"PASS {name}")
             else:
                 raise SystemExit(f"transition-gate-7-to-8-negative: FAIL accepted mutation {name}")
-    if passed != 32:
-        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL cases={passed}/32")
-    print("transition-gate-7-to-8-negative: PASS cases=32/32")
+    if passed != 34:
+        raise SystemExit(f"transition-gate-7-to-8-negative: FAIL cases={passed}/34")
+    print("transition-gate-7-to-8-negative: PASS cases=34/34")
 
 
 if __name__ == "__main__":
