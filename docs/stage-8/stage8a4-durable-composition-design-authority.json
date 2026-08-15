@@ -1,11 +1,12 @@
 {
-  "schema_version": 1,
-  "stage": "8A-4-durable-composition-design-R1",
-  "status": "design_r1_independent_acceptance_pending",
+  "schema_version": 2,
+  "stage": "8A-4-durable-composition-design-R2",
+  "status": "design_r2_independent_acceptance_pending",
   "branch": "stage8a4-durable-composition-design",
   "accepted_reducer_ref": "4caf07c16ddad021add7cffe6e887165e49e1bf0",
   "accepted_reducer_review_sha256": "0f8de37819ccc005bbc609bc21f029f5783ccdd43c0a634b4c09614f507c2a0a",
-  "accepted_design_r2_ref": "cc58c10d22db312cd83640f1c1e7fd86861a4594",
+  "accepted_reconciliation_design_ref": "cc58c10d22db312cd83640f1c1e7fd86861a4594",
+  "rejected_durable_design_r1_ref": "80fe35ef67e335540e0984781f63a99af794bfe1",
   "design_only": true,
   "production_rust_changed": false,
   "authoritative_result": {
@@ -25,6 +26,15 @@
     "DecodeFailure",
     "Stale"
   ],
+  "exact_lookup_disposition": {
+    "NotAttempted": "use_other_admitted_sources",
+    "Succeeded": "exact_observation_participates_in_reducer",
+    "DocumentedNotFound": "conflict_if_exact_contradiction_else_still_unknown_hold",
+    "Unavailable": "still_unknown_hold",
+    "DecodeFailure": "still_unknown_hold",
+    "Stale": "still_unknown_hold"
+  },
+  "attempted_non_success_can_be_downgraded_to_not_attempted": false,
   "documented_not_found_proves_no_match": false,
   "unavailable_proves_no_match": false,
   "proven_no_match_available": false,
@@ -33,16 +43,51 @@
     "unknown_status_orders",
     "orphan_orders"
   ],
+  "transition_identity": {
+    "stable_across_append_and_restart": true,
+    "fields": [
+      "durable_request_binding",
+      "private_authoritative_reconciliation_outcome_binding",
+      "transition_kind"
+    ],
+    "includes_random_nonce": false,
+    "includes_mutable_post_append_generation": false
+  },
+  "pre_append_compare_and_append": {
+    "fields": [
+      "expected_stage6_checkpoint_or_frontier_fingerprint",
+      "expected_recovery_seal_generation",
+      "expected_recovery_seal_fingerprint",
+      "expected_request_state_fingerprint"
+    ],
+    "mismatch_action": "consume_outcome_and_rerun_fresh_reconciliation_without_append",
+    "same_key_same_payload": "idempotent_existing_transition",
+    "same_key_different_payload": "hard_conflict"
+  },
   "apply_time_revalidation": [
-    "durable_request_identity",
-    "stage6_request_state",
-    "stage7_command_identity",
-    "journal_generation",
-    "current_recovery_seal",
-    "operator_arm_generation",
-    "kill_switch_state",
+    "durable_request_identity_and_state",
+    "stage6_checkpoint_or_frontier_fingerprint",
+    "stage7_command_identity_and_payload",
+    "recovery_seal_generation_and_fingerprint",
+    "historical_operator_arm_provenance_and_scope",
+    "kill_switch_for_readiness_and_send_gate",
     "account_safety_summary"
   ],
+  "operator_arm_post_effect": {
+    "expired_operator_arm_blocks_reconciliation_append": false,
+    "replay_recreates_operator_arm": false,
+    "operator_arm_can_authorize_resend": false,
+    "historical_provenance_and_scope_required": true,
+    "identity_substitution_or_conflicting_rearm_allowed": false
+  },
+  "kill_switch_post_effect": {
+    "stop_requested_blocks_new_send": true,
+    "stop_requested_blocks_reconciliation_append": false,
+    "stop_requested_forces_disarm_and_readiness_hold": true,
+    "stale_or_unreadable_blocks_readiness_and_new_send": true,
+    "stale_or_unreadable_converts_truth_to_no_match": false,
+    "kill_switch_can_authorize_reconciliation_send": false
+  },
   "transition_vocabulary": [
     "ExactWorking",
     "ExactTerminalFilled",
@@ -53,21 +98,41 @@
     "ReconciliationStillUnknownHold"
   ],
   "conflict_or_unknown_advances_order_lifecycle": false,
-  "crash_points": [
+  "transition_durable_before_any_derived_publication": true,
+  "post_append_recovery_seal": {
+    "required": true,
+    "must_cover_transition_frontier": true,
+    "reread_validation_required": true,
+    "ack_after_covering_seal_only": true,
+    "readiness_after_covering_seal_only": true,
+    "settlement_after_covering_seal_only": true,
+    "seal_failure_action": "transition_durable_publication_blocked_no_second_append"
+  },
+  "crash_boundaries": [
     "BeforeDurableTransitionAppend",
-    "AfterDurableTransitionAppendBeforeDerivedPublication"
+    "AfterTransitionAppendBeforeCoveringSeal",
+    "AfterCoveringSealBeforeDerivedPublication"
   ],
+  "crash_recovery": {
+    "BeforeDurableTransitionAppend": "reacquire_truth_and_rerun_reducer_no_private_outcome_reuse",
+    "AfterTransitionAppendBeforeCoveringSeal": "verify_existing_transition_no_second_append_construct_commit_validate_covering_seal",
+    "AfterCoveringSealBeforeDerivedPublication": "resume_publication_idempotently_without_append_or_send"
+  },
+  "publication_eligibility": {
+    "ExactWorking": "canonical_nonterminal_disposition_after_transition_and_covering_seal",
+    "ExactTerminalFilled": "canonical_terminal_disposition_after_transition_and_covering_seal",
+    "ExactTerminalRejected": "canonical_terminal_disposition_after_transition_and_covering_seal",
+    "ExactTerminalCancelled": "canonical_terminal_disposition_after_transition_and_covering_seal",
+    "ExactTerminalExpired": "canonical_terminal_disposition_after_transition_and_covering_seal",
+    "ReconciliationConflictHold": "no_terminal_ack_no_xack_no_terminal_settlement_readiness_degraded_disarmed",
+    "ReconciliationStillUnknownHold": "no_terminal_ack_no_xack_no_terminal_settlement_readiness_degraded_pending"
+  },
+  "conflict_hold_terminal_ack_allowed": false,
+  "still_unknown_hold_terminal_ack_allowed": false,
+  "conflict_hold_xack_allowed": false,
+  "still_unknown_hold_xack_allowed": false,
+  "exact_outcome_alone_implies_account_ready": false,
   "replay_is_idempotent": true,
-  "duplicate_transition_key": [
-    "durable_request_binding",
-    "reconciliation_truth_binding",
-    "transition_kind",
-    "journal_generation"
-  ],
-  "ack_after_durable_transition_only": true,
-  "readiness_after_durable_transition_only": true,
-  "conflict_unknown_forces_hold": true,
-  "conflict_unknown_forces_operator_disarm": true,
   "result_grants_retry_rearm_or_resend": false,
   "closed": {
     "durable_composition_implementation": true,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print the Stage 8A-4 durable-composition 60-row proof map."""
+"""Print the Stage 8A-4 durable-composition Design R2 proof map."""
 
 import csv
 
@@ -12,9 +12,9 @@ def main() -> None:
         rows = list(csv.DictReader(stream))
     for row in rows:
         print(f"PASS {row['id']} {row['requirement']}")
-    if len(rows) != 60:
+    if len(rows) != 76:
         raise SystemExit("stage8a4-durable-composition-design-proof-map: FAIL")
-    print("stage8a4-durable-composition-design-proof-map: PASS 60/60")
+    print("stage8a4-durable-composition-design-proof-map: PASS 76/76")
 
 
 if __name__ == "__main__":

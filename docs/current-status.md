@@ -33,7 +33,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 8A-4 Implementation R4 is independently accepted and closed at
   `4caf07c16ddad021add7cffe6e887165e49e1bf0`; its final review SHA-256 is
   `0f8de37819ccc005bbc609bc21f029f5783ccdd43c0a634b4c09614f507c2a0a`.
-- Stage 8A-4 durable-composition Design R1 is the sole active candidate;
+- Stage 8A-4 durable-composition Design R1 at
+  `80fe35ef67e335540e0984781f63a99af794bfe1` was not accepted; its architecture
+  was retained. Durable-composition Design R2 is the sole active candidate;
   independent acceptance is pending. Durable-composition implementation
   remains closed.
 - Stage 8A-5+, Stage 8B, durable apply/journal, ACK/readiness publication,
@@ -1095,10 +1097,15 @@ trade support beyond Design R2. Implementation R4 was independently accepted
 and closed at
 `4caf07c16ddad021add7cffe6e887165e49e1bf0`; its final review SHA-256 is
 `0f8de37819ccc005bbc609bc21f029f5783ccdd43c0a634b4c09614f507c2a0a`.
-The active slice is Stage 8A-4 durable-composition Design R1 only. It freezes a
-private linear authoritative outcome, conservative partial-identity conflict,
-typed exact-lookup acquisition states, complete account-wide safety summary,
-apply-time revalidation and crash/replay semantics. No production durable apply
-or execution surface is open. Durable apply/journal, ACK/readiness publication,
+Durable-composition Design R1 at
+`80fe35ef67e335540e0984781f63a99af794bfe1` was not accepted because it left
+post-append seal, stable replay identity, post-effect controls and hold
+settlement ambiguous. The active slice is Stage 8A-4 durable-composition
+Design R2 only. It retains the private linear authority and conservative
+identity policy, separates stable transition identity from pre-append CAS,
+requires the covering post-append seal, defines all three crash boundaries and
+freezes exact lookup plus ACK/XACK/readiness dispositions. No production
+durable apply or execution surface is open. Durable apply/journal,
+ACK/readiness publication,
 `ProvenNoMatch`, retry/resend, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live, real orders, Stage 8A-5 and Stage 8B remain closed.

@@ -1,0 +1,77 @@
+id,requirement,evidence
+D001,Accepted Stage 8A-4 reducer exact ref pinned,authority
+D002,Accepted reducer review SHA256 pinned,authority
+D003,Accepted reconciliation Design R2 exact ref pinned,authority
+D004,Rejected durable Design R1 exact ref pinned,authority
+D005,Artifact is Design R2 only,authority and changed-path checker
+D006,Production Rust changes are forbidden,authority and changed-path checker
+D007,Public diagnostic is side evidence only,authority and contract
+D008,Public diagnostic cannot authorize durable apply or publication,contract
+D009,Authoritative result is private,authority and contract
+D010,Authoritative result is opaque,authority and contract
+D011,Authoritative result is linear and non-cloneable,authority and contract
+D012,Caller cannot construct authoritative result,authority and contract
+D013,No diagnostic-to-authority conversion exists,contract
+D014,Composition has one crate-private owner,contract
+D015,Private outcome binds durable request and state,contract
+D016,Private outcome binds Stage7 command identity and payload,contract
+D017,Private outcome binds exact acquisition state and accepted truth,contract
+D018,Partial list/exact identity remains conservative Conflict,authority and contract
+D019,Exact lookup state vocabulary is exact,authority and checker
+D020,NotAttempted permits only other admitted sources,authority and contract
+D021,Succeeded participates in reducer,authority and contract
+D022,DocumentedNotFound contradiction is Conflict otherwise StillUnknown,authority and contract
+D023,Unavailable is StillUnknown hold,authority and contract
+D024,DecodeFailure is StillUnknown hold,authority and contract
+D025,Stale is StillUnknown hold,authority and contract
+D026,Attempted non-success cannot downgrade to NotAttempted,authority and contract
+D027,Documented 404 never proves no-match,authority and contract
+D028,ProvenNoMatch remains unavailable,authority
+D029,Account safety retains active orders,authority and contract
+D030,Account safety retains unknown-status orders,authority and contract
+D031,Account safety retains orphan orders,authority and contract
+D032,Exact request outcome cannot clear account hold,contract
+D033,Exact outcome alone cannot imply account readiness,authority and contract
+D034,Transition key fields are exact and immutable,authority and checker
+D035,Transition key excludes random nonce,authority
+D036,Transition key excludes mutable post-append generation,authority
+D037,Transition key is stable across append and restart,authority and contract
+D038,Pre-append CAS fields are separate and exact,authority and checker
+D039,CAS binds Stage6 frontier fingerprint,authority and contract
+D040,CAS binds seal generation and fingerprint,authority and contract
+D041,CAS binds request-state fingerprint,authority and contract
+D042,CAS mismatch consumes outcome and reruns fresh reconciliation,authority and contract
+D043,Same key same payload is idempotent existing transition,authority and contract
+D044,Same key different payload is hard conflict,authority and contract
+D045,Historical operator-arm provenance and scope are required,authority and contract
+D046,Expired arm does not block reconciliation append,authority and contract
+D047,Replay never recreates operator arm or authorizes resend,authority and contract
+D048,StopRequested blocks new send,authority and contract
+D049,StopRequested does not block reconciliation append,authority and contract
+D050,StopRequested forces disarm and readiness hold,authority and contract
+D051,Unreadable kill switch blocks readiness/send but preserves truth,authority and contract
+D052,Transition vocabulary values are exact,authority and checker
+D053,Conflict and StillUnknown do not advance lifecycle,authority and contract
+D054,Conflict hold cannot terminal ACK or XACK,authority and contract
+D055,StillUnknown hold cannot terminal ACK or XACK,authority and contract
+D056,Hold transitions cannot terminal-settle and keep readiness degraded,authority and contract
+D057,Exact disposition remains bound to request endpoint and identity,contract
+D058,Transition must be durable before derived publication,authority
+D059,Post-append covering recovery seal is mandatory,authority and contract
+D060,Covering seal must cover new transition frontier,authority and contract
+D061,Covering seal must be reread and validated,authority and contract
+D062,ACK readiness and settlement require covering seal,authority and contract
+D063,Seal failure blocks publication and second append,authority and contract
+D064,Crash model has exactly three boundaries,authority and checker
+D065,Pre-append crash reacquires truth and never reuses private outcome,authority and contract
+D066,Append-before-seal recovery verifies existing transition,authority and contract
+D067,Append-before-seal recovery performs no second append,authority and contract
+D068,Append-before-seal recovery completes covering seal,authority and contract
+D069,Post-seal recovery resumes publication without append or send,authority and contract
+D070,Result grants no retry rearm resend or transport,authority and contract
+D071,Durable composition implementation remains closed,authority
+D072,Durable apply journal and ACK readiness remain closed,authority
+D073,Redis-live FINAM POST DELETE and broker dispatch remain closed,authority
+D074,Runtime-live and real orders remain closed,authority
+D075,Stage8A5 and Stage8B remain closed,authority
+D076,Acceptance opens implementation specification only,authority and contract

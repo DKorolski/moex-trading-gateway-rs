@@ -31,12 +31,12 @@ target = Path(sys.argv[1])
 results = sorted(path.name for path in target.parent.glob("*.result.txt"))
 target.write_text(json.dumps({
     "schema_version": 1,
-    "stage": "8A-4-durable-composition-design-R1",
+    "stage": "8A-4-durable-composition-design-R2",
     "result": "PASS",
     "gate_count": len(results),
     "gates": results,
-    "acceptance_rows": 60,
-    "negative_cases": 24,
+    "acceptance_rows": 76,
+    "negative_cases": 38,
     "design_only": True,
     "production_rust_changed": False,
     "durable_apply_authorized": False,
@@ -44,4 +44,4 @@ target.write_text(json.dumps({
 }, indent=2, sort_keys=True) + "\n")
 PY
 
-echo "stage8a4-durable-composition-design-r1-gate: PASS rows=60 negatives=24 production=false apply=false execution=false"
+echo "stage8a4-durable-composition-design-r2-gate: PASS rows=76 negatives=38 production=false apply=false execution=false"

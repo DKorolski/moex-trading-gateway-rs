@@ -58,7 +58,7 @@ def verify(path: str) -> dict[str, object]:
             raise ValueError("source marker mismatch")
         if evidence["accepted_stage8a4_reducer_ref"] != BASE:
             raise ValueError("accepted reducer mismatch")
-        if evidence["stage"] != "8A-4-durable-composition-design-R1":
+        if evidence["stage"] != "8A-4-durable-composition-design-R2":
             raise ValueError("stage mismatch")
         if not evidence["all_required_gates_passed"] or evidence["durable_apply_authorized"]:
             raise ValueError("gate/apply mismatch")

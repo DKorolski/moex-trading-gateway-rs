@@ -69,7 +69,7 @@ def main() -> None:
             env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
         )
         gate_output = redacted(gate.stdout)
-        marker = b"stage8a4-durable-composition-design-r1-gate: PASS rows=60 negatives=24 production=false apply=false execution=false"
+        marker = b"stage8a4-durable-composition-design-r2-gate: PASS rows=76 negatives=38 production=false apply=false execution=false"
         if gate.returncode or marker not in gate_output:
             print(gate_output.decode(errors="replace"), end="")
             fail(f"full gate failed: {gate.returncode}")
@@ -96,6 +96,8 @@ def main() -> None:
             "source_ref": head,
             "source_branch": branch,
             "accepted_stage8a4_reducer_ref": checker.BASE,
+            "accepted_reconciliation_design_ref": checker.RECONCILIATION_DESIGN,
+            "rejected_durable_design_r1_ref": checker.REJECTED_R1,
             "members": [
                 {"path": name, "sha256": digest(data)} for name, data, _ in sorted(source_members)
             ],
@@ -104,22 +106,24 @@ def main() -> None:
         commit_marker = (
             f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
             f"archive_name={archive_name}\naccepted_stage8a4_reducer_ref={checker.BASE}\n"
-            "candidate_stage=Stage 8A-4 durable-composition design R1\n"
-            "candidate_status=design_r1_independent_acceptance_pending\n"
+            "candidate_stage=Stage 8A-4 durable-composition design R2\n"
+            "candidate_status=design_r2_independent_acceptance_pending\n"
             "design_only=true\nproduction_rust_changed=false\ndurable_apply_authorized=false\n"
             "finam_execution_authorized=false\nruntime_live_authorized=false\n"
         ).encode()
         artifact_hashes = {name: digest(payload) for name, payload in sorted(artifact_payloads.items())}
         evidence = json.dumps({
             "schema_version": 1,
-            "stage": "8A-4-durable-composition-design-R1",
-            "candidate_status": "design_r1_independent_acceptance_pending",
+            "stage": "8A-4-durable-composition-design-R2",
+            "candidate_status": "design_r2_independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
             "accepted_stage8a4_reducer_ref": checker.BASE,
             "accepted_stage8a4_reducer_review_sha256": checker.REVIEW_SHA256,
-            "acceptance_rows": 60,
-            "negative_cases": 24,
+            "accepted_reconciliation_design_ref": checker.RECONCILIATION_DESIGN,
+            "rejected_durable_design_r1_ref": checker.REJECTED_R1,
+            "acceptance_rows": 76,
+            "negative_cases": 38,
             "design_only": True,
             "production_rust_changed": False,
             "durable_apply_authorized": False,
