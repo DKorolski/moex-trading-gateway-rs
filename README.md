@@ -9,30 +9,19 @@ adapter can be added without rewriting the strategies.
 
 ## Current status
 
-Stages 0–4 are closed: broker-neutral contracts, FINAM read-only and WebSocket
-data, canonical M10 strategy input, reconciliation foundations and broker-truth
-runtime bootstrap are in place.
+Stages 0–7 are accepted and closed. They provide broker-neutral contracts,
+FINAM market data and broker truth, migrated Hybrid strategy semantics, durable
+request identity/restart recovery, and the isolated paper command-consumer
+lifecycle.
 
-Stage 5 is active: the real IMOEXF `HybridIntradayRuntime` semantics are being
-migrated from the frozen ALOR source. The BO/MR/high180/riskgate kernel and the
-integrated broker-neutral runtime wrapper are present. Stage 5C's deterministic
-paper/no-send host is accepted and frozen; Stage 5D is accepted as the
-source-exact persistence, restart and recovery-semantics foundation.
+Stage 8A-0 contract refresh and Stage 8A-1 protected execution capability are
+independently accepted. Stage 8A-1 is closed at `1ff0415`. The only open slice
+is Stage 8A-2: compose the already accepted FINAM PLACE/CANCEL builders behind
+a strict mock/no-send boundary. HTTP outcome handling and reconciliation remain
+later separately reviewed slices.
 
-Stage 5E-B3F is closed at `e14654f`: its private paper callback/settlement
-boundary, 580-case provenance contract and eight compile-fail UI cases are
-immutable accepted evidence. Stage 5F-a is the active entry contract. It pins
-that B3F closure, defines one existing Hybrid callback route for IMOEXF
-canonical-final M10 paper input, and requires BO/MR/high180/riskgate behavior to
-be accepted as one atomic state machine rather than as partial sleeve parity.
-The Stage 5F gate re-runs the accepted B3F checks from the accepted source
-snapshot before checking its own contract; CI and handoff packaging use the
-same fail-closed detached-snapshot runner for the inherited 580-case B3F
-provenance matrix. CI executes that verified runner before any Stage 5F
-repository-owned harness, and freezes the workflow, runner, gate, verifier and
-negative harnesses as one SHA-256 authority set. The handoff verifier rechecks
-that set before manifest creation and from archive bytes. Redis, FINAM,
-transport, dispatch, runtime-live and real execution remain closed.
+FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
+Stage 8B execution authority remain closed.
 
 This repository is not enabled for continuous live trading.
 

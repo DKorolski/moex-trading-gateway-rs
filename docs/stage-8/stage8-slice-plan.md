@@ -1,10 +1,11 @@
 # Stage 8 slice plan
 
-Status: Stage 8A-0 is independently accepted and closed at `c949d7f`; Stage
-8A-1 R3 trusted issuer/one-arm/CANCEL continuation is the only open candidate
-after the R2 review of `1664236` required changes.
+Status: Stage 8A-0 is independently accepted and closed at `c949d7f`. Stage
+8A-1 R3 trusted issuer/one-arm/CANCEL continuation is independently accepted
+and closed at `1ff0415`. Stage 8A-2 builder composition behind a strict
+mock/no-send boundary is the only open slice.
 
-Independent acceptance of Stage 8A-0 opens only Stage 8A-1. Stage 8A-2 through
+Independent acceptance of Stage 8A-1 opens only Stage 8A-2. Stage 8A-3 through
 8A-5, real FINAM POST/DELETE, broker dispatch, runtime-live, real strategy
 orders, native protective orders and unattended execution remain CLOSED.
 

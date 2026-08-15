@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-14.
+Status date: 2026-08-15.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -10,7 +10,28 @@ The stable macro-roadmap is fixed in [roadmap.md](roadmap.md). Review may split
 an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
-## Current transition
+## Current accepted boundary
+
+- Stage 8A-0 is independently accepted and closed at
+  `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.
+- Stage 8A-1 R3 is independently accepted and closed at
+  `1ff04154ba4b7a5ee060a73b853ce89bd7442f44`.
+- The independent acceptance review SHA-256 is
+  `ac11ffae08cc11c6e11f031deec9ca4e6d55b76eae6bcc5887f85b0fb913c74c`.
+- The accepted immutable source handoff is
+  `moex-trading-project-1ff0415.zip`, SHA-256
+  `02a332af7ccf1815a79de0f9a025be9d31094160f7977cd3e34de270497138a0`.
+- Stage 8A-2 is the only open implementation slice. It may compose only the
+  existing FINAM PLACE/CANCEL builders behind a local mock/no-send boundary and
+  must consume a freshly revalidated opaque Stage 8A-1 continuation.
+- Stage 8A-3 classifier, Stage 8A-4 reconciliation, Stage 8A-5 aggregate
+  acceptance, Stage 8B, FINAM POST/DELETE, broker dispatch, runtime-live and
+  real strategy orders remain closed.
+
+The reviewer transition package is documented in
+[stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).
+
+## Detailed transition history
 
 - Stage 6E-R1 is independently accepted at
   `10e357825a701193d964975bb5769bd0745d4986`; Stage 6 is CLOSED.

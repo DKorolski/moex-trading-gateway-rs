@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "stage": "8A-1-R3",
+  "verdict": "ACCEPTED",
+  "stage_status": "CLOSED",
+  "accepted_source_ref": "1ff04154ba4b7a5ee060a73b853ce89bd7442f44",
+  "accepted_source_branch": "stage8a1-protected-capability",
+  "accepted_source_archive": "moex-trading-project-1ff0415.zip",
+  "accepted_source_archive_sha256": "02a332af7ccf1815a79de0f9a025be9d31094160f7977cd3e34de270497138a0",
+  "independent_review_file": "REVIEW_STAGE8A_1_R3_1ff0415_FINAL_ACCEPTANCE_2026-08-15.md",
+  "independent_review_sha256": "ac11ffae08cc11c6e11f031deec9ca4e6d55b76eae6bcc5887f85b0fb913c74c",
+  "accepted_stage8a0_ref": "c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d",
+  "next_authorized_scope": "Stage 8A-2 only",
+  "carry_forward": [
+    "Add semantic mutations for the Stage 8A-2 builder/no-send boundary instead of relying only on full-file hash drift.",
+    "Describe the Stage 8A-1 constructor boundary precisely: owner-mediated construction is externally callable only when the caller already possesses the trusted recovery owner, lifecycle key and accepted config digest."
+  ],
+  "closed": {
+    "stage8a3": true,
+    "stage8a4": true,
+    "stage8a5": true,
+    "stage8b": true,
+    "finam_post_delete": true,
+    "broker_dispatch": true,
+    "redis_live_consumer": true,
+    "runtime_live": true,
+    "real_strategy_orders": true
+  }
+}

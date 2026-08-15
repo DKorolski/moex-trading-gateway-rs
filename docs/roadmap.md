@@ -27,7 +27,21 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Transition Gate 7→8 R3 specification — current authorized planning target. The
+Stage 8A-2 — existing FINAM builder composition behind a strict mock/no-send
+boundary. Stage 8A-1 R3 was independently accepted and closed at
+`1ff04154ba4b7a5ee060a73b853ce89bd7442f44`; that acceptance opens Stage 8A-2
+only. Stage 8A-3 through 8A-5, Stage 8B, FINAM POST/DELETE, broker dispatch,
+runtime-live and real strategy orders remain closed.
+
+The implementation must consume only a freshly Stage 8A-1-revalidated opaque
+continuation and call the existing `broker_finam::build_place_order_request()`
+or `broker_finam::build_cancel_order_request()`. A second serializer, real
+transport, automatic retry, HTTP outcome classification and reconciliation are
+outside this slice.
+
+### Accepted lineage and transition history
+
+Transition Gate 7→8 R3 specification was the authorized planning target. The
 initial `4d1106e` package was rejected without discarding its architecture. R1
 was docs/scripts-only and added a current FINAM REST contract snapshot, the
 existing-builder-only rule, Day-only initial TIF, endpoint-specific status
