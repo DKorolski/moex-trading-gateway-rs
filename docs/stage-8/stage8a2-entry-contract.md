@@ -52,8 +52,10 @@ insufficient.
 5. Opaque request-shape witness and redacted diagnostics.
 6. Semantic negative mutations for serializer duplication, capability bypass,
    path/body extraction and transport introduction.
-7. Debug/release workspace tests, doctests, clippy and formatting.
-8. Immutable handoff with source-tree manifest, gate evidence and archive
+7. A Stage 8A-2-scoped closed-surface scanner; historical Stage 5 topology
+   baselines must not be presented as current Stage 8 authority.
+8. Debug/release workspace tests, doctests, clippy and formatting.
+9. Immutable handoff with source-tree manifest, gate evidence and archive
    safety verification.
 
 ## Exit rule

@@ -68,6 +68,22 @@ The normative entry scope is
 These are Stage 8A-2 review considerations, not blockers against the accepted
 Stage 8A-1 artifact.
 
+## Known tooling boundary
+
+The repository-wide `scripts/forbidden_surface_scan.sh` still embeds a
+historical Stage 5 workspace/topology baseline. On the current accepted tree it
+reports already accepted Stage 6/7 crates as drift and is not a valid Stage 8
+acceptance oracle. The Stage 8A-1 closed-surface checker also embeds the exact
+historical R3 changed-path allowlist and should be reproduced at the accepted
+`1ff0415` source rather than run as a successor-branch scope checker.
+
+The transition archive instead verifies all pinned Stage 8A-1 source and
+contract hashes with `git_scope=false`, requires the successor diff to equal
+the exact docs/tooling transition allowlist, and contains no production Rust
+change. Stage 8A-2 must add its own stage-scoped closed-surface scanner and
+semantic negative harness before implementation acceptance. This limitation is
+recorded explicitly; no PASS is claimed for the stale repository-wide scanner.
+
 ## Surfaces that remain closed
 
 - FINAM POST/DELETE and any non-loopback broker order endpoint;
