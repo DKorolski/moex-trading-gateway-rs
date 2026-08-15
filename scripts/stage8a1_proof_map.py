@@ -17,12 +17,12 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8A-1-R2",
+                "stage": "8A-1-R3",
                 "candidate_status": "independent_acceptance_pending",
-                "base_stage8a1_r1_ref": checker.BASE,
+                "base_stage8a1_r2_ref": checker.BASE,
                 "accepted_stage8a0_ref": checker.STAGE8A0,
                 "row_count": len(rows),
-                "all_mandatory_rows_locally_proven": len(rows) == 68,
+                "all_mandatory_rows_locally_proven": len(rows) == 76,
                 "independent_acceptance_recorded": False,
                 "rows": rows,
             },

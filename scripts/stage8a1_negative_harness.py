@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact 62-case Stage 8A-1 R2 fail-closed mutation harness."""
+"""Exact 70-case Stage 8A-1 R3 fail-closed mutation harness."""
 
 from __future__ import annotations
 
@@ -51,7 +51,7 @@ def mutate(root: Path, index: int, name: str) -> None:
         (root / checker.DESCRIPTOR).write_text(json.dumps(value, indent=2) + "\n")
     elif index == 3:
         value = json.loads((root / checker.DESCRIPTOR).read_text())
-        value["closed_surfaces"]["stage8a2"] = False
+        value["closed"]["stage8a2"] = False
         (root / checker.DESCRIPTOR).write_text(json.dumps(value, indent=2) + "\n")
     elif index == 52:
         replace(root, checker.RUNTIME_RECOVERY, "self.revalidate_cached_committed_seal(commitment_key)?;", "// disk seal reread removed")
@@ -62,7 +62,12 @@ def mutate(root: Path, index: int, name: str) -> None:
     elif index == 56:
         replace(root, checker.MODULE, ".create_new(true)", ".create(true)")
     elif index == 58:
-        replace(root, checker.MODULE, "logical_nonce.as_bytes(),", "command_sha256.as_bytes(),")
+        replace(
+            root,
+            checker.MODULE,
+            'b"stage8a1-one-arm-per-durable-request-v1"',
+            'b"stage8a1-caller-selected-arm-v1"',
+        )
     elif index == 59:
         replace(root, checker.MODULE, "control.max_orders != 1", "false")
     elif index == 60:
@@ -77,10 +82,10 @@ def mutate(root: Path, index: int, name: str) -> None:
 
 def main() -> None:
     cases = inventory_cases()
-    if len(cases) != 62:
-        raise SystemExit(f"stage8a1-r2-negative: FAIL inventory={len(cases)}")
+    if len(cases) != 70:
+        raise SystemExit(f"stage8a1-r3-negative: FAIL inventory={len(cases)}")
     for index, name in enumerate(cases):
-        with tempfile.TemporaryDirectory(prefix="stage8a1-r2-negative-") as temp:
+        with tempfile.TemporaryDirectory(prefix="stage8a1-r3-negative-") as temp:
             candidate = Path(temp)
             copy_contract(candidate)
             mutate(candidate, index, name)
@@ -89,8 +94,8 @@ def main() -> None:
             except (checker.CheckFailure, KeyError, ValueError):
                 print(f"PASS {index + 1:02d} {name}")
                 continue
-            raise SystemExit(f"stage8a1-r2-negative: FAIL accepted mutation {name}")
-    print("stage8a1-r2-negative: PASS cases=62/62")
+            raise SystemExit(f"stage8a1-r3-negative: FAIL accepted mutation {name}")
+    print("stage8a1-r3-negative: PASS cases=70/70")
 
 
 if __name__ == "__main__":

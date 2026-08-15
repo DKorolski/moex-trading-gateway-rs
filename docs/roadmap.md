@@ -120,9 +120,9 @@ contract parity remains `MATCH`.
 The reviewed sequence remains:
 
 1. 8A-0 — contract/provenance freeze (accepted and closed).
-2. 8A-1 R2 — protected capability with current disk-seal, dispatch-ready
-   durable authority, production proof issuers and continuation revalidation
-   (current candidate; R1 required changes).
+2. 8A-1 R3 — protected capability with current disk-seal, dispatch-ready
+   durable authority, trusted issuer root, request-keyed one-arm protection and
+   symmetric PLACE/CANCEL continuation revalidation (current candidate).
 3. 8A-2 through 8A-5 — separately reviewed builder invocation, outcome and
    reconciliation slices, still bounded by their own gates.
 4. 8B — separately accepted bounded execution authority.
@@ -130,10 +130,10 @@ The reviewed sequence remains:
 No step in 8A-0 opens FINAM POST/DELETE, broker dispatch, runtime-live or real
 strategy orders.
 
-Stage 8A-0 R1 is independently accepted and closed at `c949d7f`. Stage 8A-1 R2
+Stage 8A-0 R1 is independently accepted and closed at `c949d7f`. Stage 8A-1 R3
 is the active protected-capability/preflight candidate. It may add only opaque
 linear no-send authority derived from the exact dispatch-ready Stage 7B/Stage 6
 request and current disk seal, production-issued command arm/frozen policy and
 scoped `RunAllowed`/ownership/ambiguity/truth/schedule/max-one-budget proofs,
-plus a no-extraction current-state continuation barrier. Stage
+plus a no-extraction PLACE/CANCEL current-state continuation barrier. Stage
 8A-2 and every execution surface remain closed pending independent acceptance.

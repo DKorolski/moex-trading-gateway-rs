@@ -11,6 +11,7 @@ async-trait.workspace = true
 broker-core = { path = "../broker-core" }
 broker-finam = { path = "../broker-finam" }
 chrono.workspace = true
+libc.workspace = true
 redis.workspace = true
 reqwest.workspace = true
 runtime-durable-service = { path = "../runtime-durable-service" }

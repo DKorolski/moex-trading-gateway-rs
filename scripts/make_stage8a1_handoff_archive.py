@@ -75,7 +75,7 @@ def main() -> None:
         if gate.returncode:
             print(gate_output.decode(errors="replace"), end="")
             fail(f"full gate failed: {gate.returncode}")
-        marker = b"stage8a1-r2-gate: PASS rows=68 negatives=62 production-issuers=true dispatch-ready=true no-send=true next=8A-2-pending"
+        marker = b"stage8a1-r3-gate: PASS rows=76 negatives=70 trusted-root=true one-arm=true cancel-revalidation=true no-send=true next=8A-2-pending"
         if marker not in gate_output:
             fail("full gate completion marker missing")
         artifact_payloads: dict[str, bytes] = {}
@@ -107,7 +107,7 @@ def main() -> None:
                 "schema_version": 1,
                 "source_ref": head,
                 "source_branch": branch,
-                "stage8a1_r1_base_ref": checker.BASE,
+                "stage8a1_r2_base_ref": checker.BASE,
                 "accepted_stage8a0_ref": checker.STAGE8A0,
                 "members": [
                     {"path": name, "sha256": hashlib.sha256(data).hexdigest()}
@@ -120,9 +120,9 @@ def main() -> None:
         archive_name = f"moex-trading-project-{short}.zip"
         commit_marker = (
             f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
-            f"archive_name={archive_name}\nstage8a1_r1_base_ref={checker.BASE}\n"
+            f"archive_name={archive_name}\nstage8a1_r2_base_ref={checker.BASE}\n"
             f"accepted_stage8a0_ref={checker.STAGE8A0}\n"
-            "candidate_stage=Stage 8A-1 R2\ncandidate_status=independent_acceptance_pending\n"
+            "candidate_stage=Stage 8A-1 R3\ncandidate_status=independent_acceptance_pending\n"
             "next_after_acceptance=Stage 8A-2 only\nfinam_post_delete_authorized=false\n"
             "broker_dispatch_authorized=false\nruntime_live_authorized=false\n"
             "real_orders_authorized=false\n"
@@ -144,18 +144,21 @@ def main() -> None:
         evidence = json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8A-1-R2",
+                "stage": "8A-1-R3",
                 "candidate_status": "independent_acceptance_pending",
                 "source_ref": head,
                 "source_branch": branch,
-                "stage8a1_r1_base_ref": checker.BASE,
-                "stage8a1_r1_review_sha256": checker.R1_REVIEW_SHA,
+                "stage8a1_r2_base_ref": checker.BASE,
+                "stage8a1_r2_review_sha256": checker.BASE_REVIEW_SHA,
                 "accepted_stage8a0_ref": checker.STAGE8A0,
                 "accepted_stage8a0_review_sha256": checker.STAGE8A0_REVIEW_SHA,
-                "acceptance_rows": 68,
-                "negative_cases": 62,
+                "acceptance_rows": 76,
+                "negative_cases": 70,
                 "opaque_linear_capability": True,
-                "operational_authority_continuity": True,
+                "trusted_issuer_root_authority": True,
+                "externally_anchored_accepted_config": True,
+                "one_arm_per_durable_request": True,
+                "cancel_post_mint_revalidation": True,
                 "production_authority_issuers": True,
                 "dispatch_ready_durable_authority": True,
                 "post_mint_revalidation": True,

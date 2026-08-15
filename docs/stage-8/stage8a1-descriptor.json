@@ -1,37 +1,25 @@
 {
   "schema_version": 1,
-  "stage": "8A-1-R2",
-  "status": "operational_authority_continuity_candidate",
-  "base_candidate": "ef6b9ac70aa8a3cdd6bfaf93f1c1339b030eb75d",
-  "base_review_sha256": "6c98f034f2456a3004ca4fd162ff632372dc22d0199240cd990784025d89a9a6",
+  "stage": "8A-1-R3",
+  "status": "trusted_issuer_one_arm_cancel_revalidation_candidate",
+  "base_candidate": "166423668b2dea3e1a9ea505f1d452a367c62b64",
+  "base_review_sha256": "c8b20954e89031e292596c9d4a0b245960109889faf2b5ee9510d79ef62ae77e",
   "accepted_stage8a0_ref": "c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d",
-  "accepted_stage8a0_review_sha256": "574876211e0c896cc9d61f9f2d078059e54fd471a9b97e94a3c9c8c81930879b",
-  "acceptance_rows": 68,
-  "negative_cases": 62,
-  "requirements": {
-    "current_on_disk_stage7b_seal_revalidated": true,
-    "dispatch_ready_stage6_authority_required": true,
-    "forward_no_second_restart_authority_witness": true,
-    "production_non_durable_authority_issuers": true,
-    "production_operator_nonce_registry": true,
-    "frozen_policy_from_accepted_config_source": true,
-    "persistent_kill_switch_and_budget_issuer": true,
-    "scoped_ownership_ambiguity_truth_schedule_issuers": true,
-    "post_mint_current_state_revalidation_barrier": true,
-    "exact_sha_pinned_closed_surface": true
+  "acceptance_rows": 76,
+  "negative_cases": 70,
+  "required": {
+    "trusted_issuer_root_authority": true,
+    "externally_anchored_accepted_config": true,
+    "trusted_persistent_current_control": true,
+    "trusted_current_broker_readiness_sources": true,
+    "one_arm_per_durable_request": true,
+    "caller_cannot_choose_arm_uniqueness_token": true,
+    "place_current_state_revalidation": true,
+    "cancel_current_state_revalidation": true,
+    "file_root_identity_pinned": true,
+    "stage7b_current_disk_seal_and_dispatch_ready_authority": true
   },
-  "capability": {
-    "type": "Stage8ExecutionCapability",
-    "opaque_private_fields": true,
-    "clone": false,
-    "copy": false,
-    "debug": false,
-    "serialize": false,
-    "deserialize": false,
-    "request_extraction_available": false,
-    "transport_consumer_available": false
-  },
-  "closed_surfaces": {
+  "closed": {
     "stage8a2": true,
     "builder_composition": true,
     "request_extraction": true,
@@ -40,11 +28,8 @@
     "reconciliation": true,
     "finam_post_delete": true,
     "redis_live_consumer": true,
-    "broker_dispatch": true,
     "runtime_live": true,
-    "real_orders": true,
-    "stage8b": true
+    "real_orders": true
   },
-  "next_after_acceptance": "Stage 8A-2 only",
-  "next_after_independent_acceptance": "Stage 8A-2 only"
+  "next_after_acceptance": "Stage 8A-2 only"
 }

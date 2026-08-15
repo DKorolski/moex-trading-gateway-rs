@@ -55,4 +55,4 @@ rustc --version >"$ARTIFACT_DIR/toolchain.txt"
 cargo --version >>"$ARTIFACT_DIR/toolchain.txt"
 python3 --version >>"$ARTIFACT_DIR/toolchain.txt"
 
-printf 'stage8a1-r2-gate: PASS rows=68 negatives=62 production-issuers=true dispatch-ready=true no-send=true next=8A-2-pending artifact_dir=%s\n' "$ARTIFACT_DIR"
+printf 'stage8a1-r3-gate: PASS rows=76 negatives=70 trusted-root=true one-arm=true cancel-revalidation=true no-send=true next=8A-2-pending artifact_dir=%s\n' "$ARTIFACT_DIR"

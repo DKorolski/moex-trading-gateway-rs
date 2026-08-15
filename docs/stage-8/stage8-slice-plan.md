@@ -1,8 +1,8 @@
 # Stage 8 slice plan
 
 Status: Stage 8A-0 is independently accepted and closed at `c949d7f`; Stage
-8A-1 R2 operational-authority continuity is the only open candidate after the
-R1 review of `ef6b9ac` required changes.
+8A-1 R3 trusted issuer/one-arm/CANCEL continuation is the only open candidate
+after the R2 review of `1664236` required changes.
 
 Independent acceptance of Stage 8A-0 opens only Stage 8A-1. Stage 8A-2 through
 8A-5, real FINAM POST/DELETE, broker dispatch, runtime-live, real strategy
@@ -23,10 +23,11 @@ may skip or open a later slice directly.
    capability, exact Stage 7B/Stage 6 durable authority, opaque command-bound
    operator arm, frozen allowlist/limit policy, trusted time and scoped
    kill-switch/ownership/ambiguity/truth/schedule/budget authorities. No
-   serializer or transport. R2 additionally requires current disk-seal
+   serializer or transport. R3 additionally requires current disk-seal
    revalidation, dispatch-ready durable state, production proof issuers,
-   persistent nonce replay protection and post-mint revalidation. It requires
-   68 acceptance rows and 62 exact negative cases.
+   request-keyed one-arm protection, trusted file identities and symmetric
+   PLACE/CANCEL revalidation. It requires 76 acceptance rows and 70 exact
+   negative cases.
 3. **Stage 8A-2 — builder composition.** Compose only
    `broker_finam::build_place_order_request()` and
    `broker_finam::build_cancel_order_request()` behind a mock/no-send seam. A

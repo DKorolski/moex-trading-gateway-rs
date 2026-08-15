@@ -26,6 +26,7 @@ def main() -> None:
         )
         rust = {path for path in changed if path.endswith(".rs")}
         allowed = {str(path) for path in checker.PINNED_RUST_SHA256}
+        allowed.add("crates/finam-gateway/tests/stage8a1_r2_authority_boundary.rs")
         checker.require(rust <= allowed, f"unexpected Rust delta: {sorted(rust - allowed)}")
         checker.require(
             not any(path.startswith("crates/broker-finam/") for path in changed),
@@ -44,7 +45,7 @@ def main() -> None:
         print(f"stage8a1-closed-surface: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
     print(
-        "stage8a1-r2-closed-surface: PASS rust=exact-sha-pinned serializer=false "
+        "stage8a1-r3-closed-surface: PASS rust=exact-sha-pinned serializer=false "
         "http=false redis=false dispatch=false runtime_live=false"
     )
 

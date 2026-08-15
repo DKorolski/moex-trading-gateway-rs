@@ -1024,11 +1024,13 @@ Stage 8A-0 R1 was independently accepted and closed at `c949d7f` on
 2026-08-15. Stage 8A-1 R0 at `29b8686` was not accepted because its opaque
 capability could still be minted from caller-constructible proof data. The
 Stage 8A-1 R1 at `ef6b9ac` was not accepted because its seal bridge was cached,
-accepted-only and its non-durable proofs lacked production issuers. The current
-R2 candidate requires an exact dispatch-ready Stage 7B/Stage 6 chain covered by
-a freshly reread on-disk seal, file-backed accepted config/control sources,
-durable one-shot nonce registration, production issuers for every opaque proof
-and a post-mint current-state revalidation barrier. The 68-row matrix and exact
-62-case negative harness are mandatory. Stage 8A-2, request-builder
+accepted-only and its non-durable proofs lacked production issuers. R2 at
+`1664236` closed dispatch-ready/current-seal authority but was not accepted
+because its caller-selected root, free-form arm nonce and PLACE-only
+continuation remained forgeable or asymmetric. The current R3 candidate adds
+an owner-mediated identity-pinned authority root with external config anchor,
+opaque trusted current sources, one arm per durable request and symmetric
+PLACE/CANCEL revalidation. The 76-row matrix and exact 70-case negative harness
+are mandatory. Stage 8A-2, request-builder
 composition, HTTP, Redis live consumer, broker dispatch, runtime-live and real
-strategy orders remain closed pending independent R2 acceptance.
+strategy orders remain closed pending independent R3 acceptance.

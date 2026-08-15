@@ -503,6 +503,7 @@ dependencies = [
  "broker-core",
  "broker-finam",
  "chrono",
+ "libc",
  "redis",
  "reqwest",
  "runtime-durable-service",

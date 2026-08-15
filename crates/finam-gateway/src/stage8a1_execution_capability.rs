@@ -56,6 +56,21 @@
 //! use finam_gateway::Stage8a1FrozenExecutionPolicy;
 //! let _ = Stage8a1FrozenExecutionPolicy {};
 //! ```
+//!
+//! ```compile_fail
+//! use finam_gateway::Stage8a1OperationalAuthorityIssuer;
+//! let _ = Stage8a1OperationalAuthorityIssuer::open("/tmp/attacker-root");
+//! ```
+//!
+//! ```compile_fail
+//! use finam_gateway::Stage8a1TrustedCurrentSources;
+//! let _ = Stage8a1TrustedCurrentSources {};
+//! ```
+//!
+//! ```compile_fail
+//! use finam_gateway::Stage8a1AuthorityRoot;
+//! let _ = Stage8a1AuthorityRoot {};
+//! ```
 
 use broker_core::{
     AccountId, BrokerKind, BrokerMarketSessionState, BrokerReadinessSnapshot, BrokerTruthSnapshot,
@@ -69,8 +84,13 @@ use runtime_durable_service::{
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::ffi::CString;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use strategy_runtime_core::{
     Stage5gLifecycleCommitmentKey, Stage6DurableActionKind, Stage6DurableCommandSnapshotV1,
@@ -145,20 +165,123 @@ pub struct Stage8a1CurrentControlStateV1 {
     pub valid_until: DateTime<Utc>,
 }
 
-/// Typed current sources accepted from the already reviewed read-only and
-/// composite-readiness boundaries. It deliberately carries no authority.
-pub struct Stage8a1CurrentOperationalSources<'a> {
-    pub composite_readiness: &'a Stage7bCompositeReadinessSnapshot,
-    pub broker_truth: &'a BrokerTruthSnapshot,
-    pub broker_readiness: &'a BrokerReadinessSnapshot,
+/// Opaque current-source authority issued only inside the trusted gateway
+/// composition. Public callers cannot feed caller-created snapshots into the
+/// capability minting boundary.
+pub struct Stage8a1TrustedCurrentSources {
+    composite_readiness: Stage7bCompositeReadinessSnapshot,
+    broker_truth: BrokerTruthSnapshot,
+    broker_readiness: BrokerReadinessSnapshot,
+    authority_root_sha256: String,
+    evidence_sha256: String,
 }
 
-/// File-backed no-send authority issuer. Construction authenticates the
-/// accepted config; current control and broker/runtime sources are reread or
-/// revalidated at every operation.
-pub struct Stage8a1OperationalAuthorityIssuer {
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Stage8a1FileIdentity {
+    device: u64,
+    inode: u64,
+    mode: u32,
+}
+
+/// Opaque composition authority. Its only production constructor is mediated
+/// by the current Stage7B recovery owner and an externally accepted config
+/// digest. It pins every file-backed authority source by kernel identity.
+pub struct Stage8a1AuthorityRoot {
     root: PathBuf,
+    root_identity: Stage8a1FileIdentity,
+    config_identity: Stage8a1FileIdentity,
+    sidecar_identity: Stage8a1FileIdentity,
+    control_identity: Stage8a1FileIdentity,
+    arm_registry_identity: Stage8a1FileIdentity,
     accepted_config_sha256: String,
+    operational_identity_sha256: String,
+    authority_root_sha256: String,
+}
+
+/// File-backed no-send authority issuer. The raw path opener is deliberately
+/// absent: construction requires a current Stage7B owner and an externally
+/// anchored accepted-config digest.
+pub struct Stage8a1OperationalAuthorityIssuer {
+    authority_root: Stage8a1AuthorityRoot,
+    last_control_revision: u64,
+    current_control_sha256: String,
+}
+
+impl Stage8a1AuthorityRoot {
+    fn calculate_commitment(&self) -> String {
+        digest_parts(
+            b"stage8a1-trusted-authority-root-v1",
+            &[
+                self.root.as_os_str().as_encoded_bytes(),
+                &file_identity_bytes(self.root_identity),
+                &file_identity_bytes(self.config_identity),
+                &file_identity_bytes(self.sidecar_identity),
+                &file_identity_bytes(self.control_identity),
+                &file_identity_bytes(self.arm_registry_identity),
+                self.accepted_config_sha256.as_bytes(),
+                self.operational_identity_sha256.as_bytes(),
+            ],
+        )
+    }
+
+    fn validate(&self) -> Result<(), Stage8ExecutionPreflightError> {
+        if directory_identity(&self.root)? != self.root_identity
+            || regular_file_identity(&self.root.join(ACCEPTED_CONFIG_FILE))? != self.config_identity
+            || regular_file_identity(&self.root.join(ACCEPTED_CONFIG_SHA256_FILE))?
+                != self.sidecar_identity
+            || regular_file_identity(&self.root.join(CURRENT_CONTROL_FILE))?
+                != self.control_identity
+            || directory_identity(&self.root.join(ARM_NONCE_DIR))? != self.arm_registry_identity
+        {
+            return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+        }
+        let (config, observed_sha256) = self.load_accepted_config()?;
+        if observed_sha256 != self.accepted_config_sha256
+            || config.operational_identity_sha256 != self.operational_identity_sha256
+        {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        let calculated = self.calculate_commitment();
+        if calculated != self.authority_root_sha256 {
+            return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+        }
+        Ok(())
+    }
+
+    fn load_accepted_config(
+        &self,
+    ) -> Result<(Stage8a1AcceptedExecutionConfigV1, String), Stage8ExecutionPreflightError> {
+        load_accepted_config_pinned(&self.root, self.config_identity, self.sidecar_identity)
+    }
+
+    fn load_current_control(
+        &self,
+    ) -> Result<Stage8a1CurrentControlStateV1, Stage8ExecutionPreflightError> {
+        load_current_control_pinned(&self.root, self.control_identity)
+    }
+}
+
+impl Stage8a1TrustedCurrentSources {
+    fn validate(
+        &self,
+        authority_root: &Stage8a1AuthorityRoot,
+    ) -> Result<(), Stage8ExecutionPreflightError> {
+        let calculated = digest_parts(
+            b"stage8a1-trusted-current-sources-v1",
+            &[
+                authority_root.authority_root_sha256.as_bytes(),
+                &canonical_json(&self.composite_readiness),
+                &canonical_json(&self.broker_truth),
+                &canonical_json(&self.broker_readiness),
+            ],
+        );
+        if self.authority_root_sha256 != authority_root.authority_root_sha256
+            || self.evidence_sha256 != calculated
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentSourcesInvalid);
+        }
+        Ok(())
+    }
 }
 
 /// Linear continuation proof. It intentionally exposes neither the approved
@@ -492,6 +615,10 @@ pub enum Stage8ExecutionPreflightError {
     CancelMappingRequired,
     #[error("Stage 8 accepted configuration source is absent, corrupt or mismatched")]
     AcceptedConfigInvalid,
+    #[error("Stage 8 trusted composition root is absent, replaced or mismatched")]
+    AuthorityRootInvalid,
+    #[error("Stage 8 current readiness/truth source authority is absent or mismatched")]
+    CurrentSourcesInvalid,
     #[error("Stage 8 persistent current-control source is absent, stale or mismatched")]
     CurrentControlInvalid,
     #[error("Stage 8 logical operator-arm nonce was already registered")]
@@ -517,17 +644,202 @@ struct Stage8a1IssuedAuthorities {
 }
 
 impl Stage8a1OperationalAuthorityIssuer {
-    pub fn open(root: impl AsRef<Path>) -> Result<Self, Stage8ExecutionPreflightError> {
+    #[cfg(test)]
+    fn open_for_test(
+        root: &Path,
+        durable: &Stage8a1DurableRequestAuthority,
+    ) -> Result<Self, Stage8ExecutionPreflightError> {
+        let (_, accepted_config_sha256) = load_accepted_config(root)?;
+        Self::from_trusted_composition(root, &accepted_config_sha256, durable)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_stage7b_owner(
+        owner: &mut Stage7bRecoveryReadyOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+        root: impl AsRef<Path>,
+        accepted_config_sha256: &str,
+    ) -> Result<Self, Stage8ExecutionPreflightError> {
+        if !valid_sha256(accepted_config_sha256) {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+            owner,
+            commitment_key,
+            identity,
+            command,
+        )?;
+        Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, &durable)
+    }
+
+    fn from_trusted_composition(
+        root: &Path,
+        accepted_config_sha256: &str,
+        durable: &Stage8a1DurableRequestAuthority,
+    ) -> Result<Self, Stage8ExecutionPreflightError> {
+        directory_identity(root)?;
         let root = root
-            .as_ref()
             .canonicalize()
-            .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
-        let (_, accepted_config_sha256) = load_accepted_config(&root)?;
-        load_current_control(&root)?;
-        Ok(Self {
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let root_identity = directory_identity(&root)?;
+        let config_path = root.join(ACCEPTED_CONFIG_FILE);
+        let sidecar_path = root.join(ACCEPTED_CONFIG_SHA256_FILE);
+        let control_path = root.join(CURRENT_CONTROL_FILE);
+        let arm_registry_path = root.join(ARM_NONCE_DIR);
+        if !arm_registry_path.exists() {
+            fs::create_dir(&arm_registry_path)
+                .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+            sync_directory(&root)?;
+        }
+        let config_identity = regular_file_identity(&config_path)?;
+        let sidecar_identity = regular_file_identity(&sidecar_path)?;
+        let control_identity = regular_file_identity(&control_path)?;
+        let arm_registry_identity = directory_identity(&arm_registry_path)?;
+        let (config, observed_config_sha256) =
+            load_accepted_config_pinned(&root, config_identity, sidecar_identity)?;
+        if observed_config_sha256 != accepted_config_sha256 {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        validate_config_binding(&config, durable)?;
+        let control = load_current_control_pinned(&root, control_identity)?;
+        if control.operational_identity_sha256 != durable.operational_identity_sha256
+            || control.runtime_config_fingerprint_sha256
+                != durable.runtime_config_fingerprint_sha256
+            || control.durable_revision == 0
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+        }
+        let authority_root_sha256 = digest_parts(
+            b"stage8a1-trusted-authority-root-v1",
+            &[
+                root.as_os_str().as_encoded_bytes(),
+                &file_identity_bytes(root_identity),
+                &file_identity_bytes(config_identity),
+                &file_identity_bytes(sidecar_identity),
+                &file_identity_bytes(control_identity),
+                &file_identity_bytes(arm_registry_identity),
+                accepted_config_sha256.as_bytes(),
+                durable.operational_identity_sha256.as_bytes(),
+            ],
+        );
+        let authority_root = Stage8a1AuthorityRoot {
             root,
-            accepted_config_sha256,
+            root_identity,
+            config_identity,
+            sidecar_identity,
+            control_identity,
+            arm_registry_identity,
+            accepted_config_sha256: accepted_config_sha256.to_string(),
+            operational_identity_sha256: durable.operational_identity_sha256.clone(),
+            authority_root_sha256,
+        };
+        authority_root.validate()?;
+        Ok(Self {
+            authority_root,
+            last_control_revision: control.durable_revision,
+            current_control_sha256: digest_parts(
+                b"stage8a1-current-control-content-v1",
+                &[&canonical_json(&control)],
+            ),
         })
+    }
+
+    /// Captures current read-only sources behind the already trusted gateway
+    /// composition. It is intentionally crate-private: downstream callers
+    /// cannot turn arbitrary public snapshot structs into minting authority.
+    #[allow(
+        dead_code,
+        reason = "consumed by the still-closed Stage 8A-2 composition"
+    )]
+    pub(crate) fn issue_current_sources(
+        &self,
+        composite_readiness: &Stage7bCompositeReadinessSnapshot,
+        broker_truth: &BrokerTruthSnapshot,
+        broker_readiness: &BrokerReadinessSnapshot,
+    ) -> Result<Stage8a1TrustedCurrentSources, Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        let evidence_sha256 = digest_parts(
+            b"stage8a1-trusted-current-sources-v1",
+            &[
+                self.authority_root.authority_root_sha256.as_bytes(),
+                &canonical_json(composite_readiness),
+                &canonical_json(broker_truth),
+                &canonical_json(broker_readiness),
+            ],
+        );
+        Ok(Stage8a1TrustedCurrentSources {
+            composite_readiness: composite_readiness.clone(),
+            broker_truth: broker_truth.clone(),
+            broker_readiness: broker_readiness.clone(),
+            authority_root_sha256: self.authority_root.authority_root_sha256.clone(),
+            evidence_sha256,
+        })
+    }
+
+    fn validate_control_revision(&mut self) -> Result<(), Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        let control = self.authority_root.load_current_control()?;
+        let observed_sha256 = digest_parts(
+            b"stage8a1-current-control-content-v1",
+            &[&canonical_json(&control)],
+        );
+        if control.durable_revision != self.last_control_revision
+            || observed_sha256 != self.current_control_sha256
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+        }
+        self.last_control_revision = control.durable_revision;
+        Ok(())
+    }
+
+    /// Trusted composition update for the persistent control source. The
+    /// replacement is same-directory atomic, fsync-backed and monotonic; the
+    /// newly installed kernel identity becomes the only accepted identity.
+    #[allow(
+        dead_code,
+        reason = "consumed by the still-closed Stage 8A-2 composition"
+    )]
+    pub(crate) fn persist_current_control(
+        &mut self,
+        control: &Stage8a1CurrentControlStateV1,
+    ) -> Result<(), Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        if control.schema_version != 1
+            || control.operational_identity_sha256
+                != self.authority_root.operational_identity_sha256
+            || control.durable_revision <= self.last_control_revision
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+        }
+        let temporary = self.authority_root.root.join(format!(
+            ".{CURRENT_CONTROL_FILE}.{}.tmp",
+            uuid::Uuid::new_v4()
+        ));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)
+            .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+        file.write_all(&canonical_json(control))
+            .and_then(|_| file.sync_all())
+            .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+        fs::rename(
+            &temporary,
+            self.authority_root.root.join(CURRENT_CONTROL_FILE),
+        )
+        .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+        sync_directory(&self.authority_root.root)?;
+        self.authority_root.control_identity =
+            regular_file_identity(&self.authority_root.root.join(CURRENT_CONTROL_FILE))?;
+        self.authority_root.authority_root_sha256 = self.authority_root.calculate_commitment();
+        self.last_control_revision = control.durable_revision;
+        self.current_control_sha256 = digest_parts(
+            b"stage8a1-current-control-content-v1",
+            &[&canonical_json(control)],
+        );
+        Ok(())
     }
 
     pub fn authorize_place(
@@ -535,27 +847,22 @@ impl Stage8a1OperationalAuthorityIssuer {
         durable_request: Stage8a1DurableRequestAuthority,
         order: &PlaceOrder,
         broker_preflight_context: &OrderPreflightContext,
-        sources: Stage8a1CurrentOperationalSources<'_>,
-        logical_arm_nonce: &str,
+        sources: &Stage8a1TrustedCurrentSources,
     ) -> Result<Stage8ExecutionCapability, Stage8ExecutionPreflightError> {
+        self.validate_control_revision()?;
         durable_request.validate()?;
         validate_place_durable(&durable_request, order)?;
-        let (config, config_file_sha256) = load_accepted_config(&self.root)?;
-        if config_file_sha256 != self.accepted_config_sha256 {
+        self.authority_root.validate()?;
+        let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
+        if config_file_sha256 != self.authority_root.accepted_config_sha256 {
             return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
         }
         validate_config_binding(&config, &durable_request)?;
         let policy = frozen_policy_from_config(&config, &durable_request);
         validate_policy(&policy, &durable_request)?;
         let command_sha256 = place_command_sha256(order, broker_preflight_context, &policy);
-        let authorities = self.issue_authorities(
-            &config,
-            &durable_request,
-            &policy,
-            &command_sha256,
-            sources,
-            logical_arm_nonce,
-        )?;
+        let authorities =
+            self.issue_authorities(&config, &durable_request, &policy, &command_sha256, sources)?;
         authorize_stage8_place(Stage8PlacePreflightInput {
             order,
             broker_preflight_context,
@@ -578,27 +885,22 @@ impl Stage8a1OperationalAuthorityIssuer {
         durable_request: Stage8a1DurableRequestAuthority,
         cancel: &CancelOrder,
         existing_order: &OrderPathRecord,
-        sources: Stage8a1CurrentOperationalSources<'_>,
-        logical_arm_nonce: &str,
+        sources: &Stage8a1TrustedCurrentSources,
     ) -> Result<Stage8CancelPreflightDecision, Stage8ExecutionPreflightError> {
+        self.validate_control_revision()?;
         durable_request.validate()?;
         validate_cancel_durable(&durable_request, cancel, existing_order)?;
-        let (config, config_file_sha256) = load_accepted_config(&self.root)?;
-        if config_file_sha256 != self.accepted_config_sha256 {
+        self.authority_root.validate()?;
+        let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
+        if config_file_sha256 != self.authority_root.accepted_config_sha256 {
             return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
         }
         validate_config_binding(&config, &durable_request)?;
         let policy = frozen_policy_from_config(&config, &durable_request);
         validate_policy(&policy, &durable_request)?;
         let command_sha256 = cancel_command_sha256(cancel, &policy);
-        let authorities = self.issue_authorities(
-            &config,
-            &durable_request,
-            &policy,
-            &command_sha256,
-            sources,
-            logical_arm_nonce,
-        )?;
+        let authorities =
+            self.issue_authorities(&config, &durable_request, &policy, &command_sha256, sources)?;
         authorize_stage8_cancel(Stage8CancelPreflightInput {
             cancel,
             existing_order,
@@ -626,8 +928,9 @@ impl Stage8a1OperationalAuthorityIssuer {
         command: &Stage6DurableCommandSnapshotV1,
         order: &PlaceOrder,
         broker_preflight_context: &OrderPreflightContext,
-        sources: Stage8a1CurrentOperationalSources<'_>,
+        sources: &Stage8a1TrustedCurrentSources,
     ) -> Result<Stage8a1CurrentlyAuthorizedCapability, Stage8ExecutionPreflightError> {
+        self.validate_control_revision()?;
         let now = Utc::now();
         if capability.scope != Stage8CommandScope::Place
             || capability.request_id != order.request_id
@@ -642,8 +945,9 @@ impl Stage8a1OperationalAuthorityIssuer {
             command,
         )?;
         validate_place_durable(&durable, order)?;
-        let (config, config_file_sha256) = load_accepted_config(&self.root)?;
-        if config_file_sha256 != self.accepted_config_sha256 {
+        self.authority_root.validate()?;
+        let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
+        if config_file_sha256 != self.authority_root.accepted_config_sha256 {
             return Err(Stage8ExecutionPreflightError::CurrentStateChanged);
         }
         validate_config_binding(&config, &durable)?;
@@ -651,27 +955,29 @@ impl Stage8a1OperationalAuthorityIssuer {
         validate_policy(&policy, &durable)?;
         let scope_sha256 = authority_scope_sha256(&durable, &policy);
         let current_state_sha256 = current_state_from_sources(
-            &self.root,
+            &self.authority_root,
             &config,
             &durable,
             &policy,
             &scope_sha256,
-            &sources,
+            sources,
             now,
         )?;
-        let nonce_path = arm_nonce_path(
-            &self.root,
-            durable.seal_generation,
-            &capability.arm_nonce_sha256,
-        );
+        let nonce_path =
+            arm_registration_path(&self.authority_root.root, &capability.arm_nonce_sha256);
         let expected_nonce_record = arm_nonce_registration_record(
             &durable,
             &capability.exact_command_sha256,
             &policy.policy_sha256,
         );
-        let nonce_record_matches = read_regular_file(&nonce_path)
-            .map(|bytes| bytes == expected_nonce_record.as_bytes())
-            .unwrap_or(false);
+        let nonce_record_matches = read_arm_registration(
+            &self.authority_root,
+            nonce_path
+                .file_name()
+                .expect("arm registration has a file name"),
+        )
+        .map(|bytes| bytes == expected_nonce_record.as_bytes())
+        .unwrap_or(false);
         if !nonce_record_matches
             || durable.provenance_sha256 != capability.durable_provenance_sha256
             || durable.seal_commitment_sha256 != capability.seal_commitment_sha256
@@ -694,32 +1000,121 @@ impl Stage8a1OperationalAuthorityIssuer {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn revalidate_cancel_capability(
+        &mut self,
+        capability: Stage8ExecutionCapability,
+        owner: &mut Stage7bRecoveryReadyOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+        cancel: &CancelOrder,
+        existing_order: &OrderPathRecord,
+        sources: &Stage8a1TrustedCurrentSources,
+    ) -> Result<Stage8a1CurrentlyAuthorizedCapability, Stage8ExecutionPreflightError> {
+        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+            owner,
+            commitment_key,
+            identity,
+            command,
+        )?;
+        self.revalidate_cancel_with_durable(capability, durable, cancel, existing_order, sources)
+    }
+
+    fn revalidate_cancel_with_durable(
+        &mut self,
+        capability: Stage8ExecutionCapability,
+        durable: Stage8a1DurableRequestAuthority,
+        cancel: &CancelOrder,
+        existing_order: &OrderPathRecord,
+        sources: &Stage8a1TrustedCurrentSources,
+    ) -> Result<Stage8a1CurrentlyAuthorizedCapability, Stage8ExecutionPreflightError> {
+        self.validate_control_revision()?;
+        let now = Utc::now();
+        if capability.scope != Stage8CommandScope::Cancel
+            || capability.request_id != cancel.request_id
+            || now >= capability.valid_until
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentStateChanged);
+        }
+        validate_cancel_durable(&durable, cancel, existing_order)?;
+        self.authority_root.validate()?;
+        let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
+        if config_file_sha256 != self.authority_root.accepted_config_sha256 {
+            return Err(Stage8ExecutionPreflightError::CurrentStateChanged);
+        }
+        validate_config_binding(&config, &durable)?;
+        let policy = frozen_policy_from_config(&config, &durable);
+        validate_policy(&policy, &durable)?;
+        let scope_sha256 = authority_scope_sha256(&durable, &policy);
+        let current_state_sha256 = current_state_from_sources(
+            &self.authority_root,
+            &config,
+            &durable,
+            &policy,
+            &scope_sha256,
+            sources,
+            now,
+        )?;
+        let nonce_path =
+            arm_registration_path(&self.authority_root.root, &capability.arm_nonce_sha256);
+        let expected_nonce_record = arm_nonce_registration_record(
+            &durable,
+            &capability.exact_command_sha256,
+            &policy.policy_sha256,
+        );
+        let nonce_record_matches = read_arm_registration(
+            &self.authority_root,
+            nonce_path
+                .file_name()
+                .expect("arm registration has a file name"),
+        )
+        .map(|bytes| bytes == expected_nonce_record.as_bytes())
+        .unwrap_or(false);
+        if !nonce_record_matches
+            || durable.provenance_sha256 != capability.durable_provenance_sha256
+            || durable.seal_commitment_sha256 != capability.seal_commitment_sha256
+            || policy.policy_sha256 != capability.policy_sha256
+            || policy.build_sha256 != capability.build_sha256
+            || policy.config_sha256 != capability.config_sha256
+            || policy.endpoint_policy_sha256 != capability.endpoint_policy_sha256
+            || scope_sha256 != capability.authority_scope_sha256
+            || current_state_sha256 != capability.current_state_sha256
+            || cancel_command_sha256(cancel, &policy) != capability.exact_command_sha256
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentStateChanged);
+        }
+        Ok(Stage8a1CurrentlyAuthorizedCapability {
+            capability,
+            revalidated_at: now,
+            current_state_sha256,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn issue_authorities(
         &mut self,
         config: &Stage8a1AcceptedExecutionConfigV1,
         durable: &Stage8a1DurableRequestAuthority,
         policy: &Stage8a1FrozenExecutionPolicy,
         command_sha256: &str,
-        sources: Stage8a1CurrentOperationalSources<'_>,
-        logical_arm_nonce: &str,
+        sources: &Stage8a1TrustedCurrentSources,
     ) -> Result<Stage8a1IssuedAuthorities, Stage8ExecutionPreflightError> {
         let now = Utc::now();
         let scope_sha256 = authority_scope_sha256(durable, policy);
         let derived = derive_current_authorities(
-            &self.root,
+            &self.authority_root,
             config,
             durable,
             policy,
             &scope_sha256,
-            &sources,
+            sources,
             now,
         )?;
         let nonce_sha256 = register_arm_nonce(
-            &self.root,
+            &self.authority_root,
             durable,
             command_sha256,
             &policy.policy_sha256,
-            logical_arm_nonce,
         )?;
         let valid_until = std::cmp::min(
             now + chrono::Duration::milliseconds(config.max_arm_ttl_ms as i64),
@@ -769,15 +1164,17 @@ struct Stage8a1DerivedCurrentAuthorities {
 
 #[allow(clippy::too_many_arguments)]
 fn derive_current_authorities(
-    root: &Path,
+    authority_root: &Stage8a1AuthorityRoot,
     config: &Stage8a1AcceptedExecutionConfigV1,
     durable: &Stage8a1DurableRequestAuthority,
     policy: &Stage8a1FrozenExecutionPolicy,
     scope_sha256: &str,
-    sources: &Stage8a1CurrentOperationalSources<'_>,
+    sources: &Stage8a1TrustedCurrentSources,
     now: DateTime<Utc>,
 ) -> Result<Stage8a1DerivedCurrentAuthorities, Stage8ExecutionPreflightError> {
-    let control = load_current_control(root)?;
+    authority_root.validate()?;
+    sources.validate(authority_root)?;
+    let control = authority_root.load_current_control()?;
     if control.operational_identity_sha256 != durable.operational_identity_sha256
         || control.runtime_config_fingerprint_sha256 != durable.runtime_config_fingerprint_sha256
         || control.durable_revision == 0
@@ -858,7 +1255,7 @@ fn derive_current_authorities(
     let readiness_evidence = source_evidence(
         b"stage8a1-composite-readiness-v1",
         scope_sha256,
-        sources.composite_readiness,
+        &sources.composite_readiness,
     );
     let control_evidence =
         source_evidence(b"stage8a1-persistent-control-v1", scope_sha256, &control);
@@ -884,7 +1281,7 @@ fn derive_current_authorities(
     let truth_evidence = source_evidence(
         b"stage8a1-current-broker-truth-v1",
         scope_sha256,
-        &(sources.broker_truth, sources.broker_readiness),
+        &(&sources.broker_truth, &sources.broker_readiness),
     );
     let schedule_evidence = digest_parts(
         b"stage8a1-current-schedule-v1",
@@ -954,16 +1351,23 @@ fn derive_current_authorities(
 }
 
 fn current_state_from_sources(
-    root: &Path,
+    authority_root: &Stage8a1AuthorityRoot,
     config: &Stage8a1AcceptedExecutionConfigV1,
     durable: &Stage8a1DurableRequestAuthority,
     policy: &Stage8a1FrozenExecutionPolicy,
     scope_sha256: &str,
-    sources: &Stage8a1CurrentOperationalSources<'_>,
+    sources: &Stage8a1TrustedCurrentSources,
     now: DateTime<Utc>,
 ) -> Result<String, Stage8ExecutionPreflightError> {
-    let current =
-        derive_current_authorities(root, config, durable, policy, scope_sha256, sources, now)?;
+    let current = derive_current_authorities(
+        authority_root,
+        config,
+        durable,
+        policy,
+        scope_sha256,
+        sources,
+        now,
+    )?;
     Ok(digest_parts(
         b"stage8a1-current-authority-state-v1",
         &[
@@ -1042,6 +1446,7 @@ fn validate_config_binding(
     Ok(())
 }
 
+#[cfg(test)]
 fn load_accepted_config(
     root: &Path,
 ) -> Result<(Stage8a1AcceptedExecutionConfigV1, String), Stage8ExecutionPreflightError> {
@@ -1061,6 +1466,7 @@ fn load_accepted_config(
     Ok((config, observed_sha256))
 }
 
+#[cfg(test)]
 fn load_current_control(
     root: &Path,
 ) -> Result<Stage8a1CurrentControlStateV1, Stage8ExecutionPreflightError> {
@@ -1074,6 +1480,43 @@ fn load_current_control(
     Ok(control)
 }
 
+fn load_accepted_config_pinned(
+    root: &Path,
+    config_identity: Stage8a1FileIdentity,
+    sidecar_identity: Stage8a1FileIdentity,
+) -> Result<(Stage8a1AcceptedExecutionConfigV1, String), Stage8ExecutionPreflightError> {
+    let bytes = read_pinned_regular_file(&root.join(ACCEPTED_CONFIG_FILE), config_identity)
+        .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let observed_sha256 = digest_parts(b"stage8a1-accepted-config-file-v1", &[&bytes]);
+    let sidecar =
+        read_pinned_regular_file(&root.join(ACCEPTED_CONFIG_SHA256_FILE), sidecar_identity)
+            .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let expected = std::str::from_utf8(&sidecar)
+        .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?
+        .trim();
+    if expected != observed_sha256 || !valid_sha256(expected) {
+        return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+    }
+    let config = serde_json::from_slice(&bytes)
+        .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    Ok((config, observed_sha256))
+}
+
+fn load_current_control_pinned(
+    root: &Path,
+    control_identity: Stage8a1FileIdentity,
+) -> Result<Stage8a1CurrentControlStateV1, Stage8ExecutionPreflightError> {
+    let bytes = read_pinned_regular_file(&root.join(CURRENT_CONTROL_FILE), control_identity)
+        .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+    let control: Stage8a1CurrentControlStateV1 = serde_json::from_slice(&bytes)
+        .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+    if control.schema_version != 1 {
+        return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+    }
+    Ok(control)
+}
+
+#[cfg(test)]
 fn read_regular_file(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
@@ -1084,51 +1527,106 @@ fn read_regular_file(path: &Path) -> Result<Vec<u8>, std::io::Error> {
     fs::read(path)
 }
 
+fn read_pinned_regular_file(
+    path: &Path,
+    expected_identity: Stage8a1FileIdentity,
+) -> Result<Vec<u8>, std::io::Error> {
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.file_type().is_file()
+        || metadata.nlink() != 1
+        || metadata_identity(&metadata) != expected_identity
+    {
+        return Err(std::io::Error::other(
+            "authority source descriptor identity changed",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let after = file.metadata()?;
+    if metadata_identity(&after) != expected_identity || after.len() != bytes.len() as u64 {
+        return Err(std::io::Error::other(
+            "authority source changed during descriptor read",
+        ));
+    }
+    Ok(bytes)
+}
+
+fn metadata_identity(metadata: &std::fs::Metadata) -> Stage8a1FileIdentity {
+    Stage8a1FileIdentity {
+        device: metadata.dev(),
+        inode: metadata.ino(),
+        mode: metadata.mode(),
+    }
+}
+
+fn regular_file_identity(
+    path: &Path,
+) -> Result<Stage8a1FileIdentity, Stage8ExecutionPreflightError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_file() || metadata.nlink() != 1
+    {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    Ok(metadata_identity(&metadata))
+}
+
+fn directory_identity(path: &Path) -> Result<Stage8a1FileIdentity, Stage8ExecutionPreflightError> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    Ok(metadata_identity(&metadata))
+}
+
+fn file_identity_bytes(identity: Stage8a1FileIdentity) -> [u8; 20] {
+    let mut bytes = [0_u8; 20];
+    bytes[..8].copy_from_slice(&identity.device.to_be_bytes());
+    bytes[8..16].copy_from_slice(&identity.inode.to_be_bytes());
+    bytes[16..].copy_from_slice(&identity.mode.to_be_bytes());
+    bytes
+}
+
 fn register_arm_nonce(
-    root: &Path,
+    authority_root: &Stage8a1AuthorityRoot,
     durable: &Stage8a1DurableRequestAuthority,
     command_sha256: &str,
     policy_sha256: &str,
-    logical_nonce: &str,
 ) -> Result<String, Stage8ExecutionPreflightError> {
-    if logical_nonce.trim().is_empty() || logical_nonce.len() > 256 {
-        return Err(Stage8ExecutionPreflightError::OperatorArmInvalid);
-    }
+    authority_root.validate()?;
     let nonce_sha256 = digest_parts(
-        b"stage8a1-operator-arm-nonce-v1",
+        b"stage8a1-one-arm-per-durable-request-v1",
         &[
             durable.operational_identity_sha256.as_bytes(),
-            &durable.seal_generation.to_be_bytes(),
-            logical_nonce.as_bytes(),
+            &canonical_json(&durable.identity),
+            durable.identity.strategy_request_id().as_uuid().as_bytes(),
         ],
     );
-    let generation_dir = root
-        .join(ARM_NONCE_DIR)
-        .join(durable.seal_generation.to_string());
-    fs::create_dir_all(&generation_dir)
-        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)?;
-    let metadata = fs::symlink_metadata(&generation_dir)
-        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)?;
-    if !metadata.file_type().is_dir() || metadata.file_type().is_symlink() {
+    let registry_dir = authority_root.root.join(ARM_NONCE_DIR);
+    if directory_identity(&registry_dir)? != authority_root.arm_registry_identity {
         return Err(Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable);
     }
-    let path = generation_dir.join(&nonce_sha256);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)
-        .map_err(|error| {
-            if error.kind() == std::io::ErrorKind::AlreadyExists {
-                Stage8ExecutionPreflightError::OperatorArmNonceReplay
-            } else {
-                Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable
-            }
-        })?;
+    let directory = open_pinned_directory(&registry_dir, authority_root.arm_registry_identity)
+        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)?;
+    let mut file = create_new_regular_file_at(&directory, &nonce_sha256).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            Stage8ExecutionPreflightError::OperatorArmNonceReplay
+        } else {
+            Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable
+        }
+    })?;
     let record = arm_nonce_registration_record(durable, command_sha256, policy_sha256);
     file.write_all(record.as_bytes())
         .and_then(|_| file.sync_all())
         .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)?;
-    sync_directory(&generation_dir)?;
+    directory
+        .sync_all()
+        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)?;
     Ok(nonce_sha256)
 }
 
@@ -1155,10 +1653,89 @@ fn sync_directory(path: &Path) -> Result<(), Stage8ExecutionPreflightError> {
         .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)
 }
 
-fn arm_nonce_path(root: &Path, seal_generation: u64, nonce_sha256: &str) -> PathBuf {
-    root.join(ARM_NONCE_DIR)
-        .join(seal_generation.to_string())
-        .join(nonce_sha256)
+fn arm_registration_path(root: &Path, nonce_sha256: &str) -> PathBuf {
+    root.join(ARM_NONCE_DIR).join(nonce_sha256)
+}
+
+fn read_arm_registration(
+    authority_root: &Stage8a1AuthorityRoot,
+    name: &std::ffi::OsStr,
+) -> Result<Vec<u8>, std::io::Error> {
+    authority_root
+        .validate()
+        .map_err(|_| std::io::Error::other("authority root changed"))?;
+    let directory = open_pinned_directory(
+        &authority_root.root.join(ARM_NONCE_DIR),
+        authority_root.arm_registry_identity,
+    )?;
+    read_regular_file_at(&directory, name)
+}
+
+fn open_pinned_directory(
+    path: &Path,
+    expected_identity: Stage8a1FileIdentity,
+) -> Result<File, std::io::Error> {
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_DIRECTORY)
+        .open(path)?;
+    let metadata = directory.metadata()?;
+    if !metadata.file_type().is_dir() || metadata_identity(&metadata) != expected_identity {
+        return Err(std::io::Error::other(
+            "authority directory descriptor identity changed",
+        ));
+    }
+    Ok(directory)
+}
+
+fn create_new_regular_file_at(directory: &File, name: &str) -> Result<File, std::io::Error> {
+    let name = CString::new(name)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid file name"))?;
+    // SAFETY: `directory` is a verified directory descriptor, `name` is a
+    // NUL-free single SHA-256 component and the returned fd is owned exactly
+    // once by `File`.
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            0o600,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: ownership of the successful `openat` descriptor transfers here.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
+fn read_regular_file_at(
+    directory: &File,
+    name: &std::ffi::OsStr,
+) -> Result<Vec<u8>, std::io::Error> {
+    let name = CString::new(name.as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid file name"))?;
+    // SAFETY: the verified directory fd and NUL-free file name remain valid
+    // for the duration of `openat`; the returned fd is transferred once.
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: ownership of the successful `openat` descriptor transfers here.
+    let mut file = unsafe { File::from_raw_fd(fd) };
+    let metadata = file.metadata()?;
+    if !metadata.file_type().is_file() || metadata.nlink() != 1 {
+        return Err(std::io::Error::other("arm registration is not regular"));
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(bytes)
 }
 
 fn source_evidence<T: Serialize>(domain: &[u8], scope_sha256: &str, source: &T) -> String {
@@ -2171,7 +2748,7 @@ mod tests {
     }
 
     #[test]
-    fn production_issuer_mints_all_proofs_and_rejects_duplicate_logical_nonce() {
+    fn production_issuer_mints_all_proofs_and_rejects_second_arm_for_request() {
         let now = Utc::now();
         let mut order = place();
         order.created_ts = now;
@@ -2187,33 +2764,17 @@ mod tests {
         let root = issuer_root();
         write_issuer_sources(&root, &durable, now);
         let (readiness, truth, broker_readiness) = current_sources(now);
-        let mut issuer = Stage8a1OperationalAuthorityIssuer::open(&root).unwrap();
+        let mut issuer =
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+        let sources = issuer
+            .issue_current_sources(&readiness, &truth, &broker_readiness)
+            .unwrap();
         let capability = issuer
-            .authorize_place(
-                durable,
-                &order,
-                &context,
-                Stage8a1CurrentOperationalSources {
-                    composite_readiness: &readiness,
-                    broker_truth: &truth,
-                    broker_readiness: &broker_readiness,
-                },
-                "operator-logical-arm-1",
-            )
+            .authorize_place(durable, &order, &context, &sources)
             .unwrap();
         assert_eq!(capability.diagnostic().scope, Stage8CommandScope::Place);
 
-        let duplicate = issuer.authorize_place(
-            durable_place(&order),
-            &order,
-            &context,
-            Stage8a1CurrentOperationalSources {
-                composite_readiness: &readiness,
-                broker_truth: &truth,
-                broker_readiness: &broker_readiness,
-            },
-            "operator-logical-arm-1",
-        );
+        let duplicate = issuer.authorize_place(durable_place(&order), &order, &context, &sources);
         assert!(matches!(
             duplicate,
             Err(Stage8ExecutionPreflightError::OperatorArmNonceReplay)
@@ -2229,21 +2790,144 @@ mod tests {
         let scope = authority_scope_sha256(&durable, &policy);
         assert!(matches!(
             current_state_from_sources(
-                &root,
+                &issuer.authority_root,
                 &config,
                 &durable,
                 &policy,
                 &scope,
-                &Stage8a1CurrentOperationalSources {
-                    composite_readiness: &readiness,
-                    broker_truth: &truth,
-                    broker_readiness: &broker_readiness,
-                },
+                &sources,
                 Utc::now(),
             ),
             Err(Stage8ExecutionPreflightError::KillSwitchNotRunAllowed)
         ));
         drop(capability);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn accepted_config_and_sidecar_co_rewrite_cannot_move_external_anchor() {
+        let now = Utc::now();
+        let mut order = place();
+        order.created_ts = now;
+        let context = OrderPreflightContext {
+            reference_price: Some(broker_core::OrderReferencePrice {
+                price: Decimal::new(2220, 0),
+                received_ts: now,
+            }),
+            current_run_notional: Decimal::ZERO,
+        };
+        let durable = durable_place(&order);
+        let root = issuer_root();
+        write_issuer_sources(&root, &durable, now);
+        let (readiness, truth, broker_readiness) = current_sources(now);
+        let mut issuer =
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+        let sources = issuer
+            .issue_current_sources(&readiness, &truth, &broker_readiness)
+            .unwrap();
+
+        let (mut config, _) = load_accepted_config(&root).unwrap();
+        config.broker_policy.max_qty = Decimal::new(10, 0);
+        let bytes = canonical_json(&config);
+        let attacker_sidecar = digest_parts(b"stage8a1-accepted-config-file-v1", &[&bytes]);
+        fs::write(root.join(ACCEPTED_CONFIG_FILE), bytes).unwrap();
+        fs::write(root.join(ACCEPTED_CONFIG_SHA256_FILE), attacker_sidecar).unwrap();
+
+        assert!(matches!(
+            issuer.authorize_place(durable_place(&order), &order, &context, &sources),
+            Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid)
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn authority_root_and_control_identity_replacement_fail_closed() {
+        use std::os::unix::fs::symlink;
+
+        let now = Utc::now();
+        let durable = durable_place(&place());
+        let root = issuer_root();
+        write_issuer_sources(&root, &durable, now);
+        let issuer = Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+
+        let alternate = root.with_extension("alternate-control");
+        fs::write(
+            &alternate,
+            fs::read(root.join(CURRENT_CONTROL_FILE)).unwrap(),
+        )
+        .unwrap();
+        fs::remove_file(root.join(CURRENT_CONTROL_FILE)).unwrap();
+        symlink(&alternate, root.join(CURRENT_CONTROL_FILE)).unwrap();
+        assert!(matches!(
+            issuer.authority_root.validate(),
+            Err(Stage8ExecutionPreflightError::AuthorityRootInvalid)
+        ));
+        fs::remove_dir_all(&root).unwrap();
+        fs::remove_file(alternate).unwrap();
+
+        let root = issuer_root();
+        write_issuer_sources(&root, &durable, now);
+        let issuer = Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+        let moved = root.with_extension("original-root");
+        fs::rename(&root, &moved).unwrap();
+        fs::create_dir(&root).unwrap();
+        write_issuer_sources(&root, &durable, now);
+        fs::create_dir(root.join(ARM_NONCE_DIR)).unwrap();
+        assert!(matches!(
+            issuer.authority_root.validate(),
+            Err(Stage8ExecutionPreflightError::AuthorityRootInvalid)
+        ));
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_dir_all(moved).unwrap();
+    }
+
+    #[test]
+    fn cancel_continuation_revalidates_current_control_and_target_mapping() {
+        let now = Utc::now();
+        let placed = place();
+        let existing = existing_record(&placed);
+        let cancel = CancelOrder {
+            request_id: request_id(20),
+            created_ts: now,
+            ttl_ms: Some(30_000),
+            account_id: account(),
+            order_id: existing.broker_order_id.clone().unwrap(),
+            client_order_id: Some(placed.client_order_id.clone()),
+        };
+        let durable = durable_cancel(&cancel);
+        let root = issuer_root();
+        write_issuer_sources(&root, &durable, now);
+        let (readiness, truth, broker_readiness) = current_sources(now);
+        let mut issuer =
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+        let sources = issuer
+            .issue_current_sources(&readiness, &truth, &broker_readiness)
+            .unwrap();
+        let capability = match issuer
+            .authorize_cancel(durable, &cancel, &existing, &sources)
+            .unwrap()
+        {
+            Stage8CancelPreflightDecision::Capability(capability) => *capability,
+            Stage8CancelPreflightDecision::AlreadyTerminal => panic!("working order expected"),
+        };
+
+        let mut stopped = load_current_control(&root).unwrap();
+        stopped.kill_switch = Stage8KillSwitchState::StopRequested;
+        stopped.durable_revision += 1;
+        issuer.persist_current_control(&stopped).unwrap();
+        let stopped_sources = issuer
+            .issue_current_sources(&readiness, &truth, &broker_readiness)
+            .unwrap();
+        assert!(matches!(
+            issuer.revalidate_cancel_with_durable(
+                capability,
+                durable_cancel(&cancel),
+                &cancel,
+                &existing,
+                &stopped_sources,
+            ),
+            Err(Stage8ExecutionPreflightError::KillSwitchNotRunAllowed)
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 

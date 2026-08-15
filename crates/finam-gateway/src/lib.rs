@@ -19,12 +19,12 @@ pub use stage8a1_execution_capability::{
     Stage8CancelPreflightInput, Stage8CapabilityDiagnostic, Stage8CommandScope,
     Stage8ExecutionCapability, Stage8ExecutionPreflightError, Stage8KillSwitchState,
     Stage8PlacePreflightInput, Stage8ScheduleState, Stage8a1AcceptedExecutionConfigV1,
-    Stage8a1BrokerOwnershipAuthority, Stage8a1ContinuationDiagnostic,
-    Stage8a1CurrentControlStateV1, Stage8a1CurrentOperationalSources,
-    Stage8a1CurrentlyAuthorizedCapability, Stage8a1DurableRequestAuthority,
-    Stage8a1FreshBrokerTruthAuthority, Stage8a1FrozenExecutionPolicy, Stage8a1KillSwitchAuthority,
-    Stage8a1MicroBudgetAuthority, Stage8a1OperationalAuthorityIssuer, Stage8a1OperatorArmAuthority,
-    Stage8a1ReadinessAuthority, Stage8a1ScheduleAuthority, Stage8a1TrustedClockAuthority,
+    Stage8a1AuthorityRoot, Stage8a1BrokerOwnershipAuthority, Stage8a1ContinuationDiagnostic,
+    Stage8a1CurrentControlStateV1, Stage8a1CurrentlyAuthorizedCapability,
+    Stage8a1DurableRequestAuthority, Stage8a1FreshBrokerTruthAuthority,
+    Stage8a1FrozenExecutionPolicy, Stage8a1KillSwitchAuthority, Stage8a1MicroBudgetAuthority,
+    Stage8a1OperationalAuthorityIssuer, Stage8a1OperatorArmAuthority, Stage8a1ReadinessAuthority,
+    Stage8a1ScheduleAuthority, Stage8a1TrustedClockAuthority, Stage8a1TrustedCurrentSources,
     Stage8a1ZeroAmbiguityAuthority,
 };
 

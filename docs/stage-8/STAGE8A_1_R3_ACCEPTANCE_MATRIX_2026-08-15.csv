@@ -1,0 +1,77 @@
+id,category,requirement,expected,mandatory,proof_type,negative_mutation
+S8A1R3-001,predecessor,Accepted Stage8A-0 source is exact,ref=c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d,YES,descriptor_hash,forge predecessor
+S8A1R3-002,predecessor,Accepted Stage8A-0 external review is exact,review_sha=574876211e0c896cc9d61f9f2d078059e54fd471a9b97e94a3c9c8c81930879b,YES,descriptor_hash,forge review hash
+S8A1R3-003,governance,Stage8A-1 candidate cannot self-accept,independent acceptance remains false/pending,YES,descriptor,self accept
+S8A1R3-004,governance,Stage8A-2 remains closed,No builder/mock-send/classifier/reconciliation scope is opened,YES,descriptor,open 8A-2
+S8A1R3-005,capability,Stage8ExecutionCapability fields are private,No public fields,YES,compile_fail+source,public capability field
+S8A1R3-006,capability,Capability is linear,No Clone/Copy,YES,compile_fail,derive Clone
+S8A1R3-007,capability,Capability is non-debuggable,No raw Debug implementation,YES,compile_fail,derive Debug
+S8A1R3-008,capability,Capability is non-serializable,No Serialize/Deserialize,YES,compile_fail,derive Serialize
+S8A1R3-009,capability,Approved command cannot be extracted in 8A-1,No public/crate-private request extraction or consuming transport API,YES,source_scan,add into_request
+S8A1R3-010,closed_surface,No request builder composition exists,No broker-finam PLACE/CANCEL builder use,YES,closed_surface,invoke builder
+S8A1R3-011,closed_surface,No HTTP/Redis/send surface exists,No Stage8A-1 transport or live consumer,YES,closed_surface,add send/redis
+S8A1R3-012,authority,Stage7B remains sole lifecycle authority,No Stage8 journal/reducer/ClientOrderId allocator/settlement owner,YES,source_scan,add Stage8 journal
+S8A1R3-013,authority,Current Stage7B recovery-ready authority is required,Owner-mediated current Stage7B authority is reread/authenticated from disk and bound to exact dispatch-ready Stage6 request,YES,subprocess+type_boundary,mint without Stage7B owner
+S8A1R3-014,authority,Current authenticated recovery seal is bound,Immediate on-disk seal reread/HMAC/equality and exact current checkpoint/dispatch binding; stale/delete/corrupt/different seal fails,YES,fault_matrix,use stale seal
+S8A1R3-015,authority,Exact Stage6 durable request identity is required,Capability minting consumes/binds opaque exact durable request authority,YES,type_boundary,mint from raw command only
+S8A1R3-016,identity,PLACE durable ClientOrderId is exact,Place client ID equals durable identity derived from StrategyRequestId,YES,unit,change client id
+S8A1R3-017,identity,CANCEL durable identity is exact,Cancel durable command identity plus exact target broker/client IDs are bound,YES,unit,change cancel durable identity
+S8A1R3-018,identity,Stage6 attribution is exact,strategy owner/cycle/action/role from durable identity is bound,YES,unit,change attribution
+S8A1R3-019,readiness,Current composite readiness authority is bound,Production readiness issuer derives opaque authority from current composite readiness source; loss/generation drift blocks,YES,issuer_integration,mint without readiness
+S8A1R3-020,authority,Raw public evidence cannot mint capability,Safety-critical minting inputs are opaque/non-constructible outside trusted issuer,YES,compile_fail,construct raw proof literal
+S8A1R3-021,arm,Operator arm authority is opaque,Private fields/no public literal construction,YES,compile_fail,public arm fields
+S8A1R3-022,arm,Operator arm authority is linear,No Clone/Copy/Serialize/Deserialize,YES,compile_fail,clone arm authority
+S8A1R3-023,arm,Arm nonce is unique and bound,Trusted operator issuer owns arm identity; same durable request cannot receive a second arm/capability even with a different caller value,YES,issuer_integration,duplicate arm nonce
+S8A1R3-024,arm,One arm mints at most one capability,Production-issued arm authority can mint at most one capability; duplicate issuance/use fails,YES,issuer_integration+compile_fail,reuse arm twice
+S8A1R3-025,arm,Arm binds durable request ID,Exact StrategyRequestId match,YES,unit,change request id
+S8A1R3-026,arm,Arm binds durable ClientOrderId,Exact stable client id match,YES,unit,change client id under same arm
+S8A1R3-027,arm,Arm binds exact account/instrument/venue,All exact scope identities match,YES,unit,change venue symbol
+S8A1R3-028,arm,Arm binds strategy owner/cycle/action,Structured attribution exact,YES,unit,change owner/cycle/action
+S8A1R3-029,arm,Arm binds command kind/side/qty,"PLACE/CANCEL, side and quantity exact",YES,unit,change side or qty
+S8A1R3-030,arm,Arm binds LIMIT price or MARKET reference guard,Exact limit price or exact reference-price guard digest,YES,unit,change price/reference guard
+S8A1R3-031,arm,Arm binds notional/slippage/reference-age limits,Exact execution risk guard values/digest,YES,unit,widen risk guard
+S8A1R3-032,arm,Arm binds build/config/endpoint-policy digests,All accepted digests exact,YES,unit,change endpoint-policy digest
+S8A1R3-033,arm,Arm TTL is frozen and bounded,Caller cannot choose arbitrary max TTL,YES,policy_authority,widen arm TTL
+S8A1R3-034,restart,Restart invalidates arm/capability authority,Current nonzero generation exact,YES,unit,reuse across restart
+S8A1R3-035,config,Config drift invalidates authority,Current accepted config/policy digest exact,YES,unit,reuse across config drift
+S8A1R3-036,policy,Execution policy is opaque/provenance-backed,Frozen policy is issued from an externally anchored accepted configuration authority; caller-created config+sidecar cannot define policy,YES,trust_root_integration,construct arbitrary policy authority
+S8A1R3-037,policy,Exact account/instrument/strategy allowlist is bound,Deny by default exact entries,YES,unit,widen allowlist
+S8A1R3-038,policy,MARKET/LIMIT and DAY only,No other order type/TIF,YES,unit+negative,allow non-DAY
+S8A1R3-039,limits,All quantity/price limit fields are frozen,min_qty/qty_step/max_qty/price_step/max_market_qty exact,YES,unit,widen max qty
+S8A1R3-040,limits,Notional limits are frozen,max_notional_per_order/run exact and present as accepted policy,YES,unit,remove notional limit
+S8A1R3-041,limits,Slippage/reference freshness is frozen,max_limit_deviation_bps/max_reference_age_ms exact,YES,unit,widen reference age
+S8A1R3-042,schedule,Trading-session/schedule eligibility is required,Current exact schedule authority says eligible; unknown/closed fails,YES,unit,ignore schedule
+S8A1R3-043,kill_switch,Kill-switch authority is provenance-backed,Kill-switch proof derives from trusted persistent control authority bound to the accepted issuer root; caller-created RunAllowed file cannot authorize,YES,trust_root_integration,forge RunAllowed proof
+S8A1R3-044,kill_switch,Kill switch state must be RunAllowed,StopRequested/stale/unreadable/conflict blocks,YES,unit,remove RunAllowed
+S8A1R3-045,ownership,Single-broker ownership is exact and strategy-scoped,FINAM count=1 plus exact strategy/account/instrument owner binding,YES,unit,use ownership for another strategy
+S8A1R3-046,ambiguity,Zero ambiguity is exact and scope-bound,Counters zero for exact strategy/account scope,YES,unit,use zero counters from other scope
+S8A1R3-047,broker_truth,Fresh broker truth authority is required,"Fresh broker truth/readiness comes from accepted current-source authority, not arbitrary public snapshot references",YES,current_source_authority,omit broker truth
+S8A1R3-048,budget,Max-one engineering-micro budget authority is required,Opaque max-one budget authority is issued from trusted strategy/account budget source; unavailable/exhausted fails,YES,issuer_integration,omit/exhaust budget
+S8A1R3-049,freshness,Evidence-age bounds are frozen,Caller cannot choose arbitrary max_evidence_age_ms,YES,policy_authority,widen evidence age
+S8A1R3-050,clock,Freshness uses trusted current clock,Opaque trusted clock is production-issued/current; public caller cannot choose backdated time,YES,issuer_integration,backdate now
+S8A1R3-051,coherence,All proof authorities share one operational identity,same account/instrument/strategy/restart/config/seal generation,YES,unit,mix proof scopes
+S8A1R3-052,expiry,Capability validity is minimum of all authority expiries,No proof outlives weakest prerequisite,YES,unit,ignore one expiry
+S8A1R3-053,cancel,CANCEL requires exact durable mapping,Exact existing order target and identities,YES,unit,bypass cancel mapping
+S8A1R3-054,cancel,Terminal CANCEL mints no capability,AlreadyTerminal only,YES,unit,capability for terminal
+S8A1R3-055,audit,Audit fingerprint binds exact command and authorities,"Includes durable command fingerprint, arm nonce, policy/seal/proof digests",YES,unit,omit command from audit fingerprint
+S8A1R3-056,closed_surface,Allowed lib.rs delta is exact,Full-file hash/exact patch whitelist prevents hidden builder/transport hook,YES,negative_harness,inject hidden builder in lib.rs
+S8A1R3-057,regression,Focused/compile-fail/negative/workspace gates pass,Serialized all-target tests/doctests/clippy/fmt green,YES,aggregate_gate,skip regression
+S8A1R3-058,governance,Independent R1 acceptance opens Stage8A-2 only,No later slice or real send opens,YES,independent_review,self-open later slice
+S8A1R3-059,authority,Stage8 durable authority requires dispatch-ready Stage6 proof,RequestAccepted alone is insufficient; exact durable DispatchAttemptRecorded record/sequence/frontier are bound,YES,ordered_trace,mint from accepted-only request
+S8A1R3-060,authority,Normal forward request path can mint without restart,"New request -> durable accepted+dispatch -> current seal advance/reread -> Stage8 authority, with zero provider/transport effect",YES,integration,map positive proof to restart-only fixture
+S8A1R3-061,seal,Stage8 issuance rereads the committed seal from disk,Delete/corrupt/valid-different seal immediately before issue fails and makes uncertainty fail-closed,YES,subprocess_fault,trust cached seal
+S8A1R3-062,seal,Seal covers exact current Stage6 frontier,"If Stage6 checkpoint advances, Stage8 authority is blocked until covering seal is durably committed and reread",YES,ordered_trace,allow lagging seal
+S8A1R3-063,issuer,All non-durable Stage8 proof authorities have production issuers,All non-durable proof authorities originate behind one trusted composition root/current-source authority; public raw factory bypass is impossible,YES,black_box_integration,leave production issuers absent
+S8A1R3-064,issuer,Production issuer graph is black-box usable,Black-box trusted composition can mint; caller-chosen root/fake config/control/raw snapshots cannot,YES,black_box_integration,use private test literals as only positive path
+S8A1R3-065,arm,Duplicate arm nonce is rejected by production issuer,Same durable request has at most one logical operator arm/capability; different nonce/value does not bypass replay protection,YES,issuer_integration,replace nonce proof with local test HashSet
+S8A1R3-066,budget,Budget authority is source-backed rather than a free snapshot,Issuer proves exact account/strategy max-one availability from trusted budget source; arbitrary consumed_orders fields cannot be supplied,YES,issuer_integration,forge free budget snapshot
+S8A1R3-067,invalidation,Current-state revalidation is required before later capability consumption,Current-state continuation barrier exists for both PLACE and CANCEL and rejects all post-mint authority drift,YES,unit+integration,use minted capability after StopRequested/config drift
+S8A1R3-068,governance,Independent R2 acceptance opens only Stage8A-2,Builder composition remains absent from R2; no later/live surface opens,YES,independent_review,add builder in R2
+S8A1R3-069,issuer_root,Issuer cannot open arbitrary caller-selected authority root,Construction requires opaque composition/root authority bound to operational identity and accepted Stage8 configuration,YES,type_boundary+black_box,open attacker temp root
+S8A1R3-070,issuer_root,Accepted config has an external trust anchor,Config SHA/path identity is bound by trusted composition/startup authority; config+sidecar cannot be replaced together to widen policy,YES,black_box+fault,rewrite config and sidecar together
+S8A1R3-071,issuer_root,Current-control source is authority-managed,RunAllowed/owner/budget state comes from pinned persistent control authority; arbitrary JSON file cannot authorize,YES,black_box+fault,write fake RunAllowed control
+S8A1R3-072,current_sources,Readiness/truth/schedule source is provenance-backed,Minting cannot accept caller-constructed raw snapshots without an accepted current-source authority,YES,black_box,supply synthetic broker/readiness snapshots
+S8A1R3-073,arm,One durable request receives at most one operator arm,Persistent request-keyed arm record rejects second issuance even with a different nonce or arm artifact,YES,issuer_integration,same request different nonce
+S8A1R3-074,arm,Public caller does not choose arm uniqueness token,"Operator arm identity is generated/validated by trusted operator-control authority, not free-form string parameter",YES,type_boundary,caller chooses fresh nonce B
+S8A1R3-075,invalidation,CANCEL has a symmetric current-state continuation barrier,Exact CANCEL capability is revalidated against current seal/config/control/readiness/truth/schedule/budget and target mapping,YES,unit+integration,use stale CANCEL capability
+S8A1R3-076,filesystem,File-backed Stage8 authority root is identity-pinned,"Root/current-control/arm-registry replacement, symlink or identity drift fails closed; no path-substitution TOCTOU authority swap",YES,fault_matrix,swap authority root/control path
