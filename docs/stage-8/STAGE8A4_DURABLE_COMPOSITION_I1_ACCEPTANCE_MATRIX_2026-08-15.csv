@@ -1,0 +1,41 @@
+id,requirement,evidence
+I1-001,Accepted implementation specification R2 ref is exact,authority
+I1-002,Accepted R2 review SHA256 is exact,authority
+I1-003,Implementation scope is I1 only,authority and contract
+I1-004,Stage6 V1 bytes remain immutable,golden test
+I1-005,Stage6 V1 record IDs remain immutable,golden test
+I1-006,Strategy runtime core has no finam gateway dependency,checker
+I1-007,Dedicated V2 DTO inventory is complete,source checker
+I1-008,V2 order fact preserves optional broker and client IDs,source and tests
+I1-009,V2 trade fact preserves optional broker and client IDs,source and tests
+I1-010,V2 trade fact preserves source and received timestamps,source checker
+I1-011,Account safety summary preserves account and target safety counts,source checker
+I1-012,Pre append precondition preserves all four CAS fields,source checker
+I1-013,V2 event enum is separate from V1,source checker
+I1-014,V2 record has the exact ten-field causal envelope,source checker
+I1-015,V2 record ID reuses V1 request and sequence derivation,source and tests
+I1-016,V2 has no public constructor,compile fail and checker
+I1-017,V2 cannot bypass validation through generic Deserialize,compile fail
+I1-018,Version-aware surface has no append method,compile fail and checker
+I1-019,Record dispatch supports exactly schema one and two,tests
+I1-020,Unknown malformed and duplicate schema discriminators fail closed,tests
+I1-021,Malformed V2 never falls back to V1,tests
+I1-022,Frame magic storage schema and frame version remain unchanged,source checker
+I1-023,Mixed reader validates the existing frame hash chain,source and tests
+I1-024,V2 advances exact mixed causal frontier,source and tests
+I1-025,V2 does not apply V1 semantics or finalize directly,source and tests
+I1-026,Pending batch retains complete typed V2 transition,typed accessors and tests
+I1-027,Empty suffix is represented as complete,tests
+I1-028,Single-record suffix completes exactly,tests
+I1-029,Partial multi-record suffix retains missing remainder,tests
+I1-030,Complete multi-record suffix applies V1 semantics,tests
+I1-031,Unexpected suffix record fails closed,tests
+I1-032,Suffix source-evidence drift fails closed,tests
+I1-033,Suffix causal-link drift fails closed,tests
+I1-034,Exact duplicate V2 is idempotent,tests
+I1-035,Same stable key with different V2 content fails closed,tests
+I1-036,V2 after finalized request fails closed,tests
+I1-037,All six exact lookup variants remain discriminated,tests and goldens
+I1-038,Exact lookup durable binding mismatch fails closed,tests
+I1-039,Twenty canonical golden cases are exact,fixture and tests
+I1-040,Writer apply Redis FINAM dispatch runtime-live and real orders remain closed,authority and checker

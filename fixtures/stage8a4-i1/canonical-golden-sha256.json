@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "algorithm": "sha256",
+  "canonical_cases": {
+    "PlaceExactWorkingBrokerOrderIdPresent": "520903fbf5130ce54fce5be3b74233a0d74a8a4c53f6f402381ec4c95ef4ead2",
+    "PlaceExactWorkingBrokerOrderIdAbsent": "5aebe6752c0182fb02cebdb391381d5ae0cae3365abdcf8feb2be40ad760cd80",
+    "PlaceExactTerminalRejected": "0e3447c4dac2ae027a640d16cdfdd5ee53fecbc9546b5b30a105c3e98de93893",
+    "PlacePartialFillTradeBrokerOrderIdPresent": "ee3225f6315342006bb782af0f52950e0e1e7b635f5bab727404b971dbb34541",
+    "PlacePartialFillClientLinkedTradeBrokerOrderIdAbsent": "d2e5040544c9eb857bd85c2cf98a751fe92b3c007eb673a4fdee88d8cda61d4a",
+    "CancelExactWorking": "57c734ff9afc5aade73a1a89e412171c11ec72f66133c7ee50a7cb7dc29e8496",
+    "CancelTerminalCancelled": "affa4a196a688917ad92adebdbbe069e5093b3e22e76ba0bab73e5e4979b2f1f",
+    "ConflictHold": "1df199fd4f95ff939682b26ef86bc12eea9052407654e33b07b7b3abf965eb36",
+    "StillUnknownHold": "b23c2008f98a6584c56be500e7fbd13a035e53df4a74c1936ea047a5c1bee41f",
+    "ExactLookupNotAttempted": "1df199fd4f95ff939682b26ef86bc12eea9052407654e33b07b7b3abf965eb36",
+    "ExactLookupSucceededWithObservation": "819804db1a870dfcb06a2932e8605970535116291327e94767cecb37f178c745",
+    "ExactLookupDocumentedNotFound": "645692e21104d71b74aa9bde7d83f5a851fe973e59e2023cc6309c4b5c30620f",
+    "ExactLookupUnavailable": "e536516e36c38484427b1bf6738e1d3c950e245d9970647bfcd512068b3b1a5b",
+    "ExactLookupDecodeFailure": "bdcfe223c88fb0a3f2d0cbc6d53f92f2f6d164cd7da0cdc4f07eb33bb56a1ab8",
+    "ExactLookupStale": "0c343a08c26ba41eaf7d3c7a2eccbe5ff659032fa5798adb6f7131dbb0610634",
+    "MixedV1V2": "0986fc6ac6b7c08ec6486eb9daccb85427b0490aaaa871c7583190be2f6a9b74",
+    "MixedV1V2PartialV1Suffix": "a4d2b7ef5e03323201d1bf1a17951fb8332208fe0d6c976c31a34913f19ff8be",
+    "MixedV1V2CompleteV1Suffix": "da4f28b97c27aba3a51d1e53e41f625d06cddfb61c8d9219e8646a20082a5352",
+    "UnknownRecordSchemaVersionFailClosed": "2a72305bd17665437122185a8943ddccbbbdab762f79f8b5e0bc17ab331d990d",
+    "V1GoldenBytesUnchanged": "46a647e84c7c8042e4cd9dc83aa46c9a0e1c5db704110a25ca63787aeddd69fa"
+  }
+}

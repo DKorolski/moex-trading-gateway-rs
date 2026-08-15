@@ -14,7 +14,7 @@
 
 use crate::{
     Stage6DurableIdentityError, Stage6JournalRecordId, Stage6JournalRecordV1,
-    Stage6LifecycleSequence,
+    Stage6JournalRecordVersioned, Stage6LifecycleSequence,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -806,6 +806,20 @@ fn encode_frame(
     })
 }
 
+#[cfg(test)]
+pub(crate) fn frame_versioned_records_for_test(
+    records: &[Stage6JournalRecordVersioned],
+) -> Vec<u8> {
+    let mut bytes = journal_header().to_vec();
+    let mut previous = genesis_digest();
+    for record in records {
+        let frame = encode_frame(&record.encode_canonical(), previous).unwrap();
+        previous = frame.digest;
+        bytes.extend_from_slice(&frame.bytes);
+    }
+    bytes
+}
+
 fn validate_record_for_storage(
     record: &Stage6JournalRecordV1,
 ) -> Result<Vec<u8>, Stage6JournalStorageError> {
@@ -836,6 +850,115 @@ fn decode_persisted_record(
 
 fn scan_bytes(bytes: &[u8]) -> Result<ScannedJournal, Stage6JournalStorageError> {
     scan_reader(&mut std::io::Cursor::new(bytes), bytes.len() as u64)
+}
+
+pub(crate) fn scan_versioned_framed_bytes(
+    bytes: &[u8],
+) -> Result<Vec<Stage6JournalRecordVersioned>, Stage6JournalStorageError> {
+    let total_length = bytes.len() as u64;
+    let reader = &mut std::io::Cursor::new(bytes);
+    if total_length < JOURNAL_HEADER_BYTES as u64 {
+        return Err(Stage6JournalStorageError::InvalidJournalHeader);
+    }
+    let mut header = [0_u8; JOURNAL_HEADER_BYTES];
+    reader
+        .read_exact(&mut header)
+        .map_err(|_| Stage6JournalStorageError::InvalidJournalHeader)?;
+    if &header[..JOURNAL_MAGIC.len()] != JOURNAL_MAGIC {
+        return Err(Stage6JournalStorageError::InvalidJournalHeader);
+    }
+    let storage_version = u16::from_be_bytes(
+        header[JOURNAL_MAGIC.len()..]
+            .try_into()
+            .expect("fixed storage version width"),
+    );
+    if storage_version != STAGE6_JOURNAL_STORAGE_SCHEMA_VERSION {
+        return Err(Stage6JournalStorageError::UnsupportedStorageSchema {
+            found: storage_version,
+        });
+    }
+
+    let mut offset = JOURNAL_HEADER_BYTES as u64;
+    let mut previous = genesis_digest();
+    let mut records = Vec::new();
+    while offset < total_length {
+        let remaining = total_length - offset;
+        if remaining < (FRAME_PREFIX_BYTES + FRAME_HASH_BYTES) as u64 {
+            let mut tail = vec![0_u8; remaining as usize];
+            reader
+                .read_exact(&mut tail)
+                .map_err(|_| Stage6JournalStorageError::TornFrame)?;
+            if FRAME_MAGIC.starts_with(&tail[..tail.len().min(FRAME_MAGIC.len())]) {
+                return Err(Stage6JournalStorageError::TornFrame);
+            }
+            return Err(Stage6JournalStorageError::TrailingGarbage);
+        }
+        let mut prefix = [0_u8; FRAME_PREFIX_BYTES];
+        reader
+            .read_exact(&mut prefix)
+            .map_err(|_| Stage6JournalStorageError::TornFrame)?;
+        if &prefix[..FRAME_MAGIC.len()] != FRAME_MAGIC {
+            return Err(Stage6JournalStorageError::InvalidFrameHeader);
+        }
+        let frame_version =
+            u16::from_be_bytes(prefix[4..6].try_into().expect("fixed frame version width"));
+        if frame_version != FRAME_VERSION {
+            return Err(Stage6JournalStorageError::InvalidFrameHeader);
+        }
+        let declared = u32::from_be_bytes(prefix[6..10].try_into().expect("fixed length width"));
+        let record_length = validate_record_length(u64::from(declared))? as usize;
+        let frame_total = FRAME_PREFIX_BYTES
+            .checked_add(record_length)
+            .and_then(|value| value.checked_add(FRAME_HASH_BYTES))
+            .ok_or(Stage6JournalStorageError::InvalidFrameLength {
+                declared: u64::from(declared),
+            })?;
+        if frame_total as u64 > remaining {
+            return Err(Stage6JournalStorageError::TornFrame);
+        }
+        let stored_previous: [u8; FRAME_HASH_BYTES] = prefix[10..42]
+            .try_into()
+            .expect("fixed previous digest width");
+        if stored_previous != previous {
+            return Err(Stage6JournalStorageError::FrameChainMismatch);
+        }
+        let mut record_bytes = vec![0_u8; record_length];
+        reader
+            .read_exact(&mut record_bytes)
+            .map_err(|_| Stage6JournalStorageError::TornFrame)?;
+        let mut stored_hash = [0_u8; FRAME_HASH_BYTES];
+        reader
+            .read_exact(&mut stored_hash)
+            .map_err(|_| Stage6JournalStorageError::TornFrame)?;
+        let computed = frame_digest(declared, &stored_previous, &record_bytes);
+        if stored_hash != computed {
+            return Err(Stage6JournalStorageError::FrameHashMismatch);
+        }
+        let record =
+            Stage6JournalRecordVersioned::decode_canonical(&record_bytes).map_err(|source| {
+                match source {
+                    crate::Stage6ReconciliationV2Error::NonCanonicalEncoding => {
+                        Stage6JournalStorageError::NonCanonicalRecord
+                    }
+                    crate::Stage6ReconciliationV2Error::UnsupportedSchema(_) => {
+                        Stage6JournalStorageError::RecordDecodeFailed {
+                            source: Stage6DurableIdentityError::UnsupportedSchema,
+                        }
+                    }
+                    _ => Stage6JournalStorageError::RecordDecodeFailed {
+                        source: Stage6DurableIdentityError::DecodeFailed,
+                    },
+                }
+            })?;
+        offset = offset.checked_add(frame_total as u64).ok_or(
+            Stage6JournalStorageError::InvalidFrameLength {
+                declared: u64::from(declared),
+            },
+        )?;
+        previous = computed;
+        records.push(record);
+    }
+    Ok(records)
 }
 
 fn scan_reader(

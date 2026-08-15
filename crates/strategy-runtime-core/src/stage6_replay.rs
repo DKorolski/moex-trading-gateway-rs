@@ -198,7 +198,7 @@ impl Stage6ReplayEngineV1 {
 }
 
 #[derive(Debug)]
-struct WorkingRequest {
+pub(crate) struct WorkingRequest {
     identity: Stage6DurableRequestIdentityV1,
     accepted_payload_sha256: Stage6Sha256Digest,
     last_sequence: u64,
@@ -213,7 +213,7 @@ struct WorkingRequest {
 }
 
 impl WorkingRequest {
-    fn from_first(record: &Stage6JournalRecordV1) -> Result<Self, Stage6ReplayError> {
+    pub(crate) fn from_first(record: &Stage6JournalRecordV1) -> Result<Self, Stage6ReplayError> {
         if record.event_kind() != Stage6JournalEventKind::RequestAccepted
             || record.lifecycle_sequence().get() != 1
             || record.previous_record_id().is_some()
@@ -235,7 +235,10 @@ impl WorkingRequest {
         })
     }
 
-    fn apply(&mut self, record: &Stage6JournalRecordV1) -> Result<(), Stage6ReplayError> {
+    pub(crate) fn apply(
+        &mut self,
+        record: &Stage6JournalRecordV1,
+    ) -> Result<(), Stage6ReplayError> {
         self.validate_identity(record.durable_request_identity())?;
         if self.final_disposition.is_some() {
             return Err(Stage6ReplayError::EventAfterFinalization);
@@ -313,6 +316,32 @@ impl WorkingRequest {
         self.last_sequence = record.lifecycle_sequence().get();
         self.last_record_id = record.journal_record_id().clone();
         Ok(())
+    }
+
+    pub(crate) fn advance_causal_only(
+        &mut self,
+        identity: &Stage6DurableRequestIdentityV1,
+        sequence: crate::Stage6LifecycleSequence,
+        previous_record_id: Option<&Stage6JournalRecordId>,
+        record_id: Stage6JournalRecordId,
+    ) -> Result<(), Stage6ReplayError> {
+        self.validate_identity(identity)?;
+        if self.final_disposition.is_some() {
+            return Err(Stage6ReplayError::EventAfterFinalization);
+        }
+        if sequence.get() != self.last_sequence + 1 {
+            return Err(Stage6ReplayError::SequenceGap);
+        }
+        if previous_record_id != Some(&self.last_record_id) {
+            return Err(Stage6ReplayError::PreviousRecordMismatch);
+        }
+        self.last_sequence = sequence.get();
+        self.last_record_id = record_id;
+        Ok(())
+    }
+
+    pub(crate) fn is_finalized(&self) -> bool {
+        self.final_disposition.is_some()
     }
 
     fn validate_identity(
@@ -421,7 +450,7 @@ impl WorkingRequest {
         Ok(())
     }
 
-    fn into_recovered(self) -> Stage6RecoveredRequestV1 {
+    pub(crate) fn into_recovered(self) -> Stage6RecoveredRequestV1 {
         Stage6RecoveredRequestV1 {
             strategy_request_id: self.identity.strategy_request_id(),
             durable_client_order_id: self.identity.durable_client_order_id().clone(),

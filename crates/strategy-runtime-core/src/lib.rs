@@ -296,6 +296,7 @@ mod stage5g_protective_completion;
 mod stage5g_timer;
 mod stage6_durable_identity;
 mod stage6_journal_backend;
+mod stage6_reconciliation_v2;
 mod stage6_replay;
 mod stage6d_live_core;
 
@@ -325,6 +326,17 @@ pub use stage6_journal_backend::{
     Stage6JournalCheckpointV1, Stage6JournalFrontierV1, Stage6JournalStorageError,
     Stage6MemoryJournalBackend, Stage6OwnedJournalBackend, STAGE6_JOURNAL_MAX_RECORD_BYTES,
     STAGE6_JOURNAL_STORAGE_SCHEMA_VERSION,
+};
+pub use stage6_reconciliation_v2::{
+    Stage6AccountSafetySummaryV2, Stage6BrokerOrderFactV2, Stage6ExactLookupEvidenceV2,
+    Stage6ExactOrderObservationV2, Stage6JournalEventKindV2, Stage6JournalRecordV2,
+    Stage6JournalRecordVersioned, Stage6MaterialTradeFactV2, Stage6MixedReplayEngineV2,
+    Stage6MixedReplaySnapshotV2, Stage6PendingReconciliationBatchV2, Stage6PreAppendPreconditionV2,
+    Stage6ReconciliationBatchCompletionV2, Stage6ReconciliationEndpointKindV2,
+    Stage6ReconciliationFillEffectV2, Stage6ReconciliationLifecycleV2,
+    Stage6ReconciliationTransitionKindV2, Stage6ReconciliationTransitionPayloadV2,
+    Stage6ReconciliationV2Error, Stage6SuffixManifestEntryV2, Stage6SuffixManifestV2,
+    Stage6VersionedJournalReader, STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
 };
 pub use stage6_replay::{
     Stage6DispatchSafetyStateV1, Stage6RecoveredRequestV1, Stage6ReplayEngineV1, Stage6ReplayError,

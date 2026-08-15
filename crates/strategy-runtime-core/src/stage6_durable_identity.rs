@@ -187,7 +187,7 @@ impl Stage6DurableRequestIdentityV1 {
         self.action
     }
 
-    fn validate_self(&self) -> Result<(), Stage6DurableIdentityError> {
+    pub(crate) fn validate_self(&self) -> Result<(), Stage6DurableIdentityError> {
         if self.durable_client_order_id
             != ClientOrderId::from_strategy_request(self.strategy_request_id)
         {
@@ -566,7 +566,7 @@ impl Stage6Sha256Digest {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    fn of(bytes: &[u8]) -> Self {
+    pub(crate) fn of(bytes: &[u8]) -> Self {
         Self(hex_sha256(bytes))
     }
 }
@@ -582,7 +582,7 @@ impl<'de> Deserialize<'de> for Stage6Sha256Digest {
 pub struct Stage6JournalRecordId(String);
 
 impl Stage6JournalRecordId {
-    fn derive(request: StrategyRequestId, sequence: Stage6LifecycleSequence) -> Self {
+    pub(crate) fn derive(request: StrategyRequestId, sequence: Stage6LifecycleSequence) -> Self {
         let mut hasher = Sha256::new();
         hasher.update(b"stage6-journal-record-v1");
         hasher.update(request.as_uuid().as_bytes());
