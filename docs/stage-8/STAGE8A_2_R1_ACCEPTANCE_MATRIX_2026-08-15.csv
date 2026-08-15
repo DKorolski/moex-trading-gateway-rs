@@ -1,0 +1,51 @@
+id,group,requirement,expected,mandatory
+S8A2R1-001,lineage,Accepted Stage8A1 ref is exact,1ff04154 full ref,YES
+S8A2R1-002,lineage,Accepted Stage8A1 archive hash is exact,accepted immutable hash,YES
+S8A2R1-003,lineage,Transition review hash is exact,review authority pinned,YES
+S8A2R1-004,lineage,R1 TZ hash is exact,TZ authority pinned,YES
+S8A2R1-005,scope,Successor changed paths are exact,unexplained path fails,YES
+S8A2R1-006,scope,Accepted predecessor is checked detached,current source cannot substitute,YES
+S8A2R1-007,scope,Stage8A1 successor delta is minimal,only child declaration and export,YES
+S8A2R1-008,authority,Only current continuation is accepted,older capability insufficient,YES
+S8A2R1-009,authority,Continuation is consumed by value,no reuse,YES
+S8A2R1-010,authority,Continuation state hash is coherent,mismatch fails before sink,YES
+S8A2R1-011,authority,Continuation expiry is checked,expired fails before sink,YES
+S8A2R1-012,authority,PLACE scope matches PLACE arm,mismatch fails,YES
+S8A2R1-013,authority,CANCEL scope matches CANCEL arm,mismatch fails,YES
+S8A2R1-014,authority,Request identity matches approved command,mismatch fails,YES
+S8A2R1-015,builder,Existing PLACE builder is sole PLACE builder,exact function used,YES
+S8A2R1-016,builder,Existing CANCEL builder is sole CANCEL builder,exact function used,YES
+S8A2R1-017,builder,PLACE outgoing comment is None,Some is forbidden,YES
+S8A2R1-018,golden,MARKET maps to MARKET plus DAY,exact builder parity,YES
+S8A2R1-019,golden,MARKET has no limit price,redacted shape proves absent,YES
+S8A2R1-020,golden,LIMIT maps to LIMIT plus DAY,exact builder parity,YES
+S8A2R1-021,golden,LIMIT preserves canonical price,shape fingerprint parity,YES
+S8A2R1-022,golden,PLACE preserves durable ClientOrderId,exact builder parity,YES
+S8A2R1-023,golden,CANCEL preserves account mapping,shape fingerprint parity,YES
+S8A2R1-024,golden,CANCEL preserves string BrokerOrderId,no numeric surrogate,YES
+S8A2R1-025,malformed,Malformed order cannot create continuation,no sink effect,YES
+S8A2R1-026,malformed,Invalid continuation is rejected,no sink effect,YES
+S8A2R1-027,opacity,Witness is private,not externally constructible,YES
+S8A2R1-028,opacity,Witness is non Debug and non Serialize,no raw diagnostic,YES
+S8A2R1-029,opacity,Approved command cannot be extracted,compile fail,YES
+S8A2R1-030,opacity,Raw PLACE spec cannot be returned,compile fail,YES
+S8A2R1-031,opacity,Raw CANCEL spec cannot be returned,compile fail,YES
+S8A2R1-032,opacity,Raw body and path cannot be returned,no getter,YES
+S8A2R1-033,sink,Sink is deterministic in memory,no network client,YES
+S8A2R1-034,sink,Successful composition records one effect,sequence increments once,YES
+S8A2R1-035,sink,Rejected composition records zero effects,count unchanged,YES
+S8A2R1-036,sink,Only redacted diagnostic leaves sink,no raw spec,YES
+S8A2R1-037,closed_surface,Historical real transport is not imported,escape blocked,YES
+S8A2R1-038,closed_surface,EndpointGateApproved is not imported,escape blocked,YES
+S8A2R1-039,closed_surface,No reqwest post delete or send,new path no network,YES
+S8A2R1-040,closed_surface,No one shot feature route,new path cannot enable legacy send,YES
+S8A2R1-041,closed_surface,No HTTP classifier,Stage8A3 remains closed,YES
+S8A2R1-042,closed_surface,No reconciliation or ProvenNoMatch,Stage8A4 remains closed,YES
+S8A2R1-043,closed_surface,No Redis live consumer or dispatch,runtime path closed,YES
+S8A2R1-044,closed_surface,No real strategy orders,live remains closed,YES
+S8A2R1-045,closed_surface,No protective or multi leg behavior,later scope closed,YES
+S8A2R1-046,negative,Semantic mutation inventory is exact,37 cases,YES
+S8A2R1-047,negative,All semantic mutations fail closed,37 of 37 rejected,YES
+S8A2R1-048,tooling,Focused tests doctests and clippy pass,recorded evidence,YES
+S8A2R1-049,tooling,Debug release and workspace gates pass,recorded evidence,YES
+S8A2R1-050,governance,Acceptance opens Stage8A3 only,no send or later stage,YES

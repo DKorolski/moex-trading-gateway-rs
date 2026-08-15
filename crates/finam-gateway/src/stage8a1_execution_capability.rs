@@ -72,6 +72,13 @@
 //! let _ = Stage8a1AuthorityRoot {};
 //! ```
 
+mod stage8a2_builder_composition;
+
+pub use stage8a2_builder_composition::{
+    Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError,
+    Stage8a2InMemoryNoSendSink, Stage8a2RequestShapeKind,
+};
+
 use broker_core::{
     AccountId, BrokerKind, BrokerMarketSessionState, BrokerReadinessSnapshot, BrokerTruthSnapshot,
     CancelOrder, CancelPreflightApproval, InstrumentId, OrderPathRecord, OrderPreflightContext,

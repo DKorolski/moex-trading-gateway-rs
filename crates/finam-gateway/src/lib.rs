@@ -25,7 +25,8 @@ pub use stage8a1_execution_capability::{
     Stage8a1FrozenExecutionPolicy, Stage8a1KillSwitchAuthority, Stage8a1MicroBudgetAuthority,
     Stage8a1OperationalAuthorityIssuer, Stage8a1OperatorArmAuthority, Stage8a1ReadinessAuthority,
     Stage8a1ScheduleAuthority, Stage8a1TrustedClockAuthority, Stage8a1TrustedCurrentSources,
-    Stage8a1ZeroAmbiguityAuthority,
+    Stage8a1ZeroAmbiguityAuthority, Stage8a2BuilderCompositionDiagnostic,
+    Stage8a2BuilderCompositionError, Stage8a2InMemoryNoSendSink, Stage8a2RequestShapeKind,
 };
 
 use std::collections::{HashMap, HashSet};
