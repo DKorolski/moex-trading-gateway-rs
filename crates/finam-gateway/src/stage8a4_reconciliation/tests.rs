@@ -6,6 +6,7 @@ use broker_core::{
 use uuid::Uuid;
 
 const FP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const FP_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
 fn instrument() -> InstrumentId {
     InstrumentId {
@@ -83,12 +84,16 @@ fn timing(now: DateTime<Utc>) -> Stage8a4SourceTiming {
     }
 }
 
-fn evidence(now: DateTime<Utc>, context: &Stage8a4DurableRequestContext) -> Stage8a4SourceEvidence {
+fn evidence(
+    now: DateTime<Utc>,
+    context: &Stage8a4DurableRequestContext,
+    snapshot: &BrokerTruthSnapshot,
+) -> Stage8a4SourceEvidence {
     let intervals = vec![Stage8a4TradeIntervalProof {
         start_inclusive: context.event_start,
         end_exclusive: context.event_end,
         requested_limit: 100,
-        returned_count: 1,
+        returned_count: snapshot.trades.len(),
         request_started_at: now - Duration::seconds(4),
         response_received_at: now - Duration::seconds(3),
         split_depth: 0,
@@ -109,6 +114,7 @@ fn evidence(now: DateTime<Utc>, context: &Stage8a4DurableRequestContext) -> Stag
             timing: timing(now),
         },
         exact_order_observation: None,
+        canonical_truth_payload_sha256: canonical_truth_binding(snapshot),
         acquisition_policy_sha256: FP.into(),
     }
 }
@@ -183,12 +189,10 @@ fn reconcile(
     context: Stage8a4DurableRequestContext,
     truth: BrokerTruthSnapshot,
 ) -> Stage8a4ReconciliationDiagnostic {
-    let mut evidence = evidence(now, &context);
-    evidence.trades.intervals[0].returned_count = truth.trades.len();
-    let refs = evidence.trades.intervals.iter().collect::<Vec<_>>();
-    evidence.trades.interval_coverage_sha256 = interval_coverage_fingerprint(&refs);
-    let admitted = admit_stage8a4_broker_truth(&context, &policy(now), truth, evidence).unwrap();
-    reduce_stage8a4_reconciliation(context, admitted, policy(now))
+    let evidence = evidence(now, &context, &truth);
+    let policy = policy(now);
+    let admitted = admit_stage8a4_broker_truth(&context, &policy, truth, evidence).unwrap();
+    reduce_stage8a4_reconciliation(context, admitted, policy)
 }
 
 fn admission_error(
@@ -336,11 +340,6 @@ fn identical_trade_duplicates_count_once_and_conflicting_duplicates_fail() {
 fn saturated_or_gapped_trade_history_is_not_admitted_even_with_identical_timestamps() {
     let now = Utc::now();
     let context = context(now, OrderType::Limit, Some(Decimal::from(2210)), None);
-    let mut saturated = evidence(now, &context);
-    saturated.trades.intervals[0].requested_limit = 2;
-    saturated.trades.intervals[0].returned_count = 2;
-    let refs = saturated.trades.intervals.iter().collect::<Vec<_>>();
-    saturated.trades.interval_coverage_sha256 = interval_coverage_fingerprint(&refs);
     let snapshot = truth(
         now,
         vec![order(
@@ -355,6 +354,10 @@ fn saturated_or_gapped_trade_history_is_not_admitted_even_with_identical_timesta
             trade(now, "TRADE-2", Decimal::ONE, 3),
         ],
     );
+    let mut saturated = evidence(now, &context, &snapshot);
+    saturated.trades.intervals[0].requested_limit = 2;
+    let refs = saturated.trades.intervals.iter().collect::<Vec<_>>();
+    saturated.trades.interval_coverage_sha256 = interval_coverage_fingerprint(&refs);
     let rejected = admission_error(admit_stage8a4_broker_truth(
         &context,
         &policy(now),
@@ -363,14 +366,15 @@ fn saturated_or_gapped_trade_history_is_not_admitted_even_with_identical_timesta
     ));
     assert_eq!(rejected.outcome, Stage8a4OutcomeKind::StillUnknown);
 
-    let mut gapped = evidence(now, &context);
+    let empty_snapshot = truth(now, vec![], vec![]);
+    let mut gapped = evidence(now, &context, &empty_snapshot);
     gapped.trades.intervals[0].start_inclusive = context.event_start + Duration::seconds(1);
     let refs = gapped.trades.intervals.iter().collect::<Vec<_>>();
     gapped.trades.interval_coverage_sha256 = interval_coverage_fingerprint(&refs);
     let rejected = admission_error(admit_stage8a4_broker_truth(
         &context,
         &policy(now),
-        truth(now, vec![], vec![]),
+        empty_snapshot,
         gapped,
     ));
     assert_eq!(
@@ -388,14 +392,11 @@ fn exact_lookup_not_found_never_becomes_no_match_and_disagreement_conflicts() {
         Some(Decimal::from(2210)),
         Some(BrokerOrderId::new("BROKER-ORDER-1")),
     );
-    let not_found = evidence(now, &first_context);
-    let admitted = admit_stage8a4_broker_truth(
-        &first_context,
-        &policy(now),
-        truth(now, vec![], vec![]),
-        not_found,
-    )
-    .unwrap();
+    let empty_snapshot = truth(now, vec![], vec![]);
+    let not_found = evidence(now, &first_context, &empty_snapshot);
+    let admitted =
+        admit_stage8a4_broker_truth(&first_context, &policy(now), empty_snapshot, not_found)
+            .unwrap();
     let result = reduce_stage8a4_reconciliation(first_context, admitted, policy(now));
     assert_eq!(result.outcome, Stage8a4OutcomeKind::StillUnknown);
 
@@ -405,7 +406,8 @@ fn exact_lookup_not_found_never_becomes_no_match_and_disagreement_conflicts() {
         Some(Decimal::from(2210)),
         Some(BrokerOrderId::new("BROKER-ORDER-1")),
     );
-    let mut disagreement = evidence(now, &context);
+    let empty_snapshot = truth(now, vec![], vec![]);
+    let mut disagreement = evidence(now, &context, &empty_snapshot);
     let mut exact = order(
         now,
         OrderStatus::Working,
@@ -414,11 +416,14 @@ fn exact_lookup_not_found_never_becomes_no_match_and_disagreement_conflicts() {
         Some(Decimal::from(2210)),
     );
     exact.broker_order_id = Some(BrokerOrderId::new("OTHER"));
-    disagreement.exact_order_observation = Some(exact);
+    disagreement.exact_order_observation = Some(Stage8a4ExactOrderObservation {
+        order: exact,
+        timing: timing(now),
+    });
     let rejected = admission_error(admit_stage8a4_broker_truth(
         &context,
         &policy(now),
-        truth(now, vec![], vec![]),
+        empty_snapshot,
         disagreement,
     ));
     assert_eq!(rejected.outcome, Stage8a4OutcomeKind::Conflict);
@@ -575,10 +580,10 @@ fn exact_lookup_unavailable_is_also_non_terminal() {
         None,
         Some(BrokerOrderId::new("BROKER-ORDER-1")),
     );
-    let evidence = evidence(now, &context);
+    let empty_snapshot = truth(now, vec![], vec![]);
+    let evidence = evidence(now, &context, &empty_snapshot);
     let admitted =
-        admit_stage8a4_broker_truth(&context, &policy(now), truth(now, vec![], vec![]), evidence)
-            .unwrap();
+        admit_stage8a4_broker_truth(&context, &policy(now), empty_snapshot, evidence).unwrap();
     let result = reduce_stage8a4_reconciliation(context, admitted, policy(now));
     assert_eq!(result.outcome, Stage8a4OutcomeKind::StillUnknown);
     assert!(!result.retry_authorized && !result.send_authorized);
@@ -764,20 +769,23 @@ fn exact_lookup_does_not_replace_account_wide_safety_snapshot() {
         Some(Decimal::from(2210)),
         Some(BrokerOrderId::new("BROKER-ORDER-1")),
     );
-    let mut evidence = evidence(now, &context);
-    evidence.exact_order_observation = Some(order(
-        now,
-        OrderStatus::Working,
-        Decimal::ZERO,
-        OrderType::Limit,
-        Some(Decimal::from(2210)),
-    ));
+    let empty_snapshot = truth(now, vec![], vec![]);
+    let mut evidence = evidence(now, &context, &empty_snapshot);
+    evidence.exact_order_observation = Some(Stage8a4ExactOrderObservation {
+        order: order(
+            now,
+            OrderStatus::Working,
+            Decimal::ZERO,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+        ),
+        timing: timing(now),
+    });
     evidence.instruments = Stage8a4InstrumentCompletenessEvidence::FullRegistryCursorExhausted {
         timing: timing(now),
     };
     let admitted =
-        admit_stage8a4_broker_truth(&context, &policy(now), truth(now, vec![], vec![]), evidence)
-            .unwrap();
+        admit_stage8a4_broker_truth(&context, &policy(now), empty_snapshot, evidence).unwrap();
     assert_eq!(admitted.account_active_orders_count, 0);
     assert_eq!(admitted.target_active_orders_count, 0);
     let result = reduce_stage8a4_reconciliation(context, admitted, policy(now));
@@ -789,7 +797,8 @@ fn exact_lookup_does_not_replace_account_wide_safety_snapshot() {
 fn cross_source_skew_fails_admission() {
     let now = Utc::now();
     let context = context(now, OrderType::Market, None, None);
-    let mut evidence = evidence(now, &context);
+    let empty_snapshot = truth(now, vec![], vec![]);
+    let mut evidence = evidence(now, &context, &empty_snapshot);
     evidence.positions.timing.response_received_at = now - Duration::seconds(12);
     evidence.positions.timing.request_started_at = now - Duration::seconds(13);
     let mut strict_policy = policy(now);
@@ -797,7 +806,7 @@ fn cross_source_skew_fails_admission() {
     let result = admission_error(admit_stage8a4_broker_truth(
         &context,
         &strict_policy,
-        truth(now, vec![], vec![]),
+        empty_snapshot,
         evidence,
     ));
     assert_eq!(result.reason, Stage8a4ReconciliationReason::SourceStale);
@@ -844,5 +853,379 @@ fn unknown_status_and_missing_exact_shape_remain_unknown() {
     assert_eq!(
         missing.reason,
         Stage8a4ReconciliationReason::MissingRequiredShape
+    );
+}
+
+#[test]
+fn admission_cannot_be_reduced_with_another_durable_context() {
+    let now = Utc::now();
+    let context_a = context(now, OrderType::Market, None, None);
+    let snapshot = truth(now, vec![], vec![]);
+    let policy = policy(now);
+    let admitted = admit_stage8a4_broker_truth(
+        &context_a,
+        &policy,
+        snapshot.clone(),
+        evidence(now, &context_a, &snapshot),
+    )
+    .unwrap();
+    let mut context_b = context(now, OrderType::Market, None, None);
+    context_b.durable_binding_sha256 = FP_B.into();
+    let result = reduce_stage8a4_reconciliation(context_b, admitted, policy);
+    assert_eq!(result.outcome, Stage8a4OutcomeKind::StillUnknown);
+    assert_eq!(
+        result.reason,
+        Stage8a4ReconciliationReason::SourceIncomplete
+    );
+}
+
+#[test]
+fn admission_cannot_be_reduced_with_another_policy() {
+    let now = Utc::now();
+    let context = context(now, OrderType::Market, None, None);
+    let snapshot = truth(now, vec![], vec![]);
+    let policy_a = policy(now);
+    let admitted = admit_stage8a4_broker_truth(
+        &context,
+        &policy_a,
+        snapshot.clone(),
+        evidence(now, &context, &snapshot),
+    )
+    .unwrap();
+    let mut policy_b = policy(now);
+    policy_b.policy_binding_sha256 = FP_B.into();
+    let result = reduce_stage8a4_reconciliation(context, admitted, policy_b);
+    assert_eq!(result.outcome, Stage8a4OutcomeKind::StillUnknown);
+    assert_eq!(
+        result.reason,
+        Stage8a4ReconciliationReason::SourceIncomplete
+    );
+}
+
+#[test]
+fn source_evidence_cannot_be_paired_with_another_canonical_payload() {
+    let now = Utc::now();
+    let context = context(now, OrderType::Limit, Some(Decimal::from(2210)), None);
+    let snapshot_a = truth(now, vec![], vec![]);
+    let snapshot_b = truth(
+        now,
+        vec![order(
+            now,
+            OrderStatus::Working,
+            Decimal::ZERO,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+        )],
+        vec![],
+    );
+    let rejected = admission_error(admit_stage8a4_broker_truth(
+        &context,
+        &policy(now),
+        snapshot_b,
+        evidence(now, &context, &snapshot_a),
+    ));
+    assert_eq!(rejected.outcome, Stage8a4OutcomeKind::StillUnknown);
+    assert_eq!(
+        rejected.reason,
+        Stage8a4ReconciliationReason::SourceIncomplete
+    );
+}
+
+#[test]
+fn exact_get_request_started_before_possible_effect_is_rejected() {
+    let now = Utc::now();
+    let context = context(
+        now,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+        Some(BrokerOrderId::new("BROKER-ORDER-1")),
+    );
+    let snapshot = truth(now, vec![], vec![]);
+    let mut evidence = evidence(now, &context, &snapshot);
+    evidence.exact_order_observation = Some(Stage8a4ExactOrderObservation {
+        order: order(
+            now,
+            OrderStatus::Working,
+            Decimal::ZERO,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+        ),
+        timing: Stage8a4SourceTiming {
+            request_started_at: context.possible_effect_at - Duration::milliseconds(1),
+            response_received_at: now - Duration::seconds(3),
+        },
+    });
+    let rejected = admission_error(admit_stage8a4_broker_truth(
+        &context,
+        &policy(now),
+        snapshot,
+        evidence,
+    ));
+    assert_eq!(rejected.outcome, Stage8a4OutcomeKind::StillUnknown);
+    assert_eq!(
+        rejected.reason,
+        Stage8a4ReconciliationReason::SourceIncomplete
+    );
+}
+
+#[test]
+fn exact_get_staleness_and_cross_source_skew_are_rejected() {
+    let now = Utc::now();
+    let mut context = context(
+        now,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+        Some(BrokerOrderId::new("BROKER-ORDER-1")),
+    );
+    context.possible_effect_at = now - Duration::minutes(5);
+    let snapshot = truth(now, vec![], vec![]);
+    let mut stale = evidence(now, &context, &snapshot);
+    let mut stale_order = order(
+        now,
+        OrderStatus::Working,
+        Decimal::ZERO,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    stale_order.received_ts = now - Duration::minutes(3);
+    stale.exact_order_observation = Some(Stage8a4ExactOrderObservation {
+        order: stale_order,
+        timing: Stage8a4SourceTiming {
+            request_started_at: now - Duration::minutes(3) - Duration::seconds(1),
+            response_received_at: now - Duration::minutes(3),
+        },
+    });
+    let rejected = admission_error(admit_stage8a4_broker_truth(
+        &context,
+        &policy(now),
+        snapshot.clone(),
+        stale,
+    ));
+    assert_eq!(rejected.reason, Stage8a4ReconciliationReason::SourceStale);
+
+    context.possible_effect_at = now - Duration::seconds(30);
+    let mut skewed = evidence(now, &context, &snapshot);
+    let mut skewed_order = order(
+        now,
+        OrderStatus::Working,
+        Decimal::ZERO,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    skewed_order.received_ts = now - Duration::seconds(19);
+    skewed.exact_order_observation = Some(Stage8a4ExactOrderObservation {
+        order: skewed_order,
+        timing: Stage8a4SourceTiming {
+            request_started_at: now - Duration::seconds(20),
+            response_received_at: now - Duration::seconds(19),
+        },
+    });
+    let mut strict = policy(now);
+    strict.max_cross_source_skew = Duration::seconds(5);
+    let rejected = admission_error(admit_stage8a4_broker_truth(
+        &context, &strict, snapshot, skewed,
+    ));
+    assert_eq!(rejected.reason, Stage8a4ReconciliationReason::SourceStale);
+}
+
+#[test]
+fn tier1_client_match_cannot_hide_broker_id_contradiction() {
+    let now = Utc::now();
+    let context = context(
+        now,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+        Some(BrokerOrderId::new("BROKER-ORDER-1")),
+    );
+    let mut selected = order(
+        now,
+        OrderStatus::Working,
+        Decimal::ZERO,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    selected.broker_order_id = Some(BrokerOrderId::new("BROKER-ORDER-2"));
+    let result = reconcile(now, context, truth(now, vec![selected], vec![]));
+    assert_eq!(result.outcome, Stage8a4OutcomeKind::Conflict);
+    assert_eq!(
+        result.reason,
+        Stage8a4ReconciliationReason::ExactIdentityDisagreement
+    );
+}
+
+#[test]
+fn tier2_broker_match_cannot_hide_client_id_contradiction() {
+    let now = Utc::now();
+    let context = context(
+        now,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+        Some(BrokerOrderId::new("BROKER-ORDER-1")),
+    );
+    let mut selected = order(
+        now,
+        OrderStatus::Working,
+        Decimal::ZERO,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    selected.client_order_id = Some(ClientOrderId::new("CLIENT-OTHER").unwrap());
+    let result = reconcile(now, context, truth(now, vec![selected], vec![]));
+    assert_eq!(result.outcome, Stage8a4OutcomeKind::Conflict);
+    assert_eq!(
+        result.reason,
+        Stage8a4ReconciliationReason::ExactIdentityDisagreement
+    );
+}
+
+#[test]
+fn tier3_shape_cannot_override_explicit_client_id_contradiction() {
+    let now = Utc::now();
+    let mut selected = order(
+        now,
+        OrderStatus::Working,
+        Decimal::ZERO,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    selected.client_order_id = Some(ClientOrderId::new("CLIENT-OTHER").unwrap());
+    selected.broker_order_id = None;
+    let result = reconcile(
+        now,
+        context(now, OrderType::Limit, Some(Decimal::from(2210)), None),
+        truth(now, vec![selected], vec![]),
+    );
+    assert_eq!(result.outcome, Stage8a4OutcomeKind::Conflict);
+    assert_eq!(
+        result.reason,
+        Stage8a4ReconciliationReason::ExactIdentityDisagreement
+    );
+}
+
+#[test]
+fn supporting_trade_secondary_exact_identity_contradiction_is_conflict() {
+    let now = Utc::now();
+    for mut contradictory in [
+        trade(now, "TRADE-CLIENT-CONFLICT", Decimal::from(2), 3),
+        trade(now, "TRADE-BROKER-CONFLICT", Decimal::from(2), 3),
+    ] {
+        if contradictory.broker_trade_id.as_str() == "TRADE-CLIENT-CONFLICT" {
+            contradictory.client_order_id = Some(ClientOrderId::new("CLIENT-OTHER").unwrap());
+        } else {
+            contradictory.broker_order_id = Some(BrokerOrderId::new("BROKER-ORDER-2"));
+        }
+        let result = reconcile(
+            now,
+            context(now, OrderType::Limit, Some(Decimal::from(2210)), None),
+            truth(
+                now,
+                vec![order(
+                    now,
+                    OrderStatus::PartiallyFilled,
+                    Decimal::from(2),
+                    OrderType::Limit,
+                    Some(Decimal::from(2210)),
+                )],
+                vec![contradictory],
+            ),
+        );
+        assert_eq!(result.outcome, Stage8a4OutcomeKind::Conflict);
+        assert_eq!(
+            result.reason,
+            Stage8a4ReconciliationReason::TradeIdentityConflict
+        );
+    }
+}
+
+#[test]
+fn equal_material_duplicate_receipt_order_is_byte_stable() {
+    let now = Utc::now();
+    let first = trade(now, "TRADE-DUP", Decimal::from(2), 3);
+    let mut second = first.clone();
+    second.received_ts = now - Duration::seconds(2);
+    let selected = order(
+        now,
+        OrderStatus::PartiallyFilled,
+        Decimal::from(2),
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    let left = reconcile(
+        now,
+        context(now, OrderType::Limit, Some(Decimal::from(2210)), None),
+        truth(
+            now,
+            vec![selected.clone()],
+            vec![first.clone(), second.clone()],
+        ),
+    );
+    let right = reconcile(
+        now,
+        context(now, OrderType::Limit, Some(Decimal::from(2210)), None),
+        truth(now, vec![selected], vec![second, first]),
+    );
+    assert_eq!(
+        serde_json::to_vec(&left).unwrap(),
+        serde_json::to_vec(&right).unwrap()
+    );
+    assert_eq!(
+        left.trade_summary_binding_sha256,
+        right.trade_summary_binding_sha256
+    );
+    assert_eq!(left.semantic_binding_sha256, right.semantic_binding_sha256);
+}
+
+#[test]
+fn identical_context_policy_truth_tuple_replays_byte_stably() {
+    let now = Utc::now();
+    let run = || {
+        reconcile(
+            now,
+            context(now, OrderType::Limit, Some(Decimal::from(2210)), None),
+            truth(
+                now,
+                vec![order(
+                    now,
+                    OrderStatus::PartiallyFilled,
+                    Decimal::from(2),
+                    OrderType::Limit,
+                    Some(Decimal::from(2210)),
+                )],
+                vec![trade(now, "TRADE-REPLAY", Decimal::from(2), 3)],
+            ),
+        )
+    };
+    assert_eq!(
+        serde_json::to_vec(&run()).unwrap(),
+        serde_json::to_vec(&run()).unwrap()
+    );
+}
+
+#[test]
+fn non_exact_diagnostic_is_byte_stable_under_canonical_row_reordering() {
+    let now = Utc::now();
+    let first = order(
+        now,
+        OrderStatus::Working,
+        Decimal::ZERO,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    let mut second = first.clone();
+    second.broker_order_id = Some(BrokerOrderId::new("BROKER-ORDER-2"));
+    let left = reconcile(
+        now,
+        context(now, OrderType::Limit, Some(Decimal::from(2210)), None),
+        truth(now, vec![first.clone(), second.clone()], vec![]),
+    );
+    let right = reconcile(
+        now,
+        context(now, OrderType::Limit, Some(Decimal::from(2210)), None),
+        truth(now, vec![second, first], vec![]),
+    );
+    assert_eq!(left.outcome, Stage8a4OutcomeKind::Conflict);
+    assert_eq!(
+        serde_json::to_vec(&left).unwrap(),
+        serde_json::to_vec(&right).unwrap()
     );
 }

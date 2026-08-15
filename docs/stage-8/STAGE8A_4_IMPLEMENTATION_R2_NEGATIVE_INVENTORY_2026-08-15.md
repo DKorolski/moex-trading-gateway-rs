@@ -1,6 +1,7 @@
-# Stage 8A-4 implementation R1 negative inventory
+# Stage 8A-4 implementation R2 negative inventory
 
-The mandatory harness executes 40 exact fail-closed mutations:
+The mandatory R2 harness retains the 40 R1 mutations and executes 50 exact
+fail-closed mutations in total:
 
 1. accepted design ref drift;
 2. accepted review hash drift;
@@ -42,6 +43,16 @@ The mandatory harness executes 40 exact fail-closed mutations:
 38. exact lookup injected into account-wide list;
 39. forbidden network token inserted;
 40. historical reconciliation authority imported.
+41. admission durable binding removed;
+42. admission policy binding removed;
+43. reducer context cross-pair check removed;
+44. reducer policy cross-pair check removed;
+45. canonical payload equality weakened;
+46. exact GET request timing wrapper removed;
+47. selected-order identity validator removed;
+48. supporting-trade secondary identity conflict weakened;
+49. material trade summary replaced with raw representative serialization;
+50. non-exact request/admission binding removed.
 
 Every mutation must make `stage8a4_implementation_check.py` fail. Merely
 mentioning a forbidden token in this inventory is not production activation;

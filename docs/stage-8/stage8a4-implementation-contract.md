@@ -1,4 +1,4 @@
-# Stage 8A-4 implementation R1 — pure reconciliation reducer
+# Stage 8A-4 implementation R2 — pure reconciliation reducer
 
 ## Authority
 
@@ -17,7 +17,14 @@ redacted diagnostic. It does not persist, publish, retry, resend or dispatch.
 and completeness evidence have no public constructors. Their fields are
 private and they are not `Clone`, `Debug`, `Serialize` or `Deserialize`.
 
-`Stage8a4FreshTruthAdmission` owns the admitted truth. The reducer consumes the
+`Stage8a4FreshTruthAdmission` owns the admitted truth and privately retains the
+exact durable-binding, policy-binding and source-evidence-binding hashes under
+which it was minted. The reducer rejects cross-paired context or policy before
+candidate selection. Source evidence carries the exact canonical truth
+multiset hash, and raw trade response count must equal the admitted raw trade
+vector length.
+
+The reducer consumes the
 durable context, admission and policy and returns only
 `Stage8a4ReconciliationDiagnostic`. That diagnostic contains redacted hashes,
 bounded counts and semantic state. It contains no raw account, instrument,
@@ -32,7 +39,8 @@ order, trade, request or client-order identifier.
 - Trades use a policy-bound, gap-free union of inclusive-start/exclusive-end
   intervals. Saturated intervals are never complete. Their next midpoint split
   is deterministic and bounded by sealed depth and interval-count limits.
-- Exact GET-order observation is optional tier-2 evidence. It cannot replace
+- Exact GET-order observation is a typed order plus HTTP request-start and
+  response-received timing proof. It is optional tier-2 evidence. It cannot replace
   the account-wide orders snapshot and absence cannot prove no match.
 - Every source is post-effect, fresh, account-scoped and cross-source-skew
   checked before admission.
@@ -48,12 +56,22 @@ disagreement are `Conflict`; missing required shape and no candidate are
 
 `BrokerTradeId` is the primary trade identity. Equal duplicates count once;
 conflicting material duplicates are `Conflict`. Deduplicated matching trade
-quantity must equal selected order `filled_qty`.
+quantity must equal selected order `filled_qty`. The summary hashes a canonical
+material view ordered by trade ID and excludes non-material `received_ts`.
+
+At every tier, a present client or broker identity contradictory to the durable
+request is `Conflict`. A supporting trade that matches one exact identity but
+contradicts the other is also `Conflict`; a trade with no matching identity is
+unrelated and ignored.
 
 Exact state keeps lifecycle and fill effect orthogonal. A cancelled or expired
 order may therefore retain a partial fill. Unknown status remains
 `StillUnknown`. Shuffled source rows and duplicate ordering produce the same
 serialized diagnostic and semantic binding.
+
+`Conflict` and `StillUnknown` semantic bindings include the current durable
+request, policy, admission and source-evidence bindings. Canonical broker-truth
+row multisets are order-independent, so replay/shuffle stability is preserved.
 
 ## Closed surfaces
 

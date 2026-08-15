@@ -57,13 +57,13 @@ root = target.parent
 results = sorted(path.name for path in root.glob("*.result.txt"))
 target.write_text(json.dumps({
     "schema_version": 1,
-    "stage": "8A-4-implementation-R1",
+    "stage": "8A-4-implementation-R2",
     "result": "PASS",
     "gate_count": len(results),
     "gates": results,
-    "acceptance_rows": 72,
-    "negative_cases": 40,
-    "focused_tests": 16,
+    "acceptance_rows": 86,
+    "negative_cases": 50,
+    "focused_tests": 28,
     "compile_fail_doctests": 3,
     "pure_reducer": True,
     "durable_apply_authorized": False,
@@ -77,4 +77,4 @@ target.write_text(json.dumps({
 }, indent=2, sort_keys=True) + "\n")
 PY
 
-echo "stage8a4-implementation-r1-gate: PASS rows=72 negatives=40 tests=16 pure-reducer=true execution=false"
+echo "stage8a4-implementation-r2-gate: PASS rows=86 negatives=50 tests=28 pure-reducer=true execution=false"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify and print the 72-row Stage 8A-4 R1 proof map."""
+"""Verify and print the 86-row Stage 8A-4 R2 proof map."""
 
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ def main() -> None:
         if "authority" in evidence or "contract" in evidence:
             assert "8A-4" in contract
         print(f"PASS {row['id']} {row['requirement']}")
-    if len(rows) != 72:
+    if len(rows) != 86:
         raise SystemExit("stage8a4-implementation-proof-map: FAIL row count")
-    print("stage8a4-implementation-proof-map: PASS 72/72")
+    print("stage8a4-implementation-proof-map: PASS 86/86")
 
 
 if __name__ == "__main__":

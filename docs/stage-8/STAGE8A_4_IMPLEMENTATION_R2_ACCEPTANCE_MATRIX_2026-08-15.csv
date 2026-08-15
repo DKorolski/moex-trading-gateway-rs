@@ -69,5 +69,19 @@ I067,No FINAM POST or DELETE is opened,scanner
 I068,No retry or resend path is opened,scanner
 I069,No ACK or readiness publication is opened,scanner
 I070,No runtime-live or real-order path is opened,scanner
-I071,Focused tests pass,implementation gate
+I071,Focused tests pass including R2 exact scenarios,implementation gate
 I072,Workspace debug release doc clippy and fmt pass,implementation gate
+I073,Admission retains exact durable binding,source and tests
+I074,Admission retains exact policy binding,source and tests
+I075,Reducer rejects context cross-pairing before correlation,source and focused test
+I076,Reducer rejects policy cross-pairing before correlation,source and focused test
+I077,Source evidence binds exact canonical truth multiset,source and focused test
+I078,Raw returned trade count equals canonical raw trade vector length,source and scanner
+I079,Exact GET has typed request-start and response timing,source and focused tests
+I080,Exact GET request start must be post possible-effect,source and focused test
+I081,Selected order exact identities are checked at all tiers,source and focused tests
+I082,Supporting trade secondary exact identity contradiction conflicts,source and focused test
+I083,Trade summary uses canonical material view,source and focused test
+I084,Non-material duplicate received timestamp cannot change diagnostic,source and focused test
+I085,Non-exact diagnostics bind request policy admission and source evidence,source and focused test
+I086,Canonical row reordering preserves byte-identical non-exact diagnostic,source and focused test

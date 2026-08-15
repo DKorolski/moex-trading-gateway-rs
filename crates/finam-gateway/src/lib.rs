@@ -38,8 +38,8 @@ pub use stage8a3_endpoint_classifier::{
 pub use stage8a4_reconciliation::{
     admit_stage8a4_broker_truth, reduce_stage8a4_reconciliation,
     Stage8a4BoundedTradeHistoryComplete, Stage8a4CompletePositionsSnapshot,
-    Stage8a4DurableRequestContext, Stage8a4ExactLifecycle, Stage8a4FillEffect,
-    Stage8a4FreshTruthAdmission, Stage8a4InstrumentCompletenessEvidence,
+    Stage8a4DurableRequestContext, Stage8a4ExactLifecycle, Stage8a4ExactOrderObservation,
+    Stage8a4FillEffect, Stage8a4FreshTruthAdmission, Stage8a4InstrumentCompletenessEvidence,
     Stage8a4NonPaginatedOrdersSnapshotComplete, Stage8a4OutcomeKind,
     Stage8a4ReconciliationDiagnostic, Stage8a4ReconciliationPolicy, Stage8a4ReconciliationReason,
     Stage8a4SourceEvidence, Stage8a4SourceTiming,

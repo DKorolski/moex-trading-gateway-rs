@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an immutable Stage 8A-4 implementation R1 review handoff."""
+"""Create an immutable Stage 8A-4 implementation R2 review handoff."""
 
 from __future__ import annotations
 
@@ -70,8 +70,8 @@ def main() -> None:
         )
         gate_output = redacted(gate.stdout)
         marker = (
-            b"stage8a4-implementation-r1-gate: PASS rows=72 negatives=40 "
-            b"tests=16 pure-reducer=true execution=false"
+            b"stage8a4-implementation-r2-gate: PASS rows=86 negatives=50 "
+            b"tests=28 pure-reducer=true execution=false"
         )
         if gate.returncode or marker not in gate_output:
             print(gate_output.decode(errors="replace"), end="")
@@ -112,8 +112,9 @@ def main() -> None:
         commit_marker = (
             f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
             f"archive_name={archive_name}\naccepted_stage8a4_design_ref={checker.BASE}\n"
-            "candidate_stage=Stage 8A-4 implementation R1\n"
-            "candidate_status=implementation_r1_independent_acceptance_pending\n"
+            f"rejected_implementation_r1_ref={checker.R1}\n"
+            "candidate_stage=Stage 8A-4 implementation R2\n"
+            "candidate_status=implementation_r2_independent_acceptance_pending\n"
             "pure_reducer=true\ndurable_apply_authorized=false\n"
             "retry_or_send_authorized=false\nfinam_post_delete_authorized=false\n"
             "redis_live_authorized=false\nruntime_live_authorized=false\n"
@@ -122,15 +123,18 @@ def main() -> None:
         artifact_hashes = {name: digest(payload) for name, payload in sorted(artifact_payloads.items())}
         evidence = json.dumps({
             "schema_version": 1,
-            "stage": "8A-4-implementation-R1",
-            "candidate_status": "implementation_r1_independent_acceptance_pending",
+            "stage": "8A-4-implementation-R2",
+            "candidate_status": "implementation_r2_independent_acceptance_pending",
             "source_ref": head,
             "source_branch": branch,
             "accepted_stage8a4_design_ref": checker.BASE,
             "accepted_stage8a4_design_review_sha256": checker.REVIEW_SHA256,
-            "acceptance_rows": 72,
-            "negative_cases": 40,
-            "focused_tests": 16,
+            "rejected_implementation_r1_ref": checker.R1,
+            "implementation_r1_review_sha256": checker.R1_REVIEW_SHA256,
+            "implementation_r2_correction_spec_sha256": checker.R2_SPEC_SHA256,
+            "acceptance_rows": 86,
+            "negative_cases": 50,
+            "focused_tests": 28,
             "compile_fail_doctests": 3,
             "pure_reducer": True,
             "durable_apply_authorized": False,

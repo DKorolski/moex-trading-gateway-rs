@@ -1,7 +1,7 @@
 //! Stage 8A-4 pure broker-truth admission and reconciliation reducer.
 //!
 //! The input capabilities are intentionally opaque and have no public
-//! constructors. Stage 8A-4 implementation R1 can therefore be exercised by
+//! constructors. Stage 8A-4 implementation R2 can therefore be exercised by
 //! canonical fixtures without opening a durable apply, retry or send path.
 //!
 //! ```compile_fail
@@ -169,6 +169,13 @@ pub struct Stage8a4BoundedTradeHistoryComplete {
     interval_coverage_sha256: String,
 }
 
+/// Opaque exact GET-order observation with its own HTTP acquisition timing.
+/// Broker snapshot receipt metadata is not a substitute for request timing.
+pub struct Stage8a4ExactOrderObservation {
+    order: BrokerOrderSnapshot,
+    timing: Stage8a4SourceTiming,
+}
+
 /// Opaque source-specific acquisition proof. It is neither a bag of caller
 /// booleans nor serializable data.
 pub struct Stage8a4SourceEvidence {
@@ -176,7 +183,8 @@ pub struct Stage8a4SourceEvidence {
     trades: Stage8a4BoundedTradeHistoryComplete,
     positions: Stage8a4CompletePositionsSnapshot,
     instruments: Stage8a4InstrumentCompletenessEvidence,
-    exact_order_observation: Option<BrokerOrderSnapshot>,
+    exact_order_observation: Option<Stage8a4ExactOrderObservation>,
+    canonical_truth_payload_sha256: String,
     acquisition_policy_sha256: String,
 }
 
@@ -184,6 +192,9 @@ pub struct Stage8a4SourceEvidence {
 pub struct Stage8a4FreshTruthAdmission {
     truth: BrokerTruthSnapshot,
     exact_order_observation: Option<BrokerOrderSnapshot>,
+    admitted_durable_binding_sha256: String,
+    admitted_policy_binding_sha256: String,
+    source_evidence_binding_sha256: String,
     truth_binding_sha256: String,
     account_active_orders_count: usize,
     target_active_orders_count: usize,
@@ -191,7 +202,7 @@ pub struct Stage8a4FreshTruthAdmission {
 
 /// Admit canonical broker truth only after source-specific completeness,
 /// freshness, exact-account and exact-instrument checks. The input types are
-/// externally unconstructible in R1; a future authority bridge is separate.
+/// externally unconstructible in R2; a future authority bridge is separate.
 pub fn admit_stage8a4_broker_truth(
     context: &Stage8a4DurableRequestContext,
     policy: &Stage8a4ReconciliationPolicy,
@@ -201,6 +212,15 @@ pub fn admit_stage8a4_broker_truth(
     if !valid_sha256(&context.durable_binding_sha256)
         || !valid_sha256(&policy.policy_binding_sha256)
         || evidence.acquisition_policy_sha256 != policy.policy_binding_sha256
+    {
+        return Err(admission_error(
+            Stage8a4OutcomeKind::StillUnknown,
+            Stage8a4ReconciliationReason::SourceIncomplete,
+        ));
+    }
+    let canonical_truth_sha256 = canonical_truth_binding(&truth);
+    if !valid_sha256(&evidence.canonical_truth_payload_sha256)
+        || evidence.canonical_truth_payload_sha256 != canonical_truth_sha256
     {
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
@@ -245,7 +265,7 @@ pub fn admit_stage8a4_broker_truth(
         .iter()
         .map(|interval| interval.returned_count)
         .sum::<usize>()
-        < truth.trades.len()
+        != truth.trades.len()
     {
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
@@ -276,7 +296,9 @@ pub fn admit_stage8a4_broker_truth(
         ));
     }
 
-    if let Some(exact) = evidence.exact_order_observation.as_ref() {
+    if let Some(exact_source) = evidence.exact_order_observation.as_ref() {
+        validate_timing(&exact_source.timing, context, policy)?;
+        let exact = &exact_source.order;
         let Some(expected) = context.known_broker_order_id.as_ref() else {
             return Err(admission_error(
                 Stage8a4OutcomeKind::Conflict,
@@ -285,8 +307,8 @@ pub fn admit_stage8a4_broker_truth(
         };
         if exact.broker_order_id.as_ref() != Some(expected)
             || exact.account_id != context.account_id
-            || exact.received_ts > policy.trusted_now
-            || policy.trusted_now - exact.received_ts > policy.max_source_age
+            || exact.received_ts > exact_source.timing.response_received_at
+            || selected_order_identity(exact, context).is_err()
         {
             return Err(admission_error(
                 Stage8a4OutcomeKind::Conflict,
@@ -307,27 +329,27 @@ pub fn admit_stage8a4_broker_truth(
         }
     }
 
-    let canonical_truth_sha256 =
-        digest_serializable(b"stage8a4-admitted-canonical-truth-v1", &truth);
-    let exact_order_sha256 = evidence
-        .exact_order_observation
-        .as_ref()
-        .map(|order| digest_serializable(b"stage8a4-exact-order-observation-v1", order))
-        .unwrap_or_else(|| digest_parts(b"stage8a4-no-exact-order-observation-v1", &[]));
+    let source_evidence_binding_sha256 =
+        source_evidence_binding(&evidence, &canonical_truth_sha256);
     let truth_binding_sha256 = digest_parts(
-        b"stage8a4-complete-admission-v1",
+        b"stage8a4-complete-admission-v2",
         &[
             canonical_truth_sha256.as_bytes(),
             context.durable_binding_sha256.as_bytes(),
-            exact_order_sha256.as_bytes(),
             policy.policy_binding_sha256.as_bytes(),
+            source_evidence_binding_sha256.as_bytes(),
         ],
     );
     let account_active_orders_count = truth.account_wide_active_order_count();
     let target_active_orders_count = truth.target_active_orders(&context.instrument).len();
     Ok(Stage8a4FreshTruthAdmission {
         truth,
-        exact_order_observation: evidence.exact_order_observation,
+        exact_order_observation: evidence
+            .exact_order_observation
+            .map(|observation| observation.order),
+        admitted_durable_binding_sha256: context.durable_binding_sha256.clone(),
+        admitted_policy_binding_sha256: policy.policy_binding_sha256.clone(),
+        source_evidence_binding_sha256,
         truth_binding_sha256,
         account_active_orders_count,
         target_active_orders_count,
@@ -341,13 +363,30 @@ pub fn reduce_stage8a4_reconciliation(
     admission: Stage8a4FreshTruthAdmission,
     policy: Stage8a4ReconciliationPolicy,
 ) -> Stage8a4ReconciliationDiagnostic {
+    let canonical_truth_sha256 = canonical_truth_binding(&admission.truth);
+    let expected_truth_binding_sha256 = digest_parts(
+        b"stage8a4-complete-admission-v2",
+        &[
+            canonical_truth_sha256.as_bytes(),
+            admission.admitted_durable_binding_sha256.as_bytes(),
+            admission.admitted_policy_binding_sha256.as_bytes(),
+            admission.source_evidence_binding_sha256.as_bytes(),
+        ],
+    );
     if !valid_sha256(&admission.truth_binding_sha256)
+        || !valid_sha256(&admission.source_evidence_binding_sha256)
         || !valid_sha256(&policy.policy_binding_sha256)
         || !valid_sha256(&context.durable_binding_sha256)
+        || admission.admitted_durable_binding_sha256 != context.durable_binding_sha256
+        || admission.admitted_policy_binding_sha256 != policy.policy_binding_sha256
+        || admission.truth_binding_sha256 != expected_truth_binding_sha256
     {
-        return non_exact(
+        return reducer_non_exact(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceIncomplete,
+            &context,
+            &policy,
+            &admission,
         );
     }
 
@@ -373,11 +412,11 @@ pub fn reduce_stage8a4_reconciliation(
     });
 
     if tier1.len() > 1 || tier2.as_ref().is_some_and(|values| values.len() > 1) {
-        return with_counts(
-            non_exact(
-                Stage8a4OutcomeKind::Conflict,
-                Stage8a4ReconciliationReason::MultipleCandidates,
-            ),
+        return reducer_non_exact(
+            Stage8a4OutcomeKind::Conflict,
+            Stage8a4ReconciliationReason::MultipleCandidates,
+            &context,
+            &policy,
             &admission,
         );
     }
@@ -386,11 +425,11 @@ pub fn reduce_stage8a4_reconciliation(
         tier2.as_ref().and_then(|values| values.first()),
     ) {
         if !std::ptr::eq(*client, *broker) {
-            return with_counts(
-                non_exact(
-                    Stage8a4OutcomeKind::Conflict,
-                    Stage8a4ReconciliationReason::ExactIdentityDisagreement,
-                ),
+            return reducer_non_exact(
+                Stage8a4OutcomeKind::Conflict,
+                Stage8a4ReconciliationReason::ExactIdentityDisagreement,
+                &context,
+                &policy,
                 &admission,
             );
         }
@@ -413,51 +452,69 @@ pub fn reduce_stage8a4_reconciliation(
             match tier3_matches(order, &context) {
                 Tier3Match::Match => candidates.push(order),
                 Tier3Match::MissingRequiredShape => missing_required_shape = true,
+                Tier3Match::IdentityConflict => {
+                    return reducer_non_exact(
+                        Stage8a4OutcomeKind::Conflict,
+                        Stage8a4ReconciliationReason::ExactIdentityDisagreement,
+                        &context,
+                        &policy,
+                        &admission,
+                    )
+                }
                 Tier3Match::NoMatch => {}
             }
         }
         if candidates.len() > 1 {
-            return with_counts(
-                non_exact(
-                    Stage8a4OutcomeKind::Conflict,
-                    Stage8a4ReconciliationReason::MultipleCandidates,
-                ),
+            return reducer_non_exact(
+                Stage8a4OutcomeKind::Conflict,
+                Stage8a4ReconciliationReason::MultipleCandidates,
+                &context,
+                &policy,
                 &admission,
             );
         }
         let Some(order) = candidates.first() else {
-            return with_counts(
-                non_exact(
-                    Stage8a4OutcomeKind::StillUnknown,
-                    if missing_required_shape {
-                        Stage8a4ReconciliationReason::MissingRequiredShape
-                    } else {
-                        Stage8a4ReconciliationReason::NoCandidate
-                    },
-                ),
+            return reducer_non_exact(
+                Stage8a4OutcomeKind::StillUnknown,
+                if missing_required_shape {
+                    Stage8a4ReconciliationReason::MissingRequiredShape
+                } else {
+                    Stage8a4ReconciliationReason::NoCandidate
+                },
+                &context,
+                &policy,
                 &admission,
             );
         };
         (*order, Stage8a4ReconciliationReason::ExactTier3BoundShape)
     };
 
+    if selected_order_identity(selected, &context).is_err() {
+        return reducer_non_exact(
+            Stage8a4OutcomeKind::Conflict,
+            Stage8a4ReconciliationReason::ExactIdentityDisagreement,
+            &context,
+            &policy,
+            &admission,
+        );
+    }
     match exact_order_shape(selected, &context) {
         Stage8a4ExactShape::Compatible => {}
         Stage8a4ExactShape::MissingRequired => {
-            return with_counts(
-                non_exact(
-                    Stage8a4OutcomeKind::StillUnknown,
-                    Stage8a4ReconciliationReason::MissingRequiredShape,
-                ),
+            return reducer_non_exact(
+                Stage8a4OutcomeKind::StillUnknown,
+                Stage8a4ReconciliationReason::MissingRequiredShape,
+                &context,
+                &policy,
                 &admission,
             )
         }
         Stage8a4ExactShape::Contradiction => {
-            return with_counts(
-                non_exact(
-                    Stage8a4OutcomeKind::Conflict,
-                    Stage8a4ReconciliationReason::OrderShapeContradiction,
-                ),
+            return reducer_non_exact(
+                Stage8a4OutcomeKind::Conflict,
+                Stage8a4ReconciliationReason::OrderShapeContradiction,
+                &context,
+                &policy,
                 &admission,
             )
         }
@@ -465,29 +522,40 @@ pub fn reduce_stage8a4_reconciliation(
     let deduped = match deduplicate_trades(&admission.truth.trades) {
         Ok(value) => value,
         Err(()) => {
-            return with_counts(
-                non_exact(
-                    Stage8a4OutcomeKind::Conflict,
-                    Stage8a4ReconciliationReason::TradeIdentityConflict,
-                ),
+            return reducer_non_exact(
+                Stage8a4OutcomeKind::Conflict,
+                Stage8a4ReconciliationReason::TradeIdentityConflict,
+                &context,
+                &policy,
                 &admission,
             )
         }
     };
-    let matching_trades = deduped
-        .values()
-        .filter(|trade| trade_matches_selected(trade, selected))
-        .collect::<Vec<_>>();
+    let mut matching_trades = Vec::new();
+    for trade in deduped.values() {
+        match classify_trade_support(trade, selected) {
+            Stage8a4TradeSupport::CompatibleSupport => matching_trades.push(*trade),
+            Stage8a4TradeSupport::Unrelated => {}
+            Stage8a4TradeSupport::IdentityConflict => {
+                return reducer_non_exact_with_trade_count(
+                    Stage8a4OutcomeKind::Conflict,
+                    Stage8a4ReconciliationReason::TradeIdentityConflict,
+                    &context,
+                    &policy,
+                    &admission,
+                    matching_trades.len(),
+                )
+            }
+        }
+    }
     let trade_qty: Quantity = matching_trades.iter().map(|trade| trade.qty).sum();
     if trade_qty != selected.filled_qty {
-        return with_trade_count(
-            with_counts(
-                non_exact(
-                    Stage8a4OutcomeKind::Conflict,
-                    Stage8a4ReconciliationReason::TradeQuantityContradiction,
-                ),
-                &admission,
-            ),
+        return reducer_non_exact_with_trade_count(
+            Stage8a4OutcomeKind::Conflict,
+            Stage8a4ReconciliationReason::TradeQuantityContradiction,
+            &context,
+            &policy,
+            &admission,
             matching_trades.len(),
         );
     }
@@ -500,17 +568,25 @@ pub fn reduce_stage8a4_reconciliation(
             } else {
                 Stage8a4OutcomeKind::Conflict
             };
-            return with_trade_count(
-                with_counts(non_exact(outcome, reason), &admission),
+            return reducer_non_exact_with_trade_count(
+                outcome,
+                reason,
+                &context,
+                &policy,
+                &admission,
                 matching_trades.len(),
             );
         }
     };
     let selected_order_binding_sha256 =
         digest_serializable(b"stage8a4-selected-order-v1", selected);
+    let material_trades = matching_trades
+        .iter()
+        .map(|trade| Stage8a4MaterialTradeBinding::from(*trade))
+        .collect::<Vec<_>>();
     let trade_summary_binding_sha256 = digest_serializable(
-        b"stage8a4-deduplicated-matching-trades-v1",
-        &matching_trades,
+        b"stage8a4-deduplicated-material-trades-v2",
+        &material_trades,
     );
     exact_diagnostic(Stage8a4ExactDiagnosticInput {
         reason,
@@ -638,7 +714,7 @@ fn validate_cross_source_skew(
             .map(|interval| interval.response_received_at),
     );
     if let Some(exact) = evidence.exact_order_observation.as_ref() {
-        received.push(exact.received_ts);
+        received.push(exact.timing.response_received_at);
     }
     let min = received
         .iter()
@@ -686,6 +762,7 @@ fn deterministic_interval_split(
 enum Tier3Match {
     Match,
     MissingRequiredShape,
+    IdentityConflict,
     NoMatch,
 }
 
@@ -726,9 +803,32 @@ fn tier3_matches(
     }
     let event_ts = order.source_ts.unwrap_or(order.received_ts);
     if event_ts < context.event_start || event_ts >= context.event_end {
-        Tier3Match::NoMatch
+        return Tier3Match::NoMatch;
+    }
+    if selected_order_identity(order, context).is_err() {
+        Tier3Match::IdentityConflict
     } else {
         Tier3Match::Match
+    }
+}
+
+fn selected_order_identity(
+    order: &BrokerOrderSnapshot,
+    context: &Stage8a4DurableRequestContext,
+) -> Result<(), ()> {
+    if order
+        .client_order_id
+        .as_ref()
+        .is_some_and(|value| value != &context.client_order_id)
+        || context
+            .known_broker_order_id
+            .as_ref()
+            .zip(order.broker_order_id.as_ref())
+            .is_some_and(|(expected, observed)| expected != observed)
+    {
+        Err(())
+    } else {
+        Ok(())
     }
 }
 
@@ -880,21 +980,136 @@ fn same_material_order(left: &BrokerOrderSnapshot, right: &BrokerOrderSnapshot) 
         && left.source_ts == right.source_ts
 }
 
-fn trade_matches_selected(trade: &BrokerTradeSnapshot, order: &BrokerOrderSnapshot) -> bool {
-    let exact_identity = trade
+enum Stage8a4TradeSupport {
+    CompatibleSupport,
+    Unrelated,
+    IdentityConflict,
+}
+
+fn classify_trade_support(
+    trade: &BrokerTradeSnapshot,
+    order: &BrokerOrderSnapshot,
+) -> Stage8a4TradeSupport {
+    let broker_match = trade
         .broker_order_id
         .as_ref()
         .zip(order.broker_order_id.as_ref())
-        .is_some_and(|(left, right)| left == right)
-        || trade
-            .client_order_id
-            .as_ref()
-            .zip(order.client_order_id.as_ref())
-            .is_some_and(|(left, right)| left == right);
-    exact_identity
-        && trade.account_id == order.account_id
-        && exact_instrument_matches(&trade.instrument, &order.instrument)
-        && trade.side == order.side
+        .is_some_and(|(left, right)| left == right);
+    let client_match = trade
+        .client_order_id
+        .as_ref()
+        .zip(order.client_order_id.as_ref())
+        .is_some_and(|(left, right)| left == right);
+    let broker_conflict = trade
+        .broker_order_id
+        .as_ref()
+        .zip(order.broker_order_id.as_ref())
+        .is_some_and(|(left, right)| left != right);
+    let client_conflict = trade
+        .client_order_id
+        .as_ref()
+        .zip(order.client_order_id.as_ref())
+        .is_some_and(|(left, right)| left != right);
+    if !(broker_match || client_match) {
+        return Stage8a4TradeSupport::Unrelated;
+    }
+    if broker_conflict
+        || client_conflict
+        || trade.account_id != order.account_id
+        || !exact_instrument_matches(&trade.instrument, &order.instrument)
+        || trade.side != order.side
+    {
+        return Stage8a4TradeSupport::IdentityConflict;
+    }
+    Stage8a4TradeSupport::CompatibleSupport
+}
+
+#[derive(Serialize)]
+struct Stage8a4MaterialTradeBinding<'a> {
+    account_id: &'a BrokerAccountId,
+    broker_trade_id: &'a broker_core::BrokerTradeId,
+    broker_order_id: &'a Option<BrokerOrderId>,
+    client_order_id: &'a Option<ClientOrderId>,
+    instrument: &'a InstrumentId,
+    side: OrderSide,
+    qty: Quantity,
+    price: Price,
+    gross_amount: &'a Option<broker_core::Money>,
+    commission: &'a Option<broker_core::Money>,
+    broker_asset_id: &'a Option<String>,
+    board: &'a Option<String>,
+    expiration_date: &'a Option<chrono::NaiveDate>,
+    source_ts: &'a DateTime<Utc>,
+}
+
+impl<'a> From<&'a BrokerTradeSnapshot> for Stage8a4MaterialTradeBinding<'a> {
+    fn from(trade: &'a BrokerTradeSnapshot) -> Self {
+        Self {
+            account_id: &trade.account_id,
+            broker_trade_id: &trade.broker_trade_id,
+            broker_order_id: &trade.broker_order_id,
+            client_order_id: &trade.client_order_id,
+            instrument: &trade.instrument,
+            side: trade.side,
+            qty: trade.qty,
+            price: trade.price,
+            gross_amount: &trade.gross_amount,
+            commission: &trade.commission,
+            broker_asset_id: &trade.broker_asset_id,
+            board: &trade.board,
+            expiration_date: &trade.expiration_date,
+            source_ts: &trade.source_ts,
+        }
+    }
+}
+
+fn source_timing_binding(digest: &mut Sha256, timing: &Stage8a4SourceTiming) {
+    digest.update(timing.request_started_at.to_rfc3339().as_bytes());
+    digest.update(timing.response_received_at.to_rfc3339().as_bytes());
+}
+
+fn source_evidence_binding(
+    evidence: &Stage8a4SourceEvidence,
+    canonical_truth_sha256: &str,
+) -> String {
+    let mut digest = Sha256::new();
+    digest.update(b"stage8a4-source-evidence-binding-v2");
+    digest.update(canonical_truth_sha256.as_bytes());
+    digest.update(evidence.acquisition_policy_sha256.as_bytes());
+    source_timing_binding(&mut digest, &evidence.orders.timing);
+    source_timing_binding(&mut digest, &evidence.positions.timing);
+    match &evidence.instruments {
+        Stage8a4InstrumentCompletenessEvidence::ExactTargetResolved { timing } => {
+            digest.update(b"exact-target-resolved");
+            source_timing_binding(&mut digest, timing);
+        }
+        Stage8a4InstrumentCompletenessEvidence::FullRegistryCursorExhausted { timing } => {
+            digest.update(b"full-registry-cursor-exhausted");
+            source_timing_binding(&mut digest, timing);
+        }
+    }
+    let mut intervals = evidence.trades.intervals.iter().collect::<Vec<_>>();
+    intervals.sort_by_key(|item| (item.start_inclusive, item.end_exclusive));
+    digest.update(evidence.trades.interval_coverage_sha256.as_bytes());
+    for interval in intervals {
+        digest.update(interval.start_inclusive.to_rfc3339().as_bytes());
+        digest.update(interval.end_exclusive.to_rfc3339().as_bytes());
+        digest.update(interval.requested_limit.to_be_bytes());
+        digest.update(interval.returned_count.to_be_bytes());
+        digest.update(interval.request_started_at.to_rfc3339().as_bytes());
+        digest.update(interval.response_received_at.to_rfc3339().as_bytes());
+        digest.update([interval.split_depth]);
+    }
+    if let Some(exact) = evidence.exact_order_observation.as_ref() {
+        digest.update(b"exact-order-present");
+        source_timing_binding(&mut digest, &exact.timing);
+        digest.update(
+            digest_serializable(b"stage8a4-exact-order-observation-v2", &exact.order).as_bytes(),
+        );
+    } else {
+        digest.update(b"exact-order-absent");
+    }
+    to_hex(&digest.finalize())
 }
 
 fn interval_coverage_fingerprint(intervals: &[&Stage8a4TradeIntervalProof]) -> String {
@@ -982,19 +1197,39 @@ fn non_exact(
     }
 }
 
-fn with_counts(
-    mut diagnostic: Stage8a4ReconciliationDiagnostic,
+fn reducer_non_exact(
+    outcome: Stage8a4OutcomeKind,
+    reason: Stage8a4ReconciliationReason,
+    context: &Stage8a4DurableRequestContext,
+    policy: &Stage8a4ReconciliationPolicy,
     admission: &Stage8a4FreshTruthAdmission,
 ) -> Stage8a4ReconciliationDiagnostic {
+    let mut diagnostic = non_exact(outcome, reason);
     diagnostic.account_active_orders_count = admission.account_active_orders_count;
     diagnostic.target_active_orders_count = admission.target_active_orders_count;
+    diagnostic.semantic_binding_sha256 = digest_parts(
+        b"stage8a4-bound-non-exact-semantic-v2",
+        &[
+            context.durable_binding_sha256.as_bytes(),
+            context.request_id.to_string().as_bytes(),
+            policy.policy_binding_sha256.as_bytes(),
+            admission.truth_binding_sha256.as_bytes(),
+            admission.source_evidence_binding_sha256.as_bytes(),
+            format!("{outcome:?}:{reason:?}").as_bytes(),
+        ],
+    );
     diagnostic
 }
 
-fn with_trade_count(
-    mut diagnostic: Stage8a4ReconciliationDiagnostic,
+fn reducer_non_exact_with_trade_count(
+    outcome: Stage8a4OutcomeKind,
+    reason: Stage8a4ReconciliationReason,
+    context: &Stage8a4DurableRequestContext,
+    policy: &Stage8a4ReconciliationPolicy,
+    admission: &Stage8a4FreshTruthAdmission,
     matching_trade_count: usize,
 ) -> Stage8a4ReconciliationDiagnostic {
+    let mut diagnostic = reducer_non_exact(outcome, reason, context, policy, admission);
     diagnostic.matching_trade_count = matching_trade_count;
     diagnostic
 }
@@ -1002,6 +1237,34 @@ fn with_trade_count(
 fn digest_serializable<T: Serialize + ?Sized>(domain: &[u8], value: &T) -> String {
     let encoded = serde_json::to_vec(value).expect("canonical Stage 8A-4 value serializes");
     digest_parts(domain, &[&encoded])
+}
+
+fn canonical_truth_binding(truth: &BrokerTruthSnapshot) -> String {
+    fn sorted_hashes<T: Serialize>(domain: &[u8], values: &[T]) -> Vec<String> {
+        let mut hashes = values
+            .iter()
+            .map(|value| digest_serializable(domain, value))
+            .collect::<Vec<_>>();
+        hashes.sort();
+        hashes
+    }
+
+    let orders = sorted_hashes(b"stage8a4-canonical-order-v2", &truth.orders);
+    let positions = sorted_hashes(b"stage8a4-canonical-position-v2", &truth.positions);
+    let trades = sorted_hashes(b"stage8a4-canonical-raw-trade-v2", &truth.trades);
+    let instruments = sorted_hashes(b"stage8a4-canonical-instrument-v2", &truth.instruments);
+    digest_serializable(
+        b"stage8a4-admitted-canonical-truth-multiset-v2",
+        &(
+            &truth.account_id,
+            &orders,
+            &positions,
+            &truth.cash,
+            &trades,
+            &instruments,
+            &truth.received_ts,
+        ),
+    )
 }
 
 fn digest_parts(domain: &[u8], parts: &[&[u8]]) -> String {

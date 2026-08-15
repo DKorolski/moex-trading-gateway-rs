@@ -1078,8 +1078,13 @@ Stage 8A-3 R2 was independently accepted and closed at
 Stage 8A-4 Design R2 was independently accepted and closed at
 `cc58c10d22db312cd83640f1c1e7fd86861a4594`; its final review SHA-256 is
 `43315b4653482998f0d112adbdcfc857afde8d1b68de94b3663b929c1ebad99e`.
-Only Stage 8A-4 implementation R1 is active: opaque source-specific admission
-plus a pure deterministic `ExactOrderState | Conflict | StillUnknown` reducer.
+Implementation R1 at `245fea18f3f22bd4233eed4f9207445efd0a6d46`
+was not accepted due to four pure-reducer P1 findings. The active narrow
+corrective candidate is Stage 8A-4 implementation R2: exact admission/context/
+policy binding, typed exact-GET timing, complete exact-identity compatibility
+and order-independent material trade binding. The accepted Design R2 is not
+reopened.
 Durable apply/journal, ACK/readiness publication, `ProvenNoMatch`, retry/resend,
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
-orders, Stage 8A-5 and Stage 8B remain closed.
+orders, durable-composition planning, Stage 8A-5 and Stage 8B remain closed
+until independent acceptance of the exact R2 artifact.
