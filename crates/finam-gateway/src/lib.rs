@@ -12,6 +12,16 @@ pub mod m3d2_local_mock_endpoint;
 pub mod m3d2_real_order_transport;
 pub mod m3d2_real_transport_lifecycle;
 pub mod real_order_endpoint;
+pub mod stage8a1_execution_capability;
+
+pub use stage8a1_execution_capability::{
+    authorize_stage8_cancel, authorize_stage8_place, Stage8CancelPreflightDecision,
+    Stage8CancelPreflightInput, Stage8CapabilityDiagnostic, Stage8CommandScope,
+    Stage8ExecutionAllowlist, Stage8ExecutionCapability, Stage8ExecutionPreflightError,
+    Stage8KillSwitchState, Stage8OperatorArmInput, Stage8PersistentKillSwitchEvidenceInput,
+    Stage8PlacePreflightInput, Stage8SingleBrokerOwnershipEvidenceInput,
+    Stage8ZeroAmbiguityEvidenceInput,
+};
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;

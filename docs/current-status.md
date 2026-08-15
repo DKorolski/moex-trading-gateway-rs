@@ -999,7 +999,7 @@ Red / not yet implemented:
 Only after these gates should `command-consumer-to-real-FINAM` or
 runtime-driven live micro be discussed.
 
-## Stage 8A-0 candidate (2026-08-14)
+## Stage 8A-0 closure / Stage 8A-1 candidate (2026-08-15)
 
 - Transition Gate 7→8 R3 was independently accepted at
   `630bef3fb9aa07bbc377498fc052f085155a043c`.
@@ -1008,8 +1008,8 @@ runtime-driven live micro be discussed.
   builder, classifier and registry sources.
 - The slice is docs/evidence/checkers only. No production Rust, Cargo or CI
   workflow files change.
-- The Stage 8-specific scanner and exact 36-case negative harness are active.
-- Independent Stage 8A-0 acceptance is still pending and may open only 8A-1.
+- The Stage 8A-0 R1 scanner and exact 41-case negative harness passed and its
+  immutable handoff was independently accepted at `c949d7f`.
 - FINAM POST/DELETE, broker dispatch, runtime-live and real orders remain
   closed.
 
@@ -1018,4 +1018,12 @@ independently accepted due to regression-runner and handoff-evidence gaps. The
 R1 candidate restores all-target serialized workspace/doc tests, packages and
 SHA-binds every gate log, records the inherited Redis timing witness and raises
 the mandatory matrix/negative count to 41/41. FINAM contract snapshot/parity
-remain unchanged at `MATCH`; Stage 8A-1 remains closed pending R1 acceptance.
+remain unchanged at `MATCH`; that external acceptance opened only Stage 8A-1.
+
+Stage 8A-0 R1 was independently accepted and closed at `c949d7f` on
+2026-08-15. Stage 8A-1 is now the only open candidate. Its implementation adds
+an opaque non-cloneable/non-serializable no-send capability after exact
+operator-arm, allowlist, DAY-only, limits, persistent `RunAllowed`,
+single-FINAM-owner, zero-ambiguity, restart-generation and config-fingerprint
+preflight. Stage 8A-2, request-builder composition, HTTP, Redis live consumer,
+broker dispatch, runtime-live and real strategy orders remain closed.

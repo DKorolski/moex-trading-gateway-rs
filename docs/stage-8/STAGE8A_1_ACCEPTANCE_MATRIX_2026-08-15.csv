@@ -1,0 +1,37 @@
+id,requirement,evidence
+S8A1-001,accepted Stage8A0 commit pinned,stage8a1-descriptor.json
+S8A1-002,external Stage8A0 acceptance hash pinned,stage8a1-descriptor.json
+S8A1-003,Stage8A1 is candidate not self-accepted,stage8a1-descriptor.json
+S8A1-004,Stage8A2 remains closed,stage8a1-descriptor.json
+S8A1-005,capability fields are private,stage8a1_execution_capability.rs
+S8A1-006,capability is not Clone or Copy,rustdoc compile-fail and checker
+S8A1-007,capability is not Debug,rustdoc/source checker
+S8A1-008,capability is not serializable,rustdoc compile-fail and checker
+S8A1-009,no approved-command extraction API,source checker
+S8A1-010,no serializer or builder composition,closed-surface checker
+S8A1-011,no HTTP POST DELETE or send,closed-surface checker
+S8A1-012,no Redis live consumer,closed-surface checker
+S8A1-013,operator arm is consumed and one-shot,unit tests and source checker
+S8A1-014,operator arm exact request binding,unit tests
+S8A1-015,operator arm TTL bounded,unit tests and source checker
+S8A1-016,account allowlist exact and nonempty,unit tests
+S8A1-017,instrument allowlist exact and nonempty,unit tests
+S8A1-018,strategy allowlist exact and nonempty,unit tests
+S8A1-019,MARKET LIMIT only via broker-neutral policy,source checker
+S8A1-020,DAY only,unit tests
+S8A1-021,quantity and step bounds delegated,broker_core OrderPreflightPolicy
+S8A1-022,price and tick bounds delegated,broker_core OrderPreflightPolicy
+S8A1-023,notional bounds delegated,broker_core OrderPreflightPolicy
+S8A1-024,slippage band delegated,broker_core OrderPreflightPolicy
+S8A1-025,kill switch must be RunAllowed,unit tests
+S8A1-026,kill switch evidence durable revision nonzero,source checker
+S8A1-027,evidence freshness and SHA binding required,unit tests
+S8A1-028,broker ownership exactly one FINAM,unit tests
+S8A1-029,all ambiguity counters zero,unit tests
+S8A1-030,restart generation exact and nonzero,unit tests
+S8A1-031,config fingerprint exact and hash shaped,unit tests
+S8A1-032,capability expiry is earliest evidence expiry,unit tests
+S8A1-033,CANCEL requires exact durable mapping,unit tests
+S8A1-034,terminal CANCEL issues no capability,unit tests
+S8A1-035,focused tests and clippy pass,stage8a1 gate logs
+S8A1-036,inherited serialized workspace regression passes,stage8a1 gate logs

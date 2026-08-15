@@ -113,14 +113,14 @@ pending separate acceptance.
 
 ## Stage 8 entry sequence
 
-Transition Gate 7→8 R3 is independently accepted. The active candidate is
-Stage 8A-0, a current FINAM contract refresh/freeze with no production code.
-Its local parity result is `MATCH`; independent acceptance remains required.
+Transition Gate 7→8 R3 and Stage 8A-0 R1 are independently accepted. The active
+candidate is Stage 8A-1 protected capability/strict preflight. Stage 8A-0
+contract parity remains `MATCH`.
 
 The reviewed sequence remains:
 
-1. 8A-0 — contract/provenance freeze (current candidate).
-2. 8A-1 — protected capability and strict preflight, only after 8A-0 acceptance.
+1. 8A-0 — contract/provenance freeze (accepted and closed).
+2. 8A-1 — protected capability and strict preflight (current candidate).
 3. 8A-2 through 8A-5 — separately reviewed builder invocation, outcome and
    reconciliation slices, still bounded by their own gates.
 4. 8B — separately accepted bounded execution authority.
@@ -128,7 +128,8 @@ The reviewed sequence remains:
 No step in 8A-0 opens FINAM POST/DELETE, broker dispatch, runtime-live or real
 strategy orders.
 
-Stage 8A-0 R0 was not accepted for evidence-runner reasons, not contract drift.
-The active R1 candidate is limited to serialized all-target regression,
-complete hash-bound gate logs and timing-flake disclosure. Independent R1
-acceptance is still the only event that may open Stage 8A-1.
+Stage 8A-0 R1 is independently accepted and closed at `c949d7f`. Stage 8A-1 is
+the active protected-capability/preflight candidate. It may add only opaque
+linear no-send authority, exact allowlists/limits, persistent `RunAllowed`
+kill-switch evidence, single-FINAM ownership and zero-ambiguity checks. Stage
+8A-2 and every execution surface remain closed pending separate acceptance.

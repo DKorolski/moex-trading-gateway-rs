@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "stage": "8A-1",
+  "status": "implementation_candidate_independent_acceptance_pending",
+  "accepted_stage8a0_ref": "c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d",
+  "accepted_stage8a0_review_sha256": "574876211e0c896cc9d61f9f2d078059e54fd471a9b97e94a3c9c8c81930879b",
+  "authority_module": "crates/finam-gateway/src/stage8a1_execution_capability.rs",
+  "capability": {
+    "type": "Stage8ExecutionCapability",
+    "opaque_private_fields": true,
+    "clone": false,
+    "copy": false,
+    "debug": false,
+    "serialize": false,
+    "deserialize": false,
+    "request_extraction_available": false,
+    "transport_consumer_available": false
+  },
+  "preflight": {
+    "operator_arm_one_shot": true,
+    "exact_request_binding": true,
+    "exact_account_allowlist": true,
+    "exact_instrument_allowlist": true,
+    "exact_strategy_allowlist": true,
+    "market_limit_only": true,
+    "day_only": true,
+    "qty_price_notional_slippage_delegate": "broker_core::OrderPreflightPolicy",
+    "persistent_kill_switch_required_state": "RunAllowed",
+    "single_broker_owner": "Finam",
+    "zero_unresolved_ambiguity": true,
+    "restart_generation_bound": true,
+    "config_fingerprint_bound": true,
+    "fresh_hash_bound_evidence": true
+  },
+  "closed_surfaces": {
+    "stage8a2": true,
+    "finam_request_builder_composition": true,
+    "mock_send_seam": true,
+    "http_outcome_classifier": true,
+    "broker_reconciliation": true,
+    "finam_post_delete": true,
+    "redis_live_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_strategy_orders": true,
+    "stage8b": true
+  },
+  "next_after_independent_acceptance": "Stage 8A-2 only"
+}
