@@ -37,12 +37,12 @@ Stage 8A-4 design R1 retained the architecture but was not accepted. Design R2
 was independently accepted and closed at `cc58c10`. It freezes source-specific
 completeness, orthogonal lifecycle/fill outcomes and fully bound tier-3
 correlation. Implementation R1 at `245fea1`, Implementation R2 at `3c445ae`
-and Implementation R3 at `5a846f9` were not accepted. The active slice is the
-narrow Stage 8A-4 Implementation R4 correction: a selected-order exact identity
-edge is required for trade support and durable identity remains veto-only. It
-remains a pure deterministic reducer.
-Its independent acceptance may open
-separately reviewed durable-composition planning, but not apply/journal,
+and Implementation R3 at `5a846f9` were not accepted. Implementation R4 was
+independently accepted and closed at `4caf07c`. The active slice is Stage 8A-4
+durable-composition Design R1 only: private linear outcome ownership,
+apply-time authority revalidation, typed exact-lookup state, complete account
+safety and crash/replay semantics. Its independent acceptance may open only a
+separate implementation specification, but not apply/journal,
 ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live or real orders.
 

@@ -15,9 +15,9 @@ request identity/restart recovery, and the isolated paper command-consumer
 lifecycle.
 
 Stage 8A-0 through Stage 8A-3 are independently accepted. Stage 8A-4 Design R2
-is accepted at `cc58c10`. The only open slice is the narrow Stage 8A-4
-Implementation R4 pure reconciliation reducer correction; its independent
-acceptance is pending. Durable composition and Stage 8A-5 remain closed.
+is accepted at `cc58c10`; its pure reducer Implementation R4 is accepted and
+closed at `4caf07c`. The only open slice is Stage 8A-4 durable-composition
+Design R1. Production durable apply and Stage 8A-5 remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.

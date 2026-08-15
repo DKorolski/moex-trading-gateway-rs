@@ -30,9 +30,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `245fea18f3f22bd4233eed4f9207445efd0a6d46`; Implementation R2 was rejected
   at `3c445aef6dce3f38a81ee477eaa73e56ffdc0a80`; Implementation R3 was rejected
   at `5a846f9852c7fe58b9a24891c22e9d9dafeefd27`.
-- Stage 8A-4 Implementation R4 is the sole active corrective candidate;
-  independent acceptance is pending. Durable-composition planning remains
-  closed.
+- Stage 8A-4 Implementation R4 is independently accepted and closed at
+  `4caf07c16ddad021add7cffe6e887165e49e1bf0`; its final review SHA-256 is
+  `0f8de37819ccc005bbc609bc21f029f5783ccdd43c0a634b4c09614f507c2a0a`.
+- Stage 8A-4 durable-composition Design R1 is the sole active candidate;
+  independent acceptance is pending. Durable-composition implementation
+  remains closed.
 - Stage 8A-5+, Stage 8B, durable apply/journal, ACK/readiness publication,
   retry/resend, FINAM POST/DELETE, Redis live consumption, broker dispatch,
   runtime-live and real orders remain closed.
@@ -1088,10 +1091,14 @@ was not accepted due to four pure-reducer P1 findings. Implementation R2 at
 `3c445aef6dce3f38a81ee477eaa73e56ffdc0a80` closed those findings but was not
 accepted due to three narrow P1 findings. Implementation R3 at
 `5a846f9852c7fe58b9a24891c22e9d9dafeefd27` closed those findings but widened
-trade support beyond Design R2. The active candidate is Stage 8A-4
-Implementation R4: selected-order identity establishes support while durable
-identity only vetoes contradictions. The accepted Design R2 is not reopened.
-Durable apply/journal, ACK/readiness publication, `ProvenNoMatch`, retry/resend,
-FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
-orders, durable-composition planning, Stage 8A-5 and Stage 8B remain closed
-until independent acceptance of the exact R4 artifact.
+trade support beyond Design R2. Implementation R4 was independently accepted
+and closed at
+`4caf07c16ddad021add7cffe6e887165e49e1bf0`; its final review SHA-256 is
+`0f8de37819ccc005bbc609bc21f029f5783ccdd43c0a634b4c09614f507c2a0a`.
+The active slice is Stage 8A-4 durable-composition Design R1 only. It freezes a
+private linear authoritative outcome, conservative partial-identity conflict,
+typed exact-lookup acquisition states, complete account-wide safety summary,
+apply-time revalidation and crash/replay semantics. No production durable apply
+or execution surface is open. Durable apply/journal, ACK/readiness publication,
+`ProvenNoMatch`, retry/resend, FINAM POST/DELETE, Redis live consumption, broker
+dispatch, runtime-live, real orders, Stage 8A-5 and Stage 8B remain closed.
