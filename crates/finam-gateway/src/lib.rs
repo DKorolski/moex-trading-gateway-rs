@@ -13,6 +13,7 @@ pub mod m3d2_real_order_transport;
 pub mod m3d2_real_transport_lifecycle;
 pub mod real_order_endpoint;
 pub mod stage8a1_execution_capability;
+mod stage8a3_endpoint_classifier;
 
 pub use stage8a1_execution_capability::{
     authorize_stage8_cancel, authorize_stage8_place, Stage8CancelPreflightDecision,
@@ -27,6 +28,11 @@ pub use stage8a1_execution_capability::{
     Stage8a1ScheduleAuthority, Stage8a1TrustedClockAuthority, Stage8a1TrustedCurrentSources,
     Stage8a1ZeroAmbiguityAuthority, Stage8a2BuilderCompositionDiagnostic,
     Stage8a2BuilderCompositionError, Stage8a2InMemoryNoSendSink, Stage8a2RequestShapeKind,
+};
+pub use stage8a3_endpoint_classifier::{
+    Stage8a3BodyCategory, Stage8a3ClassificationDiagnostic, Stage8a3ClassifiedObservation,
+    Stage8a3ContextError, Stage8a3CorrelationState, Stage8a3EndpointContext, Stage8a3EndpointKind,
+    Stage8a3LocalHttpObservation, Stage8a3ReconciliationReason, Stage8a3SemanticCategory,
 };
 
 use std::collections::{HashMap, HashSet};

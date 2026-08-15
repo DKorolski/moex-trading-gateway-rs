@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "snapshot_kind": "stage8a3_endpoint_classifier_finam_contract_refresh",
+  "retrieved_at_utc": "2026-08-15T10:20:00Z",
+  "retrieval": {
+    "method": "unauthenticated HTTPS GET with normalized comparison against accepted Stage 8A-0 snapshot",
+    "official_rest_index": "https://api.finam.ru/docs/rest/",
+    "responses": [
+      {
+        "name": "rest_place_order",
+        "url": "https://api.finam.ru/docs/rest/ordersservice_placeorder.md",
+        "sha256": "0fc4494e2f06a9bc8aebb10eb0a7de0500b661c9988a9fdfda526364348ff589",
+        "bytes": 23736
+      },
+      {
+        "name": "rest_cancel_order",
+        "url": "https://api.finam.ru/docs/rest/ordersservice_cancelorder.md",
+        "sha256": "595f123796fca321e9027c81ea1dc54d61b85862b9a1031fea73eaa2ef92b63e",
+        "bytes": 6727
+      }
+    ]
+  },
+  "accepted_stage8a0_snapshot": "docs/stage-8/stage8a0-finam-contract-snapshot-2026-08-14.json",
+  "place_order": {
+    "method": "POST",
+    "path": "/v1/accounts/{account_id}/orders",
+    "documented_statuses": [200, 400, 401, 404, 429, 500, 503, 504],
+    "default_status_documented": true,
+    "success_required_correlation_fields": [
+      "order_id",
+      "order.account_id",
+      "order.symbol",
+      "order.client_order_id"
+    ],
+    "status_400_meaning": "invalid_trading_parameters",
+    "status_400_exact_error_body_schema_documented": false
+  },
+  "cancel_order": {
+    "method": "DELETE",
+    "path": "/v1/accounts/{account_id}/orders/{order_id}",
+    "account_id_type": "string",
+    "order_id_type": "string",
+    "documented_statuses": [200, 400, 401, 404, 429, 500, 503, 504],
+    "default_status_documented": true,
+    "success_body_documented": true,
+    "success_required_correlation_fields": ["order_id", "order.account_id"],
+    "status_400_meaning": "already_executed_cannot_cancel"
+  },
+  "parity": {
+    "place_document_sha_matches_stage8a0": true,
+    "cancel_document_sha_matches_stage8a0": true,
+    "place_statuses_match_stage8a0": true,
+    "cancel_statuses_match_stage8a0": true,
+    "material_contract_drift": false,
+    "decision": "MATCH_STAGE8A3_IMPLEMENTATION_MAY_PROCEED"
+  }
+}

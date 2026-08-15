@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "stage": "8A-3-R1",
+  "status": "implementation_authorized_no_send",
+  "accepted_predecessor": "16180ac4f8eab761b3b055c1f5515f62cd94bfb9",
+  "accepted_predecessor_archive_sha256": "a5c494183f6afc37d013d4377422680820c204dd7f1feacd56e819218312dbd3",
+  "predecessor_review_sha256": "dfe8f45ae452ca3c1339b58eb28146b52f06c7a880e39f358a147f9a2eb43527",
+  "r1_tz_sha256": "c77b5d37d46e1ed0aec08812022abe3ffbeadabac034d2e7a64d5ea10dc326e4",
+  "official_contract_snapshot": "docs/stage-8/stage8a3-finam-contract-snapshot-2026-08-15.json",
+  "material_contract_drift": false,
+  "place_400_safe_decoder_available": false,
+  "place_400_policy": "reconciliation_required",
+  "cancel_empty_200_policy": "reconciliation_required_without_documented_response_body",
+  "historical_classifier_authoritative": false,
+  "network_send_authorized": false,
+  "retry_authority_available": false,
+  "proven_no_match_available": false,
+  "reconciliation_implementation_available": false,
+  "next_after_acceptance": "Stage 8A-4 only"
+}

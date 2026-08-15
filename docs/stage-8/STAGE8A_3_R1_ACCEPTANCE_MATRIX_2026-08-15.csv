@@ -1,0 +1,65 @@
+id,mandatory,requirement,proof
+S8A3R1-001,YES,Accepted Stage 8A-2 predecessor is exact,stage8a3_check.py
+S8A3R1-002,YES,Predecessor archive SHA-256 is exact,stage8a3-contract-authority.json
+S8A3R1-003,YES,Independent predecessor review SHA-256 is exact,stage8a3-contract-authority.json
+S8A3R1-004,YES,R1 technical specification SHA-256 is exact,stage8a3-contract-authority.json
+S8A3R1-005,YES,Official PLACE document SHA matches Stage 8A-0,stage8a3-finam-contract-snapshot-2026-08-15.json
+S8A3R1-006,YES,Official CANCEL document SHA matches Stage 8A-0,stage8a3-finam-contract-snapshot-2026-08-15.json
+S8A3R1-007,YES,No material official-contract drift exists,stage8a3-finam-contract-snapshot-2026-08-15.json
+S8A3R1-008,YES,Endpoint context is always explicit,Stage8a3EndpointContext
+S8A3R1-009,YES,There is no default-to-PLACE classifier,stage8a3_check.py
+S8A3R1-010,YES,PLACE context binds durable request identity,Stage8a3ExpectedContext::Place
+S8A3R1-011,YES,PLACE context binds exact ClientOrderId,Stage8a3ExpectedContext::Place
+S8A3R1-012,YES,PLACE context binds account identity,Stage8a3ExpectedContext::Place
+S8A3R1-013,YES,PLACE context binds venue symbol,Stage8a3ExpectedContext::Place
+S8A3R1-014,YES,CANCEL context binds durable source identity,Stage8a3ExpectedContext::Cancel
+S8A3R1-015,YES,CANCEL context binds string BrokerOrderId,Stage8a3ExpectedContext::Cancel
+S8A3R1-016,YES,CANCEL context binds account identity,Stage8a3ExpectedContext::Cancel
+S8A3R1-017,YES,Local observation has no transport surface,Stage8a3LocalHttpObservation
+S8A3R1-018,YES,Classified observation is opaque,compile-fail doctests
+S8A3R1-019,YES,Raw body has no public getter,compile-fail doctests
+S8A3R1-020,YES,Raw broker order id has no public getter,compile-fail doctests
+S8A3R1-021,YES,Retry authority has no public getter,compile-fail doctests
+S8A3R1-022,YES,ProvenNoMatch has no public getter,compile-fail doctests
+S8A3R1-023,YES,Exact PLACE 200 yields candidate,place_exact_200_is_candidate_and_preserves_opaque_string_order_id
+S8A3R1-024,YES,PLACE candidate preserves opaque string broker id,place_exact_200_is_candidate_and_preserves_opaque_string_order_id
+S8A3R1-025,YES,Missing PLACE order id reconciles,place_missing_or_empty_order_id_requires_reconciliation
+S8A3R1-026,YES,Empty PLACE order id reconciles,place_missing_or_empty_order_id_requires_reconciliation
+S8A3R1-027,YES,PLACE client correlation mismatch reconciles,place_every_correlation_mismatch_requires_reconciliation
+S8A3R1-028,YES,PLACE account mismatch reconciles,place_every_correlation_mismatch_requires_reconciliation
+S8A3R1-029,YES,PLACE symbol mismatch reconciles,place_every_correlation_mismatch_requires_reconciliation
+S8A3R1-030,YES,Malformed PLACE 200 reconciles,place_malformed_truncated_empty_non_object_and_oversized_200_reconcile
+S8A3R1-031,YES,Oversized PLACE 200 reconciles,place_malformed_truncated_empty_non_object_and_oversized_200_reconcile
+S8A3R1-032,YES,Undocumented PLACE 2xx reconciles,place_undocumented_2xx_never_accepts
+S8A3R1-033,YES,PLACE 400 status alone cannot reject,place_400_is_never_status_or_text_promoted_to_rejection
+S8A3R1-034,YES,PLACE 400 text cannot reject,place_400_is_never_status_or_text_promoted_to_rejection
+S8A3R1-035,YES,PLACE 401 is auth blocked,place_auth_and_configuration_statuses_are_endpoint_specific_blocks
+S8A3R1-036,YES,PLACE 404 is config or instrument blocked,place_auth_and_configuration_statuses_are_endpoint_specific_blocks
+S8A3R1-037,YES,PLACE 429 and documented 5xx reconcile,place_transient_and_undocumented_statuses_reconcile
+S8A3R1-038,YES,PLACE undocumented statuses reconcile,place_transient_and_undocumented_statuses_reconcile
+S8A3R1-039,YES,Exact CANCEL 200 yields candidate,cancel_exact_200_is_candidate_without_flatness_semantics
+S8A3R1-040,YES,CANCEL candidate preserves exact target id,cancel_exact_200_is_candidate_without_flatness_semantics
+S8A3R1-041,YES,Empty CANCEL 200 reconciles,cancel_empty_malformed_or_contradictory_200_reconciles
+S8A3R1-042,YES,Malformed CANCEL 200 reconciles,cancel_empty_malformed_or_contradictory_200_reconciles
+S8A3R1-043,YES,CANCEL target mismatch reconciles,cancel_empty_malformed_or_contradictory_200_reconciles
+S8A3R1-044,YES,CANCEL 204 reconciles,cancel_204_and_other_undocumented_2xx_reconcile
+S8A3R1-045,YES,CANCEL 400 already-executed reconciles,cancel_status_table_is_fail_closed_and_endpoint_specific
+S8A3R1-046,YES,CANCEL 401 blocks auth and requires reconciliation,cancel_status_table_is_fail_closed_and_endpoint_specific
+S8A3R1-047,YES,CANCEL 404 reconciles,cancel_status_table_is_fail_closed_and_endpoint_specific
+S8A3R1-048,YES,CANCEL 409 and 410 reconcile,cancel_status_table_is_fail_closed_and_endpoint_specific
+S8A3R1-049,YES,CANCEL 429 and documented 5xx reconcile,cancel_status_table_is_fail_closed_and_endpoint_specific
+S8A3R1-050,YES,Body-read failure reconciles,local_failure_observations_always_require_reconciliation
+S8A3R1-051,YES,Timeout reconciles,local_failure_observations_always_require_reconciliation
+S8A3R1-052,YES,Disconnect reconciles,local_failure_observations_always_require_reconciliation
+S8A3R1-053,YES,Response loss reconciles,local_failure_observations_always_require_reconciliation
+S8A3R1-054,YES,Same status has endpoint-specific semantics,same_status_has_endpoint_specific_semantics
+S8A3R1-055,YES,Public diagnostic excludes raw identities,public_diagnostic_is_redacted_and_deterministic
+S8A3R1-056,YES,Public diagnostic is deterministic,public_diagnostic_is_redacted_and_deterministic
+S8A3R1-057,YES,Invalid context fails before classification,invalid_context_is_rejected_before_classification
+S8A3R1-058,YES,Historical classifier is not called,stage8a3_check.py
+S8A3R1-059,YES,No generic 4xx rejection policy exists,stage8a3_check.py
+S8A3R1-060,YES,No network or historical real transport exists,stage8a3_check.py
+S8A3R1-061,YES,No retry or DefinitelyNotSent exists,stage8a3_check.py
+S8A3R1-062,YES,No reconciliation or ProvenNoMatch implementation exists,stage8a3_check.py
+S8A3R1-063,YES,No Redis runtime-live real-order or protective surface exists,stage8a3_check.py
+S8A3R1-064,YES,Acceptance opens Stage 8A-4 only,stage8a3-r1-implementation-descriptor.json

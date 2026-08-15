@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "stage": "8A-3-R1",
+  "status": "endpoint_classifier_no_send_candidate",
+  "accepted_predecessor": "16180ac4f8eab761b3b055c1f5515f62cd94bfb9",
+  "accepted_predecessor_archive_sha256": "a5c494183f6afc37d013d4377422680820c204dd7f1feacd56e819218312dbd3",
+  "predecessor_review_sha256": "dfe8f45ae452ca3c1339b58eb28146b52f06c7a880e39f358a147f9a2eb43527",
+  "r1_tz_sha256": "c77b5d37d46e1ed0aec08812022abe3ffbeadabac034d2e7a64d5ea10dc326e4",
+  "acceptance_rows": 64,
+  "negative_cases": 42,
+  "official_contract_match": true,
+  "required": {
+    "explicit_endpoint_context": true,
+    "stage8_specific_classifier": true,
+    "place_exact_200_correlation": true,
+    "cancel_exact_200_correlation": true,
+    "opaque_string_broker_order_id": true,
+    "redacted_diagnostic_only": true,
+    "all_unsafe_place_400_reconcile": true,
+    "undocumented_2xx_reconcile": true,
+    "local_failures_reconcile": true,
+    "endpoint_specific_auth_semantics": true
+  },
+  "closed": {
+    "historical_classifier_authority": true,
+    "network_send": true,
+    "retry_authority": true,
+    "definitely_not_sent": true,
+    "proven_no_match": true,
+    "broker_reconciliation": true,
+    "cancel_flatness": true,
+    "redis_live_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "protective_multi_leg": true
+  },
+  "next_after_acceptance": "Stage 8A-4 only"
+}

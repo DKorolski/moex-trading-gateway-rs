@@ -1056,3 +1056,11 @@ are mandatory. R3 was independently accepted at `1ff0415`; it opened only
 Stage 8A-2 request-builder composition behind a strict no-send boundary. HTTP,
 Redis live consumer, broker dispatch, runtime-live and real strategy orders
 remain closed.
+
+Stage 8A-2 R1 was independently accepted and closed at
+`16180ac4f8eab761b3b055c1f5515f62cd94bfb9`. The active slice is Stage 8A-3 R1:
+an endpoint-specific, local-observation FINAM PLACE/CANCEL classifier with no
+network send. The 2026-08-15 official REST refresh exactly matches the accepted
+Stage 8A-0 PLACE/CANCEL document hashes. Historical M3d2 classification is not
+Stage 8 authority. Stage 8A-4+, transport, Redis live consumption, broker
+dispatch, runtime-live and real orders remain closed.

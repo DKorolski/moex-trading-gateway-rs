@@ -146,6 +146,9 @@ strategy orders.
 
 Stage 8A-0 R1 is independently accepted and closed at `c949d7f`. Stage 8A-1 R3
 is independently accepted and closed at `1ff0415`. Its opaque continuation is
-the only legal input to the active Stage 8A-2 builder/no-send composition
-slice. Stage 8A-3 and every execution surface remain closed pending separate
-independent acceptance.
+the only legal input to the independently accepted Stage 8A-2 R1
+builder/no-send composition at `16180ac`. The active slice is Stage 8A-3 R1,
+which may add only a distinct endpoint-specific local HTTP observation
+classifier. Acceptance of its exact artifact may open Stage 8A-4 only. Every
+network-send, Redis-live, broker-dispatch, runtime-live and real-order surface
+remains closed.
