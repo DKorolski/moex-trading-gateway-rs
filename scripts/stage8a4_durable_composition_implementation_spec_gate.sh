@@ -30,13 +30,13 @@ from pathlib import Path
 target = Path(sys.argv[1])
 results = sorted(path.name for path in target.parent.glob("*.result.txt"))
 target.write_text(json.dumps({
-    "schema_version": 1,
-    "stage": "8A-4-durable-composition-implementation-spec-R1",
+    "schema_version": 2,
+    "stage": "8A-4-durable-composition-implementation-spec-R2",
     "result": "PASS",
     "gate_count": len(results),
     "gates": results,
-    "acceptance_rows": 84,
-    "negative_cases": 40,
+    "acceptance_rows": 105,
+    "negative_cases": 57,
     "spec_only": True,
     "production_rust_changed": False,
     "i1_authorized_before_acceptance": False,
@@ -45,4 +45,4 @@ target.write_text(json.dumps({
 }, indent=2, sort_keys=True) + "\n")
 PY
 
-echo "stage8a4-durable-composition-implementation-spec-r1-gate: PASS rows=84 negatives=40 production=false apply=false execution=false"
+echo "stage8a4-durable-composition-implementation-spec-r2-gate: PASS rows=105 negatives=57 production=false apply=false execution=false"

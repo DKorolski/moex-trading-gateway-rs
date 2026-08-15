@@ -17,8 +17,9 @@ lifecycle.
 Stage 8A-0 through Stage 8A-3 are independently accepted. Stage 8A-4 Design R2
 is accepted at `cc58c10`; its pure reducer Implementation R4 is accepted and
 closed at `4caf07c`. Durable-composition Design R2 is accepted and closed at
-`6ddf54e`. The only open slice is its implementation specification R1;
-production schema/apply code and Stage 8A-5 remain closed.
+`6ddf54e`. Implementation specification R1 at `e3d0ac3` was not accepted.
+The only open slice is the corrected implementation specification R2;
+I1 production schema/codec/replay, writer/apply and Stage 8A-5 remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.

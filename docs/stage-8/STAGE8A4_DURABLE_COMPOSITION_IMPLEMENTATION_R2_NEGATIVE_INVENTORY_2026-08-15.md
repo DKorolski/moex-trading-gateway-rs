@@ -1,6 +1,6 @@
-# Stage 8A-4 durable-composition implementation specification R1 negative inventory
+# Stage 8A-4 durable-composition implementation specification R2 negative inventory
 
-The specification checker must reject all 40 mutations:
+The R2 checker retains every R1 concept and must reject all 57 mutations:
 
 1. accepted Design R2 ref drift;
 2. accepted review hash drift;
@@ -42,6 +42,23 @@ The specification checker must reject all 40 mutations:
 38. terminal ACK allowed without covering seal;
 39. I1 durable writer opened;
 40. production Rust path added to specification diff.
+41. V2 lifecycle sequence omitted;
+42. V2 previous record ID omitted;
+43. V2 durable request identity omitted;
+44. V2 event kind is merged into or mutates V1 event-kind semantics;
+45. unknown record schema version is skipped;
+46. failed V2 decode falls back to V1;
+47. mixed replay ignores V2 sequence/frontier;
+48. V2 directly applies suffix semantics or finalizes the request;
+49. pending-batch replay loses stable key or suffix manifest;
+50. suffix manifest binds payload hash but not full canonical record hash;
+51. same payload with changed source evidence is accepted;
+52. same payload with changed previous/causal identity is accepted;
+53. BrokerOrderId is invented for V1 order compatibility projection;
+54. trade BrokerOrderId is invented for V1 trade compatibility projection;
+55. client-linked trade without BrokerOrderId is dropped from V2;
+56. successful exact lookup loses its returned observation;
+57. immutable V1 canonical golden bytes are allowed to change.
 
 The harness operates only on a temporary copied tree and performs no journal,
 Redis, broker or network effect.

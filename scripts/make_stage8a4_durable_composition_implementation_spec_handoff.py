@@ -62,7 +62,7 @@ def main() -> None:
         environment["STAGE8A4_IMPLEMENTATION_SPEC_ARTIFACT_DIR"] = str(artifact_dir)
         gate = subprocess.run(["bash", "scripts/stage8a4_durable_composition_implementation_spec_gate.sh"], cwd=ROOT, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
         gate_output = redacted(gate.stdout)
-        marker = b"stage8a4-durable-composition-implementation-spec-r1-gate: PASS rows=84 negatives=40 production=false apply=false execution=false"
+        marker = b"stage8a4-durable-composition-implementation-spec-r2-gate: PASS rows=105 negatives=57 production=false apply=false execution=false"
         if gate.returncode or marker not in gate_output:
             print(gate_output.decode(errors="replace"), end="")
             fail(f"full gate failed: {gate.returncode}")
@@ -90,20 +90,23 @@ def main() -> None:
         commit_marker = (
             f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
             f"archive_name={archive_name}\naccepted_durable_design_ref={checker.BASE}\n"
-            "candidate_stage=Stage 8A-4 durable-composition implementation specification R1\n"
-            "candidate_status=implementation_spec_r1_independent_acceptance_pending\n"
+            f"rejected_implementation_spec_r1_ref={checker.R1}\n"
+            "candidate_stage=Stage 8A-4 durable-composition implementation specification R2\n"
+            "candidate_status=implementation_spec_r2_independent_acceptance_pending\n"
             "spec_only=true\nproduction_rust_changed=false\ndurable_apply_authorized=false\n"
             "finam_execution_authorized=false\nruntime_live_authorized=false\n"
         ).encode()
         artifact_hashes = {name: digest(payload) for name, payload in sorted(artifacts.items())}
         evidence = json.dumps({
-            "schema_version": 1,
-            "stage": "8A-4-durable-composition-implementation-spec-R1",
-            "candidate_status": "implementation_spec_r1_independent_acceptance_pending",
+            "schema_version": 2,
+            "stage": "8A-4-durable-composition-implementation-spec-R2",
+            "candidate_status": "implementation_spec_r2_independent_acceptance_pending",
             "source_ref": head, "source_branch": branch,
             "accepted_durable_design_ref": checker.BASE,
             "accepted_durable_design_review_sha256": checker.REVIEW_SHA256,
-            "acceptance_rows": 84, "negative_cases": 40,
+            "rejected_implementation_spec_r1_ref": checker.R1,
+            "rejected_implementation_spec_r1_review_sha256": checker.R1_REVIEW_SHA256,
+            "acceptance_rows": 105, "negative_cases": 57,
             "spec_only": True, "production_rust_changed": False,
             "i1_authorized_before_acceptance": False,
             "durable_apply_authorized": False, "finam_execution_authorized": False,

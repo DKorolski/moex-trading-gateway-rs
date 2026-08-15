@@ -39,9 +39,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `6ddf54ef9d7f740dc59cd2450e78301be3d068cb` is independently ACCEPTED and CLOSED;
   its final review SHA-256 is
   `160b674d661982b6dbaa6248c2c4acaf883543cb8be99318ef04b0787492f4ba`.
-- Stage 8A-4 durable-composition implementation specification R1 is the sole
-  active candidate; independent acceptance is pending. Production
-  implementation and durable apply remain closed.
+- Stage 8A-4 durable-composition implementation specification R1 was not accepted
+  at `e3d0ac39dcff25439a7e78f51142b852d8347a2f`; its review SHA-256 is
+  `968f2c61f9c9b01a56e1f8950664d46000b15e038abab74a11089bd91988996b`.
+- Corrected implementation specification R2 is the sole active candidate;
+  independent acceptance is pending. I1 production schema/codec/replay and
+  every writer/durable-apply surface remain closed.
 - Stage 8A-5+, Stage 8B, durable apply/journal, ACK/readiness publication,
   retry/resend, FINAM POST/DELETE, Redis live consumption, broker dispatch,
   runtime-live and real orders remain closed.
@@ -1107,11 +1110,14 @@ post-append seal, stable replay identity, post-effect controls and hold
 settlement ambiguous. Durable-composition Design R2 was independently accepted
 and closed at `6ddf54ef9d7f740dc59cd2450e78301be3d068cb`; its final review
 SHA-256 is `160b674d661982b6dbaa6248c2c4acaf883543cb8be99318ef04b0787492f4ba`.
-The active slice is the Stage 8A-4 durable-composition implementation
-specification R1. It selects an additive Stage 6 V2 transition record because
-V1 cannot losslessly retain the stable transition key and exact lifecycle/hold
-semantics. Acceptance may open only I1 canonical codec and mixed replay, with
-no writer. No production durable apply or execution surface is open.
+Implementation specification R1 at
+`e3d0ac39dcff25439a7e78f51142b852d8347a2f` was not accepted because the full
+V2 causal envelope, partial mixed-batch replay, complete-record suffix binding
+and optional-ID compatibility projection were not fully frozen. The active
+slice is corrected Stage 8A-4 durable-composition implementation specification
+R2. It closes those specification gaps while retaining additive V2 and immutable
+V1. Acceptance may open only I1 canonical codec and mixed replay, with no
+writer. No production durable apply or execution surface is open.
 Durable apply/journal,
 ACK/readiness publication,
 `ProvenNoMatch`, retry/resend, FINAM POST/DELETE, Redis live consumption, broker

@@ -83,3 +83,24 @@ S081,I1 is schema codec replay only with no writer,authority and TZ
 S082,I2 I3 I4 require separate acceptance,authority and TZ
 S083,Redis FINAM dispatch runtime-live and real orders remain closed,authority and TZ
 S084,Stage8A5 and Stage8B remain closed,authority and TZ
+S085,Complete V2 top-level causal envelope is frozen,authority and TZ
+S086,V2 record schema version is exactly 2,authority
+S087,V2 event kind type is separate from immutable V1,authority and TZ
+S088,V2 record ID reuses the exact accepted V1 request-sequence derivation,authority and TZ
+S089,V2 sequence previous and causal rules are exact,authority and TZ
+S090,Storage header and frame versions remain unchanged,authority and TZ
+S091,Record dispatch supports exactly schema versions 1 and 2,authority
+S092,Malformed unknown or ambiguous record versions fail closed,authority and TZ
+S093,Failed V2 decode never falls back to V1,authority and TZ
+S094,Dedicated Stage6 V2 persistence DTO inventory is exact,authority and TZ
+S095,Exact lookup evidence is a fully discriminated union,authority and TZ
+S096,Succeeded exact lookup preserves the exact returned observation,authority and TZ
+S097,V2 advances the mixed replay causal frontier,authority and TZ
+S098,V2 registers a complete pending reconciliation batch,authority and TZ
+S099,Partial suffix replay preserves exact verified prefix and missing remainder,authority and TZ
+S100,V2 alone does not apply suffix semantics or finalize,authority and TZ
+S101,Suffix manifest binds each complete canonical V1 record,authority and TZ
+S102,Source evidence causal links sequence and record ID are full-record bound,authority and TZ
+S103,V2 retains complete optional-ID broker order and trade facts,authority and TZ
+S104,V1 projection uses only real compatible BrokerOrderId values,authority and TZ
+S105,No missing broker identity is fabricated or causes a V2 fact to be dropped,authority and TZ

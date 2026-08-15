@@ -1,10 +1,12 @@
 {
-  "schema_version": 1,
-  "stage": "8A-4-durable-composition-implementation-spec-R1",
-  "status": "implementation_spec_r1_independent_acceptance_pending",
+  "schema_version": 2,
+  "stage": "8A-4-durable-composition-implementation-spec-R2",
+  "status": "implementation_spec_r2_independent_acceptance_pending",
   "branch": "stage8a4-durable-composition-implementation-spec",
   "accepted_durable_design_ref": "6ddf54ef9d7f740dc59cd2450e78301be3d068cb",
   "accepted_durable_design_review_sha256": "160b674d661982b6dbaa6248c2c4acaf883543cb8be99318ef04b0787492f4ba",
+  "rejected_implementation_spec_r1_ref": "e3d0ac39dcff25439a7e78f51142b852d8347a2f",
+  "rejected_implementation_spec_r1_review_sha256": "968f2c61f9c9b01a56e1f8950664d46000b15e038abab74a11089bd91988996b",
   "accepted_reducer_ref": "4caf07c16ddad021add7cffe6e887165e49e1bf0",
   "accepted_reconciliation_design_ref": "cc58c10d22db312cd83640f1c1e7fd86861a4594",
   "spec_only": true,
@@ -12,6 +14,7 @@
   "schema_decision": {
     "decision": "additive_stage6_journal_record_v2_required",
     "stage6_v1_bytes_immutable": true,
+    "stage6_v1_record_ids_immutable": true,
     "stage6_v1_semantics_immutable": true,
     "source_evidence_digest_smuggling_forbidden": true,
     "unknown_v2_skip_allowed": false,
@@ -19,8 +22,79 @@
     "mixed_v1_v2_replay_required": true,
     "canonical_golden_and_restart_compatibility_required": true
   },
-  "v2_event_kind": "ReconciliationTransitionApplied",
-  "v2_required_fields": [
+  "versioned_record": {
+    "variants": [
+      "V1(Stage6JournalRecordV1)",
+      "V2(Stage6JournalRecordV2)"
+    ],
+    "supported_record_schema_versions": [1, 2],
+    "unknown_or_ambiguous_version_action": "fail_closed",
+    "failed_v2_decode_falls_back_to_v1": false
+  },
+  "v2_record": {
+    "schema_version": 2,
+    "outer_fields": [
+      "schema_version",
+      "journal_record_id",
+      "lifecycle_sequence",
+      "previous_record_id",
+      "causal_parent_id",
+      "durable_request_identity",
+      "event_kind",
+      "payload",
+      "canonical_payload_sha256",
+      "source_evidence_sha256"
+    ],
+    "event_kind_type": "Stage6JournalEventKindV2",
+    "event_kind_variants": [
+      "ReconciliationTransitionApplied"
+    ],
+    "event_kind_type_is_separate_from_v1": true,
+    "record_id_rule": "reuse_stage6_journal_record_v1_domain_sha256_strategy_request_id_and_lifecycle_sequence",
+    "record_id_domain": "stage6-journal-record-v1",
+    "sequence_rule": "exact_next_request_lifecycle_sequence",
+    "previous_record_rule": "exact_current_request_last_record_id",
+    "causal_parent_rule": "same_as_previous_record_id",
+    "durable_identity_rule": "exact_existing_stage6_durable_request_identity_v1",
+    "payload_digest_rule": "sha256_exact_canonical_v2_payload_bytes",
+    "source_evidence_rule": "stage6_sha256_digest_bound_to_authoritative_acquisition_evidence"
+  },
+  "framed_journal_dispatch": {
+    "storage_schema_version": 1,
+    "frame_magic": "S6F1",
+    "frame_version": 1,
+    "storage_or_frame_schema_changed": false,
+    "dispatch_rule": "inspect_exact_top_level_record_schema_version_inside_verified_frame_body",
+    "schema_1_decoder": "existing_stage6_journal_record_v1_decode_canonical_byte_identical",
+    "schema_2_decoder": "stage6_journal_record_v2_decode_canonical",
+    "unknown_version_action": "fail_closed",
+    "malformed_or_ambiguous_discriminator_action": "fail_closed",
+    "v2_decode_failure_fallback_allowed": false,
+    "v1_only_binary_encountering_v2": "fail_closed"
+  },
+  "dedicated_v2_dtos": [
+    "Stage6ReconciliationEndpointKindV2",
+    "Stage6ReconciliationTransitionKindV2",
+    "Stage6ReconciliationLifecycleV2",
+    "Stage6ReconciliationFillEffectV2",
+    "Stage6ExactLookupEvidenceV2",
+    "Stage6BrokerOrderFactV2",
+    "Stage6MaterialTradeFactV2",
+    "Stage6AccountSafetySummaryV2",
+    "Stage6PreAppendPreconditionV2",
+    "Stage6SuffixManifestV2",
+    "Stage6SuffixManifestEntryV2"
+  ],
+  "dto_policy": {
+    "owner": "strategy_runtime_core_stage6_persistence",
+    "serializes_private_finam_gateway_types": false,
+    "serializes_unversioned_live_domain_structs_wholesale": false,
+    "deny_unknown_fields_equivalent": true,
+    "canonical_decimal_string_time_encoding": true,
+    "bounded_collections_required": true,
+    "transport_tokens_urls_or_send_capability_allowed": false
+  },
+  "v2_payload_fields": [
     "stable_transition_key_sha256",
     "durable_request_binding_sha256",
     "private_authoritative_outcome_binding_sha256",
@@ -30,18 +104,9 @@
     "broker_order_fact",
     "material_trade_facts",
     "fill_effect",
-    "account_safety_binding",
-    "pre_append_precondition_evidence",
+    "account_safety_summary",
+    "pre_append_precondition",
     "deterministic_suffix_manifest"
-  ],
-  "exact_lookup_query_binding_fields": [
-    "state",
-    "account_id",
-    "queried_broker_order_id",
-    "durable_request_binding_sha256",
-    "request_started_at",
-    "response_received_at",
-    "response_status_category"
   ],
   "stable_key_fields": [
     "durable_request_binding",
@@ -54,35 +119,138 @@
     "expected_recovery_seal_fingerprint",
     "expected_request_state_fingerprint"
   ],
-  "append_batch": {
+  "exact_lookup_union": {
+    "NotAttempted": [
+      "state"
+    ],
+    "Succeeded": [
+      "state",
+      "account_id",
+      "queried_broker_order_id",
+      "durable_request_binding_sha256",
+      "request_started_at",
+      "response_received_at",
+      "exact_order_observation_v2"
+    ],
+    "DocumentedNotFound": [
+      "state",
+      "account_id",
+      "queried_broker_order_id",
+      "durable_request_binding_sha256",
+      "request_started_at",
+      "response_received_at",
+      "documented_status_category"
+    ],
+    "Unavailable": [
+      "state",
+      "account_id",
+      "queried_broker_order_id",
+      "durable_request_binding_sha256",
+      "request_started_at",
+      "response_received_at",
+      "failure_category"
+    ],
+    "DecodeFailure": [
+      "state",
+      "account_id",
+      "queried_broker_order_id",
+      "durable_request_binding_sha256",
+      "request_started_at",
+      "response_received_at",
+      "response_status_category",
+      "response_binding_sha256"
+    ],
+    "Stale": [
+      "state",
+      "account_id",
+      "queried_broker_order_id",
+      "durable_request_binding_sha256",
+      "request_started_at",
+      "response_received_at",
+      "stale_observation_binding_sha256"
+    ]
+  },
+  "mixed_replay": {
+    "v2_validates_exact_durable_request_identity": true,
+    "v2_requires_next_sequence_and_exact_previous_link": true,
+    "v2_advances_last_sequence_and_record_id": true,
+    "v2_registers_pending_reconciliation_batch": true,
+    "v2_itself_applies_v1_suffix_semantics": false,
+    "v2_authorizes_send_retry_or_settlement": false,
+    "v2_after_finalized_request_allowed": false,
+    "pending_batch_fields": [
+      "stable_transition_key_sha256",
+      "transition_kind",
+      "canonical_v2_record_sha256",
+      "deterministic_suffix_manifest",
+      "verified_suffix_prefix_length",
+      "batch_completion_state",
+      "last_mixed_record_id",
+      "last_mixed_lifecycle_sequence"
+    ],
+    "partial_suffix_rule": "verify_exact_manifest_prefix_and_retain_missing_suffix_pending",
+    "complete_suffix_rule": "apply_v1_semantics_in_order_and_mark_batch_complete",
+    "unexpected_record_inside_batch": "hard_conflict",
+    "same_key_same_canonical_v2_record": "idempotent_existing_batch",
+    "same_key_different_payload_or_record": "hard_conflict",
+    "process_local_outcome_required_after_restart": false
+  },
+  "future_append_batch": {
     "transition_v2_is_first_record": true,
-    "deterministic_suffix_manifest_persisted": true,
     "each_record_append_is_durable": true,
     "covering_seal_after_complete_batch_only": true,
     "restart_finds_transition_by_persisted_stable_key": true,
     "restart_appends_only_missing_verified_suffix": true,
     "second_transition_append_allowed": false,
-    "same_key_same_payload": "resume_or_return_idempotent_existing_batch",
-    "same_key_different_payload": "hard_conflict"
+    "same_key_same_record": "resume_or_return_idempotent_existing_batch",
+    "same_key_different_payload_or_record": "hard_conflict"
+  },
+  "suffix_manifest_entry_fields": [
+    "ordinal",
+    "event_kind",
+    "journal_record_id",
+    "lifecycle_sequence",
+    "canonical_payload_sha256",
+    "canonical_record_sha256"
+  ],
+  "suffix_manifest_policy": {
+    "canonical_record_sha256_rule": "sha256_exact_stage6_journal_record_v1_encode_canonical_bytes",
+    "binds_previous_causal_identity_payload_source_and_sequence": true,
+    "exact_full_record_marks_entry_complete": true,
+    "same_record_id_different_record_hash": "hard_conflict",
+    "same_payload_different_full_record": "hard_conflict",
+    "missing_next_entry": "append_exact_reconstructed_record_in_later_writer_slice",
+    "unexpected_extra_record": "hard_conflict"
+  },
+  "fact_projection": {
+    "v2_is_complete_durable_reconciliation_fact": true,
+    "v1_suffix_is_lossless_compatibility_projection": true,
+    "broker_order_id_may_be_absent_in_v2": true,
+    "v1_broker_order_observed_requires_real_broker_order_id": true,
+    "v1_broker_trade_observed_requires_real_compatible_broker_order_id": true,
+    "missing_broker_order_id_is_never_fabricated": true,
+    "client_linked_trade_without_broker_id_retained_in_v2": true,
+    "request_finalization_depends_on_endpoint_disposition_not_fabricated_id": true,
+    "suffix_manifest_describes_exact_representable_subset": true
   },
   "endpoint_disposition_matrix": {
     "place": {
-      "ExactWorking": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
-      "ExactTerminalFilled": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
-      "ExactTerminalRejected": "broker_order_fact_then_request_finalized_rejected_ack_rejected",
-      "ExactTerminalCancelled": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
-      "ExactTerminalExpired": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
-      "ReconciliationConflictHold": "transition_only_no_finalization_no_ack_no_xack",
-      "ReconciliationStillUnknownHold": "transition_only_no_finalization_no_ack_no_xack"
+      "ExactWorking": "request_finalized_completed_ack_recovered",
+      "ExactTerminalFilled": "request_finalized_completed_ack_recovered",
+      "ExactTerminalRejected": "request_finalized_rejected_ack_rejected",
+      "ExactTerminalCancelled": "request_finalized_completed_ack_recovered",
+      "ExactTerminalExpired": "request_finalized_completed_ack_recovered",
+      "ReconciliationConflictHold": "no_finalization_no_ack_no_xack",
+      "ReconciliationStillUnknownHold": "no_finalization_no_ack_no_xack"
     },
     "cancel": {
-      "ExactWorking": "transition_only_unresolved_no_finalization_no_ack_no_xack",
-      "ExactTerminalFilled": "cancel_execution_observed_then_request_finalized_completed_ack_recovered",
-      "ExactTerminalRejected": "cancel_already_terminal_non_execution_then_request_finalized_completed_ack_recovered",
-      "ExactTerminalCancelled": "cancel_canceled_then_request_finalized_completed_ack_recovered",
-      "ExactTerminalExpired": "cancel_already_terminal_non_execution_then_request_finalized_completed_ack_recovered",
-      "ReconciliationConflictHold": "transition_only_no_finalization_no_ack_no_xack",
-      "ReconciliationStillUnknownHold": "transition_only_no_finalization_no_ack_no_xack"
+      "ExactWorking": "unresolved_no_finalization_no_ack_no_xack",
+      "ExactTerminalFilled": "cancel_execution_observed_request_finalized_completed_ack_recovered",
+      "ExactTerminalRejected": "cancel_already_terminal_non_execution_request_finalized_completed_ack_recovered",
+      "ExactTerminalCancelled": "cancel_canceled_request_finalized_completed_ack_recovered",
+      "ExactTerminalExpired": "cancel_already_terminal_non_execution_request_finalized_completed_ack_recovered",
+      "ReconciliationConflictHold": "no_finalization_no_ack_no_xack",
+      "ReconciliationStillUnknownHold": "no_finalization_no_ack_no_xack"
     }
   },
   "canonical_ack": {
@@ -110,6 +278,28 @@
     "publication_before_validated_s1_allowed": false,
     "seal_failure_keeps_batch_durable_and_settlement_pending": true
   },
+  "i1_golden_cases": [
+    "PlaceExactWorkingBrokerOrderIdPresent",
+    "PlaceExactWorkingBrokerOrderIdAbsent",
+    "PlaceExactTerminalRejected",
+    "PlacePartialFillTradeBrokerOrderIdPresent",
+    "PlacePartialFillClientLinkedTradeBrokerOrderIdAbsent",
+    "CancelExactWorking",
+    "CancelTerminalCancelled",
+    "ConflictHold",
+    "StillUnknownHold",
+    "ExactLookupNotAttempted",
+    "ExactLookupSucceededWithObservation",
+    "ExactLookupDocumentedNotFound",
+    "ExactLookupUnavailable",
+    "ExactLookupDecodeFailure",
+    "ExactLookupStale",
+    "MixedV1V2",
+    "MixedV1V2PartialV1Suffix",
+    "MixedV1V2CompleteV1Suffix",
+    "UnknownRecordSchemaVersionFailClosed",
+    "V1GoldenBytesUnchanged"
+  ],
   "implementation_slices": [
     "I1_additive_schema_canonical_codec_and_mixed_replay_no_writer",
     "I2_private_linear_composition_and_transition_builder_no_append",
@@ -118,7 +308,7 @@
   ],
   "next_after_acceptance": "I1 additive schema canonical codec and mixed replay only",
   "closed": {
-    "production_implementation_before_spec_acceptance": true,
+    "i1_before_spec_r2_acceptance": true,
     "durable_writer_apply_in_i1": true,
     "ack_readiness_publication_in_i1": true,
     "redis_live_consumer": true,

@@ -43,9 +43,12 @@ at `80fe35e` retained the architecture but was not accepted because the stable
 transition key, post-append covering seal, post-effect arm/kill-switch and hold
 settlement semantics were not fully frozen. Durable-composition Design R2 was
 independently accepted and closed at `6ddf54e`. The active slice is its
-implementation specification R1 only. It freezes the additive Stage 6 V2
-schema decision, mixed replay, deterministic append suffix and endpoint-specific
-PLACE/CANCEL settlement table. Acceptance may open only I1 schema/codec/replay,
+implementation specification R2 only. Specification R1 at `e3d0ac3` was not
+accepted because it did not freeze the complete V2 causal record, partial-batch
+mixed replay, full-record suffix manifest and optional-ID projection. R2 closes
+those gaps while preserving additive Stage 6 V2, immutable V1 and the endpoint-
+specific PLACE/CANCEL settlement table. Acceptance may open only I1
+schema/codec/replay,
 but not writer/apply,
 ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live or real orders.

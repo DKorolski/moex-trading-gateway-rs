@@ -48,8 +48,10 @@ def verify(path: str) -> dict[str, object]:
         manifest = json.loads(manifest_bytes)
         if f"source_ref={evidence['source_ref']}" not in marker or evidence["accepted_durable_design_ref"] != BASE:
             raise ValueError("source/design marker mismatch")
-        if evidence["stage"] != "8A-4-durable-composition-implementation-spec-R1":
+        if evidence["stage"] != "8A-4-durable-composition-implementation-spec-R2":
             raise ValueError("stage mismatch")
+        if evidence["acceptance_rows"] != 105 or evidence["negative_cases"] != 57:
+            raise ValueError("R2 coverage mismatch")
         if not evidence["all_required_gates_passed"] or evidence["durable_apply_authorized"]:
             raise ValueError("gate/apply mismatch")
         if digest(manifest_bytes) != evidence["source_manifest_sha256"]:
