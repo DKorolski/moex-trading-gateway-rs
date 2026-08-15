@@ -41,11 +41,12 @@ and Implementation R3 at `5a846f9` were not accepted. Implementation R4 was
 independently accepted and closed at `4caf07c`. Durable-composition Design R1
 at `80fe35e` retained the architecture but was not accepted because the stable
 transition key, post-append covering seal, post-effect arm/kill-switch and hold
-settlement semantics were not fully frozen. The active slice is Stage 8A-4
-durable-composition Design R2 only. It separates immutable transition identity
-from pre-append CAS, requires a new covering seal, defines three crash windows,
-and freezes exact lookup and terminal-settlement dispositions. Its independent
-acceptance may open only a separate implementation specification, but not apply/journal,
+settlement semantics were not fully frozen. Durable-composition Design R2 was
+independently accepted and closed at `6ddf54e`. The active slice is its
+implementation specification R1 only. It freezes the additive Stage 6 V2
+schema decision, mixed replay, deterministic append suffix and endpoint-specific
+PLACE/CANCEL settlement table. Acceptance may open only I1 schema/codec/replay,
+but not writer/apply,
 ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live or real orders.
 

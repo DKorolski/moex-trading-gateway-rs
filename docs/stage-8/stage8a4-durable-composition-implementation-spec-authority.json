@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "stage": "8A-4-durable-composition-implementation-spec-R1",
+  "status": "implementation_spec_r1_independent_acceptance_pending",
+  "branch": "stage8a4-durable-composition-implementation-spec",
+  "accepted_durable_design_ref": "6ddf54ef9d7f740dc59cd2450e78301be3d068cb",
+  "accepted_durable_design_review_sha256": "160b674d661982b6dbaa6248c2c4acaf883543cb8be99318ef04b0787492f4ba",
+  "accepted_reducer_ref": "4caf07c16ddad021add7cffe6e887165e49e1bf0",
+  "accepted_reconciliation_design_ref": "cc58c10d22db312cd83640f1c1e7fd86861a4594",
+  "spec_only": true,
+  "production_rust_changed": false,
+  "schema_decision": {
+    "decision": "additive_stage6_journal_record_v2_required",
+    "stage6_v1_bytes_immutable": true,
+    "stage6_v1_semantics_immutable": true,
+    "source_evidence_digest_smuggling_forbidden": true,
+    "unknown_v2_skip_allowed": false,
+    "historical_rewrite_or_migration_allowed": false,
+    "mixed_v1_v2_replay_required": true,
+    "canonical_golden_and_restart_compatibility_required": true
+  },
+  "v2_event_kind": "ReconciliationTransitionApplied",
+  "v2_required_fields": [
+    "stable_transition_key_sha256",
+    "durable_request_binding_sha256",
+    "private_authoritative_outcome_binding_sha256",
+    "endpoint_kind",
+    "transition_kind",
+    "exact_lookup_evidence",
+    "broker_order_fact",
+    "material_trade_facts",
+    "fill_effect",
+    "account_safety_binding",
+    "pre_append_precondition_evidence",
+    "deterministic_suffix_manifest"
+  ],
+  "exact_lookup_query_binding_fields": [
+    "state",
+    "account_id",
+    "queried_broker_order_id",
+    "durable_request_binding_sha256",
+    "request_started_at",
+    "response_received_at",
+    "response_status_category"
+  ],
+  "stable_key_fields": [
+    "durable_request_binding",
+    "private_authoritative_reconciliation_outcome_binding",
+    "transition_kind"
+  ],
+  "pre_append_cas_fields": [
+    "expected_stage6_checkpoint_or_frontier_fingerprint",
+    "expected_recovery_seal_generation",
+    "expected_recovery_seal_fingerprint",
+    "expected_request_state_fingerprint"
+  ],
+  "append_batch": {
+    "transition_v2_is_first_record": true,
+    "deterministic_suffix_manifest_persisted": true,
+    "each_record_append_is_durable": true,
+    "covering_seal_after_complete_batch_only": true,
+    "restart_finds_transition_by_persisted_stable_key": true,
+    "restart_appends_only_missing_verified_suffix": true,
+    "second_transition_append_allowed": false,
+    "same_key_same_payload": "resume_or_return_idempotent_existing_batch",
+    "same_key_different_payload": "hard_conflict"
+  },
+  "endpoint_disposition_matrix": {
+    "place": {
+      "ExactWorking": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
+      "ExactTerminalFilled": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
+      "ExactTerminalRejected": "broker_order_fact_then_request_finalized_rejected_ack_rejected",
+      "ExactTerminalCancelled": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
+      "ExactTerminalExpired": "broker_order_and_trade_facts_then_request_finalized_completed_ack_recovered",
+      "ReconciliationConflictHold": "transition_only_no_finalization_no_ack_no_xack",
+      "ReconciliationStillUnknownHold": "transition_only_no_finalization_no_ack_no_xack"
+    },
+    "cancel": {
+      "ExactWorking": "transition_only_unresolved_no_finalization_no_ack_no_xack",
+      "ExactTerminalFilled": "cancel_execution_observed_then_request_finalized_completed_ack_recovered",
+      "ExactTerminalRejected": "cancel_already_terminal_non_execution_then_request_finalized_completed_ack_recovered",
+      "ExactTerminalCancelled": "cancel_canceled_then_request_finalized_completed_ack_recovered",
+      "ExactTerminalExpired": "cancel_already_terminal_non_execution_then_request_finalized_completed_ack_recovered",
+      "ReconciliationConflictHold": "transition_only_no_finalization_no_ack_no_xack",
+      "ReconciliationStillUnknownHold": "transition_only_no_finalization_no_ack_no_xack"
+    }
+  },
+  "canonical_ack": {
+    "recovered_success_status": "Recovered",
+    "recovered_success_reason": "RecoveredByBrokerTruth",
+    "place_terminal_rejected_status": "Rejected",
+    "place_terminal_rejected_reason": "BrokerRejected",
+    "terminal_ack_requires_request_finalized": true,
+    "terminal_ack_requires_covering_seal": true,
+    "hold_ack_or_xack_allowed": false,
+    "public_diagnostic_is_ack_authority": false
+  },
+  "post_effect_controls": {
+    "expired_operator_arm_blocks_reconciliation_append": false,
+    "stop_requested_blocks_reconciliation_append": false,
+    "stale_or_unreadable_kill_switch_blocks_reconciliation_append": false,
+    "stop_or_unreadable_blocks_new_send_and_readiness": true,
+    "replay_recreates_arm": false,
+    "reconciliation_can_send": false
+  },
+  "covering_seal_protocol": {
+    "pre_append_seal_must_cover_f0": true,
+    "post_batch_seal_must_cover_f1": true,
+    "post_batch_seal_reread_hmac_canonical_checkpoint_validation": true,
+    "publication_before_validated_s1_allowed": false,
+    "seal_failure_keeps_batch_durable_and_settlement_pending": true
+  },
+  "implementation_slices": [
+    "I1_additive_schema_canonical_codec_and_mixed_replay_no_writer",
+    "I2_private_linear_composition_and_transition_builder_no_append",
+    "I3_compare_append_batch_covering_seal_and_crash_recovery_no_transport",
+    "I4_derived_ack_readiness_facade_no_redis_live"
+  ],
+  "next_after_acceptance": "I1 additive schema canonical codec and mixed replay only",
+  "closed": {
+    "production_implementation_before_spec_acceptance": true,
+    "durable_writer_apply_in_i1": true,
+    "ack_readiness_publication_in_i1": true,
+    "redis_live_consumer": true,
+    "broker_dispatch": true,
+    "finam_post_delete": true,
+    "retry_rearm_resend": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "stage8a5": true,
+    "stage8b": true
+  }
+}

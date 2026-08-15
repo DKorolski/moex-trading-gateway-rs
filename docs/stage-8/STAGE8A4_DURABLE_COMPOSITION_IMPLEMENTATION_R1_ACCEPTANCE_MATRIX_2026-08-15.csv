@@ -1,0 +1,85 @@
+id,requirement,evidence
+S001,Accepted Durable Design R2 full ref pinned,authority
+S002,Accepted Design R2 review SHA256 pinned,authority
+S003,Accepted reducer ref pinned,authority
+S004,Accepted reconciliation design ref pinned,authority
+S005,Artifact is specification only,authority and changed-path gate
+S006,Production Rust is unchanged,authority and changed-path gate
+S007,Acceptance status remains pending until independent review,authority
+S008,Only I1 may open after specification acceptance,authority and TZ
+S009,Existing Stage6 V1 primitives are inventoried,TZ
+S010,Existing Stage7 covering-seal primitive is inherited,TZ
+S011,Additive Stage6 JournalRecordV2 is explicitly required,authority and TZ
+S012,V1 bytes remain immutable,authority and TZ
+S013,V1 semantics remain immutable,authority and TZ
+S014,Source-evidence digest smuggling is forbidden,authority and TZ
+S015,Historical rewrite or migration is forbidden,authority and TZ
+S016,Mixed V1 V2 replay is required,authority and TZ
+S017,Unknown V2 record skipping is forbidden,authority and TZ
+S018,V1 goldens must remain byte-identical,authority and TZ
+S019,V2 canonical golden fixtures are required,authority and TZ
+S020,Mixed restart golden fixtures are required,authority and TZ
+S021,V2 event kind is exact,authority
+S022,V2 decoder requires canonical encoding,TZ
+S023,V2 reader remains fail closed on unknown fields,TZ
+S024,Stable transition key is persisted,authority and TZ
+S025,Stable key fields are exact,authority
+S026,Stable key excludes frontier generation and nonce,TZ
+S027,Durable request binding is persisted,authority
+S028,Private outcome binding is persisted,authority
+S029,Endpoint and transition kind are persisted,authority
+S030,Exact lookup evidence is persisted,authority
+S031,Broker order and material trade facts are persisted,authority
+S032,Lifecycle and fill remain orthogonal,authority and TZ
+S033,Account safety binding is persisted,authority
+S034,Pre-append evidence is persisted,authority
+S035,Deterministic suffix manifest is persisted,authority
+S036,Exact lookup query fields are exact,authority
+S037,Attempted failure cannot become NotAttempted,TZ
+S038,V2 transition is first batch record,authority and TZ
+S039,Each append is durable,authority
+S040,Covering seal follows complete batch only,authority and TZ
+S041,Restart finds transition by persisted stable key,authority and TZ
+S042,Restart does not require process-local outcome,TZ
+S043,Restart verifies existing transition payload,TZ
+S044,Restart verifies already present suffix,TZ
+S045,Restart appends only missing deterministic suffix,authority and TZ
+S046,Second transition append is forbidden,authority
+S047,Same key same payload is idempotent resume,authority
+S048,Same key different payload is hard conflict,authority
+S049,Pre-append CAS fields are exact,authority
+S050,CAS mismatch consumes authority and requires fresh reconciliation,TZ
+S051,S1 must cover final frontier F1,authority and TZ
+S052,S1 reread HMAC canonical checkpoint validation is mandatory,authority
+S053,Non-success exact lookup binds account and queried order,authority and TZ
+S054,Non-success exact lookup binds request timing and status category,authority and TZ
+S055,Historical arm provenance and scope remain required,TZ
+S056,Expired arm does not block reconciliation append,authority and TZ
+S057,StopRequested does not block reconciliation append,authority and TZ
+S058,Unreadable kill switch does not block reconciliation append,authority and TZ
+S059,Stop or unreadable control blocks new send and readiness,authority
+S060,Replay never recreates an arm,authority
+S061,Reconciliation has no send capability,authority
+S062,PLACE ExactWorking finalizes Completed,authority and TZ
+S063,PLACE ExactTerminalFilled finalizes Completed,authority and TZ
+S064,PLACE ExactTerminalRejected finalizes Rejected,authority and TZ
+S065,PLACE ExactTerminalCancelled finalizes Completed,authority and TZ
+S066,PLACE ExactTerminalExpired finalizes Completed,authority and TZ
+S067,PLACE Conflict hold has no finalization or ACK,authority and TZ
+S068,PLACE StillUnknown hold has no finalization or ACK,authority and TZ
+S069,CANCEL ExactWorking remains unresolved,authority and TZ
+S070,CANCEL TerminalFilled maps ExecutionObserved,authority and TZ
+S071,CANCEL TerminalRejected maps AlreadyTerminalNonExecution,authority and TZ
+S072,CANCEL TerminalCancelled maps Canceled,authority and TZ
+S073,CANCEL TerminalExpired maps AlreadyTerminalNonExecution,authority and TZ
+S074,CANCEL Conflict hold has no finalization or ACK,authority and TZ
+S075,CANCEL StillUnknown hold has no finalization or ACK,authority and TZ
+S076,Recovered success ACK is Recovered and RecoveredByBrokerTruth,authority
+S077,PLACE terminal rejection ACK is Rejected and BrokerRejected,authority
+S078,Terminal ACK requires RequestFinalized,authority and TZ
+S079,Terminal ACK requires validated covering S1,authority and TZ
+S080,Public diagnostic cannot authorize ACK,authority and TZ
+S081,I1 is schema codec replay only with no writer,authority and TZ
+S082,I2 I3 I4 require separate acceptance,authority and TZ
+S083,Redis FINAM dispatch runtime-live and real orders remain closed,authority and TZ
+S084,Stage8A5 and Stage8B remain closed,authority and TZ
