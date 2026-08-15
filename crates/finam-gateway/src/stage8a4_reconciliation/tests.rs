@@ -1218,6 +1218,77 @@ fn supporting_trade_must_match_durable_ids_even_when_selected_order_omits_one() 
 }
 
 #[test]
+fn durable_identity_alone_cannot_create_selected_order_trade_support() {
+    let now = Utc::now();
+    let durable_context = || {
+        context(
+            now,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        )
+    };
+    let selected = || {
+        order(
+            now,
+            OrderStatus::PartiallyFilled,
+            Decimal::from(2),
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+        )
+    };
+
+    let mut no_selected_ids = selected();
+    no_selected_ids.client_order_id = None;
+    no_selected_ids.broker_order_id = None;
+    let no_edge = reconcile(
+        now,
+        durable_context(),
+        truth(
+            now,
+            vec![no_selected_ids],
+            vec![trade(now, "TRADE-DURABLE-ONLY", Decimal::from(2), 3)],
+        ),
+    );
+    assert_eq!(no_edge.outcome, Stage8a4OutcomeKind::Conflict);
+    assert_eq!(
+        no_edge.reason,
+        Stage8a4ReconciliationReason::TradeQuantityContradiction
+    );
+    assert_eq!(no_edge.matching_trade_count, 0);
+
+    let mut selected_client_only = selected();
+    selected_client_only.broker_order_id = None;
+    let mut trade_broker_only = trade(now, "TRADE-BROKER-ONLY", Decimal::from(2), 3);
+    trade_broker_only.client_order_id = None;
+    let broker_only = reconcile(
+        now,
+        durable_context(),
+        truth(now, vec![selected_client_only], vec![trade_broker_only]),
+    );
+    assert_eq!(
+        broker_only.reason,
+        Stage8a4ReconciliationReason::TradeQuantityContradiction
+    );
+    assert_eq!(broker_only.matching_trade_count, 0);
+
+    let mut selected_broker_only = selected();
+    selected_broker_only.client_order_id = None;
+    let mut trade_client_only = trade(now, "TRADE-CLIENT-ONLY", Decimal::from(2), 3);
+    trade_client_only.broker_order_id = None;
+    let client_only = reconcile(
+        now,
+        durable_context(),
+        truth(now, vec![selected_broker_only], vec![trade_client_only]),
+    );
+    assert_eq!(
+        client_only.reason,
+        Stage8a4ReconciliationReason::TradeQuantityContradiction
+    );
+    assert_eq!(client_only.matching_trade_count, 0);
+}
+
+#[test]
 fn admission_failure_diagnostic_is_bound_to_request_attempt() {
     let now = Utc::now();
     let snapshot_without_order = truth(now, vec![], vec![]);

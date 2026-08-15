@@ -1,4 +1,4 @@
-# Stage 8A-4 implementation R3 — pure reconciliation reducer
+# Stage 8A-4 implementation R4 — pure reconciliation reducer
 
 ## Authority
 
@@ -60,10 +60,11 @@ quantity must equal selected order `filled_qty`. The summary hashes a canonical
 material view ordered by trade ID and excludes non-material `received_ts`.
 
 At every tier, a present client or broker identity contradictory to the durable
-request is `Conflict`. A supporting trade is compared with both the selected
-order and durable request identities. If it matches one exact identity but
-contradicts another present selected or durable identity, it is `Conflict`; a
-trade with no matching selected or durable identity is unrelated and ignored.
+request is `Conflict`. A trade can support the selected order only through an
+exact broker-order or client identity shared with that selected order. Durable
+request identities may veto that support when contradictory, but cannot create
+support without a selected-order identity edge. A trade with no selected-order
+identity match is unrelated and ignored.
 
 Exact state keeps lifecycle and fill effect orthogonal. A cancelled or expired
 order may therefore retain a partial fill. Unknown status remains
@@ -84,5 +85,5 @@ Redis live consumption, broker dispatch, FINAM POST/DELETE, retry/resend,
 runtime-live, real orders, Stage 8A-5 and Stage 8B. Historical cancellation
 reconcilers are not imported as Stage-8 authority.
 
-Acceptance of R3 may open only separately reviewed durable-composition
+Acceptance of R4 may open only separately reviewed durable-composition
 planning. It does not authorize an execution surface.

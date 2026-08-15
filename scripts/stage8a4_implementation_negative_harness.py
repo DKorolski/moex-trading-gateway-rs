@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run 50 inherited plus 5 R3 fail-closed Stage 8A-4 mutations."""
+"""Run 55 inherited plus 3 R4 fail-closed Stage 8A-4 mutations."""
 
 from __future__ import annotations
 
@@ -88,11 +88,14 @@ def main() -> None:
         ("non-exact-source-binding-removed", replacement(s, "admission.truth_binding_sha256.as_bytes(),\n            admission.source_evidence_binding_sha256.as_bytes(),", "admission.truth_binding_sha256.as_bytes(),\n            admission.truth_binding_sha256.as_bytes(),")),
         ("durable-broker-trade-identity-removed", replacement(s, "|| durable_broker_conflict", "|| false")),
         ("durable-client-trade-identity-removed", replacement(s, "|| durable_client_conflict", "|| false")),
-        ("unrelated-trade-promoted", replacement(s, "if !(broker_match || client_match || durable_broker_match || durable_client_match) {", "if false && !(broker_match || client_match || durable_broker_match || durable_client_match) {")),
+        ("unrelated-trade-promoted", replacement(s, "if !(broker_match || client_match) {", "if false && !(broker_match || client_match) {")),
         ("admission-failure-request-binding-removed", replacement(s, "attempt.request_id.as_bytes(),", "attempt.durable_binding_sha256.as_bytes(),")),
-        ("leading-status-authority-regressed", replacement(status, "Stage 8A-4 Implementation R3 is the sole active corrective candidate;", "Stage 8A-4 Design R2 is the only active candidate;")),
+        ("leading-status-authority-regressed", replacement(status, "Stage 8A-4 Implementation R4 is the sole active corrective candidate;", "Stage 8A-4 Design R2 is the only active candidate;")),
+        ("durable-identities-create-support", replacement(s, "if !(broker_match || client_match) {", "if !(broker_match || client_match || trade.broker_order_id.as_ref().zip(context.known_broker_order_id.as_ref()).is_some_and(|(left, right)| left == right) || trade.client_order_id.as_ref().is_some_and(|value| value == &context.client_order_id)) {")),
+        ("durable-broker-creates-support", replacement(s, "if !(broker_match || client_match) {", "if !(broker_match || client_match || trade.broker_order_id.as_ref().zip(context.known_broker_order_id.as_ref()).is_some_and(|(left, right)| left == right)) {")),
+        ("durable-client-creates-support", replacement(s, "if !(broker_match || client_match) {", "if !(broker_match || client_match || trade.client_order_id.as_ref().is_some_and(|value| value == &context.client_order_id)) {")),
     ]
-    if len(mutations) != 55:
+    if len(mutations) != 58:
         raise SystemExit("stage8a4-implementation-negative: FAIL inventory count")
 
     with tempfile.TemporaryDirectory(prefix="stage8a4-implementation-negative-") as raw:
@@ -116,7 +119,7 @@ def main() -> None:
             finally:
                 for path, text in originals.items():
                     (root / path).write_text(text)
-    print("stage8a4-implementation-negative: PASS 55/55")
+    print("stage8a4-implementation-negative: PASS 58/58")
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ lifecycle.
 
 Stage 8A-0 through Stage 8A-3 are independently accepted. Stage 8A-4 Design R2
 is accepted at `cc58c10`. The only open slice is the narrow Stage 8A-4
-Implementation R3 pure reconciliation reducer correction; its independent
+Implementation R4 pure reconciliation reducer correction; its independent
 acceptance is pending. Durable composition and Stage 8A-5 remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and

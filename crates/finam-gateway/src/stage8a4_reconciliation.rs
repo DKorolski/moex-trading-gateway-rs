@@ -1,7 +1,7 @@
 //! Stage 8A-4 pure broker-truth admission and reconciliation reducer.
 //!
 //! The input capabilities are intentionally opaque and have no public
-//! constructors. Stage 8A-4 implementation R3 can therefore be exercised by
+//! constructors. Stage 8A-4 implementation R4 can therefore be exercised by
 //! canonical fixtures without opening a durable apply, retry or send path.
 //!
 //! ```compile_fail
@@ -210,7 +210,7 @@ struct Stage8a4AdmissionAttemptBinding {
 
 /// Admit canonical broker truth only after source-specific completeness,
 /// freshness, exact-account and exact-instrument checks. The input types are
-/// externally unconstructible in R3; a future authority bridge is separate.
+/// externally unconstructible in R4; a future authority bridge is separate.
 pub fn admit_stage8a4_broker_truth(
     context: &Stage8a4DurableRequestContext,
     policy: &Stage8a4ReconciliationPolicy,
@@ -1036,15 +1036,6 @@ fn classify_trade_support(
         .as_ref()
         .zip(order.client_order_id.as_ref())
         .is_some_and(|(left, right)| left == right);
-    let durable_broker_match = trade
-        .broker_order_id
-        .as_ref()
-        .zip(context.known_broker_order_id.as_ref())
-        .is_some_and(|(left, right)| left == right);
-    let durable_client_match = trade
-        .client_order_id
-        .as_ref()
-        .is_some_and(|value| value == &context.client_order_id);
     let broker_conflict = trade
         .broker_order_id
         .as_ref()
@@ -1055,7 +1046,7 @@ fn classify_trade_support(
         .as_ref()
         .zip(order.client_order_id.as_ref())
         .is_some_and(|(left, right)| left != right);
-    if !(broker_match || client_match || durable_broker_match || durable_client_match) {
+    if !(broker_match || client_match) {
         return Stage8a4TradeSupport::Unrelated;
     }
     let durable_broker_conflict = trade

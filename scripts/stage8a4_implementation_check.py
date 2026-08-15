@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed Stage 8A-4 implementation R3 semantic checker."""
+"""Fail-closed Stage 8A-4 implementation R4 semantic checker."""
 
 from __future__ import annotations
 
@@ -20,12 +20,15 @@ R2_SPEC_SHA256 = "85623d2c2e9ac32f6efd689edf001afd6ce528f0e29ccac188659b056c2930
 R2 = "3c445aef6dce3f38a81ee477eaa73e56ffdc0a80"
 R2_REVIEW_SHA256 = "49140b266c58f165c0645e0b6b4ae49c52886cb0c675993e3a34324f1b672290"
 R3_SPEC_SHA256 = "bc10b746b487d47be3edd2ae4b72d1a4405222513855731bd7a22e1f7beab94f"
+R3 = "5a846f9852c7fe58b9a24891c22e9d9dafeefd27"
+R3_REVIEW_SHA256 = "53d73d8eff426c9630873dc85f9b2431d80f799becba5b49b6862e2fdc71cd50"
+R4_SPEC_SHA256 = "a6d85dab31249c7352465fce294f9a2bc834ac04c522421915cd0f1aef488b42"
 
 AUTHORITY = Path("docs/stage-8/stage8a4-implementation-authority.json")
 CONTRACT = Path("docs/stage-8/stage8a4-implementation-contract.md")
 DESCRIPTOR = Path("docs/stage-8/stage8a4-implementation-descriptor.json")
-MATRIX = Path("docs/stage-8/STAGE8A_4_IMPLEMENTATION_R3_ACCEPTANCE_MATRIX_2026-08-15.csv")
-NEGATIVE = Path("docs/stage-8/STAGE8A_4_IMPLEMENTATION_R3_NEGATIVE_INVENTORY_2026-08-15.md")
+MATRIX = Path("docs/stage-8/STAGE8A_4_IMPLEMENTATION_R4_ACCEPTANCE_MATRIX_2026-08-15.csv")
+NEGATIVE = Path("docs/stage-8/STAGE8A_4_IMPLEMENTATION_R4_NEGATIVE_INVENTORY_2026-08-15.md")
 SOURCE = Path("crates/finam-gateway/src/stage8a4_reconciliation.rs")
 TESTS = Path("crates/finam-gateway/src/stage8a4_reconciliation/tests.rs")
 LIB = Path("crates/finam-gateway/src/lib.rs")
@@ -67,9 +70,9 @@ def changed_paths() -> set[str]:
 def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
     authority = json.loads((root / AUTHORITY).read_text())
     require(authority["schema_version"] == 1, "authority schema drift")
-    require(authority["stage"] == "8A-4-implementation-R3", "stage drift")
+    require(authority["stage"] == "8A-4-implementation-R4", "stage drift")
     require(
-        authority["status"] == "implementation_r3_independent_acceptance_pending",
+        authority["status"] == "implementation_r4_independent_acceptance_pending",
         "candidate status drift",
     )
     require(authority["accepted_design_ref"] == BASE, "accepted design ref drift")
@@ -80,6 +83,9 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
     require(authority["rejected_implementation_r2_ref"] == R2, "R2 baseline drift")
     require(authority["implementation_r2_review_sha256"] == R2_REVIEW_SHA256, "R2 review hash drift")
     require(authority["implementation_r3_correction_spec_sha256"] == R3_SPEC_SHA256, "R3 specification hash drift")
+    require(authority["rejected_implementation_r3_ref"] == R3, "R3 baseline drift")
+    require(authority["implementation_r3_review_sha256"] == R3_REVIEW_SHA256, "R3 review hash drift")
+    require(authority["implementation_r4_correction_spec_sha256"] == R4_SPEC_SHA256, "R4 specification hash drift")
     require(authority["canonical_truth_type"] == "broker_core::BrokerTruthSnapshot", "truth type drift")
     require(authority["implementation_kind"] == "pure_deterministic_reducer", "implementation kind drift")
     for field in (
@@ -101,8 +107,11 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
         "non_exact_diagnostic_request_bound",
         "supporting_trade_durable_identity_checked",
         "admission_failure_diagnostic_request_bound",
+        "supporting_trade_requires_selected_order_exact_identity",
+        "durable_identity_can_veto_support",
     ):
-        require(authority[field] is True, f"R3 invariant disabled: {field}")
+        require(authority[field] is True, f"R4 invariant disabled: {field}")
+    require(authority["durable_identity_can_create_support_without_selected_identity"] is False, "durable-only support enabled")
     require(
         authority["deterministic_tier_precedence"] == [
             "exact_client_order_id", "known_broker_order_id",
@@ -114,9 +123,9 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
     require(authority["proven_no_match_available"] is False, "ProvenNoMatch opened")
     require(authority["retry_authority_available"] is False, "retry authority opened")
     require(authority["send_authority_available"] is False, "send authority opened")
-    require(authority["focused_test_count"] == 30, "focused test count drift")
+    require(authority["focused_test_count"] == 31, "focused test count drift")
     require(authority["compile_fail_doctest_count"] == 3, "compile-fail count drift")
-    require(authority["negative_case_count"] == 55, "negative count drift")
+    require(authority["negative_case_count"] == 58, "negative count drift")
     expected_closed = {
         "durable_apply_or_journal_bridge", "ack_or_readiness_publication",
         "redis_live_consumer", "broker_dispatch", "finam_post_delete",
@@ -132,6 +141,7 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
     require(descriptor["accepted_design_ref"] == BASE, "descriptor design ref drift")
     require(descriptor["rejected_implementation_r1_ref"] == R1, "descriptor R1 ref drift")
     require(descriptor["rejected_implementation_r2_ref"] == R2, "descriptor R2 ref drift")
+    require(descriptor["rejected_implementation_r3_ref"] == R3, "descriptor R3 ref drift")
     require(descriptor["production_module"] == str(SOURCE), "module descriptor drift")
     require(descriptor["focused_tests"] == str(TESTS), "test descriptor drift")
     require(descriptor["pure"] is True and descriptor["deterministic"] is True, "purity drift")
@@ -141,8 +151,9 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
         "linear_authority_tuple_revalidated", "exact_get_timing_typed",
         "identity_conflicts_fail_closed", "duplicate_material_binding_order_independent",
         "durable_trade_identity_conflicts_fail_closed", "admission_failures_are_attempt_bound",
+        "trade_support_requires_selected_identity_edge", "durable_identity_is_veto_only",
     ):
-        require(descriptor[field] is True, f"descriptor R3 invariant disabled: {field}")
+        require(descriptor[field] is True, f"descriptor R4 invariant disabled: {field}")
     for field in ("network_calls", "redis_calls", "journal_writes", "send_or_retry_capabilities"):
         require(descriptor[field] == 0, f"descriptor opened {field}")
 
@@ -173,7 +184,7 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
     ):
         require(re.search(rf"pub (?:struct|enum) {type_name}\b", source) is not None, f"opaque type missing: {type_name}")
     require(source.count("```compile_fail") == 3, "compile-fail doctest drift")
-    require(tests.count("#[test]") == 30, "focused test inventory drift")
+    require(tests.count("#[test]") == 31, "focused test inventory drift")
     admission_binding = source.split('b"stage8a4-complete-admission-v2"', 1)[1].split(");", 1)[0]
     require("context.durable_binding_sha256.as_bytes()" in admission_binding, "durable context not admission-bound")
     require("policy.policy_binding_sha256.as_bytes()" in admission_binding, "policy not admission-bound")
@@ -197,10 +208,9 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
     )
     require("|| durable_broker_conflict" in source, "durable broker trade identity unchecked")
     require("|| durable_client_conflict" in source, "durable client trade identity unchecked")
-    require(
-        "if !(broker_match || client_match || durable_broker_match || durable_client_match)" in source,
-        "unrelated trade classification drift",
-    )
+    require("if !(broker_match || client_match)" in source, "selected-order support predicate drift")
+    require("durable_broker_match" not in source, "durable broker identity can create support")
+    require("durable_client_match" not in source, "durable client identity can create support")
     require("Stage8a4MaterialTradeBinding" in source, "material trade binding missing")
     material_block = source.split("struct Stage8a4MaterialTradeBinding", 1)[1].split("impl<'a>", 1)[0]
     require("received_ts" not in material_block, "non-material received_ts leaked into summary")
@@ -260,8 +270,9 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
         "non_exact_diagnostic_is_byte_stable_under_canonical_row_reordering",
         "supporting_trade_must_match_durable_ids_even_when_selected_order_omits_one",
         "admission_failure_diagnostic_is_bound_to_request_attempt",
+        "durable_identity_alone_cannot_create_selected_order_trade_support",
     ):
-        require(test_name in tests, f"R3 focused test missing: {test_name}")
+        require(test_name in tests, f"R4 focused test missing: {test_name}")
     forbidden_source = (
         "reqwest::", "redis::", ".post(", ".delete(", "CancelBrokerTruth",
         "M3d2", "ProvenNoMatch", "dispatch_order", "send_order", "retry_order",
@@ -272,21 +283,21 @@ def check(root: Path = ROOT, *, git_scope: bool = True) -> None:
 
     with (root / MATRIX).open(newline="") as stream:
         rows = list(csv.DictReader(stream))
-    require(len(rows) == 90, "acceptance matrix must contain exactly 90 rows")
-    require([row["id"] for row in rows] == [f"I{i:03d}" for i in range(1, 91)], "matrix IDs drift")
+    require(len(rows) == 94, "acceptance matrix must contain exactly 94 rows")
+    require([row["id"] for row in rows] == [f"I{i:03d}" for i in range(1, 95)], "matrix IDs drift")
     negative = (root / NEGATIVE).read_text()
-    require(len(re.findall(r"^\d+\.", negative, re.MULTILINE)) == 55, "negative inventory must contain 55 cases")
+    require(len(re.findall(r"^\d+\.", negative, re.MULTILINE)) == 58, "negative inventory must contain 58 cases")
 
     status = (root / CURRENT_STATUS).read_text()
     require("## Current accepted boundary" in status, "leading status authority missing")
     leading = status.split("## Current accepted boundary", 1)[1].split("\n## ", 1)[0]
-    for marker in (BASE, R1, R2, "Implementation R3", "acceptance is pending",
+    for marker in (BASE, R1, R2, R3, "Implementation R4", "acceptance is pending",
                    "Durable-composition planning remains", "FINAM POST/DELETE",
                    "retry/resend", "runtime-live", "Stage 8A-5+", "Stage 8B"):
         require(marker in leading, f"leading status authority missing: {marker}")
     require("Design R2 is the only active candidate" not in leading, "stale Design R2 authority restored")
     roadmap = (root / ROADMAP).read_text()
-    require("cc58c10" in roadmap and "Implementation R3" in roadmap, "roadmap active slice drift")
+    require("cc58c10" in roadmap and "Implementation R4" in roadmap, "roadmap active slice drift")
     require("FINAM POST/DELETE" in roadmap and "runtime-live" in roadmap, "roadmap closed surfaces missing")
 
     if git_scope:
@@ -303,7 +314,7 @@ def main() -> None:
     except (CheckFailure, KeyError, json.JSONDecodeError, OSError, subprocess.CalledProcessError) as error:
         print(f"stage8a4-implementation-check: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
-    print("stage8a4-implementation-check: PASS stage=R3 rows=90 focused-tests=30 negatives=55 compile-fail=3")
+    print("stage8a4-implementation-check: PASS stage=R4 rows=94 focused-tests=31 negatives=58 compile-fail=3")
 
 
 if __name__ == "__main__":
