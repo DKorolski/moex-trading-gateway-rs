@@ -20,10 +20,10 @@ def main() -> int:
         if path.is_file() and path.suffix in {".rs", ".md", ".json", ".py", ".sh"}
     )
     missing = [row["id"] for row in rows if row["proof"] not in corpus]
-    if len(rows) != 64 or missing:
+    if len(rows) != 67 or missing:
         print(f"stage8a3-proof-map: FAIL rows={len(rows)} missing={missing}")
         return 1
-    print("stage8a3-proof-map: PASS rows=64 locally-proven=64 independent=false")
+    print("stage8a3-proof-map: PASS rows=67 locally-proven=67 independent=false")
     return 0
 
 

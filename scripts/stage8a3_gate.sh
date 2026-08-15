@@ -52,12 +52,12 @@ root = Path(sys.argv[1]).parent
 results = sorted(path.name for path in root.glob("*.result.txt"))
 Path(sys.argv[1]).write_text(json.dumps({
     "schema_version": 1,
-    "stage": "8A-3-R1",
+    "stage": "8A-3-R2",
     "result": "PASS",
     "gate_count": len(results),
     "gates": results,
-    "acceptance_rows": 64,
-    "negative_cases": 42,
+    "acceptance_rows": 67,
+    "negative_cases": 44,
     "endpoint_context_explicit": True,
     "historical_classifier_authoritative": False,
     "retry_authority_available": False,
@@ -68,4 +68,4 @@ Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2, sort_keys=True) + "\n")
 PY
 
-echo "stage8a3-r1-gate: PASS rows=64 negatives=42 endpoint-specific=true no-send=true next=8A-4-pending"
+echo "stage8a3-r2-gate: PASS rows=67 negatives=44 endpoint-specific=true no-send=true next=8A-4-pending"

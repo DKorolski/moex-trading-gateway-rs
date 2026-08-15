@@ -63,3 +63,6 @@ S8A3R1-061,YES,No retry or DefinitelyNotSent exists,stage8a3_check.py
 S8A3R1-062,YES,No reconciliation or ProvenNoMatch implementation exists,stage8a3_check.py
 S8A3R1-063,YES,No Redis runtime-live real-order or protective surface exists,stage8a3_check.py
 S8A3R1-064,YES,Acceptance opens Stage 8A-4 only,stage8a3-r1-implementation-descriptor.json
+S8A3R2-065,YES,PLACE context rejects a missing or blank FINAM venue symbol,invalid_context_is_rejected_before_classification
+S8A3R2-066,YES,Historical classifier aliases are rejected,stage8a3_negative_harness.py
+S8A3R2-067,YES,Current status and roadmap identify only Stage 8A-3 R2 as pending,stage8a3_check.py

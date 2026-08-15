@@ -27,17 +27,13 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
-Stage 8A-2 — existing FINAM builder composition behind a strict mock/no-send
-boundary. Stage 8A-1 R3 was independently accepted and closed at
-`1ff04154ba4b7a5ee060a73b853ce89bd7442f44`; that acceptance opens Stage 8A-2
-only. Stage 8A-3 through 8A-5, Stage 8B, FINAM POST/DELETE, broker dispatch,
-runtime-live and real strategy orders remain closed.
+Stage 8A-2 R1 is independently accepted and closed at
+`16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
 
-The implementation must consume only a freshly Stage 8A-1-revalidated opaque
-continuation and call the existing `broker_finam::build_place_order_request()`
-or `broker_finam::build_cancel_order_request()`. A second serializer, real
-transport, automatic retry, HTTP outcome classification and reconciliation are
-outside this slice.
+Stage 8A-3 R2 is the only active candidate; independent acceptance is pending.
+It is limited to the endpoint-specific local PLACE/CANCEL classifier and the
+three R1 review-closure corrections. Stage 8A-4+, FINAM POST/DELETE, Redis live consumption, broker dispatch,
+runtime-live and real orders remain closed.
 
 ### Accepted lineage and transition history
 
@@ -147,8 +143,10 @@ strategy orders.
 Stage 8A-0 R1 is independently accepted and closed at `c949d7f`. Stage 8A-1 R3
 is independently accepted and closed at `1ff0415`. Its opaque continuation is
 the only legal input to the independently accepted Stage 8A-2 R1
-builder/no-send composition at `16180ac`. The active slice is Stage 8A-3 R1,
-which may add only a distinct endpoint-specific local HTTP observation
-classifier. Acceptance of its exact artifact may open Stage 8A-4 only. Every
+builder/no-send composition at `16180ac`. Stage 8A-3 R1 at `aeef1bd` was not
+accepted. The active slice is its narrow Stage 8A-3 R2 corrective candidate,
+which may contain only a distinct endpoint-specific local HTTP observation
+classifier plus the required R1 closure hardening. Acceptance of its exact
+artifact may open Stage 8A-4 only. Every
 network-send, Redis-live, broker-dispatch, runtime-live and real-order surface
 remains closed.

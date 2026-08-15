@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact 42-case semantic mutation harness for Stage 8A-3 R1."""
+"""Exact 44-case semantic mutation harness for Stage 8A-3 R2."""
 
 from __future__ import annotations
 
@@ -15,6 +15,13 @@ def insert(source: str, statement: str) -> str:
     return source.replace(marker, f"const _: &str = {statement!r};\n\n{marker}", 1)
 
 
+def insert_code(source: str, code: str) -> str:
+    marker = "#[cfg(test)]\nmod tests;"
+    if marker not in source:
+        raise RuntimeError("test-module insertion anchor missing")
+    return source.replace(marker, f"{code}\n\n{marker}", 1)
+
+
 def replace(source: str, old: str, new: str) -> str:
     if old not in source:
         raise RuntimeError(f"mutation anchor missing: {old}")
@@ -25,6 +32,37 @@ CASES = [
     ("contextless default PLACE", lambda s: replace(s, "pub fn for_place(", "pub fn default_to_place(")),
     ("historical contextless classifier", lambda s: insert(s, "classify_order_endpoint_local_http_response(")),
     ("historical context classifier", lambda s: insert(s, "classify_order_endpoint_local_http_response_for_context(")),
+    (
+        "historical classifier imported and invoked through alias",
+        lambda s: insert_code(
+            s,
+            """use broker_finam::{
+    classify_order_endpoint_local_http_response_for_context as legacy_stage8_classifier,
+    FinamOrderEndpointClassifiedResponse, FinamOrderEndpointContext,
+    FinamOrderEndpointLocalHttpResponse,
+};
+
+fn historical_classifier_alias_bypass(
+    response: &FinamOrderEndpointLocalHttpResponse,
+) -> FinamOrderEndpointClassifiedResponse {
+    legacy_stage8_classifier(FinamOrderEndpointContext::Place, response)
+}""",
+        ),
+    ),
+    (
+        "FINAM venue symbol falls back to broker-neutral symbol",
+        lambda s: replace(
+            s,
+            """let venue_symbol = instrument
+            .venue_symbol
+            .filter(|value| !value.trim().is_empty())
+            .ok_or(Stage8a3ContextError::EmptyInstrumentIdentity)?;""",
+            """let venue_symbol = instrument
+            .venue_symbol
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(instrument.symbol);""",
+        ),
+    ),
     ("generic 4xx rejection", lambda s: insert(s, "400..=499")),
     ("PLACE 404 rejected", lambda s: insert(s, "BrokerRejected PLACE404")),
     ("CANCEL 400 rejected", lambda s: insert(s, "BrokerRejected CANCEL400")),
@@ -68,7 +106,7 @@ CASES = [
 
 
 def main() -> int:
-    if len(CASES) != 42:
+    if len(CASES) != 44:
         raise SystemExit(f"negative inventory drift: {len(CASES)}")
     source = (scanner.ROOT / scanner.MODULE).read_text()
     copied = scanner.ALLOWED_CHANGED_PATHS | {str(scanner.STAGE8A1), str(scanner.STAGE8A2)}
@@ -94,7 +132,7 @@ def main() -> int:
             else:
                 print(f"FAIL {index:02d} {name}: mutation accepted")
                 return 1
-    print("stage8a3-r1-negative: PASS cases=42/42")
+    print("stage8a3-r2-negative: PASS cases=44/44")
     return 0
 
 

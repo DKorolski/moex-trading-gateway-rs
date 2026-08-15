@@ -157,10 +157,7 @@ impl Stage8a3EndpointContext {
         let venue_symbol = instrument
             .venue_symbol
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or(instrument.symbol);
-        if venue_symbol.trim().is_empty() {
-            return Err(Stage8a3ContextError::EmptyInstrumentIdentity);
-        }
+            .ok_or(Stage8a3ContextError::EmptyInstrumentIdentity)?;
         Ok(Self {
             expected: Stage8a3ExpectedContext::Place {
                 request_id,

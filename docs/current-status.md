@@ -16,17 +16,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.
 - Stage 8A-1 R3 is independently accepted and closed at
   `1ff04154ba4b7a5ee060a73b853ce89bd7442f44`.
-- The independent acceptance review SHA-256 is
-  `ac11ffae08cc11c6e11f031deec9ca4e6d55b76eae6bcc5887f85b0fb913c74c`.
-- The accepted immutable source handoff is
-  `moex-trading-project-1ff0415.zip`, SHA-256
-  `02a332af7ccf1815a79de0f9a025be9d31094160f7977cd3e34de270497138a0`.
-- Stage 8A-2 is the only open implementation slice. It may compose only the
-  existing FINAM PLACE/CANCEL builders behind a local mock/no-send boundary and
-  must consume a freshly revalidated opaque Stage 8A-1 continuation.
-- Stage 8A-3 classifier, Stage 8A-4 reconciliation, Stage 8A-5 aggregate
-  acceptance, Stage 8B, FINAM POST/DELETE, broker dispatch, runtime-live and
-  real strategy orders remain closed.
+- Its independent acceptance review SHA-256 is
+  `ac11ffae08cc11c6e11f031deec9ca4e6d55b76eae6bcc5887f85b0fb913c74c`;
+  the accepted immutable handoff is `moex-trading-project-1ff0415.zip`,
+  SHA-256 `02a332af7ccf1815a79de0f9a025be9d31094160f7977cd3e34de270497138a0`.
+- Stage 8A-2 R1 is independently accepted and closed at
+  `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
+- Stage 8A-3 R2 is the only active candidate; independent acceptance is pending.
+  It may only correct the endpoint-specific local PLACE/CANCEL classifier and
+  its no-send enforcement/evidence.
+- Stage 8A-4+, FINAM POST/DELETE, Redis live consumption, broker dispatch,
+  runtime-live and real orders remain closed.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).
@@ -1058,9 +1058,12 @@ Redis live consumer, broker dispatch, runtime-live and real strategy orders
 remain closed.
 
 Stage 8A-2 R1 was independently accepted and closed at
-`16180ac4f8eab761b3b055c1f5515f62cd94bfb9`. The active slice is Stage 8A-3 R1:
-an endpoint-specific, local-observation FINAM PLACE/CANCEL classifier with no
-network send. The 2026-08-15 official REST refresh exactly matches the accepted
-Stage 8A-0 PLACE/CANCEL document hashes. Historical M3d2 classification is not
-Stage 8 authority. Stage 8A-4+, transport, Redis live consumption, broker
-dispatch, runtime-live and real orders remain closed.
+`16180ac4f8eab761b3b055c1f5515f62cd94bfb9`. Stage 8A-3 R1 at `aeef1bd` was
+not accepted due to venue-symbol binding, historical-classifier alias closure
+and current-stage governance findings. Stage 8A-3 R2 is the active corrective
+candidate with independent acceptance pending. It remains an endpoint-specific,
+local-observation FINAM PLACE/CANCEL classifier with no network send. The
+2026-08-15 official REST refresh exactly matches the accepted Stage 8A-0
+PLACE/CANCEL document hashes. Historical M3d2 classification is not Stage 8
+authority. Stage 8A-4+, transport, Redis live consumption, broker dispatch,
+runtime-live and real orders remain closed.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8A-3 R1 endpoint-classifier handoff."""
+"""Create the immutable Stage 8A-3 R2 endpoint-classifier handoff."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ def main() -> None:
         )
         gate_output = redacted(gate.stdout)
         marker = (
-            b"stage8a3-r1-gate: PASS rows=64 negatives=42 endpoint-specific=true "
+            b"stage8a3-r2-gate: PASS rows=67 negatives=44 endpoint-specific=true "
             b"no-send=true next=8A-4-pending"
         )
         if gate.returncode or marker not in gate_output:
@@ -122,7 +122,7 @@ def main() -> None:
         commit_marker = (
             f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
             f"archive_name={archive_name}\naccepted_stage8a2_ref={checker.BASE}\n"
-            "candidate_stage=Stage 8A-3 R1\n"
+            "candidate_stage=Stage 8A-3 R2\n"
             "candidate_status=independent_acceptance_pending\n"
             "next_after_acceptance=Stage 8A-4 only\n"
             "historical_classifier_authoritative=false\n"
@@ -137,15 +137,17 @@ def main() -> None:
         evidence = json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8A-3-R1",
+                "stage": "8A-3-R2",
                 "candidate_status": "independent_acceptance_pending",
                 "source_ref": head,
                 "source_branch": branch,
                 "accepted_stage8a2_ref": checker.BASE,
                 "accepted_stage8a2_archive_sha256":
                     "a5c494183f6afc37d013d4377422680820c204dd7f1feacd56e819218312dbd3",
-                "acceptance_rows": 64,
-                "negative_cases": 42,
+                "acceptance_rows": 67,
+                "negative_cases": 44,
+                "r1_review_sha256":
+                    "bfe639c0151702cf1c8588a914a5382867c2cad8f86510703ab002fbd0b857f8",
                 "official_contract_match": True,
                 "endpoint_context_explicit": True,
                 "historical_classifier_authoritative": False,

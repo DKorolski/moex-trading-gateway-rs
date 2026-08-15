@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed Stage 8A-3 R1 endpoint-classifier scanner."""
+"""Fail-closed Stage 8A-3 R2 endpoint-classifier scanner."""
 
 from __future__ import annotations
 
@@ -28,6 +28,8 @@ ENTRY = Path("docs/stage-8/stage8a3-entry-contract.md")
 DESCRIPTOR = Path("docs/stage-8/stage8a3-r1-implementation-descriptor.json")
 MATRIX = Path("docs/stage-8/STAGE8A_3_R1_ACCEPTANCE_MATRIX_2026-08-15.csv")
 INVENTORY = Path("docs/stage-8/STAGE8A_3_R1_NEGATIVE_INVENTORY_2026-08-15.md")
+CURRENT_STATUS = Path("docs/current-status.md")
+ROADMAP = Path("docs/roadmap.md")
 
 ALLOWED_CHANGED_PATHS = {
     str(MODULE),
@@ -51,20 +53,23 @@ ALLOWED_CHANGED_PATHS = {
 
 # Filled for the final candidate after production and contract files stop moving.
 PINNED_FINAL_SHA256: dict[Path, str] = {
-    MODULE: "2d5a5b53fbed14db351c379ef31a7adeb46f8d23c90d368653a1d2d41e3759c6",
-    TESTS: "af6c0d38a88c3e7b41699ee915d4cbbdb43771e7bf6064dd9fca6f8e31561fb5",
+    MODULE: "f34c9fef5e219dad15b0a00ce1eaf63311ec9f77d1997e422b977e5c8ffe47b3",
+    TESTS: "dbd58f32d0f1f5e5c96806bd84a56d974842fdb6502ea66347d1d3a264806ae8",
     LIB: "24b8d8229608abb0667928cb3bad474b80543e02a22a3b3203a1590df4321f15",
-    AUTHORITY: "8015555835755970e824b3c556fc09e099ca968df82d6f7950923ed4c38e7bc4",
+    AUTHORITY: "b54aa10fa2a32dd252262d3f6e5549db2dfff9339d13cc81add06d9b44dc7cde",
     SNAPSHOT: "da1ca5547271764543108238198dbeba4e1161cc3eabc399c572f5ab2f0ed5e0",
-    ENTRY: "2607581f5855cfef3b3744c82e71e69c966907f24009e3a64f3b1f804961ccbf",
-    DESCRIPTOR: "bf49ffb22393873efeffb70d0066462636b211a8dbeb7effb88f00ce0b00ebbf",
-    MATRIX: "5d3b2deb988a516a5237cb16d8c82ffbef3703e2c3b0a24847b6f5fdd30e7572",
-    INVENTORY: "6ff4dae8d92a67f97b6aea4f3da2f282011c6ff0bd8a32be5b5e1306b338581c",
+    ENTRY: "0c43f97e295e6c0ea7278786935a96570c98235e43aba39d04753ea47a31b697",
+    DESCRIPTOR: "c2a4f910d2c86c798feed15714e73d7a4aa416eb53e2a7e100295fe04534a129",
+    MATRIX: "8c550cf968bff8664a99b61f0e7a2790e3665b11115222a08a9e89fadc2122fa",
+    INVENTORY: "55cf9e4a3befcb61e0ff4a092eaf409774e86fdb8428537f7eea01f9d3aafdb7",
 }
 
 FORBIDDEN_TOKENS = (
-    "classify_order_endpoint_local_http_response(",
-    "classify_order_endpoint_local_http_response_for_context(",
+    "classify_order_endpoint_local_http_response",
+    "classify_order_endpoint_local_http_response_for_context",
+    "FinamOrderEndpointLocalHttpResponse",
+    "FinamOrderEndpointContext",
+    "FinamOrderEndpointClassifiedResponse",
     "FinamOrderEndpointMappedResult",
     "BrokerRejected",
     "400..=499",
@@ -119,6 +124,12 @@ def code_without_comments(source: str) -> str:
     return re.sub(r"//[^\n]*", "", source)
 
 
+def markdown_section(source: str, heading: str) -> str:
+    marker = f"## {heading}\n"
+    require(marker in source, f"missing markdown section: {heading}")
+    return source.split(marker, 1)[1].split("\n## ", 1)[0]
+
+
 def base_file(path: Path) -> bytes:
     return subprocess.check_output(["git", "show", f"{BASE}:{path.as_posix()}"], cwd=ROOT)
 
@@ -141,20 +152,21 @@ def check(
     exact_successor: bool = True,
 ) -> None:
     descriptor = json.loads((root / DESCRIPTOR).read_text())
-    require(descriptor["stage"] == "8A-3-R1", "stage drift")
+    require(descriptor["stage"] == "8A-3-R2", "stage drift")
     require(
         descriptor["status"] == "endpoint_classifier_no_send_candidate",
         "candidate status drift",
     )
     require(descriptor["accepted_predecessor"] == BASE, "predecessor drift")
-    require(descriptor["acceptance_rows"] == 64, "acceptance count drift")
-    require(descriptor["negative_cases"] == 42, "negative count drift")
+    require(descriptor["acceptance_rows"] == 67, "acceptance count drift")
+    require(descriptor["negative_cases"] == 44, "negative count drift")
     require(descriptor["official_contract_match"] is True, "contract match drift")
     require(all(descriptor["required"].values()), "required proof disabled")
     require(all(descriptor["closed"].values()), "closed surface opened")
     require(descriptor["next_after_acceptance"] == "Stage 8A-4 only", "next drift")
 
     authority = json.loads((root / AUTHORITY).read_text())
+    require(authority["stage"] == "8A-3-R2", "authority stage drift")
     require(authority["accepted_predecessor"] == BASE, "authority predecessor drift")
     require(
         authority["accepted_predecessor_archive_sha256"]
@@ -174,6 +186,11 @@ def check(
     require(authority["material_contract_drift"] is False, "material drift opened")
     require(authority["place_400_safe_decoder_available"] is False, "unsafe 400 decoder")
     require(authority["historical_classifier_authoritative"] is False, "historical authority")
+    require(
+        authority["r1_review_sha256"]
+        == "bfe639c0151702cf1c8588a914a5382867c2cad8f86510703ab002fbd0b857f8",
+        "R1 review authority drift",
+    )
     require(authority["network_send_authorized"] is False, "send authorized")
     require(authority["retry_authority_available"] is False, "retry authorized")
     require(authority["proven_no_match_available"] is False, "no-match opened")
@@ -206,14 +223,16 @@ def check(
 
     with (root / MATRIX).open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 64, "acceptance matrix must contain 64 rows")
+    require(len(rows) == 67, "acceptance matrix must contain 67 rows")
     require(
-        [row["id"] for row in rows] == [f"S8A3R1-{index:03d}" for index in range(1, 65)],
+        [row["id"] for row in rows]
+        == [f"S8A3R1-{index:03d}" for index in range(1, 65)]
+        + [f"S8A3R2-{index:03d}" for index in range(65, 68)],
         "acceptance IDs drift",
     )
     require(all(row["mandatory"] == "YES" for row in rows), "optional row introduced")
     inventory = (root / INVENTORY).read_text()
-    require(len(re.findall(r"^\d+\. ", inventory, re.M)) == 42, "negative inventory drift")
+    require(len(re.findall(r"^\d+\. ", inventory, re.M)) == 44, "negative inventory drift")
 
     source = (root / MODULE).read_text()
     code = code_without_comments(source)
@@ -224,6 +243,12 @@ def check(
     require("default_to_place" not in production, "contextless default introduced")
     require("Stage8a3ExpectedContext::Place" in production, "PLACE context not matched")
     require("Stage8a3ExpectedContext::Cancel" in production, "CANCEL context not matched")
+    require(
+        ".ok_or(Stage8a3ContextError::EmptyInstrumentIdentity)?;" in production,
+        "strict venue-symbol requirement missing",
+    )
+    require("unwrap_or(instrument.symbol)" not in production, "venue-symbol fallback opened")
+    require("instrument.symbol" not in production, "broker-neutral symbol used as FINAM identity")
     require(production.count("201..=299 => {") == 2, "unknown 2xx arm drift")
     require(
         production.count("Stage8a3ReconciliationReason::UndocumentedSuccessStatus") >= 2,
@@ -269,6 +294,54 @@ def check(
     )
     for token in FORBIDDEN_TOKENS:
         require(token not in production, f"forbidden Stage 8A-3 token: {token}")
+
+    status_section = markdown_section((root / CURRENT_STATUS).read_text(), "Current accepted boundary")
+    require(
+        "Stage 8A-2 R1 is independently accepted and closed at" in status_section
+        and BASE in status_section,
+        "current-status accepted predecessor authority drift",
+    )
+    require(
+        "Stage 8A-3 R2 is the only active candidate" in status_section
+        and "independent acceptance is pending" in status_section,
+        "current-status active candidate authority drift",
+    )
+    require(
+        status_section.count("only active candidate") == 1
+        and "Stage 8A-2 is the only open implementation slice" not in status_section
+        and "Stage 8A-3 classifier" not in status_section,
+        "current-status contradictory stage authority",
+    )
+    require(
+        "Stage 8A-4+, FINAM POST/DELETE, Redis live consumption, broker dispatch,"
+        in status_section
+        and "runtime-live and real orders remain closed" in status_section,
+        "current-status closed-surface authority drift",
+    )
+
+    roadmap_section = markdown_section((root / ROADMAP).read_text(), "Current active stage")
+    require(
+        "Stage 8A-2 R1 is independently accepted and closed at" in roadmap_section
+        and BASE in roadmap_section,
+        "roadmap accepted predecessor authority drift",
+    )
+    require(
+        "Stage 8A-3 R2 is the only active candidate" in roadmap_section
+        and "independent acceptance is pending" in roadmap_section,
+        "roadmap active candidate authority drift",
+    )
+    require(
+        roadmap_section.count("only active candidate") == 1
+        and "Stage 8A-2 —" not in roadmap_section
+        and "Stage 8A-3 through 8A-5" not in roadmap_section,
+        "roadmap contradictory stage authority",
+    )
+    require(
+        "Stage 8A-4+, FINAM POST/DELETE, Redis live consumption, broker dispatch,"
+        in roadmap_section
+        and "runtime-live and real orders remain closed" in roadmap_section,
+        "roadmap closed-surface authority drift",
+    )
 
     tests = (root / TESTS).read_text()
     required_tests = (
@@ -331,9 +404,9 @@ def main() -> int:
     try:
         check()
     except (CheckFailure, KeyError, OSError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
-        print(f"stage8a3-r1-check: FAIL: {error}", file=sys.stderr)
+        print(f"stage8a3-r2-check: FAIL: {error}", file=sys.stderr)
         return 1
-    print("stage8a3-r1-check: PASS rows=64 endpoint-specific=true no-send=true next=8A-4-only")
+    print("stage8a3-r2-check: PASS rows=67 endpoint-specific=true no-send=true next=8A-4-only")
     return 0
 
 

@@ -1,4 +1,4 @@
-# Stage 8A-3 R1 endpoint-classifier entry contract
+# Stage 8A-3 R1 contract / R2 review-closure candidate
 
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`. Stage 8A-3 may add only a
@@ -17,6 +17,8 @@ rate-limit decisions as Stage 8 authority.
 The implementation rules are:
 
 - endpoint context is always explicit;
+- PLACE context requires the actual non-empty FINAM `venue_symbol`; the
+  broker-neutral symbol is never a fallback broker identity;
 - HTTP 200 is only an endpoint-specific accepted candidate after documented
   decoding and exact correlation;
 - PLACE 400 remains reconciliation-required because no exact provenance-pinned
@@ -29,3 +31,7 @@ The implementation rules are:
   Redis, broker dispatch or runtime-live surface may be introduced;
 - acceptance may open Stage 8A-4 only.
 
+R2 closes the independent R1 findings without changing the endpoint status
+table: historical classifier symbols are forbidden even through aliases, and
+the leading current-status/roadmap authority must identify only this R2
+candidate as pending while Stage 8A-4+ remains closed.

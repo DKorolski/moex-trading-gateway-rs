@@ -1,6 +1,6 @@
-# Stage 8A-3 R1 semantic negative inventory
+# Stage 8A-3 R2 semantic negative inventory
 
-The final gate must reject exactly these 42 mutation classes. The count may
+The final gate must reject exactly these 44 mutation classes. The count may
 increase in a later reviewed revision but must not shrink silently.
 
 1. Add a contextless classifier defaulting to PLACE.
@@ -45,3 +45,5 @@ increase in a later reviewed revision but must not shrink silently.
 40. Attach broker dispatch or runtime-live.
 41. Issue a real strategy order.
 42. Add STOP, SLTP, bracket, replace or multi-leg behavior.
+43. Import the historical context-aware classifier with an alias and invoke the alias.
+44. Fall back from a missing FINAM venue symbol to the broker-neutral symbol.

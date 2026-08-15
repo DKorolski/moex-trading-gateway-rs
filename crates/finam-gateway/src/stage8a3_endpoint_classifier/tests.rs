@@ -385,6 +385,40 @@ fn invalid_context_is_rejected_before_classification() {
         ),
         Err(Stage8a3ContextError::EmptyInstrumentIdentity)
     ));
+
+    let missing_venue_symbol = InstrumentId {
+        symbol: "IMOEXF".to_owned(),
+        venue_symbol: None,
+        exchange: Exchange::Moex,
+        market: Market::Futures,
+    };
+    assert!(matches!(
+        Stage8a3EndpointContext::for_place(
+            request_id(),
+            client_order_id(),
+            AccountId::new(ACCOUNT),
+            missing_venue_symbol,
+        ),
+        Err(Stage8a3ContextError::EmptyInstrumentIdentity)
+    ));
+
+    for venue_symbol in ["", "   "] {
+        let blank_venue_symbol = InstrumentId {
+            symbol: "IMOEXF".to_owned(),
+            venue_symbol: Some(venue_symbol.to_owned()),
+            exchange: Exchange::Moex,
+            market: Market::Futures,
+        };
+        assert!(matches!(
+            Stage8a3EndpointContext::for_place(
+                request_id(),
+                client_order_id(),
+                AccountId::new(ACCOUNT),
+                blank_venue_symbol,
+            ),
+            Err(Stage8a3ContextError::EmptyInstrumentIdentity)
+        ));
+    }
 }
 
 #[test]
