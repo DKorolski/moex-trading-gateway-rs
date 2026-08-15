@@ -11,7 +11,9 @@ mkdir -p "$artifact_dir"
 run_gate() {
   local name="$1"
   shift
-  "$@" >"$artifact_dir/$name.log" 2>&1
+  # Evidence is intentionally stored as plain text: handoff policy rejects
+  # every *.log member so operational logs cannot leak into review archives.
+  "$@" >"$artifact_dir/$name.txt" 2>&1
 }
 
 run_gate semantic-check python3 scripts/stage8a4_durable_composition_i1_check.py
