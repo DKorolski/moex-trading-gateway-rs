@@ -34,11 +34,13 @@ Stage 8A-3 R2 is independently accepted and closed at
 `012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`.
 
 Stage 8A-4 design R1 retained the architecture but was not accepted. Design R2
-is the only active candidate; independent acceptance is pending. It freezes
-source-specific completeness, orthogonal lifecycle/fill outcomes and fully
-bound tier-3 correlation. Stage 8A-4 implementation,
-Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker dispatch,
-runtime-live and real orders remain closed.
+was independently accepted and closed at `cc58c10`. It freezes source-specific
+completeness, orthogonal lifecycle/fill outcomes and fully bound tier-3
+correlation. The active slice is Stage 8A-4 implementation R1: opaque admission
+and a pure deterministic reconciliation reducer only. Its acceptance may open
+separately reviewed durable-composition planning, but not apply/journal,
+ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker
+dispatch, runtime-live or real orders.
 
 ### Accepted lineage and transition history
 

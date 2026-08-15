@@ -1,0 +1,48 @@
+# Stage 8A-4 implementation R1 negative inventory
+
+The mandatory harness executes 40 exact fail-closed mutations:
+
+1. accepted design ref drift;
+2. accepted review hash drift;
+3. implementation status forged accepted;
+4. canonical truth type drift;
+5. implementation kind drift;
+6. public input constructor enabled;
+7. source-specific completeness disabled;
+8. exact lookup replaces account safety;
+9. deterministic interval split disabled;
+10. trade dedup disabled;
+11. lifecycle/fill collapsed;
+12. `ProvenNoMatch` enabled;
+13. retry authority enabled;
+14. send authority enabled;
+15. focused test count reduced;
+16. compile-fail count reduced;
+17. durable apply opened;
+18. ACK publication opened;
+19. Redis live consumer opened;
+20. broker dispatch opened;
+21. FINAM POST/DELETE opened;
+22. same-request resend opened;
+23. runtime-live opened;
+24. real orders opened;
+25. Stage 8A-5 opened;
+26. Stage 8B opened;
+27. production module declaration removed;
+28. durable binding removed from admission hash;
+29. policy binding removed from admission hash;
+30. saturation comparison weakened;
+31. trade conflict result weakened;
+32. exact disagreement result weakened;
+33. unknown status made terminal;
+34. retry diagnostic changed to true;
+35. send diagnostic changed to true;
+36. source-specific wrapper removed;
+37. split-depth guard removed;
+38. exact lookup injected into account-wide list;
+39. forbidden network token inserted;
+40. historical reconciliation authority imported.
+
+Every mutation must make `stage8a4_implementation_check.py` fail. Merely
+mentioning a forbidden token in this inventory is not production activation;
+the checker scans the Rust implementation independently.

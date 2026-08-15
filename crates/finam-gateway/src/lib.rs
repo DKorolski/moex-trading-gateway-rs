@@ -14,6 +14,7 @@ pub mod m3d2_real_transport_lifecycle;
 pub mod real_order_endpoint;
 pub mod stage8a1_execution_capability;
 mod stage8a3_endpoint_classifier;
+mod stage8a4_reconciliation;
 
 pub use stage8a1_execution_capability::{
     authorize_stage8_cancel, authorize_stage8_place, Stage8CancelPreflightDecision,
@@ -33,6 +34,15 @@ pub use stage8a3_endpoint_classifier::{
     Stage8a3BodyCategory, Stage8a3ClassificationDiagnostic, Stage8a3ClassifiedObservation,
     Stage8a3ContextError, Stage8a3CorrelationState, Stage8a3EndpointContext, Stage8a3EndpointKind,
     Stage8a3LocalHttpObservation, Stage8a3ReconciliationReason, Stage8a3SemanticCategory,
+};
+pub use stage8a4_reconciliation::{
+    admit_stage8a4_broker_truth, reduce_stage8a4_reconciliation,
+    Stage8a4BoundedTradeHistoryComplete, Stage8a4CompletePositionsSnapshot,
+    Stage8a4DurableRequestContext, Stage8a4ExactLifecycle, Stage8a4FillEffect,
+    Stage8a4FreshTruthAdmission, Stage8a4InstrumentCompletenessEvidence,
+    Stage8a4NonPaginatedOrdersSnapshotComplete, Stage8a4OutcomeKind,
+    Stage8a4ReconciliationDiagnostic, Stage8a4ReconciliationPolicy, Stage8a4ReconciliationReason,
+    Stage8a4SourceEvidence, Stage8a4SourceTiming,
 };
 
 use std::collections::{HashMap, HashSet};

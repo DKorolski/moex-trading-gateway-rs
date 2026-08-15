@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "stage": "8A-4-implementation-R1",
+  "status": "implementation_r1_independent_acceptance_pending",
+  "accepted_design_ref": "cc58c10d22db312cd83640f1c1e7fd86861a4594",
+  "accepted_design_review_sha256": "43315b4653482998f0d112adbdcfc857afde8d1b68de94b3663b929c1ebad99e",
+  "canonical_truth_type": "broker_core::BrokerTruthSnapshot",
+  "implementation_kind": "pure_deterministic_reducer",
+  "opaque_inputs": true,
+  "public_input_constructors": false,
+  "source_completeness_encoded_as_types": true,
+  "source_specific_orders_snapshot": true,
+  "source_specific_bounded_trade_history": true,
+  "source_specific_instrument_resolution": true,
+  "exact_order_lookup_replaces_account_safety": false,
+  "deterministic_bounded_interval_split": true,
+  "broker_trade_id_deduplication": true,
+  "orthogonal_lifecycle_and_fill": true,
+  "deterministic_tier_precedence": [
+    "exact_client_order_id",
+    "known_broker_order_id",
+    "fully_bound_order_shape_and_event_window"
+  ],
+  "outcomes": [
+    "ExactOrderState",
+    "Conflict",
+    "StillUnknown"
+  ],
+  "proven_no_match_available": false,
+  "retry_authority_available": false,
+  "send_authority_available": false,
+  "focused_test_count": 16,
+  "compile_fail_doctest_count": 3,
+  "closed": {
+    "durable_apply_or_journal_bridge": true,
+    "ack_or_readiness_publication": true,
+    "redis_live_consumer": true,
+    "broker_dispatch": true,
+    "finam_post_delete": true,
+    "same_request_retry_or_resend": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "stage8a5": true,
+    "stage8b": true
+  },
+  "next_after_acceptance": "Stage 8A-4 durable composition planning only"
+}

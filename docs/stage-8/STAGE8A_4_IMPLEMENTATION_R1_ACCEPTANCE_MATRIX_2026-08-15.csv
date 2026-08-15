@@ -1,0 +1,73 @@
+id,requirement,evidence
+I001,Accepted Design R2 exact ref pinned,implementation authority
+I002,Independent design review hash pinned,implementation authority
+I003,Canonical BrokerTruthSnapshot is admitted,source and tests
+I004,Durable request context is opaque,compile-fail doctest and scanner
+I005,Policy is opaque and fingerprint-bound,source and scanner
+I006,Fresh admission is opaque,compile-fail doctest and scanner
+I007,Orders completeness uses typed non-paginated proof,source and scanner
+I008,Positions completeness uses typed complete proof,source and scanner
+I009,Instrument exact-target proof is typed,source and tests
+I010,Full-registry cursor exhaustion proof is typed,source and scanner
+I011,Trade history completeness uses typed interval proof,source and tests
+I012,Trade intervals use start-inclusive end-exclusive bounds,source and tests
+I013,Trade coverage must include event start,source and tests
+I014,Trade coverage must include event end,source and tests
+I015,Trade interval union must be gap-free,source and tests
+I016,Trade interval coverage fingerprint is checked,source and tests
+I017,Saturated trade interval is not admitted,source and tests
+I018,Interval split is deterministic,source and tests
+I019,Interval split depth is bounded,source and tests
+I020,Identical timestamps fail closed when unsplittable,source and tests
+I021,All source acquisition is post-effect,source and tests
+I022,All source observations are fresh,source and tests
+I023,Cross-source skew is bounded,source and tests
+I024,All canonical rows are exact-account scoped,source and tests
+I025,Target instrument resolves exactly once,source and tests
+I026,Exact GET observation is optional,source and tests
+I027,Exact GET cannot replace account-wide safety,source and tests
+I028,Exact GET absence never proves no match,source and tests
+I029,Exact GET disagreement is conflict,source and tests
+I030,Tier 1 exact client identity precedes lower tiers,source and tests
+I031,Tier 2 durable broker identity precedes shape,source and tests
+I032,Tier 3 binds exact account and instrument,source and tests
+I033,Tier 3 binds side and quantity,source and tests
+I034,Tier 3 binds order type and DAY TIF,source and tests
+I035,Tier 3 LIMIT binds exact price,source and tests
+I036,Tier 3 MARKET requires absent price,source and tests
+I037,Tier 3 binds trusted event window,source and tests
+I038,Multiple candidates are conflict,source and tests
+I039,Missing required shape is still unknown,source and tests
+I040,No candidate is still unknown,source and tests
+I041,Unknown broker status is still unknown,source and tests
+I042,Lifecycle and fill are orthogonal,source and tests
+I043,Cancelled partial fill is preserved,source and tests
+I044,Expired partial fill is preserved,source and tests
+I045,Filled quantity is bounded by order quantity,source and tests
+I046,Remaining quantity must be consistent,source and tests
+I047,Filled status requires full quantity,source and tests
+I048,Rejected nonzero fill is conflict,source and tests
+I049,BrokerTradeId is primary dedup identity,source and tests
+I050,Equal trade duplicate counts once,source and tests
+I051,Conflicting trade duplicate is conflict,source and tests
+I052,Deduplicated trade quantity equals selected fill,source and tests
+I053,Selected order material data is hash-bound,source and tests
+I054,Trade summary is hash-bound,source and tests
+I055,Durable context is included in admission binding,source and scanner
+I056,Policy is included in admission binding,source and scanner
+I057,Diagnostic contains no raw identities,public type and scanner
+I058,Retry authority is always false,source and scanner
+I059,Send authority is always false,source and scanner
+I060,Shuffled input is byte-stable,focused test
+I061,Duplicate ordering is byte-stable,focused test
+I062,Identical input is restart-replay stable,focused test
+I063,Historical reconciler is not imported,scanner
+I064,No Redis dependency is used by module,scanner
+I065,No HTTP transport is used by module,scanner
+I066,No journal or apply bridge is used by module,scanner
+I067,No FINAM POST or DELETE is opened,scanner
+I068,No retry or resend path is opened,scanner
+I069,No ACK or readiness publication is opened,scanner
+I070,No runtime-live or real-order path is opened,scanner
+I071,Focused tests pass,implementation gate
+I072,Workspace debug release doc clippy and fmt pass,implementation gate

@@ -1075,9 +1075,11 @@ runtime-live and real orders remain closed.
 Stage 8A-3 R2 was independently accepted and closed at
 `012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`; its final review SHA-256 is
 `2e969db40bd847230f4df426ce3ee235f2f2273b87a778297b4588bf1f127232`.
-Only Stage 8A-4 reconciliation is unlocked. The active candidate is the
-Stage 8A-4 design freeze: canonical fresh broker-truth admission, deterministic
-correlation precedence, conflict/still-unknown outcomes and durable identity
-constraints. Production reconciliation, `ProvenNoMatch`, FINAM POST/DELETE,
-Redis live consumption, broker dispatch, runtime-live and real orders remain
-closed until separately accepted gates.
+Stage 8A-4 Design R2 was independently accepted and closed at
+`cc58c10d22db312cd83640f1c1e7fd86861a4594`; its final review SHA-256 is
+`43315b4653482998f0d112adbdcfc857afde8d1b68de94b3663b929c1ebad99e`.
+Only Stage 8A-4 implementation R1 is active: opaque source-specific admission
+plus a pure deterministic `ExactOrderState | Conflict | StillUnknown` reducer.
+Durable apply/journal, ACK/readiness publication, `ProvenNoMatch`, retry/resend,
+FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
+orders, Stage 8A-5 and Stage 8B remain closed.
