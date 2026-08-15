@@ -57,6 +57,12 @@ def verify(path: str) -> dict[str, object]:
             raise ValueError("source marker mismatch")
         if evidence["accepted_stage8a3_ref"] != "012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d":
             raise ValueError("predecessor mismatch")
+        if evidence["stage"] != "8A-4-design-R2":
+            raise ValueError("candidate stage mismatch")
+        if evidence["candidate_status"] != "design_r2_independent_acceptance_pending":
+            raise ValueError("candidate status mismatch")
+        if evidence["acceptance_rows"] != 92 or evidence["negative_cases"] != 68:
+            raise ValueError("R2 evidence count mismatch")
         if not evidence["all_required_gates_passed"]:
             raise ValueError("gate evidence mismatch")
         if evidence["network_send_authorized"] or evidence["reconciliation_implemented"]:

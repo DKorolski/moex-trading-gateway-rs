@@ -30,10 +30,10 @@ def main() -> int:
             present = proof in corpus
         if not present:
             missing.append(row["id"])
-    if len(rows) != 72 or missing:
+    if len(rows) != 92 or missing:
         print(f"stage8a4-design-proof-map: FAIL rows={len(rows)} missing={missing}")
         return 1
-    print("stage8a4-design-proof-map: PASS rows=72 locally-proven=72 independent=false")
+    print("stage8a4-design-proof-map: PASS rows=92 locally-proven=92 independent=false")
     return 0
 
 

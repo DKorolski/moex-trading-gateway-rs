@@ -31,7 +31,7 @@ S8A4D-029,YES,Instrument registry source is required,stage8a4-design-authority.j
 S8A4D-030,YES,Every required source must be present,stage8a4-design-contract.md
 S8A4D-031,YES,Every required source must decode,stage8a4-design-contract.md
 S8A4D-032,YES,Every required source must be complete,stage8a4-design-contract.md
-S8A4D-033,YES,Pagination must be exhausted,stage8a4-design-contract.md
+S8A4D-033,YES,Completeness uses source-specific proof rather than generic pagination,stage8a4-design-contract.md
 S8A4D-034,YES,Acquisition must be post-attempt,stage8a4-design-contract.md
 S8A4D-035,YES,Trusted-future timestamps fail closed,stage8a4-design-contract.md
 S8A4D-036,YES,Source freshness is policy checked,stage8a4-design-contract.md
@@ -52,12 +52,12 @@ S8A4D-050,YES,Position is supporting evidence only,stage8a4-design-authority.jso
 S8A4D-051,YES,Trades cannot select an order alone,stage8a4-design-contract.md
 S8A4D-052,YES,Position cannot prove a request fill alone,stage8a4-design-contract.md
 S8A4D-053,YES,Zero position cannot prove no fill,stage8a4-design-contract.md
-S8A4D-054,YES,Exact working outcome is explicit,stage8a4-design-authority.json
-S8A4D-055,YES,Exact partial-fill outcome is explicit,stage8a4-design-authority.json
-S8A4D-056,YES,Exact full-fill outcome is explicit,stage8a4-design-authority.json
-S8A4D-057,YES,Exact rejected outcome is explicit,stage8a4-design-authority.json
-S8A4D-058,YES,Exact cancelled outcome is explicit,stage8a4-design-authority.json
-S8A4D-059,YES,Exact expired outcome is explicit,stage8a4-design-authority.json
+S8A4D-054,YES,Exact working lifecycle is explicit,stage8a4-design-authority.json
+S8A4D-055,YES,Exact partial-fill effect is explicit,stage8a4-design-authority.json
+S8A4D-056,YES,Exact full-fill effect is explicit,stage8a4-design-authority.json
+S8A4D-057,YES,Exact rejected lifecycle is explicit,stage8a4-design-authority.json
+S8A4D-058,YES,Exact cancelled lifecycle is explicit,stage8a4-design-authority.json
+S8A4D-059,YES,Exact expired lifecycle is explicit,stage8a4-design-authority.json
 S8A4D-060,YES,Conflict outcome is explicit,stage8a4-design-authority.json
 S8A4D-061,YES,StillUnknown outcome is explicit,stage8a4-design-authority.json
 S8A4D-062,YES,Unknown broker status remains StillUnknown,stage8a4-design-contract.md
@@ -71,3 +71,23 @@ S8A4D-069,YES,FINAM POST and DELETE remain closed,stage8a4-design-authority.json
 S8A4D-070,YES,Redis live broker dispatch runtime-live and real orders remain closed,stage8a4-design-authority.json
 S8A4D-071,YES,Protective and multi-leg behavior remains closed,stage8a4-design-authority.json
 S8A4D-072,YES,Acceptance opens Stage 8A-4 implementation R1 only,stage8a4-design-descriptor.json
+S8A4D-073,YES,Orders completeness is a non-paginated snapshot proof,stage8a4-design-authority.json
+S8A4D-074,YES,Trade interval saturation fails closed,stage8a4-design-authority.json
+S8A4D-075,YES,Trade intervals cover the entire sealed event window without gaps,stage8a4-design-contract.md
+S8A4D-076,YES,Trade interval subdivision is deterministic bounded and policy-bound,stage8a4-design-authority.json
+S8A4D-077,YES,Known BrokerOrderId permits a conditional read-only exact lookup,stage8a4-design-contract.md
+S8A4D-078,YES,Exact-order 404 never proves no match,stage8a4-design-authority.json
+S8A4D-079,YES,Identical duplicate BrokerTradeId rows count once,stage8a4-design-authority.json
+S8A4D-080,YES,Conflicting duplicate BrokerTradeId rows produce Conflict,stage8a4-design-authority.json
+S8A4D-081,YES,Cancelled partial fill preserves terminal lifecycle and fill effect,stage8a4-design-contract.md
+S8A4D-082,YES,Expired partial fill preserves terminal lifecycle and fill effect,stage8a4-design-contract.md
+S8A4D-083,YES,Order trade and remaining quantities must be consistent,stage8a4-design-authority.json
+S8A4D-084,YES,Tier 3 binds exact OrderType,stage8a4-design-authority.json
+S8A4D-085,YES,Tier 3 binds current Stage 8 DAY TIF,stage8a4-design-authority.json
+S8A4D-086,YES,Tier 3 binds exact normalized LIMIT price,stage8a4-design-authority.json
+S8A4D-087,YES,Missing required tier-3 shape remains StillUnknown,stage8a4-design-authority.json
+S8A4D-088,YES,MARKET and LIMIT candidates never cross-match,stage8a4-design-authority.json
+S8A4D-089,YES,Caller-selected history envelopes and price tolerances are forbidden,stage8a4-design-contract.md
+S8A4D-090,YES,Instrument completeness distinguishes exact target from full discovery,stage8a4-design-authority.json
+S8A4D-091,YES,Incomplete trade truth cannot create an exact fill outcome,stage8a4-design-authority.json
+S8A4D-092,YES,CANCEL tier 3 uses the original target order shape,stage8a4-design-authority.json

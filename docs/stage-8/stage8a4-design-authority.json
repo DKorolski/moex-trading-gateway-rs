@@ -1,9 +1,12 @@
 {
-  "schema_version": 1,
-  "stage": "8A-4-design-R1",
-  "status": "design_candidate_independent_acceptance_pending",
+  "schema_version": 2,
+  "stage": "8A-4-design-R2",
+  "status": "design_r2_candidate_independent_acceptance_pending",
   "accepted_predecessor": "012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d",
   "accepted_predecessor_review_sha256": "2e969db40bd847230f4df426ce3ee235f2f2273b87a778297b4588bf1f127232",
+  "design_r1_baseline": "0aa9ff19708409879bcf82f8e87613c53a917218",
+  "design_r1_review_sha256": "39cf2a55836200d1951ee2a370b7a0b126a057fa99b377b89259cf133a04e8f2",
+  "design_r2_correction_spec_sha256": "dc09d8db5851451a3004a60bc1c426af78ecddbd4727cdd9024a2d66550e7c9a",
   "design_only": true,
   "production_reconciliation_implemented": false,
   "canonical_truth_type": "broker_core::BrokerTruthSnapshot",
@@ -15,30 +18,116 @@
   ],
   "required_truth_properties": {
     "fresh": true,
-    "complete": true,
+    "complete_under_source_specific_proof": true,
     "account_scoped": true,
     "target_instrument_resolved": true,
-    "pagination_exhausted": true,
     "trusted_time_checked": true,
     "post_attempt_acquisition_checked": true,
     "policy_fingerprint_bound": true
   },
+  "source_completeness": {
+    "orders": {
+      "mode": "non_paginated_snapshot",
+      "account_binding_required": true,
+      "request_and_response_trusted_timestamps_required": true,
+      "full_body_decode_required": true,
+      "local_truncation_forbidden": true,
+      "synthetic_cursor_or_page_evidence_forbidden": true,
+      "absence_proves_no_match": false
+    },
+    "trades": {
+      "mode": "bounded_interval_limit_with_fail_closed_saturation",
+      "interval_semantics": "start_inclusive_end_exclusive",
+      "query_envelope_policy_fingerprint_bound": true,
+      "caller_selected_limit_or_window_allowed": false,
+      "event_window_start_coverage_required": true,
+      "event_window_end_coverage_required": true,
+      "gap_free_union_required": true,
+      "interval_coverage_fingerprint_required": true,
+      "returned_count_greater_or_equal_limit_is_complete": false,
+      "deterministic_subdivision_or_still_unknown": true,
+      "subdivision_bounded": true,
+      "subdivision_policy_fingerprint_bound": true
+    },
+    "instrument_registry": {
+      "exact_target_resolution_mode": "exact_asset_params_schedule_reads",
+      "full_registry_mode": "cursor_exhausted_only_when_assets_all_used",
+      "fictitious_pagination_for_exact_target_forbidden": true
+    },
+    "known_broker_order_id_lookup": {
+      "mode": "conditional_readonly_source",
+      "requires_durable_broker_order_id": true,
+      "strengthens_tier2": true,
+      "replaces_account_wide_orders_safety_snapshot": false,
+      "not_found_or_unavailable_proves_no_match": false,
+      "exact_source_disagreement": "Conflict"
+    }
+  },
   "correlation_precedence": [
     "exact_client_order_id_or_native_correlation",
     "known_broker_order_id",
-    "account_instrument_side_quantity_bounded_event_time"
+    "exact_bound_order_shape_and_bounded_event_time"
   ],
+  "tier3_shape": {
+    "binds_account": true,
+    "binds_exact_instrument_and_finam_venue_symbol": true,
+    "binds_side": true,
+    "binds_original_quantity": true,
+    "binds_order_type": true,
+    "binds_time_in_force_day": true,
+    "binds_exact_normalized_limit_price": true,
+    "market_requires_absent_limit_price": true,
+    "binds_bounded_trusted_event_window": true,
+    "market_limit_cross_match_allowed": false,
+    "caller_selected_price_tolerance_allowed": false,
+    "missing_required_shape_field_outcome": "StillUnknown",
+    "cancel_uses_original_target_order_shape": true
+  },
   "supporting_evidence_only": [
     "trades",
     "target_instrument_position"
   ],
+  "exact_outcome": {
+    "type": "ExactOrderState",
+    "orthogonal_lifecycle_and_fill": true,
+    "lifecycles": [
+      "Working",
+      "TerminalFilled",
+      "TerminalRejected",
+      "TerminalCancelled",
+      "TerminalExpired"
+    ],
+    "fill_effects": [
+      "Zero",
+      "Partial",
+      "Full"
+    ],
+    "selected_order_binding_required": true,
+    "trade_summary_binding_required": true,
+    "terminal_cancel_partial_fill_preserved": true,
+    "terminal_expired_partial_fill_preserved": true
+  },
+  "quantity_invariants": {
+    "qty_positive": true,
+    "filled_between_zero_and_qty": true,
+    "remaining_equals_qty_minus_filled": true,
+    "filled_status_requires_full_quantity": true,
+    "active_partial_requires_strict_partial_quantity": true,
+    "rejected_nonzero_fill_is_conflict": true,
+    "status_quantity_inconsistency_is_conflict": true,
+    "unique_matching_trade_quantity_must_agree": true,
+    "incomplete_trade_truth_cannot_create_exact_fill": true
+  },
+  "trade_identity": {
+    "primary": "BrokerTradeId",
+    "equal_duplicate_counted_once": true,
+    "conflicting_duplicate_outcome": "Conflict",
+    "matching_requires_exact_order_or_client_identity": true,
+    "matching_also_requires_account_instrument_side": true,
+    "position_cannot_supply_trade_identity": true
+  },
   "outcomes": [
-    "ExactWorking",
-    "ExactPartiallyFilled",
-    "ExactFullyFilled",
-    "ExactTerminalRejected",
-    "ExactTerminalCancelled",
-    "ExactTerminalExpired",
+    "ExactOrderState",
     "Conflict",
     "StillUnknown"
   ],

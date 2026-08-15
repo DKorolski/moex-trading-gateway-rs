@@ -33,9 +33,10 @@ Stage 8A-2 R1 is independently accepted and closed at
 Stage 8A-3 R2 is independently accepted and closed at
 `012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`.
 
-Stage 8A-4 design R1 is the only active candidate; independent acceptance is
-pending. It freezes fresh canonical broker-truth admission, deterministic
-correlation and conflict/still-unknown outcomes. Stage 8A-4 implementation,
+Stage 8A-4 design R1 retained the architecture but was not accepted. Design R2
+is the only active candidate; independent acceptance is pending. It freezes
+source-specific completeness, orthogonal lifecycle/fill outcomes and fully
+bound tier-3 correlation. Stage 8A-4 implementation,
 Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker dispatch,
 runtime-live and real orders remain closed.
 

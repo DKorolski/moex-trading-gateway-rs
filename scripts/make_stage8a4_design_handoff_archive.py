@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8A-4 design R1 handoff."""
+"""Create the immutable Stage 8A-4 design R2 handoff."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def main() -> None:
         )
         gate_output = redacted(gate.stdout)
         marker = (
-            b"stage8a4-design-r1-gate: PASS rows=72 negatives=48 design-only=true "
+            b"stage8a4-design-r2-gate: PASS rows=92 negatives=68 design-only=true "
             b"next=8A-4-implementation-r1-pending"
         )
         if gate.returncode or marker not in gate_output:
@@ -120,8 +120,8 @@ def main() -> None:
         commit_marker = (
             f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
             f"archive_name={archive_name}\naccepted_stage8a3_ref={checker.BASE}\n"
-            "candidate_stage=Stage 8A-4 design R1\n"
-            "candidate_status=independent_acceptance_pending\n"
+            "candidate_stage=Stage 8A-4 design R2\n"
+            "candidate_status=design_r2_independent_acceptance_pending\n"
             "next_after_acceptance=Stage 8A-4 implementation R1 only\n"
             "reconciliation_implemented=false\nproven_no_match_available=false\n"
             "network_send_authorized=false\nredis_live_authorized=false\n"
@@ -132,15 +132,20 @@ def main() -> None:
         evidence = json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8A-4-design-R1",
-                "candidate_status": "independent_acceptance_pending",
+                "stage": "8A-4-design-R2",
+                "candidate_status": "design_r2_independent_acceptance_pending",
                 "source_ref": head,
                 "source_branch": branch,
                 "accepted_stage8a3_ref": checker.BASE,
                 "accepted_stage8a3_review_sha256":
                     "2e969db40bd847230f4df426ce3ee235f2f2273b87a778297b4588bf1f127232",
-                "acceptance_rows": 72,
-                "negative_cases": 48,
+                "design_r1_baseline": "0aa9ff19708409879bcf82f8e87613c53a917218",
+                "design_r1_review_sha256":
+                    "39cf2a55836200d1951ee2a370b7a0b126a057fa99b377b89259cf133a04e8f2",
+                "design_r2_correction_spec_sha256":
+                    "dc09d8db5851451a3004a60bc1c426af78ecddbd4727cdd9024a2d66550e7c9a",
+                "acceptance_rows": 92,
+                "negative_cases": 68,
                 "reconciliation_implemented": False,
                 "proven_no_match_available": False,
                 "network_send_authorized": False,

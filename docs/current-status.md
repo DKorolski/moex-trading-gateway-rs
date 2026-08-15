@@ -24,8 +24,9 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
 - Stage 8A-3 R2 is independently accepted and closed at
   `012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`.
-- Stage 8A-4 design R1 is the only active candidate; independent acceptance is
-  pending. It may freeze reconciliation authority and implementation gates but
+- Stage 8A-4 design R1 retained the architecture but was not accepted. Design
+  R2 is the only active candidate and independent acceptance is pending. It
+  closes source-completeness, lifecycle/fill and tier-3-shape P1 findings but
   may not add production reconciliation code.
 - Stage 8A-4 implementation, Stage 8A-5+, FINAM POST/DELETE, Redis live
   consumption, broker dispatch,

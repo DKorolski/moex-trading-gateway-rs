@@ -1,7 +1,8 @@
-# Stage 8A-4 design R1 negative inventory
+# Stage 8A-4 design R2 negative inventory
 
-The design gate must reject exactly these 48 mutation classes. A later reviewed
-revision may increase the count but must not silently replace or reduce it.
+The design gate inherits all 48 R1 mutation classes and rejects 20 additional
+R2 classes, for exactly 68. A later reviewed revision may increase the count
+but must not silently replace or reduce it.
 
 1. Change the accepted Stage 8A-3 predecessor.
 2. Change the accepted Stage 8A-3 review SHA-256.
@@ -51,3 +52,23 @@ revision may increase the count but must not silently replace or reduce it.
 46. Convert unknown broker status to terminal.
 47. Permit caller-selected or unbounded freshness/event policy.
 48. Expose raw broker-truth identities or bodies in diagnostics.
+49. Mark a saturated trade interval (`returned_count >= limit`) complete.
+50. Admit trade history that misses the sealed event-window start.
+51. Admit trade history that misses the sealed event-window end.
+52. Allow caller-selected trade-history limit or recursive window.
+53. Allow unbounded trade-interval subdivision.
+54. Interpret exact GET-order 404 as `ProvenNoMatch`.
+55. Let exact GET-order replace the account-wide orders safety snapshot.
+56. Count an identical duplicate `BrokerTradeId` twice.
+57. Silently deduplicate conflicting rows with one `BrokerTradeId`.
+58. Lose filled quantity from cancelled-after-partial-fill state.
+59. Lose filled quantity from expired-after-partial-fill state.
+60. Accept rejected order with non-zero fill as exact.
+61. Accept filled status when `filled_qty < qty`.
+62. Accept inconsistent `remaining_qty`.
+63. Let tier 3 ignore `OrderType`.
+64. Let a MARKET request match a LIMIT candidate.
+65. Let different LIMIT prices match.
+66. Let contradictory TIF match.
+67. Permit caller-selected or floating price tolerance.
+68. Treat a missing required tier-3 shape field as a match.

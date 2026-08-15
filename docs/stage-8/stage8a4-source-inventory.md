@@ -29,13 +29,15 @@ correlation tiers and is coupled to older endpoint/lifecycle surfaces.
 ## Required implementation gaps
 
 - opaque Stage 8A-4 request context bound to current durable identity;
-- explicit completeness/pagination/source-interval evidence;
+- source-specific completeness evidence: non-paginated orders snapshot,
+  bounded/saturation-safe trade intervals and exact-target/full-registry modes;
+- conditional read-only exact-order lookup for a durable `BrokerOrderId`;
 - sealed freshness and bounded-event policy authority;
 - exact canonical instrument resolution using FINAM venue identity;
-- deterministic tiered order candidate selection;
-- trade support and contradiction rules;
+- deterministic tiered order candidate selection with exact type/TIF/price;
+- trade identity/dedup support and quantity contradiction rules;
 - account-wide safety-guard summary separated from target lifecycle truth;
-- outcome algebra without `ProvenNoMatch`;
+- orthogonal lifecycle/fill outcome algebra without `ProvenNoMatch`;
 - crate-private durable application bridge with crash/restart invariants;
 - Stage 8-specific scanners and fixture-backed negative coverage.
 
