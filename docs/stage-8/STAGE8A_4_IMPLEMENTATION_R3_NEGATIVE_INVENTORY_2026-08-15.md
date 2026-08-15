@@ -1,6 +1,6 @@
-# Stage 8A-4 implementation R2 negative inventory
+# Stage 8A-4 implementation R3 negative inventory
 
-The mandatory R2 harness retains the 40 R1 mutations and executes 50 exact
+The mandatory R3 harness retains all 50 R2 mutations and executes 55 exact
 fail-closed mutations in total:
 
 1. accepted design ref drift;
@@ -53,6 +53,11 @@ fail-closed mutations in total:
 48. supporting-trade secondary identity conflict weakened;
 49. material trade summary replaced with raw representative serialization;
 50. non-exact request/admission binding removed.
+51. durable broker identity removed from supporting-trade classification;
+52. durable client identity removed from supporting-trade classification;
+53. unrelated-trade early return weakened;
+54. request ID removed from pre-admission failure binding;
+55. leading current-status authority regressed to Design R2 pending.
 
 Every mutation must make `stage8a4_implementation_check.py` fail. Merely
 mentioning a forbidden token in this inventory is not production activation;

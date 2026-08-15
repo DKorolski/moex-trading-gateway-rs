@@ -36,10 +36,11 @@ Stage 8A-3 R2 is independently accepted and closed at
 Stage 8A-4 design R1 retained the architecture but was not accepted. Design R2
 was independently accepted and closed at `cc58c10`. It freezes source-specific
 completeness, orthogonal lifecycle/fill outcomes and fully bound tier-3
-correlation. Implementation R1 at `245fea1` was not accepted; the active slice
-is the narrow Stage 8A-4 implementation R2 correction: exact authority-tuple
-binding, typed exact-GET timing, full exact-identity conflict checks and
-canonical duplicate-trade binding. It remains a pure deterministic reducer.
+correlation. Implementation R1 at `245fea1` and Implementation R2 at `3c445ae`
+were not accepted. The active slice is the narrow Stage 8A-4 Implementation R3
+correction: durable-context trade identity checks, request-bound admission
+failure diagnostics and authoritative status repair. It remains a pure
+deterministic reducer.
 Its independent acceptance may open
 separately reviewed durable-composition planning, but not apply/journal,
 ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker

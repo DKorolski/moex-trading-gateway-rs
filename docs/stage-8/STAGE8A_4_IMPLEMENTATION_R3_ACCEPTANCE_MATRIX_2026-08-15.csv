@@ -69,7 +69,7 @@ I067,No FINAM POST or DELETE is opened,scanner
 I068,No retry or resend path is opened,scanner
 I069,No ACK or readiness publication is opened,scanner
 I070,No runtime-live or real-order path is opened,scanner
-I071,Focused tests pass including R2 exact scenarios,implementation gate
+I071,Focused tests pass including inherited R2 and corrective R3 scenarios,implementation gate
 I072,Workspace debug release doc clippy and fmt pass,implementation gate
 I073,Admission retains exact durable binding,source and tests
 I074,Admission retains exact policy binding,source and tests
@@ -83,5 +83,9 @@ I081,Selected order exact identities are checked at all tiers,source and focused
 I082,Supporting trade secondary exact identity contradiction conflicts,source and focused test
 I083,Trade summary uses canonical material view,source and focused test
 I084,Non-material duplicate received timestamp cannot change diagnostic,source and focused test
-I085,Non-exact diagnostics bind request policy admission and source evidence,source and focused test
+I085,Post-admission non-exact diagnostics bind request policy admission and source evidence,source and focused test
 I086,Canonical row reordering preserves byte-identical non-exact diagnostic,source and focused test
+I087,Supporting trades are checked against durable identities omitted by selected order,source and focused test
+I088,Completely unrelated trades remain unrelated rather than conflicting,source and focused test
+I089,Pre-admission failure diagnostics bind durable request policy truth and source attempt,source and focused test
+I090,Leading current-status authority names R3 pending and keeps later stages closed,checker and status

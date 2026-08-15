@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "stage": "8A-4-implementation-R2",
+  "stage": "8A-4-implementation-R3",
   "branch": "stage8a4-reconciliation-implementation",
   "accepted_design_ref": "cc58c10d22db312cd83640f1c1e7fd86861a4594",
   "rejected_implementation_r1_ref": "245fea18f3f22bd4233eed4f9207445efd0a6d46",
+  "rejected_implementation_r2_ref": "3c445aef6dce3f38a81ee477eaa73e56ffdc0a80",
   "production_module": "crates/finam-gateway/src/stage8a4_reconciliation.rs",
   "focused_tests": "crates/finam-gateway/src/stage8a4_reconciliation/tests.rs",
   "pure": true,
@@ -13,11 +14,13 @@
   "linear_authority_tuple_revalidated": true,
   "exact_get_timing_typed": true,
   "identity_conflicts_fail_closed": true,
+  "durable_trade_identity_conflicts_fail_closed": true,
+  "admission_failures_are_attempt_bound": true,
   "duplicate_material_binding_order_independent": true,
   "network_calls": 0,
   "redis_calls": 0,
   "journal_writes": 0,
   "send_or_retry_capabilities": 0,
-  "implementation_r2_review_status": "pending",
+  "implementation_r3_review_status": "pending",
   "next_authorized_on_acceptance": "Stage 8A-4 durable composition planning only"
 }

@@ -14,11 +14,10 @@ FINAM market data and broker truth, migrated Hybrid strategy semantics, durable
 request identity/restart recovery, and the isolated paper command-consumer
 lifecycle.
 
-Stage 8A-0 contract refresh and Stage 8A-1 protected execution capability are
-independently accepted. Stage 8A-1 is closed at `1ff0415`. The only open slice
-is Stage 8A-2: compose the already accepted FINAM PLACE/CANCEL builders behind
-a strict mock/no-send boundary. HTTP outcome handling and reconciliation remain
-later separately reviewed slices.
+Stage 8A-0 through Stage 8A-3 are independently accepted. Stage 8A-4 Design R2
+is accepted at `cc58c10`. The only open slice is the narrow Stage 8A-4
+Implementation R3 pure reconciliation reducer correction; its independent
+acceptance is pending. Durable composition and Stage 8A-5 remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.

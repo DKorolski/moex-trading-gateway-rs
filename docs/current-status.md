@@ -24,12 +24,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
 - Stage 8A-3 R2 is independently accepted and closed at
   `012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`.
-- Stage 8A-4 design R1 retained the architecture but was not accepted. Design
-  R2 is the only active candidate and independent acceptance is pending. It
-  closes source-completeness, lifecycle/fill and tier-3-shape P1 findings but
-  may not add production reconciliation code.
-- Stage 8A-4 implementation, Stage 8A-5+, FINAM POST/DELETE, Redis live
-  consumption, broker dispatch,
+- Stage 8A-4 Design R2 is independently accepted and closed at
+  `cc58c10d22db312cd83640f1c1e7fd86861a4594`.
+- Stage 8A-4 Implementation R1 was rejected at
+  `245fea18f3f22bd4233eed4f9207445efd0a6d46`; Implementation R2 was rejected
+  at `3c445aef6dce3f38a81ee477eaa73e56ffdc0a80`.
+- Stage 8A-4 Implementation R3 is the sole active corrective candidate;
+  independent acceptance is pending. Durable-composition planning remains
+  closed.
+- Stage 8A-5+, Stage 8B, durable apply/journal, ACK/readiness publication,
+  retry/resend, FINAM POST/DELETE, Redis live consumption, broker dispatch,
   runtime-live and real orders remain closed.
 
 The reviewer transition package is documented in
@@ -1079,12 +1083,13 @@ Stage 8A-4 Design R2 was independently accepted and closed at
 `cc58c10d22db312cd83640f1c1e7fd86861a4594`; its final review SHA-256 is
 `43315b4653482998f0d112adbdcfc857afde8d1b68de94b3663b929c1ebad99e`.
 Implementation R1 at `245fea18f3f22bd4233eed4f9207445efd0a6d46`
-was not accepted due to four pure-reducer P1 findings. The active narrow
-corrective candidate is Stage 8A-4 implementation R2: exact admission/context/
-policy binding, typed exact-GET timing, complete exact-identity compatibility
-and order-independent material trade binding. The accepted Design R2 is not
-reopened.
+was not accepted due to four pure-reducer P1 findings. Implementation R2 at
+`3c445aef6dce3f38a81ee477eaa73e56ffdc0a80` closed those findings but was not
+accepted due to three narrow P1 findings. The active candidate is Stage 8A-4
+Implementation R3: durable-context trade compatibility, request-bound
+admission-failure diagnostics and leading status-authority repair. The accepted
+Design R2 is not reopened.
 Durable apply/journal, ACK/readiness publication, `ProvenNoMatch`, retry/resend,
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
 orders, durable-composition planning, Stage 8A-5 and Stage 8B remain closed
-until independent acceptance of the exact R2 artifact.
+until independent acceptance of the exact R3 artifact.

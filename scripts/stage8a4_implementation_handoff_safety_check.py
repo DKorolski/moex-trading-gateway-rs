@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a Stage 8A-4 implementation R2 immutable handoff archive."""
+"""Verify a Stage 8A-4 implementation R3 immutable handoff archive."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def verify(path: str) -> dict[str, object]:
             raise ValueError("source marker mismatch")
         if evidence["accepted_stage8a4_design_ref"] != BASE:
             raise ValueError("accepted design mismatch")
-        if evidence["stage"] != "8A-4-implementation-R2":
+        if evidence["stage"] != "8A-4-implementation-R3":
             raise ValueError("implementation stage mismatch")
         if evidence["rejected_implementation_r1_ref"] != "245fea18f3f22bd4233eed4f9207445efd0a6d46":
             raise ValueError("R1 lineage mismatch")

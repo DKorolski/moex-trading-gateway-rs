@@ -1,4 +1,4 @@
-# Stage 8A-4 implementation R2 — pure reconciliation reducer
+# Stage 8A-4 implementation R3 — pure reconciliation reducer
 
 ## Authority
 
@@ -60,18 +60,22 @@ quantity must equal selected order `filled_qty`. The summary hashes a canonical
 material view ordered by trade ID and excludes non-material `received_ts`.
 
 At every tier, a present client or broker identity contradictory to the durable
-request is `Conflict`. A supporting trade that matches one exact identity but
-contradicts the other is also `Conflict`; a trade with no matching identity is
-unrelated and ignored.
+request is `Conflict`. A supporting trade is compared with both the selected
+order and durable request identities. If it matches one exact identity but
+contradicts another present selected or durable identity, it is `Conflict`; a
+trade with no matching selected or durable identity is unrelated and ignored.
 
 Exact state keeps lifecycle and fill effect orthogonal. A cancelled or expired
 order may therefore retain a partial fill. Unknown status remains
 `StillUnknown`. Shuffled source rows and duplicate ordering produce the same
 serialized diagnostic and semantic binding.
 
-`Conflict` and `StillUnknown` semantic bindings include the current durable
-request, policy, admission and source-evidence bindings. Canonical broker-truth
-row multisets are order-independent, so replay/shuffle stability is preserved.
+Post-admission `Conflict` and `StillUnknown` semantic bindings include the
+current durable request, policy, admission and source-evidence bindings.
+Pre-admission failures use a separate attempt binding containing the durable
+request and request ID, policy, canonical truth attempt, source-evidence
+attempt, outcome and reason. Canonical broker-truth row multisets are
+order-independent, so replay/shuffle stability is preserved.
 
 ## Closed surfaces
 
@@ -80,5 +84,5 @@ Redis live consumption, broker dispatch, FINAM POST/DELETE, retry/resend,
 runtime-live, real orders, Stage 8A-5 and Stage 8B. Historical cancellation
 reconcilers are not imported as Stage-8 authority.
 
-Acceptance of R1 may open only separately reviewed durable-composition
+Acceptance of R3 may open only separately reviewed durable-composition
 planning. It does not authorize an execution surface.

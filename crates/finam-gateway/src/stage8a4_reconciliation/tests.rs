@@ -1138,6 +1138,126 @@ fn supporting_trade_secondary_exact_identity_contradiction_is_conflict() {
 }
 
 #[test]
+fn supporting_trade_must_match_durable_ids_even_when_selected_order_omits_one() {
+    let now = Utc::now();
+
+    let mut selected_without_broker = order(
+        now,
+        OrderStatus::PartiallyFilled,
+        Decimal::from(2),
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    selected_without_broker.broker_order_id = None;
+    let mut wrong_broker_trade = trade(now, "TRADE-WRONG-BROKER", Decimal::from(2), 3);
+    wrong_broker_trade.broker_order_id = Some(BrokerOrderId::new("BROKER-ORDER-2"));
+    let broker_conflict = reconcile(
+        now,
+        context(
+            now,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        ),
+        truth(now, vec![selected_without_broker], vec![wrong_broker_trade]),
+    );
+    assert_eq!(broker_conflict.outcome, Stage8a4OutcomeKind::Conflict);
+    assert_eq!(
+        broker_conflict.reason,
+        Stage8a4ReconciliationReason::TradeIdentityConflict
+    );
+
+    let mut selected_without_client = order(
+        now,
+        OrderStatus::PartiallyFilled,
+        Decimal::from(2),
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    selected_without_client.client_order_id = None;
+    let mut wrong_client_trade = trade(now, "TRADE-WRONG-CLIENT", Decimal::from(2), 3);
+    wrong_client_trade.client_order_id = Some(ClientOrderId::new("CLIENT-OTHER").unwrap());
+    let client_conflict = reconcile(
+        now,
+        context(
+            now,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        ),
+        truth(now, vec![selected_without_client], vec![wrong_client_trade]),
+    );
+    assert_eq!(client_conflict.outcome, Stage8a4OutcomeKind::Conflict);
+    assert_eq!(
+        client_conflict.reason,
+        Stage8a4ReconciliationReason::TradeIdentityConflict
+    );
+
+    let selected = order(
+        now,
+        OrderStatus::Working,
+        Decimal::ZERO,
+        OrderType::Limit,
+        Some(Decimal::from(2210)),
+    );
+    let mut unrelated = trade(now, "TRADE-UNRELATED", Decimal::from(2), 3);
+    unrelated.client_order_id = Some(ClientOrderId::new("CLIENT-OTHER").unwrap());
+    unrelated.broker_order_id = Some(BrokerOrderId::new("BROKER-ORDER-2"));
+    let ignored = reconcile(
+        now,
+        context(
+            now,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        ),
+        truth(now, vec![selected], vec![unrelated]),
+    );
+    assert_eq!(ignored.outcome, Stage8a4OutcomeKind::ExactOrderState);
+    assert_eq!(ignored.matching_trade_count, 0);
+}
+
+#[test]
+fn admission_failure_diagnostic_is_bound_to_request_attempt() {
+    let now = Utc::now();
+    let snapshot_without_order = truth(now, vec![], vec![]);
+    let snapshot_with_order = truth(
+        now,
+        vec![order(
+            now,
+            OrderStatus::Working,
+            Decimal::ZERO,
+            OrderType::Limit,
+            Some(Decimal::from(2210)),
+        )],
+        vec![],
+    );
+    let first_context = context(now, OrderType::Limit, Some(Decimal::from(2210)), None);
+    let mut second_context = context(now, OrderType::Limit, Some(Decimal::from(2210)), None);
+    second_context.request_id = StrategyRequestId::new(Uuid::from_u128(2));
+
+    let first = admission_error(admit_stage8a4_broker_truth(
+        &first_context,
+        &policy(now),
+        snapshot_with_order.clone(),
+        evidence(now, &first_context, &snapshot_without_order),
+    ));
+    let second = admission_error(admit_stage8a4_broker_truth(
+        &second_context,
+        &policy(now),
+        snapshot_with_order,
+        evidence(now, &second_context, &snapshot_without_order),
+    ));
+    assert_eq!(first.outcome, Stage8a4OutcomeKind::StillUnknown);
+    assert_eq!(first.reason, Stage8a4ReconciliationReason::SourceIncomplete);
+    assert_eq!(second.reason, first.reason);
+    assert_ne!(
+        first.semantic_binding_sha256,
+        second.semantic_binding_sha256
+    );
+}
+
+#[test]
 fn equal_material_duplicate_receipt_order_is_byte_stable() {
     let now = Utc::now();
     let first = trade(now, "TRADE-DUP", Decimal::from(2), 3);

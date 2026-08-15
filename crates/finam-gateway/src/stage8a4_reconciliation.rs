@@ -1,7 +1,7 @@
 //! Stage 8A-4 pure broker-truth admission and reconciliation reducer.
 //!
 //! The input capabilities are intentionally opaque and have no public
-//! constructors. Stage 8A-4 implementation R2 can therefore be exercised by
+//! constructors. Stage 8A-4 implementation R3 can therefore be exercised by
 //! canonical fixtures without opening a durable apply, retry or send path.
 //!
 //! ```compile_fail
@@ -200,15 +200,33 @@ pub struct Stage8a4FreshTruthAdmission {
     target_active_orders_count: usize,
 }
 
+struct Stage8a4AdmissionAttemptBinding {
+    durable_binding_sha256: String,
+    request_id: String,
+    policy_binding_sha256: String,
+    canonical_truth_sha256: String,
+    source_evidence_binding_sha256: String,
+}
+
 /// Admit canonical broker truth only after source-specific completeness,
 /// freshness, exact-account and exact-instrument checks. The input types are
-/// externally unconstructible in R2; a future authority bridge is separate.
+/// externally unconstructible in R3; a future authority bridge is separate.
 pub fn admit_stage8a4_broker_truth(
     context: &Stage8a4DurableRequestContext,
     policy: &Stage8a4ReconciliationPolicy,
     truth: BrokerTruthSnapshot,
     evidence: Stage8a4SourceEvidence,
 ) -> Result<Stage8a4FreshTruthAdmission, Box<Stage8a4ReconciliationDiagnostic>> {
+    let canonical_truth_sha256 = canonical_truth_binding(&truth);
+    let source_evidence_binding_sha256 =
+        source_evidence_binding(&evidence, &canonical_truth_sha256);
+    let attempt = Stage8a4AdmissionAttemptBinding {
+        durable_binding_sha256: context.durable_binding_sha256.clone(),
+        request_id: context.request_id.to_string(),
+        policy_binding_sha256: policy.policy_binding_sha256.clone(),
+        canonical_truth_sha256: canonical_truth_sha256.clone(),
+        source_evidence_binding_sha256: source_evidence_binding_sha256.clone(),
+    };
     if !valid_sha256(&context.durable_binding_sha256)
         || !valid_sha256(&policy.policy_binding_sha256)
         || evidence.acquisition_policy_sha256 != policy.policy_binding_sha256
@@ -216,21 +234,23 @@ pub fn admit_stage8a4_broker_truth(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceIncomplete,
+            &attempt,
         ));
     }
-    let canonical_truth_sha256 = canonical_truth_binding(&truth);
     if !valid_sha256(&evidence.canonical_truth_payload_sha256)
         || evidence.canonical_truth_payload_sha256 != canonical_truth_sha256
     {
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceIncomplete,
+            &attempt,
         ));
     }
     if truth.account_id != context.account_id {
         return Err(admission_error(
             Stage8a4OutcomeKind::Conflict,
             Stage8a4ReconciliationReason::SourceIdentityMismatch,
+            &attempt,
         ));
     }
     if truth
@@ -249,16 +269,17 @@ pub fn admit_stage8a4_broker_truth(
         return Err(admission_error(
             Stage8a4OutcomeKind::Conflict,
             Stage8a4ReconciliationReason::SourceIdentityMismatch,
+            &attempt,
         ));
     }
-    validate_timing(&evidence.orders.timing, context, policy)?;
-    validate_timing(&evidence.positions.timing, context, policy)?;
+    validate_timing(&evidence.orders.timing, context, policy, &attempt)?;
+    validate_timing(&evidence.positions.timing, context, policy, &attempt)?;
     let instrument_timing = match &evidence.instruments {
         Stage8a4InstrumentCompletenessEvidence::ExactTargetResolved { timing }
         | Stage8a4InstrumentCompletenessEvidence::FullRegistryCursorExhausted { timing } => timing,
     };
-    validate_timing(instrument_timing, context, policy)?;
-    validate_trade_intervals(&evidence, context, policy)?;
+    validate_timing(instrument_timing, context, policy, &attempt)?;
+    validate_trade_intervals(&evidence, context, policy, &attempt)?;
     if evidence
         .trades
         .intervals
@@ -270,9 +291,10 @@ pub fn admit_stage8a4_broker_truth(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceIncomplete,
+            &attempt,
         ));
     }
-    validate_cross_source_skew(&evidence, policy)?;
+    validate_cross_source_skew(&evidence, policy, &attempt)?;
 
     let matching_specs = truth
         .instruments
@@ -293,16 +315,18 @@ pub fn admit_stage8a4_broker_truth(
                 Stage8a4OutcomeKind::StillUnknown
             },
             Stage8a4ReconciliationReason::InstrumentUnresolved,
+            &attempt,
         ));
     }
 
     if let Some(exact_source) = evidence.exact_order_observation.as_ref() {
-        validate_timing(&exact_source.timing, context, policy)?;
+        validate_timing(&exact_source.timing, context, policy, &attempt)?;
         let exact = &exact_source.order;
         let Some(expected) = context.known_broker_order_id.as_ref() else {
             return Err(admission_error(
                 Stage8a4OutcomeKind::Conflict,
                 Stage8a4ReconciliationReason::ExactIdentityDisagreement,
+                &attempt,
             ));
         };
         if exact.broker_order_id.as_ref() != Some(expected)
@@ -313,6 +337,7 @@ pub fn admit_stage8a4_broker_truth(
             return Err(admission_error(
                 Stage8a4OutcomeKind::Conflict,
                 Stage8a4ReconciliationReason::ExactIdentityDisagreement,
+                &attempt,
             ));
         }
         if let Some(listed) = truth
@@ -324,13 +349,12 @@ pub fn admit_stage8a4_broker_truth(
                 return Err(admission_error(
                     Stage8a4OutcomeKind::Conflict,
                     Stage8a4ReconciliationReason::ExactIdentityDisagreement,
+                    &attempt,
                 ));
             }
         }
     }
 
-    let source_evidence_binding_sha256 =
-        source_evidence_binding(&evidence, &canonical_truth_sha256);
     let truth_binding_sha256 = digest_parts(
         b"stage8a4-complete-admission-v2",
         &[
@@ -533,7 +557,7 @@ pub fn reduce_stage8a4_reconciliation(
     };
     let mut matching_trades = Vec::new();
     for trade in deduped.values() {
-        match classify_trade_support(trade, selected) {
+        match classify_trade_support(trade, selected, &context) {
             Stage8a4TradeSupport::CompatibleSupport => matching_trades.push(*trade),
             Stage8a4TradeSupport::Unrelated => {}
             Stage8a4TradeSupport::IdentityConflict => {
@@ -606,6 +630,7 @@ fn validate_timing(
     timing: &Stage8a4SourceTiming,
     context: &Stage8a4DurableRequestContext,
     policy: &Stage8a4ReconciliationPolicy,
+    attempt: &Stage8a4AdmissionAttemptBinding,
 ) -> Result<(), Box<Stage8a4ReconciliationDiagnostic>> {
     if timing.request_started_at < context.possible_effect_at
         || timing.response_received_at < timing.request_started_at
@@ -613,6 +638,7 @@ fn validate_timing(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceIncomplete,
+            attempt,
         ));
     }
     if timing.response_received_at > policy.trusted_now
@@ -621,6 +647,7 @@ fn validate_timing(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceStale,
+            attempt,
         ));
     }
     Ok(())
@@ -630,6 +657,7 @@ fn validate_trade_intervals(
     evidence: &Stage8a4SourceEvidence,
     context: &Stage8a4DurableRequestContext,
     policy: &Stage8a4ReconciliationPolicy,
+    attempt: &Stage8a4AdmissionAttemptBinding,
 ) -> Result<(), Box<Stage8a4ReconciliationDiagnostic>> {
     if evidence.trades.intervals.is_empty()
         || evidence.trades.intervals.len() > policy.max_trade_intervals
@@ -638,6 +666,7 @@ fn validate_trade_intervals(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceIncomplete,
+            attempt,
         ));
     }
     let mut intervals = evidence.trades.intervals.iter().collect::<Vec<_>>();
@@ -651,6 +680,7 @@ fn validate_trade_intervals(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceIncomplete,
+            attempt,
         ));
     }
     let mut covered_end = intervals[0].start_inclusive;
@@ -668,6 +698,7 @@ fn validate_trade_intervals(
             return Err(admission_error(
                 Stage8a4OutcomeKind::StillUnknown,
                 Stage8a4ReconciliationReason::SourceIncomplete,
+                attempt,
             ));
         }
         if interval.returned_count >= interval.requested_limit {
@@ -677,6 +708,7 @@ fn validate_trade_intervals(
             return Err(admission_error(
                 Stage8a4OutcomeKind::StillUnknown,
                 Stage8a4ReconciliationReason::SourceIncomplete,
+                attempt,
             ));
         }
         covered_end = covered_end.max(interval.end_exclusive);
@@ -688,6 +720,7 @@ fn validate_trade_intervals(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceStale,
+            attempt,
         ));
     }
     Ok(())
@@ -696,6 +729,7 @@ fn validate_trade_intervals(
 fn validate_cross_source_skew(
     evidence: &Stage8a4SourceEvidence,
     policy: &Stage8a4ReconciliationPolicy,
+    attempt: &Stage8a4AdmissionAttemptBinding,
 ) -> Result<(), Box<Stage8a4ReconciliationDiagnostic>> {
     let instrument_timing = match &evidence.instruments {
         Stage8a4InstrumentCompletenessEvidence::ExactTargetResolved { timing }
@@ -728,6 +762,7 @@ fn validate_cross_source_skew(
         return Err(admission_error(
             Stage8a4OutcomeKind::StillUnknown,
             Stage8a4ReconciliationReason::SourceStale,
+            attempt,
         ));
     }
     Ok(())
@@ -989,6 +1024,7 @@ enum Stage8a4TradeSupport {
 fn classify_trade_support(
     trade: &BrokerTradeSnapshot,
     order: &BrokerOrderSnapshot,
+    context: &Stage8a4DurableRequestContext,
 ) -> Stage8a4TradeSupport {
     let broker_match = trade
         .broker_order_id
@@ -1000,6 +1036,15 @@ fn classify_trade_support(
         .as_ref()
         .zip(order.client_order_id.as_ref())
         .is_some_and(|(left, right)| left == right);
+    let durable_broker_match = trade
+        .broker_order_id
+        .as_ref()
+        .zip(context.known_broker_order_id.as_ref())
+        .is_some_and(|(left, right)| left == right);
+    let durable_client_match = trade
+        .client_order_id
+        .as_ref()
+        .is_some_and(|value| value == &context.client_order_id);
     let broker_conflict = trade
         .broker_order_id
         .as_ref()
@@ -1010,11 +1055,22 @@ fn classify_trade_support(
         .as_ref()
         .zip(order.client_order_id.as_ref())
         .is_some_and(|(left, right)| left != right);
-    if !(broker_match || client_match) {
+    if !(broker_match || client_match || durable_broker_match || durable_client_match) {
         return Stage8a4TradeSupport::Unrelated;
     }
+    let durable_broker_conflict = trade
+        .broker_order_id
+        .as_ref()
+        .zip(context.known_broker_order_id.as_ref())
+        .is_some_and(|(left, right)| left != right);
+    let durable_client_conflict = trade
+        .client_order_id
+        .as_ref()
+        .is_some_and(|value| value != &context.client_order_id);
     if broker_conflict
         || client_conflict
+        || durable_broker_conflict
+        || durable_client_conflict
         || trade.account_id != order.account_id
         || !exact_instrument_matches(&trade.instrument, &order.instrument)
         || trade.side != order.side
@@ -1075,6 +1131,7 @@ fn source_evidence_binding(
     let mut digest = Sha256::new();
     digest.update(b"stage8a4-source-evidence-binding-v2");
     digest.update(canonical_truth_sha256.as_bytes());
+    digest.update(evidence.canonical_truth_payload_sha256.as_bytes());
     digest.update(evidence.acquisition_policy_sha256.as_bytes());
     source_timing_binding(&mut digest, &evidence.orders.timing);
     source_timing_binding(&mut digest, &evidence.positions.timing);
@@ -1169,8 +1226,21 @@ fn exact_diagnostic(input: Stage8a4ExactDiagnosticInput<'_>) -> Stage8a4Reconcil
 fn admission_error(
     outcome: Stage8a4OutcomeKind,
     reason: Stage8a4ReconciliationReason,
+    attempt: &Stage8a4AdmissionAttemptBinding,
 ) -> Box<Stage8a4ReconciliationDiagnostic> {
-    Box::new(non_exact(outcome, reason))
+    let mut diagnostic = non_exact(outcome, reason);
+    diagnostic.semantic_binding_sha256 = digest_parts(
+        b"stage8a4-bound-admission-failure-semantic-v3",
+        &[
+            attempt.durable_binding_sha256.as_bytes(),
+            attempt.request_id.as_bytes(),
+            attempt.policy_binding_sha256.as_bytes(),
+            attempt.canonical_truth_sha256.as_bytes(),
+            attempt.source_evidence_binding_sha256.as_bytes(),
+            format!("{outcome:?}:{reason:?}").as_bytes(),
+        ],
+    );
+    Box::new(diagnostic)
 }
 
 fn non_exact(
