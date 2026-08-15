@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "stage": "8A-2-R1",
+  "status": "implementation_authorized",
+  "transition_baseline": "8e7c4426ba075e66441dc998a82a786b34fdd0b5",
+  "accepted_stage8a1_ref": "1ff04154ba4b7a5ee060a73b853ce89bd7442f44",
+  "transition_review_file": "REVIEW_STAGE8A2_TRANSITION_8e7c442_2026-08-15.md",
+  "transition_review_sha256": "9319b2dea111359489050a52384edbc1fc7aa2a394ab0ef41557e8af0e5fd316",
+  "r1_tz_file": "TZ_STAGE8A2_BUILDER_COMPOSITION_R1_2026-08-15.md",
+  "r1_tz_sha256": "c12d4a206988e1ec2048a6ec2de9defb517fc271e373f87ee24ff2f337a751da",
+  "required": {
+    "single_privacy_domain_consuming_seam": true,
+    "continuation_consumed_by_value": true,
+    "existing_place_builder_only": true,
+    "existing_cancel_builder_only": true,
+    "place_outgoing_comment_none": true,
+    "opaque_request_shape_witness": true,
+    "in_memory_no_send_sink": true,
+    "semantic_transport_escape_mutations": true
+  },
+  "closed": {
+    "stage8a3": true,
+    "stage8a4": true,
+    "stage8a5": true,
+    "stage8b": true,
+    "finam_post_delete": true,
+    "historical_real_transport_escape": true,
+    "http_classifier": true,
+    "reconciliation": true,
+    "redis_live_consumer": true,
+    "runtime_live": true,
+    "real_strategy_orders": true
+  },
+  "next_after_acceptance": "Stage 8A-3 only"
+}

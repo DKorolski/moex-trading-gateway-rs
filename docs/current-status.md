@@ -1020,7 +1020,7 @@ Red / not yet implemented:
 Only after these gates should `command-consumer-to-real-FINAM` or
 runtime-driven live micro be discussed.
 
-## Stage 8A-0 closure / Stage 8A-1 candidate (2026-08-15)
+## Stage 8A-0 / Stage 8A-1 closure history (2026-08-15)
 
 - Transition Gate 7→8 R3 was independently accepted at
   `630bef3fb9aa07bbc377498fc052f085155a043c`.
@@ -1048,10 +1048,11 @@ Stage 8A-1 R1 at `ef6b9ac` was not accepted because its seal bridge was cached,
 accepted-only and its non-durable proofs lacked production issuers. R2 at
 `1664236` closed dispatch-ready/current-seal authority but was not accepted
 because its caller-selected root, free-form arm nonce and PLACE-only
-continuation remained forgeable or asymmetric. The current R3 candidate adds
+continuation remained forgeable or asymmetric. The accepted R3 implementation adds
 an owner-mediated identity-pinned authority root with external config anchor,
 opaque trusted current sources, one arm per durable request and symmetric
 PLACE/CANCEL revalidation. The 76-row matrix and exact 70-case negative harness
-are mandatory. Stage 8A-2, request-builder
-composition, HTTP, Redis live consumer, broker dispatch, runtime-live and real
-strategy orders remain closed pending independent R3 acceptance.
+are mandatory. R3 was independently accepted at `1ff0415`; it opened only
+Stage 8A-2 request-builder composition behind a strict no-send boundary. HTTP,
+Redis live consumer, broker dispatch, runtime-live and real strategy orders
+remain closed.
