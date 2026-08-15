@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "stage": "8A-4-design-R1",
+  "status": "design_candidate_independent_acceptance_pending",
+  "accepted_predecessor": "012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d",
+  "acceptance_rows": 72,
+  "negative_cases": 48,
+  "production_files_changed": false,
+  "reconciliation_implemented": false,
+  "proven_no_match_available": false,
+  "network_send_authorized": false,
+  "redis_live_authorized": false,
+  "runtime_live_authorized": false,
+  "real_orders_authorized": false,
+  "next_after_acceptance": "Stage 8A-4 implementation R1 only"
+}

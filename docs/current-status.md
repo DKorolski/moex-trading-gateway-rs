@@ -22,10 +22,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   SHA-256 `02a332af7ccf1815a79de0f9a025be9d31094160f7977cd3e34de270497138a0`.
 - Stage 8A-2 R1 is independently accepted and closed at
   `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
-- Stage 8A-3 R2 is the only active candidate; independent acceptance is pending.
-  It may only correct the endpoint-specific local PLACE/CANCEL classifier and
-  its no-send enforcement/evidence.
-- Stage 8A-4+, FINAM POST/DELETE, Redis live consumption, broker dispatch,
+- Stage 8A-3 R2 is independently accepted and closed at
+  `012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`.
+- Stage 8A-4 design R1 is the only active candidate; independent acceptance is
+  pending. It may freeze reconciliation authority and implementation gates but
+  may not add production reconciliation code.
+- Stage 8A-4 implementation, Stage 8A-5+, FINAM POST/DELETE, Redis live
+  consumption, broker dispatch,
   runtime-live and real orders remain closed.
 
 The reviewer transition package is documented in
@@ -1067,3 +1070,13 @@ local-observation FINAM PLACE/CANCEL classifier with no network send. The
 PLACE/CANCEL document hashes. Historical M3d2 classification is not Stage 8
 authority. Stage 8A-4+, transport, Redis live consumption, broker dispatch,
 runtime-live and real orders remain closed.
+
+Stage 8A-3 R2 was independently accepted and closed at
+`012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`; its final review SHA-256 is
+`2e969db40bd847230f4df426ce3ee235f2f2273b87a778297b4588bf1f127232`.
+Only Stage 8A-4 reconciliation is unlocked. The active candidate is the
+Stage 8A-4 design freeze: canonical fresh broker-truth admission, deterministic
+correlation precedence, conflict/still-unknown outcomes and durable identity
+constraints. Production reconciliation, `ProvenNoMatch`, FINAM POST/DELETE,
+Redis live consumption, broker dispatch, runtime-live and real orders remain
+closed until separately accepted gates.

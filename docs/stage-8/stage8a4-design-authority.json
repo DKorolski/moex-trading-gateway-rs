@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "stage": "8A-4-design-R1",
+  "status": "design_candidate_independent_acceptance_pending",
+  "accepted_predecessor": "012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d",
+  "accepted_predecessor_review_sha256": "2e969db40bd847230f4df426ce3ee235f2f2273b87a778297b4588bf1f127232",
+  "design_only": true,
+  "production_reconciliation_implemented": false,
+  "canonical_truth_type": "broker_core::BrokerTruthSnapshot",
+  "required_truth_sources": [
+    "orders",
+    "trades",
+    "positions",
+    "instrument_registry"
+  ],
+  "required_truth_properties": {
+    "fresh": true,
+    "complete": true,
+    "account_scoped": true,
+    "target_instrument_resolved": true,
+    "pagination_exhausted": true,
+    "trusted_time_checked": true,
+    "post_attempt_acquisition_checked": true,
+    "policy_fingerprint_bound": true
+  },
+  "correlation_precedence": [
+    "exact_client_order_id_or_native_correlation",
+    "known_broker_order_id",
+    "account_instrument_side_quantity_bounded_event_time"
+  ],
+  "supporting_evidence_only": [
+    "trades",
+    "target_instrument_position"
+  ],
+  "outcomes": [
+    "ExactWorking",
+    "ExactPartiallyFilled",
+    "ExactFullyFilled",
+    "ExactTerminalRejected",
+    "ExactTerminalCancelled",
+    "ExactTerminalExpired",
+    "Conflict",
+    "StillUnknown"
+  ],
+  "closed": {
+    "proven_no_match": true,
+    "same_request_retry": true,
+    "automatic_resend": true,
+    "historical_reconciler_authority": true,
+    "http_classifier_as_broker_truth": true,
+    "position_only_terminal_proof": true,
+    "trade_only_order_selection": true,
+    "network_transport": true,
+    "finam_post_delete": true,
+    "redis_live_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "protective_multi_leg": true,
+    "stage8a5": true,
+    "stage8b": true
+  },
+  "next_after_acceptance": "Stage 8A-4 implementation R1 only"
+}

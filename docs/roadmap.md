@@ -30,9 +30,13 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
 
-Stage 8A-3 R2 is the only active candidate; independent acceptance is pending.
-It is limited to the endpoint-specific local PLACE/CANCEL classifier and the
-three R1 review-closure corrections. Stage 8A-4+, FINAM POST/DELETE, Redis live consumption, broker dispatch,
+Stage 8A-3 R2 is independently accepted and closed at
+`012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d`.
+
+Stage 8A-4 design R1 is the only active candidate; independent acceptance is
+pending. It freezes fresh canonical broker-truth admission, deterministic
+correlation and conflict/still-unknown outcomes. Stage 8A-4 implementation,
+Stage 8A-5+, FINAM POST/DELETE, Redis live consumption, broker dispatch,
 runtime-live and real orders remain closed.
 
 ### Accepted lineage and transition history
@@ -150,3 +154,9 @@ classifier plus the required R1 closure hardening. Acceptance of its exact
 artifact may open Stage 8A-4 only. Every
 network-send, Redis-live, broker-dispatch, runtime-live and real-order surface
 remains closed.
+
+Stage 8A-3 R2 was independently accepted and closed at `012c9bf`. That exact
+acceptance opens reconciliation planning only. Stage 8A-4 is split into an
+independently reviewed design freeze followed by a separately reviewed pure
+implementation and durable-composition closure. The design candidate changes
+no production Rust and opens neither Stage 8A-5 nor any execution surface.

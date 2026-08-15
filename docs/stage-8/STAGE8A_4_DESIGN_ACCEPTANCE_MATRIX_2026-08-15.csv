@@ -1,0 +1,73 @@
+id,mandatory,requirement,proof
+S8A4D-001,YES,Accepted Stage 8A-3 predecessor is exact,stage8a4-design-authority.json
+S8A4D-002,YES,Final Stage 8A-3 review SHA-256 is exact,stage8a4-design-authority.json
+S8A4D-003,YES,Package is design-only,stage8a4-design-descriptor.json
+S8A4D-004,YES,No production Rust changes exist,stage8a4_design_check.py
+S8A4D-005,YES,No Cargo or workflow changes exist,stage8a4_design_check.py
+S8A4D-006,YES,Stage 8A-3 production remains byte-identical,stage8a4_design_check.py
+S8A4D-007,YES,Canonical truth is BrokerTruthSnapshot,stage8a4-design-authority.json
+S8A4D-008,YES,HTTP classifier is not broker truth,stage8a4-design-contract.md
+S8A4D-009,YES,Historical reconciliation is oracle-only,stage8a4-source-inventory.md
+S8A4D-010,YES,Durable request context is opaque,stage8a4-design-contract.md
+S8A4D-011,YES,Fresh truth admission is opaque,stage8a4-design-contract.md
+S8A4D-012,YES,Reconciliation policy is fingerprint-bound,stage8a4-design-authority.json
+S8A4D-013,YES,StrategyRequestId is exact,stage8a4-design-contract.md
+S8A4D-014,YES,ClientOrderId is exact and stable,stage8a4-design-contract.md
+S8A4D-015,YES,Endpoint kind is explicit,stage8a4-design-contract.md
+S8A4D-016,YES,Account identity is exact,stage8a4-design-contract.md
+S8A4D-017,YES,FINAM venue symbol is exact,stage8a4-design-contract.md
+S8A4D-018,YES,Instrument registry identity is unambiguous,stage8a4-design-contract.md
+S8A4D-019,YES,Side is bound,stage8a4-design-contract.md
+S8A4D-020,YES,Original quantity is bound,stage8a4-design-contract.md
+S8A4D-021,YES,Known BrokerOrderId remains a string,stage8a4-design-contract.md
+S8A4D-022,YES,Attempt boundary timestamps are durable,stage8a4-design-contract.md
+S8A4D-023,YES,Event window is bounded,stage8a4-design-contract.md
+S8A4D-024,YES,Event policy is not caller-selected,stage8a4-design-contract.md
+S8A4D-025,YES,Journal generation and seal are bound,stage8a4-design-contract.md
+S8A4D-026,YES,Orders source is required,stage8a4-design-authority.json
+S8A4D-027,YES,Trades source is required,stage8a4-design-authority.json
+S8A4D-028,YES,Positions source is required,stage8a4-design-authority.json
+S8A4D-029,YES,Instrument registry source is required,stage8a4-design-authority.json
+S8A4D-030,YES,Every required source must be present,stage8a4-design-contract.md
+S8A4D-031,YES,Every required source must decode,stage8a4-design-contract.md
+S8A4D-032,YES,Every required source must be complete,stage8a4-design-contract.md
+S8A4D-033,YES,Pagination must be exhausted,stage8a4-design-contract.md
+S8A4D-034,YES,Acquisition must be post-attempt,stage8a4-design-contract.md
+S8A4D-035,YES,Trusted-future timestamps fail closed,stage8a4-design-contract.md
+S8A4D-036,YES,Source freshness is policy checked,stage8a4-design-contract.md
+S8A4D-037,YES,Cross-source skew is policy checked,stage8a4-design-contract.md
+S8A4D-038,YES,Empty complete truth is not no-match proof,stage8a4-design-contract.md
+S8A4D-039,YES,Missing position row is not zero,stage8a4-design-contract.md
+S8A4D-040,YES,Account-wide active orders remain a safety guard,stage8a4-design-contract.md
+S8A4D-041,YES,Target active orders are lifecycle truth,stage8a4-design-contract.md
+S8A4D-042,YES,Exact client correlation is first,stage8a4-design-authority.json
+S8A4D-043,YES,Known broker order identity is second,stage8a4-design-authority.json
+S8A4D-044,YES,Shape and bounded event time are third,stage8a4-design-authority.json
+S8A4D-045,YES,Lower tiers cannot replace a higher tier,stage8a4-design-contract.md
+S8A4D-046,YES,Client and broker identity disagreement conflicts,stage8a4-design-contract.md
+S8A4D-047,YES,Multiple plausible candidates conflict,stage8a4-design-contract.md
+S8A4D-048,YES,Collection order cannot select a candidate,stage8a4-design-contract.md
+S8A4D-049,YES,Trades are supporting evidence only,stage8a4-design-authority.json
+S8A4D-050,YES,Position is supporting evidence only,stage8a4-design-authority.json
+S8A4D-051,YES,Trades cannot select an order alone,stage8a4-design-contract.md
+S8A4D-052,YES,Position cannot prove a request fill alone,stage8a4-design-contract.md
+S8A4D-053,YES,Zero position cannot prove no fill,stage8a4-design-contract.md
+S8A4D-054,YES,Exact working outcome is explicit,stage8a4-design-authority.json
+S8A4D-055,YES,Exact partial-fill outcome is explicit,stage8a4-design-authority.json
+S8A4D-056,YES,Exact full-fill outcome is explicit,stage8a4-design-authority.json
+S8A4D-057,YES,Exact rejected outcome is explicit,stage8a4-design-authority.json
+S8A4D-058,YES,Exact cancelled outcome is explicit,stage8a4-design-authority.json
+S8A4D-059,YES,Exact expired outcome is explicit,stage8a4-design-authority.json
+S8A4D-060,YES,Conflict outcome is explicit,stage8a4-design-authority.json
+S8A4D-061,YES,StillUnknown outcome is explicit,stage8a4-design-authority.json
+S8A4D-062,YES,Unknown broker status remains StillUnknown,stage8a4-design-contract.md
+S8A4D-063,YES,Stale or incomplete truth remains StillUnknown,stage8a4-design-contract.md
+S8A4D-064,YES,ProvenNoMatch remains unconstructible,stage8a4-design-contract.md
+S8A4D-065,YES,Pure reducer cannot mutate durable state,stage8a4-design-contract.md
+S8A4D-066,YES,Future apply bridge revalidates generation seal and identity,stage8a4-design-contract.md
+S8A4D-067,YES,Conflict and unknown preserve hold and disarm,stage8a4-design-contract.md
+S8A4D-068,YES,No outcome grants retry or resend,stage8a4-design-contract.md
+S8A4D-069,YES,FINAM POST and DELETE remain closed,stage8a4-design-authority.json
+S8A4D-070,YES,Redis live broker dispatch runtime-live and real orders remain closed,stage8a4-design-authority.json
+S8A4D-071,YES,Protective and multi-leg behavior remains closed,stage8a4-design-authority.json
+S8A4D-072,YES,Acceptance opens Stage 8A-4 implementation R1 only,stage8a4-design-descriptor.json
