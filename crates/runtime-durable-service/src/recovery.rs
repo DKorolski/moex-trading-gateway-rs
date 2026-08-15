@@ -464,32 +464,46 @@ impl Stage7bStage8a1DurableRequestAuthority {
 }
 
 impl Stage7bRecoveryReadyOwner {
-    /// Issues a no-send Stage 8A-1 durable-request authority only when the
-    /// exact request is present in the current recovered journal and the
-    /// current committed seal remains readable and bound.
+    /// Issues a no-send Stage 8A-1 authority only for the exact dispatch-ready
+    /// request covered by a freshly reread authenticated on-disk seal.
     pub fn authorize_stage8a1_durable_request(
-        &self,
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
         identity: &Stage6DurableRequestIdentityV1,
         command: &Stage6DurableCommandSnapshotV1,
     ) -> Result<Stage7bStage8a1DurableRequestAuthority, Stage7bRecoveryError> {
-        let recovered = self.recovered()?;
-        let seal = self.committed_seal()?;
-        let stage6 = recovered.authorize_exact_durable_request(identity, command)?;
-        let current_operational_identity = recovered
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        let stage6 = self
+            .recovered
+            .authorize_exact_durable_request(identity, command)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            self.advance_recovery_seal(commitment_key)?;
+        }
+        // Always cross a final disk/HMAC barrier immediately before issue.
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        let current_operational_identity = self
+            .recovered
             .authenticated_operational_identity()
             .ok_or(Stage7bRecoveryError::SealInvalid)?;
         let current_operational_identity_sha256 =
             stage6d_operational_identity_sha256(current_operational_identity)?;
-        if stage6.authenticated_checkpoint_sha256() != seal.stage6_checkpoint().checkpoint_sha256()
-            || current_operational_identity_sha256.as_str() != seal.operational_identity_sha256()
+        if stage6.authenticated_checkpoint_sha256()
+            != self.committed_seal.stage6_checkpoint().checkpoint_sha256()
+            || current_operational_identity_sha256.as_str()
+                != self.committed_seal.operational_identity_sha256()
         {
             return Err(Stage7bRecoveryError::SealInvalid);
         }
         Ok(Stage7bStage8a1DurableRequestAuthority {
             stage6,
-            operational_identity_sha256: seal.operational_identity_sha256().to_string(),
-            seal_generation: seal.seal_generation(),
-            seal_commitment_sha256: seal.seal_commitment_sha256().to_string(),
+            operational_identity_sha256: self
+                .committed_seal
+                .operational_identity_sha256()
+                .to_string(),
+            seal_generation: self.committed_seal.seal_generation(),
+            seal_commitment_sha256: self.committed_seal.seal_commitment_sha256().to_string(),
         })
     }
 
@@ -1731,7 +1745,7 @@ mod tests {
     #[test]
     fn stage8a1_authority_binds_exact_current_stage7b_seal_and_stage6_request() {
         let setup = prepare_active_restart_prefix(2);
-        let owner = restart_working_setup(&setup);
+        let mut owner = restart_working_setup(&setup);
         let (identity, snapshot) = match &setup.command {
             BrokerCommand::PlaceOrder(command) => {
                 let identity = Stage6DurableRequestIdentityV1::from_place(
@@ -1746,7 +1760,7 @@ mod tests {
             BrokerCommand::CancelOrder(_) => panic!("working fixture must be PLACE"),
         };
         let authority = owner
-            .authorize_stage8a1_durable_request(&identity, &snapshot)
+            .authorize_stage8a1_durable_request(&setup.key, &identity, &snapshot)
             .unwrap();
         assert_eq!(authority.stage6().identity(), &identity);
         assert_eq!(
@@ -1756,6 +1770,98 @@ mod tests {
         assert_eq!(
             authority.seal_commitment_sha256(),
             owner.committed_seal().unwrap().seal_commitment_sha256()
+        );
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    fn stage8a1_identity_and_snapshot(
+        command: &BrokerCommand,
+        context: &Stage7aPaperCommandContext,
+    ) -> (
+        Stage6DurableRequestIdentityV1,
+        Stage6DurableCommandSnapshotV1,
+    ) {
+        match command {
+            BrokerCommand::PlaceOrder(place) => {
+                let identity = Stage6DurableRequestIdentityV1::from_place(
+                    place,
+                    context.attribution().clone(),
+                )
+                .unwrap();
+                let snapshot =
+                    Stage6DurableCommandSnapshotV1::from_place(&identity, place).unwrap();
+                (identity, snapshot)
+            }
+            BrokerCommand::CancelOrder(cancel) => {
+                let identity = Stage6DurableRequestIdentityV1::from_cancel(
+                    cancel,
+                    context.instrument().clone(),
+                    context.attribution().clone(),
+                )
+                .unwrap();
+                let snapshot =
+                    Stage6DurableCommandSnapshotV1::from_cancel(&identity, cancel).unwrap();
+                (identity, snapshot)
+            }
+        }
+    }
+
+    #[test]
+    fn stage8a1_deleted_or_corrupt_current_disk_seal_fails_sticky() {
+        for corrupt in [false, true] {
+            let setup = prepare_active_restart_prefix(2);
+            let mut owner = restart_working_setup(&setup);
+            let (identity, snapshot) =
+                stage8a1_identity_and_snapshot(&setup.command, &setup.command_context);
+            let seal_path = setup.root.join(STAGE7B_RECOVERY_SEAL_FILE);
+            if corrupt {
+                fs::write(&seal_path, b"corrupt-stage8a1-current-seal").unwrap();
+                File::open(&seal_path).unwrap().sync_all().unwrap();
+            } else {
+                fs::remove_file(&seal_path).unwrap();
+            }
+            File::open(&setup.root).unwrap().sync_all().unwrap();
+            assert!(matches!(
+                owner.authorize_stage8a1_durable_request(&setup.key, &identity, &snapshot),
+                Err(Stage7bRecoveryError::SealInvalid)
+            ));
+            assert!(matches!(
+                owner.authorize_stage8a1_durable_request(&setup.key, &identity, &snapshot),
+                Err(Stage7bRecoveryError::SealCommitUncertain)
+            ));
+            drop(owner);
+            fs::remove_dir_all(setup.parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn stage8a1_forward_dispatch_without_second_restart_advances_covering_seal() {
+        let setup = prepare_active_restart_prefix(1);
+        let mut owner = restart_working_setup(&setup);
+        let observed_at = command_created_at(&setup.command) + chrono::Duration::seconds(1);
+        let Stage7aPaperAdmission::DispatchReady(_receipt) = owner
+            .admit_paper_command(&setup.command, &setup.command_context, observed_at)
+            .unwrap()
+        else {
+            panic!("accepted-only command must become dispatch-ready without another restart");
+        };
+        let generation_before = owner.committed_seal().unwrap().seal_generation();
+        let (request_identity, snapshot) =
+            stage8a1_identity_and_snapshot(&setup.command, &setup.command_context);
+        let authority = owner
+            .authorize_stage8a1_durable_request(&setup.key, &request_identity, &snapshot)
+            .unwrap();
+        assert!(authority.seal_generation() > generation_before);
+        assert_eq!(
+            authority.stage6().dispatch_sequence(),
+            owner
+                .recovered()
+                .unwrap()
+                .replay()
+                .request(request_identity.strategy_request_id())
+                .unwrap()
+                .last_unique_sequence()
         );
         drop(owner);
         fs::remove_dir_all(setup.parent).unwrap();

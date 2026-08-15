@@ -44,7 +44,7 @@ def main() -> None:
         print(f"stage8a1-closed-surface: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
     print(
-        "stage8a1-r1-closed-surface: PASS rust=exact-sha-pinned serializer=false "
+        "stage8a1-r2-closed-surface: PASS rust=exact-sha-pinned serializer=false "
         "http=false redis=false dispatch=false runtime_live=false"
     )
 

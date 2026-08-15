@@ -512,6 +512,10 @@ pub struct Stage6DurableRequestAuthorityV1 {
     identity: Stage6DurableRequestIdentityV1,
     canonical_command_sha256: Stage6Sha256Digest,
     accepted_record_id: Stage6JournalRecordId,
+    dispatch_record_id: Stage6JournalRecordId,
+    dispatch_sequence: u64,
+    durable_frontier_sha256: String,
+    runtime_config_fingerprint_sha256: String,
     authenticated_checkpoint_sha256: String,
 }
 
@@ -526,6 +530,22 @@ impl Stage6DurableRequestAuthorityV1 {
 
     pub fn accepted_record_id(&self) -> &Stage6JournalRecordId {
         &self.accepted_record_id
+    }
+
+    pub fn dispatch_record_id(&self) -> &Stage6JournalRecordId {
+        &self.dispatch_record_id
+    }
+
+    pub fn dispatch_sequence(&self) -> u64 {
+        self.dispatch_sequence
+    }
+
+    pub fn durable_frontier_sha256(&self) -> &str {
+        &self.durable_frontier_sha256
+    }
+
+    pub fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
     }
 
     pub fn authenticated_checkpoint_sha256(&self) -> &str {
@@ -558,13 +578,41 @@ impl Stage6dDurableRuntimeRecovered {
         if replayed.durable_client_order_id() != identity.durable_client_order_id()
             || replayed.action() != identity.action()
             || replayed.conflict_observed()
+            || replayed.dispatch_attempt_count() != 1
+            || replayed.dispatch_safety_state()
+                != crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
         {
             return Err(Stage6dLiveCoreError::DurableOrderingViolation);
         }
+        let dispatch = self
+            .journal
+            .records()
+            .iter()
+            .find(|record| record.journal_record_id() == replayed.last_unique_record_id())
+            .ok_or(Stage6dLiveCoreError::DispatchAttemptRecordRequired)?;
+        if dispatch.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
+            || dispatch.durable_request_identity() != identity
+            || dispatch.previous_record_id() != Some(accepted.journal_record_id())
+            || self.journal_frontier().last_record_id() != Some(dispatch.journal_record_id())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let runtime_config_fingerprint_sha256 = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::FirstBoot(runtime) => {
+                runtime.stage5c_config_fingerprint()
+            }
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                restart.config_fingerprint_sha256().to_string()
+            }
+        };
         Ok(Stage6DurableRequestAuthorityV1 {
             identity: identity.clone(),
             canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
             accepted_record_id: accepted.journal_record_id().clone(),
+            dispatch_record_id: dispatch.journal_record_id().clone(),
+            dispatch_sequence: dispatch.lifecycle_sequence().get(),
+            durable_frontier_sha256: frontier_fingerprint(self.journal_frontier())?,
+            runtime_config_fingerprint_sha256,
             authenticated_checkpoint_sha256: self
                 .authenticated_checkpoint
                 .checkpoint_sha256()
@@ -3151,6 +3199,24 @@ mod tests {
         assert!(matches!(
             owner.authorize_exact_durable_request(&fixture.identity, &changed_snapshot),
             Err(Stage6dLiveCoreError::DurableOrderingViolation)
+        ));
+    }
+
+    #[test]
+    fn stage8a1_exact_durable_authority_rejects_accepted_only_request() {
+        let fixture = place_fixture(93, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let mut owner = recovered();
+        let (accepted, _) = accepted_and_dispatch_place(&fixture);
+        owner.journal_mut().append(&accepted).unwrap();
+        owner.refresh_after_append().unwrap();
+
+        assert!(matches!(
+            owner.authorize_exact_durable_request(&fixture.identity, &snapshot),
+            Err(Stage6dLiveCoreError::DurableOrderingViolation)
+                | Err(Stage6dLiveCoreError::DispatchAttemptRecordRequired)
         ));
     }
 

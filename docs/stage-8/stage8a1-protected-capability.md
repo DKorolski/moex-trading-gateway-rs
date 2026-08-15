@@ -1,121 +1,93 @@
-# Stage 8A-1 R1 — protected execution capability and authority provenance
+# Stage 8A-1 R2 — operational authority continuity
 
 Status: implementation candidate; independent acceptance pending.
 
-Accepted predecessor:
-`c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d` (Stage 8A-0 R1).
-
-R0 base candidate:
-`29b868621361c5beff16e3008864e66d2efdafef`.
-
-Independent R0 review SHA-256:
-`a36c9cc254c0ff7ca22c4b1c89484a20adb359f27e0b5db607668282d6dcf82d`.
+Base candidate: `ef6b9ac70aa8a3cdd6bfaf93f1c1339b030eb75d`.
+Accepted predecessor: Stage 8A-0 R1 at `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.
 
 ## Purpose
 
-R1 keeps Stage 8A-1 strictly no-send and fixes the R0 authority defect: public,
-caller-constructible facts can no longer authorize capability minting. The
-capability and every proof used at the minting boundary are opaque, linear and
-non-serializable. No request extraction, FINAM builder, transport, Redis
-consumer or runtime-live path is introduced.
+R2 completes the strictly no-send authority boundary started in R1. An opaque
+`Stage8ExecutionCapability` can now be minted through a production issuer, but
+only for an exact dispatch-ready Stage 6 command covered by the current
+authenticated Stage 7B seal. No request extraction, FINAM request builder,
+transport, Redis consumer or broker effect is introduced.
 
-## Durable authority chain
+## Durable authority
 
-The exact command is first authorized by the current recovered Stage 6 durable
-journal. That authority proves an exact `RequestAccepted` record, durable
-identity, canonical command digest and authenticated checkpoint. The current
-Stage 7B recovery-ready owner then binds it to the active operational identity,
-recovery-seal generation and seal commitment.
+The owner-mediated bridge takes `&mut Stage7bRecoveryReadyOwner`, the lifecycle
+commitment key and the exact durable identity/command. It:
 
-`Stage8a1DurableRequestAuthority::from_stage7b_owner()` is the only Stage 8
-bridge. A raw `PlaceOrder` or `CancelOrder` cannot create this authority. The
-binding includes request/client IDs, account, instrument, strategy attribution,
-action and the full durable command snapshot, including CANCEL target IDs.
+1. requires lifecycle availability;
+2. rereads and authenticates the committed seal from disk;
+3. refreshes the current Stage 6 frontier;
+4. requires exact `RequestAccepted` and exact `DispatchAttemptRecorded`;
+5. binds both record IDs, dispatch sequence, frontier and runtime config;
+6. durably advances a non-covering seal through the accepted atomic procedure;
+7. performs a final disk/HMAC reread immediately before returning authority.
 
-## Opaque authorities
+Missing, corrupt or valid-but-different current seals fail closed and make the
+owner unavailable. An accepted-only request cannot obtain Stage 8 authority.
 
-Capability issuance consumes these private-field authorities:
+## Production authority issuer
 
-- exact-command operator arm with a unique nonce, command, policy,
-  build/config/endpoint digests and bounded validity;
-- frozen execution policy containing the complete broker-neutral arithmetic
-  policy and fixed TTL/freshness limits;
-- trusted clock and readiness;
-- durable `RunAllowed` kill switch;
-- exactly one FINAM broker owner in the same scope;
-- zero unresolved order/delivery/reconciliation ambiguity;
-- fresh account and target-instrument broker truth;
-- eligible trading schedule;
-- unused max-one engineering-micro budget.
+`Stage8a1OperationalAuthorityIssuer` opens a canonical local authority root and
+authenticates:
 
-All proofs bind the same scope derived from durable identity, operational
-identity, recovery seal and frozen build/config/policy provenance. Their fields
-are private, they have no public literal constructors and they cannot be
-cloned. Production issuers for the non-durable proof authorities remain closed
-for a later separately reviewed slice.
+- `stage8a1-accepted-execution-config.json` plus its domain-separated SHA-256
+  sidecar;
+- `stage8a1-current-control-state.json` for persistent kill-switch revision,
+  exact owner/reconciliation counts and max-one micro budget;
+- current typed Stage 7B composite readiness;
+- current broker-neutral truth and readiness/schedule snapshots.
 
-The operator arm and frozen policy bind the exact side, quantity, limit price
-or market reference context, strategy attribution, notional/slippage/reference
-guards and endpoint provenance. Consuming the arm by value makes a second mint
-from the same authority impossible. Compile-fail tests cover private
-construction, cloning and reuse after move.
+The accepted config fixes broker/account/instrument/strategy scope, the full
+`OrderPreflightPolicy`, build/config/endpoint provenance and bounded TTLs. The
+caller cannot manufacture any opaque proof or widen policy at mint time.
 
-## Existing arithmetic validator
+The issuer creates all non-durable opaque authorities: arm, frozen policy,
+trusted clock, readiness, kill switch, ownership, zero ambiguity, fresh broker
+truth, schedule and budget. PLACE and CANCEL use the same issuer and exact
+scope. CANCEL retains exact durable order mapping and terminal no-op behavior.
 
-The accepted `broker_core::OrderPreflightPolicy` remains the arithmetic
-validator; Stage 8 does not introduce a second quantity/price/notional engine.
-Its complete relevant surface is owned by and hashed into the opaque frozen
-policy:
+## Durable arm nonce
 
-- exact account and venue allowlists;
-- MARKET/LIMIT only and DAY only;
-- min/step/max quantity and price step;
-- max market quantity;
-- non-optional per-order and per-run notional limits;
-- limit-deviation and reference-age limits;
-- no cancel-without-mapping bypass;
-- one-shot broker-core arm.
+Logical arm nonces are registered under operational seal generation using
+exclusive `create_new`, file fsync and directory fsync. The nonce key binds
+operational identity and generation; the durable record binds command,
+capability policy and durable provenance. Reuse in the same generation fails,
+including reuse with command or policy drift. A new recovery generation cannot
+reuse an old arm authority.
 
-## Capability and audit binding
+## Current-state continuation barrier
 
-`Stage8ExecutionCapability` has private fields and implements neither `Clone`,
-`Copy`, `Debug`, `Serialize` nor `Deserialize`. Its redacted diagnostic exposes
-only scope, expiry, recovery generation and an audit fingerprint. The
-fingerprint binds the exact durable command, arm nonce, frozen policy, Stage 7B
-seal and every evidence digest. No raw account, order or strategy identifiers
-are exported.
+`revalidate_place_capability` consumes the minted capability and returns only
+an opaque `Stage8a1CurrentlyAuthorizedCapability`. Before doing so it rereads:
 
-The capability expires at the earliest authority expiry. It cannot survive a
-restart and has no method that exposes a request or feeds a serializer or
-transport.
+- current Stage 7B disk seal and exact dispatch-ready command;
+- immutable accepted config and sidecar;
+- persistent control state;
+- composite readiness, ownership, ambiguity, broker truth and schedule;
+- micro budget, nonce registration and wall-clock expiry.
 
-## CANCEL policy
+Any seal, config, build, endpoint, policy, readiness, kill-switch, ownership,
+truth, schedule, budget, nonce or time drift fails closed. The continuation type
+still has no approved-request/body extraction or transport consumer.
 
-CANCEL additionally requires an exact durable `OrderPathRecord`. Account,
-instrument, broker order ID and optional client order ID must match the durable
-command and mapping. Cancel-by-broker-ID without mapping remains forbidden. An
-already-terminal record returns `AlreadyTerminal` and never mints a capability.
+## Evidence contract
 
-## Acceptance evidence
+- exact 68-row R2 acceptance matrix;
+- exact 62-case negative inventory;
+- accepted-only versus dispatch-ready tests;
+- disk-seal delete/corrupt tests and forward seal-advance witness;
+- production issuer and duplicate logical nonce tests;
+- post-mint current-state drift tests;
+- compile-fail opacity/linearity, exact SHA-pinned closed surfaces;
+- serialized workspace tests/doctests, fmt, clippy and immutable handoff.
 
-- exact 58-row R1 acceptance matrix;
-- exact 52-case fail-closed negative inventory and executable harness;
-- focused authority, mutation, PLACE and CANCEL tests;
-- compile-fail capability/arm/proof construction and linearity tests;
-- exact SHA-pinned Rust surface, including all touched `lib.rs` and authority
-  bridge files;
-- serialized workspace tests/doctests, fmt, clippy and inherited scanners;
-- source-manifest and SHA-bound immutable handoff evidence.
+## Closed surfaces
 
-## Deliberately closed
-
-- `broker_finam::build_place_order_request()` composition;
-- `broker_finam::build_cancel_order_request()` composition;
-- request/body extraction and mock send seams;
-- HTTP outcome classification and broker reconciliation implementation;
-- FINAM POST/DELETE;
-- Redis live command consumption and broker dispatch;
-- runtime-live, real strategy orders and Stage 8B;
-- Stage 8A-2 through Stage 8A-5.
-
-Only independent acceptance of this exact R1 slice may open Stage 8A-2.
+R2 does not add broker request builders, request extraction, mock send, HTTP
+classification, reconciliation, FINAM POST/DELETE, Redis live command
+consumption, broker dispatch, runtime-live or real orders. Independent
+acceptance of this exact R2 slice opens Stage 8A-2 only.
