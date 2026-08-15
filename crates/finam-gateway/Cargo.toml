@@ -13,11 +13,13 @@ broker-finam = { path = "../broker-finam" }
 chrono.workspace = true
 redis.workspace = true
 reqwest.workspace = true
+runtime-durable-service = { path = "../runtime-durable-service" }
 rusqlite.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+strategy-runtime-core = { path = "../strategy-runtime-core" }
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true

@@ -1021,9 +1021,12 @@ the mandatory matrix/negative count to 41/41. FINAM contract snapshot/parity
 remain unchanged at `MATCH`; that external acceptance opened only Stage 8A-1.
 
 Stage 8A-0 R1 was independently accepted and closed at `c949d7f` on
-2026-08-15. Stage 8A-1 is now the only open candidate. Its implementation adds
-an opaque non-cloneable/non-serializable no-send capability after exact
-operator-arm, allowlist, DAY-only, limits, persistent `RunAllowed`,
-single-FINAM-owner, zero-ambiguity, restart-generation and config-fingerprint
-preflight. Stage 8A-2, request-builder composition, HTTP, Redis live consumer,
-broker dispatch, runtime-live and real strategy orders remain closed.
+2026-08-15. Stage 8A-1 R0 at `29b8686` was not accepted because its opaque
+capability could still be minted from caller-constructible proof data. The
+current Stage 8A-1 R1 candidate replaces that authority boundary with an exact
+Stage 7B/Stage 6 durable-request chain, opaque single-use command arm, frozen
+policy, trusted clock and scoped kill-switch, ownership, ambiguity, broker
+truth, schedule and max-one-budget authorities. The 58-row matrix and exact
+52-case negative harness are mandatory. Stage 8A-2, request-builder
+composition, HTTP, Redis live consumer, broker dispatch, runtime-live and real
+strategy orders remain closed pending independent R1 acceptance.

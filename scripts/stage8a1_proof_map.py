@@ -17,11 +17,11 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8A-1",
+                "stage": "8A-1-R1",
                 "candidate_status": "independent_acceptance_pending",
                 "accepted_stage8a0_ref": checker.BASE,
                 "row_count": len(rows),
-                "all_mandatory_rows_locally_proven": len(rows) == 36,
+                "all_mandatory_rows_locally_proven": len(rows) == 58,
                 "independent_acceptance_recorded": False,
                 "rows": rows,
             },

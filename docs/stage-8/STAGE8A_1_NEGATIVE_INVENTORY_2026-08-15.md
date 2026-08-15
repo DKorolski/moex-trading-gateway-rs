@@ -1,40 +1,54 @@
-# Stage 8A-1 negative inventory
+# Stage 8A-1 R1 negative inventory — exact 52 cases
 
-The mandatory harness contains exactly 36 mutations:
-
-1. self-accept Stage 8A-1;
-2. forge the accepted Stage 8A-0 predecessor;
-3. forge the external acceptance hash;
-4. open Stage 8A-2;
-5. authorize FINAM POST/DELETE;
-6. derive `Clone` for the capability;
-7. derive `Debug` for the capability;
-8. derive `Serialize` for the capability;
-9. expose a public capability field;
-10. add a request-extraction API;
-11. invoke the PLACE builder;
-12. invoke the CANCEL builder;
-13. add a `reqwest` transport dependency in the module;
-14. add a `.send(` call;
-15. add a `.post(` call;
-16. add Redis command access;
-17. remove the one-shot arm check;
-18. remove account allowlist enforcement;
-19. remove instrument allowlist enforcement;
-20. remove strategy allowlist enforcement;
-21. remove DAY-only enforcement;
-22. remove the `RunAllowed` requirement;
-23. remove durable kill-switch revision enforcement;
-24. remove exact FINAM ownership;
-25. remove the single-owner count;
-26. remove zero unresolved-order enforcement;
-27. remove zero unknown-delivery enforcement;
-28. remove zero reconciliation-required enforcement;
-29. remove restart-generation binding;
-30. remove configuration-fingerprint binding;
-31. remove exact CANCEL durable mapping;
-32. permit cancel without mapping;
-33. remove Clone compile-fail evidence;
-34. remove Serialize compile-fail evidence;
-35. reduce the acceptance matrix;
-36. remove the accepted predecessor freeze hash.
+1. `self-accept Stage8A-1 R1`
+2. `forge accepted Stage8A-0 ref`
+3. `forge Stage8A-0 review hash`
+4. `open Stage8A-2 before acceptance`
+5. `derive Clone/Copy on capability`
+6. `derive Debug on capability`
+7. `derive Serialize/Deserialize on capability`
+8. `expose capability field`
+9. `add request/approved-command extraction`
+10. `invoke PLACE/CANCEL builder`
+11. `add HTTP/send/Redis consumer surface`
+12. `add Stage8 journal/reducer/ClientOrderId allocator`
+13. `mint capability without Stage7B recovery-ready authority`
+14. `bind stale/mismatched recovery seal`
+15. `mint capability from raw PlaceOrder without Stage6 durable authority`
+16. `change PLACE durable ClientOrderId for same request`
+17. `change CANCEL durable command identity or target identity`
+18. `change Stage6 strategy owner/cycle/action attribution`
+19. `mint while composite readiness is absent/lost`
+20. `construct safety proof using public struct literal`
+21. `make operator arm fields public`
+22. `make operator arm Clone/Serialize`
+23. `reuse same operator arm authority twice`
+24. `duplicate/replay arm nonce`
+25. `change StrategyRequestId under same arm`
+26. `change ClientOrderId under same arm`
+27. `change account/instrument/venue under same arm`
+28. `change strategy owner/cycle/action under same arm`
+29. `change side under same arm`
+30. `change quantity under same arm`
+31. `change LIMIT price under same arm`
+32. `change MARKET reference guard under same arm`
+33. `widen max notional/slippage/reference-age under same arm`
+34. `change build/config/endpoint-policy digest under same arm`
+35. `allow caller-chosen unbounded arm TTL`
+36. `reuse arm/capability after restart`
+37. `reuse authority after config drift`
+38. `construct arbitrary allowlist/frozen policy`
+39. `allow unsupported order type or non-DAY TIF`
+40. `widen max_qty/qty_step/price_step/max_market_qty policy`
+41. `remove max_notional_per_order/run`
+42. `disable slippage/reference-age bound`
+43. `ignore closed/unknown trading schedule`
+44. `forge RunAllowed kill-switch evidence from raw fields/hash-shaped string`
+45. `use single-broker ownership evidence for another strategy`
+46. `use zero-ambiguity evidence for another account/strategy`
+47. `omit or stale accepted fresh broker truth`
+48. `omit/exhaust max-one engineering-micro budget`
+49. `allow caller-chosen huge evidence age or backdated now`
+50. `mix restart/config/seal/scope across proof authorities`
+51. `mint capability for terminal/unmapped CANCEL`
+52. `inject hidden builder/transport hook into already-allowed lib.rs`

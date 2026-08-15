@@ -75,7 +75,7 @@ def main() -> None:
         if gate.returncode:
             print(gate_output.decode(errors="replace"), end="")
             fail(f"full gate failed: {gate.returncode}")
-        marker = b"stage8a1-gate: PASS rows=36 negatives=36 opaque=true no-send=true next=8A-2-pending"
+        marker = b"stage8a1-r1-gate: PASS rows=58 negatives=52 opaque-authorities=true no-send=true next=8A-2-pending"
         if marker not in gate_output:
             fail("full gate completion marker missing")
         artifact_payloads: dict[str, bytes] = {}
@@ -120,7 +120,7 @@ def main() -> None:
         commit_marker = (
             f"source_ref={head}\nsource_short_ref={short}\nsource_branch={branch}\n"
             f"archive_name={archive_name}\naccepted_stage8a0_ref={checker.BASE}\n"
-            "candidate_stage=Stage 8A-1\ncandidate_status=independent_acceptance_pending\n"
+            "candidate_stage=Stage 8A-1 R1\ncandidate_status=independent_acceptance_pending\n"
             "next_after_acceptance=Stage 8A-2 only\nfinam_post_delete_authorized=false\n"
             "broker_dispatch_authorized=false\nruntime_live_authorized=false\n"
             "real_orders_authorized=false\n"
@@ -142,15 +142,16 @@ def main() -> None:
         evidence = json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8A-1",
+                "stage": "8A-1-R1",
                 "candidate_status": "independent_acceptance_pending",
                 "source_ref": head,
                 "source_branch": branch,
                 "accepted_stage8a0_ref": checker.BASE,
                 "accepted_stage8a0_review_sha256": checker.REVIEW_SHA,
-                "acceptance_rows": 36,
-                "negative_cases": 36,
+                "acceptance_rows": 58,
+                "negative_cases": 52,
                 "opaque_linear_capability": True,
+                "opaque_authority_provenance": True,
                 "request_extraction_available": False,
                 "serializer_composition_available": False,
                 "transport_available": False,

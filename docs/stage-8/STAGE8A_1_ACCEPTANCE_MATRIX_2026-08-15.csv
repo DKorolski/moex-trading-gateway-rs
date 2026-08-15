@@ -1,37 +1,59 @@
-id,requirement,evidence
-S8A1-001,accepted Stage8A0 commit pinned,stage8a1-descriptor.json
-S8A1-002,external Stage8A0 acceptance hash pinned,stage8a1-descriptor.json
-S8A1-003,Stage8A1 is candidate not self-accepted,stage8a1-descriptor.json
-S8A1-004,Stage8A2 remains closed,stage8a1-descriptor.json
-S8A1-005,capability fields are private,stage8a1_execution_capability.rs
-S8A1-006,capability is not Clone or Copy,rustdoc compile-fail and checker
-S8A1-007,capability is not Debug,rustdoc/source checker
-S8A1-008,capability is not serializable,rustdoc compile-fail and checker
-S8A1-009,no approved-command extraction API,source checker
-S8A1-010,no serializer or builder composition,closed-surface checker
-S8A1-011,no HTTP POST DELETE or send,closed-surface checker
-S8A1-012,no Redis live consumer,closed-surface checker
-S8A1-013,operator arm is consumed and one-shot,unit tests and source checker
-S8A1-014,operator arm exact request binding,unit tests
-S8A1-015,operator arm TTL bounded,unit tests and source checker
-S8A1-016,account allowlist exact and nonempty,unit tests
-S8A1-017,instrument allowlist exact and nonempty,unit tests
-S8A1-018,strategy allowlist exact and nonempty,unit tests
-S8A1-019,MARKET LIMIT only via broker-neutral policy,source checker
-S8A1-020,DAY only,unit tests
-S8A1-021,quantity and step bounds delegated,broker_core OrderPreflightPolicy
-S8A1-022,price and tick bounds delegated,broker_core OrderPreflightPolicy
-S8A1-023,notional bounds delegated,broker_core OrderPreflightPolicy
-S8A1-024,slippage band delegated,broker_core OrderPreflightPolicy
-S8A1-025,kill switch must be RunAllowed,unit tests
-S8A1-026,kill switch evidence durable revision nonzero,source checker
-S8A1-027,evidence freshness and SHA binding required,unit tests
-S8A1-028,broker ownership exactly one FINAM,unit tests
-S8A1-029,all ambiguity counters zero,unit tests
-S8A1-030,restart generation exact and nonzero,unit tests
-S8A1-031,config fingerprint exact and hash shaped,unit tests
-S8A1-032,capability expiry is earliest evidence expiry,unit tests
-S8A1-033,CANCEL requires exact durable mapping,unit tests
-S8A1-034,terminal CANCEL issues no capability,unit tests
-S8A1-035,focused tests and clippy pass,stage8a1 gate logs
-S8A1-036,inherited serialized workspace regression passes,stage8a1 gate logs
+id,category,requirement,expected,mandatory,proof_type,negative_mutation
+S8A1R1-001,predecessor,Accepted Stage8A-0 source is exact,ref=c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d,YES,descriptor_hash,forge predecessor
+S8A1R1-002,predecessor,Accepted Stage8A-0 external review is exact,review_sha=574876211e0c896cc9d61f9f2d078059e54fd471a9b97e94a3c9c8c81930879b,YES,descriptor_hash,forge review hash
+S8A1R1-003,governance,Stage8A-1 candidate cannot self-accept,independent acceptance remains false/pending,YES,descriptor,self accept
+S8A1R1-004,governance,Stage8A-2 remains closed,No builder/mock-send/classifier/reconciliation scope is opened,YES,descriptor,open 8A-2
+S8A1R1-005,capability,Stage8ExecutionCapability fields are private,No public fields,YES,compile_fail+source,public capability field
+S8A1R1-006,capability,Capability is linear,No Clone/Copy,YES,compile_fail,derive Clone
+S8A1R1-007,capability,Capability is non-debuggable,No raw Debug implementation,YES,compile_fail,derive Debug
+S8A1R1-008,capability,Capability is non-serializable,No Serialize/Deserialize,YES,compile_fail,derive Serialize
+S8A1R1-009,capability,Approved command cannot be extracted in 8A-1,No public/crate-private request extraction or consuming transport API,YES,source_scan,add into_request
+S8A1R1-010,closed_surface,No request builder composition exists,No broker-finam PLACE/CANCEL builder use,YES,closed_surface,invoke builder
+S8A1R1-011,closed_surface,No HTTP/Redis/send surface exists,No Stage8A-1 transport or live consumer,YES,closed_surface,add send/redis
+S8A1R1-012,authority,Stage7B remains sole lifecycle authority,No Stage8 journal/reducer/ClientOrderId allocator/settlement owner,YES,source_scan,add Stage8 journal
+S8A1R1-013,authority,Current Stage7B recovery-ready authority is required,Capability minting requires opaque proof derived from current Stage7bRecoveryReadyOwner/equivalent,YES,type_boundary,mint without Stage7B owner
+S8A1R1-014,authority,Current authenticated recovery seal is bound,Issuance proof binds current seal generation/commitment and fails on stale/mismatch,YES,unit+negative,use stale seal
+S8A1R1-015,authority,Exact Stage6 durable request identity is required,Capability minting consumes/binds opaque exact durable request authority,YES,type_boundary,mint from raw command only
+S8A1R1-016,identity,PLACE durable ClientOrderId is exact,Place client ID equals durable identity derived from StrategyRequestId,YES,unit,change client id
+S8A1R1-017,identity,CANCEL durable identity is exact,Cancel durable command identity plus exact target broker/client IDs are bound,YES,unit,change cancel durable identity
+S8A1R1-018,identity,Stage6 attribution is exact,strategy owner/cycle/action/role from durable identity is bound,YES,unit,change attribution
+S8A1R1-019,readiness,Current composite readiness authority is bound,Readiness loss/generation drift invalidates minting,YES,unit+negative,mint without readiness
+S8A1R1-020,authority,Raw public evidence cannot mint capability,Safety-critical minting inputs are opaque/non-constructible outside trusted issuer,YES,compile_fail,construct raw proof literal
+S8A1R1-021,arm,Operator arm authority is opaque,Private fields/no public literal construction,YES,compile_fail,public arm fields
+S8A1R1-022,arm,Operator arm authority is linear,No Clone/Copy/Serialize/Deserialize,YES,compile_fail,clone arm authority
+S8A1R1-023,arm,Arm nonce is unique and bound,Exact nonce/arm identity is part of authority and audit fingerprint,YES,unit,duplicate arm nonce
+S8A1R1-024,arm,One arm mints at most one capability,Second use of same arm authority impossible or deterministically rejected,YES,unit+compile_fail,reuse arm twice
+S8A1R1-025,arm,Arm binds durable request ID,Exact StrategyRequestId match,YES,unit,change request id
+S8A1R1-026,arm,Arm binds durable ClientOrderId,Exact stable client id match,YES,unit,change client id under same arm
+S8A1R1-027,arm,Arm binds exact account/instrument/venue,All exact scope identities match,YES,unit,change venue symbol
+S8A1R1-028,arm,Arm binds strategy owner/cycle/action,Structured attribution exact,YES,unit,change owner/cycle/action
+S8A1R1-029,arm,Arm binds command kind/side/qty,"PLACE/CANCEL, side and quantity exact",YES,unit,change side or qty
+S8A1R1-030,arm,Arm binds LIMIT price or MARKET reference guard,Exact limit price or exact reference-price guard digest,YES,unit,change price/reference guard
+S8A1R1-031,arm,Arm binds notional/slippage/reference-age limits,Exact execution risk guard values/digest,YES,unit,widen risk guard
+S8A1R1-032,arm,Arm binds build/config/endpoint-policy digests,All accepted digests exact,YES,unit,change endpoint-policy digest
+S8A1R1-033,arm,Arm TTL is frozen and bounded,Caller cannot choose arbitrary max TTL,YES,policy_authority,widen arm TTL
+S8A1R1-034,restart,Restart invalidates arm/capability authority,Current nonzero generation exact,YES,unit,reuse across restart
+S8A1R1-035,config,Config drift invalidates authority,Current accepted config/policy digest exact,YES,unit,reuse across config drift
+S8A1R1-036,policy,Execution policy is opaque/provenance-backed,Caller cannot provide arbitrary allowlist/OrderPreflightPolicy as authority,YES,type_boundary,construct arbitrary policy authority
+S8A1R1-037,policy,Exact account/instrument/strategy allowlist is bound,Deny by default exact entries,YES,unit,widen allowlist
+S8A1R1-038,policy,MARKET/LIMIT and DAY only,No other order type/TIF,YES,unit+negative,allow non-DAY
+S8A1R1-039,limits,All quantity/price limit fields are frozen,min_qty/qty_step/max_qty/price_step/max_market_qty exact,YES,unit,widen max qty
+S8A1R1-040,limits,Notional limits are frozen,max_notional_per_order/run exact and present as accepted policy,YES,unit,remove notional limit
+S8A1R1-041,limits,Slippage/reference freshness is frozen,max_limit_deviation_bps/max_reference_age_ms exact,YES,unit,widen reference age
+S8A1R1-042,schedule,Trading-session/schedule eligibility is required,Current exact schedule authority says eligible; unknown/closed fails,YES,unit,ignore schedule
+S8A1R1-043,kill_switch,Kill-switch authority is provenance-backed,"Opaque proof comes from persistent reader, not raw fields/hash shape",YES,type_boundary,forge RunAllowed proof
+S8A1R1-044,kill_switch,Kill switch state must be RunAllowed,StopRequested/stale/unreadable/conflict blocks,YES,unit,remove RunAllowed
+S8A1R1-045,ownership,Single-broker ownership is exact and strategy-scoped,FINAM count=1 plus exact strategy/account/instrument owner binding,YES,unit,use ownership for another strategy
+S8A1R1-046,ambiguity,Zero ambiguity is exact and scope-bound,Counters zero for exact strategy/account scope,YES,unit,use zero counters from other scope
+S8A1R1-047,broker_truth,Fresh broker truth authority is required,Opaque fresh account+instrument truth proof is present and current,YES,type_boundary+unit,omit broker truth
+S8A1R1-048,budget,Max-one engineering-micro budget authority is required,Opaque budget proof exact account/strategy and available count,YES,type_boundary+unit,omit/exhaust budget
+S8A1R1-049,freshness,Evidence-age bounds are frozen,Caller cannot choose arbitrary max_evidence_age_ms,YES,policy_authority,widen evidence age
+S8A1R1-050,clock,Freshness uses trusted current clock,Public caller cannot backdate now to revive stale evidence,YES,type_boundary,backdate now
+S8A1R1-051,coherence,All proof authorities share one operational identity,same account/instrument/strategy/restart/config/seal generation,YES,unit,mix proof scopes
+S8A1R1-052,expiry,Capability validity is minimum of all authority expiries,No proof outlives weakest prerequisite,YES,unit,ignore one expiry
+S8A1R1-053,cancel,CANCEL requires exact durable mapping,Exact existing order target and identities,YES,unit,bypass cancel mapping
+S8A1R1-054,cancel,Terminal CANCEL mints no capability,AlreadyTerminal only,YES,unit,capability for terminal
+S8A1R1-055,audit,Audit fingerprint binds exact command and authorities,"Includes durable command fingerprint, arm nonce, policy/seal/proof digests",YES,unit,omit command from audit fingerprint
+S8A1R1-056,closed_surface,Allowed lib.rs delta is exact,Full-file hash/exact patch whitelist prevents hidden builder/transport hook,YES,negative_harness,inject hidden builder in lib.rs
+S8A1R1-057,regression,Focused/compile-fail/negative/workspace gates pass,Serialized all-target tests/doctests/clippy/fmt green,YES,aggregate_gate,skip regression
+S8A1R1-058,governance,Independent R1 acceptance opens Stage8A-2 only,No later slice or real send opens,YES,independent_review,self-open later slice

@@ -505,7 +505,73 @@ pub struct Stage6dDurableRuntimeRecovered {
     restore_epoch: Option<Stage6RestoreEpoch>,
 }
 
+/// Linear read-only proof that an exact command identity and command snapshot
+/// are present in the recovered Stage 6 journal.  It does not expose the
+/// journal record or any dispatch operation.
+pub struct Stage6DurableRequestAuthorityV1 {
+    identity: Stage6DurableRequestIdentityV1,
+    canonical_command_sha256: Stage6Sha256Digest,
+    accepted_record_id: Stage6JournalRecordId,
+    authenticated_checkpoint_sha256: String,
+}
+
+impl Stage6DurableRequestAuthorityV1 {
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn canonical_command_sha256(&self) -> &Stage6Sha256Digest {
+        &self.canonical_command_sha256
+    }
+
+    pub fn accepted_record_id(&self) -> &Stage6JournalRecordId {
+        &self.accepted_record_id
+    }
+
+    pub fn authenticated_checkpoint_sha256(&self) -> &str {
+        &self.authenticated_checkpoint_sha256
+    }
+}
+
 impl Stage6dDurableRuntimeRecovered {
+    /// Proves that `identity` and `command` are the exact accepted Stage 6
+    /// durable request in this recovered owner. A merely well-formed command
+    /// cannot obtain this authority.
+    pub fn authorize_exact_durable_request(
+        &self,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+    ) -> Result<Stage6DurableRequestAuthorityV1, Stage6dLiveCoreError> {
+        let accepted = stage7a_accepted_record(self, identity.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let accepted_command = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        if accepted.durable_request_identity() != identity || accepted_command != command {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let replayed = self
+            .replay
+            .request(identity.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if replayed.durable_client_order_id() != identity.durable_client_order_id()
+            || replayed.action() != identity.action()
+            || replayed.conflict_observed()
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        Ok(Stage6DurableRequestAuthorityV1 {
+            identity: identity.clone(),
+            canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
+            accepted_record_id: accepted.journal_record_id().clone(),
+            authenticated_checkpoint_sha256: self
+                .authenticated_checkpoint
+                .checkpoint_sha256()
+                .to_string(),
+        })
+    }
+
     pub fn boot_mode(&self) -> Stage6dBootMode {
         self.boot_mode
     }
@@ -3042,6 +3108,50 @@ mod tests {
         )
         .unwrap();
         (accepted, dispatch)
+    }
+
+    #[test]
+    fn stage8a1_exact_durable_authority_is_journal_backed() {
+        let fixture = place_fixture(91, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let mut owner = recovered();
+        let (accepted, dispatch) = accepted_and_dispatch_place(&fixture);
+        prepare_stage6d_paper_dispatch(&mut owner, accepted, dispatch).unwrap();
+
+        let authority = owner
+            .authorize_exact_durable_request(&fixture.identity, &snapshot)
+            .unwrap();
+        assert_eq!(authority.identity(), &fixture.identity);
+        assert_eq!(
+            authority.authenticated_checkpoint_sha256(),
+            owner.authenticated_checkpoint().checkpoint_sha256()
+        );
+    }
+
+    #[test]
+    fn stage8a1_exact_durable_authority_rejects_absent_or_changed_command() {
+        let fixture = place_fixture(92, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let mut owner = recovered();
+        assert!(matches!(
+            owner.authorize_exact_durable_request(&fixture.identity, &snapshot),
+            Err(Stage6dLiveCoreError::AcceptedRecordRequired)
+        ));
+
+        let (accepted, dispatch) = accepted_and_dispatch_place(&fixture);
+        prepare_stage6d_paper_dispatch(&mut owner, accepted, dispatch).unwrap();
+        let mut changed = fixture.command.clone();
+        changed.qty = Decimal::new(2, 0);
+        let changed_snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &changed).unwrap();
+        assert!(matches!(
+            owner.authorize_exact_durable_request(&fixture.identity, &changed_snapshot),
+            Err(Stage6dLiveCoreError::DurableOrderingViolation)
+        ));
     }
 
     fn restart_from_test_authority(

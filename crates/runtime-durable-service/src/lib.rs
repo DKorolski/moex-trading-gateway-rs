@@ -81,7 +81,8 @@ pub use recovery::{
     Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
     Stage7bRedisServiceConfig, Stage7bRedisServiceError, Stage7bRestartOutcome,
     Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
-    Stage7bServiceTaskOutput, Stage7bTaskReadinessHandle, STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
+    Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority, Stage7bTaskReadinessHandle,
+    STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 
 use std::{

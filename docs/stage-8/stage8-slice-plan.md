@@ -1,7 +1,8 @@
 # Stage 8 slice plan
 
 Status: Stage 8A-0 is independently accepted and closed at `c949d7f`; Stage
-8A-1 protected-capability implementation is the only open candidate.
+8A-1 R1 authority/provenance hardening is the only open candidate after the R0
+review of `29b8686` required changes.
 
 Independent acceptance of Stage 8A-0 opens only Stage 8A-1. Stage 8A-2 through
 8A-5, real FINAM POST/DELETE, broker dispatch, runtime-live, real strategy
@@ -19,8 +20,11 @@ may skip or open a later slice directly.
    order contract, normalize and hash it, compare it with the project fixture
    and existing vetted builders. Material drift blocks progression.
 2. **Stage 8A-1 — protected capability.** Add the private linear no-send
-   capability, exact operator arm, allowlist, limits, Day-only TIF policy and
-   fail-closed kill-switch preflight. No serializer or transport.
+   capability, exact Stage 7B/Stage 6 durable authority, opaque command-bound
+   operator arm, frozen allowlist/limit policy, trusted time and scoped
+   kill-switch/ownership/ambiguity/truth/schedule/budget authorities. No
+   serializer or transport. R1 requires 58 acceptance rows and 52 exact
+   negative cases.
 3. **Stage 8A-2 — builder composition.** Compose only
    `broker_finam::build_place_order_request()` and
    `broker_finam::build_cancel_order_request()` behind a mock/no-send seam. A

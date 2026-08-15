@@ -26,7 +26,8 @@ use strategy_runtime_core::{
     refresh_stage7b_durable_frontier, restart_stage6d_paper_with_owned_journal,
     restore_stage5g_clean_restart, seal_stage6d_restart_package,
     stage6d_operational_identity_sha256, stage7b_finalized_request_facts,
-    HybridIntradayRuntimeStrategy, Stage5gLifecycleCommitmentKey, Stage6JournalBackend,
+    HybridIntradayRuntimeStrategy, Stage5gLifecycleCommitmentKey, Stage6DurableCommandSnapshotV1,
+    Stage6DurableRequestAuthorityV1, Stage6DurableRequestIdentityV1, Stage6JournalBackend,
     Stage6JournalCheckpointV1, Stage6OwnedJournalBackend, Stage6RequestFinalDispositionV1,
     Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dLiveCoreError,
     Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
@@ -434,7 +435,64 @@ pub struct Stage7bRecoveryReadyOwner {
     seal_commit_uncertain: bool,
 }
 
+/// Linear authority binding one exact Stage 6 durable request to the current
+/// authenticated Stage 7B recovery seal. It contains no journal or transport
+/// handle and cannot be manufactured without a recovery-ready owner.
+pub struct Stage7bStage8a1DurableRequestAuthority {
+    stage6: Stage6DurableRequestAuthorityV1,
+    operational_identity_sha256: String,
+    seal_generation: u64,
+    seal_commitment_sha256: String,
+}
+
+impl Stage7bStage8a1DurableRequestAuthority {
+    pub fn stage6(&self) -> &Stage6DurableRequestAuthorityV1 {
+        &self.stage6
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    pub fn seal_generation(&self) -> u64 {
+        self.seal_generation
+    }
+
+    pub fn seal_commitment_sha256(&self) -> &str {
+        &self.seal_commitment_sha256
+    }
+}
+
 impl Stage7bRecoveryReadyOwner {
+    /// Issues a no-send Stage 8A-1 durable-request authority only when the
+    /// exact request is present in the current recovered journal and the
+    /// current committed seal remains readable and bound.
+    pub fn authorize_stage8a1_durable_request(
+        &self,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+    ) -> Result<Stage7bStage8a1DurableRequestAuthority, Stage7bRecoveryError> {
+        let recovered = self.recovered()?;
+        let seal = self.committed_seal()?;
+        let stage6 = recovered.authorize_exact_durable_request(identity, command)?;
+        let current_operational_identity = recovered
+            .authenticated_operational_identity()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let current_operational_identity_sha256 =
+            stage6d_operational_identity_sha256(current_operational_identity)?;
+        if stage6.authenticated_checkpoint_sha256() != seal.stage6_checkpoint().checkpoint_sha256()
+            || current_operational_identity_sha256.as_str() != seal.operational_identity_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Stage7bStage8a1DurableRequestAuthority {
+            stage6,
+            operational_identity_sha256: seal.operational_identity_sha256().to_string(),
+            seal_generation: seal.seal_generation(),
+            seal_commitment_sha256: seal.seal_commitment_sha256().to_string(),
+        })
+    }
+
     pub fn first_boot(
         root: Stage7bDurableRootAuthority,
         identity: Stage6dOperationalIdentityConfig,
@@ -1668,6 +1726,39 @@ mod tests {
             panic!("Stage 7B d-a crash state must restart Ready");
         };
         *owner
+    }
+
+    #[test]
+    fn stage8a1_authority_binds_exact_current_stage7b_seal_and_stage6_request() {
+        let setup = prepare_active_restart_prefix(2);
+        let owner = restart_working_setup(&setup);
+        let (identity, snapshot) = match &setup.command {
+            BrokerCommand::PlaceOrder(command) => {
+                let identity = Stage6DurableRequestIdentityV1::from_place(
+                    command,
+                    setup.command_context.attribution().clone(),
+                )
+                .unwrap();
+                let snapshot =
+                    Stage6DurableCommandSnapshotV1::from_place(&identity, command).unwrap();
+                (identity, snapshot)
+            }
+            BrokerCommand::CancelOrder(_) => panic!("working fixture must be PLACE"),
+        };
+        let authority = owner
+            .authorize_stage8a1_durable_request(&identity, &snapshot)
+            .unwrap();
+        assert_eq!(authority.stage6().identity(), &identity);
+        assert_eq!(
+            authority.seal_generation(),
+            owner.committed_seal().unwrap().seal_generation()
+        );
+        assert_eq!(
+            authority.seal_commitment_sha256(),
+            owner.committed_seal().unwrap().seal_commitment_sha256()
+        );
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
     }
 
     #[test]

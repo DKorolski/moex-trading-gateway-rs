@@ -25,15 +25,16 @@ def main() -> None:
             ).splitlines()
         )
         rust = {path for path in changed if path.endswith(".rs")}
-        allowed = {str(checker.MODULE), str(checker.LIB)}
+        allowed = {str(path) for path in checker.PINNED_RUST_SHA256}
         checker.require(rust <= allowed, f"unexpected Rust delta: {sorted(rust - allowed)}")
         checker.require(
             not any(path.startswith("crates/broker-finam/") for path in changed),
             "FINAM adapter/builder changed",
         )
+        cargo_changes = {path for path in changed if path == "Cargo.lock" or path.endswith("Cargo.toml")}
         checker.require(
-            not any(path in {"Cargo.toml", "Cargo.lock"} or path.endswith("/Cargo.toml") for path in changed),
-            "Cargo surface changed",
+            cargo_changes <= {"Cargo.lock", str(checker.FINAM_CARGO)},
+            f"unexpected Cargo surface: {sorted(cargo_changes)}",
         )
         checker.require(
             not any(path.startswith(".github/") for path in changed),
@@ -43,7 +44,7 @@ def main() -> None:
         print(f"stage8a1-closed-surface: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
     print(
-        "stage8a1-closed-surface: PASS rust=module+export serializer=false "
+        "stage8a1-r1-closed-surface: PASS rust=exact-sha-pinned serializer=false "
         "http=false redis=false dispatch=false runtime_live=false"
     )
 
