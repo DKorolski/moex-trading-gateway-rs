@@ -21,6 +21,7 @@ use super::{
 };
 use broker_core::{BrokerOrderId, BrokerOrderSnapshot, BrokerTradeSnapshot};
 use serde::Serialize;
+use std::collections::BTreeSet;
 use strategy_runtime_core::{
     Stage6CancelOutcomeV1, Stage6DurableActionKind, Stage6DurableRequestIdentityV1,
     Stage6JournalEventKind, Stage6JournalEventKindV2, Stage6JournalRecordId, Stage6JournalRecordV1,
@@ -207,6 +208,7 @@ enum Stage8a4I2CompositionError {
     InvalidSequence,
     MissingQueriedBrokerOrderId,
     ExactLookupContradiction,
+    MaterialTradeBrokerOrderConflict,
     CountOverflow,
     V1ProjectionFailed,
     V2ValidationFailed(strategy_runtime_core::Stage6ReconciliationV2Error),
@@ -477,14 +479,44 @@ fn build_v1_suffix(
     let mut ordinal = 1_u64;
     match identity.action() {
         Stage6DurableActionKind::Place => {
-            if let Some(order_id) = outcome
+            let selected_order_id = outcome
                 .selected_order
                 .as_ref()
-                .and_then(|order| order.broker_order_id.clone())
-            {
+                .and_then(|order| order.broker_order_id.clone());
+            let mut trades = outcome.material_trades.iter().collect::<Vec<_>>();
+            trades.sort_by(|left, right| {
+                left.broker_trade_id
+                    .as_str()
+                    .cmp(right.broker_trade_id.as_str())
+            });
+            let material_broker_ids = trades
+                .iter()
+                .filter_map(|trade| trade.broker_order_id.as_ref())
+                .map(BrokerOrderId::as_str)
+                .collect::<BTreeSet<_>>();
+            let projected_trade_order_id = match selected_order_id.as_ref() {
+                Some(order_id) => {
+                    if material_broker_ids
+                        .iter()
+                        .any(|candidate| *candidate != order_id.as_str())
+                    {
+                        return Err(Stage8a4I2CompositionError::MaterialTradeBrokerOrderConflict);
+                    }
+                    Some(order_id.clone())
+                }
+                None => {
+                    if material_broker_ids.len() > 1 {
+                        return Err(Stage8a4I2CompositionError::MaterialTradeBrokerOrderConflict);
+                    }
+                    trades
+                        .iter()
+                        .find_map(|trade| trade.broker_order_id.clone())
+                }
+            };
+            if let Some(order_id) = selected_order_id {
                 let record = Stage6JournalRecordV1::broker_order_observed(
                     identity.clone(),
-                    order_id.clone(),
+                    order_id,
                     next_sequence(v2_sequence, ordinal)?,
                     Some(previous.clone()),
                     source_evidence.clone(),
@@ -497,12 +529,8 @@ fn build_v1_suffix(
                     Stage6JournalEventKind::BrokerOrderObserved,
                     record,
                 );
-                let mut trades = outcome.material_trades.iter().collect::<Vec<_>>();
-                trades.sort_by(|left, right| {
-                    left.broker_trade_id
-                        .as_str()
-                        .cmp(right.broker_trade_id.as_str())
-                });
+            }
+            if let Some(order_id) = projected_trade_order_id {
                 for trade in trades {
                     if trade.broker_order_id.as_ref() != Some(&order_id) {
                         continue;
@@ -547,7 +575,9 @@ fn build_v1_suffix(
                 .ok_or(Stage8a4I2CompositionError::IdentityMismatch)?;
             let cancel_outcome = match lifecycle {
                 Stage8a4ExactLifecycle::TerminalFilled => Stage6CancelOutcomeV1::ExecutionObserved,
-                Stage8a4ExactLifecycle::TerminalRejected => Stage6CancelOutcomeV1::Rejected,
+                Stage8a4ExactLifecycle::TerminalRejected => {
+                    Stage6CancelOutcomeV1::AlreadyTerminalNonExecution
+                }
                 Stage8a4ExactLifecycle::TerminalCancelled => Stage6CancelOutcomeV1::Canceled,
                 Stage8a4ExactLifecycle::TerminalExpired => {
                     Stage6CancelOutcomeV1::AlreadyTerminalNonExecution

@@ -19,9 +19,9 @@ is accepted at `cc58c10`; its pure reducer Implementation R4 is accepted and
 closed at `4caf07c`. Durable-composition Design R2 is accepted and closed at
 `6ddf54e`. Implementation Specification R2 is accepted and closed at
 `dd01253`. I1 R1 at `0678354` was not accepted; I1 R2 is accepted and closed at
-`113d282`. I2 private in-memory composition without append is the active
-candidate. I3/I4 writer, apply, seal and ACK/readiness plus Stage 8A-5 remain
-closed.
+`113d282`. I2 R1 at `6527619` was not accepted; its four narrow P1 findings
+are addressed by the active I2 R2 private in-memory composition candidate.
+I3/I4 writer, apply, seal and ACK/readiness plus Stage 8A-5 remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.

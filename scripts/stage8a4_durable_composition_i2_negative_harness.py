@@ -58,6 +58,14 @@ def main() -> None:
         ("fabrication-test-removed", lambda root: mutate_text(root, checker.TESTS, "place_without_broker_id_never_fabricates_order_or_trade_suffix", "fabrication_test_removed")),
         ("append-api-added", lambda root: mutate_text(root, checker.SOURCE, "fn build_private_durable_candidate(", "fn append() {}\nfn build_private_durable_candidate(")),
         ("matrix-row-removed", lambda root: mutate_text(root, checker.MATRIX, "I2-042,no ACK readiness Redis FINAM dispatch runtime-live,checker\n", "")),
+        ("failed-exact-source-producer-removed", lambda root: mutate_text(root, checker.REDUCER, "    exact_lookup: Stage8a4PrivateExactLookup,", "    exact_lookup_removed: Stage8a4PrivateExactLookup,")),
+        ("attempted-failure-downgraded", lambda root: mutate_text(root, checker.REDUCER, "    let exact_lookup = admission.exact_lookup;", "    let exact_lookup = Stage8a4PrivateExactLookup::NotAttempted;")),
+        ("cancel-rejected-command-rejection", lambda root: mutate_text(root, checker.SOURCE, "Stage6CancelOutcomeV1::AlreadyTerminalNonExecution\n                }\n                Stage8a4ExactLifecycle::TerminalCancelled", "Stage6CancelOutcomeV1::Rejected\n                }\n                Stage8a4ExactLifecycle::TerminalCancelled")),
+        ("cancel-expired-command-rejection", lambda root: mutate_text(root, checker.SOURCE, "Stage8a4ExactLifecycle::TerminalExpired => {\n                    Stage6CancelOutcomeV1::AlreadyTerminalNonExecution", "Stage8a4ExactLifecycle::TerminalExpired => {\n                    Stage6CancelOutcomeV1::Rejected")),
+        ("canonical-orphan-shortcut", lambda root: mutate_text(root, checker.REDUCER, "    let summary = truth.summarize_for_instrument(target);", "    let summary = weak_two_id_none_summary(truth, target);")),
+        ("filled-without-trade-coverage-removed", lambda root: mutate_text(root, checker.TESTS, "account_safety_uses_canonical_broker_truth_for_all_orphan_classes", "account_safety_orphan_coverage_removed")),
+        ("trade-projection-requires-selected-id", lambda root: mutate_text(root, checker.SOURCE, "            if let Some(order_id) = projected_trade_order_id {", "            if let Some(order_id) = selected_order_id {")),
+        ("multi-trade-id-ambiguity-accepted", lambda root: mutate_text(root, checker.SOURCE, "                    if material_broker_ids.len() > 1 {", "                    if false && material_broker_ids.len() > 1 {")),
     ]
     passed = 0
     with tempfile.TemporaryDirectory(prefix="stage8a4-i2-negative-") as raw:

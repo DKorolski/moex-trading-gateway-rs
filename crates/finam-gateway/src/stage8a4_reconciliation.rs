@@ -186,7 +186,7 @@ pub struct Stage8a4SourceEvidence {
     trades: Stage8a4BoundedTradeHistoryComplete,
     positions: Stage8a4CompletePositionsSnapshot,
     instruments: Stage8a4InstrumentCompletenessEvidence,
-    exact_order_observation: Option<Stage8a4ExactOrderObservation>,
+    exact_lookup: Stage8a4PrivateExactLookup,
     canonical_truth_payload_sha256: String,
     acquisition_policy_sha256: String,
 }
@@ -194,7 +194,7 @@ pub struct Stage8a4SourceEvidence {
 /// Opaque owned canonical truth admitted under a sealed source policy.
 pub struct Stage8a4FreshTruthAdmission {
     truth: BrokerTruthSnapshot,
-    exact_order_observation: Option<Stage8a4ExactOrderObservation>,
+    exact_lookup: Stage8a4PrivateExactLookup,
     admitted_durable_binding_sha256: String,
     admitted_policy_binding_sha256: String,
     source_evidence_binding_sha256: String,
@@ -322,8 +322,17 @@ pub fn admit_stage8a4_broker_truth(
         ));
     }
 
-    if let Some(exact_source) = evidence.exact_order_observation.as_ref() {
-        validate_timing(&exact_source.timing, context, policy, &attempt)?;
+    if let Some(timing) = evidence.exact_lookup.timing() {
+        validate_timing(timing, context, policy, &attempt)?;
+    }
+    if !evidence.exact_lookup.has_valid_source_shape(context) {
+        return Err(admission_error(
+            Stage8a4OutcomeKind::StillUnknown,
+            Stage8a4ReconciliationReason::SourceIncomplete,
+            &attempt,
+        ));
+    }
+    if let Some(exact_source) = evidence.exact_lookup.succeeded_observation() {
         let exact = &exact_source.order;
         let Some(expected) = context.known_broker_order_id.as_ref() else {
             return Err(admission_error(
@@ -371,7 +380,7 @@ pub fn admit_stage8a4_broker_truth(
     let target_active_orders_count = truth.target_active_orders(&context.instrument).len();
     Ok(Stage8a4FreshTruthAdmission {
         truth,
-        exact_order_observation: evidence.exact_order_observation,
+        exact_lookup: evidence.exact_lookup,
         admitted_durable_binding_sha256: context.durable_binding_sha256.clone(),
         admitted_policy_binding_sha256: policy.policy_binding_sha256.clone(),
         source_evidence_binding_sha256,
@@ -451,6 +460,62 @@ enum Stage8a4PrivateExactLookup {
     },
 }
 
+impl Stage8a4PrivateExactLookup {
+    fn succeeded_observation(&self) -> Option<&Stage8a4ExactOrderObservation> {
+        match self {
+            Self::Succeeded(observation) => Some(observation),
+            Self::NotAttempted
+            | Self::DocumentedNotFound { .. }
+            | Self::Unavailable { .. }
+            | Self::DecodeFailure { .. }
+            | Self::Stale { .. } => None,
+        }
+    }
+
+    fn timing(&self) -> Option<&Stage8a4SourceTiming> {
+        match self {
+            Self::NotAttempted => None,
+            Self::Succeeded(observation) => Some(&observation.timing),
+            Self::DocumentedNotFound { timing, .. }
+            | Self::Unavailable { timing, .. }
+            | Self::DecodeFailure { timing, .. }
+            | Self::Stale { timing, .. } => Some(timing),
+        }
+    }
+
+    fn has_valid_source_shape(&self, context: &Stage8a4DurableRequestContext) -> bool {
+        match self {
+            Self::NotAttempted | Self::Succeeded(_) => true,
+            Self::DocumentedNotFound {
+                documented_status_category,
+                ..
+            } => {
+                context.known_broker_order_id.is_some()
+                    && !documented_status_category.trim().is_empty()
+            }
+            Self::Unavailable {
+                failure_category, ..
+            } => context.known_broker_order_id.is_some() && !failure_category.trim().is_empty(),
+            Self::DecodeFailure {
+                response_status_category,
+                response_binding_sha256,
+                ..
+            } => {
+                context.known_broker_order_id.is_some()
+                    && !response_status_category.trim().is_empty()
+                    && valid_sha256(response_binding_sha256)
+            }
+            Self::Stale {
+                stale_observation_binding_sha256,
+                ..
+            } => {
+                context.known_broker_order_id.is_some()
+                    && valid_sha256(stale_observation_binding_sha256)
+            }
+        }
+    }
+}
+
 struct Stage8a4PrivateAccountSafety {
     account_active_orders_count: usize,
     account_unknown_orders_count: usize,
@@ -480,8 +545,8 @@ fn reduce_stage8a4_authoritative(
                 .iter()
                 .chain(
                     admission
-                        .exact_order_observation
-                        .as_ref()
+                        .exact_lookup
+                        .succeeded_observation()
                         .map(|observation| &observation.order),
                 )
                 .find(|order| digest_serializable(b"stage8a4-selected-order-v1", *order) == binding)
@@ -507,11 +572,7 @@ fn reduce_stage8a4_authoritative(
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let exact_lookup = admission
-        .exact_order_observation
-        .map_or(Stage8a4PrivateExactLookup::NotAttempted, |observation| {
-            Stage8a4PrivateExactLookup::Succeeded(Box::new(observation))
-        });
+    let exact_lookup = admission.exact_lookup;
     let account_safety = account_safety_summary(&admission.truth, &context.instrument);
     let private_outcome_binding_sha256 = digest_parts(
         b"stage8a4-private-authoritative-outcome-v1",
@@ -590,7 +651,7 @@ fn reduce_stage8a4_diagnostic(
             .iter()
             .filter(|order| order.broker_order_id.as_ref() == Some(expected))
             .collect::<Vec<_>>();
-        if let Some(exact) = admission.exact_order_observation.as_ref() {
+        if let Some(exact) = admission.exact_lookup.succeeded_observation() {
             if exact.order.broker_order_id.as_ref() == Some(expected) && values.is_empty() {
                 values.push(&exact.order);
             }
@@ -793,73 +854,18 @@ fn account_safety_summary(
     truth: &BrokerTruthSnapshot,
     target: &InstrumentId,
 ) -> Stage8a4PrivateAccountSafety {
-    let account_active_orders_count = truth
-        .orders
-        .iter()
-        .filter(|order| order.lifecycle == broker_core::BrokerOrderLifecycle::Active)
-        .count();
-    let account_unknown_orders_count = truth
-        .orders
-        .iter()
-        .filter(|order| matches!(order.status, OrderStatus::Unknown(_)))
-        .count();
-    let account_orphan_orders_count = truth
-        .orders
-        .iter()
-        .filter(|order| order.broker_order_id.is_none() && order.client_order_id.is_none())
-        .count();
-    let account_open_positions_count = truth
-        .positions
-        .iter()
-        .filter(|position| !position.qty.is_zero())
-        .count();
-    let target_orders = truth
-        .orders
-        .iter()
-        .filter(|order| exact_instrument_matches(&order.instrument, target))
-        .collect::<Vec<_>>();
-    let target_active_orders_count = target_orders
-        .iter()
-        .filter(|order| order.lifecycle == broker_core::BrokerOrderLifecycle::Active)
-        .count();
-    let target_unknown_orders_count = target_orders
-        .iter()
-        .filter(|order| matches!(order.status, OrderStatus::Unknown(_)))
-        .count();
-    let target_terminal_orders_count = target_orders
-        .iter()
-        .filter(|order| order.lifecycle == broker_core::BrokerOrderLifecycle::Terminal)
-        .count();
-    let target_inconsistent_orders_count = target_orders
-        .iter()
-        .filter(|order| {
-            order.qty <= Quantity::ZERO
-                || order.filled_qty < Quantity::ZERO
-                || order.filled_qty > order.qty
-                || order.remaining_qty.is_some_and(|remaining| {
-                    remaining < Quantity::ZERO || remaining + order.filled_qty != order.qty
-                })
-        })
-        .count();
-    let target_open_positions_count = truth
-        .positions
-        .iter()
-        .filter(|position| {
-            exact_instrument_matches(&position.instrument, target) && !position.qty.is_zero()
-        })
-        .count();
+    let summary = truth.summarize_for_instrument(target);
     Stage8a4PrivateAccountSafety {
-        account_active_orders_count,
-        account_unknown_orders_count,
-        account_orphan_orders_count,
-        account_open_positions_count,
-        target_active_orders_count,
-        target_unknown_orders_count,
-        target_terminal_orders_count,
-        target_inconsistent_orders_count,
-        target_open_positions_count,
-        other_symbol_active_orders_count: account_active_orders_count
-            .saturating_sub(target_active_orders_count),
+        account_active_orders_count: summary.account_active_orders_count,
+        account_unknown_orders_count: summary.account_unknown_orders_count,
+        account_orphan_orders_count: summary.account_orphan_orders_count,
+        account_open_positions_count: summary.account_open_positions_count,
+        target_active_orders_count: summary.target_active_orders_count,
+        target_unknown_orders_count: summary.target_unknown_orders_count,
+        target_terminal_orders_count: summary.target_terminal_orders_count,
+        target_inconsistent_orders_count: summary.target_inconsistent_orders_count,
+        target_open_positions_count: summary.target_open_positions_count,
+        other_symbol_active_orders_count: summary.other_symbol_active_orders_count,
     }
 }
 
@@ -1056,8 +1062,8 @@ fn validate_cross_source_skew(
             .iter()
             .map(|interval| interval.response_received_at),
     );
-    if let Some(exact) = evidence.exact_order_observation.as_ref() {
-        received.push(exact.timing.response_received_at);
+    if let Some(timing) = evidence.exact_lookup.timing() {
+        received.push(timing.response_received_at);
     }
     let min = received
         .iter()
@@ -1457,15 +1463,7 @@ fn source_evidence_binding(
         digest.update(interval.response_received_at.to_rfc3339().as_bytes());
         digest.update([interval.split_depth]);
     }
-    if let Some(exact) = evidence.exact_order_observation.as_ref() {
-        digest.update(b"exact-order-present");
-        source_timing_binding(&mut digest, &exact.timing);
-        digest.update(
-            digest_serializable(b"stage8a4-exact-order-observation-v2", &exact.order).as_bytes(),
-        );
-    } else {
-        digest.update(b"exact-order-absent");
-    }
+    digest.update(private_exact_lookup_binding(&evidence.exact_lookup).as_bytes());
     to_hex(&digest.finalize())
 }
 

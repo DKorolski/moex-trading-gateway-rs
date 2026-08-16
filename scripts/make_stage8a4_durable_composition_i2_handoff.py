@@ -60,7 +60,7 @@ def main() -> None:
         )
         if gate.returncode != 0:
             raise SystemExit(gate.stdout.decode(errors="replace"))
-        marker = b"stage8a4-durable-composition-i2-gate: PASS rows=42 negatives=20 focused=10 append=false execution=false"
+        marker = b"stage8a4-durable-composition-i2-gate: PASS rows=48 negatives=28 focused=13 append=false execution=false"
         if marker not in gate.stdout:
             raise SystemExit("stage8a4-durable-composition-i2-handoff: FAIL gate marker missing")
 
@@ -88,8 +88,8 @@ def main() -> None:
             "branch": branch,
             "accepted_i1_r2_ref": "113d2827ef255e8d2c2597a3acb38fe52dd7e52d",
             "accepted_i1_r2_review_sha256": "5ef7d0fcc645874a8d9bce7e2d2bb3004f06b038c81b0bf5496582464cb1b9e7",
-            "focused_tests": 10,
-            "negative_cases": 20,
+            "focused_tests": 13,
+            "negative_cases": 28,
             "source_tree_manifest_sha256": sha256(manifest),
             "full_gate_sha256": sha256(gate.stdout),
             "durable_append_enabled": False,

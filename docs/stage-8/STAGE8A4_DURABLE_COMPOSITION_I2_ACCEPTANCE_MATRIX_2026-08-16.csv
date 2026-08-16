@@ -20,24 +20,30 @@ I2-018,PLACE ExactTerminalCancelled finalizes Completed,source
 I2-019,PLACE ExactTerminalExpired finalizes Completed,source
 I2-020,CANCEL ExactWorking emits no suffix,test
 I2-021,CANCEL terminal filled maps ExecutionObserved,source
-I2-022,CANCEL terminal rejected maps Rejected,source
+I2-022,CANCEL terminal rejected maps AlreadyTerminalNonExecution,source/test/checker
 I2-023,CANCEL terminal cancelled maps Canceled,test
 I2-024,CANCEL terminal expired maps AlreadyTerminalNonExecution,source
 I2-025,hold transitions emit no suffix,test
 I2-026,missing broker order id is never fabricated,test
-I2-027,trade suffix requires matching real broker order id,source
+I2-027,trade suffix projects every representable real broker order id,source/test
 I2-028,NotAttempted preserves reducer disposition,source
-I2-029,Succeeded preserves typed exact observation,test
+I2-029,Succeeded preserves typed exact observation through source admission owner path,test/checker
 I2-030,DocumentedNotFound contradiction becomes Conflict,test
 I2-031,DocumentedNotFound without contradiction stays unknown,test
-I2-032,Unavailable stays unknown,test
-I2-033,DecodeFailure stays unknown,test
-I2-034,Stale stays unknown,test
+I2-032,Unavailable stays unknown through source admission owner path,test/checker
+I2-033,DecodeFailure stays unknown through source admission owner path,test/checker
+I2-034,Stale stays unknown through source admission owner path,test/checker
 I2-035,CANCEL target identity is cross-bound,test
 I2-036,account and instrument identity are cross-bound,source
-I2-037,account safety summary is complete and bounded,source
+I2-037,account safety summary is canonical broker-core authority,source/test/checker
 I2-038,suffix manifest binds full canonical V1 records,source/test
 I2-039,identical inputs produce byte-identical candidate,test
 I2-040,no journal append or backend dependency,checker
 I2-041,no CAS or seal mutation,checker
 I2-042,no ACK readiness Redis FINAM dispatch runtime-live,checker
+I2-043,all six exact lookup states have a private production source path,source/test/checker
+I2-044,attempted exact failure cannot normalize to NotAttempted,source/negative
+I2-045,eight orphan classes equal canonical BrokerTruthSnapshot summary,test/checker
+I2-046,trade broker id projects when selected order broker id is absent,test/replay
+I2-047,multiple material trade broker ids without selected id fail closed,test/negative
+I2-048,CANCEL lifecycle table preserves all predecessor mappings,test/checker

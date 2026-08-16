@@ -1,4 +1,4 @@
-# Stage 8A-4 durable composition I2
+# Stage 8A-4 durable composition I2 R2
 
 ## Authority
 
@@ -39,6 +39,12 @@ record digest.
 
 ## Exact lookup policy
 
+The private source evidence, fresh-truth admission and authoritative owner use
+the same non-public six-state acquisition value. Therefore an attempted lookup
+failure cannot be reduced to absence or reconstructed from a public diagnostic.
+All state-specific timing, category and response/observation bindings are part
+of both source evidence and the private authoritative outcome binding.
+
 - `NotAttempted`: preserve the accepted reducer result.
 - `Succeeded`: retain the typed exact observation.
 - `DocumentedNotFound`: Conflict only when an admitted exact order
@@ -50,13 +56,24 @@ No attempted non-success state can become Exact.
 ## Endpoint projection
 
 PLACE exact states use the accepted endpoint matrix. A real broker order ID is
-required for `BrokerOrderObserved`; a real matching broker order ID is
-required for each `BrokerTradeObserved`. Missing IDs are never fabricated.
-Finalization remains endpoint-disposition based.
+required for `BrokerOrderObserved`. Every authoritative material trade whose
+real broker order ID is representable is projected as `BrokerTradeObserved`,
+including when the selected order itself has no broker ID. More than one
+distinct material-trade broker ID in that case fails closed. Missing IDs are
+never fabricated. Finalization remains endpoint-disposition based.
 
 CANCEL Working emits no finalization suffix. Terminal CANCEL states emit
 `CancelOutcomeObserved` followed by Completed finalization, with the target
-broker order ID taken only from the durable cancel identity.
+broker order ID taken only from the durable cancel identity. TerminalFilled
+maps to `ExecutionObserved`, TerminalRejected and TerminalExpired map to
+`AlreadyTerminalNonExecution`, and TerminalCancelled maps to `Canceled`.
+
+## Account-wide safety
+
+I2 does not own a second orphan definition. All ten persisted account/target
+safety counters are copied from
+`BrokerTruthSnapshot::summarize_for_instrument`, including the canonical
+instrument-registry and order/trade consistency orphan rules.
 
 Conflict and StillUnknown holds emit no V1 suffix and grant no settlement.
 

@@ -113,7 +113,7 @@ fn evidence(
         instruments: Stage8a4InstrumentCompletenessEvidence::ExactTargetResolved {
             timing: timing(now),
         },
-        exact_order_observation: None,
+        exact_lookup: Stage8a4PrivateExactLookup::NotAttempted,
         canonical_truth_payload_sha256: canonical_truth_binding(snapshot),
         acquisition_policy_sha256: FP.into(),
     }
@@ -416,10 +416,11 @@ fn exact_lookup_not_found_never_becomes_no_match_and_disagreement_conflicts() {
         Some(Decimal::from(2210)),
     );
     exact.broker_order_id = Some(BrokerOrderId::new("OTHER"));
-    disagreement.exact_order_observation = Some(Stage8a4ExactOrderObservation {
-        order: exact,
-        timing: timing(now),
-    });
+    disagreement.exact_lookup =
+        Stage8a4PrivateExactLookup::Succeeded(Box::new(Stage8a4ExactOrderObservation {
+            order: exact,
+            timing: timing(now),
+        }));
     let rejected = admission_error(admit_stage8a4_broker_truth(
         &context,
         &policy(now),
@@ -771,16 +772,17 @@ fn exact_lookup_does_not_replace_account_wide_safety_snapshot() {
     );
     let empty_snapshot = truth(now, vec![], vec![]);
     let mut evidence = evidence(now, &context, &empty_snapshot);
-    evidence.exact_order_observation = Some(Stage8a4ExactOrderObservation {
-        order: order(
-            now,
-            OrderStatus::Working,
-            Decimal::ZERO,
-            OrderType::Limit,
-            Some(Decimal::from(2210)),
-        ),
-        timing: timing(now),
-    });
+    evidence.exact_lookup =
+        Stage8a4PrivateExactLookup::Succeeded(Box::new(Stage8a4ExactOrderObservation {
+            order: order(
+                now,
+                OrderStatus::Working,
+                Decimal::ZERO,
+                OrderType::Limit,
+                Some(Decimal::from(2210)),
+            ),
+            timing: timing(now),
+        }));
     evidence.instruments = Stage8a4InstrumentCompletenessEvidence::FullRegistryCursorExhausted {
         timing: timing(now),
     };
@@ -942,19 +944,20 @@ fn exact_get_request_started_before_possible_effect_is_rejected() {
     );
     let snapshot = truth(now, vec![], vec![]);
     let mut evidence = evidence(now, &context, &snapshot);
-    evidence.exact_order_observation = Some(Stage8a4ExactOrderObservation {
-        order: order(
-            now,
-            OrderStatus::Working,
-            Decimal::ZERO,
-            OrderType::Limit,
-            Some(Decimal::from(2210)),
-        ),
-        timing: Stage8a4SourceTiming {
-            request_started_at: context.possible_effect_at - Duration::milliseconds(1),
-            response_received_at: now - Duration::seconds(3),
-        },
-    });
+    evidence.exact_lookup =
+        Stage8a4PrivateExactLookup::Succeeded(Box::new(Stage8a4ExactOrderObservation {
+            order: order(
+                now,
+                OrderStatus::Working,
+                Decimal::ZERO,
+                OrderType::Limit,
+                Some(Decimal::from(2210)),
+            ),
+            timing: Stage8a4SourceTiming {
+                request_started_at: context.possible_effect_at - Duration::milliseconds(1),
+                response_received_at: now - Duration::seconds(3),
+            },
+        }));
     let rejected = admission_error(admit_stage8a4_broker_truth(
         &context,
         &policy(now),
@@ -988,13 +991,14 @@ fn exact_get_staleness_and_cross_source_skew_are_rejected() {
         Some(Decimal::from(2210)),
     );
     stale_order.received_ts = now - Duration::minutes(3);
-    stale.exact_order_observation = Some(Stage8a4ExactOrderObservation {
-        order: stale_order,
-        timing: Stage8a4SourceTiming {
-            request_started_at: now - Duration::minutes(3) - Duration::seconds(1),
-            response_received_at: now - Duration::minutes(3),
-        },
-    });
+    stale.exact_lookup =
+        Stage8a4PrivateExactLookup::Succeeded(Box::new(Stage8a4ExactOrderObservation {
+            order: stale_order,
+            timing: Stage8a4SourceTiming {
+                request_started_at: now - Duration::minutes(3) - Duration::seconds(1),
+                response_received_at: now - Duration::minutes(3),
+            },
+        }));
     let rejected = admission_error(admit_stage8a4_broker_truth(
         &context,
         &policy(now),
@@ -1013,13 +1017,14 @@ fn exact_get_staleness_and_cross_source_skew_are_rejected() {
         Some(Decimal::from(2210)),
     );
     skewed_order.received_ts = now - Duration::seconds(19);
-    skewed.exact_order_observation = Some(Stage8a4ExactOrderObservation {
-        order: skewed_order,
-        timing: Stage8a4SourceTiming {
-            request_started_at: now - Duration::seconds(20),
-            response_received_at: now - Duration::seconds(19),
-        },
-    });
+    skewed.exact_lookup =
+        Stage8a4PrivateExactLookup::Succeeded(Box::new(Stage8a4ExactOrderObservation {
+            order: skewed_order,
+            timing: Stage8a4SourceTiming {
+                request_started_at: now - Duration::seconds(20),
+                response_received_at: now - Duration::seconds(19),
+            },
+        }));
     let mut strict = policy(now);
     strict.max_cross_source_skew = Duration::seconds(5);
     let rejected = admission_error(admit_stage8a4_broker_truth(

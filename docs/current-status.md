@@ -48,9 +48,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   independently ACCEPTED and CLOSED at
   `113d2827ef255e8d2c2597a3acb38fe52dd7e52d`; its review SHA-256 is
   `5ef7d0fcc645874a8d9bce7e2d2bb3004f06b038c81b0bf5496582464cb1b9e7`.
-- I2 private linear composition/transition candidate generation without append
-  is the sole active implementation candidate; independent acceptance is
-  pending. I3 and I4 remain CLOSED. V2 writer, durable apply/journal mutation,
+- I2 R1 at `65276199b42b3dac5f7b48346dfe11e61f42e41d` was not accepted. I2 R2
+  corrects its four narrow composition findings while preserving the private
+  no-append architecture; independent acceptance is pending. I3 and I4 remain
+  CLOSED. V2 writer, durable apply/journal mutation,
   ACK/readiness publication, Redis live consumption, FINAM POST/DELETE, broker
   dispatch, retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and
   Stage 8B remain CLOSED.

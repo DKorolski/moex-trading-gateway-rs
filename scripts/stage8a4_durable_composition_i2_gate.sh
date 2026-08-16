@@ -29,9 +29,9 @@ Path(sys.argv[1]).write_text(json.dumps({
     "schema_version": 1,
     "stage": "8A-4-durable-composition-I2",
     "result": "PASS",
-    "acceptance_rows": 42,
-    "negative_cases": 20,
-    "focused_tests": 10,
+    "acceptance_rows": 48,
+    "negative_cases": 28,
+    "focused_tests": 13,
     "durable_append_enabled": False,
     "cas_enabled": False,
     "covering_seal_writer_enabled": False,
@@ -43,4 +43,4 @@ Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2) + "\n", encoding="utf-8")
 PY
 
-echo "stage8a4-durable-composition-i2-gate: PASS rows=42 negatives=20 focused=10 append=false execution=false"
+echo "stage8a4-durable-composition-i2-gate: PASS rows=48 negatives=28 focused=13 append=false execution=false"

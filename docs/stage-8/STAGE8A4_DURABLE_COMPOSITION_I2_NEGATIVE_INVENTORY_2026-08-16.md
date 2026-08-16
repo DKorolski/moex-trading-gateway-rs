@@ -22,3 +22,11 @@ The checker and mutation harness must reject all of these changes:
 18. journal append/CAS/seal API or backend import appears;
 19. ACK/readiness, Redis or FINAM surface appears;
 20. broker dispatch, runtime-live or real-order authority appears.
+21. failed exact lookup variants lose their private production producer;
+22. an attempted exact failure normalizes to `NotAttempted`;
+23. CANCEL TerminalRejected maps to `Rejected`;
+24. CANCEL TerminalExpired maps to `Rejected`;
+25. canonical orphan summary is replaced by a correlation-ID shortcut;
+26. filled-without-trade orphan coverage is removed;
+27. trade projection is suppressed when selected order has no broker ID;
+28. two distinct material-trade broker IDs are silently accepted.
