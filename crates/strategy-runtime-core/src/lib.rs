@@ -316,10 +316,10 @@ pub use runtime_compat::{
 };
 pub use stage6_durable_identity::{
     Stage6CancelOutcomeV1, Stage6ConflictKindV1, Stage6DurableActionKind,
-    Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurableRequestIdentityV1,
-    Stage6JournalEventKind, Stage6JournalRecordId, Stage6JournalRecordV1, Stage6LifecycleSequence,
-    Stage6ReconciliationDispositionV1, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
-    STAGE6_DURABLE_RECORD_SCHEMA_VERSION,
+    Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,
+    Stage6DurableRequestIdentityV1, Stage6JournalEventKind, Stage6JournalRecordId,
+    Stage6JournalRecordV1, Stage6LifecycleSequence, Stage6ReconciliationDispositionV1,
+    Stage6RequestFinalDispositionV1, Stage6Sha256Digest, STAGE6_DURABLE_RECORD_SCHEMA_VERSION,
 };
 pub use stage6_journal_backend::{
     Stage6FileJournalBackend, Stage6JournalAppendReceipt, Stage6JournalBackend,
@@ -327,6 +327,9 @@ pub use stage6_journal_backend::{
     Stage6MemoryJournalBackend, Stage6OwnedJournalBackend, STAGE6_JOURNAL_MAX_RECORD_BYTES,
     STAGE6_JOURNAL_STORAGE_SCHEMA_VERSION,
 };
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage6_reconciliation_v2::stage8a4_test_transition_fixture;
 pub use stage6_reconciliation_v2::{
     Stage6AccountSafetySummaryV2, Stage6BrokerOrderFactV2, Stage6ExactLookupEvidenceV2,
     Stage6ExactOrderObservationV2, Stage6JournalEventKindV2, Stage6JournalRecordV2,
@@ -343,7 +346,7 @@ pub use stage6_replay::{
     Stage6ReplaySnapshotV1, STAGE6_REPLAY_SCHEMA_VERSION,
 };
 pub use stage6d_live_core::{
-    admit_stage7a_paper_command, advance_stage6d_restart_package,
+    admit_stage7a_paper_command, advance_stage6d_restart_package, append_stage8a4_durable_batch,
     apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
     execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
     finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
@@ -352,12 +355,13 @@ pub use stage6d_live_core::{
     issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
     refresh_stage7b_durable_frontier, resolve_stage7a_cancel_command_context,
     restart_stage6d_paper, restart_stage6d_paper_with_owned_journal, seal_stage6d_restart_package,
-    stage6d_operational_identity_sha256, stage7b_finalized_request_facts,
-    Stage6DurableRequestAuthorityV1, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
-    Stage6dFirstBootAuthorization, Stage6dFirstBootConfig, Stage6dFreshTruthApplicationReport,
-    Stage6dFreshTruthTransition, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
-    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
-    Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
+    stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
+    stage7b_finalized_request_facts, Stage6DurableRequestAuthorityV1,
+    Stage6Stage8a4BatchAppendReceipt, Stage6Stage8a4DurableBatch, Stage6dBootMode,
+    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dFirstBootConfig,
+    Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
     Stage6ePaperFreshBrokerTruthInput, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
     Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
     Stage7bFinalizedRequestFacts, STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION,
@@ -367,7 +371,8 @@ pub use stage6d_live_core::{
 #[doc(hidden)]
 pub use stage6d_live_core::{
     stage7b_test_authenticated_cancel_restart_fixture,
-    stage7b_test_authenticated_working_restart_fixture, Stage7bTestExtraStage6History,
+    stage7b_test_authenticated_working_restart_fixture,
+    stage8a4_test_append_durable_batch_with_suffix_limit, Stage7bTestExtraStage6History,
     Stage7bTestRestartFixture,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade

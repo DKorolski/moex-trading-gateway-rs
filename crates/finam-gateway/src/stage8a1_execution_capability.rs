@@ -101,7 +101,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use strategy_runtime_core::{
     Stage5gLifecycleCommitmentKey, Stage6DurableActionKind, Stage6DurableCommandSnapshotV1,
-    Stage6DurableRequestIdentityV1,
+    Stage6DurableRequestIdentityV1, Stage6Sha256Digest,
 };
 
 const SHA256_HEX_LEN: usize = 64;
@@ -554,9 +554,58 @@ pub struct Stage8ExecutionCapability {
     endpoint_policy_sha256: String,
     authority_scope_sha256: String,
     arm_nonce_sha256: String,
+    arm_registration_sha256: String,
+    accepted_command_payload_sha256: String,
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
     exact_command_sha256: String,
     current_state_sha256: String,
     audit_fingerprint: String,
+}
+
+/// Historical one-shot execution provenance retained only for post-effect
+/// reconciliation. It contains no approved command, request builder, endpoint
+/// or resend capability and cannot be constructed outside this module.
+#[allow(dead_code, reason = "consumed by the Stage 8A-4 I3 private writer")]
+pub(crate) struct Stage8a4HistoricalArmProvenance {
+    accepted_command_payload_sha256: Stage6Sha256Digest,
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    authority_scope_sha256: String,
+    arm_nonce_sha256: String,
+    arm_registration_sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage8a4PostEffectControlState {
+    RunAllowed,
+    StopRequested,
+    StaleOrUnreadable,
+}
+
+/// Current control evidence bound to the historical arm. Stop/stale state is
+/// intentionally representable because it blocks future send/readiness, not
+/// durable recording of an already-established broker effect.
+#[allow(dead_code, reason = "consumed by the Stage 8A-4 I3 private writer")]
+pub(crate) struct Stage8a4PostEffectControlEvidence {
+    historical_arm: Stage8a4HistoricalArmProvenance,
+    current_control_binding_sha256: Stage6Sha256Digest,
+    current_control_state: Stage8a4PostEffectControlState,
+}
+
+#[allow(dead_code, reason = "consumed by the Stage 8A-4 I3 private writer")]
+impl Stage8a4PostEffectControlEvidence {
+    pub(crate) fn accepted_command_payload_sha256(&self) -> &Stage6Sha256Digest {
+        &self.historical_arm.accepted_command_payload_sha256
+    }
+
+    pub(crate) fn current_control_binding_sha256(&self) -> &Stage6Sha256Digest {
+        &self.current_control_binding_sha256
+    }
+
+    pub(crate) fn current_control_state(&self) -> Stage8a4PostEffectControlState {
+        self.current_control_state
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -582,6 +631,23 @@ impl Stage8ExecutionCapability {
             seal_generation: self.seal_generation,
             audit_fingerprint: self.audit_fingerprint.clone(),
         }
+    }
+
+    #[allow(dead_code, reason = "consumed by the future post-effect composition")]
+    pub(crate) fn stage8a4_historical_arm_provenance(
+        &self,
+    ) -> Result<Stage8a4HistoricalArmProvenance, Stage8ExecutionPreflightError> {
+        Ok(Stage8a4HistoricalArmProvenance {
+            accepted_command_payload_sha256: Stage6Sha256Digest::parse(
+                self.accepted_command_payload_sha256.clone(),
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?,
+            operational_identity_sha256: self.operational_identity_sha256.clone(),
+            runtime_config_fingerprint_sha256: self.runtime_config_fingerprint_sha256.clone(),
+            authority_scope_sha256: self.authority_scope_sha256.clone(),
+            arm_nonce_sha256: self.arm_nonce_sha256.clone(),
+            arm_registration_sha256: self.arm_registration_sha256.clone(),
+        })
     }
 }
 
@@ -847,6 +913,96 @@ impl Stage8a1OperationalAuthorityIssuer {
             &[&canonical_json(control)],
         );
         Ok(())
+    }
+
+    /// Revalidates historical one-shot arm provenance and captures the
+    /// current post-effect control state. An expired/stale/StopRequested
+    /// control remains admissible evidence for truth persistence only; this
+    /// method issues no execution or readiness capability.
+    #[allow(dead_code, reason = "consumed by the Stage 8A-4 I3 private writer")]
+    pub(crate) fn issue_stage8a4_post_effect_control_evidence(
+        &self,
+        historical_arm: Stage8a4HistoricalArmProvenance,
+    ) -> Result<Stage8a4PostEffectControlEvidence, Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        if !valid_sha256(&historical_arm.operational_identity_sha256)
+            || !valid_sha256(&historical_arm.runtime_config_fingerprint_sha256)
+            || !valid_sha256(&historical_arm.authority_scope_sha256)
+            || !valid_sha256(&historical_arm.arm_nonce_sha256)
+            || !valid_sha256(&historical_arm.arm_registration_sha256)
+        {
+            return Err(Stage8ExecutionPreflightError::OperatorArmInvalid);
+        }
+        let arm_path =
+            arm_registration_path(&self.authority_root.root, &historical_arm.arm_nonce_sha256);
+        let arm_record = read_arm_registration(
+            &self.authority_root,
+            arm_path
+                .file_name()
+                .ok_or(Stage8ExecutionPreflightError::OperatorArmInvalid)?,
+        )
+        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?;
+        if arm_record.as_slice() != historical_arm.arm_registration_sha256.as_bytes() {
+            return Err(Stage8ExecutionPreflightError::OperatorArmInvalid);
+        }
+
+        let now = Utc::now();
+        let (current_control_state, current_control_binding_sha256) =
+            match self.authority_root.load_current_control() {
+                Ok(control) => {
+                    if control.operational_identity_sha256
+                        != historical_arm.operational_identity_sha256
+                        || control.runtime_config_fingerprint_sha256
+                            != historical_arm.runtime_config_fingerprint_sha256
+                        || control.durable_revision == 0
+                    {
+                        return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+                    }
+                    let state = if control.observed_at > now || control.valid_until <= now {
+                        Stage8a4PostEffectControlState::StaleOrUnreadable
+                    } else {
+                        match control.kill_switch {
+                            Stage8KillSwitchState::RunAllowed => {
+                                Stage8a4PostEffectControlState::RunAllowed
+                            }
+                            Stage8KillSwitchState::StopRequested => {
+                                Stage8a4PostEffectControlState::StopRequested
+                            }
+                        }
+                    };
+                    (
+                        state,
+                        digest_parts(
+                            b"stage8a4-post-effect-current-control-v1",
+                            &[
+                                historical_arm.authority_scope_sha256.as_bytes(),
+                                historical_arm.arm_nonce_sha256.as_bytes(),
+                                &canonical_json(&control),
+                            ],
+                        ),
+                    )
+                }
+                Err(_) => (
+                    Stage8a4PostEffectControlState::StaleOrUnreadable,
+                    digest_parts(
+                        b"stage8a4-post-effect-unreadable-control-v1",
+                        &[
+                            self.authority_root.authority_root_sha256.as_bytes(),
+                            historical_arm.authority_scope_sha256.as_bytes(),
+                            historical_arm.arm_nonce_sha256.as_bytes(),
+                            &file_identity_bytes(self.authority_root.control_identity),
+                        ],
+                    ),
+                ),
+            };
+        let current_control_binding_sha256 =
+            Stage6Sha256Digest::parse(current_control_binding_sha256)
+                .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+        Ok(Stage8a4PostEffectControlEvidence {
+            historical_arm,
+            current_control_binding_sha256,
+            current_control_state,
+        })
     }
 
     pub fn authorize_place(
@@ -2212,6 +2368,11 @@ fn build_capability(
     evidence: ValidatedEvidence,
 ) -> Stage8ExecutionCapability {
     let authority_scope_sha256 = authority_scope_sha256(durable, policy);
+    let arm_registration_sha256 = arm_nonce_registration_record(
+        durable,
+        &evidence.exact_command_sha256,
+        &policy.policy_sha256,
+    );
     let mut parts = vec![
         durable.provenance_sha256.as_bytes(),
         durable.canonical_command_sha256.as_bytes(),
@@ -2237,6 +2398,10 @@ fn build_capability(
         endpoint_policy_sha256: policy.endpoint_policy_sha256.clone(),
         authority_scope_sha256,
         arm_nonce_sha256: evidence.arm_nonce_sha256,
+        arm_registration_sha256,
+        accepted_command_payload_sha256: durable.canonical_command_sha256.clone(),
+        operational_identity_sha256: durable.operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: durable.runtime_config_fingerprint_sha256.clone(),
         exact_command_sha256: evidence.exact_command_sha256,
         current_state_sha256: evidence.current_state_sha256,
         audit_fingerprint,
@@ -2780,6 +2945,19 @@ mod tests {
             .authorize_place(durable, &order, &context, &sources)
             .unwrap();
         assert_eq!(capability.diagnostic().scope, Stage8CommandScope::Place);
+        let controls = issuer
+            .issue_stage8a4_post_effect_control_evidence(
+                capability.stage8a4_historical_arm_provenance().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            controls.current_control_state(),
+            Stage8a4PostEffectControlState::RunAllowed
+        );
+        assert_eq!(
+            controls.accepted_command_payload_sha256().as_str(),
+            capability.accepted_command_payload_sha256
+        );
 
         let duplicate = issuer.authorize_place(durable_place(&order), &order, &context, &sources);
         assert!(matches!(
@@ -2791,6 +2969,15 @@ mod tests {
         stopped.kill_switch = Stage8KillSwitchState::StopRequested;
         stopped.durable_revision += 1;
         fs::write(root.join(CURRENT_CONTROL_FILE), canonical_json(&stopped)).unwrap();
+        let stopped_controls = issuer
+            .issue_stage8a4_post_effect_control_evidence(
+                capability.stage8a4_historical_arm_provenance().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            stopped_controls.current_control_state(),
+            Stage8a4PostEffectControlState::StopRequested
+        );
         let durable = durable_place(&order);
         let (config, _) = load_accepted_config(&root).unwrap();
         let policy = frozen_policy_from_config(&config, &durable);

@@ -30,10 +30,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use strategy_runtime_core::{
     Stage6CancelOutcomeV1, Stage6DurableActionKind, Stage6DurableCommandSnapshotV1,
-    Stage6DurableRequestIdentityV1, Stage6JournalEventKind, Stage6JournalEventKindV2,
-    Stage6JournalRecordId, Stage6JournalRecordV1, Stage6JournalRecordV2, Stage6LifecycleSequence,
-    Stage6ReconciliationTransitionPayloadV2, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
-    STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
+    Stage6DurablePlaceOrderShapeV1, Stage6DurableRequestIdentityV1, Stage6JournalEventKind,
+    Stage6JournalEventKindV2, Stage6JournalRecordId, Stage6JournalRecordV1, Stage6JournalRecordV2,
+    Stage6LifecycleSequence, Stage6ReconciliationTransitionPayloadV2,
+    Stage6RequestFinalDispositionV1, Stage6Sha256Digest, STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
 };
 
 const STABLE_KEY_DOMAIN: &[u8] = b"stage8a4-stable-transition-key-v1";
@@ -198,6 +198,7 @@ struct PrivatePreAppendEvidence {
 
 struct Stage8a4PrivateAcceptedCommandAuthority {
     durable_identity: Stage6DurableRequestIdentityV1,
+    durable_command: Stage6DurableCommandSnapshotV1,
     canonical_command_payload_sha256: Stage6Sha256Digest,
     command: PrivateAcceptedCommandShape,
 }
@@ -256,6 +257,9 @@ struct Stage8a4I2CompositionInput {
 }
 
 struct Stage8a4I2DurableCandidate {
+    durable_command: Stage6DurableCommandSnapshotV1,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
+    cancel_original_target_shape: Option<Stage6DurablePlaceOrderShapeV1>,
     transition_record: Stage6JournalRecordV2,
     suffix_records: Vec<Stage6JournalRecordV1>,
 }
@@ -279,7 +283,26 @@ fn build_private_durable_candidate(
     input: Stage8a4I2CompositionInput,
 ) -> Result<Stage8a4I2DurableCandidate, Stage8a4I2CompositionError> {
     validate_accepted_command_binding(&input.accepted_command_authority, &input.outcome)?;
+    let durable_command = input.accepted_command_authority.durable_command.clone();
+    let accepted_command_payload_sha256 = input
+        .accepted_command_authority
+        .canonical_command_payload_sha256
+        .clone();
     let identity = input.accepted_command_authority.durable_identity;
+    let cancel_original_target_shape = if identity.action() == Stage6DurableActionKind::Cancel {
+        Some(
+            Stage6DurablePlaceOrderShapeV1::new(
+                input.outcome.context.side,
+                input.outcome.context.order_type,
+                input.outcome.context.qty,
+                input.outcome.context.limit_price,
+                input.outcome.context.time_in_force,
+            )
+            .map_err(|_| Stage8a4I2CompositionError::CommandBindingMismatch)?,
+        )
+    } else {
+        None
+    };
     let next_sequence = next_sequence(input.cursor.previous_lifecycle_sequence, 1)?;
     let transition_kind = effective_transition_kind(&input.outcome);
     let endpoint_kind = match identity.action() {
@@ -350,6 +373,9 @@ fn build_private_durable_candidate(
     let transition_record = Stage6JournalRecordV2::decode_canonical(&canonical)
         .map_err(Stage8a4I2CompositionError::V2ValidationFailed)?;
     Ok(Stage8a4I2DurableCandidate {
+        durable_command,
+        accepted_command_payload_sha256,
+        cancel_original_target_shape,
         transition_record,
         suffix_records: suffix_records
             .into_iter()
@@ -372,6 +398,7 @@ fn accepted_command_authority_from_request_accepted(
     if command.action() != wire.durable_request_identity.action() {
         return Err(Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid);
     }
+    let durable_command = command.clone();
     let command: PrivateAcceptedCommandShape = serde_json::from_slice(
         &serde_json::to_vec(&command)
             .map_err(|_| Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid)?,
@@ -379,6 +406,7 @@ fn accepted_command_authority_from_request_accepted(
     .map_err(|_| Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid)?;
     Ok(Stage8a4PrivateAcceptedCommandAuthority {
         durable_identity: wire.durable_request_identity,
+        durable_command,
         canonical_command_payload_sha256: wire.canonical_payload_sha256,
         command,
     })
@@ -853,3 +881,6 @@ fn invalid_v2_decode_error() -> Stage8a4I2CompositionError {
 
 #[cfg(test)]
 mod tests;
+
+#[allow(dead_code)]
+mod durable_writer_i3;

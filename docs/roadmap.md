@@ -50,11 +50,14 @@ was independently accepted and closed at
 independently accepted and closed at `113d2827`. I2 R1 at `6527619` was not
 accepted. I2 R2 at `e04edea` closed the R1 findings but was not accepted because
 the Stage 6/7 action and command payload were not exactly cross-bound. I2 R3 is
-the sole active private no-append candidate and closes that seam while leaving
-the stable-key formula unchanged. Independent acceptance is pending. I3 and I4,
-writer/apply,
-ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live
-consumption, broker dispatch, runtime-live and real orders remain closed.
+independently accepted and closed at `90f4605`; it is the private no-append
+candidate that closes that seam while leaving the stable-key formula unchanged.
+I3 is active and separately review-gated: its candidate adds the sole held-lease
+writer, current authority reconstruction, four-field CAS, V2-first durable
+append, exact suffix repair and a covering seal. I4 remains closed, so I3 cannot
+publish ACK/readiness or authorize Redis settlement. Stage 8A-5+, FINAM
+POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real
+orders remain closed.
 
 ### Accepted lineage and transition history
 

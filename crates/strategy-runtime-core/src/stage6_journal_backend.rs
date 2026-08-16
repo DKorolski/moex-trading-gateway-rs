@@ -309,6 +309,11 @@ pub trait Stage6JournalBackend {
         record: &Stage6JournalRecordV1,
     ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError>;
     fn records(&self) -> &[Stage6JournalRecordV1];
+    fn append_versioned(
+        &mut self,
+        record: &Stage6JournalRecordVersioned,
+    ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError>;
+    fn versioned_records(&self) -> &[Stage6JournalRecordVersioned];
     fn frontier(&self) -> &Stage6JournalFrontierV1;
     fn framed_bytes(&self) -> Result<Vec<u8>, Stage6JournalStorageError>;
     fn validate_checkpoint(
@@ -349,7 +354,14 @@ impl Stage6JournalBackend for Stage6MemoryJournalBackend {
         &mut self,
         record: &Stage6JournalRecordV1,
     ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
-        let record_bytes = validate_record_for_storage(record)?;
+        self.append_versioned(&Stage6JournalRecordVersioned::V1(record.clone()))
+    }
+
+    fn append_versioned(
+        &mut self,
+        record: &Stage6JournalRecordVersioned,
+    ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
+        let record_bytes = validate_versioned_record_for_storage(record)?;
         let start = self.scan.frontier.journal_byte_length;
         let previous = self.scan.last_frame_digest;
         let frame = encode_frame(&record_bytes, previous)?;
@@ -365,6 +377,9 @@ impl Stage6JournalBackend for Stage6MemoryJournalBackend {
 
     fn records(&self) -> &[Stage6JournalRecordV1] {
         &self.scan.records
+    }
+    fn versioned_records(&self) -> &[Stage6JournalRecordVersioned] {
+        &self.scan.versioned_records
     }
     fn frontier(&self) -> &Stage6JournalFrontierV1 {
         &self.scan.frontier
@@ -436,6 +451,23 @@ impl Stage6JournalBackend for Stage6OwnedJournalBackend {
         match self {
             Self::Memory(backend) => backend.records(),
             Self::File(backend) => backend.records(),
+        }
+    }
+
+    fn append_versioned(
+        &mut self,
+        record: &Stage6JournalRecordVersioned,
+    ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
+        match self {
+            Self::Memory(backend) => backend.append_versioned(record),
+            Self::File(backend) => backend.append_versioned(record),
+        }
+    }
+
+    fn versioned_records(&self) -> &[Stage6JournalRecordVersioned] {
+        match self {
+            Self::Memory(backend) => backend.versioned_records(),
+            Self::File(backend) => backend.versioned_records(),
         }
     }
 
@@ -649,11 +681,18 @@ impl Stage6JournalBackend for Stage6FileJournalBackend {
         &mut self,
         record: &Stage6JournalRecordV1,
     ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
+        self.append_versioned(&Stage6JournalRecordVersioned::V1(record.clone()))
+    }
+
+    fn append_versioned(
+        &mut self,
+        record: &Stage6JournalRecordVersioned,
+    ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
         if self.durability_uncertain {
             return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
         self.verify_external_frontier()?;
-        let record_bytes = validate_record_for_storage(record)?;
+        let record_bytes = validate_versioned_record_for_storage(record)?;
         let start = self.scan.frontier.journal_byte_length;
         let frame = encode_frame(&record_bytes, self.scan.last_frame_digest)?;
 
@@ -711,6 +750,9 @@ impl Stage6JournalBackend for Stage6FileJournalBackend {
     fn records(&self) -> &[Stage6JournalRecordV1] {
         &self.scan.records
     }
+    fn versioned_records(&self) -> &[Stage6JournalRecordVersioned] {
+        &self.scan.versioned_records
+    }
     fn frontier(&self) -> &Stage6JournalFrontierV1 {
         &self.scan.frontier
     }
@@ -752,6 +794,7 @@ struct EncodedFrame {
 #[derive(Debug)]
 struct ScannedJournal {
     records: Vec<Stage6JournalRecordV1>,
+    versioned_records: Vec<Stage6JournalRecordVersioned>,
     frontiers: Vec<Stage6JournalFrontierV1>,
     frontier: Stage6JournalFrontierV1,
     last_frame_digest: [u8; FRAME_HASH_BYTES],
@@ -820,13 +863,35 @@ pub(crate) fn frame_versioned_records_for_test(
     bytes
 }
 
-fn validate_record_for_storage(
-    record: &Stage6JournalRecordV1,
+fn validate_versioned_record_for_storage(
+    record: &Stage6JournalRecordVersioned,
 ) -> Result<Vec<u8>, Stage6JournalStorageError> {
     let bytes = record.encode_canonical();
     validate_record_length(bytes.len() as u64)?;
-    decode_persisted_record(&bytes)?;
+    let decoded = Stage6JournalRecordVersioned::decode_canonical(&bytes)
+        .map_err(map_versioned_record_error)?;
+    if decoded != *record {
+        return Err(Stage6JournalStorageError::NonCanonicalRecord);
+    }
     Ok(bytes)
+}
+
+fn map_versioned_record_error(
+    source: crate::Stage6ReconciliationV2Error,
+) -> Stage6JournalStorageError {
+    match source {
+        crate::Stage6ReconciliationV2Error::NonCanonicalEncoding => {
+            Stage6JournalStorageError::NonCanonicalRecord
+        }
+        crate::Stage6ReconciliationV2Error::UnsupportedSchema(_) => {
+            Stage6JournalStorageError::RecordDecodeFailed {
+                source: Stage6DurableIdentityError::UnsupportedSchema,
+            }
+        }
+        _ => Stage6JournalStorageError::RecordDecodeFailed {
+            source: Stage6DurableIdentityError::DecodeFailed,
+        },
+    }
 }
 
 fn validate_record_length(length: u64) -> Result<u32, Stage6JournalStorageError> {
@@ -834,18 +899,6 @@ fn validate_record_length(length: u64) -> Result<u32, Stage6JournalStorageError>
         return Err(Stage6JournalStorageError::InvalidFrameLength { declared: length });
     }
     Ok(length as u32)
-}
-
-fn decode_persisted_record(
-    bytes: &[u8],
-) -> Result<Stage6JournalRecordV1, Stage6JournalStorageError> {
-    Stage6JournalRecordV1::decode_canonical(bytes).map_err(|source| {
-        if source == Stage6DurableIdentityError::NonCanonicalEncoding {
-            Stage6JournalStorageError::NonCanonicalRecord
-        } else {
-            Stage6JournalStorageError::RecordDecodeFailed { source }
-        }
-    })
 }
 
 fn scan_bytes(bytes: &[u8]) -> Result<ScannedJournal, Stage6JournalStorageError> {
@@ -990,6 +1043,7 @@ fn scan_reader(
     let mut offset = JOURNAL_HEADER_BYTES as u64;
     let mut previous = genesis_digest();
     let mut records = Vec::new();
+    let mut versioned_records = Vec::new();
     let mut frontiers = Vec::new();
     while offset < total_length {
         let remaining = total_length - offset;
@@ -1046,22 +1100,27 @@ fn scan_reader(
         if stored_hash != computed {
             return Err(Stage6JournalStorageError::FrameHashMismatch);
         }
-        let record = decode_persisted_record(&record_bytes)?;
+        let record = Stage6JournalRecordVersioned::decode_canonical(&record_bytes)
+            .map_err(map_versioned_record_error)?;
         offset = offset.checked_add(frame_total as u64).ok_or(
             Stage6JournalStorageError::InvalidFrameLength {
                 declared: u64::from(declared),
             },
         )?;
         previous = computed;
-        records.push(record);
-        let last = records.last().expect("record was just appended");
+        let last_record_id = record.journal_record_id().clone();
+        let last_lifecycle_sequence = record.lifecycle_sequence();
+        if let Stage6JournalRecordVersioned::V1(v1) = &record {
+            records.push(v1.clone());
+        }
+        versioned_records.push(record);
         frontiers.push(Stage6JournalFrontierV1 {
             storage_schema_version: STAGE6_JOURNAL_STORAGE_SCHEMA_VERSION,
-            frame_count: records.len() as u64,
+            frame_count: versioned_records.len() as u64,
             journal_byte_length: offset,
             last_frame_sha256: hex_digest(&computed),
-            last_record_id: Some(last.journal_record_id().clone()),
-            last_lifecycle_sequence: Some(last.lifecycle_sequence()),
+            last_record_id: Some(last_record_id),
+            last_lifecycle_sequence: Some(last_lifecycle_sequence),
         });
     }
     let frontier = frontiers
@@ -1071,6 +1130,7 @@ fn scan_reader(
     frontier.validate()?;
     Ok(ScannedJournal {
         records,
+        versioned_records,
         frontiers,
         frontier,
         last_frame_digest: previous,
@@ -1078,7 +1138,7 @@ fn scan_reader(
 }
 
 fn append_receipt(
-    record: &Stage6JournalRecordV1,
+    record: &Stage6JournalRecordVersioned,
     start: u64,
     digest: &[u8; FRAME_HASH_BYTES],
     frontier: &Stage6JournalFrontierV1,

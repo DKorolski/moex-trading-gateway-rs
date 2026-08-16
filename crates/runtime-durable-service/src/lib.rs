@@ -81,7 +81,8 @@ pub use recovery::{
     Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
     Stage7bRedisServiceConfig, Stage7bRedisServiceError, Stage7bRestartOutcome,
     Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
-    Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority, Stage7bTaskReadinessHandle,
+    Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority,
+    Stage7bStage8a4DurableBatchReceipt, Stage7bTaskReadinessHandle,
     STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 
@@ -97,8 +98,8 @@ use std::{
 use strategy_runtime_core::{
     stage6d_operational_identity_sha256, Stage6FileJournalBackend, Stage6JournalAppendReceipt,
     Stage6JournalBackend, Stage6JournalCheckpointV1, Stage6JournalFrontierV1,
-    Stage6JournalRecordV1, Stage6JournalStorageError, Stage6Sha256Digest,
-    Stage6dFirstBootAuthorization, Stage6dOperationalIdentityConfig,
+    Stage6JournalRecordV1, Stage6JournalRecordVersioned, Stage6JournalStorageError,
+    Stage6Sha256Digest, Stage6dFirstBootAuthorization, Stage6dOperationalIdentityConfig,
 };
 
 pub const STAGE7B_JOURNAL_FILE: &str = "stage6.journal";
@@ -689,6 +690,20 @@ impl Stage6JournalBackend for Stage7bWritableDurableAuthority {
 
     fn records(&self) -> &[Stage6JournalRecordV1] {
         self.journal.records()
+    }
+
+    fn append_versioned(
+        &mut self,
+        record: &Stage6JournalRecordVersioned,
+    ) -> Result<Stage6JournalAppendReceipt, Stage6JournalStorageError> {
+        self._writer_lease
+            .validate_namespace()
+            .map_err(|_| Stage6JournalStorageError::ExternalMutationDetected)?;
+        self.journal.append_versioned(record)
+    }
+
+    fn versioned_records(&self) -> &[Stage6JournalRecordVersioned] {
+        self.journal.versioned_records()
     }
 
     fn frontier(&self) -> &Stage6JournalFrontierV1 {

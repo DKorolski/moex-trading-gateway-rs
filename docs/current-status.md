@@ -51,14 +51,21 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - I2 R1 at `65276199b42b3dac5f7b48346dfe11e61f42e41d` was not accepted. I2 R2
   at `e04edea480b049a569385ea342a8802fedd5a307` closed all four R1 findings but
   was not accepted because exact Stage 6/7 action/payload cross-binding was
-  incomplete. I2 R3 adds one private `RequestAccepted` command authority,
-  exact endpoint/attribution/PLACE-shape/CANCEL-target validation and binds the
-  accepted-command payload digest into the private outcome; independent
-  acceptance is pending. I3 and I4 remain
-  CLOSED. V2 writer, durable apply/journal mutation,
-  ACK/readiness publication, Redis live consumption, FINAM POST/DELETE, broker
-  dispatch, retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and
-  Stage 8B remain CLOSED.
+  incomplete. I2 R3 is independently ACCEPTED and CLOSED at
+  `90f46052cc31cea012437eddb59fb7c3ca5c2320`; its review SHA-256 is
+  `196c2b69161081f9034eb9399f41245f11ccd7eca229fadc3f8ec842cd1231f0`.
+  It provides one private `RequestAccepted` command authority, exact
+  endpoint/attribution/PLACE-shape/CANCEL-target validation and binds the
+  accepted-command payload digest into the private outcome.
+- I3 is the active implementation candidate. It adds the sole
+  `Stage7bRecoveryReadyOwner` writer entry, current Stage 6/7 authority
+  reconstruction, a four-field pre-append CAS, V2-first fsync-backed append,
+  exact manifest-suffix repair, mixed V1/V2 replay and a reread-validated
+  covering seal. Independent acceptance is pending.
+- I4 remains CLOSED. I3 produces only durable truth: ACK/readiness publication,
+  Redis live consumption, FINAM POST/DELETE, broker dispatch,
+  retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B
+  remain CLOSED.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

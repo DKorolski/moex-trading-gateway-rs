@@ -23,12 +23,15 @@ use crate::stage5g_order_position::stage5g_attribution_fingerprint_sha256;
 use crate::stage6_durable_identity::Stage6JournalPayloadV1;
 use crate::{
     HybridIntradayRuntimeStrategy, Stage6CancelOutcomeV1, Stage6DurableActionKind,
-    Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurableRequestIdentityV1,
-    Stage6JournalBackend, Stage6JournalCheckpointV1, Stage6JournalEventKind,
-    Stage6JournalFrontierV1, Stage6JournalRecordId, Stage6JournalRecordV1,
-    Stage6JournalStorageError, Stage6LifecycleSequence, Stage6MemoryJournalBackend,
-    Stage6OwnedJournalBackend, Stage6ReconciliationDispositionV1, Stage6ReplayEngineV1,
-    Stage6ReplayError, Stage6ReplaySnapshotV1, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
+    Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,
+    Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
+    Stage6JournalEventKind, Stage6JournalFrontierV1, Stage6JournalRecordId, Stage6JournalRecordV1,
+    Stage6JournalRecordV2, Stage6JournalRecordVersioned, Stage6JournalStorageError,
+    Stage6LifecycleSequence, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
+    Stage6OwnedJournalBackend, Stage6ReconciliationBatchCompletionV2,
+    Stage6ReconciliationDispositionV1, Stage6ReconciliationV2Error, Stage6RecoveredRequestV1,
+    Stage6ReplayEngineV1, Stage6ReplayError, Stage6ReplaySnapshotV1,
+    Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
 };
 use broker_core::{
     BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId,
@@ -75,6 +78,7 @@ pub enum Stage6dLiveCoreError {
     Stage5gRestart(Stage5gCleanRestartError),
     Journal(Stage6JournalStorageError),
     Replay(Stage6ReplayError),
+    ReconciliationV2(Stage6ReconciliationV2Error),
     IntegrationFingerprint,
     DurableIdentity(Stage6DurableIdentityError),
     AcceptedRecordRequired,
@@ -179,6 +183,7 @@ impl std::fmt::Display for Stage6dLiveCoreError {
             Self::Stage5gRestart(_) => "authenticated Stage 5G restart failed",
             Self::Journal(_) => "Stage 6 journal validation failed",
             Self::Replay(_) => "Stage 6 deterministic replay failed",
+            Self::ReconciliationV2(_) => "Stage 6 mixed V1/V2 replay failed",
             Self::IntegrationFingerprint => "Stage 6D integration fingerprint failed",
             Self::DurableIdentity(_) => "Stage 6 durable record construction failed",
             Self::AcceptedRecordRequired => "Stage 6D requires RequestAccepted first",
@@ -225,6 +230,12 @@ impl From<Stage6JournalStorageError> for Stage6dLiveCoreError {
 impl From<Stage6ReplayError> for Stage6dLiveCoreError {
     fn from(value: Stage6ReplayError) -> Self {
         Self::Replay(value)
+    }
+}
+
+impl From<Stage6ReconciliationV2Error> for Stage6dLiveCoreError {
+    fn from(value: Stage6ReconciliationV2Error) -> Self {
+        Self::ReconciliationV2(value)
     }
 }
 
@@ -519,6 +530,17 @@ pub struct Stage6DurableRequestAuthorityV1 {
     authenticated_checkpoint_sha256: String,
 }
 
+#[derive(Serialize)]
+struct Stage8a4DurableRequestBindingV1<'a> {
+    domain: &'static str,
+    identity: &'a Stage6DurableRequestIdentityV1,
+    canonical_command_sha256: &'a Stage6Sha256Digest,
+    accepted_record_id: &'a Stage6JournalRecordId,
+    dispatch_record_id: &'a Stage6JournalRecordId,
+    dispatch_sequence: u64,
+    runtime_config_fingerprint_sha256: &'a str,
+}
+
 impl Stage6DurableRequestAuthorityV1 {
     pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
         &self.identity
@@ -550,6 +572,87 @@ impl Stage6DurableRequestAuthorityV1 {
 
     pub fn authenticated_checkpoint_sha256(&self) -> &str {
         &self.authenticated_checkpoint_sha256
+    }
+
+    /// Stable immutable binding for one accepted command and its sole durable
+    /// dispatch attempt. Mutable frontier/checkpoint/seal values deliberately
+    /// remain in the separate four-field pre-append CAS.
+    pub fn durable_request_binding_sha256(
+        &self,
+    ) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
+        let value = Stage8a4DurableRequestBindingV1 {
+            domain: "moex.stage8a4.durable-request-binding.v1",
+            identity: &self.identity,
+            canonical_command_sha256: &self.canonical_command_sha256,
+            accepted_record_id: &self.accepted_record_id,
+            dispatch_record_id: &self.dispatch_record_id,
+            dispatch_sequence: self.dispatch_sequence,
+            runtime_config_fingerprint_sha256: &self.runtime_config_fingerprint_sha256,
+        };
+        let bytes =
+            serde_json::to_vec(&value).map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;
+        Stage6Sha256Digest::parse(sha256_hex(&bytes))
+            .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)
+    }
+}
+
+/// Owned, non-serializable Stage 8A-4 batch admitted to the sole Stage 6
+/// writer. Construction validates the exact V2 manifest against every V1
+/// compatibility record but grants no storage authority by itself.
+pub struct Stage6Stage8a4DurableBatch {
+    transition_record: Stage6JournalRecordV2,
+    suffix_records: Vec<Stage6JournalRecordV1>,
+    cancel_original_target_shape: Option<Stage6DurablePlaceOrderShapeV1>,
+}
+
+impl Stage6Stage8a4DurableBatch {
+    pub fn new(
+        transition_record: Stage6JournalRecordV2,
+        suffix_records: Vec<Stage6JournalRecordV1>,
+        cancel_original_target_shape: Option<Stage6DurablePlaceOrderShapeV1>,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        let canonical = transition_record.encode_canonical();
+        let transition_record = Stage6JournalRecordV2::decode_canonical(&canonical)?;
+        let manifest = transition_record.payload().suffix_manifest().entries();
+        if manifest.len() != suffix_records.len()
+            || manifest
+                .iter()
+                .zip(&suffix_records)
+                .any(|(entry, record)| !entry.matches_record(record))
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        Ok(Self {
+            transition_record,
+            suffix_records,
+            cancel_original_target_shape,
+        })
+    }
+
+    pub fn transition_record(&self) -> &Stage6JournalRecordV2 {
+        &self.transition_record
+    }
+}
+
+/// Durable-only result. It is deliberately insufficient for ACK/readiness;
+/// Stage 7B must still commit and reread a covering S1.
+pub struct Stage6Stage8a4BatchAppendReceipt {
+    checkpoint: Stage6JournalCheckpointV1,
+    transition_was_existing: bool,
+    appended_suffix_records: usize,
+}
+
+impl Stage6Stage8a4BatchAppendReceipt {
+    pub fn checkpoint(&self) -> &Stage6JournalCheckpointV1 {
+        &self.checkpoint
+    }
+
+    pub fn transition_was_existing(&self) -> bool {
+        self.transition_was_existing
+    }
+
+    pub fn appended_suffix_records(&self) -> usize {
+        self.appended_suffix_records
     }
 }
 
@@ -618,6 +721,143 @@ impl Stage6dDurableRuntimeRecovered {
                 .checkpoint_sha256()
                 .to_string(),
         })
+    }
+
+    /// Reconstructs current request authority for I3 both before the V2 append
+    /// and after a crash with an exact V2/suffix prefix already durable.
+    pub fn authorize_stage8a4_durable_batch_source(
+        &self,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+    ) -> Result<Stage6DurableRequestAuthorityV1, Stage6dLiveCoreError> {
+        let accepted = stage7a_accepted_record(self, identity.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let accepted_command = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        if accepted.durable_request_identity() != identity || accepted_command != command {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let replayed = self
+            .replay
+            .request(identity.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if replayed.durable_client_order_id() != identity.durable_client_order_id()
+            || replayed.action() != identity.action()
+            || replayed.conflict_observed()
+            || replayed.dispatch_attempt_count() != 1
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let mut dispatches = self.journal.records().iter().filter(|record| {
+            record.event_kind() == Stage6JournalEventKind::DispatchAttemptRecorded
+                && record.durable_request_identity() == identity
+        });
+        let dispatch = dispatches
+            .next()
+            .ok_or(Stage6dLiveCoreError::DispatchAttemptRecordRequired)?;
+        if dispatches.next().is_some()
+            || dispatch.previous_record_id() != Some(accepted.journal_record_id())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let runtime_config_fingerprint_sha256 = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::FirstBoot(runtime) => {
+                runtime.stage5c_config_fingerprint()
+            }
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                restart.config_fingerprint_sha256().to_string()
+            }
+        };
+        Ok(Stage6DurableRequestAuthorityV1 {
+            identity: identity.clone(),
+            canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
+            accepted_record_id: accepted.journal_record_id().clone(),
+            dispatch_record_id: dispatch.journal_record_id().clone(),
+            dispatch_sequence: dispatch.lifecycle_sequence().get(),
+            durable_frontier_sha256: frontier_fingerprint(self.journal_frontier())?,
+            runtime_config_fingerprint_sha256,
+            authenticated_checkpoint_sha256: self
+                .authenticated_checkpoint
+                .checkpoint_sha256()
+                .to_string(),
+        })
+    }
+
+    /// Read-only recovery check used by the Stage 7B owner when the V2 record
+    /// already exists under an older S0. It accepts only the exact canonical
+    /// batch whose verified prefix is the current durable tail.
+    pub fn stage8a4_batch_matches_current_tail(
+        &self,
+        batch: &Stage6Stage8a4DurableBatch,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let transition = batch.transition_record();
+        Ok(mixed.reconciliation_batches().iter().any(|existing| {
+            existing.transition_record().durable_request_identity()
+                == transition.durable_request_identity()
+                && existing.canonical_v2_record_sha256() == transition.canonical_record_sha256()
+                && existing.stable_transition_key_sha256()
+                    == transition.payload().stable_transition_key_sha256()
+                && Some(existing.last_mixed_record_id()) == self.journal_frontier().last_record_id()
+                && Some(existing.last_mixed_lifecycle_sequence())
+                    == self.journal_frontier().last_lifecycle_sequence()
+        }))
+    }
+
+    /// Validates the exact uncovered I3 tail after restart reconstruction and
+    /// before Stage 7B commits the covering S1.
+    pub fn validate_stage8a4_current_tail_authority(&self) -> Result<(), Stage6dLiveCoreError> {
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let batch = mixed
+            .reconciliation_batches()
+            .iter()
+            .find(|batch| {
+                Some(batch.last_mixed_record_id()) == self.journal_frontier().last_record_id()
+                    && Some(batch.last_mixed_lifecycle_sequence())
+                        == self.journal_frontier().last_lifecycle_sequence()
+            })
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let identity = batch.transition_record().durable_request_identity();
+        let accepted = stage7a_accepted_record(self, identity.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let command = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        let authority = self.authorize_stage8a4_durable_batch_source(identity, &command)?;
+        let transition = batch.transition_record();
+        if transition.payload().durable_request_binding_sha256()
+            != &authority.durable_request_binding_sha256()?
+            || transition.previous_record_id() != Some(authority.dispatch_record_id())
+            || transition.lifecycle_sequence().get()
+                != authority
+                    .dispatch_sequence()
+                    .checked_add(1)
+                    .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            || transition
+                .payload()
+                .pre_append_precondition()
+                .expected_request_state_fingerprint()
+                != &initial_request_state_fingerprint(self, &authority)?
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if identity.action() == Stage6DurableActionKind::Cancel {
+            let shape = durable_cancel_original_shape(self, identity)?;
+            if let Some(order) = transition.payload().broker_order_fact() {
+                if order.broker_order_id() != identity.target_broker_order_id()
+                    || identity
+                        .target_order_client_order_id()
+                        .is_some_and(|target| order.client_order_id() != Some(target))
+                    || !order.matches_original_place_shape(&shape)
+                {
+                    return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn boot_mode(&self) -> Stage6dBootMode {
@@ -701,7 +941,7 @@ impl Stage6dDurableRuntimeRecovered {
     }
 
     pub(crate) fn refresh_after_append(&mut self) -> Result<(), Stage6dLiveCoreError> {
-        self.replay = Stage6ReplayEngineV1::replay(self.journal.records())?;
+        self.replay = replay_versioned_journal(&self.journal)?;
         self.authenticated_checkpoint =
             Stage6JournalCheckpointV1::from_frontier(self.journal.frontier().clone())?;
         self.semantic_cross_binding = match &self.stage5_runtime {
@@ -720,6 +960,267 @@ impl Stage6dDurableRuntimeRecovered {
         )?;
         Ok(())
     }
+}
+
+fn replay_versioned_journal(
+    journal: &Stage6OwnedJournalBackend,
+) -> Result<Stage6ReplaySnapshotV1, Stage6dLiveCoreError> {
+    let mixed = Stage6MixedReplayEngineV2::replay(journal.versioned_records())?;
+    Ok(Stage6ReplaySnapshotV1::from_recovered_requests(
+        mixed.into_requests(),
+    ))
+}
+
+/// Applies one exact I3 durable batch through the sole recovered Stage 6
+/// journal owner. The caller must hold the current Stage 7B writer lease and
+/// must separately verify S0 before entry and commit/reread S1 after return.
+pub fn append_stage8a4_durable_batch(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    authority: Stage6DurableRequestAuthorityV1,
+    batch: Stage6Stage8a4DurableBatch,
+) -> Result<Stage6Stage8a4BatchAppendReceipt, Stage6dLiveCoreError> {
+    append_stage8a4_durable_batch_inner(recovered, authority, batch, None)
+}
+
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8a4_test_append_durable_batch_with_suffix_limit(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    authority: Stage6DurableRequestAuthorityV1,
+    batch: Stage6Stage8a4DurableBatch,
+    suffix_limit: usize,
+) -> Result<Stage6Stage8a4BatchAppendReceipt, Stage6dLiveCoreError> {
+    append_stage8a4_durable_batch_inner(recovered, authority, batch, Some(suffix_limit))
+}
+
+fn append_stage8a4_durable_batch_inner(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    authority: Stage6DurableRequestAuthorityV1,
+    batch: Stage6Stage8a4DurableBatch,
+    suffix_limit: Option<usize>,
+) -> Result<Stage6Stage8a4BatchAppendReceipt, Stage6dLiveCoreError> {
+    let transition = &batch.transition_record;
+    if transition.durable_request_identity() != authority.identity()
+        || transition.payload().durable_request_binding_sha256()
+            != &authority.durable_request_binding_sha256()?
+        || authority.durable_frontier_sha256 != frontier_fingerprint(recovered.journal_frontier())?
+        || authority.authenticated_checkpoint_sha256
+            != recovered.authenticated_checkpoint().checkpoint_sha256()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    validate_cancel_original_target_shape(recovered, &authority, &batch)?;
+
+    let mixed = Stage6MixedReplayEngineV2::replay(recovered.journal.versioned_records())?;
+    let request_id = authority.identity.strategy_request_id();
+    if let Some(key_match) = mixed.reconciliation_batches().iter().find(|candidate| {
+        candidate.stable_transition_key_sha256()
+            == transition.payload().stable_transition_key_sha256()
+    }) {
+        if key_match.canonical_v2_record_sha256() != transition.canonical_record_sha256() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+    }
+    let existing = mixed.reconciliation_batches().iter().find(|candidate| {
+        candidate
+            .transition_record()
+            .durable_request_identity()
+            .strategy_request_id()
+            == request_id
+    });
+    let precondition = transition.payload().pre_append_precondition();
+    let initial_request_fingerprint = initial_request_state_fingerprint(recovered, &authority)?;
+    if precondition.expected_request_state_fingerprint() != &initial_request_fingerprint {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+
+    let mut transition_was_existing = false;
+    let suffix_prefix = match existing {
+        None => {
+            let current_request = mixed
+                .requests()
+                .iter()
+                .find(|request| request.strategy_request_id() == request_id)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let expected_frontier = precondition
+                .expected_stage6_checkpoint_or_frontier_fingerprint()
+                .as_str();
+            if (expected_frontier != authority.durable_frontier_sha256()
+                && expected_frontier != authority.authenticated_checkpoint_sha256())
+                || current_request.state_fingerprint_sha256() != initial_request_fingerprint
+                || transition.previous_record_id() != Some(authority.dispatch_record_id())
+                || transition.lifecycle_sequence().get()
+                    != authority
+                        .dispatch_sequence()
+                        .checked_add(1)
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                || recovered.journal_frontier().last_record_id()
+                    != Some(authority.dispatch_record_id())
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            recovered
+                .journal_mut()
+                .append_versioned(&Stage6JournalRecordVersioned::V2(transition.clone()))?;
+            0
+        }
+        Some(existing) => {
+            transition_was_existing = true;
+            if existing.canonical_v2_record_sha256() != transition.canonical_record_sha256()
+                || existing.stable_transition_key_sha256()
+                    != transition.payload().stable_transition_key_sha256()
+                || existing.last_mixed_record_id()
+                    != recovered
+                        .journal_frontier()
+                        .last_record_id()
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+                || existing.last_mixed_lifecycle_sequence()
+                    != recovered
+                        .journal_frontier()
+                        .last_lifecycle_sequence()
+                        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            existing.verified_suffix_prefix_length()
+        }
+    };
+
+    let mut appended_suffix_records = 0;
+    let missing_suffix = batch.suffix_records.iter().skip(suffix_prefix);
+    for record in missing_suffix.take(suffix_limit.unwrap_or(usize::MAX)) {
+        recovered.journal_mut().append(record)?;
+        appended_suffix_records += 1;
+    }
+    recovered.refresh_after_append()?;
+
+    let final_mixed = Stage6MixedReplayEngineV2::replay(recovered.journal.versioned_records())?;
+    let final_batch = final_mixed
+        .reconciliation_batches()
+        .iter()
+        .find(|candidate| {
+            candidate
+                .transition_record()
+                .durable_request_identity()
+                .strategy_request_id()
+                == request_id
+        })
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if final_batch.completion() != Stage6ReconciliationBatchCompletionV2::Complete
+        || final_batch.verified_suffix_prefix_length() != batch.suffix_records.len()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(Stage6Stage8a4BatchAppendReceipt {
+        checkpoint: recovered.authenticated_checkpoint().clone(),
+        transition_was_existing,
+        appended_suffix_records,
+    })
+}
+
+fn validate_cancel_original_target_shape(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    authority: &Stage6DurableRequestAuthorityV1,
+    batch: &Stage6Stage8a4DurableBatch,
+) -> Result<(), Stage6dLiveCoreError> {
+    match authority.identity().action() {
+        Stage6DurableActionKind::Place => {
+            if batch.cancel_original_target_shape.is_some() {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            Ok(())
+        }
+        Stage6DurableActionKind::Cancel => {
+            let expected_shape = batch
+                .cancel_original_target_shape
+                .as_ref()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            if &durable_cancel_original_shape(recovered, authority.identity())? != expected_shape {
+                return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+            }
+            let target_broker_order_id = authority
+                .identity()
+                .target_broker_order_id()
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            let target_client_order_id = authority.identity().target_order_client_order_id();
+            if let Some(order) = batch.transition_record.payload().broker_order_fact() {
+                if order.broker_order_id() != Some(target_broker_order_id)
+                    || target_client_order_id
+                        .is_some_and(|target| order.client_order_id() != Some(target))
+                    || !order.matches_original_place_shape(expected_shape)
+                {
+                    return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
+fn durable_cancel_original_shape(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    cancel_identity: &Stage6DurableRequestIdentityV1,
+) -> Result<Stage6DurablePlaceOrderShapeV1, Stage6dLiveCoreError> {
+    let target_broker_order_id = cancel_identity
+        .target_broker_order_id()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let target_client_order_id = cancel_identity.target_order_client_order_id();
+    let mut shapes = Vec::new();
+    for accepted in recovered.journal.records().iter().filter(|record| {
+        record.event_kind() == Stage6JournalEventKind::RequestAccepted
+            && record.durable_request_identity().action() == Stage6DurableActionKind::Place
+            && record.durable_request_identity().account_id() == cancel_identity.account_id()
+            && record.durable_request_identity().instrument() == cancel_identity.instrument()
+            && target_client_order_id.map_or(true, |target| {
+                record.durable_request_identity().durable_client_order_id() == target
+            })
+    }) {
+        let observed_target = recovered.journal.records().iter().any(|record| {
+            record.durable_request_identity() == accepted.durable_request_identity()
+                && matches!(
+                    record.payload(),
+                    Stage6JournalPayloadV1::BrokerOrderObserved { broker_order_id }
+                        if broker_order_id == target_broker_order_id
+                )
+        });
+        if observed_target {
+            let shape = match accepted.payload() {
+                Stage6JournalPayloadV1::RequestAccepted { command } => command.place_order_shape(),
+                _ => None,
+            }
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+            shapes.push(shape);
+        }
+    }
+    if shapes.len() != 1 {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(shapes.remove(0))
+}
+
+fn initial_request_state_fingerprint(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    authority: &Stage6DurableRequestAuthorityV1,
+) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
+    let mut prefix = Vec::new();
+    let mut found_dispatch = false;
+    for record in recovered.journal.versioned_records() {
+        if let Stage6JournalRecordVersioned::V1(v1) = record {
+            prefix.push(v1.clone());
+            if v1.journal_record_id() == authority.dispatch_record_id() {
+                found_dispatch = true;
+                break;
+            }
+        }
+    }
+    if !found_dispatch {
+        return Err(Stage6dLiveCoreError::DispatchAttemptRecordRequired);
+    }
+    let replay = Stage6ReplayEngineV1::replay(&prefix)?;
+    replay
+        .request(authority.identity.strategy_request_id())
+        .map(Stage6RecoveredRequestV1::state_fingerprint_sha256)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)
 }
 
 pub fn first_boot_stage6d_paper(
@@ -751,7 +1252,7 @@ pub fn first_boot_stage6d_paper_with_owned_journal(
     if journal.frontier().frame_count() != 0 || !journal.records().is_empty() {
         return Err(Stage6dLiveCoreError::FirstBootJournalNotEmpty);
     }
-    let replay = Stage6ReplayEngineV1::replay(journal.records())?;
+    let replay = replay_versioned_journal(&journal)?;
     let authenticated_checkpoint =
         Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())?;
     let stage5_runtime = Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(fresh_runtime));
@@ -799,7 +1300,7 @@ pub fn first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal(
     if journal.frontier().frame_count() != 0 || !journal.records().is_empty() {
         return Err(Stage6dLiveCoreError::FirstBootJournalNotEmpty);
     }
-    let replay = Stage6ReplayEngineV1::replay(journal.records())?;
+    let replay = replay_versioned_journal(&journal)?;
     let authenticated_checkpoint =
         Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())?;
     let stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(validated_stage5g_seed));
@@ -1190,7 +1691,7 @@ fn recover_stage6d_restart_from_authorities(
 ) -> Result<Stage6dDurableRuntimeRecovered, Stage6dLiveCoreError> {
     let journal = journal.into();
     journal.validate_checkpoint(&authenticated_checkpoint)?;
-    let replay = Stage6ReplayEngineV1::replay(journal.records())?;
+    let replay = replay_versioned_journal(&journal)?;
     let semantic_cross_binding = match &stage5_runtime {
         Stage6dStage5RuntimeAuthority::Restart(restart) => Some(
             stage6e_semantic_cross_bind_restart(restart, &journal, &replay)?,
@@ -2793,6 +3294,13 @@ fn frontier_fingerprint(
     Ok(sha256_hex(&bytes))
 }
 
+pub fn stage6_frontier_fingerprint_sha256(
+    frontier: &Stage6JournalFrontierV1,
+) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
+    Stage6Sha256Digest::parse(frontier_fingerprint(frontier)?)
+        .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)
+}
+
 fn decode_and_authenticate_restart_package(
     bytes: &[u8],
     commitment_key: &Stage5gLifecycleCommitmentKey,
@@ -3218,6 +3726,315 @@ mod tests {
             Err(Stage6dLiveCoreError::DurableOrderingViolation)
                 | Err(Stage6dLiveCoreError::DispatchAttemptRecordRequired)
         ));
+    }
+
+    #[test]
+    fn stage8a4_i3_appends_v2_then_exact_suffix_and_is_idempotent() {
+        let fixture = place_fixture(94, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let mut owner = recovered();
+        let (accepted, dispatch) = accepted_and_dispatch_place(&fixture);
+        prepare_stage6d_paper_dispatch(&mut owner, accepted, dispatch.clone()).unwrap();
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let request_fingerprint = initial_request_state_fingerprint(&owner, &authority).unwrap();
+        let (transition, suffix) = crate::stage6_reconciliation_v2::tests::i3_batch_fixture(
+            &fixture.identity,
+            &dispatch,
+            authority.durable_request_binding_sha256().unwrap(),
+            Stage6Sha256Digest::parse(authority.durable_frontier_sha256().to_string()).unwrap(),
+            1,
+            digest('f'),
+            request_fingerprint,
+            2,
+        );
+
+        let receipt = append_stage8a4_durable_batch(
+            &mut owner,
+            authority,
+            Stage6Stage8a4DurableBatch::new(transition.clone(), suffix.clone(), None).unwrap(),
+        )
+        .unwrap();
+        assert!(!receipt.transition_was_existing());
+        assert_eq!(receipt.appended_suffix_records(), 2);
+        assert_eq!(owner.journal.versioned_records().len(), 5);
+
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let replay_receipt = append_stage8a4_durable_batch(
+            &mut owner,
+            authority,
+            Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap(),
+        )
+        .unwrap();
+        assert!(replay_receipt.transition_was_existing());
+        assert_eq!(replay_receipt.appended_suffix_records(), 0);
+        assert_eq!(owner.journal.versioned_records().len(), 5);
+    }
+
+    #[test]
+    fn stage8a4_i3_repairs_only_missing_suffix_after_v2_crash_boundary() {
+        let fixture = place_fixture(95, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let mut owner = recovered();
+        let (accepted, dispatch) = accepted_and_dispatch_place(&fixture);
+        prepare_stage6d_paper_dispatch(&mut owner, accepted, dispatch.clone()).unwrap();
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let request_fingerprint = initial_request_state_fingerprint(&owner, &authority).unwrap();
+        let (transition, suffix) = crate::stage6_reconciliation_v2::tests::i3_batch_fixture(
+            &fixture.identity,
+            &dispatch,
+            authority.durable_request_binding_sha256().unwrap(),
+            Stage6Sha256Digest::parse(authority.durable_frontier_sha256().to_string()).unwrap(),
+            1,
+            digest('f'),
+            request_fingerprint,
+            2,
+        );
+
+        owner
+            .journal_mut()
+            .append_versioned(&Stage6JournalRecordVersioned::V2(transition.clone()))
+            .unwrap();
+        owner.refresh_after_append().unwrap();
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let receipt = append_stage8a4_durable_batch(
+            &mut owner,
+            authority,
+            Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap(),
+        )
+        .unwrap();
+        assert!(receipt.transition_was_existing());
+        assert_eq!(receipt.appended_suffix_records(), 2);
+        assert_eq!(owner.journal.versioned_records().len(), 5);
+    }
+
+    #[test]
+    fn stage8a4_i3_rejects_stale_frontier_and_request_state_before_append() {
+        let fixture = place_fixture(951, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let mut owner = recovered();
+        let (accepted, dispatch) = accepted_and_dispatch_place(&fixture);
+        prepare_stage6d_paper_dispatch(&mut owner, accepted, dispatch.clone()).unwrap();
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let before = owner.journal.versioned_records().len();
+
+        let (stale_frontier, no_suffix) = crate::stage6_reconciliation_v2::tests::i3_batch_fixture(
+            &fixture.identity,
+            &dispatch,
+            authority.durable_request_binding_sha256().unwrap(),
+            digest('9'),
+            1,
+            digest('f'),
+            initial_request_state_fingerprint(&owner, &authority).unwrap(),
+            0,
+        );
+        assert!(matches!(
+            append_stage8a4_durable_batch(
+                &mut owner,
+                authority,
+                Stage6Stage8a4DurableBatch::new(stale_frontier, no_suffix, None).unwrap(),
+            ),
+            Err(Stage6dLiveCoreError::DurableOrderingViolation)
+        ));
+        assert_eq!(owner.journal.versioned_records().len(), before);
+
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let (stale_request, no_suffix) = crate::stage6_reconciliation_v2::tests::i3_batch_fixture(
+            &fixture.identity,
+            &dispatch,
+            authority.durable_request_binding_sha256().unwrap(),
+            Stage6Sha256Digest::parse(authority.durable_frontier_sha256().to_string()).unwrap(),
+            1,
+            digest('f'),
+            digest('9'),
+            0,
+        );
+        assert!(matches!(
+            append_stage8a4_durable_batch(
+                &mut owner,
+                authority,
+                Stage6Stage8a4DurableBatch::new(stale_request, no_suffix, None).unwrap(),
+            ),
+            Err(Stage6dLiveCoreError::DurableOrderingViolation)
+        ));
+        assert_eq!(owner.journal.versioned_records().len(), before);
+    }
+
+    #[test]
+    fn stage8a4_i3_same_stable_key_with_different_v2_payload_is_hard_conflict() {
+        let fixture = place_fixture(952, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let mut owner = recovered();
+        let (accepted, dispatch) = accepted_and_dispatch_place(&fixture);
+        prepare_stage6d_paper_dispatch(&mut owner, accepted, dispatch.clone()).unwrap();
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let request_fingerprint = initial_request_state_fingerprint(&owner, &authority).unwrap();
+        let durable_binding = authority.durable_request_binding_sha256().unwrap();
+        let expected_frontier =
+            Stage6Sha256Digest::parse(authority.durable_frontier_sha256().to_string()).unwrap();
+        let (first_transition, first_suffix) =
+            crate::stage6_reconciliation_v2::tests::i3_batch_fixture(
+                &fixture.identity,
+                &dispatch,
+                durable_binding.clone(),
+                expected_frontier.clone(),
+                1,
+                digest('f'),
+                request_fingerprint.clone(),
+                1,
+            );
+        append_stage8a4_durable_batch(
+            &mut owner,
+            authority,
+            Stage6Stage8a4DurableBatch::new(first_transition, first_suffix, None).unwrap(),
+        )
+        .unwrap();
+        let before = owner.journal.versioned_records().len();
+
+        // The fixture's stable key is intentionally constant. Changing the
+        // suffix manifest therefore produces the same key with different V2
+        // canonical bytes and must fail before a second append.
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
+            .unwrap();
+        let (conflicting_transition, conflicting_suffix) =
+            crate::stage6_reconciliation_v2::tests::i3_batch_fixture(
+                &fixture.identity,
+                &dispatch,
+                durable_binding,
+                expected_frontier,
+                1,
+                digest('f'),
+                request_fingerprint,
+                2,
+            );
+        assert!(matches!(
+            append_stage8a4_durable_batch(
+                &mut owner,
+                authority,
+                Stage6Stage8a4DurableBatch::new(conflicting_transition, conflicting_suffix, None,)
+                    .unwrap(),
+            ),
+            Err(Stage6dLiveCoreError::DurableOrderingViolation)
+        ));
+        assert_eq!(owner.journal.versioned_records().len(), before);
+    }
+
+    #[test]
+    fn stage8a4_i3_cancel_requires_exact_durable_original_place_shape() {
+        let mut owner = recovered();
+        let original = place_fixture(1, OrderType::Limit);
+        let original_snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&original.identity, &original.command)
+                .unwrap();
+        let (original_accepted, original_dispatch) = accepted_and_dispatch_place(&original);
+        let original_observed = Stage6JournalRecordV1::broker_order_observed(
+            original.identity.clone(),
+            BrokerOrderId::new("ORDER-I3-1"),
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(original_dispatch.journal_record_id().clone()),
+            digest('7'),
+        )
+        .unwrap();
+        let original_finalized = Stage6JournalRecordV1::request_finalized(
+            original.identity.clone(),
+            Stage6RequestFinalDispositionV1::Completed,
+            Stage6LifecycleSequence::new(4).unwrap(),
+            Some(original_observed.journal_record_id().clone()),
+            digest('8'),
+        )
+        .unwrap();
+        for record in [
+            original_accepted,
+            original_dispatch,
+            original_observed,
+            original_finalized,
+        ] {
+            owner.journal_mut().append(&record).unwrap();
+        }
+        owner.refresh_after_append().unwrap();
+
+        let cancel = cancel_fixture(96, "ORDER-I3-1");
+        let cancel_snapshot =
+            Stage6DurableCommandSnapshotV1::from_cancel(&cancel.identity, &cancel.command).unwrap();
+        let (cancel_accepted, cancel_dispatch) = accepted_and_dispatch_cancel(&cancel);
+        prepare_stage6d_paper_dispatch(&mut owner, cancel_accepted, cancel_dispatch.clone())
+            .unwrap();
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&cancel.identity, &cancel_snapshot)
+            .unwrap();
+        let request_fingerprint = initial_request_state_fingerprint(&owner, &authority).unwrap();
+        let (transition, suffix) = crate::stage6_reconciliation_v2::tests::i3_batch_fixture(
+            &cancel.identity,
+            &cancel_dispatch,
+            authority.durable_request_binding_sha256().unwrap(),
+            Stage6Sha256Digest::parse(authority.durable_frontier_sha256().to_string()).unwrap(),
+            1,
+            digest('f'),
+            request_fingerprint,
+            0,
+        );
+        let before = owner.journal.versioned_records().len();
+        let wrong_shape = Stage6DurablePlaceOrderShapeV1::new(
+            broker_core::OrderSide::Buy,
+            OrderType::Limit,
+            Decimal::new(2, 0),
+            Some(Decimal::new(2210, 1)),
+            broker_core::TimeInForce::Day,
+        )
+        .unwrap();
+        assert!(matches!(
+            append_stage8a4_durable_batch(
+                &mut owner,
+                authority,
+                Stage6Stage8a4DurableBatch::new(
+                    transition.clone(),
+                    suffix.clone(),
+                    Some(wrong_shape),
+                )
+                .unwrap(),
+            ),
+            Err(Stage6dLiveCoreError::DurableOrderingViolation)
+        ));
+        assert_eq!(owner.journal.versioned_records().len(), before);
+
+        let authority = owner
+            .authorize_stage8a4_durable_batch_source(&cancel.identity, &cancel_snapshot)
+            .unwrap();
+        let receipt = append_stage8a4_durable_batch(
+            &mut owner,
+            authority,
+            Stage6Stage8a4DurableBatch::new(
+                transition,
+                suffix,
+                original_snapshot.place_order_shape(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(!receipt.transition_was_existing());
+        assert_eq!(receipt.appended_suffix_records(), 0);
     }
 
     fn restart_from_test_authority(

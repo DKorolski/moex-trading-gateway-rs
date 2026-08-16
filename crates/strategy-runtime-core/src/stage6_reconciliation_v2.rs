@@ -19,9 +19,10 @@
 
 use crate::stage6_replay::WorkingRequest;
 use crate::{
-    Stage6DurableActionKind, Stage6DurableIdentityError, Stage6DurableRequestIdentityV1,
-    Stage6JournalEventKind, Stage6JournalRecordId, Stage6JournalRecordV1, Stage6LifecycleSequence,
-    Stage6RecoveredRequestV1, Stage6ReplayError, Stage6Sha256Digest,
+    Stage6DurableActionKind, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,
+    Stage6DurableRequestIdentityV1, Stage6JournalEventKind, Stage6JournalRecordId,
+    Stage6JournalRecordV1, Stage6LifecycleSequence, Stage6RecoveredRequestV1, Stage6ReplayError,
+    Stage6Sha256Digest,
 };
 use broker_core::{
     BrokerAccountId, BrokerOrderId, BrokerOrderLifecycle, BrokerTradeId, ClientOrderId,
@@ -268,6 +269,18 @@ impl Stage6BrokerOrderFactV2 {
         self.client_order_id.as_ref()
     }
 
+    pub fn matches_original_place_shape(&self, shape: &Stage6DurablePlaceOrderShapeV1) -> bool {
+        self.time_in_force.is_some_and(|time_in_force| {
+            shape.matches(
+                self.side,
+                self.order_type,
+                self.qty,
+                self.limit_price,
+                time_in_force,
+            )
+        })
+    }
+
     fn validate(
         &self,
         identity: &Stage6DurableRequestIdentityV1,
@@ -375,6 +388,24 @@ pub struct Stage6PreAppendPreconditionV2 {
     expected_recovery_seal_generation: u64,
     expected_recovery_seal_fingerprint: Stage6Sha256Digest,
     expected_request_state_fingerprint: Stage6Sha256Digest,
+}
+
+impl Stage6PreAppendPreconditionV2 {
+    pub fn expected_stage6_checkpoint_or_frontier_fingerprint(&self) -> &Stage6Sha256Digest {
+        &self.expected_stage6_checkpoint_or_frontier_fingerprint
+    }
+
+    pub fn expected_recovery_seal_generation(&self) -> u64 {
+        self.expected_recovery_seal_generation
+    }
+
+    pub fn expected_recovery_seal_fingerprint(&self) -> &Stage6Sha256Digest {
+        &self.expected_recovery_seal_fingerprint
+    }
+
+    pub fn expected_request_state_fingerprint(&self) -> &Stage6Sha256Digest {
+        &self.expected_request_state_fingerprint
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -544,7 +575,7 @@ pub struct Stage6SuffixManifestEntryV2 {
 }
 
 impl Stage6SuffixManifestEntryV2 {
-    fn matches(&self, record: &Stage6JournalRecordV1) -> bool {
+    pub fn matches_record(&self, record: &Stage6JournalRecordV1) -> bool {
         self.event_kind == record.event_kind()
             && self.journal_record_id == *record.journal_record_id()
             && self.lifecycle_sequence == record.lifecycle_sequence()
@@ -616,6 +647,9 @@ impl Stage6ReconciliationTransitionPayloadV2 {
     pub fn transition_kind(&self) -> &Stage6ReconciliationTransitionKindV2 {
         &self.transition_kind
     }
+    pub fn durable_request_binding_sha256(&self) -> &Stage6Sha256Digest {
+        &self.durable_request_binding_sha256
+    }
     pub fn broker_order_fact(&self) -> Option<&Stage6BrokerOrderFactV2> {
         self.broker_order_fact.as_ref()
     }
@@ -624,6 +658,12 @@ impl Stage6ReconciliationTransitionPayloadV2 {
     }
     pub fn suffix_manifest(&self) -> &Stage6SuffixManifestV2 {
         &self.deterministic_suffix_manifest
+    }
+    pub fn pre_append_precondition(&self) -> &Stage6PreAppendPreconditionV2 {
+        &self.pre_append_precondition
+    }
+    pub fn account_safety_summary(&self) -> &Stage6AccountSafetySummaryV2 {
+        &self.account_safety_summary
     }
 
     fn validate(
@@ -983,6 +1023,10 @@ impl Stage6MixedReplaySnapshotV2 {
     pub fn reconciliation_batches(&self) -> &[Stage6PendingReconciliationBatchV2] {
         &self.reconciliation_batches
     }
+
+    pub(crate) fn into_requests(self) -> Vec<Stage6RecoveredRequestV1> {
+        self.requests
+    }
 }
 
 #[derive(Debug, Default)]
@@ -1043,7 +1087,7 @@ impl Stage6MixedReplayEngineV2 {
                                     let entry = batch.missing_suffix_entries().first().ok_or(
                                         Stage6ReconciliationV2Error::UnexpectedSuffixRecord,
                                     )?;
-                                    if !entry.matches(v1) {
+                                    if !entry.matches_record(v1) {
                                         return Err(
                                             Stage6ReconciliationV2Error::UnexpectedSuffixRecord,
                                         );
@@ -1141,11 +1185,168 @@ impl Stage6VersionedJournalReader {
     }
 }
 
+/// Test-only source-exact I3 batch fixture. The feature is enabled only by
+/// downstream durability tests; production builds expose no V2 constructor.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn stage8a4_test_transition_fixture(
+    identity: &Stage6DurableRequestIdentityV1,
+    dispatch: &Stage6JournalRecordV1,
+    durable_request_binding_sha256: Stage6Sha256Digest,
+    expected_frontier: Stage6Sha256Digest,
+    expected_seal_generation: u64,
+    expected_seal_fingerprint: Stage6Sha256Digest,
+    expected_request_state_fingerprint: Stage6Sha256Digest,
+    suffix_count: usize,
+) -> (Stage6JournalRecordV2, Vec<Stage6JournalRecordV1>) {
+    let digest = |byte: char| {
+        Stage6Sha256Digest::parse(byte.to_string().repeat(64)).expect("fixture digest")
+    };
+    let sequence = Stage6LifecycleSequence::new(
+        dispatch
+            .lifecycle_sequence()
+            .get()
+            .checked_add(1)
+            .expect("fixture sequence"),
+    )
+    .expect("fixture sequence");
+    let v2_id = Stage6JournalRecordId::derive(identity.strategy_request_id(), sequence);
+    let mut suffix = Vec::new();
+    if suffix_count > 0 {
+        suffix.push(
+            Stage6JournalRecordV1::broker_order_observed(
+                identity.clone(),
+                BrokerOrderId::new("ORDER-I3-1"),
+                Stage6LifecycleSequence::new(sequence.get().checked_add(1).unwrap()).unwrap(),
+                Some(v2_id.clone()),
+                digest('a'),
+            )
+            .expect("fixture observation"),
+        );
+    }
+    if suffix_count > 1 {
+        suffix.push(
+            Stage6JournalRecordV1::request_finalized(
+                identity.clone(),
+                crate::Stage6RequestFinalDispositionV1::Completed,
+                Stage6LifecycleSequence::new(
+                    suffix[0].lifecycle_sequence().get().checked_add(1).unwrap(),
+                )
+                .unwrap(),
+                Some(suffix[0].journal_record_id().clone()),
+                digest('b'),
+            )
+            .expect("fixture finalization"),
+        );
+    }
+    assert!(suffix_count <= 2, "fixture suffix count is bounded");
+    let manifest = suffix
+        .iter()
+        .enumerate()
+        .map(|(index, record)| Stage6SuffixManifestEntryV2 {
+            ordinal: index as u16,
+            event_kind: record.event_kind(),
+            journal_record_id: record.journal_record_id().clone(),
+            lifecycle_sequence: record.lifecycle_sequence(),
+            canonical_payload_sha256: record.canonical_payload_sha256().clone(),
+            canonical_record_sha256: Stage6Sha256Digest::of(&record.encode_canonical()),
+        })
+        .collect();
+    let received_ts = DateTime::from_timestamp(1_786_435_200, 0).expect("fixture timestamp");
+    let (endpoint_kind, order_type, limit_price) = match identity.action() {
+        Stage6DurableActionKind::Place => (
+            Stage6ReconciliationEndpointKindV2::Place,
+            OrderType::Market,
+            None,
+        ),
+        Stage6DurableActionKind::Cancel => (
+            Stage6ReconciliationEndpointKindV2::Cancel,
+            OrderType::Limit,
+            Some(Price::new(2210, 1)),
+        ),
+    };
+    let payload = Stage6ReconciliationTransitionPayloadV2 {
+        stable_transition_key_sha256: digest('3'),
+        durable_request_binding_sha256,
+        private_authoritative_outcome_binding_sha256: digest('5'),
+        endpoint_kind,
+        transition_kind: Stage6ReconciliationTransitionKindV2::Exact {
+            lifecycle: Stage6ReconciliationLifecycleV2::Working,
+        },
+        exact_lookup_evidence: Stage6ExactLookupEvidenceV2::NotAttempted,
+        broker_order_fact: Some(Stage6BrokerOrderFactV2 {
+            account_id: identity.account_id().clone(),
+            broker_order_id: Some(BrokerOrderId::new("ORDER-I3-1")),
+            client_order_id: Some(
+                identity
+                    .target_order_client_order_id()
+                    .unwrap_or_else(|| identity.durable_client_order_id())
+                    .clone(),
+            ),
+            instrument: identity.instrument().clone(),
+            side: OrderSide::Buy,
+            order_type,
+            time_in_force: Some(TimeInForce::Day),
+            status: OrderStatus::Working,
+            lifecycle: BrokerOrderLifecycle::Active,
+            qty: Quantity::ONE,
+            filled_qty: Quantity::ZERO,
+            remaining_qty: Some(Quantity::ONE),
+            limit_price,
+            broker_asset_id: Some("ASSET-IMOEXF".into()),
+            board: Some("RFUD".into()),
+            expiration_date: None,
+            source_ts: Some(received_ts),
+            received_ts,
+        }),
+        material_trade_facts: Vec::new(),
+        fill_effect: Stage6ReconciliationFillEffectV2::Zero,
+        account_safety_summary: Stage6AccountSafetySummaryV2 {
+            account_active_orders_count: 1,
+            account_unknown_orders_count: 0,
+            account_orphan_orders_count: 0,
+            account_open_positions_count: 0,
+            target_active_orders_count: 1,
+            target_unknown_orders_count: 0,
+            target_terminal_orders_count: 0,
+            target_inconsistent_orders_count: 0,
+            target_open_positions_count: 0,
+            other_symbol_active_orders_count: 0,
+            account_safety_binding_sha256: digest('6'),
+        },
+        pre_append_precondition: Stage6PreAppendPreconditionV2 {
+            expected_stage6_checkpoint_or_frontier_fingerprint: expected_frontier,
+            expected_recovery_seal_generation: expected_seal_generation,
+            expected_recovery_seal_fingerprint: expected_seal_fingerprint,
+            expected_request_state_fingerprint,
+        },
+        deterministic_suffix_manifest: Stage6SuffixManifestV2 { entries: manifest },
+    };
+    let canonical_payload_sha256 =
+        Stage6Sha256Digest::of(&serde_json::to_vec(&payload).expect("fixture payload"));
+    let value = Stage6JournalRecordV2 {
+        schema_version: STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
+        journal_record_id: Stage6JournalRecordId::derive(identity.strategy_request_id(), sequence),
+        lifecycle_sequence: sequence,
+        previous_record_id: Some(dispatch.journal_record_id().clone()),
+        causal_parent_id: Some(dispatch.journal_record_id().clone()),
+        durable_request_identity: identity.clone(),
+        event_kind: Stage6JournalEventKindV2::ReconciliationTransitionApplied,
+        payload,
+        canonical_payload_sha256,
+        source_evidence_sha256: digest('c'),
+    };
+    value.validate().expect("fixture V2 validates");
+    (value, suffix)
+}
+
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
-        Stage6DurableCommandSnapshotV1, Stage6JournalRecordV1, Stage6RequestFinalDispositionV1,
+        Stage6DurableCommandSnapshotV1, Stage6JournalBackend, Stage6JournalRecordV1,
+        Stage6RequestFinalDispositionV1,
     };
     use broker_core::{
         CancelOrder, Exchange, HybridRuntimeAttribution, Market, PlaceOrder, StrategyRequestId,
@@ -1273,7 +1474,12 @@ mod tests {
         Stage6BrokerOrderFactV2 {
             account_id: identity.account_id().clone(),
             broker_order_id: broker_id.map(BrokerOrderId::new),
-            client_order_id: Some(identity.durable_client_order_id().clone()),
+            client_order_id: Some(
+                identity
+                    .target_order_client_order_id()
+                    .unwrap_or_else(|| identity.durable_client_order_id())
+                    .clone(),
+            ),
             instrument: identity.instrument().clone(),
             side: OrderSide::Buy,
             order_type: OrderType::Limit,
@@ -1497,6 +1703,87 @@ mod tests {
                 Stage6ReconciliationFillEffectV2::Zero,
                 manifest,
             ),
+            digest('c'),
+        );
+        (record, suffix)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn i3_batch_fixture(
+        identity: &Stage6DurableRequestIdentityV1,
+        attempt: &Stage6JournalRecordV1,
+        durable_request_binding_sha256: Stage6Sha256Digest,
+        expected_frontier: Stage6Sha256Digest,
+        expected_seal_generation: u64,
+        expected_seal_fingerprint: Stage6Sha256Digest,
+        expected_request_state_fingerprint: Stage6Sha256Digest,
+        suffix_kind: usize,
+    ) -> (Stage6JournalRecordV2, Vec<Stage6JournalRecordV1>) {
+        let sequence = Stage6LifecycleSequence::new(
+            attempt.lifecycle_sequence().get().checked_add(1).unwrap(),
+        )
+        .unwrap();
+        let v2_id = Stage6JournalRecordId::derive(identity.strategy_request_id(), sequence);
+        let mut suffix = Vec::new();
+        if suffix_kind > 0 {
+            suffix.push(
+                Stage6JournalRecordV1::broker_order_observed(
+                    identity.clone(),
+                    BrokerOrderId::new("ORDER-I3-1"),
+                    Stage6LifecycleSequence::new(sequence.get().checked_add(1).unwrap()).unwrap(),
+                    Some(v2_id.clone()),
+                    digest('a'),
+                )
+                .unwrap(),
+            );
+        }
+        if suffix_kind > 1 {
+            suffix.push(
+                Stage6JournalRecordV1::request_finalized(
+                    identity.clone(),
+                    Stage6RequestFinalDispositionV1::Completed,
+                    Stage6LifecycleSequence::new(
+                        suffix[0].lifecycle_sequence().get().checked_add(1).unwrap(),
+                    )
+                    .unwrap(),
+                    Some(suffix[0].journal_record_id().clone()),
+                    digest('b'),
+                )
+                .unwrap(),
+            );
+        }
+        let manifest = suffix
+            .iter()
+            .enumerate()
+            .map(|(index, record)| manifest_entry(index as u16, record))
+            .collect();
+        let mut payload = payload(
+            identity,
+            match identity.action() {
+                Stage6DurableActionKind::Place => Stage6ReconciliationEndpointKindV2::Place,
+                Stage6DurableActionKind::Cancel => Stage6ReconciliationEndpointKindV2::Cancel,
+            },
+            Stage6ReconciliationTransitionKindV2::Exact {
+                lifecycle: Stage6ReconciliationLifecycleV2::Working,
+            },
+            Stage6ExactLookupEvidenceV2::NotAttempted,
+            Some("ORDER-I3-1"),
+            Vec::new(),
+            Stage6ReconciliationFillEffectV2::Zero,
+            manifest,
+        );
+        payload.pre_append_precondition = Stage6PreAppendPreconditionV2 {
+            expected_stage6_checkpoint_or_frontier_fingerprint: expected_frontier,
+            expected_recovery_seal_generation: expected_seal_generation,
+            expected_recovery_seal_fingerprint: expected_seal_fingerprint,
+            expected_request_state_fingerprint,
+        };
+        payload.durable_request_binding_sha256 = durable_request_binding_sha256;
+        let record = Stage6JournalRecordV2::build_for_test(
+            identity.clone(),
+            sequence,
+            attempt.journal_record_id().clone(),
+            payload,
             digest('c'),
         );
         (record, suffix)
@@ -2273,7 +2560,7 @@ mod tests {
     }
 
     #[test]
-    fn versioned_framed_reader_reads_mixed_while_legacy_reader_fails_closed() {
+    fn versioned_framed_reader_and_backend_read_mixed_with_v1_projection() {
         let (identity, accepted, attempt) = place_fixture();
         let (v2, _) = v2_with_suffix(&identity, &attempt, 0);
         let records = vec![
@@ -2285,7 +2572,13 @@ mod tests {
         let decoded = Stage6VersionedJournalReader::read_framed_bytes(&bytes).unwrap();
         assert_eq!(decoded.len(), 3);
         assert!(matches!(decoded[2], Stage6JournalRecordVersioned::V2(_)));
-        assert!(crate::Stage6MemoryJournalBackend::from_framed_bytes(bytes).is_err());
+        let backend = crate::Stage6MemoryJournalBackend::from_framed_bytes(bytes).unwrap();
+        assert_eq!(backend.versioned_records().len(), 3);
+        assert_eq!(backend.records().len(), 2);
+        assert!(matches!(
+            backend.versioned_records()[2],
+            Stage6JournalRecordVersioned::V2(_)
+        ));
     }
 
     #[test]

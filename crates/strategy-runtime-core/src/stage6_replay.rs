@@ -123,6 +123,12 @@ impl Stage6RecoveredRequestV1 {
     pub fn conflict_observed(&self) -> bool {
         self.conflict_observed
     }
+
+    pub fn state_fingerprint_sha256(&self) -> Stage6Sha256Digest {
+        Stage6Sha256Digest::of(
+            &serde_json::to_vec(self).expect("fixed recovered request serializes"),
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -143,6 +149,15 @@ impl Stage6ReplaySnapshotV1 {
     }
     pub fn semantic_fingerprint_sha256(&self) -> &Stage6Sha256Digest {
         &self.semantic_fingerprint_sha256
+    }
+
+    pub(crate) fn from_recovered_requests(requests: Vec<Stage6RecoveredRequestV1>) -> Self {
+        let semantic_fingerprint_sha256 = replay_fingerprint(&requests);
+        Self {
+            replay_schema_version: STAGE6_REPLAY_SCHEMA_VERSION,
+            requests,
+            semantic_fingerprint_sha256,
+        }
     }
 }
 
@@ -188,12 +203,7 @@ impl Stage6ReplayEngineV1 {
             .into_values()
             .map(WorkingRequest::into_recovered)
             .collect::<Vec<_>>();
-        let semantic_fingerprint_sha256 = replay_fingerprint(&requests);
-        Ok(Stage6ReplaySnapshotV1 {
-            replay_schema_version: STAGE6_REPLAY_SCHEMA_VERSION,
-            requests,
-            semantic_fingerprint_sha256,
-        })
+        Ok(Stage6ReplaySnapshotV1::from_recovered_requests(requests))
     }
 }
 

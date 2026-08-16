@@ -304,6 +304,51 @@ pub struct Stage6DurableCommandSnapshotV1 {
     payload: Stage6DurableCommandPayloadV1,
 }
 
+/// Broker-neutral immutable PLACE shape used to prove the original target of
+/// a later CANCEL. It carries no send or journal authority.
+#[derive(Clone, PartialEq)]
+pub struct Stage6DurablePlaceOrderShapeV1 {
+    side: OrderSide,
+    order_type: OrderType,
+    quantity: Quantity,
+    limit_price: Option<Price>,
+    time_in_force: TimeInForce,
+}
+
+impl Stage6DurablePlaceOrderShapeV1 {
+    pub fn new(
+        side: OrderSide,
+        order_type: OrderType,
+        quantity: Quantity,
+        limit_price: Option<Price>,
+        time_in_force: TimeInForce,
+    ) -> Result<Self, Stage6DurableIdentityError> {
+        validate_durable_place_shape(order_type, &quantity, &limit_price)?;
+        Ok(Self {
+            side,
+            order_type,
+            quantity,
+            limit_price,
+            time_in_force,
+        })
+    }
+
+    pub(crate) fn matches(
+        &self,
+        side: OrderSide,
+        order_type: OrderType,
+        quantity: Quantity,
+        limit_price: Option<Price>,
+        time_in_force: TimeInForce,
+    ) -> bool {
+        self.side == side
+            && self.order_type == order_type
+            && self.quantity == quantity
+            && self.limit_price == limit_price
+            && self.time_in_force == time_in_force
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "command_kind", rename_all = "snake_case", deny_unknown_fields)]
 enum Stage6DurableCommandPayloadV1 {
@@ -413,6 +458,26 @@ impl Stage6DurableCommandSnapshotV1 {
         match self.payload {
             Stage6DurableCommandPayloadV1::Place { .. } => Stage6DurableActionKind::Place,
             Stage6DurableCommandPayloadV1::Cancel { .. } => Stage6DurableActionKind::Cancel,
+        }
+    }
+
+    pub fn place_order_shape(&self) -> Option<Stage6DurablePlaceOrderShapeV1> {
+        match &self.payload {
+            Stage6DurableCommandPayloadV1::Place {
+                side,
+                order_type,
+                quantity,
+                limit_price,
+                time_in_force,
+                ..
+            } => Some(Stage6DurablePlaceOrderShapeV1 {
+                side: *side,
+                order_type: *order_type,
+                quantity: *quantity,
+                limit_price: *limit_price,
+                time_in_force: *time_in_force,
+            }),
+            Stage6DurableCommandPayloadV1::Cancel { .. } => None,
         }
     }
 
