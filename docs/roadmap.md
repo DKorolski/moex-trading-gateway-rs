@@ -46,9 +46,11 @@ independently accepted and closed at
 `6ddf54ef9d7f740dc59cd2450e78301be3d068cb`. Implementation Specification R2
 was independently accepted and closed at
 `dd01253596527d6cff1db11cc32ae3c3348c96a0`. I1 R1 at
-`0678354185c52aff1d6e194b16f80b0a2c84a1f0` was not accepted. I1 R2 is the
-sole active candidate with independent acceptance pending. I2, I3 and I4,
-writer/apply, ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live
+`0678354185c52aff1d6e194b16f80b0a2c84a1f0` was not accepted. I1 R2 is
+independently accepted and closed at `113d2827`. I2 private linear composition
+and transition-candidate generation without append is the sole active
+candidate with independent acceptance pending. I3 and I4, writer/apply,
+ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live
 consumption, broker dispatch, runtime-live and real orders remain closed.
 
 ### Accepted lineage and transition history

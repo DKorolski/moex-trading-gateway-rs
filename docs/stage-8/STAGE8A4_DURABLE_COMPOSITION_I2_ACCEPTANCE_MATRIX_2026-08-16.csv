@@ -1,0 +1,43 @@
+id,requirement,evidence
+I2-001,I1 R2 accepted predecessor is pinned,authority/checker
+I2-002,private outcome is non-public and non-serializable,source/checker
+I2-003,public diagnostic is projection only,source/compile-fail
+I2-004,builder accepts private outcome only,source/compile-fail
+I2-005,candidate is private non-Clone non-Debug non-Serialize,source/checker
+I2-006,V2 record is first candidate record,test
+I2-007,V2 sequence is previous plus one,test
+I2-008,V2 previous and causal links equal exact cursor record,codec/test
+I2-009,stable key domain is fixed,source/checker
+I2-010,stable key contains durable request binding,source/checker
+I2-011,stable key contains private outcome binding,source/checker
+I2-012,stable key contains transition kind,source/checker
+I2-013,stable key excludes seal generation,test
+I2-014,preappend evidence has exact four fields,source/checker
+I2-015,PLACE ExactWorking may finalize Completed,source/test
+I2-016,PLACE ExactTerminalFilled projects order trades finalization,test
+I2-017,PLACE ExactTerminalRejected finalizes Rejected,source
+I2-018,PLACE ExactTerminalCancelled finalizes Completed,source
+I2-019,PLACE ExactTerminalExpired finalizes Completed,source
+I2-020,CANCEL ExactWorking emits no suffix,test
+I2-021,CANCEL terminal filled maps ExecutionObserved,source
+I2-022,CANCEL terminal rejected maps Rejected,source
+I2-023,CANCEL terminal cancelled maps Canceled,test
+I2-024,CANCEL terminal expired maps AlreadyTerminalNonExecution,source
+I2-025,hold transitions emit no suffix,test
+I2-026,missing broker order id is never fabricated,test
+I2-027,trade suffix requires matching real broker order id,source
+I2-028,NotAttempted preserves reducer disposition,source
+I2-029,Succeeded preserves typed exact observation,test
+I2-030,DocumentedNotFound contradiction becomes Conflict,test
+I2-031,DocumentedNotFound without contradiction stays unknown,test
+I2-032,Unavailable stays unknown,test
+I2-033,DecodeFailure stays unknown,test
+I2-034,Stale stays unknown,test
+I2-035,CANCEL target identity is cross-bound,test
+I2-036,account and instrument identity are cross-bound,source
+I2-037,account safety summary is complete and bounded,source
+I2-038,suffix manifest binds full canonical V1 records,source/test
+I2-039,identical inputs produce byte-identical candidate,test
+I2-040,no journal append or backend dependency,checker
+I2-041,no CAS or seal mutation,checker
+I2-042,no ACK readiness Redis FINAM dispatch runtime-live,checker

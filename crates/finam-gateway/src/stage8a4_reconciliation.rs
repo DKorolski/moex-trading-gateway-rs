@@ -37,6 +37,9 @@ use rust_decimal::Decimal;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+#[allow(dead_code)]
+mod durable_composition_i2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stage8a4ExactLifecycle {
@@ -191,7 +194,7 @@ pub struct Stage8a4SourceEvidence {
 /// Opaque owned canonical truth admitted under a sealed source policy.
 pub struct Stage8a4FreshTruthAdmission {
     truth: BrokerTruthSnapshot,
-    exact_order_observation: Option<BrokerOrderSnapshot>,
+    exact_order_observation: Option<Stage8a4ExactOrderObservation>,
     admitted_durable_binding_sha256: String,
     admitted_policy_binding_sha256: String,
     source_evidence_binding_sha256: String,
@@ -368,9 +371,7 @@ pub fn admit_stage8a4_broker_truth(
     let target_active_orders_count = truth.target_active_orders(&context.instrument).len();
     Ok(Stage8a4FreshTruthAdmission {
         truth,
-        exact_order_observation: evidence
-            .exact_order_observation
-            .map(|observation| observation.order),
+        exact_order_observation: evidence.exact_order_observation,
         admitted_durable_binding_sha256: context.durable_binding_sha256.clone(),
         admitted_policy_binding_sha256: policy.policy_binding_sha256.clone(),
         source_evidence_binding_sha256,
@@ -386,6 +387,168 @@ pub fn reduce_stage8a4_reconciliation(
     context: Stage8a4DurableRequestContext,
     admission: Stage8a4FreshTruthAdmission,
     policy: Stage8a4ReconciliationPolicy,
+) -> Stage8a4ReconciliationDiagnostic {
+    reduce_stage8a4_authoritative(context, admission, policy).into_diagnostic()
+}
+
+struct Stage8a4AuthoritativeReconciliationOutcome {
+    context: Stage8a4DurableRequestContext,
+    outcome_kind: Stage8a4OutcomeKind,
+    reason: Stage8a4ReconciliationReason,
+    lifecycle: Option<Stage8a4ExactLifecycle>,
+    fill: Option<Stage8a4FillEffect>,
+    selected_order_binding_sha256: Option<String>,
+    trade_summary_binding_sha256: Option<String>,
+    matching_trade_count: usize,
+    semantic_binding_sha256: String,
+    selected_order: Option<BrokerOrderSnapshot>,
+    material_trades: Vec<BrokerTradeSnapshot>,
+    exact_lookup: Stage8a4PrivateExactLookup,
+    account_safety: Stage8a4PrivateAccountSafety,
+    source_evidence_binding_sha256: String,
+    private_outcome_binding_sha256: String,
+}
+
+impl Stage8a4AuthoritativeReconciliationOutcome {
+    fn into_diagnostic(self) -> Stage8a4ReconciliationDiagnostic {
+        Stage8a4ReconciliationDiagnostic {
+            outcome: self.outcome_kind,
+            reason: self.reason,
+            lifecycle: self.lifecycle,
+            fill: self.fill,
+            selected_order_binding_sha256: self.selected_order_binding_sha256,
+            trade_summary_binding_sha256: self.trade_summary_binding_sha256,
+            account_active_orders_count: self.account_safety.account_active_orders_count,
+            target_active_orders_count: self.account_safety.target_active_orders_count,
+            matching_trade_count: self.matching_trade_count,
+            semantic_binding_sha256: self.semantic_binding_sha256,
+            retry_authorized: false,
+            send_authorized: false,
+        }
+    }
+}
+
+#[allow(dead_code)]
+enum Stage8a4PrivateExactLookup {
+    NotAttempted,
+    Succeeded(Box<Stage8a4ExactOrderObservation>),
+    DocumentedNotFound {
+        timing: Stage8a4SourceTiming,
+        documented_status_category: String,
+    },
+    Unavailable {
+        timing: Stage8a4SourceTiming,
+        failure_category: String,
+    },
+    DecodeFailure {
+        timing: Stage8a4SourceTiming,
+        response_status_category: String,
+        response_binding_sha256: String,
+    },
+    Stale {
+        timing: Stage8a4SourceTiming,
+        stale_observation_binding_sha256: String,
+    },
+}
+
+struct Stage8a4PrivateAccountSafety {
+    account_active_orders_count: usize,
+    account_unknown_orders_count: usize,
+    account_orphan_orders_count: usize,
+    account_open_positions_count: usize,
+    target_active_orders_count: usize,
+    target_unknown_orders_count: usize,
+    target_terminal_orders_count: usize,
+    target_inconsistent_orders_count: usize,
+    target_open_positions_count: usize,
+    other_symbol_active_orders_count: usize,
+}
+
+fn reduce_stage8a4_authoritative(
+    context: Stage8a4DurableRequestContext,
+    admission: Stage8a4FreshTruthAdmission,
+    policy: Stage8a4ReconciliationPolicy,
+) -> Stage8a4AuthoritativeReconciliationOutcome {
+    let diagnostic = reduce_stage8a4_diagnostic(&context, &admission, &policy);
+    let selected_order = diagnostic
+        .selected_order_binding_sha256
+        .as_deref()
+        .and_then(|binding| {
+            admission
+                .truth
+                .orders
+                .iter()
+                .chain(
+                    admission
+                        .exact_order_observation
+                        .as_ref()
+                        .map(|observation| &observation.order),
+                )
+                .find(|order| digest_serializable(b"stage8a4-selected-order-v1", *order) == binding)
+                .cloned()
+        });
+    let material_trades = selected_order
+        .as_ref()
+        .and_then(|order| {
+            deduplicate_trades(&admission.truth.trades)
+                .ok()
+                .map(|deduped| (order, deduped))
+        })
+        .map(|(order, deduped)| {
+            deduped
+                .into_values()
+                .filter(|trade| {
+                    matches!(
+                        classify_trade_support(trade, order, &context),
+                        Stage8a4TradeSupport::CompatibleSupport
+                    )
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let exact_lookup = admission
+        .exact_order_observation
+        .map_or(Stage8a4PrivateExactLookup::NotAttempted, |observation| {
+            Stage8a4PrivateExactLookup::Succeeded(Box::new(observation))
+        });
+    let account_safety = account_safety_summary(&admission.truth, &context.instrument);
+    let private_outcome_binding_sha256 = digest_parts(
+        b"stage8a4-private-authoritative-outcome-v1",
+        &[
+            context.durable_binding_sha256.as_bytes(),
+            diagnostic.semantic_binding_sha256.as_bytes(),
+            admission.source_evidence_binding_sha256.as_bytes(),
+            private_exact_lookup_binding(&exact_lookup).as_bytes(),
+            account_safety_binding(&account_safety).as_bytes(),
+        ],
+    );
+    Stage8a4AuthoritativeReconciliationOutcome {
+        context,
+        outcome_kind: diagnostic.outcome,
+        reason: diagnostic.reason,
+        lifecycle: diagnostic.lifecycle,
+        fill: diagnostic.fill,
+        selected_order_binding_sha256: diagnostic.selected_order_binding_sha256,
+        trade_summary_binding_sha256: diagnostic.trade_summary_binding_sha256,
+        matching_trade_count: diagnostic.matching_trade_count,
+        semantic_binding_sha256: diagnostic.semantic_binding_sha256,
+        selected_order,
+        material_trades,
+        exact_lookup,
+        account_safety,
+        source_evidence_binding_sha256: admission.source_evidence_binding_sha256,
+        private_outcome_binding_sha256,
+    }
+}
+
+// The accepted reducer body predates its I2 borrowed wrapper. Keeping its
+// explicit reference call sites makes the semantic diff auditable.
+#[allow(clippy::needless_borrow)]
+fn reduce_stage8a4_diagnostic(
+    context: &Stage8a4DurableRequestContext,
+    admission: &Stage8a4FreshTruthAdmission,
+    policy: &Stage8a4ReconciliationPolicy,
 ) -> Stage8a4ReconciliationDiagnostic {
     let canonical_truth_sha256 = canonical_truth_binding(&admission.truth);
     let expected_truth_binding_sha256 = digest_parts(
@@ -428,8 +591,8 @@ pub fn reduce_stage8a4_reconciliation(
             .filter(|order| order.broker_order_id.as_ref() == Some(expected))
             .collect::<Vec<_>>();
         if let Some(exact) = admission.exact_order_observation.as_ref() {
-            if exact.broker_order_id.as_ref() == Some(expected) && values.is_empty() {
-                values.push(exact);
+            if exact.order.broker_order_id.as_ref() == Some(expected) && values.is_empty() {
+                values.push(&exact.order);
             }
         }
         values
@@ -439,9 +602,9 @@ pub fn reduce_stage8a4_reconciliation(
         return reducer_non_exact(
             Stage8a4OutcomeKind::Conflict,
             Stage8a4ReconciliationReason::MultipleCandidates,
-            &context,
-            &policy,
-            &admission,
+            context,
+            policy,
+            admission,
         );
     }
     if let (Some(client), Some(broker)) = (
@@ -621,9 +784,155 @@ pub fn reduce_stage8a4_reconciliation(
         account_active_orders_count: admission.account_active_orders_count,
         target_active_orders_count: admission.target_active_orders_count,
         matching_trade_count: matching_trades.len(),
-        context: &context,
-        policy: &policy,
+        context,
+        policy,
     })
+}
+
+fn account_safety_summary(
+    truth: &BrokerTruthSnapshot,
+    target: &InstrumentId,
+) -> Stage8a4PrivateAccountSafety {
+    let account_active_orders_count = truth
+        .orders
+        .iter()
+        .filter(|order| order.lifecycle == broker_core::BrokerOrderLifecycle::Active)
+        .count();
+    let account_unknown_orders_count = truth
+        .orders
+        .iter()
+        .filter(|order| matches!(order.status, OrderStatus::Unknown(_)))
+        .count();
+    let account_orphan_orders_count = truth
+        .orders
+        .iter()
+        .filter(|order| order.broker_order_id.is_none() && order.client_order_id.is_none())
+        .count();
+    let account_open_positions_count = truth
+        .positions
+        .iter()
+        .filter(|position| !position.qty.is_zero())
+        .count();
+    let target_orders = truth
+        .orders
+        .iter()
+        .filter(|order| exact_instrument_matches(&order.instrument, target))
+        .collect::<Vec<_>>();
+    let target_active_orders_count = target_orders
+        .iter()
+        .filter(|order| order.lifecycle == broker_core::BrokerOrderLifecycle::Active)
+        .count();
+    let target_unknown_orders_count = target_orders
+        .iter()
+        .filter(|order| matches!(order.status, OrderStatus::Unknown(_)))
+        .count();
+    let target_terminal_orders_count = target_orders
+        .iter()
+        .filter(|order| order.lifecycle == broker_core::BrokerOrderLifecycle::Terminal)
+        .count();
+    let target_inconsistent_orders_count = target_orders
+        .iter()
+        .filter(|order| {
+            order.qty <= Quantity::ZERO
+                || order.filled_qty < Quantity::ZERO
+                || order.filled_qty > order.qty
+                || order.remaining_qty.is_some_and(|remaining| {
+                    remaining < Quantity::ZERO || remaining + order.filled_qty != order.qty
+                })
+        })
+        .count();
+    let target_open_positions_count = truth
+        .positions
+        .iter()
+        .filter(|position| {
+            exact_instrument_matches(&position.instrument, target) && !position.qty.is_zero()
+        })
+        .count();
+    Stage8a4PrivateAccountSafety {
+        account_active_orders_count,
+        account_unknown_orders_count,
+        account_orphan_orders_count,
+        account_open_positions_count,
+        target_active_orders_count,
+        target_unknown_orders_count,
+        target_terminal_orders_count,
+        target_inconsistent_orders_count,
+        target_open_positions_count,
+        other_symbol_active_orders_count: account_active_orders_count
+            .saturating_sub(target_active_orders_count),
+    }
+}
+
+fn private_exact_lookup_binding(value: &Stage8a4PrivateExactLookup) -> String {
+    let parts = match value {
+        Stage8a4PrivateExactLookup::NotAttempted => vec!["not_attempted".to_string()],
+        Stage8a4PrivateExactLookup::Succeeded(observation) => vec![
+            "succeeded".to_string(),
+            observation.timing.request_started_at.to_rfc3339(),
+            observation.timing.response_received_at.to_rfc3339(),
+            digest_serializable(b"stage8a4-exact-order-observation-v2", &observation.order),
+        ],
+        Stage8a4PrivateExactLookup::DocumentedNotFound {
+            timing,
+            documented_status_category,
+        } => vec![
+            "documented_not_found".to_string(),
+            timing.request_started_at.to_rfc3339(),
+            timing.response_received_at.to_rfc3339(),
+            documented_status_category.clone(),
+        ],
+        Stage8a4PrivateExactLookup::Unavailable {
+            timing,
+            failure_category,
+        } => vec![
+            "unavailable".to_string(),
+            timing.request_started_at.to_rfc3339(),
+            timing.response_received_at.to_rfc3339(),
+            failure_category.clone(),
+        ],
+        Stage8a4PrivateExactLookup::DecodeFailure {
+            timing,
+            response_status_category,
+            response_binding_sha256,
+        } => vec![
+            "decode_failure".to_string(),
+            timing.request_started_at.to_rfc3339(),
+            timing.response_received_at.to_rfc3339(),
+            response_status_category.clone(),
+            response_binding_sha256.clone(),
+        ],
+        Stage8a4PrivateExactLookup::Stale {
+            timing,
+            stale_observation_binding_sha256,
+        } => vec![
+            "stale".to_string(),
+            timing.request_started_at.to_rfc3339(),
+            timing.response_received_at.to_rfc3339(),
+            stale_observation_binding_sha256.clone(),
+        ],
+    };
+    digest_parts(
+        b"stage8a4-private-exact-lookup-v1",
+        &parts.iter().map(String::as_bytes).collect::<Vec<_>>(),
+    )
+}
+
+fn account_safety_binding(value: &Stage8a4PrivateAccountSafety) -> String {
+    digest_parts(
+        b"stage8a4-account-safety-v1",
+        &[
+            &value.account_active_orders_count.to_be_bytes(),
+            &value.account_unknown_orders_count.to_be_bytes(),
+            &value.account_orphan_orders_count.to_be_bytes(),
+            &value.account_open_positions_count.to_be_bytes(),
+            &value.target_active_orders_count.to_be_bytes(),
+            &value.target_unknown_orders_count.to_be_bytes(),
+            &value.target_terminal_orders_count.to_be_bytes(),
+            &value.target_inconsistent_orders_count.to_be_bytes(),
+            &value.target_open_positions_count.to_be_bytes(),
+            &value.other_symbol_active_orders_count.to_be_bytes(),
+        ],
+    )
 }
 
 fn validate_timing(

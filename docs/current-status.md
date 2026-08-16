@@ -45,9 +45,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   accepted review SHA-256 is
   `acb8364ee2100bf64e50522823b1da21093f96c73f93b20b4cdf9e7ac09b58ec`.
 - I1 R1 at `0678354185c52aff1d6e194b16f80b0a2c84a1f0` was not accepted. I1 R2 is
-  the sole active candidate and its independent acceptance is pending; it does
-  not predeclare I1 accepted.
-- I2, I3 and I4 remain CLOSED. V2 writer, durable apply/journal mutation,
+  independently ACCEPTED and CLOSED at
+  `113d2827ef255e8d2c2597a3acb38fe52dd7e52d`; its review SHA-256 is
+  `5ef7d0fcc645874a8d9bce7e2d2bb3004f06b038c81b0bf5496582464cb1b9e7`.
+- I2 private linear composition/transition candidate generation without append
+  is the sole active implementation candidate; independent acceptance is
+  pending. I3 and I4 remain CLOSED. V2 writer, durable apply/journal mutation,
   ACK/readiness publication, Redis live consumption, FINAM POST/DELETE, broker
   dispatch, retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and
   Stage 8B remain CLOSED.
