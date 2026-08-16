@@ -19,8 +19,10 @@ is accepted at `cc58c10`; its pure reducer Implementation R4 is accepted and
 closed at `4caf07c`. Durable-composition Design R2 is accepted and closed at
 `6ddf54e`. Implementation Specification R2 is accepted and closed at
 `dd01253`. I1 R1 at `0678354` was not accepted; I1 R2 is accepted and closed at
-`113d282`. I2 R1 at `6527619` was not accepted; its four narrow P1 findings
-are addressed by the active I2 R2 private in-memory composition candidate.
+`113d282`. I2 R1 at `6527619` was not accepted. I2 R2 at `e04edea` closed its
+four findings but exposed one final accepted-command cross-binding seam. The
+active I2 R3 private in-memory candidate binds exact action, attribution,
+PLACE/CANCEL payload shape and canonical accepted-command digest.
 I3/I4 writer, apply, seal and ACK/readiness plus Stage 8A-5 remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and

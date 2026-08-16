@@ -48,9 +48,11 @@ was independently accepted and closed at
 `dd01253596527d6cff1db11cc32ae3c3348c96a0`. I1 R1 at
 `0678354185c52aff1d6e194b16f80b0a2c84a1f0` was not accepted. I1 R2 is
 independently accepted and closed at `113d2827`. I2 R1 at `6527619` was not
-accepted; I2 R2 private linear composition and transition-candidate generation
-without append is the sole active candidate with independent acceptance
-pending. I3 and I4, writer/apply,
+accepted. I2 R2 at `e04edea` closed the R1 findings but was not accepted because
+the Stage 6/7 action and command payload were not exactly cross-bound. I2 R3 is
+the sole active private no-append candidate and closes that seam while leaving
+the stable-key formula unchanged. Independent acceptance is pending. I3 and I4,
+writer/apply,
 ACK/readiness, Stage 8A-5+, FINAM POST/DELETE, Redis live
 consumption, broker dispatch, runtime-live and real orders remain closed.
 

@@ -16,17 +16,24 @@
 //! ```
 
 use super::{
-    account_safety_binding, digest_parts, Stage8a4AuthoritativeReconciliationOutcome,
-    Stage8a4ExactLifecycle, Stage8a4FillEffect, Stage8a4OutcomeKind, Stage8a4PrivateExactLookup,
+    account_safety_binding, digest_parts, private_authoritative_outcome_binding,
+    Stage8a4AuthoritativeReconciliationOutcome, Stage8a4ExactLifecycle, Stage8a4FillEffect,
+    Stage8a4OutcomeKind, Stage8a4PrivateExactLookup,
 };
-use broker_core::{BrokerOrderId, BrokerOrderSnapshot, BrokerTradeSnapshot};
-use serde::Serialize;
+use broker_core::{
+    BrokerAccountId, BrokerOrderId, BrokerOrderSnapshot, BrokerTradeSnapshot, ClientOrderId,
+    HybridRuntimeAttribution, InstrumentId, OrderSide, OrderType, Price, Quantity,
+    StrategyRequestId, TimeInForce,
+};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use strategy_runtime_core::{
-    Stage6CancelOutcomeV1, Stage6DurableActionKind, Stage6DurableRequestIdentityV1,
-    Stage6JournalEventKind, Stage6JournalEventKindV2, Stage6JournalRecordId, Stage6JournalRecordV1,
-    Stage6JournalRecordV2, Stage6LifecycleSequence, Stage6ReconciliationTransitionPayloadV2,
-    Stage6RequestFinalDispositionV1, Stage6Sha256Digest, STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
+    Stage6CancelOutcomeV1, Stage6DurableActionKind, Stage6DurableCommandSnapshotV1,
+    Stage6DurableRequestIdentityV1, Stage6JournalEventKind, Stage6JournalEventKindV2,
+    Stage6JournalRecordId, Stage6JournalRecordV1, Stage6JournalRecordV2, Stage6LifecycleSequence,
+    Stage6ReconciliationTransitionPayloadV2, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
+    STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
 };
 
 const STABLE_KEY_DOMAIN: &[u8] = b"stage8a4-stable-transition-key-v1";
@@ -189,8 +196,60 @@ struct PrivatePreAppendEvidence {
     expected_request_state_fingerprint: Stage6Sha256Digest,
 }
 
+struct Stage8a4PrivateAcceptedCommandAuthority {
+    durable_identity: Stage6DurableRequestIdentityV1,
+    canonical_command_payload_sha256: Stage6Sha256Digest,
+    command: PrivateAcceptedCommandShape,
+}
+
+#[derive(Deserialize)]
+struct PrivateAcceptedRecordWire {
+    durable_request_identity: Stage6DurableRequestIdentityV1,
+    event_kind: Stage6JournalEventKind,
+    payload: PrivateAcceptedRecordPayload,
+    canonical_payload_sha256: Stage6Sha256Digest,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "payload_kind", rename_all = "snake_case", deny_unknown_fields)]
+enum PrivateAcceptedRecordPayload {
+    RequestAccepted {
+        command: Stage6DurableCommandSnapshotV1,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "command_kind", rename_all = "snake_case", deny_unknown_fields)]
+enum PrivateAcceptedCommandShape {
+    Place {
+        request_id: StrategyRequestId,
+        durable_client_order_id: ClientOrderId,
+        account_id: BrokerAccountId,
+        instrument: InstrumentId,
+        side: OrderSide,
+        order_type: OrderType,
+        quantity: Quantity,
+        limit_price: Option<Price>,
+        time_in_force: TimeInForce,
+        ttl_ms: Option<u64>,
+        created_ts: DateTime<Utc>,
+        attribution: HybridRuntimeAttribution,
+    },
+    Cancel {
+        request_id: StrategyRequestId,
+        durable_cancel_client_order_id: ClientOrderId,
+        account_id: BrokerAccountId,
+        instrument: InstrumentId,
+        target_broker_order_id: BrokerOrderId,
+        target_order_client_order_id: Option<ClientOrderId>,
+        ttl_ms: Option<u64>,
+        created_ts: DateTime<Utc>,
+        attribution: HybridRuntimeAttribution,
+    },
+}
+
 struct Stage8a4I2CompositionInput {
-    identity: Stage6DurableRequestIdentityV1,
+    accepted_command_authority: Stage8a4PrivateAcceptedCommandAuthority,
     cursor: PrivateJournalCursor,
     pre_append: PrivatePreAppendEvidence,
     outcome: Stage8a4AuthoritativeReconciliationOutcome,
@@ -203,6 +262,8 @@ struct Stage8a4I2DurableCandidate {
 
 #[derive(Debug)]
 enum Stage8a4I2CompositionError {
+    AcceptedCommandAuthorityInvalid,
+    CommandBindingMismatch,
     IdentityMismatch,
     InvalidDigest,
     InvalidSequence,
@@ -217,10 +278,11 @@ enum Stage8a4I2CompositionError {
 fn build_private_durable_candidate(
     input: Stage8a4I2CompositionInput,
 ) -> Result<Stage8a4I2DurableCandidate, Stage8a4I2CompositionError> {
-    validate_identity_binding(&input.identity, &input.outcome)?;
+    validate_accepted_command_binding(&input.accepted_command_authority, &input.outcome)?;
+    let identity = input.accepted_command_authority.durable_identity;
     let next_sequence = next_sequence(input.cursor.previous_lifecycle_sequence, 1)?;
     let transition_kind = effective_transition_kind(&input.outcome);
-    let endpoint_kind = match input.identity.action() {
+    let endpoint_kind = match identity.action() {
         Stage6DurableActionKind::Place => PrivateEndpointKind::Place,
         Stage6DurableActionKind::Cancel => PrivateEndpointKind::Cancel,
     };
@@ -236,10 +298,10 @@ fn build_private_durable_candidate(
             &transition_bytes,
         ],
     ))?;
-    let v2_record_id = derive_record_id(input.identity.strategy_request_id(), next_sequence)?;
+    let v2_record_id = derive_record_id(identity.strategy_request_id(), next_sequence)?;
     let source_evidence = parse_digest(&input.outcome.source_evidence_binding_sha256)?;
     let suffix_records = build_v1_suffix(
-        &input.identity,
+        &identity,
         &input.outcome,
         transition_kind,
         next_sequence,
@@ -278,7 +340,7 @@ fn build_private_durable_candidate(
         lifecycle_sequence: next_sequence,
         previous_record_id: Some(input.cursor.previous_record_id.clone()),
         causal_parent_id: Some(input.cursor.previous_record_id),
-        durable_request_identity: input.identity,
+        durable_request_identity: identity,
         event_kind: Stage6JournalEventKindV2::ReconciliationTransitionApplied,
         payload,
         canonical_payload_sha256: parse_digest(&sha256_hex(&payload_bytes))?,
@@ -296,19 +358,113 @@ fn build_private_durable_candidate(
     })
 }
 
-fn validate_identity_binding(
-    identity: &Stage6DurableRequestIdentityV1,
+fn accepted_command_authority_from_request_accepted(
+    record: &Stage6JournalRecordV1,
+) -> Result<Stage8a4PrivateAcceptedCommandAuthority, Stage8a4I2CompositionError> {
+    let wire: PrivateAcceptedRecordWire = serde_json::from_slice(&record.encode_canonical())
+        .map_err(|_| Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid)?;
+    if wire.event_kind != Stage6JournalEventKind::RequestAccepted
+        || &wire.canonical_payload_sha256 != record.canonical_payload_sha256()
+    {
+        return Err(Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid);
+    }
+    let PrivateAcceptedRecordPayload::RequestAccepted { command } = wire.payload;
+    if command.action() != wire.durable_request_identity.action() {
+        return Err(Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid);
+    }
+    let command: PrivateAcceptedCommandShape = serde_json::from_slice(
+        &serde_json::to_vec(&command)
+            .map_err(|_| Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid)?,
+    )
+    .map_err(|_| Stage8a4I2CompositionError::AcceptedCommandAuthorityInvalid)?;
+    Ok(Stage8a4PrivateAcceptedCommandAuthority {
+        durable_identity: wire.durable_request_identity,
+        canonical_command_payload_sha256: wire.canonical_payload_sha256,
+        command,
+    })
+}
+
+fn validate_accepted_command_binding(
+    authority: &Stage8a4PrivateAcceptedCommandAuthority,
     outcome: &Stage8a4AuthoritativeReconciliationOutcome,
 ) -> Result<(), Stage8a4I2CompositionError> {
     let context = &outcome.context;
+    let identity = &authority.durable_identity;
     if identity.strategy_request_id() != context.request_id
         || identity.durable_client_order_id() != &context.client_order_id
         || identity.account_id() != &context.account_id
         || identity.instrument() != &context.instrument
-        || (identity.action() == Stage6DurableActionKind::Cancel
-            && identity.target_broker_order_id() != context.known_broker_order_id.as_ref())
+        || identity.action() != context.action
+        || identity.attribution() != &context.attribution
+        || authority.canonical_command_payload_sha256.as_str()
+            != context.accepted_command_payload_sha256
     {
         return Err(Stage8a4I2CompositionError::IdentityMismatch);
+    }
+    match &authority.command {
+        PrivateAcceptedCommandShape::Place {
+            request_id,
+            durable_client_order_id,
+            account_id,
+            instrument,
+            side,
+            order_type,
+            quantity,
+            limit_price,
+            time_in_force,
+            ttl_ms: _,
+            created_ts: _,
+            attribution,
+        } => {
+            if identity.action() != Stage6DurableActionKind::Place
+                || request_id != &context.request_id
+                || durable_client_order_id != &context.client_order_id
+                || account_id != &context.account_id
+                || instrument != &context.instrument
+                || attribution != &context.attribution
+                || side != &context.side
+                || quantity != &context.qty
+                || order_type != &context.order_type
+                || time_in_force != &context.time_in_force
+                || limit_price != &context.limit_price
+            {
+                return Err(Stage8a4I2CompositionError::CommandBindingMismatch);
+            }
+        }
+        PrivateAcceptedCommandShape::Cancel {
+            request_id,
+            durable_cancel_client_order_id,
+            account_id,
+            instrument,
+            target_broker_order_id,
+            target_order_client_order_id,
+            ttl_ms: _,
+            created_ts: _,
+            attribution,
+        } => {
+            if identity.action() != Stage6DurableActionKind::Cancel
+                || request_id != &context.request_id
+                || durable_cancel_client_order_id != &context.client_order_id
+                || account_id != &context.account_id
+                || instrument != &context.instrument
+                || attribution != &context.attribution
+                || Some(target_broker_order_id) != context.known_broker_order_id.as_ref()
+                || target_order_client_order_id.as_ref()
+                    != context.target_order_client_order_id.as_ref()
+            {
+                return Err(Stage8a4I2CompositionError::CommandBindingMismatch);
+            }
+        }
+    }
+    let expected_outcome_binding = private_authoritative_outcome_binding(
+        context,
+        &outcome.semantic_binding_sha256,
+        &outcome.source_evidence_binding_sha256,
+        &outcome.exact_lookup,
+        &outcome.account_safety,
+    );
+    if expected_outcome_binding != outcome.private_outcome_binding_sha256 {
+        return Err(Stage8a4I2CompositionError::CommandBindingMismatch);
     }
     Ok(())
 }

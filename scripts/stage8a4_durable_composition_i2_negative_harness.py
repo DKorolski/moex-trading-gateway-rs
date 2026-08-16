@@ -66,6 +66,11 @@ def main() -> None:
         ("filled-without-trade-coverage-removed", lambda root: mutate_text(root, checker.TESTS, "account_safety_uses_canonical_broker_truth_for_all_orphan_classes", "account_safety_orphan_coverage_removed")),
         ("trade-projection-requires-selected-id", lambda root: mutate_text(root, checker.SOURCE, "            if let Some(order_id) = projected_trade_order_id {", "            if let Some(order_id) = selected_order_id {")),
         ("multi-trade-id-ambiguity-accepted", lambda root: mutate_text(root, checker.SOURCE, "                    if material_broker_ids.len() > 1 {", "                    if false && material_broker_ids.len() > 1 {")),
+        ("endpoint-action-cross-binding-removed", lambda root: mutate_text(root, checker.SOURCE, "        || identity.action() != context.action", "        || false /* action comparison removed */")),
+        ("command-payload-outcome-binding-removed", lambda root: mutate_text(root, checker.REDUCER, "            context.accepted_command_payload_sha256.as_bytes(),", "            b\"command-payload-binding-removed\",")),
+        ("place-shape-comparison-removed", lambda root: mutate_text(root, checker.SOURCE, "                || quantity != &context.qty", "                || false /* quantity comparison removed */")),
+        ("cancel-target-client-comparison-removed", lambda root: mutate_text(root, checker.SOURCE, "                || target_order_client_order_id.as_ref()\n                    != context.target_order_client_order_id.as_ref()", "                || false /* cancel target client comparison removed */")),
+        ("attribution-comparison-removed", lambda root: mutate_text(root, checker.SOURCE, "        || identity.attribution() != &context.attribution", "        || false /* attribution comparison removed */")),
     ]
     passed = 0
     with tempfile.TemporaryDirectory(prefix="stage8a4-i2-negative-") as raw:

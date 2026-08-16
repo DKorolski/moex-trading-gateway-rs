@@ -1,11 +1,12 @@
 use super::*;
 use crate::stage8a4_reconciliation::{
     admit_stage8a4_broker_truth, canonical_truth_binding, interval_coverage_fingerprint,
-    reduce_stage8a4_authoritative, Stage8a4BoundedTradeHistoryComplete,
-    Stage8a4CompletePositionsSnapshot, Stage8a4DurableRequestContext,
-    Stage8a4InstrumentCompletenessEvidence, Stage8a4NonPaginatedOrdersSnapshotComplete,
-    Stage8a4PrivateAccountSafety, Stage8a4ReconciliationPolicy, Stage8a4ReconciliationReason,
-    Stage8a4SourceEvidence, Stage8a4SourceTiming, Stage8a4TradeIntervalProof,
+    private_authoritative_outcome_binding, reduce_stage8a4_authoritative,
+    Stage8a4BoundedTradeHistoryComplete, Stage8a4CompletePositionsSnapshot,
+    Stage8a4DurableRequestContext, Stage8a4InstrumentCompletenessEvidence,
+    Stage8a4NonPaginatedOrdersSnapshotComplete, Stage8a4PrivateAccountSafety,
+    Stage8a4ReconciliationPolicy, Stage8a4ReconciliationReason, Stage8a4SourceEvidence,
+    Stage8a4SourceTiming, Stage8a4TradeIntervalProof,
 };
 use broker_core::{
     BrokerAccountId, BrokerInstrumentSpec, BrokerKind, BrokerSymbol, BrokerTruthSnapshot,
@@ -72,15 +73,18 @@ fn instrument_spec() -> BrokerInstrumentSpec {
 }
 
 fn attribution(role: &str) -> HybridRuntimeAttribution {
+    attribution_for("cycle0001", role)
+}
+
+fn attribution_for(cycle: &str, role: &str) -> HybridRuntimeAttribution {
     HybridRuntimeAttribution::parse_source_comment(format!(
-        "HYB|sid=hybrid_imoexf|c=cycle0001|o=BO|r={role}"
+        "HYB|sid=hybrid_imoexf|c={cycle}|o=BO|r={role}"
     ))
     .unwrap()
 }
 
-fn place_identity() -> (Stage6DurableRequestIdentityV1, Stage6JournalRecordV1) {
-    let request_id = request(1);
-    let command = PlaceOrder {
+fn place_command(request_id: StrategyRequestId) -> PlaceOrder {
+    PlaceOrder {
         request_id,
         created_ts: now(),
         ttl_ms: Some(5_000),
@@ -93,10 +97,51 @@ fn place_identity() -> (Stage6DurableRequestIdentityV1, Stage6JournalRecordV1) {
         limit_price: Some(Decimal::from(2210)),
         time_in_force: TimeInForce::Day,
         comment: Some(attribution("ENTRY").internal_comment().to_string()),
-    };
+    }
+}
+
+fn accepted_place(
+    command: &PlaceOrder,
+    command_attribution: HybridRuntimeAttribution,
+) -> (Stage6DurableRequestIdentityV1, Stage6JournalRecordV1) {
     let identity =
-        Stage6DurableRequestIdentityV1::from_place(&command, attribution("ENTRY")).unwrap();
-    let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, &command).unwrap();
+        Stage6DurableRequestIdentityV1::from_place(command, command_attribution).unwrap();
+    let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, command).unwrap();
+    let accepted = Stage6JournalRecordV1::request_accepted(
+        identity.clone(),
+        snapshot,
+        Stage6LifecycleSequence::new(1).unwrap(),
+        None,
+        None,
+        digest(FP),
+    )
+    .unwrap();
+    (identity, accepted)
+}
+
+fn place_identity() -> (Stage6DurableRequestIdentityV1, Stage6JournalRecordV1) {
+    accepted_place(&place_command(request(1)), attribution("ENTRY"))
+}
+
+fn cancel_command(request_id: StrategyRequestId) -> CancelOrder {
+    CancelOrder {
+        request_id,
+        created_ts: now(),
+        ttl_ms: Some(5_000),
+        account_id: account(),
+        order_id: BrokerOrderId::new("BROKER-ORDER-1"),
+        client_order_id: Some(ClientOrderId::from_strategy_request(request(1))),
+    }
+}
+
+fn accepted_cancel(
+    command: &CancelOrder,
+    command_attribution: HybridRuntimeAttribution,
+) -> (Stage6DurableRequestIdentityV1, Stage6JournalRecordV1) {
+    let identity =
+        Stage6DurableRequestIdentityV1::from_cancel(command, instrument(), command_attribution)
+            .unwrap();
+    let snapshot = Stage6DurableCommandSnapshotV1::from_cancel(&identity, command).unwrap();
     let accepted = Stage6JournalRecordV1::request_accepted(
         identity.clone(),
         snapshot,
@@ -110,29 +155,7 @@ fn place_identity() -> (Stage6DurableRequestIdentityV1, Stage6JournalRecordV1) {
 }
 
 fn cancel_identity() -> (Stage6DurableRequestIdentityV1, Stage6JournalRecordV1) {
-    let request_id = request(2);
-    let command = CancelOrder {
-        request_id,
-        created_ts: now(),
-        ttl_ms: Some(5_000),
-        account_id: account(),
-        order_id: BrokerOrderId::new("BROKER-ORDER-1"),
-        client_order_id: Some(ClientOrderId::from_strategy_request(request(1))),
-    };
-    let identity =
-        Stage6DurableRequestIdentityV1::from_cancel(&command, instrument(), attribution("CANCEL"))
-            .unwrap();
-    let snapshot = Stage6DurableCommandSnapshotV1::from_cancel(&identity, &command).unwrap();
-    let accepted = Stage6JournalRecordV1::request_accepted(
-        identity.clone(),
-        snapshot,
-        Stage6LifecycleSequence::new(1).unwrap(),
-        None,
-        None,
-        digest(FP),
-    )
-    .unwrap();
-    (identity, accepted)
+    accepted_cancel(&cancel_command(request(2)), attribution("CANCEL"))
 }
 
 fn dispatch_attempt(
@@ -219,6 +242,7 @@ fn trade() -> BrokerTradeSnapshot {
 
 fn durable_context(
     identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
     known_broker_order_id: Option<BrokerOrderId>,
 ) -> Stage8a4DurableRequestContext {
     Stage8a4DurableRequestContext {
@@ -226,12 +250,16 @@ fn durable_context(
         client_order_id: identity.durable_client_order_id().clone(),
         account_id: identity.account_id().clone(),
         instrument: identity.instrument().clone(),
+        action: identity.action(),
+        attribution: identity.attribution().clone(),
         side: OrderSide::Buy,
         qty: Decimal::from(2),
         order_type: OrderType::Limit,
         time_in_force: TimeInForce::Day,
         limit_price: Some(Decimal::from(2210)),
         known_broker_order_id,
+        target_order_client_order_id: identity.target_order_client_order_id().cloned(),
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
         possible_effect_at: now() - Duration::seconds(10),
         event_start: now() - Duration::seconds(9),
         event_end: now() - Duration::seconds(1),
@@ -310,10 +338,15 @@ fn source_evidence(
 
 fn production_outcome(
     identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
     truth: BrokerTruthSnapshot,
     exact_lookup: Stage8a4PrivateExactLookup,
 ) -> Stage8a4AuthoritativeReconciliationOutcome {
-    let context = durable_context(identity, Some(BrokerOrderId::new("BROKER-ORDER-1")));
+    let context = durable_context(
+        identity,
+        accepted,
+        Some(BrokerOrderId::new("BROKER-ORDER-1")),
+    );
     let evidence = source_evidence(&context, &truth, exact_lookup);
     let policy = reconciliation_policy();
     let admission = admit_stage8a4_broker_truth(&context, &policy, truth, evidence).unwrap();
@@ -322,6 +355,7 @@ fn production_outcome(
 
 fn exact_outcome(
     identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
     lifecycle: Stage8a4ExactLifecycle,
     selected: BrokerOrderSnapshot,
     trades: Vec<BrokerTradeSnapshot>,
@@ -332,7 +366,22 @@ fn exact_outcome(
         },
         _ => Stage8a4FillEffect::Zero,
     };
-    let context = durable_context(identity, selected.broker_order_id.clone());
+    let context = durable_context(identity, accepted, selected.broker_order_id.clone());
+    let exact_lookup = Stage8a4PrivateExactLookup::NotAttempted;
+    let account_safety = Stage8a4PrivateAccountSafety {
+        account_active_orders_count: 0,
+        account_unknown_orders_count: 0,
+        account_orphan_orders_count: 0,
+        account_open_positions_count: 0,
+        target_active_orders_count: 0,
+        target_unknown_orders_count: 0,
+        target_terminal_orders_count: 1,
+        target_inconsistent_orders_count: 0,
+        target_open_positions_count: 0,
+        other_symbol_active_orders_count: 0,
+    };
+    let private_outcome_binding_sha256 =
+        private_authoritative_outcome_binding(&context, FP, FP, &exact_lookup, &account_safety);
     Stage8a4AuthoritativeReconciliationOutcome {
         context,
         outcome_kind: Stage8a4OutcomeKind::ExactOrderState,
@@ -345,35 +394,40 @@ fn exact_outcome(
         semantic_binding_sha256: FP.into(),
         selected_order: Some(selected),
         material_trades: trades,
-        exact_lookup: Stage8a4PrivateExactLookup::NotAttempted,
-        account_safety: Stage8a4PrivateAccountSafety {
-            account_active_orders_count: 0,
-            account_unknown_orders_count: 0,
-            account_orphan_orders_count: 0,
-            account_open_positions_count: 0,
-            target_active_orders_count: 0,
-            target_unknown_orders_count: 0,
-            target_terminal_orders_count: 1,
-            target_inconsistent_orders_count: 0,
-            target_open_positions_count: 0,
-            other_symbol_active_orders_count: 0,
-        },
+        exact_lookup,
+        account_safety,
         source_evidence_binding_sha256: FP.into(),
-        private_outcome_binding_sha256: FP2.into(),
+        private_outcome_binding_sha256,
     }
 }
 
-fn input(
-    identity: Stage6DurableRequestIdentityV1,
+fn rebind_outcome_to_accepted(
+    outcome: &mut Stage8a4AuthoritativeReconciliationOutcome,
     accepted: &Stage6JournalRecordV1,
+) {
+    outcome.context.accepted_command_payload_sha256 =
+        accepted.canonical_payload_sha256().as_str().to_string();
+    outcome.private_outcome_binding_sha256 = private_authoritative_outcome_binding(
+        &outcome.context,
+        &outcome.semantic_binding_sha256,
+        &outcome.source_evidence_binding_sha256,
+        &outcome.exact_lookup,
+        &outcome.account_safety,
+    );
+}
+
+fn input(
+    accepted: &Stage6JournalRecordV1,
+    cursor: &Stage6JournalRecordV1,
     outcome: Stage8a4AuthoritativeReconciliationOutcome,
     seal_generation: u64,
 ) -> Stage8a4I2CompositionInput {
     Stage8a4I2CompositionInput {
-        identity,
+        accepted_command_authority: accepted_command_authority_from_request_accepted(accepted)
+            .unwrap(),
         cursor: PrivateJournalCursor {
-            previous_record_id: accepted.journal_record_id().clone(),
-            previous_lifecycle_sequence: accepted.lifecycle_sequence(),
+            previous_record_id: cursor.journal_record_id().clone(),
+            previous_lifecycle_sequence: cursor.lifecycle_sequence(),
         },
         pre_append: PrivatePreAppendEvidence {
             expected_stage6_checkpoint_or_frontier_fingerprint: digest(FP),
@@ -394,6 +448,7 @@ fn place_exact_filled_builds_v2_then_lossless_v1_suffix() {
     let (identity, accepted) = place_identity();
     let outcome = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::TerminalFilled,
         order(
             OrderStatus::Filled,
@@ -402,7 +457,7 @@ fn place_exact_filled_builds_v2_then_lossless_v1_suffix() {
         vec![trade()],
     );
     let candidate =
-        build_private_durable_candidate(input(identity, &accepted, outcome, 7)).unwrap();
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, 7)).unwrap();
     assert_eq!(candidate.transition_record.lifecycle_sequence().get(), 2);
     assert_eq!(candidate.suffix_records.len(), 3);
     assert_eq!(candidate.suffix_records[0].lifecycle_sequence().get(), 3);
@@ -428,6 +483,7 @@ fn stable_key_ignores_mutable_preappend_generation() {
     let make = |generation| {
         let outcome = exact_outcome(
             &identity,
+            &accepted,
             Stage8a4ExactLifecycle::Working,
             order(
                 OrderStatus::Working,
@@ -435,8 +491,7 @@ fn stable_key_ignores_mutable_preappend_generation() {
             ),
             vec![],
         );
-        build_private_durable_candidate(input(identity.clone(), &accepted, outcome, generation))
-            .unwrap()
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, generation)).unwrap()
     };
     let first = make(7);
     let second = make(8);
@@ -461,12 +516,13 @@ fn place_without_broker_id_never_fabricates_order_or_trade_suffix() {
     let (identity, accepted) = place_identity();
     let outcome = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::Working,
         order(OrderStatus::Working, None),
         vec![],
     );
     let candidate =
-        build_private_durable_candidate(input(identity, &accepted, outcome, 1)).unwrap();
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)).unwrap();
     assert!(candidate
         .transition_record
         .payload()
@@ -482,6 +538,7 @@ fn cancel_working_remains_unresolved_without_suffix() {
     let (identity, accepted) = cancel_identity();
     let outcome = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::Working,
         order(
             OrderStatus::Working,
@@ -490,7 +547,7 @@ fn cancel_working_remains_unresolved_without_suffix() {
         vec![],
     );
     let candidate =
-        build_private_durable_candidate(input(identity, &accepted, outcome, 1)).unwrap();
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)).unwrap();
     assert!(candidate.suffix_records.is_empty());
 }
 
@@ -499,6 +556,7 @@ fn cancel_terminal_cancelled_projects_outcome_and_finalization_only() {
     let (identity, accepted) = cancel_identity();
     let outcome = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::TerminalCancelled,
         order(
             OrderStatus::Canceled,
@@ -507,7 +565,7 @@ fn cancel_terminal_cancelled_projects_outcome_and_finalization_only() {
         vec![],
     );
     let candidate =
-        build_private_durable_candidate(input(identity, &accepted, outcome, 1)).unwrap();
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)).unwrap();
     assert_eq!(candidate.suffix_records.len(), 2);
     assert_eq!(candidate.suffix_records[0].lifecycle_sequence().get(), 3);
     assert_eq!(candidate.suffix_records[1].lifecycle_sequence().get(), 4);
@@ -557,11 +615,12 @@ fn all_six_exact_lookup_states_traverse_source_admission_and_owner() {
         };
         let outcome = production_outcome(
             &identity,
+            &accepted,
             broker_truth(vec![selected], vec![], vec![instrument_spec()]),
             exact_lookup,
         );
         let candidate =
-            build_private_durable_candidate(input(identity, &accepted, outcome, 1)).unwrap();
+            build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)).unwrap();
         let encoded: serde_json::Value =
             serde_json::from_slice(&candidate.transition_record.encode_canonical()).unwrap();
         assert_eq!(encoded["payload"]["exact_lookup_evidence"]["state"], state);
@@ -589,6 +648,7 @@ fn documented_not_found_without_source_contradiction_is_still_unknown() {
     let (identity, accepted) = place_identity();
     let outcome = production_outcome(
         &identity,
+        &accepted,
         broker_truth(vec![], vec![], vec![instrument_spec()]),
         Stage8a4PrivateExactLookup::DocumentedNotFound {
             timing: source_timing(),
@@ -596,7 +656,7 @@ fn documented_not_found_without_source_contradiction_is_still_unknown() {
         },
     );
     let candidate =
-        build_private_durable_candidate(input(identity, &accepted, outcome, 1)).unwrap();
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)).unwrap();
     assert!(matches!(
         candidate.transition_record.payload().transition_kind(),
         Stage6ReconciliationTransitionKindV2::ReconciliationStillUnknownHold
@@ -637,13 +697,13 @@ fn cancel_disposition_table_preserves_predecessor_semantics() {
         };
         let outcome = exact_outcome(
             &identity,
+            &accepted,
             lifecycle,
             order(status, Some(BrokerOrderId::new("BROKER-ORDER-1"))),
             trades,
         );
         let candidate =
-            build_private_durable_candidate(input(identity.clone(), &dispatch, outcome, 1))
-                .unwrap();
+            build_private_durable_candidate(input(&accepted, &dispatch, outcome, 1)).unwrap();
         assert_eq!(candidate.suffix_records.len(), 2);
         let replay = mixed_replay(accepted, dispatch, candidate);
         let recovered = replay.requests().first().unwrap();
@@ -658,6 +718,7 @@ fn cancel_disposition_table_preserves_predecessor_semantics() {
     let dispatch = dispatch_attempt(&identity, &accepted);
     let working = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::Working,
         order(
             OrderStatus::Working,
@@ -666,7 +727,7 @@ fn cancel_disposition_table_preserves_predecessor_semantics() {
         vec![],
     );
     let candidate =
-        build_private_durable_candidate(input(identity.clone(), &dispatch, working, 1)).unwrap();
+        build_private_durable_candidate(input(&accepted, &dispatch, working, 1)).unwrap();
     assert!(candidate.suffix_records.is_empty());
 
     for outcome_kind in [
@@ -675,6 +736,7 @@ fn cancel_disposition_table_preserves_predecessor_semantics() {
     ] {
         let mut hold = exact_outcome(
             &identity,
+            &accepted,
             Stage8a4ExactLifecycle::Working,
             order(
                 OrderStatus::Working,
@@ -685,8 +747,15 @@ fn cancel_disposition_table_preserves_predecessor_semantics() {
         hold.outcome_kind = outcome_kind;
         hold.lifecycle = None;
         hold.fill = None;
+        hold.private_outcome_binding_sha256 = private_authoritative_outcome_binding(
+            &hold.context,
+            &hold.semantic_binding_sha256,
+            &hold.source_evidence_binding_sha256,
+            &hold.exact_lookup,
+            &hold.account_safety,
+        );
         let candidate =
-            build_private_durable_candidate(input(identity.clone(), &dispatch, hold, 1)).unwrap();
+            build_private_durable_candidate(input(&accepted, &dispatch, hold, 1)).unwrap();
         assert!(candidate.suffix_records.is_empty());
     }
 }
@@ -697,12 +766,13 @@ fn material_trade_broker_id_projects_when_selected_order_id_is_missing() {
     let dispatch = dispatch_attempt(&identity, &accepted);
     let outcome = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::TerminalFilled,
         order(OrderStatus::Filled, None),
         vec![trade()],
     );
     let candidate =
-        build_private_durable_candidate(input(identity, &dispatch, outcome, 1)).unwrap();
+        build_private_durable_candidate(input(&accepted, &dispatch, outcome, 1)).unwrap();
     assert_eq!(candidate.suffix_records.len(), 2);
     let replay = mixed_replay(accepted, dispatch, candidate);
     let recovered = replay.requests().first().unwrap();
@@ -721,11 +791,12 @@ fn multiple_material_trade_broker_ids_without_selected_id_fail_closed() {
     other.broker_order_id = Some(BrokerOrderId::new("BROKER-ORDER-2"));
     let outcome = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::TerminalFilled,
         order(OrderStatus::Filled, None),
         vec![trade(), other],
     );
-    let error = match build_private_durable_candidate(input(identity, &accepted, outcome, 1)) {
+    let error = match build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)) {
         Ok(_) => panic!("ambiguous material trade broker ids must fail closed"),
         Err(error) => error,
     };
@@ -872,6 +943,7 @@ fn cancel_target_cross_binding_is_mandatory() {
     let (identity, accepted) = cancel_identity();
     let mut outcome = exact_outcome(
         &identity,
+        &accepted,
         Stage8a4ExactLifecycle::TerminalCancelled,
         order(
             OrderStatus::Canceled,
@@ -880,14 +952,228 @@ fn cancel_target_cross_binding_is_mandatory() {
         vec![],
     );
     outcome.context.known_broker_order_id = Some(BrokerOrderId::new("OTHER"));
-    let error = match build_private_durable_candidate(input(identity, &accepted, outcome, 1)) {
+    let error = match build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)) {
         Ok(_) => panic!("cancel target mismatch must fail closed"),
         Err(error) => error,
     };
     assert!(matches!(
         error,
-        Stage8a4I2CompositionError::IdentityMismatch
+        Stage8a4I2CompositionError::CommandBindingMismatch
     ));
+}
+
+fn place_working_outcome(
+    identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
+) -> Stage8a4AuthoritativeReconciliationOutcome {
+    exact_outcome(
+        identity,
+        accepted,
+        Stage8a4ExactLifecycle::Working,
+        order(
+            OrderStatus::Working,
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        ),
+        vec![],
+    )
+}
+
+fn assert_command_cross_binding_fails(
+    authority: &Stage6JournalRecordV1,
+    cursor: &Stage6JournalRecordV1,
+    outcome: Stage8a4AuthoritativeReconciliationOutcome,
+) {
+    assert!(build_private_durable_candidate(input(authority, cursor, outcome, 1)).is_err());
+}
+
+#[test]
+fn place_outcome_with_cancel_command_authority_fails_before_candidate() {
+    let (place_identity, place_accepted) = place_identity();
+    let mut outcome = place_working_outcome(&place_identity, &place_accepted);
+    let (_, cancel_accepted) = accepted_cancel(
+        &cancel_command(place_identity.strategy_request_id()),
+        attribution("CANCEL"),
+    );
+    rebind_outcome_to_accepted(&mut outcome, &cancel_accepted);
+    assert_command_cross_binding_fails(&cancel_accepted, &place_accepted, outcome);
+}
+
+#[test]
+fn cancel_outcome_with_place_command_authority_fails_before_candidate() {
+    let (cancel_identity, cancel_accepted) = cancel_identity();
+    let mut outcome = exact_outcome(
+        &cancel_identity,
+        &cancel_accepted,
+        Stage8a4ExactLifecycle::Working,
+        order(
+            OrderStatus::Working,
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        ),
+        vec![],
+    );
+    let place = place_command(cancel_identity.strategy_request_id());
+    let (_, place_accepted) = accepted_place(&place, attribution("ENTRY"));
+    rebind_outcome_to_accepted(&mut outcome, &place_accepted);
+    assert_command_cross_binding_fails(&place_accepted, &cancel_accepted, outcome);
+}
+
+#[test]
+fn place_side_drift_fails_before_candidate() {
+    let (identity, accepted) = place_identity();
+    let mut outcome = place_working_outcome(&identity, &accepted);
+    let mut drifted = place_command(identity.strategy_request_id());
+    drifted.side = OrderSide::Sell;
+    let (_, drifted_accepted) = accepted_place(&drifted, attribution("ENTRY"));
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn place_quantity_drift_fails_before_candidate() {
+    let (identity, accepted) = place_identity();
+    let mut outcome = place_working_outcome(&identity, &accepted);
+    let mut drifted = place_command(identity.strategy_request_id());
+    drifted.qty = Decimal::from(3);
+    let (_, drifted_accepted) = accepted_place(&drifted, attribution("ENTRY"));
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn place_order_type_drift_fails_before_candidate() {
+    let (identity, accepted) = place_identity();
+    let mut outcome = place_working_outcome(&identity, &accepted);
+    let mut drifted = place_command(identity.strategy_request_id());
+    drifted.order_type = OrderType::Market;
+    drifted.limit_price = None;
+    let (_, drifted_accepted) = accepted_place(&drifted, attribution("ENTRY"));
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn place_time_in_force_drift_fails_before_candidate() {
+    let (identity, accepted) = place_identity();
+    let mut outcome = place_working_outcome(&identity, &accepted);
+    let mut drifted = place_command(identity.strategy_request_id());
+    drifted.time_in_force = TimeInForce::GoodTillCancel;
+    let (_, drifted_accepted) = accepted_place(&drifted, attribution("ENTRY"));
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn place_limit_price_drift_fails_before_candidate() {
+    let (identity, accepted) = place_identity();
+    let mut outcome = place_working_outcome(&identity, &accepted);
+    let mut drifted = place_command(identity.strategy_request_id());
+    drifted.limit_price = Some(Decimal::from(2209));
+    let (_, drifted_accepted) = accepted_place(&drifted, attribution("ENTRY"));
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn market_vs_limit_price_shape_drift_fails_before_candidate() {
+    let mut market = place_command(request(1));
+    market.order_type = OrderType::Market;
+    market.limit_price = None;
+    let (market_identity, market_accepted) = accepted_place(&market, attribution("ENTRY"));
+    let mut outcome = place_working_outcome(&market_identity, &market_accepted);
+    outcome.context.order_type = OrderType::Market;
+    outcome.context.limit_price = None;
+    rebind_outcome_to_accepted(&mut outcome, &market_accepted);
+
+    let (_, limit_accepted) = accepted_place(&place_command(request(1)), attribution("ENTRY"));
+    rebind_outcome_to_accepted(&mut outcome, &limit_accepted);
+    assert_command_cross_binding_fails(&limit_accepted, &market_accepted, outcome);
+}
+
+#[test]
+fn attribution_drift_fails_before_candidate() {
+    let (identity, accepted) = place_identity();
+    let mut outcome = place_working_outcome(&identity, &accepted);
+    let mut drifted = place_command(identity.strategy_request_id());
+    let drifted_attribution = attribution_for("cycle0002", "ENTRY");
+    drifted.comment = Some(drifted_attribution.internal_comment().to_string());
+    let (_, drifted_accepted) = accepted_place(&drifted, drifted_attribution);
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn cancel_target_broker_order_drift_fails_before_candidate() {
+    let (identity, accepted) = cancel_identity();
+    let mut outcome = exact_outcome(
+        &identity,
+        &accepted,
+        Stage8a4ExactLifecycle::Working,
+        order(
+            OrderStatus::Working,
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        ),
+        vec![],
+    );
+    let mut drifted = cancel_command(identity.strategy_request_id());
+    drifted.order_id = BrokerOrderId::new("BROKER-ORDER-OTHER");
+    let (_, drifted_accepted) = accepted_cancel(&drifted, attribution("CANCEL"));
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn cancel_target_client_order_drift_fails_before_candidate() {
+    let (identity, accepted) = cancel_identity();
+    let mut outcome = exact_outcome(
+        &identity,
+        &accepted,
+        Stage8a4ExactLifecycle::Working,
+        order(
+            OrderStatus::Working,
+            Some(BrokerOrderId::new("BROKER-ORDER-1")),
+        ),
+        vec![],
+    );
+    let mut drifted = cancel_command(identity.strategy_request_id());
+    drifted.client_order_id = Some(ClientOrderId::new("CLIENT-OTHER").unwrap());
+    let (_, drifted_accepted) = accepted_cancel(&drifted, attribution("CANCEL"));
+    rebind_outcome_to_accepted(&mut outcome, &drifted_accepted);
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn accepted_command_payload_digest_drift_fails_before_candidate() {
+    let (identity, accepted) = place_identity();
+    let outcome = place_working_outcome(&identity, &accepted);
+    let mut drifted = place_command(identity.strategy_request_id());
+    drifted.ttl_ms = Some(9_000);
+    let (_, drifted_accepted) = accepted_place(&drifted, attribution("ENTRY"));
+    assert_command_cross_binding_fails(&drifted_accepted, &accepted, outcome);
+}
+
+#[test]
+fn exact_accepted_command_produces_deterministic_candidate_and_key() {
+    let build = || {
+        let (identity, accepted) = place_identity();
+        let outcome = place_working_outcome(&identity, &accepted);
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, 1)).unwrap()
+    };
+    let first = build();
+    let second = build();
+    assert_eq!(
+        first.transition_record.encode_canonical(),
+        second.transition_record.encode_canonical()
+    );
+    assert_eq!(
+        first
+            .transition_record
+            .payload()
+            .stable_transition_key_sha256(),
+        second
+            .transition_record
+            .payload()
+            .stable_transition_key_sha256()
+    );
 }
 
 #[test]
@@ -896,6 +1182,7 @@ fn candidate_is_pure_and_deterministic_for_identical_inputs() {
         let (identity, accepted) = place_identity();
         let outcome = exact_outcome(
             &identity,
+            &accepted,
             Stage8a4ExactLifecycle::TerminalFilled,
             order(
                 OrderStatus::Filled,
@@ -903,7 +1190,7 @@ fn candidate_is_pure_and_deterministic_for_identical_inputs() {
             ),
             vec![trade()],
         );
-        build_private_durable_candidate(input(identity, &accepted, outcome, 3)).unwrap()
+        build_private_durable_candidate(input(&accepted, &accepted, outcome, 3)).unwrap()
     };
     let first = build();
     let second = build();

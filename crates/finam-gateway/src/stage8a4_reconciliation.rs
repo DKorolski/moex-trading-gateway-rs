@@ -29,13 +29,14 @@ use std::collections::BTreeMap;
 
 use broker_core::{
     BrokerAccountId, BrokerOrderId, BrokerOrderSnapshot, BrokerTradeSnapshot, BrokerTruthSnapshot,
-    ClientOrderId, InstrumentId, OrderSide, OrderStatus, OrderType, Price, Quantity,
-    StrategyRequestId, TimeInForce,
+    ClientOrderId, HybridRuntimeAttribution, InstrumentId, OrderSide, OrderStatus, OrderType,
+    Price, Quantity, StrategyRequestId, TimeInForce,
 };
 use chrono::{DateTime, Duration, Utc};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use strategy_runtime_core::Stage6DurableActionKind;
 
 #[allow(dead_code)]
 mod durable_composition_i2;
@@ -113,12 +114,16 @@ pub struct Stage8a4DurableRequestContext {
     client_order_id: ClientOrderId,
     account_id: BrokerAccountId,
     instrument: InstrumentId,
+    action: Stage6DurableActionKind,
+    attribution: HybridRuntimeAttribution,
     side: OrderSide,
     qty: Quantity,
     order_type: OrderType,
     time_in_force: TimeInForce,
     limit_price: Option<Price>,
     known_broker_order_id: Option<BrokerOrderId>,
+    target_order_client_order_id: Option<ClientOrderId>,
+    accepted_command_payload_sha256: String,
     possible_effect_at: DateTime<Utc>,
     event_start: DateTime<Utc>,
     event_end: DateTime<Utc>,
@@ -574,15 +579,12 @@ fn reduce_stage8a4_authoritative(
         .unwrap_or_default();
     let exact_lookup = admission.exact_lookup;
     let account_safety = account_safety_summary(&admission.truth, &context.instrument);
-    let private_outcome_binding_sha256 = digest_parts(
-        b"stage8a4-private-authoritative-outcome-v1",
-        &[
-            context.durable_binding_sha256.as_bytes(),
-            diagnostic.semantic_binding_sha256.as_bytes(),
-            admission.source_evidence_binding_sha256.as_bytes(),
-            private_exact_lookup_binding(&exact_lookup).as_bytes(),
-            account_safety_binding(&account_safety).as_bytes(),
-        ],
+    let private_outcome_binding_sha256 = private_authoritative_outcome_binding(
+        &context,
+        &diagnostic.semantic_binding_sha256,
+        &admission.source_evidence_binding_sha256,
+        &exact_lookup,
+        &account_safety,
     );
     Stage8a4AuthoritativeReconciliationOutcome {
         context,
@@ -601,6 +603,28 @@ fn reduce_stage8a4_authoritative(
         source_evidence_binding_sha256: admission.source_evidence_binding_sha256,
         private_outcome_binding_sha256,
     }
+}
+
+fn private_authoritative_outcome_binding(
+    context: &Stage8a4DurableRequestContext,
+    semantic_binding_sha256: &str,
+    source_evidence_binding_sha256: &str,
+    exact_lookup: &Stage8a4PrivateExactLookup,
+    account_safety: &Stage8a4PrivateAccountSafety,
+) -> String {
+    digest_parts(
+        b"stage8a4-private-authoritative-outcome-v1",
+        &[
+            context.durable_binding_sha256.as_bytes(),
+            format!("{:?}", context.action).as_bytes(),
+            context.attribution.internal_comment().as_bytes(),
+            context.accepted_command_payload_sha256.as_bytes(),
+            semantic_binding_sha256.as_bytes(),
+            source_evidence_binding_sha256.as_bytes(),
+            private_exact_lookup_binding(exact_lookup).as_bytes(),
+            account_safety_binding(account_safety).as_bytes(),
+        ],
+    )
 }
 
 // The accepted reducer body predates its I2 borrowed wrapper. Keeping its

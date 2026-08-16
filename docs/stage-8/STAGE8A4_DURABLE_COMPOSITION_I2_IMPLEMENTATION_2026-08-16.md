@@ -1,4 +1,4 @@
-# Stage 8A-4 durable composition I2 R2
+# Stage 8A-4 durable composition I2 R3
 
 ## Authority
 
@@ -12,8 +12,11 @@ The accepted Stage 8A-4 reducer now retains one private, opaque, non-Clone and
 non-Serialize authoritative outcome. The existing public diagnostic remains a
 consuming redacted projection and cannot be converted back to authority.
 
-The nested private I2 builder consumes durable identity, an exact journal
-cursor, four-field pre-append evidence and the private outcome. It produces an
+The nested private I2 builder consumes one exact accepted-command authority,
+an exact journal cursor, four-field pre-append evidence and the private outcome. R3 no longer
+accepts an independently pairable identity: it derives identity from one
+private accepted-command authority decoded from the exact validated Stage 6
+`RequestAccepted` record. It produces an
 in-memory candidate containing:
 
 1. one canonical validated `Stage6JournalRecordV2`;
@@ -21,6 +24,22 @@ in-memory candidate containing:
 
 It has no journal backend and cannot append, compare-and-append,
 write a recovery seal, publish ACK/readiness, XACK Redis, call FINAM or dispatch.
+
+## Exact accepted-command cross-binding
+
+Before candidate construction, I2 requires exact equality between the accepted
+command authority and reconciliation context for request/client/account/
+instrument, endpoint action and `HybridRuntimeAttribution`. PLACE additionally
+requires exact side, quantity, order type, TIF and price shape. CANCEL requires
+the exact target broker order ID and optional target client order ID.
+
+The canonical accepted `RequestAccepted` payload SHA-256 is retained in the
+opaque context and participates in the private authoritative outcome binding.
+This also binds TTL and command creation time without treating them as broker
+order correlation shape. A changed command under the same request ID fails
+before V2 candidate construction. The stable-key formula itself is unchanged:
+durable request binding, private authoritative outcome binding and transition
+kind only.
 
 ## Stable identity and sequence
 

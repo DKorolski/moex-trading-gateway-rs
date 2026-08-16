@@ -30,3 +30,8 @@ The checker and mutation harness must reject all of these changes:
 26. filled-without-trade orphan coverage is removed;
 27. trade projection is suppressed when selected order has no broker ID;
 28. two distinct material-trade broker IDs are silently accepted.
+29. endpoint/action comparison against accepted command authority is removed;
+30. accepted command payload digest is removed from the private outcome binding;
+31. exact PLACE side/quantity/order-type/TIF/price comparison is removed;
+32. exact CANCEL target client-order comparison is removed;
+33. exact `HybridRuntimeAttribution` comparison is removed.

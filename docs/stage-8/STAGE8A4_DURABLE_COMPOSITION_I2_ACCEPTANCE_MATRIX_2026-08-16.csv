@@ -47,3 +47,11 @@ I2-045,eight orphan classes equal canonical BrokerTruthSnapshot summary,test/che
 I2-046,trade broker id projects when selected order broker id is absent,test/replay
 I2-047,multiple material trade broker ids without selected id fail closed,test/negative
 I2-048,CANCEL lifecycle table preserves all predecessor mappings,test/checker
+I2-049,accepted command authority is private and sourced from exact RequestAccepted,source/checker/test
+I2-050,builder derives durable identity from accepted command authority,source/checker
+I2-051,endpoint is exactly cross-bound to accepted command action,source/test/negative
+I2-052,PLACE side quantity order type TIF and price are exactly cross-bound,source/test/negative
+I2-053,CANCEL broker and optional client targets are exactly cross-bound,source/test/negative
+I2-054,HybridRuntimeAttribution is exactly cross-bound,source/test/negative
+I2-055,accepted command payload digest participates in private outcome binding,source/test/negative
+I2-056,stable key formula remains durable binding plus bound outcome plus transition,source/test/checker

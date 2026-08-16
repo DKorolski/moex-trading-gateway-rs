@@ -15,6 +15,9 @@ REVIEW_SHA256 = "5ef7d0fcc645874a8d9bce7e2d2bb3004f06b038c81b0bf5496582464cb1b9e
 REJECTED_I2_R1 = "65276199b42b3dac5f7b48346dfe11e61f42e41d"
 REJECTED_I2_R1_REVIEW_SHA256 = "482925ad11d8455d9b415708bbbcbb57b92c98784653f9b40b1ba7b717c9689f"
 I2_R2_SPEC_SHA256 = "20a7f1cf86a309851d1fcd9d65f7ac71384cd7bef89df9e661ae3054f35c433a"
+REJECTED_I2_R2 = "e04edea480b049a569385ea342a8802fedd5a307"
+REJECTED_I2_R2_REVIEW_SHA256 = "d3876294735c9e520d67c3477c2130173fa838d393369d0f455e191c343aad8f"
+I2_R3_SPEC_SHA256 = "cd332e2f7e6e7a3e2d376fa0b7848440dd132ebdba8f8323199c291144788a90"
 BRANCH = "stage8a4-durable-composition-i2"
 
 AUTHORITY = Path("docs/stage-8/stage8a4-durable-composition-i2-authority.json")
@@ -77,6 +80,9 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     require(authority["rejected_i2_r1_ref"] == REJECTED_I2_R1, "I2 R1 ref drift")
     require(authority["rejected_i2_r1_review_sha256"] == REJECTED_I2_R1_REVIEW_SHA256, "I2 R1 review hash drift")
     require(authority["i2_r2_correction_spec_sha256"] == I2_R2_SPEC_SHA256, "I2 R2 specification hash drift")
+    require(authority["rejected_i2_r2_ref"] == REJECTED_I2_R2, "I2 R2 ref drift")
+    require(authority["rejected_i2_r2_review_sha256"] == REJECTED_I2_R2_REVIEW_SHA256, "I2 R2 review hash drift")
+    require(authority["i2_r3_correction_spec_sha256"] == I2_R3_SPEC_SHA256, "I2 R3 specification hash drift")
     require(authority["implementation_slice"] == "I2_private_linear_composition_and_transition_builder_no_append", "slice drift")
     for key in (
         "private_outcome_is_public", "public_diagnostic_is_authority", "candidate_is_public",
@@ -96,9 +102,16 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     require(authority["account_safety_source"] == "BrokerTruthSnapshot::summarize_for_instrument", "account safety authority drift")
     require(authority["v1_trade_projection_requires_selected_order_broker_id"] is False, "representable trade projection suppressed")
     require(authority["multiple_material_trade_broker_ids_without_selected_id"] == "conflict", "trade identity ambiguity opened")
-    require(authority["acceptance_row_count"] == 48, "acceptance count drift")
-    require(authority["focused_test_count"] >= 13, "focused test count drift")
-    require(authority["negative_case_count"] >= 28, "negative count drift")
+    for key in (
+        "accepted_command_authority_private", "private_outcome_binds_command_payload",
+        "endpoint_bound_to_accepted_command_action", "place_shape_exactly_cross_bound",
+        "cancel_target_client_exactly_cross_bound", "attribution_exactly_cross_bound",
+        "stable_key_formula_unchanged",
+    ):
+        require(authority[key] is True, f"command cross-binding drift: {key}")
+    require(authority["acceptance_row_count"] == 56, "acceptance count drift")
+    require(authority["focused_test_count"] >= 26, "focused test count drift")
+    require(authority["negative_case_count"] >= 33, "negative count drift")
     require(authority["compile_fail_case_count"] >= 2, "compile-fail count drift")
 
     reducer = read(root, REDUCER)
@@ -132,6 +145,19 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     safety_body = reducer.split("fn account_safety_summary", 1)[1].split("fn private_exact_lookup_binding", 1)[0]
     require("truth.summarize_for_instrument(target)" in safety_body, "canonical broker-core safety not used")
     require("broker_order_id.is_none() && order.client_order_id.is_none()" not in safety_body, "weak orphan shortcut restored")
+    context_body = reducer.split("pub struct Stage8a4DurableRequestContext {", 1)[1].split("\n}", 1)[0]
+    for field in (
+        "action: Stage6DurableActionKind", "attribution: HybridRuntimeAttribution",
+        "target_order_client_order_id: Option<ClientOrderId>",
+        "accepted_command_payload_sha256: String",
+    ):
+        require(field in context_body, f"command-bound context field missing: {field}")
+    outcome_binding = reducer.split("fn private_authoritative_outcome_binding", 1)[1].split("// The accepted reducer body", 1)[0]
+    for marker in (
+        "context.action", "context.attribution.internal_comment()",
+        "context.accepted_command_payload_sha256",
+    ):
+        require(marker in outcome_binding, f"private outcome command binding missing: {marker}")
 
     for marker in (
         "struct Stage8a4I2CompositionInput", "struct Stage8a4I2DurableCandidate",
@@ -147,13 +173,30 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "Stage8a4PrivateExactLookup::Stale", "Stage6CancelOutcomeV1::ExecutionObserved",
         "Stage6CancelOutcomeV1::Canceled",
         "Stage6CancelOutcomeV1::AlreadyTerminalNonExecution", "```compile_fail",
+        "struct Stage8a4PrivateAcceptedCommandAuthority",
+        "fn accepted_command_authority_from_request_accepted",
+        "fn validate_accepted_command_binding",
     ):
         require(marker in source, f"I2 enforcement marker missing: {marker}")
     require("pub struct Stage8a4I2" not in source, "I2 type exported")
     require("pub fn build_private_durable_candidate" not in source, "I2 builder exported")
     require("Stage8a4I2DurableCandidate" not in lib, "candidate reexported")
+    require("pub struct Stage8a4PrivateAcceptedCommandAuthority" not in source, "accepted command authority exported")
     candidate_head = source.split("struct Stage8a4I2DurableCandidate", 1)[0][-180:]
     require("derive(" not in candidate_head, "candidate gained derives")
+    composition_input = source.split("struct Stage8a4I2CompositionInput {", 1)[1].split("\n}", 1)[0]
+    require("accepted_command_authority: Stage8a4PrivateAcceptedCommandAuthority" in composition_input, "builder lacks accepted command authority")
+    require("identity: Stage6DurableRequestIdentityV1" not in composition_input, "independently pairable identity restored")
+    validation = source.split("fn validate_accepted_command_binding", 1)[1].split("fn effective_transition_kind", 1)[0]
+    for marker in (
+        "identity.action() != context.action", "identity.attribution() != &context.attribution",
+        "authority.canonical_command_payload_sha256.as_str()",
+        "side != &context.side", "quantity != &context.qty",
+        "order_type != &context.order_type", "time_in_force != &context.time_in_force",
+        "limit_price != &context.limit_price", "Some(target_broker_order_id) != context.known_broker_order_id.as_ref()",
+        "target_order_client_order_id.as_ref()", "private_authoritative_outcome_binding(",
+    ):
+        require(marker in validation, f"exact command comparison missing: {marker}")
 
     stable = source.split("let stable_key =", 1)[1].split("let v2_record_id", 1)[0]
     for marker in ("STABLE_KEY_DOMAIN", "durable_binding.as_str()", "outcome_binding.as_str()", "transition_bytes"):
@@ -219,6 +262,15 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "account_safety_uses_canonical_broker_truth_for_all_orphan_classes",
         "cancel_target_cross_binding_is_mandatory",
         "candidate_is_pure_and_deterministic_for_identical_inputs",
+        "place_outcome_with_cancel_command_authority_fails_before_candidate",
+        "cancel_outcome_with_place_command_authority_fails_before_candidate",
+        "place_side_drift_fails_before_candidate", "place_quantity_drift_fails_before_candidate",
+        "place_order_type_drift_fails_before_candidate", "place_time_in_force_drift_fails_before_candidate",
+        "place_limit_price_drift_fails_before_candidate", "market_vs_limit_price_shape_drift_fails_before_candidate",
+        "attribution_drift_fails_before_candidate", "cancel_target_broker_order_drift_fails_before_candidate",
+        "cancel_target_client_order_drift_fails_before_candidate",
+        "accepted_command_payload_digest_drift_fails_before_candidate",
+        "exact_accepted_command_produces_deterministic_candidate_and_key",
     ):
         require(test in tests, f"focused test missing: {test}")
 
@@ -230,12 +282,12 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         require(forbidden not in source, f"forbidden I2 surface: {forbidden}")
     for marker in ("no journal backend", "I3 writer/CAS/append/seal", "I4 ACK/readiness", "FINAM POST/DELETE"):
         require(marker in contract, f"contract boundary missing: {marker}")
-    require("28." in negative and "runtime-live" in negative, "negative inventory incomplete")
+    require("33." in negative and "runtime-live" in negative, "negative inventory incomplete")
 
     with (root / MATRIX).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 48, "acceptance matrix row count drift")
-    require([row["id"] for row in rows] == [f"I2-{index:03d}" for index in range(1, 49)], "acceptance IDs drift")
+    require(len(rows) == 56, "acceptance matrix row count drift")
+    require([row["id"] for row in rows] == [f"I2-{index:03d}" for index in range(1, 57)], "acceptance IDs drift")
     require(all(row["requirement"].strip() and row["evidence"].strip() for row in rows), "acceptance evidence empty")
 
     for document_name, document in (("status", status), ("roadmap", roadmap), ("README", readme)):
@@ -268,7 +320,7 @@ def main() -> None:
     except (CheckFailure, KeyError, ValueError, json.JSONDecodeError) as error:
         print(f"stage8a4-durable-composition-i2-check: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
-    print("stage8a4-durable-composition-i2-check: PASS rows=48 focused=13 append=false execution=false")
+    print("stage8a4-durable-composition-i2-check: PASS rows=56 focused=26 append=false execution=false")
 
 
 if __name__ == "__main__":

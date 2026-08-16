@@ -49,8 +49,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `113d2827ef255e8d2c2597a3acb38fe52dd7e52d`; its review SHA-256 is
   `5ef7d0fcc645874a8d9bce7e2d2bb3004f06b038c81b0bf5496582464cb1b9e7`.
 - I2 R1 at `65276199b42b3dac5f7b48346dfe11e61f42e41d` was not accepted. I2 R2
-  corrects its four narrow composition findings while preserving the private
-  no-append architecture; independent acceptance is pending. I3 and I4 remain
+  at `e04edea480b049a569385ea342a8802fedd5a307` closed all four R1 findings but
+  was not accepted because exact Stage 6/7 action/payload cross-binding was
+  incomplete. I2 R3 adds one private `RequestAccepted` command authority,
+  exact endpoint/attribution/PLACE-shape/CANCEL-target validation and binds the
+  accepted-command payload digest into the private outcome; independent
+  acceptance is pending. I3 and I4 remain
   CLOSED. V2 writer, durable apply/journal mutation,
   ACK/readiness publication, Redis live consumption, FINAM POST/DELETE, broker
   dispatch, retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and
