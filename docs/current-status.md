@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-15.
+Status date: 2026-08-16.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -39,15 +39,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `6ddf54ef9d7f740dc59cd2450e78301be3d068cb` is independently ACCEPTED and CLOSED;
   its final review SHA-256 is
   `160b674d661982b6dbaa6248c2c4acaf883543cb8be99318ef04b0787492f4ba`.
-- Stage 8A-4 durable-composition implementation specification R1 was not accepted
-  at `e3d0ac39dcff25439a7e78f51142b852d8347a2f`; its review SHA-256 is
-  `968f2c61f9c9b01a56e1f8950664d46000b15e038abab74a11089bd91988996b`.
-- Corrected implementation specification R2 is the sole active candidate;
-  independent acceptance is pending. I1 production schema/codec/replay and
-  every writer/durable-apply surface remain closed.
-- Stage 8A-5+, Stage 8B, durable apply/journal, ACK/readiness publication,
-  retry/resend, FINAM POST/DELETE, Redis live consumption, broker dispatch,
-  runtime-live and real orders remain closed.
+- Stage 8A-4 durable-composition implementation Specification R1 was not accepted
+  at `e3d0ac39dcff25439a7e78f51142b852d8347a2f`. Specification R2 is independently
+  ACCEPTED and CLOSED at `dd01253596527d6cff1db11cc32ae3c3348c96a0`; its
+  accepted review SHA-256 is
+  `acb8364ee2100bf64e50522823b1da21093f96c73f93b20b4cdf9e7ac09b58ec`.
+- I1 R1 at `0678354185c52aff1d6e194b16f80b0a2c84a1f0` was not accepted. I1 R2 is
+  the sole active candidate and its independent acceptance is pending; it does
+  not predeclare I1 accepted.
+- I2, I3 and I4 remain CLOSED. V2 writer, durable apply/journal mutation,
+  ACK/readiness publication, Redis live consumption, FINAM POST/DELETE, broker
+  dispatch, retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and
+  Stage 8B remain CLOSED.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

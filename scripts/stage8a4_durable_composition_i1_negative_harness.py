@@ -58,6 +58,36 @@ def main() -> None:
         ("module-public", lambda root: mutate_text(root, checker.LIB, "mod stage6_reconciliation_v2;", "pub mod stage6_reconciliation_v2;")),
         ("golden-changed", lambda root: mutate_text(root, checker.GOLDEN, "520903fbf5130ce54fce5be3b74233a0d74a8a4c53f6f402381ec4c95ef4ead2", "0" * 64)),
         ("matrix-row-removed", lambda root: mutate_text(root, checker.MATRIX, "I1-040,Writer apply Redis FINAM dispatch runtime-live and real orders remain closed,authority and checker\n", "")),
+        ("terminal-filled-accepts-zero", lambda root: mutate_text(
+            root,
+            checker.SOURCE,
+            "OrderStatus::Filled, Stage6ReconciliationFillEffectV2::Full { filled_qty }",
+            "OrderStatus::Filled, Stage6ReconciliationFillEffectV2::Zero",
+        )),
+        ("terminal-rejected-accepts-nonzero", lambda root: mutate_text(
+            root,
+            checker.SOURCE,
+            "OrderStatus::Rejected, Stage6ReconciliationFillEffectV2::Zero",
+            "OrderStatus::Rejected, Stage6ReconciliationFillEffectV2::Partial { filled_qty: _ }",
+        )),
+        ("terminal-cancelled-accepts-full", lambda root: mutate_text(
+            root,
+            checker.SOURCE,
+            "OrderStatus::Canceled, Stage6ReconciliationFillEffectV2::Partial { filled_qty }",
+            "OrderStatus::Canceled, Stage6ReconciliationFillEffectV2::Full { filled_qty }",
+        )),
+        ("working-accepts-partial", lambda root: mutate_text(
+            root,
+            checker.SOURCE,
+            "OrderStatus::New | OrderStatus::Working, Stage6ReconciliationFillEffectV2::Zero",
+            "OrderStatus::New | OrderStatus::Working, Stage6ReconciliationFillEffectV2::Partial { filled_qty: _ }",
+        )),
+        ("stale-governance-active-candidate", lambda root: mutate_text(
+            root,
+            checker.CURRENT_STATUS,
+            "I1 R2 is\n  the sole active candidate and its independent acceptance is pending",
+            "Corrected implementation Specification R2 is\n  the sole active candidate and its independent acceptance is pending",
+        )),
     ]
     passed = 0
     with tempfile.TemporaryDirectory(prefix="stage8a4-i1-negative-") as raw:

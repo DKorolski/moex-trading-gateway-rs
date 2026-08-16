@@ -27,6 +27,9 @@ BACKEND = Path("crates/strategy-runtime-core/src/stage6_journal_backend.rs")
 CARGO = Path("crates/strategy-runtime-core/Cargo.toml")
 GOLDEN = Path("fixtures/stage8a4-i1/canonical-golden-sha256.json")
 V1_GOLDEN = Path("fixtures/stage6a/place-request-accepted-v1.json")
+CURRENT_STATUS = Path("docs/current-status.md")
+ROADMAP = Path("docs/roadmap.md")
+README = Path("README.md")
 
 SCRIPT_FILES = {
     "scripts/stage8a4_durable_composition_i1_check.py",
@@ -40,7 +43,8 @@ SCRIPT_FILES = {
 REQUIRED = {
     str(AUTHORITY), str(CONTRACT), str(MATRIX), str(NEGATIVE), str(SOURCE),
     str(LIB), str(IDENTITY), str(REPLAY), str(BACKEND), str(CARGO),
-    str(GOLDEN), str(V1_GOLDEN), *SCRIPT_FILES,
+    str(GOLDEN), str(V1_GOLDEN), str(CURRENT_STATUS), str(ROADMAP), str(README),
+    *SCRIPT_FILES,
 }
 
 ALLOWED_CHANGED = REQUIRED - {str(V1_GOLDEN), str(CARGO)}
@@ -65,6 +69,14 @@ def git_output(root: Path, *args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=root, text=True).strip()
 
 
+def leading_named_section(text: str, heading: str) -> str:
+    marker = f"## {heading}"
+    require(text.count(marker) == 1, f"named section drift: {heading}")
+    remainder = text.split(marker, 1)[1]
+    next_heading = remainder.find("\n## ")
+    return remainder if next_heading < 0 else remainder[:next_heading]
+
+
 def check(root: Path = ROOT, git_scope: bool = True) -> None:
     for item in REQUIRED:
         require((root / item).is_file(), f"missing required file: {item}")
@@ -75,6 +87,8 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     require(authority["branch"] == BRANCH, "branch authority drift")
     require(authority["accepted_implementation_spec_r2_ref"] == BASE, "accepted spec ref drift")
     require(authority["accepted_implementation_spec_r2_review_sha256"] == REVIEW_SHA256, "accepted review hash drift")
+    require(authority["rejected_i1_r1_ref"] == "0678354185c52aff1d6e194b16f80b0a2c84a1f0", "rejected I1 R1 ref drift")
+    require(authority["active_candidate"] == "I1_R2_independent_acceptance_pending", "active candidate drift")
     require(authority["implementation_slice"] == "I1_additive_v2_schema_codec_and_mixed_replay_only", "I1 scope drift")
     for key in (
         "v2_writer_enabled", "durable_apply_enabled", "composition_builder_enabled",
@@ -87,7 +101,8 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     require(authority["stage6_v1_record_ids_immutable"] is True, "V1 ID immutability drift")
     require(authority["supported_record_schema_versions"] == [1, 2], "record version set drift")
     require(authority["golden_case_count"] == 20, "golden count drift")
-    require(authority["focused_test_count"] >= 12, "focused test count drift")
+    require(authority["focused_test_count"] >= 14, "focused test count drift")
+    require(authority["negative_case_count"] >= 25, "negative case count drift")
     require(authority["compile_fail_case_count"] >= 2, "compile-fail count drift")
 
     source = read(root, SOURCE)
@@ -97,6 +112,51 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     cargo = read(root, CARGO)
     contract = read(root, CONTRACT)
     negative = read(root, NEGATIVE)
+    current_status = read(root, CURRENT_STATUS)
+    roadmap = read(root, ROADMAP)
+    readme = read(root, README)
+
+    current_boundary = leading_named_section(current_status, "Current accepted boundary")
+    governance_markers = (
+        "6ddf54ef9d7f740dc59cd2450e78301be3d068cb",
+        BASE,
+        REVIEW_SHA256,
+        "0678354185c52aff1d6e194b16f80b0a2c84a1f0",
+        "I1 R2 is",
+        "sole active candidate",
+        "independent acceptance is pending",
+        "I2, I3 and I4 remain CLOSED",
+        "V2 writer",
+        "durable apply",
+        "ACK/readiness",
+        "Redis live",
+        "FINAM POST/DELETE",
+        "runtime-live",
+        "real orders",
+    )
+    for marker in governance_markers:
+        require(marker in current_boundary, f"current boundary marker missing: {marker}")
+    lowered_boundary = current_boundary.lower()
+    for forbidden in (
+        "corrected implementation specification r2 is the sole active candidate",
+        "i1 production schema/codec/replay and every writer/durable-apply surface remain closed",
+        "i1 r2 is independently accepted",
+        "i1 r2 accepted and closed",
+    ):
+        require(forbidden not in lowered_boundary, f"stale or premature current boundary: {forbidden}")
+    for document_name, document in (("roadmap", roadmap), ("README", readme)):
+        for marker in (
+            "6ddf54e",
+            "dd01253",
+            "0678354",
+            "I1 R2",
+            "independent acceptance pending",
+            "I2",
+            "I3",
+            "I4",
+            "writer/apply",
+        ):
+            require(marker in document, f"{document_name} governance marker missing: {marker}")
 
     required_types = (
         "Stage6ReconciliationEndpointKindV2", "Stage6ReconciliationTransitionKindV2",
@@ -142,12 +202,39 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     for marker in (
         "#[serde(deny_unknown_fields)]", "probe_schema_version",
         "UnsupportedSchema", "AmbiguousSchema", "NonCanonicalEncoding",
+        "validate_exact_state_matrix", "BEGIN EXACT STATUS FILL MATRIX",
+        "END EXACT STATUS FILL MATRIX", "if declared_lifecycle != derived_lifecycle",
+        "canonical_decoder_rejects_invalid_exact_status_fill_cross_product",
+        "accepted_exact_status_fill_matrix_remains_canonical",
         "same_stable_transition_key_with_different_v2_payload_fails_closed",
         "exact_duplicate_v2_is_idempotent_but_suffix_source_or_causality_drift_fails",
         "canonical_golden_matrix_is_stable", "exact_lookup_durable_binding_mismatch_fails_closed",
         "```compile_fail,E0277", "```compile_fail,E0599",
     ):
         require(marker in source, f"missing enforcement marker: {marker}")
+
+    matrix_block = source.split("// BEGIN EXACT STATUS FILL MATRIX", 1)[1].split(
+        "// END EXACT STATUS FILL MATRIX", 1
+    )[0]
+    for marker in (
+        "OrderStatus::New | OrderStatus::Working, Stage6ReconciliationFillEffectV2::Zero",
+        "OrderStatus::PartiallyFilled,\n            Stage6ReconciliationFillEffectV2::Partial { filled_qty }",
+        "OrderStatus::Filled, Stage6ReconciliationFillEffectV2::Full { filled_qty }",
+        "OrderStatus::Rejected, Stage6ReconciliationFillEffectV2::Zero",
+        "OrderStatus::Canceled, Stage6ReconciliationFillEffectV2::Zero",
+        "OrderStatus::Canceled, Stage6ReconciliationFillEffectV2::Partial { filled_qty }",
+        "OrderStatus::Expired, Stage6ReconciliationFillEffectV2::Zero",
+        "OrderStatus::Expired, Stage6ReconciliationFillEffectV2::Partial { filled_qty }",
+        "_ => return Err(Stage6ReconciliationV2Error::InvalidPayload)",
+    ):
+        require(marker in matrix_block, f"exact state matrix branch missing: {marker}")
+    for forbidden in (
+        "OrderStatus::Filled, Stage6ReconciliationFillEffectV2::Zero",
+        "OrderStatus::Rejected, Stage6ReconciliationFillEffectV2::Partial",
+        "OrderStatus::Canceled, Stage6ReconciliationFillEffectV2::Full",
+        "OrderStatus::Working, Stage6ReconciliationFillEffectV2::Partial",
+    ):
+        require(forbidden not in matrix_block, f"forbidden exact state matrix branch: {forbidden}")
 
     require("impl<'de> Deserialize<'de> for Stage6JournalRecordV2" not in source, "generic V2 Deserialize bypass opened")
     for forbidden in (
@@ -223,7 +310,7 @@ def main() -> None:
     except (CheckFailure, KeyError, ValueError, json.JSONDecodeError) as error:
         print(f"stage8a4-durable-composition-i1-check: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
-    print("stage8a4-durable-composition-i1-check: PASS rows=40 goldens=20 focused=12 writer=false apply=false execution=false")
+    print("stage8a4-durable-composition-i1-check: PASS rows=40 goldens=20 focused=14 writer=false apply=false execution=false")
 
 
 if __name__ == "__main__":

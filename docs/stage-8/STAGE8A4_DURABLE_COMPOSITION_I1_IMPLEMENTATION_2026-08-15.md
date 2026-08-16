@@ -28,6 +28,13 @@ The accepted review SHA-256 is
 - exact duplicate V2 records are idempotent; same stable key with different
   canonical content, unexpected suffix, source/causal drift and V2 after
   finalization fail closed.
+- canonical decoding derives the exact reconciliation lifecycle from the
+  accepted status/fill matrix. New/Working accept only zero fill,
+  PartiallyFilled requires strict partial, Filled requires full, Rejected
+  requires zero, and Cancelled/Expired accept only zero or strict partial.
+- I1 R1 `0678354185c52aff1d6e194b16f80b0a2c84a1f0` was not accepted. I1 R2
+  closes the exact-state and top-level governance findings without widening
+  the read-only implementation boundary.
 - 20 canonical SHA-256 goldens freeze PLACE/CANCEL, fill, optional IDs, both
   holds, all lookup variants, mixed replay states, unknown schema and V1 bytes.
 

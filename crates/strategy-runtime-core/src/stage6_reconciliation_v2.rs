@@ -173,6 +173,70 @@ impl Stage6ReconciliationFillEffectV2 {
     }
 }
 
+fn validate_exact_state_matrix(
+    declared_lifecycle: Stage6ReconciliationLifecycleV2,
+    order: &Stage6BrokerOrderFactV2,
+    fill_effect: &Stage6ReconciliationFillEffectV2,
+) -> Result<(), Stage6ReconciliationV2Error> {
+    // BEGIN EXACT STATUS FILL MATRIX
+    let derived_lifecycle = match (&order.status, fill_effect) {
+        (OrderStatus::New | OrderStatus::Working, Stage6ReconciliationFillEffectV2::Zero)
+            if order.filled_qty == Quantity::ZERO =>
+        {
+            Stage6ReconciliationLifecycleV2::Working
+        }
+        (
+            OrderStatus::PartiallyFilled,
+            Stage6ReconciliationFillEffectV2::Partial { filled_qty },
+        ) if *filled_qty == order.filled_qty
+            && *filled_qty > Quantity::ZERO
+            && *filled_qty < order.qty =>
+        {
+            Stage6ReconciliationLifecycleV2::Working
+        }
+        (OrderStatus::Filled, Stage6ReconciliationFillEffectV2::Full { filled_qty })
+            if *filled_qty == order.filled_qty && *filled_qty == order.qty =>
+        {
+            Stage6ReconciliationLifecycleV2::TerminalFilled
+        }
+        (OrderStatus::Rejected, Stage6ReconciliationFillEffectV2::Zero)
+            if order.filled_qty == Quantity::ZERO =>
+        {
+            Stage6ReconciliationLifecycleV2::TerminalRejected
+        }
+        (OrderStatus::Canceled, Stage6ReconciliationFillEffectV2::Zero)
+            if order.filled_qty == Quantity::ZERO =>
+        {
+            Stage6ReconciliationLifecycleV2::TerminalCancelled
+        }
+        (OrderStatus::Canceled, Stage6ReconciliationFillEffectV2::Partial { filled_qty })
+            if *filled_qty == order.filled_qty
+                && *filled_qty > Quantity::ZERO
+                && *filled_qty < order.qty =>
+        {
+            Stage6ReconciliationLifecycleV2::TerminalCancelled
+        }
+        (OrderStatus::Expired, Stage6ReconciliationFillEffectV2::Zero)
+            if order.filled_qty == Quantity::ZERO =>
+        {
+            Stage6ReconciliationLifecycleV2::TerminalExpired
+        }
+        (OrderStatus::Expired, Stage6ReconciliationFillEffectV2::Partial { filled_qty })
+            if *filled_qty == order.filled_qty
+                && *filled_qty > Quantity::ZERO
+                && *filled_qty < order.qty =>
+        {
+            Stage6ReconciliationLifecycleV2::TerminalExpired
+        }
+        _ => return Err(Stage6ReconciliationV2Error::InvalidPayload),
+    };
+    // END EXACT STATUS FILL MATRIX
+    if declared_lifecycle != derived_lifecycle {
+        return Err(Stage6ReconciliationV2Error::InvalidPayload);
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Stage6BrokerOrderFactV2 {
@@ -599,40 +663,13 @@ impl Stage6ReconciliationTransitionPayloadV2 {
                 .broker_order_fact
                 .as_ref()
                 .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?;
-            let lifecycle_matches = match lifecycle {
-                Stage6ReconciliationLifecycleV2::Working => {
-                    order.lifecycle == BrokerOrderLifecycle::Active
-                }
-                Stage6ReconciliationLifecycleV2::TerminalFilled => {
-                    order.status == OrderStatus::Filled
-                }
-                Stage6ReconciliationLifecycleV2::TerminalRejected => {
-                    order.status == OrderStatus::Rejected
-                }
-                Stage6ReconciliationLifecycleV2::TerminalCancelled => {
-                    order.status == OrderStatus::Canceled
-                }
-                Stage6ReconciliationLifecycleV2::TerminalExpired => {
-                    order.status == OrderStatus::Expired
-                }
-            };
-            let fill_matches = match self.fill_effect {
-                Stage6ReconciliationFillEffectV2::Zero => order.filled_qty == Quantity::ZERO,
-                Stage6ReconciliationFillEffectV2::Partial { filled_qty } => {
-                    filled_qty == order.filled_qty
-                        && filled_qty > Quantity::ZERO
-                        && filled_qty < order.qty
-                }
-                Stage6ReconciliationFillEffectV2::Full { filled_qty } => {
-                    filled_qty == order.filled_qty && filled_qty == order.qty
-                }
-            };
+            validate_exact_state_matrix(lifecycle, order, &self.fill_effect)?;
             let material_qty: Quantity = self
                 .material_trade_facts
                 .iter()
                 .map(|trade| trade.qty)
                 .sum();
-            if !lifecycle_matches || !fill_matches || material_qty != order.filled_qty {
+            if material_qty != order.filled_qty {
                 return Err(Stage6ReconciliationV2Error::InvalidPayload);
             }
         }
@@ -1333,6 +1370,80 @@ mod tests {
         }
     }
 
+    fn broker_lifecycle_for_status(status: &OrderStatus) -> BrokerOrderLifecycle {
+        match status {
+            OrderStatus::New | OrderStatus::Working | OrderStatus::PartiallyFilled => {
+                BrokerOrderLifecycle::Active
+            }
+            OrderStatus::Filled
+            | OrderStatus::Canceled
+            | OrderStatus::Rejected
+            | OrderStatus::Expired => BrokerOrderLifecycle::Terminal,
+            OrderStatus::Unknown(_) => BrokerOrderLifecycle::Unknown,
+        }
+    }
+
+    fn exact_payload_for_state(
+        identity: &Stage6DurableRequestIdentityV1,
+        lifecycle: Stage6ReconciliationLifecycleV2,
+        status: OrderStatus,
+        fill_effect: Stage6ReconciliationFillEffectV2,
+    ) -> Stage6ReconciliationTransitionPayloadV2 {
+        let filled_qty = match &fill_effect {
+            Stage6ReconciliationFillEffectV2::Zero => Decimal::ZERO,
+            Stage6ReconciliationFillEffectV2::Partial { filled_qty }
+            | Stage6ReconciliationFillEffectV2::Full { filled_qty } => *filled_qty,
+        };
+        let mut trades = Vec::new();
+        if filled_qty > Decimal::ZERO {
+            let mut trade = trade_fact(identity, Some("ORDER-1"));
+            trade.qty = filled_qty;
+            trades.push(trade);
+        }
+        let mut candidate = payload(
+            identity,
+            Stage6ReconciliationEndpointKindV2::Place,
+            Stage6ReconciliationTransitionKindV2::Exact { lifecycle },
+            Stage6ExactLookupEvidenceV2::NotAttempted,
+            Some("ORDER-1"),
+            trades,
+            fill_effect,
+            Vec::new(),
+        );
+        let order = candidate.broker_order_fact.as_mut().unwrap();
+        order.lifecycle = broker_lifecycle_for_status(&status);
+        order.status = status;
+        order.filled_qty = filled_qty;
+        order.remaining_qty = Some(order.qty - filled_qty);
+        candidate
+    }
+
+    fn unchecked_record_bytes(
+        identity: Stage6DurableRequestIdentityV1,
+        attempt: &Stage6JournalRecordV1,
+        payload: Stage6ReconciliationTransitionPayloadV2,
+    ) -> Vec<u8> {
+        let sequence = Stage6LifecycleSequence::new(3).unwrap();
+        let canonical_payload_sha256 =
+            Stage6Sha256Digest::of(&serde_json::to_vec(&payload).unwrap());
+        Stage6JournalRecordV2 {
+            schema_version: STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2,
+            journal_record_id: Stage6JournalRecordId::derive(
+                identity.strategy_request_id(),
+                sequence,
+            ),
+            lifecycle_sequence: sequence,
+            previous_record_id: Some(attempt.journal_record_id().clone()),
+            causal_parent_id: Some(attempt.journal_record_id().clone()),
+            durable_request_identity: identity,
+            event_kind: Stage6JournalEventKindV2::ReconciliationTransitionApplied,
+            payload,
+            canonical_payload_sha256,
+            source_evidence_sha256: digest('c'),
+        }
+        .encode_canonical()
+    }
+
     fn v2_with_suffix(
         identity: &Stage6DurableRequestIdentityV1,
         attempt: &Stage6JournalRecordV1,
@@ -1658,6 +1769,170 @@ mod tests {
                 expected[name].as_str().unwrap(),
                 Stage6Sha256Digest::of(&bytes).as_str(),
                 "canonical golden changed: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn canonical_decoder_rejects_invalid_exact_status_fill_cross_product() {
+        let (identity, _, attempt) = place_fixture();
+        let partial = Stage6ReconciliationFillEffectV2::Partial {
+            filled_qty: Decimal::new(5, 1),
+        };
+        let full = Stage6ReconciliationFillEffectV2::Full {
+            filled_qty: Decimal::ONE,
+        };
+        let invalid = vec![
+            (
+                "filled-zero",
+                Stage6ReconciliationLifecycleV2::TerminalFilled,
+                OrderStatus::Filled,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+            (
+                "filled-partial",
+                Stage6ReconciliationLifecycleV2::TerminalFilled,
+                OrderStatus::Filled,
+                partial.clone(),
+            ),
+            (
+                "rejected-partial",
+                Stage6ReconciliationLifecycleV2::TerminalRejected,
+                OrderStatus::Rejected,
+                partial.clone(),
+            ),
+            (
+                "rejected-full",
+                Stage6ReconciliationLifecycleV2::TerminalRejected,
+                OrderStatus::Rejected,
+                full.clone(),
+            ),
+            (
+                "cancelled-full",
+                Stage6ReconciliationLifecycleV2::TerminalCancelled,
+                OrderStatus::Canceled,
+                full.clone(),
+            ),
+            (
+                "expired-full",
+                Stage6ReconciliationLifecycleV2::TerminalExpired,
+                OrderStatus::Expired,
+                full.clone(),
+            ),
+            (
+                "new-partial",
+                Stage6ReconciliationLifecycleV2::Working,
+                OrderStatus::New,
+                partial.clone(),
+            ),
+            (
+                "working-partial",
+                Stage6ReconciliationLifecycleV2::Working,
+                OrderStatus::Working,
+                partial.clone(),
+            ),
+            (
+                "partially-filled-zero",
+                Stage6ReconciliationLifecycleV2::Working,
+                OrderStatus::PartiallyFilled,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+            (
+                "partially-filled-full",
+                Stage6ReconciliationLifecycleV2::Working,
+                OrderStatus::PartiallyFilled,
+                full,
+            ),
+            (
+                "declared-lifecycle-drift",
+                Stage6ReconciliationLifecycleV2::TerminalFilled,
+                OrderStatus::Working,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+        ];
+        for (name, lifecycle, status, fill_effect) in invalid {
+            let payload = exact_payload_for_state(&identity, lifecycle, status, fill_effect);
+            assert_eq!(
+                Stage6JournalRecordV2::decode_canonical(&unchecked_record_bytes(
+                    identity.clone(),
+                    &attempt,
+                    payload,
+                ))
+                .unwrap_err(),
+                Stage6ReconciliationV2Error::InvalidPayload,
+                "invalid exact state survived canonical decode: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn accepted_exact_status_fill_matrix_remains_canonical() {
+        let (identity, _, attempt) = place_fixture();
+        let partial = Stage6ReconciliationFillEffectV2::Partial {
+            filled_qty: Decimal::new(5, 1),
+        };
+        let full = Stage6ReconciliationFillEffectV2::Full {
+            filled_qty: Decimal::ONE,
+        };
+        let valid = vec![
+            (
+                Stage6ReconciliationLifecycleV2::Working,
+                OrderStatus::New,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::Working,
+                OrderStatus::Working,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::Working,
+                OrderStatus::PartiallyFilled,
+                partial.clone(),
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::TerminalFilled,
+                OrderStatus::Filled,
+                full,
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::TerminalRejected,
+                OrderStatus::Rejected,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::TerminalCancelled,
+                OrderStatus::Canceled,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::TerminalCancelled,
+                OrderStatus::Canceled,
+                partial.clone(),
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::TerminalExpired,
+                OrderStatus::Expired,
+                Stage6ReconciliationFillEffectV2::Zero,
+            ),
+            (
+                Stage6ReconciliationLifecycleV2::TerminalExpired,
+                OrderStatus::Expired,
+                partial,
+            ),
+        ];
+        for (lifecycle, status, fill_effect) in valid {
+            let payload = exact_payload_for_state(&identity, lifecycle, status, fill_effect);
+            let record = Stage6JournalRecordV2::build_for_test(
+                identity.clone(),
+                Stage6LifecycleSequence::new(3).unwrap(),
+                attempt.journal_record_id().clone(),
+                payload,
+                digest('c'),
+            );
+            assert_eq!(
+                Stage6JournalRecordV2::decode_canonical(&record.encode_canonical()).unwrap(),
+                record
             );
         }
     }

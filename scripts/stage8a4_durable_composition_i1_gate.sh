@@ -47,9 +47,9 @@ path.write_text(json.dumps({
     "stage": "8A-4-durable-composition-I1",
     "result": "PASS",
     "acceptance_rows": 40,
-    "negative_cases": 20,
+    "negative_cases": 25,
     "canonical_goldens": 20,
-    "focused_tests": 12,
+    "focused_tests": 14,
     "v2_writer_enabled": False,
     "durable_apply_enabled": False,
     "redis_live_enabled": False,
@@ -60,4 +60,4 @@ path.write_text(json.dumps({
 }, indent=2) + "\n", encoding="utf-8")
 PY
 
-echo "stage8a4-durable-composition-i1-gate: PASS rows=40 negatives=20 goldens=20 focused=12 writer=false apply=false execution=false"
+echo "stage8a4-durable-composition-i1-gate: PASS rows=40 negatives=25 goldens=20 focused=14 writer=false apply=false execution=false"

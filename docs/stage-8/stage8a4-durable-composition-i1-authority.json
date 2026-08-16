@@ -5,6 +5,8 @@
   "branch": "stage8a4-durable-composition-i1",
   "accepted_implementation_spec_r2_ref": "dd01253596527d6cff1db11cc32ae3c3348c96a0",
   "accepted_implementation_spec_r2_review_sha256": "acb8364ee2100bf64e50522823b1da21093f96c73f93b20b4cdf9e7ac09b58ec",
+  "rejected_i1_r1_ref": "0678354185c52aff1d6e194b16f80b0a2c84a1f0",
+  "active_candidate": "I1_R2_independent_acceptance_pending",
   "implementation_slice": "I1_additive_v2_schema_codec_and_mixed_replay_only",
   "stage6_v1_bytes_immutable": true,
   "stage6_v1_record_ids_immutable": true,
@@ -21,7 +23,8 @@
   "real_orders_enabled": false,
   "stage8a5_authorized": false,
   "golden_case_count": 20,
-  "focused_test_count": 12,
+  "focused_test_count": 14,
+  "negative_case_count": 25,
   "compile_fail_case_count": 2,
   "next_after_acceptance": "Stage 8A-4 I2 private composition builder design and implementation under separate review authority"
 }

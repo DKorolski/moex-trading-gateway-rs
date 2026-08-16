@@ -18,7 +18,7 @@ I1-016,V2 has no public constructor,compile fail and checker
 I1-017,V2 cannot bypass validation through generic Deserialize,compile fail
 I1-018,Version-aware surface has no append method,compile fail and checker
 I1-019,Record dispatch supports exactly schema one and two,tests
-I1-020,Unknown malformed and duplicate schema discriminators fail closed,tests
+I1-020,Unknown malformed duplicate schema discriminators and invalid exact state matrices fail closed,tests
 I1-021,Malformed V2 never falls back to V1,tests
 I1-022,Frame magic storage schema and frame version remain unchanged,source checker
 I1-023,Mixed reader validates the existing frame hash chain,source and tests
