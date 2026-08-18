@@ -84,6 +84,7 @@ pub enum Stage6dLiveCoreError {
     AcceptedRecordRequired,
     DispatchAttemptRecordRequired,
     DurableOrderingViolation,
+    JournalMutationMayHaveOccurred,
     PaperOutcomeActionMismatch,
     OperationalIdentityInvalid,
     Stage5gFreshTruthRejected,
@@ -191,6 +192,9 @@ impl std::fmt::Display for Stage6dLiveCoreError {
                 "Stage 6D requires DispatchAttemptRecorded second"
             }
             Self::DurableOrderingViolation => "Stage 6D durable-before-effect ordering violation",
+            Self::JournalMutationMayHaveOccurred => {
+                "Stage 6 journal mutation may have occurred; restart is required"
+            }
             Self::PaperOutcomeActionMismatch => "Stage 6D paper outcome action mismatch",
             Self::OperationalIdentityInvalid => "Stage 6D operational identity is invalid",
             Self::Stage5gFreshTruthRejected => "Stage 5G fresh broker truth was rejected",
@@ -971,10 +975,23 @@ fn replay_versioned_journal(
     ))
 }
 
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8a4_test_set_journal_failpoint(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    failpoint: Option<crate::stage6_journal_backend::TestIoFailpoint>,
+) -> Result<(), Stage6dLiveCoreError> {
+    recovered
+        .journal
+        .stage8a4_test_set_failpoint(failpoint)
+        .map_err(Stage6dLiveCoreError::from)
+}
+
 /// Applies one exact I3 durable batch through the sole recovered Stage 6
 /// journal owner. The caller must hold the current Stage 7B writer lease and
 /// must separately verify S0 before entry and commit/reread S1 after return.
-pub fn append_stage8a4_durable_batch(
+#[doc(hidden)]
+pub fn stage8a4_internal_append_durable_batch(
     recovered: &mut Stage6dDurableRuntimeRecovered,
     authority: Stage6DurableRequestAuthorityV1,
     batch: Stage6Stage8a4DurableBatch,
@@ -1035,6 +1052,7 @@ fn append_stage8a4_durable_batch_inner(
     }
 
     let mut transition_was_existing = false;
+    let mut mutation_attempted = false;
     let suffix_prefix = match existing {
         None => {
             let current_request = mixed
@@ -1059,9 +1077,11 @@ fn append_stage8a4_durable_batch_inner(
             {
                 return Err(Stage6dLiveCoreError::DurableOrderingViolation);
             }
+            mutation_attempted = true;
             recovered
                 .journal_mut()
-                .append_versioned(&Stage6JournalRecordVersioned::V2(transition.clone()))?;
+                .append_versioned(&Stage6JournalRecordVersioned::V2(transition.clone()))
+                .map_err(classify_stage8a4_append_error)?;
             0
         }
         Some(existing) => {
@@ -1089,12 +1109,29 @@ fn append_stage8a4_durable_batch_inner(
     let mut appended_suffix_records = 0;
     let missing_suffix = batch.suffix_records.iter().skip(suffix_prefix);
     for record in missing_suffix.take(suffix_limit.unwrap_or(usize::MAX)) {
-        recovered.journal_mut().append(record)?;
+        mutation_attempted = true;
+        recovered
+            .journal_mut()
+            .append(record)
+            .map_err(classify_stage8a4_append_error)?;
         appended_suffix_records += 1;
     }
-    recovered.refresh_after_append()?;
+    recovered.refresh_after_append().map_err(|error| {
+        if mutation_attempted {
+            Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+        } else {
+            error
+        }
+    })?;
 
-    let final_mixed = Stage6MixedReplayEngineV2::replay(recovered.journal.versioned_records())?;
+    let final_mixed = Stage6MixedReplayEngineV2::replay(recovered.journal.versioned_records())
+        .map_err(|error| {
+            if mutation_attempted {
+                Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+            } else {
+                Stage6dLiveCoreError::from(error)
+            }
+        })?;
     let final_batch = final_mixed
         .reconciliation_batches()
         .iter()
@@ -1105,17 +1142,33 @@ fn append_stage8a4_durable_batch_inner(
                 .strategy_request_id()
                 == request_id
         })
-        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        .ok_or(if mutation_attempted {
+            Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+        } else {
+            Stage6dLiveCoreError::DurableOrderingViolation
+        })?;
     if final_batch.completion() != Stage6ReconciliationBatchCompletionV2::Complete
         || final_batch.verified_suffix_prefix_length() != batch.suffix_records.len()
     {
-        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        return Err(if mutation_attempted {
+            Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+        } else {
+            Stage6dLiveCoreError::DurableOrderingViolation
+        });
     }
     Ok(Stage6Stage8a4BatchAppendReceipt {
         checkpoint: recovered.authenticated_checkpoint().clone(),
         transition_was_existing,
         appended_suffix_records,
     })
+}
+
+fn classify_stage8a4_append_error(error: Stage6JournalStorageError) -> Stage6dLiveCoreError {
+    if error == Stage6JournalStorageError::DurabilityUncertain {
+        Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+    } else {
+        Stage6dLiveCoreError::Journal(error)
+    }
 }
 
 fn validate_cancel_original_target_shape(
@@ -3752,7 +3805,7 @@ mod tests {
             2,
         );
 
-        let receipt = append_stage8a4_durable_batch(
+        let receipt = stage8a4_internal_append_durable_batch(
             &mut owner,
             authority,
             Stage6Stage8a4DurableBatch::new(transition.clone(), suffix.clone(), None).unwrap(),
@@ -3765,7 +3818,7 @@ mod tests {
         let authority = owner
             .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
             .unwrap();
-        let replay_receipt = append_stage8a4_durable_batch(
+        let replay_receipt = stage8a4_internal_append_durable_batch(
             &mut owner,
             authority,
             Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap(),
@@ -3808,7 +3861,7 @@ mod tests {
         let authority = owner
             .authorize_stage8a4_durable_batch_source(&fixture.identity, &snapshot)
             .unwrap();
-        let receipt = append_stage8a4_durable_batch(
+        let receipt = stage8a4_internal_append_durable_batch(
             &mut owner,
             authority,
             Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap(),
@@ -3844,7 +3897,7 @@ mod tests {
             0,
         );
         assert!(matches!(
-            append_stage8a4_durable_batch(
+            stage8a4_internal_append_durable_batch(
                 &mut owner,
                 authority,
                 Stage6Stage8a4DurableBatch::new(stale_frontier, no_suffix, None).unwrap(),
@@ -3867,7 +3920,7 @@ mod tests {
             0,
         );
         assert!(matches!(
-            append_stage8a4_durable_batch(
+            stage8a4_internal_append_durable_batch(
                 &mut owner,
                 authority,
                 Stage6Stage8a4DurableBatch::new(stale_request, no_suffix, None).unwrap(),
@@ -3904,7 +3957,7 @@ mod tests {
                 request_fingerprint.clone(),
                 1,
             );
-        append_stage8a4_durable_batch(
+        stage8a4_internal_append_durable_batch(
             &mut owner,
             authority,
             Stage6Stage8a4DurableBatch::new(first_transition, first_suffix, None).unwrap(),
@@ -3930,7 +3983,7 @@ mod tests {
                 2,
             );
         assert!(matches!(
-            append_stage8a4_durable_batch(
+            stage8a4_internal_append_durable_batch(
                 &mut owner,
                 authority,
                 Stage6Stage8a4DurableBatch::new(conflicting_transition, conflicting_suffix, None,)
@@ -4005,7 +4058,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            append_stage8a4_durable_batch(
+            stage8a4_internal_append_durable_batch(
                 &mut owner,
                 authority,
                 Stage6Stage8a4DurableBatch::new(
@@ -4022,7 +4075,7 @@ mod tests {
         let authority = owner
             .authorize_stage8a4_durable_batch_source(&cancel.identity, &cancel_snapshot)
             .unwrap();
-        let receipt = append_stage8a4_durable_batch(
+        let receipt = stage8a4_internal_append_durable_batch(
             &mut owner,
             authority,
             Stage6Stage8a4DurableBatch::new(

@@ -3,10 +3,10 @@ use crate::stage8a4_reconciliation::{
     admit_stage8a4_broker_truth, canonical_truth_binding, interval_coverage_fingerprint,
     private_authoritative_outcome_binding, reduce_stage8a4_authoritative,
     Stage8a4BoundedTradeHistoryComplete, Stage8a4CompletePositionsSnapshot,
-    Stage8a4DurableRequestContext, Stage8a4InstrumentCompletenessEvidence,
-    Stage8a4NonPaginatedOrdersSnapshotComplete, Stage8a4PrivateAccountSafety,
-    Stage8a4ReconciliationPolicy, Stage8a4ReconciliationReason, Stage8a4SourceEvidence,
-    Stage8a4SourceTiming, Stage8a4TradeIntervalProof,
+    Stage8a4DurableRequestContext, Stage8a4FreshTruthAdmission,
+    Stage8a4InstrumentCompletenessEvidence, Stage8a4NonPaginatedOrdersSnapshotComplete,
+    Stage8a4PrivateAccountSafety, Stage8a4ReconciliationPolicy, Stage8a4ReconciliationReason,
+    Stage8a4SourceEvidence, Stage8a4SourceTiming, Stage8a4TradeIntervalProof,
 };
 use broker_core::{
     BrokerAccountId, BrokerInstrumentSpec, BrokerKind, BrokerSymbol, BrokerTruthSnapshot,
@@ -351,6 +351,20 @@ fn production_outcome(
     let policy = reconciliation_policy();
     let admission = admit_stage8a4_broker_truth(&context, &policy, truth, evidence).unwrap();
     reduce_stage8a4_authoritative(context, admission, policy)
+}
+
+fn fresh_writer_admission(
+    identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
+    truth: BrokerTruthSnapshot,
+) -> Stage8a4FreshTruthAdmission {
+    let context = durable_context(
+        identity,
+        accepted,
+        Some(BrokerOrderId::new("BROKER-ORDER-1")),
+    );
+    let evidence = source_evidence(&context, &truth, Stage8a4PrivateExactLookup::NotAttempted);
+    admit_stage8a4_broker_truth(&context, &reconciliation_policy(), truth, evidence).unwrap()
 }
 
 fn exact_outcome(
@@ -936,6 +950,72 @@ fn account_safety_uses_canonical_broker_truth_for_all_orphan_classes() {
         ),
         1,
     );
+}
+
+#[test]
+fn i3_writer_entry_truth_is_exact_request_account_instrument_and_time_bound() {
+    let (identity, accepted) = place_identity();
+    let clean_truth = broker_truth(vec![], vec![], vec![instrument_spec()]);
+    let binding = digest(FP);
+    let clean = fresh_writer_admission(&identity, &accepted, clean_truth.clone());
+    assert!(
+        super::durable_writer_i3::test_writer_entry_safety(clean, &identity, &binding, now(),)
+            .is_some()
+    );
+
+    let mut another_request = fresh_writer_admission(&identity, &accepted, clean_truth.clone());
+    another_request.admitted_request_id = request(999);
+    assert!(super::durable_writer_i3::test_writer_entry_safety(
+        another_request,
+        &identity,
+        &binding,
+        now(),
+    )
+    .is_none());
+
+    let mut another_account = fresh_writer_admission(&identity, &accepted, clean_truth.clone());
+    another_account.admitted_account_id = BrokerAccountId::new("ACC_TEST_OTHER");
+    another_account.truth.account_id = BrokerAccountId::new("ACC_TEST_OTHER");
+    assert!(super::durable_writer_i3::test_writer_entry_safety(
+        another_account,
+        &identity,
+        &binding,
+        now(),
+    )
+    .is_none());
+
+    let mut stale = fresh_writer_admission(&identity, &accepted, clean_truth);
+    stale.writer_entry_valid_until = now();
+    assert!(
+        super::durable_writer_i3::test_writer_entry_safety(stale, &identity, &binding, now(),)
+            .is_none()
+    );
+}
+
+#[test]
+fn i3_writer_entry_detects_changed_current_orphan_state() {
+    let (identity, accepted) = place_identity();
+    let binding = digest(FP);
+    let clean = fresh_writer_admission(
+        &identity,
+        &accepted,
+        broker_truth(vec![], vec![], vec![instrument_spec()]),
+    );
+    let clean_safety =
+        super::durable_writer_i3::test_writer_entry_safety(clean, &identity, &binding, now())
+            .unwrap();
+
+    let mut orphan = order(OrderStatus::Working, None);
+    orphan.client_order_id = None;
+    let changed = fresh_writer_admission(
+        &identity,
+        &accepted,
+        broker_truth(vec![orphan], vec![], vec![instrument_spec()]),
+    );
+    let changed_safety =
+        super::durable_writer_i3::test_writer_entry_safety(changed, &identity, &binding, now())
+            .unwrap();
+    assert_ne!(clean_safety, changed_safety);
 }
 
 #[test]

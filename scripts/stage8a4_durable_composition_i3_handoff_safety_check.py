@@ -48,6 +48,17 @@ def check(archive_path: str) -> dict[str, object]:
         evidence = json.loads(
             archive.read("handoff-evidence/stage8a4-durable-composition-i3-evidence.json")
         )
+        if evidence.get("stage") != "8A-4-durable-composition-I3-R2":
+            raise ValueError("stage mismatch")
+        if evidence.get("acceptance_rows") != 60 or evidence.get("negative_cases") != 48:
+            raise ValueError("R2 evidence count mismatch")
+        for key in (
+            "sealed_linear_writer_authority",
+            "exact_request_truth_control_binding",
+            "post_write_sticky_fail_stop",
+        ):
+            if evidence.get(key) is not True:
+                raise ValueError(f"R2 evidence disabled: {key}")
         if fields.get("source_ref") != evidence.get("source_ref"):
             raise ValueError("source ref mismatch")
         if fields.get("archive_name") != PurePosixPath(archive_path).name:

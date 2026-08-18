@@ -1,87 +1,87 @@
-# Stage 8A-4 durable composition I3
+# Stage 8A-4 durable composition I3 R2
 
-## Authority
+## Scope and lineage
 
-I2 R3 is independently accepted and closed at
-`90f46052cc31cea012437eddb59fb7c3ca5c2320`; the independent review SHA-256 is
-`196c2b69161081f9034eb9399f41245f11ccd7eca229fadc3f8ec842cd1231f0`.
-This slice implements only the separately opened I3 writer/CAS/append/covering
-seal boundary. I4 ACK/readiness and every execution surface remain closed.
+I2 R3 remains accepted at `90f46052cc31cea012437eddb59fb7c3ca5c2320`.
+I3 R1 at `a490bbe700c51f0e9c6debd2a007cb9b5061c3d8` was not accepted because a
+caller could bypass the private reconciliation authority through a raw batch
+writer, current truth/control were not exact request bound, and post-write I/O
+failure was not sticky at the owner boundary. I3 R2 closes only those findings
+while preserving the accepted V2-first, exact suffix and covering S1 protocol.
 
-## Current durable authority
+I4 remains separately review-gated. ACK/readiness, Redis live consumption,
+FINAM POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
 
-The sole entry is owned by `Stage7bRecoveryReadyOwner` while it retains the
-kernel writer lease. Immediately before mutation it rereads and authenticates
-S0, refreshes the file-backed journal and reconstructs one request authority
-from the current recovered Stage6 lifecycle. The authority requires the exact
-typed `RequestAccepted`, its command payload digest and exactly one linked
-`DispatchAttemptRecorded`.
+## Sealed writer authority
 
-The stable durable-request binding is recomputed from immutable Stage6
-identity, accepted record, dispatch record/sequence and runtime configuration.
-Mutable frontier/checkpoint/seal fields remain outside that binding and in the
-four-field CAS. For CANCEL, the original order shape is resolved from exactly
-one historical durable PLACE plus the observed target BrokerOrderId; it is
-never reconstructed from the cancel command.
+The production Stage7 writer no longer accepts a caller-provided
+`Stage6Stage8a4DurableBatch`. It consumes a linear opaque
+`Stage8a4DurableWriteAuthority`. Its fields are private; it has no public
+constructor and no `Clone`, `Debug`, `Serialize` or `Deserialize` path.
 
-## Four-field compare-and-append
+The sole private issuer consumes all of:
 
-Under the held writer lease I3 exact-compares:
+- the private I2 candidate;
+- current Stage6 request/command authority;
+- fresh exact-request FINAM truth;
+- current post-effect control evidence;
+- current operational identity, runtime config and recovery seal facts.
 
-1. Stage6 checkpoint or causal-frontier fingerprint;
-2. recovery-seal generation;
-3. recovery-seal commitment fingerprint;
-4. request-state fingerprint at the original dispatch frontier.
+The dependency direction is `runtime-durable-service -> finam-gateway`, so the
+runtime owner can consume the sealed FINAM capability without exposing a raw
+cross-crate batch API. The low-level core append is hidden/internal and cannot
+be combined with the public Stage7 covering-seal path. Compile-fail examples
+pin both the removed raw Stage7 call and the nonconstructible opaque authority.
 
-A stale candidate is consumed by value and fails before journal mutation.
-Current previous record, previous lifecycle sequence and global journal tail
-must all name the same dispatch attempt.
+## Exact request truth and control binding
 
-## V2-first durable batch
+Writer-entry truth binds the exact request ID, account, instrument, durable
+request binding and canonical truth digest. Its validity ends at the oldest
+source response plus the admitted freshness allowance; the writer compares the
+current clock to `writer_entry_valid_until`. Identical counts from another
+account or request therefore cannot authorize persistence. Changed unknown,
+orphan, order or position state changes the private safety projection and is
+rejected.
 
-The append order is fixed:
+Control evidence is exact-compared against the current owner using operational
+identity, runtime-config fingerprint, accepted command digest, authority scope,
+arm-registry binding and current-control binding. `StopRequested` and
+stale/unreadable control may still permit persistence of already-established
+truth, but never grant send, retry, ACK or readiness authority.
 
-1. canonical V2 transition append and file sync;
-2. each exact missing V1 manifest record append and file sync;
-3. refresh mixed V1/V2 replay and require a complete batch;
-4. derive F1;
-5. atomically commit S1 covering F1;
-6. reread, authenticate, decode and compare S1 and recovered identity.
+## Durable protocol retained
 
-The mixed replay index enforces stable-key behavior before mutation. Same key
-and same canonical V2 resumes an existing batch. Same key and different V2 is
-a hard conflict. An existing verified suffix prefix permits only the exact
-remaining full-record manifest suffix; no second transition is appended.
+Under the held writer lease, S0 is reread and authenticated, Stage6 is
+refreshed, the exact accepted command and sole dispatch are reconstructed, and
+the four-field CAS checks frontier/checkpoint, seal generation, seal
+fingerprint and request-state fingerprint. A new batch is written V2-first,
+then only the exact verified missing manifest suffix. Every frame append is
+fsync-backed. Same stable key and same payload resumes; a different payload is
+a hard conflict. Success requires complete replay, F1, covering S1, and an
+authenticated reread of S1.
 
-## Crash and restart behavior
+Restart recovery remains narrow: only S0 followed by one exact I3 V2 and zero
+or more exact manifest-prefix V1 records can be covered. A second V2, unrelated
+V1, wrong durable binding, stale precondition, torn frame or foreign suffix is
+never covered.
 
-Normal Stage7B checkpoint mismatch remains fail-closed. The only journal-ahead
-exception is one canonical I3 V2 immediately after the S0 frontier followed by
-zero or more exact manifest-prefix V1 records and no second V2. Its precondition
-must bind S0, the old frontier and the old request fingerprint. Restart
-reconstructs the current Stage6 authority, validates the uncovered tail, commits
-and rereads a covering seal, then returns Ready.
+## Sticky mutation uncertainty
 
-Tests cover V2-only crash and a partial suffix crash with V2 plus one of two
-suffix records. A later retry
-appends only the exact missing suffix record and advances the seal once more.
+The file backend marks durability uncertain before the first write attempt.
+A pure `BeforeFrameWrite` failure is classified as no mutation and does not
+poison the owner. Failures after header, partial payload, frame hash, before
+sync, during sync, or during post-write rescan are classified as
+`JournalMutationMayHaveOccurred`.
 
-## Post-effect control and account safety
+The Stage7 owner then sets `journal_mutation_uncertain` sticky. In that process
+`recovery_ready` is false and command authority, another append, seal advance
+and all lifecycle admission fail. Only close/reopen and authoritative restart
+scan can resolve disk state. The fault matrix covers both V2 and suffix writes;
+existing seal-commit uncertainty remains sticky as well.
 
-Historical one-shot arm provenance is retained as an opaque non-serializable
-value. The existing Stage8A-1 issuer checks the pinned arm-registry record and
-rereads current control state. `StopRequested`, expired or unreadable current
-control remains a send/readiness hold but does not erase already-established
-broker truth and does not grant resend authority.
+## Closed surfaces
 
-The private FINAM composition recomputes the complete canonical
-`BrokerTruthSnapshot::summarize_for_instrument` account safety immediately
-before writer entry and requires exact equality with the admitted V2 safety
-projection. New unknown/orphan/order/position state rejects the stale outcome.
-
-## Still closed
-
-The I3 receipt is durable-only and cannot authorize ACK, readiness, Redis
-settlement or XACK. I4 remains separately review-gated. FINAM POST/DELETE,
-broker dispatch, retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+
-and Stage 8B remain closed.
+The durable receipt grants no ACK or readiness capability. I4 remains
+separately review-gated. Redis command consumption, XACK, FINAM POST/DELETE,
+transport send, retry/resend/re-arm, broker execution, runtime-live, real
+orders, Stage 8A-5+ and Stage 8B remain closed.

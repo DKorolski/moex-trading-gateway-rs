@@ -86,9 +86,6 @@ use broker_core::{
     PreflightApprovedPlaceOrder, StrategyRequestId, TimeInForce,
 };
 use chrono::{DateTime, Utc};
-use runtime_durable_service::{
-    Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bRecoveryReadyOwner,
-};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
@@ -100,7 +97,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use strategy_runtime_core::{
-    Stage5gLifecycleCommitmentKey, Stage6DurableActionKind, Stage6DurableCommandSnapshotV1,
+    Stage6DurableActionKind, Stage6DurableCommandSnapshotV1, Stage6DurableRequestAuthorityV1,
     Stage6DurableRequestIdentityV1, Stage6Sha256Digest,
 };
 
@@ -176,11 +173,32 @@ pub struct Stage8a1CurrentControlStateV1 {
 /// composition. Public callers cannot feed caller-created snapshots into the
 /// capability minting boundary.
 pub struct Stage8a1TrustedCurrentSources {
-    composite_readiness: Stage7bCompositeReadinessSnapshot,
+    composite_readiness: Stage8a1CompositeReadinessSnapshot,
     broker_truth: BrokerTruthSnapshot,
     broker_readiness: BrokerReadinessSnapshot,
     authority_root_sha256: String,
     evidence_sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(
+    dead_code,
+    reason = "all readiness states are retained in the broker-neutral seam"
+)]
+pub(crate) enum Stage8a1PaperReadinessPhase {
+    PaperReady,
+    Degraded,
+    Stopped,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct Stage8a1CompositeReadinessSnapshot {
+    pub phase: Stage8a1PaperReadinessPhase,
+    pub reasons: Vec<String>,
+    pub blocked_entry_ids: Vec<String>,
+    pub blocked_request_ids: Vec<StrategyRequestId>,
+    pub checked_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -334,16 +352,13 @@ pub struct Stage8a1DurableRequestAuthority {
 }
 
 impl Stage8a1DurableRequestAuthority {
-    pub fn from_stage7b_owner(
-        owner: &mut Stage7bRecoveryReadyOwner,
-        commitment_key: &Stage5gLifecycleCommitmentKey,
-        identity: &Stage6DurableRequestIdentityV1,
+    pub fn from_current_stage6_authority(
+        stage6: &Stage6DurableRequestAuthorityV1,
         command: &Stage6DurableCommandSnapshotV1,
+        operational_identity_sha256: &str,
+        seal_generation: u64,
+        seal_commitment_sha256: &str,
     ) -> Result<Self, Stage8ExecutionPreflightError> {
-        let authority = owner
-            .authorize_stage8a1_durable_request(commitment_key, identity, command)
-            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
-        let stage6 = authority.stage6();
         let mut value = Self {
             identity: stage6.identity().clone(),
             durable_command_sha256: digest_parts(
@@ -359,9 +374,9 @@ impl Stage8a1DurableRequestAuthority {
                 .runtime_config_fingerprint_sha256()
                 .to_string(),
             checkpoint_sha256: stage6.authenticated_checkpoint_sha256().to_string(),
-            operational_identity_sha256: authority.operational_identity_sha256().to_string(),
-            seal_generation: authority.seal_generation(),
-            seal_commitment_sha256: authority.seal_commitment_sha256().to_string(),
+            operational_identity_sha256: operational_identity_sha256.to_string(),
+            seal_generation,
+            seal_commitment_sha256: seal_commitment_sha256.to_string(),
             provenance_sha256: String::new(),
         };
         value.provenance_sha256 = value.calculate_provenance();
@@ -606,6 +621,22 @@ impl Stage8a4PostEffectControlEvidence {
     pub(crate) fn current_control_state(&self) -> Stage8a4PostEffectControlState {
         self.current_control_state
     }
+
+    pub(crate) fn operational_identity_sha256(&self) -> &str {
+        &self.historical_arm.operational_identity_sha256
+    }
+
+    pub(crate) fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.historical_arm.runtime_config_fingerprint_sha256
+    }
+
+    pub(crate) fn authority_scope_sha256(&self) -> &str {
+        &self.historical_arm.authority_scope_sha256
+    }
+
+    pub(crate) fn arm_registration_sha256(&self) -> &str {
+        &self.historical_arm.arm_registration_sha256
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -727,24 +758,15 @@ impl Stage8a1OperationalAuthorityIssuer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn from_stage7b_owner(
-        owner: &mut Stage7bRecoveryReadyOwner,
-        commitment_key: &Stage5gLifecycleCommitmentKey,
-        identity: &Stage6DurableRequestIdentityV1,
-        command: &Stage6DurableCommandSnapshotV1,
+    pub fn from_durable_authority(
+        durable: &Stage8a1DurableRequestAuthority,
         root: impl AsRef<Path>,
         accepted_config_sha256: &str,
     ) -> Result<Self, Stage8ExecutionPreflightError> {
         if !valid_sha256(accepted_config_sha256) {
             return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
         }
-        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
-            owner,
-            commitment_key,
-            identity,
-            command,
-        )?;
-        Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, &durable)
+        Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, durable)
     }
 
     fn from_trusted_composition(
@@ -828,7 +850,7 @@ impl Stage8a1OperationalAuthorityIssuer {
     )]
     pub(crate) fn issue_current_sources(
         &self,
-        composite_readiness: &Stage7bCompositeReadinessSnapshot,
+        composite_readiness: &Stage8a1CompositeReadinessSnapshot,
         broker_truth: &BrokerTruthSnapshot,
         broker_readiness: &BrokerReadinessSnapshot,
     ) -> Result<Stage8a1TrustedCurrentSources, Stage8ExecutionPreflightError> {
@@ -1085,10 +1107,7 @@ impl Stage8a1OperationalAuthorityIssuer {
     pub fn revalidate_place_capability(
         &mut self,
         capability: Stage8ExecutionCapability,
-        owner: &mut Stage7bRecoveryReadyOwner,
-        commitment_key: &Stage5gLifecycleCommitmentKey,
-        identity: &Stage6DurableRequestIdentityV1,
-        command: &Stage6DurableCommandSnapshotV1,
+        durable: Stage8a1DurableRequestAuthority,
         order: &PlaceOrder,
         broker_preflight_context: &OrderPreflightContext,
         sources: &Stage8a1TrustedCurrentSources,
@@ -1101,12 +1120,6 @@ impl Stage8a1OperationalAuthorityIssuer {
         {
             return Err(Stage8ExecutionPreflightError::CurrentStateChanged);
         }
-        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
-            owner,
-            commitment_key,
-            identity,
-            command,
-        )?;
         validate_place_durable(&durable, order)?;
         self.authority_root.validate()?;
         let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
@@ -1166,20 +1179,11 @@ impl Stage8a1OperationalAuthorityIssuer {
     pub fn revalidate_cancel_capability(
         &mut self,
         capability: Stage8ExecutionCapability,
-        owner: &mut Stage7bRecoveryReadyOwner,
-        commitment_key: &Stage5gLifecycleCommitmentKey,
-        identity: &Stage6DurableRequestIdentityV1,
-        command: &Stage6DurableCommandSnapshotV1,
+        durable: Stage8a1DurableRequestAuthority,
         cancel: &CancelOrder,
         existing_order: &OrderPathRecord,
         sources: &Stage8a1TrustedCurrentSources,
     ) -> Result<Stage8a1CurrentlyAuthorizedCapability, Stage8ExecutionPreflightError> {
-        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
-            owner,
-            commitment_key,
-            identity,
-            command,
-        )?;
         self.revalidate_cancel_with_durable(capability, durable, cancel, existing_order, sources)
     }
 
@@ -1348,7 +1352,7 @@ fn derive_current_authorities(
     {
         return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
     }
-    if sources.composite_readiness.phase != Stage7bPaperReadinessPhase::PaperReady
+    if sources.composite_readiness.phase != Stage8a1PaperReadinessPhase::PaperReady
         || !sources.composite_readiness.reasons.is_empty()
         || !sources.composite_readiness.blocked_entry_ids.is_empty()
         || !sources.composite_readiness.blocked_request_ids.is_empty()
@@ -2813,7 +2817,7 @@ mod tests {
     fn current_sources(
         observed_at: DateTime<Utc>,
     ) -> (
-        Stage7bCompositeReadinessSnapshot,
+        Stage8a1CompositeReadinessSnapshot,
         BrokerTruthSnapshot,
         BrokerReadinessSnapshot,
     ) {
@@ -2821,8 +2825,8 @@ mod tests {
             observed_ts: Some(observed_at),
             max_age_ms: 30_000,
         };
-        let readiness = Stage7bCompositeReadinessSnapshot {
-            phase: Stage7bPaperReadinessPhase::PaperReady,
+        let readiness = Stage8a1CompositeReadinessSnapshot {
+            phase: Stage8a1PaperReadinessPhase::PaperReady,
             reasons: vec![],
             blocked_entry_ids: vec![],
             blocked_request_ids: vec![],
@@ -2884,7 +2888,9 @@ mod tests {
         durable: &Stage8a1DurableRequestAuthority,
         observed_at: DateTime<Utc>,
     ) {
-        let broker_policy = policy(durable).broker_policy;
+        let mut broker_policy = policy(durable).broker_policy;
+        broker_policy.operator_arm.preflight_digest =
+            durable.runtime_config_fingerprint_sha256.clone();
         let config = Stage8a1AcceptedExecutionConfigV1 {
             schema_version: 1,
             operational_identity_sha256: durable.operational_identity_sha256.clone(),
@@ -2996,6 +3002,55 @@ mod tests {
         ));
         drop(capability);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stage8a4_i3_same_command_cross_root_operational_identity_is_rejected() {
+        let now = Utc::now();
+        let mut order = place();
+        order.created_ts = now;
+        order.ttl_ms = Some(30_000);
+        let context = OrderPreflightContext {
+            reference_price: Some(broker_core::OrderReferencePrice {
+                price: Decimal::new(2220, 0),
+                received_ts: now,
+            }),
+            current_run_notional: Decimal::ZERO,
+        };
+        let durable_a = durable_place(&order);
+        let root_a = issuer_root();
+        write_issuer_sources(&root_a, &durable_a, now);
+        let (readiness, truth, broker_readiness) = current_sources(now);
+        let mut issuer_a =
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&root_a, &durable_a).unwrap();
+        let sources = issuer_a
+            .issue_current_sources(&readiness, &truth, &broker_readiness)
+            .unwrap();
+        let capability = issuer_a
+            .authorize_place(durable_a, &order, &context, &sources)
+            .unwrap();
+        let historical = capability.stage8a4_historical_arm_provenance().unwrap();
+
+        let mut durable_b = durable_place(&order);
+        durable_b.operational_identity_sha256 = "a".repeat(64);
+        durable_b.runtime_config_fingerprint_sha256 = "b".repeat(64);
+        durable_b.provenance_sha256 = durable_b.calculate_provenance();
+        let root_b = issuer_root();
+        write_issuer_sources(&root_b, &durable_b, now);
+        fs::create_dir(root_b.join(ARM_NONCE_DIR)).unwrap();
+        for entry in fs::read_dir(root_a.join(ARM_NONCE_DIR)).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), root_b.join(entry.file_name())).unwrap();
+        }
+        let issuer_b =
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&root_b, &durable_b).unwrap();
+        assert!(issuer_b
+            .issue_stage8a4_post_effect_control_evidence(historical)
+            .is_err());
+
+        drop(capability);
+        fs::remove_dir_all(root_a).unwrap();
+        fs::remove_dir_all(root_b).unwrap();
     }
 
     #[test]

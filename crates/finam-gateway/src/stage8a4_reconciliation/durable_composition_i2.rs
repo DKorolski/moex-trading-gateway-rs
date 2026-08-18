@@ -884,3 +884,4 @@ mod tests;
 
 #[allow(dead_code)]
 mod durable_writer_i3;
+pub use durable_writer_i3::{Stage8a4DurableWriteAuthority, Stage8a4DurableWriterParts};

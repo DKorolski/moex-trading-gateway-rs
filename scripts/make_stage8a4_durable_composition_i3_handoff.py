@@ -37,7 +37,7 @@ def main() -> None:
     if status:
         raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL worktree must be clean")
     branch = run("git", "branch", "--show-current").decode().strip()
-    if branch != "stage8a4-durable-composition-i3":
+    if branch != "stage8a4-durable-composition-i3-r2":
         raise SystemExit(f"stage8a4-durable-composition-i3-handoff: FAIL branch={branch}")
     full_ref = run("git", "rev-parse", "HEAD").decode().strip()
     short_ref = run("git", "rev-parse", "--short=7", "HEAD").decode().strip()
@@ -60,7 +60,7 @@ def main() -> None:
         )
         if gate.returncode != 0:
             raise SystemExit(gate.stdout.decode(errors="replace"))
-        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=45 negatives=28 append=true ack=false execution=false"
+        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=60 negatives=48 opaque=true sticky=true ack=false execution=false"
         if marker not in gate.stdout:
             raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL gate marker missing")
 
@@ -81,20 +81,25 @@ def main() -> None:
         }
         evidence = (json.dumps({
             "schema_version": 1,
-            "stage": "8A-4-durable-composition-I3",
+            "stage": "8A-4-durable-composition-I3-R2",
             "source_ref": full_ref,
             "source_short_ref": short_ref,
             "archive_name": archive_name,
             "branch": branch,
             "accepted_i2_r3_ref": "90f46052cc31cea012437eddb59fb7c3ca5c2320",
             "accepted_i2_r3_review_sha256": "196c2b69161081f9034eb9399f41245f11ccd7eca229fadc3f8ec842cd1231f0",
-            "acceptance_rows": 45,
-            "negative_cases": 28,
+            "rejected_i3_r1_ref": "a490bbe700c51f0e9c6debd2a007cb9b5061c3d8",
+            "rejected_i3_r1_review_sha256": "c0ecc723ab98ba67560cb857e2761d0913f47c8ff78355bc04e74c8e03b585fe",
+            "acceptance_rows": 60,
+            "negative_cases": 48,
             "source_tree_manifest_sha256": sha256(manifest),
             "full_gate_sha256": sha256(gate.stdout),
             "v2_durable_append_enabled": True,
             "four_field_cas_enabled": True,
             "covering_seal_writer_enabled": True,
+            "sealed_linear_writer_authority": True,
+            "exact_request_truth_control_binding": True,
+            "post_write_sticky_fail_stop": True,
             "ack_readiness_enabled": False,
             "redis_live_enabled": False,
             "finam_post_delete_enabled": False,

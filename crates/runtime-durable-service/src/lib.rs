@@ -63,6 +63,26 @@
 //! }
 //! ```
 //!
+//! Public V2/read DTOs and caller-built batches cannot reach the covering S1
+//! writer. The former raw Stage7B entry is intentionally absent:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bRecoveryReadyOwner;
+//! use strategy_runtime_core::{
+//!     Stage5gLifecycleCommitmentKey, Stage6DurableCommandSnapshotV1,
+//!     Stage6DurableRequestIdentityV1, Stage6Stage8a4DurableBatch,
+//! };
+//! fn bypass(
+//!     owner: &mut Stage7bRecoveryReadyOwner,
+//!     key: &Stage5gLifecycleCommitmentKey,
+//!     identity: &Stage6DurableRequestIdentityV1,
+//!     command: &Stage6DurableCommandSnapshotV1,
+//!     batch: Stage6Stage8a4DurableBatch,
+//! ) {
+//!     owner.append_stage8a4_durable_batch_and_cover(key, identity, command, batch).unwrap();
+//! }
+//! ```
+//!
 //! The terminal ACK authority is crate-private:
 //!
 //! ```compile_fail

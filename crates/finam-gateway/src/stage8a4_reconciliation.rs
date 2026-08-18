@@ -19,6 +19,11 @@
 //! ```
 //!
 //! ```compile_fail
+//! use finam_gateway::Stage8a4DurableWriteAuthority;
+//! let _ = Stage8a4DurableWriteAuthority {};
+//! ```
+//!
+//! ```compile_fail
 //! use finam_gateway::Stage8a4ReconciliationDiagnostic;
 //! fn retry(value: Stage8a4ReconciliationDiagnostic) {
 //!     let _ = value.retry_authority();
@@ -40,6 +45,7 @@ use strategy_runtime_core::Stage6DurableActionKind;
 
 #[allow(dead_code)]
 mod durable_composition_i2;
+pub use durable_composition_i2::{Stage8a4DurableWriteAuthority, Stage8a4DurableWriterParts};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -200,10 +206,15 @@ pub struct Stage8a4SourceEvidence {
 pub struct Stage8a4FreshTruthAdmission {
     truth: BrokerTruthSnapshot,
     exact_lookup: Stage8a4PrivateExactLookup,
+    admitted_request_id: StrategyRequestId,
+    admitted_account_id: BrokerAccountId,
+    admitted_instrument: InstrumentId,
     admitted_durable_binding_sha256: String,
     admitted_policy_binding_sha256: String,
+    admitted_canonical_truth_sha256: String,
     source_evidence_binding_sha256: String,
     truth_binding_sha256: String,
+    writer_entry_valid_until: DateTime<Utc>,
     account_active_orders_count: usize,
     target_active_orders_count: usize,
 }
@@ -303,6 +314,7 @@ pub fn admit_stage8a4_broker_truth(
         ));
     }
     validate_cross_source_skew(&evidence, policy, &attempt)?;
+    let writer_entry_valid_until = stage8a4_writer_entry_valid_until(&evidence, policy);
 
     let matching_specs = truth
         .instruments
@@ -386,13 +398,43 @@ pub fn admit_stage8a4_broker_truth(
     Ok(Stage8a4FreshTruthAdmission {
         truth,
         exact_lookup: evidence.exact_lookup,
+        admitted_request_id: context.request_id,
+        admitted_account_id: context.account_id.clone(),
+        admitted_instrument: context.instrument.clone(),
         admitted_durable_binding_sha256: context.durable_binding_sha256.clone(),
         admitted_policy_binding_sha256: policy.policy_binding_sha256.clone(),
+        admitted_canonical_truth_sha256: canonical_truth_sha256,
         source_evidence_binding_sha256,
         truth_binding_sha256,
+        writer_entry_valid_until,
         account_active_orders_count,
         target_active_orders_count,
     })
+}
+
+fn stage8a4_writer_entry_valid_until(
+    evidence: &Stage8a4SourceEvidence,
+    policy: &Stage8a4ReconciliationPolicy,
+) -> DateTime<Utc> {
+    let mut oldest_response = evidence
+        .orders
+        .timing
+        .response_received_at
+        .min(evidence.positions.timing.response_received_at);
+    let instrument_response = match &evidence.instruments {
+        Stage8a4InstrumentCompletenessEvidence::ExactTargetResolved { timing }
+        | Stage8a4InstrumentCompletenessEvidence::FullRegistryCursorExhausted { timing } => {
+            timing.response_received_at
+        }
+    };
+    oldest_response = oldest_response.min(instrument_response);
+    for interval in &evidence.trades.intervals {
+        oldest_response = oldest_response.min(interval.response_received_at);
+    }
+    if let Some(timing) = evidence.exact_lookup.timing() {
+        oldest_response = oldest_response.min(timing.response_received_at);
+    }
+    oldest_response + policy.max_source_age
 }
 
 /// Pure deterministic reducer. It consumes all linear inputs and emits only a

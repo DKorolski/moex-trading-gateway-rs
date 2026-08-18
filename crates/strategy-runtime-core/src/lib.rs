@@ -321,6 +321,9 @@ pub use stage6_durable_identity::{
     Stage6JournalRecordV1, Stage6LifecycleSequence, Stage6ReconciliationDispositionV1,
     Stage6RequestFinalDispositionV1, Stage6Sha256Digest, STAGE6_DURABLE_RECORD_SCHEMA_VERSION,
 };
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage6_journal_backend::TestIoFailpoint as Stage8a4JournalTestFailpoint;
 pub use stage6_journal_backend::{
     Stage6FileJournalBackend, Stage6JournalAppendReceipt, Stage6JournalBackend,
     Stage6JournalCheckpointV1, Stage6JournalFrontierV1, Stage6JournalStorageError,
@@ -345,8 +348,10 @@ pub use stage6_replay::{
     Stage6DispatchSafetyStateV1, Stage6RecoveredRequestV1, Stage6ReplayEngineV1, Stage6ReplayError,
     Stage6ReplaySnapshotV1, STAGE6_REPLAY_SCHEMA_VERSION,
 };
+#[doc(hidden)]
+pub use stage6d_live_core::stage8a4_internal_append_durable_batch;
 pub use stage6d_live_core::{
-    admit_stage7a_paper_command, advance_stage6d_restart_package, append_stage8a4_durable_batch,
+    admit_stage7a_paper_command, advance_stage6d_restart_package,
     apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
     execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
     finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
@@ -372,8 +377,8 @@ pub use stage6d_live_core::{
 pub use stage6d_live_core::{
     stage7b_test_authenticated_cancel_restart_fixture,
     stage7b_test_authenticated_working_restart_fixture,
-    stage8a4_test_append_durable_batch_with_suffix_limit, Stage7bTestExtraStage6History,
-    Stage7bTestRestartFixture,
+    stage8a4_test_append_durable_batch_with_suffix_limit, stage8a4_test_set_journal_failpoint,
+    Stage7bTestExtraStage6History, Stage7bTestRestartFixture,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]

@@ -1,46 +1,61 @@
 id,requirement,evidence
 I3-001,I2 R3 exact predecessor is pinned,authority/checker
-I3-002,I2 R3 review hash is pinned,authority/checker
-I3-003,sole writer is Stage7bRecoveryReadyOwner,recovery source
-I3-004,writer lease remains held during append,recovery source
-I3-005,S0 is reread before mutation,recovery source/test
-I3-006,current Stage6 lifecycle is refreshed before mutation,recovery source
-I3-007,current RequestAccepted record is required,core source/test
-I3-008,accepted command payload is exact,core source/test
-I3-009,exactly one linked dispatch attempt is required,core source/test
-I3-010,durable request binding is recomputed,core source/test
-I3-011,arbitrary durable binding is rejected,core test
-I3-012,CANCEL target shape comes from durable PLACE history,core source/test
-I3-013,CANCEL target BrokerOrderId was durably observed,core source/test
-I3-014,frontier CAS is exact,core source/test
-I3-015,seal generation CAS is exact,runtime source/test
-I3-016,seal fingerprint CAS is exact,runtime source/test
-I3-017,request-state CAS is exact,core source/test
-I3-018,CAS failure mutates no journal,core/runtime tests
-I3-019,current previous record equals dispatch record,core source
-I3-020,current sequence equals dispatch plus one,core source
-I3-021,current global tail equals dispatch before new V2,core source
-I3-022,V2 is appended before every suffix record,core source
-I3-023,V2 append is fsync-backed,journal backend
-I3-024,each V1 suffix append is fsync-backed,journal backend
-I3-025,same key same canonical V2 is idempotent,core test
-I3-026,same key different canonical V2 is hard conflict,core test
-I3-027,only exact verified missing suffix is appended,mixed replay/core test
-I3-028,no second V2 is appended on retry,core/runtime test
-I3-029,complete batch is required before normal success,core source
-I3-030,F1 checkpoint is derived after complete append,runtime source
-I3-031,S1 covers F1,runtime source/test
-I3-032,S1 is atomically committed and directory synced,runtime source
-I3-033,S1 is reread authenticated decoded and compared,runtime source/test
+I3-002,rejected I3 R1 and independent review hash are pinned,authority/checker
+I3-003,sole durable writer owner is Stage7bRecoveryReadyOwner,recovery source
+I3-004,production Stage7 writer accepts only opaque write authority,recovery source/compile-fail
+I3-005,raw Stage7 batch writer is absent,checker/compile-fail
+I3-006,raw core append is not a normal public API,core source/checker
+I3-007,opaque authority has no public constructor,FINAM source/compile-fail
+I3-008,opaque authority is linear and non-serializable,FINAM source
+I3-009,private issuer consumes private I2 candidate,FINAM source
+I3-010,public read DTO cannot become write authority,compile-fail/checker
+I3-011,current RequestAccepted record is required,core source/test
+I3-012,accepted command payload is exact,core source/test
+I3-013,exactly one linked dispatch attempt is required,core source/test
+I3-014,durable request binding is recomputed,core source/test
+I3-015,CANCEL target shape comes from durable PLACE history,core source/test
+I3-016,S0 is reread before mutation,recovery source/test
+I3-017,current Stage6 lifecycle is refreshed before mutation,recovery source
+I3-018,frontier CAS is exact,core source/test
+I3-019,seal generation CAS is exact,runtime source/test
+I3-020,seal fingerprint CAS is exact,runtime source/test
+I3-021,request-state CAS is exact,core source/test
+I3-022,CAS failure mutates no journal,core/runtime tests
+I3-023,current previous record and sequence equal dispatch,core source
+I3-024,current global tail equals dispatch before new V2,core source
+I3-025,V2 is appended before suffix,core source
+I3-026,V2 append is fsync-backed,journal backend
+I3-027,each V1 suffix append is fsync-backed,journal backend
+I3-028,same key same canonical V2 is idempotent,core test
+I3-029,same key different canonical V2 is hard conflict,core test
+I3-030,only exact verified missing suffix is appended,mixed replay/core test
+I3-031,no second V2 is appended on retry,core/runtime test
+I3-032,complete batch is required before normal success,core source
+I3-033,S1 covers F1 and is reread authenticated,runtime source/test
 I3-034,V2-only crash is recognized narrowly,runtime test
 I3-035,partial suffix crash is recognized narrowly,runtime test
-I3-036,malformed unrelated journal-ahead is not accepted,stage8a4_i3_restart_rejects_unrelated_record_after_uncovered_v2
-I3-037,historical arm registry is revalidated,Stage8A1 source/test
-I3-038,StopRequested does not suppress truth append,Stage8A1/I3 source
-I3-039,stale control does not grant resend or readiness,Stage8A1/I3 source
-I3-040,current account safety is recomputed before writer entry,FINAM I3 source
-I3-041,durable receipt grants no ACK or readiness,runtime source/authority
-I3-042,Redis live remains closed,authority/checker
-I3-043,FINAM POST DELETE remains closed,authority/checker
-I3-044,broker dispatch and runtime-live remain closed,authority/checker
-I3-045,I4 and Stage8A5 remain separately gated,authority/docs
+I3-036,unrelated journal-ahead state is rejected,runtime test
+I3-037,current truth binds exact request ID,FINAM source/test
+I3-038,current truth binds exact account,FINAM source/test
+I3-039,current truth binds exact instrument,FINAM source/test
+I3-040,current truth binds durable request digest,FINAM source/test
+I3-041,current truth binds canonical truth digest,FINAM source/test
+I3-042,writer-entry truth has an absolute validity deadline,FINAM source/test
+I3-043,another account with identical counts is rejected,FINAM test
+I3-044,another request on same account is rejected,FINAM test
+I3-045,changed orphan or unknown state is rejected,FINAM test
+I3-046,control binds current operational identity,FINAM source
+I3-047,control binds current runtime config,FINAM source/runtime check
+I3-048,control binds command scope and payload,FINAM source
+I3-049,arm registry and current control bindings are validated,Stage8A1 source
+I3-050,pre-write failure does not poison owner,runtime/backend tests
+I3-051,post-header failure poisons backend and owner,runtime/backend tests
+I3-052,partial-payload failure poisons backend and owner,runtime/backend tests
+I3-053,post-hash or pre-sync failure poisons owner,runtime/backend tests
+I3-054,sync failure poisons owner,runtime/backend tests
+I3-055,suffix write failures poison owner,runtime fault matrix
+I3-056,poisoned owner is not recovery ready,runtime fault matrix
+I3-057,poisoned owner cannot issue authority append or advance seal,runtime fault matrix
+I3-058,durable receipt grants no ACK or readiness,runtime source/authority
+I3-059,Redis FINAM dispatch runtime-live and real orders remain closed,authority/checker
+I3-060,I4 and Stage8A5 remain separately gated,authority/docs

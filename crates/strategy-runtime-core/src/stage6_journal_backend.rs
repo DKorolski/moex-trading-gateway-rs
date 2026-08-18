@@ -422,6 +422,23 @@ impl Stage6OwnedJournalBackend {
     pub fn is_file_backed(&self) -> bool {
         matches!(self, Self::File(_))
     }
+
+    #[cfg(feature = "stage5g-artifact-fixtures")]
+    #[doc(hidden)]
+    pub fn stage8a4_test_set_failpoint(
+        &mut self,
+        failpoint: Option<TestIoFailpoint>,
+    ) -> Result<(), Stage6JournalStorageError> {
+        match self {
+            Self::File(backend) => {
+                backend.failpoint = failpoint;
+                Ok(())
+            }
+            Self::Memory(_) => Err(Stage6JournalStorageError::Io {
+                kind: ErrorKind::Unsupported,
+            }),
+        }
+    }
 }
 
 impl From<Stage6MemoryJournalBackend> for Stage6OwnedJournalBackend {
@@ -502,7 +519,7 @@ pub struct Stage6FileJournalBackend {
     file: File,
     scan: ScannedJournal,
     durability_uncertain: bool,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     failpoint: Option<TestIoFailpoint>,
 }
 
@@ -607,7 +624,7 @@ impl Stage6FileJournalBackend {
             file,
             scan,
             durability_uncertain: false,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
             failpoint: None,
         })
     }
@@ -696,49 +713,70 @@ impl Stage6JournalBackend for Stage6FileJournalBackend {
         let start = self.scan.frontier.journal_byte_length;
         let frame = encode_frame(&record_bytes, self.scan.last_frame_digest)?;
 
-        self.file.write_all(&frame.prefix)?;
-        #[cfg(test)]
-        if self.failpoint == Some(TestIoFailpoint::AfterFrameHeaderWrite) {
+        #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+        if self.failpoint == Some(TestIoFailpoint::BeforeFrameWrite) {
             return Err(Stage6JournalStorageError::Io {
                 kind: ErrorKind::Other,
             });
         }
-        #[cfg(test)]
+
+        // From the first write attempt onward the file may have changed even
+        // when `write_all` reports an error. Keep the old in-memory scan only
+        // as a diagnostic snapshot and fail every later operation on this
+        // process-owned backend until a fresh reopen/rescan establishes disk
+        // truth again.
+        self.durability_uncertain = true;
+        self.file
+            .write_all(&frame.prefix)
+            .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
+        #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+        if self.failpoint == Some(TestIoFailpoint::AfterFrameHeaderWrite) {
+            return Err(Stage6JournalStorageError::DurabilityUncertain);
+        }
+        #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
         if self.failpoint == Some(TestIoFailpoint::AfterPartialRecordWrite) {
             let partial = record_bytes.len().div_ceil(2);
-            self.file.write_all(&record_bytes[..partial])?;
-            return Err(Stage6JournalStorageError::Io {
-                kind: ErrorKind::Other,
-            });
+            self.file
+                .write_all(&record_bytes[..partial])
+                .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
+            return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
-        self.file.write_all(&record_bytes)?;
-        self.file.write_all(&frame.hash_bytes)?;
-        #[cfg(test)]
+        self.file
+            .write_all(&record_bytes)
+            .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
+        self.file
+            .write_all(&frame.hash_bytes)
+            .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
+        #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
         if self.failpoint == Some(TestIoFailpoint::AfterFrameHashWrite) {
-            return Err(Stage6JournalStorageError::Io {
-                kind: ErrorKind::Other,
-            });
+            return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
         if self.failpoint == Some(TestIoFailpoint::BeforeSync) {
-            return Err(Stage6JournalStorageError::Io {
-                kind: ErrorKind::Other,
-            });
+            return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
         if self.failpoint == Some(TestIoFailpoint::SyncFailure) {
-            self.durability_uncertain = true;
             return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
         if self.file.sync_data().is_err() {
-            self.durability_uncertain = true;
             return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
 
-        let length = self.file.metadata()?.len();
-        self.file.seek(SeekFrom::Start(0))?;
-        self.scan = scan_reader(&mut self.file, length)?;
-        self.file.seek(SeekFrom::End(0))?;
+        let length = self
+            .file
+            .metadata()
+            .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?
+            .len();
+        self.file
+            .seek(SeekFrom::Start(0))
+            .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
+        self.scan = scan_reader(&mut self.file, length)
+            .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
+        self.file
+            .seek(SeekFrom::End(0))
+            .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
+        self.durability_uncertain = false;
         Ok(append_receipt(
             record,
             start,
@@ -1202,9 +1240,10 @@ fn is_lower_hex_digest(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TestIoFailpoint {
+pub enum TestIoFailpoint {
+    BeforeFrameWrite,
     AfterFrameHeaderWrite,
     AfterPartialRecordWrite,
     AfterFrameHashWrite,
@@ -2185,10 +2224,59 @@ mod tests {
         let path = temp_path("before-sync");
         let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
         backend.failpoint = Some(TestIoFailpoint::BeforeSync);
-        assert!(backend.append(&place_record()).is_err());
+        assert_eq!(
+            backend.append(&place_record()).unwrap_err(),
+            Stage6JournalStorageError::DurabilityUncertain
+        );
         assert!(backend.records().is_empty());
+        assert_eq!(
+            backend.append(&place_record()).unwrap_err(),
+            Stage6JournalStorageError::DurabilityUncertain
+        );
         drop(backend);
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage8a4_i3_pre_write_rejection_does_not_poison_backend() {
+        let path = temp_path("pre-write-rejection");
+        let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
+        backend.failpoint = Some(TestIoFailpoint::BeforeFrameWrite);
+        assert!(matches!(
+            backend.append(&place_record()),
+            Err(Stage6JournalStorageError::Io { .. })
+        ));
+        backend.failpoint = None;
+        backend.append(&place_record()).unwrap();
+        assert_eq!(backend.records(), &[place_record()]);
+        drop(backend);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn stage8a4_i3_every_post_write_failpoint_is_sticky() {
+        for failpoint in [
+            TestIoFailpoint::AfterFrameHeaderWrite,
+            TestIoFailpoint::AfterPartialRecordWrite,
+            TestIoFailpoint::AfterFrameHashWrite,
+            TestIoFailpoint::BeforeSync,
+            TestIoFailpoint::SyncFailure,
+        ] {
+            let path = temp_path("post-write-sticky");
+            let mut backend = Stage6FileJournalBackend::open_for_test(&path).unwrap();
+            backend.failpoint = Some(failpoint);
+            assert_eq!(
+                backend.append(&place_record()).unwrap_err(),
+                Stage6JournalStorageError::DurabilityUncertain
+            );
+            backend.failpoint = None;
+            assert_eq!(
+                backend.append(&place_record()).unwrap_err(),
+                Stage6JournalStorageError::DurabilityUncertain
+            );
+            drop(backend);
+            let _ = fs::remove_file(path);
+        }
     }
 
     #[test]
