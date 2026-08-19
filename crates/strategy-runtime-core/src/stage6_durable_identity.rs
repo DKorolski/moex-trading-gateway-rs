@@ -306,7 +306,7 @@ pub struct Stage6DurableCommandSnapshotV1 {
 
 /// Broker-neutral immutable PLACE shape used to prove the original target of
 /// a later CANCEL. It carries no send or journal authority.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Serialize)]
 pub struct Stage6DurablePlaceOrderShapeV1 {
     side: OrderSide,
     order_type: OrderType,

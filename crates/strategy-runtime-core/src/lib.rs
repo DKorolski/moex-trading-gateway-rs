@@ -348,12 +348,10 @@ pub use stage6_replay::{
     Stage6DispatchSafetyStateV1, Stage6RecoveredRequestV1, Stage6ReplayEngineV1, Stage6ReplayError,
     Stage6ReplaySnapshotV1, STAGE6_REPLAY_SCHEMA_VERSION,
 };
-#[doc(hidden)]
-pub use stage6d_live_core::stage8a4_internal_append_durable_batch;
 pub use stage6d_live_core::{
     admit_stage7a_paper_command, advance_stage6d_restart_package,
-    apply_stage6e_accepted_fresh_truth, authorize_stage6d_first_boot,
-    execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
+    apply_stage6e_accepted_fresh_truth, apply_stage8a4_sealed_durable_write,
+    authorize_stage6d_first_boot, execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
     finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     first_boot_stage6d_paper_with_owned_journal,
@@ -362,11 +360,12 @@ pub use stage6d_live_core::{
     restart_stage6d_paper, restart_stage6d_paper_with_owned_journal, seal_stage6d_restart_package,
     stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
     stage7b_finalized_request_facts, Stage6DurableRequestAuthorityV1,
-    Stage6Stage8a4BatchAppendReceipt, Stage6Stage8a4DurableBatch, Stage6dBootMode,
-    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dFirstBootConfig,
-    Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition, Stage6dLiveCoreError,
-    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
-    Stage6dPaperOutcome, Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
+    Stage6Stage8a4BatchAppendReceipt, Stage6Stage8a4DurableBatch, Stage6Stage8a4PendingRecovery,
+    Stage6Stage8a4SealedWriteAuthority, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
+    Stage6dFirstBootAuthorization, Stage6dFirstBootConfig, Stage6dFreshTruthApplicationReport,
+    Stage6dFreshTruthTransition, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
+    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
+    Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
     Stage6ePaperFreshBrokerTruthInput, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
     Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
     Stage7bFinalizedRequestFacts, STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION,

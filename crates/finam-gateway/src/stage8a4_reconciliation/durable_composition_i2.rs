@@ -884,4 +884,7 @@ mod tests;
 
 #[allow(dead_code)]
 mod durable_writer_i3;
-pub use durable_writer_i3::{Stage8a4DurableWriteAuthority, Stage8a4DurableWriterParts};
+pub use durable_writer_i3::{
+    reconcile_persist_and_cover_stage8a4, recover_persisted_stage8a4_suffix_and_cover,
+    Stage8a4DurableCompositionError, Stage8a4DurableWriteAuthority,
+};

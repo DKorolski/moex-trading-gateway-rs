@@ -45,7 +45,10 @@ use strategy_runtime_core::Stage6DurableActionKind;
 
 #[allow(dead_code)]
 mod durable_composition_i2;
-pub use durable_composition_i2::{Stage8a4DurableWriteAuthority, Stage8a4DurableWriterParts};
+pub use durable_composition_i2::{
+    reconcile_persist_and_cover_stage8a4, recover_persisted_stage8a4_suffix_and_cover,
+    Stage8a4DurableCompositionError, Stage8a4DurableWriteAuthority,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]

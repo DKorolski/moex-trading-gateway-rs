@@ -5,7 +5,6 @@ use super::{
 };
 use broker_core::{BrokerCommand, BrokerOrderId, ClientOrderId, StrategyRequestId};
 use chrono::{DateTime, Utc};
-use finam_gateway::Stage8a4DurableWriteAuthority;
 use runtime_command_bridge::{
     Stage7aCanonicalCommandIdentity, Stage7aDeterministicRejectionEvidence,
     Stage7aPermanentPoisonEvidence,
@@ -20,9 +19,11 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
-use strategy_runtime_core::stage8a4_internal_append_durable_batch;
+#[cfg(test)]
+use strategy_runtime_core::Stage6Stage8a4DurableBatch;
 use strategy_runtime_core::{
-    admit_stage7a_paper_command, advance_stage6d_restart_package, execute_stage6d_paper_outcome,
+    admit_stage7a_paper_command, advance_stage6d_restart_package,
+    apply_stage8a4_sealed_durable_write, execute_stage6d_paper_outcome,
     finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     refresh_stage7b_durable_frontier, restart_stage6d_paper_with_owned_journal,
@@ -32,11 +33,11 @@ use strategy_runtime_core::{
     Stage6DurableCommandSnapshotV1, Stage6DurableRequestAuthorityV1,
     Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
     Stage6JournalRecordVersioned, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
-    Stage6OwnedJournalBackend, Stage6RequestFinalDispositionV1, Stage6Stage8a4DurableBatch,
-    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dLiveCoreError,
-    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
-    Stage6dPaperOutcome, Stage7aPaperAdmission, Stage7aPaperCommandContext,
-    Stage7bFinalizedRequestFacts,
+    Stage6OwnedJournalBackend, Stage6RequestFinalDispositionV1, Stage6Stage8a4PendingRecovery,
+    Stage6Stage8a4SealedWriteAuthority, Stage6dDurableRuntimeRecovered,
+    Stage6dFirstBootAuthorization, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
+    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
+    Stage7aPaperAdmission, Stage7aPaperCommandContext, Stage7bFinalizedRequestFacts,
 };
 
 mod redis_service;
@@ -638,47 +639,65 @@ impl Stage7bRecoveryReadyOwner {
         })
     }
 
-    /// Sole I3 writer entry. S0 is reread before mutation, current Stage 6
-    /// request authority is reconstructed under the held writer lease, and no
-    /// success is returned until covering S1 is committed and reread.
-    pub fn append_stage8a4_durable_authority_and_cover(
-        &mut self,
-        commitment_key: &Stage5gLifecycleCommitmentKey,
-        authority: Stage8a4DurableWriteAuthority,
-    ) -> Result<Stage7bStage8a4DurableBatchReceipt, Stage7bRecoveryError> {
-        let (
-            identity,
-            command,
-            batch,
-            expected_operational_identity_sha256,
-            expected_runtime_config_fingerprint_sha256,
-            expected_seal_generation,
-            expected_seal_commitment_sha256,
-        ) = authority.into_writer_parts().into_inner();
-        self.append_stage8a4_validated_parts_and_cover(
-            commitment_key,
-            &identity,
-            &command,
-            batch,
-            &expected_operational_identity_sha256,
-            &expected_runtime_config_fingerprint_sha256,
-            expected_seal_generation,
-            &expected_seal_commitment_sha256,
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn append_stage8a4_validated_parts_and_cover(
+    /// Recovery-only equivalent after canonical V2 has advanced the mixed
+    /// replay tail. It cannot authorize a new transition: it succeeds only for
+    /// the exact persisted pending batch under the current reread S0.
+    pub fn authorize_stage8a4_pending_recovery_request(
         &mut self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
         identity: &Stage6DurableRequestIdentityV1,
         command: &Stage6DurableCommandSnapshotV1,
-        batch: Stage6Stage8a4DurableBatch,
-        expected_operational_identity_sha256: &str,
-        expected_runtime_config_fingerprint_sha256: &str,
-        expected_seal_generation: u64,
-        expected_seal_commitment_sha256: &str,
+    ) -> Result<Stage7bStage8a1DurableRequestAuthority, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        let stage6 = self
+            .recovered
+            .authorize_stage8a4_durable_batch_source(identity, command)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            self.advance_recovery_seal(commitment_key)?;
+        }
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        let current_operational_identity = self
+            .recovered
+            .authenticated_operational_identity()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let current_operational_identity_sha256 =
+            stage6d_operational_identity_sha256(current_operational_identity)?;
+        if stage6.authenticated_checkpoint_sha256()
+            != self.committed_seal.stage6_checkpoint().checkpoint_sha256()
+            || current_operational_identity_sha256.as_str()
+                != self.committed_seal.operational_identity_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Stage7bStage8a1DurableRequestAuthority {
+            stage6,
+            operational_identity_sha256: self
+                .committed_seal
+                .operational_identity_sha256()
+                .to_string(),
+            seal_generation: self.committed_seal.seal_generation(),
+            seal_commitment_sha256: self.committed_seal.seal_commitment_sha256().to_string(),
+        })
+    }
+
+    /// Sole I3 writer entry. S0 is reread before mutation, current Stage 6
+    /// request authority is reconstructed under the held writer lease, and no
+    /// success is returned until covering S1 is committed and reread.
+    pub fn append_stage8a4_sealed_authority_and_cover(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        authority: Stage6Stage8a4SealedWriteAuthority,
     ) -> Result<Stage7bStage8a4DurableBatchReceipt, Stage7bRecoveryError> {
+        let expected_operational_identity_sha256 =
+            authority.operational_identity_sha256().to_string();
+        let expected_runtime_config_fingerprint_sha256 =
+            authority.runtime_config_fingerprint_sha256().to_string();
+        let expected_seal_generation = authority.seal_generation();
+        let expected_seal_commitment_sha256 = authority.seal_commitment_sha256().to_string();
+        let identity = authority.identity().clone();
+        let command = authority.command().clone();
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
         refresh_stage7b_durable_frontier(&mut self.recovered)?;
@@ -689,38 +708,35 @@ impl Stage7bRecoveryReadyOwner {
             return Err(Stage7bRecoveryError::SealInvalid);
         }
 
-        let precondition = batch
-            .transition_record()
-            .payload()
-            .pre_append_precondition();
-        let precondition_matches_current_seal = precondition.expected_recovery_seal_generation()
+        let precondition_matches_current_seal = authority.expected_recovery_seal_generation()
             == self.committed_seal.seal_generation()
-            && precondition.expected_recovery_seal_fingerprint().as_str()
+            && authority.expected_recovery_seal_fingerprint()
                 == self.committed_seal.seal_commitment_sha256();
-        if !precondition_matches_current_seal
-            && !self.recovered.stage8a4_batch_matches_current_tail(&batch)?
-        {
+        if !precondition_matches_current_seal && !authority.matches_current_tail(&self.recovered)? {
             return Err(Stage7bRecoveryError::SealInvalid);
         }
-        let authority = self
+        let current_stage6 = self
             .recovered
-            .authorize_stage8a4_durable_batch_source(identity, command)?;
-        if authority.runtime_config_fingerprint_sha256()
+            .authorize_stage8a4_durable_batch_source(&identity, &command)?;
+        if current_stage6.runtime_config_fingerprint_sha256()
             != expected_runtime_config_fingerprint_sha256
         {
             return Err(Stage7bRecoveryError::RuntimeConfigMismatch);
         }
-        let appended =
-            match stage8a4_internal_append_durable_batch(&mut self.recovered, authority, batch) {
-                Ok(receipt) => receipt,
-                Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred) => {
-                    self.journal_mutation_uncertain = true;
-                    return Err(Stage7bRecoveryError::Runtime(
-                        Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
-                    ));
-                }
-                Err(error) => return Err(Stage7bRecoveryError::Runtime(error)),
-            };
+        let appended = match apply_stage8a4_sealed_durable_write(
+            &mut self.recovered,
+            commitment_key,
+            authority,
+        ) {
+            Ok(receipt) => receipt,
+            Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred) => {
+                self.journal_mutation_uncertain = true;
+                return Err(Stage7bRecoveryError::Runtime(
+                    Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+                ));
+            }
+            Err(error) => return Err(Stage7bRecoveryError::Runtime(error)),
+        };
         if appended.checkpoint() != self.committed_seal.stage6_checkpoint() {
             self.advance_recovery_seal(commitment_key)?;
         } else {
@@ -748,6 +764,20 @@ impl Stage7bRecoveryReadyOwner {
         })
     }
 
+    /// Returns only canonical persisted recovery material under the current
+    /// writer lease and reread S0. The returned value cannot mutate storage.
+    pub fn stage8a4_pending_recovery_material(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Option<Stage6Stage8a4PendingRecovery>, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        self.recovered
+            .stage8a4_pending_recovery_material()
+            .map_err(Stage7bRecoveryError::Runtime)
+    }
+
     #[cfg(test)]
     fn append_stage8a4_test_batch_and_cover(
         &mut self,
@@ -767,16 +797,17 @@ impl Stage7bRecoveryReadyOwner {
             .authorize_stage8a4_durable_batch_source(identity, command)?
             .runtime_config_fingerprint_sha256()
             .to_string();
-        self.append_stage8a4_validated_parts_and_cover(
+        let authority = Stage6Stage8a4SealedWriteAuthority::seal(
             commitment_key,
-            identity,
-            command,
+            identity.clone(),
+            command.clone(),
             batch,
-            &operational_identity,
-            &runtime_config_fingerprint_sha256,
+            operational_identity,
+            runtime_config_fingerprint_sha256,
             generation,
-            &commitment,
-        )
+            commitment,
+        )?;
+        self.append_stage8a4_sealed_authority_and_cover(commitment_key, authority)
     }
 
     pub fn first_boot(
@@ -2590,13 +2621,35 @@ mod tests {
             3
         );
 
+        drop(transition);
+        drop(suffix);
+        let pending = owner
+            .stage8a4_pending_recovery_material(&setup.key)
+            .unwrap()
+            .expect("persisted V2 must provide recovery material");
+        let (persisted_transition, persisted_command) = pending.into_parts();
+        let batch =
+            Stage6Stage8a4DurableBatch::recover_from_persisted_transition(persisted_transition)
+                .unwrap();
+        let current = owner
+            .authorize_stage8a4_pending_recovery_request(&setup.key, &identity, &persisted_command)
+            .unwrap();
+        let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
+            &setup.key,
+            identity.clone(),
+            persisted_command,
+            batch,
+            current.operational_identity_sha256().to_string(),
+            current
+                .stage6()
+                .runtime_config_fingerprint_sha256()
+                .to_string(),
+            current.seal_generation(),
+            current.seal_commitment_sha256().to_string(),
+        )
+        .unwrap();
         let receipt = owner
-            .append_stage8a4_test_batch_and_cover(
-                &setup.key,
-                &identity,
-                &snapshot,
-                Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap(),
-            )
+            .append_stage8a4_sealed_authority_and_cover(&setup.key, sealed)
             .unwrap();
         assert!(receipt.transition_was_existing());
         assert_eq!(receipt.appended_suffix_records(), 1);
@@ -2793,13 +2846,35 @@ mod tests {
             4
         );
 
+        drop(transition);
+        drop(suffix);
+        let pending = owner
+            .stage8a4_pending_recovery_material(&setup.key)
+            .unwrap()
+            .expect("persisted V2 must provide recovery material");
+        let (persisted_transition, persisted_command) = pending.into_parts();
+        let batch =
+            Stage6Stage8a4DurableBatch::recover_from_persisted_transition(persisted_transition)
+                .unwrap();
+        let current = owner
+            .authorize_stage8a4_pending_recovery_request(&setup.key, &identity, &persisted_command)
+            .unwrap();
+        let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
+            &setup.key,
+            identity.clone(),
+            persisted_command,
+            batch,
+            current.operational_identity_sha256().to_string(),
+            current
+                .stage6()
+                .runtime_config_fingerprint_sha256()
+                .to_string(),
+            current.seal_generation(),
+            current.seal_commitment_sha256().to_string(),
+        )
+        .unwrap();
         let receipt = owner
-            .append_stage8a4_test_batch_and_cover(
-                &setup.key,
-                &identity,
-                &snapshot,
-                Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap(),
-            )
+            .append_stage8a4_sealed_authority_and_cover(&setup.key, sealed)
             .unwrap();
         assert!(receipt.transition_was_existing());
         assert_eq!(receipt.appended_suffix_records(), 1);

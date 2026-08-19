@@ -103,6 +103,33 @@ impl Stage5gLifecycleCommitmentKey {
         mac.update(commitment_sha256.as_bytes());
         mac.verify_slice(&tag).is_ok()
     }
+
+    /// Domain-separated authentication for the broker-neutral Stage 8A-4
+    /// sealed durable-write capability. The opaque lifecycle key never leaves
+    /// the current Stage 7 owner/composition boundary.
+    pub fn stage8a4_write_authority_hmac_sha256(&self, commitment_sha256: &str) -> String {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage8a4.sealed-durable-write-authority.v1\0");
+        mac.update(commitment_sha256.as_bytes());
+        let tag = mac.finalize().into_bytes();
+        tag.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    pub fn stage8a4_verify_write_authority_hmac_sha256(
+        &self,
+        commitment_sha256: &str,
+        expected_hmac_sha256: &str,
+    ) -> bool {
+        let Some(tag) = decode_sha256_hex(expected_hmac_sha256) else {
+            return false;
+        };
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage8a4.sealed-durable-write-authority.v1\0");
+        mac.update(commitment_sha256.as_bytes());
+        mac.verify_slice(&tag).is_ok()
+    }
 }
 
 impl Drop for Stage5gLifecycleCommitmentKey {

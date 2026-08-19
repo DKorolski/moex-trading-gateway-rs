@@ -14,8 +14,11 @@ run_gate() {
 }
 
 run_gate inherited-i2 python3 scripts/stage8a4_durable_composition_i2_check.py --no-git
+run_gate inherited-stage8a1 cargo test -p finam-gateway --test stage8a1_r3_authority_boundary -- --test-threads=1
 run_gate semantic-check python3 scripts/stage8a4_durable_composition_i3_check.py
 run_gate semantic-negative python3 scripts/stage8a4_durable_composition_i3_negative_harness.py
+run_gate external-compile-fail bash scripts/stage8a4_durable_composition_i3_external_compile_fail.sh
+run_gate dependency-graph bash scripts/stage8a4_durable_composition_i3_dependency_graph_check.sh
 run_gate proof-map python3 scripts/stage8a4_durable_composition_i3_proof_map.py
 run_gate fmt cargo fmt --all -- --check
 run_gate core-focused cargo test -p strategy-runtime-core stage8a4_i3_ -- --test-threads=1
@@ -33,13 +36,19 @@ import sys
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "schema_version": 1,
-    "stage": "8A-4-durable-composition-I3-R2",
+    "stage": "8A-4-durable-composition-I3-R3",
     "result": "PASS",
     "acceptance_rows": 60,
-    "negative_cases": 48,
+    "negative_cases": 58,
     "sealed_linear_writer_authority": True,
     "exact_request_truth_control_binding": True,
     "post_write_sticky_fail_stop": True,
+    "stage8a1_r3_authority_restored": True,
+    "broker_neutral_runtime_dependency": True,
+    "broker_core_sqlite_baseline_unchanged": True,
+    "production_normal_composition_path": True,
+    "production_restart_without_i2_candidate": True,
+    "external_raw_mutator_compile_fail": True,
     "v2_durable_append_enabled": True,
     "four_field_cas_enabled": True,
     "covering_seal_writer_enabled": True,
@@ -51,4 +60,4 @@ Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2) + "\n", encoding="utf-8")
 PY
 
-echo "stage8a4-durable-composition-i3-gate: PASS rows=60 negatives=48 opaque=true sticky=true ack=false execution=false"
+echo "stage8a4-durable-composition-i3-gate: PASS rows=60 negatives=58 sealed=true broker_neutral=true recovery=true ack=false execution=false"

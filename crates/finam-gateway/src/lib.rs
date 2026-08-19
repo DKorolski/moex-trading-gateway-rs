@@ -36,9 +36,10 @@ pub use stage8a3_endpoint_classifier::{
     Stage8a3LocalHttpObservation, Stage8a3ReconciliationReason, Stage8a3SemanticCategory,
 };
 pub use stage8a4_reconciliation::{
-    admit_stage8a4_broker_truth, reduce_stage8a4_reconciliation,
+    admit_stage8a4_broker_truth, reconcile_persist_and_cover_stage8a4,
+    recover_persisted_stage8a4_suffix_and_cover, reduce_stage8a4_reconciliation,
     Stage8a4BoundedTradeHistoryComplete, Stage8a4CompletePositionsSnapshot,
-    Stage8a4DurableRequestContext, Stage8a4DurableWriteAuthority, Stage8a4DurableWriterParts,
+    Stage8a4DurableCompositionError, Stage8a4DurableRequestContext, Stage8a4DurableWriteAuthority,
     Stage8a4ExactLifecycle, Stage8a4ExactOrderObservation, Stage8a4FillEffect,
     Stage8a4FreshTruthAdmission, Stage8a4InstrumentCompletenessEvidence,
     Stage8a4NonPaginatedOrdersSnapshotComplete, Stage8a4OutcomeKind,

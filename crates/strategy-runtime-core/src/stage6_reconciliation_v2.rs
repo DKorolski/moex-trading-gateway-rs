@@ -19,9 +19,10 @@
 
 use crate::stage6_replay::WorkingRequest;
 use crate::{
-    Stage6DurableActionKind, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,
-    Stage6DurableRequestIdentityV1, Stage6JournalEventKind, Stage6JournalRecordId,
-    Stage6JournalRecordV1, Stage6LifecycleSequence, Stage6RecoveredRequestV1, Stage6ReplayError,
+    Stage6CancelOutcomeV1, Stage6DurableActionKind, Stage6DurableIdentityError,
+    Stage6DurablePlaceOrderShapeV1, Stage6DurableRequestIdentityV1, Stage6JournalEventKind,
+    Stage6JournalRecordId, Stage6JournalRecordV1, Stage6LifecycleSequence,
+    Stage6RecoveredRequestV1, Stage6ReplayError, Stage6RequestFinalDispositionV1,
     Stage6Sha256Digest,
 };
 use broker_core::{
@@ -806,6 +807,9 @@ impl Stage6JournalRecordV2 {
     pub fn canonical_record_sha256(&self) -> Stage6Sha256Digest {
         Stage6Sha256Digest::of(&self.encode_canonical())
     }
+    pub(crate) fn source_evidence_sha256(&self) -> &Stage6Sha256Digest {
+        &self.source_evidence_sha256
+    }
 
     fn validate(&self) -> Result<(), Stage6ReconciliationV2Error> {
         if self.schema_version != STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2 {
@@ -869,6 +873,214 @@ impl Stage6JournalRecordV2 {
         value.validate().unwrap();
         value
     }
+}
+
+pub(crate) fn reconstruct_stage8a4_suffix_from_v2(
+    transition: &Stage6JournalRecordV2,
+) -> Result<
+    (
+        Vec<Stage6JournalRecordV1>,
+        Option<Stage6DurablePlaceOrderShapeV1>,
+    ),
+    Stage6ReconciliationV2Error,
+> {
+    let transition = Stage6JournalRecordV2::decode_canonical(&transition.encode_canonical())?;
+    let identity = transition.durable_request_identity().clone();
+    let cancel_original_target_shape = if identity.action() == Stage6DurableActionKind::Cancel {
+        let order = transition
+            .payload()
+            .broker_order_fact
+            .as_ref()
+            .ok_or(Stage6ReconciliationV2Error::InvalidSuffixManifest)?;
+        Some(
+            Stage6DurablePlaceOrderShapeV1::new(
+                order.side,
+                order.order_type,
+                order.qty,
+                order.limit_price,
+                order
+                    .time_in_force
+                    .ok_or(Stage6ReconciliationV2Error::InvalidSuffixManifest)?,
+            )
+            .map_err(|_| Stage6ReconciliationV2Error::InvalidSuffixManifest)?,
+        )
+    } else {
+        None
+    };
+    let Stage6ReconciliationTransitionKindV2::Exact { lifecycle } =
+        *transition.payload().transition_kind()
+    else {
+        if transition.payload().suffix_manifest().entries().is_empty() {
+            return Ok((Vec::new(), cancel_original_target_shape));
+        }
+        return Err(Stage6ReconciliationV2Error::InvalidSuffixManifest);
+    };
+    if identity.action() == Stage6DurableActionKind::Cancel
+        && lifecycle == Stage6ReconciliationLifecycleV2::Working
+    {
+        if transition.payload().suffix_manifest().entries().is_empty() {
+            return Ok((Vec::new(), cancel_original_target_shape));
+        }
+        return Err(Stage6ReconciliationV2Error::InvalidSuffixManifest);
+    }
+
+    let mut records = Vec::new();
+    let mut previous = transition.journal_record_id().clone();
+    let mut ordinal = 1_u64;
+    let source = transition.source_evidence_sha256().clone();
+    let next_sequence = |offset: u64| {
+        transition
+            .lifecycle_sequence()
+            .get()
+            .checked_add(offset)
+            .and_then(|value| Stage6LifecycleSequence::new(value).ok())
+            .ok_or(Stage6ReconciliationV2Error::InvalidSuffixManifest)
+    };
+
+    match identity.action() {
+        Stage6DurableActionKind::Place => {
+            let selected_order_id = transition
+                .payload()
+                .broker_order_fact()
+                .and_then(Stage6BrokerOrderFactV2::broker_order_id)
+                .cloned();
+            let mut trades = transition
+                .payload()
+                .material_trade_facts()
+                .iter()
+                .collect::<Vec<_>>();
+            trades.sort_by(|left, right| {
+                left.broker_trade_id()
+                    .as_str()
+                    .cmp(right.broker_trade_id().as_str())
+            });
+            let material_order_ids = trades
+                .iter()
+                .filter_map(|trade| trade.broker_order_id())
+                .map(BrokerOrderId::as_str)
+                .collect::<BTreeSet<_>>();
+            let projected_trade_order_id = match selected_order_id.as_ref() {
+                Some(order_id) => {
+                    if material_order_ids
+                        .iter()
+                        .any(|candidate| *candidate != order_id.as_str())
+                    {
+                        return Err(Stage6ReconciliationV2Error::InvalidSuffixManifest);
+                    }
+                    Some(order_id.clone())
+                }
+                None => {
+                    if material_order_ids.len() > 1 {
+                        return Err(Stage6ReconciliationV2Error::InvalidSuffixManifest);
+                    }
+                    trades
+                        .iter()
+                        .find_map(|trade| trade.broker_order_id().cloned())
+                }
+            };
+            if let Some(order_id) = selected_order_id {
+                let record = Stage6JournalRecordV1::broker_order_observed(
+                    identity.clone(),
+                    order_id,
+                    next_sequence(ordinal)?,
+                    Some(previous.clone()),
+                    source.clone(),
+                )
+                .map_err(|_| Stage6ReconciliationV2Error::InvalidSuffixManifest)?;
+                previous = record.journal_record_id().clone();
+                ordinal += 1;
+                records.push(record);
+            }
+            if let Some(order_id) = projected_trade_order_id {
+                for trade in trades {
+                    if trade.broker_order_id() != Some(&order_id) {
+                        continue;
+                    }
+                    let record = Stage6JournalRecordV1::broker_trade_observed(
+                        identity.clone(),
+                        trade.broker_trade_id().clone(),
+                        order_id.clone(),
+                        next_sequence(ordinal)?,
+                        Some(previous.clone()),
+                        source.clone(),
+                    )
+                    .map_err(|_| Stage6ReconciliationV2Error::InvalidSuffixManifest)?;
+                    previous = record.journal_record_id().clone();
+                    ordinal += 1;
+                    records.push(record);
+                }
+            }
+            let disposition = if lifecycle == Stage6ReconciliationLifecycleV2::TerminalRejected {
+                Stage6RequestFinalDispositionV1::Rejected
+            } else {
+                Stage6RequestFinalDispositionV1::Completed
+            };
+            records.push(
+                Stage6JournalRecordV1::request_finalized(
+                    identity.clone(),
+                    disposition,
+                    next_sequence(ordinal)?,
+                    Some(previous),
+                    source,
+                )
+                .map_err(|_| Stage6ReconciliationV2Error::InvalidSuffixManifest)?,
+            );
+        }
+        Stage6DurableActionKind::Cancel => {
+            let target = identity
+                .target_broker_order_id()
+                .cloned()
+                .ok_or(Stage6ReconciliationV2Error::InvalidSuffixManifest)?;
+            let outcome = match lifecycle {
+                Stage6ReconciliationLifecycleV2::TerminalFilled => {
+                    Stage6CancelOutcomeV1::ExecutionObserved
+                }
+                Stage6ReconciliationLifecycleV2::TerminalCancelled => {
+                    Stage6CancelOutcomeV1::Canceled
+                }
+                Stage6ReconciliationLifecycleV2::TerminalRejected
+                | Stage6ReconciliationLifecycleV2::TerminalExpired => {
+                    Stage6CancelOutcomeV1::AlreadyTerminalNonExecution
+                }
+                Stage6ReconciliationLifecycleV2::Working => {
+                    return Err(Stage6ReconciliationV2Error::InvalidSuffixManifest)
+                }
+            };
+            let record = Stage6JournalRecordV1::cancel_outcome_observed(
+                identity.clone(),
+                target,
+                outcome,
+                next_sequence(ordinal)?,
+                Some(previous.clone()),
+                source.clone(),
+            )
+            .map_err(|_| Stage6ReconciliationV2Error::InvalidSuffixManifest)?;
+            previous = record.journal_record_id().clone();
+            ordinal += 1;
+            records.push(record);
+            records.push(
+                Stage6JournalRecordV1::request_finalized(
+                    identity,
+                    Stage6RequestFinalDispositionV1::Completed,
+                    next_sequence(ordinal)?,
+                    Some(previous),
+                    source,
+                )
+                .map_err(|_| Stage6ReconciliationV2Error::InvalidSuffixManifest)?,
+            );
+        }
+    }
+    let manifest = transition.payload().suffix_manifest().entries();
+    records.truncate(manifest.len());
+    if manifest.len() != records.len()
+        || manifest
+            .iter()
+            .zip(&records)
+            .any(|(entry, record)| !entry.matches_record(record))
+    {
+        return Err(Stage6ReconciliationV2Error::InvalidSuffixManifest);
+    }
+    Ok((records, cancel_original_target_shape))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1220,7 +1432,7 @@ pub fn stage8a4_test_transition_fixture(
                 BrokerOrderId::new("ORDER-I3-1"),
                 Stage6LifecycleSequence::new(sequence.get().checked_add(1).unwrap()).unwrap(),
                 Some(v2_id.clone()),
-                digest('a'),
+                digest('c'),
             )
             .expect("fixture observation"),
         );
@@ -1235,7 +1447,7 @@ pub fn stage8a4_test_transition_fixture(
                 )
                 .unwrap(),
                 Some(suffix[0].journal_record_id().clone()),
-                digest('b'),
+                digest('c'),
             )
             .expect("fixture finalization"),
         );

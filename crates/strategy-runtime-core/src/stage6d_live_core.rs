@@ -95,6 +95,7 @@ pub enum Stage6dLiveCoreError {
     AcceptedFreshTruthBindingMismatch,
     FreshTruthRequestNotCrossBound,
     FreshTruthTemporalAuthorityMismatch,
+    Stage8a4WriteAuthorityInvalid,
 }
 
 /// Trusted, process-local context for Stage 7A command admission. Redis may
@@ -218,6 +219,9 @@ impl std::fmt::Display for Stage6dLiveCoreError {
             }
             Self::FreshTruthTemporalAuthorityMismatch => {
                 "fresh broker truth is outside the current process restore/validation epoch"
+            }
+            Self::Stage8a4WriteAuthorityInvalid => {
+                "Stage 8A-4 sealed durable-write authority is invalid"
             }
         })
     }
@@ -521,17 +525,20 @@ pub struct Stage6dDurableRuntimeRecovered {
 }
 
 /// Linear read-only proof that an exact command identity and command snapshot
-/// are present in the recovered Stage 6 journal.  It does not expose the
-/// journal record or any dispatch operation.
+/// are present in the recovered Stage 6 journal. It exposes the authenticated
+/// accepted record only as immutable composition input and grants no dispatch
+/// or storage operation.
 pub struct Stage6DurableRequestAuthorityV1 {
     identity: Stage6DurableRequestIdentityV1,
     canonical_command_sha256: Stage6Sha256Digest,
+    accepted_record: Stage6JournalRecordV1,
     accepted_record_id: Stage6JournalRecordId,
     dispatch_record_id: Stage6JournalRecordId,
     dispatch_sequence: u64,
     durable_frontier_sha256: String,
     runtime_config_fingerprint_sha256: String,
     authenticated_checkpoint_sha256: String,
+    request_state_fingerprint_sha256: Stage6Sha256Digest,
 }
 
 #[derive(Serialize)]
@@ -558,6 +565,10 @@ impl Stage6DurableRequestAuthorityV1 {
         &self.accepted_record_id
     }
 
+    pub fn accepted_record(&self) -> &Stage6JournalRecordV1 {
+        &self.accepted_record
+    }
+
     pub fn dispatch_record_id(&self) -> &Stage6JournalRecordId {
         &self.dispatch_record_id
     }
@@ -576,6 +587,10 @@ impl Stage6DurableRequestAuthorityV1 {
 
     pub fn authenticated_checkpoint_sha256(&self) -> &str {
         &self.authenticated_checkpoint_sha256
+    }
+
+    pub fn request_state_fingerprint_sha256(&self) -> &Stage6Sha256Digest {
+        &self.request_state_fingerprint_sha256
     }
 
     /// Stable immutable binding for one accepted command and its sole durable
@@ -609,6 +624,151 @@ pub struct Stage6Stage8a4DurableBatch {
     cancel_original_target_shape: Option<Stage6DurablePlaceOrderShapeV1>,
 }
 
+/// Broker-neutral, linear and authenticated Stage 8A-4 storage capability.
+///
+/// It is deliberately not `Clone`, `Debug` or `Serialize`. Public V2/read
+/// material is insufficient to mutate storage: the current lifecycle
+/// commitment key must authenticate this exact request, batch and S0 binding.
+pub struct Stage6Stage8a4SealedWriteAuthority {
+    identity: Stage6DurableRequestIdentityV1,
+    command: Stage6DurableCommandSnapshotV1,
+    batch: Stage6Stage8a4DurableBatch,
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    seal_generation: u64,
+    seal_commitment_sha256: String,
+    authority_commitment_sha256: String,
+    authority_hmac_sha256: String,
+}
+
+/// Read-only canonical material for suffix recovery after the original I2
+/// process has disappeared. It grants no storage authority.
+pub struct Stage6Stage8a4PendingRecovery {
+    transition_record: Stage6JournalRecordV2,
+    durable_command: Stage6DurableCommandSnapshotV1,
+}
+
+impl Stage6Stage8a4PendingRecovery {
+    pub fn transition_record(&self) -> &Stage6JournalRecordV2 {
+        &self.transition_record
+    }
+
+    pub fn durable_command(&self) -> &Stage6DurableCommandSnapshotV1 {
+        &self.durable_command
+    }
+
+    pub fn into_parts(self) -> (Stage6JournalRecordV2, Stage6DurableCommandSnapshotV1) {
+        (self.transition_record, self.durable_command)
+    }
+}
+
+impl Stage6Stage8a4SealedWriteAuthority {
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal(
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: Stage6DurableRequestIdentityV1,
+        command: Stage6DurableCommandSnapshotV1,
+        batch: Stage6Stage8a4DurableBatch,
+        operational_identity_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        seal_generation: u64,
+        seal_commitment_sha256: String,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        let authority_commitment_sha256 = stage8a4_write_authority_commitment(
+            &identity,
+            &command,
+            &batch,
+            &operational_identity_sha256,
+            &runtime_config_fingerprint_sha256,
+            seal_generation,
+            &seal_commitment_sha256,
+        )?;
+        let authority_hmac_sha256 =
+            commitment_key.stage8a4_write_authority_hmac_sha256(&authority_commitment_sha256);
+        Ok(Self {
+            identity,
+            command,
+            batch,
+            operational_identity_sha256,
+            runtime_config_fingerprint_sha256,
+            seal_generation,
+            seal_commitment_sha256,
+            authority_commitment_sha256,
+            authority_hmac_sha256,
+        })
+    }
+
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn command(&self) -> &Stage6DurableCommandSnapshotV1 {
+        &self.command
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    pub fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
+    }
+
+    pub fn seal_generation(&self) -> u64 {
+        self.seal_generation
+    }
+
+    pub fn seal_commitment_sha256(&self) -> &str {
+        &self.seal_commitment_sha256
+    }
+
+    pub fn expected_recovery_seal_generation(&self) -> u64 {
+        self.batch
+            .transition_record
+            .payload()
+            .pre_append_precondition()
+            .expected_recovery_seal_generation()
+    }
+
+    pub fn expected_recovery_seal_fingerprint(&self) -> &str {
+        self.batch
+            .transition_record
+            .payload()
+            .pre_append_precondition()
+            .expected_recovery_seal_fingerprint()
+            .as_str()
+    }
+
+    pub fn matches_current_tail(
+        &self,
+        recovered: &Stage6dDurableRuntimeRecovered,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        recovered.stage8a4_batch_matches_current_tail(&self.batch)
+    }
+
+    fn verify(
+        self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        let current = stage8a4_write_authority_commitment(
+            &self.identity,
+            &self.command,
+            &self.batch,
+            &self.operational_identity_sha256,
+            &self.runtime_config_fingerprint_sha256,
+            self.seal_generation,
+            &self.seal_commitment_sha256,
+        )?;
+        if current != self.authority_commitment_sha256
+            || !commitment_key
+                .stage8a4_verify_write_authority_hmac_sha256(&current, &self.authority_hmac_sha256)
+        {
+            return Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid);
+        }
+        Ok(self)
+    }
+}
+
 impl Stage6Stage8a4DurableBatch {
     pub fn new(
         transition_record: Stage6JournalRecordV2,
@@ -636,6 +796,76 @@ impl Stage6Stage8a4DurableBatch {
     pub fn transition_record(&self) -> &Stage6JournalRecordV2 {
         &self.transition_record
     }
+
+    /// Reconstructs the exact missing V1 compatibility suffix from a canonical
+    /// persisted V2 transition. No process-local I2 candidate is required;
+    /// every regenerated record must match the persisted suffix manifest.
+    pub fn recover_from_persisted_transition(
+        transition_record: Stage6JournalRecordV2,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        let (suffix_records, cancel_original_target_shape) =
+            crate::stage6_reconciliation_v2::reconstruct_stage8a4_suffix_from_v2(
+                &transition_record,
+            )?;
+        Self::new(
+            transition_record,
+            suffix_records,
+            cancel_original_target_shape,
+        )
+    }
+}
+
+fn stage8a4_write_authority_commitment(
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    batch: &Stage6Stage8a4DurableBatch,
+    operational_identity_sha256: &str,
+    runtime_config_fingerprint_sha256: &str,
+    seal_generation: u64,
+    seal_commitment_sha256: &str,
+) -> Result<String, Stage6dLiveCoreError> {
+    if seal_generation == 0
+        || Stage6Sha256Digest::parse(operational_identity_sha256.to_string()).is_err()
+        || Stage6Sha256Digest::parse(runtime_config_fingerprint_sha256.to_string()).is_err()
+        || Stage6Sha256Digest::parse(seal_commitment_sha256.to_string()).is_err()
+    {
+        return Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid);
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage8a4.sealed-durable-write-authority.v1\0");
+    stage8a4_hash_part(
+        &mut hasher,
+        &serde_json::to_vec(identity)
+            .map_err(|_| Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)?,
+    );
+    stage8a4_hash_part(
+        &mut hasher,
+        &serde_json::to_vec(command)
+            .map_err(|_| Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)?,
+    );
+    stage8a4_hash_part(&mut hasher, &batch.transition_record.encode_canonical());
+    for record in &batch.suffix_records {
+        stage8a4_hash_part(&mut hasher, &record.encode_canonical());
+    }
+    stage8a4_hash_part(
+        &mut hasher,
+        &serde_json::to_vec(&batch.cancel_original_target_shape)
+            .map_err(|_| Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)?,
+    );
+    stage8a4_hash_part(&mut hasher, operational_identity_sha256.as_bytes());
+    stage8a4_hash_part(&mut hasher, runtime_config_fingerprint_sha256.as_bytes());
+    stage8a4_hash_part(&mut hasher, &seal_generation.to_be_bytes());
+    stage8a4_hash_part(&mut hasher, seal_commitment_sha256.as_bytes());
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+fn stage8a4_hash_part(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update((bytes.len() as u64).to_be_bytes());
+    hasher.update(bytes);
 }
 
 /// Durable-only result. It is deliberately insufficient for ACK/readiness;
@@ -715,6 +945,7 @@ impl Stage6dDurableRuntimeRecovered {
         Ok(Stage6DurableRequestAuthorityV1 {
             identity: identity.clone(),
             canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
+            accepted_record: accepted.clone(),
             accepted_record_id: accepted.journal_record_id().clone(),
             dispatch_record_id: dispatch.journal_record_id().clone(),
             dispatch_sequence: dispatch.lifecycle_sequence().get(),
@@ -724,6 +955,7 @@ impl Stage6dDurableRuntimeRecovered {
                 .authenticated_checkpoint
                 .checkpoint_sha256()
                 .to_string(),
+            request_state_fingerprint_sha256: replayed.state_fingerprint_sha256(),
         })
     }
 
@@ -777,6 +1009,7 @@ impl Stage6dDurableRuntimeRecovered {
         Ok(Stage6DurableRequestAuthorityV1 {
             identity: identity.clone(),
             canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
+            accepted_record: accepted.clone(),
             accepted_record_id: accepted.journal_record_id().clone(),
             dispatch_record_id: dispatch.journal_record_id().clone(),
             dispatch_sequence: dispatch.lifecycle_sequence().get(),
@@ -786,6 +1019,7 @@ impl Stage6dDurableRuntimeRecovered {
                 .authenticated_checkpoint
                 .checkpoint_sha256()
                 .to_string(),
+            request_state_fingerprint_sha256: replayed.state_fingerprint_sha256(),
         })
     }
 
@@ -862,6 +1096,32 @@ impl Stage6dDurableRuntimeRecovered {
             }
         }
         Ok(())
+    }
+
+    pub fn stage8a4_pending_recovery_material(
+        &self,
+    ) -> Result<Option<Stage6Stage8a4PendingRecovery>, Stage6dLiveCoreError> {
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let Some(batch) = mixed.reconciliation_batches().iter().find(|batch| {
+            batch.completion() == Stage6ReconciliationBatchCompletionV2::Incomplete
+                && Some(batch.last_mixed_record_id()) == self.journal_frontier().last_record_id()
+                && Some(batch.last_mixed_lifecycle_sequence())
+                    == self.journal_frontier().last_lifecycle_sequence()
+        }) else {
+            return Ok(None);
+        };
+        let identity = batch.transition_record().durable_request_identity();
+        let accepted = stage7a_accepted_record(self, identity.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let durable_command = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        self.authorize_stage8a4_durable_batch_source(identity, &durable_command)?;
+        Ok(Some(Stage6Stage8a4PendingRecovery {
+            transition_record: batch.transition_record().clone(),
+            durable_command,
+        }))
     }
 
     pub fn boot_mode(&self) -> Stage6dBootMode {
@@ -987,11 +1247,26 @@ pub fn stage8a4_test_set_journal_failpoint(
         .map_err(Stage6dLiveCoreError::from)
 }
 
-/// Applies one exact I3 durable batch through the sole recovered Stage 6
-/// journal owner. The caller must hold the current Stage 7B writer lease and
-/// must separately verify S0 before entry and commit/reread S1 after return.
-#[doc(hidden)]
-pub fn stage8a4_internal_append_durable_batch(
+/// Applies an authenticated broker-neutral I3 authority. Caller-provided V2
+/// or batch material cannot enter this boundary directly; Stage 7B still owns
+/// S0 validation and the covering S1 commit/reread.
+pub fn apply_stage8a4_sealed_durable_write(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    authority: Stage6Stage8a4SealedWriteAuthority,
+) -> Result<Stage6Stage8a4BatchAppendReceipt, Stage6dLiveCoreError> {
+    let authority = authority.verify(commitment_key)?;
+    let Stage6Stage8a4SealedWriteAuthority {
+        identity,
+        command,
+        batch,
+        ..
+    } = authority;
+    let durable = recovered.authorize_stage8a4_durable_batch_source(&identity, &command)?;
+    stage8a4_internal_append_durable_batch(recovered, durable, batch)
+}
+
+pub(crate) fn stage8a4_internal_append_durable_batch(
     recovered: &mut Stage6dDurableRuntimeRecovered,
     authority: Stage6DurableRequestAuthorityV1,
     batch: Stage6Stage8a4DurableBatch,
@@ -1388,6 +1663,7 @@ pub fn first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal(
 }
 
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[doc(hidden)]
 pub enum Stage7bTestExtraStage6History {
@@ -1397,6 +1673,7 @@ pub enum Stage7bTestExtraStage6History {
 }
 
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 #[doc(hidden)]
 pub struct Stage7bTestRestartFixture {
     pub stage5g_authenticated_package: Vec<u8>,
@@ -1411,6 +1688,7 @@ pub struct Stage7bTestRestartFixture {
 /// Source-exact Stage 5G/Stage 6 fixture used only to prove the composed
 /// Stage 7B file-backed restart boundary. It exposes no execution transport.
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 #[doc(hidden)]
 pub fn stage7b_test_authenticated_working_restart_fixture(
     extra_history: Stage7bTestExtraStage6History,
@@ -1546,6 +1824,7 @@ pub fn stage7b_test_authenticated_working_restart_fixture(
 /// working PLACE retained as Stage 6 history. The current lifecycle contains
 /// only the accepted CANCEL so restart can prove a single safe redelivery.
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[allow(dead_code)]
 #[doc(hidden)]
 pub fn stage7b_test_authenticated_cancel_restart_fixture() -> Stage7bTestRestartFixture {
     use broker_core::{CancelOrder, OrderSide, OrderType, PlaceOrder, TimeInForce};

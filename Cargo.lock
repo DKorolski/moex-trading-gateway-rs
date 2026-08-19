@@ -506,6 +506,7 @@ dependencies = [
  "libc",
  "redis",
  "reqwest",
+ "runtime-durable-service",
  "rusqlite",
  "rust_decimal",
  "serde",
@@ -1466,7 +1467,6 @@ version = "0.1.0"
 dependencies = [
  "broker-core",
  "chrono",
- "finam-gateway",
  "libc",
  "redis",
  "runtime-command-bridge",

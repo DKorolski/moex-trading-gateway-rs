@@ -52,11 +52,13 @@ accepted. I2 R2 at `e04edea` closed the R1 findings but was not accepted because
 the Stage 6/7 action and command payload were not exactly cross-bound. I2 R3 is
 independently accepted and closed at `90f4605`; it is the private no-append
 candidate that closes that seam while leaving the stable-key formula unchanged.
-I3 R1 at `a490bbe` was not accepted. I3 R2 is active and separately
-review-gated: it seals the sole held-lease writer behind an opaque exact-request
-authority and adds sticky fail-stop handling for uncertain V2/suffix writes,
-while preserving current authority reconstruction, four-field CAS, V2-first
-durable append, exact suffix repair and a covering seal. I4 remains closed, so I3 cannot
+I3 R1 at `a490bbe` was not accepted. I3 R2 at `62e5e05` preserved the durable
+mechanics but was not accepted because it exported a hidden raw append,
+regressed accepted Stage8A1 authority, inverted the broker-neutral dependency,
+and required the lost I2 object for restart. I3 R3 is active and separately
+review-gated. It closes those topology gaps while retaining exact truth/control,
+sticky fail-stop, four-field CAS, V2-first append, exact suffix repair and a
+covering seal. I4 remains closed, so I3 cannot
 publish ACK/readiness or authorize Redis settlement. Stage 8A-5+, FINAM
 POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real
 orders remain closed.

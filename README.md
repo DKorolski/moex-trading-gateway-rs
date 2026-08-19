@@ -20,10 +20,13 @@ closed at `4caf07c`. Durable-composition Design R2 is accepted and closed at
 `6ddf54e`. Implementation Specification R2 is accepted and closed at
 `dd01253`. I1 R1 at `0678354` was not accepted; I1 R2 is accepted and closed at
 `113d282`. I2 R1 at `6527619` was not accepted. I2 R2 at `e04edea` closed its
-four findings but exposed one final accepted-command cross-binding seam. The
-active I2 R3 private in-memory candidate binds exact action, attribution,
-PLACE/CANCEL payload shape and canonical accepted-command digest.
-I3/I4 writer, apply, seal and ACK/readiness plus Stage 8A-5 remain closed.
+four findings but exposed one final accepted-command cross-binding seam. I2 R3
+is accepted and closed at `90f4605`. I3 R1 at `a490bbe` and I3 R2 at `62e5e05`
+were not accepted. I3 R3 is the sole active candidate: it restores accepted
+Stage8A1 owner/seal authority, keeps runtime dependencies broker-neutral,
+closes every external raw append and recovers an incomplete persisted suffix
+without the lost I2 object. Independent acceptance is pending. I4 ACK/readiness
+composition and Stage 8A-5 remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.

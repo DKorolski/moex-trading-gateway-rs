@@ -9,7 +9,6 @@ rust-version.workspace = true
 [dependencies]
 broker-core = { path = "../broker-core" }
 chrono.workspace = true
-finam-gateway = { path = "../finam-gateway" }
 libc.workspace = true
 redis.workspace = true
 runtime-command-bridge = { path = "../runtime-command-bridge" }

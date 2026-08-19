@@ -1,14 +1,14 @@
 id,requirement,evidence
 I3-001,I2 R3 exact predecessor is pinned,authority/checker
-I3-002,rejected I3 R1 and independent review hash are pinned,authority/checker
+I3-002,rejected I3 R1 and I3 R2 refs and review hashes are pinned,authority/checker
 I3-003,sole durable writer owner is Stage7bRecoveryReadyOwner,recovery source
-I3-004,production Stage7 writer accepts only opaque write authority,recovery source/compile-fail
-I3-005,raw Stage7 batch writer is absent,checker/compile-fail
-I3-006,raw core append is not a normal public API,core source/checker
-I3-007,opaque authority has no public constructor,FINAM source/compile-fail
-I3-008,opaque authority is linear and non-serializable,FINAM source
-I3-009,private issuer consumes private I2 candidate,FINAM source
-I3-010,public read DTO cannot become write authority,compile-fail/checker
+I3-004,accepted Stage8A1 R3 owner seal and readiness authority is restored,Stage8A1 source/black-box test
+I3-005,runtime durable service remains broker-neutral and FINAM composes above it,Cargo manifests/checker
+I3-006,raw core append is crate-private and not re-exported,core source/checker
+I3-007,temporary external crate cannot import current or historical raw append,external compile-fail gate
+I3-008,broker-neutral sealed authority is linear authenticated and non-serializable,core source
+I3-009,private I2 issuer composes exact truth control and current Stage7 authority,FINAM source
+I3-010,public read DTO or raw batch cannot mutate storage,checker/sealed core entry
 I3-011,current RequestAccepted record is required,core source/test
 I3-012,accepted command payload is exact,core source/test
 I3-013,exactly one linked dispatch attempt is required,core source/test
@@ -32,8 +32,8 @@ I3-030,only exact verified missing suffix is appended,mixed replay/core test
 I3-031,no second V2 is appended on retry,core/runtime test
 I3-032,complete batch is required before normal success,core source
 I3-033,S1 covers F1 and is reread authenticated,runtime source/test
-I3-034,V2-only crash is recognized narrowly,runtime test
-I3-035,partial suffix crash is recognized narrowly,runtime test
+I3-034,V2-only crash is recovered from persisted V2 without lost I2 object,runtime production-path test
+I3-035,partial suffix crash appends only missing manifest records without lost I2 object,runtime production-path test
 I3-036,unrelated journal-ahead state is rejected,runtime test
 I3-037,current truth binds exact request ID,FINAM source/test
 I3-038,current truth binds exact account,FINAM source/test

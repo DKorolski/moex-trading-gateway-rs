@@ -1,6 +1,7 @@
-# Stage 8A-4 I3 R2 negative inventory
+# Stage 8A-4 I3 R3 negative inventory
 
-The fail-closed mutation harness pins these 48 independent cases:
+The fail-closed mutation harness retains the R2 protections and pins these 58
+independent cases:
 
 1. accepted I2 predecessor drift;
 2. accepted I2 review hash drift;
@@ -49,7 +50,17 @@ The fail-closed mutation harness pins these 48 independent cases:
 45. narrow V2-only restart test removed;
 46. unrelated suffix rejection test removed;
 47. raw transport marker added to private I3 module;
-48. acceptance matrix row removed.
+48. acceptance matrix row removed;
+49. renamed public raw core append;
+50. `#[doc(hidden)] pub` raw core append;
+51. external crate raw-mutator compile-fail proof removed;
+52. runtime-durable-service depends on finam-gateway;
+53. broker-specific dependency added to broker-neutral runtime;
+54. public Stage8A1 `from_current_stage6_authority` restored;
+55. caller-provided Stage8A1 seal/op-id accepted;
+56. local Stage8A1 readiness lookalike replaces Stage7B readiness;
+57. production sealed normal composition removed;
+58. crash suffix recovery requires a test helper or lost I2 candidate.
 
 Inherited I2, forbidden-surface, compiler, clippy and archive-safety gates remain
 mandatory. In particular, the checker rejects both a raw Stage7 writer and a

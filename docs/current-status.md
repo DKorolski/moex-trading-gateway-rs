@@ -60,11 +60,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - I3 R1 at `a490bbe700c51f0e9c6debd2a007cb9b5061c3d8` was not accepted because
   its raw Stage7 batch entry was caller-forgeable, truth/control evidence was
   not exact-writer-bound and post-write I/O uncertainty was not sticky. I3 R2
-  is the active corrective candidate. It replaces the raw entry with a sealed
-  opaque authority, exact-binds request/account/instrument/operational config,
-  and poisons the live owner after any possible V2 or suffix mutation. The
-  four-field CAS, V2-first append, exact suffix repair and covering S1 remain.
-  Independent acceptance is pending.
+  at `62e5e0509adb9cceb1d9947b5b3f92120e2f19ea` retained the corrected durable
+  mechanics but was not accepted: a doc-hidden raw core append remained public,
+  Stage8A1 current-owner authority regressed, runtime depended on FINAM, and
+  restart required the lost I2 candidate. I3 R3 is the sole active candidate.
+  It restores accepted Stage8A1 semantics and broker-neutral dependency
+  direction, exposes only an authenticated sealed writer, reconstructs an exact
+  suffix from persisted V2, and retains exact truth/control plus sticky
+  mutation fail-stop. Independent acceptance is pending.
 - I4 remains CLOSED. I3 produces only durable truth: ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,
   retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B

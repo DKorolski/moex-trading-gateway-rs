@@ -6,16 +6,26 @@
 
 use super::super::{
     account_safety_binding, account_safety_summary, canonical_truth_binding,
-    Stage8a4FreshTruthAdmission,
+    reduce_stage8a4_authoritative, Stage8a4DurableRequestContext, Stage8a4FreshTruthAdmission,
+    Stage8a4ReconciliationPolicy,
 };
-use super::{parse_digest, PrivateAccountSafetySummary, Stage8a4I2DurableCandidate};
+use super::{
+    accepted_command_authority_from_request_accepted, build_private_durable_candidate,
+    parse_digest, PrivateAccountSafetySummary, PrivateJournalCursor, PrivatePreAppendEvidence,
+    Stage8a4I2CompositionInput, Stage8a4I2DurableCandidate,
+};
 use crate::stage8a1_execution_capability::{
+    Stage8ExecutionCapability, Stage8a1OperationalAuthorityIssuer,
     Stage8a4PostEffectControlEvidence, Stage8a4PostEffectControlState,
 };
 use chrono::{DateTime, Utc};
+use runtime_durable_service::{
+    Stage7bRecoveryError, Stage7bRecoveryReadyOwner, Stage7bStage8a4DurableBatchReceipt,
+};
 use strategy_runtime_core::{
-    Stage6DurableCommandSnapshotV1, Stage6DurableRequestAuthorityV1,
-    Stage6DurableRequestIdentityV1, Stage6Sha256Digest, Stage6Stage8a4DurableBatch,
+    Stage5gLifecycleCommitmentKey, Stage6DurableRequestIdentityV1, Stage6LifecycleSequence,
+    Stage6Sha256Digest, Stage6Stage8a4DurableBatch, Stage6Stage8a4PendingRecovery,
+    Stage6Stage8a4SealedWriteAuthority,
 };
 
 #[derive(Debug)]
@@ -25,66 +35,155 @@ enum Stage8a4I3Error {
     BatchInvalid(strategy_runtime_core::Stage6dLiveCoreError),
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum Stage8a4DurableCompositionError {
+    #[error("current Stage 8A-4 authority is invalid")]
+    CurrentAuthority,
+    #[error("current Stage 8A-4 broker truth is invalid")]
+    CurrentTruth,
+    #[error("Stage 8A-4 durable recovery failed")]
+    DurableRecovery,
+    #[error("Stage 8A-4 private durable composition failed")]
+    PrivateComposition,
+}
+
+/// Full production no-send composition for a new Stage 8A-4 transition.
+///
+/// Only opaque reconciliation authorities and the exact broker-neutral
+/// request/command enter this operation. It obtains current S0 from Stage7B,
+/// constructs the private I2 candidate internally, revalidates current
+/// truth/control, seals the batch and returns only after covering S1 is reread.
+#[allow(clippy::too_many_arguments)]
+pub fn reconcile_persist_and_cover_stage8a4(
+    capability: &Stage8ExecutionCapability,
+    issuer: &Stage8a1OperationalAuthorityIssuer,
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &strategy_runtime_core::Stage6DurableCommandSnapshotV1,
+    context: Stage8a4DurableRequestContext,
+    reconciliation_truth: Stage8a4FreshTruthAdmission,
+    writer_entry_truth: Stage8a4FreshTruthAdmission,
+    policy: Stage8a4ReconciliationPolicy,
+) -> Result<Stage7bStage8a4DurableBatchReceipt, Stage8a4DurableCompositionError> {
+    let current = owner
+        .authorize_stage8a1_durable_request(commitment_key, identity, command)
+        .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
+    let stage6 = current.stage6();
+    let accepted_command_authority =
+        accepted_command_authority_from_request_accepted(stage6.accepted_record())
+            .map_err(|_| Stage8a4DurableCompositionError::PrivateComposition)?;
+    let previous_lifecycle_sequence = Stage6LifecycleSequence::new(stage6.dispatch_sequence())
+        .map_err(|_| Stage8a4DurableCompositionError::PrivateComposition)?;
+    let cursor = PrivateJournalCursor {
+        previous_record_id: stage6.dispatch_record_id().clone(),
+        previous_lifecycle_sequence,
+    };
+    let pre_append = PrivatePreAppendEvidence {
+        expected_stage6_checkpoint_or_frontier_fingerprint: Stage6Sha256Digest::parse(
+            stage6.durable_frontier_sha256().to_string(),
+        )
+        .map_err(|_| Stage8a4DurableCompositionError::PrivateComposition)?,
+        expected_recovery_seal_generation: current.seal_generation(),
+        expected_recovery_seal_fingerprint: Stage6Sha256Digest::parse(
+            current.seal_commitment_sha256().to_string(),
+        )
+        .map_err(|_| Stage8a4DurableCompositionError::PrivateComposition)?,
+        expected_request_state_fingerprint: stage6.request_state_fingerprint_sha256().clone(),
+    };
+    let outcome = reduce_stage8a4_authoritative(context, reconciliation_truth, policy);
+    let candidate = build_private_durable_candidate(Stage8a4I2CompositionInput {
+        accepted_command_authority,
+        cursor,
+        pre_append,
+        outcome,
+    })
+    .map_err(|_| Stage8a4DurableCompositionError::PrivateComposition)?;
+    let historical = capability
+        .stage8a4_historical_arm_provenance()
+        .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
+    let controls = issuer
+        .issue_stage8a4_post_effect_control_evidence(historical)
+        .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
+    let authority = issue_private_durable_write_authority(
+        candidate,
+        writer_entry_truth,
+        controls,
+        owner,
+        commitment_key,
+    )
+    .map_err(|error| match error {
+        Stage8a4I3Error::CurrentTruthMismatch => Stage8a4DurableCompositionError::CurrentTruth,
+        Stage8a4I3Error::CommandAuthorityMismatch => {
+            Stage8a4DurableCompositionError::CurrentAuthority
+        }
+        Stage8a4I3Error::BatchInvalid(_) => Stage8a4DurableCompositionError::PrivateComposition,
+    })?;
+    authority
+        .persist_and_cover(owner, commitment_key)
+        .map_err(|_| Stage8a4DurableCompositionError::DurableRecovery)
+}
+
 /// Sole linear I3 authority accepted by the Stage 7B writer. It cannot be
 /// constructed from public canonical bytes, diagnostics or read DTOs.
 pub struct Stage8a4DurableWriteAuthority {
-    identity: Stage6DurableRequestIdentityV1,
-    command: Stage6DurableCommandSnapshotV1,
-    batch: Stage6Stage8a4DurableBatch,
-    operational_identity_sha256: String,
-    runtime_config_fingerprint_sha256: String,
-    seal_generation: u64,
-    seal_commitment_sha256: String,
-}
-
-/// Consuming cross-crate transfer object. Obtaining one requires first owning
-/// the nonconstructible `Stage8a4DurableWriteAuthority`.
-pub struct Stage8a4DurableWriterParts {
-    identity: Stage6DurableRequestIdentityV1,
-    command: Stage6DurableCommandSnapshotV1,
-    batch: Stage6Stage8a4DurableBatch,
-    operational_identity_sha256: String,
-    runtime_config_fingerprint_sha256: String,
-    seal_generation: u64,
-    seal_commitment_sha256: String,
+    sealed: Stage6Stage8a4SealedWriteAuthority,
 }
 
 impl Stage8a4DurableWriteAuthority {
-    pub fn into_writer_parts(self) -> Stage8a4DurableWriterParts {
-        Stage8a4DurableWriterParts {
-            identity: self.identity,
-            command: self.command,
-            batch: self.batch,
-            operational_identity_sha256: self.operational_identity_sha256,
-            runtime_config_fingerprint_sha256: self.runtime_config_fingerprint_sha256,
-            seal_generation: self.seal_generation,
-            seal_commitment_sha256: self.seal_commitment_sha256,
-        }
+    /// Production durable composition entry. The broker-specific authority is
+    /// consumed here and only its authenticated broker-neutral capability
+    /// crosses into the Stage 7B owner.
+    pub fn persist_and_cover(
+        self,
+        owner: &mut Stage7bRecoveryReadyOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage7bStage8a4DurableBatchReceipt, Stage7bRecoveryError> {
+        owner.append_stage8a4_sealed_authority_and_cover(commitment_key, self.sealed)
     }
 }
 
-impl Stage8a4DurableWriterParts {
-    pub fn into_inner(
-        self,
-    ) -> (
-        Stage6DurableRequestIdentityV1,
-        Stage6DurableCommandSnapshotV1,
-        Stage6Stage8a4DurableBatch,
-        String,
-        String,
-        u64,
-        String,
-    ) {
-        (
-            self.identity,
-            self.command,
-            self.batch,
-            self.operational_identity_sha256,
-            self.runtime_config_fingerprint_sha256,
-            self.seal_generation,
-            self.seal_commitment_sha256,
-        )
-    }
+/// Production restart entry for a V2 transition whose exact suffix was only
+/// partly persisted. It re-derives authority from current Stage7B S0, current
+/// broker truth and current post-effect controls; it never needs the lost I2
+/// candidate and never appends a second V2.
+pub fn recover_persisted_stage8a4_suffix_and_cover(
+    capability: &Stage8ExecutionCapability,
+    issuer: &Stage8a1OperationalAuthorityIssuer,
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    current_truth: Stage8a4FreshTruthAdmission,
+) -> Result<Option<Stage7bStage8a4DurableBatchReceipt>, Stage8a4DurableCompositionError> {
+    let Some(pending) = owner
+        .stage8a4_pending_recovery_material(commitment_key)
+        .map_err(|_| Stage8a4DurableCompositionError::DurableRecovery)?
+    else {
+        return Ok(None);
+    };
+    let historical = capability
+        .stage8a4_historical_arm_provenance()
+        .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
+    let controls = issuer
+        .issue_stage8a4_post_effect_control_evidence(historical)
+        .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
+    let authority = issue_persisted_recovery_write_authority(
+        pending,
+        current_truth,
+        controls,
+        owner,
+        commitment_key,
+    )
+    .map_err(|error| match error {
+        Stage8a4I3Error::CurrentTruthMismatch => Stage8a4DurableCompositionError::CurrentTruth,
+        Stage8a4I3Error::CommandAuthorityMismatch => {
+            Stage8a4DurableCompositionError::CurrentAuthority
+        }
+        Stage8a4I3Error::BatchInvalid(_) => Stage8a4DurableCompositionError::DurableRecovery,
+    })?;
+    authority
+        .persist_and_cover(owner, commitment_key)
+        .map(Some)
+        .map_err(|_| Stage8a4DurableCompositionError::DurableRecovery)
 }
 
 struct Stage8a4WriterEntryFreshTruth {
@@ -98,15 +197,20 @@ fn issue_private_durable_write_authority(
     candidate: Stage8a4I2DurableCandidate,
     current_truth: Stage8a4FreshTruthAdmission,
     controls: Stage8a4PostEffectControlEvidence,
-    current_stage6: Stage6DurableRequestAuthorityV1,
-    current_operational_identity_sha256: &str,
-    current_seal_generation: u64,
-    current_seal_commitment_sha256: &str,
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8a4DurableWriteAuthority, Stage8a4I3Error> {
     let identity = candidate
         .transition_record
         .durable_request_identity()
         .clone();
+    let current_stage7 = owner
+        .authorize_stage8a1_durable_request(commitment_key, &identity, &candidate.durable_command)
+        .map_err(|_| Stage8a4I3Error::CommandAuthorityMismatch)?;
+    let current_stage6 = current_stage7.stage6();
+    let current_operational_identity_sha256 = current_stage7.operational_identity_sha256();
+    let current_seal_generation = current_stage7.seal_generation();
+    let current_seal_commitment_sha256 = current_stage7.seal_commitment_sha256();
     if current_stage6.identity() != &identity
         || current_stage6.canonical_command_sha256() != &candidate.accepted_command_payload_sha256
         || controls.accepted_command_payload_sha256() != &candidate.accepted_command_payload_sha256
@@ -156,17 +260,79 @@ fn issue_private_durable_write_authority(
         candidate.cancel_original_target_shape,
     )
     .map_err(Stage8a4I3Error::BatchInvalid)?;
-    Ok(Stage8a4DurableWriteAuthority {
+    let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
+        commitment_key,
         identity,
-        command: candidate.durable_command,
+        candidate.durable_command,
         batch,
-        operational_identity_sha256: current_operational_identity_sha256.to_string(),
-        runtime_config_fingerprint_sha256: current_stage6
+        current_operational_identity_sha256.to_string(),
+        current_stage6
             .runtime_config_fingerprint_sha256()
             .to_string(),
-        seal_generation: current_seal_generation,
-        seal_commitment_sha256: current_seal_commitment_sha256.to_string(),
-    })
+        current_seal_generation,
+        current_seal_commitment_sha256.to_string(),
+    )
+    .map_err(Stage8a4I3Error::BatchInvalid)?;
+    Ok(Stage8a4DurableWriteAuthority { sealed })
+}
+
+fn issue_persisted_recovery_write_authority(
+    pending: Stage6Stage8a4PendingRecovery,
+    current_truth: Stage8a4FreshTruthAdmission,
+    controls: Stage8a4PostEffectControlEvidence,
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8a4DurableWriteAuthority, Stage8a4I3Error> {
+    let (transition, command) = pending.into_parts();
+    let identity = transition.durable_request_identity().clone();
+    let current_stage7 = owner
+        .authorize_stage8a4_pending_recovery_request(commitment_key, &identity, &command)
+        .map_err(|_| Stage8a4I3Error::CommandAuthorityMismatch)?;
+    let current_stage6 = current_stage7.stage6();
+    if controls.accepted_command_payload_sha256() != current_stage6.canonical_command_sha256()
+        || controls.operational_identity_sha256() != current_stage7.operational_identity_sha256()
+        || controls.runtime_config_fingerprint_sha256()
+            != current_stage6.runtime_config_fingerprint_sha256()
+        || parse_digest(controls.authority_scope_sha256()).is_err()
+        || parse_digest(controls.arm_registration_sha256()).is_err()
+        || parse_digest(controls.current_control_binding_sha256().as_str()).is_err()
+    {
+        return Err(Stage8a4I3Error::CommandAuthorityMismatch);
+    }
+    match controls.current_control_state() {
+        Stage8a4PostEffectControlState::RunAllowed
+        | Stage8a4PostEffectControlState::StopRequested
+        | Stage8a4PostEffectControlState::StaleOrUnreadable => {}
+    }
+    let writer_truth = issue_writer_entry_fresh_truth(
+        current_truth,
+        &identity,
+        transition.payload().durable_request_binding_sha256(),
+        Utc::now(),
+    )?;
+    let current = serde_json::to_vec(&writer_truth.safety)
+        .map_err(|_| Stage8a4I3Error::CurrentTruthMismatch)?;
+    let persisted = serde_json::to_vec(transition.payload().account_safety_summary())
+        .map_err(|_| Stage8a4I3Error::CurrentTruthMismatch)?;
+    if current != persisted {
+        return Err(Stage8a4I3Error::CurrentTruthMismatch);
+    }
+    let batch = Stage6Stage8a4DurableBatch::recover_from_persisted_transition(transition)
+        .map_err(Stage8a4I3Error::BatchInvalid)?;
+    let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
+        commitment_key,
+        identity,
+        command,
+        batch,
+        current_stage7.operational_identity_sha256().to_string(),
+        current_stage6
+            .runtime_config_fingerprint_sha256()
+            .to_string(),
+        current_stage7.seal_generation(),
+        current_stage7.seal_commitment_sha256().to_string(),
+    )
+    .map_err(Stage8a4I3Error::BatchInvalid)?;
+    Ok(Stage8a4DurableWriteAuthority { sealed })
 }
 
 fn issue_writer_entry_fresh_truth(

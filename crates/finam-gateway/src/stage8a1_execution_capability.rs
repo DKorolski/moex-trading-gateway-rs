@@ -86,6 +86,9 @@ use broker_core::{
     PreflightApprovedPlaceOrder, StrategyRequestId, TimeInForce,
 };
 use chrono::{DateTime, Utc};
+use runtime_durable_service::{
+    Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bRecoveryReadyOwner,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::ffi::CString;
@@ -97,7 +100,7 @@ use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use strategy_runtime_core::{
-    Stage6DurableActionKind, Stage6DurableCommandSnapshotV1, Stage6DurableRequestAuthorityV1,
+    Stage5gLifecycleCommitmentKey, Stage6DurableActionKind, Stage6DurableCommandSnapshotV1,
     Stage6DurableRequestIdentityV1, Stage6Sha256Digest,
 };
 
@@ -173,32 +176,11 @@ pub struct Stage8a1CurrentControlStateV1 {
 /// composition. Public callers cannot feed caller-created snapshots into the
 /// capability minting boundary.
 pub struct Stage8a1TrustedCurrentSources {
-    composite_readiness: Stage8a1CompositeReadinessSnapshot,
+    composite_readiness: Stage7bCompositeReadinessSnapshot,
     broker_truth: BrokerTruthSnapshot,
     broker_readiness: BrokerReadinessSnapshot,
     authority_root_sha256: String,
     evidence_sha256: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-#[allow(
-    dead_code,
-    reason = "all readiness states are retained in the broker-neutral seam"
-)]
-pub(crate) enum Stage8a1PaperReadinessPhase {
-    PaperReady,
-    Degraded,
-    Stopped,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct Stage8a1CompositeReadinessSnapshot {
-    pub phase: Stage8a1PaperReadinessPhase,
-    pub reasons: Vec<String>,
-    pub blocked_entry_ids: Vec<String>,
-    pub blocked_request_ids: Vec<StrategyRequestId>,
-    pub checked_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -352,13 +334,16 @@ pub struct Stage8a1DurableRequestAuthority {
 }
 
 impl Stage8a1DurableRequestAuthority {
-    pub fn from_current_stage6_authority(
-        stage6: &Stage6DurableRequestAuthorityV1,
+    pub fn from_stage7b_owner(
+        owner: &mut Stage7bRecoveryReadyOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
         command: &Stage6DurableCommandSnapshotV1,
-        operational_identity_sha256: &str,
-        seal_generation: u64,
-        seal_commitment_sha256: &str,
     ) -> Result<Self, Stage8ExecutionPreflightError> {
+        let authority = owner
+            .authorize_stage8a1_durable_request(commitment_key, identity, command)
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+        let stage6 = authority.stage6();
         let mut value = Self {
             identity: stage6.identity().clone(),
             durable_command_sha256: digest_parts(
@@ -374,9 +359,9 @@ impl Stage8a1DurableRequestAuthority {
                 .runtime_config_fingerprint_sha256()
                 .to_string(),
             checkpoint_sha256: stage6.authenticated_checkpoint_sha256().to_string(),
-            operational_identity_sha256: operational_identity_sha256.to_string(),
-            seal_generation,
-            seal_commitment_sha256: seal_commitment_sha256.to_string(),
+            operational_identity_sha256: authority.operational_identity_sha256().to_string(),
+            seal_generation: authority.seal_generation(),
+            seal_commitment_sha256: authority.seal_commitment_sha256().to_string(),
             provenance_sha256: String::new(),
         };
         value.provenance_sha256 = value.calculate_provenance();
@@ -758,15 +743,24 @@ impl Stage8a1OperationalAuthorityIssuer {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn from_durable_authority(
-        durable: &Stage8a1DurableRequestAuthority,
+    pub fn from_stage7b_owner(
+        owner: &mut Stage7bRecoveryReadyOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
         root: impl AsRef<Path>,
         accepted_config_sha256: &str,
     ) -> Result<Self, Stage8ExecutionPreflightError> {
         if !valid_sha256(accepted_config_sha256) {
             return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
         }
-        Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, durable)
+        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+            owner,
+            commitment_key,
+            identity,
+            command,
+        )?;
+        Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, &durable)
     }
 
     fn from_trusted_composition(
@@ -850,7 +844,7 @@ impl Stage8a1OperationalAuthorityIssuer {
     )]
     pub(crate) fn issue_current_sources(
         &self,
-        composite_readiness: &Stage8a1CompositeReadinessSnapshot,
+        composite_readiness: &Stage7bCompositeReadinessSnapshot,
         broker_truth: &BrokerTruthSnapshot,
         broker_readiness: &BrokerReadinessSnapshot,
     ) -> Result<Stage8a1TrustedCurrentSources, Stage8ExecutionPreflightError> {
@@ -1107,7 +1101,10 @@ impl Stage8a1OperationalAuthorityIssuer {
     pub fn revalidate_place_capability(
         &mut self,
         capability: Stage8ExecutionCapability,
-        durable: Stage8a1DurableRequestAuthority,
+        owner: &mut Stage7bRecoveryReadyOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
         order: &PlaceOrder,
         broker_preflight_context: &OrderPreflightContext,
         sources: &Stage8a1TrustedCurrentSources,
@@ -1120,6 +1117,12 @@ impl Stage8a1OperationalAuthorityIssuer {
         {
             return Err(Stage8ExecutionPreflightError::CurrentStateChanged);
         }
+        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+            owner,
+            commitment_key,
+            identity,
+            command,
+        )?;
         validate_place_durable(&durable, order)?;
         self.authority_root.validate()?;
         let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
@@ -1179,11 +1182,20 @@ impl Stage8a1OperationalAuthorityIssuer {
     pub fn revalidate_cancel_capability(
         &mut self,
         capability: Stage8ExecutionCapability,
-        durable: Stage8a1DurableRequestAuthority,
+        owner: &mut Stage7bRecoveryReadyOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
         cancel: &CancelOrder,
         existing_order: &OrderPathRecord,
         sources: &Stage8a1TrustedCurrentSources,
     ) -> Result<Stage8a1CurrentlyAuthorizedCapability, Stage8ExecutionPreflightError> {
+        let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+            owner,
+            commitment_key,
+            identity,
+            command,
+        )?;
         self.revalidate_cancel_with_durable(capability, durable, cancel, existing_order, sources)
     }
 
@@ -1352,7 +1364,7 @@ fn derive_current_authorities(
     {
         return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
     }
-    if sources.composite_readiness.phase != Stage8a1PaperReadinessPhase::PaperReady
+    if sources.composite_readiness.phase != Stage7bPaperReadinessPhase::PaperReady
         || !sources.composite_readiness.reasons.is_empty()
         || !sources.composite_readiness.blocked_entry_ids.is_empty()
         || !sources.composite_readiness.blocked_request_ids.is_empty()
@@ -2817,7 +2829,7 @@ mod tests {
     fn current_sources(
         observed_at: DateTime<Utc>,
     ) -> (
-        Stage8a1CompositeReadinessSnapshot,
+        Stage7bCompositeReadinessSnapshot,
         BrokerTruthSnapshot,
         BrokerReadinessSnapshot,
     ) {
@@ -2825,8 +2837,8 @@ mod tests {
             observed_ts: Some(observed_at),
             max_age_ms: 30_000,
         };
-        let readiness = Stage8a1CompositeReadinessSnapshot {
-            phase: Stage8a1PaperReadinessPhase::PaperReady,
+        let readiness = Stage7bCompositeReadinessSnapshot {
+            phase: Stage7bPaperReadinessPhase::PaperReady,
             reasons: vec![],
             blocked_entry_ids: vec![],
             blocked_request_ids: vec![],
