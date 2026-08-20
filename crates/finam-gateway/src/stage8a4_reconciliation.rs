@@ -45,6 +45,8 @@ use strategy_runtime_core::Stage6DurableActionKind;
 
 #[allow(dead_code)]
 mod durable_composition_i2;
+#[allow(dead_code)]
+mod durable_composition_i4;
 pub use durable_composition_i2::{
     reconcile_persist_and_cover_stage8a4, recover_persisted_stage8a4_suffix_and_cover,
     Stage8a4DurableCompositionError, Stage8a4DurableWriteAuthority,

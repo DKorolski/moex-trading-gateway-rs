@@ -89,7 +89,7 @@ use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use runtime_durable_service::{
     Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bRecoveryReadyOwner,
-    Stage8a4I3RecoveryPendingOwner,
+    Stage7bStage8a4TerminalAuthority, Stage8a4I3RecoveryPendingOwner,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -1874,6 +1874,178 @@ struct Stage8a1DerivedCurrentAuthorities {
     budget: Stage8a1MicroBudgetAuthority,
 }
 
+/// FINAM-private current readiness evidence for I4. It is independently
+/// sampled after terminal reconstruction and grants no execution, operator
+/// arm, builder, dispatch or publication capability.
+pub(crate) struct Stage8a4I4CurrentReadinessEvidence {
+    pub(crate) operational_identity_sha256: String,
+    pub(crate) runtime_config_fingerprint_sha256: String,
+    pub(crate) authority_root_sha256: String,
+    pub(crate) accepted_config_sha256: String,
+    pub(crate) current_source_evidence_sha256: String,
+    pub(crate) observed_at: DateTime<Utc>,
+    pub(crate) valid_until: DateTime<Utc>,
+}
+
+/// Trusted, read-only I4 source composition. This function is crate-private so
+/// public callers cannot turn arbitrary snapshot DTOs into readiness. It pins
+/// the accepted root/config/control files but never opens the arm registry or
+/// writer key and never mints an execution capability.
+pub(crate) fn issue_stage8a4_i4_current_readiness(
+    terminal: &Stage7bStage8a4TerminalAuthority,
+    root: &Path,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+    now: DateTime<Utc>,
+) -> Result<Stage8a4I4CurrentReadinessEvidence, Stage8ExecutionPreflightError> {
+    if !valid_sha256(accepted_config_sha256) {
+        return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let root_identity = directory_identity(&root)?;
+    let config_identity = regular_file_identity(&root.join(ACCEPTED_CONFIG_FILE))?;
+    let sidecar_identity = regular_file_identity(&root.join(ACCEPTED_CONFIG_SHA256_FILE))?;
+    let control_identity = regular_file_identity(&root.join(CURRENT_CONTROL_FILE))?;
+    let (config, observed_config_sha256) =
+        load_accepted_config_pinned(&root, config_identity, sidecar_identity)?;
+    if observed_config_sha256 != accepted_config_sha256
+        || config.schema_version != 1
+        || config.broker != BrokerKind::Finam
+        || config.operational_identity_sha256 != terminal.operational_identity_sha256()
+        || config.runtime_config_fingerprint_sha256 != terminal.runtime_config_fingerprint_sha256()
+        || config.strategy_instance_id != terminal.identity().attribution().strategy_id()
+        || config.account_id.as_str() != terminal.identity().account_id().as_str()
+        || config.instrument != *terminal.identity().instrument()
+        || config.max_evidence_age_ms == 0
+        || config.max_evidence_age_ms > MAX_AUTHORITY_TTL_MS
+    {
+        return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+    }
+    let authority_root_sha256 = digest_parts(
+        b"stage8a4-i4-readonly-authority-root-v1",
+        &[
+            root.as_os_str().as_encoded_bytes(),
+            &file_identity_bytes(root_identity),
+            &file_identity_bytes(config_identity),
+            &file_identity_bytes(sidecar_identity),
+            &file_identity_bytes(control_identity),
+            accepted_config_sha256.as_bytes(),
+            terminal.operational_identity_sha256().as_bytes(),
+            terminal.runtime_config_fingerprint_sha256().as_bytes(),
+        ],
+    );
+    let control = load_current_control_pinned(&root, control_identity)?;
+    if control.operational_identity_sha256 != terminal.operational_identity_sha256()
+        || control.runtime_config_fingerprint_sha256 != terminal.runtime_config_fingerprint_sha256()
+        || control.durable_revision == 0
+        || control.active_owner_count != 1
+        || control.reconciliation_required_count != 0
+        || control.kill_switch != Stage8KillSwitchState::RunAllowed
+        || control.observed_at > now
+        || control.valid_until <= now
+    {
+        return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+    }
+    if composite_readiness.phase != Stage7bPaperReadinessPhase::PaperReady
+        || !composite_readiness.reasons.is_empty()
+        || !composite_readiness.blocked_entry_ids.is_empty()
+        || !composite_readiness.blocked_request_ids.is_empty()
+        || composite_readiness.checked_at > now
+    {
+        return Err(Stage8ExecutionPreflightError::ReadinessInvalid);
+    }
+    if broker_truth.account_id.as_str() != terminal.identity().account_id().as_str()
+        || broker_truth
+            .orders
+            .iter()
+            .any(|row| row.account_id.as_str() != terminal.identity().account_id().as_str())
+        || broker_truth
+            .positions
+            .iter()
+            .any(|row| row.account_id.as_str() != terminal.identity().account_id().as_str())
+        || broker_truth.received_ts > now
+        || !broker_readiness.broker_truth_is_fresh(now)
+        || broker_readiness.market_session != BrokerMarketSessionState::Open
+        || broker_readiness.unknown_order_count != 0
+        || !broker_truth.instruments.iter().any(|spec| {
+            spec.instrument.internal_symbol.0 == config.instrument.symbol
+                && config.instrument.venue_symbol.as_deref()
+                    == Some(spec.instrument.broker_symbol.0.as_str())
+        })
+    {
+        return Err(Stage8ExecutionPreflightError::BrokerTruthInvalid);
+    }
+    let summary = broker_truth.summarize_for_instrument(terminal.identity().instrument());
+    if summary.account_unknown_orders_count != 0
+        || summary.account_orphan_orders_count != 0
+        || summary.account_active_orders_count != 0
+        || summary.target_active_orders_count != 0
+    {
+        return Err(Stage8ExecutionPreflightError::AmbiguityInvalid);
+    }
+    let max_age = chrono::Duration::milliseconds(config.max_evidence_age_ms as i64);
+    let mut expiries = vec![
+        control.valid_until,
+        composite_readiness.checked_at + max_age,
+        broker_truth.received_ts + max_age,
+    ];
+    for feed in [
+        &broker_readiness.account,
+        &broker_readiness.positions,
+        &broker_readiness.orders,
+        &broker_readiness.trades,
+        &broker_readiness.quotes,
+        &broker_readiness.instrument_spec,
+        &broker_readiness.schedule,
+    ] {
+        let observed = feed
+            .observed_ts
+            .ok_or(Stage8ExecutionPreflightError::ReadinessInvalid)?;
+        let ttl_ms: i64 = feed
+            .max_age_ms
+            .try_into()
+            .map_err(|_| Stage8ExecutionPreflightError::ReadinessInvalid)?;
+        expiries.push(observed + chrono::Duration::milliseconds(ttl_ms));
+    }
+    let valid_until = expiries
+        .into_iter()
+        .min()
+        .expect("I4 readiness expiry set is non-empty");
+    if valid_until <= now {
+        return Err(Stage8ExecutionPreflightError::ReadinessInvalid);
+    }
+    let current_source_evidence_sha256 = digest_parts(
+        b"stage8a4-i4-current-readiness-v1",
+        &[
+            authority_root_sha256.as_bytes(),
+            accepted_config_sha256.as_bytes(),
+            terminal.identity().attribution().strategy_id().as_bytes(),
+            terminal.strategy_instance_id().as_bytes(),
+            terminal.identity().account_id().as_str().as_bytes(),
+            &canonical_json(terminal.identity().instrument()),
+            &canonical_json(&control),
+            &canonical_json(composite_readiness),
+            &canonical_json(broker_truth),
+            &canonical_json(broker_readiness),
+            now.to_rfc3339().as_bytes(),
+            valid_until.to_rfc3339().as_bytes(),
+        ],
+    );
+    Ok(Stage8a4I4CurrentReadinessEvidence {
+        operational_identity_sha256: terminal.operational_identity_sha256().to_string(),
+        runtime_config_fingerprint_sha256: terminal.runtime_config_fingerprint_sha256().to_string(),
+        authority_root_sha256,
+        accepted_config_sha256: accepted_config_sha256.to_string(),
+        current_source_evidence_sha256,
+        observed_at: now,
+        valid_until,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn derive_current_authorities(
     authority_root: &Stage8a1AuthorityRoot,
@@ -3322,6 +3494,82 @@ pub(crate) fn stage8a4_test_production_place_capability(
     };
     let capability = issuer.authorize_place(durable, place, &preflight, &sources)?;
     Ok((issuer, capability))
+}
+
+#[cfg(test)]
+pub(crate) fn stage8a4_test_i4_current_sources(
+    place: &PlaceOrder,
+    now: DateTime<Utc>,
+) -> (
+    Stage7bCompositeReadinessSnapshot,
+    BrokerTruthSnapshot,
+    BrokerReadinessSnapshot,
+) {
+    let venue_symbol = place
+        .instrument
+        .venue_symbol
+        .clone()
+        .expect("I4 test venue symbol");
+    let freshness = || broker_core::BrokerFeedFreshness {
+        observed_ts: Some(now - chrono::Duration::seconds(1)),
+        max_age_ms: 30_000,
+    };
+    let truth = BrokerTruthSnapshot {
+        account_id: place.account_id.clone(),
+        orders: vec![],
+        positions: vec![],
+        cash: None,
+        trades: vec![],
+        instruments: vec![broker_core::BrokerInstrumentSpec {
+            instrument: broker_core::InstrumentMapEntry {
+                internal_symbol: broker_core::InternalSymbol(place.instrument.symbol.clone()),
+                broker: BrokerKind::Finam,
+                broker_symbol: broker_core::BrokerSymbol(venue_symbol),
+                exchange: place.instrument.exchange.clone(),
+                market: place.instrument.market.clone(),
+                price_step: rust_decimal::Decimal::new(5, 1),
+                qty_step: rust_decimal::Decimal::ONE,
+                lot_size: rust_decimal::Decimal::ONE,
+                min_qty: rust_decimal::Decimal::ONE,
+                step_value: rust_decimal::Decimal::ONE,
+                currency: "RUB".into(),
+                schedule_id: "MOEX_FUT".into(),
+                expiration_date: None,
+                is_tradable: true,
+            },
+            broker_asset_id: Some("ASSET_IMOEXF".into()),
+            board: Some("RFUD".into()),
+            long_initial_margin: None,
+            short_initial_margin: None,
+        }],
+        received_ts: now - chrono::Duration::seconds(1),
+    };
+    let readiness = BrokerReadinessSnapshot {
+        account: freshness(),
+        positions: freshness(),
+        orders: freshness(),
+        trades: freshness(),
+        quotes: freshness(),
+        instrument_spec: freshness(),
+        schedule: freshness(),
+        market_session: BrokerMarketSessionState::Open,
+        unknown_order_count: 0,
+        cash_margin_present: true,
+        instrument_spec_validated: true,
+        live_market_data_seen: true,
+        subscription_ready: true,
+        stream_or_polling_connected: true,
+        event_sink_degraded: false,
+        stop_order_readiness: broker_core::BrokerStopOrderReadiness::UnsupportedBlocked,
+    };
+    let composite = Stage7bCompositeReadinessSnapshot {
+        phase: Stage7bPaperReadinessPhase::PaperReady,
+        reasons: vec![],
+        blocked_entry_ids: vec![],
+        blocked_request_ids: vec![],
+        checked_at: now - chrono::Duration::seconds(1),
+    };
+    (composite, truth, readiness)
 }
 
 #[cfg(test)]

@@ -29,7 +29,8 @@ use crate::{
     Stage6JournalRecordV2, Stage6JournalRecordVersioned, Stage6JournalStorageError,
     Stage6LifecycleSequence, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
     Stage6OwnedJournalBackend, Stage6ReconciliationBatchCompletionV2,
-    Stage6ReconciliationDispositionV1, Stage6ReconciliationV2Error, Stage6RecoveredRequestV1,
+    Stage6ReconciliationDispositionV1, Stage6ReconciliationLifecycleV2,
+    Stage6ReconciliationTransitionKindV2, Stage6ReconciliationV2Error, Stage6RecoveredRequestV1,
     Stage6ReplayEngineV1, Stage6ReplayError, Stage6ReplaySnapshotV1,
     Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
 };
@@ -2394,6 +2395,60 @@ pub struct Stage7bFinalizedRequestFacts {
     final_sequence: u64,
 }
 
+/// Broker-neutral, source-derived terminal facts for one complete Stage 8A-4
+/// mixed-replay batch.  This value is deliberately opaque and
+/// non-serializable: it proves history shape only and grants no writer,
+/// dispatch, publication, or transport authority.
+pub struct Stage8a4CompletedTransitionFacts {
+    identity: Stage6DurableRequestIdentityV1,
+    lifecycle: Stage6ReconciliationLifecycleV2,
+    cancel_outcome: Option<Stage6CancelOutcomeV1>,
+    final_disposition: Stage6RequestFinalDispositionV1,
+    broker_order_id: Option<BrokerOrderId>,
+    canonical_command_sha256: Stage6Sha256Digest,
+    final_record_id: Stage6JournalRecordId,
+    final_sequence: u64,
+    runtime_config_fingerprint_sha256: String,
+}
+
+impl Stage8a4CompletedTransitionFacts {
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn lifecycle(&self) -> Stage6ReconciliationLifecycleV2 {
+        self.lifecycle
+    }
+
+    pub fn cancel_outcome(&self) -> Option<Stage6CancelOutcomeV1> {
+        self.cancel_outcome
+    }
+
+    pub fn final_disposition(&self) -> Stage6RequestFinalDispositionV1 {
+        self.final_disposition
+    }
+
+    pub fn broker_order_id(&self) -> Option<&BrokerOrderId> {
+        self.broker_order_id.as_ref()
+    }
+
+    pub fn canonical_command_sha256(&self) -> &Stage6Sha256Digest {
+        &self.canonical_command_sha256
+    }
+
+    pub fn final_record_id(&self) -> &Stage6JournalRecordId {
+        &self.final_record_id
+    }
+
+    pub fn final_sequence(&self) -> u64 {
+        self.final_sequence
+    }
+
+    pub fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
+    }
+}
+
 impl Stage7bFinalizedRequestFacts {
     pub fn strategy_request_id(&self) -> StrategyRequestId {
         self.strategy_request_id
@@ -2448,6 +2503,102 @@ pub fn stage7b_finalized_request_facts(
         final_record_id: request.last_unique_record_id().clone(),
         final_sequence: request.last_unique_sequence(),
     })
+}
+
+/// Reconstructs one exact, terminal Stage 8A-4 transition solely from the
+/// recovered mixed journal. Pending suffixes, duplicate batches, hold
+/// transitions, CANCEL/Working and any V2/F1 disagreement fail closed.
+pub fn stage8a4_completed_transition_facts(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+) -> Result<Stage8a4CompletedTransitionFacts, Stage6dLiveCoreError> {
+    let mixed = Stage6MixedReplayEngineV2::replay(recovered.journal.versioned_records())?;
+    let mut matching = mixed.reconciliation_batches().iter().filter(|batch| {
+        batch
+            .transition_record()
+            .durable_request_identity()
+            .strategy_request_id()
+            == request_id
+    });
+    let batch = matching
+        .next()
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if matching.next().is_some()
+        || batch.completion() != Stage6ReconciliationBatchCompletionV2::Complete
+        || batch.verified_suffix_prefix_length() != batch.suffix_manifest().entries().len()
+        || !batch.missing_suffix_entries().is_empty()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let Stage6ReconciliationTransitionKindV2::Exact { lifecycle } = *batch.transition_kind() else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
+    let identity = batch.transition_record().durable_request_identity();
+    if identity.action() == Stage6DurableActionKind::Cancel
+        && lifecycle == Stage6ReconciliationLifecycleV2::Working
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+
+    let finalized = stage7b_finalized_request_facts(recovered, request_id)?;
+    let replayed = mixed
+        .requests()
+        .iter()
+        .find(|request| request.strategy_request_id() == request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if replayed.durable_client_order_id() != identity.durable_client_order_id()
+        || replayed.action() != identity.action()
+        || replayed.known_broker_order_id() != finalized.broker_order_id()
+        || replayed.cancel_outcome() != finalized_request_cancel_outcome(recovered, request_id)?
+        || replayed.final_disposition() != Some(finalized.final_disposition())
+        || replayed.last_unique_record_id() != batch.last_mixed_record_id()
+        || replayed.last_unique_sequence() != batch.last_mixed_lifecycle_sequence().get()
+        || finalized.final_record_id() != batch.last_mixed_record_id()
+        || finalized.final_sequence() != batch.last_mixed_lifecycle_sequence().get()
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+
+    let expected_disposition = match (identity.action(), lifecycle) {
+        (Stage6DurableActionKind::Place, Stage6ReconciliationLifecycleV2::TerminalRejected) => {
+            Stage6RequestFinalDispositionV1::Rejected
+        }
+        (Stage6DurableActionKind::Place, _) | (Stage6DurableActionKind::Cancel, _) => {
+            Stage6RequestFinalDispositionV1::Completed
+        }
+    };
+    if finalized.final_disposition() != expected_disposition {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+
+    let runtime_config_fingerprint_sha256 = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::FirstBoot(runtime) => runtime.stage5c_config_fingerprint(),
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            restart.config_fingerprint_sha256().to_string()
+        }
+    };
+    Ok(Stage8a4CompletedTransitionFacts {
+        identity: identity.clone(),
+        lifecycle,
+        cancel_outcome: replayed.cancel_outcome(),
+        final_disposition: finalized.final_disposition(),
+        broker_order_id: replayed.known_broker_order_id().cloned(),
+        canonical_command_sha256: finalized.canonical_command_sha256().clone(),
+        final_record_id: finalized.final_record_id().clone(),
+        final_sequence: finalized.final_sequence(),
+        runtime_config_fingerprint_sha256,
+    })
+}
+
+fn finalized_request_cancel_outcome(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+) -> Result<Option<Stage6CancelOutcomeV1>, Stage6dLiveCoreError> {
+    recovered
+        .replay()
+        .request(request_id)
+        .map(Stage6RecoveredRequestV1::cancel_outcome)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)
 }
 
 /// Replays the already-owned durable journal and promotes its exact current

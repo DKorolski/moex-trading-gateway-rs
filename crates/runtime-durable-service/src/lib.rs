@@ -88,6 +88,32 @@
 //! ```compile_fail
 //! use runtime_durable_service::Stage7bDurableAckAuthorized;
 //! ```
+//!
+//! The cross-crate I4 terminal authority is nameable but remains opaque and
+//! linear. External callers cannot construct or clone it:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+//! let _forged = Stage7bStage8a4TerminalAuthority {};
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+//! let authority: Stage7bStage8a4TerminalAuthority = unreachable!();
+//! let _copy = authority.clone();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+//! let authority: Stage7bStage8a4TerminalAuthority = unreachable!();
+//! println!("{authority:?}");
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+//! let authority: Stage7bStage8a4TerminalAuthority = unreachable!();
+//! let _ = serde_json::to_vec(&authority).unwrap();
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
@@ -102,7 +128,8 @@ pub use recovery::{
     Stage7bRedisServiceConfig, Stage7bRedisServiceError, Stage7bRestartOutcome,
     Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
     Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority,
-    Stage7bStage8a4DurableBatchReceipt, Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner,
+    Stage7bStage8a4DurableBatchReceipt, Stage7bStage8a4TerminalAuthority,
+    Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner,
     STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage8a4-i3-test-fixtures")]

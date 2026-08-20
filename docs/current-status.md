@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-16.
+Status date: 2026-08-20.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -79,8 +79,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   cross-crate handoff impossible. I4 Design R3 is active as a docs/checker-only
   slice. It preserves every R2 semantic rule and changes only the Stage7B
   terminal capability to public-opaque/external-nonconstructible for the
-  existing `finam-gateway -> runtime-durable-service` direction. All FINAM ACK,
-  readiness and facade types remain private. I4 implementation remains CLOSED.
+  existing `finam-gateway -> runtime-durable-service` direction. Design R3 is
+  independently ACCEPTED and CLOSED at
+  `81727aae1f648f17961177fc9541e2483cbf07f2`. The controlled I4 implementation
+  is now the active review candidate: complete mixed replay and already-current
+  S1 issue one public-opaque terminal authority; FINAM derives private
+  timestamp-free ACK/current-readiness facts without an effect. All FINAM ACK,
+  readiness and facade types remain private.
   ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,
   retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B

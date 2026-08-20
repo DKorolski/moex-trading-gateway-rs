@@ -624,8 +624,11 @@ pub(super) fn test_writer_entry_safety(
 mod tests {
     use super::*;
     use crate::stage8a1_execution_capability::{
-        stage8a4_test_production_place_capability, Stage8KillSwitchState,
-        Stage8a1CurrentControlStateV1,
+        stage8a4_test_i4_current_sources, stage8a4_test_production_place_capability,
+        Stage8KillSwitchState, Stage8a1CurrentControlStateV1,
+    };
+    use crate::stage8a4_reconciliation::durable_composition_i4::{
+        compose_stage8a4_i4_readonly, Stage8a4I4ReadinessState,
     };
     use crate::stage8a4_reconciliation::{
         Stage8a4PrivateExactLookup, Stage8a4SourceTiming, Stage8a4TradeIntervalProof,
@@ -645,7 +648,7 @@ mod tests {
     use std::process::{Command, Stdio};
     use std::thread;
     use std::time::{Duration as StdDuration, Instant};
-    use strategy_runtime_core::Stage8a4JournalTestFailpoint;
+    use strategy_runtime_core::{Stage6ReconciliationLifecycleV2, Stage8a4JournalTestFailpoint};
 
     enum ProductionCrashPoint {
         JournalAppend(u32),
@@ -1033,6 +1036,106 @@ mod tests {
         assert!(receipt.appended_suffix_records() > 0);
         assert!(receipt.covering_seal_generation() > 1);
         assert_eq!(receipt.stage6_checkpoint_sha256().len(), 64);
+        let seal_path = setup.root.join("stage7b-recovery.seal");
+        let seal_before_i4 = std::fs::read(&seal_path).expect("read covering S1 before I4");
+        let first_terminal = owner
+            .issue_stage8a4_terminal_authority(
+                &setup.commitment_key,
+                identity.strategy_request_id(),
+            )
+            .expect("complete covered I3 history issues I4 terminal authority");
+        let stable_terminal_identity = first_terminal
+            .terminal_request_ack_identity_sha256()
+            .to_string();
+        assert_eq!(first_terminal.identity(), &identity);
+        assert_eq!(
+            first_terminal.broker_order_id().map(BrokerOrderId::as_str),
+            Some("STAGE8A4-I3-ORDER-1")
+        );
+        assert_eq!(
+            first_terminal.lifecycle(),
+            Stage6ReconciliationLifecycleV2::Working
+        );
+        let duplicate_terminal = owner
+            .issue_stage8a4_terminal_authority(
+                &setup.commitment_key,
+                identity.strategy_request_id(),
+            )
+            .expect("duplicate I4 derivation remains read-only");
+        assert_eq!(
+            duplicate_terminal.terminal_request_ack_identity_sha256(),
+            stable_terminal_identity
+        );
+        assert_eq!(
+            std::fs::read(&seal_path).expect("reread S1 after I4"),
+            seal_before_i4,
+            "I4 must not advance or repair the recovery seal",
+        );
+        let accepted_config_sha256 = std::fs::read_to_string(
+            authority_root.join("stage8a1-accepted-execution-config.json.sha256"),
+        )
+        .expect("read accepted I4 config hash");
+        let i4_now = Utc::now();
+        let (composite, truth, broker_readiness) = stage8a4_test_i4_current_sources(place, i4_now);
+        let ready = compose_stage8a4_i4_readonly(
+            &mut owner,
+            &setup.commitment_key,
+            identity.strategy_request_id(),
+            &authority_root,
+            accepted_config_sha256.trim(),
+            &composite,
+            &truth,
+            &broker_readiness,
+            i4_now,
+        )
+        .expect("I4 ACK remains available with current ready sources")
+        .diagnostic();
+        assert_eq!(
+            ready.ack_status,
+            broker_core::command::CommandAckStatus::Recovered
+        );
+        assert_eq!(ready.readiness_state, Stage8a4I4ReadinessState::Ready);
+
+        let mut active_truth = truth;
+        active_truth.orders.push(BrokerOrderSnapshot {
+            account_id: place.account_id.clone(),
+            broker_order_id: Some(BrokerOrderId::new("I4-CURRENT-ACTIVE")),
+            client_order_id: Some(place.client_order_id.clone()),
+            instrument: place.instrument.clone(),
+            side: place.side,
+            order_type: place.order_type,
+            time_in_force: Some(place.time_in_force),
+            status: OrderStatus::Working,
+            lifecycle: BrokerOrderSnapshot::lifecycle_for(&OrderStatus::Working),
+            qty: place.qty,
+            filled_qty: Decimal::ZERO,
+            remaining_qty: Some(place.qty),
+            limit_price: place.limit_price,
+            broker_asset_id: Some("ASSET_IMOEXF".into()),
+            board: Some("RFUD".into()),
+            expiration_date: None,
+            source_ts: Some(i4_now - Duration::seconds(1)),
+            received_ts: i4_now - Duration::seconds(1),
+        });
+        let blocked = compose_stage8a4_i4_readonly(
+            &mut owner,
+            &setup.commitment_key,
+            identity.strategy_request_id(),
+            &authority_root,
+            accepted_config_sha256.trim(),
+            &composite,
+            &active_truth,
+            &broker_readiness,
+            i4_now,
+        )
+        .expect("historical ACK survives a current active-order block")
+        .diagnostic();
+        assert_eq!(blocked.ack_status, ready.ack_status);
+        assert_eq!(
+            blocked.terminal_request_ack_identity_sha256,
+            ready.terminal_request_ack_identity_sha256
+        );
+        assert_eq!(blocked.readiness_state, Stage8a4I4ReadinessState::Blocked);
         drop(owner);
 
         let restarted = Stage7bRecoveryReadyOwner::restart(

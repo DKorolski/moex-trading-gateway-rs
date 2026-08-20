@@ -1,0 +1,41 @@
+id,requirement,proof
+I4I-001,exactly one V2 transition required,source+test
+I4I-002,complete exact suffix required,source+test
+I4I-003,RequestFinalized required,source+test
+I4I-004,hold transitions rejected,source+test
+I4I-005,CANCEL ExactWorking rejected,source+test
+I4I-006,mixed replay broker ID is authoritative,source
+I4I-007,trade-established broker ID survives,source
+I4I-008,owner is sole terminal issuer,source+compile-fail
+I4I-009,current S1 reread authenticated,source+test
+I4I-010,lagging S1 fails closed,source
+I4I-011,I4 never advances recovery seal,source+test
+I4I-012,terminal authority fields private,compile-fail
+I4I-013,terminal authority has no constructor,compile-fail
+I4I-014,terminal authority non-Clone,compile-fail
+I4I-015,terminal authority non-Debug,compile-fail
+I4I-016,terminal authority non-Serialize,compile-fail
+I4I-017,external crate can name and consume authority,compile-pass
+I4I-018,ACK facts timestamp-free,source
+I4I-019,Stage7B terminal identity reused exactly,source+test
+I4I-020,PLACE mapping exact,unit-test
+I4I-021,CANCEL mapping exact,unit-test
+I4I-022,CANCEL outcome mismatch rejected,unit-test
+I4I-023,current truth cannot fill broker ID,source
+I4I-024,current readiness independent from ACK,source+test
+I4I-025,accepted config pinned,source
+I4I-026,current control pinned and fresh,source
+I4I-027,RunAllowed required,source
+I4I-028,PaperReady required,source
+I4I-029,open fresh schedule required,source
+I4I-030,broker truth/readiness fresh,source
+I4I-031,account identity exact,source
+I4I-032,instrument identity exact,source
+I4I-033,strategy and instance bound,source
+I4I-034,zero account active orders required,source+test
+I4I-035,zero target active orders required,source+test
+I4I-036,zero ambiguity required,source
+I4I-037,readiness expiry is minimum source expiry,source
+I4I-038,blocked readiness preserves ACK identity,test
+I4I-039,no execution capability or arm minted,source+checker
+I4I-040,no publication Redis FINAM send or live effect,checker

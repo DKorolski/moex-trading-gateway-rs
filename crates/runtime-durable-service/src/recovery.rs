@@ -27,11 +27,12 @@ use strategy_runtime_core::{
     refresh_stage7b_durable_frontier, restart_stage6d_paper_with_owned_journal,
     restore_stage5g_clean_restart, seal_stage6d_restart_package,
     stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
-    stage7b_finalized_request_facts, HybridIntradayRuntimeStrategy, Stage5gLifecycleCommitmentKey,
-    Stage6DurableCommandSnapshotV1, Stage6DurableRequestAuthorityV1,
-    Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
-    Stage6JournalRecordVersioned, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
-    Stage6OwnedJournalBackend, Stage6RequestFinalDispositionV1, Stage6Stage8a4PendingRecovery,
+    stage7b_finalized_request_facts, stage8a4_completed_transition_facts,
+    HybridIntradayRuntimeStrategy, Stage5gLifecycleCommitmentKey, Stage6DurableCommandSnapshotV1,
+    Stage6DurableRequestAuthorityV1, Stage6DurableRequestIdentityV1, Stage6JournalBackend,
+    Stage6JournalCheckpointV1, Stage6JournalRecordVersioned, Stage6MemoryJournalBackend,
+    Stage6MixedReplayEngineV2, Stage6OwnedJournalBackend, Stage6ReconciliationLifecycleV2,
+    Stage6RequestFinalDispositionV1, Stage6Stage8a4PendingRecovery,
     Stage6Stage8a4ValidatedWriteEntry, Stage6dDurableRuntimeRecovered,
     Stage6dFirstBootAuthorization, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
     Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
@@ -663,6 +664,84 @@ pub struct Stage7bStage8a4DurableBatchReceipt {
     appended_suffix_records: usize,
 }
 
+/// Public-opaque, broker-neutral proof that one exact Stage 8A-4 transition is
+/// terminal under the already-current authenticated S1. Fields are private,
+/// construction is owner-only, and the type intentionally implements none of
+/// Clone, Copy, Debug, Serialize or Deserialize.
+pub struct Stage7bStage8a4TerminalAuthority {
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    broker_id: String,
+    strategy_instance_id: String,
+    identity: Stage6DurableRequestIdentityV1,
+    lifecycle: Stage6ReconciliationLifecycleV2,
+    cancel_outcome: Option<strategy_runtime_core::Stage6CancelOutcomeV1>,
+    final_disposition: Stage6RequestFinalDispositionV1,
+    broker_order_id: Option<BrokerOrderId>,
+    canonical_command_sha256: String,
+    final_record_id: String,
+    final_sequence: u64,
+    stage6_checkpoint_sha256: String,
+    seal_generation: u64,
+    seal_commitment_sha256: String,
+    settlement_authority_fingerprint_sha256: String,
+    terminal_request_ack_identity_sha256: String,
+}
+
+impl Stage7bStage8a4TerminalAuthority {
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+    pub fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
+    }
+    pub fn broker_id(&self) -> &str {
+        &self.broker_id
+    }
+    pub fn strategy_instance_id(&self) -> &str {
+        &self.strategy_instance_id
+    }
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+    pub fn lifecycle(&self) -> Stage6ReconciliationLifecycleV2 {
+        self.lifecycle
+    }
+    pub fn cancel_outcome(&self) -> Option<strategy_runtime_core::Stage6CancelOutcomeV1> {
+        self.cancel_outcome
+    }
+    pub fn final_disposition(&self) -> Stage6RequestFinalDispositionV1 {
+        self.final_disposition
+    }
+    pub fn broker_order_id(&self) -> Option<&BrokerOrderId> {
+        self.broker_order_id.as_ref()
+    }
+    pub fn canonical_command_sha256(&self) -> &str {
+        &self.canonical_command_sha256
+    }
+    pub fn final_record_id(&self) -> &str {
+        &self.final_record_id
+    }
+    pub fn final_sequence(&self) -> u64 {
+        self.final_sequence
+    }
+    pub fn stage6_checkpoint_sha256(&self) -> &str {
+        &self.stage6_checkpoint_sha256
+    }
+    pub fn seal_generation(&self) -> u64 {
+        self.seal_generation
+    }
+    pub fn seal_commitment_sha256(&self) -> &str {
+        &self.seal_commitment_sha256
+    }
+    pub fn settlement_authority_fingerprint_sha256(&self) -> &str {
+        &self.settlement_authority_fingerprint_sha256
+    }
+    pub fn terminal_request_ack_identity_sha256(&self) -> &str {
+        &self.terminal_request_ack_identity_sha256
+    }
+}
+
 impl Stage7bStage8a4DurableBatchReceipt {
     pub fn stage6_checkpoint_sha256(&self) -> &str {
         &self.stage6_checkpoint_sha256
@@ -798,6 +877,64 @@ fn stage8a4_i3_uncovered_checkpoint(
 }
 
 impl Stage7bRecoveryReadyOwner {
+    /// Issues I4 terminal authority only when the on-disk S1 already covers
+    /// the complete mixed frontier. This path never advances, repairs or
+    /// writes the recovery seal.
+    pub fn issue_stage8a4_terminal_authority(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        request_id: StrategyRequestId,
+    ) -> Result<Stage7bStage8a4TerminalAuthority, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        let operational_identity = self
+            .recovered
+            .authenticated_operational_identity()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?
+            .clone();
+        validate_recovered_binding(&self.recovered, &self.committed_seal, &operational_identity)?;
+
+        let completed = stage8a4_completed_transition_facts(&self.recovered, request_id)?;
+        let finalized = stage7b_finalized_request_facts(&self.recovered, request_id)?;
+        if completed.identity().strategy_request_id() != finalized.strategy_request_id()
+            || completed.identity().durable_client_order_id() != finalized.durable_client_order_id()
+            || completed.broker_order_id() != finalized.broker_order_id()
+            || completed.canonical_command_sha256() != finalized.canonical_command_sha256()
+            || completed.final_disposition() != finalized.final_disposition()
+            || completed.final_record_id() != finalized.final_record_id()
+            || completed.final_sequence() != finalized.final_sequence()
+        {
+            return Err(Stage7bRecoveryError::FinalizedBindingMismatch);
+        }
+        let ack = durable_ack_authority(&self.committed_seal, finalized)?;
+        Ok(Stage7bStage8a4TerminalAuthority {
+            operational_identity_sha256: ack.operational_identity_sha256,
+            runtime_config_fingerprint_sha256: completed
+                .runtime_config_fingerprint_sha256()
+                .to_string(),
+            broker_id: operational_identity.broker_id,
+            strategy_instance_id: operational_identity.strategy_instance_id,
+            identity: completed.identity().clone(),
+            lifecycle: completed.lifecycle(),
+            cancel_outcome: completed.cancel_outcome(),
+            final_disposition: ack.final_disposition,
+            broker_order_id: ack.broker_order_id,
+            canonical_command_sha256: ack.canonical_command_sha256,
+            final_record_id: ack.final_record_id,
+            final_sequence: ack.final_sequence,
+            stage6_checkpoint_sha256: ack.stage6_checkpoint_sha256,
+            seal_generation: ack.seal_generation,
+            seal_commitment_sha256: ack.seal_commitment_sha256,
+            settlement_authority_fingerprint_sha256: ack.settlement_authority_fingerprint_sha256,
+            terminal_request_ack_identity_sha256: ack.terminal_request_ack_identity_sha256,
+        })
+    }
+
     /// Issues a no-send Stage 8A-1 authority only for the exact dispatch-ready
     /// request covered by a freshly reread authenticated on-disk seal.
     pub fn authorize_stage8a1_durable_request(
