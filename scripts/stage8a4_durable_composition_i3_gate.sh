@@ -38,10 +38,10 @@ import sys
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "schema_version": 1,
-    "stage": "8A-4-durable-composition-I3-R5",
+    "stage": "8A-4-durable-composition-I3-R6",
     "result": "PASS",
-    "acceptance_rows": 77,
-    "negative_cases": 88,
+    "acceptance_rows": 84,
+    "negative_cases": 95,
     "sealed_linear_writer_authority": True,
     "exact_request_truth_control_binding": True,
     "post_write_sticky_fail_stop": True,
@@ -56,6 +56,14 @@ Path(sys.argv[1]).write_text(json.dumps({
     "arm_registration_ed25519_attested": True,
     "arm_registration_issuer_key_pinned": True,
     "arm_registration_exact_binding_verified": True,
+    "normal_execution_issuer_requires_readable_control": True,
+    "recovery_only_issuer_structurally_separate": True,
+    "recovery_unreadable_control_maps_stale_or_unreadable": True,
+    "recovery_missing_control_maps_stale_or_unreadable": True,
+    "recovery_stale_control_maps_stale_or_unreadable": True,
+    "recovery_stop_requested_permits_post_effect_persistence": True,
+    "recovery_readable_identity_mismatch_fails_closed": True,
+    "fresh_process_corrupt_control_recovery_directly_tested": True,
     "recovery_requires_precrash_objects": False,
     "recovery_recreates_operator_arm": False,
     "recovery_reads_existing_arm_registration": True,
@@ -71,4 +79,4 @@ Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2) + "\n", encoding="utf-8")
 PY
 
-echo "stage8a4-durable-composition-i3-gate: PASS rows=77 negatives=88 sealed=private pending=true fresh_process=true rearm=false broker_neutral=true recovery=true ack=false execution=false"
+echo "stage8a4-durable-composition-i3-gate: PASS rows=84 negatives=95 sealed=private pending=true fresh_process=true unreadable_control=true rearm=false broker_neutral=true recovery=true ack=false execution=false"

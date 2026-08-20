@@ -19,6 +19,7 @@ use super::{
 use crate::stage8a1_execution_capability::{
     Stage8ExecutionCapability, Stage8a1OperationalAuthorityIssuer,
     Stage8a4PostEffectControlEvidence, Stage8a4PostEffectControlState,
+    Stage8a4RecoveryOnlyAuthorityIssuer,
 };
 use chrono::{DateTime, Utc};
 use runtime_durable_service::{
@@ -321,7 +322,7 @@ pub fn recover_persisted_stage8a4_suffix_and_cover(
         .durable_request_identity()
         .clone();
     let command = pending.durable_command().clone();
-    let (issuer, historical) = Stage8a1OperationalAuthorityIssuer::from_stage8a4_pending_owner(
+    let (issuer, historical) = Stage8a4RecoveryOnlyAuthorityIssuer::from_stage8a4_pending_owner(
         &mut owner,
         commitment_key,
         &identity,
@@ -474,7 +475,7 @@ fn issue_persisted_recovery_write_authority(
     pending: Stage6Stage8a4PendingRecovery,
     current_truth: Stage8a4FreshTruthAdmission,
     controls: Stage8a4PostEffectControlEvidence,
-    issuer: &Stage8a1OperationalAuthorityIssuer,
+    issuer: &Stage8a4RecoveryOnlyAuthorityIssuer,
     owner: &mut Stage8a4I3RecoveryPendingOwner,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8a4PendingRecoveryWriteAuthority, Stage8a4I3Error> {
@@ -622,7 +623,10 @@ pub(super) fn test_writer_entry_safety(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stage8a1_execution_capability::stage8a4_test_production_place_capability;
+    use crate::stage8a1_execution_capability::{
+        stage8a4_test_production_place_capability, Stage8KillSwitchState,
+        Stage8a1CurrentControlStateV1,
+    };
     use crate::stage8a4_reconciliation::{
         Stage8a4PrivateExactLookup, Stage8a4SourceTiming, Stage8a4TradeIntervalProof,
     };
@@ -1148,6 +1152,141 @@ mod tests {
         assert_arm_registry_failure_remains_pending(true);
     }
 
+    #[derive(Clone, Copy)]
+    enum RecoveryControlMutation {
+        Corrupt,
+        Unreadable,
+        Missing,
+        Stale,
+        StopRequested,
+        WrongOperationalIdentity,
+        WrongRuntimeConfig,
+    }
+
+    fn mutate_recovery_control(authority_root: &Path, mutation: RecoveryControlMutation) {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let path = authority_root.join("stage8a1-current-control-state.json");
+        match mutation {
+            RecoveryControlMutation::Corrupt => {
+                std::fs::write(path, b"{corrupt-current-control")
+                    .expect("corrupt recovery current control");
+            }
+            RecoveryControlMutation::Unreadable => {
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))
+                    .expect("make recovery current control unreadable");
+            }
+            RecoveryControlMutation::Missing => {
+                std::fs::remove_file(path).expect("remove recovery current control");
+            }
+            RecoveryControlMutation::Stale
+            | RecoveryControlMutation::StopRequested
+            | RecoveryControlMutation::WrongOperationalIdentity
+            | RecoveryControlMutation::WrongRuntimeConfig => {
+                let bytes = std::fs::read(&path).expect("read recovery current control");
+                let mut control: Stage8a1CurrentControlStateV1 =
+                    serde_json::from_slice(&bytes).expect("decode recovery current control");
+                match mutation {
+                    RecoveryControlMutation::Stale => {
+                        control.observed_at = Utc::now() - Duration::seconds(20);
+                        control.valid_until = Utc::now() - Duration::seconds(10);
+                    }
+                    RecoveryControlMutation::StopRequested => {
+                        control.kill_switch = Stage8KillSwitchState::StopRequested;
+                    }
+                    RecoveryControlMutation::WrongOperationalIdentity => {
+                        control.operational_identity_sha256 = "e".repeat(64);
+                    }
+                    RecoveryControlMutation::WrongRuntimeConfig => {
+                        control.runtime_config_fingerprint_sha256 = "f".repeat(64);
+                    }
+                    _ => unreachable!("covered above"),
+                }
+                std::fs::write(
+                    path,
+                    serde_json::to_vec(&control).expect("encode recovery current control"),
+                )
+                .expect("replace recovery current control");
+            }
+        }
+    }
+
+    fn assert_recovery_control_mutation(mutation: RecoveryControlMutation, succeeds: bool) {
+        let (setup, identity, command, place, authority_root, accepted_config_sha256, mut pending) =
+            production_pending_after_crash(
+                ProductionCrashPoint::JournalAppend(1),
+                &format!("stage8a4-authority-r6-control-{}", uuid::Uuid::new_v4()),
+            );
+        let truth = current_recovery_admission(
+            &mut pending,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            &place,
+        );
+        mutate_recovery_control(&authority_root, mutation);
+        let result = recover_persisted_stage8a4_suffix_and_cover(
+            *pending,
+            &setup.commitment_key,
+            &authority_root,
+            &accepted_config_sha256,
+            truth,
+        );
+        if succeeds {
+            let (receipt, ready) =
+                result.expect("post-effect recovery accepts conservative control");
+            assert!(receipt.transition_was_existing());
+            assert_eq!(receipt.appended_suffix_records(), 2);
+            drop(ready);
+            let restarted = Stage7bRecoveryReadyOwner::restart(
+                Stage7bDurableRootAuthority::validate(&setup.root, &setup.operational_identity)
+                    .expect("validate recovered control fixture root"),
+                setup.operational_identity.clone(),
+                &setup.commitment_key,
+                setup.runtime.clone(),
+            )
+            .expect("restart recovered control fixture");
+            assert!(matches!(restarted, Stage7bRestartOutcome::Ready(_)));
+        } else {
+            assert!(matches!(
+                result,
+                Err(Stage8a4DurableCompositionError::CurrentAuthority)
+            ));
+            let restarted = Stage7bRecoveryReadyOwner::restart(
+                Stage7bDurableRootAuthority::validate(&setup.root, &setup.operational_identity)
+                    .expect("validate rejected control fixture root"),
+                setup.operational_identity.clone(),
+                &setup.commitment_key,
+                setup.runtime.clone(),
+            )
+            .expect("restart rejected control fixture");
+            assert!(matches!(
+                restarted,
+                Stage7bRestartOutcome::Stage8a4I3Pending(_)
+            ));
+        }
+        std::fs::remove_dir_all(&setup.parent).expect("remove recovery control fixture");
+    }
+
+    #[test]
+    fn stage8a4_i3_recovery_accepts_corrupt_unreadable_missing_stale_and_stopped_control() {
+        for mutation in [
+            RecoveryControlMutation::Corrupt,
+            RecoveryControlMutation::Unreadable,
+            RecoveryControlMutation::Missing,
+            RecoveryControlMutation::Stale,
+            RecoveryControlMutation::StopRequested,
+        ] {
+            assert_recovery_control_mutation(mutation, true);
+        }
+    }
+
+    #[test]
+    fn stage8a4_i3_recovery_rejects_readable_cross_identity_control() {
+        assert_recovery_control_mutation(RecoveryControlMutation::WrongOperationalIdentity, false);
+        assert_recovery_control_mutation(RecoveryControlMutation::WrongRuntimeConfig, false);
+    }
+
     #[test]
     #[ignore = "spawned explicitly by the fresh-process recovery witness"]
     fn stage8a4_i3_v2_only_process_a_crash_child() {
@@ -1241,8 +1380,7 @@ mod tests {
         assert!(ready.exists(), "process A did not reach V2 crash barrier");
     }
 
-    #[test]
-    fn stage8a4_i3_v2_only_sigkill_recovers_in_fresh_process_without_precrash_objects() {
+    fn assert_sigkill_recovery(corrupt_control: bool) {
         let parent = std::env::temp_dir().join(format!(
             "stage8a4-i3-r5-subprocess-{}-{}",
             std::process::id(),
@@ -1323,6 +1461,13 @@ mod tests {
             &place,
         );
         let authority_root = parent.join("stage8a4-authority-subprocess");
+        if corrupt_control {
+            std::fs::write(
+                authority_root.join("stage8a1-current-control-state.json"),
+                b"{process-b-corrupt-control",
+            )
+            .expect("process B corrupts current control before issuer reopen");
+        }
         let accepted_config_sha256 = std::fs::read_to_string(
             authority_root.join("stage8a1-accepted-execution-config.json.sha256"),
         )
@@ -1360,5 +1505,15 @@ mod tests {
         .expect("restart recovered subprocess state");
         assert!(matches!(final_restart, Stage7bRestartOutcome::Ready(_)));
         std::fs::remove_dir_all(parent).expect("remove subprocess fixture");
+    }
+
+    #[test]
+    fn stage8a4_i3_v2_only_sigkill_recovers_in_fresh_process_without_precrash_objects() {
+        assert_sigkill_recovery(false);
+    }
+
+    #[test]
+    fn stage8a4_i3_sigkill_process_b_recovers_with_corrupt_control() {
+        assert_sigkill_recovery(true);
     }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed semantic checker for Stage 8A-4 durable composition I3 R5."""
+"""Fail-closed semantic checker for Stage 8A-4 durable composition I3 R6."""
 
 from __future__ import annotations
 
@@ -23,9 +23,12 @@ R4_SPEC_SHA256 = "5f0bfb0fd65ce5723b883638735c610220c51d279b8b7e7085fad9e544ed79
 REJECTED_I3_R4 = "44030688053c41a2179bb0f7bc59458c408348fd"
 REJECTED_I3_R4_REVIEW_SHA256 = "cd171953a5c72ea49a63e2249124c76b9e0711bbe27bde66961d6ecd13337762"
 R5_SPEC_SHA256 = "2ccd2c663bb1e577898771d8c13720f92f8b80d84e01cbf32ba311b9a276553a"
-BRANCH = "stage8a4-durable-composition-i3-r5"
-ROWS = 77
-NEGATIVE_CASES = 88
+REJECTED_I3_R5 = "0d1b14fa36a459b8feb60a7f73b1f42eebafdd6c"
+REJECTED_I3_R5_REVIEW_SHA256 = "6c12c56bfa27dd7c880f60ed9ef4f1b6fd1b4174107a5b275fde0e84f2e244bf"
+R6_SPEC_SHA256 = "4d5aca242c68c5002237fcdd44b6fd095fbd80b6a81b0c7d1b3a4db107a9f111"
+BRANCH = "stage8a4-durable-composition-i3-r6"
+ROWS = 84
+NEGATIVE_CASES = 95
 
 AUTHORITY = Path("docs/stage-8/stage8a4-durable-composition-i3-authority.json")
 CONTRACT = Path("docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I3_IMPLEMENTATION_2026-08-16.md")
@@ -108,7 +111,7 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         require((root / item).is_file(), f"missing required file: {item}")
     authority = json.loads(read(root, AUTHORITY))
     lineage = {
-        "stage": "8A-4-durable-composition-I3-R5",
+        "stage": "8A-4-durable-composition-I3-R6",
         "status": "implementation_candidate_independent_acceptance_pending",
         "branch": BRANCH,
         "accepted_i2_r3_ref": ACCEPTED_I2,
@@ -123,6 +126,9 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "rejected_i3_r4_ref": REJECTED_I3_R4,
         "rejected_i3_r4_review_sha256": REJECTED_I3_R4_REVIEW_SHA256,
         "i3_r5_correction_spec_sha256": R5_SPEC_SHA256,
+        "rejected_i3_r5_ref": REJECTED_I3_R5,
+        "rejected_i3_r5_review_sha256": REJECTED_I3_R5_REVIEW_SHA256,
+        "i3_r6_correction_spec_sha256": R6_SPEC_SHA256,
         "sole_writer_owner": "Stage7bRecoveryReadyOwner",
     }
     for key, value in lineage.items():
@@ -151,6 +157,14 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "arm_registration_exact_binding_verified",
         "recovery_reads_existing_arm_registration",
         "missing_or_mismatched_arm_registration_fails_closed",
+        "normal_execution_issuer_requires_readable_control",
+        "recovery_only_issuer_structurally_separate",
+        "recovery_unreadable_control_maps_stale_or_unreadable",
+        "recovery_missing_control_maps_stale_or_unreadable",
+        "recovery_stale_control_maps_stale_or_unreadable",
+        "recovery_stop_requested_permits_post_effect_persistence",
+        "recovery_readable_identity_mismatch_fails_closed",
+        "fresh_process_corrupt_control_recovery_directly_tested",
     ):
         expected = False if key == "sealed_authority_publicly_constructible" else True
         require(authority.get(key) is expected, f"authority drift: {key}")
@@ -296,14 +310,16 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     )
     require("register_arm_nonce" not in recovery_source, "recovery recreates an operator arm")
     contains_all(recovery_source, (
-        "Stage8a1OperationalAuthorityIssuer::from_stage8a4_pending_owner",
+        "Stage8a4RecoveryOnlyAuthorityIssuer::from_stage8a4_pending_owner",
         "authority_root", "accepted_config_sha256",
         "issue_stage8a4_post_effect_control_evidence",
     ), "fresh-process recovery entry")
     contains_all(stage8a1, (
         "pub(crate) fn from_stage8a4_pending_owner",
         "Stage8a1DurableRequestAuthority::from_stage8a4_pending_owner",
-        "reconstruct_stage8a4_historical_arm_provenance",
+        "Stage8a4RecoveryOnlyAuthorityIssuer",
+        "Stage8a4RecoveryAuthorityRoot", "Stage8a4RecoveryControlSource",
+        "reconstruct_historical_arm_provenance",
         "deterministic_arm_nonce_sha256", "read_arm_registration",
         "Stage8a1ArmRegistrationV2", "allow_arm_registry_create",
         "stage8a1-arm-registration-file-v2",
@@ -311,12 +327,38 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "arm_nonce_registration_attestation_sha256",
         "issuer_signature_hex", ".verify(attestation.as_bytes(), &signature)",
     ), "fresh-process Stage8A1 authority")
+    contains_all(stage8a1, (
+        "Stage8a4RecoveryControlFailure::Missing",
+        "Stage8a4RecoveryControlFailure::ReadUnreadable",
+        "Stage8a4RecoveryControlFailure::DecodeUnreadable",
+        "Stage8a4RecoveryControlSource::Unreadable {",
+        "stage8a4-recovery-post-effect-unreadable-control-v1",
+        "Stage8a4PostEffectControlState::StaleOrUnreadable",
+        "control.operational_identity_sha256 != self.operational_identity_sha256",
+        "control.runtime_config_fingerprint_sha256",
+    ), "R6 recovery-only control classification")
+    normal_issuer_body = re.search(
+        r"(?ms)fn from_trusted_composition\(.*?\n    pub\(crate\) fn sign_stage8a4_writer_attestation",
+        stage8a1,
+    )
+    require(normal_issuer_body is not None, "normal execution issuer body missing")
+    contains_all(normal_issuer_body.group(0), (
+        "regular_file_identity(&control_path)?",
+        "load_current_control_pinned(&root, control_identity)?",
+    ), "strict normal execution control")
+    require(
+        "normal_execution_issuer_still_rejects_unreadable_control" in stage8a1,
+        "strict execution-issuer unreadable-control witness missing",
+    )
     contains_all(i3, (
         "stage8a4_i3_v2_only_process_a_crash_child",
         "stage8a4_i3_v2_only_sigkill_recovers_in_fresh_process_without_precrash_objects",
         "child.kill()", "Stage7bRestartOutcome::Stage8a4I3Pending",
         "stage8a4_i3_fresh_process_recovery_rejects_missing_historical_arm",
         "stage8a4_i3_fresh_process_recovery_rejects_replaced_historical_arm",
+        "stage8a4_i3_recovery_accepts_corrupt_unreadable_missing_stale_and_stopped_control",
+        "stage8a4_i3_recovery_rejects_readable_cross_identity_control",
+        "stage8a4_i3_sigkill_process_b_recovers_with_corrupt_control",
         "recovery must read the existing arm and never register another",
         "drop(capability);", "drop(issuer);",
     ), "fresh-process crash and arm-registry witnesses")
@@ -395,10 +437,14 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     contains_all(contract, (
         "I3 R3", REJECTED_I3_R2, "broker-neutral", "external compile-fail", "lost I2",
         "sticky", "covering S1", "I4 remains separately review-gated", "FINAM POST/DELETE",
+        "recovery-only issuer", "StaleOrUnreadable", "SIGKILL",
     ), "contract")
-    require("58." in negative and "lost I2" in negative, "negative inventory incomplete")
+    require(
+        "58." in negative and "95." in negative and "lost I2" in negative,
+        "negative inventory incomplete",
+    )
     for label, document in (("status", status), ("roadmap", roadmap), ("README", readme)):
-        contains_all(document, ("I3 R3", "I3 R4", "I3 R5", "I4"), label)
+        contains_all(document, ("I3 R3", "I3 R4", "I3 R5", "I3 R6", "I4"), label)
 
     with (root / MATRIX).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))

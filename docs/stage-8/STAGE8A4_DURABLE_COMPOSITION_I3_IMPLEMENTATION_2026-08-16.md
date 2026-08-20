@@ -1,4 +1,4 @@
-# Stage 8A-4 durable composition I3 R5
+# Stage 8A-4 durable composition I3 R6
 
 ## Scope and lineage
 
@@ -30,6 +30,15 @@ the deterministic historical arm nonce, reads the existing immutable arm
 registration, verifies its Ed25519 signature against the operational-identity
 pinned issuer key, reconstructs private post-effect provenance, and only then
 permits exact suffix recovery. It never registers or remints an arm.
+
+R5 at `0d1b14fa36a459b8feb60a7f73b1f42eebafdd6c` closed that process-boundary
+gap but was not accepted because reopening the shared issuer still required a
+readable current-control file. R6 introduces a structurally separate
+recovery-only issuer. Its static root pins config, operational/runtime identity,
+arm registry and signing key, but current control is sampled only as
+post-effect evidence. Missing, read-failed or decode-failed control is bound as
+`StaleOrUnreadable`; a readable identity/config contradiction remains a hard
+error. The normal execution issuer remains strict and unchanged.
 
 I4 remains separately review-gated. ACK/readiness, Redis live consumption,
 FINAM POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
@@ -136,7 +145,7 @@ complete-before-S1 states. Repeated restart stays Pending; successful repair
 returns ordinary Ready. The fault injector cannot append a batch or construct
 a writer authority.
 
-The mandatory R5 witness crosses an actual process boundary. Process A creates
+The mandatory R5/R6 witness crosses an actual process boundary. Process A creates
 the normal one-shot arm, writes V2 and is killed while its owner and issuer are
 still live. Process B receives no Rust object from A; it reopens the durable
 root and authority files, observes Pending, reuses the sole existing arm file,
@@ -144,6 +153,13 @@ appends the two missing suffix records, commits/rereads S1 and restarts Ready.
 Focused negative tests remove or structurally preserve but cryptographically
 alter that arm file and prove the durable state remains Pending. Registry entry
 count is unchanged by every recovery.
+
+R6 additionally proves corrupt JSON, unreadable permissions, absence, stale
+timestamps and `StopRequested` in focused recovery paths. Each conservative
+case reaches exact suffix, covering S1 and ordinary durable Ready while minting
+no send/ACK/readiness authority. Readable wrong operational identity or runtime
+configuration remains Pending. A second real SIGKILL witness corrupts control
+only after process A is dead and proves process B can still persist broker truth.
 
 ## Sticky mutation uncertainty
 

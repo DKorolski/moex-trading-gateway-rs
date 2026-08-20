@@ -48,10 +48,10 @@ def check(archive_path: str) -> dict[str, object]:
         evidence = json.loads(
             archive.read("handoff-evidence/stage8a4-durable-composition-i3-evidence.json")
         )
-        if evidence.get("stage") != "8A-4-durable-composition-I3-R5":
+        if evidence.get("stage") != "8A-4-durable-composition-I3-R6":
             raise ValueError("stage mismatch")
-        if evidence.get("acceptance_rows") != 77 or evidence.get("negative_cases") != 88:
-            raise ValueError("R5 evidence count mismatch")
+        if evidence.get("acceptance_rows") != 84 or evidence.get("negative_cases") != 95:
+            raise ValueError("R6 evidence count mismatch")
         for key in (
             "sealed_linear_writer_authority",
             "exact_request_truth_control_binding",
@@ -72,9 +72,17 @@ def check(archive_path: str) -> dict[str, object]:
             "arm_registration_exact_binding_verified",
             "recovery_reads_existing_arm_registration",
             "missing_or_mismatched_arm_registration_fails_closed",
+            "normal_execution_issuer_requires_readable_control",
+            "recovery_only_issuer_structurally_separate",
+            "recovery_unreadable_control_maps_stale_or_unreadable",
+            "recovery_missing_control_maps_stale_or_unreadable",
+            "recovery_stale_control_maps_stale_or_unreadable",
+            "recovery_stop_requested_permits_post_effect_persistence",
+            "recovery_readable_identity_mismatch_fails_closed",
+            "fresh_process_corrupt_control_recovery_directly_tested",
         ):
             if evidence.get(key) is not True:
-                raise ValueError(f"R5 evidence disabled: {key}")
+                raise ValueError(f"R6 evidence disabled: {key}")
         for key in (
             "recovery_recreates_operator_arm",
             "recovery_mints_stage8_execution_capability",
@@ -82,7 +90,7 @@ def check(archive_path: str) -> dict[str, object]:
             "recovery_requires_precrash_issuer_object",
         ):
             if evidence.get(key) is not False:
-                raise ValueError(f"R5 closed recovery surface opened: {key}")
+                raise ValueError(f"R6 closed recovery surface opened: {key}")
         if fields.get("source_ref") != evidence.get("source_ref"):
             raise ValueError("source ref mismatch")
         if fields.get("archive_name") != PurePosixPath(archive_path).name:

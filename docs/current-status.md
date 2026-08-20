@@ -67,11 +67,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   accepted because its public sealer was forgeable and incomplete restart
   became ordinary Ready too early. I3 R4 at `4403068` closed those findings but
   was not accepted because fresh-process recovery retained the old capability
-  and issuer. I3 R5 is the sole active candidate. It rebuilds the pinned issuer
-  from Pending S0, reads the existing deterministic arm registration without
-  creating a new arm, and requires no process-local object from before the
-  crash. Direct normal, three focused recovery paths and a true SIGKILL
-  process-A/process-B witness prove exact repair and final Ready/S1.
+  and issuer. I3 R5 at `0d1b14f` closed that gap but was not accepted because
+  recovery issuer construction still required readable current control. I3 R6
+  is the sole active candidate. Its distinct recovery-only issuer permits
+  missing/unreadable/stale/StopRequested control solely for post-effect truth
+  persistence; readable operational/runtime mismatch remains fail-closed.
+  Focused and SIGKILL+corrupt-control witnesses prove exact repair and Ready/S1.
   Independent acceptance is pending.
 - I4 remains CLOSED. I3 produces only durable truth: ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,

@@ -37,7 +37,7 @@ def main() -> None:
     if status:
         raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL worktree must be clean")
     branch = run("git", "branch", "--show-current").decode().strip()
-    if branch != "stage8a4-durable-composition-i3-r5":
+    if branch != "stage8a4-durable-composition-i3-r6":
         raise SystemExit(f"stage8a4-durable-composition-i3-handoff: FAIL branch={branch}")
     full_ref = run("git", "rev-parse", "HEAD").decode().strip()
     short_ref = run("git", "rev-parse", "--short=7", "HEAD").decode().strip()
@@ -60,7 +60,7 @@ def main() -> None:
         )
         if gate.returncode != 0:
             raise SystemExit(gate.stdout.decode(errors="replace"))
-        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=77 negatives=88 sealed=private pending=true fresh_process=true rearm=false broker_neutral=true recovery=true ack=false execution=false"
+        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=84 negatives=95 sealed=private pending=true fresh_process=true unreadable_control=true rearm=false broker_neutral=true recovery=true ack=false execution=false"
         if marker not in gate.stdout:
             raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL gate marker missing")
 
@@ -81,7 +81,7 @@ def main() -> None:
         }
         evidence = (json.dumps({
             "schema_version": 1,
-            "stage": "8A-4-durable-composition-I3-R5",
+            "stage": "8A-4-durable-composition-I3-R6",
             "source_ref": full_ref,
             "source_short_ref": short_ref,
             "archive_name": archive_name,
@@ -98,8 +98,11 @@ def main() -> None:
             "rejected_i3_r4_ref": "44030688053c41a2179bb0f7bc59458c408348fd",
             "rejected_i3_r4_review_sha256": "cd171953a5c72ea49a63e2249124c76b9e0711bbe27bde66961d6ecd13337762",
             "i3_r5_correction_spec_sha256": "2ccd2c663bb1e577898771d8c13720f92f8b80d84e01cbf32ba311b9a276553a",
-            "acceptance_rows": 77,
-            "negative_cases": 88,
+            "rejected_i3_r5_ref": "0d1b14fa36a459b8feb60a7f73b1f42eebafdd6c",
+            "rejected_i3_r5_review_sha256": "6c12c56bfa27dd7c880f60ed9ef4f1b6fd1b4174107a5b275fde0e84f2e244bf",
+            "i3_r6_correction_spec_sha256": "4d5aca242c68c5002237fcdd44b6fd095fbd80b6a81b0c7d1b3a4db107a9f111",
+            "acceptance_rows": 84,
+            "negative_cases": 95,
             "source_tree_manifest_sha256": sha256(manifest),
             "full_gate_sha256": sha256(gate.stdout),
             "v2_durable_append_enabled": True,
@@ -128,6 +131,14 @@ def main() -> None:
             "recovery_requires_precrash_issuer_object": False,
             "recovery_reads_existing_arm_registration": True,
             "missing_or_mismatched_arm_registration_fails_closed": True,
+            "normal_execution_issuer_requires_readable_control": True,
+            "recovery_only_issuer_structurally_separate": True,
+            "recovery_unreadable_control_maps_stale_or_unreadable": True,
+            "recovery_missing_control_maps_stale_or_unreadable": True,
+            "recovery_stale_control_maps_stale_or_unreadable": True,
+            "recovery_stop_requested_permits_post_effect_persistence": True,
+            "recovery_readable_identity_mismatch_fails_closed": True,
+            "fresh_process_corrupt_control_recovery_directly_tested": True,
             "ack_readiness_enabled": False,
             "redis_live_enabled": False,
             "finam_post_delete_enabled": False,

@@ -1,6 +1,6 @@
-# Stage 8A-4 I3 R5 negative inventory
+# Stage 8A-4 I3 R6 negative inventory
 
-The fail-closed mutation harness retains all 80 R4 protections and pins 88
+The fail-closed mutation harness retains all 88 R5 protections and pins 95
 independent cases:
 
 1. accepted I2 predecessor drift;
@@ -91,6 +91,13 @@ independent cases:
 86. historical arm-registration signature verification is removed;
 87. same-process recovery retains the pre-crash capability or issuer;
 88. the SIGKILL fresh-process recovery witness is removed.
+89. the structurally separate recovery-only issuer is removed;
+90. decode failure no longer has a conservative recovery-control state;
+91. read failure no longer has a conservative recovery-control state;
+92. unreadable recovery control is mapped to `RunAllowed`;
+93. readable cross-operational-identity control is accepted;
+94. the stale/StopRequested/corrupt/missing control matrix witness is removed;
+95. the SIGKILL process-B corrupt-control witness is removed.
 
 Inherited I2, forbidden-surface, compiler, clippy and archive-safety gates remain
 mandatory. In particular, the checker rejects both a raw Stage7 writer and a
