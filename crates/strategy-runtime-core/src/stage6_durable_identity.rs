@@ -333,6 +333,26 @@ impl Stage6DurablePlaceOrderShapeV1 {
         })
     }
 
+    pub fn side(&self) -> OrderSide {
+        self.side
+    }
+
+    pub fn order_type(&self) -> OrderType {
+        self.order_type
+    }
+
+    pub fn quantity(&self) -> Quantity {
+        self.quantity
+    }
+
+    pub fn limit_price(&self) -> Option<Price> {
+        self.limit_price
+    }
+
+    pub fn time_in_force(&self) -> TimeInForce {
+        self.time_in_force
+    }
+
     pub(crate) fn matches(
         &self,
         side: OrderSide,

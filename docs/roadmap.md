@@ -55,10 +55,14 @@ candidate that closes that seam while leaving the stable-key formula unchanged.
 I3 R1 at `a490bbe` was not accepted. I3 R2 at `62e5e05` preserved the durable
 mechanics but was not accepted because it exported a hidden raw append,
 regressed accepted Stage8A1 authority, inverted the broker-neutral dependency,
-and required the lost I2 object for restart. I3 R3 is active and separately
-review-gated. It closes those topology gaps while retaining exact truth/control,
-sticky fail-stop, four-field CAS, V2-first append, exact suffix repair and a
-covering seal. I4 remains closed, so I3 cannot
+and required the lost I2 object for restart. I3 R3 at `3aa2670` was not accepted
+because its public sealer remained forgeable and incomplete restart advanced
+ordinary Ready/S1 too early. I3 R4 is active and separately review-gated. It
+uses an operational-identity-pinned Ed25519 issuer plus a core-private HMAC
+seal. Typed Pending repair now covers V2-only, partial suffix and complete F1
+without S1 through the actual production recovery entry, while retaining exact
+truth/control, sticky fail-stop, four-field CAS and V2-first append. I4
+remains closed, so I3 cannot
 publish ACK/readiness or authorize Redis settlement. Stage 8A-5+, FINAM
 POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real
 orders remain closed.

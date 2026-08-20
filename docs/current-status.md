@@ -63,11 +63,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   at `62e5e0509adb9cceb1d9947b5b3f92120e2f19ea` retained the corrected durable
   mechanics but was not accepted: a doc-hidden raw core append remained public,
   Stage8A1 current-owner authority regressed, runtime depended on FINAM, and
-  restart required the lost I2 candidate. I3 R3 is the sole active candidate.
-  It restores accepted Stage8A1 semantics and broker-neutral dependency
-  direction, exposes only an authenticated sealed writer, reconstructs an exact
-  suffix from persisted V2, and retains exact truth/control plus sticky
-  mutation fail-stop. Independent acceptance is pending.
+  restart required the lost I2 candidate. I3 R3 at `3aa2670` was also not
+  accepted because its public sealer was forgeable and incomplete restart
+  became ordinary Ready too early. I3 R4 is the sole active candidate. It
+  authenticates the FINAM writer issuer with an operational-identity-pinned
+  Ed25519 key, mints the HMAC seal only inside core, and keeps V2-only, partial
+  suffix and complete-before-S1 recovery typed Pending. Direct production
+  normal/recovery integration tests prove exact repair and final Ready/S1.
+  Independent acceptance is pending.
 - I4 remains CLOSED. I3 produces only durable truth: ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,
   retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B

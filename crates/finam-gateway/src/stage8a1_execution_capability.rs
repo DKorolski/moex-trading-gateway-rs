@@ -86,6 +86,7 @@ use broker_core::{
     PreflightApprovedPlaceOrder, StrategyRequestId, TimeInForce,
 };
 use chrono::{DateTime, Utc};
+use ed25519_dalek::{Signer, SigningKey};
 use runtime_durable_service::{
     Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bRecoveryReadyOwner,
 };
@@ -98,6 +99,7 @@ use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use strategy_runtime_core::{
     Stage5gLifecycleCommitmentKey, Stage6DurableActionKind, Stage6DurableCommandSnapshotV1,
@@ -132,6 +134,7 @@ const ACCEPTED_CONFIG_FILE: &str = "stage8a1-accepted-execution-config.json";
 const ACCEPTED_CONFIG_SHA256_FILE: &str = "stage8a1-accepted-execution-config.json.sha256";
 const CURRENT_CONTROL_FILE: &str = "stage8a1-current-control-state.json";
 const ARM_NONCE_DIR: &str = "stage8a1-arm-nonces";
+const STAGE8A4_WRITER_SIGNING_KEY_FILE: &str = "stage8a4-writer-issuer-signing-key.hex";
 const MAX_AUTHORITY_TTL_MS: u64 = 60_000;
 
 /// Reviewed configuration source for the no-send Stage 8A-1 authority layer.
@@ -152,6 +155,7 @@ pub struct Stage8a1AcceptedExecutionConfigV1 {
     pub endpoint_policy_sha256: String,
     pub max_arm_ttl_ms: u64,
     pub max_evidence_age_ms: u64,
+    pub stage8a4_writer_issuer_public_key_hex: String,
 }
 
 /// Persistent current operator control source. Revision and budget are reread
@@ -200,6 +204,7 @@ pub struct Stage8a1AuthorityRoot {
     sidecar_identity: Stage8a1FileIdentity,
     control_identity: Stage8a1FileIdentity,
     arm_registry_identity: Stage8a1FileIdentity,
+    writer_signing_key_identity: Stage8a1FileIdentity,
     accepted_config_sha256: String,
     operational_identity_sha256: String,
     authority_root_sha256: String,
@@ -210,6 +215,7 @@ pub struct Stage8a1AuthorityRoot {
 /// anchored accepted-config digest.
 pub struct Stage8a1OperationalAuthorityIssuer {
     authority_root: Stage8a1AuthorityRoot,
+    stage8a4_writer_signing_key: SigningKey,
     last_control_revision: u64,
     current_control_sha256: String,
 }
@@ -225,6 +231,7 @@ impl Stage8a1AuthorityRoot {
                 &file_identity_bytes(self.sidecar_identity),
                 &file_identity_bytes(self.control_identity),
                 &file_identity_bytes(self.arm_registry_identity),
+                &file_identity_bytes(self.writer_signing_key_identity),
                 self.accepted_config_sha256.as_bytes(),
                 self.operational_identity_sha256.as_bytes(),
             ],
@@ -239,6 +246,8 @@ impl Stage8a1AuthorityRoot {
             || regular_file_identity(&self.root.join(CURRENT_CONTROL_FILE))?
                 != self.control_identity
             || directory_identity(&self.root.join(ARM_NONCE_DIR))? != self.arm_registry_identity
+            || regular_file_identity(&self.root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE))?
+                != self.writer_signing_key_identity
         {
             return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
         }
@@ -247,6 +256,13 @@ impl Stage8a1AuthorityRoot {
             || config.operational_identity_sha256 != self.operational_identity_sha256
         {
             return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        let signing_key =
+            load_stage8a4_writer_signing_key_pinned(&self.root, self.writer_signing_key_identity)?;
+        if encode_lower_hex(signing_key.verifying_key().as_bytes())
+            != config.stage8a4_writer_issuer_public_key_hex
+        {
+            return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
         }
         let calculated = self.calculate_commitment();
         if calculated != self.authority_root_sha256 {
@@ -716,6 +732,8 @@ pub enum Stage8ExecutionPreflightError {
     OperatorArmRegistryUnavailable,
     #[error("Stage 8 capability is no longer authorized by current state")]
     CurrentStateChanged,
+    #[error("Stage 8A-4 durable writer issuer key is absent, unsafe or mismatched")]
+    WriterIssuerInvalid,
     #[error("broker-neutral preflight rejected the command: {0}")]
     BrokerPreflight(#[from] OrderPreflightError),
 }
@@ -777,6 +795,7 @@ impl Stage8a1OperationalAuthorityIssuer {
         let sidecar_path = root.join(ACCEPTED_CONFIG_SHA256_FILE);
         let control_path = root.join(CURRENT_CONTROL_FILE);
         let arm_registry_path = root.join(ARM_NONCE_DIR);
+        let writer_signing_key_path = root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
         if !arm_registry_path.exists() {
             fs::create_dir(&arm_registry_path)
                 .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
@@ -786,12 +805,20 @@ impl Stage8a1OperationalAuthorityIssuer {
         let sidecar_identity = regular_file_identity(&sidecar_path)?;
         let control_identity = regular_file_identity(&control_path)?;
         let arm_registry_identity = directory_identity(&arm_registry_path)?;
+        let writer_signing_key_identity = regular_file_identity(&writer_signing_key_path)?;
         let (config, observed_config_sha256) =
             load_accepted_config_pinned(&root, config_identity, sidecar_identity)?;
         if observed_config_sha256 != accepted_config_sha256 {
             return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
         }
         validate_config_binding(&config, durable)?;
+        let stage8a4_writer_signing_key =
+            load_stage8a4_writer_signing_key_pinned(&root, writer_signing_key_identity)?;
+        if encode_lower_hex(stage8a4_writer_signing_key.verifying_key().as_bytes())
+            != config.stage8a4_writer_issuer_public_key_hex
+        {
+            return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+        }
         let control = load_current_control_pinned(&root, control_identity)?;
         if control.operational_identity_sha256 != durable.operational_identity_sha256
             || control.runtime_config_fingerprint_sha256
@@ -809,6 +836,7 @@ impl Stage8a1OperationalAuthorityIssuer {
                 &file_identity_bytes(sidecar_identity),
                 &file_identity_bytes(control_identity),
                 &file_identity_bytes(arm_registry_identity),
+                &file_identity_bytes(writer_signing_key_identity),
                 accepted_config_sha256.as_bytes(),
                 durable.operational_identity_sha256.as_bytes(),
             ],
@@ -820,6 +848,7 @@ impl Stage8a1OperationalAuthorityIssuer {
             sidecar_identity,
             control_identity,
             arm_registry_identity,
+            writer_signing_key_identity,
             accepted_config_sha256: accepted_config_sha256.to_string(),
             operational_identity_sha256: durable.operational_identity_sha256.clone(),
             authority_root_sha256,
@@ -827,12 +856,37 @@ impl Stage8a1OperationalAuthorityIssuer {
         authority_root.validate()?;
         Ok(Self {
             authority_root,
+            stage8a4_writer_signing_key,
             last_control_revision: control.durable_revision,
             current_control_sha256: digest_parts(
                 b"stage8a1-current-control-content-v1",
                 &[&canonical_json(&control)],
             ),
         })
+    }
+
+    /// Signs an already-canonical broker-neutral I3 writer commitment. The
+    /// private key never leaves the pinned Stage8A1 authority root and this
+    /// method is unavailable outside the FINAM gateway crate.
+    pub(crate) fn sign_stage8a4_writer_attestation(
+        &self,
+        attestation_sha256: &Stage6Sha256Digest,
+    ) -> Result<(String, String), Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        let current = load_stage8a4_writer_signing_key_pinned(
+            &self.authority_root.root,
+            self.authority_root.writer_signing_key_identity,
+        )?;
+        if current.to_bytes() != self.stage8a4_writer_signing_key.to_bytes() {
+            return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+        }
+        let signature = self
+            .stage8a4_writer_signing_key
+            .sign(attestation_sha256.as_str().as_bytes());
+        Ok((
+            encode_lower_hex(self.stage8a4_writer_signing_key.verifying_key().as_bytes()),
+            encode_lower_hex(&signature.to_bytes()),
+        ))
     }
 
     /// Captures current read-only sources behind the already trusted gateway
@@ -1610,6 +1664,7 @@ fn validate_config_binding(
         || config.runtime_config_fingerprint_sha256 != durable.runtime_config_fingerprint_sha256
         || !valid_sha256(&config.build_sha256)
         || !valid_sha256(&config.endpoint_policy_sha256)
+        || decode_fixed_lower_hex::<32>(&config.stage8a4_writer_issuer_public_key_hex).is_err()
         || config.max_arm_ttl_ms == 0
         || config.max_arm_ttl_ms > MAX_AUTHORITY_TTL_MS
         || config.max_evidence_age_ms == 0
@@ -1623,6 +1678,56 @@ fn validate_config_binding(
         return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
     }
     Ok(())
+}
+
+fn load_stage8a4_writer_signing_key_pinned(
+    root: &Path,
+    identity: Stage8a1FileIdentity,
+) -> Result<SigningKey, Stage8ExecutionPreflightError> {
+    let path = root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+    let metadata = fs::symlink_metadata(&path)
+        .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || metadata_identity(&metadata) != identity
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+    }
+    let bytes = read_pinned_regular_file(&path, identity)
+        .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+    let encoded = std::str::from_utf8(&bytes)
+        .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?
+        .trim();
+    let seed = decode_fixed_lower_hex::<32>(encoded)?;
+    Ok(SigningKey::from_bytes(&seed))
+}
+
+fn decode_fixed_lower_hex<const N: usize>(
+    value: &str,
+) -> Result<[u8; N], Stage8ExecutionPreflightError> {
+    if value.len() != N * 2
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+    }
+    let mut decoded = [0_u8; N];
+    for (index, byte) in decoded.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+    }
+    Ok(decoded)
+}
+
+fn encode_lower_hex(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").expect("writing into String cannot fail");
+    }
+    encoded
 }
 
 #[cfg(test)]
@@ -2445,6 +2550,195 @@ fn valid_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+/// Test-only composition fixture that reaches the same file-backed issuer,
+/// current-source derivation and place authorization used by production. It
+/// does not construct capability fields directly.
+#[cfg(test)]
+pub(crate) fn stage8a4_test_production_place_capability(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    place: &PlaceOrder,
+    root: &Path,
+) -> Result<
+    (
+        Stage8a1OperationalAuthorityIssuer,
+        Stage8ExecutionCapability,
+    ),
+    Stage8ExecutionPreflightError,
+> {
+    let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+        owner,
+        commitment_key,
+        identity,
+        command,
+    )?;
+    fs::create_dir_all(root).map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let now = Utc::now();
+    let venue_symbol = place
+        .instrument
+        .venue_symbol
+        .clone()
+        .ok_or(Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let broker_policy = OrderPreflightPolicy {
+        allowed_accounts: vec![place.account_id.clone()],
+        allowed_venue_symbols: vec![venue_symbol.clone()],
+        allowed_order_types: vec![
+            broker_core::OrderType::Market,
+            broker_core::OrderType::Limit,
+        ],
+        allowed_time_in_force: vec![TimeInForce::Day],
+        min_qty: rust_decimal::Decimal::ONE,
+        qty_step: rust_decimal::Decimal::ONE,
+        max_qty: rust_decimal::Decimal::new(2, 0),
+        price_step: Some(rust_decimal::Decimal::new(5, 1)),
+        max_market_qty: rust_decimal::Decimal::ONE,
+        max_notional_per_order: Some(rust_decimal::Decimal::new(10_000, 0)),
+        max_notional_per_run: Some(rust_decimal::Decimal::new(10_000, 0)),
+        max_limit_deviation_bps: Some(1_000),
+        max_reference_age_ms: 5_000,
+        allow_cancel_by_broker_order_id_without_mapping: false,
+        operator_arm: broker_core::OperatorArm {
+            session_id: "STAGE8A4_I3_TEST".into(),
+            armed_until: now + chrono::Duration::seconds(30),
+            endpoint_calls_enabled: true,
+            one_shot: true,
+            endpoint_attempted: false,
+            preflight_digest: durable.runtime_config_fingerprint_sha256.clone(),
+        },
+    };
+    let config = Stage8a1AcceptedExecutionConfigV1 {
+        schema_version: 1,
+        operational_identity_sha256: durable.operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: durable.runtime_config_fingerprint_sha256.clone(),
+        broker: BrokerKind::Finam,
+        strategy_instance_id: identity.attribution().strategy_id().to_string(),
+        account_id: place.account_id.clone(),
+        instrument: place.instrument.clone(),
+        broker_policy,
+        build_sha256: "b".repeat(64),
+        endpoint_policy_sha256: "e".repeat(64),
+        max_arm_ttl_ms: 20_000,
+        max_evidence_age_ms: 20_000,
+        stage8a4_writer_issuer_public_key_hex:
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".into(),
+    };
+    let config_bytes = canonical_json(&config);
+    let config_hash = digest_parts(b"stage8a1-accepted-config-file-v1", &[&config_bytes]);
+    fs::write(root.join(ACCEPTED_CONFIG_FILE), config_bytes)
+        .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    fs::write(root.join(ACCEPTED_CONFIG_SHA256_FILE), &config_hash)
+        .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let control = Stage8a1CurrentControlStateV1 {
+        schema_version: 1,
+        operational_identity_sha256: durable.operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: durable.runtime_config_fingerprint_sha256.clone(),
+        kill_switch: Stage8KillSwitchState::RunAllowed,
+        durable_revision: 1,
+        active_owner_count: 1,
+        reconciliation_required_count: 0,
+        max_orders: 1,
+        consumed_orders: 0,
+        observed_at: now - chrono::Duration::seconds(1),
+        valid_until: now + chrono::Duration::seconds(20),
+    };
+    fs::write(root.join(CURRENT_CONTROL_FILE), canonical_json(&control))
+        .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+    let key_path = root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+    fs::write(
+        &key_path,
+        b"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    )
+    .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+    fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))
+        .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+
+    let mut issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
+        owner,
+        commitment_key,
+        identity,
+        command,
+        root,
+        &config_hash,
+    )?;
+    let freshness = || broker_core::BrokerFeedFreshness {
+        observed_ts: Some(now - chrono::Duration::seconds(1)),
+        max_age_ms: 30_000,
+    };
+    let broker_truth = BrokerTruthSnapshot {
+        account_id: place.account_id.clone(),
+        orders: vec![],
+        positions: vec![],
+        cash: None,
+        trades: vec![],
+        instruments: vec![broker_core::BrokerInstrumentSpec {
+            instrument: broker_core::InstrumentMapEntry {
+                internal_symbol: broker_core::InternalSymbol(place.instrument.symbol.clone()),
+                broker: BrokerKind::Finam,
+                broker_symbol: broker_core::BrokerSymbol(venue_symbol),
+                exchange: place.instrument.exchange.clone(),
+                market: place.instrument.market.clone(),
+                price_step: rust_decimal::Decimal::new(5, 1),
+                qty_step: rust_decimal::Decimal::ONE,
+                lot_size: rust_decimal::Decimal::ONE,
+                min_qty: rust_decimal::Decimal::ONE,
+                step_value: rust_decimal::Decimal::ONE,
+                currency: "RUB".into(),
+                schedule_id: "MOEX_FUT".into(),
+                expiration_date: None,
+                is_tradable: true,
+            },
+            broker_asset_id: Some("ASSET_IMOEXF".into()),
+            board: Some("RFUD".into()),
+            long_initial_margin: None,
+            short_initial_margin: None,
+        }],
+        received_ts: now - chrono::Duration::seconds(1),
+    };
+    let broker_readiness = BrokerReadinessSnapshot {
+        account: freshness(),
+        positions: freshness(),
+        orders: freshness(),
+        trades: freshness(),
+        quotes: freshness(),
+        instrument_spec: freshness(),
+        schedule: freshness(),
+        market_session: BrokerMarketSessionState::Open,
+        unknown_order_count: 0,
+        cash_margin_present: true,
+        instrument_spec_validated: true,
+        live_market_data_seen: true,
+        subscription_ready: true,
+        stream_or_polling_connected: true,
+        event_sink_degraded: false,
+        stop_order_readiness: broker_core::BrokerStopOrderReadiness::UnsupportedBlocked,
+    };
+    let readiness = Stage7bCompositeReadinessSnapshot {
+        phase: Stage7bPaperReadinessPhase::PaperReady,
+        reasons: vec![],
+        blocked_entry_ids: vec![],
+        blocked_request_ids: vec![],
+        checked_at: now - chrono::Duration::seconds(1),
+    };
+    let sources = issuer.issue_current_sources(&readiness, &broker_truth, &broker_readiness)?;
+    let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+        owner,
+        commitment_key,
+        identity,
+        command,
+    )?;
+    let preflight = OrderPreflightContext {
+        reference_price: Some(broker_core::OrderReferencePrice {
+            price: rust_decimal::Decimal::new(2220, 0),
+            received_ts: now - chrono::Duration::seconds(1),
+        }),
+        current_run_notional: rust_decimal::Decimal::ZERO,
+    };
+    let capability = issuer.authorize_place(durable, place, &preflight, &sources)?;
+    Ok((issuer, capability))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2916,6 +3210,8 @@ mod tests {
             endpoint_policy_sha256: ENDPOINT.into(),
             max_arm_ttl_ms: 20_000,
             max_evidence_age_ms: 20_000,
+            stage8a4_writer_issuer_public_key_hex:
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".into(),
         };
         let bytes = canonical_json(&config);
         let config_hash = digest_parts(b"stage8a1-accepted-config-file-v1", &[&bytes]);
@@ -2935,6 +3231,13 @@ mod tests {
             valid_until: observed_at + Duration::seconds(20),
         };
         fs::write(root.join(CURRENT_CONTROL_FILE), canonical_json(&control)).unwrap();
+        let signing_key_path = root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+        fs::write(
+            &signing_key_path,
+            b"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+        )
+        .unwrap();
+        fs::set_permissions(&signing_key_path, fs::Permissions::from_mode(0o600)).unwrap();
     }
 
     #[test]
@@ -3014,6 +3317,34 @@ mod tests {
         ));
         drop(capability);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stage8a4_writer_issuer_requires_pinned_private_key_and_secure_permissions() {
+        let now = Utc::now();
+        let order = place();
+        let durable = durable_place(&order);
+
+        let mismatched_root = issuer_root();
+        write_issuer_sources(&mismatched_root, &durable, now);
+        let key_path = mismatched_root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+        fs::write(&key_path, "42".repeat(32)).unwrap();
+        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(matches!(
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&mismatched_root, &durable),
+            Err(Stage8ExecutionPreflightError::WriterIssuerInvalid)
+        ));
+        fs::remove_dir_all(mismatched_root).unwrap();
+
+        let permissive_root = issuer_root();
+        write_issuer_sources(&permissive_root, &durable, now);
+        let key_path = permissive_root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(matches!(
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&permissive_root, &durable),
+            Err(Stage8ExecutionPreflightError::WriterIssuerInvalid)
+        ));
+        fs::remove_dir_all(permissive_root).unwrap();
     }
 
     #[test]

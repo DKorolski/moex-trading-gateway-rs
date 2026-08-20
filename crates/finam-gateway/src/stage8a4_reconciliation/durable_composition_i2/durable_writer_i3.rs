@@ -6,7 +6,9 @@
 
 use super::super::{
     account_safety_binding, account_safety_summary, canonical_truth_binding,
-    reduce_stage8a4_authoritative, Stage8a4DurableRequestContext, Stage8a4FreshTruthAdmission,
+    issue_stage8a4_policy_from_frozen_config,
+    issue_stage8a4_source_evidence_from_readonly_acquisition, reduce_stage8a4_authoritative,
+    Stage8a4DurableRequestContext, Stage8a4FreshTruthAdmission, Stage8a4ReadonlySourceAcquisition,
     Stage8a4ReconciliationPolicy,
 };
 use super::{
@@ -21,12 +23,84 @@ use crate::stage8a1_execution_capability::{
 use chrono::{DateTime, Utc};
 use runtime_durable_service::{
     Stage7bRecoveryError, Stage7bRecoveryReadyOwner, Stage7bStage8a4DurableBatchReceipt,
+    Stage8a4I3RecoveryPendingOwner,
 };
 use strategy_runtime_core::{
-    Stage5gLifecycleCommitmentKey, Stage6DurableRequestIdentityV1, Stage6LifecycleSequence,
-    Stage6Sha256Digest, Stage6Stage8a4DurableBatch, Stage6Stage8a4PendingRecovery,
-    Stage6Stage8a4SealedWriteAuthority,
+    stage8a4_writer_entry_attestation_sha256, Stage5gLifecycleCommitmentKey,
+    Stage6DurableCommandSnapshotV1, Stage6DurablePlaceOrderShapeV1, Stage6DurableRequestIdentityV1,
+    Stage6LifecycleSequence, Stage6Sha256Digest, Stage6Stage8a4DurableBatch,
+    Stage6Stage8a4PendingRecovery, Stage6Stage8a4ValidatedWriteEntry,
 };
+
+pub(crate) struct Stage8a4ProductionEventWindow {
+    possible_effect_at: DateTime<Utc>,
+    event_start: DateTime<Utc>,
+    event_end: DateTime<Utc>,
+}
+
+impl Stage8a4ProductionEventWindow {
+    pub(crate) fn from_dispatch_and_acquisition(
+        possible_effect_at: DateTime<Utc>,
+        event_start: DateTime<Utc>,
+        event_end: DateTime<Utc>,
+    ) -> Result<Self, Stage8a4DurableCompositionError> {
+        if event_start < possible_effect_at || event_end <= event_start {
+            return Err(Stage8a4DurableCompositionError::CurrentAuthority);
+        }
+        Ok(Self {
+            possible_effect_at,
+            event_start,
+            event_end,
+        })
+    }
+}
+
+fn issue_durable_request_context_from_current_authority(
+    authority: &runtime_durable_service::Stage7bStage8a1DurableRequestAuthority,
+    command: &Stage6DurableCommandSnapshotV1,
+    event_window: Stage8a4ProductionEventWindow,
+    known_broker_order_id: Option<broker_core::BrokerOrderId>,
+    cancel_original_shape: Option<Stage6DurablePlaceOrderShapeV1>,
+) -> Result<Stage8a4DurableRequestContext, Stage8a4DurableCompositionError> {
+    let stage6 = authority.stage6();
+    if command.action() != stage6.identity().action()
+        || stage6.canonical_command_sha256() != stage6.accepted_record().canonical_payload_sha256()
+    {
+        return Err(Stage8a4DurableCompositionError::CurrentAuthority);
+    }
+    let shape = command
+        .place_order_shape()
+        .or(cancel_original_shape)
+        .ok_or(Stage8a4DurableCompositionError::CurrentAuthority)?;
+    Ok(Stage8a4DurableRequestContext {
+        request_id: stage6.identity().strategy_request_id(),
+        client_order_id: stage6.identity().durable_client_order_id().clone(),
+        account_id: stage6.identity().account_id().clone(),
+        instrument: stage6.identity().instrument().clone(),
+        action: stage6.identity().action(),
+        attribution: stage6.identity().attribution().clone(),
+        side: shape.side(),
+        qty: shape.quantity(),
+        order_type: shape.order_type(),
+        time_in_force: shape.time_in_force(),
+        limit_price: shape.limit_price(),
+        known_broker_order_id,
+        target_order_client_order_id: stage6.identity().target_order_client_order_id().cloned(),
+        accepted_command_payload_sha256: stage6
+            .accepted_record()
+            .canonical_payload_sha256()
+            .as_str()
+            .to_string(),
+        possible_effect_at: event_window.possible_effect_at,
+        event_start: event_window.event_start,
+        event_end: event_window.event_end,
+        durable_binding_sha256: stage6
+            .durable_request_binding_sha256()
+            .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?
+            .as_str()
+            .to_string(),
+    })
+}
 
 #[derive(Debug)]
 enum Stage8a4I3Error {
@@ -45,6 +119,61 @@ pub enum Stage8a4DurableCompositionError {
     DurableRecovery,
     #[error("Stage 8A-4 private durable composition failed")]
     PrivateComposition,
+}
+
+/// Production-only composition bridge. Both source acquisitions are opaque
+/// outputs of the read-only FINAM acquisition layer; orchestration code cannot
+/// manufacture their completeness or exact-lookup state.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn reconcile_persist_and_cover_stage8a4_from_production_sources(
+    capability: &Stage8ExecutionCapability,
+    issuer: &Stage8a1OperationalAuthorityIssuer,
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    event_window: Stage8a4ProductionEventWindow,
+    known_broker_order_id: Option<broker_core::BrokerOrderId>,
+    cancel_original_shape: Option<Stage6DurablePlaceOrderShapeV1>,
+    reconciliation_acquisition: Stage8a4ReadonlySourceAcquisition,
+    writer_entry_acquisition: Stage8a4ReadonlySourceAcquisition,
+    trusted_now: DateTime<Utc>,
+) -> Result<Stage7bStage8a4DurableBatchReceipt, Stage8a4DurableCompositionError> {
+    let current = owner
+        .authorize_stage8a1_durable_request(commitment_key, identity, command)
+        .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
+    let context = issue_durable_request_context_from_current_authority(
+        &current,
+        command,
+        event_window,
+        known_broker_order_id,
+        cancel_original_shape,
+    )?;
+    let policy = issue_stage8a4_policy_from_frozen_config(trusted_now);
+    let (truth, evidence) = issue_stage8a4_source_evidence_from_readonly_acquisition(
+        reconciliation_acquisition,
+        &policy,
+    );
+    let reconciliation_truth =
+        super::super::admit_stage8a4_broker_truth(&context, &policy, truth, evidence)
+            .map_err(|_| Stage8a4DurableCompositionError::CurrentTruth)?;
+    let (writer_truth, writer_evidence) =
+        issue_stage8a4_source_evidence_from_readonly_acquisition(writer_entry_acquisition, &policy);
+    let writer_entry_truth =
+        super::super::admit_stage8a4_broker_truth(&context, &policy, writer_truth, writer_evidence)
+            .map_err(|_| Stage8a4DurableCompositionError::CurrentTruth)?;
+    reconcile_persist_and_cover_stage8a4(
+        capability,
+        issuer,
+        owner,
+        commitment_key,
+        identity,
+        command,
+        context,
+        reconciliation_truth,
+        writer_entry_truth,
+        policy,
+    )
 }
 
 /// Full production no-send composition for a new Stage 8A-4 transition.
@@ -109,6 +238,7 @@ pub fn reconcile_persist_and_cover_stage8a4(
         candidate,
         writer_entry_truth,
         controls,
+        issuer,
         owner,
         commitment_key,
     )
@@ -127,7 +257,13 @@ pub fn reconcile_persist_and_cover_stage8a4(
 /// Sole linear I3 authority accepted by the Stage 7B writer. It cannot be
 /// constructed from public canonical bytes, diagnostics or read DTOs.
 pub struct Stage8a4DurableWriteAuthority {
-    sealed: Stage6Stage8a4SealedWriteAuthority,
+    entry: Stage6Stage8a4ValidatedWriteEntry,
+}
+
+/// Separate linear authority for an already-persisted incomplete I3 batch.
+/// It cannot enter the normal new-transition writer path.
+pub struct Stage8a4PendingRecoveryWriteAuthority {
+    entry: Stage6Stage8a4ValidatedWriteEntry,
 }
 
 impl Stage8a4DurableWriteAuthority {
@@ -139,7 +275,23 @@ impl Stage8a4DurableWriteAuthority {
         owner: &mut Stage7bRecoveryReadyOwner,
         commitment_key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage7bStage8a4DurableBatchReceipt, Stage7bRecoveryError> {
-        owner.append_stage8a4_sealed_authority_and_cover(commitment_key, self.sealed)
+        owner.append_stage8a4_validated_entry_and_cover(commitment_key, self.entry)
+    }
+}
+
+impl Stage8a4PendingRecoveryWriteAuthority {
+    fn persist_and_cover(
+        self,
+        owner: Stage8a4I3RecoveryPendingOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<
+        (
+            Stage7bStage8a4DurableBatchReceipt,
+            Stage7bRecoveryReadyOwner,
+        ),
+        Stage7bRecoveryError,
+    > {
+        owner.append_recovery_entry_and_cover(commitment_key, self.entry)
     }
 }
 
@@ -150,16 +302,19 @@ impl Stage8a4DurableWriteAuthority {
 pub fn recover_persisted_stage8a4_suffix_and_cover(
     capability: &Stage8ExecutionCapability,
     issuer: &Stage8a1OperationalAuthorityIssuer,
-    owner: &mut Stage7bRecoveryReadyOwner,
+    mut owner: Stage8a4I3RecoveryPendingOwner,
     commitment_key: &Stage5gLifecycleCommitmentKey,
     current_truth: Stage8a4FreshTruthAdmission,
-) -> Result<Option<Stage7bStage8a4DurableBatchReceipt>, Stage8a4DurableCompositionError> {
-    let Some(pending) = owner
-        .stage8a4_pending_recovery_material(commitment_key)
-        .map_err(|_| Stage8a4DurableCompositionError::DurableRecovery)?
-    else {
-        return Ok(None);
-    };
+) -> Result<
+    (
+        Stage7bStage8a4DurableBatchReceipt,
+        Stage7bRecoveryReadyOwner,
+    ),
+    Stage8a4DurableCompositionError,
+> {
+    let pending = owner
+        .pending_recovery_material(commitment_key)
+        .map_err(|_| Stage8a4DurableCompositionError::DurableRecovery)?;
     let historical = capability
         .stage8a4_historical_arm_provenance()
         .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
@@ -170,7 +325,8 @@ pub fn recover_persisted_stage8a4_suffix_and_cover(
         pending,
         current_truth,
         controls,
-        owner,
+        issuer,
+        &mut owner,
         commitment_key,
     )
     .map_err(|error| match error {
@@ -182,14 +338,13 @@ pub fn recover_persisted_stage8a4_suffix_and_cover(
     })?;
     authority
         .persist_and_cover(owner, commitment_key)
-        .map(Some)
         .map_err(|_| Stage8a4DurableCompositionError::DurableRecovery)
 }
 
 struct Stage8a4WriterEntryFreshTruth {
     safety: PrivateAccountSafetySummary,
-    _source_evidence_binding_sha256: Stage6Sha256Digest,
-    _truth_binding_sha256: Stage6Sha256Digest,
+    source_evidence_binding_sha256: Stage6Sha256Digest,
+    truth_binding_sha256: Stage6Sha256Digest,
     _validated_at: DateTime<Utc>,
 }
 
@@ -197,6 +352,7 @@ fn issue_private_durable_write_authority(
     candidate: Stage8a4I2DurableCandidate,
     current_truth: Stage8a4FreshTruthAdmission,
     controls: Stage8a4PostEffectControlEvidence,
+    issuer: &Stage8a1OperationalAuthorityIssuer,
     owner: &mut Stage7bRecoveryReadyOwner,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8a4DurableWriteAuthority, Stage8a4I3Error> {
@@ -260,33 +416,60 @@ fn issue_private_durable_write_authority(
         candidate.cancel_original_target_shape,
     )
     .map_err(Stage8a4I3Error::BatchInvalid)?;
-    let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
-        commitment_key,
+    let operational_identity_sha256 = current_operational_identity_sha256.to_string();
+    let runtime_config_fingerprint_sha256 = current_stage6
+        .runtime_config_fingerprint_sha256()
+        .to_string();
+    let seal_commitment_sha256 = current_seal_commitment_sha256.to_string();
+    let source_evidence_binding_sha256 = writer_truth.source_evidence_binding_sha256;
+    let writer_truth_binding_sha256 = writer_truth.truth_binding_sha256;
+    let control_binding_sha256 = controls.current_control_binding_sha256().clone();
+    let attestation_sha256 = stage8a4_writer_entry_attestation_sha256(
+        &identity,
+        &candidate.durable_command,
+        &batch,
+        &operational_identity_sha256,
+        &runtime_config_fingerprint_sha256,
+        current_seal_generation,
+        &seal_commitment_sha256,
+        &source_evidence_binding_sha256,
+        &writer_truth_binding_sha256,
+        &control_binding_sha256,
+    )
+    .map_err(Stage8a4I3Error::BatchInvalid)?;
+    let (issuer_public_key_hex, issuer_signature_hex) = issuer
+        .sign_stage8a4_writer_attestation(&attestation_sha256)
+        .map_err(|_| Stage8a4I3Error::CommandAuthorityMismatch)?;
+    let entry = Stage6Stage8a4ValidatedWriteEntry::verify_issuer_attestation(
         identity,
         candidate.durable_command,
         batch,
-        current_operational_identity_sha256.to_string(),
-        current_stage6
-            .runtime_config_fingerprint_sha256()
-            .to_string(),
+        operational_identity_sha256,
+        runtime_config_fingerprint_sha256,
         current_seal_generation,
-        current_seal_commitment_sha256.to_string(),
+        seal_commitment_sha256,
+        source_evidence_binding_sha256,
+        writer_truth_binding_sha256,
+        control_binding_sha256,
+        issuer_public_key_hex,
+        issuer_signature_hex,
     )
     .map_err(Stage8a4I3Error::BatchInvalid)?;
-    Ok(Stage8a4DurableWriteAuthority { sealed })
+    Ok(Stage8a4DurableWriteAuthority { entry })
 }
 
 fn issue_persisted_recovery_write_authority(
     pending: Stage6Stage8a4PendingRecovery,
     current_truth: Stage8a4FreshTruthAdmission,
     controls: Stage8a4PostEffectControlEvidence,
-    owner: &mut Stage7bRecoveryReadyOwner,
+    issuer: &Stage8a1OperationalAuthorityIssuer,
+    owner: &mut Stage8a4I3RecoveryPendingOwner,
     commitment_key: &Stage5gLifecycleCommitmentKey,
-) -> Result<Stage8a4DurableWriteAuthority, Stage8a4I3Error> {
+) -> Result<Stage8a4PendingRecoveryWriteAuthority, Stage8a4I3Error> {
     let (transition, command) = pending.into_parts();
     let identity = transition.durable_request_identity().clone();
     let current_stage7 = owner
-        .authorize_stage8a4_pending_recovery_request(commitment_key, &identity, &command)
+        .authorize_pending_recovery_request(commitment_key, &identity, &command)
         .map_err(|_| Stage8a4I3Error::CommandAuthorityMismatch)?;
     let current_stage6 = current_stage7.stage6();
     if controls.accepted_command_payload_sha256() != current_stage6.canonical_command_sha256()
@@ -319,20 +502,47 @@ fn issue_persisted_recovery_write_authority(
     }
     let batch = Stage6Stage8a4DurableBatch::recover_from_persisted_transition(transition)
         .map_err(Stage8a4I3Error::BatchInvalid)?;
-    let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
-        commitment_key,
+    let operational_identity_sha256 = current_stage7.operational_identity_sha256().to_string();
+    let runtime_config_fingerprint_sha256 = current_stage6
+        .runtime_config_fingerprint_sha256()
+        .to_string();
+    let seal_generation = current_stage7.seal_generation();
+    let seal_commitment_sha256 = current_stage7.seal_commitment_sha256().to_string();
+    let source_evidence_binding_sha256 = writer_truth.source_evidence_binding_sha256;
+    let writer_truth_binding_sha256 = writer_truth.truth_binding_sha256;
+    let control_binding_sha256 = controls.current_control_binding_sha256().clone();
+    let attestation_sha256 = stage8a4_writer_entry_attestation_sha256(
+        &identity,
+        &command,
+        &batch,
+        &operational_identity_sha256,
+        &runtime_config_fingerprint_sha256,
+        seal_generation,
+        &seal_commitment_sha256,
+        &source_evidence_binding_sha256,
+        &writer_truth_binding_sha256,
+        &control_binding_sha256,
+    )
+    .map_err(Stage8a4I3Error::BatchInvalid)?;
+    let (issuer_public_key_hex, issuer_signature_hex) = issuer
+        .sign_stage8a4_writer_attestation(&attestation_sha256)
+        .map_err(|_| Stage8a4I3Error::CommandAuthorityMismatch)?;
+    let entry = Stage6Stage8a4ValidatedWriteEntry::verify_issuer_attestation(
         identity,
         command,
         batch,
-        current_stage7.operational_identity_sha256().to_string(),
-        current_stage6
-            .runtime_config_fingerprint_sha256()
-            .to_string(),
-        current_stage7.seal_generation(),
-        current_stage7.seal_commitment_sha256().to_string(),
+        operational_identity_sha256,
+        runtime_config_fingerprint_sha256,
+        seal_generation,
+        seal_commitment_sha256,
+        source_evidence_binding_sha256,
+        writer_truth_binding_sha256,
+        control_binding_sha256,
+        issuer_public_key_hex,
+        issuer_signature_hex,
     )
     .map_err(Stage8a4I3Error::BatchInvalid)?;
-    Ok(Stage8a4DurableWriteAuthority { sealed })
+    Ok(Stage8a4PendingRecoveryWriteAuthority { entry })
 }
 
 fn issue_writer_entry_fresh_truth(
@@ -373,8 +583,8 @@ fn issue_writer_entry_fresh_truth(
     };
     Ok(Stage8a4WriterEntryFreshTruth {
         safety,
-        _source_evidence_binding_sha256: source_evidence_binding_sha256,
-        _truth_binding_sha256: truth_binding_sha256,
+        source_evidence_binding_sha256,
+        truth_binding_sha256,
         _validated_at: now,
     })
 }
@@ -395,4 +605,433 @@ pub(super) fn test_writer_entry_safety(
     issue_writer_entry_fresh_truth(admission, identity, durable_binding, now)
         .ok()
         .and_then(|truth| serde_json::to_vec(&truth.safety).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stage8a1_execution_capability::stage8a4_test_production_place_capability;
+    use crate::stage8a4_reconciliation::{
+        Stage8a4PrivateExactLookup, Stage8a4SourceTiming, Stage8a4TradeIntervalProof,
+    };
+    use broker_core::{
+        BrokerCommand, BrokerInstrumentSpec, BrokerKind, BrokerOrderId, BrokerOrderSnapshot,
+        BrokerSymbol, BrokerTruthSnapshot, InstrumentMapEntry, InternalSymbol, OrderStatus,
+    };
+    use chrono::Duration;
+    use runtime_durable_service::{
+        stage8a4_i3_production_test_setup, stage8a4_i3_test_fail_before_covering_seal,
+        stage8a4_i3_test_set_owner_journal_failpoint, Stage7bDurableRootAuthority,
+        Stage7bRestartOutcome, Stage8a4I3ProductionTestSetup, Stage8a4I3RecoveryPendingOwner,
+    };
+    use rust_decimal::Decimal;
+    use strategy_runtime_core::Stage8a4JournalTestFailpoint;
+
+    enum ProductionCrashPoint {
+        JournalAppend(u32),
+        BeforeJournalAppend(u32),
+        BeforeCoveringSeal,
+    }
+
+    fn production_source(
+        place: &broker_core::PlaceOrder,
+        event_start: DateTime<Utc>,
+        event_end: DateTime<Utc>,
+        possible_effect_at: DateTime<Utc>,
+        trusted_now: DateTime<Utc>,
+    ) -> Stage8a4ReadonlySourceAcquisition {
+        let request_started_at = trusted_now - Duration::milliseconds(400);
+        let response_received_at = trusted_now - Duration::milliseconds(100);
+        let venue_symbol = place
+            .instrument
+            .venue_symbol
+            .clone()
+            .expect("Stage8A4 production fixture venue symbol");
+        let truth = BrokerTruthSnapshot {
+            account_id: place.account_id.clone(),
+            orders: vec![BrokerOrderSnapshot {
+                account_id: place.account_id.clone(),
+                broker_order_id: Some(BrokerOrderId::new("STAGE8A4-I3-ORDER-1")),
+                client_order_id: Some(place.client_order_id.clone()),
+                instrument: place.instrument.clone(),
+                side: place.side,
+                order_type: place.order_type,
+                time_in_force: Some(place.time_in_force),
+                status: OrderStatus::New,
+                lifecycle: BrokerOrderSnapshot::lifecycle_for(&OrderStatus::New),
+                qty: place.qty,
+                filled_qty: Decimal::ZERO,
+                remaining_qty: Some(place.qty),
+                limit_price: place.limit_price,
+                broker_asset_id: Some("ASSET_IMOEXF".into()),
+                board: Some("RFUD".into()),
+                expiration_date: None,
+                source_ts: Some(response_received_at),
+                received_ts: response_received_at,
+            }],
+            positions: vec![],
+            cash: None,
+            trades: vec![],
+            instruments: vec![BrokerInstrumentSpec {
+                instrument: InstrumentMapEntry {
+                    internal_symbol: InternalSymbol(place.instrument.symbol.clone()),
+                    broker: BrokerKind::Finam,
+                    broker_symbol: BrokerSymbol(venue_symbol),
+                    exchange: place.instrument.exchange.clone(),
+                    market: place.instrument.market.clone(),
+                    price_step: Decimal::new(5, 1),
+                    qty_step: Decimal::ONE,
+                    lot_size: Decimal::ONE,
+                    min_qty: Decimal::ONE,
+                    step_value: Decimal::ONE,
+                    currency: "RUB".into(),
+                    schedule_id: "MOEX_FUT".into(),
+                    expiration_date: None,
+                    is_tradable: true,
+                },
+                broker_asset_id: Some("ASSET_IMOEXF".into()),
+                board: Some("RFUD".into()),
+                long_initial_margin: None,
+                short_initial_margin: None,
+            }],
+            received_ts: response_received_at,
+        };
+        let timing = || Stage8a4SourceTiming {
+            request_started_at,
+            response_received_at,
+        };
+        Stage8a4ReadonlySourceAcquisition {
+            truth,
+            orders_timing: timing(),
+            positions_timing: timing(),
+            instrument_timing: timing(),
+            trade_intervals: vec![Stage8a4TradeIntervalProof {
+                start_inclusive: event_start,
+                end_exclusive: event_end,
+                requested_limit: 100,
+                returned_count: 0,
+                request_started_at: request_started_at.max(possible_effect_at),
+                response_received_at,
+                split_depth: 0,
+            }],
+            exact_lookup: Stage8a4PrivateExactLookup::NotAttempted,
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn production_pending_after_crash(
+        crash_point: ProductionCrashPoint,
+        authority_name: &str,
+    ) -> (
+        Stage8a4I3ProductionTestSetup,
+        Stage6DurableRequestIdentityV1,
+        Stage6DurableCommandSnapshotV1,
+        broker_core::PlaceOrder,
+        Stage8a1OperationalAuthorityIssuer,
+        Stage8ExecutionCapability,
+        Box<Stage8a4I3RecoveryPendingOwner>,
+    ) {
+        let (setup, mut owner) = stage8a4_i3_production_test_setup();
+        let BrokerCommand::PlaceOrder(place) = &setup.command else {
+            panic!("Stage8A4 production fixture must contain PLACE");
+        };
+        let place = place.clone();
+        let identity = Stage6DurableRequestIdentityV1::from_place(
+            &place,
+            setup.command_context.attribution().clone(),
+        )
+        .expect("Stage8A4 production identity");
+        let command = Stage6DurableCommandSnapshotV1::from_place(&identity, &place)
+            .expect("Stage8A4 production command");
+        let (issuer, capability) = stage8a4_test_production_place_capability(
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            &place,
+            &setup.parent.join(authority_name),
+        )
+        .expect("production Stage8A1 capability");
+        match crash_point {
+            ProductionCrashPoint::JournalAppend(append_number) => {
+                stage8a4_i3_test_set_owner_journal_failpoint(
+                    &mut owner,
+                    Stage8a4JournalTestFailpoint::AfterFrameHashWriteOnAppend(append_number),
+                )
+                .expect("install deterministic journal crash point");
+            }
+            ProductionCrashPoint::BeforeJournalAppend(append_number) => {
+                stage8a4_i3_test_set_owner_journal_failpoint(
+                    &mut owner,
+                    Stage8a4JournalTestFailpoint::BeforeFrameWriteOnAppend(append_number),
+                )
+                .expect("install deterministic pre-append crash point");
+            }
+            ProductionCrashPoint::BeforeCoveringSeal => {
+                stage8a4_i3_test_fail_before_covering_seal(&mut owner);
+            }
+        }
+        let trusted_now = Utc::now();
+        let possible_effect_at = trusted_now - Duration::seconds(3);
+        let event_start = trusted_now - Duration::seconds(2);
+        let event_end = trusted_now - Duration::seconds(1);
+        let result = reconcile_persist_and_cover_stage8a4_from_production_sources(
+            &capability,
+            &issuer,
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            Stage8a4ProductionEventWindow::from_dispatch_and_acquisition(
+                possible_effect_at,
+                event_start,
+                event_end,
+            )
+            .expect("valid production event window"),
+            None,
+            None,
+            production_source(
+                &place,
+                event_start,
+                event_end,
+                possible_effect_at,
+                trusted_now,
+            ),
+            production_source(
+                &place,
+                event_start,
+                event_end,
+                possible_effect_at,
+                trusted_now,
+            ),
+            trusted_now,
+        );
+        assert!(matches!(
+            result,
+            Err(Stage8a4DurableCompositionError::DurableRecovery)
+        ));
+        drop(owner);
+
+        let restart = || {
+            Stage7bRecoveryReadyOwner::restart(
+                Stage7bDurableRootAuthority::validate(&setup.root, &setup.operational_identity)
+                    .expect("revalidate production durable root"),
+                setup.operational_identity.clone(),
+                &setup.commitment_key,
+                setup.runtime.clone(),
+            )
+            .expect("restart production crash state")
+        };
+        let Stage7bRestartOutcome::Stage8a4I3Pending(first_pending) = restart() else {
+            panic!("uncovered production I3 batch must restart Pending");
+        };
+        assert!(!first_pending.recovery_ready());
+        drop(first_pending);
+        let Stage7bRestartOutcome::Stage8a4I3Pending(second_pending) = restart() else {
+            panic!("repeated restart must remain Pending before production recovery");
+        };
+        assert!(!second_pending.recovery_ready());
+        (
+            setup,
+            identity,
+            command,
+            place,
+            issuer,
+            capability,
+            second_pending,
+        )
+    }
+
+    fn current_recovery_admission(
+        owner: &mut Stage8a4I3RecoveryPendingOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+        place: &broker_core::PlaceOrder,
+    ) -> Stage8a4FreshTruthAdmission {
+        let trusted_now = Utc::now();
+        let possible_effect_at = trusted_now - Duration::seconds(3);
+        let event_start = trusted_now - Duration::seconds(2);
+        let event_end = trusted_now - Duration::seconds(1);
+        let current = owner
+            .authorize_pending_recovery_request(commitment_key, identity, command)
+            .expect("current pending recovery request authority");
+        let context = issue_durable_request_context_from_current_authority(
+            &current,
+            command,
+            Stage8a4ProductionEventWindow::from_dispatch_and_acquisition(
+                possible_effect_at,
+                event_start,
+                event_end,
+            )
+            .expect("valid recovery event window"),
+            None,
+            None,
+        )
+        .expect("current recovery durable context");
+        let policy = issue_stage8a4_policy_from_frozen_config(trusted_now);
+        let (truth, evidence) = issue_stage8a4_source_evidence_from_readonly_acquisition(
+            production_source(
+                place,
+                event_start,
+                event_end,
+                possible_effect_at,
+                trusted_now,
+            ),
+            &policy,
+        );
+        super::super::super::admit_stage8a4_broker_truth(&context, &policy, truth, evidence)
+            .expect("fresh production recovery truth")
+    }
+
+    fn assert_production_recovery(
+        crash_point: ProductionCrashPoint,
+        authority_name: &str,
+        expected_appended_suffix_records: usize,
+    ) {
+        let (setup, identity, command, place, issuer, capability, mut pending) =
+            production_pending_after_crash(crash_point, authority_name);
+        let truth = current_recovery_admission(
+            &mut pending,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            &place,
+        );
+        let (receipt, ready) = recover_persisted_stage8a4_suffix_and_cover(
+            &capability,
+            &issuer,
+            *pending,
+            &setup.commitment_key,
+            truth,
+        )
+        .expect("actual production recovery entry repairs suffix and covers S1");
+        assert!(receipt.transition_was_existing());
+        assert_eq!(
+            receipt.appended_suffix_records(),
+            expected_appended_suffix_records
+        );
+        assert!(receipt.covering_seal_generation() > 1);
+        drop(ready);
+
+        let final_restart = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.operational_identity)
+                .expect("revalidate repaired durable root"),
+            setup.operational_identity.clone(),
+            &setup.commitment_key,
+            setup.runtime.clone(),
+        )
+        .expect("restart repaired production journal");
+        assert!(matches!(final_restart, Stage7bRestartOutcome::Ready(_)));
+        drop(final_restart);
+        std::fs::remove_dir_all(&setup.parent).expect("remove recovery fixture");
+    }
+
+    #[test]
+    fn stage8a4_i3_normal_production_path_persists_exact_batch_covers_s1_and_restarts_ready() {
+        let (setup, mut owner) = stage8a4_i3_production_test_setup();
+        let BrokerCommand::PlaceOrder(place) = &setup.command else {
+            panic!("Stage8A4 production fixture must contain PLACE");
+        };
+        let identity = Stage6DurableRequestIdentityV1::from_place(
+            place,
+            setup.command_context.attribution().clone(),
+        )
+        .expect("Stage8A4 production identity");
+        let command = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
+            .expect("Stage8A4 production command");
+        let authority_root = setup.parent.join("stage8a4-authority-normal");
+        let (issuer, capability) = stage8a4_test_production_place_capability(
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            place,
+            &authority_root,
+        )
+        .expect("production Stage8A1 capability");
+
+        let trusted_now = Utc::now();
+        let possible_effect_at = trusted_now - Duration::seconds(3);
+        let event_start = trusted_now - Duration::seconds(2);
+        let event_end = trusted_now - Duration::seconds(1);
+        let event_window = Stage8a4ProductionEventWindow::from_dispatch_and_acquisition(
+            possible_effect_at,
+            event_start,
+            event_end,
+        )
+        .expect("valid production event window");
+        let reconciliation_source = production_source(
+            place,
+            event_start,
+            event_end,
+            possible_effect_at,
+            trusted_now,
+        );
+        let writer_source = production_source(
+            place,
+            event_start,
+            event_end,
+            possible_effect_at,
+            trusted_now,
+        );
+        let receipt = reconcile_persist_and_cover_stage8a4_from_production_sources(
+            &capability,
+            &issuer,
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            event_window,
+            None,
+            None,
+            reconciliation_source,
+            writer_source,
+            trusted_now,
+        )
+        .expect("production I3 persistence and covering S1");
+        assert!(!receipt.transition_was_existing());
+        assert!(receipt.appended_suffix_records() > 0);
+        assert!(receipt.covering_seal_generation() > 1);
+        assert_eq!(receipt.stage6_checkpoint_sha256().len(), 64);
+        drop(owner);
+
+        let restarted = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.operational_identity)
+                .expect("revalidate production durable root"),
+            setup.operational_identity.clone(),
+            &setup.commitment_key,
+            setup.runtime.clone(),
+        )
+        .expect("restart covered production journal");
+        assert!(matches!(restarted, Stage7bRestartOutcome::Ready(_)));
+        std::fs::remove_dir_all(&setup.parent).expect("remove production fixture");
+    }
+
+    #[test]
+    fn stage8a4_i3_production_recovery_repairs_v2_only_crash_and_covers_s1() {
+        assert_production_recovery(
+            ProductionCrashPoint::JournalAppend(1),
+            "stage8a4-authority-v2-only",
+            2,
+        );
+    }
+
+    #[test]
+    fn stage8a4_i3_production_recovery_repairs_partial_exact_suffix_and_covers_s1() {
+        assert_production_recovery(
+            ProductionCrashPoint::BeforeJournalAppend(3),
+            "stage8a4-authority-partial-suffix",
+            1,
+        );
+    }
+
+    #[test]
+    fn stage8a4_i3_production_recovery_covers_complete_batch_without_s1() {
+        assert_production_recovery(
+            ProductionCrashPoint::BeforeCoveringSeal,
+            "stage8a4-authority-complete-before-s1",
+            0,
+        );
+    }
 }

@@ -15,6 +15,8 @@ run_gate() {
 
 run_gate inherited-i2 python3 scripts/stage8a4_durable_composition_i2_check.py --no-git
 run_gate inherited-stage8a1 cargo test -p finam-gateway --test stage8a1_r3_authority_boundary -- --test-threads=1
+run_gate inherited-stage8a1-negative python3 scripts/stage8a1_negative_harness.py
+run_gate inherited-stage8a1-successor python3 scripts/stage8a4_i3_stage8a1_successor_check.py
 run_gate semantic-check python3 scripts/stage8a4_durable_composition_i3_check.py
 run_gate semantic-negative python3 scripts/stage8a4_durable_composition_i3_negative_harness.py
 run_gate external-compile-fail bash scripts/stage8a4_durable_composition_i3_external_compile_fail.sh
@@ -36,10 +38,10 @@ import sys
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "schema_version": 1,
-    "stage": "8A-4-durable-composition-I3-R3",
+    "stage": "8A-4-durable-composition-I3-R4",
     "result": "PASS",
-    "acceptance_rows": 60,
-    "negative_cases": 58,
+    "acceptance_rows": 69,
+    "negative_cases": 80,
     "sealed_linear_writer_authority": True,
     "exact_request_truth_control_binding": True,
     "post_write_sticky_fail_stop": True,
@@ -48,6 +50,8 @@ Path(sys.argv[1]).write_text(json.dumps({
     "broker_core_sqlite_baseline_unchanged": True,
     "production_normal_composition_path": True,
     "production_restart_without_i2_candidate": True,
+    "writer_entry_ed25519_attested": True,
+    "production_normal_and_three_recovery_paths_directly_tested": True,
     "external_raw_mutator_compile_fail": True,
     "v2_durable_append_enabled": True,
     "four_field_cas_enabled": True,
@@ -60,4 +64,4 @@ Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2) + "\n", encoding="utf-8")
 PY
 
-echo "stage8a4-durable-composition-i3-gate: PASS rows=60 negatives=58 sealed=true broker_neutral=true recovery=true ack=false execution=false"
+echo "stage8a4-durable-composition-i3-gate: PASS rows=69 negatives=80 sealed=private pending=true broker_neutral=true recovery=true ack=false execution=false"

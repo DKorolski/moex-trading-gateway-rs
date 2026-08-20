@@ -1,4 +1,4 @@
-# Stage 8A-4 durable composition I3 R3
+# Stage 8A-4 durable composition I3 R4
 
 ## Scope and lineage
 
@@ -14,17 +14,34 @@ and made restart depend on the lost I2 process object. I3 R3 closes those
 authority-topology findings while preserving V2-first, exact suffix and
 covering S1 behavior.
 
+R3 was not accepted because its public sealer remained forgeable and an
+incomplete V2/suffix tail advanced ordinary Ready/S1. R4 authenticates the
+FINAM issuer with Ed25519 against a public key pinned by the Stage 6/7
+operational identity, then creates the lifecycle-key HMAC seal only inside
+strategy-runtime-core. Incomplete or complete-but-uncovered restart remains in
+a typed Pending owner, and source/truth/control evidence is bound into the
+one-shot writer commitment.
+
 I4 remains separately review-gated. ACK/readiness, Redis live consumption,
 FINAM POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
 
 ## Sealed writer authority
 
 The production Stage7 writer no longer accepts a caller-provided
-`Stage6Stage8a4DurableBatch`. It consumes the broker-neutral linear opaque
-`Stage6Stage8a4SealedWriteAuthority`. The exact request, command, batch,
-operational identity, runtime config and S0 seal are authenticated by a
-domain-separated lifecycle-key HMAC. The authority has no `Clone`, `Debug`,
+`Stage6Stage8a4DurableBatch`. It consumes a broker-neutral validated writer
+entry whose Ed25519 signature covers the exact request, command, batch,
+operational identity, runtime config, S0 seal and source/truth/control
+bindings. Apply compares the attesting public key with the authenticated
+operational identity, then mints and verifies the core-private
+`Stage6Stage8a4SealedWriteAuthority` using a domain-separated lifecycle-key
+HMAC. Neither layer has a caller-controlled `issue`/`seal`, `Clone`, `Debug`,
 `Serialize` or `Deserialize` path.
+
+The Stage8A1 issuer reads a pinned regular signing-key file, rejects symlinks,
+requires no group/other permission bits, derives its public key and exact
+compares it with accepted configuration and the Stage 6/7 operational
+identity. Diagnostics and orchestration never receive the private key or a raw
+batch writer.
 
 The sole private issuer consumes all of:
 
@@ -85,12 +102,23 @@ a hard conflict. Success requires complete replay, F1, covering S1, and an
 authenticated reread of S1.
 
 Restart recovery remains narrow: only S0 followed by one exact I3 V2 and zero
-or more exact manifest-prefix V1 records can be covered. The production restart
-entry reconstructs the exact V1 suffix from persisted canonical V2 and verifies
-every record against the manifest. It therefore does not require the lost I2
-candidate, private outcome or a test helper. A second V2, unrelated V1, wrong
-durable binding, stale precondition, torn frame or foreign suffix is never
-covered.
+or more exact manifest-prefix V1 records can be covered. This includes an
+already complete F1 whose covering S1 was not committed. The production
+restart entry reconstructs the exact V1 suffix from persisted canonical V2,
+verifies every persisted prefix record against the manifest, appends only the
+missing records, and commits/rereads S1. It therefore does not require the lost
+I2 candidate, private outcome or a test writer. A second V2, unrelated V1,
+wrong durable binding, stale precondition, torn frame or foreign suffix is
+never covered.
+
+Direct integration tests traverse the real production issuers and entries.
+The normal path proves RequestAccepted + Dispatch through current read-only
+truth to V2, two-record exact suffix, F1 and S1. Recovery tests create
+deterministic crash boundaries through a feature-gated I/O fault injector, then
+call the actual production recovery entry for V2-only, partial-suffix and
+complete-before-S1 states. Repeated restart stays Pending; successful repair
+returns ordinary Ready. The fault injector cannot append a batch or construct
+a writer authority.
 
 ## Sticky mutation uncertainty
 

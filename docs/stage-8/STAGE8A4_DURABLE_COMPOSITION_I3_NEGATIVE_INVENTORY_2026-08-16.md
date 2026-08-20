@@ -1,6 +1,6 @@
-# Stage 8A-4 I3 R3 negative inventory
+# Stage 8A-4 I3 R4 negative inventory
 
-The fail-closed mutation harness retains the R2 protections and pins these 58
+The fail-closed mutation harness retains all 58 R3 protections and pins 80
 independent cases:
 
 1. accepted I2 predecessor drift;
@@ -61,6 +61,28 @@ independent cases:
 56. local Stage8A1 readiness lookalike replaces Stage7B readiness;
 57. production sealed normal composition removed;
 58. crash suffix recovery requires a test helper or lost I2 candidate.
+59. rejected I3 R3 reference drifts;
+60. rejected I3 R3 review digest drifts;
+61. public sealed-authority construction is enabled;
+62. typed Pending restart is disabled;
+63. source/truth/control authority binding is disabled;
+64. core-private sealed authority becomes public;
+65. Pending owner is removed;
+66. Pending restart outcome is converted to ordinary Ready;
+67. production source bridge is removed;
+68. production durable-context issuer is removed;
+69. frozen production policy issuer is removed;
+70. read-only source-evidence issuer is removed;
+71. Ed25519 writer-attestation verification is removed;
+72. authenticated operational issuer-key pin comparison is removed;
+73. private signing-key permission check is removed;
+74. caller-forgeable validated-entry issuer is restored;
+75. production normal-path integration test is removed;
+76. production V2-only recovery integration test is removed;
+77. production partial-suffix recovery integration test is removed;
+78. production complete-batch-before-S1 integration test is removed;
+79. production recovery test is redirected to a raw/test batch writer;
+80. complete uncovered batch is excluded from Pending recovery material.
 
 Inherited I2, forbidden-surface, compiler, clippy and archive-safety gates remain
 mandatory. In particular, the checker rejects both a raw Stage7 writer and a

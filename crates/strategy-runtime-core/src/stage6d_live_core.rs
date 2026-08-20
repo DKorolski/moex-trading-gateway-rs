@@ -38,6 +38,7 @@ use broker_core::{
     BrokerTradeSnapshot, ClientOrderId, HybridRuntimeAttribution, InstrumentId, StrategyRequestId,
 };
 use chrono::{DateTime, Utc};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -287,6 +288,11 @@ pub struct Stage6dOperationalIdentityConfig {
     pub instrument_map_fingerprint_sha256: String,
     pub market_data_generation: u64,
     pub command_consumer_generation: u64,
+    /// Ed25519 verification key for the private Stage 8A-4 writer issuer.
+    /// It is authenticated by the Stage 6D restart package and therefore
+    /// cannot be replaced by a caller presenting otherwise valid public V2
+    /// material.
+    pub stage8a4_writer_issuer_public_key_hex: String,
 }
 
 /// Returns the canonical digest used to bind durable storage to an already
@@ -629,7 +635,7 @@ pub struct Stage6Stage8a4DurableBatch {
 /// It is deliberately not `Clone`, `Debug` or `Serialize`. Public V2/read
 /// material is insufficient to mutate storage: the current lifecycle
 /// commitment key must authenticate this exact request, batch and S0 binding.
-pub struct Stage6Stage8a4SealedWriteAuthority {
+struct Stage6Stage8a4SealedWriteAuthority {
     identity: Stage6DurableRequestIdentityV1,
     command: Stage6DurableCommandSnapshotV1,
     batch: Stage6Stage8a4DurableBatch,
@@ -637,8 +643,31 @@ pub struct Stage6Stage8a4SealedWriteAuthority {
     runtime_config_fingerprint_sha256: String,
     seal_generation: u64,
     seal_commitment_sha256: String,
+    source_evidence_binding_sha256: Stage6Sha256Digest,
+    writer_truth_binding_sha256: Stage6Sha256Digest,
+    control_binding_sha256: Stage6Sha256Digest,
     authority_commitment_sha256: String,
     authority_hmac_sha256: String,
+}
+
+/// Broker-neutral one-shot writer-entry evidence. This is not a storage
+/// capability: it is revalidated and consumed inside strategy-runtime-core,
+/// where the private HMAC authority is minted and immediately applied.
+///
+/// The type is linear and non-serializable. No API converts public V2/read
+/// material directly into the private write capability.
+pub struct Stage6Stage8a4ValidatedWriteEntry {
+    identity: Stage6DurableRequestIdentityV1,
+    command: Stage6DurableCommandSnapshotV1,
+    batch: Stage6Stage8a4DurableBatch,
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    seal_generation: u64,
+    seal_commitment_sha256: String,
+    source_evidence_binding_sha256: Stage6Sha256Digest,
+    writer_truth_binding_sha256: Stage6Sha256Digest,
+    control_binding_sha256: Stage6Sha256Digest,
+    issuer_public_key_hex: String,
 }
 
 /// Read-only canonical material for suffix recovery after the original I2
@@ -664,7 +693,7 @@ impl Stage6Stage8a4PendingRecovery {
 
 impl Stage6Stage8a4SealedWriteAuthority {
     #[allow(clippy::too_many_arguments)]
-    pub fn seal(
+    fn seal(
         commitment_key: &Stage5gLifecycleCommitmentKey,
         identity: Stage6DurableRequestIdentityV1,
         command: Stage6DurableCommandSnapshotV1,
@@ -673,6 +702,9 @@ impl Stage6Stage8a4SealedWriteAuthority {
         runtime_config_fingerprint_sha256: String,
         seal_generation: u64,
         seal_commitment_sha256: String,
+        source_evidence_binding_sha256: Stage6Sha256Digest,
+        writer_truth_binding_sha256: Stage6Sha256Digest,
+        control_binding_sha256: Stage6Sha256Digest,
     ) -> Result<Self, Stage6dLiveCoreError> {
         let authority_commitment_sha256 = stage8a4_write_authority_commitment(
             &identity,
@@ -682,6 +714,9 @@ impl Stage6Stage8a4SealedWriteAuthority {
             &runtime_config_fingerprint_sha256,
             seal_generation,
             &seal_commitment_sha256,
+            &source_evidence_binding_sha256,
+            &writer_truth_binding_sha256,
+            &control_binding_sha256,
         )?;
         let authority_hmac_sha256 =
             commitment_key.stage8a4_write_authority_hmac_sha256(&authority_commitment_sha256);
@@ -693,8 +728,94 @@ impl Stage6Stage8a4SealedWriteAuthority {
             runtime_config_fingerprint_sha256,
             seal_generation,
             seal_commitment_sha256,
+            source_evidence_binding_sha256,
+            writer_truth_binding_sha256,
+            control_binding_sha256,
             authority_commitment_sha256,
             authority_hmac_sha256,
+        })
+    }
+
+    fn verify(
+        self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        let current = stage8a4_write_authority_commitment(
+            &self.identity,
+            &self.command,
+            &self.batch,
+            &self.operational_identity_sha256,
+            &self.runtime_config_fingerprint_sha256,
+            self.seal_generation,
+            &self.seal_commitment_sha256,
+            &self.source_evidence_binding_sha256,
+            &self.writer_truth_binding_sha256,
+            &self.control_binding_sha256,
+        )?;
+        if current != self.authority_commitment_sha256
+            || !commitment_key
+                .stage8a4_verify_write_authority_hmac_sha256(&current, &self.authority_hmac_sha256)
+        {
+            return Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid);
+        }
+        Ok(self)
+    }
+}
+
+impl Stage6Stage8a4ValidatedWriteEntry {
+    #[allow(clippy::too_many_arguments)]
+    pub fn verify_issuer_attestation(
+        identity: Stage6DurableRequestIdentityV1,
+        command: Stage6DurableCommandSnapshotV1,
+        batch: Stage6Stage8a4DurableBatch,
+        operational_identity_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        seal_generation: u64,
+        seal_commitment_sha256: String,
+        source_evidence_binding_sha256: Stage6Sha256Digest,
+        writer_truth_binding_sha256: Stage6Sha256Digest,
+        control_binding_sha256: Stage6Sha256Digest,
+        issuer_public_key_hex: String,
+        issuer_signature_hex: String,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        if batch.transition_record().durable_request_identity() != &identity
+            || command.action() != identity.action()
+            || seal_generation == 0
+            || Stage6Sha256Digest::parse(operational_identity_sha256.clone()).is_err()
+            || Stage6Sha256Digest::parse(runtime_config_fingerprint_sha256.clone()).is_err()
+            || Stage6Sha256Digest::parse(seal_commitment_sha256.clone()).is_err()
+        {
+            return Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid);
+        }
+        let attestation_sha256 = stage8a4_writer_entry_attestation_sha256(
+            &identity,
+            &command,
+            &batch,
+            &operational_identity_sha256,
+            &runtime_config_fingerprint_sha256,
+            seal_generation,
+            &seal_commitment_sha256,
+            &source_evidence_binding_sha256,
+            &writer_truth_binding_sha256,
+            &control_binding_sha256,
+        )?;
+        verify_stage8a4_writer_signature(
+            &issuer_public_key_hex,
+            &issuer_signature_hex,
+            &attestation_sha256,
+        )?;
+        Ok(Self {
+            identity,
+            command,
+            batch,
+            operational_identity_sha256,
+            runtime_config_fingerprint_sha256,
+            seal_generation,
+            seal_commitment_sha256,
+            source_evidence_binding_sha256,
+            writer_truth_binding_sha256,
+            control_binding_sha256,
+            issuer_public_key_hex,
         })
     }
 
@@ -722,6 +843,10 @@ impl Stage6Stage8a4SealedWriteAuthority {
         &self.seal_commitment_sha256
     }
 
+    pub fn issuer_public_key_hex(&self) -> &str {
+        &self.issuer_public_key_hex
+    }
+
     pub fn expected_recovery_seal_generation(&self) -> u64 {
         self.batch
             .transition_record
@@ -746,27 +871,92 @@ impl Stage6Stage8a4SealedWriteAuthority {
         recovered.stage8a4_batch_matches_current_tail(&self.batch)
     }
 
-    fn verify(
+    fn into_sealed(
         self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
-    ) -> Result<Self, Stage6dLiveCoreError> {
-        let current = stage8a4_write_authority_commitment(
-            &self.identity,
-            &self.command,
-            &self.batch,
-            &self.operational_identity_sha256,
-            &self.runtime_config_fingerprint_sha256,
+    ) -> Result<Stage6Stage8a4SealedWriteAuthority, Stage6dLiveCoreError> {
+        Stage6Stage8a4SealedWriteAuthority::seal(
+            commitment_key,
+            self.identity,
+            self.command,
+            self.batch,
+            self.operational_identity_sha256,
+            self.runtime_config_fingerprint_sha256,
             self.seal_generation,
-            &self.seal_commitment_sha256,
-        )?;
-        if current != self.authority_commitment_sha256
-            || !commitment_key
-                .stage8a4_verify_write_authority_hmac_sha256(&current, &self.authority_hmac_sha256)
-        {
-            return Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid);
-        }
-        Ok(self)
+            self.seal_commitment_sha256,
+            self.source_evidence_binding_sha256,
+            self.writer_truth_binding_sha256,
+            self.control_binding_sha256,
+        )
     }
+}
+
+/// Canonical digest signed by the private Stage 8A-4 writer issuer. Computing
+/// this digest grants no authority; the corresponding private Ed25519 key is
+/// deliberately absent from strategy-runtime-core and runtime-durable-service.
+#[allow(clippy::too_many_arguments)]
+pub fn stage8a4_writer_entry_attestation_sha256(
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    batch: &Stage6Stage8a4DurableBatch,
+    operational_identity_sha256: &str,
+    runtime_config_fingerprint_sha256: &str,
+    seal_generation: u64,
+    seal_commitment_sha256: &str,
+    source_evidence_binding_sha256: &Stage6Sha256Digest,
+    writer_truth_binding_sha256: &Stage6Sha256Digest,
+    control_binding_sha256: &Stage6Sha256Digest,
+) -> Result<Stage6Sha256Digest, Stage6dLiveCoreError> {
+    let commitment = stage8a4_write_authority_commitment(
+        identity,
+        command,
+        batch,
+        operational_identity_sha256,
+        runtime_config_fingerprint_sha256,
+        seal_generation,
+        seal_commitment_sha256,
+        source_evidence_binding_sha256,
+        writer_truth_binding_sha256,
+        control_binding_sha256,
+    )?;
+    Stage6Sha256Digest::parse(sha256_hex(
+        [
+            b"stage8a4-writer-issuer-attestation-v1".as_slice(),
+            commitment.as_bytes(),
+        ]
+        .concat()
+        .as_slice(),
+    ))
+    .map_err(|_| Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)
+}
+
+fn verify_stage8a4_writer_signature(
+    issuer_public_key_hex: &str,
+    issuer_signature_hex: &str,
+    attestation_sha256: &Stage6Sha256Digest,
+) -> Result<(), Stage6dLiveCoreError> {
+    let public_key = decode_fixed_hex::<32>(issuer_public_key_hex)?;
+    let signature = decode_fixed_hex::<64>(issuer_signature_hex)?;
+    let verifying_key = VerifyingKey::from_bytes(&public_key)
+        .map_err(|_| Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)?;
+    verifying_key
+        .verify(
+            attestation_sha256.as_str().as_bytes(),
+            &Signature::from_bytes(&signature),
+        )
+        .map_err(|_| Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)
+}
+
+fn decode_fixed_hex<const N: usize>(value: &str) -> Result<[u8; N], Stage6dLiveCoreError> {
+    if value.len() != N * 2 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid);
+    }
+    let mut decoded = [0_u8; N];
+    for (index, byte) in decoded.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)?;
+    }
+    Ok(decoded)
 }
 
 impl Stage6Stage8a4DurableBatch {
@@ -815,6 +1005,7 @@ impl Stage6Stage8a4DurableBatch {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn stage8a4_write_authority_commitment(
     identity: &Stage6DurableRequestIdentityV1,
     command: &Stage6DurableCommandSnapshotV1,
@@ -823,6 +1014,9 @@ fn stage8a4_write_authority_commitment(
     runtime_config_fingerprint_sha256: &str,
     seal_generation: u64,
     seal_commitment_sha256: &str,
+    source_evidence_binding_sha256: &Stage6Sha256Digest,
+    writer_truth_binding_sha256: &Stage6Sha256Digest,
+    control_binding_sha256: &Stage6Sha256Digest,
 ) -> Result<String, Stage6dLiveCoreError> {
     if seal_generation == 0
         || Stage6Sha256Digest::parse(operational_identity_sha256.to_string()).is_err()
@@ -856,6 +1050,12 @@ fn stage8a4_write_authority_commitment(
     stage8a4_hash_part(&mut hasher, runtime_config_fingerprint_sha256.as_bytes());
     stage8a4_hash_part(&mut hasher, &seal_generation.to_be_bytes());
     stage8a4_hash_part(&mut hasher, seal_commitment_sha256.as_bytes());
+    stage8a4_hash_part(
+        &mut hasher,
+        source_evidence_binding_sha256.as_str().as_bytes(),
+    );
+    stage8a4_hash_part(&mut hasher, writer_truth_binding_sha256.as_str().as_bytes());
+    stage8a4_hash_part(&mut hasher, control_binding_sha256.as_str().as_bytes());
     Ok(hasher
         .finalize()
         .iter()
@@ -1103,8 +1303,7 @@ impl Stage6dDurableRuntimeRecovered {
     ) -> Result<Option<Stage6Stage8a4PendingRecovery>, Stage6dLiveCoreError> {
         let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
         let Some(batch) = mixed.reconciliation_batches().iter().find(|batch| {
-            batch.completion() == Stage6ReconciliationBatchCompletionV2::Incomplete
-                && Some(batch.last_mixed_record_id()) == self.journal_frontier().last_record_id()
+            Some(batch.last_mixed_record_id()) == self.journal_frontier().last_record_id()
                 && Some(batch.last_mixed_lifecycle_sequence())
                     == self.journal_frontier().last_lifecycle_sequence()
         }) else {
@@ -1247,15 +1446,83 @@ pub fn stage8a4_test_set_journal_failpoint(
         .map_err(Stage6dLiveCoreError::from)
 }
 
+/// Test-only issuer using the RFC 8032 test-vector key whose public half is
+/// pinned by Stage 6/7 fixture operational identities.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+#[allow(clippy::too_many_arguments)]
+pub fn stage8a4_test_attest_validated_entry(
+    identity: Stage6DurableRequestIdentityV1,
+    command: Stage6DurableCommandSnapshotV1,
+    batch: Stage6Stage8a4DurableBatch,
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    seal_generation: u64,
+    seal_commitment_sha256: String,
+    source_evidence_binding_sha256: Stage6Sha256Digest,
+    writer_truth_binding_sha256: Stage6Sha256Digest,
+    control_binding_sha256: Stage6Sha256Digest,
+) -> Result<Stage6Stage8a4ValidatedWriteEntry, Stage6dLiveCoreError> {
+    use ed25519_dalek::{Signer as _, SigningKey};
+
+    let seed =
+        decode_fixed_hex::<32>("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")?;
+    let signer = SigningKey::from_bytes(&seed);
+    let attestation = stage8a4_writer_entry_attestation_sha256(
+        &identity,
+        &command,
+        &batch,
+        &operational_identity_sha256,
+        &runtime_config_fingerprint_sha256,
+        seal_generation,
+        &seal_commitment_sha256,
+        &source_evidence_binding_sha256,
+        &writer_truth_binding_sha256,
+        &control_binding_sha256,
+    )?;
+    let signature = signer.sign(attestation.as_str().as_bytes());
+    Stage6Stage8a4ValidatedWriteEntry::verify_issuer_attestation(
+        identity,
+        command,
+        batch,
+        operational_identity_sha256,
+        runtime_config_fingerprint_sha256,
+        seal_generation,
+        seal_commitment_sha256,
+        source_evidence_binding_sha256,
+        writer_truth_binding_sha256,
+        control_binding_sha256,
+        encode_lower_hex(signer.verifying_key().as_bytes()),
+        encode_lower_hex(&signature.to_bytes()),
+    )
+}
+
+#[cfg(feature = "stage5g-artifact-fixtures")]
+fn encode_lower_hex(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        write!(&mut encoded, "{byte:02x}").expect("writing into String cannot fail");
+    }
+    encoded
+}
+
 /// Applies an authenticated broker-neutral I3 authority. Caller-provided V2
 /// or batch material cannot enter this boundary directly; Stage 7B still owns
 /// S0 validation and the covering S1 commit/reread.
-pub fn apply_stage8a4_sealed_durable_write(
+pub fn apply_stage8a4_validated_writer_entry(
     recovered: &mut Stage6dDurableRuntimeRecovered,
     commitment_key: &Stage5gLifecycleCommitmentKey,
-    authority: Stage6Stage8a4SealedWriteAuthority,
+    entry: Stage6Stage8a4ValidatedWriteEntry,
 ) -> Result<Stage6Stage8a4BatchAppendReceipt, Stage6dLiveCoreError> {
-    let authority = authority.verify(commitment_key)?;
+    let authenticated_identity = recovered
+        .authenticated_operational_identity()
+        .ok_or(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)?;
+    if authenticated_identity.stage8a4_writer_issuer_public_key_hex != entry.issuer_public_key_hex()
+    {
+        return Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid);
+    }
+    let authority = entry.into_sealed(commitment_key)?.verify(commitment_key)?;
     let Stage6Stage8a4SealedWriteAuthority {
         identity,
         command,
@@ -3717,6 +3984,7 @@ fn validate_operational_identity_config(
         || config.market_data_generation == 0
         || config.command_consumer_generation == 0
         || Stage6Sha256Digest::parse(config.instrument_map_fingerprint_sha256.clone()).is_err()
+        || decode_fixed_hex::<32>(&config.stage8a4_writer_issuer_public_key_hex).is_err()
     {
         return Err(Stage6dLiveCoreError::OperationalIdentityInvalid);
     }
@@ -3872,6 +4140,8 @@ mod tests {
             instrument_map_fingerprint_sha256: "b".repeat(64),
             market_data_generation: 1,
             command_consumer_generation: 1,
+            stage8a4_writer_issuer_public_key_hex:
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
         }
     }
 

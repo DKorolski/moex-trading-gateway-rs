@@ -27,6 +27,8 @@ fn identity() -> Stage6dOperationalIdentityConfig {
         instrument_map_fingerprint_sha256: "2".repeat(64),
         market_data_generation: 1,
         command_consumer_generation: 1,
+        stage8a4_writer_issuer_public_key_hex:
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
     }
 }
 

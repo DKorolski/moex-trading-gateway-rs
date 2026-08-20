@@ -19,11 +19,9 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
-#[cfg(test)]
-use strategy_runtime_core::Stage6Stage8a4DurableBatch;
 use strategy_runtime_core::{
     admit_stage7a_paper_command, advance_stage6d_restart_package,
-    apply_stage8a4_sealed_durable_write, execute_stage6d_paper_outcome,
+    apply_stage8a4_validated_writer_entry, execute_stage6d_paper_outcome,
     finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     refresh_stage7b_durable_frontier, restart_stage6d_paper_with_owned_journal,
@@ -34,11 +32,13 @@ use strategy_runtime_core::{
     Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
     Stage6JournalRecordVersioned, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
     Stage6OwnedJournalBackend, Stage6RequestFinalDispositionV1, Stage6Stage8a4PendingRecovery,
-    Stage6Stage8a4SealedWriteAuthority, Stage6dDurableRuntimeRecovered,
+    Stage6Stage8a4ValidatedWriteEntry, Stage6dDurableRuntimeRecovered,
     Stage6dFirstBootAuthorization, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
     Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
     Stage7aPaperAdmission, Stage7aPaperCommandContext, Stage7bFinalizedRequestFacts,
 };
+#[cfg(test)]
+use strategy_runtime_core::{Stage6Sha256Digest, Stage6Stage8a4DurableBatch};
 
 mod redis_service;
 pub(crate) mod redis_settlement;
@@ -56,6 +56,184 @@ use redis_settlement::{
     Stage7bPreStage6PoisonObservation, Stage7bRedisSettlementBackend,
     Stage7bRedisSettlementContext, Stage7bRedisSettlementError, Stage7bRedisSettlementOutcome,
 };
+
+/// Feature-gated source-exact setup for downstream integration tests of the
+/// production Stage 8A-4 composition. It creates a normal Stage7B durable
+/// owner through the accepted restart path; it exposes no journal handle,
+/// raw batch writer or authority constructor.
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub struct Stage8a4I3ProductionTestSetup {
+    pub parent: std::path::PathBuf,
+    pub root: std::path::PathBuf,
+    pub operational_identity: Stage6dOperationalIdentityConfig,
+    pub commitment_key: Stage5gLifecycleCommitmentKey,
+    pub runtime: HybridIntradayRuntimeStrategy,
+    pub command: BrokerCommand,
+    pub command_context: Stage7aPaperCommandContext,
+}
+
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub fn stage8a4_i3_production_test_setup(
+) -> (Stage8a4I3ProductionTestSetup, Stage7bRecoveryReadyOwner) {
+    use strategy_runtime_core::{
+        authorize_stage6d_first_boot, stage7b_test_authenticated_working_restart_fixture,
+        Stage6dFirstBootConfig, Stage7bTestExtraStage6History,
+    };
+
+    let fixture =
+        stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None);
+    let mut command = fixture.command;
+    let BrokerCommand::PlaceOrder(place) = &mut command else {
+        panic!("Stage8A4 production fixture requires PLACE");
+    };
+    place.created_ts = Utc::now() - chrono::Duration::seconds(1);
+    place.ttl_ms = Some(60_000);
+    let request_identity = Stage6DurableRequestIdentityV1::from_place(
+        place,
+        fixture.command_context.attribution().clone(),
+    )
+    .expect("Stage8A4 fixture request identity");
+    let durable_command = Stage6DurableCommandSnapshotV1::from_place(&request_identity, place)
+        .expect("Stage8A4 fixture durable command");
+    let accepted = strategy_runtime_core::Stage6JournalRecordV1::request_accepted(
+        request_identity.clone(),
+        durable_command,
+        strategy_runtime_core::Stage6LifecycleSequence::new(1)
+            .expect("Stage8A4 fixture accepted sequence"),
+        None,
+        None,
+        strategy_runtime_core::Stage6Sha256Digest::parse("3".repeat(64))
+            .expect("Stage8A4 fixture accepted frontier"),
+    )
+    .expect("Stage8A4 fixture accepted record");
+    let dispatch = strategy_runtime_core::Stage6JournalRecordV1::dispatch_attempt_recorded(
+        request_identity,
+        1,
+        accepted.canonical_payload_sha256().clone(),
+        strategy_runtime_core::Stage6LifecycleSequence::new(2)
+            .expect("Stage8A4 fixture dispatch sequence"),
+        Some(accepted.journal_record_id().clone()),
+        strategy_runtime_core::Stage6Sha256Digest::parse("4".repeat(64))
+            .expect("Stage8A4 fixture dispatch frontier"),
+    )
+    .expect("Stage8A4 fixture dispatch record");
+    let journal_records = [accepted, dispatch];
+    let operational_identity = Stage6dOperationalIdentityConfig {
+        broker_id: "paper".to_string(),
+        strategy_instance_id: "hybrid-imoexf".to_string(),
+        deployment_id: "stage8a4-i3-production-test".to_string(),
+        deployment_generation: 1,
+        gateway_instance_id: "gateway-stage8a4-i3-test".to_string(),
+        instrument_map_fingerprint_sha256: "1".repeat(64),
+        market_data_generation: 1,
+        command_consumer_generation: 1,
+        stage8a4_writer_issuer_public_key_hex:
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
+    };
+    let parent = std::env::temp_dir().join(format!(
+        "stage8a4-i3-production-{}-{}",
+        std::process::id(),
+        STAGE7B_RECOVERY_SEAL_TEMP_COUNTER.fetch_add(1, Ordering::SeqCst)
+    ));
+    std::fs::create_dir(&parent).expect("create Stage8A4 I3 fixture parent");
+    let parent = std::fs::canonicalize(parent).expect("canonical Stage8A4 I3 fixture parent");
+    let root = parent.join(
+        Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+            .expect("valid Stage8A4 fixture identity"),
+    );
+    std::fs::create_dir(&root).expect("create Stage8A4 I3 fixture root");
+    let authorization = authorize_stage6d_first_boot(Stage6dFirstBootConfig {
+        deployment_id: operational_identity.deployment_id.clone(),
+        expected_runtime_config_fingerprint_sha256: fixture
+            .fresh_runtime
+            .stage5c_config_fingerprint(),
+        allow_create_missing_journal: true,
+    })
+    .expect("authorize Stage8A4 fixture first boot");
+    let mut storage = Stage7bWritableDurableAuthority::create_new(
+        Stage7bDurableRootAuthority::validate(&root, &operational_identity)
+            .expect("validate Stage8A4 fixture root"),
+        &operational_identity,
+        &authorization,
+    )
+    .expect("create Stage8A4 fixture storage");
+    let s0_checkpoint =
+        Stage6JournalCheckpointV1::from_frontier(storage.journal.frontier().clone())
+            .expect("Stage8A4 fixture S0 checkpoint");
+    for record in &journal_records {
+        storage
+            .journal
+            .append(record)
+            .expect("append Stage8A4 fixture accepted/dispatch record");
+    }
+    let package = seal_stage6d_restart_package(
+        &fixture.stage5g_authenticated_package,
+        s0_checkpoint.clone(),
+        operational_identity.clone(),
+        &fixture.commitment_key,
+    )
+    .expect("seal Stage8A4 fixture package");
+    let seal = Stage7bRecoverySealV1::new(
+        1,
+        package,
+        s0_checkpoint,
+        stage6d_operational_identity_sha256(&operational_identity)
+            .expect("digest Stage8A4 fixture identity")
+            .as_str()
+            .to_string(),
+        &fixture.commitment_key,
+    )
+    .expect("construct Stage8A4 fixture seal");
+    storage
+        ._writer_lease
+        .commit_recovery_seal(&seal)
+        .expect("commit Stage8A4 fixture S0");
+    drop(storage);
+    let restarted = Stage7bRecoveryReadyOwner::restart(
+        Stage7bDurableRootAuthority::validate(&root, &operational_identity)
+            .expect("revalidate Stage8A4 fixture root"),
+        operational_identity.clone(),
+        &fixture.commitment_key,
+        fixture.fresh_runtime.clone(),
+    )
+    .expect("restart Stage8A4 fixture owner");
+    let Stage7bRestartOutcome::Ready(owner) = restarted else {
+        panic!("Stage8A4 fixture must restart Ready");
+    };
+    (
+        Stage8a4I3ProductionTestSetup {
+            parent,
+            root,
+            operational_identity,
+            commitment_key: fixture.commitment_key,
+            runtime: fixture.fresh_runtime,
+            command,
+            command_context: fixture.command_context,
+        },
+        *owner,
+    )
+}
+
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub fn stage8a4_i3_test_set_owner_journal_failpoint(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    failpoint: strategy_runtime_core::Stage8a4JournalTestFailpoint,
+) -> Result<(), Stage7bRecoveryError> {
+    strategy_runtime_core::stage8a4_test_set_journal_failpoint(
+        &mut owner.recovered,
+        Some(failpoint),
+    )
+    .map_err(Stage7bRecoveryError::Runtime)
+}
+
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub fn stage8a4_i3_test_fail_before_covering_seal(owner: &mut Stage7bRecoveryReadyOwner) {
+    owner.stage8a4_test_fail_before_covering_seal = true;
+}
 
 pub const STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION: u16 = 1;
 const STAGE7B_RECOVERY_SEAL_COMMITMENT_DOMAIN: &str = "moex.stage7b.recovery-seal.commitment.v1";
@@ -439,6 +617,22 @@ pub struct Stage7bRecoveryReadyOwner {
     committed_seal: Stage7bRecoverySealV1,
     seal_commit_uncertain: bool,
     journal_mutation_uncertain: bool,
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    stage8a4_test_fail_before_covering_seal: bool,
+}
+
+/// Linear owner for one structurally valid but incomplete Stage 8A-4 batch.
+///
+/// The persisted Stage 7B seal remains the original S0. This owner cannot
+/// issue ordinary request/readiness authority and becomes a normal recovery
+/// owner only after the exact manifest suffix is complete and final S1 has
+/// been committed and reread.
+pub struct Stage8a4I3RecoveryPendingOwner {
+    recovered: Stage6dDurableRuntimeRecovered,
+    writer_lease: Stage7bKernelWriterLease,
+    committed_s0: Stage7bRecoverySealV1,
+    seal_commit_uncertain: bool,
+    journal_mutation_uncertain: bool,
 }
 
 /// Linear authority binding one exact Stage 6 durable request to the current
@@ -685,19 +879,18 @@ impl Stage7bRecoveryReadyOwner {
     /// Sole I3 writer entry. S0 is reread before mutation, current Stage 6
     /// request authority is reconstructed under the held writer lease, and no
     /// success is returned until covering S1 is committed and reread.
-    pub fn append_stage8a4_sealed_authority_and_cover(
+    pub fn append_stage8a4_validated_entry_and_cover(
         &mut self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
-        authority: Stage6Stage8a4SealedWriteAuthority,
+        entry: Stage6Stage8a4ValidatedWriteEntry,
     ) -> Result<Stage7bStage8a4DurableBatchReceipt, Stage7bRecoveryError> {
-        let expected_operational_identity_sha256 =
-            authority.operational_identity_sha256().to_string();
+        let expected_operational_identity_sha256 = entry.operational_identity_sha256().to_string();
         let expected_runtime_config_fingerprint_sha256 =
-            authority.runtime_config_fingerprint_sha256().to_string();
-        let expected_seal_generation = authority.seal_generation();
-        let expected_seal_commitment_sha256 = authority.seal_commitment_sha256().to_string();
-        let identity = authority.identity().clone();
-        let command = authority.command().clone();
+            entry.runtime_config_fingerprint_sha256().to_string();
+        let expected_seal_generation = entry.seal_generation();
+        let expected_seal_commitment_sha256 = entry.seal_commitment_sha256().to_string();
+        let identity = entry.identity().clone();
+        let command = entry.command().clone();
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
         refresh_stage7b_durable_frontier(&mut self.recovered)?;
@@ -708,11 +901,11 @@ impl Stage7bRecoveryReadyOwner {
             return Err(Stage7bRecoveryError::SealInvalid);
         }
 
-        let precondition_matches_current_seal = authority.expected_recovery_seal_generation()
+        let precondition_matches_current_seal = entry.expected_recovery_seal_generation()
             == self.committed_seal.seal_generation()
-            && authority.expected_recovery_seal_fingerprint()
+            && entry.expected_recovery_seal_fingerprint()
                 == self.committed_seal.seal_commitment_sha256();
-        if !precondition_matches_current_seal && !authority.matches_current_tail(&self.recovered)? {
+        if !precondition_matches_current_seal && !entry.matches_current_tail(&self.recovered)? {
             return Err(Stage7bRecoveryError::SealInvalid);
         }
         let current_stage6 = self
@@ -723,20 +916,25 @@ impl Stage7bRecoveryReadyOwner {
         {
             return Err(Stage7bRecoveryError::RuntimeConfigMismatch);
         }
-        let appended = match apply_stage8a4_sealed_durable_write(
-            &mut self.recovered,
-            commitment_key,
-            authority,
-        ) {
-            Ok(receipt) => receipt,
-            Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred) => {
-                self.journal_mutation_uncertain = true;
-                return Err(Stage7bRecoveryError::Runtime(
-                    Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
-                ));
-            }
-            Err(error) => return Err(Stage7bRecoveryError::Runtime(error)),
-        };
+        let appended =
+            match apply_stage8a4_validated_writer_entry(&mut self.recovered, commitment_key, entry)
+            {
+                Ok(receipt) => receipt,
+                Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred) => {
+                    self.journal_mutation_uncertain = true;
+                    return Err(Stage7bRecoveryError::Runtime(
+                        Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+                    ));
+                }
+                Err(error) => return Err(Stage7bRecoveryError::Runtime(error)),
+            };
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        if self.stage8a4_test_fail_before_covering_seal {
+            self.journal_mutation_uncertain = true;
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+            ));
+        }
         if appended.checkpoint() != self.committed_seal.stage6_checkpoint() {
             self.advance_recovery_seal(commitment_key)?;
         } else {
@@ -797,8 +995,7 @@ impl Stage7bRecoveryReadyOwner {
             .authorize_stage8a4_durable_batch_source(identity, command)?
             .runtime_config_fingerprint_sha256()
             .to_string();
-        let authority = Stage6Stage8a4SealedWriteAuthority::seal(
-            commitment_key,
+        let authority = strategy_runtime_core::stage8a4_test_attest_validated_entry(
             identity.clone(),
             command.clone(),
             batch,
@@ -806,8 +1003,11 @@ impl Stage7bRecoveryReadyOwner {
             runtime_config_fingerprint_sha256,
             generation,
             commitment,
+            Stage6Sha256Digest::parse("33".repeat(32)).unwrap(),
+            Stage6Sha256Digest::parse("11".repeat(32)).unwrap(),
+            Stage6Sha256Digest::parse("22".repeat(32)).unwrap(),
         )?;
-        self.append_stage8a4_sealed_authority_and_cover(commitment_key, authority)
+        self.append_stage8a4_validated_entry_and_cover(commitment_key, authority)
     }
 
     pub fn first_boot(
@@ -875,6 +1075,8 @@ impl Stage7bRecoveryReadyOwner {
             committed_seal,
             seal_commit_uncertain: false,
             journal_mutation_uncertain: false,
+            #[cfg(feature = "stage8a4-i3-test-fixtures")]
+            stage8a4_test_fail_before_covering_seal: false,
         })
     }
 
@@ -903,7 +1105,7 @@ impl Stage7bRecoveryReadyOwner {
                 )))
             }
         };
-        let mut committed_seal = match Stage7bRecoverySealV1::decode_canonical(
+        let committed_seal = match Stage7bRecoverySealV1::decode_canonical(
             &seal_bytes,
             expected_identity.as_str(),
             commitment_key,
@@ -918,7 +1120,7 @@ impl Stage7bRecoveryReadyOwner {
                 )))
             }
         };
-        let mut recovered_uncovered_i3 = false;
+        let mut pending_i3_checkpoint = None;
         let checkpoint_validation = storage.validate_checkpoint(committed_seal.stage6_checkpoint());
         let journal_is_ahead = storage.frontier() != committed_seal.stage6_checkpoint().frontier();
         if checkpoint_validation.is_err() || journal_is_ahead {
@@ -932,31 +1134,27 @@ impl Stage7bRecoveryReadyOwner {
                 )));
             }
             if let Some(next_checkpoint) = uncovered_i3 {
-                let next_package = advance_stage6d_restart_package(
-                    &committed_seal.stage6d_authenticated_restart_package,
-                    committed_seal.stage6_checkpoint(),
-                    next_checkpoint.clone(),
-                    &identity,
-                    commitment_key,
-                )?;
-                let next_generation = committed_seal
-                    .seal_generation()
-                    .checked_add(1)
-                    .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
-                committed_seal = Stage7bRecoverySealV1::new(
-                    next_generation,
-                    next_package,
-                    next_checkpoint,
-                    committed_seal.operational_identity_sha256().to_string(),
-                    commitment_key,
-                )?;
-                recovered_uncovered_i3 = true;
+                pending_i3_checkpoint = Some(next_checkpoint);
             }
         }
 
+        let restart_package = if let Some(next_checkpoint) = pending_i3_checkpoint.as_ref() {
+            // This package is process-local reconstruction material only. It
+            // is never committed as the ordinary Stage 7B recovery seal.
+            advance_stage6d_restart_package(
+                &committed_seal.stage6d_authenticated_restart_package,
+                committed_seal.stage6_checkpoint(),
+                next_checkpoint.clone(),
+                &identity,
+                commitment_key,
+            )?
+        } else {
+            committed_seal.stage6d_authenticated_restart_package.clone()
+        };
+
         let (journal, writer_lease) = storage.into_recovery_parts();
         let recovered = match restart_stage6d_paper_with_owned_journal(
-            &committed_seal.stage6d_authenticated_restart_package,
+            &restart_package,
             commitment_key,
             fresh_runtime,
             journal,
@@ -971,7 +1169,21 @@ impl Stage7bRecoveryReadyOwner {
                 )));
             }
         };
-        if validate_recovered_binding(&recovered, &committed_seal, &identity).is_err() {
+        let reconstruction_seal = if let Some(next_checkpoint) = pending_i3_checkpoint.as_ref() {
+            Stage7bRecoverySealV1::new(
+                committed_seal
+                    .seal_generation()
+                    .checked_add(1)
+                    .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?,
+                restart_package,
+                next_checkpoint.clone(),
+                committed_seal.operational_identity_sha256().to_string(),
+                commitment_key,
+            )?
+        } else {
+            committed_seal.clone()
+        };
+        if validate_recovered_binding(&recovered, &reconstruction_seal, &identity).is_err() {
             drop(recovered);
             drop(writer_lease);
             return Ok(Stage7bRestartOutcome::Blocked(Box::new(
@@ -980,20 +1192,29 @@ impl Stage7bRecoveryReadyOwner {
                 ),
             )));
         }
-        if recovered_uncovered_i3 {
+        if pending_i3_checkpoint.is_some() {
             recovered.validate_stage8a4_current_tail_authority()?;
-            writer_lease.commit_recovery_seal(&committed_seal)?;
-            let reread = writer_lease
+            let reread_s0 = writer_lease
                 .read_committed_recovery_seal()?
                 .ok_or(Stage7bRecoveryError::SealInvalid)?;
-            let validated = Stage7bRecoverySealV1::decode_canonical(
-                &reread,
+            let validated_s0 = Stage7bRecoverySealV1::decode_canonical(
+                &reread_s0,
                 expected_identity.as_str(),
                 commitment_key,
             )?;
-            if validated != committed_seal {
+            if validated_s0 != committed_seal {
                 return Err(Stage7bRecoveryError::SealInvalid);
             }
+            writer_lease.validate_namespace()?;
+            return Ok(Stage7bRestartOutcome::Stage8a4I3Pending(Box::new(
+                Stage8a4I3RecoveryPendingOwner {
+                    recovered,
+                    writer_lease,
+                    committed_s0: committed_seal,
+                    seal_commit_uncertain: false,
+                    journal_mutation_uncertain: false,
+                },
+            )));
         }
         writer_lease.validate_namespace()?;
         Ok(Stage7bRestartOutcome::Ready(Box::new(Self {
@@ -1002,6 +1223,8 @@ impl Stage7bRecoveryReadyOwner {
             committed_seal,
             seal_commit_uncertain: false,
             journal_mutation_uncertain: false,
+            #[cfg(feature = "stage8a4-i3-test-fixtures")]
+            stage8a4_test_fail_before_covering_seal: false,
         })))
     }
 
@@ -1452,8 +1675,184 @@ impl Stage7bRecoveryReadyOwner {
     }
 }
 
+impl Stage8a4I3RecoveryPendingOwner {
+    pub fn recovery_ready(&self) -> bool {
+        false
+    }
+
+    fn require_pending_available(&self) -> Result<(), Stage7bRecoveryError> {
+        self.writer_lease.validate_namespace()?;
+        if self.journal_mutation_uncertain {
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+            ));
+        }
+        if self.seal_commit_uncertain {
+            return Err(Stage7bRecoveryError::SealCommitUncertain);
+        }
+        Ok(())
+    }
+
+    fn revalidate_committed_s0(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<(), Stage7bRecoveryError> {
+        let result = (|| {
+            self.require_pending_available()?;
+            let identity = self
+                .recovered
+                .authenticated_operational_identity()
+                .ok_or(Stage7bRecoveryError::SealInvalid)?;
+            let expected_identity = stage6d_operational_identity_sha256(identity)?;
+            let bytes = self
+                .writer_lease
+                .read_committed_recovery_seal()?
+                .ok_or(Stage7bRecoveryError::SealInvalid)?;
+            let on_disk = Stage7bRecoverySealV1::decode_canonical(
+                &bytes,
+                expected_identity.as_str(),
+                commitment_key,
+            )?;
+            if on_disk != self.committed_s0 {
+                return Err(Stage7bRecoveryError::SealInvalid);
+            }
+            Ok(())
+        })();
+        if result.is_err() {
+            self.seal_commit_uncertain = true;
+        }
+        result
+    }
+
+    /// Canonical persisted V2 recovery material. It is read-only and cannot
+    /// issue ordinary Stage8A1 or readiness authority.
+    pub fn pending_recovery_material(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage6Stage8a4PendingRecovery, Stage7bRecoveryError> {
+        self.revalidate_committed_s0(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        self.recovered
+            .stage8a4_pending_recovery_material()?
+            .ok_or(Stage7bRecoveryError::SealInvalid)
+    }
+
+    /// Recovery-only current request authority. It is bound to the original
+    /// S0 and cannot authorize a new transition or ordinary command path.
+    pub fn authorize_pending_recovery_request(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+    ) -> Result<Stage7bStage8a1DurableRequestAuthority, Stage7bRecoveryError> {
+        self.revalidate_committed_s0(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        let stage6 = self
+            .recovered
+            .authorize_stage8a4_durable_batch_source(identity, command)?;
+        let current_identity = self
+            .recovered
+            .authenticated_operational_identity()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let current_identity_sha256 = stage6d_operational_identity_sha256(current_identity)?;
+        if current_identity_sha256.as_str() != self.committed_s0.operational_identity_sha256() {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Stage7bStage8a1DurableRequestAuthority {
+            stage6,
+            operational_identity_sha256: self
+                .committed_s0
+                .operational_identity_sha256()
+                .to_string(),
+            seal_generation: self.committed_s0.seal_generation(),
+            seal_commitment_sha256: self.committed_s0.seal_commitment_sha256().to_string(),
+        })
+    }
+
+    /// Completes the exact missing suffix and only then commits/rereads final
+    /// S1. Success consumes the pending owner into ordinary RecoveryReady.
+    pub fn append_recovery_entry_and_cover(
+        mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        entry: Stage6Stage8a4ValidatedWriteEntry,
+    ) -> Result<
+        (
+            Stage7bStage8a4DurableBatchReceipt,
+            Stage7bRecoveryReadyOwner,
+        ),
+        Stage7bRecoveryError,
+    > {
+        let identity = entry.identity().clone();
+        let command = entry.command().clone();
+        let expected_runtime = entry.runtime_config_fingerprint_sha256().to_string();
+        self.revalidate_committed_s0(commitment_key)?;
+        refresh_stage7b_durable_frontier(&mut self.recovered)?;
+        if entry.operational_identity_sha256() != self.committed_s0.operational_identity_sha256()
+            || entry.seal_generation() != self.committed_s0.seal_generation()
+            || entry.seal_commitment_sha256() != self.committed_s0.seal_commitment_sha256()
+            || !entry.matches_current_tail(&self.recovered)?
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let current = self
+            .recovered
+            .authorize_stage8a4_durable_batch_source(&identity, &command)?;
+        if current.runtime_config_fingerprint_sha256() != expected_runtime {
+            return Err(Stage7bRecoveryError::RuntimeConfigMismatch);
+        }
+        let appended =
+            match apply_stage8a4_validated_writer_entry(&mut self.recovered, commitment_key, entry)
+            {
+                Ok(receipt) => receipt,
+                Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred) => {
+                    self.journal_mutation_uncertain = true;
+                    return Err(Stage7bRecoveryError::Runtime(
+                        Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+                    ));
+                }
+                Err(error) => return Err(Stage7bRecoveryError::Runtime(error)),
+            };
+        let mut ready = Stage7bRecoveryReadyOwner {
+            recovered: self.recovered,
+            writer_lease: self.writer_lease,
+            committed_seal: self.committed_s0,
+            seal_commit_uncertain: self.seal_commit_uncertain,
+            journal_mutation_uncertain: self.journal_mutation_uncertain,
+            #[cfg(feature = "stage8a4-i3-test-fixtures")]
+            stage8a4_test_fail_before_covering_seal: false,
+        };
+        ready.advance_recovery_seal(commitment_key)?;
+        ready.revalidate_cached_committed_seal(commitment_key)?;
+        let operational_identity = ready
+            .recovered
+            .authenticated_operational_identity()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        validate_recovered_binding(
+            &ready.recovered,
+            &ready.committed_seal,
+            operational_identity,
+        )?;
+        let receipt = Stage7bStage8a4DurableBatchReceipt {
+            stage6_checkpoint_sha256: ready
+                .committed_seal
+                .stage6_checkpoint()
+                .checkpoint_sha256()
+                .to_string(),
+            covering_seal_generation: ready.committed_seal.seal_generation(),
+            covering_seal_commitment_sha256: ready
+                .committed_seal
+                .seal_commitment_sha256()
+                .to_string(),
+            transition_was_existing: appended.transition_was_existing(),
+            appended_suffix_records: appended.appended_suffix_records(),
+        };
+        Ok((receipt, ready))
+    }
+}
+
 pub enum Stage7bRestartOutcome {
     Ready(Box<Stage7bRecoveryReadyOwner>),
+    Stage8a4I3Pending(Box<Stage8a4I3RecoveryPendingOwner>),
     Blocked(Box<Stage7bRecoveryBlocked>),
 }
 
@@ -1461,6 +1860,7 @@ impl Stage7bRestartOutcome {
     pub fn recovery_ready(&self) -> bool {
         match self {
             Self::Ready(owner) => owner.recovery_ready(),
+            Self::Stage8a4I3Pending(_) => false,
             Self::Blocked(blocked) => blocked.recovery_ready(),
         }
     }
@@ -1787,6 +2187,7 @@ mod tests {
         BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerTradeId, Envelope, Exchange,
         InstrumentId, Market, MessageType, StrategyRequestId, SCHEMA_VERSION,
     };
+    use ed25519_dalek::{Signer, SigningKey};
     use redis::aio::ConnectionManager;
     use redis::streams::{StreamPendingCountReply, StreamRangeReply, StreamReadReply};
     use runtime_command_bridge::{
@@ -1809,10 +2210,10 @@ mod tests {
         stage7b_test_authenticated_cancel_restart_fixture,
         stage7b_test_authenticated_working_restart_fixture,
         stage8a4_test_append_durable_batch_with_suffix_limit, stage8a4_test_set_journal_failpoint,
-        stage8a4_test_transition_fixture, Stage6DispatchSafetyStateV1, Stage6JournalRecordV1,
-        Stage6LifecycleSequence, Stage6MemoryJournalBackend, Stage6Sha256Digest, Stage6dBootMode,
-        Stage6dFirstBootConfig, Stage7bTestExtraStage6History, Stage7bTestRestartFixture,
-        Stage8a4JournalTestFailpoint,
+        stage8a4_test_transition_fixture, stage8a4_writer_entry_attestation_sha256,
+        Stage6DispatchSafetyStateV1, Stage6JournalRecordV1, Stage6LifecycleSequence,
+        Stage6MemoryJournalBackend, Stage6Sha256Digest, Stage6dBootMode, Stage6dFirstBootConfig,
+        Stage7bTestExtraStage6History, Stage7bTestRestartFixture, Stage8a4JournalTestFailpoint,
     };
 
     fn identity() -> Stage6dOperationalIdentityConfig {
@@ -1825,7 +2226,18 @@ mod tests {
             instrument_map_fingerprint_sha256: "1".repeat(64),
             market_data_generation: 1,
             command_consumer_generation: 1,
+            stage8a4_writer_issuer_public_key_hex:
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
         }
+    }
+
+    fn lower_hex(bytes: &[u8]) -> String {
+        let mut value = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            use std::fmt::Write as _;
+            write!(&mut value, "{byte:02x}").unwrap();
+        }
+        value
     }
 
     fn root(identity: &Stage6dOperationalIdentityConfig) -> (PathBuf, PathBuf) {
@@ -2384,37 +2796,41 @@ mod tests {
                 setup.runtime.clone(),
             )
             .unwrap();
-            let Stage7bRestartOutcome::Ready(mut owner) = restarted else {
-                panic!("exact uncovered I3 V2 must be covered before suffix retry");
+            let Stage7bRestartOutcome::Stage8a4I3Pending(mut owner) = restarted else {
+                panic!("exact uncovered I3 V2 must remain pending before suffix retry");
             };
-            assert!(owner.committed_seal().unwrap().seal_generation() > seal_generation);
+            assert!(!owner.recovery_ready());
             stage8a4_test_set_journal_failpoint(&mut owner.recovered, Some(failpoint)).unwrap();
-            let result = owner.append_stage8a4_test_batch_and_cover(
-                &setup.key,
-                &identity,
-                &snapshot,
-                Stage6Stage8a4DurableBatch::new(transition.clone(), suffix.clone(), None).unwrap(),
-            );
+            let pending = owner.pending_recovery_material(&setup.key).unwrap();
+            let (_, persisted_command) = pending.into_parts();
+            let current = owner
+                .authorize_pending_recovery_request(&setup.key, &identity, &persisted_command)
+                .unwrap();
+            let sealed = strategy_runtime_core::stage8a4_test_attest_validated_entry(
+                identity.clone(),
+                persisted_command,
+                Stage6Stage8a4DurableBatch::recover_from_persisted_transition(transition.clone())
+                    .unwrap(),
+                current.operational_identity_sha256().to_string(),
+                current
+                    .stage6()
+                    .runtime_config_fingerprint_sha256()
+                    .to_string(),
+                current.seal_generation(),
+                current.seal_commitment_sha256().to_string(),
+                Stage6Sha256Digest::parse("33".repeat(32)).unwrap(),
+                Stage6Sha256Digest::parse("11".repeat(32)).unwrap(),
+                Stage6Sha256Digest::parse("22".repeat(32)).unwrap(),
+            )
+            .unwrap();
+            let result = owner.append_recovery_entry_and_cover(&setup.key, sealed);
             assert!(matches!(
                 result,
                 Err(Stage7bRecoveryError::Runtime(
                     Stage6dLiveCoreError::JournalMutationMayHaveOccurred
                 ))
             ));
-            assert!(!owner.recovery_ready());
-            assert!(owner
-                .authorize_stage8a1_durable_request(&setup.key, &identity, &snapshot)
-                .is_err());
-            assert!(owner
-                .append_stage8a4_test_batch_and_cover(
-                    &setup.key,
-                    &identity,
-                    &snapshot,
-                    Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap(),
-                )
-                .is_err());
-            assert!(owner.advance_recovery_seal(&setup.key).is_err());
-            drop(owner);
+            drop(suffix);
             fs::remove_dir_all(setup.parent).unwrap();
         }
     }
@@ -2535,6 +2951,116 @@ mod tests {
     }
 
     #[test]
+    fn stage8a4_i3_rejects_forged_or_wrong_trust_root_attestation_before_append() {
+        let setup = prepare_active_restart_prefix(2);
+        let source_fixture =
+            stage7b_test_authenticated_working_restart_fixture(Stage7bTestExtraStage6History::None);
+        let dispatch = source_fixture.journal_records[1].clone();
+        let mut owner = restart_working_setup(&setup);
+        let (identity, snapshot) =
+            stage8a1_identity_and_snapshot(&setup.command, &setup.command_context);
+        let current = owner
+            .authorize_stage8a1_durable_request(&setup.key, &identity, &snapshot)
+            .unwrap();
+        let before = owner.recovered().unwrap().journal_frontier().frame_count();
+        let request_fingerprint = owner
+            .recovered()
+            .unwrap()
+            .replay()
+            .request(identity.strategy_request_id())
+            .unwrap()
+            .state_fingerprint_sha256();
+        let (transition, suffix) = stage8a4_test_transition_fixture(
+            &identity,
+            &dispatch,
+            current.stage6().durable_request_binding_sha256().unwrap(),
+            Stage6Sha256Digest::parse(current.stage6().durable_frontier_sha256().to_string())
+                .unwrap(),
+            current.seal_generation(),
+            Stage6Sha256Digest::parse(current.seal_commitment_sha256().to_string()).unwrap(),
+            request_fingerprint,
+            1,
+        );
+        let batch = Stage6Stage8a4DurableBatch::new(transition, suffix, None).unwrap();
+        let operational = current.operational_identity_sha256().to_string();
+        let runtime = current
+            .stage6()
+            .runtime_config_fingerprint_sha256()
+            .to_string();
+        let seal = current.seal_commitment_sha256().to_string();
+        let source = Stage6Sha256Digest::parse("33".repeat(32)).unwrap();
+        let truth = Stage6Sha256Digest::parse("11".repeat(32)).unwrap();
+        let control = Stage6Sha256Digest::parse("22".repeat(32)).unwrap();
+        let attestation = stage8a4_writer_entry_attestation_sha256(
+            &identity,
+            &snapshot,
+            &batch,
+            &operational,
+            &runtime,
+            current.seal_generation(),
+            &seal,
+            &source,
+            &truth,
+            &control,
+        )
+        .unwrap();
+        let attacker = SigningKey::from_bytes(&[42_u8; 32]);
+        let public_key = lower_hex(attacker.verifying_key().as_bytes());
+        let signature = lower_hex(&attacker.sign(attestation.as_str().as_bytes()).to_bytes());
+
+        let mut malformed_signature = signature.clone();
+        malformed_signature.replace_range(0..2, "00");
+        assert!(matches!(
+            Stage6Stage8a4ValidatedWriteEntry::verify_issuer_attestation(
+                identity.clone(),
+                snapshot.clone(),
+                Stage6Stage8a4DurableBatch::recover_from_persisted_transition(
+                    batch.transition_record().clone(),
+                )
+                .unwrap(),
+                operational.clone(),
+                runtime.clone(),
+                current.seal_generation(),
+                seal.clone(),
+                source.clone(),
+                truth.clone(),
+                control.clone(),
+                public_key.clone(),
+                malformed_signature,
+            ),
+            Err(Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid)
+        ));
+
+        let entry = Stage6Stage8a4ValidatedWriteEntry::verify_issuer_attestation(
+            identity,
+            snapshot,
+            batch,
+            operational,
+            runtime,
+            current.seal_generation(),
+            seal,
+            source,
+            truth,
+            control,
+            public_key,
+            signature,
+        )
+        .unwrap();
+        assert!(matches!(
+            owner.append_stage8a4_validated_entry_and_cover(&setup.key, entry),
+            Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::Stage8a4WriteAuthorityInvalid
+            ))
+        ));
+        assert_eq!(
+            owner.recovered().unwrap().journal_frontier().frame_count(),
+            before
+        );
+        drop(owner);
+        fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[test]
     fn stage8a4_i3_restart_covers_v2_only_crash_then_repairs_exact_suffix() {
         let setup = prepare_active_restart_prefix(2);
         let source_fixture =
@@ -2607,35 +3133,34 @@ mod tests {
             setup.runtime.clone(),
         )
         .unwrap();
-        let Stage7bRestartOutcome::Ready(mut owner) = restarted else {
-            panic!("exact uncovered I3 V2 must be covered on restart");
+        let Stage7bRestartOutcome::Stage8a4I3Pending(owner) = restarted else {
+            panic!("exact uncovered I3 V2 must remain pending on restart");
         };
-        assert!(owner.committed_seal().unwrap().seal_generation() > s0_generation);
-        assert_eq!(
-            owner
-                .committed_seal()
-                .unwrap()
-                .stage6_checkpoint()
-                .frontier()
-                .frame_count(),
-            3
-        );
+        assert!(!owner.recovery_ready());
+        drop(owner);
+        let restarted_again = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &setup.key,
+            setup.runtime.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Stage8a4I3Pending(mut owner) = restarted_again else {
+            panic!("second V2-only restart must remain pending without a new seal");
+        };
+        assert!(!owner.recovery_ready());
 
         drop(transition);
         drop(suffix);
-        let pending = owner
-            .stage8a4_pending_recovery_material(&setup.key)
-            .unwrap()
-            .expect("persisted V2 must provide recovery material");
+        let pending = owner.pending_recovery_material(&setup.key).unwrap();
         let (persisted_transition, persisted_command) = pending.into_parts();
         let batch =
             Stage6Stage8a4DurableBatch::recover_from_persisted_transition(persisted_transition)
                 .unwrap();
         let current = owner
-            .authorize_stage8a4_pending_recovery_request(&setup.key, &identity, &persisted_command)
+            .authorize_pending_recovery_request(&setup.key, &identity, &persisted_command)
             .unwrap();
-        let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
-            &setup.key,
+        let sealed = strategy_runtime_core::stage8a4_test_attest_validated_entry(
             identity.clone(),
             persisted_command,
             batch,
@@ -2646,10 +3171,13 @@ mod tests {
                 .to_string(),
             current.seal_generation(),
             current.seal_commitment_sha256().to_string(),
+            Stage6Sha256Digest::parse("33".repeat(32)).unwrap(),
+            Stage6Sha256Digest::parse("11".repeat(32)).unwrap(),
+            Stage6Sha256Digest::parse("22".repeat(32)).unwrap(),
         )
         .unwrap();
-        let receipt = owner
-            .append_stage8a4_sealed_authority_and_cover(&setup.key, sealed)
+        let (receipt, owner) = owner
+            .append_recovery_entry_and_cover(&setup.key, sealed)
             .unwrap();
         assert!(receipt.transition_was_existing());
         assert_eq!(receipt.appended_suffix_records(), 1);
@@ -2833,34 +3361,34 @@ mod tests {
             setup.runtime.clone(),
         )
         .unwrap();
-        let Stage7bRestartOutcome::Ready(mut owner) = restarted else {
-            panic!("exact I3 partial suffix must receive a covering seal on restart");
+        let Stage7bRestartOutcome::Stage8a4I3Pending(owner) = restarted else {
+            panic!("exact I3 partial suffix must remain pending on restart");
         };
-        assert_eq!(
-            owner
-                .committed_seal()
-                .unwrap()
-                .stage6_checkpoint()
-                .frontier()
-                .frame_count(),
-            4
-        );
+        assert!(!owner.recovery_ready());
+        drop(owner);
+        let restarted_again = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.identity).unwrap(),
+            setup.identity.clone(),
+            &setup.key,
+            setup.runtime.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Stage8a4I3Pending(mut owner) = restarted_again else {
+            panic!("second partial-suffix restart must remain pending without a new seal");
+        };
+        assert!(!owner.recovery_ready());
 
         drop(transition);
         drop(suffix);
-        let pending = owner
-            .stage8a4_pending_recovery_material(&setup.key)
-            .unwrap()
-            .expect("persisted V2 must provide recovery material");
+        let pending = owner.pending_recovery_material(&setup.key).unwrap();
         let (persisted_transition, persisted_command) = pending.into_parts();
         let batch =
             Stage6Stage8a4DurableBatch::recover_from_persisted_transition(persisted_transition)
                 .unwrap();
         let current = owner
-            .authorize_stage8a4_pending_recovery_request(&setup.key, &identity, &persisted_command)
+            .authorize_pending_recovery_request(&setup.key, &identity, &persisted_command)
             .unwrap();
-        let sealed = Stage6Stage8a4SealedWriteAuthority::seal(
-            &setup.key,
+        let sealed = strategy_runtime_core::stage8a4_test_attest_validated_entry(
             identity.clone(),
             persisted_command,
             batch,
@@ -2871,10 +3399,13 @@ mod tests {
                 .to_string(),
             current.seal_generation(),
             current.seal_commitment_sha256().to_string(),
+            Stage6Sha256Digest::parse("33".repeat(32)).unwrap(),
+            Stage6Sha256Digest::parse("11".repeat(32)).unwrap(),
+            Stage6Sha256Digest::parse("22".repeat(32)).unwrap(),
         )
         .unwrap();
-        let receipt = owner
-            .append_stage8a4_sealed_authority_and_cover(&setup.key, sealed)
+        let (receipt, owner) = owner
+            .append_recovery_entry_and_cover(&setup.key, sealed)
             .unwrap();
         assert!(receipt.transition_was_existing());
         assert_eq!(receipt.appended_suffix_records(), 1);

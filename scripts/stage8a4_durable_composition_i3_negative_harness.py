@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the 58 fail-closed Stage 8A-4 durable composition I3 R3 mutations."""
+"""Run the 80 fail-closed Stage 8A-4 durable composition I3 R4 mutations."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def main() -> None:
         ("i3-r1-review-drift", lambda r: mutate_authority(r, "rejected_i3_r1_review_sha256", "1" * 64)),
         ("i3-r2-ref-drift", lambda r: mutate_authority(r, "rejected_i3_r2_ref", "2" * 40)),
         ("i3-r2-review-drift", lambda r: mutate_authority(r, "rejected_i3_r2_review_sha256", "2" * 64)),
-        ("r3-spec-drift", lambda r: mutate_authority(r, "i3_r3_correction_spec_sha256", "3" * 64)),
+        ("r4-spec-drift", lambda r: mutate_authority(r, "i3_r4_correction_spec_sha256", "3" * 64)),
         ("premature-acceptance", lambda r: mutate_authority(r, "status", "accepted")),
         ("branch-drift", lambda r: mutate_authority(r, "branch", "main")),
         ("raw-writer-authorized", lambda r: mutate_authority(r, "raw_batch_writer_publicly_callable", True)),
@@ -66,8 +66,8 @@ def main() -> None:
         ("restart-without-i2-disabled", lambda r: mutate_authority(r, "production_restart_without_i2_candidate", False)),
         ("external-compile-fail-disabled", lambda r: mutate_authority(r, "external_raw_mutator_compile_fail", False)),
         ("raw-core-public", lambda r: mutate_text(r, checker.CORE, "pub(crate) fn stage8a4_internal_append_durable_batch", "pub fn stage8a4_internal_append_durable_batch")),
-        ("raw-core-reexport", lambda r: mutate_text(r, checker.CORE_LIB, "apply_stage8a4_sealed_durable_write,", "apply_stage8a4_sealed_durable_write, stage8a4_internal_append_durable_batch,")),
-        ("sealed-core-entry-removed", lambda r: mutate_text(r, checker.CORE, "pub fn apply_stage8a4_sealed_durable_write", "fn removed_stage8a4_sealed_durable_write")),
+        ("raw-core-reexport", lambda r: mutate_text(r, checker.CORE_LIB, "apply_stage8a4_validated_writer_entry,", "apply_stage8a4_validated_writer_entry, stage8a4_internal_append_durable_batch,")),
+        ("sealed-core-entry-removed", lambda r: mutate_text(r, checker.CORE, "pub fn apply_stage8a4_validated_writer_entry", "fn removed_stage8a4_validated_writer_entry")),
         ("sealed-verification-removed", lambda r: mutate_text(r, checker.CORE, "fn verify(", "fn verification_removed(")),
         ("stage8a1-owner-constructor-removed", lambda r: mutate_text(r, checker.STAGE8A1, "pub fn from_stage7b_owner", "fn removed_from_stage7b_owner", True)),
         ("stage8a1-caller-seal-constructor", lambda r: mutate_text(r, checker.STAGE8A1, "pub fn from_stage7b_owner", "pub fn from_current_stage6_authority")),
@@ -78,14 +78,14 @@ def main() -> None:
         ("runtime-finam-dependency", lambda r: mutate_text(r, checker.RUNTIME_CARGO, "[dependencies]", "[dependencies]\nfinam-gateway = { path = \"../finam-gateway\" }")),
         ("runtime-broker-specific-dependency", lambda r: mutate_text(r, checker.RUNTIME_CARGO, "[dependencies]", "[dependencies]\nbroker-finam = { path = \"../broker-finam\" }")),
         ("finam-composition-dependency-removed", lambda r: mutate_text(r, checker.FINAM_CARGO, 'runtime-durable-service = { path = "../runtime-durable-service" }', "# removed runtime composition dependency")),
-        ("stage7-sealed-writer-removed", lambda r: mutate_text(r, checker.RUNTIME, "pub fn append_stage8a4_sealed_authority_and_cover", "fn removed_stage8a4_sealed_writer")),
-        ("stage7-raw-batch-argument", lambda r: mutate_text(r, checker.RUNTIME, "authority: Stage6Stage8a4SealedWriteAuthority", "batch: Stage6Stage8a4DurableBatch")),
+        ("stage7-sealed-writer-removed", lambda r: mutate_text(r, checker.RUNTIME, "pub fn append_stage8a4_validated_entry_and_cover", "fn removed_stage8a4_validated_writer")),
+        ("stage7-raw-batch-argument", lambda r: mutate_text(r, checker.RUNTIME, "entry: Stage6Stage8a4ValidatedWriteEntry", "batch: Stage6Stage8a4DurableBatch", True)),
         ("production-persist-operation-removed", lambda r: mutate_text(r, checker.I3, "pub fn reconcile_persist_and_cover_stage8a4", "fn removed_reconcile_persist_and_cover_stage8a4")),
         ("private-normal-issuer-removed", lambda r: mutate_text(r, checker.I3, "fn issue_private_durable_write_authority", "fn removed_private_durable_write_authority")),
         ("private-issuer-exported", lambda r: mutate_text(r, checker.I3, "fn issue_private_durable_write_authority", "pub fn issue_private_durable_write_authority")),
         ("raw-writer-parts-restored", lambda r: mutate_text(r, checker.I3, "pub struct Stage8a4DurableWriteAuthority", "pub struct Stage8a4DurableWriterParts;\npub struct Stage8a4DurableWriteAuthority")),
         ("production-recovery-entry-removed", lambda r: mutate_text(r, checker.I3, "pub fn recover_persisted_stage8a4_suffix_and_cover", "fn removed_persisted_stage8a4_suffix_recovery")),
-        ("pending-recovery-material-removed", lambda r: mutate_text(r, checker.I3, "stage8a4_pending_recovery_material", "removed_pending_recovery_material", True)),
+        ("pending-recovery-material-removed", lambda r: mutate_text(r, checker.RUNTIME, "stage8a4_pending_recovery_material", "removed_pending_recovery_material", True)),
         ("persisted-v2-reconstruction-removed", lambda r: mutate_text(r, checker.CORE, "pub fn recover_from_persisted_transition", "fn removed_recover_from_persisted_transition")),
         ("manifest-reconstruction-removed", lambda r: mutate_text(r, checker.REPLAY_V2, "pub(crate) fn reconstruct_stage8a4_suffix_from_v2", "fn removed_reconstruct_stage8a4_suffix_from_v2")),
         ("lost-i2-object-retained", lambda r: mutate_text(r, checker.RUNTIME, "drop(transition);", "let _lost_transition = &transition;", True)),
@@ -95,6 +95,28 @@ def main() -> None:
         ("owner-poison-assignment-removed", lambda r: mutate_text(r, checker.RUNTIME, "self.journal_mutation_uncertain = true", "self.journal_mutation_uncertain = false", True)),
         ("external-compile-fail-current-name-removed", lambda r: mutate_text(r, checker.COMPILE_FAIL, "stage8a4_internal_append_durable_batch", "removed_internal_append_name", True)),
         ("matrix-row-removed", lambda r: mutate_text(r, checker.MATRIX, "I3-060,I4 and Stage8A5 remain separately gated,authority/docs\n", "")),
+        ("i3-r3-ref-drift", lambda r: mutate_authority(r, "rejected_i3_r3_ref", "4" * 40)),
+        ("i3-r3-review-drift", lambda r: mutate_authority(r, "rejected_i3_r3_review_sha256", "4" * 64)),
+        ("public-sealer-authorized", lambda r: mutate_authority(r, "sealed_authority_publicly_constructible", True)),
+        ("pending-restart-disabled", lambda r: mutate_authority(r, "incomplete_restart_remains_pending", False)),
+        ("authority-evidence-binding-disabled", lambda r: mutate_authority(r, "source_truth_control_bound_in_authority_hmac", False)),
+        ("sealed-core-type-public", lambda r: mutate_text(r, checker.CORE, "struct Stage6Stage8a4SealedWriteAuthority", "pub struct Stage6Stage8a4SealedWriteAuthority")),
+        ("pending-owner-removed", lambda r: mutate_text(r, checker.RUNTIME, "Stage8a4I3RecoveryPendingOwner", "RemovedPendingOwner", True)),
+        ("pending-outcome-removed", lambda r: mutate_text(r, checker.RUNTIME, "Stage7bRestartOutcome::Stage8a4I3Pending", "Stage7bRestartOutcome::Ready", True)),
+        ("production-source-bridge-removed", lambda r: mutate_text(r, checker.I3, "pub(crate) fn reconcile_persist_and_cover_stage8a4_from_production_sources", "fn removed_production_source_bridge")),
+        ("production-context-issuer-removed", lambda r: mutate_text(r, checker.I3, "issue_durable_request_context_from_current_authority", "removed_context_issuer", True)),
+        ("production-policy-issuer-removed", lambda r: mutate_text(r, checker.I3, "issue_stage8a4_policy_from_frozen_config", "removed_policy_issuer", True)),
+        ("production-source-issuer-removed", lambda r: mutate_text(r, checker.I3, "issue_stage8a4_source_evidence_from_readonly_acquisition", "removed_source_issuer", True)),
+        ("issuer-signature-verification-removed", lambda r: mutate_text(r, checker.CORE, "verify_stage8a4_writer_signature", "removed_writer_signature_verification", True)),
+        ("issuer-key-pin-compare-removed", lambda r: mutate_text(r, checker.CORE, "stage8a4_writer_issuer_public_key_hex != entry.issuer_public_key_hex()", "false", True)),
+        ("issuer-private-key-permission-check-removed", lambda r: mutate_text(r, checker.STAGE8A1, "metadata.permissions().mode() & 0o077 != 0", "false", True)),
+        ("caller-forgeable-entry-issuer-restored", lambda r: mutate_text(r, checker.I3, "Stage6Stage8a4ValidatedWriteEntry::verify_issuer_attestation", "Stage6Stage8a4ValidatedWriteEntry::issue", True)),
+        ("production-normal-integration-test-removed", lambda r: mutate_text(r, checker.I3, "stage8a4_i3_normal_production_path_persists_exact_batch_covers_s1_and_restarts_ready", "removed_normal_production_integration_test", True)),
+        ("production-v2-only-recovery-test-removed", lambda r: mutate_text(r, checker.I3, "stage8a4_i3_production_recovery_repairs_v2_only_crash_and_covers_s1", "removed_v2_only_production_recovery_test", True)),
+        ("production-partial-recovery-test-removed", lambda r: mutate_text(r, checker.I3, "stage8a4_i3_production_recovery_repairs_partial_exact_suffix_and_covers_s1", "removed_partial_production_recovery_test", True)),
+        ("production-complete-before-s1-test-removed", lambda r: mutate_text(r, checker.I3, "stage8a4_i3_production_recovery_covers_complete_batch_without_s1", "removed_complete_before_s1_production_recovery_test", True)),
+        ("production-recovery-raw-test-writer-restored", lambda r: mutate_text(r, checker.I3, "let (receipt, ready) = recover_persisted_stage8a4_suffix_and_cover(", "let (receipt, ready) = stage8a4_test_append_durable_batch_with_suffix_limit(", True)),
+        ("complete-uncovered-batch-recovery-disabled", lambda r: mutate_text(r, checker.CORE, "let Some(batch) = mixed.reconciliation_batches().iter().find(|batch| {\n            Some(batch.last_mixed_record_id())", "let Some(batch) = mixed.reconciliation_batches().iter().find(|batch| {\n            batch.completion() == Stage6ReconciliationBatchCompletionV2::Incomplete\n                && Some(batch.last_mixed_record_id())", True)),
     ]
     if len(cases) != checker.NEGATIVE_CASES:
         raise SystemExit(f"stage8a4-durable-composition-i3-negative: FAIL inventory={len(cases)}")

@@ -102,8 +102,16 @@ pub use recovery::{
     Stage7bRedisServiceConfig, Stage7bRedisServiceError, Stage7bRestartOutcome,
     Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
     Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority,
-    Stage7bStage8a4DurableBatchReceipt, Stage7bTaskReadinessHandle,
+    Stage7bStage8a4DurableBatchReceipt, Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner,
     STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
+};
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub use recovery::{stage8a4_i3_production_test_setup, Stage8a4I3ProductionTestSetup};
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub use recovery::{
+    stage8a4_i3_test_fail_before_covering_seal, stage8a4_i3_test_set_owner_journal_failpoint,
 };
 
 use std::{
@@ -766,6 +774,8 @@ mod tests {
             instrument_map_fingerprint_sha256: "1".repeat(64),
             market_data_generation: 1,
             command_consumer_generation: 1,
+            stage8a4_writer_issuer_public_key_hex:
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
         }
     }
 

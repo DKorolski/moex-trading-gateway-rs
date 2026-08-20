@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed semantic checker for Stage 8A-4 durable composition I3 R3."""
+"""Fail-closed semantic checker for Stage 8A-4 durable composition I3 R4."""
 
 from __future__ import annotations
 
@@ -17,10 +17,12 @@ REJECTED_I3_R1 = "a490bbe700c51f0e9c6debd2a007cb9b5061c3d8"
 REJECTED_I3_R1_REVIEW_SHA256 = "c0ecc723ab98ba67560cb857e2761d0913f47c8ff78355bc04e74c8e03b585fe"
 REJECTED_I3_R2 = "62e5e0509adb9cceb1d9947b5b3f92120e2f19ea"
 REJECTED_I3_R2_REVIEW_SHA256 = "606ce34c3369fe732dfced14c283fe2bf1020e5c64db638109daa6b26f55d1cc"
-R3_SPEC_SHA256 = "99e90936ce1e7f961aca5d42c2b8fc5f139b125113f0f9ee429945c9ec1dbd66"
-BRANCH = "stage8a4-durable-composition-i3-r3"
-ROWS = 60
-NEGATIVE_CASES = 58
+REJECTED_I3_R3 = "3aa267029d512ba21f91dd95eb118b8d51810b56"
+REJECTED_I3_R3_REVIEW_SHA256 = "aeae8245d421510301672a3885eb2396efdee0071c1dbd1af8313a9aa3d29cb3"
+R4_SPEC_SHA256 = "5f0bfb0fd65ce5723b883638735c610220c51d279b8b7e7085fad9e544ed79a5"
+BRANCH = "stage8a4-durable-composition-i3-r4"
+ROWS = 69
+NEGATIVE_CASES = 80
 
 AUTHORITY = Path("docs/stage-8/stage8a4-durable-composition-i3-authority.json")
 CONTRACT = Path("docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I3_IMPLEMENTATION_2026-08-16.md")
@@ -56,6 +58,7 @@ SCRIPT_FILES = {
     "scripts/stage8a4_durable_composition_i3_gate.sh",
     "scripts/stage8a4_durable_composition_i3_handoff_safety_check.py",
     "scripts/make_stage8a4_durable_composition_i3_handoff.py",
+    "scripts/stage8a4_i3_stage8a1_successor_check.py",
     str(COMPILE_FAIL),
     str(DEPENDENCY_GRAPH),
 }
@@ -66,6 +69,9 @@ REQUIRED = {str(path) for path in (
     STATUS, ROADMAP, README,
 )} | SCRIPT_FILES | {"Cargo.lock"}
 ALLOWED_CHANGED = REQUIRED | {
+    "Cargo.toml",
+    "crates/strategy-runtime-core/Cargo.toml",
+    "crates/runtime-durable-service/tests/stage7b_writer_lock_subprocess.rs",
     "crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs",
 }
 
@@ -99,7 +105,7 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         require((root / item).is_file(), f"missing required file: {item}")
     authority = json.loads(read(root, AUTHORITY))
     lineage = {
-        "stage": "8A-4-durable-composition-I3-R3",
+        "stage": "8A-4-durable-composition-I3-R4",
         "status": "implementation_candidate_independent_acceptance_pending",
         "branch": BRANCH,
         "accepted_i2_r3_ref": ACCEPTED_I2,
@@ -108,7 +114,9 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "rejected_i3_r1_review_sha256": REJECTED_I3_R1_REVIEW_SHA256,
         "rejected_i3_r2_ref": REJECTED_I3_R2,
         "rejected_i3_r2_review_sha256": REJECTED_I3_R2_REVIEW_SHA256,
-        "i3_r3_correction_spec_sha256": R3_SPEC_SHA256,
+        "rejected_i3_r3_ref": REJECTED_I3_R3,
+        "rejected_i3_r3_review_sha256": REJECTED_I3_R3_REVIEW_SHA256,
+        "i3_r4_correction_spec_sha256": R4_SPEC_SHA256,
         "sole_writer_owner": "Stage7bRecoveryReadyOwner",
     }
     for key, value in lineage.items():
@@ -122,8 +130,18 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "broker_neutral_runtime_dependency", "broker_core_sqlite_baseline_unchanged",
         "production_normal_composition_path",
         "production_restart_without_i2_candidate", "external_raw_mutator_compile_fail",
+        "sealed_authority_publicly_constructible", "incomplete_restart_remains_pending",
+        "complete_uncovered_restart_remains_pending",
+        "source_truth_control_bound_in_authority_hmac", "writer_entry_ed25519_attested",
+        "writer_issuer_public_key_pinned_by_operational_identity",
+        "writer_issuer_private_key_regular_and_owner_only",
+        "production_normal_path_directly_tested",
+        "production_v2_only_recovery_directly_tested",
+        "production_partial_suffix_recovery_directly_tested",
+        "production_complete_before_s1_recovery_directly_tested",
     ):
-        require(authority.get(key) is True, f"authority disabled: {key}")
+        expected = False if key == "sealed_authority_publicly_constructible" else True
+        require(authority.get(key) is expected, f"authority drift: {key}")
     for key in (
         "raw_batch_writer_publicly_callable", "raw_core_append_normal_public_api",
         "durable_receipt_grants_ack_or_readiness", "ack_readiness_enabled",
@@ -152,19 +170,32 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     )
     require(len(production_core) < len(core), "feature-gated crash fixture boundary missing")
     exported_raw = re.search(
-        r"(?ms)(?:#\[doc\(hidden\)\]\s*)?pub\s+fn\s+\w*stage8a4\w*(?:append|apply|persist|write|mutat)\w*\([^)]*Stage6Stage8a4DurableBatch",
+        r"(?ms)(?:#\[doc\(hidden\)\]\s*)?pub\s+fn\s+(?!stage8a4_writer_entry_attestation_sha256)\w*stage8a4\w*(?:append|apply|persist|write|mutat)\w*\([^)]*Stage6Stage8a4DurableBatch",
         production_core,
     )
     require(exported_raw is None, "exported raw Stage8A4 mutator")
     require("stage8a4_internal_append_durable_batch" not in core_lib, "raw core append re-exported")
     contains_all(core, (
-        "pub struct Stage6Stage8a4SealedWriteAuthority", "pub fn apply_stage8a4_sealed_durable_write",
-        "authority: Stage6Stage8a4SealedWriteAuthority", "fn verify(",
+        "struct Stage6Stage8a4SealedWriteAuthority", "pub fn apply_stage8a4_validated_writer_entry",
+        "entry: Stage6Stage8a4ValidatedWriteEntry", "fn verify(",
         "stage8a4_write_authority_hmac_sha256", "Stage8a4WriteAuthorityInvalid",
+        "source_evidence_binding_sha256", "writer_truth_binding_sha256",
+        "control_binding_sha256",
+        "pub fn verify_issuer_attestation", "verify_stage8a4_writer_signature",
+        "stage8a4_writer_issuer_public_key_hex != entry.issuer_public_key_hex()",
     ), "sealed core writer")
+    require(
+        "Stage6Stage8a4ValidatedWriteEntry::issue" not in core + runtime + i3,
+        "caller-forgeable validated writer issuer restored",
+    )
+    require(
+        "pub struct Stage6Stage8a4SealedWriteAuthority" not in core,
+        "sealed Stage8A4 authority became public",
+    )
     contains_all(compile_fail, (
         "temporary external crate", "stage8a4_internal_append_durable_batch",
-        "append_stage8a4_durable_batch",
+        "append_stage8a4_durable_batch", "Stage6Stage8a4SealedWriteAuthority::seal",
+        "Stage6Stage8a4ValidatedWriteEntry::issue",
     ), "external compile-fail")
 
     # P0: independently accepted Stage8A1 current-owner authority remains intact.
@@ -192,31 +223,61 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
 
     # Production normal and restart paths consume only authenticated sealed authority.
     contains_all(runtime, (
-        "pub fn append_stage8a4_sealed_authority_and_cover",
-        "authority: Stage6Stage8a4SealedWriteAuthority", "apply_stage8a4_sealed_durable_write",
+        "pub fn append_stage8a4_validated_entry_and_cover",
+        "entry: Stage6Stage8a4ValidatedWriteEntry", "apply_stage8a4_validated_writer_entry",
         "revalidate_cached_committed_seal", "refresh_stage7b_durable_frontier",
         "advance_recovery_seal", "validate_recovered_binding",
         "stage8a4_i3_writer_commits_covering_s1_and_restarts_from_mixed_journal",
     ), "Stage7 sealed writer")
     contains_all(i3, (
+        "pub(crate) fn reconcile_persist_and_cover_stage8a4_from_production_sources",
+        "issue_durable_request_context_from_current_authority",
+        "issue_stage8a4_policy_from_frozen_config",
+        "issue_stage8a4_source_evidence_from_readonly_acquisition",
         "pub fn reconcile_persist_and_cover_stage8a4",
         "build_private_durable_candidate(Stage8a4I2CompositionInput",
         "issue_private_durable_write_authority(",
         "pub struct Stage8a4DurableWriteAuthority", "pub fn persist_and_cover",
         "fn issue_private_durable_write_authority", "candidate: Stage8a4I2DurableCandidate",
         "current_truth: Stage8a4FreshTruthAdmission", "controls: Stage8a4PostEffectControlEvidence",
-        "Stage6Stage8a4SealedWriteAuthority::seal",
-        "owner.append_stage8a4_sealed_authority_and_cover",
+        "sign_stage8a4_writer_attestation", "verify_issuer_attestation",
+        "owner.append_stage8a4_validated_entry_and_cover",
+        "stage8a4_i3_normal_production_path_persists_exact_batch_covers_s1_and_restarts_ready",
     ), "positive normal composition")
+    contains_all(stage8a1, (
+        "STAGE8A4_WRITER_SIGNING_KEY_FILE", "writer_signing_key_identity",
+        "metadata.permissions().mode() & 0o077 != 0",
+        "stage8a4_writer_issuer_public_key_hex", "sign_stage8a4_writer_attestation",
+    ), "private writer issuer trust root")
+    contains_all(runtime, (
+        "stage8a4_i3_rejects_forged_or_wrong_trust_root_attestation_before_append",
+        "malformed_signature", "Stage8a4WriteAuthorityInvalid",
+    ), "writer issuer adversarial tests")
     contains_all(finam_lib, ("reconcile_persist_and_cover_stage8a4",), "normal composition export")
     require("pub fn issue_private_durable_write_authority" not in i3, "private issuer exported")
     require("Stage8a4DurableWriterParts" not in i3 + finam_lib + reconciliation, "R2 raw writer parts remain")
     contains_all(i3, (
         "pub fn recover_persisted_stage8a4_suffix_and_cover",
-        "stage8a4_pending_recovery_material", "issue_persisted_recovery_write_authority",
-        "authorize_stage8a4_pending_recovery_request",
+        "pending_recovery_material", "issue_persisted_recovery_write_authority",
+        "authorize_pending_recovery_request",
         "Stage6Stage8a4DurableBatch::recover_from_persisted_transition",
+        "stage8a4_i3_production_recovery_repairs_v2_only_crash_and_covers_s1",
+        "stage8a4_i3_production_recovery_repairs_partial_exact_suffix_and_covers_s1",
+        "stage8a4_i3_production_recovery_covers_complete_batch_without_s1",
     ), "production restart composition")
+    require(
+        "stage8a4_test_append_durable_batch_with_suffix_limit" not in i3,
+        "production I3 integration tests use raw/test batch writer",
+    )
+    pending_material_body = re.search(
+        r"(?ms)pub fn stage8a4_pending_recovery_material\(.*?\n    pub fn boot_mode",
+        core,
+    )
+    require(pending_material_body is not None, "pending recovery material body missing")
+    require(
+        "Stage6ReconciliationBatchCompletionV2::Incomplete" not in pending_material_body.group(0),
+        "complete uncovered batch cannot be recovered before S1",
+    )
     contains_all(core, (
         "pub fn recover_from_persisted_transition", "reconstruct_stage8a4_suffix_from_v2",
     ), "persisted V2 reconstruction")
@@ -227,6 +288,7 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "pub(crate) fn reconstruct_stage8a4_suffix_from_v2", "matches_record(record)",
     ), "exact manifest reconstruction")
     contains_all(runtime, (
+        "Stage8a4I3RecoveryPendingOwner", "Stage7bRestartOutcome::Stage8a4I3Pending",
         "stage8a4_i3_restart_covers_v2_only_crash_then_repairs_exact_suffix",
         "stage8a4_i3_restart_covers_partial_suffix_then_appends_only_missing_record",
         "stage8a4_i3_restart_rejects_unrelated_record_after_uncovered_v2",

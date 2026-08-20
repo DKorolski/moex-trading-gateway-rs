@@ -429,6 +429,17 @@ impl Stage6OwnedJournalBackend {
         &mut self,
         failpoint: Option<TestIoFailpoint>,
     ) -> Result<(), Stage6JournalStorageError> {
+        if matches!(
+            failpoint,
+            Some(
+                TestIoFailpoint::AfterFrameHashWriteOnAppend(0)
+                    | TestIoFailpoint::BeforeFrameWriteOnAppend(0)
+            )
+        ) {
+            return Err(Stage6JournalStorageError::Io {
+                kind: ErrorKind::InvalidInput,
+            });
+        }
         match self {
             Self::File(backend) => {
                 backend.failpoint = failpoint;
@@ -714,7 +725,26 @@ impl Stage6JournalBackend for Stage6FileJournalBackend {
         let frame = encode_frame(&record_bytes, self.scan.last_frame_digest)?;
 
         #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-        if self.failpoint == Some(TestIoFailpoint::BeforeFrameWrite) {
+        let active_failpoint = match self.failpoint {
+            Some(TestIoFailpoint::BeforeFrameWriteOnAppend(remaining)) if remaining > 1 => {
+                self.failpoint = Some(TestIoFailpoint::BeforeFrameWriteOnAppend(remaining - 1));
+                None
+            }
+            Some(TestIoFailpoint::BeforeFrameWriteOnAppend(1)) => {
+                Some(TestIoFailpoint::BeforeFrameWrite)
+            }
+            Some(TestIoFailpoint::AfterFrameHashWriteOnAppend(remaining)) if remaining > 1 => {
+                self.failpoint = Some(TestIoFailpoint::AfterFrameHashWriteOnAppend(remaining - 1));
+                None
+            }
+            Some(TestIoFailpoint::AfterFrameHashWriteOnAppend(1)) => {
+                Some(TestIoFailpoint::AfterFrameHashWrite)
+            }
+            value => value,
+        };
+
+        #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+        if active_failpoint == Some(TestIoFailpoint::BeforeFrameWrite) {
             return Err(Stage6JournalStorageError::Io {
                 kind: ErrorKind::Other,
             });
@@ -730,11 +760,11 @@ impl Stage6JournalBackend for Stage6FileJournalBackend {
             .write_all(&frame.prefix)
             .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
         #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-        if self.failpoint == Some(TestIoFailpoint::AfterFrameHeaderWrite) {
+        if active_failpoint == Some(TestIoFailpoint::AfterFrameHeaderWrite) {
             return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
         #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-        if self.failpoint == Some(TestIoFailpoint::AfterPartialRecordWrite) {
+        if active_failpoint == Some(TestIoFailpoint::AfterPartialRecordWrite) {
             let partial = record_bytes.len().div_ceil(2);
             self.file
                 .write_all(&record_bytes[..partial])
@@ -748,15 +778,15 @@ impl Stage6JournalBackend for Stage6FileJournalBackend {
             .write_all(&frame.hash_bytes)
             .map_err(|_| Stage6JournalStorageError::DurabilityUncertain)?;
         #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-        if self.failpoint == Some(TestIoFailpoint::AfterFrameHashWrite) {
+        if active_failpoint == Some(TestIoFailpoint::AfterFrameHashWrite) {
             return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
         #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-        if self.failpoint == Some(TestIoFailpoint::BeforeSync) {
+        if active_failpoint == Some(TestIoFailpoint::BeforeSync) {
             return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
         #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-        if self.failpoint == Some(TestIoFailpoint::SyncFailure) {
+        if active_failpoint == Some(TestIoFailpoint::SyncFailure) {
             return Err(Stage6JournalStorageError::DurabilityUncertain);
         }
         if self.file.sync_data().is_err() {
@@ -1249,6 +1279,12 @@ pub enum TestIoFailpoint {
     AfterFrameHashWrite,
     BeforeSync,
     SyncFailure,
+    /// Test-only deterministic crash after the complete frame bytes of the
+    /// selected append attempt have been written but before sync/receipt.
+    AfterFrameHashWriteOnAppend(u32),
+    /// Test-only deterministic crash before any bytes of the selected append
+    /// attempt are written. Earlier attempts still use the production path.
+    BeforeFrameWriteOnAppend(u32),
 }
 
 #[cfg(test)]

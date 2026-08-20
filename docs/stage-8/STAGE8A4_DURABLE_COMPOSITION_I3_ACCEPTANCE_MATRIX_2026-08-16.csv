@@ -59,3 +59,12 @@ I3-057,poisoned owner cannot issue authority append or advance seal,runtime faul
 I3-058,durable receipt grants no ACK or readiness,runtime source/authority
 I3-059,Redis FINAM dispatch runtime-live and real orders remain closed,authority/checker
 I3-060,I4 and Stage8A5 remain separately gated,authority/docs
+I3-061,validated writer entry requires an Ed25519 issuer attestation,core/FINAM tests
+I3-062,issuer public key is pinned by authenticated operational identity,core/runtime tests
+I3-063,issuer private key is a pinned regular 0600 file,Stage8A1 tests
+I3-064,actual production normal entry reaches V2 exact suffix F1 and S1,FINAM integration test
+I3-065,V2-only production crash remains Pending and is repaired through production recovery,FINAM integration test
+I3-066,partial exact suffix appends only the missing suffix through production recovery,FINAM integration test
+I3-067,complete batch without S1 appends no duplicate suffix and commits S1,FINAM integration test
+I3-068,repeated restart remains Pending until the production recovery entry succeeds,runtime/FINAM integration tests
+I3-069,crash injection exposes no raw batch writer or recovery authority constructor,type boundary/checker

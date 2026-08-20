@@ -168,7 +168,7 @@ pub enum Stage8a4InstrumentCompletenessEvidence {
     FullRegistryCursorExhausted { timing: Stage8a4SourceTiming },
 }
 
-struct Stage8a4TradeIntervalProof {
+pub(crate) struct Stage8a4TradeIntervalProof {
     start_inclusive: DateTime<Utc>,
     end_exclusive: DateTime<Utc>,
     requested_limit: usize,
@@ -203,6 +203,79 @@ pub struct Stage8a4SourceEvidence {
     exact_lookup: Stage8a4PrivateExactLookup,
     canonical_truth_payload_sha256: String,
     acquisition_policy_sha256: String,
+}
+
+/// Process-local output of the FINAM read-only acquisition path. It is not a
+/// public DTO and cannot be deserialized or assembled by orchestration code.
+pub(crate) struct Stage8a4ReadonlySourceAcquisition {
+    pub(crate) truth: BrokerTruthSnapshot,
+    pub(crate) orders_timing: Stage8a4SourceTiming,
+    pub(crate) positions_timing: Stage8a4SourceTiming,
+    pub(crate) instrument_timing: Stage8a4SourceTiming,
+    pub(crate) trade_intervals: Vec<Stage8a4TradeIntervalProof>,
+    pub(crate) exact_lookup: Stage8a4PrivateExactLookup,
+}
+
+/// Frozen production reconciliation profile. Callers supply only trusted
+/// current time; all safety limits participate in the policy commitment.
+pub(crate) fn issue_stage8a4_policy_from_frozen_config(
+    trusted_now: DateTime<Utc>,
+) -> Stage8a4ReconciliationPolicy {
+    let max_source_age = Duration::seconds(30);
+    let max_cross_source_skew = Duration::seconds(5);
+    let max_trade_intervals = 32usize;
+    let max_interval_split_depth = 8u8;
+    let policy_binding_sha256 = digest_parts(
+        b"stage8a4-frozen-production-reconciliation-policy-v1",
+        &[
+            &max_source_age.num_milliseconds().to_be_bytes(),
+            &max_cross_source_skew.num_milliseconds().to_be_bytes(),
+            &(max_trade_intervals as u64).to_be_bytes(),
+            &[max_interval_split_depth],
+        ],
+    );
+    Stage8a4ReconciliationPolicy {
+        trusted_now,
+        max_source_age,
+        max_cross_source_skew,
+        max_trade_intervals,
+        max_interval_split_depth,
+        policy_binding_sha256,
+    }
+}
+
+pub(crate) fn issue_stage8a4_source_evidence_from_readonly_acquisition(
+    acquisition: Stage8a4ReadonlySourceAcquisition,
+    policy: &Stage8a4ReconciliationPolicy,
+) -> (BrokerTruthSnapshot, Stage8a4SourceEvidence) {
+    let Stage8a4ReadonlySourceAcquisition {
+        truth,
+        orders_timing,
+        positions_timing,
+        instrument_timing,
+        trade_intervals,
+        exact_lookup,
+    } = acquisition;
+    let interval_refs = trade_intervals.iter().collect::<Vec<_>>();
+    let evidence = Stage8a4SourceEvidence {
+        orders: Stage8a4NonPaginatedOrdersSnapshotComplete {
+            timing: orders_timing,
+        },
+        trades: Stage8a4BoundedTradeHistoryComplete {
+            interval_coverage_sha256: interval_coverage_fingerprint(&interval_refs),
+            intervals: trade_intervals,
+        },
+        positions: Stage8a4CompletePositionsSnapshot {
+            timing: positions_timing,
+        },
+        instruments: Stage8a4InstrumentCompletenessEvidence::ExactTargetResolved {
+            timing: instrument_timing,
+        },
+        exact_lookup,
+        canonical_truth_payload_sha256: canonical_truth_binding(&truth),
+        acquisition_policy_sha256: policy.policy_binding_sha256.clone(),
+    };
+    (truth, evidence)
 }
 
 /// Opaque owned canonical truth admitted under a sealed source policy.
@@ -488,7 +561,7 @@ impl Stage8a4AuthoritativeReconciliationOutcome {
 }
 
 #[allow(dead_code)]
-enum Stage8a4PrivateExactLookup {
+pub(crate) enum Stage8a4PrivateExactLookup {
     NotAttempted,
     Succeeded(Box<Stage8a4ExactOrderObservation>),
     DocumentedNotFound {
