@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the docs/checker-only Stage 8A-4 I4 Design R2 contract."""
+"""Validate the docs/checker-only Stage 8A-4 I4 Design R3 contract."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ AUTHORITY = ROOT / "docs/stage-8/stage8a4-durable-composition-i4-design-authorit
 PREDECESSOR = "593ff255ef7826a22e66c9aff6f7ea47acf47644"
 REVIEW_SHA = "1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257"
 REJECTED_R1 = "06bb09fa13431d0ae34039f37497d4f37914f022"
+REJECTED_R2 = "d1a050a53d95a3d53874bf0866e3598b948dde68"
 
 
 def fail(message: str) -> None:
@@ -44,14 +45,15 @@ def require_false(section: dict[str, object], *keys: str) -> None:
 def main() -> None:
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     expected = {
-        "schema_version": 2,
-        "stage": "8A-4-durable-composition-I4-design-R2",
+        "schema_version": 3,
+        "stage": "8A-4-durable-composition-I4-design-R3",
         "status": "design_candidate",
         "accepted_predecessor_ref": PREDECESSOR,
         "accepted_predecessor_review_sha256": REVIEW_SHA,
         "rejected_r1_ref": REJECTED_R1,
-        "acceptance_rows": 56,
-        "negative_cases": 38,
+        "rejected_r2_ref": REJECTED_R2,
+        "acceptance_rows": 64,
+        "negative_cases": 46,
         "scope": "derived_ack_and_current_readiness_read_only_no_effect",
         "next_after_acceptance": "I4 controlled read-only no-effect implementation",
     }
@@ -139,6 +141,36 @@ def main() -> None:
         "ack_or_readiness_publication_allowed",
     )
 
+    topology = authority.get("cross_crate_topology", {})
+    topology_exact = {
+        "terminal_authority_owner_crate": "runtime-durable-service",
+        "sole_issuer": "Stage7bRecoveryReadyOwner",
+        "downstream_consumer_crate": "finam-gateway",
+    }
+    for key, value in topology_exact.items():
+        if topology.get(key) != value:
+            fail(f"cross-crate topology {key} drift")
+    require_true(
+        topology,
+        "terminal_authority_public_type",
+        "finam_to_runtime_durable_dependency_allowed",
+        "external_compile_fail_required",
+    )
+    require_false(
+        topology,
+        "terminal_authority_public_constructor",
+        "terminal_authority_public_fields",
+        "terminal_authority_clone",
+        "terminal_authority_copy",
+        "terminal_authority_debug",
+        "terminal_authority_serialize",
+        "terminal_authority_deserialize",
+        "runtime_durable_to_finam_dependency_allowed",
+        "raw_public_facts_can_replace_authority",
+        "finam_can_authenticate_stage7b_seal",
+        "ack_facts_readiness_facade_public",
+    )
+
     closed = authority.get("closed", {})
     expected_closed = {
         "redis_ack_xack", "redis_live", "finam_post_delete", "broker_dispatch",
@@ -149,9 +181,9 @@ def main() -> None:
 
     with MATRIX.open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
-    expected_ids = [f"I4D-{number:03d}" for number in range(1, 57)]
+    expected_ids = [f"I4D-{number:03d}" for number in range(1, 65)]
     if [row.get("id") for row in rows] != expected_ids:
-        fail("acceptance matrix must be exact I4D-001..I4D-056")
+        fail("acceptance matrix must be exact I4D-001..I4D-064")
     matrix_contract = "\n".join(row.get("requirement", "") for row in rows)
     require(
         matrix_contract,
@@ -166,6 +198,14 @@ def main() -> None:
         "any account-wide or target active order blocks generic Ready",
         "read-side S1 replay and current-source checks are allowed while every mutation is forbidden",
         "lagging S1 fails closed and I4 never repairs or advances it",
+        "Stage7B terminal authority is public-opaque solely for cross-crate use",
+        "Stage7bRecoveryReadyOwner is the sole terminal-authority issuer",
+        "terminal authority has no public constructor or fields",
+        "terminal authority is non-Clone Copy Debug Serialize Deserialize",
+        "finam-gateway consumes authority through the existing dependency direction",
+        "runtime-durable-service remains free of finam-gateway dependency",
+        "ACK facts readiness evidence and facade remain FINAM crate-private",
+        "no raw journal seal checkpoint digest or receipt constructor can mint terminal authority",
     )
 
     design = DOC.read_text(encoding="utf-8")
@@ -174,7 +214,16 @@ def main() -> None:
         PREDECESSOR,
         REVIEW_SHA,
         REJECTED_R1,
+        REJECTED_R2,
         "read-only / no-effect composition",
+        "pub struct Stage7bStage8a4TerminalAuthority { /* private fields */ }",
+        "public-opaque broker-neutral durable capability",
+        "Only `Stage7bRecoveryReadyOwner` can issue it",
+        "`finam-gateway -> runtime-durable-service` is allowed",
+        "`runtime-durable-service -> finam-gateway` is forbidden",
+        "caller-settable public facts struct",
+        "serializable proof DTO accepted as authority",
+        "duplicate Stage7B",
         "Stage7bStage8a4TerminalAuthority",
         "Stage8a4I4TerminalAckFacts",
         "Stage8a4I4CurrentReadinessEvidence",
@@ -213,6 +262,11 @@ def main() -> None:
         "cannot be reused unchanged",
         "Stage 6 journal append",
         "Redis `XADD`/`XACK`",
+        "Required external-crate compile-fail proof",
+        "Stage7bStage8a4TerminalAuthority::new(...)",
+        "value.clone()",
+        "serde_json::to_vec(&value)",
+        "format!(\"{value:?}\")",
         "ExactWorking | none | none | unresolved",
         "ExactTerminalRejected | Rejected | Rejected | BrokerRejected",
         "ExactTerminalFilled | ExecutionObserved | Recovered | RecoveredByBrokerTruth",
@@ -225,8 +279,8 @@ def main() -> None:
 
     negative = NEGATIVE.read_text(encoding="utf-8")
     count = sum(1 for line in negative.splitlines() if line[:1].isdigit() and ". " in line)
-    if count != 38:
-        fail("negative inventory must contain 38 numbered cases")
+    if count != 46:
+        fail("negative inventory must contain 46 numbered cases")
 
     # Design R2 must leave all production/test/Cargo/workflow files byte-equal
     # to the independently accepted I3 R6 predecessor.
@@ -252,7 +306,7 @@ def main() -> None:
         fail("I4 implementation opened in design slice")
     print(
         "stage8a4-durable-composition-i4-design-check: PASS "
-        "revision=R2 rows=56 negatives=38 implementation=false "
+        "revision=R3 rows=64 negatives=46 implementation=false "
         "ack_publish=false redis=false finam=false live=false"
     )
 

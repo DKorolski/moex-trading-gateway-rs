@@ -14,4 +14,4 @@ git diff --quiet 593ff255ef7826a22e66c9aff6f7ea47acf47644 -- Cargo.toml Cargo.lo
 cargo fmt --all -- --check
 git diff --check
 
-echo "stage8a4-durable-composition-i4-design-gate: PASS revision=R2 rows=56 negatives=38 implementation=false ack_publish=false xack=false redis=false finam=false dispatch=false live=false"
+echo "stage8a4-durable-composition-i4-design-gate: PASS revision=R3 rows=64 negatives=46 implementation=false ack_publish=false xack=false redis=false finam=false dispatch=false live=false"

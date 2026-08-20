@@ -1,4 +1,4 @@
-# Stage 8A-4 I4 design R2 negative inventory
+# Stage 8A-4 I4 design R3 negative inventory
 
 The design gate must reject each mutation independently:
 
@@ -40,3 +40,11 @@ The design gate must reject each mutation independently:
 36. I4 advances, writes or repairs a recovery seal;
 37. I4 appends Stage6, V2, suffix or finalization records;
 38. the design forbids the read-side S1/replay/current-source checks it requires.
+39. terminal authority remains `pub(crate)` and cannot cross crates;
+40. terminal authority gains a public constructor;
+41. terminal authority gains caller-settable public fields;
+42. terminal authority becomes `Clone`, `Serialize` or `Debug`;
+43. `runtime-durable-service` gains a dependency on `finam-gateway`;
+44. raw public terminal facts replace the opaque authority;
+45. `finam-gateway` independently validates/reconstructs Stage7B seal authority;
+46. FINAM-private ACK facts, readiness evidence or facade becomes public.

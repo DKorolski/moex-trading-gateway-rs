@@ -64,10 +64,13 @@ control-read dependency. I3 R6 is independently accepted and closed at
 `593ff25`; it provides the structurally recovery-only issuer and
 SIGKILL+corrupt-control proof without weakening normal execution authority.
 I4 Design R1 at `06bb09f` was not accepted with zero P0 and three P1 design
-ambiguities. I4 Design R2 is now the active docs/checker-only slice. It freezes
-timestamp-free durable ACK facts, exact reuse of the existing Stage7B terminal
-identity, current-readiness issuer/scope/lifetime and the read-only/no-effect
-boundary. After Design R2 acceptance the required implementation order is:
+ambiguities. Design R2 at `d1a050a` closed them but was not accepted because a
+crate-private terminal authority cannot cross the accepted crate boundary. I4
+Design R3 is now the active docs/checker-only slice. It retains timestamp-free
+ACK facts, exact reuse of the existing Stage7B terminal identity,
+current-readiness issuer/scope/lifetime and read-only/no-effect semantics, while
+making only the broker-neutral terminal authority public-opaque and externally
+nonconstructible. After Design R3 acceptance the required implementation order is:
 broker-neutral complete-transition facts, owner-mediated already-S1-covered
 terminal authority with no seal repair, timestamp-free ACK facts, private
 current-readiness issuer/facade, then deterministic restart/duplicate/expiry and

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a commit-bound I4 Design R2 review archive."""
+"""Create a commit-bound I4 Design R3 review archive."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ def main() -> None:
         ["bash", "scripts/stage8a4_durable_composition_i4_design_gate.sh"],
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
     )
-    marker = b"stage8a4-durable-composition-i4-design-gate: PASS revision=R2 rows=56 negatives=38 implementation=false ack_publish=false xack=false redis=false finam=false dispatch=false live=false"
+    marker = b"stage8a4-durable-composition-i4-design-gate: PASS revision=R3 rows=64 negatives=46 implementation=false ack_publish=false xack=false redis=false finam=false dispatch=false live=false"
     if gate.returncode != 0 or marker not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
 
@@ -63,13 +63,14 @@ def main() -> None:
     }, indent=2, sort_keys=True) + "\n").encode()
     evidence = (json.dumps({
         "schema_version": 1,
-        "stage": "8A-4-durable-composition-I4-design-R2",
+        "stage": "8A-4-durable-composition-I4-design-R3",
         "source_ref": full_ref, "source_short_ref": short_ref,
         "archive_name": archive_name, "branch": branch,
         "accepted_i3_r6_ref": "593ff255ef7826a22e66c9aff6f7ea47acf47644",
         "accepted_i3_r6_review_sha256": "1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257",
         "rejected_i4_design_r1_ref": "06bb09fa13431d0ae34039f37497d4f37914f022",
-        "acceptance_rows": 56, "negative_cases": 38,
+        "rejected_i4_design_r2_ref": "d1a050a53d95a3d53874bf0866e3598b948dde68",
+        "acceptance_rows": 64, "negative_cases": 46,
         "gate_sha256": sha256(gate.stdout), "manifest_sha256": sha256(manifest),
         "timestamp_model": "timestamp_free_model_a",
         "stable_ack_identity": "reuse_exact_stage7b_terminal_request_ack_identity_sha256",

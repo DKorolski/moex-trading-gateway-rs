@@ -1,13 +1,17 @@
-# Stage 8A-4 durable composition I4 design R2
+# Stage 8A-4 durable composition I4 design R3
 
 ## Authority and scope
 
 I3 R6 is independently accepted and closed at
 `593ff255ef7826a22e66c9aff6f7ea47acf47644`. Its acceptance review SHA-256 is
 `1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257`.
-I4 Design R1 `06bb09fa13431d0ae34039f37497d4f37914f022` was not accepted; this
-docs/checker-only R2 closes its three P1 ambiguities. Production Rust, Cargo and
-workflows remain byte-identical to I3 R6.
+I4 Design R1 `06bb09fa13431d0ae34039f37497d4f37914f022` was not accepted.
+Design R2 `d1a050a53d95a3d53874bf0866e3598b948dde68` closed all three R1 P1
+ambiguities but was not accepted because its all-crate-private type statement
+made the cross-crate terminal-authority handoff impossible. This
+docs/checker-only R3 changes only that topology. All R2 ACK, readiness,
+mapping, lifetime and no-effect semantics remain unchanged. Production Rust,
+Cargo and workflows remain byte-identical to I3 R6.
 
 I4 is a **read-only / no-effect composition**. It may reread and authenticate
 the on-disk seal, refresh mixed replay without appending, read current
@@ -30,17 +34,59 @@ create, change or suppress the canonical durable ACK facts or identity.
 ## Type-state boundary
 
 The controlled implementation must introduce separate non-`Clone`,
-non-`Copy`, non-`Debug`, non-`Serialize`, non-`Deserialize` crate-private types:
+non-`Copy`, non-`Debug`, non-`Serialize`, non-`Deserialize` opaque types:
 
-- `Stage7bStage8a4TerminalAuthority` — broker-neutral durable authority;
-- `Stage8a4I4TerminalAckFacts` — exact timestamp-free ACK facts;
-- `Stage8a4I4CurrentReadinessEvidence` — current read-only readiness evidence;
-- `Stage8a4I4DerivedAckReadinessFacade` — consumed composition result.
+- `pub struct Stage7bStage8a4TerminalAuthority { /* private fields */ }` —
+  public-opaque broker-neutral durable capability owned by
+  `runtime-durable-service`, public solely because it crosses a crate boundary;
+- `Stage8a4I4TerminalAckFacts` — crate-private FINAM timestamp-free ACK facts;
+- `Stage8a4I4CurrentReadinessEvidence` — crate-private FINAM current read-only
+  readiness evidence;
+- `Stage8a4I4DerivedAckReadinessFacade` — crate-private FINAM consumed result.
 
-There is no public constructor, field access, raw journal input, caller-built
-seal, caller-built checkpoint or digest-only constructor. The facade exposes at
-most a bounded redacted diagnostic. It is not accepted by Redis settlement,
-FINAM transport, execution-capability minting or runtime-live attachment.
+Public type visibility is not construction authority. The terminal capability
+has private fields. There is no public constructor. There is no raw journal/V2/suffix
+input, caller-built seal/checkpoint, digest-only constructor or caller-computed
+hash constructor. It has no `Clone`, `Copy`, `Debug`, `Serialize` or
+`Deserialize` implementation. Only `Stage7bRecoveryReadyOwner` can issue it.
+The FINAM-private facade exposes at most a bounded redacted diagnostic. Neither
+capability nor facade is accepted by Redis settlement, FINAM transport,
+execution-capability minting or runtime-live attachment.
+
+## Cross-crate authority topology
+
+The broker-neutral ownership and dependency direction are exact:
+
+```text
+runtime-durable-service
+  owns public-opaque Stage7bStage8a4TerminalAuthority
+  owns sole issuer Stage7bRecoveryReadyOwner
+          |
+          | existing allowed dependency direction
+          v
+finam-gateway
+  consumes the opaque value
+  derives crate-private ACK facts + current readiness + facade
+```
+
+`finam-gateway -> runtime-durable-service` is allowed and already exists.
+`runtime-durable-service -> finam-gateway` is forbidden. Runtime durability
+must remain broker-neutral.
+
+The sole issuer performs the read-only S1 reread/authentication, read-only mixed
+replay refresh and exact complete Stage8A4 durable verification described
+below. No other owner or constructor issues the capability.
+
+The downstream crate may consume the opaque value through bounded read-only
+getters, a one-way `into_*` broker-neutral facts method or an equivalent
+nonconstructive API. That API may reveal only exact R2 terminal ACK facts and
+scope bindings. It exposes no writer handle, seal key, Redis authority,
+execution capability, broker request builder or mutable replay state.
+
+Forbidden substitutes include a caller-settable public facts struct, a
+serializable proof DTO accepted as authority, a public raw digest/seal/checkpoint
+constructor, FINAM-side Stage7B seal authentication or duplicate Stage7B
+terminal identity derivation. Stage7B remains the sole durable authority owner.
 
 ## Durable terminal derivation and seal policy
 
@@ -269,16 +315,34 @@ differ or be absent after restart without changing ACK equality.
 Publication knowledge, when added by a later separately accepted slice, may
 classify canonical/duplicate/conflict but cannot alter durable ACK facts.
 
-## Required implementation order after R2 acceptance
+## Required external-crate compile-fail proof
+
+The later controlled implementation gate must build an external test crate.
+It may name and consume an owner-issued
+`Stage7bStage8a4TerminalAuthority`. It must fail to compile attempts to:
+
+```text
+Stage7bStage8a4TerminalAuthority { ... }
+Stage7bStage8a4TerminalAuthority::new(...)
+value.clone()
+serde_json::to_vec(&value)
+format!("{value:?}")
+```
+
+It must also prove that no raw journal, V2, suffix, seal/checkpoint digest,
+caller hash or receipt-alone minting path exists. A public name with private
+authority provenance is the required boundary.
+
+## Required implementation order after R3 acceptance
 
 1. Add broker-neutral completed-transition facts to mixed replay.
-2. Add owner-mediated terminal authority with read-only exact S1 validation and
-   no seal repair.
-3. Add timestamp-free ACK facts reusing the Stage7B terminal identity.
-4. Add private FINAM-gateway readiness issuer and composition.
-5. Add PLACE/CANCEL/hold/Pending/restart/duplicate/expiry/active-order matrices
-   and compile-fail privacy tests.
-6. Add I4 implementation checker, negative harness and immutable handoff.
+2. Add the public-opaque owner-issued broker-neutral terminal capability with
+   read-only exact S1 validation and no seal repair.
+3. Add external-crate visibility/construction/trait compile-fail tests.
+4. Add timestamp-free ACK facts reusing the Stage7B terminal identity.
+5. Add private FINAM-gateway readiness issuer and composition.
+6. Add PLACE/CANCEL/hold/Pending/restart/duplicate/expiry/active-order matrices.
+7. Add I4 implementation checker, negative harness and immutable handoff.
 
 Each step remains read-only / no-effect. ACK/readiness publication or Redis
 `XACK` requires a later explicitly accepted slice.

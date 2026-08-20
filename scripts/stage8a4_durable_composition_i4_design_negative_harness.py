@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact mutation checks for the Stage 8A-4 I4 Design R2 contract."""
+"""Exact mutation checks for the Stage 8A-4 I4 Design R3 contract."""
 
 from __future__ import annotations
 
@@ -51,6 +51,14 @@ MUTATIONS = [
     ("seal-repair", '"seal_write_advance_repair_allowed": false', '"seal_write_advance_repair_allowed": true'),
     ("journal-append", '"journal_or_suffix_append_allowed": false', '"journal_or_suffix_append_allowed": true'),
     ("read-side-forbidden", '"seal_reread_authentication_allowed": true', '"seal_reread_authentication_allowed": false'),
+    ("terminal-stays-crate-private", '"terminal_authority_public_type": true', '"terminal_authority_public_type": false'),
+    ("public-constructor-topology", '"terminal_authority_public_constructor": false', '"terminal_authority_public_constructor": true'),
+    ("public-fields", '"terminal_authority_public_fields": false', '"terminal_authority_public_fields": true'),
+    ("clone-terminal-authority", '"terminal_authority_clone": false', '"terminal_authority_clone": true'),
+    ("reverse-finam-dependency", '"runtime_durable_to_finam_dependency_allowed": false', '"runtime_durable_to_finam_dependency_allowed": true'),
+    ("raw-public-facts", '"raw_public_facts_can_replace_authority": false', '"raw_public_facts_can_replace_authority": true'),
+    ("finam-authenticates-seal", '"finam_can_authenticate_stage7b_seal": false', '"finam_can_authenticate_stage7b_seal": true'),
+    ("finam-private-types-public", '"ack_facts_readiness_facade_public": false', '"ack_facts_readiness_facade_public": true'),
 ]
 
 
@@ -67,8 +75,8 @@ def mutate(tree: Path, old: str, new: str) -> None:
 
 
 def main() -> None:
-    if len(MUTATIONS) != 38:
-        raise SystemExit("FAIL mutation inventory is not exact 38")
+    if len(MUTATIONS) != 46:
+        raise SystemExit("FAIL mutation inventory is not exact 46")
     with tempfile.TemporaryDirectory(prefix="stage8a4-i4-design-r2-negative-") as raw:
         base = Path(raw) / "tree"
         shutil.copytree(ROOT / "docs", base / "docs")

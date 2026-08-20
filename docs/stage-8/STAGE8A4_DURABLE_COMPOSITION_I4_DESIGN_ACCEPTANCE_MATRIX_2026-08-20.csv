@@ -55,3 +55,11 @@ I4D-053,any account-wide or target active order blocks generic Ready,design
 I4D-054,readiness binds observed_at and minimum valid_until and expires,design
 I4D-055,read-side S1 replay and current-source checks are allowed while every mutation is forbidden,design
 I4D-056,lagging S1 fails closed and I4 never repairs or advances it,design
+I4D-057,Stage7B terminal authority is public-opaque solely for cross-crate use,design
+I4D-058,Stage7bRecoveryReadyOwner is the sole terminal-authority issuer,design
+I4D-059,terminal authority has no public constructor or fields,design
+I4D-060,terminal authority is non-Clone Copy Debug Serialize Deserialize,design
+I4D-061,finam-gateway consumes authority through the existing dependency direction,design
+I4D-062,runtime-durable-service remains free of finam-gateway dependency,design
+I4D-063,ACK facts readiness evidence and facade remain FINAM crate-private,design
+I4D-064,no raw journal seal checkpoint digest or receipt constructor can mint terminal authority,design

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safety and provenance validation for an I4 Design R2 handoff."""
+"""Safety and provenance validation for an I4 Design R3 handoff."""
 
 from __future__ import annotations
 
@@ -51,13 +51,13 @@ def check(path: str) -> dict[str, object]:
             if "=" in line
         )
         evidence = json.loads(archive.read(EVIDENCE))
-        if evidence.get("stage") != "8A-4-durable-composition-I4-design-R2":
+        if evidence.get("stage") != "8A-4-durable-composition-I4-design-R3":
             raise ValueError("stage mismatch")
         if evidence.get("source_ref") != marker.get("source_ref"):
             raise ValueError("source mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive mismatch")
-        if evidence.get("acceptance_rows") != 56 or evidence.get("negative_cases") != 38:
+        if evidence.get("acceptance_rows") != 64 or evidence.get("negative_cases") != 46:
             raise ValueError("count mismatch")
         if evidence.get("timestamp_model") != "timestamp_free_model_a":
             raise ValueError("timestamp model mismatch")

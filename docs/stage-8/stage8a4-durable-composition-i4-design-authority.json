@@ -1,12 +1,13 @@
 {
-  "schema_version": 2,
-  "stage": "8A-4-durable-composition-I4-design-R2",
+  "schema_version": 3,
+  "stage": "8A-4-durable-composition-I4-design-R3",
   "status": "design_candidate",
   "accepted_predecessor_ref": "593ff255ef7826a22e66c9aff6f7ea47acf47644",
   "accepted_predecessor_review_sha256": "1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257",
   "rejected_r1_ref": "06bb09fa13431d0ae34039f37497d4f37914f022",
-  "acceptance_rows": 56,
-  "negative_cases": 38,
+  "rejected_r2_ref": "d1a050a53d95a3d53874bf0866e3598b948dde68",
+  "acceptance_rows": 64,
+  "negative_cases": 46,
   "scope": "derived_ack_and_current_readiness_read_only_no_effect",
   "terminal_authority": {
     "complete_v2_exact_suffix_required": true,
@@ -60,6 +61,25 @@
     "request_finalized_append_allowed": false,
     "seal_write_advance_repair_allowed": false,
     "ack_or_readiness_publication_allowed": false
+  },
+  "cross_crate_topology": {
+    "terminal_authority_owner_crate": "runtime-durable-service",
+    "terminal_authority_public_type": true,
+    "terminal_authority_public_constructor": false,
+    "terminal_authority_public_fields": false,
+    "terminal_authority_clone": false,
+    "terminal_authority_copy": false,
+    "terminal_authority_debug": false,
+    "terminal_authority_serialize": false,
+    "terminal_authority_deserialize": false,
+    "sole_issuer": "Stage7bRecoveryReadyOwner",
+    "downstream_consumer_crate": "finam-gateway",
+    "finam_to_runtime_durable_dependency_allowed": true,
+    "runtime_durable_to_finam_dependency_allowed": false,
+    "raw_public_facts_can_replace_authority": false,
+    "finam_can_authenticate_stage7b_seal": false,
+    "ack_facts_readiness_facade_public": false,
+    "external_compile_fail_required": true
   },
   "closed": {
     "redis_ack_xack": true,

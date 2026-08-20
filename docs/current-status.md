@@ -73,12 +73,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `593ff255ef7826a22e66c9aff6f7ea47acf47644`; its review SHA-256 is
   `1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257`.
 - I4 Design R1 at `06bb09fa13431d0ae34039f37497d4f37914f022` was not accepted
-  with zero P0 and three P1 design ambiguities. I4 Design R2 is active as a
-  docs/checker-only slice. It preserves separate complete-V2+suffix+S1 terminal
-  authority and current readiness, freezes timestamp-free ACK facts with exact
-  reuse of the Stage7B terminal identity, blocks generic Ready for any active
-  order, and permits required reads while forbidding every mutation. I4
-  implementation remains CLOSED. ACK/readiness publication,
+  with zero P0 and three P1 design ambiguities. Design R2 at
+  `d1a050a53d95a3d53874bf0866e3598b948dde68` closed those semantics but was
+  not accepted because its all-crate-private declaration made the accepted
+  cross-crate handoff impossible. I4 Design R3 is active as a docs/checker-only
+  slice. It preserves every R2 semantic rule and changes only the Stage7B
+  terminal capability to public-opaque/external-nonconstructible for the
+  existing `finam-gateway -> runtime-durable-service` direction. All FINAM ACK,
+  readiness and facade types remain private. I4 implementation remains CLOSED.
+  ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,
   retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B
   remain CLOSED.

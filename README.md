@@ -28,10 +28,12 @@ control during recovery issuer reopen. I3 R6 is independently accepted and
 closed at `593ff25`: its structurally recovery-only issuer treats
 missing/unreadable/stale/stopped control as conservative post-effect evidence
 while readable identity conflicts remain hard failures. I4 Design R1 at
-`06bb09f` was not accepted. I4 Design R2 is the active docs/checker-only slice;
-it freezes timestamp-free durable ACK facts, exact reuse of the Stage7B terminal
-identity and short-lived current readiness from a non-execution issuer. I4
-implementation and Stage 8A-5 remain closed pending Design R2 review.
+`06bb09f` was not accepted. I4 Design R2 at `d1a050a` closed its semantic P1s
+but was not accepted because its crate-private terminal authority could not
+cross into FINAM. I4 Design R3 is the active docs/checker-only slice: it retains
+all R2 semantics and makes only the Stage7B terminal capability public-opaque,
+externally nonconstructible and consumable through the existing dependency
+direction. I4 implementation and Stage 8A-5 remain closed pending R3 review.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.
