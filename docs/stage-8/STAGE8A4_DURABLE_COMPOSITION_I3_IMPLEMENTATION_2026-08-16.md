@@ -1,4 +1,4 @@
-# Stage 8A-4 durable composition I3 R4
+# Stage 8A-4 durable composition I3 R5
 
 ## Scope and lineage
 
@@ -21,6 +21,15 @@ operational identity, then creates the lifecycle-key HMAC seal only inside
 strategy-runtime-core. Incomplete or complete-but-uncovered restart remains in
 a typed Pending owner, and source/truth/control evidence is bound into the
 one-shot writer commitment.
+
+R4 at `44030688053c41a2179bb0f7bc59458c408348fd` was not accepted because its
+restart entry retained the pre-crash `Stage8ExecutionCapability` and
+`Stage8a1OperationalAuthorityIssuer`. R5 removes both process-local inputs.
+The Pending owner now reopens the pinned Stage8A1 authority root, recomputes
+the deterministic historical arm nonce, reads the existing immutable arm
+registration, verifies its Ed25519 signature against the operational-identity
+pinned issuer key, reconstructs private post-effect provenance, and only then
+permits exact suffix recovery. It never registers or remints an arm.
 
 I4 remains separately review-gated. ACK/readiness, Redis live consumption,
 FINAM POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
@@ -107,7 +116,14 @@ already complete F1 whose covering S1 was not committed. The production
 restart entry reconstructs the exact V1 suffix from persisted canonical V2,
 verifies every persisted prefix record against the manifest, appends only the
 missing records, and commits/rereads S1. It therefore does not require the lost
-I2 candidate, private outcome or a test writer. A second V2, unrelated V1,
+I2 candidate, private outcome, pre-crash execution capability, retained issuer
+object or a test writer. The recovery-only issuer is rebuilt from the Pending
+owner and current pinned authority root. Historical provenance comes from a
+versioned canonical arm-registration record selected by the deterministic
+one-arm nonce. Its issuer signature covers durable identity, accepted command,
+operational/runtime identity, authority scope and frozen policy. Missing,
+replaced, non-canonical, unsigned or mismatched registration fails closed
+without suffix append or S1. A second V2, unrelated V1,
 wrong durable binding, stale precondition, torn frame or foreign suffix is
 never covered.
 
@@ -119,6 +135,15 @@ call the actual production recovery entry for V2-only, partial-suffix and
 complete-before-S1 states. Repeated restart stays Pending; successful repair
 returns ordinary Ready. The fault injector cannot append a batch or construct
 a writer authority.
+
+The mandatory R5 witness crosses an actual process boundary. Process A creates
+the normal one-shot arm, writes V2 and is killed while its owner and issuer are
+still live. Process B receives no Rust object from A; it reopens the durable
+root and authority files, observes Pending, reuses the sole existing arm file,
+appends the two missing suffix records, commits/rereads S1 and restarts Ready.
+Focused negative tests remove or structurally preserve but cryptographically
+alter that arm file and prove the durable state remains Pending. Registry entry
+count is unchanged by every recovery.
 
 ## Sticky mutation uncertainty
 

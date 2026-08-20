@@ -86,9 +86,10 @@ use broker_core::{
     PreflightApprovedPlaceOrder, StrategyRequestId, TimeInForce,
 };
 use chrono::{DateTime, Utc};
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use runtime_durable_service::{
     Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bRecoveryReadyOwner,
+    Stage8a4I3RecoveryPendingOwner,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -359,6 +360,25 @@ impl Stage8a1DurableRequestAuthority {
         let authority = owner
             .authorize_stage8a1_durable_request(commitment_key, identity, command)
             .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+        Self::from_stage7b_authority(authority, command)
+    }
+
+    pub(crate) fn from_stage8a4_pending_owner(
+        owner: &mut Stage8a4I3RecoveryPendingOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+    ) -> Result<Self, Stage8ExecutionPreflightError> {
+        let authority = owner
+            .authorize_pending_recovery_request(commitment_key, identity, command)
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+        Self::from_stage7b_authority(authority, command)
+    }
+
+    fn from_stage7b_authority(
+        authority: runtime_durable_service::Stage7bStage8a1DurableRequestAuthority,
+        command: &Stage6DurableCommandSnapshotV1,
+    ) -> Result<Self, Stage8ExecutionPreflightError> {
         let stage6 = authority.stage6();
         let mut value = Self {
             identity: stage6.identity().clone(),
@@ -428,6 +448,7 @@ impl Stage8a1DurableRequestAuthority {
 /// Opaque exact-command, one-shot operator arm. Consumed by authorization.
 pub struct Stage8a1OperatorArmAuthority {
     nonce_sha256: String,
+    registration_sha256: String,
     exact_command_sha256: String,
     scope_sha256: String,
     policy_sha256: String,
@@ -590,6 +611,25 @@ pub(crate) struct Stage8a4HistoricalArmProvenance {
     authority_scope_sha256: String,
     arm_nonce_sha256: String,
     arm_registration_sha256: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage8a1ArmRegistrationV2 {
+    schema_version: u16,
+    arm_nonce_sha256: String,
+    durable_provenance_sha256: String,
+    accepted_command_payload_sha256: String,
+    operational_identity_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    authority_scope_sha256: String,
+    policy_sha256: String,
+    build_sha256: String,
+    config_sha256: String,
+    endpoint_policy_sha256: String,
+    exact_command_sha256: String,
+    issuer_public_key_hex: String,
+    issuer_signature_hex: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -757,7 +797,7 @@ impl Stage8a1OperationalAuthorityIssuer {
         durable: &Stage8a1DurableRequestAuthority,
     ) -> Result<Self, Stage8ExecutionPreflightError> {
         let (_, accepted_config_sha256) = load_accepted_config(root)?;
-        Self::from_trusted_composition(root, &accepted_config_sha256, durable)
+        Self::from_trusted_composition(root, &accepted_config_sha256, durable, true)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -778,13 +818,38 @@ impl Stage8a1OperationalAuthorityIssuer {
             identity,
             command,
         )?;
-        Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, &durable)
+        Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, &durable, true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_stage8a4_pending_owner(
+        owner: &mut Stage8a4I3RecoveryPendingOwner,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &Stage6DurableCommandSnapshotV1,
+        root: impl AsRef<Path>,
+        accepted_config_sha256: &str,
+    ) -> Result<(Self, Stage8a4HistoricalArmProvenance), Stage8ExecutionPreflightError> {
+        if !valid_sha256(accepted_config_sha256) {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        let durable = Stage8a1DurableRequestAuthority::from_stage8a4_pending_owner(
+            owner,
+            commitment_key,
+            identity,
+            command,
+        )?;
+        let issuer =
+            Self::from_trusted_composition(root.as_ref(), accepted_config_sha256, &durable, false)?;
+        let historical = issuer.reconstruct_stage8a4_historical_arm_provenance(&durable)?;
+        Ok((issuer, historical))
     }
 
     fn from_trusted_composition(
         root: &Path,
         accepted_config_sha256: &str,
         durable: &Stage8a1DurableRequestAuthority,
+        allow_arm_registry_create: bool,
     ) -> Result<Self, Stage8ExecutionPreflightError> {
         directory_identity(root)?;
         let root = root
@@ -796,7 +861,7 @@ impl Stage8a1OperationalAuthorityIssuer {
         let control_path = root.join(CURRENT_CONTROL_FILE);
         let arm_registry_path = root.join(ARM_NONCE_DIR);
         let writer_signing_key_path = root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
-        if !arm_registry_path.exists() {
+        if !arm_registry_path.exists() && allow_arm_registry_create {
             fs::create_dir(&arm_registry_path)
                 .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
             sync_directory(&root)?;
@@ -862,6 +927,50 @@ impl Stage8a1OperationalAuthorityIssuer {
                 b"stage8a1-current-control-content-v1",
                 &[&canonical_json(&control)],
             ),
+        })
+    }
+
+    fn reconstruct_stage8a4_historical_arm_provenance(
+        &self,
+        durable: &Stage8a1DurableRequestAuthority,
+    ) -> Result<Stage8a4HistoricalArmProvenance, Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        durable.validate()?;
+        let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
+        if config_file_sha256 != self.authority_root.accepted_config_sha256 {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        validate_config_binding(&config, durable)?;
+        let policy = frozen_policy_from_config(&config, durable);
+        validate_policy(&policy, durable)?;
+        let authority_scope_sha256 = authority_scope_sha256(durable, &policy);
+        let arm_nonce_sha256 = deterministic_arm_nonce_sha256(durable);
+        let arm_path = arm_registration_path(&self.authority_root.root, &arm_nonce_sha256);
+        let bytes = read_arm_registration(
+            &self.authority_root,
+            arm_path
+                .file_name()
+                .ok_or(Stage8ExecutionPreflightError::OperatorArmInvalid)?,
+        )
+        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?;
+        validate_arm_nonce_registration_record(
+            &bytes,
+            durable,
+            &policy,
+            None,
+            &config.stage8a4_writer_issuer_public_key_hex,
+            false,
+        )?;
+        Ok(Stage8a4HistoricalArmProvenance {
+            accepted_command_payload_sha256: Stage6Sha256Digest::parse(
+                durable.canonical_command_sha256.clone(),
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?,
+            operational_identity_sha256: durable.operational_identity_sha256.clone(),
+            runtime_config_fingerprint_sha256: durable.runtime_config_fingerprint_sha256.clone(),
+            authority_scope_sha256,
+            arm_nonce_sha256,
+            arm_registration_sha256: digest_parts(b"stage8a1-arm-registration-file-v2", &[&bytes]),
         })
     }
 
@@ -1012,7 +1121,9 @@ impl Stage8a1OperationalAuthorityIssuer {
                 .ok_or(Stage8ExecutionPreflightError::OperatorArmInvalid)?,
         )
         .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?;
-        if arm_record.as_slice() != historical_arm.arm_registration_sha256.as_bytes() {
+        if digest_parts(b"stage8a1-arm-registration-file-v2", &[&arm_record])
+            != historical_arm.arm_registration_sha256
+        {
             return Err(Stage8ExecutionPreflightError::OperatorArmInvalid);
         }
 
@@ -1198,18 +1309,30 @@ impl Stage8a1OperationalAuthorityIssuer {
         )?;
         let nonce_path =
             arm_registration_path(&self.authority_root.root, &capability.arm_nonce_sha256);
-        let expected_nonce_record = arm_nonce_registration_record(
-            &durable,
-            &capability.exact_command_sha256,
-            &policy.policy_sha256,
-        );
         let nonce_record_matches = read_arm_registration(
             &self.authority_root,
             nonce_path
                 .file_name()
                 .expect("arm registration has a file name"),
         )
-        .map(|bytes| bytes == expected_nonce_record.as_bytes())
+        .and_then(|bytes| {
+            validate_arm_nonce_registration_record(
+                &bytes,
+                &durable,
+                &policy,
+                Some(&capability.exact_command_sha256),
+                &config.stage8a4_writer_issuer_public_key_hex,
+                true,
+            )
+            .and_then(|_| {
+                (digest_parts(b"stage8a1-arm-registration-file-v2", &[&bytes])
+                    == capability.arm_registration_sha256)
+                    .then_some(())
+                    .ok_or(Stage8ExecutionPreflightError::OperatorArmInvalid)
+            })
+            .map_err(|_| std::io::Error::other("arm registration invalid"))
+        })
+        .map(|_| true)
         .unwrap_or(false);
         if !nonce_record_matches
             || durable.provenance_sha256 != capability.durable_provenance_sha256
@@ -1290,18 +1413,30 @@ impl Stage8a1OperationalAuthorityIssuer {
         )?;
         let nonce_path =
             arm_registration_path(&self.authority_root.root, &capability.arm_nonce_sha256);
-        let expected_nonce_record = arm_nonce_registration_record(
-            &durable,
-            &capability.exact_command_sha256,
-            &policy.policy_sha256,
-        );
         let nonce_record_matches = read_arm_registration(
             &self.authority_root,
             nonce_path
                 .file_name()
                 .expect("arm registration has a file name"),
         )
-        .map(|bytes| bytes == expected_nonce_record.as_bytes())
+        .and_then(|bytes| {
+            validate_arm_nonce_registration_record(
+                &bytes,
+                &durable,
+                &policy,
+                Some(&capability.exact_command_sha256),
+                &config.stage8a4_writer_issuer_public_key_hex,
+                true,
+            )
+            .and_then(|_| {
+                (digest_parts(b"stage8a1-arm-registration-file-v2", &[&bytes])
+                    == capability.arm_registration_sha256)
+                    .then_some(())
+                    .ok_or(Stage8ExecutionPreflightError::OperatorArmInvalid)
+            })
+            .map_err(|_| std::io::Error::other("arm registration invalid"))
+        })
+        .map(|_| true)
         .unwrap_or(false);
         if !nonce_record_matches
             || durable.provenance_sha256 != capability.durable_provenance_sha256
@@ -1343,11 +1478,12 @@ impl Stage8a1OperationalAuthorityIssuer {
             sources,
             now,
         )?;
-        let nonce_sha256 = register_arm_nonce(
+        let (nonce_sha256, registration_sha256) = register_arm_nonce(
             &self.authority_root,
             durable,
             command_sha256,
-            &policy.policy_sha256,
+            policy,
+            &self.stage8a4_writer_signing_key,
         )?;
         let valid_until = std::cmp::min(
             now + chrono::Duration::milliseconds(config.max_arm_ttl_ms as i64),
@@ -1356,6 +1492,7 @@ impl Stage8a1OperationalAuthorityIssuer {
         Ok(Stage8a1IssuedAuthorities {
             arm: Stage8a1OperatorArmAuthority {
                 nonce_sha256,
+                registration_sha256,
                 exact_command_sha256: command_sha256.to_string(),
                 scope_sha256: scope_sha256.clone(),
                 policy_sha256: policy.policy_sha256.clone(),
@@ -1880,17 +2017,11 @@ fn register_arm_nonce(
     authority_root: &Stage8a1AuthorityRoot,
     durable: &Stage8a1DurableRequestAuthority,
     command_sha256: &str,
-    policy_sha256: &str,
-) -> Result<String, Stage8ExecutionPreflightError> {
+    policy: &Stage8a1FrozenExecutionPolicy,
+    signing_key: &SigningKey,
+) -> Result<(String, String), Stage8ExecutionPreflightError> {
     authority_root.validate()?;
-    let nonce_sha256 = digest_parts(
-        b"stage8a1-one-arm-per-durable-request-v1",
-        &[
-            durable.operational_identity_sha256.as_bytes(),
-            &canonical_json(&durable.identity),
-            durable.identity.strategy_request_id().as_uuid().as_bytes(),
-        ],
-    );
+    let nonce_sha256 = deterministic_arm_nonce_sha256(durable);
     let registry_dir = authority_root.root.join(ARM_NONCE_DIR);
     if directory_identity(&registry_dir)? != authority_root.arm_registry_identity {
         return Err(Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable);
@@ -1904,29 +2035,133 @@ fn register_arm_nonce(
             Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable
         }
     })?;
-    let record = arm_nonce_registration_record(durable, command_sha256, policy_sha256);
-    file.write_all(record.as_bytes())
+    let record = canonical_json(&signed_arm_nonce_registration_record(
+        durable,
+        command_sha256,
+        policy,
+        signing_key,
+    ));
+    file.write_all(&record)
         .and_then(|_| file.sync_all())
         .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)?;
     directory
         .sync_all()
         .map_err(|_| Stage8ExecutionPreflightError::OperatorArmRegistryUnavailable)?;
-    Ok(nonce_sha256)
+    let registration_sha256 = digest_parts(b"stage8a1-arm-registration-file-v2", &[&record]);
+    Ok((nonce_sha256, registration_sha256))
 }
 
-fn arm_nonce_registration_record(
-    durable: &Stage8a1DurableRequestAuthority,
-    command_sha256: &str,
-    policy_sha256: &str,
-) -> String {
+fn deterministic_arm_nonce_sha256(durable: &Stage8a1DurableRequestAuthority) -> String {
     digest_parts(
-        b"stage8a1-operator-arm-registration-v1",
+        b"stage8a1-one-arm-per-durable-request-v1",
         &[
-            durable.provenance_sha256.as_bytes(),
-            command_sha256.as_bytes(),
-            policy_sha256.as_bytes(),
+            durable.operational_identity_sha256.as_bytes(),
+            &canonical_json(&durable.identity),
+            durable.identity.strategy_request_id().as_uuid().as_bytes(),
         ],
     )
+}
+
+fn unsigned_arm_nonce_registration_record(
+    durable: &Stage8a1DurableRequestAuthority,
+    command_sha256: &str,
+    policy: &Stage8a1FrozenExecutionPolicy,
+) -> Stage8a1ArmRegistrationV2 {
+    Stage8a1ArmRegistrationV2 {
+        schema_version: 2,
+        arm_nonce_sha256: deterministic_arm_nonce_sha256(durable),
+        durable_provenance_sha256: durable.provenance_sha256.clone(),
+        accepted_command_payload_sha256: durable.canonical_command_sha256.clone(),
+        operational_identity_sha256: durable.operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: durable.runtime_config_fingerprint_sha256.clone(),
+        authority_scope_sha256: authority_scope_sha256(durable, policy),
+        policy_sha256: policy.policy_sha256.clone(),
+        build_sha256: policy.build_sha256.clone(),
+        config_sha256: policy.config_sha256.clone(),
+        endpoint_policy_sha256: policy.endpoint_policy_sha256.clone(),
+        exact_command_sha256: command_sha256.to_string(),
+        issuer_public_key_hex: String::new(),
+        issuer_signature_hex: String::new(),
+    }
+}
+
+fn signed_arm_nonce_registration_record(
+    durable: &Stage8a1DurableRequestAuthority,
+    command_sha256: &str,
+    policy: &Stage8a1FrozenExecutionPolicy,
+    signing_key: &SigningKey,
+) -> Stage8a1ArmRegistrationV2 {
+    let mut record = unsigned_arm_nonce_registration_record(durable, command_sha256, policy);
+    record.issuer_public_key_hex = encode_lower_hex(signing_key.verifying_key().as_bytes());
+    let attestation = arm_nonce_registration_attestation_sha256(&record);
+    record.issuer_signature_hex =
+        encode_lower_hex(&signing_key.sign(attestation.as_bytes()).to_bytes());
+    record
+}
+
+fn arm_nonce_registration_attestation_sha256(record: &Stage8a1ArmRegistrationV2) -> String {
+    digest_parts(
+        b"stage8a1-arm-registration-attestation-v2",
+        &[
+            &record.schema_version.to_be_bytes(),
+            record.arm_nonce_sha256.as_bytes(),
+            record.durable_provenance_sha256.as_bytes(),
+            record.accepted_command_payload_sha256.as_bytes(),
+            record.operational_identity_sha256.as_bytes(),
+            record.runtime_config_fingerprint_sha256.as_bytes(),
+            record.authority_scope_sha256.as_bytes(),
+            record.policy_sha256.as_bytes(),
+            record.build_sha256.as_bytes(),
+            record.config_sha256.as_bytes(),
+            record.endpoint_policy_sha256.as_bytes(),
+            record.exact_command_sha256.as_bytes(),
+            record.issuer_public_key_hex.as_bytes(),
+        ],
+    )
+}
+
+fn validate_arm_nonce_registration_record(
+    bytes: &[u8],
+    durable: &Stage8a1DurableRequestAuthority,
+    policy: &Stage8a1FrozenExecutionPolicy,
+    expected_exact_command_sha256: Option<&str>,
+    expected_issuer_public_key_hex: &str,
+    require_current_durable_provenance: bool,
+) -> Result<Stage8a1ArmRegistrationV2, Stage8ExecutionPreflightError> {
+    let record: Stage8a1ArmRegistrationV2 = serde_json::from_slice(bytes)
+        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?;
+    if record.schema_version != 2
+        || record.arm_nonce_sha256 != deterministic_arm_nonce_sha256(durable)
+        || !valid_sha256(&record.durable_provenance_sha256)
+        || (require_current_durable_provenance
+            && record.durable_provenance_sha256 != durable.provenance_sha256)
+        || record.accepted_command_payload_sha256 != durable.canonical_command_sha256
+        || record.operational_identity_sha256 != durable.operational_identity_sha256
+        || record.runtime_config_fingerprint_sha256 != durable.runtime_config_fingerprint_sha256
+        || record.authority_scope_sha256 != authority_scope_sha256(durable, policy)
+        || record.policy_sha256 != policy.policy_sha256
+        || record.build_sha256 != policy.build_sha256
+        || record.config_sha256 != policy.config_sha256
+        || record.endpoint_policy_sha256 != policy.endpoint_policy_sha256
+        || !valid_sha256(&record.exact_command_sha256)
+        || expected_exact_command_sha256
+            .is_some_and(|expected| record.exact_command_sha256 != expected)
+        || record.issuer_public_key_hex != expected_issuer_public_key_hex
+        || canonical_json(&record) != bytes
+    {
+        return Err(Stage8ExecutionPreflightError::OperatorArmInvalid);
+    }
+    let public_key = VerifyingKey::from_bytes(&decode_fixed_lower_hex::<32>(
+        &record.issuer_public_key_hex,
+    )?)
+    .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?;
+    let signature =
+        Signature::from_bytes(&decode_fixed_lower_hex::<64>(&record.issuer_signature_hex)?);
+    let attestation = arm_nonce_registration_attestation_sha256(&record);
+    public_key
+        .verify(attestation.as_bytes(), &signature)
+        .map_err(|_| Stage8ExecutionPreflightError::OperatorArmInvalid)?;
+    Ok(record)
 }
 
 fn sync_directory(path: &Path) -> Result<(), Stage8ExecutionPreflightError> {
@@ -2122,6 +2357,7 @@ struct ValidatedEvidence {
     now: DateTime<Utc>,
     valid_until: DateTime<Utc>,
     arm_nonce_sha256: String,
+    arm_registration_sha256: String,
     exact_command_sha256: String,
     current_state_sha256: String,
     authority_fingerprints: Vec<String>,
@@ -2152,6 +2388,7 @@ fn validate_authorities(
         || arm.config_sha256 != policy.config_sha256
         || arm.endpoint_policy_sha256 != policy.endpoint_policy_sha256
         || !valid_sha256(&arm.nonce_sha256)
+        || !valid_sha256(&arm.registration_sha256)
         || arm.issued_at > clock.now
         || arm.valid_until <= clock.now
         || arm
@@ -2288,10 +2525,12 @@ fn validate_authorities(
         now: clock.now,
         valid_until,
         arm_nonce_sha256: arm.nonce_sha256.clone(),
+        arm_registration_sha256: arm.registration_sha256.clone(),
         exact_command_sha256: arm.exact_command_sha256.clone(),
         current_state_sha256,
         authority_fingerprints: vec![
             arm.nonce_sha256,
+            arm.registration_sha256,
             clock.evidence_sha256,
             readiness.evidence_sha256,
             kill_switch.evidence_sha256,
@@ -2489,11 +2728,6 @@ fn build_capability(
     evidence: ValidatedEvidence,
 ) -> Stage8ExecutionCapability {
     let authority_scope_sha256 = authority_scope_sha256(durable, policy);
-    let arm_registration_sha256 = arm_nonce_registration_record(
-        durable,
-        &evidence.exact_command_sha256,
-        &policy.policy_sha256,
-    );
     let mut parts = vec![
         durable.provenance_sha256.as_bytes(),
         durable.canonical_command_sha256.as_bytes(),
@@ -2519,7 +2753,7 @@ fn build_capability(
         endpoint_policy_sha256: policy.endpoint_policy_sha256.clone(),
         authority_scope_sha256,
         arm_nonce_sha256: evidence.arm_nonce_sha256,
-        arm_registration_sha256,
+        arm_registration_sha256: evidence.arm_registration_sha256,
         accepted_command_payload_sha256: durable.canonical_command_sha256.clone(),
         operational_identity_sha256: durable.operational_identity_sha256.clone(),
         runtime_config_fingerprint_sha256: durable.runtime_config_fingerprint_sha256.clone(),
@@ -2918,6 +3152,7 @@ mod tests {
         Authorities {
             arm: Stage8a1OperatorArmAuthority {
                 nonce_sha256: digest_parts(b"nonce", &[nonce.as_bytes()]),
+                registration_sha256: digest_parts(b"registration", &[nonce.as_bytes()]),
                 exact_command_sha256: command,
                 scope_sha256: scope.clone(),
                 policy_sha256: policy.policy_sha256.clone(),
@@ -3598,6 +3833,7 @@ mod tests {
                 existing_order: &existing,
                 operator_arm: Stage8a1OperatorArmAuthority {
                     nonce_sha256: FP.into(),
+                    registration_sha256: FP.into(),
                     exact_command_sha256: command,
                     scope_sha256: scope.clone(),
                     policy_sha256: policy.policy_sha256.clone(),

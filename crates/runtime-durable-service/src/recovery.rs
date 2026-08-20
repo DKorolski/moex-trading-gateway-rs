@@ -77,6 +77,20 @@ pub struct Stage8a4I3ProductionTestSetup {
 #[doc(hidden)]
 pub fn stage8a4_i3_production_test_setup(
 ) -> (Stage8a4I3ProductionTestSetup, Stage7bRecoveryReadyOwner) {
+    let parent = std::env::temp_dir().join(format!(
+        "stage8a4-i3-production-{}-{}",
+        std::process::id(),
+        STAGE7B_RECOVERY_SEAL_TEMP_COUNTER.fetch_add(1, Ordering::SeqCst)
+    ));
+    std::fs::create_dir(&parent).expect("create Stage8A4 I3 fixture parent");
+    stage8a4_i3_production_test_setup_in(parent)
+}
+
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub fn stage8a4_i3_production_test_setup_in(
+    parent: std::path::PathBuf,
+) -> (Stage8a4I3ProductionTestSetup, Stage7bRecoveryReadyOwner) {
     use strategy_runtime_core::{
         authorize_stage6d_first_boot, stage7b_test_authenticated_working_restart_fixture,
         Stage6dFirstBootConfig, Stage7bTestExtraStage6History,
@@ -132,12 +146,6 @@ pub fn stage8a4_i3_production_test_setup(
         stage8a4_writer_issuer_public_key_hex:
             "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
     };
-    let parent = std::env::temp_dir().join(format!(
-        "stage8a4-i3-production-{}-{}",
-        std::process::id(),
-        STAGE7B_RECOVERY_SEAL_TEMP_COUNTER.fetch_add(1, Ordering::SeqCst)
-    ));
-    std::fs::create_dir(&parent).expect("create Stage8A4 I3 fixture parent");
     let parent = std::fs::canonicalize(parent).expect("canonical Stage8A4 I3 fixture parent");
     let root = parent.join(
         Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)

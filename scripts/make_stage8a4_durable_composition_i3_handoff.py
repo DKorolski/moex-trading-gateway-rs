@@ -37,7 +37,7 @@ def main() -> None:
     if status:
         raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL worktree must be clean")
     branch = run("git", "branch", "--show-current").decode().strip()
-    if branch != "stage8a4-durable-composition-i3-r4":
+    if branch != "stage8a4-durable-composition-i3-r5":
         raise SystemExit(f"stage8a4-durable-composition-i3-handoff: FAIL branch={branch}")
     full_ref = run("git", "rev-parse", "HEAD").decode().strip()
     short_ref = run("git", "rev-parse", "--short=7", "HEAD").decode().strip()
@@ -60,7 +60,7 @@ def main() -> None:
         )
         if gate.returncode != 0:
             raise SystemExit(gate.stdout.decode(errors="replace"))
-        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=69 negatives=80 sealed=private pending=true broker_neutral=true recovery=true ack=false execution=false"
+        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=77 negatives=88 sealed=private pending=true fresh_process=true rearm=false broker_neutral=true recovery=true ack=false execution=false"
         if marker not in gate.stdout:
             raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL gate marker missing")
 
@@ -81,7 +81,7 @@ def main() -> None:
         }
         evidence = (json.dumps({
             "schema_version": 1,
-            "stage": "8A-4-durable-composition-I3-R4",
+            "stage": "8A-4-durable-composition-I3-R5",
             "source_ref": full_ref,
             "source_short_ref": short_ref,
             "archive_name": archive_name,
@@ -95,8 +95,11 @@ def main() -> None:
             "rejected_i3_r3_ref": "3aa267029d512ba21f91dd95eb118b8d51810b56",
             "rejected_i3_r3_review_sha256": "aeae8245d421510301672a3885eb2396efdee0071c1dbd1af8313a9aa3d29cb3",
             "i3_r4_correction_spec_sha256": "5f0bfb0fd65ce5723b883638735c610220c51d279b8b7e7085fad9e544ed79a5",
-            "acceptance_rows": 69,
-            "negative_cases": 80,
+            "rejected_i3_r4_ref": "44030688053c41a2179bb0f7bc59458c408348fd",
+            "rejected_i3_r4_review_sha256": "cd171953a5c72ea49a63e2249124c76b9e0711bbe27bde66961d6ecd13337762",
+            "i3_r5_correction_spec_sha256": "2ccd2c663bb1e577898771d8c13720f92f8b80d84e01cbf32ba311b9a276553a",
+            "acceptance_rows": 77,
+            "negative_cases": 88,
             "source_tree_manifest_sha256": sha256(manifest),
             "full_gate_sha256": sha256(gate.stdout),
             "v2_durable_append_enabled": True,
@@ -115,6 +118,16 @@ def main() -> None:
             "production_normal_and_three_recovery_paths_directly_tested": True,
             "complete_uncovered_restart_remains_pending": True,
             "external_raw_mutator_compile_fail": True,
+            "fresh_process_sigkill_recovery_directly_tested": True,
+            "arm_registration_ed25519_attested": True,
+            "arm_registration_issuer_key_pinned": True,
+            "arm_registration_exact_binding_verified": True,
+            "recovery_recreates_operator_arm": False,
+            "recovery_mints_stage8_execution_capability": False,
+            "recovery_requires_stage8_execution_capability": False,
+            "recovery_requires_precrash_issuer_object": False,
+            "recovery_reads_existing_arm_registration": True,
+            "missing_or_mismatched_arm_registration_fails_closed": True,
             "ack_readiness_enabled": False,
             "redis_live_enabled": False,
             "finam_post_delete_enabled": False,

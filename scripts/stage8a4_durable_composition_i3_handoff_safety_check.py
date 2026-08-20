@@ -48,10 +48,10 @@ def check(archive_path: str) -> dict[str, object]:
         evidence = json.loads(
             archive.read("handoff-evidence/stage8a4-durable-composition-i3-evidence.json")
         )
-        if evidence.get("stage") != "8A-4-durable-composition-I3-R4":
+        if evidence.get("stage") != "8A-4-durable-composition-I3-R5":
             raise ValueError("stage mismatch")
-        if evidence.get("acceptance_rows") != 69 or evidence.get("negative_cases") != 80:
-            raise ValueError("R4 evidence count mismatch")
+        if evidence.get("acceptance_rows") != 77 or evidence.get("negative_cases") != 88:
+            raise ValueError("R5 evidence count mismatch")
         for key in (
             "sealed_linear_writer_authority",
             "exact_request_truth_control_binding",
@@ -66,9 +66,23 @@ def check(archive_path: str) -> dict[str, object]:
             "production_normal_and_three_recovery_paths_directly_tested",
             "complete_uncovered_restart_remains_pending",
             "external_raw_mutator_compile_fail",
+            "fresh_process_sigkill_recovery_directly_tested",
+            "arm_registration_ed25519_attested",
+            "arm_registration_issuer_key_pinned",
+            "arm_registration_exact_binding_verified",
+            "recovery_reads_existing_arm_registration",
+            "missing_or_mismatched_arm_registration_fails_closed",
         ):
             if evidence.get(key) is not True:
-                raise ValueError(f"R4 evidence disabled: {key}")
+                raise ValueError(f"R5 evidence disabled: {key}")
+        for key in (
+            "recovery_recreates_operator_arm",
+            "recovery_mints_stage8_execution_capability",
+            "recovery_requires_stage8_execution_capability",
+            "recovery_requires_precrash_issuer_object",
+        ):
+            if evidence.get(key) is not False:
+                raise ValueError(f"R5 closed recovery surface opened: {key}")
         if fields.get("source_ref") != evidence.get("source_ref"):
             raise ValueError("source ref mismatch")
         if fields.get("archive_name") != PurePosixPath(archive_path).name:

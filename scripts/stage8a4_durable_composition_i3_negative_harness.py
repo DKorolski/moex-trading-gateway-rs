@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the 80 fail-closed Stage 8A-4 durable composition I3 R4 mutations."""
+"""Run the 88 fail-closed Stage 8A-4 durable composition I3 R5 mutations."""
 
 from __future__ import annotations
 
@@ -117,11 +117,19 @@ def main() -> None:
         ("production-complete-before-s1-test-removed", lambda r: mutate_text(r, checker.I3, "stage8a4_i3_production_recovery_covers_complete_batch_without_s1", "removed_complete_before_s1_production_recovery_test", True)),
         ("production-recovery-raw-test-writer-restored", lambda r: mutate_text(r, checker.I3, "let (receipt, ready) = recover_persisted_stage8a4_suffix_and_cover(", "let (receipt, ready) = stage8a4_test_append_durable_batch_with_suffix_limit(", True)),
         ("complete-uncovered-batch-recovery-disabled", lambda r: mutate_text(r, checker.CORE, "let Some(batch) = mixed.reconciliation_batches().iter().find(|batch| {\n            Some(batch.last_mixed_record_id())", "let Some(batch) = mixed.reconciliation_batches().iter().find(|batch| {\n            batch.completion() == Stage6ReconciliationBatchCompletionV2::Incomplete\n                && Some(batch.last_mixed_record_id())", True)),
+        ("recovery-requires-execution-capability", lambda r: mutate_text(r, checker.I3, "pub fn recover_persisted_stage8a4_suffix_and_cover(\n    mut owner:", "pub fn recover_persisted_stage8a4_suffix_and_cover(\n    capability: &Stage8ExecutionCapability,\n    mut owner:")),
+        ("recovery-requires-retained-issuer", lambda r: mutate_text(r, checker.I3, "pub fn recover_persisted_stage8a4_suffix_and_cover(\n    mut owner:", "pub fn recover_persisted_stage8a4_suffix_and_cover(\n    issuer: &Stage8a1OperationalAuthorityIssuer,\n    mut owner:")),
+        ("pending-recovery-issuer-removed", lambda r: mutate_text(r, checker.STAGE8A1, "from_stage8a4_pending_owner", "removed_pending_recovery_issuer", True)),
+        ("historical-arm-nonce-reconstruction-removed", lambda r: mutate_text(r, checker.STAGE8A1, "deterministic_arm_nonce_sha256", "removed_historical_arm_nonce", True)),
+        ("recovery-registers-new-arm", lambda r: mutate_text(r, checker.I3, "    let pending = owner", "    let _forbidden_rearm = register_arm_nonce;\n    let pending = owner")),
+        ("arm-registration-signature-verification-removed", lambda r: mutate_text(r, checker.STAGE8A1, ".verify(attestation.as_bytes(), &signature)", ".verify(b\"unbound\", &signature)")),
+        ("same-process-retains-precrash-capability", lambda r: mutate_text(r, checker.I3, "        drop(capability);", "        let _retained_capability = &capability;")),
+        ("sigkill-fresh-process-witness-removed", lambda r: mutate_text(r, checker.I3, "stage8a4_i3_v2_only_sigkill_recovers_in_fresh_process_without_precrash_objects", "removed_sigkill_fresh_process_witness", True)),
     ]
     if len(cases) != checker.NEGATIVE_CASES:
         raise SystemExit(f"stage8a4-durable-composition-i3-negative: FAIL inventory={len(cases)}")
     passed = 0
-    with tempfile.TemporaryDirectory(prefix="stage8a4-i3-r3-negative-") as raw:
+    with tempfile.TemporaryDirectory(prefix="stage8a4-i3-r5-negative-") as raw:
         base = Path(raw)
         for name, mutation in cases:
             candidate = base / name

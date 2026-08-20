@@ -65,11 +65,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Stage8A1 current-owner authority regressed, runtime depended on FINAM, and
   restart required the lost I2 candidate. I3 R3 at `3aa2670` was also not
   accepted because its public sealer was forgeable and incomplete restart
-  became ordinary Ready too early. I3 R4 is the sole active candidate. It
-  authenticates the FINAM writer issuer with an operational-identity-pinned
-  Ed25519 key, mints the HMAC seal only inside core, and keeps V2-only, partial
-  suffix and complete-before-S1 recovery typed Pending. Direct production
-  normal/recovery integration tests prove exact repair and final Ready/S1.
+  became ordinary Ready too early. I3 R4 at `4403068` closed those findings but
+  was not accepted because fresh-process recovery retained the old capability
+  and issuer. I3 R5 is the sole active candidate. It rebuilds the pinned issuer
+  from Pending S0, reads the existing deterministic arm registration without
+  creating a new arm, and requires no process-local object from before the
+  crash. Direct normal, three focused recovery paths and a true SIGKILL
+  process-A/process-B witness prove exact repair and final Ready/S1.
   Independent acceptance is pending.
 - I4 remains CLOSED. I3 produces only durable truth: ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,

@@ -25,6 +25,7 @@ use runtime_durable_service::{
     Stage7bRecoveryError, Stage7bRecoveryReadyOwner, Stage7bStage8a4DurableBatchReceipt,
     Stage8a4I3RecoveryPendingOwner,
 };
+use std::path::Path;
 use strategy_runtime_core::{
     stage8a4_writer_entry_attestation_sha256, Stage5gLifecycleCommitmentKey,
     Stage6DurableCommandSnapshotV1, Stage6DurablePlaceOrderShapeV1, Stage6DurableRequestIdentityV1,
@@ -300,10 +301,10 @@ impl Stage8a4PendingRecoveryWriteAuthority {
 /// broker truth and current post-effect controls; it never needs the lost I2
 /// candidate and never appends a second V2.
 pub fn recover_persisted_stage8a4_suffix_and_cover(
-    capability: &Stage8ExecutionCapability,
-    issuer: &Stage8a1OperationalAuthorityIssuer,
     mut owner: Stage8a4I3RecoveryPendingOwner,
     commitment_key: &Stage5gLifecycleCommitmentKey,
+    authority_root: &Path,
+    accepted_config_sha256: &str,
     current_truth: Stage8a4FreshTruthAdmission,
 ) -> Result<
     (
@@ -315,9 +316,20 @@ pub fn recover_persisted_stage8a4_suffix_and_cover(
     let pending = owner
         .pending_recovery_material(commitment_key)
         .map_err(|_| Stage8a4DurableCompositionError::DurableRecovery)?;
-    let historical = capability
-        .stage8a4_historical_arm_provenance()
-        .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
+    let identity = pending
+        .transition_record()
+        .durable_request_identity()
+        .clone();
+    let command = pending.durable_command().clone();
+    let (issuer, historical) = Stage8a1OperationalAuthorityIssuer::from_stage8a4_pending_owner(
+        &mut owner,
+        commitment_key,
+        &identity,
+        &command,
+        authority_root,
+        accepted_config_sha256,
+    )
+    .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
     let controls = issuer
         .issue_stage8a4_post_effect_control_evidence(historical)
         .map_err(|_| Stage8a4DurableCompositionError::CurrentAuthority)?;
@@ -325,7 +337,7 @@ pub fn recover_persisted_stage8a4_suffix_and_cover(
         pending,
         current_truth,
         controls,
-        issuer,
+        &issuer,
         &mut owner,
         commitment_key,
     )
@@ -620,11 +632,15 @@ mod tests {
     };
     use chrono::Duration;
     use runtime_durable_service::{
-        stage8a4_i3_production_test_setup, stage8a4_i3_test_fail_before_covering_seal,
-        stage8a4_i3_test_set_owner_journal_failpoint, Stage7bDurableRootAuthority,
-        Stage7bRestartOutcome, Stage8a4I3ProductionTestSetup, Stage8a4I3RecoveryPendingOwner,
+        stage8a4_i3_production_test_setup, stage8a4_i3_production_test_setup_in,
+        stage8a4_i3_test_fail_before_covering_seal, stage8a4_i3_test_set_owner_journal_failpoint,
+        Stage7bDurableRootAuthority, Stage7bRestartOutcome, Stage8a4I3ProductionTestSetup,
+        Stage8a4I3RecoveryPendingOwner,
     };
     use rust_decimal::Decimal;
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use std::time::{Duration as StdDuration, Instant};
     use strategy_runtime_core::Stage8a4JournalTestFailpoint;
 
     enum ProductionCrashPoint {
@@ -727,8 +743,8 @@ mod tests {
         Stage6DurableRequestIdentityV1,
         Stage6DurableCommandSnapshotV1,
         broker_core::PlaceOrder,
-        Stage8a1OperationalAuthorityIssuer,
-        Stage8ExecutionCapability,
+        std::path::PathBuf,
+        String,
         Box<Stage8a4I3RecoveryPendingOwner>,
     ) {
         let (setup, mut owner) = stage8a4_i3_production_test_setup();
@@ -743,15 +759,20 @@ mod tests {
         .expect("Stage8A4 production identity");
         let command = Stage6DurableCommandSnapshotV1::from_place(&identity, &place)
             .expect("Stage8A4 production command");
+        let authority_root = setup.parent.join(authority_name);
         let (issuer, capability) = stage8a4_test_production_place_capability(
             &mut owner,
             &setup.commitment_key,
             &identity,
             &command,
             &place,
-            &setup.parent.join(authority_name),
+            &authority_root,
         )
         .expect("production Stage8A1 capability");
+        let accepted_config_sha256 = std::fs::read_to_string(
+            authority_root.join("stage8a1-accepted-execution-config.json.sha256"),
+        )
+        .expect("read accepted config sidecar before simulated process loss");
         match crash_point {
             ProductionCrashPoint::JournalAppend(append_number) => {
                 stage8a4_i3_test_set_owner_journal_failpoint(
@@ -810,6 +831,8 @@ mod tests {
             result,
             Err(Stage8a4DurableCompositionError::DurableRecovery)
         ));
+        drop(capability);
+        drop(issuer);
         drop(owner);
 
         let restart = || {
@@ -836,8 +859,8 @@ mod tests {
             identity,
             command,
             place,
-            issuer,
-            capability,
+            authority_root,
+            accepted_config_sha256,
             second_pending,
         )
     }
@@ -889,7 +912,7 @@ mod tests {
         authority_name: &str,
         expected_appended_suffix_records: usize,
     ) {
-        let (setup, identity, command, place, issuer, capability, mut pending) =
+        let (setup, identity, command, place, authority_root, accepted_config_sha256, mut pending) =
             production_pending_after_crash(crash_point, authority_name);
         let truth = current_recovery_admission(
             &mut pending,
@@ -898,14 +921,26 @@ mod tests {
             &command,
             &place,
         );
+        let arm_registry = authority_root.join("stage8a1-arm-nonces");
+        let arm_entries_before = std::fs::read_dir(&arm_registry)
+            .expect("read historical arm registry before recovery")
+            .count();
+        assert_eq!(arm_entries_before, 1, "exactly one historical arm exists");
         let (receipt, ready) = recover_persisted_stage8a4_suffix_and_cover(
-            &capability,
-            &issuer,
             *pending,
             &setup.commitment_key,
+            &authority_root,
+            &accepted_config_sha256,
             truth,
         )
         .expect("actual production recovery entry repairs suffix and covers S1");
+        assert_eq!(
+            std::fs::read_dir(&arm_registry)
+                .expect("read historical arm registry after recovery")
+                .count(),
+            arm_entries_before,
+            "recovery must read the existing arm and never register another",
+        );
         assert!(receipt.transition_was_existing());
         assert_eq!(
             receipt.appended_suffix_records(),
@@ -1033,5 +1068,297 @@ mod tests {
             "stage8a4-authority-complete-before-s1",
             0,
         );
+    }
+
+    fn assert_arm_registry_failure_remains_pending(replace: bool) {
+        let (setup, identity, command, place, authority_root, accepted_config_sha256, mut pending) =
+            production_pending_after_crash(
+                ProductionCrashPoint::JournalAppend(1),
+                if replace {
+                    "stage8a4-authority-replaced-arm"
+                } else {
+                    "stage8a4-authority-missing-arm"
+                },
+            );
+        let truth = current_recovery_admission(
+            &mut pending,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            &place,
+        );
+        let arm_registry = authority_root.join("stage8a1-arm-nonces");
+        let arm_path = std::fs::read_dir(&arm_registry)
+            .expect("read arm registry")
+            .next()
+            .expect("historical arm entry")
+            .expect("read historical arm entry")
+            .path();
+        if replace {
+            let mut bytes = std::fs::read(&arm_path).expect("read historical arm fixture");
+            let marker = b"\"exact_command_sha256\":\"";
+            let value_start = bytes
+                .windows(marker.len())
+                .position(|window| window == marker)
+                .map(|offset| offset + marker.len())
+                .expect("exact command field in arm registration");
+            bytes[value_start] = if bytes[value_start] == b'f' {
+                b'e'
+            } else {
+                b'f'
+            };
+            std::fs::write(&arm_path, bytes)
+                .expect("replace signed historical arm binding fixture");
+        } else {
+            std::fs::remove_file(&arm_path).expect("remove historical arm fixture");
+        }
+        let result = recover_persisted_stage8a4_suffix_and_cover(
+            *pending,
+            &setup.commitment_key,
+            &authority_root,
+            &accepted_config_sha256,
+            truth,
+        );
+        assert!(matches!(
+            result,
+            Err(Stage8a4DurableCompositionError::CurrentAuthority)
+        ));
+        let restarted = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&setup.root, &setup.operational_identity)
+                .expect("revalidate blocked recovery durable root"),
+            setup.operational_identity.clone(),
+            &setup.commitment_key,
+            setup.runtime.clone(),
+        )
+        .expect("restart blocked recovery state");
+        assert!(matches!(
+            restarted,
+            Stage7bRestartOutcome::Stage8a4I3Pending(_)
+        ));
+        std::fs::remove_dir_all(&setup.parent).expect("remove blocked recovery fixture");
+    }
+
+    #[test]
+    fn stage8a4_i3_fresh_process_recovery_rejects_missing_historical_arm() {
+        assert_arm_registry_failure_remains_pending(false);
+    }
+
+    #[test]
+    fn stage8a4_i3_fresh_process_recovery_rejects_replaced_historical_arm() {
+        assert_arm_registry_failure_remains_pending(true);
+    }
+
+    #[test]
+    #[ignore = "spawned explicitly by the fresh-process recovery witness"]
+    fn stage8a4_i3_v2_only_process_a_crash_child() {
+        let parent = std::path::PathBuf::from(
+            std::env::var_os("STAGE8A4_I3_R5_PARENT").expect("child fixture parent"),
+        );
+        let ready = std::path::PathBuf::from(
+            std::env::var_os("STAGE8A4_I3_R5_READY").expect("child ready marker"),
+        );
+        let (setup, mut owner) = stage8a4_i3_production_test_setup_in(parent);
+        let BrokerCommand::PlaceOrder(place) = &setup.command else {
+            panic!("Stage8A4 subprocess fixture must contain PLACE");
+        };
+        let place = place.clone();
+        let identity = Stage6DurableRequestIdentityV1::from_place(
+            &place,
+            setup.command_context.attribution().clone(),
+        )
+        .expect("subprocess request identity");
+        let command = Stage6DurableCommandSnapshotV1::from_place(&identity, &place)
+            .expect("subprocess durable command");
+        let authority_root = setup.parent.join("stage8a4-authority-subprocess");
+        let (issuer, capability) = stage8a4_test_production_place_capability(
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            &place,
+            &authority_root,
+        )
+        .expect("subprocess production Stage8A1 capability");
+        stage8a4_i3_test_set_owner_journal_failpoint(
+            &mut owner,
+            Stage8a4JournalTestFailpoint::AfterFrameHashWriteOnAppend(1),
+        )
+        .expect("install subprocess V2 crash point");
+        let trusted_now = Utc::now();
+        let possible_effect_at = trusted_now - Duration::seconds(3);
+        let event_start = trusted_now - Duration::seconds(2);
+        let event_end = trusted_now - Duration::seconds(1);
+        let result = reconcile_persist_and_cover_stage8a4_from_production_sources(
+            &capability,
+            &issuer,
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &command,
+            Stage8a4ProductionEventWindow::from_dispatch_and_acquisition(
+                possible_effect_at,
+                event_start,
+                event_end,
+            )
+            .expect("subprocess event window"),
+            None,
+            None,
+            production_source(
+                &place,
+                event_start,
+                event_end,
+                possible_effect_at,
+                trusted_now,
+            ),
+            production_source(
+                &place,
+                event_start,
+                event_end,
+                possible_effect_at,
+                trusted_now,
+            ),
+            trusted_now,
+        );
+        assert!(matches!(
+            result,
+            Err(Stage8a4DurableCompositionError::DurableRecovery)
+        ));
+        std::fs::write(&ready, b"v2-durable-arm-registered-owner-still-live")
+            .expect("publish subprocess crash barrier");
+        loop {
+            thread::sleep(StdDuration::from_secs(1));
+        }
+    }
+
+    fn wait_for_subprocess_barrier(child: &mut std::process::Child, ready: &Path) {
+        let deadline = Instant::now() + StdDuration::from_secs(20);
+        while !ready.exists() && Instant::now() < deadline {
+            if let Some(status) = child.try_wait().expect("poll subprocess") {
+                panic!("process A exited before crash barrier: {status}");
+            }
+            thread::sleep(StdDuration::from_millis(25));
+        }
+        assert!(ready.exists(), "process A did not reach V2 crash barrier");
+    }
+
+    #[test]
+    fn stage8a4_i3_v2_only_sigkill_recovers_in_fresh_process_without_precrash_objects() {
+        let parent = std::env::temp_dir().join(format!(
+            "stage8a4-i3-r5-subprocess-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir(&parent).expect("create subprocess fixture parent");
+        let parent = std::fs::canonicalize(parent).expect("canonical subprocess fixture parent");
+        let ready = parent.join("process-a-ready");
+        let child_test = concat!(
+            "stage8a4_reconciliation::durable_composition_i2::durable_writer_i3::tests::",
+            "stage8a4_i3_v2_only_process_a_crash_child"
+        );
+        let mut child = Command::new(std::env::current_exe().expect("current test executable"))
+            .arg("--ignored")
+            .arg("--exact")
+            .arg(child_test)
+            .arg("--nocapture")
+            .env("STAGE8A4_I3_R5_PARENT", &parent)
+            .env("STAGE8A4_I3_R5_READY", &ready)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn process A");
+        wait_for_subprocess_barrier(&mut child, &ready);
+        child.kill().expect("SIGKILL process A");
+        let status = child.wait().expect("reap process A");
+        assert!(
+            !status.success(),
+            "process A must die at the crash boundary"
+        );
+
+        let fixture = strategy_runtime_core::stage7b_test_authenticated_working_restart_fixture(
+            strategy_runtime_core::Stage7bTestExtraStage6History::None,
+        );
+        let operational_identity = strategy_runtime_core::Stage6dOperationalIdentityConfig {
+            broker_id: "paper".to_string(),
+            strategy_instance_id: "hybrid-imoexf".to_string(),
+            deployment_id: "stage8a4-i3-production-test".to_string(),
+            deployment_generation: 1,
+            gateway_instance_id: "gateway-stage8a4-i3-test".to_string(),
+            instrument_map_fingerprint_sha256: "1".repeat(64),
+            market_data_generation: 1,
+            command_consumer_generation: 1,
+            stage8a4_writer_issuer_public_key_hex:
+                "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
+        };
+        let root = parent.join(
+            Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+                .expect("subprocess durable root name"),
+        );
+        let restart = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&root, &operational_identity)
+                .expect("process B validates durable root"),
+            operational_identity.clone(),
+            &fixture.commitment_key,
+            fixture.fresh_runtime.clone(),
+        )
+        .expect("process B restarts durable owner");
+        let Stage7bRestartOutcome::Stage8a4I3Pending(mut pending) = restart else {
+            panic!("process B must observe uncovered V2 as Pending");
+        };
+        let material = pending
+            .pending_recovery_material(&fixture.commitment_key)
+            .expect("process B reads persisted V2");
+        let identity = material
+            .transition_record()
+            .durable_request_identity()
+            .clone();
+        let command = material.durable_command().clone();
+        let BrokerCommand::PlaceOrder(place) = fixture.command else {
+            panic!("fresh process fixture must contain PLACE");
+        };
+        let truth = current_recovery_admission(
+            &mut pending,
+            &fixture.commitment_key,
+            &identity,
+            &command,
+            &place,
+        );
+        let authority_root = parent.join("stage8a4-authority-subprocess");
+        let accepted_config_sha256 = std::fs::read_to_string(
+            authority_root.join("stage8a1-accepted-execution-config.json.sha256"),
+        )
+        .expect("process B reads accepted config authority");
+        let arm_registry = authority_root.join("stage8a1-arm-nonces");
+        let arm_entries_before = std::fs::read_dir(&arm_registry)
+            .expect("process B reads historical arm registry")
+            .count();
+        assert_eq!(arm_entries_before, 1);
+        let (receipt, ready_owner) = recover_persisted_stage8a4_suffix_and_cover(
+            *pending,
+            &fixture.commitment_key,
+            &authority_root,
+            &accepted_config_sha256,
+            truth,
+        )
+        .expect("process B recovers exact suffix and covering S1");
+        assert!(receipt.transition_was_existing());
+        assert_eq!(receipt.appended_suffix_records(), 2);
+        assert_eq!(
+            std::fs::read_dir(&arm_registry)
+                .expect("process B rereads historical arm registry")
+                .count(),
+            arm_entries_before,
+            "fresh-process recovery must not register a new arm",
+        );
+        drop(ready_owner);
+        let final_restart = Stage7bRecoveryReadyOwner::restart(
+            Stage7bDurableRootAuthority::validate(&root, &operational_identity)
+                .expect("validate recovered durable root"),
+            operational_identity,
+            &fixture.commitment_key,
+            fixture.fresh_runtime,
+        )
+        .expect("restart recovered subprocess state");
+        assert!(matches!(final_restart, Stage7bRestartOutcome::Ready(_)));
+        std::fs::remove_dir_all(parent).expect("remove subprocess fixture");
     }
 }

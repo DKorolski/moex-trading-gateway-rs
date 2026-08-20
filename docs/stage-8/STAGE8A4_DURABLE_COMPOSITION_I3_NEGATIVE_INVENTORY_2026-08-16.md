@@ -1,6 +1,6 @@
-# Stage 8A-4 I3 R4 negative inventory
+# Stage 8A-4 I3 R5 negative inventory
 
-The fail-closed mutation harness retains all 58 R3 protections and pins 80
+The fail-closed mutation harness retains all 80 R4 protections and pins 88
 independent cases:
 
 1. accepted I2 predecessor drift;
@@ -83,6 +83,14 @@ independent cases:
 78. production complete-batch-before-S1 integration test is removed;
 79. production recovery test is redirected to a raw/test batch writer;
 80. complete uncovered batch is excluded from Pending recovery material.
+81. recovery function again requires `Stage8ExecutionCapability`;
+82. recovery function again requires a retained `Stage8a1OperationalAuthorityIssuer`;
+83. recovery-only issuer construction from Pending owner is removed;
+84. deterministic historical arm nonce reconstruction is removed;
+85. recovery recreates an arm through `register_arm_nonce`;
+86. historical arm-registration signature verification is removed;
+87. same-process recovery retains the pre-crash capability or issuer;
+88. the SIGKILL fresh-process recovery witness is removed.
 
 Inherited I2, forbidden-surface, compiler, clippy and archive-safety gates remain
 mandatory. In particular, the checker rejects both a raw Stage7 writer and a

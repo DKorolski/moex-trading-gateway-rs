@@ -38,10 +38,10 @@ import sys
 from pathlib import Path
 Path(sys.argv[1]).write_text(json.dumps({
     "schema_version": 1,
-    "stage": "8A-4-durable-composition-I3-R4",
+    "stage": "8A-4-durable-composition-I3-R5",
     "result": "PASS",
-    "acceptance_rows": 69,
-    "negative_cases": 80,
+    "acceptance_rows": 77,
+    "negative_cases": 88,
     "sealed_linear_writer_authority": True,
     "exact_request_truth_control_binding": True,
     "post_write_sticky_fail_stop": True,
@@ -52,6 +52,13 @@ Path(sys.argv[1]).write_text(json.dumps({
     "production_restart_without_i2_candidate": True,
     "writer_entry_ed25519_attested": True,
     "production_normal_and_three_recovery_paths_directly_tested": True,
+    "fresh_process_sigkill_recovery_directly_tested": True,
+    "arm_registration_ed25519_attested": True,
+    "arm_registration_issuer_key_pinned": True,
+    "arm_registration_exact_binding_verified": True,
+    "recovery_requires_precrash_objects": False,
+    "recovery_recreates_operator_arm": False,
+    "recovery_reads_existing_arm_registration": True,
     "external_raw_mutator_compile_fail": True,
     "v2_durable_append_enabled": True,
     "four_field_cas_enabled": True,
@@ -64,4 +71,4 @@ Path(sys.argv[1]).write_text(json.dumps({
 }, indent=2) + "\n", encoding="utf-8")
 PY
 
-echo "stage8a4-durable-composition-i3-gate: PASS rows=69 negatives=80 sealed=private pending=true broker_neutral=true recovery=true ack=false execution=false"
+echo "stage8a4-durable-composition-i3-gate: PASS rows=77 negatives=88 sealed=private pending=true fresh_process=true rearm=false broker_neutral=true recovery=true ack=false execution=false"

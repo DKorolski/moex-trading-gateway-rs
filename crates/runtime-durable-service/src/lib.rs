@@ -107,7 +107,10 @@ pub use recovery::{
 };
 #[cfg(feature = "stage8a4-i3-test-fixtures")]
 #[doc(hidden)]
-pub use recovery::{stage8a4_i3_production_test_setup, Stage8a4I3ProductionTestSetup};
+pub use recovery::{
+    stage8a4_i3_production_test_setup, stage8a4_i3_production_test_setup_in,
+    Stage8a4I3ProductionTestSetup,
+};
 #[cfg(feature = "stage8a4-i3-test-fixtures")]
 #[doc(hidden)]
 pub use recovery::{

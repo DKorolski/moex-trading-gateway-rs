@@ -68,3 +68,11 @@ I3-066,partial exact suffix appends only the missing suffix through production r
 I3-067,complete batch without S1 appends no duplicate suffix and commits S1,FINAM integration test
 I3-068,repeated restart remains Pending until the production recovery entry succeeds,runtime/FINAM integration tests
 I3-069,crash injection exposes no raw batch writer or recovery authority constructor,type boundary/checker
+I3-070,recovery API requires neither Stage8ExecutionCapability nor a retained issuer,FINAM source/checker
+I3-071,recovery-only issuer is reconstructed from Pending S0 and exact durable request,Stage8A1 source/tests
+I3-072,historical arm nonce is deterministically reconstructed from durable identity,Stage8A1 source/checker
+I3-073,recovery verifies one existing canonical Ed25519-attested arm registration and never registers another,Stage8A1 source/tests
+I3-074,missing cryptographically altered or mismatched historical arm registration fails closed and remains Pending,FINAM tests
+I3-075,true SIGKILL process-A to process-B V2-only recovery reaches Ready,FINAM subprocess test
+I3-076,process B receives no process-A capability or issuer object,subprocess API/test/checker
+I3-077,recovery mints no execution send ACK or readiness authority,authority/checker

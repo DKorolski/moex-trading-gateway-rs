@@ -57,11 +57,13 @@ mechanics but was not accepted because it exported a hidden raw append,
 regressed accepted Stage8A1 authority, inverted the broker-neutral dependency,
 and required the lost I2 object for restart. I3 R3 at `3aa2670` was not accepted
 because its public sealer remained forgeable and incomplete restart advanced
-ordinary Ready/S1 too early. I3 R4 is active and separately review-gated. It
-uses an operational-identity-pinned Ed25519 issuer plus a core-private HMAC
-seal. Typed Pending repair now covers V2-only, partial suffix and complete F1
-without S1 through the actual production recovery entry, while retaining exact
-truth/control, sticky fail-stop, four-field CAS and V2-first append. I4
+ordinary Ready/S1 too early. I3 R4 at `4403068` closed those issues but was not
+accepted because recovery retained process-local capability/issuer objects.
+I3 R5 is active and separately review-gated. It reopens the pinned issuer from
+Pending, reconstructs historical provenance from the existing deterministic
+arm registration without re-arm, and proves V2-only recovery across SIGKILL,
+while retaining exact truth/control, sticky fail-stop, four-field CAS and
+V2-first append. I4
 remains closed, so I3 cannot
 publish ACK/readiness or authorize Redis settlement. Stage 8A-5+, FINAM
 POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real

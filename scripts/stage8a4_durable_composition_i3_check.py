@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed semantic checker for Stage 8A-4 durable composition I3 R4."""
+"""Fail-closed semantic checker for Stage 8A-4 durable composition I3 R5."""
 
 from __future__ import annotations
 
@@ -20,9 +20,12 @@ REJECTED_I3_R2_REVIEW_SHA256 = "606ce34c3369fe732dfced14c283fe2bf1020e5c64db6381
 REJECTED_I3_R3 = "3aa267029d512ba21f91dd95eb118b8d51810b56"
 REJECTED_I3_R3_REVIEW_SHA256 = "aeae8245d421510301672a3885eb2396efdee0071c1dbd1af8313a9aa3d29cb3"
 R4_SPEC_SHA256 = "5f0bfb0fd65ce5723b883638735c610220c51d279b8b7e7085fad9e544ed79a5"
-BRANCH = "stage8a4-durable-composition-i3-r4"
-ROWS = 69
-NEGATIVE_CASES = 80
+REJECTED_I3_R4 = "44030688053c41a2179bb0f7bc59458c408348fd"
+REJECTED_I3_R4_REVIEW_SHA256 = "cd171953a5c72ea49a63e2249124c76b9e0711bbe27bde66961d6ecd13337762"
+R5_SPEC_SHA256 = "2ccd2c663bb1e577898771d8c13720f92f8b80d84e01cbf32ba311b9a276553a"
+BRANCH = "stage8a4-durable-composition-i3-r5"
+ROWS = 77
+NEGATIVE_CASES = 88
 
 AUTHORITY = Path("docs/stage-8/stage8a4-durable-composition-i3-authority.json")
 CONTRACT = Path("docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I3_IMPLEMENTATION_2026-08-16.md")
@@ -105,7 +108,7 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         require((root / item).is_file(), f"missing required file: {item}")
     authority = json.loads(read(root, AUTHORITY))
     lineage = {
-        "stage": "8A-4-durable-composition-I3-R4",
+        "stage": "8A-4-durable-composition-I3-R5",
         "status": "implementation_candidate_independent_acceptance_pending",
         "branch": BRANCH,
         "accepted_i2_r3_ref": ACCEPTED_I2,
@@ -117,6 +120,9 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "rejected_i3_r3_ref": REJECTED_I3_R3,
         "rejected_i3_r3_review_sha256": REJECTED_I3_R3_REVIEW_SHA256,
         "i3_r4_correction_spec_sha256": R4_SPEC_SHA256,
+        "rejected_i3_r4_ref": REJECTED_I3_R4,
+        "rejected_i3_r4_review_sha256": REJECTED_I3_R4_REVIEW_SHA256,
+        "i3_r5_correction_spec_sha256": R5_SPEC_SHA256,
         "sole_writer_owner": "Stage7bRecoveryReadyOwner",
     }
     for key, value in lineage.items():
@@ -139,6 +145,12 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "production_v2_only_recovery_directly_tested",
         "production_partial_suffix_recovery_directly_tested",
         "production_complete_before_s1_recovery_directly_tested",
+        "fresh_process_sigkill_recovery_directly_tested",
+        "arm_registration_ed25519_attested",
+        "arm_registration_issuer_key_pinned",
+        "arm_registration_exact_binding_verified",
+        "recovery_reads_existing_arm_registration",
+        "missing_or_mismatched_arm_registration_fails_closed",
     ):
         expected = False if key == "sealed_authority_publicly_constructible" else True
         require(authority.get(key) is expected, f"authority drift: {key}")
@@ -147,6 +159,9 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "durable_receipt_grants_ack_or_readiness", "ack_readiness_enabled",
         "redis_live_enabled", "finam_post_delete_enabled", "broker_dispatch_enabled",
         "runtime_live_enabled", "real_orders_enabled", "stage8a5_authorized",
+        "recovery_recreates_operator_arm", "recovery_mints_stage8_execution_capability",
+        "recovery_requires_stage8_execution_capability",
+        "recovery_requires_precrash_issuer_object",
     ):
         require(authority.get(key) is False, f"closed surface opened: {key}")
 
@@ -265,6 +280,46 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
         "stage8a4_i3_production_recovery_repairs_partial_exact_suffix_and_covers_s1",
         "stage8a4_i3_production_recovery_covers_complete_batch_without_s1",
     ), "production restart composition")
+    recovery_body = re.search(
+        r"(?ms)pub fn recover_persisted_stage8a4_suffix_and_cover\(.*?\nstruct Stage8a4WriterEntryFreshTruth",
+        i3,
+    )
+    require(recovery_body is not None, "fresh-process recovery body missing")
+    recovery_source = recovery_body.group(0)
+    require(
+        "Stage8ExecutionCapability" not in recovery_source,
+        "recovery still requires pre-crash Stage8ExecutionCapability",
+    )
+    require(
+        "issuer: &Stage8a1OperationalAuthorityIssuer" not in recovery_source,
+        "recovery still requires retained pre-crash issuer",
+    )
+    require("register_arm_nonce" not in recovery_source, "recovery recreates an operator arm")
+    contains_all(recovery_source, (
+        "Stage8a1OperationalAuthorityIssuer::from_stage8a4_pending_owner",
+        "authority_root", "accepted_config_sha256",
+        "issue_stage8a4_post_effect_control_evidence",
+    ), "fresh-process recovery entry")
+    contains_all(stage8a1, (
+        "pub(crate) fn from_stage8a4_pending_owner",
+        "Stage8a1DurableRequestAuthority::from_stage8a4_pending_owner",
+        "reconstruct_stage8a4_historical_arm_provenance",
+        "deterministic_arm_nonce_sha256", "read_arm_registration",
+        "Stage8a1ArmRegistrationV2", "allow_arm_registry_create",
+        "stage8a1-arm-registration-file-v2",
+        "signed_arm_nonce_registration_record",
+        "arm_nonce_registration_attestation_sha256",
+        "issuer_signature_hex", ".verify(attestation.as_bytes(), &signature)",
+    ), "fresh-process Stage8A1 authority")
+    contains_all(i3, (
+        "stage8a4_i3_v2_only_process_a_crash_child",
+        "stage8a4_i3_v2_only_sigkill_recovers_in_fresh_process_without_precrash_objects",
+        "child.kill()", "Stage7bRestartOutcome::Stage8a4I3Pending",
+        "stage8a4_i3_fresh_process_recovery_rejects_missing_historical_arm",
+        "stage8a4_i3_fresh_process_recovery_rejects_replaced_historical_arm",
+        "recovery must read the existing arm and never register another",
+        "drop(capability);", "drop(issuer);",
+    ), "fresh-process crash and arm-registry witnesses")
     require(
         "stage8a4_test_append_durable_batch_with_suffix_limit" not in i3,
         "production I3 integration tests use raw/test batch writer",
@@ -343,7 +398,7 @@ def check(root: Path = ROOT, git_scope: bool = True) -> None:
     ), "contract")
     require("58." in negative and "lost I2" in negative, "negative inventory incomplete")
     for label, document in (("status", status), ("roadmap", roadmap), ("README", readme)):
-        contains_all(document, ("I3 R2", "I3 R3", "I4"), label)
+        contains_all(document, ("I3 R3", "I3 R4", "I3 R5", "I4"), label)
 
     with (root / MATRIX).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))

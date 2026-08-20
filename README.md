@@ -22,13 +22,14 @@ closed at `4caf07c`. Durable-composition Design R2 is accepted and closed at
 `113d282`. I2 R1 at `6527619` was not accepted. I2 R2 at `e04edea` closed its
 four findings but exposed one final accepted-command cross-binding seam. I2 R3
 is accepted and closed at `90f4605`. I3 R1 at `a490bbe`, I3 R2 at `62e5e05`
-and I3 R3 at `3aa2670` were not accepted. I3 R4 is the sole active candidate:
-the FINAM writer entry is Ed25519-attested against an operational-identity
-pinned issuer key, the HMAC seal is core-private, and every uncovered
-V2/suffix state remains typed Pending until exact production recovery and final
-S1. Direct normal, V2-only, partial-suffix and complete-before-S1 production
-integration paths are covered. Independent acceptance is pending. I4 ACK/readiness
-composition and Stage 8A-5 remain closed.
+and I3 R3 at `3aa2670` were not accepted. I3 R4 at `4403068` closed its seal
+and Pending-state findings but retained pre-crash execution objects. I3 R5 is
+the sole active candidate: recovery reopens the pinned issuer from Pending,
+reads the existing deterministic arm registration without re-arm, and needs no
+pre-crash capability or issuer. Direct normal, V2-only, partial-suffix,
+complete-before-S1 and true SIGKILL fresh-process paths are covered.
+Independent acceptance is pending. I4 ACK/readiness composition and Stage 8A-5
+remain closed.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.
