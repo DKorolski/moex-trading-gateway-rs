@@ -1,4 +1,4 @@
-# Stage 8A-4 I4 design negative inventory
+# Stage 8A-4 I4 design R2 negative inventory
 
 The design gate must reject each mutation independently:
 
@@ -26,3 +26,17 @@ The design gate must reject each mutation independently:
 22. authority/facade becomes Clone/Debug/Serialize/Deserialize;
 23. Redis ACK/XACK or publication opened;
 24. FINAM POST/DELETE, broker dispatch, retry/re-arm, runtime-live or real orders opened.
+25. CANCEL target order client ID is used as ACK client ID;
+26. an ID-less selected V2 order erases durable replay-established trade `B1`;
+27. current broker truth fills or changes a missing durable ACK broker ID;
+28. `Utc::now()` or publication `received_ts` changes durable ACK facts on restart;
+29. a second unrelated request-level ACK identity domain is introduced;
+30. seal generation, current checkpoint or readiness enters stable ACK identity;
+31. caller-supplied public readiness snapshots are accepted;
+32. operator arm or `Stage8ExecutionCapability` is minted to derive readiness;
+33. readiness from another account, instrument, strategy or runtime is accepted;
+34. any active ExactWorking order is normalized to generic `Ready`;
+35. expired readiness or changed source revision is accepted;
+36. I4 advances, writes or repairs a recovery seal;
+37. I4 appends Stage6, V2, suffix or finalization records;
+38. the design forbids the read-side S1/replay/current-source checks it requires.

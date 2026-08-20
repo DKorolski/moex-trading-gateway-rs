@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safety and provenance validation for an I4 Design R1 handoff."""
+"""Safety and provenance validation for an I4 Design R2 handoff."""
 
 from __future__ import annotations
 
@@ -51,14 +51,18 @@ def check(path: str) -> dict[str, object]:
             if "=" in line
         )
         evidence = json.loads(archive.read(EVIDENCE))
-        if evidence.get("stage") != "8A-4-durable-composition-I4-design-R1":
+        if evidence.get("stage") != "8A-4-durable-composition-I4-design-R2":
             raise ValueError("stage mismatch")
         if evidence.get("source_ref") != marker.get("source_ref"):
             raise ValueError("source mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive mismatch")
-        if evidence.get("acceptance_rows") != 40 or evidence.get("negative_cases") != 24:
+        if evidence.get("acceptance_rows") != 56 or evidence.get("negative_cases") != 38:
             raise ValueError("count mismatch")
+        if evidence.get("timestamp_model") != "timestamp_free_model_a":
+            raise ValueError("timestamp model mismatch")
+        if evidence.get("stable_ack_identity") != "reuse_exact_stage7b_terminal_request_ack_identity_sha256":
+            raise ValueError("stable ACK identity mismatch")
         if evidence.get("implementation_enabled") is not False:
             raise ValueError("implementation opened")
         for key in ("ack_publication", "redis_xack", "redis_live", "finam_post_delete", "broker_dispatch", "runtime_live", "real_orders"):

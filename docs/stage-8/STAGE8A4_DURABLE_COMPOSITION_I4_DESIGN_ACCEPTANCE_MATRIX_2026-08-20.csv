@@ -1,7 +1,7 @@
 id,requirement,evidence
 I4D-001,I3 R6 exact accepted predecessor is pinned,authority
 I4D-002,I3 R6 acceptance review digest is pinned,authority
-I4D-003,I4 is no-I/O derived facade only,design
+I4D-003,I4 is read-only no-effect composition only,design
 I4D-004,terminal authority requires complete V2 and exact suffix,design
 I4D-005,terminal authority requires RequestFinalized,design
 I4D-006,terminal authority requires authenticated covering S1,design
@@ -39,3 +39,19 @@ I4D-037,Redis ACK XACK and publication remain closed,scanner
 I4D-038,FINAM POST DELETE and broker dispatch remain closed,scanner
 I4D-039,runtime-live and real orders remain closed,scanner
 I4D-040,Stage 8A-5 and Stage 8B remain closed,scanner
+I4D-041,exact request ID source is durable Stage6 request identity,design
+I4D-042,exact client ID source is durable request ClientOrderId,design
+I4D-043,CANCEL target client ID cannot replace ACK client ID,design
+I4D-044,ACK broker ID comes only from durable mixed replay,design
+I4D-045,trade-established B1 survives an ID-less selected V2 order,design
+I4D-046,current broker truth cannot synthesize ACK broker ID,design
+I4D-047,ACK facts are timestamp-free and publication owns received_ts,design
+I4D-048,restart cannot change timestamp-free durable ACK facts,design
+I4D-049,existing Stage7B terminal identity is reused exactly as sole ACK identity,design
+I4D-050,current S1 checkpoint and readiness are excluded from stable ACK identity,design
+I4D-051,current readiness issuer uses no execution capability or operator arm,design
+I4D-052,readiness exact-binds account instrument strategy operational identity and runtime,design
+I4D-053,any account-wide or target active order blocks generic Ready,design
+I4D-054,readiness binds observed_at and minimum valid_until and expires,design
+I4D-055,read-side S1 replay and current-source checks are allowed while every mutation is forbidden,design
+I4D-056,lagging S1 fails closed and I4 never repairs or advances it,design

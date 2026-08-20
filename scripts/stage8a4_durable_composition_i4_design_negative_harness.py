@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact mutation checks for the Stage 8A-4 I4 design contract."""
+"""Exact mutation checks for the Stage 8A-4 I4 Design R2 contract."""
 
 from __future__ import annotations
 
@@ -32,30 +32,44 @@ MUTATIONS = [
     ("unknown-orphan", "unknown or orphan account safety blocks readiness", "unknown or orphan account safety permits readiness"),
     ("post-effect-reuse", '"i3_post_effect_snapshot_reusable": false', '"i3_post_effect_snapshot_reusable": true'),
     ("duplicate-append", "duplicate derivation appends no journal record", "duplicate derivation may append journal record"),
-    ("stable-identity", "stable terminal ACK identity excludes unrelated later seal generations", "stable terminal ACK identity includes unrelated later seal generations"),
+    ("stable-identity-current", '"current_seal_checkpoint_or_readiness_in_stable_identity": false', '"current_seal_checkpoint_or_readiness_in_stable_identity": true'),
+    ("public-constructor", "There is no public constructor", "There is a public constructor"),
     ("opaque-types", "facade and authorities are nonserializable opaque types", "facade and authorities are serializable public types"),
-    ("caller-seal", "no caller-built seal checkpoint or digest-only constructor", "caller-built seal checkpoint is allowed"),
     ("redis-open", '"redis_ack_xack": true', '"redis_ack_xack": false'),
     ("live-open", '"runtime_live": true', '"runtime_live": false'),
+    ("cancel-target-client", '"cancel_target_client_id_can_replace_ack_client_id": false', '"cancel_target_client_id_can_replace_ack_client_id": true'),
+    ("trade-b1-erased", '"trade_established_broker_id_survives_idless_selected_order": true', '"trade_established_broker_id_survives_idless_selected_order": false'),
+    ("current-truth-fills-id", '"current_truth_can_fill_broker_order_id": false', '"current_truth_can_fill_broker_order_id": true'),
+    ("host-now-timestamp", '"timestamp_model": "timestamp_free_model_a"', '"timestamp_model": "host_utc_now"'),
+    ("second-ack-identity", '"second_request_identity_domain_allowed": false', '"second_request_identity_domain_allowed": true'),
+    ("checkpoint-in-identity", '"received_ts_in_stable_identity": false', '"received_ts_in_stable_identity": true'),
+    ("caller-readiness", "not supplied as public caller\nsnapshots", "supplied as public caller\nsnapshots"),
+    ("execution-capability", '"execution_capability_required_or_minted": false', '"execution_capability_required_or_minted": true'),
+    ("cross-scope", '"exact_scope_binding_required": true', '"exact_scope_binding_required": false'),
+    ("active-working-ready", '"account_active_orders_must_be_zero": true', '"account_active_orders_must_be_zero": false'),
+    ("expired-readiness", '"observed_at_and_valid_until_required": true', '"observed_at_and_valid_until_required": false'),
+    ("seal-repair", '"seal_write_advance_repair_allowed": false', '"seal_write_advance_repair_allowed": true'),
+    ("journal-append", '"journal_or_suffix_append_allowed": false', '"journal_or_suffix_append_allowed": true'),
+    ("read-side-forbidden", '"seal_reread_authentication_allowed": true', '"seal_reread_authentication_allowed": false'),
 ]
 
 
 def mutate(tree: Path, old: str, new: str) -> None:
-    matches = []
-    for path in list((tree / "docs/stage-8").glob("*I4*")) + [
+    candidates = list((tree / "docs/stage-8").glob("*I4*")) + [
         tree / "docs/stage-8/stage8a4-durable-composition-i4-design-authority.json"
-    ]:
+    ]
+    for path in candidates:
         text = path.read_text(encoding="utf-8")
         if old in text:
             path.write_text(text.replace(old, new, 1), encoding="utf-8")
-            matches.append(path)
-            break
-    if not matches:
-        raise RuntimeError(f"mutation source missing: {old}")
+            return
+    raise RuntimeError(f"mutation source missing: {old}")
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory(prefix="stage8a4-i4-design-negative-") as raw:
+    if len(MUTATIONS) != 38:
+        raise SystemExit("FAIL mutation inventory is not exact 38")
+    with tempfile.TemporaryDirectory(prefix="stage8a4-i4-design-r2-negative-") as raw:
         base = Path(raw) / "tree"
         shutil.copytree(ROOT / "docs", base / "docs")
         shutil.copytree(ROOT / "scripts", base / "scripts")

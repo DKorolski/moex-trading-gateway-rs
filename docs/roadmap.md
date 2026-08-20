@@ -63,12 +63,17 @@ I3 R5 at `0d1b14f` removed process-local recovery inputs but retained a strict
 control-read dependency. I3 R6 is independently accepted and closed at
 `593ff25`; it provides the structurally recovery-only issuer and
 SIGKILL+corrupt-control proof without weakening normal execution authority.
-I4 Design R1 is now the active docs/checker-only slice. Its required order is:
-broker-neutral complete-transition facts, owner-mediated S1-covered terminal
-authority, private derived ACK/current-readiness facade, then deterministic
-restart/duplicate and negative matrices. I4 implementation remains closed until
-the design is accepted, and I4 never publishes ACK/readiness or authorizes Redis
-settlement. Stage 8A-5+, FINAM
+I4 Design R1 at `06bb09f` was not accepted with zero P0 and three P1 design
+ambiguities. I4 Design R2 is now the active docs/checker-only slice. It freezes
+timestamp-free durable ACK facts, exact reuse of the existing Stage7B terminal
+identity, current-readiness issuer/scope/lifetime and the read-only/no-effect
+boundary. After Design R2 acceptance the required implementation order is:
+broker-neutral complete-transition facts, owner-mediated already-S1-covered
+terminal authority with no seal repair, timestamp-free ACK facts, private
+current-readiness issuer/facade, then deterministic restart/duplicate/expiry and
+negative matrices. I4 implementation remains closed until Design R2 is
+accepted, and I4 never publishes ACK/readiness or authorizes Redis settlement.
+Stage 8A-5+, FINAM
 POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real
 orders remain closed.
 

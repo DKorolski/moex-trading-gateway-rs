@@ -1,26 +1,65 @@
 {
-  "schema_version": 1,
-  "stage": "8A-4-durable-composition-I4-design-R1",
+  "schema_version": 2,
+  "stage": "8A-4-durable-composition-I4-design-R2",
   "status": "design_candidate",
   "accepted_predecessor_ref": "593ff255ef7826a22e66c9aff6f7ea47acf47644",
   "accepted_predecessor_review_sha256": "1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257",
-  "acceptance_rows": 40,
-  "negative_cases": 24,
-  "scope": "derived_ack_and_current_readiness_facade_no_io",
+  "rejected_r1_ref": "06bb09fa13431d0ae34039f37497d4f37914f022",
+  "acceptance_rows": 56,
+  "negative_cases": 38,
+  "scope": "derived_ack_and_current_readiness_read_only_no_effect",
   "terminal_authority": {
     "complete_v2_exact_suffix_required": true,
     "request_finalized_required": true,
     "covering_s1_required": true,
+    "existing_s1_must_cover_current_frontier": true,
+    "lagging_s1_fails_closed": true,
+    "seal_advance_or_repair_allowed": false,
     "pending_or_hold_authorized": false,
     "restart_reconstruction_required": true,
     "receipt_alone_is_authority": false
   },
+  "ack_facts": {
+    "request_id_source": "durable_stage6_request_identity",
+    "client_order_id_source": "durable_request_client_order_id",
+    "cancel_target_client_id_can_replace_ack_client_id": false,
+    "broker_order_id_source": "durable_mixed_replay_known_broker_order_id_only",
+    "trade_established_broker_id_survives_idless_selected_order": true,
+    "current_truth_can_fill_broker_order_id": false,
+    "timestamp_model": "timestamp_free_model_a",
+    "constructs_full_command_ack": false,
+    "received_ts_in_stable_identity": false,
+    "stable_identity": "reuse_exact_stage7b_terminal_request_ack_identity_sha256",
+    "second_request_identity_domain_allowed": false,
+    "current_seal_checkpoint_or_readiness_in_stable_identity": false
+  },
   "current_readiness": {
     "independent_from_terminal_ack": true,
+    "issuer_owner": "current_stage7b_recovery_ready_owner",
+    "accepted_stage8a1_root_and_config_required": true,
     "fresh_run_allowed_required": true,
     "fresh_composite_and_broker_truth_required": true,
+    "operator_arm_required_or_minted": false,
+    "execution_capability_required_or_minted": false,
+    "exact_scope_binding_required": true,
+    "account_active_orders_must_be_zero": true,
+    "target_active_orders_must_be_zero": true,
     "stop_stale_unreadable_unknown_or_orphan_block": true,
+    "observed_at_and_valid_until_required": true,
+    "valid_until_is_minimum_source_expiry": true,
+    "source_revision_change_invalidates": true,
+    "cached_ready_survives_restart": false,
     "i3_post_effect_snapshot_reusable": false
+  },
+  "read_only_boundary": {
+    "seal_reread_authentication_allowed": true,
+    "mixed_replay_refresh_allowed": true,
+    "current_source_reads_allowed": true,
+    "broker_truth_readiness_sampling_allowed": true,
+    "journal_or_suffix_append_allowed": false,
+    "request_finalized_append_allowed": false,
+    "seal_write_advance_repair_allowed": false,
+    "ack_or_readiness_publication_allowed": false
   },
   "closed": {
     "redis_ack_xack": true,
@@ -33,5 +72,5 @@
     "stage8a5": true,
     "stage8b": true
   },
-  "next_after_acceptance": "I4 controlled no-I/O implementation"
+  "next_after_acceptance": "I4 controlled read-only no-effect implementation"
 }
