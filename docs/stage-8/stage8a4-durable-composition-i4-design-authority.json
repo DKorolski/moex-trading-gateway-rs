@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "stage": "8A-4-durable-composition-I4-design-R1",
+  "status": "design_candidate",
+  "accepted_predecessor_ref": "593ff255ef7826a22e66c9aff6f7ea47acf47644",
+  "accepted_predecessor_review_sha256": "1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257",
+  "acceptance_rows": 40,
+  "negative_cases": 24,
+  "scope": "derived_ack_and_current_readiness_facade_no_io",
+  "terminal_authority": {
+    "complete_v2_exact_suffix_required": true,
+    "request_finalized_required": true,
+    "covering_s1_required": true,
+    "pending_or_hold_authorized": false,
+    "restart_reconstruction_required": true,
+    "receipt_alone_is_authority": false
+  },
+  "current_readiness": {
+    "independent_from_terminal_ack": true,
+    "fresh_run_allowed_required": true,
+    "fresh_composite_and_broker_truth_required": true,
+    "stop_stale_unreadable_unknown_or_orphan_block": true,
+    "i3_post_effect_snapshot_reusable": false
+  },
+  "closed": {
+    "redis_ack_xack": true,
+    "redis_live": true,
+    "finam_post_delete": true,
+    "broker_dispatch": true,
+    "retry_resend_rearm": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "stage8a5": true,
+    "stage8b": true
+  },
+  "next_after_acceptance": "I4 controlled no-I/O implementation"
+}

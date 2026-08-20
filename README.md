@@ -24,13 +24,12 @@ four findings but exposed one final accepted-command cross-binding seam. I2 R3
 is accepted and closed at `90f4605`. I3 R1 at `a490bbe`, I3 R2 at `62e5e05`
 and I3 R3 at `3aa2670` were not accepted. I3 R4 at `4403068` retained pre-crash
 execution objects; I3 R5 at `0d1b14f` closed that gap but required readable
-control during recovery issuer reopen. I3 R6 is the sole active candidate: a
-structurally recovery-only issuer treats missing/unreadable/stale/stopped
-control as conservative post-effect evidence while readable identity conflicts
-remain hard failures. Direct normal, focused recovery and true SIGKILL plus
-corrupt-control fresh-process paths are covered.
-Independent acceptance is pending. I4 ACK/readiness composition and Stage 8A-5
-remain closed.
+control during recovery issuer reopen. I3 R6 is independently accepted and
+closed at `593ff25`: its structurally recovery-only issuer treats
+missing/unreadable/stale/stopped control as conservative post-effect evidence
+while readable identity conflicts remain hard failures. I4 Design R1 is the
+active docs/checker-only slice for an opaque derived ACK/current-readiness
+facade. I4 implementation and Stage 8A-5 remain closed pending design review.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.

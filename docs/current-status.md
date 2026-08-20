@@ -69,12 +69,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   was not accepted because fresh-process recovery retained the old capability
   and issuer. I3 R5 at `0d1b14f` closed that gap but was not accepted because
   recovery issuer construction still required readable current control. I3 R6
-  is the sole active candidate. Its distinct recovery-only issuer permits
-  missing/unreadable/stale/StopRequested control solely for post-effect truth
-  persistence; readable operational/runtime mismatch remains fail-closed.
-  Focused and SIGKILL+corrupt-control witnesses prove exact repair and Ready/S1.
-  Independent acceptance is pending.
-- I4 remains CLOSED. I3 produces only durable truth: ACK/readiness publication,
+  is independently ACCEPTED and CLOSED at
+  `593ff255ef7826a22e66c9aff6f7ea47acf47644`; its review SHA-256 is
+  `1da167c3e7f1266473133d2d8a1412906a26d7f83b5dc026ce84dc7969090257`.
+- I4 Design R1 is active as a docs/checker-only slice. It specifies separate
+  complete-V2+suffix+S1 terminal authority and freshly sampled current
+  readiness evidence. I4 implementation remains CLOSED. ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,
   retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B
   remain CLOSED.

@@ -1,0 +1,41 @@
+id,requirement,evidence
+I4D-001,I3 R6 exact accepted predecessor is pinned,authority
+I4D-002,I3 R6 acceptance review digest is pinned,authority
+I4D-003,I4 is no-I/O derived facade only,design
+I4D-004,terminal authority requires complete V2 and exact suffix,design
+I4D-005,terminal authority requires RequestFinalized,design
+I4D-006,terminal authority requires authenticated covering S1,design
+I4D-007,I3 receipt alone cannot mint terminal authority,design
+I4D-008,restart reconstructs authority from durable history,design
+I4D-009,Pending history derives no terminal authority,design
+I4D-010,partial suffix derives no terminal authority,design
+I4D-011,complete but uncovered history derives no terminal authority,design
+I4D-012,hold transitions derive no terminal authority,design
+I4D-013,PLACE Working maps Recovered,design
+I4D-014,PLACE Filled maps Recovered,design
+I4D-015,PLACE Cancelled maps Recovered,design
+I4D-016,PLACE Expired maps Recovered,design
+I4D-017,PLACE Rejected maps Rejected BrokerRejected,design
+I4D-018,CANCEL Working remains unresolved,design
+I4D-019,CANCEL Filled requires ExecutionObserved,design
+I4D-020,CANCEL Rejected requires AlreadyTerminalNonExecution,design
+I4D-021,CANCEL Cancelled requires Canceled,design
+I4D-022,CANCEL Expired requires AlreadyTerminalNonExecution,design
+I4D-023,command ACK does not rewrite broker order lifecycle,design
+I4D-024,current readiness is independent from terminal ACK,design
+I4D-025,StopRequested blocks readiness,design
+I4D-026,missing unreadable malformed or stale control blocks readiness,design
+I4D-027,stale composite readiness blocks readiness,design
+I4D-028,stale broker truth or readiness blocks readiness,design
+I4D-029,closed or unknown schedule blocks readiness,design
+I4D-030,unknown or orphan account safety blocks readiness,design
+I4D-031,identity or runtime mismatch blocks readiness,design
+I4D-032,I3 post-effect control evidence cannot become current readiness,design
+I4D-033,duplicate and restart preserve canonical ACK identity,design
+I4D-034,duplicate derivation appends no journal record,design
+I4D-035,facade and authorities are nonserializable opaque types,design
+I4D-036,no caller-built seal checkpoint or digest-only constructor,design
+I4D-037,Redis ACK XACK and publication remain closed,scanner
+I4D-038,FINAM POST DELETE and broker dispatch remain closed,scanner
+I4D-039,runtime-live and real orders remain closed,scanner
+I4D-040,Stage 8A-5 and Stage 8B remain closed,scanner
