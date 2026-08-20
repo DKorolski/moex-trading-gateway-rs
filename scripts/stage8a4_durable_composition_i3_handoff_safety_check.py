@@ -48,10 +48,10 @@ def check(archive_path: str) -> dict[str, object]:
         evidence = json.loads(
             archive.read("handoff-evidence/stage8a4-durable-composition-i3-evidence.json")
         )
-        if evidence.get("stage") != "8A-4-durable-composition-I3-R3":
+        if evidence.get("stage") != "8A-4-durable-composition-I3-R4":
             raise ValueError("stage mismatch")
-        if evidence.get("acceptance_rows") != 60 or evidence.get("negative_cases") != 58:
-            raise ValueError("R3 evidence count mismatch")
+        if evidence.get("acceptance_rows") != 69 or evidence.get("negative_cases") != 80:
+            raise ValueError("R4 evidence count mismatch")
         for key in (
             "sealed_linear_writer_authority",
             "exact_request_truth_control_binding",
@@ -61,10 +61,14 @@ def check(archive_path: str) -> dict[str, object]:
             "broker_core_sqlite_baseline_unchanged",
             "production_normal_composition_path",
             "production_restart_without_i2_candidate",
+            "writer_entry_ed25519_attested",
+            "writer_issuer_public_key_pinned_by_operational_identity",
+            "production_normal_and_three_recovery_paths_directly_tested",
+            "complete_uncovered_restart_remains_pending",
             "external_raw_mutator_compile_fail",
         ):
             if evidence.get(key) is not True:
-                raise ValueError(f"R3 evidence disabled: {key}")
+                raise ValueError(f"R4 evidence disabled: {key}")
         if fields.get("source_ref") != evidence.get("source_ref"):
             raise ValueError("source ref mismatch")
         if fields.get("archive_name") != PurePosixPath(archive_path).name:

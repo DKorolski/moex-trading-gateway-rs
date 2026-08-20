@@ -37,7 +37,7 @@ def main() -> None:
     if status:
         raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL worktree must be clean")
     branch = run("git", "branch", "--show-current").decode().strip()
-    if branch != "stage8a4-durable-composition-i3-r3":
+    if branch != "stage8a4-durable-composition-i3-r4":
         raise SystemExit(f"stage8a4-durable-composition-i3-handoff: FAIL branch={branch}")
     full_ref = run("git", "rev-parse", "HEAD").decode().strip()
     short_ref = run("git", "rev-parse", "--short=7", "HEAD").decode().strip()
@@ -60,7 +60,7 @@ def main() -> None:
         )
         if gate.returncode != 0:
             raise SystemExit(gate.stdout.decode(errors="replace"))
-        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=60 negatives=58 sealed=true broker_neutral=true recovery=true ack=false execution=false"
+        marker = b"stage8a4-durable-composition-i3-gate: PASS rows=69 negatives=80 sealed=private pending=true broker_neutral=true recovery=true ack=false execution=false"
         if marker not in gate.stdout:
             raise SystemExit("stage8a4-durable-composition-i3-handoff: FAIL gate marker missing")
 
@@ -81,7 +81,7 @@ def main() -> None:
         }
         evidence = (json.dumps({
             "schema_version": 1,
-            "stage": "8A-4-durable-composition-I3-R3",
+            "stage": "8A-4-durable-composition-I3-R4",
             "source_ref": full_ref,
             "source_short_ref": short_ref,
             "archive_name": archive_name,
@@ -92,9 +92,11 @@ def main() -> None:
             "rejected_i3_r1_review_sha256": "c0ecc723ab98ba67560cb857e2761d0913f47c8ff78355bc04e74c8e03b585fe",
             "rejected_i3_r2_ref": "62e5e0509adb9cceb1d9947b5b3f92120e2f19ea",
             "rejected_i3_r2_review_sha256": "606ce34c3369fe732dfced14c283fe2bf1020e5c64db638109daa6b26f55d1cc",
-            "i3_r3_correction_spec_sha256": "99e90936ce1e7f961aca5d42c2b8fc5f139b125113f0f9ee429945c9ec1dbd66",
-            "acceptance_rows": 60,
-            "negative_cases": 58,
+            "rejected_i3_r3_ref": "3aa267029d512ba21f91dd95eb118b8d51810b56",
+            "rejected_i3_r3_review_sha256": "aeae8245d421510301672a3885eb2396efdee0071c1dbd1af8313a9aa3d29cb3",
+            "i3_r4_correction_spec_sha256": "5f0bfb0fd65ce5723b883638735c610220c51d279b8b7e7085fad9e544ed79a5",
+            "acceptance_rows": 69,
+            "negative_cases": 80,
             "source_tree_manifest_sha256": sha256(manifest),
             "full_gate_sha256": sha256(gate.stdout),
             "v2_durable_append_enabled": True,
@@ -108,6 +110,10 @@ def main() -> None:
             "broker_core_sqlite_baseline_unchanged": True,
             "production_normal_composition_path": True,
             "production_restart_without_i2_candidate": True,
+            "writer_entry_ed25519_attested": True,
+            "writer_issuer_public_key_pinned_by_operational_identity": True,
+            "production_normal_and_three_recovery_paths_directly_tested": True,
+            "complete_uncovered_restart_remains_pending": True,
             "external_raw_mutator_compile_fail": True,
             "ack_readiness_enabled": False,
             "redis_live_enabled": False,
