@@ -625,7 +625,7 @@ mod tests {
     use super::*;
     use crate::stage8a1_execution_capability::{
         stage8a4_test_i4_current_sources, stage8a4_test_production_place_capability,
-        Stage8KillSwitchState, Stage8a1CurrentControlStateV1,
+        Stage8KillSwitchState, Stage8a1CurrentControlStateV1, Stage8a4I4ReadOnlyAuthorityIssuer,
     };
     use crate::stage8a4_reconciliation::durable_composition_i4::{
         compose_stage8a4_i4_readonly, Stage8a4I4ReadinessState,
@@ -983,7 +983,7 @@ mod tests {
         let command = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
             .expect("Stage8A4 production command");
         let authority_root = setup.parent.join("stage8a4-authority-normal");
-        let (mut issuer, capability) = stage8a4_test_production_place_capability(
+        let (issuer, capability) = stage8a4_test_production_place_capability(
             &mut owner,
             &setup.commitment_key,
             &identity,
@@ -1036,6 +1036,14 @@ mod tests {
         assert!(receipt.appended_suffix_records() > 0);
         assert!(receipt.covering_seal_generation() > 1);
         assert_eq!(receipt.stage6_checkpoint_sha256().len(), 64);
+        let accepted_config_sha256 = std::fs::read_to_string(
+            authority_root.join("stage8a1-accepted-execution-config.json.sha256"),
+        )
+        .expect("read accepted config sidecar for I4 restart");
+        // The pre-effect issuer and execution capability must not survive
+        // into either the same-process terminal facade or process B.
+        drop(capability);
+        drop(issuer);
         let seal_path = setup.root.join("stage7b-recovery.seal");
         let seal_before_i4 = std::fs::read(&seal_path).expect("read covering S1 before I4");
         let first_terminal = owner
@@ -1071,20 +1079,21 @@ mod tests {
             seal_before_i4,
             "I4 must not advance or repair the recovery seal",
         );
+        let mut i4_issuer = Stage8a4I4ReadOnlyAuthorityIssuer::from_terminal_authority(
+            &first_terminal,
+            &authority_root,
+            &accepted_config_sha256,
+        )
+        .expect("same-process terminal authority opens read-only I4 issuer");
         let i4_now = Utc::now();
         let (composite, truth, broker_readiness) = stage8a4_test_i4_current_sources(place, i4_now);
-        let ready_sources = issuer
+        let ready_sources = i4_issuer
             .issue_current_sources(&composite, &truth, &broker_readiness)
             .expect("trusted I4 current sources");
-        let ready = compose_stage8a4_i4_readonly(
-            &mut owner,
-            &setup.commitment_key,
-            identity.strategy_request_id(),
-            &mut issuer,
-            &ready_sources,
-        )
-        .expect("I4 ACK remains available with current ready sources")
-        .diagnostic();
+        let ready =
+            compose_stage8a4_i4_readonly(&first_terminal, Some((&mut i4_issuer, &ready_sources)))
+                .expect("I4 ACK remains available with current ready sources")
+                .diagnostic();
         assert_eq!(
             ready.ack_status,
             broker_core::command::CommandAckStatus::Recovered
@@ -1104,15 +1113,12 @@ mod tests {
                 serde_json::to_vec(&control).expect("encode blocked I4 current control"),
             )
             .expect("write blocked I4 current control");
-            let budget_sources = issuer
+            let budget_sources = i4_issuer
                 .issue_current_sources(&composite, &truth, &broker_readiness)
                 .expect("opaque budget-blocked I4 current sources");
             let budget_blocked = compose_stage8a4_i4_readonly(
-                &mut owner,
-                &setup.commitment_key,
-                identity.strategy_request_id(),
-                &mut issuer,
-                &budget_sources,
+                &first_terminal,
+                Some((&mut i4_issuer, &budget_sources)),
             )
             .expect("historical ACK survives current micro-budget block")
             .diagnostic();
@@ -1132,18 +1138,13 @@ mod tests {
         let stale_now = Utc::now() - Duration::minutes(2);
         let (stale_composite, stale_truth, stale_broker_readiness) =
             stage8a4_test_i4_current_sources(place, stale_now);
-        let stale_sources = issuer
+        let stale_sources = i4_issuer
             .issue_current_sources(&stale_composite, &stale_truth, &stale_broker_readiness)
             .expect("opaque stale I4 current sources");
-        let stale_blocked = compose_stage8a4_i4_readonly(
-            &mut owner,
-            &setup.commitment_key,
-            identity.strategy_request_id(),
-            &mut issuer,
-            &stale_sources,
-        )
-        .expect("historical ACK survives stale trusted source")
-        .diagnostic();
+        let stale_blocked =
+            compose_stage8a4_i4_readonly(&first_terminal, Some((&mut i4_issuer, &stale_sources)))
+                .expect("historical ACK survives stale trusted source")
+                .diagnostic();
         assert_eq!(stale_blocked.ack_status, ready.ack_status);
         assert_eq!(
             stale_blocked.terminal_request_ack_identity_sha256,
@@ -1175,18 +1176,13 @@ mod tests {
             source_ts: Some(i4_now - Duration::seconds(1)),
             received_ts: i4_now - Duration::seconds(1),
         });
-        let blocked_sources = issuer
+        let blocked_sources = i4_issuer
             .issue_current_sources(&composite, &active_truth, &broker_readiness)
             .expect("trusted blocked I4 current sources");
-        let blocked = compose_stage8a4_i4_readonly(
-            &mut owner,
-            &setup.commitment_key,
-            identity.strategy_request_id(),
-            &mut issuer,
-            &blocked_sources,
-        )
-        .expect("historical ACK survives a current active-order block")
-        .diagnostic();
+        let blocked =
+            compose_stage8a4_i4_readonly(&first_terminal, Some((&mut i4_issuer, &blocked_sources)))
+                .expect("historical ACK survives a current active-order block")
+                .diagnostic();
         assert_eq!(blocked.ack_status, ready.ack_status);
         assert_eq!(
             blocked.terminal_request_ack_identity_sha256,
@@ -1200,18 +1196,15 @@ mod tests {
         advanced_control.durable_revision += 1;
         advanced_control.observed_at = Utc::now();
         advanced_control.valid_until = Utc::now() + Duration::seconds(20);
-        issuer
-            .persist_current_control(&advanced_control)
-            .expect("trusted I4 control revision advance");
-        let root_rebound_blocked = compose_stage8a4_i4_readonly(
-            &mut owner,
-            &setup.commitment_key,
-            identity.strategy_request_id(),
-            &mut issuer,
-            &ready_sources,
+        std::fs::write(
+            &control_path,
+            serde_json::to_vec(&advanced_control).expect("encode advanced I4 control"),
         )
-        .expect("historical ACK survives stale opaque-source root binding")
-        .diagnostic();
+        .expect("replace I4 control content without issuer mutation authority");
+        let root_rebound_blocked =
+            compose_stage8a4_i4_readonly(&first_terminal, Some((&mut i4_issuer, &ready_sources)))
+                .expect("historical ACK survives stale opaque-source root binding")
+                .diagnostic();
         assert_eq!(root_rebound_blocked.ack_status, ready.ack_status);
         assert_eq!(
             root_rebound_blocked.terminal_request_ack_identity_sha256,
@@ -1226,6 +1219,29 @@ mod tests {
             seal_before_i4,
             "I4 blocked readiness cases must not mutate S1",
         );
+        // Exact R3 witness marker retained by the fail-closed checker:
+        // stage8a4_i4_fresh_process_post_s1_readonly_facade_and_ack_fallback
+        std::fs::write(&control_path, &original_control_bytes)
+            .expect("restore accepted current control before process B");
+        let journal_path = setup.root.join("stage6.journal");
+        let journal_before_process_b =
+            std::fs::read(&journal_path).expect("read finalized journal before process B");
+        let arm_registry = authority_root.join("stage8a1-arm-nonces");
+        let arm_entries_before_process_b = std::fs::read_dir(&arm_registry)
+            .expect("read arm registry before process B")
+            .count();
+        let stable_ack_status = ready.ack_status;
+        let stable_ack_reason = ready.ack_reason_code;
+        let stable_broker_order_id = first_terminal
+            .broker_order_id()
+            .expect("working PLACE terminal has durable BrokerOrderId")
+            .clone();
+        drop(ready_sources);
+        drop(stale_sources);
+        drop(blocked_sources);
+        drop(i4_issuer);
+        drop(duplicate_terminal);
+        drop(first_terminal);
         drop(owner);
 
         let restarted = Stage7bRecoveryReadyOwner::restart(
@@ -1236,7 +1252,84 @@ mod tests {
             setup.runtime.clone(),
         )
         .expect("restart covered production journal");
-        assert!(matches!(restarted, Stage7bRestartOutcome::Ready(_)));
+        let Stage7bRestartOutcome::Ready(mut process_b_owner) = restarted else {
+            panic!("finalized I4 history must restart RecoveryReady");
+        };
+        let process_b_terminal = process_b_owner
+            .issue_stage8a4_terminal_authority(
+                &setup.commitment_key,
+                identity.strategy_request_id(),
+            )
+            .expect("process B reconstructs exact terminal authority");
+        assert_eq!(
+            process_b_terminal.broker_order_id(),
+            Some(&stable_broker_order_id),
+            "process B preserves durable BrokerOrderId",
+        );
+        let mut process_b_issuer = Stage8a4I4ReadOnlyAuthorityIssuer::from_terminal_authority(
+            &process_b_terminal,
+            &authority_root,
+            &accepted_config_sha256,
+        )
+        .expect("process B reopens I4-only read-only authority");
+        let process_b_now = Utc::now();
+        let (process_b_composite, process_b_truth, process_b_broker_readiness) =
+            stage8a4_test_i4_current_sources(place, process_b_now);
+        let process_b_sources = process_b_issuer
+            .issue_current_sources(
+                &process_b_composite,
+                &process_b_truth,
+                &process_b_broker_readiness,
+            )
+            .expect("process B samples fresh opaque current sources");
+        let process_b_ready = compose_stage8a4_i4_readonly(
+            &process_b_terminal,
+            Some((&mut process_b_issuer, &process_b_sources)),
+        )
+        .expect("process B derives I4 facade without process-A issuer")
+        .diagnostic();
+        assert_eq!(process_b_ready.ack_status, stable_ack_status);
+        assert_eq!(process_b_ready.ack_reason_code, stable_ack_reason);
+        assert_eq!(
+            process_b_ready.terminal_request_ack_identity_sha256,
+            stable_terminal_identity,
+        );
+        assert_eq!(
+            process_b_ready.readiness_state,
+            Stage8a4I4ReadinessState::Ready,
+        );
+
+        let process_b_ack_only = compose_stage8a4_i4_readonly(&process_b_terminal, None)
+            .expect("readiness-unavailable restart preserves historical ACK")
+            .diagnostic();
+        assert_eq!(process_b_ack_only.ack_status, stable_ack_status);
+        assert_eq!(process_b_ack_only.ack_reason_code, stable_ack_reason);
+        assert_eq!(
+            process_b_ack_only.terminal_request_ack_identity_sha256,
+            stable_terminal_identity,
+        );
+        assert_eq!(
+            process_b_ack_only.readiness_state,
+            Stage8a4I4ReadinessState::Blocked,
+        );
+        assert_eq!(
+            std::fs::read(&journal_path).expect("reread journal after process-B I4"),
+            journal_before_process_b,
+            "fresh-process I4 must not mutate the journal",
+        );
+        assert_eq!(
+            std::fs::read(&seal_path).expect("reread S1 after process-B I4"),
+            seal_before_i4,
+            "fresh-process I4 must not mutate S1",
+        );
+        assert_eq!(
+            std::fs::read_dir(&arm_registry)
+                .expect("reread arm registry after process-B I4")
+                .count(),
+            arm_entries_before_process_b,
+            "fresh-process I4 must not create an operator arm",
+        );
+        drop(process_b_owner);
         std::fs::remove_dir_all(&setup.parent).expect("remove production fixture");
     }
 

@@ -85,14 +85,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `1da0a65ae0246edd837a7e4c060c702ff4cc097b` was not accepted with zero P0,
   two P1 and one P2: it accepted raw current snapshot DTOs/caller time, omitted
   inherited micro-budget/strategy-instance barriers, exposed settlement-only
-  getters and traced only 40/12 implementation checks. The narrow R2 correction
-  is now the active review candidate: complete mixed replay and already-current
-  S1 issue one public-opaque terminal authority; FINAM derives private
-  timestamp-free ACK/current-readiness facts only through the opaque Stage8A1
-  issuer/current-source boundary and trusted current time. The 53-row
-  implementation matrix explicitly traces all 64 accepted design rows and
-  inherits the 46-case design negative gate. All FINAM ACK, readiness and
-  facade types remain private.
+  getters and traced only 40/12 implementation checks. R2 at
+  `6a7f07cfd5b3ea97e64fa6c12f2d493514e1a804` closed those findings but was not
+  accepted because its only I4 facade still required the process-local
+  pre-effect Stage8A1 issuer, which cannot be reconstructed for a finalized
+  request after restart. The narrow R3 correction is now the active review
+  candidate: terminal/root authority reconstructs a crate-private I4-only
+  read-only issuer with no arm, writer or execution capability; process B
+  resamples opaque current sources, while absent/blocked readiness preserves
+  the exact historical ACK. The 60-row implementation matrix explicitly traces
+  all 64 accepted design rows and the 28-case implementation negative harness
+  remains combined with the inherited 46-case design gate. All FINAM ACK,
+  readiness and facade types remain private.
   ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,
   retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B

@@ -221,6 +221,16 @@ pub struct Stage8a1OperationalAuthorityIssuer {
     current_control_sha256: String,
 }
 
+/// I4-only read-only authority reconstructed from an owner-issued terminal
+/// authority. It deliberately owns no signing key, operator arm, request
+/// builder, writer authority or execution capability.
+pub(crate) struct Stage8a4I4ReadOnlyAuthorityIssuer {
+    authority_root: Stage8a1AuthorityRoot,
+    last_control_revision: u64,
+    current_control_sha256: String,
+    terminal_scope_sha256: String,
+}
+
 /// Recovery-only issuer for an already-established broker effect. Unlike the
 /// execution issuer it has no capability/arm issuance methods and its static
 /// authority root deliberately excludes current-control readability.
@@ -1108,22 +1118,12 @@ impl Stage8a1OperationalAuthorityIssuer {
         broker_readiness: &BrokerReadinessSnapshot,
     ) -> Result<Stage8a1TrustedCurrentSources, Stage8ExecutionPreflightError> {
         self.authority_root.validate()?;
-        let evidence_sha256 = digest_parts(
-            b"stage8a1-trusted-current-sources-v1",
-            &[
-                self.authority_root.authority_root_sha256.as_bytes(),
-                &canonical_json(composite_readiness),
-                &canonical_json(broker_truth),
-                &canonical_json(broker_readiness),
-            ],
-        );
-        Ok(Stage8a1TrustedCurrentSources {
-            composite_readiness: composite_readiness.clone(),
-            broker_truth: broker_truth.clone(),
-            broker_readiness: broker_readiness.clone(),
-            authority_root_sha256: self.authority_root.authority_root_sha256.clone(),
-            evidence_sha256,
-        })
+        issue_trusted_current_sources(
+            &self.authority_root,
+            composite_readiness,
+            broker_truth,
+            broker_readiness,
+        )
     }
 
     fn validate_control_revision(&mut self) -> Result<(), Stage8ExecutionPreflightError> {
@@ -1617,6 +1617,159 @@ impl Stage8a1OperationalAuthorityIssuer {
     }
 }
 
+fn issue_trusted_current_sources(
+    authority_root: &Stage8a1AuthorityRoot,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+) -> Result<Stage8a1TrustedCurrentSources, Stage8ExecutionPreflightError> {
+    authority_root.validate()?;
+    let evidence_sha256 = digest_parts(
+        b"stage8a1-trusted-current-sources-v1",
+        &[
+            authority_root.authority_root_sha256.as_bytes(),
+            &canonical_json(composite_readiness),
+            &canonical_json(broker_truth),
+            &canonical_json(broker_readiness),
+        ],
+    );
+    Ok(Stage8a1TrustedCurrentSources {
+        composite_readiness: composite_readiness.clone(),
+        broker_truth: broker_truth.clone(),
+        broker_readiness: broker_readiness.clone(),
+        authority_root_sha256: authority_root.authority_root_sha256.clone(),
+        evidence_sha256,
+    })
+}
+
+#[allow(
+    dead_code,
+    reason = "I4 remains a closed read-only composition exercised by acceptance tests"
+)]
+impl Stage8a4I4ReadOnlyAuthorityIssuer {
+    /// Reopens only the read-only I4 authority after finalization. The exact
+    /// terminal authority is owner-issued and replaces the intentionally
+    /// unavailable pre-effect durable dispatch authority after restart.
+    pub(crate) fn from_terminal_authority(
+        terminal: &Stage7bStage8a4TerminalAuthority,
+        root: impl AsRef<Path>,
+        accepted_config_sha256: &str,
+    ) -> Result<Self, Stage8ExecutionPreflightError> {
+        if !valid_sha256(accepted_config_sha256) {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        let root = root.as_ref();
+        directory_identity(root)?;
+        let root = root
+            .canonicalize()
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let root_identity = directory_identity(&root)?;
+        let config_path = root.join(ACCEPTED_CONFIG_FILE);
+        let sidecar_path = root.join(ACCEPTED_CONFIG_SHA256_FILE);
+        let control_path = root.join(CURRENT_CONTROL_FILE);
+        let arm_registry_path = root.join(ARM_NONCE_DIR);
+        let writer_signing_key_path = root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+        let config_identity = regular_file_identity(&config_path)?;
+        let sidecar_identity = regular_file_identity(&sidecar_path)?;
+        let control_identity = regular_file_identity(&control_path)?;
+        // I4 may pin an existing registry and writer key as frozen root
+        // identity, but it must neither create the registry nor retain the key.
+        let arm_registry_identity = directory_identity(&arm_registry_path)?;
+        let writer_signing_key_identity = regular_file_identity(&writer_signing_key_path)?;
+        let (config, observed_config_sha256) =
+            load_accepted_config_pinned(&root, config_identity, sidecar_identity)?;
+        if observed_config_sha256 != accepted_config_sha256 {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        validate_stage8a4_i4_config_binding(&config, terminal)?;
+        let control = load_current_control_pinned(&root, control_identity)?;
+        if control.operational_identity_sha256 != terminal.operational_identity_sha256()
+            || control.runtime_config_fingerprint_sha256
+                != terminal.runtime_config_fingerprint_sha256()
+            || control.durable_revision == 0
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+        }
+        let authority_root_sha256 = digest_parts(
+            b"stage8a1-trusted-authority-root-v1",
+            &[
+                root.as_os_str().as_encoded_bytes(),
+                &file_identity_bytes(root_identity),
+                &file_identity_bytes(config_identity),
+                &file_identity_bytes(sidecar_identity),
+                &file_identity_bytes(control_identity),
+                &file_identity_bytes(arm_registry_identity),
+                &file_identity_bytes(writer_signing_key_identity),
+                accepted_config_sha256.as_bytes(),
+                terminal.operational_identity_sha256().as_bytes(),
+            ],
+        );
+        let authority_root = Stage8a1AuthorityRoot {
+            root,
+            root_identity,
+            config_identity,
+            sidecar_identity,
+            control_identity,
+            arm_registry_identity,
+            writer_signing_key_identity,
+            accepted_config_sha256: accepted_config_sha256.to_string(),
+            operational_identity_sha256: terminal.operational_identity_sha256().to_string(),
+            authority_root_sha256,
+        };
+        authority_root.validate()?;
+        Ok(Self {
+            authority_root,
+            last_control_revision: control.durable_revision,
+            current_control_sha256: digest_parts(
+                b"stage8a1-current-control-content-v1",
+                &[&canonical_json(&control)],
+            ),
+            terminal_scope_sha256: stage8a4_i4_terminal_scope_sha256(terminal),
+        })
+    }
+
+    pub(crate) fn issue_current_sources(
+        &self,
+        composite_readiness: &Stage7bCompositeReadinessSnapshot,
+        broker_truth: &BrokerTruthSnapshot,
+        broker_readiness: &BrokerReadinessSnapshot,
+    ) -> Result<Stage8a1TrustedCurrentSources, Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        issue_trusted_current_sources(
+            &self.authority_root,
+            composite_readiness,
+            broker_truth,
+            broker_readiness,
+        )
+    }
+
+    fn validate_control_revision(&mut self) -> Result<(), Stage8ExecutionPreflightError> {
+        self.authority_root.validate()?;
+        let control = self.authority_root.load_current_control()?;
+        let observed_sha256 = digest_parts(
+            b"stage8a1-current-control-content-v1",
+            &[&canonical_json(&control)],
+        );
+        if control.durable_revision != self.last_control_revision
+            || observed_sha256 != self.current_control_sha256
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
+        }
+        self.last_control_revision = control.durable_revision;
+        Ok(())
+    }
+
+    fn validate_terminal(
+        &self,
+        terminal: &Stage7bStage8a4TerminalAuthority,
+    ) -> Result<(), Stage8ExecutionPreflightError> {
+        if self.terminal_scope_sha256 != stage8a4_i4_terminal_scope_sha256(terminal) {
+            return Err(Stage8ExecutionPreflightError::DurableAuthorityInvalid);
+        }
+        Ok(())
+    }
+}
+
 impl Stage8a4RecoveryOnlyAuthorityIssuer {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_stage8a4_pending_owner(
@@ -1892,11 +2045,12 @@ pub(crate) struct Stage8a4I4CurrentReadinessEvidence {
 /// the accepted root/config/control files but never opens the arm registry or
 /// writer key and never mints an execution capability.
 pub(crate) fn issue_stage8a4_i4_current_readiness(
-    issuer: &mut Stage8a1OperationalAuthorityIssuer,
+    issuer: &mut Stage8a4I4ReadOnlyAuthorityIssuer,
     terminal: &Stage7bStage8a4TerminalAuthority,
     sources: &Stage8a1TrustedCurrentSources,
 ) -> Result<Stage8a4I4CurrentReadinessEvidence, Stage8ExecutionPreflightError> {
     issuer.validate_control_revision()?;
+    issuer.validate_terminal(terminal)?;
     let authority_root = &issuer.authority_root;
     authority_root.validate()?;
     sources.validate(authority_root)?;
@@ -2340,6 +2494,23 @@ fn validate_stage8a4_i4_config_binding(
         return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
     }
     Ok(())
+}
+
+fn stage8a4_i4_terminal_scope_sha256(terminal: &Stage7bStage8a4TerminalAuthority) -> String {
+    digest_parts(
+        b"stage8a4-i4-read-only-terminal-scope-v1",
+        &[
+            terminal.operational_identity_sha256().as_bytes(),
+            terminal.runtime_config_fingerprint_sha256().as_bytes(),
+            terminal.broker_id().as_bytes(),
+            terminal.strategy_instance_id().as_bytes(),
+            &canonical_json(terminal.identity()),
+            terminal.canonical_command_sha256().as_bytes(),
+            terminal.final_record_id().as_bytes(),
+            &terminal.final_sequence().to_be_bytes(),
+            terminal.terminal_request_ack_identity_sha256().as_bytes(),
+        ],
+    )
 }
 
 /// Operational strategy-instance names historically use `-`, while the

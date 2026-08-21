@@ -33,7 +33,13 @@ but was not accepted because its crate-private terminal authority could not
 cross into FINAM. I4 Design R3 is the active docs/checker-only slice: it retains
 all R2 semantics and makes only the Stage7B terminal capability public-opaque,
 externally nonconstructible and consumable through the existing dependency
-direction. I4 implementation and Stage 8A-5 remain closed pending R3 review.
+direction. I4 Implementation R1 at `1da0a65` and R2 at `6a7f07c` were not
+accepted. R2 closed the original current-source/micro-budget/public-surface
+findings but could not reconstruct its pre-effect issuer after a finalized
+request restarted. The active R3 candidate adds a crate-private I4-only
+read-only issuer reconstructed from terminal/root authority, a true
+fresh-process facade witness and ACK-only fallback when current readiness is
+unavailable. Stage 8A-5 remains closed pending independent R3 acceptance.
 
 FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
 Stage 8B execution authority remain closed.

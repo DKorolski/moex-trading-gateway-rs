@@ -27,8 +27,8 @@ Path(sys.argv[1]).write_text(json.dumps({
   "schema_version": 1,
   "stage": "8A-4-durable-composition-I4",
   "result": "PASS",
-  "acceptance_rows": 53,
-  "negative_cases": 21,
+  "acceptance_rows": 60,
+  "negative_cases": 28,
   "accepted_design_traceability_rows": 64,
   "inherited_design_negative_cases": 46,
   "terminal_authority_public_opaque": True,
@@ -42,4 +42,4 @@ Path(sys.argv[1]).write_text(json.dumps({
   "real_orders_enabled": False
 }, indent=2) + "\n", encoding="utf-8")
 PY
-echo "stage8a4-durable-composition-i4-gate: PASS rows=53 negatives=21 trace=64 inherited_design_negatives=46 read_only=true publication=false"
+echo "stage8a4-durable-composition-i4-gate: PASS rows=60 negatives=28 trace=64 inherited_design_negatives=46 fresh_process=true read_only=true publication=false"

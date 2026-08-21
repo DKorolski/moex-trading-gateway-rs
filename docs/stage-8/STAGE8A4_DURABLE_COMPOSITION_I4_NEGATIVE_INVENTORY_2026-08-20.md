@@ -29,3 +29,10 @@ The implementation gate mutates and rejects at least these boundaries:
 25. settlement-authority fingerprint getter becomes public downstream;
 26. inherited 64-row Design R3 traceability is reduced;
 27. inherited 46-case Design R3 negative gate is skipped.
+28. I4 composer again requires the pre-finalization operational issuer;
+29. a finalized request is forced through dispatch-ready Stage8A1 authority;
+30. the I4-only read-only terminal issuer is removed;
+31. the fresh-process post-S1 I4 witness is removed;
+32. process B retains a process-A issuer/capability;
+33. readiness-unavailable restart drops or changes historical ACK;
+34. restart-critical trace rows lose their exact concrete witness.

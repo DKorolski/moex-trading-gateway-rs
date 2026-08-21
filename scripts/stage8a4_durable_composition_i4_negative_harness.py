@@ -32,6 +32,13 @@ CASES = [
     ("public-checkpoint-getter", "crates/runtime-durable-service/src/recovery.rs", "pub fn terminal_request_ack_identity_sha256", "pub fn stage6_checkpoint_sha256(&self) -> &str { \"0\" }\n    pub fn terminal_request_ack_identity_sha256"),
     ("public-seal-getters", "crates/runtime-durable-service/src/recovery.rs", "pub fn terminal_request_ack_identity_sha256", "pub fn seal_generation(&self) -> u64 { 1 }\n    pub fn seal_commitment_sha256(&self) -> &str { \"0\" }\n    pub fn terminal_request_ack_identity_sha256"),
     ("public-settlement-getter", "crates/runtime-durable-service/src/recovery.rs", "pub fn terminal_request_ack_identity_sha256", "pub fn settlement_authority_fingerprint_sha256(&self) -> &str { \"0\" }\n    pub fn terminal_request_ack_identity_sha256"),
+    ("pre-finalization-issuer-in-composer", "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i4.rs", "&mut Stage8a4I4ReadOnlyAuthorityIssuer,", "&mut Stage8a1OperationalAuthorityIssuer,"),
+    ("dispatch-ready-authority-in-i4-reopen", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "let root = root.as_ref();", "let _forbidden = \"authorize_stage8a1_durable_request\";\n        let root = root.as_ref();"),
+    ("remove-i4-read-only-issuer", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "pub(crate) struct Stage8a4I4ReadOnlyAuthorityIssuer", "pub(crate) struct RemovedStage8a4I4ReadOnlyAuthorityIssuer"),
+    ("remove-fresh-process-witness", "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i2/durable_writer_i3.rs", "stage8a4_i4_fresh_process_post_s1_readonly_facade_and_ack_fallback", "removed_fresh_process_i4_witness"),
+    ("retain-process-a-issuer", "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i2/durable_writer_i3.rs", "drop(capability);\n        drop(issuer);\n        let seal_path", "drop(capability);\n        let _process_b_retains_process_a_issuer = &issuer;\n        let seal_path"),
+    ("readiness-failure-drops-ack", "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i2/durable_writer_i3.rs", "readiness-unavailable restart preserves historical ACK", "readiness-unavailable restart drops historical ACK"),
+    ("restart-trace-loses-witness", "docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I4_DESIGN_TO_IMPLEMENTATION_TRACEABILITY_2026-08-21.csv", "I4D-008,stage8a4_i4_fresh_process_post_s1_readonly_facade_and_ack_fallback", "I4D-008,generic restart proof"),
 ]
 
 with tempfile.TemporaryDirectory(prefix="stage8a4-i4-negative-") as temp:

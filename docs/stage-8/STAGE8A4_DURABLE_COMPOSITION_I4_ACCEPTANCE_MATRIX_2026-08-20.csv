@@ -52,3 +52,10 @@ I4I-050,terminal capability omits seal-commitment getter,compile-fail
 I4I-051,terminal capability omits settlement-fingerprint getter,compile-fail
 I4I-052,downstream settlement-only getter access rejected,compile-fail
 I4I-053,all 64 accepted Design R3 requirements trace to implementation proofs,traceability+design-gate
+I4I-054,finalized request reconstructs I4 facade after fresh process restart,source+production-test
+I4I-055,I4 restart path requires no pre-effect operational issuer,source+checker
+I4I-056,I4-only issuer pins terminal root config control and scope,source+checker
+I4I-057,I4-only issuer cannot mint arm execution writer or transport authority,source+checker
+I4I-058,process B resamples opaque current sources independently,source+production-test
+I4I-059,readiness-unavailable restart preserves exact historical ACK,test+checker
+I4I-060,fresh-process I4 leaves journal S1 and arm registry unchanged,production-test

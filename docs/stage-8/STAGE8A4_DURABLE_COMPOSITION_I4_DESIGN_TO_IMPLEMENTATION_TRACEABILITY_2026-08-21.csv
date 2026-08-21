@@ -6,7 +6,7 @@ I4D-004,completed-transition source and focused test
 I4D-005,completed-transition source and focused test
 I4D-006,owner issuer two-S1 barriers and production test
 I4D-007,external receipt-mint compile-fail
-I4D-008,restart and duplicate terminal derivation test
+I4D-008,stage8a4_i4_fresh_process_post_s1_readonly_facade_and_ack_fallback
 I4D-009,completed-transition completion guard
 I4D-010,completed-transition suffix guard
 I4D-011,owner checkpoint equality guard
@@ -31,7 +31,7 @@ I4D-029,open-session issuer guard
 I4D-030,summary ambiguity guards
 I4D-031,terminal config operational and runtime binding guards
 I4D-032,opaque trusted-current-source-only signature
-I4D-033,duplicate derivation stable ACK identity test
+I4D-033,stage8a4_i4_fresh_process_post_s1_readonly_facade_and_ack_fallback
 I4D-034,S1 byte equality and no append test
 I4D-035,private facade plus nonserialization compile-fail
 I4D-036,raw-mint and constructor compile-fail
@@ -46,7 +46,7 @@ I4D-044,completed mixed replay broker ID
 I4D-045,mixed replay and finalized cross-binding
 I4D-046,readiness cannot rewrite private ACK facts
 I4D-047,timestamp-free ACK struct and checker
-I4D-048,restart duplicate terminal derivation test
+I4D-048,stage8a4_i4_fresh_process_post_s1_readonly_facade_and_ack_fallback
 I4D-049,existing Stage7B ACK authority reuse
 I4D-050,terminal ACK identity excludes removed settlement getters
 I4D-051,opaque current sources and no arm or execution capability

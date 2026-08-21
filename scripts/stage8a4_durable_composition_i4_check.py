@@ -32,6 +32,7 @@ def main() -> None:
         "stage8a1": root / "crates/finam-gateway/src/stage8a1_execution_capability.rs",
         "reconciliation": root / "crates/finam-gateway/src/stage8a4_reconciliation.rs",
         "i4": root / "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i4.rs",
+        "i3": root / "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i2/durable_writer_i3.rs",
         "compile": root / "scripts/stage8a4_durable_composition_i4_external_compile_fail.sh",
     }
     for label, path in paths.items():
@@ -45,6 +46,9 @@ def main() -> None:
         "current_readiness_independent", "account_active_orders_required_zero",
         "target_active_orders_required_zero", "external_compile_fail_proof",
         "trusted_current_sources_opaque",
+        "fresh_process_i4_reconstructible",
+        "historical_ack_survives_readiness_unavailable",
+        "i4_read_only_issuer_has_no_execution_authority",
     ):
         require(authority.get(key) is True, f"required authority property drift: {key}")
     for key in (
@@ -57,9 +61,9 @@ def main() -> None:
         require(authority.get(key) is False, f"closed surface opened: {key}")
     with paths["matrix"].open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 53, "I4 R2 acceptance matrix must contain 53 rows")
-    require(len({row["id"] for row in rows}) == 53, "duplicate I4 acceptance IDs")
-    require([row["id"] for row in rows] == [f"I4I-{index:03d}" for index in range(1, 54)], "I4 implementation IDs must be exact I4I-001..I4I-053")
+    require(len(rows) == 60, "I4 R3 acceptance matrix must contain 60 rows")
+    require(len({row["id"] for row in rows}) == 60, "duplicate I4 acceptance IDs")
+    require([row["id"] for row in rows] == [f"I4I-{index:03d}" for index in range(1, 61)], "I4 implementation IDs must be exact I4I-001..I4I-060")
     with paths["trace"].open(newline="", encoding="utf-8") as handle:
         trace = list(csv.DictReader(handle))
     require(len(trace) == 64, "I4 Design R3 traceability must contain 64 rows")
@@ -114,6 +118,31 @@ def main() -> None:
         require(getter not in authority_impl, f"settlement-only terminal getter exposed: {getter}")
 
     stage8a1 = text["stage8a1"]
+    readonly_match = re.search(r"pub\(crate\) struct Stage8a4I4ReadOnlyAuthorityIssuer\s*\{(?P<body>.*?)\n\}", stage8a1, re.S)
+    require(readonly_match is not None, "I4-only read-only issuer missing")
+    readonly_body = readonly_match.group("body")
+    for marker in ("authority_root", "last_control_revision", "current_control_sha256", "terminal_scope_sha256"):
+        require(marker in readonly_body, f"I4 read-only issuer binding missing: {marker}")
+    for forbidden in ("SigningKey", "Stage8ExecutionCapability", "OperatorArm", "builder", "continuation"):
+        require(forbidden not in readonly_body, f"effect authority entered I4 read-only issuer: {forbidden}")
+    readonly_impl_start = stage8a1.index("impl Stage8a4I4ReadOnlyAuthorityIssuer")
+    readonly_impl_end = stage8a1.index("struct Stage8a1DerivedCurrentAuthorities", readonly_impl_start)
+    readonly_impl = stage8a1[readonly_impl_start:readonly_impl_end]
+    for marker in (
+        "pub(crate) fn from_terminal_authority(", "validate_stage8a4_i4_config_binding",
+        "load_current_control_pinned", "allow_arm_registry_create", "issue_current_sources(",
+        "stage8a4_i4_terminal_scope_sha256", "authority_root.validate()",
+    ):
+        if marker == "allow_arm_registry_create":
+            require(marker not in readonly_impl, "I4 read-only issuer can create arm registry")
+        else:
+            require(marker in readonly_impl, f"I4 read-only issuer marker missing: {marker}")
+    for forbidden in (
+        "Stage8a1OperationalAuthorityIssuer::from_stage7b_owner",
+        "authorize_stage8a1_durable_request", "authorize_exact_durable_request",
+        "fs::create_dir", "authorize_place(", "authorize_cancel(",
+    ):
+        require(forbidden not in readonly_impl, f"pre-effect authority entered I4 restart issuer: {forbidden}")
     readiness_start = stage8a1.index("pub(crate) fn issue_stage8a4_i4_current_readiness(")
     readiness_end = stage8a1.index("#[allow(clippy::too_many_arguments)]\nfn derive_current_authorities", readiness_start)
     readiness = stage8a1[readiness_start:readiness_end]
@@ -131,6 +160,8 @@ def main() -> None:
     ):
         require(marker in readiness, f"readiness marker missing: {marker}")
     require("|| !stage8a4_i4_strategy_instance_scope_matches(" in stage8a1, "strategy-instance equality/mapping guard missing")
+    require("Stage8a4I4ReadOnlyAuthorityIssuer" in readiness_signature, "I4-only read-only issuer missing from final mint")
+    require("Stage8a1OperationalAuthorityIssuer" not in readiness_signature, "pre-finalization operational issuer returned to I4 mint")
     require("Stage8a1TrustedCurrentSources" in readiness_signature, "opaque current-source authority missing from I4 mint")
     for forbidden in ("BrokerTruthSnapshot", "BrokerReadinessSnapshot", "Stage7bCompositeReadinessSnapshot", "now: DateTime", "root: &Path", "accepted_config_sha256: &str"):
         require(forbidden not in readiness_signature, f"caller-controlled readiness input returned: {forbidden}")
@@ -140,8 +171,10 @@ def main() -> None:
     i4 = text["i4"]
     compose_start = i4.index("pub(crate) fn compose_stage8a4_i4_readonly(")
     compose_signature = i4[compose_start:i4.index(") -> Result", compose_start)]
-    require("Stage8a1OperationalAuthorityIssuer" in compose_signature, "trusted I4 issuer missing")
+    require("Stage8a4I4ReadOnlyAuthorityIssuer" in compose_signature, "I4-only trusted issuer missing")
+    require("Stage8a1OperationalAuthorityIssuer" not in compose_signature, "pre-finalization issuer required by I4 composer")
     require("Stage8a1TrustedCurrentSources" in compose_signature, "opaque I4 sources missing")
+    require("Option<(" in compose_signature, "readiness-unavailable ACK-only composition missing")
     for forbidden in ("BrokerTruthSnapshot", "BrokerReadinessSnapshot", "Stage7bCompositeReadinessSnapshot", "now: DateTime", "authority_root", "accepted_config_sha256"):
         require(forbidden not in compose_signature, f"raw I4 composer input returned: {forbidden}")
     for marker in (
@@ -158,10 +191,38 @@ def main() -> None:
     require("pub mod durable_composition_i4" not in text["reconciliation"], "I4 private module exported")
     for token in ("reqwest", ".post(", ".delete(", "XACK", "xack(", "xadd("):
         require(token not in i4, f"effect surface entered I4 facade: {token}")
+    ack_position = i4.index("let ack = terminal_ack_facts(terminal)?;")
+    readiness_position = i4.index("let readiness = current.and_then", ack_position)
+    require(ack_position < readiness_position, "current readiness can suppress historical ACK")
+    terminal_ack_start = i4.index("fn terminal_ack_facts(")
+    terminal_ack_end = i4.index("fn canonical_ack_mapping(", terminal_ack_start)
+    terminal_ack = i4[terminal_ack_start:terminal_ack_end]
+    require(
+        ".terminal_request_ack_identity_sha256()" in terminal_ack,
+        "terminal ACK stopped reusing exact Stage7B ACK identity",
+    )
+    i3 = text["i3"]
+    restart_marker = "stage8a4_i4_fresh_process_post_s1_readonly_facade_and_ack_fallback"
+    for marker in (
+        restart_marker, "drop(capability);", "drop(issuer);", "drop(i4_issuer);",
+        "drop(owner);", "process B reopens I4-only read-only authority",
+        "readiness-unavailable restart preserves historical ACK",
+        "fresh-process I4 must not mutate the journal",
+        "fresh-process I4 must not mutate S1",
+        "fresh-process I4 must not create an operator arm",
+    ):
+        require(marker in i3, f"fresh-process I4 witness missing: {marker}")
+    require(
+        "drop(capability);\n        drop(issuer);\n        let seal_path" in i3,
+        "process-A execution issuer/capability survives into I4 restart phase",
+    )
+    trace_by_id = {row["design_id"]: row["implementation_proof"] for row in trace}
+    for design_id in ("I4D-008", "I4D-033", "I4D-048"):
+        require(restart_marker in trace_by_id[design_id], f"restart-critical trace row lacks exact witness: {design_id}")
     require("positive=1 negative=12" in text["compile"], "external compile matrix drift")
     for getter in ("checkpoint_getter", "seal_generation_getter", "seal_commitment_getter", "settlement_fingerprint_getter", "trusted_sources_literal"):
         require(f"check_fail {getter}" in text["compile"], f"external negative missing: {getter}")
-    print("stage8a4-durable-composition-i4-check: PASS rows=53 trace=64 read_only=true ack_publish=false")
+    print("stage8a4-durable-composition-i4-check: PASS rows=60 trace=64 fresh_process=true read_only=true ack_publish=false")
 
 
 if __name__ == "__main__":

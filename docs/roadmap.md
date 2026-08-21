@@ -79,8 +79,13 @@ readiness mint bypassed the opaque trusted-current-source boundary and its
 terminal authority exposed settlement-only getters. The active narrow R2
 candidate restores the existing Stage8A1 issuer/source authority, trusted time,
 micro-budget and deterministic strategy-instance binding, removes those
-getters and traces all 64 Design R3 rows. I4 never publishes ACK/readiness or
-authorizes Redis settlement.
+getters and traces all 64 Design R3 rows. R2 `6a7f07c` closed those R1 findings
+but was not accepted because its finalized restart path could not reconstruct
+the pre-effect operational issuer. The active narrow R3 candidate introduces a
+terminal/root-bound I4-only read-only issuer, independent process-B current
+source sampling and ACK-only fallback, with explicit journal/S1/arm
+non-mutation proof. I4 never publishes ACK/readiness or authorizes Redis
+settlement.
 Stage 8A-5+, FINAM
 POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real
 orders remain closed.

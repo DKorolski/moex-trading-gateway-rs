@@ -6,15 +6,15 @@
 use broker_core::command::CommandAckStatus;
 use broker_core::{BrokerOrderId, ClientOrderId, CommandAckReasonCode, StrategyRequestId};
 use chrono::{DateTime, Utc};
-use runtime_durable_service::{Stage7bRecoveryReadyOwner, Stage7bStage8a4TerminalAuthority};
+use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
 use strategy_runtime_core::{
-    Stage5gLifecycleCommitmentKey, Stage6CancelOutcomeV1, Stage6DurableActionKind,
-    Stage6ReconciliationLifecycleV2, Stage6RequestFinalDispositionV1,
+    Stage6CancelOutcomeV1, Stage6DurableActionKind, Stage6ReconciliationLifecycleV2,
+    Stage6RequestFinalDispositionV1,
 };
 
 use crate::stage8a1_execution_capability::{
-    issue_stage8a4_i4_current_readiness, Stage8a1OperationalAuthorityIssuer,
-    Stage8a1TrustedCurrentSources, Stage8a4I4CurrentReadinessEvidence,
+    issue_stage8a4_i4_current_readiness, Stage8a1TrustedCurrentSources,
+    Stage8a4I4CurrentReadinessEvidence, Stage8a4I4ReadOnlyAuthorityIssuer,
 };
 
 pub(crate) struct Stage8a4I4TerminalAckFacts {
@@ -95,17 +95,19 @@ impl Stage8a4I4DerivedAckReadinessFacade {
 }
 
 pub(crate) fn compose_stage8a4_i4_readonly(
-    owner: &mut Stage7bRecoveryReadyOwner,
-    commitment_key: &Stage5gLifecycleCommitmentKey,
-    request_id: StrategyRequestId,
-    issuer: &mut Stage8a1OperationalAuthorityIssuer,
-    sources: &Stage8a1TrustedCurrentSources,
+    terminal: &Stage7bStage8a4TerminalAuthority,
+    current: Option<(
+        &mut Stage8a4I4ReadOnlyAuthorityIssuer,
+        &Stage8a1TrustedCurrentSources,
+    )>,
 ) -> Result<Stage8a4I4DerivedAckReadinessFacade, Stage8a4I4CompositionError> {
-    let terminal = owner
-        .issue_stage8a4_terminal_authority(commitment_key, request_id)
-        .map_err(|_| Stage8a4I4CompositionError::TerminalAuthorityUnavailable)?;
-    let ack = terminal_ack_facts(&terminal)?;
-    let readiness = issue_stage8a4_i4_current_readiness(issuer, &terminal, sources).ok();
+    // Historical terminal ACK is derived before and independently of every
+    // fallible current-readiness operation. A restart with unavailable or
+    // blocked current sources therefore cannot alter or erase ACK identity.
+    let ack = terminal_ack_facts(terminal)?;
+    let readiness = current.and_then(|(issuer, sources)| {
+        issue_stage8a4_i4_current_readiness(issuer, terminal, sources).ok()
+    });
     let readiness_state = if readiness.is_some() {
         Stage8a4I4ReadinessState::Ready
     } else {
