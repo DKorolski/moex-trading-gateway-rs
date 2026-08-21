@@ -1,7 +1,7 @@
 {
-  "authority_generation": 4,
-  "previous_base_sha": "6490c5989d833cbb4a55976f5ed0ee3d0c59979d",
-  "previous_state_sha256": "174b79368c21b19ff83480d2ddc36cd5da9517b2db5799b532eb8e52a8b62539",
+  "authority_generation": 5,
+  "previous_base_sha": "0ce76a334f12bf7b13e682ca976c9a4cde6be137",
+  "previous_state_sha256": "f77b148e21148d1228122185ceeef4547e99d79b3a34c70a8ffa8c2b77da030d",
   "schema_version": 1,
-  "stage": "5F-a-r9-portable-forbidden-scanner"
+  "stage": "5F-terminal-authority-retirement"
 }

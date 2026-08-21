@@ -1,20 +1,21 @@
 name: Stage 5F Base Authority
 
 on:
-  pull_request_target:
-    branches:
-      - main
-    types:
-      - opened
-      - reopened
-      - synchronize
-      - ready_for_review
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Immutable historical base ref
+        required: true
+        default: 0ce76a334f12bf7b13e682ca976c9a4cde6be137
+      candidate_ref:
+        description: Immutable historical candidate ref
+        required: true
+        default: 0ce76a334f12bf7b13e682ca976c9a4cde6be137
 
-# The workflow is evaluated from the protected base branch. It deliberately
-# receives no write token and never executes a file from the pull-request head.
+# Historical/manual evidence only. This workflow has no pull_request_target,
+# pull_request or push trigger and does not enforce the current source tree.
 permissions:
   contents: read
-  pull-requests: read
 
 jobs:
   base-authority:
@@ -29,18 +30,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout protected PR base as data
+      - name: Checkout immutable historical base as data
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: "${{ github.event.pull_request.base.sha }}"
+          ref: "${{ inputs.base_ref }}"
           path: base
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Checkout pull-request head as data
+      - name: Checkout immutable historical candidate as data
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: "${{ github.event.pull_request.head.sha }}"
+          ref: "${{ inputs.candidate_ref }}"
           path: candidate
           fetch-depth: 1
           persist-credentials: false
@@ -49,14 +50,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # Execute only the contract copied from the protected PR base.  The
-          # candidate remains byte/JSON data, including a future authority
-          # rotation manifest.
+          base_sha="$(git -C base rev-parse HEAD)"
           python3 base/scripts/stage5f_base_authority_contract.py \
             --authority authority \
             --base base \
             --candidate candidate \
-            --base-sha "${{ github.event.pull_request.base.sha }}"
+            --base-sha "$base_sha"
 
       - name: Execute only accepted R3 verifier and B3F provenance
         working-directory: authority
