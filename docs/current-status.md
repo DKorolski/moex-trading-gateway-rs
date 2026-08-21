@@ -96,14 +96,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   It reconstructs the crate-private I4-only read-only issuer from terminal/root
   authority, resamples opaque current sources in process B and preserves the
   exact historical ACK when current readiness is absent or blocked.
-- Stage 8A-5 is the only active candidate. It is aggregate-only and changes no
-  production Rust, Cargo or workflow surface. It reruns accepted Stage 7B,
-  every accepted Stage 8A semantic/negative contract, current I4, external
-  compile boundaries, the Stage 8 forbidden-surface scanner and workspace
-  debug/release/fmt/clippy/doc gates. Independent acceptance is pending.
-  ACK/readiness publication, Redis XADD/XACK and live consumption, FINAM
-  POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real orders
-  and Stage 8B remain CLOSED.
+- Stage 8A-5 is independently ACCEPTED and CLOSED at
+  `bf58b47fdef8af774a4107455dfcc6204e594283`; its final review SHA-256 is
+  `72fa3c350dd34aef2d98230dec5547ba25bd7bc752b5b74eedf046e8502b13fc`.
+  The accepted handoff is `moex-trading-project-bf58b47.zip`, SHA-256
+  `f3de068809f19e44daae5ccd98cf7c8ce131cb4c756d278e8f9dadd01c7d1a9b`.
+  Stage 8A is formally CLOSED. Only a separate Stage 8B design package is now
+  authorized. ACK/readiness publication, Redis XADD/XACK and live consumption,
+  FINAM POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real
+  orders and Stage 8B execution remain CLOSED.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

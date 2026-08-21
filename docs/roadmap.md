@@ -80,11 +80,11 @@ accepted. I4 Implementation R3 is independently accepted and closed at
 independent process-B current-source sampling and ACK-only fallback, with
 explicit journal/S1/arm non-mutation proof.
 
-Stage 8A-5 aggregate acceptance is the only active slice. It adds no functional
-implementation and reruns the full inherited Stage 7B/8A evidence, current I4,
-Stage 8 closed-surface mutation gates and workspace debug/release checks.
-Independent acceptance is pending. Stage 8B, FINAM POST/DELETE, Redis live
-consumption, broker dispatch, runtime-live and real orders remain closed.
+Stage 8A-5 aggregate acceptance is independently accepted and closed at
+`bf58b47fdef8af774a4107455dfcc6204e594283`; Stage 8A is formally closed. The
+current authorized work is a separate Stage 8B design package only. Stage 8B
+execution, FINAM POST/DELETE, Redis live consumption, broker dispatch,
+runtime-live and real orders remain closed.
 
 ### Accepted lineage and transition history
 

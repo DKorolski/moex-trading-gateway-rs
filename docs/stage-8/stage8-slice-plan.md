@@ -1,14 +1,13 @@
 # Stage 8 slice plan
 
-Status: Stage 8A-0 through Stage 8A-4 durable composition I4 are independently
-accepted and closed. The accepted I4 implementation is
-`4a11688c941ee240e377b384042c4bca837b040f`. Stage 8A-5 aggregate acceptance
-is the only open candidate and contains no functional implementation.
+Status: Stage 8A-0 through Stage 8A-5 are independently accepted and closed.
+The accepted aggregate closure is
+`bf58b47fdef8af774a4107455dfcc6204e594283`. Stage 8A is formally closed.
 
-Independent acceptance of I4 opens only Stage 8A-5. Stage 8B, real FINAM
-POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
-strategy orders, native protective orders and unattended execution remain
-CLOSED.
+Independent acceptance of Stage 8A-5 opens only preparation and review of a
+separate Stage 8B design package. Stage 8B execution, real FINAM POST/DELETE,
+Redis live consumption, broker dispatch, runtime-live, real strategy orders,
+native protective orders and unattended execution remain CLOSED.
 
 It does not authorize a real FINAM POST/DELETE.
 
