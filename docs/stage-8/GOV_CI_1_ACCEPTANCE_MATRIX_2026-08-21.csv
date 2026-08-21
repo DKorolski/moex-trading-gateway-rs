@@ -1,0 +1,31 @@
+id,requirement,proof
+GOV-CI-001,GOV-CI-1A terminal retirement is the accepted predecessor,exact predecessor SHA and generation-5 retirement lineage
+GOV-CI-002,Historical Stage-5 workflow is manual only,trigger parser and exact workflow hash
+GOV-CI-003,Only two reviewed workflow files exist,active workflow allowlist
+GOV-CI-004,Canonical CI invokes current authority gate,exact workflow hash and command check
+GOV-CI-005,Current gate invokes current checker,exact gate hash and command check
+GOV-CI-006,Current gate invokes current negative harness,exact gate hash and command check
+GOV-CI-007,Production Cargo/Rust tree is immutable,explicit path/mode/size/SHA-256 manifest
+GOV-CI-008,Governance control plane is immutable,explicit path/mode/size/SHA-256 manifest
+GOV-CI-009,No-op gate and Cargo substitutions fail closed,negative cases N01-N11
+GOV-CI-010,Unapproved workflow activation fails closed,negative cases N14-N15
+GOV-CI-011,Control-plane drift fails closed,negative cases N16-N18
+GOV-CI-012,Unreviewed production drift fails closed,negative case N19
+GOV-CI-013,Legacy actual-send feature is not default,semantic feature parser
+GOV-CI-014,FINAM feature opening fails after fingerprint rotation,negative case N20
+GOV-CI-015,Redis live command consumption remains closed,semantic accessor check and N21
+GOV-CI-016,Runtime-live remains closed,semantic accessor check and N22
+GOV-CI-017,Broker dispatch remains closed,semantic accessor check and N23
+GOV-CI-018,Real orders remain closed,semantic accessor check and N24
+GOV-CI-019,Stage 8B-S remains closed,authority flag and N25
+GOV-CI-020,Accepted Stage 8A-5 ref and gate are immutable,exact ref/hash and N12/N26
+GOV-CI-021,Stage 8A-5 own 20 negatives remain mandatory,immutable aggregate-gate replay
+GOV-CI-022,Stage 8A-5 forbidden 10 negatives remain mandatory,immutable aggregate-gate replay
+GOV-CI-023,Inherited Stage-8 544 negatives remain mandatory,immutable aggregate-gate replay
+GOV-CI-024,Current I4 28 negatives remain mandatory,immutable aggregate-gate replay
+GOV-CI-025,Stage-7B durability remains mandatory,immutable aggregate-gate replay
+GOV-CI-026,I3/I4 external compile boundaries remain mandatory,immutable aggregate-gate replay
+GOV-CI-027,Current debug and release tests remain mandatory,canonical CI and complete logs
+GOV-CI-028,Current doctests and all-feature clippy remain mandatory,canonical CI and complete logs
+GOV-CI-029,No-Redis and isolated Redis smokes remain mandatory,canonical CI and complete logs
+GOV-CI-030,Handoff verifies every tracked byte and mode,source manifest and self-contained safety checker

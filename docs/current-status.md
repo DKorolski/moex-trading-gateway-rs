@@ -12,6 +12,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
 
+- Stage 8B-D R1 at `b3358ba2268da3db4eb8352c097495ebb85575d7` retained the
+  proposed bounded-effect architecture but was not accepted as a frozen transition
+  package. Review found an inherited P0 governance defect: default CI still invoked
+  the historical Stage 5 forbidden scanner, which rejects the accepted current tree.
+- GOV-CI-1A terminal Stage-5 authority retirement was completed by the explicitly
+  authorized history-preserving administrative merge
+  `1dea519cbf2affc3d99866fdae66bbddbafefa24`. Canonical `ci.yml` was unchanged in
+  that merge; the historical Stage-5 workflow is now manual-only.
+- The only active corrective slice is `GOV-CI-1B`: independently review a fail-closed
+  current-tree authority with exact production/control-plane manifests and immutable
+  replay of accepted Stage 8A-5. Stage 8B-S, FINAM execution, Redis live consumption,
+  broker dispatch, runtime-live and real orders remain closed. Stage 8B-D R2 remains a
+  later separate design/checker-only correction.
+
 - Stage 8A-0 is independently accepted and closed at
   `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.
 - Stage 8A-1 R3 is independently accepted and closed at

@@ -1,0 +1,680 @@
+{
+  "acceptance_rows": 30,
+  "accepted_predecessor": "1dea519cbf2affc3d99866fdae66bbddbafefa24",
+  "accepted_stage8a5_replay": {
+    "current_i4_negative_cases": 28,
+    "forbidden_surface_negative_cases": 10,
+    "gate_path": "scripts/stage8a5_gate.sh",
+    "gate_sha256": "1361ad49d41351484cf61c86822deb640818e755b7b35bda44592fd437ff69f8",
+    "inherited_stage8_negative_cases": 544,
+    "source_ref": "bf58b47fdef8af774a4107455dfcc6204e594283",
+    "stage8a5_negative_cases": 20
+  },
+  "active_workflow_manifest": {
+    "canonical_ci_triggers": [
+      "pull_request",
+      "push:main"
+    ],
+    "historical_stage5_triggers": [
+      "workflow_dispatch"
+    ],
+    "paths": [
+      ".github/workflows/ci.yml",
+      ".github/workflows/stage5f-base-authority.yml"
+    ]
+  },
+  "closed_surfaces": {
+    "broker_execution_enabled": false,
+    "finam_post_delete_enabled": false,
+    "real_orders_enabled": false,
+    "redis_live_consumer_enabled": false,
+    "redis_xadd_xack_enabled": false,
+    "runtime_live_enabled": false,
+    "stage8b_s_authorized": false
+  },
+  "governance_control_plane_manifest": {
+    "aggregate_sha256": "a1f2f918adc9fc70daa6e955b3bc52fe6e19b72acbe82790381b894b68364409",
+    "entries": {
+      ".github/workflows/ci.yml": {
+        "mode": "100644",
+        "sha256": "17ecff977b932b49c019d87517e67def13fe2eb86b59b7c3825fad358f5ac957",
+        "size": 1818
+      },
+      ".github/workflows/stage5f-base-authority.yml": {
+        "mode": "100644",
+        "sha256": "1244cf862cd24115da112c08b38ae9946712b15b84fc066f87b46eab75fad612",
+        "size": 2189
+      },
+      "docs/current-status.md": {
+        "mode": "100644",
+        "sha256": "68f04f8bada89df9481a8b76d65b07b8b0f2d37d617cd69708b4aa7a46a94399",
+        "size": 79059
+      },
+      "docs/roadmap.md": {
+        "mode": "100644",
+        "sha256": "09c04a06c11f9e063a8d04a230e2c75d943e51ade399cee20efc427e192c1844",
+        "size": 12952
+      },
+      "docs/stage-5/stage5f-authority-rotation.json": {
+        "mode": "100644",
+        "sha256": "a1b29c5992cffe73990064a955f24fd8a6cc7fbebdd7040b504591bec0439d68",
+        "size": 3597
+      },
+      "docs/stage-5/stage5f-authority-state.json": {
+        "mode": "100644",
+        "sha256": "9fa3b2e2c1ece8bfc9b1aedbb38e434f631c3b510d9f084c17b7d4c9566453ef",
+        "size": 264
+      },
+      "docs/stage-5/stage5f-terminal-authority-retirement.md": {
+        "mode": "100644",
+        "sha256": "c13ab68d54a8f0e3323b443e13b259f317014804121369fd19629cc18c99b65f",
+        "size": 892
+      },
+      "docs/stage-8/GOV_CI_1A_ROTATION_DEADLOCK_DISCOVERY_2026-08-21.md": {
+        "mode": "100644",
+        "sha256": "00c8518f52a31b94c4b6b1c675d6cc3b49c1a17b8598997327d60d1d3a4e1a46",
+        "size": 2404
+      },
+      "docs/stage-8/GOV_CI_1_ACCEPTANCE_MATRIX_2026-08-21.csv": {
+        "mode": "100644",
+        "sha256": "87f09728a91b7a9e4ba2e6fe9b3c3568c11eeffc3ecbdbc088b6973fb7cbc018",
+        "size": 2593
+      },
+      "docs/stage-8/GOV_CI_1_CURRENT_TREE_AUTHORITY_2026-08-21.md": {
+        "mode": "100644",
+        "sha256": "846428d5823d6d818f72377002adb22a65845b7b85d024a54391c78cfb3b3c4a",
+        "size": 2844
+      },
+      "docs/stage-8/GOV_CI_1_NEGATIVE_INVENTORY_2026-08-21.md": {
+        "mode": "100644",
+        "sha256": "0382c68246fbbe4e3817edaaeb24d33602c765f89134ccaacf5a1106290d1ff4",
+        "size": 2052
+      },
+      "scripts/current_tree_authority_check.py": {
+        "mode": "100755",
+        "sha256": "b8d41ca41616f6d542e9506619a24d06224c2bfc522fd9f596cd0036fbbc75bc",
+        "size": 13023
+      },
+      "scripts/current_tree_authority_negative_harness.py": {
+        "mode": "100755",
+        "sha256": "c970cb144879a99e60b24a3735f5a36fc9141ce8028cd2a0dc1133d604bc2cbf",
+        "size": 9254
+      },
+      "scripts/current_tree_ci_gate.sh": {
+        "mode": "100755",
+        "sha256": "37c2415d262bc2e5e1c9ef35a3a7457d5ed619ec87cd27c32453e189513186cf",
+        "size": 1476
+      },
+      "scripts/gov_ci_1_handoff_safety_check.py": {
+        "mode": "100755",
+        "sha256": "668420d9c8a3c7f1f6633bddb3287e8558a11281929e01e9e479bfa1708a6aaa",
+        "size": 7574
+      },
+      "scripts/gov_ci_1a_rotation_deadlock_check.py": {
+        "mode": "100755",
+        "sha256": "1ddb4745fb892f72cc74d6add546d4784471dc41ed292b0688b9123eb7b250cb",
+        "size": 3896
+      },
+      "scripts/make_gov_ci_1_handoff.py": {
+        "mode": "100755",
+        "sha256": "856186e1fabb916baf7ce8c712db8468449caf927fc3514f07afcfa862db278e",
+        "size": 9465
+      },
+      "scripts/redis_shadow_smoke.sh": {
+        "mode": "100755",
+        "sha256": "7ba10be1f8b7cf2c9bb5baac82d9698f74c018c515e235aa90ca15d06daf42db",
+        "size": 343
+      },
+      "scripts/runtime_bridge_dry_smoke.sh": {
+        "mode": "100755",
+        "sha256": "aae89bfb4161235c9cc68fd7b25100db7a45d4b2440877b51eda7f7344aa55ef",
+        "size": 365
+      },
+      "scripts/test_m4_3x_evidence_no_redis.sh": {
+        "mode": "100644",
+        "sha256": "1806eb8a097c2e7650dc14bf7829e391cea8c2fbd71335d860eafeefc78e7147",
+        "size": 841
+      }
+    },
+    "file_count": 20
+  },
+  "negative_cases": 27,
+  "production_code_manifest": {
+    "aggregate_sha256": "5d52e395000461a58b228c8609e5fb95c2ca3f3380b5f0e97c8d7ed24e9c6a81",
+    "content_sha256": "766066bfd4b535ecf1a3f512994d18d422b05f45f11e5c280b9e94d5c800f5b9",
+    "entries": {
+      "Cargo.lock": {
+        "mode": "100644",
+        "sha256": "62b8e73bea51d55b927950be818d49df3643e7a0c34ad8b40b9307aec3595ea3",
+        "size": 67142
+      },
+      "Cargo.toml": {
+        "mode": "100644",
+        "sha256": "4c16bd983e7c33cba6312c583e13234fe0219ff52260cced9763afdbed758fc2",
+        "size": 1458
+      },
+      "crates/broker-cli/Cargo.toml": {
+        "mode": "100644",
+        "sha256": "8f642b380ae8db32047504e632d1b710cdbc235f5058f57ad0780d72182f2754",
+        "size": 804
+      },
+      "crates/broker-cli/src/main.rs": {
+        "mode": "100644",
+        "sha256": "a2b395c077dbbf43eba22b42a2f993b55bf415d0446ff32370e670065d954bfe",
+        "size": 484895
+      },
+      "crates/broker-core/Cargo.toml": {
+        "mode": "100644",
+        "sha256": "e807ab613c52d8325d1c46b1f679b319ab72ffeb69196e5a52aacecbd694dc8d",
+        "size": 395
+      },
+      "crates/broker-core/src/account.rs": {
+        "mode": "100644",
+        "sha256": "772981b79c3e67fd8e9f4b178030108d8423e7246921ca2a2beadffb4ca03989",
+        "size": 914
+      },
+      "crates/broker-core/src/bar_aggregation.rs": {
+        "mode": "100644",
+        "sha256": "f671a2af5e26ff6b95b485ae003e7e3b8107764057b5b9cbc36712ee4a81f551",
+        "size": 12096
+      },
+      "crates/broker-core/src/bar_finalizer.rs": {
+        "mode": "100644",
+        "sha256": "e20bf173fc3af44b4611cb080187bf4fb38b3e4b9169f9ce484a8af8595b8e1c",
+        "size": 8852
+      },
+      "crates/broker-core/src/broker.rs": {
+        "mode": "100644",
+        "sha256": "1a79902b8368f4b46b1b5acc4dd81b153c56e062dd28aeb5b736dc603bbabcc4",
+        "size": 180
+      },
+      "crates/broker-core/src/command.rs": {
+        "mode": "100644",
+        "sha256": "a1d39d7585bda16df4c2e22486874d7658f7bd2a0aaf8cbb7aa909c0fbeb4e6b",
+        "size": 9480
+      },
+      "crates/broker-core/src/envelope.rs": {
+        "mode": "100644",
+        "sha256": "46dab5a7822fed389d6c56839f9048e19ddbca5eb5b255b497c6da29be1a1685",
+        "size": 900
+      },
+      "crates/broker-core/src/event.rs": {
+        "mode": "100644",
+        "sha256": "e9318ce5afc15055ffb1c41196140b1f88ec61982824fce72d40f35a77d56f84",
+        "size": 2518
+      },
+      "crates/broker-core/src/hybrid_runtime_ids.rs": {
+        "mode": "100644",
+        "sha256": "d8f696b4ba1acc3cae90879d5bd1fc1f3cc36ab33298cfca87a99be0fef09489",
+        "size": 14865
+      },
+      "crates/broker-core/src/hybrid_strategy_boundary.rs": {
+        "mode": "100644",
+        "sha256": "c154754d3be57bc5566ee8cfde5d2ec552dea31afc7e56a7277d4592f219157d",
+        "size": 23234
+      },
+      "crates/broker-core/src/ids.rs": {
+        "mode": "100644",
+        "sha256": "39f2b004d812f62f3636292c6b98e86c8a8242ece0bbd1da46986c838b0cf0ed",
+        "size": 20212
+      },
+      "crates/broker-core/src/instrument.rs": {
+        "mode": "100644",
+        "sha256": "ab4d0b80296a1e99f2c63349efbb8435fb2e0b919de7cc95badb4b5d4aec062e",
+        "size": 1833
+      },
+      "crates/broker-core/src/lib.rs": {
+        "mode": "100644",
+        "sha256": "5d8758624f53a6b46d8903dd3f2339d5bd04f64c9c6490448167f08ac68ec8a2",
+        "size": 14675
+      },
+      "crates/broker-core/src/market_data_lifecycle.rs": {
+        "mode": "100644",
+        "sha256": "6d8dc863409dfce3969001d6fb63b57d20557f1e4be1b08dd1d06970b2ec0897",
+        "size": 10250
+      },
+      "crates/broker-core/src/market_data_parity.rs": {
+        "mode": "100644",
+        "sha256": "7f5dd216d4fdc25c8401f7ff3dc3653025a86551e995fe6ef0986f18d849ec70",
+        "size": 188471
+      },
+      "crates/broker-core/src/market_data_recovery.rs": {
+        "mode": "100644",
+        "sha256": "f91fd6780e80250628cedf5de82e642ae39ba71015e384d51f0216868bde7384",
+        "size": 15510
+      },
+      "crates/broker-core/src/observability.rs": {
+        "mode": "100644",
+        "sha256": "94aed9dde54a572e98faab8142665cf37fe8f4172cf560324c4f62ddbdd1d67e",
+        "size": 20610
+      },
+      "crates/broker-core/src/operational_config.rs": {
+        "mode": "100644",
+        "sha256": "492905c6e404ee67f62ad456128ff659cd4a32c8e638936b94b5ea14ff3ba2f8",
+        "size": 40599
+      },
+      "crates/broker-core/src/operational_snapshot.rs": {
+        "mode": "100644",
+        "sha256": "53e78a922b1c1a7948485f3016acdbcd64c3766618274a3b039233fc67d541ca",
+        "size": 56729
+      },
+      "crates/broker-core/src/order.rs": {
+        "mode": "100644",
+        "sha256": "bd402276b1829e90b5b5c14fb0e133e60b4d877f8296664df964b061e469b52f",
+        "size": 2673
+      },
+      "crates/broker-core/src/order_path.rs": {
+        "mode": "100644",
+        "sha256": "67dd132d40b6d1de773013a1c03e892f1aef03e3d40ac56ee43105aeb5cdce69",
+        "size": 148955
+      },
+      "crates/broker-core/src/paper.rs": {
+        "mode": "100644",
+        "sha256": "b7769751b1b6a31d871e1c08b9ad13d6152edf9eca9d536e84e278a74eac35c0",
+        "size": 120804
+      },
+      "crates/broker-core/src/paper_mock_compat.rs": {
+        "mode": "100644",
+        "sha256": "bfe7899f7ccf1f25f5164e6135b7c9d6378e124ab5169711b1ab300479a93760",
+        "size": 24729
+      },
+      "crates/broker-core/src/parity.rs": {
+        "mode": "100644",
+        "sha256": "a3f88d64844302600bb1aab3845505820cf3b83601ce3e7706c98d9e9d698768",
+        "size": 21056
+      },
+      "crates/broker-core/src/readiness.rs": {
+        "mode": "100644",
+        "sha256": "b55cc763f2d153e6bf16e22131de592706cd534f300a4de4803c50449004669e",
+        "size": 1163
+      },
+      "crates/broker-core/src/request_id.rs": {
+        "mode": "100644",
+        "sha256": "8e64a8b1be2aaeae8ae8244bfb9aac85ac6d48dda4032aee9a5270fe6512a3ef",
+        "size": 10357
+      },
+      "crates/broker-core/src/runtime_host.rs": {
+        "mode": "100644",
+        "sha256": "f1086dde803b587b371b6f214c10bd5cc7e0c4cd04f25e0937b854e502b9f5a2",
+        "size": 15412
+      },
+      "crates/broker-core/src/runtime_state.rs": {
+        "mode": "100644",
+        "sha256": "09bb0f6fd343e28a1032dcc9ffcba81731bf31e34d753ae914633ffd5451141a",
+        "size": 70128
+      },
+      "crates/broker-core/src/stage4_bootstrap.rs": {
+        "mode": "100644",
+        "sha256": "33455bd4447193f723aa5a749707739d89e2d2ca58b083d416c268a24613bdd7",
+        "size": 196644
+      },
+      "crates/broker-core/src/subscription.rs": {
+        "mode": "100644",
+        "sha256": "eb1362386cd7756db38f33501502b23dddff63d55ee1bfc32a5d84922a45fb1a",
+        "size": 1218
+      },
+      "crates/broker-core/src/time.rs": {
+        "mode": "100644",
+        "sha256": "3870c231b738bd5aa7e38ef42a57d483b371a2c32a923f55f9785c8b02ee5e24",
+        "size": 83
+      },
+      "crates/broker-core/src/trade_ledger.rs": {
+        "mode": "100644",
+        "sha256": "84d30b064ee918e5ff12aad37313c97252867a8b382e5f0dda27cc7c786857e2",
+        "size": 26056
+      },
+      "crates/broker-finam/Cargo.toml": {
+        "mode": "100644",
+        "sha256": "2a4f78beac8390e06e035e1c7ba0c0a71d230165297ad452ff3c4eeb1a2107db",
+        "size": 490
+      },
+      "crates/broker-finam/src/dto.rs": {
+        "mode": "100644",
+        "sha256": "01816b3e62aa72623238efe934470f663fd4a081710044d8ac15fd321a9b4f08",
+        "size": 9738
+      },
+      "crates/broker-finam/src/instrument_registry.rs": {
+        "mode": "100644",
+        "sha256": "3423fe0381c15017de65398525658276a4079c443b940ab1df3ce01ee8499593",
+        "size": 20885
+      },
+      "crates/broker-finam/src/lib.rs": {
+        "mode": "100644",
+        "sha256": "5789a13f3148245269860510913563492927024d89fc9d82925be0477035daab",
+        "size": 37625
+      },
+      "crates/broker-finam/src/mapper.rs": {
+        "mode": "100644",
+        "sha256": "e1e91a075a8b73c99a6c2a76a3ec045e630de4da0943ed9d50d4756648b09b97",
+        "size": 144350
+      },
+      "crates/broker-finam/src/order_request.rs": {
+        "mode": "100644",
+        "sha256": "e57789a15d4a33fad08b93580d50c5efa8aba92ea4f547a45a898c6e300b80e6",
+        "size": 76555
+      },
+      "crates/broker-finam/src/ws.rs": {
+        "mode": "100644",
+        "sha256": "abb0362cb749721d2341586474247c0acd7bbb5bdb5793202730421ed617dca7",
+        "size": 12017
+      },
+      "crates/finam-gateway/Cargo.toml": {
+        "mode": "100644",
+        "sha256": "0ffbcc9297f186bd8a6958491d7aca85197745b5ea58a34e0b41cb52d3b372f5",
+        "size": 1028
+      },
+      "crates/finam-gateway/src/lib.rs": {
+        "mode": "100644",
+        "sha256": "3c2e0f8f7e36352b0e89f63454d832b629fda28ff76544b3345e0a6fec57f9f7",
+        "size": 1224019
+      },
+      "crates/finam-gateway/src/m3d2_local_mock_endpoint.rs": {
+        "mode": "100644",
+        "sha256": "172c83b5070c6d5695c25a3473f0f25a5c46efac08f60e608c04abbc9442295d",
+        "size": 45378
+      },
+      "crates/finam-gateway/src/m3d2_real_order_transport.rs": {
+        "mode": "100644",
+        "sha256": "5ccd60be29aa9cd709ce33dc712a3527fa3d3566d9316f8834a2d478c7703de7",
+        "size": 35776
+      },
+      "crates/finam-gateway/src/m3d2_real_transport_lifecycle.rs": {
+        "mode": "100644",
+        "sha256": "8d2ce9d3fa140e149ef9cc5d99a23cdc97f0637867f79c7ae23b4b7d1d5d4f37",
+        "size": 79676
+      },
+      "crates/finam-gateway/src/real_order_endpoint.rs": {
+        "mode": "100644",
+        "sha256": "7a8e11864c39d4276fb8088cb51b17587460a988667f34cf0ffe60b909fc4663",
+        "size": 443488
+      },
+      "crates/finam-gateway/src/stage8a1_execution_capability.rs": {
+        "mode": "100644",
+        "sha256": "539598f2a25922c535933950428848afe6b07af5dc6b698dfeb1afade89834df",
+        "size": 194893
+      },
+      "crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs": {
+        "mode": "100644",
+        "sha256": "1026a24962bf45de8653c80ba095f892af35523da58f4fa4fccad706fb023653",
+        "size": 22413
+      },
+      "crates/finam-gateway/src/stage8a3_endpoint_classifier.rs": {
+        "mode": "100644",
+        "sha256": "f34c9fef5e219dad15b0a00ce1eaf63311ec9f77d1997e422b977e5c8ffe47b3",
+        "size": 25602
+      },
+      "crates/finam-gateway/src/stage8a3_endpoint_classifier/tests.rs": {
+        "mode": "100644",
+        "sha256": "dbd58f32d0f1f5e5c96806bd84a56d974842fdb6502ea66347d1d3a264806ae8",
+        "size": 14246
+      },
+      "crates/finam-gateway/src/stage8a4_reconciliation.rs": {
+        "mode": "100644",
+        "sha256": "a91e0e1f511023252ba8b0b4b8d4262a2a9881f32e86625db9edcaa8abdc2425",
+        "size": 66504
+      },
+      "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i2.rs": {
+        "mode": "100644",
+        "sha256": "b96090eae94f2e8e0a0d229670a004e821579e2455ca14b3005792eb88174e97",
+        "size": 36703
+      },
+      "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i2/durable_writer_i3.rs": {
+        "mode": "100644",
+        "sha256": "9e01820455ddb6b997992e4318d572eb2180086cf5ff8208e0fd4b6752c1abb7",
+        "size": 76650
+      },
+      "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i2/tests.rs": {
+        "mode": "100644",
+        "sha256": "2cdccf4a52f6f5795f9b1beb856e1205c1025e6373b5ca76a392620591687058",
+        "size": 45569
+      },
+      "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i4.rs": {
+        "mode": "100644",
+        "sha256": "59e013fc190a70d6eb56445c6c363bcce4ee8f2fb1c4ab4a6eb184dc1d1047db",
+        "size": 9506
+      },
+      "crates/finam-gateway/src/stage8a4_reconciliation/tests.rs": {
+        "mode": "100644",
+        "sha256": "4e37552dbcf532909a97b16cc081c3d87f950401527ea56abf18c925f2687c06",
+        "size": 46218
+      },
+      "crates/finam-gateway/tests/stage8a1_r3_authority_boundary.rs": {
+        "mode": "100644",
+        "sha256": "0213b6729f88259e22acf5925ec82c80be02525987f9eaae49685a02a1f337b5",
+        "size": 1584
+      },
+      "crates/runtime-command-bridge/Cargo.toml": {
+        "mode": "100644",
+        "sha256": "62e0fc23c1d6ad0c8c2a5b5781d6325ee07c2f143a6e888cde20c914f81381bf",
+        "size": 555
+      },
+      "crates/runtime-command-bridge/src/lib.rs": {
+        "mode": "100644",
+        "sha256": "e104a69480ba1743f5d1c310a62d6f03023770f6516a94272ede57c55db25b08",
+        "size": 146481
+      },
+      "crates/runtime-durable-service/Cargo.toml": {
+        "mode": "100644",
+        "sha256": "b9f34c25afadb1e383e125a5acf830a4af19d9b816c4b9d56c7054495a3ac598",
+        "size": 880
+      },
+      "crates/runtime-durable-service/src/lib.rs": {
+        "mode": "100644",
+        "sha256": "b73ad3b5632f2d8326db70dd0b0da368b4d067c4216b3fd29df6d152d70b2c3a",
+        "size": 44906
+      },
+      "crates/runtime-durable-service/src/recovery.rs": {
+        "mode": "100644",
+        "sha256": "9720f325422541e67797ed750950da0eea53c81b3a7c5f84342798177242d895",
+        "size": 236460
+      },
+      "crates/runtime-durable-service/src/recovery/redis_service.rs": {
+        "mode": "100644",
+        "sha256": "dc2cff444f88b8ff1cb8f967158e193be5d4bc6c408676047db5c904767891e3",
+        "size": 33434
+      },
+      "crates/runtime-durable-service/src/recovery/redis_settlement.rs": {
+        "mode": "100644",
+        "sha256": "d209cb601b7e7cb528252804c8cd1f13b369127b858e4de515e92d80da07fcd3",
+        "size": 63639
+      },
+      "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs": {
+        "mode": "100644",
+        "sha256": "2e71ac63a99d3fef7bfe69aa8486fe4d56fd5ba228c263e1c098c5920ccd3c6b",
+        "size": 14586
+      },
+      "crates/runtime-durable-service/tests/stage7b_writer_lock_subprocess.rs": {
+        "mode": "100644",
+        "sha256": "1ec0610ecaca97b79978e7a84212bd15cfa1a41e8e05e2deaaa0dc80c5c2cf3a",
+        "size": 14110
+      },
+      "crates/strategy-runtime-core/Cargo.toml": {
+        "mode": "100644",
+        "sha256": "cceb97e52f94c1bde94940a0b26da9c79b6ec4df22fdb4627b8972e41538eec3",
+        "size": 858
+      },
+      "crates/strategy-runtime-core/src/bin/stage5g_f_gprt_artifact.rs": {
+        "mode": "100644",
+        "sha256": "b6c186f545ced22b170c41571318d611dc0c26411e8ffa7d9827a3697c926859",
+        "size": 118
+      },
+      "crates/strategy-runtime-core/src/bin/stage5g_g_lifecycle_artifact.rs": {
+        "mode": "100644",
+        "sha256": "63a091e645952fe1901dca15862ff36af949f54e223cbf899d80324f0f248ee3",
+        "size": 366
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday/high180.rs": {
+        "mode": "100644",
+        "sha256": "e1f39a3afdf9745682682da0083f97ac0fa5361f979525d5ea383d6a6aa64456",
+        "size": 6209
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday/intraday_breakout.rs": {
+        "mode": "100644",
+        "sha256": "a3b125f282f201b66dfa8d2685f22aa94048856a5145d537b76dc8934a5f9ae5",
+        "size": 11984
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday/mean_reversion.rs": {
+        "mode": "100644",
+        "sha256": "4aecdeeb0bee8bcbae10cd2596c13d4450885b4ad7a8899346b14d743d4039ab",
+        "size": 5322
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday/mod.rs": {
+        "mode": "100644",
+        "sha256": "67224b1523d3eeeae924f10c77cb74582671dc24a5badef554843fe57d079fd1",
+        "size": 1402
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday/orchestrator.rs": {
+        "mode": "100644",
+        "sha256": "1e784411d348fcf090887f7f50062b0cbd34494912288100c1ca1d851d8d5bd9",
+        "size": 11426
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday/risk_gate.rs": {
+        "mode": "100644",
+        "sha256": "e5b80db163b0d97cfd50b8ad064c076850dbd2c15a95833895f5beb7a66d71a6",
+        "size": 49103
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday/types.rs": {
+        "mode": "100644",
+        "sha256": "8b515e252bc493890483793887248a6a12bedcf072ab87c574d4d3efd3b7eedc",
+        "size": 3084
+      },
+      "crates/strategy-runtime-core/src/hybrid_intraday_runtime.rs": {
+        "mode": "100644",
+        "sha256": "4c0ff91c91348af698bccedf9e1e40f7da3f24d2a44d0a4fa6085c624ac953eb",
+        "size": 323164
+      },
+      "crates/strategy-runtime-core/src/lib.rs": {
+        "mode": "100644",
+        "sha256": "a76bdc2fb433e8df932a509078e517a9cfeeb271b961afbfae07e79fdbecdaa9",
+        "size": 33212
+      },
+      "crates/strategy-runtime-core/src/runtime_compat.rs": {
+        "mode": "100644",
+        "sha256": "a48476fa286b467d06d2725655359f4d16ae65abb8c37d898089420b7f532199",
+        "size": 16783
+      },
+      "crates/strategy-runtime-core/src/stage5c_paper_host.rs": {
+        "mode": "100644",
+        "sha256": "6bc2d60b1eae9fc22673e9c741dc15c1aec238046be376d9fd688f5b7c642b32",
+        "size": 748189
+      },
+      "crates/strategy-runtime-core/src/stage5d_persistence.rs": {
+        "mode": "100644",
+        "sha256": "90ab3f9253c0b96fee8ea2c2aeb5e0eb9b0e4c99a3dfb0c404648b588c205eb2",
+        "size": 902539
+      },
+      "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": {
+        "mode": "100644",
+        "sha256": "87e9f9145a7ead7513c6297da9e5cd45cb5c67ce272a43988b7b1a1729b9d21b",
+        "size": 321918
+      },
+      "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs": {
+        "mode": "100644",
+        "sha256": "cf8fe7900a2f1f84d3928c0d911db69415f19ee640c26dea47227759e375c508",
+        "size": 102666
+      },
+      "crates/strategy-runtime-core/src/stage5g_clean_restart.rs": {
+        "mode": "100644",
+        "sha256": "a08ac5de801b139888b41bcfb287d63ea984fe8472299f582a0809b67aa4d538",
+        "size": 102020
+      },
+      "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth.rs": {
+        "mode": "100644",
+        "sha256": "01f6b11a606c9f94321c6514945c996e851528b6d505ec0efa8f1e066bd14f5f",
+        "size": 80256
+      },
+      "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/application.rs": {
+        "mode": "100644",
+        "sha256": "2e19def22f80cf6f507949d8e91f6cc7b648f63a5351a1143a80d742ffa6fa01",
+        "size": 62188
+      },
+      "crates/strategy-runtime-core/src/stage5g_fresh_broker_truth/reducer.rs": {
+        "mode": "100644",
+        "sha256": "88189b24b482f438e8ee9ea206ce71feda1d9631e414c2587ae8103925d24e6f",
+        "size": 292513
+      },
+      "crates/strategy-runtime-core/src/stage5g_lifecycle_freeze.rs": {
+        "mode": "100644",
+        "sha256": "c1894b058ae935686eba198f74e99f2038eb81dd623bed0ba479505e6d69dd13",
+        "size": 23887
+      },
+      "crates/strategy-runtime-core/src/stage5g_mock_ack.rs": {
+        "mode": "100644",
+        "sha256": "b1788c7f8bc1354612c88f4c8c9dc6dbfac7ddfe69931230d9718a3bb5e16ac6",
+        "size": 150001
+      },
+      "crates/strategy-runtime-core/src/stage5g_order_position.rs": {
+        "mode": "100644",
+        "sha256": "192b2d848dd6224c8476f4c47a796afd91d87980f1131fa66b67b5124551f699",
+        "size": 418668
+      },
+      "crates/strategy-runtime-core/src/stage5g_protective_completion.rs": {
+        "mode": "100644",
+        "sha256": "d9ff05bcba053d4f46f6174f60411a46c9d7a6291b81eee24db385659ba5d286",
+        "size": 248319
+      },
+      "crates/strategy-runtime-core/src/stage5g_timer.rs": {
+        "mode": "100644",
+        "sha256": "4201e99420ed356e45e462b72ac0f5d1d15e9afe3ea9a081c5f70a0a59577a58",
+        "size": 104901
+      },
+      "crates/strategy-runtime-core/src/stage6_durable_identity.rs": {
+        "mode": "100644",
+        "sha256": "f826a8d37b3505d39488efb1a40314396bb194c51e45bc18612724d338559014",
+        "size": 87355
+      },
+      "crates/strategy-runtime-core/src/stage6_journal_backend.rs": {
+        "mode": "100644",
+        "sha256": "9bed7231c1c119e80f5bcc56572f839a6d8edd261da90fd66b14d3ca13667a38",
+        "size": 89322
+      },
+      "crates/strategy-runtime-core/src/stage6_reconciliation_v2.rs": {
+        "mode": "100644",
+        "sha256": "e4ba96fdf1a73183bc98b3470fa66aa71ec6683b815b8ce4a64c2ba231681ba5",
+        "size": 114975
+      },
+      "crates/strategy-runtime-core/src/stage6_replay.rs": {
+        "mode": "100644",
+        "sha256": "86362a11654b2e49001c69b8c544a783fb1144712e7f7620a4a4a7a33ed49ad8",
+        "size": 70059
+      },
+      "crates/strategy-runtime-core/src/stage6d_live_core.rs": {
+        "mode": "100644",
+        "sha256": "00d8001745a761323622bdad95c2357be87f8f365d6208a8751553b95600f27a",
+        "size": 290106
+      },
+      "crates/strategy-runtime-core/tests/high180_profile_binding.rs": {
+        "mode": "100644",
+        "sha256": "98e7bbbdc8a0eb852bcdfc2f46cbfc9635c5cc0dc03caefc69a4b50c377a5951",
+        "size": 3882
+      },
+      "crates/strategy-runtime-core/tests/stage5b2_boundary_manifest.rs": {
+        "mode": "100644",
+        "sha256": "2226fc838e69d00027778f3824dfe4d40c84b1b0cb888106d18df2339f20affb",
+        "size": 13077
+      },
+      "crates/strategy-runtime-core/tests/stage5c_paper_host_admission.rs": {
+        "mode": "100644",
+        "sha256": "3a2e28bd8f5f9448ad5d01d0032c7c4393b6881795dc9574b066c7688c4305b4",
+        "size": 20183
+      },
+      "crates/strategy-runtime-core/tests/wrapper_bracket_terminal_inventory.rs": {
+        "mode": "100644",
+        "sha256": "b276b376d33073454fd0df243b6d87a351724794d95d52126a8258e9324aeafe",
+        "size": 6212
+      }
+    },
+    "file_count": 104
+  },
+  "requirements": {
+    "accepted_stage8a5_immutable_replay_required": true,
+    "current_tree_authority_required": true,
+    "current_tree_negative_harness_required": true,
+    "handoff_complete_logs_required": true,
+    "redis_regression_smoke_required": true,
+    "workspace_debug_release_doc_clippy_required": true
+  },
+  "schema_version": 2,
+  "stage": "GOV-CI-1B",
+  "status": "independent_review_required"
+}
