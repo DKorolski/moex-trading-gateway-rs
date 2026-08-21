@@ -35,8 +35,9 @@ at `1da0a65` and R2 at `6a7f07c` were not accepted. I4 Implementation R3 is
 independently accepted and closed at `4a11688`; it reconstructs the private
 read-only issuer from terminal/root authority and preserves historical ACK
 facts when current readiness is unavailable. Stage 8A-5 is independently
-accepted and closed at `bf58b47`; Stage 8A is formally closed. The only open
-next slice is a separate Stage 8B design package, not execution authority.
+accepted and closed at `bf58b47`; Stage 8A is formally closed. Stage 8B-D R1
+is the active docs/checker-only design candidate for one bounded engineering
+command. It is not implementation or execution authority.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
 strategy orders and Stage 8B execution authority remain closed.

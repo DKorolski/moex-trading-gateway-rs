@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "stage": "8B-design-R1",
+  "status": "design_candidate",
+  "design_base_ref": "0ce76a334f12bf7b13e682ca976c9a4cde6be137",
+  "accepted_stage8a5_ref": "bf58b47fdef8af774a4107455dfcc6204e594283",
+  "accepted_stage8a5_review_sha256": "72fa3c350dd34aef2d98230dec5547ba25bd7bc752b5b74eedf046e8502b13fc",
+  "acceptance_rows": 48,
+  "negative_cases": 36,
+  "scope": "design_only_single_operator_armed_engineering_command",
+  "next_after_acceptance": "Stage 8B implementation specification only",
+  "phase_order": [
+    "8B-D design acceptance",
+    "8B-S implementation specification acceptance",
+    "8B-I no-send implementation and rehearsal acceptance",
+    "8B-P read-only preflight and exact run authorization acceptance",
+    "8B-X one-shot execution and post-run closure"
+  ],
+  "run_contract": {
+    "exactly_one_command": true,
+    "action_is_singleton_in_reviewed_run_contract": true,
+    "allowed_action_domain": ["PLACE", "CANCEL"],
+    "place_order_type": "LIMIT",
+    "place_time_in_force": "DAY",
+    "max_quantity_lots": 1,
+    "canonical_instrument": "IMOEXF",
+    "venue_symbol": "IMOEXF@RTSX",
+    "account_bound_by_broker_account_id_hash": true,
+    "side_price_and_notional_exactly_bound": true,
+    "automatic_followup_command_allowed": false,
+    "limit_cancel_pair_allowed": false,
+    "market_order_allowed": false,
+    "protective_or_multi_leg_allowed": false
+  },
+  "operator_arm": {
+    "durable_one_use": true,
+    "expires_before_transport": true,
+    "exact_command_identity_required": true,
+    "exact_build_config_endpoint_and_body_hashes_required": true,
+    "exact_account_instrument_action_side_qty_price_required": true,
+    "reconstructible_after_restart": false,
+    "second_arm_for_same_request_allowed": false
+  },
+  "preflight": {
+    "read_only_only": true,
+    "fresh_broker_truth_required": true,
+    "fresh_readiness_required": true,
+    "fresh_schedule_required": true,
+    "run_allowed_kill_switch_required": true,
+    "single_broker_ownership_required": true,
+    "zero_ambiguity_required": true,
+    "zero_unresolved_lifecycle_required": true,
+    "read_immediately_before_effect": true,
+    "caller_supplied_snapshot_allowed": false
+  },
+  "durability": {
+    "stage7b_i3_i4_lineage_required": true,
+    "attempt_before_send_fsync_and_covering_seal_required": true,
+    "transport_may_run_before_attempt_commit": false,
+    "same_request_automatic_retry_after_transport_boundary": false,
+    "outcome_unknown_requires_reconciliation": true,
+    "redis_is_not_execution_authority": true
+  },
+  "network": {
+    "exact_finam_host_required": true,
+    "exact_method_and_route_required": true,
+    "tls_required": true,
+    "redirects_proxies_and_alternate_hosts_allowed": false,
+    "generic_arbitrary_request_allowed": false
+  },
+  "closed": {
+    "stage8b_execution": true,
+    "finam_post_delete": true,
+    "redis_xadd_xack": true,
+    "redis_live_consumer": true,
+    "ack_readiness_publication": true,
+    "broker_dispatch": true,
+    "retry_resend_rearm": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "autonomous_strategy_attachment": true,
+    "stop_sltp_bracket_replace_multi_leg": true,
+    "unattended_or_repeated_send": true
+  }
+}

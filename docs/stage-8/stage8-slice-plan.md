@@ -9,6 +9,10 @@ separate Stage 8B design package. Stage 8B execution, real FINAM POST/DELETE,
 Redis live consumption, broker dispatch, runtime-live, real strategy orders,
 native protective orders and unattended execution remain CLOSED.
 
+Stage 8B-D R1 is the active docs/checker-only design candidate. It defines the
+separately reviewed D/S/I/P/X phase order and may open only Stage 8B-S
+implementation specification after independent acceptance.
+
 It does not authorize a real FINAM POST/DELETE.
 
 ## Mandatory Stage 8A order

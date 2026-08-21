@@ -1,0 +1,49 @@
+id,area,requirement,evidence
+8BD-001,lineage,Accepted Stage 8A5 commit is exact,authority
+8BD-002,lineage,Accepted Stage 8A5 review SHA256 is exact,authority
+8BD-003,scope,Design base is exact origin main closure,authority
+8BD-004,scope,Production Rust Cargo lock and workflows are unchanged,git-diff
+8BD-005,governance,Design acceptance opens implementation specification only,contract
+8BD-006,phases,Five Stage 8B phases are ordered and separately reviewed,contract
+8BD-007,command,Later run contract selects exactly one command,authority
+8BD-008,command,Action is singleton PLACE or CANCEL in reviewed run contract,authority
+8BD-009,command,No automatic followup command or LimitCancel pair,authority
+8BD-010,scope,Account is exact and hash bound without live ID in Git,contract
+8BD-011,scope,Canonical instrument is IMOEXF and venue is IMOEXF@RTSX,authority
+8BD-012,scope,PLACE is LIMIT DAY maximum one lot,authority
+8BD-013,scope,CANCEL targets one exact correlated working broker order,contract
+8BD-014,scope,MARKET protective replace and multi leg are closed,authority
+8BD-015,arm,Operator arm is opaque durable one use and expiring,authority
+8BD-016,arm,Arm binds request build config endpoint body and complete order scope,authority
+8BD-017,arm,Second arm and restart reconstruction are forbidden,authority
+8BD-018,budget,Durable micro budget is consumed before possible send,contract
+8BD-019,preflight,Fresh broker truth and readiness are required,authority
+8BD-020,preflight,Fresh schedule trusted time and instrument specification are required,contract
+8BD-021,preflight,RunAllowed kill switch and single broker ownership are required,authority
+8BD-022,preflight,Zero ambiguity and zero unresolved lifecycle are required,authority
+8BD-023,preflight,Caller supplied or cached snapshots cannot authorize,authority
+8BD-024,preflight,Read only preflight occurs immediately before effect,authority
+8BD-025,durability,Exact Stage7B I3 I4 durable lineage is required,authority
+8BD-026,durability,Attempt fsync and covering seal precede transport,authority
+8BD-027,durability,Transport before durable attempt is impossible,authority
+8BD-028,durability,Redis is settlement state and never execution authority,authority
+8BD-029,crash,Pre attempt crash has no send authority,contract
+8BD-030,crash,Committed attempt before transport consumes arm without retry,contract
+8BD-031,crash,Possible send without complete response becomes outcome unknown,contract
+8BD-032,crash,Response before durable outcome recovers only from broker truth,contract
+8BD-033,crash,Durable outcome before publication permits settlement only,contract
+8BD-034,retry,Automatic retry resend or rearm after transport is forbidden,authority
+8BD-035,reconciliation,Fresh scoped orders positions trades and GetOrder are required,contract
+8BD-036,reconciliation,Empty stale or account wide counts cannot prove no order or flat,contract
+8BD-037,reconciliation,Conflict or still unknown requires manual intervention,contract
+8BD-038,reconciliation,Post run closure requires target order position account guard and signoff,contract
+8BD-039,kill-switch,Kill switch is checked at all five authority boundaries,contract
+8BD-040,ownership,ALOR and FINAM cannot share execution ownership,contract
+8BD-041,network,Exact FINAM TLS host method and rendered route are bound,authority
+8BD-042,network,Redirect proxy alternate host arbitrary URL and generic request are forbidden,authority
+8BD-043,secrets,Secrets raw auth headers and live account ID are excluded from handoff,contract
+8BD-044,evidence,No send rehearsal and crash fault matrix precede execution,contract
+8BD-045,evidence,Fresh GET only FINAM preflight evidence precedes execution,contract
+8BD-046,evidence,Exact run authorization and endpoint build hashes precede execution,contract
+8BD-047,closed,All live send publication and autonomous runtime surfaces stay closed,authority
+8BD-048,next,Real request requires separate accepted 8B X package and explicit arm,contract

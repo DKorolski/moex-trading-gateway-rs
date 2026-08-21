@@ -86,6 +86,12 @@ current authorized work is a separate Stage 8B design package only. Stage 8B
 execution, FINAM POST/DELETE, Redis live consumption, broker dispatch,
 runtime-live and real orders remain closed.
 
+Stage 8B-D R1 is the active docs/checker-only design candidate. It freezes the
+max-one command scope, one-use operator arm, fresh GET-only preflight,
+attempt-before-send durability, crash/ambiguity handling, exact network
+allowlist and post-run reconciliation. Its acceptance may open only a separate
+implementation specification; no real request is authorized.
+
 ### Accepted lineage and transition history
 
 Transition Gate 7→8 R3 specification was the authorized planning target. The

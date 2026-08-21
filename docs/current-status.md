@@ -105,6 +105,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   authorized. ACK/readiness publication, Redis XADD/XACK and live consumption,
   FINAM POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real
   orders and Stage 8B execution remain CLOSED.
+- Stage 8B-D R1 is the only active candidate. It is docs/checker-only and
+  freezes a five-phase path for exactly one later operator-armed command:
+  design, implementation specification, no-send rehearsal, GET-only
+  preflight/run authorization, then separately accepted one-shot execution and
+  closure. Acceptance of 8B-D may open only the implementation specification.
+  It does not authorize transport, operator arming or a real request.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

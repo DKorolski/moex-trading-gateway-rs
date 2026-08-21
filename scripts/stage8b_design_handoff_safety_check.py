@@ -1,0 +1,111 @@
+#!/usr/bin/env python3
+"""Validate safety, provenance and closed surfaces in a Stage 8B design handoff."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sys
+import zipfile
+from pathlib import PurePosixPath
+
+EVIDENCE = "handoff-evidence/stage8b-design-evidence.json"
+GATE = "handoff-evidence/stage8b-design-gate.txt"
+MANIFEST = "handoff-evidence/source-tree-manifest.json"
+REQUIRED = {
+    "handoff-commit.txt",
+    EVIDENCE,
+    GATE,
+    MANIFEST,
+    "docs/stage-8/STAGE8B_DESIGN_2026-08-21.md",
+    "docs/stage-8/STAGE8B_DESIGN_ACCEPTANCE_MATRIX_2026-08-21.csv",
+    "docs/stage-8/STAGE8B_DESIGN_NEGATIVE_INVENTORY_2026-08-21.md",
+    "docs/stage-8/stage8b-design-authority.json",
+}
+
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def check(path: str) -> dict[str, object]:
+    with zipfile.ZipFile(path) as archive:
+        infos = archive.infolist()
+        names = [info.filename for info in infos]
+        if len(names) != len(set(names)):
+            raise ValueError("duplicate members")
+        missing = REQUIRED - set(names)
+        if missing:
+            raise ValueError(f"missing members: {sorted(missing)}")
+        for info in infos:
+            member = PurePosixPath(info.filename)
+            mode = info.external_attr >> 16
+            if member.is_absolute() or ".." in member.parts or "" in member.parts:
+                raise ValueError(f"unsafe path: {info.filename}")
+            if mode & 0o170000 == 0o120000:
+                raise ValueError(f"symlink: {info.filename}")
+            if member.parts and member.parts[0] in {".git", "target", "tmp", "reports", "__MACOSX"}:
+                raise ValueError(f"forbidden root: {info.filename}")
+            if any(part == ".env" for part in member.parts):
+                raise ValueError(f"secret path: {info.filename}")
+            if info.filename.endswith((".log", ".sqlite", ".sqlite3")):
+                raise ValueError(f"runtime artifact: {info.filename}")
+
+        marker = dict(
+            line.split("=", 1)
+            for line in archive.read("handoff-commit.txt").decode().splitlines()
+            if "=" in line
+        )
+        evidence = json.loads(archive.read(EVIDENCE))
+        if evidence.get("stage") != "8B-design-R1":
+            raise ValueError("stage mismatch")
+        if evidence.get("source_ref") != marker.get("source_ref"):
+            raise ValueError("source mismatch")
+        if marker.get("archive_name") != PurePosixPath(path).name:
+            raise ValueError("archive mismatch")
+        if evidence.get("acceptance_rows") != 48 or evidence.get("negative_cases") != 36:
+            raise ValueError("count mismatch")
+        if evidence.get("phase_count") != 5:
+            raise ValueError("phase count mismatch")
+        if evidence.get("design_only") is not True:
+            raise ValueError("design-only marker missing")
+        for key in (
+            "implementation_enabled",
+            "stage8b_execution",
+            "finam_post_delete",
+            "redis_xadd_xack",
+            "redis_live_consumer",
+            "ack_readiness_publication",
+            "broker_dispatch",
+            "runtime_live",
+            "real_orders",
+        ):
+            if evidence.get(key) is not False:
+                raise ValueError(f"closed surface opened: {key}")
+        if sha256(archive.read(GATE)) != evidence.get("gate_sha256"):
+            raise ValueError("gate hash mismatch")
+        if sha256(archive.read(MANIFEST)) != evidence.get("manifest_sha256"):
+            raise ValueError("manifest hash mismatch")
+        return {
+            "archive_members": len(names),
+            "duplicates": 0,
+            "symlinks": 0,
+            "unsafe_paths": 0,
+            "source_ref": evidence["source_ref"],
+            "result": "PASS",
+        }
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: stage8b_design_handoff_safety_check.py ARCHIVE")
+    try:
+        result = check(sys.argv[1])
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
+        print(f"stage8b-design-handoff-safety: FAIL {error}", file=sys.stderr)
+        raise SystemExit(1)
+    print("stage8b-design-handoff-safety: PASS " + json.dumps(result, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()
