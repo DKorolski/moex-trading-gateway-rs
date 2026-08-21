@@ -1,0 +1,31 @@
+id,requirement,proof
+8A5-001,exact accepted I4 R3 predecessor required,lineage-check
+8A5-002,accepted Stage7B aggregate ref pinned,authority+gate
+8A5-003,accepted Stage8A-0 ref pinned,authority+inherited-gate
+8A5-004,accepted Stage8A-1 R3 ref pinned,authority+inherited-gate
+8A5-005,accepted Stage8A-2 R1 ref pinned,authority+inherited-gate
+8A5-006,accepted Stage8A-3 R2 ref pinned,authority+inherited-gate
+8A5-007,accepted Stage8A-4 reducer R4 ref pinned,authority+inherited-gate
+8A5-008,accepted durable design R2 ref pinned,authority+inherited-gate
+8A5-009,accepted implementation specification R2 ref pinned,authority+inherited-gate
+8A5-010,accepted I1 R2 ref pinned,authority+inherited-gate
+8A5-011,accepted I2 R3 ref pinned,authority+inherited-gate
+8A5-012,accepted I3 R6 ref pinned,authority+inherited-gate
+8A5-013,accepted I4 Design R3 ref pinned,authority+inherited-gate
+8A5-014,accepted I4 Implementation R3 ref and review hash pinned,authority+review
+8A5-015,aggregate commit changes no production Rust,delta-check
+8A5-016,aggregate commit changes no Cargo or lock file,delta-check
+8A5-017,aggregate commit changes no workflow,delta-check
+8A5-018,all accepted Stage8 semantic checks rerun,aggregate-gate
+8A5-019,all accepted Stage8 negative harnesses rerun,aggregate-gate
+8A5-020,accepted Stage7B aggregate gate rerun detached with only exact bounded X16 full-gate retry,aggregate-gate
+8A5-021,Stage8-specific forbidden surface scanner passes,scanner
+8A5-022,Stage8-specific scanner negative harness passes,negative-harness
+8A5-023,serialized full workspace debug tests pass with only exact bounded X16 whole-command retry,aggregate-gate
+8A5-024,serialized full workspace release tests pass with only exact bounded X16 whole-command retry,aggregate-gate
+8A5-025,workspace doctests pass,aggregate-gate
+8A5-026,workspace clippy and fmt pass,aggregate-gate
+8A5-027,I3 and I4 external compile boundaries pass,aggregate-gate
+8A5-028,immutable source and evidence manifests are SHA-bound,handoff
+8A5-029,ACK Redis FINAM dispatch runtime-live and real-order surfaces remain closed,authority+scanner
+8A5-030,Stage8B remains unauthorized pending independent 8A-5 acceptance,authority+governance

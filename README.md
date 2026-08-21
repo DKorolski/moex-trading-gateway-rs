@@ -30,19 +30,15 @@ missing/unreadable/stale/stopped control as conservative post-effect evidence
 while readable identity conflicts remain hard failures. I4 Design R1 at
 `06bb09f` was not accepted. I4 Design R2 at `d1a050a` closed its semantic P1s
 but was not accepted because its crate-private terminal authority could not
-cross into FINAM. I4 Design R3 is the active docs/checker-only slice: it retains
-all R2 semantics and makes only the Stage7B terminal capability public-opaque,
-externally nonconstructible and consumable through the existing dependency
-direction. I4 Implementation R1 at `1da0a65` and R2 at `6a7f07c` were not
-accepted. R2 closed the original current-source/micro-budget/public-surface
-findings but could not reconstruct its pre-effect issuer after a finalized
-request restarted. The active R3 candidate adds a crate-private I4-only
-read-only issuer reconstructed from terminal/root authority, a true
-fresh-process facade witness and ACK-only fallback when current readiness is
-unavailable. Stage 8A-5 remains closed pending independent R3 acceptance.
+cross into FINAM. I4 Design R3 is accepted at `81727aa`. I4 Implementation R1
+at `1da0a65` and R2 at `6a7f07c` were not accepted. I4 Implementation R3 is
+independently accepted and closed at `4a11688`; it reconstructs the private
+read-only issuer from terminal/root authority and preserves historical ACK
+facts when current readiness is unavailable. Stage 8A-5 aggregate acceptance
+is now the only active candidate and adds no functional implementation.
 
-FINAM POST/DELETE, broker dispatch, runtime-live, real strategy orders and
-Stage 8B execution authority remain closed.
+FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
+strategy orders and Stage 8B execution authority remain closed.
 
 This repository is not enabled for continuous live trading.
 

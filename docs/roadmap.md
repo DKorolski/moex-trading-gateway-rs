@@ -74,21 +74,17 @@ nonconstructible. After Design R3 acceptance the required implementation order i
 broker-neutral complete-transition facts, owner-mediated already-S1-covered
 terminal authority with no seal repair, timestamp-free ACK facts, private
 current-readiness issuer/facade, then deterministic restart/duplicate/expiry and
-negative matrices. Implementation R1 `1da0a65` was not accepted because its
-readiness mint bypassed the opaque trusted-current-source boundary and its
-terminal authority exposed settlement-only getters. The active narrow R2
-candidate restores the existing Stage8A1 issuer/source authority, trusted time,
-micro-budget and deterministic strategy-instance binding, removes those
-getters and traces all 64 Design R3 rows. R2 `6a7f07c` closed those R1 findings
-but was not accepted because its finalized restart path could not reconstruct
-the pre-effect operational issuer. The active narrow R3 candidate introduces a
-terminal/root-bound I4-only read-only issuer, independent process-B current
-source sampling and ACK-only fallback, with explicit journal/S1/arm
-non-mutation proof. I4 never publishes ACK/readiness or authorizes Redis
-settlement.
-Stage 8A-5+, FINAM
-POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real
-orders remain closed.
+negative matrices. Implementation R1 `1da0a65` and R2 `6a7f07c` were not
+accepted. I4 Implementation R3 is independently accepted and closed at
+`4a11688`; it provides the terminal/root-bound I4-only read-only issuer,
+independent process-B current-source sampling and ACK-only fallback, with
+explicit journal/S1/arm non-mutation proof.
+
+Stage 8A-5 aggregate acceptance is the only active slice. It adds no functional
+implementation and reruns the full inherited Stage 7B/8A evidence, current I4,
+Stage 8 closed-surface mutation gates and workspace debug/release checks.
+Independent acceptance is pending. Stage 8B, FINAM POST/DELETE, Redis live
+consumption, broker dispatch, runtime-live and real orders remain closed.
 
 ### Accepted lineage and transition history
 

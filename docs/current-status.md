@@ -89,18 +89,21 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `6a7f07cfd5b3ea97e64fa6c12f2d493514e1a804` closed those findings but was not
   accepted because its only I4 facade still required the process-local
   pre-effect Stage8A1 issuer, which cannot be reconstructed for a finalized
-  request after restart. The narrow R3 correction is now the active review
-  candidate: terminal/root authority reconstructs a crate-private I4-only
-  read-only issuer with no arm, writer or execution capability; process B
-  resamples opaque current sources, while absent/blocked readiness preserves
-  the exact historical ACK. The 60-row implementation matrix explicitly traces
-  all 64 accepted design rows and the 28-case implementation negative harness
-  remains combined with the inherited 46-case design gate. All FINAM ACK,
-  readiness and facade types remain private.
-  ACK/readiness publication,
-  Redis live consumption, FINAM POST/DELETE, broker dispatch,
-  retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B
-  remain CLOSED.
+  request after restart. I4 Implementation R3 is independently ACCEPTED and
+  CLOSED at `4a11688c941ee240e377b384042c4bca837b040f`; its final review
+  SHA-256 is
+  `0377879b5b10c38ef0740af54e3d2b341d980b21824490664d828e8a6d4e0046`.
+  It reconstructs the crate-private I4-only read-only issuer from terminal/root
+  authority, resamples opaque current sources in process B and preserves the
+  exact historical ACK when current readiness is absent or blocked.
+- Stage 8A-5 is the only active candidate. It is aggregate-only and changes no
+  production Rust, Cargo or workflow surface. It reruns accepted Stage 7B,
+  every accepted Stage 8A semantic/negative contract, current I4, external
+  compile boundaries, the Stage 8 forbidden-surface scanner and workspace
+  debug/release/fmt/clippy/doc gates. Independent acceptance is pending.
+  ACK/readiness publication, Redis XADD/XACK and live consumption, FINAM
+  POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real orders
+  and Stage 8B remain CLOSED.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).
