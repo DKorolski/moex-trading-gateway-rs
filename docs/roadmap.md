@@ -74,9 +74,13 @@ nonconstructible. After Design R3 acceptance the required implementation order i
 broker-neutral complete-transition facts, owner-mediated already-S1-covered
 terminal authority with no seal repair, timestamp-free ACK facts, private
 current-readiness issuer/facade, then deterministic restart/duplicate/expiry and
-negative matrices. The controlled read-only/no-effect I4 implementation is now
-the active review candidate, and I4 never publishes ACK/readiness or authorizes
-Redis settlement.
+negative matrices. Implementation R1 `1da0a65` was not accepted because its
+readiness mint bypassed the opaque trusted-current-source boundary and its
+terminal authority exposed settlement-only getters. The active narrow R2
+candidate restores the existing Stage8A1 issuer/source authority, trusted time,
+micro-budget and deterministic strategy-instance binding, removes those
+getters and traces all 64 Design R3 rows. I4 never publishes ACK/readiness or
+authorizes Redis settlement.
 Stage 8A-5+, FINAM
 POST/DELETE, Redis live consumption, broker dispatch, runtime-live and real
 orders remain closed.

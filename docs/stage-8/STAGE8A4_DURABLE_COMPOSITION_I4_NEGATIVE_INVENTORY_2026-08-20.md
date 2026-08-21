@@ -17,3 +17,15 @@ The implementation gate mutates and rejects at least these boundaries:
 13. current source evidence stops binding accepted config;
 14. I4 facade becomes public/exported;
 15. Redis/FINAM/publication or execution capability is attached.
+16. raw snapshot DTOs replace `Stage8a1TrustedCurrentSources` at the final mint;
+17. caller-supplied `now` controls freshness;
+18. `max_orders != 1` remains Ready;
+19. `consumed_orders != 0` remains Ready;
+20. deterministic strategy-instance mapping is removed;
+21. trusted-current-source root/evidence validation is removed;
+22. current-control revision/tamper validation is removed;
+23. checkpoint getter becomes public downstream;
+24. seal generation or commitment getter becomes public downstream;
+25. settlement-authority fingerprint getter becomes public downstream;
+26. inherited 64-row Design R3 traceability is reduced;
+27. inherited 46-case Design R3 negative gate is skipped.

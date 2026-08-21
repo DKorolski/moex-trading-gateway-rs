@@ -41,7 +41,13 @@ def check(path: str) -> dict[str, object]:
                 raise ValueError(f"secret/log: {info.filename}")
         fields = dict(line.split("=", 1) for line in archive.read("handoff-commit.txt").decode().splitlines() if "=" in line)
         evidence = json.loads(archive.read("handoff-evidence/stage8a4-i4-evidence.json"))
-        if evidence.get("stage") != "8A-4-durable-composition-I4" or evidence.get("acceptance_rows") != 40 or evidence.get("negative_cases") != 12:
+        if (
+            evidence.get("stage") != "8A-4-durable-composition-I4"
+            or evidence.get("acceptance_rows") != 53
+            or evidence.get("negative_cases") != 21
+            or evidence.get("accepted_design_traceability_rows") != 64
+            or evidence.get("inherited_design_negative_cases") != 46
+        ):
             raise ValueError("I4 evidence mismatch")
         if fields.get("source_ref") != evidence.get("source_ref") or fields.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("provenance mismatch")

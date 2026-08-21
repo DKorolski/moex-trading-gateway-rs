@@ -24,6 +24,7 @@ def main() -> None:
         "authority": root / "docs/stage-8/stage8a4-durable-composition-i4-authority.json",
         "contract": root / "docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I4_IMPLEMENTATION_2026-08-20.md",
         "matrix": root / "docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I4_ACCEPTANCE_MATRIX_2026-08-20.csv",
+        "trace": root / "docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I4_DESIGN_TO_IMPLEMENTATION_TRACEABILITY_2026-08-21.csv",
         "negative": root / "docs/stage-8/STAGE8A4_DURABLE_COMPOSITION_I4_NEGATIVE_INVENTORY_2026-08-20.md",
         "core": root / "crates/strategy-runtime-core/src/stage6d_live_core.rs",
         "runtime": root / "crates/runtime-durable-service/src/recovery.rs",
@@ -35,7 +36,7 @@ def main() -> None:
     }
     for label, path in paths.items():
         require(path.is_file(), f"missing {label}: {path}")
-    text = {label: path.read_text(encoding="utf-8") for label, path in paths.items() if label != "matrix"}
+    text = {label: path.read_text(encoding="utf-8") for label, path in paths.items() if label not in ("matrix", "trace")}
     authority = json.loads(text["authority"])
     require(authority["accepted_design_ref"] == "81727aae1f648f17961177fc9541e2483cbf07f2", "design lineage drift")
     for key in (
@@ -43,6 +44,7 @@ def main() -> None:
         "request_finalized_required", "already_covering_authenticated_s1_required",
         "current_readiness_independent", "account_active_orders_required_zero",
         "target_active_orders_required_zero", "external_compile_fail_proof",
+        "trusted_current_sources_opaque",
     ):
         require(authority.get(key) is True, f"required authority property drift: {key}")
     for key in (
@@ -50,12 +52,23 @@ def main() -> None:
         "ack_readiness_publication_enabled", "redis_mutation_enabled",
         "finam_post_delete_enabled", "broker_dispatch_enabled", "execution_capability_minted",
         "operator_arm_minted", "runtime_live_enabled", "real_orders_enabled",
+        "caller_supplied_clock_allowed", "terminal_settlement_getters_public",
     ):
         require(authority.get(key) is False, f"closed surface opened: {key}")
     with paths["matrix"].open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 40, "I4 acceptance matrix must contain 40 rows")
-    require(len({row["id"] for row in rows}) == 40, "duplicate I4 acceptance IDs")
+    require(len(rows) == 53, "I4 R2 acceptance matrix must contain 53 rows")
+    require(len({row["id"] for row in rows}) == 53, "duplicate I4 acceptance IDs")
+    require([row["id"] for row in rows] == [f"I4I-{index:03d}" for index in range(1, 54)], "I4 implementation IDs must be exact I4I-001..I4I-053")
+    with paths["trace"].open(newline="", encoding="utf-8") as handle:
+        trace = list(csv.DictReader(handle))
+    require(len(trace) == 64, "I4 Design R3 traceability must contain 64 rows")
+    require([row["design_id"] for row in trace] == [f"I4D-{index:03d}" for index in range(1, 65)], "I4 design trace IDs must be exact I4D-001..I4D-064")
+    require(all(row["implementation_proof"].strip() for row in trace), "empty I4 implementation proof")
+    require(authority.get("accepted_design_traceability_rows") == 64, "authority traceability count drift")
+    require(authority.get("inherited_design_negative_cases") == 46, "inherited design negatives drift")
+    require(authority.get("micro_budget_max_orders") == 1, "I4 max-orders barrier drift")
+    require(authority.get("micro_budget_consumed_orders") == 0, "I4 consumed-orders barrier drift")
 
     core = text["core"]
     for marker in (
@@ -91,24 +104,46 @@ def main() -> None:
     require("stage8a4_completed_transition_facts" in issue, "complete transition not owner-bound")
     require("durable_ack_authority" in issue, "existing Stage7B terminal identity not reused")
     require("Stage7bStage8a4TerminalAuthority" in text["runtime_lib"], "terminal authority not re-exported by owner crate")
+    authority_impl_start = runtime.index("impl Stage7bStage8a4TerminalAuthority")
+    authority_impl_end = runtime.index("impl Stage7bStage8a4DurableBatchReceipt", authority_impl_start)
+    authority_impl = runtime[authority_impl_start:authority_impl_end]
+    for getter in (
+        "stage6_checkpoint_sha256", "seal_generation", "seal_commitment_sha256",
+        "settlement_authority_fingerprint_sha256",
+    ):
+        require(getter not in authority_impl, f"settlement-only terminal getter exposed: {getter}")
 
     stage8a1 = text["stage8a1"]
     readiness_start = stage8a1.index("pub(crate) fn issue_stage8a4_i4_current_readiness(")
     readiness_end = stage8a1.index("#[allow(clippy::too_many_arguments)]\nfn derive_current_authorities", readiness_start)
     readiness = stage8a1[readiness_start:readiness_end]
+    readiness_signature = readiness[:readiness.index(") -> Result")]
     for marker in (
-        "load_accepted_config_pinned", "load_current_control_pinned",
+        "issuer.validate_control_revision()", "sources.validate(authority_root)",
+        "authority_root.load_accepted_config()", "authority_root.load_current_control()",
         "Stage8KillSwitchState::RunAllowed", "Stage7bPaperReadinessPhase::PaperReady",
         "BrokerMarketSessionState::Open", "broker_truth_is_fresh(now)",
         "summary.account_active_orders_count != 0", "summary.target_active_orders_count != 0",
+        "control.max_orders != 1", "control.consumed_orders != 0",
+        "validate_stage8a4_i4_config_binding", "let now = Utc::now();",
         "authority_root_sha256", "accepted_config_sha256", "current_source_evidence_sha256",
         "valid_until",
     ):
         require(marker in readiness, f"readiness marker missing: {marker}")
+    require("|| !stage8a4_i4_strategy_instance_scope_matches(" in stage8a1, "strategy-instance equality/mapping guard missing")
+    require("Stage8a1TrustedCurrentSources" in readiness_signature, "opaque current-source authority missing from I4 mint")
+    for forbidden in ("BrokerTruthSnapshot", "BrokerReadinessSnapshot", "Stage7bCompositeReadinessSnapshot", "now: DateTime", "root: &Path", "accepted_config_sha256: &str"):
+        require(forbidden not in readiness_signature, f"caller-controlled readiness input returned: {forbidden}")
     require("Stage8ExecutionCapability" not in readiness, "I4 readiness mints execution capability")
     require("OperatorArm" not in readiness, "I4 readiness uses operator arm")
 
     i4 = text["i4"]
+    compose_start = i4.index("pub(crate) fn compose_stage8a4_i4_readonly(")
+    compose_signature = i4[compose_start:i4.index(") -> Result", compose_start)]
+    require("Stage8a1OperationalAuthorityIssuer" in compose_signature, "trusted I4 issuer missing")
+    require("Stage8a1TrustedCurrentSources" in compose_signature, "opaque I4 sources missing")
+    for forbidden in ("BrokerTruthSnapshot", "BrokerReadinessSnapshot", "Stage7bCompositeReadinessSnapshot", "now: DateTime", "authority_root", "accepted_config_sha256"):
+        require(forbidden not in compose_signature, f"raw I4 composer input returned: {forbidden}")
     for marker in (
         "struct Stage8a4I4TerminalAckFacts", "struct Stage8a4I4CurrentReadinessEvidence",
         "struct Stage8a4I4DerivedAckReadinessFacade", "fn canonical_ack_mapping(",
@@ -123,8 +158,10 @@ def main() -> None:
     require("pub mod durable_composition_i4" not in text["reconciliation"], "I4 private module exported")
     for token in ("reqwest", ".post(", ".delete(", "XACK", "xack(", "xadd("):
         require(token not in i4, f"effect surface entered I4 facade: {token}")
-    require("positive=1 negative=7" in text["compile"], "external compile matrix drift")
-    print("stage8a4-durable-composition-i4-check: PASS rows=40 read_only=true ack_publish=false")
+    require("positive=1 negative=12" in text["compile"], "external compile matrix drift")
+    for getter in ("checkpoint_getter", "seal_generation_getter", "seal_commitment_getter", "settlement_fingerprint_getter", "trusted_sources_literal"):
+        require(f"check_fail {getter}" in text["compile"], f"external negative missing: {getter}")
+    print("stage8a4-durable-composition-i4-check: PASS rows=53 trace=64 read_only=true ack_publish=false")
 
 
 if __name__ == "__main__":

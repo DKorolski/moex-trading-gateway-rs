@@ -3,24 +3,18 @@
 //! Everything in this module is FINAM-private. It publishes nothing, owns no
 //! Redis continuation and cannot construct transport or execution authority.
 
-use std::path::Path;
-
 use broker_core::command::CommandAckStatus;
-use broker_core::{
-    BrokerOrderId, BrokerReadinessSnapshot, BrokerTruthSnapshot, ClientOrderId,
-    CommandAckReasonCode, StrategyRequestId,
-};
+use broker_core::{BrokerOrderId, ClientOrderId, CommandAckReasonCode, StrategyRequestId};
 use chrono::{DateTime, Utc};
-use runtime_durable_service::{
-    Stage7bCompositeReadinessSnapshot, Stage7bRecoveryReadyOwner, Stage7bStage8a4TerminalAuthority,
-};
+use runtime_durable_service::{Stage7bRecoveryReadyOwner, Stage7bStage8a4TerminalAuthority};
 use strategy_runtime_core::{
     Stage5gLifecycleCommitmentKey, Stage6CancelOutcomeV1, Stage6DurableActionKind,
     Stage6ReconciliationLifecycleV2, Stage6RequestFinalDispositionV1,
 };
 
 use crate::stage8a1_execution_capability::{
-    issue_stage8a4_i4_current_readiness, Stage8a4I4CurrentReadinessEvidence,
+    issue_stage8a4_i4_current_readiness, Stage8a1OperationalAuthorityIssuer,
+    Stage8a1TrustedCurrentSources, Stage8a4I4CurrentReadinessEvidence,
 };
 
 pub(crate) struct Stage8a4I4TerminalAckFacts {
@@ -100,32 +94,18 @@ impl Stage8a4I4DerivedAckReadinessFacade {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn compose_stage8a4_i4_readonly(
     owner: &mut Stage7bRecoveryReadyOwner,
     commitment_key: &Stage5gLifecycleCommitmentKey,
     request_id: StrategyRequestId,
-    authority_root: &Path,
-    accepted_config_sha256: &str,
-    composite_readiness: &Stage7bCompositeReadinessSnapshot,
-    broker_truth: &BrokerTruthSnapshot,
-    broker_readiness: &BrokerReadinessSnapshot,
-    now: DateTime<Utc>,
+    issuer: &mut Stage8a1OperationalAuthorityIssuer,
+    sources: &Stage8a1TrustedCurrentSources,
 ) -> Result<Stage8a4I4DerivedAckReadinessFacade, Stage8a4I4CompositionError> {
     let terminal = owner
         .issue_stage8a4_terminal_authority(commitment_key, request_id)
         .map_err(|_| Stage8a4I4CompositionError::TerminalAuthorityUnavailable)?;
     let ack = terminal_ack_facts(&terminal)?;
-    let readiness = issue_stage8a4_i4_current_readiness(
-        &terminal,
-        authority_root,
-        accepted_config_sha256,
-        composite_readiness,
-        broker_truth,
-        broker_readiness,
-        now,
-    )
-    .ok();
+    let readiness = issue_stage8a4_i4_current_readiness(issuer, &terminal, sources).ok();
     let readiness_state = if readiness.is_some() {
         Stage8a4I4ReadinessState::Ready
     } else {

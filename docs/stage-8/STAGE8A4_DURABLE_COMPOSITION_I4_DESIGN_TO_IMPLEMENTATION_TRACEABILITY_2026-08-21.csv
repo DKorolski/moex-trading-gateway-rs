@@ -1,0 +1,65 @@
+design_id,implementation_proof
+I4D-001,authority manifest accepted predecessor
+I4D-002,authority manifest accepted review digest
+I4D-003,I4 implementation contract and effect scanner
+I4D-004,completed-transition source and focused test
+I4D-005,completed-transition source and focused test
+I4D-006,owner issuer two-S1 barriers and production test
+I4D-007,external receipt-mint compile-fail
+I4D-008,restart and duplicate terminal derivation test
+I4D-009,completed-transition completion guard
+I4D-010,completed-transition suffix guard
+I4D-011,owner checkpoint equality guard
+I4D-012,Exact-only transition guard
+I4D-013,canonical ACK mapper unit test
+I4D-014,canonical ACK mapper unit test
+I4D-015,canonical ACK mapper unit test
+I4D-016,canonical ACK mapper unit test
+I4D-017,canonical ACK mapper unit test
+I4D-018,CANCEL Working mapper negative test
+I4D-019,CANCEL outcome mapper unit test
+I4D-020,CANCEL outcome mapper unit test
+I4D-021,CANCEL outcome mapper unit test
+I4D-022,CANCEL outcome mapper unit test
+I4D-023,timestamp-free private ACK facts
+I4D-024,independent readiness optional evidence and blocked tests
+I4D-025,RunAllowed issuer guard and mutation
+I4D-026,pinned control validation and blocked tests
+I4D-027,PaperReady freshness issuer guard
+I4D-028,broker truth and per-feed expiry issuer guards
+I4D-029,open-session issuer guard
+I4D-030,summary ambiguity guards
+I4D-031,terminal config operational and runtime binding guards
+I4D-032,opaque trusted-current-source-only signature
+I4D-033,duplicate derivation stable ACK identity test
+I4D-034,S1 byte equality and no append test
+I4D-035,private facade plus nonserialization compile-fail
+I4D-036,raw-mint and constructor compile-fail
+I4D-037,effect scanner and inherited design gate
+I4D-038,effect scanner and inherited design gate
+I4D-039,effect scanner and inherited design gate
+I4D-040,current status and effect scanner
+I4D-041,terminal durable identity accessor
+I4D-042,terminal durable client ID mapping
+I4D-043,terminal mapper uses durable request client ID
+I4D-044,completed mixed replay broker ID
+I4D-045,mixed replay and finalized cross-binding
+I4D-046,readiness cannot rewrite private ACK facts
+I4D-047,timestamp-free ACK struct and checker
+I4D-048,restart duplicate terminal derivation test
+I4D-049,existing Stage7B ACK authority reuse
+I4D-050,terminal ACK identity excludes removed settlement getters
+I4D-051,opaque current sources and no arm or execution capability
+I4D-052,config policy account instrument strategy runtime binding
+I4D-053,account and target active-order production test
+I4D-054,trusted-now and minimum per-source expiry
+I4D-055,read-only source validation and effect scanner
+I4D-056,lagging S1 guard and no-advance mutation
+I4D-057,public opaque external positive compile witness
+I4D-058,sole owner issuer source checker
+I4D-059,literal and constructor compile-fail
+I4D-060,clone debug serialize compile-fail and doctests
+I4D-061,finam-gateway consumes runtime authority
+I4D-062,Cargo dependency direction design gate
+I4D-063,crate-private facade source checker
+I4D-064,raw receipt checkpoint seal and settlement compile-fail

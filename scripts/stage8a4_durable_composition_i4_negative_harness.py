@@ -23,6 +23,15 @@ CASES = [
     ("export-i4-module", "crates/finam-gateway/src/stage8a4_reconciliation.rs", "mod durable_composition_i4;", "pub mod durable_composition_i4;"),
     ("add-http", "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i4.rs", "//! Everything in this module", "use reqwest as _;\n//! Everything in this module"),
     ("remove-terminal-identity", "crates/finam-gateway/src/stage8a4_reconciliation/durable_composition_i4.rs", ".terminal_request_ack_identity_sha256()\n            .to_string()", ".canonical_command_sha256()\n            .to_string()"),
+    ("raw-snapshot-mint", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "sources: &Stage8a1TrustedCurrentSources,\n) -> Result<Stage8a4I4CurrentReadinessEvidence", "sources: &BrokerTruthSnapshot,\n) -> Result<Stage8a4I4CurrentReadinessEvidence"),
+    ("caller-clock", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "sources: &Stage8a1TrustedCurrentSources,\n) -> Result<Stage8a4I4CurrentReadinessEvidence", "sources: &Stage8a1TrustedCurrentSources,\n    now: DateTime<Utc>,\n) -> Result<Stage8a4I4CurrentReadinessEvidence"),
+    ("remove-max-orders", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "|| control.max_orders != 1", "|| false"),
+    ("remove-consumed-orders", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "|| control.consumed_orders != 0", "|| false"),
+    ("remove-strategy-instance-binding", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "|| !stage8a4_i4_strategy_instance_scope_matches(", "|| false && !stage8a4_i4_strategy_instance_scope_matches("),
+    ("remove-current-source-validation", "crates/finam-gateway/src/stage8a1_execution_capability.rs", "sources.validate(authority_root)?;", "let _ = sources;"),
+    ("public-checkpoint-getter", "crates/runtime-durable-service/src/recovery.rs", "pub fn terminal_request_ack_identity_sha256", "pub fn stage6_checkpoint_sha256(&self) -> &str { \"0\" }\n    pub fn terminal_request_ack_identity_sha256"),
+    ("public-seal-getters", "crates/runtime-durable-service/src/recovery.rs", "pub fn terminal_request_ack_identity_sha256", "pub fn seal_generation(&self) -> u64 { 1 }\n    pub fn seal_commitment_sha256(&self) -> &str { \"0\" }\n    pub fn terminal_request_ack_identity_sha256"),
+    ("public-settlement-getter", "crates/runtime-durable-service/src/recovery.rs", "pub fn terminal_request_ack_identity_sha256", "pub fn settlement_authority_fingerprint_sha256(&self) -> &str { \"0\" }\n    pub fn terminal_request_ack_identity_sha256"),
 ]
 
 with tempfile.TemporaryDirectory(prefix="stage8a4-i4-negative-") as temp:

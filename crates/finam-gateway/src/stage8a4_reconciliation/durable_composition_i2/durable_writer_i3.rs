@@ -983,7 +983,7 @@ mod tests {
         let command = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
             .expect("Stage8A4 production command");
         let authority_root = setup.parent.join("stage8a4-authority-normal");
-        let (issuer, capability) = stage8a4_test_production_place_capability(
+        let (mut issuer, capability) = stage8a4_test_production_place_capability(
             &mut owner,
             &setup.commitment_key,
             &identity,
@@ -1071,22 +1071,17 @@ mod tests {
             seal_before_i4,
             "I4 must not advance or repair the recovery seal",
         );
-        let accepted_config_sha256 = std::fs::read_to_string(
-            authority_root.join("stage8a1-accepted-execution-config.json.sha256"),
-        )
-        .expect("read accepted I4 config hash");
         let i4_now = Utc::now();
         let (composite, truth, broker_readiness) = stage8a4_test_i4_current_sources(place, i4_now);
+        let ready_sources = issuer
+            .issue_current_sources(&composite, &truth, &broker_readiness)
+            .expect("trusted I4 current sources");
         let ready = compose_stage8a4_i4_readonly(
             &mut owner,
             &setup.commitment_key,
             identity.strategy_request_id(),
-            &authority_root,
-            accepted_config_sha256.trim(),
-            &composite,
-            &truth,
-            &broker_readiness,
-            i4_now,
+            &mut issuer,
+            &ready_sources,
         )
         .expect("I4 ACK remains available with current ready sources")
         .diagnostic();
@@ -1095,6 +1090,69 @@ mod tests {
             broker_core::command::CommandAckStatus::Recovered
         );
         assert_eq!(ready.readiness_state, Stage8a4I4ReadinessState::Ready);
+
+        let control_path = authority_root.join("stage8a1-current-control-state.json");
+        let original_control_bytes =
+            std::fs::read(&control_path).expect("read original I4 current control");
+        for (max_orders, consumed_orders) in [(2, 0), (1, 1)] {
+            let mut control: Stage8a1CurrentControlStateV1 =
+                serde_json::from_slice(&original_control_bytes).expect("decode I4 current control");
+            control.max_orders = max_orders;
+            control.consumed_orders = consumed_orders;
+            std::fs::write(
+                &control_path,
+                serde_json::to_vec(&control).expect("encode blocked I4 current control"),
+            )
+            .expect("write blocked I4 current control");
+            let budget_sources = issuer
+                .issue_current_sources(&composite, &truth, &broker_readiness)
+                .expect("opaque budget-blocked I4 current sources");
+            let budget_blocked = compose_stage8a4_i4_readonly(
+                &mut owner,
+                &setup.commitment_key,
+                identity.strategy_request_id(),
+                &mut issuer,
+                &budget_sources,
+            )
+            .expect("historical ACK survives current micro-budget block")
+            .diagnostic();
+            assert_eq!(budget_blocked.ack_status, ready.ack_status);
+            assert_eq!(
+                budget_blocked.terminal_request_ack_identity_sha256,
+                ready.terminal_request_ack_identity_sha256
+            );
+            assert_eq!(
+                budget_blocked.readiness_state,
+                Stage8a4I4ReadinessState::Blocked
+            );
+            std::fs::write(&control_path, &original_control_bytes)
+                .expect("restore original I4 current control");
+        }
+
+        let stale_now = Utc::now() - Duration::minutes(2);
+        let (stale_composite, stale_truth, stale_broker_readiness) =
+            stage8a4_test_i4_current_sources(place, stale_now);
+        let stale_sources = issuer
+            .issue_current_sources(&stale_composite, &stale_truth, &stale_broker_readiness)
+            .expect("opaque stale I4 current sources");
+        let stale_blocked = compose_stage8a4_i4_readonly(
+            &mut owner,
+            &setup.commitment_key,
+            identity.strategy_request_id(),
+            &mut issuer,
+            &stale_sources,
+        )
+        .expect("historical ACK survives stale trusted source")
+        .diagnostic();
+        assert_eq!(stale_blocked.ack_status, ready.ack_status);
+        assert_eq!(
+            stale_blocked.terminal_request_ack_identity_sha256,
+            ready.terminal_request_ack_identity_sha256
+        );
+        assert_eq!(
+            stale_blocked.readiness_state,
+            Stage8a4I4ReadinessState::Blocked
+        );
 
         let mut active_truth = truth;
         active_truth.orders.push(BrokerOrderSnapshot {
@@ -1117,16 +1175,15 @@ mod tests {
             source_ts: Some(i4_now - Duration::seconds(1)),
             received_ts: i4_now - Duration::seconds(1),
         });
+        let blocked_sources = issuer
+            .issue_current_sources(&composite, &active_truth, &broker_readiness)
+            .expect("trusted blocked I4 current sources");
         let blocked = compose_stage8a4_i4_readonly(
             &mut owner,
             &setup.commitment_key,
             identity.strategy_request_id(),
-            &authority_root,
-            accepted_config_sha256.trim(),
-            &composite,
-            &active_truth,
-            &broker_readiness,
-            i4_now,
+            &mut issuer,
+            &blocked_sources,
         )
         .expect("historical ACK survives a current active-order block")
         .diagnostic();
@@ -1136,6 +1193,39 @@ mod tests {
             ready.terminal_request_ack_identity_sha256
         );
         assert_eq!(blocked.readiness_state, Stage8a4I4ReadinessState::Blocked);
+
+        let mut advanced_control: Stage8a1CurrentControlStateV1 =
+            serde_json::from_slice(&original_control_bytes)
+                .expect("decode I4 control for trusted revision advance");
+        advanced_control.durable_revision += 1;
+        advanced_control.observed_at = Utc::now();
+        advanced_control.valid_until = Utc::now() + Duration::seconds(20);
+        issuer
+            .persist_current_control(&advanced_control)
+            .expect("trusted I4 control revision advance");
+        let root_rebound_blocked = compose_stage8a4_i4_readonly(
+            &mut owner,
+            &setup.commitment_key,
+            identity.strategy_request_id(),
+            &mut issuer,
+            &ready_sources,
+        )
+        .expect("historical ACK survives stale opaque-source root binding")
+        .diagnostic();
+        assert_eq!(root_rebound_blocked.ack_status, ready.ack_status);
+        assert_eq!(
+            root_rebound_blocked.terminal_request_ack_identity_sha256,
+            ready.terminal_request_ack_identity_sha256
+        );
+        assert_eq!(
+            root_rebound_blocked.readiness_state,
+            Stage8a4I4ReadinessState::Blocked
+        );
+        assert_eq!(
+            std::fs::read(&seal_path).expect("reread S1 after blocked I4 cases"),
+            seal_before_i4,
+            "I4 blocked readiness cases must not mutate S1",
+        );
         drop(owner);
 
         let restarted = Stage7bRecoveryReadyOwner::restart(

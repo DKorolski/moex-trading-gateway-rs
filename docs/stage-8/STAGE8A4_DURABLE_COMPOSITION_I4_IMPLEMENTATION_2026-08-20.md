@@ -42,13 +42,27 @@ broker order ID, canonical status/reason and the existing Stage 7B
 `terminal_request_ack_identity_sha256`. There is no timestamp and no second
 ACK identity domain.
 
-Current readiness independently pins accepted config/control files and binds
-operational identity, runtime fingerprint, account, instrument, strategy,
-strategy instance, authority root, accepted policy/config, source evidence,
-`observed_at` and `valid_until`. Generic Ready requires current PaperReady,
-RunAllowed, open/fresh broker sources, zero ambiguity and zero account/target
-active orders. A readiness failure produces a redacted Blocked diagnostic but
-does not alter the valid historical ACK.
+Current readiness is minted only from the existing opaque
+`Stage8a1TrustedCurrentSources` issued by the pinned
+`Stage8a1OperationalAuthorityIssuer`; the final composer accepts no raw
+snapshot DTOs, path/config digest or caller-selected clock. The issuer reads
+trusted current time at the last minting boundary, revalidates its pinned
+root/current-control revision, and binds operational identity, runtime
+fingerprint, account, instrument, strategy, strategy instance, authority root,
+accepted policy/config, source evidence, `observed_at` and `valid_until`.
+Generic Ready requires current PaperReady, RunAllowed, `max_orders == 1`,
+`consumed_orders == 0`, open/fresh broker sources, zero ambiguity and zero
+account/target active orders. The historical underscore strategy ID and
+operational hyphen strategy-instance ID are joined only by an explicit
+lowercase separator-normalization rule. A readiness failure produces a
+redacted Blocked diagnostic but does not alter the valid historical ACK.
+
+The public-opaque cross-crate terminal authority exposes no checkpoint, seal
+generation, seal commitment or settlement-authority fingerprint getter.
+External compile-fail witnesses pin that minimal surface. The implementation
+matrix retains its original 40 requirements, adds the R2 closure requirements,
+and maps every accepted `I4D-001..I4D-064` row to an implementation proof; the
+accepted 46-case design negative gate is inherited by the full I4 gate.
 
 ## Closed effects
 

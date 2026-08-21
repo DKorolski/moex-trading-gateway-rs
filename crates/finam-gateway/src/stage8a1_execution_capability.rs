@@ -1892,86 +1892,58 @@ pub(crate) struct Stage8a4I4CurrentReadinessEvidence {
 /// the accepted root/config/control files but never opens the arm registry or
 /// writer key and never mints an execution capability.
 pub(crate) fn issue_stage8a4_i4_current_readiness(
+    issuer: &mut Stage8a1OperationalAuthorityIssuer,
     terminal: &Stage7bStage8a4TerminalAuthority,
-    root: &Path,
-    accepted_config_sha256: &str,
-    composite_readiness: &Stage7bCompositeReadinessSnapshot,
-    broker_truth: &BrokerTruthSnapshot,
-    broker_readiness: &BrokerReadinessSnapshot,
-    now: DateTime<Utc>,
+    sources: &Stage8a1TrustedCurrentSources,
 ) -> Result<Stage8a4I4CurrentReadinessEvidence, Stage8ExecutionPreflightError> {
-    if !valid_sha256(accepted_config_sha256) {
+    issuer.validate_control_revision()?;
+    let authority_root = &issuer.authority_root;
+    authority_root.validate()?;
+    sources.validate(authority_root)?;
+    let (config, observed_config_sha256) = authority_root.load_accepted_config()?;
+    if observed_config_sha256 != authority_root.accepted_config_sha256 {
         return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
     }
-    let root = root
-        .canonicalize()
-        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
-    let root_identity = directory_identity(&root)?;
-    let config_identity = regular_file_identity(&root.join(ACCEPTED_CONFIG_FILE))?;
-    let sidecar_identity = regular_file_identity(&root.join(ACCEPTED_CONFIG_SHA256_FILE))?;
-    let control_identity = regular_file_identity(&root.join(CURRENT_CONTROL_FILE))?;
-    let (config, observed_config_sha256) =
-        load_accepted_config_pinned(&root, config_identity, sidecar_identity)?;
-    if observed_config_sha256 != accepted_config_sha256
-        || config.schema_version != 1
-        || config.broker != BrokerKind::Finam
-        || config.operational_identity_sha256 != terminal.operational_identity_sha256()
-        || config.runtime_config_fingerprint_sha256 != terminal.runtime_config_fingerprint_sha256()
-        || config.strategy_instance_id != terminal.identity().attribution().strategy_id()
-        || config.account_id.as_str() != terminal.identity().account_id().as_str()
-        || config.instrument != *terminal.identity().instrument()
-        || config.max_evidence_age_ms == 0
-        || config.max_evidence_age_ms > MAX_AUTHORITY_TTL_MS
-    {
-        return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
-    }
-    let authority_root_sha256 = digest_parts(
-        b"stage8a4-i4-readonly-authority-root-v1",
-        &[
-            root.as_os_str().as_encoded_bytes(),
-            &file_identity_bytes(root_identity),
-            &file_identity_bytes(config_identity),
-            &file_identity_bytes(sidecar_identity),
-            &file_identity_bytes(control_identity),
-            accepted_config_sha256.as_bytes(),
-            terminal.operational_identity_sha256().as_bytes(),
-            terminal.runtime_config_fingerprint_sha256().as_bytes(),
-        ],
-    );
-    let control = load_current_control_pinned(&root, control_identity)?;
+    validate_stage8a4_i4_config_binding(&config, terminal)?;
+    let now = Utc::now();
+    let control = authority_root.load_current_control()?;
     if control.operational_identity_sha256 != terminal.operational_identity_sha256()
         || control.runtime_config_fingerprint_sha256 != terminal.runtime_config_fingerprint_sha256()
         || control.durable_revision == 0
         || control.active_owner_count != 1
         || control.reconciliation_required_count != 0
+        || control.max_orders != 1
+        || control.consumed_orders != 0
         || control.kill_switch != Stage8KillSwitchState::RunAllowed
         || control.observed_at > now
         || control.valid_until <= now
     {
         return Err(Stage8ExecutionPreflightError::CurrentControlInvalid);
     }
-    if composite_readiness.phase != Stage7bPaperReadinessPhase::PaperReady
-        || !composite_readiness.reasons.is_empty()
-        || !composite_readiness.blocked_entry_ids.is_empty()
-        || !composite_readiness.blocked_request_ids.is_empty()
-        || composite_readiness.checked_at > now
+    if sources.composite_readiness.phase != Stage7bPaperReadinessPhase::PaperReady
+        || !sources.composite_readiness.reasons.is_empty()
+        || !sources.composite_readiness.blocked_entry_ids.is_empty()
+        || !sources.composite_readiness.blocked_request_ids.is_empty()
+        || sources.composite_readiness.checked_at > now
     {
         return Err(Stage8ExecutionPreflightError::ReadinessInvalid);
     }
-    if broker_truth.account_id.as_str() != terminal.identity().account_id().as_str()
-        || broker_truth
+    if sources.broker_truth.account_id.as_str() != terminal.identity().account_id().as_str()
+        || sources
+            .broker_truth
             .orders
             .iter()
             .any(|row| row.account_id.as_str() != terminal.identity().account_id().as_str())
-        || broker_truth
+        || sources
+            .broker_truth
             .positions
             .iter()
             .any(|row| row.account_id.as_str() != terminal.identity().account_id().as_str())
-        || broker_truth.received_ts > now
-        || !broker_readiness.broker_truth_is_fresh(now)
-        || broker_readiness.market_session != BrokerMarketSessionState::Open
-        || broker_readiness.unknown_order_count != 0
-        || !broker_truth.instruments.iter().any(|spec| {
+        || sources.broker_truth.received_ts > now
+        || !sources.broker_readiness.broker_truth_is_fresh(now)
+        || sources.broker_readiness.market_session != BrokerMarketSessionState::Open
+        || sources.broker_readiness.unknown_order_count != 0
+        || !sources.broker_truth.instruments.iter().any(|spec| {
             spec.instrument.internal_symbol.0 == config.instrument.symbol
                 && config.instrument.venue_symbol.as_deref()
                     == Some(spec.instrument.broker_symbol.0.as_str())
@@ -1979,7 +1951,9 @@ pub(crate) fn issue_stage8a4_i4_current_readiness(
     {
         return Err(Stage8ExecutionPreflightError::BrokerTruthInvalid);
     }
-    let summary = broker_truth.summarize_for_instrument(terminal.identity().instrument());
+    let summary = sources
+        .broker_truth
+        .summarize_for_instrument(terminal.identity().instrument());
     if summary.account_unknown_orders_count != 0
         || summary.account_orphan_orders_count != 0
         || summary.account_active_orders_count != 0
@@ -1990,17 +1964,17 @@ pub(crate) fn issue_stage8a4_i4_current_readiness(
     let max_age = chrono::Duration::milliseconds(config.max_evidence_age_ms as i64);
     let mut expiries = vec![
         control.valid_until,
-        composite_readiness.checked_at + max_age,
-        broker_truth.received_ts + max_age,
+        sources.composite_readiness.checked_at + max_age,
+        sources.broker_truth.received_ts + max_age,
     ];
     for feed in [
-        &broker_readiness.account,
-        &broker_readiness.positions,
-        &broker_readiness.orders,
-        &broker_readiness.trades,
-        &broker_readiness.quotes,
-        &broker_readiness.instrument_spec,
-        &broker_readiness.schedule,
+        &sources.broker_readiness.account,
+        &sources.broker_readiness.positions,
+        &sources.broker_readiness.orders,
+        &sources.broker_readiness.trades,
+        &sources.broker_readiness.quotes,
+        &sources.broker_readiness.instrument_spec,
+        &sources.broker_readiness.schedule,
     ] {
         let observed = feed
             .observed_ts
@@ -2021,16 +1995,17 @@ pub(crate) fn issue_stage8a4_i4_current_readiness(
     let current_source_evidence_sha256 = digest_parts(
         b"stage8a4-i4-current-readiness-v1",
         &[
-            authority_root_sha256.as_bytes(),
-            accepted_config_sha256.as_bytes(),
+            authority_root.authority_root_sha256.as_bytes(),
+            authority_root.accepted_config_sha256.as_bytes(),
+            sources.evidence_sha256.as_bytes(),
             terminal.identity().attribution().strategy_id().as_bytes(),
             terminal.strategy_instance_id().as_bytes(),
             terminal.identity().account_id().as_str().as_bytes(),
             &canonical_json(terminal.identity().instrument()),
             &canonical_json(&control),
-            &canonical_json(composite_readiness),
-            &canonical_json(broker_truth),
-            &canonical_json(broker_readiness),
+            &canonical_json(&sources.composite_readiness),
+            &canonical_json(&sources.broker_truth),
+            &canonical_json(&sources.broker_readiness),
             now.to_rfc3339().as_bytes(),
             valid_until.to_rfc3339().as_bytes(),
         ],
@@ -2038,8 +2013,8 @@ pub(crate) fn issue_stage8a4_i4_current_readiness(
     Ok(Stage8a4I4CurrentReadinessEvidence {
         operational_identity_sha256: terminal.operational_identity_sha256().to_string(),
         runtime_config_fingerprint_sha256: terminal.runtime_config_fingerprint_sha256().to_string(),
-        authority_root_sha256,
-        accepted_config_sha256: accepted_config_sha256.to_string(),
+        authority_root_sha256: authority_root.authority_root_sha256.clone(),
+        accepted_config_sha256: authority_root.accepted_config_sha256.clone(),
         current_source_evidence_sha256,
         observed_at: now,
         valid_until,
@@ -2303,16 +2278,26 @@ fn validate_config_binding(
     durable: &Stage8a1DurableRequestAuthority,
 ) -> Result<(), Stage8ExecutionPreflightError> {
     let identity = &durable.identity;
-    if config.schema_version != 1
-        || config.broker != BrokerKind::Finam
-        || config.strategy_instance_id.trim().is_empty()
-        || !identity
-            .attribution()
-            .belongs_to(&config.strategy_instance_id)
+    validate_config_static(config)?;
+    if !identity
+        .attribution()
+        .belongs_to(&config.strategy_instance_id)
         || config.account_id != *identity.account_id()
         || config.instrument != *identity.instrument()
         || config.operational_identity_sha256 != durable.operational_identity_sha256
         || config.runtime_config_fingerprint_sha256 != durable.runtime_config_fingerprint_sha256
+    {
+        return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+    }
+    Ok(())
+}
+
+fn validate_config_static(
+    config: &Stage8a1AcceptedExecutionConfigV1,
+) -> Result<(), Stage8ExecutionPreflightError> {
+    if config.schema_version != 1
+        || config.broker != BrokerKind::Finam
+        || config.strategy_instance_id.trim().is_empty()
         || !valid_sha256(&config.build_sha256)
         || !valid_sha256(&config.endpoint_policy_sha256)
         || decode_fixed_lower_hex::<32>(&config.stage8a4_writer_issuer_public_key_hex).is_err()
@@ -2329,6 +2314,87 @@ fn validate_config_binding(
         return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
     }
     Ok(())
+}
+
+fn validate_stage8a4_i4_config_binding(
+    config: &Stage8a1AcceptedExecutionConfigV1,
+    terminal: &Stage7bStage8a4TerminalAuthority,
+) -> Result<(), Stage8ExecutionPreflightError> {
+    validate_config_static(config)?;
+    let identity = terminal.identity();
+    if config.operational_identity_sha256 != terminal.operational_identity_sha256()
+        || config.runtime_config_fingerprint_sha256 != terminal.runtime_config_fingerprint_sha256()
+        || config.strategy_instance_id != identity.attribution().strategy_id()
+        || !stage8a4_i4_strategy_instance_scope_matches(
+            identity.attribution().strategy_id(),
+            terminal.strategy_instance_id(),
+        )
+        || config.account_id != *identity.account_id()
+        || config.instrument != *identity.instrument()
+        || !broker_policy_matches_identity(
+            &config.broker_policy,
+            identity,
+            &config.runtime_config_fingerprint_sha256,
+        )
+    {
+        return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+    }
+    Ok(())
+}
+
+/// Operational strategy-instance names historically use `-`, while the
+/// strategy attribution/config ID uses `_`. This explicit normalization is
+/// the only accepted deterministic mapping; arbitrary prefixes/suffixes and
+/// non-canonical characters remain rejected.
+fn stage8a4_i4_strategy_instance_scope_matches(strategy_id: &str, instance_id: &str) -> bool {
+    fn canonical(value: &str) -> Option<String> {
+        if value.is_empty()
+            || value.starts_with(['-', '_'])
+            || value.ends_with(['-', '_'])
+            || !value.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"-_".contains(&byte)
+            })
+        {
+            return None;
+        }
+        Some(value.replace('-', "_"))
+    }
+    canonical(strategy_id)
+        .zip(canonical(instance_id))
+        .is_some_and(|(left, right)| left == right)
+}
+
+fn broker_policy_matches_identity(
+    broker: &OrderPreflightPolicy,
+    identity: &Stage6DurableRequestIdentityV1,
+    runtime_config_fingerprint_sha256: &str,
+) -> bool {
+    let Some(venue) = identity.instrument().venue_symbol.as_deref() else {
+        return false;
+    };
+    broker.allowed_accounts.as_slice() == [identity.account_id().clone()]
+        && broker.allowed_venue_symbols.as_slice() == [venue.to_string()]
+        && broker.allowed_time_in_force.as_slice() == [TimeInForce::Day]
+        && !broker.allowed_order_types.is_empty()
+        && broker.allowed_order_types.iter().all(|kind| {
+            matches!(
+                kind,
+                broker_core::OrderType::Market | broker_core::OrderType::Limit
+            )
+        })
+        && broker.min_qty > rust_decimal::Decimal::ZERO
+        && broker.qty_step > rust_decimal::Decimal::ZERO
+        && broker.max_qty >= broker.min_qty
+        && broker.max_market_qty <= broker.max_qty
+        && broker.max_notional_per_order.is_some()
+        && broker.max_notional_per_run.is_some()
+        && broker.max_limit_deviation_bps.is_some()
+        && broker.max_reference_age_ms > 0
+        && !broker.allow_cancel_by_broker_order_id_without_mapping
+        && broker.operator_arm.one_shot
+        && !broker.operator_arm.endpoint_attempted
+        && broker.operator_arm.endpoint_calls_enabled
+        && broker.operator_arm.preflight_digest == runtime_config_fingerprint_sha256
 }
 
 fn load_stage8a4_writer_signing_key_pinned(
@@ -3095,40 +3161,13 @@ fn validate_policy(
 ) -> Result<(), Stage8ExecutionPreflightError> {
     let broker = &policy.broker_policy;
     let identity = &durable.identity;
-    let venue = identity
-        .instrument()
-        .venue_symbol
-        .as_deref()
-        .ok_or(Stage8ExecutionPreflightError::FrozenPolicyInvalid)?;
     if policy.max_arm_ttl_ms == 0
         || policy.max_evidence_age_ms == 0
         || !valid_sha256(&policy.policy_sha256)
         || !valid_sha256(&policy.build_sha256)
         || !valid_sha256(&policy.config_sha256)
         || !valid_sha256(&policy.endpoint_policy_sha256)
-        || broker.allowed_accounts.as_slice() != [identity.account_id().clone()]
-        || broker.allowed_venue_symbols.as_slice() != [venue.to_string()]
-        || broker.allowed_time_in_force.as_slice() != [TimeInForce::Day]
-        || broker.allowed_order_types.is_empty()
-        || !broker.allowed_order_types.iter().all(|kind| {
-            matches!(
-                kind,
-                broker_core::OrderType::Market | broker_core::OrderType::Limit
-            )
-        })
-        || broker.min_qty <= rust_decimal::Decimal::ZERO
-        || broker.qty_step <= rust_decimal::Decimal::ZERO
-        || broker.max_qty < broker.min_qty
-        || broker.max_market_qty > broker.max_qty
-        || broker.max_notional_per_order.is_none()
-        || broker.max_notional_per_run.is_none()
-        || broker.max_limit_deviation_bps.is_none()
-        || broker.max_reference_age_ms == 0
-        || broker.allow_cancel_by_broker_order_id_without_mapping
-        || !broker.operator_arm.one_shot
-        || broker.operator_arm.endpoint_attempted
-        || !broker.operator_arm.endpoint_calls_enabled
-        || broker.operator_arm.preflight_digest != policy.config_sha256
+        || !broker_policy_matches_identity(broker, identity, &policy.config_sha256)
         || frozen_policy_sha256(policy) != policy.policy_sha256
     {
         return Err(Stage8ExecutionPreflightError::FrozenPolicyInvalid);
@@ -4527,5 +4566,29 @@ mod tests {
                 terminal
             );
         }
+    }
+
+    #[test]
+    fn stage8a4_i4_strategy_instance_mapping_is_exact_and_separator_only() {
+        assert!(stage8a4_i4_strategy_instance_scope_matches(
+            "hybrid_imoexf",
+            "hybrid-imoexf"
+        ));
+        assert!(stage8a4_i4_strategy_instance_scope_matches(
+            "hybrid_imoexf",
+            "hybrid_imoexf"
+        ));
+        assert!(!stage8a4_i4_strategy_instance_scope_matches(
+            "hybrid_imoexf",
+            "hybrid-imoexf-shadow"
+        ));
+        assert!(!stage8a4_i4_strategy_instance_scope_matches(
+            "hybrid_imoexf",
+            "other-imoexf"
+        ));
+        assert!(!stage8a4_i4_strategy_instance_scope_matches(
+            "hybrid_imoexf",
+            "Hybrid-IMOEXF"
+        ));
     }
 }

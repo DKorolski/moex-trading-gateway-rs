@@ -681,10 +681,6 @@ pub struct Stage7bStage8a4TerminalAuthority {
     canonical_command_sha256: String,
     final_record_id: String,
     final_sequence: u64,
-    stage6_checkpoint_sha256: String,
-    seal_generation: u64,
-    seal_commitment_sha256: String,
-    settlement_authority_fingerprint_sha256: String,
     terminal_request_ack_identity_sha256: String,
 }
 
@@ -724,18 +720,6 @@ impl Stage7bStage8a4TerminalAuthority {
     }
     pub fn final_sequence(&self) -> u64 {
         self.final_sequence
-    }
-    pub fn stage6_checkpoint_sha256(&self) -> &str {
-        &self.stage6_checkpoint_sha256
-    }
-    pub fn seal_generation(&self) -> u64 {
-        self.seal_generation
-    }
-    pub fn seal_commitment_sha256(&self) -> &str {
-        &self.seal_commitment_sha256
-    }
-    pub fn settlement_authority_fingerprint_sha256(&self) -> &str {
-        &self.settlement_authority_fingerprint_sha256
     }
     pub fn terminal_request_ack_identity_sha256(&self) -> &str {
         &self.terminal_request_ack_identity_sha256
@@ -927,10 +911,6 @@ impl Stage7bRecoveryReadyOwner {
             canonical_command_sha256: ack.canonical_command_sha256,
             final_record_id: ack.final_record_id,
             final_sequence: ack.final_sequence,
-            stage6_checkpoint_sha256: ack.stage6_checkpoint_sha256,
-            seal_generation: ack.seal_generation,
-            seal_commitment_sha256: ack.seal_commitment_sha256,
-            settlement_authority_fingerprint_sha256: ack.settlement_authority_fingerprint_sha256,
             terminal_request_ack_identity_sha256: ack.terminal_request_ack_identity_sha256,
         })
     }

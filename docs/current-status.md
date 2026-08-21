@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-20.
+Status date: 2026-08-21.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -81,11 +81,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   terminal capability to public-opaque/external-nonconstructible for the
   existing `finam-gateway -> runtime-durable-service` direction. Design R3 is
   independently ACCEPTED and CLOSED at
-  `81727aae1f648f17961177fc9541e2483cbf07f2`. The controlled I4 implementation
+  `81727aae1f648f17961177fc9541e2483cbf07f2`. I4 Implementation R1 at
+  `1da0a65ae0246edd837a7e4c060c702ff4cc097b` was not accepted with zero P0,
+  two P1 and one P2: it accepted raw current snapshot DTOs/caller time, omitted
+  inherited micro-budget/strategy-instance barriers, exposed settlement-only
+  getters and traced only 40/12 implementation checks. The narrow R2 correction
   is now the active review candidate: complete mixed replay and already-current
   S1 issue one public-opaque terminal authority; FINAM derives private
-  timestamp-free ACK/current-readiness facts without an effect. All FINAM ACK,
-  readiness and facade types remain private.
+  timestamp-free ACK/current-readiness facts only through the opaque Stage8A1
+  issuer/current-source boundary and trusted current time. The 53-row
+  implementation matrix explicitly traces all 64 accepted design rows and
+  inherits the 46-case design negative gate. All FINAM ACK, readiness and
+  facade types remain private.
   ACK/readiness publication,
   Redis live consumption, FINAM POST/DELETE, broker dispatch,
   retry/resend/re-arm, runtime-live, real orders, Stage 8A-5+ and Stage 8B

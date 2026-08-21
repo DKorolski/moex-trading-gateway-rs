@@ -39,3 +39,16 @@ I4I-037,readiness expiry is minimum source expiry,source
 I4I-038,blocked readiness preserves ACK identity,test
 I4I-039,no execution capability or arm minted,source+checker
 I4I-040,no publication Redis FINAM send or live effect,checker
+I4I-041,I4 readiness consumes opaque trusted-current-source authority,source+compile-fail
+I4I-042,raw snapshot DTOs cannot directly mint readiness,source+checker
+I4I-043,trusted time is issuer sourced and not caller supplied,source+checker
+I4I-044,max_orders exactly one required,source+production-test
+I4I-045,consumed_orders exactly zero required,source+production-test
+I4I-046,terminal config and operational strategy-instance mapping exact,source+unit-test
+I4I-047,current-source authority root and evidence revalidated,source+production-test
+I4I-048,terminal capability omits checkpoint getter,compile-fail
+I4I-049,terminal capability omits seal-generation getter,compile-fail
+I4I-050,terminal capability omits seal-commitment getter,compile-fail
+I4I-051,terminal capability omits settlement-fingerprint getter,compile-fail
+I4I-052,downstream settlement-only getter access rejected,compile-fail
+I4I-053,all 64 accepted Design R3 requirements trace to implementation proofs,traceability+design-gate

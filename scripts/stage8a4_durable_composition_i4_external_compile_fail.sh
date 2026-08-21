@@ -14,6 +14,7 @@ edition = "2021"
 
 [dependencies]
 runtime-durable-service = { path = "$repo_root/crates/runtime-durable-service" }
+finam-gateway = { path = "$repo_root/crates/finam-gateway" }
 serde_json = "1"
 EOF
 
@@ -56,5 +57,19 @@ fn consume(value: Stage7bStage8a4DurableBatchReceipt) { let _ = value.into_termi
 fn main() { let _ = consume; }'
 check_fail raw_mint 'use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
 fn main() { let _ = Stage7bStage8a4TerminalAuthority::from_raw_journal; }'
+check_fail checkpoint_getter 'use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+fn consume(value: Stage7bStage8a4TerminalAuthority) { let _ = value.stage6_checkpoint_sha256(); }
+fn main() { let _ = consume; }'
+check_fail seal_generation_getter 'use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+fn consume(value: Stage7bStage8a4TerminalAuthority) { let _ = value.seal_generation(); }
+fn main() { let _ = consume; }'
+check_fail seal_commitment_getter 'use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+fn consume(value: Stage7bStage8a4TerminalAuthority) { let _ = value.seal_commitment_sha256(); }
+fn main() { let _ = consume; }'
+check_fail settlement_fingerprint_getter 'use runtime_durable_service::Stage7bStage8a4TerminalAuthority;
+fn consume(value: Stage7bStage8a4TerminalAuthority) { let _ = value.settlement_authority_fingerprint_sha256(); }
+fn main() { let _ = consume; }'
+check_fail trusted_sources_literal 'use finam_gateway::Stage8a1TrustedCurrentSources;
+fn main() { let _ = Stage8a1TrustedCurrentSources {}; }'
 
-echo "stage8a4-i4-external-compile-fail: PASS positive=1 negative=7"
+echo "stage8a4-i4-external-compile-fail: PASS positive=1 negative=12"
