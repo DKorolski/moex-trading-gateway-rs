@@ -87,13 +87,14 @@ was not frozen because the default current-tree CI still used an obsolete Stage 
 scanner. GOV-CI-1A retired that terminal authority at the history-preserving merge
 `1dea519cbf2affc3d99866fdae66bbddbafefa24` without changing canonical `ci.yml`.
 GOV-CI-1B was independently accepted at `13f659f` and merged to `main` by
-`7bc9fda`; GOV-CI-1 is closed. Stage 8B-D R2 is the active docs/checker-only
-design correction. It retains the max-one command architecture and adds exact
-build/feature/toolchain binding, keyed account binding, a formal safe-closure
-state machine, the Stage 11 three-session promotion gate and reachable-action
-coverage. Its acceptance may open only Stage 8B-S specification work. Stage
-8B-S implementation, execution, FINAM POST/DELETE, Redis live consumption,
-broker dispatch, runtime-live, real orders and Stage 12 remain closed.
+`7bc9fda`; GOV-CI-1 is closed. Stage 8B-D R2 was independently accepted at
+`f296d0b` and merged tree-identically to `main` by `50ed538`. Stage 8B-S is the
+active specification/checker-only slice. It converts the accepted max-one
+effect design into an exact linear API/type-state, causal build, keyed endpoint,
+five-boundary control, six-window crash/restart and Stage 11 coverage contract.
+Its acceptance may open only Stage 8B-I no-send implementation and deterministic
+rehearsal. Execution, FINAM POST/DELETE, Redis live consumption, broker dispatch,
+runtime-live, real orders, Stage 8B-P/X and Stage 12 remain closed.
 
 ### Accepted lineage and transition history
 

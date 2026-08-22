@@ -36,9 +36,10 @@ independently accepted and closed at `4a11688`; it reconstructs the private
 read-only issuer from terminal/root authority and preserves historical ACK
 facts when current readiness is unavailable. Stage 8A-5 is independently
 accepted and closed at `bf58b47`; Stage 8A is formally closed. GOV-CI-1B is
-accepted and merged at `7bc9fda`. Stage 8B-D R2 is the active
-docs/checker-only corrective design candidate for one bounded engineering
-effect. It is not implementation, operator-arm or execution authority.
+accepted and merged at `7bc9fda`. Stage 8B-D R2 is accepted at `f296d0b` and
+merged at `50ed538`. Stage 8B-S is the active specification/checker-only slice
+for the future linear bounded-effect topology. It is not implementation,
+operator-arm or execution authority.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
 strategy orders and Stage 8B execution authority remain closed.
@@ -100,8 +101,8 @@ cargo test --workspace --doc
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 # Current authoritative governance gate:
 bash scripts/current_tree_ci_gate.sh
-# Active Stage 8B-D R2 design/checker gate:
-bash scripts/stage8b_design_gate.sh
+# Active Stage 8B-S specification/checker gate:
+bash scripts/stage8b_spec_gate.sh
 ```
 
 Historical stage gates remain in the repository as immutable lineage evidence;

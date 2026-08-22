@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "stage": "8B-S",
+  "status": "specification_checker_only_candidate",
+  "branch": "stage8b-s",
+  "accepted_stage8b_d": {
+    "candidate_ref": "f296d0be782b8aa550a20e27600ba16826214349",
+    "merge_ref": "50ed5382fdbe2d62ed253d65a312f951e2a267ff",
+    "accepted_tree": "f40e2e5f40d7e3ed1dd5f5a252832734265094df",
+    "handoff_sha256": "ac351d9c03c98d59e90affeb423dbb7fff2cd3722b3d601889c53ae90c6cc06b",
+    "review_sha256": "ba624781b59741aae1c59acbf430f897c7c591ac78aecc9e0a0463883ffacaa0"
+  },
+  "accepted_stage8a5_ref": "bf58b47fdef8af774a4107455dfcc6204e594283",
+  "accepted_gov_ci_merge_ref": "7bc9fdab190e011111b15ebdf2f35ff2263a8e34",
+  "phase_order": ["8B-D", "8B-S", "8B-I", "8B-P", "8B-X"],
+  "sole_composition": {
+    "crate": "finam-gateway",
+    "visibility": "pub(crate)",
+    "consumes_stage8a1_current_capability": true,
+    "consumes_stage7b_durable_authority": true,
+    "parallel_transport_forbidden": true,
+    "runtime_dependency_forbidden": true,
+    "public_output": "redacted_diagnostic_only"
+  },
+  "linear_types": [
+    "Stage8bExecutionQualifiedBuild",
+    "Stage8bKeyedAccountBinding",
+    "Stage8bFreshContractAuthority",
+    "Stage8bAcceptedRunSpec",
+    "Stage8bOperatorArm",
+    "Stage8bFreshPreflightApproved",
+    "Stage8bAttemptCommitOwner",
+    "Stage8bSealedAttemptCommitted",
+    "Stage8bExactTransportPermit",
+    "Stage8bPossibleEffectOwner",
+    "Stage8bDurableClosureOwner",
+    "Stage8bClosureReceipt"
+  ],
+  "forbidden_traits": ["Clone", "Copy", "Default", "Debug", "Serialize", "Deserialize"],
+  "causal_build": {
+    "build_from_extracted_accepted_archive": true,
+    "archive_member_and_mode_verification": true,
+    "pre_and_post_build_tree_verification": true,
+    "offline_build_after_dependency_preparation": true,
+    "cargo_lock_and_all_manifests_bound": true,
+    "toolchain_target_profile_binary_bound": true,
+    "canonical_metadata_projection_excludes_local_paths": true,
+    "resolved_feature_graph_required": true,
+    "broker_cli_m3j16_actual_one_shot": false,
+    "finam_gateway_m3j16_actual_one_shot": false,
+    "unknown_feature_state_authorizable": false
+  },
+  "privacy": {
+    "account_binding": "HMAC-SHA256",
+    "domain": "moex-stage8b-account-binding-v1\\u0000",
+    "minimum_key_bits": 256,
+    "exact_utf8_no_normalization": true,
+    "constant_time_verification": true,
+    "plain_digest_fallback": false,
+    "endpoint_identity_components": [
+      "method",
+      "route_template_id",
+      "keyed_account_binding",
+      "endpoint_renderer_sha256"
+    ],
+    "rendered_path_sha256_publishable": false,
+    "raw_account_export": false,
+    "secret_key_export": false
+  },
+  "run_contract": {
+    "max_effects": 1,
+    "allowed_actions": ["PLACE", "CANCEL"],
+    "place_order_type": "LIMIT",
+    "place_tif": "DAY",
+    "max_lots": 1,
+    "instrument": "IMOEXF@RTSX",
+    "cancel_same_durable_lifecycle": true,
+    "cancel_requires_currently_working": true,
+    "silent_rewrite_forbidden": true
+  },
+  "kill_switch_boundaries": [
+    "BeforeOperatorArm",
+    "FinalFreshPreflightBeforeAttempt",
+    "AfterFsyncAndCoveringSeal",
+    "ImmediatelyBeforeTransportWrite",
+    "BeforePostEffectContinuation"
+  ],
+  "freshness_sources": [
+    "trusted_clock",
+    "readiness",
+    "current_control",
+    "ownership",
+    "schedule",
+    "instrument",
+    "account_orders",
+    "positions",
+    "trades",
+    "exact_order",
+    "api_snapshot"
+  ],
+  "freshness_budgets_frozen_before": "8B-P",
+  "historical_ack_implies_current_readiness": false,
+  "crash_windows": [
+    "BeforeAttempt",
+    "AttemptCommittedNoTransport",
+    "PossibleSendNoResponse",
+    "ResponseNoDurableOutcome",
+    "DurableOutcomeNoPublication",
+    "RestartAtEveryBoundary"
+  ],
+  "recovery_rules": {
+    "response_no_durable_outcome": "broker_truth_only_never_resend",
+    "durable_outcome_no_publication": "settlement_publication_only_never_resend",
+    "automatic_retry": false,
+    "automatic_cleanup": false,
+    "broker_truth_may_rewrite_identity": false
+  },
+  "closure_states": [
+    "Stage8BClosedSafe",
+    "ResidualWorkingOrder",
+    "ResidualPosition",
+    "OutcomeUnknown",
+    "BrokerTruthConflict"
+  ],
+  "stage11": {
+    "minimum_complete_active_sessions": 3,
+    "consecutive_trading_days_after_last_blocking_fix": true,
+    "no_activity_session_sufficient": false,
+    "representative_lifecycle_coverage_required": true,
+    "deterministic_replay_for_unobserved_reachable_paths": true,
+    "separate_recovery_qualification": true,
+    "oracle_source_build_binary_config_profile_hash_bound": true,
+    "calendar_and_exclusions_frozen_before_series": true
+  },
+  "promotion_gates": {
+    "fresh_official_finam_contract_before": "8B-P",
+    "material_contract_drift_blocks": true,
+    "branch_protection_or_equivalent_before": "8B-P",
+    "immutable_action_and_toolchain_pins_before": "8B-P"
+  },
+  "next_if_accepted": "8B-I_no_send_implementation_and_crash_replay",
+  "closed_surfaces": {
+    "production_implementation": true,
+    "operator_arming": true,
+    "finam_post_delete": true,
+    "network_send": true,
+    "redis_live": true,
+    "ack_readiness_publication": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "market_protective_replace_multileg": true,
+    "stage8b_p": true,
+    "stage8b_x": true,
+    "stage12": true
+  },
+  "acceptance_matrix_rows": 80,
+  "negative_cases": 60
+}

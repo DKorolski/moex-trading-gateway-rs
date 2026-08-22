@@ -1,0 +1,64 @@
+# Stage 8B-S negative inventory
+
+Every mutation must be rejected by `stage8b_spec_check.py --no-git`.
+
+1. predecessor candidate ref drift;
+2. predecessor merge ref drift;
+3. predecessor accepted tree drift;
+4. R2 handoff digest drift;
+5. R2 review digest drift;
+6. Stage 8A5 ref drift;
+7. GOV merge ref drift;
+8. phase order drift;
+9. composition crate drift;
+10. composition becomes public;
+11. Stage 8A capability not consumed;
+12. Stage 7B authority not consumed;
+13. parallel transport allowed;
+14. runtime dependency allowed;
+15. public raw transport output;
+16. missing linear type;
+17. authority type cloneable;
+18. authority type serializable;
+19. build not from accepted archive;
+20. archive modes unverified;
+21. no pre/post build tree verification;
+22. build may fetch mutable dependencies;
+23. Cargo.lock/manifests unbound;
+24. toolchain/profile/binary unbound;
+25. local paths retained in metadata identity;
+26. declaration-only feature evidence accepted;
+27. broker-cli legacy feature enabled;
+28. finam-gateway legacy feature enabled;
+29. unknown feature state accepted;
+30. plain account digest accepted;
+31. weak HMAC key accepted;
+32. account normalization allowed;
+33. non-constant-time verification allowed;
+34. plain digest fallback allowed;
+35. endpoint identity omits keyed binding;
+36. rendered raw-account path digest publishable;
+37. raw account export allowed;
+38. secret key export allowed;
+39. run allows two effects;
+40. MARKET PLACE allowed;
+41. non-DAY PLACE allowed;
+42. quantity exceeds one lot;
+43. instrument drift;
+44. CANCEL may target another lifecycle;
+45. CANCEL target need not be working;
+46. silent action rewrite allowed;
+47. kill-switch boundary removed;
+48. freshness source removed;
+49. freshness budget not frozen before 8B-P;
+50. historical ACK implies current readiness;
+51. crash window removed;
+52. ambiguous response permits resend;
+53. durable outcome publication failure permits resend;
+54. automatic retry allowed;
+55. broker truth may rewrite identity;
+56. safe closure state removed;
+57. two Stage 11 sessions accepted;
+58. no-activity sessions treated as sufficient;
+59. unobserved reachable paths need no replay;
+60. any closed surface opened.
