@@ -17,4 +17,4 @@ bash -n scripts/stage8b_spec_gate.sh
 cargo fmt --all -- --check
 git diff --check
 
-echo "stage8b-spec-gate: PASS rows=80 negatives=60 specification=true implementation=false execution=false finam=false redis=false dispatch=false live=false stage8b_i=false stage8b_p=false stage8b_x=false stage12=false"
+echo "stage8b-spec-gate: PASS rows=100 negatives=90 corrective_specification=true implementation=false execution=false finam=false redis=false dispatch=false live=false stage8b_i=false stage8b_p=false stage8b_xt=false stage8b_xe=false stage12=false"

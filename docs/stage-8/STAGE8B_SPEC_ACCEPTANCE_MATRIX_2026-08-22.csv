@@ -7,15 +7,15 @@ S-005,lineage,R2 independent review digest exact,authority,pending
 S-006,lineage,Stage8A5 accepted ref exact,authority,pending
 S-007,lineage,GOV accepted merge ref exact,authority,pending
 S-008,scope,phase order D-S-I-P-X exact,authority+spec,pending
-S-009,scope,specification and checker changes only,git diff,pending
+S-009,scope,corrective specification and checker changes only,git diff,pending
 S-010,scope,acceptance opens only 8B-I no-send,authority+spec,pending
-S-011,composition,sole composition root in finam-gateway,authority+spec,pending
-S-012,composition,Stage8A current capability consumed by value,authority+spec,pending
-S-013,composition,Stage7B durable authority consumed by value,authority+spec,pending
-S-014,composition,parallel transport forbidden,authority+closed-surface,pending
-S-015,composition,runtime dependency forbidden,authority+spec,pending
-S-016,composition,public output redacted diagnostic only,authority+spec,pending
-S-017,types,all twelve linear types named,authority+spec,pending
+S-011,composition,one public non-authority operator facade,authority+spec,pending
+S-012,composition,one private composition root consumes Stage8A capability,authority+spec,pending
+S-013,composition,private root consumes Stage7B durable authority,authority+spec,pending
+S-014,composition,parallel transport and public authority exposure forbidden,authority+closed-surface,pending
+S-015,composition,runtime dependency and cross-crate private-root access forbidden,authority+spec,pending
+S-016,composition,public facade returns redacted diagnostic only,authority+spec,pending
+S-017,types,all twelve R2 linear types named,authority+spec,pending
 S-018,types,authority values crate-private with private fields,spec,pending
 S-019,types,authority values are non-cloneable and non-copyable,authority+spec,pending
 S-020,types,authority values are non-debug and non-serializable,authority+spec,pending
@@ -32,8 +32,8 @@ S-030,build,fully resolved feature graph required,authority+spec,pending
 S-031,build,broker-cli legacy actual feature false,authority+spec,pending
 S-032,build,finam-gateway legacy actual feature false,authority+spec,pending
 S-033,build,unknown feature state non-authorizable,authority+spec,pending
-S-034,privacy,HMAC-SHA256 account binding exact,authority+spec,pending
-S-035,privacy,domain-separated exact UTF-8 account input,authority+spec,pending
+S-034,privacy,HMAC-SHA256 account binding byte exact,authority+golden-vector,pending
+S-035,privacy,ASCII domain plus hex 00 plus u32be and exact UTF-8,authority+golden-vector,pending
 S-036,privacy,operator key at least 256 bits outside artifacts,authority+spec,pending
 S-037,privacy,constant-time local verification,authority+spec,pending
 S-038,privacy,no plain digest fallback,authority+spec,pending
@@ -79,3 +79,23 @@ S-077,stage11,calendar exclusions thresholds frozen before series,authority+spec
 S-078,promotion,fresh official FINAM contract required before 8B-P,authority+spec,pending
 S-079,promotion,branch protection or equivalent and immutable pins before 8B-P,authority+spec,pending
 S-080,closure,all execution live Redis dispatch Stage12 surfaces closed,authority+closed-surface,pending
+S-081,lineage,S is additive over exact accepted R2 authority hash,authority+checker,pending
+S-082,facade,positive broker-cli facade fixture required for 8B-I,authority+spec,pending
+S-083,facade,private root and linear types cross-crate compile-fail required,authority+spec,pending
+S-084,privacy,golden HMAC vector independently recomputes exact bytes,checker+authority,pending
+S-085,run,canonical exact max notional bound into run spec,authority+spec,pending
+S-086,run,max notional checked before attempt and immediately before transport,authority+spec,pending
+S-087,network,exact TLS api.finam.ru method and route templates bound,authority+spec,pending
+S-088,network,redirect proxy alternate host generic request and retry forbidden,authority+spec,pending
+S-089,arm,durable arm states and uniqueness key frozen,authority+spec,pending
+S-090,arm,restart cannot reconstruct arm preflight or send authority,authority+spec,pending
+S-091,preflight,K1 arm issuance then K2 exact-arm-owned preflight,authority+spec,pending
+S-092,preflight,owner ambiguity lifecycle truth readiness schedule predicates explicit,authority+spec,pending
+S-093,build,exact Cargo and rustc Vv field inventory frozen,authority+spec,pending
+S-094,stage11,ALOR owner FINAM disabled M10 divergence and CLI rules explicit,authority+spec,pending
+S-095,builder,accepted Stage8A2 ref source and builder bridge pinned,authority+spec,pending
+S-096,builder,independent serializer and raw getter exposure forbidden,authority+spec,pending
+S-097,classifier,Model A accepted Stage8A3 private bridge pinned,authority+spec,pending
+S-098,classifier,classifier is not truth and all effects reconcile from broker truth,authority+spec,pending
+S-099,transport,8B-XT no-effect adapter review independently precedes 8B-XE,authority+spec,pending
+S-100,closure,8B-I P XT XE real effects and Stage12 remain closed,authority+closed-surface,pending

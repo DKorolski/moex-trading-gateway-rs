@@ -26,10 +26,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 8B-D R2 was independently accepted at
   `f296d0be782b8aa550a20e27600ba16826214349` and merged tree-identically to
   `main` by `50ed5382fdbe2d62ed253d65a312f951e2a267ff`.
-- The only active slice is Stage 8B-S, a specification/checker-only package for
-  the future linear API/type-state and durable topology. It freezes causal build
-  provenance, privacy-safe endpoint identity, five current kill-switch
-  boundaries, six distinct crash windows and Stage 11 evidence sufficiency.
+- Stage 8B-S R1 at `a675a772e02fa6da1a33973127542696019eb2f7`
+  retained the architecture but was not frozen. The only active slice is
+  corrective Stage 8B-S R2, still specification/checker-only. It resolves the
+  public operator facade/private root topology, byte-exact HMAC authority,
+  complete R2 invariant projection, K1→arm→K2 chronology, accepted Stage 8A-2/
+  8A-3 successor seams and separate no-effect 8B-XT review before 8B-XE.
   Stage 8B-I implementation, operator arming, FINAM execution, Redis live
   consumption, broker dispatch, runtime-live, real orders and Stage 12 remain
   closed.
@@ -127,10 +129,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   authorized. ACK/readiness publication, Redis XADD/XACK and live consumption,
   FINAM POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real
   orders and Stage 8B execution remain CLOSED.
-- Stage 8B-D R2 is independently accepted and merged. Stage 8B-S is the only
-  active candidate. It is specification/checker-only and freezes the exact
-  API/type-state and durability topology for the accepted five-phase path.
-  Acceptance of 8B-S may open only Stage 8B-I no-send implementation and
+- Stage 8B-D R2 is independently accepted and merged. Stage 8B-S R1 was not
+  frozen; corrective Stage 8B-S R2 is the only active candidate. It remains
+  specification/checker-only and freezes the exact API/type-state and durability
+  topology for the accepted five-phase path. Acceptance of S R2 may open only
+  Stage 8B-I no-send implementation and
   deterministic rehearsal. It does not authorize transport, operator arming or
   a real request.
 

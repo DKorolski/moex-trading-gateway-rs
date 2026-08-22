@@ -37,8 +37,9 @@ read-only issuer from terminal/root authority and preserves historical ACK
 facts when current readiness is unavailable. Stage 8A-5 is independently
 accepted and closed at `bf58b47`; Stage 8A is formally closed. GOV-CI-1B is
 accepted and merged at `7bc9fda`. Stage 8B-D R2 is accepted at `f296d0b` and
-merged at `50ed538`. Stage 8B-S is the active specification/checker-only slice
-for the future linear bounded-effect topology. It is not implementation,
+merged at `50ed538`. Stage 8B-S R1 at `a675a77` retained the architecture but
+was not frozen. Corrective Stage 8B-S R2 is the active specification/checker-only
+slice for the future linear bounded-effect topology. It is not implementation,
 operator-arm or execution authority.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real

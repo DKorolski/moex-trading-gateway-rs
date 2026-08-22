@@ -1,35 +1,60 @@
 {
-  "schema_version": 1,
-  "stage": "8B-S",
-  "status": "specification_checker_only_candidate",
-  "branch": "stage8b-s",
+  "schema_version": 2,
+  "stage": "8B-S-R2",
+  "status": "corrective_specification_checker_only_candidate",
+  "branch": "stage8b-s-r2",
+  "retained_stage8b_s_r1": {
+    "source_ref": "a675a772e02fa6da1a33973127542696019eb2f7",
+    "handoff_sha256": "5f875e1cbd2ae9491f1ae4c50d53022f8949dfbabc5a81240ce1a2ef7124f570",
+    "review_sha256": "04ffd2f762cb0bb054d4435736dfbc68ab6b238c2eeb2739a3a9fe8df9fa425f"
+  },
   "accepted_stage8b_d": {
     "candidate_ref": "f296d0be782b8aa550a20e27600ba16826214349",
     "merge_ref": "50ed5382fdbe2d62ed253d65a312f951e2a267ff",
     "accepted_tree": "f40e2e5f40d7e3ed1dd5f5a252832734265094df",
+    "authority_sha256": "83e85722fcf41e6abdd215569c4337f6c83994baeafbae47c5ad80bb9e935d09",
     "handoff_sha256": "ac351d9c03c98d59e90affeb423dbb7fff2cd3722b3d601889c53ae90c6cc06b",
     "review_sha256": "ba624781b59741aae1c59acbf430f897c7c591ac78aecc9e0a0463883ffacaa0"
   },
+  "additive_over_exact_stage8b_d": true,
+  "s_fields_may_weaken_or_override_stage8b_d": false,
   "accepted_stage8a5_ref": "bf58b47fdef8af774a4107455dfcc6204e594283",
   "accepted_gov_ci_merge_ref": "7bc9fdab190e011111b15ebdf2f35ff2263a8e34",
   "phase_order": ["8B-D", "8B-S", "8B-I", "8B-P", "8B-X"],
-  "sole_composition": {
+  "stage8b_x_subphases": ["8B-XT_no_effect_real_adapter_qualification", "8B-XE_separately_authorized_one_effect"],
+  "public_operator_facade": {
     "crate": "finam-gateway",
+    "name": "invoke_stage8b_operator_once",
+    "input_type": "Stage8bOperatorInvocationRequest",
+    "output_type": "Stage8bOperatorDiagnostic",
+    "error_type": "Stage8bOperatorFacadeError",
+    "authority_bearing": false,
+    "accepted_input_fields": ["invocation_id", "accepted_run_package_path", "local_manifest_root"],
+    "raw_account_url_method_header_body_token_client_transport_allowed": false,
+    "capability_or_arm_input_output_allowed": false,
+    "returns_redacted_diagnostic_only": true,
+    "positive_cross_crate_fixture_required_in_8b_i": true
+  },
+  "private_composition_root": {
+    "crate": "finam-gateway",
+    "name": "compose_stage8b_effect_authority",
     "visibility": "pub(crate)",
+    "single_root_required": true,
+    "cross_crate_accessible": false,
     "consumes_stage8a1_current_capability": true,
     "consumes_stage7b_durable_authority": true,
     "parallel_transport_forbidden": true,
     "runtime_dependency_forbidden": true,
-    "public_output": "redacted_diagnostic_only"
+    "compile_fail_privacy_required_in_8b_i": true
   },
   "linear_types": [
     "Stage8bExecutionQualifiedBuild",
     "Stage8bKeyedAccountBinding",
     "Stage8bFreshContractAuthority",
     "Stage8bAcceptedRunSpec",
+    "Stage8bK1ControlApproved",
     "Stage8bOperatorArm",
     "Stage8bFreshPreflightApproved",
-    "Stage8bAttemptCommitOwner",
     "Stage8bSealedAttemptCommitted",
     "Stage8bExactTransportPermit",
     "Stage8bPossibleEffectOwner",
@@ -43,29 +68,32 @@
     "pre_and_post_build_tree_verification": true,
     "offline_build_after_dependency_preparation": true,
     "cargo_lock_and_all_manifests_bound": true,
-    "toolchain_target_profile_binary_bound": true,
     "canonical_metadata_projection_excludes_local_paths": true,
     "resolved_feature_graph_required": true,
+    "exact_toolchain_fields": ["cargo_version", "toolchain_channel", "target_triple", "rustc_release", "rustc_commit_hash", "rustc_commit_date", "rustc_host", "rustc_llvm_version", "profile", "package", "binary_target", "binary_sha256"],
     "broker_cli_m3j16_actual_one_shot": false,
     "finam_gateway_m3j16_actual_one_shot": false,
     "unknown_feature_state_authorizable": false
   },
   "privacy": {
     "account_binding": "HMAC-SHA256",
-    "domain": "moex-stage8b-account-binding-v1\\u0000",
+    "domain_ascii": "moex-stage8b-account-binding-v1",
+    "domain_suffix_hex": "00",
+    "length_encoding": "u32be",
     "minimum_key_bits": 256,
     "exact_utf8_no_normalization": true,
     "constant_time_verification": true,
     "plain_digest_fallback": false,
-    "endpoint_identity_components": [
-      "method",
-      "route_template_id",
-      "keyed_account_binding",
-      "endpoint_renderer_sha256"
-    ],
+    "endpoint_identity_components": ["method", "route_template_id", "keyed_account_binding", "endpoint_renderer_sha256"],
     "rendered_path_sha256_publishable": false,
     "raw_account_export": false,
-    "secret_key_export": false
+    "secret_key_export": false,
+    "golden_vector": {
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "account_utf8_hex": "4143435f544553545f30303031",
+      "message_hex": "6d6f65782d737461676538622d6163636f756e742d62696e64696e672d7631000000000d4143435f544553545f30303031",
+      "expected_hmac_sha256": "60106309bd530bd0cec76c3fa78fa4b7004ef34e44447fb7cd78fdda87444435"
+    }
   },
   "run_contract": {
     "max_effects": 1,
@@ -74,40 +102,59 @@
     "place_tif": "DAY",
     "max_lots": 1,
     "instrument": "IMOEXF@RTSX",
+    "max_notional": {
+      "representation": "canonical_exact_decimal_string",
+      "required_in_accepted_run_spec": true,
+      "checked_before_attempt_recording": true,
+      "checked_immediately_before_transport": true
+    },
     "cancel_same_durable_lifecycle": true,
     "cancel_requires_currently_working": true,
     "silent_rewrite_forbidden": true
   },
-  "kill_switch_boundaries": [
-    "BeforeOperatorArm",
-    "FinalFreshPreflightBeforeAttempt",
-    "AfterFsyncAndCoveringSeal",
-    "ImmediatelyBeforeTransportWrite",
-    "BeforePostEffectContinuation"
-  ],
-  "freshness_sources": [
-    "trusted_clock",
-    "readiness",
-    "current_control",
-    "ownership",
-    "schedule",
-    "instrument",
-    "account_orders",
-    "positions",
-    "trades",
-    "exact_order",
-    "api_snapshot"
-  ],
+  "network_policy": {
+    "tls_required": true,
+    "exact_host": "api.finam.ru",
+    "place_method": "POST",
+    "place_route_template": "PlaceOrderV1",
+    "cancel_method": "DELETE",
+    "cancel_route_template": "CancelOrderV1",
+    "redirects_allowed": false,
+    "proxy_allowed": false,
+    "alternate_host_allowed": false,
+    "arbitrary_request_api_allowed": false,
+    "automatic_transport_retry_allowed": false
+  },
+  "arm_durability": {
+    "states": ["NeverIssued", "IssuedUnconsumed", "Consumed", "AttemptCommitted", "Closed"],
+    "uniqueness_key_fields": ["durable_request_id", "client_order_id", "accepted_run_sha256", "keyed_account_binding"],
+    "issuance_append_fsync_covering_seal_required": true,
+    "durable_one_use": true,
+    "second_arm_same_request_allowed": false,
+    "restart_reconstructs_arm_or_send_authority": false,
+    "restart_reconstructs_observation_reconciliation_only": true,
+    "expiry_before_transport_required": true,
+    "exact_command_build_config_policy_endpoint_body_account_run_bound": true
+  },
+  "kill_switch_chronology": ["K1_fresh_control_before_arm_issuance", "DurableArmIssuedForExactRun", "K2_exact_arm_preflight_owns_arm", "AttemptAppendFsyncCoveringSeal", "K3_after_seal", "K4_immediately_before_transport_write", "K5_before_post_effect_continuation"],
+  "k2_preflight": {
+    "cannot_exist_before_exact_arm": true,
+    "owns_exact_arm_and_run_identity": true,
+    "arm_substitution_after_k2_allowed": false,
+    "reuse_with_second_arm_allowed": false,
+    "restart_reconstructs_preflight": false,
+    "single_finam_execution_owner_required": true,
+    "zero_ambiguity_required": true,
+    "zero_unresolved_lifecycle_required": true,
+    "fresh_broker_truth_required": true,
+    "fresh_readiness_required": true,
+    "fresh_schedule_required": true,
+    "caller_built_or_cached_authority_allowed": false
+  },
+  "freshness_sources": ["trusted_clock", "readiness", "current_control", "ownership", "schedule", "instrument", "account_orders", "positions", "trades", "exact_order", "api_snapshot"],
   "freshness_budgets_frozen_before": "8B-P",
   "historical_ack_implies_current_readiness": false,
-  "crash_windows": [
-    "BeforeAttempt",
-    "AttemptCommittedNoTransport",
-    "PossibleSendNoResponse",
-    "ResponseNoDurableOutcome",
-    "DurableOutcomeNoPublication",
-    "RestartAtEveryBoundary"
-  ],
+  "crash_windows": ["BeforeAttempt", "AttemptCommittedNoTransport", "PossibleSendNoResponse", "ResponseNoDurableOutcome", "DurableOutcomeNoPublication", "RestartAtEveryBoundary"],
   "recovery_rules": {
     "response_no_durable_outcome": "broker_truth_only_never_resend",
     "durable_outcome_no_publication": "settlement_publication_only_never_resend",
@@ -115,22 +162,47 @@
     "automatic_cleanup": false,
     "broker_truth_may_rewrite_identity": false
   },
-  "closure_states": [
-    "Stage8BClosedSafe",
-    "ResidualWorkingOrder",
-    "ResidualPosition",
-    "OutcomeUnknown",
-    "BrokerTruthConflict"
-  ],
+  "stage8a_successor_seams": {
+    "stage8a2_accepted_ref": "16180ac4f8eab761b3b055c1f5515f62cd94bfb9",
+    "stage8a2_source_sha256": "1026a24962bf45de8653c80ba095f892af35523da58f4fa4fccad706fb023653",
+    "builder_bridge": "compose_stage8b_private_request_parts_from_stage8a2",
+    "existing_builders_only": ["build_place_order_request", "build_cancel_order_request"],
+    "independent_serializer_allowed": false,
+    "raw_specs_getters_and_body_remain_private": true,
+    "stage8a3_model": "A_reuse_accepted_classifier",
+    "stage8a3_accepted_ref": "012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d",
+    "stage8a3_source_sha256": "f34c9fef5e219dad15b0a00ce1eaf63311ec9f77d1997e422b977e5c8ffe47b3",
+    "classifier_bridge": "classify_stage8b_transport_observation_with_stage8a3",
+    "classifier_output_is_execution_truth": false,
+    "all_possible_effects_reconcile_from_broker_truth": true,
+    "second_or_third_classifier_allowed": false
+  },
+  "closure_states": ["Stage8BClosedSafe", "ResidualWorkingOrder", "ResidualPosition", "OutcomeUnknown", "BrokerTruthConflict"],
   "stage11": {
     "minimum_complete_active_sessions": 3,
     "consecutive_trading_days_after_last_blocking_fix": true,
+    "blocking_change_resets_series": true,
     "no_activity_session_sufficient": false,
     "representative_lifecycle_coverage_required": true,
     "deterministic_replay_for_unobserved_reachable_paths": true,
     "separate_recovery_qualification": true,
+    "alor_sole_execution_owner_oracle": true,
+    "finam_post_delete_and_dispatch_disabled": true,
+    "same_final_m10_decision_boundary_required": true,
+    "zero_unexplained_blocking_divergences_required": true,
+    "semantic_cli_overrides_allowed": false,
     "oracle_source_build_binary_config_profile_hash_bound": true,
     "calendar_and_exclusions_frozen_before_series": true
+  },
+  "real_adapter_review": {
+    "xt_name": "8B-XT",
+    "xt_no_broker_effect": true,
+    "xt_independent_acceptance_before_xe": true,
+    "xt_local_controlled_non_broker_tests": true,
+    "xt_permit_only_reachability": true,
+    "xe_name": "8B-XE",
+    "xe_first_possible_broker_effect": true,
+    "adapter_review_and_first_effect_same_event_allowed": false
   },
   "promotion_gates": {
     "fresh_official_finam_contract_before": "8B-P",
@@ -141,7 +213,7 @@
   "next_if_accepted": "8B-I_no_send_implementation_and_crash_replay",
   "closed_surfaces": {
     "production_implementation": true,
-    "operator_arming": true,
+    "operator_arm_issuance": true,
     "finam_post_delete": true,
     "network_send": true,
     "redis_live": true,
@@ -150,10 +222,12 @@
     "runtime_live": true,
     "real_orders": true,
     "market_protective_replace_multileg": true,
+    "stage8b_i": true,
     "stage8b_p": true,
-    "stage8b_x": true,
+    "stage8b_xt": true,
+    "stage8b_xe": true,
     "stage12": true
   },
-  "acceptance_matrix_rows": 80,
-  "negative_cases": 60
+  "acceptance_matrix_rows": 100,
+  "negative_cases": 90
 }

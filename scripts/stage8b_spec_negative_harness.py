@@ -27,7 +27,7 @@ MUTATIONS = [
     ("drop-stage7b", '"consumes_stage7b_durable_authority": true', '"consumes_stage7b_durable_authority": false'),
     ("parallel-transport", '"parallel_transport_forbidden": true', '"parallel_transport_forbidden": false'),
     ("runtime-dependency", '"runtime_dependency_forbidden": true', '"runtime_dependency_forbidden": false'),
-    ("raw-public-output", '"public_output": "redacted_diagnostic_only"', '"public_output": "raw_request_parts"'),
+    ("raw-public-output", '"returns_redacted_diagnostic_only": true', '"returns_redacted_diagnostic_only": false'),
     ("remove-linear-type", '    "Stage8bExactTransportPermit",\n', ""),
     ("cloneable-authority", '"forbidden_traits": ["Clone", ', '"forbidden_traits": ['),
     ("serializable-authority", ', "Serialize", "Deserialize"]', ', "Deserialize"]'),
@@ -36,7 +36,7 @@ MUTATIONS = [
     ("tree-unverified", '"pre_and_post_build_tree_verification": true', '"pre_and_post_build_tree_verification": false'),
     ("mutable-fetch", '"offline_build_after_dependency_preparation": true', '"offline_build_after_dependency_preparation": false'),
     ("manifests-unbound", '"cargo_lock_and_all_manifests_bound": true', '"cargo_lock_and_all_manifests_bound": false'),
-    ("toolchain-unbound", '"toolchain_target_profile_binary_bound": true', '"toolchain_target_profile_binary_bound": false'),
+    ("toolchain-unbound", '"rustc_llvm_version", ', ''),
     ("local-path-metadata", '"canonical_metadata_projection_excludes_local_paths": true', '"canonical_metadata_projection_excludes_local_paths": false'),
     ("declared-features-only", '"resolved_feature_graph_required": true', '"resolved_feature_graph_required": false'),
     ("legacy-cli", '"broker_cli_m3j16_actual_one_shot": false', '"broker_cli_m3j16_actual_one_shot": true'),
@@ -47,7 +47,7 @@ MUTATIONS = [
     ("normalize-account", '"exact_utf8_no_normalization": true', '"exact_utf8_no_normalization": false'),
     ("timing-leak", '"constant_time_verification": true', '"constant_time_verification": false'),
     ("plain-fallback", '"plain_digest_fallback": false', '"plain_digest_fallback": true'),
-    ("endpoint-no-binding", '      "keyed_account_binding",\n', ""),
+    ("endpoint-no-binding", '"keyed_account_binding", ', ""),
     ("rendered-path-digest", '"rendered_path_sha256_publishable": false', '"rendered_path_sha256_publishable": true'),
     ("raw-account", '"raw_account_export": false', '"raw_account_export": true'),
     ("secret-export", '"secret_key_export": false', '"secret_key_export": true'),
@@ -59,20 +59,50 @@ MUTATIONS = [
     ("cancel-other-lifecycle", '"cancel_same_durable_lifecycle": true', '"cancel_same_durable_lifecycle": false'),
     ("cancel-terminal", '"cancel_requires_currently_working": true', '"cancel_requires_currently_working": false'),
     ("silent-rewrite", '"silent_rewrite_forbidden": true', '"silent_rewrite_forbidden": false'),
-    ("remove-kill-boundary", '    "ImmediatelyBeforeTransportWrite",\n', ""),
-    ("remove-fresh-source", '    "account_orders",\n', ""),
+    ("remove-kill-boundary", '"K4_immediately_before_transport_write", ', ""),
+    ("remove-fresh-source", '"account_orders", ', ""),
     ("unfrozen-freshness", '"freshness_budgets_frozen_before": "8B-P"', '"freshness_budgets_frozen_before": "8B-X"'),
     ("historical-ready", '"historical_ack_implies_current_readiness": false', '"historical_ack_implies_current_readiness": true'),
-    ("remove-crash-window", '    "ResponseNoDurableOutcome",\n', ""),
+    ("remove-crash-window", '"ResponseNoDurableOutcome", ', ""),
     ("response-resend", '"response_no_durable_outcome": "broker_truth_only_never_resend"', '"response_no_durable_outcome": "retry"'),
     ("publication-resend", '"durable_outcome_no_publication": "settlement_publication_only_never_resend"', '"durable_outcome_no_publication": "resend"'),
     ("automatic-retry", '"automatic_retry": false', '"automatic_retry": true'),
     ("truth-rewrites", '"broker_truth_may_rewrite_identity": false', '"broker_truth_may_rewrite_identity": true'),
-    ("remove-closure", '    "ResidualPosition",\n', ""),
+    ("remove-closure", '"ResidualPosition", ', ""),
     ("two-sessions", '"minimum_complete_active_sessions": 3', '"minimum_complete_active_sessions": 2'),
     ("empty-session", '"no_activity_session_sufficient": false', '"no_activity_session_sufficient": true'),
     ("no-replay", '"deterministic_replay_for_unobserved_reachable_paths": true', '"deterministic_replay_for_unobserved_reachable_paths": false'),
     ("open-network", '"network_send": true', '"network_send": false'),
+    ("remove-public-facade", '"name": "invoke_stage8b_operator_once"', '"name": "removed_facade"'),
+    ("facade-raw-transport", '"raw_account_url_method_header_body_token_client_transport_allowed": false', '"raw_account_url_method_header_body_token_client_transport_allowed": true'),
+    ("root-cross-crate", '"cross_crate_accessible": false', '"cross_crate_accessible": true'),
+    ("facade-authority-output", '"capability_or_arm_input_output_allowed": false', '"capability_or_arm_input_output_allowed": true'),
+    ("domain-text-drift", '"domain_ascii": "moex-stage8b-account-binding-v1"', '"domain_ascii": "moex-stage8b-account-binding-v2"'),
+    ("literal-domain-suffix", '"domain_suffix_hex": "00"', '"domain_suffix_hex": "5c7530303030"'),
+    ("removed-domain-suffix", '"domain_suffix_hex": "00"', '"domain_suffix_hex": ""'),
+    ("little-endian-length", '"length_encoding": "u32be"', '"length_encoding": "u32le"'),
+    ("golden-key-drift", '"key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"', '"key_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'),
+    ("golden-account-drift", '"account_utf8_hex": "4143435f544553545f30303031"', '"account_utf8_hex": "4143435f544553545f30303032"'),
+    ("golden-message-drift", '"message_hex": "6d6f65782d737461676538622d6163636f756e742d62696e64696e672d7631000000000d4143435f544553545f30303031"', '"message_hex": "00"'),
+    ("golden-digest-drift", '"expected_hmac_sha256": "60106309bd530bd0cec76c3fa78fa4b7004ef34e44447fb7cd78fdda87444435"', '"expected_hmac_sha256": "' + '0' * 64 + '"'),
+    ("r2-authority-drift", '"authority_sha256": "83e85722fcf41e6abdd215569c4337f6c83994baeafbae47c5ad80bb9e935d09"', '"authority_sha256": "' + '7' * 64 + '"'),
+    ("s-overrides-r2", '"s_fields_may_weaken_or_override_stage8b_d": false', '"s_fields_may_weaken_or_override_stage8b_d": true'),
+    ("max-notional-optional", '"required_in_accepted_run_spec": true', '"required_in_accepted_run_spec": false'),
+    ("max-notional-no-transport-recheck", '"checked_immediately_before_transport": true', '"checked_immediately_before_transport": false'),
+    ("finam-host-drift", '"exact_host": "api.finam.ru"', '"exact_host": "example.invalid"'),
+    ("tls-optional", '"tls_required": true', '"tls_required": false'),
+    ("redirects-open", '"redirects_allowed": false', '"redirects_allowed": true'),
+    ("proxy-open", '"proxy_allowed": false', '"proxy_allowed": true'),
+    ("transport-retry-open", '"automatic_transport_retry_allowed": false', '"automatic_transport_retry_allowed": true'),
+    ("second-arm-open", '"second_arm_same_request_allowed": false', '"second_arm_same_request_allowed": true'),
+    ("restart-arm-open", '"restart_reconstructs_arm_or_send_authority": false', '"restart_reconstructs_arm_or_send_authority": true'),
+    ("preflight-owner-missing", '"single_finam_execution_owner_required": true', '"single_finam_execution_owner_required": false'),
+    ("toolchain-field-reduced", '"rustc_commit_date", ', ''),
+    ("stage11-alor-owner-weakened", '"alor_sole_execution_owner_oracle": true', '"alor_sole_execution_owner_oracle": false'),
+    ("k2-before-arm", '"K1_fresh_control_before_arm_issuance", "DurableArmIssuedForExactRun"', '"K2_exact_arm_preflight_owns_arm", "DurableArmIssuedForExactRun"'),
+    ("second-serializer-open", '"independent_serializer_allowed": false', '"independent_serializer_allowed": true'),
+    ("third-classifier-open", '"stage8a3_model": "A_reuse_accepted_classifier"', '"stage8a3_model": "C_new_classifier"'),
+    ("xt-not-independent", '"xt_independent_acceptance_before_xe": true', '"xt_independent_acceptance_before_xe": false'),
 ]
 
 
@@ -87,8 +117,8 @@ def mutate(tree: Path, old: str, new: str) -> None:
 
 
 def main() -> None:
-    if len(MUTATIONS) != 60:
-        raise SystemExit(f"stage8b-spec-negative: FAIL inventory={len(MUTATIONS)} expected=60")
+    if len(MUTATIONS) != 90:
+        raise SystemExit(f"stage8b-spec-negative: FAIL inventory={len(MUTATIONS)} expected=90")
     with tempfile.TemporaryDirectory(prefix="stage8b-spec-negative-") as raw:
         base = Path(raw) / "base"
         shutil.copytree(ROOT / "docs", base / "docs")
@@ -103,7 +133,7 @@ def main() -> None:
             if result.returncode == 0:
                 raise SystemExit(f"stage8b-spec-negative: FAIL {name}")
             print(f"PASS {name}")
-    print("stage8b-spec-negative: PASS cases=60/60")
+    print("stage8b-spec-negative: PASS cases=90/90")
 
 
 if __name__ == "__main__":

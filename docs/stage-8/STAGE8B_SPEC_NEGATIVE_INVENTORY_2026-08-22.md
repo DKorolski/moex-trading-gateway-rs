@@ -62,3 +62,33 @@ Every mutation must be rejected by `stage8b_spec_check.py --no-git`.
 58. no-activity sessions treated as sufficient;
 59. unobserved reachable paths need no replay;
 60. any closed surface opened.
+61. public operator facade removed;
+62. public facade accepts raw transport inputs;
+63. private composition root made public;
+64. public facade returns an authority/capability;
+65. HMAC domain ASCII text/version drift;
+66. HMAC suffix encodes literal escape text instead of hex `00`;
+67. HMAC separator removed;
+68. account-length encoding changed from `u32be`;
+69. golden test key bytes drift;
+70. golden account UTF-8 bytes drift;
+71. golden encoded message bytes drift;
+72. golden HMAC digest drift;
+73. accepted Stage 8B-D authority hash drift;
+74. S allowed to weaken or override R2;
+75. exact maximum notional absent from run spec;
+76. maximum notional not rechecked at both boundaries;
+77. exact FINAM host drift;
+78. TLS no longer required;
+79. redirects allowed;
+80. proxy allowed;
+81. automatic transport retry allowed;
+82. second durable arm allowed for one request;
+83. restart reconstructs arm/send authority;
+84. explicit K2 single-owner/ambiguity/lifecycle predicate removed;
+85. exact Cargo/rustc field inventory reduced;
+86. Stage 11 ALOR-owner/FINAM-disabled/M10/divergence/CLI invariant weakened;
+87. K2 preflight can precede or substitute the exact arm;
+88. Stage 8A-2 source/builder bridge drifts or a second serializer opens;
+89. Stage 8A-3 Model A bridge drifts or another classifier opens;
+90. 8B-XT no-effect acceptance no longer independently precedes 8B-XE.

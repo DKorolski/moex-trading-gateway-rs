@@ -11,12 +11,14 @@ native protective orders and unattended execution remain CLOSED.
 
 Stage 8B-D R1 architecture was retained but not frozen. GOV-CI-1 is now closed.
 Stage 8B-D R2 was independently accepted at `f296d0b` and merged to `main` by
-`50ed538`. Stage 8B-S is the active specification/checker-only candidate. It
-retains the separately reviewed D/S/I/P/X order and may open only Stage 8B-I
-no-send implementation and deterministic crash/replay rehearsal after
-independent acceptance. It freezes the exact linear type-state topology, causal
-build provenance, privacy-safe endpoint identity, five kill-switch boundaries,
-six crash windows and Stage 11 evidence sufficiency.
+`50ed538`. Stage 8B-S R1 at `a675a77` retained the architecture but was not
+frozen. Corrective Stage 8B-S R2 is the active specification/checker-only
+candidate. It retains the D/S/I/P/X order, subdivides X into independently
+reviewed no-effect XT and one-effect XE, and may open only Stage 8B-I no-send
+implementation and deterministic crash/replay rehearsal after independent
+acceptance. It freezes one public non-authority facade over one private root,
+byte-exact HMAC evidence, complete R2 invariant projection, K1→arm→K2 chronology
+and the accepted Stage 8A-2/8A-3 successor seams.
 
 It does not authorize Stage 8B-I, a real FINAM POST/DELETE or any broker effect.
 
