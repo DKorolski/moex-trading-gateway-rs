@@ -23,10 +23,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - GOV-CI-1B was independently accepted at
   `13f659f368cbb36a2d38c2b0b88efa376f0b690c` and merged to `main` by
   `7bc9fdab190e011111b15ebdf2f35ff2263a8e34`. GOV-CI-1 is closed.
-- The only active slice is Stage 8B-D R2, a docs/checker-only correction for
-  exact build/feature/toolchain binding, keyed account binding, residual-state
-  safe closure, the Stage 11 multi-session parity gate and reachable-action
-  coverage. Stage 8B-S, operator arming, FINAM execution, Redis live
+- Stage 8B-D R2 was independently accepted at
+  `f296d0be782b8aa550a20e27600ba16826214349` and merged tree-identically to
+  `main` by `50ed5382fdbe2d62ed253d65a312f951e2a267ff`.
+- Stage 8B-S R1 at `a675a772e02fa6da1a33973127542696019eb2f7`
+  retained the architecture but was not frozen. R2 at `831eec8` closed the R1
+  findings but was not frozen because IT followed exact P authorization. The
+  only active slice is corrective Stage 8B-S R3, still specification/checker-only. It retains the
+  public operator facade/private root topology, byte-exact HMAC authority,
+  complete R2 invariant projection, K1→arm→K2 chronology, accepted Stage 8A-2/
+  8A-3 successor seams and freezes `I → IT(no effect) → P(exact build) → XE`.
+  Stage 8B-I implementation, operator arming, FINAM execution, Redis live
   consumption, broker dispatch, runtime-live, real orders and Stage 12 remain
   closed.
 
@@ -123,12 +130,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   authorized. ACK/readiness publication, Redis XADD/XACK and live consumption,
   FINAM POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real
   orders and Stage 8B execution remain CLOSED.
-- Stage 8B-D R2 is the only active candidate. It is docs/checker-only and
-  freezes a five-phase path for exactly one later operator-armed command:
-  design, implementation specification, no-send rehearsal, GET-only
-  preflight/run authorization, then separately accepted one-shot execution and
-  closure. Acceptance of 8B-D may open only the implementation specification.
-  It does not authorize transport, operator arming or a real request.
+- Stage 8B-D R2 is independently accepted and merged. Stage 8B-S R1 was not
+  frozen; R2 at `831eec8` was also not frozen due to phase ordering. Corrective
+  Stage 8B-S R3 is the only active candidate. It remains
+  specification/checker-only and freezes the exact API/type-state and durability
+  topology for the exact adapter-qualified path. Acceptance of S R3 may open only
+  Stage 8B-I no-send implementation and
+  deterministic rehearsal. It does not authorize transport, operator arming or
+  a real request.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

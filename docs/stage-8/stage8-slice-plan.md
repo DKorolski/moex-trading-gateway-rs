@@ -10,13 +10,18 @@ Redis live consumption, broker dispatch, runtime-live, real strategy orders,
 native protective orders and unattended execution remain CLOSED.
 
 Stage 8B-D R1 architecture was retained but not frozen. GOV-CI-1 is now closed.
-Stage 8B-D R2 is the active docs/checker-only corrective design candidate. It
-retains the separately reviewed D/S/I/P/X order and may open only Stage 8B-S
-implementation specification after independent acceptance. It additionally
-freezes build/feature/toolchain identity, keyed account binding, safe residual
-closure, Stage 11 multi-session parity and reachable-action coverage.
+Stage 8B-D R2 was independently accepted at `f296d0b` and merged to `main` by
+`50ed538`. Stage 8B-S R1 at `a675a77` retained the architecture but was not
+frozen. Corrective Stage 8B-S R2 at `831eec8` closed its prior findings but was
+not frozen because adapter qualification followed exact P authorization.
+Stage 8B-S R3 is the active specification/checker-only candidate. It freezes
+`D/S/I/IT(no effect)/P(exact build)/XE(one effect)` and may open only Stage 8B-I no-send
+implementation and deterministic crash/replay rehearsal after independent
+acceptance. It retains one public non-authority facade over one private root,
+byte-exact HMAC evidence, complete R2 invariant projection, K1→arm→K2 chronology
+and the accepted Stage 8A-2/8A-3 successor seams.
 
-It does not authorize a real FINAM POST/DELETE.
+It does not authorize Stage 8B-I, a real FINAM POST/DELETE or any broker effect.
 
 ## Mandatory Stage 8A order
 

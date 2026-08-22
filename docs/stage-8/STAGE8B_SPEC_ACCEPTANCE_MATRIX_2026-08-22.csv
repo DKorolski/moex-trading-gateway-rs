@@ -1,0 +1,111 @@
+id,area,requirement,evidence,status
+S-001,lineage,R2 candidate ref exact,authority+git,pending
+S-002,lineage,R2 merge ref exact,authority+git,pending
+S-003,lineage,R2 accepted tree exact,authority+git,pending
+S-004,lineage,R2 handoff digest exact,authority,pending
+S-005,lineage,R2 independent review digest exact,authority,pending
+S-006,lineage,Stage8A5 accepted ref exact,authority,pending
+S-007,lineage,GOV accepted merge ref exact,authority,pending
+S-008,scope,phase order D-S-I-P-X exact,authority+spec,pending
+S-009,scope,corrective specification and checker changes only,git diff,pending
+S-010,scope,acceptance opens only 8B-I no-send,authority+spec,pending
+S-011,composition,one public non-authority operator facade,authority+spec,pending
+S-012,composition,one private composition root consumes Stage8A capability,authority+spec,pending
+S-013,composition,private root consumes Stage7B durable authority,authority+spec,pending
+S-014,composition,parallel transport and public authority exposure forbidden,authority+closed-surface,pending
+S-015,composition,runtime dependency and cross-crate private-root access forbidden,authority+spec,pending
+S-016,composition,public facade returns redacted diagnostic only,authority+spec,pending
+S-017,types,all twelve R2 linear types named,authority+spec,pending
+S-018,types,authority values crate-private with private fields,spec,pending
+S-019,types,authority values are non-cloneable and non-copyable,authority+spec,pending
+S-020,types,authority values are non-debug and non-serializable,authority+spec,pending
+S-021,types,transitions consume owned predecessor,spec,pending
+S-022,types,no raw route body token response or retry getter,spec,pending
+S-023,build,build from extracted accepted archive,authority+spec,pending
+S-024,build,archive digest member mode and source ref verified,authority+spec,pending
+S-025,build,pre and post build tree identity verified,authority+spec,pending
+S-026,build,offline build after dependency preparation,authority+spec,pending
+S-027,build,Cargo.lock and all manifests bound,authority+spec,pending
+S-028,build,toolchain target profile package and binary bound,authority+spec,pending
+S-029,build,canonical metadata projection excludes local paths,authority+spec,pending
+S-030,build,fully resolved feature graph required,authority+spec,pending
+S-031,build,broker-cli legacy actual feature false,authority+spec,pending
+S-032,build,finam-gateway legacy actual feature false,authority+spec,pending
+S-033,build,unknown feature state non-authorizable,authority+spec,pending
+S-034,privacy,HMAC-SHA256 account binding byte exact,authority+golden-vector,pending
+S-035,privacy,ASCII domain plus hex 00 plus u32be and exact UTF-8,authority+golden-vector,pending
+S-036,privacy,operator key at least 256 bits outside artifacts,authority+spec,pending
+S-037,privacy,constant-time local verification,authority+spec,pending
+S-038,privacy,no plain digest fallback,authority+spec,pending
+S-039,privacy,endpoint identity includes method and template ID,authority+spec,pending
+S-040,privacy,endpoint identity includes keyed account binding,authority+spec,pending
+S-041,privacy,rendered raw-account path digest not publishable,authority+spec,pending
+S-042,privacy,raw account and secret key never exported,authority+spec,pending
+S-043,run,max one effect and exactly PLACE or CANCEL,authority+spec,pending
+S-044,run,PLACE exact LIMIT DAY one lot IMOEXF,authority+spec,pending
+S-045,run,CANCEL exact durable same-lifecycle working order,authority+spec,pending
+S-046,run,run binds all immutable identities and generations,spec,pending
+S-047,run,silent action quantity type TIF rewrite forbidden,authority+spec,pending
+S-048,kill-switch,K1 before operator arm,authority+spec,pending
+S-049,kill-switch,K2 before attempt and consumption,authority+spec,pending
+S-050,kill-switch,K3 after fsync and covering seal,authority+spec,pending
+S-051,kill-switch,K4 immediately before transport write,authority+spec,pending
+S-052,kill-switch,K5 before post-effect continuation,authority+spec,pending
+S-053,kill-switch,all reads fresh readable RunAllowed and generation-bound,spec,pending
+S-054,freshness,eleven current source classes named,authority+spec,pending
+S-055,freshness,numeric age and skew budgets frozen before 8B-P,authority+spec,pending
+S-056,freshness,stale missing future incomplete caller values fail closed,spec,pending
+S-057,freshness,historical ACK cannot imply current readiness,authority+spec,pending
+S-058,crash,BeforeAttempt distinct and definitely no-send,authority+spec,pending
+S-059,crash,AttemptCommittedNoTransport distinct and no-retry,authority+spec,pending
+S-060,crash,PossibleSendNoResponse requires reconciliation,authority+spec,pending
+S-061,crash,ResponseNoDurableOutcome broker-truth only never resend,authority+spec,pending
+S-062,crash,DurableOutcomeNoPublication settlement-only never resend,authority+spec,pending
+S-063,crash,RestartAtEveryBoundary reconstructs least authority,authority+spec,pending
+S-064,reconciliation,only Stage8A4 and Stage7B accepted path used,spec,pending
+S-065,reconciliation,broker truth cannot rewrite durable identity,authority+spec,pending
+S-066,closure,exact five closure classifications,authority+spec,pending
+S-067,closure,safe predicate requires exact terminal baseline and clean guard,spec,pending
+S-068,closure,residual unknown conflict durably disarm,authority+spec,pending
+S-069,closure,manual resolution requires fresh reconciliation,spec,pending
+S-070,closure,no automatic cleanup retry resend or re-arm,authority+spec,pending
+S-071,stage11,minimum three consecutive complete active sessions,authority+spec,pending
+S-072,stage11,no-activity elapsed session is insufficient,authority+spec,pending
+S-073,stage11,representative lifecycle coverage required,authority+spec,pending
+S-074,stage11,unobserved reachable paths require replay or more sessions,authority+spec,pending
+S-075,stage11,separate recovery qualification required,authority+spec,pending
+S-076,stage11,ALOR oracle and FINAM paper identities hash-bound,authority+spec,pending
+S-077,stage11,calendar exclusions thresholds frozen before series,authority+spec,pending
+S-078,promotion,fresh official FINAM contract required before 8B-P,authority+spec,pending
+S-079,promotion,branch protection or equivalent and immutable pins before 8B-P,authority+spec,pending
+S-080,closure,all execution live Redis dispatch Stage12 surfaces closed,authority+closed-surface,pending
+S-081,lineage,S is additive over exact accepted R2 authority hash,authority+checker,pending
+S-082,facade,positive broker-cli facade fixture required for 8B-I,authority+spec,pending
+S-083,facade,private root and linear types cross-crate compile-fail required,authority+spec,pending
+S-084,privacy,golden HMAC vector independently recomputes exact bytes,checker+authority,pending
+S-085,run,canonical exact max notional bound into run spec,authority+spec,pending
+S-086,run,max notional checked before attempt and immediately before transport,authority+spec,pending
+S-087,network,exact TLS api.finam.ru method and route templates bound,authority+spec,pending
+S-088,network,redirect proxy alternate host generic request and retry forbidden,authority+spec,pending
+S-089,arm,durable arm states and uniqueness key frozen,authority+spec,pending
+S-090,arm,restart cannot reconstruct arm preflight or send authority,authority+spec,pending
+S-091,preflight,K1 arm issuance then K2 exact-arm-owned preflight,authority+spec,pending
+S-092,preflight,owner ambiguity lifecycle truth readiness schedule predicates explicit,authority+spec,pending
+S-093,build,exact Cargo and rustc Vv field inventory frozen,authority+spec,pending
+S-094,stage11,ALOR owner FINAM disabled M10 divergence and CLI rules explicit,authority+spec,pending
+S-095,builder,accepted Stage8A2 ref source and builder bridge pinned,authority+spec,pending
+S-096,builder,independent serializer and raw getter exposure forbidden,authority+spec,pending
+S-097,classifier,Model A accepted Stage8A3 private bridge pinned,authority+spec,pending
+S-098,classifier,classifier is not truth and all effects reconcile from broker truth,authority+spec,pending
+S-099,transport,8B-IT no-effect adapter qualification independently precedes exact 8B-P and 8B-XE,authority+spec,pending
+S-100,closure,8B-I IT P XE real effects and Stage12 remain closed,authority+closed-surface,pending
+S-101,phase,adapter qualification precedes exact 8B-P,authority+spec,pending
+S-102,binding,8B-P build SHA equals accepted adapter-qualified build SHA,authority+spec,pending
+S-103,binding,8B-P source commit and archive equal accepted adapter-qualified source,authority+spec,pending
+S-104,binding,8B-P executable SHA equals accepted adapter-qualified executable,authority+spec,pending
+S-105,binding,endpoint renderer and body schema identities match accepted adapter,authority+spec,pending
+S-106,drift,post-P source Cargo feature toolchain config API endpoint or executable drift invalidates P,authority+spec,pending
+S-107,phase,8B-XE rejects P issued before adapter qualification,authority+spec,pending
+S-108,binding,8B-XE rejects any build different from exact P-bound build,authority+spec,pending
+S-109,authority,no automatic P refresh or authority carry-over,authority+spec,pending
+S-110,requalification,material drift requires relevant adapter requalification fresh preflight and new P,authority+spec,pending
