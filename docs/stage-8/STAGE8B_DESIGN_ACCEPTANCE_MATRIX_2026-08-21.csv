@@ -1,0 +1,71 @@
+id,area,requirement,evidence
+8BD-001,lineage,Accepted Stage 8A5 ref and review digest are exact,authority/checker
+8BD-002,lineage,Accepted GOV-CI-1B and merge refs are exact,authority/checker
+8BD-003,lineage,Retained non-frozen R1 ref is explicit,authority
+8BD-004,scope,R2 is docs/checker-only with no Cargo Rust or execution delta,git-diff/closed-surface
+8BD-005,governance,GOV-CI-1 is recorded closed after accepted merge,authority/status
+8BD-006,next,R2 acceptance opens Stage 8B-S specification only,authority/doc
+8BD-007,phases,D S I P X remain separately reviewed in exact order,authority
+8BD-008,command,Future run selects exactly one PLACE or CANCEL command,authority
+8BD-009,command,No automatic follow-up or LimitCancel pair,authority
+8BD-010,scope,IMOEXF and IMOEXF@RTSX are exact,authority
+8BD-011,scope,PLACE is LIMIT DAY maximum one lot,authority
+8BD-012,scope,MARKET protective replace and multi-leg remain closed,authority
+8BD-013,build,Execution-qualified build manifest is mandatory,authority/doc
+8BD-014,build,Source commit and archive digest are bound,authority
+8BD-015,build,Cargo.lock and complete Cargo.toml inventory digests are bound,authority
+8BD-016,build,rustc Vv commit host LLVM Cargo version and target are bound,authority
+8BD-017,build,Cargo metadata dependency graph digest is bound,authority
+8BD-018,build,Complete package target profile default and explicit feature set is bound,authority
+8BD-019,build,Final executable digest and target name are bound,authority
+8BD-020,build,Config policy instrument API endpoint and body digests are bound,authority
+8BD-021,build,Legacy actual-send feature is explicitly false in both packages,authority/negative
+8BD-022,build,Missing unknown or enabled legacy feature is non-authorizable,authority
+8BD-023,build,Alternate real transport path outside capability chain is forbidden,authority
+8BD-024,build,Actions and Rust toolchain require immutable pins before protected evidence,authority
+8BD-025,account,Account privacy uses HMAC-SHA256 with domain separation,authority/doc
+8BD-026,account,Operator key is at least 256 bits and remains outside Git/handoff,authority
+8BD-027,account,Raw account ID remains outside Git logs CI and handoff,authority
+8BD-028,account,Plain unkeyed SHA-256 privacy binding is forbidden,authority/negative
+8BD-029,account,Exact UTF-8 account bytes and key generation are bound,authority
+8BD-030,account,Verification is constant-time with no normalization or fallback,authority
+8BD-031,arm,Arm is one-use expiring request/build/account bound and non-restartable,authority
+8BD-032,arm,Clone Serialize Default and second mint are forbidden,authority
+8BD-033,preflight,Fresh GET-only broker truth readiness schedule and trusted time are required,authority
+8BD-034,preflight,Caller snapshots and cached readiness cannot authorize,authority
+8BD-035,preflight,Build feature account and API contract matches are required,authority
+8BD-036,preflight,RunAllowed kill switch and single FINAM ownership are required,authority
+8BD-037,preflight,Zero ambiguity orphan and unresolved lifecycle are required,authority
+8BD-038,durability,Arm budget attempt fsync seal revalidation precede transport,authority/doc
+8BD-039,durability,Redis is not execution authority,authority
+8BD-040,retry,No retry resend or rearm after possible send,authority/doc
+8BD-041,ambiguity,Timeout partial write malformed success and possible-send errors are unknown,doc/negative
+8BD-042,reconciliation,Fresh exact order orders trades and instrument position truth are required,doc
+8BD-043,reconciliation,Empty stale account-wide counts do not prove absence or flat,doc
+8BD-044,reconciliation,Broker truth cannot rewrite durable identity,doc
+8BD-045,closure,Exactly five durable closure classifications are frozen,authority
+8BD-046,closure,Stage8BClosedSafe is the only accepted closure state,authority
+8BD-047,closure,Safe closure requires zero ambiguity unknown orphan and active target orders,authority
+8BD-048,closure,Safe closure requires exact terminal target lifecycle,authority
+8BD-049,closure,Target position must equal approved pre-run baseline,authority
+8BD-050,closure,Account guard journal seal outcome and signoff must be clean,authority
+8BD-051,closure,Residual working order needs manual or separately reviewed CANCEL,authority/doc
+8BD-052,closure,Residual position needs pre-approved manual emergency disposition,authority/doc
+8BD-053,closure,Manual action requires fresh reconciliation and cannot synthesize safe state,authority
+8BD-054,closure,Any residual unknown or conflict blocks new arms,authority
+8BD-055,network,Exact FINAM TLS host method route and approved parts are required,authority/doc
+8BD-056,network,Redirect proxy alternate host generic request and retry are forbidden,authority
+8BD-057,stage11,Stage 8B-X is engineering evidence and cannot authorize Stage 12,authority/doc
+8BD-058,stage11,At least three complete active consecutive trading sessions are required,authority
+8BD-059,stage11,Blocking semantic runtime or config fix resets the clean series,authority
+8BD-060,stage11,Separate restart reconnect gap-recovery qualification is required,authority
+8BD-061,stage11,ALOR is sole execution oracle and FINAM remains paper no-send,authority
+8BD-062,stage11,Frozen paper config enables strategy and forbids semantic CLI overrides,authority
+8BD-063,stage11,Same final M10 boundary and zero unexplained blocking divergence are required,authority
+8BD-064,stage11,Thresholds freeze before series and cannot widen post hoc,authority/doc
+8BD-065,coverage,Frozen config and source oracle produce machine-readable reachable actions,authority
+8BD-066,coverage,Accepted FINAM capabilities must cover every reachable action,authority
+8BD-067,coverage,MARKET CANCEL and protective subset qualify independently when reachable,authority
+8BD-068,coverage,Silent action or quantity rewriting is forbidden,authority
+8BD-069,coverage,Changed final config repeats Stage 11 and incomplete coverage blocks Stage 12,authority
+8BD-070,closed,FINAM Redis dispatch runtime-live real orders arming Stage8B-S and Stage12 stay closed,authority/closed-surface

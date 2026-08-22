@@ -86,12 +86,14 @@ Stage 8B-D R1 architecture was retained at `b3358ba` but the transition package
 was not frozen because the default current-tree CI still used an obsolete Stage 5
 scanner. GOV-CI-1A retired that terminal authority at the history-preserving merge
 `1dea519cbf2affc3d99866fdae66bbddbafefa24` without changing canonical `ci.yml`.
-The current authorized work is the separately reviewed `GOV-CI-1B` current-tree
-authority. After its independent acceptance, Stage 8B-D R2 is limited to design/checker
-corrections for build/feature binding, keyed account binding, safe residual closure,
-the Stage 11 multi-session promotion gate and reachable-action coverage. Stage 8B-S,
-execution, FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live
-and real orders remain closed.
+GOV-CI-1B was independently accepted at `13f659f` and merged to `main` by
+`7bc9fda`; GOV-CI-1 is closed. Stage 8B-D R2 is the active docs/checker-only
+design correction. It retains the max-one command architecture and adds exact
+build/feature/toolchain binding, keyed account binding, a formal safe-closure
+state machine, the Stage 11 three-session promotion gate and reachable-action
+coverage. Its acceptance may open only Stage 8B-S specification work. Stage
+8B-S implementation, execution, FINAM POST/DELETE, Redis live consumption,
+broker dispatch, runtime-live, real orders and Stage 12 remain closed.
 
 ### Accepted lineage and transition history
 
