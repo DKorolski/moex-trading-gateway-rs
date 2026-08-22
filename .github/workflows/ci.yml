@@ -13,8 +13,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Stage 5F runs the accepted B3F provenance harness from the exact
-          # immutable predecessor, not from the newer Stage 5F checkout.
+          # The current authority replays accepted Stage 8 slices from their
+          # immutable commits, so their objects must be available locally.
           fetch-depth: 0
 
       - name: Install Rust
@@ -23,59 +23,9 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
-      - name: Forbidden surface scan
-        run: bash scripts/forbidden_surface_scan.sh
-
-      - name: Forbidden surface negative harness
-        run: bash scripts/forbidden_surface_negative_harness.sh
+      - name: Current-tree authority gate
+        run: bash scripts/current_tree_ci_gate.sh
         timeout-minutes: 75
-
-      - name: Stage 5D additive freeze negative harness
-        run: python3 scripts/stage5d_additive_freeze_negative_harness.py
-        timeout-minutes: 5
-
-      - name: Stage 5F execution authority and accepted B3F snapshot provenance
-        run: |
-          set -euo pipefail
-          verify_sha256() {
-            local expected="$1"
-            local path="$2"
-            local actual
-            actual="$(sha256sum "$path" | awk '{print $1}')"
-            test "$actual" = "$expected"
-          }
-          verify_sha256 "b3fdcfb4bf000f36de333b61cf542da1ca0452ed7638c3f68195bf8fa8d264b8" "scripts/stage5f_atomic_hybrid_semantics_gate.sh"
-          verify_sha256 "a6544804357a31120b29c0bfebb2e85457e4976b2849a0642d03704038358315" "scripts/stage5f_ci_snapshot_inheritance_check.py"
-          verify_sha256 "1a8cf90caf9b1500f01eee0fe31108e22592a4b14eceb025b53296c2f098bef4" "scripts/stage5f_atomic_hybrid_semantics_negative_harness.py"
-          verify_sha256 "3fc47139563f3b1a4949879f354aca9e01b08ae90c16e01455430146742f0b06" "scripts/stage5f_ci_snapshot_inheritance_negative_harness.py"
-          python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance
-        timeout-minutes: 20
-
-      # Fetch only the dependency graph locked by the accepted B3F snapshot.
-      - name: Prime immutable B3F dependency cache
-        run: |
-          set -euo pipefail
-          accepted_b3f_ref="e14654f7129aa61011931306140a3bfefe2fcfbc"
-          snapshot_root="$(mktemp -d "${TMPDIR:-/tmp}/stage5f-b3f-dependency-prefetch.XXXXXX")"
-          trap 'rm -rf "$snapshot_root"' EXIT
-          git cat-file -e "${accepted_b3f_ref}^{commit}"
-          git archive "$accepted_b3f_ref" | tar -x -C "$snapshot_root"
-          (
-            cd "$snapshot_root"
-            CARGO_NET_OFFLINE=false cargo fetch --locked
-          )
-        timeout-minutes: 10
-
-      - name: Stage 5F atomic Hybrid semantics gate
-        run: bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
-
-      - name: Stage 5F atomic Hybrid negative harness
-        run: python3 scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
-        timeout-minutes: 5
-
-      - name: Stage 5F CI snapshot-inheritance negative harness
-        run: python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
-        timeout-minutes: 5
 
       - name: No-Redis evidence smoke
         run: bash scripts/test_m4_3x_evidence_no_redis.sh
@@ -84,10 +34,16 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Cargo test
-        run: cargo test --all
+        run: cargo test --workspace --all-targets -- --test-threads=1
+
+      - name: Cargo release test
+        run: cargo test --workspace --release --all-targets -- --test-threads=1
+
+      - name: Cargo doctest
+        run: cargo test --workspace --doc
 
       - name: Cargo clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   redis-smoke:
     runs-on: ubuntu-latest

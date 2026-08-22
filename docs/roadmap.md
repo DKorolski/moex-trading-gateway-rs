@@ -82,9 +82,16 @@ explicit journal/S1/arm non-mutation proof.
 
 Stage 8A-5 aggregate acceptance is independently accepted and closed at
 `bf58b47fdef8af774a4107455dfcc6204e594283`; Stage 8A is formally closed. The
-current authorized work is a separate Stage 8B design package only. Stage 8B
-execution, FINAM POST/DELETE, Redis live consumption, broker dispatch,
-runtime-live and real orders remain closed.
+Stage 8B-D R1 architecture was retained at `b3358ba` but the transition package
+was not frozen because the default current-tree CI still used an obsolete Stage 5
+scanner. GOV-CI-1A retired that terminal authority at the history-preserving merge
+`1dea519cbf2affc3d99866fdae66bbddbafefa24` without changing canonical `ci.yml`.
+The current authorized work is the separately reviewed `GOV-CI-1B` current-tree
+authority. After its independent acceptance, Stage 8B-D R2 is limited to design/checker
+corrections for build/feature binding, keyed account binding, safe residual closure,
+the Stage 11 multi-session promotion gate and reachable-action coverage. Stage 8B-S,
+execution, FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live
+and real orders remain closed.
 
 ### Accepted lineage and transition history
 
