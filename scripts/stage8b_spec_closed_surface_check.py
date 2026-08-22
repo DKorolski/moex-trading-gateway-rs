@@ -35,7 +35,7 @@ def main() -> None:
     stage6 = ROOT / "crates/strategy-runtime-core/src/stage6d_live_core.rs"
     for name in ("redis_command_consumer_attached", "finam_transport_attached", "broker_network_dispatch_attached", "runtime_live_attached", "real_orders_enabled"):
         require_false_accessor(stage6, name)
-    print("stage8b-spec-closed-surface: PASS production=false workflow=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_i=false stage8b_p=false stage8b_xt=false stage8b_xe=false stage12=false")
+    print("stage8b-spec-closed-surface: PASS production=false workflow=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_i=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false")
 
 
 if __name__ == "__main__":

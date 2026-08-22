@@ -97,5 +97,15 @@ S-095,builder,accepted Stage8A2 ref source and builder bridge pinned,authority+s
 S-096,builder,independent serializer and raw getter exposure forbidden,authority+spec,pending
 S-097,classifier,Model A accepted Stage8A3 private bridge pinned,authority+spec,pending
 S-098,classifier,classifier is not truth and all effects reconcile from broker truth,authority+spec,pending
-S-099,transport,8B-XT no-effect adapter review independently precedes 8B-XE,authority+spec,pending
-S-100,closure,8B-I P XT XE real effects and Stage12 remain closed,authority+closed-surface,pending
+S-099,transport,8B-IT no-effect adapter qualification independently precedes exact 8B-P and 8B-XE,authority+spec,pending
+S-100,closure,8B-I IT P XE real effects and Stage12 remain closed,authority+closed-surface,pending
+S-101,phase,adapter qualification precedes exact 8B-P,authority+spec,pending
+S-102,binding,8B-P build SHA equals accepted adapter-qualified build SHA,authority+spec,pending
+S-103,binding,8B-P source commit and archive equal accepted adapter-qualified source,authority+spec,pending
+S-104,binding,8B-P executable SHA equals accepted adapter-qualified executable,authority+spec,pending
+S-105,binding,endpoint renderer and body schema identities match accepted adapter,authority+spec,pending
+S-106,drift,post-P source Cargo feature toolchain config API endpoint or executable drift invalidates P,authority+spec,pending
+S-107,phase,8B-XE rejects P issued before adapter qualification,authority+spec,pending
+S-108,binding,8B-XE rejects any build different from exact P-bound build,authority+spec,pending
+S-109,authority,no automatic P refresh or authority carry-over,authority+spec,pending
+S-110,requalification,material drift requires relevant adapter requalification fresh preflight and new P,authority+spec,pending

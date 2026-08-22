@@ -60,17 +60,17 @@ def check(path: str) -> dict[str, object]:
         marker = dict(line.split("=", 1) for line in archive.read("handoff-commit.txt").decode().splitlines() if "=" in line)
         evidence = json.loads(archive.read(EVIDENCE))
         manifest = json.loads(archive.read(MANIFEST))
-        if evidence.get("stage") != "8B-S-R2":
+        if evidence.get("stage") != "8B-S-R3":
             raise ValueError("stage mismatch")
         if evidence.get("source_ref") != marker.get("source_ref") or manifest.get("source_ref") != marker.get("source_ref"):
             raise ValueError("source mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive mismatch")
-        if evidence.get("acceptance_rows") != 100 or evidence.get("negative_cases") != 90:
+        if evidence.get("acceptance_rows") != 110 or evidence.get("negative_cases") != 100:
             raise ValueError("count mismatch")
         if evidence.get("specification_only") is not True:
             raise ValueError("specification scope mismatch")
-        for key in ("production_implementation", "stage8b_i", "stage8b_p", "stage8b_xt", "stage8b_xe", "operator_arm_issuance", "finam_post_delete", "network_send", "redis_live", "ack_readiness_publication", "broker_dispatch", "runtime_live", "real_orders", "stage12"):
+        for key in ("production_implementation", "stage8b_i", "stage8b_it", "stage8b_p", "stage8b_xe", "operator_arm_issuance", "finam_post_delete", "network_send", "redis_live", "ack_readiness_publication", "broker_dispatch", "runtime_live", "real_orders", "stage12"):
             if evidence.get(key) is not False:
                 raise ValueError(f"closed surface opened: {key}")
         if sha256(archive.read(GATE)) != evidence.get("gate_sha256") or sha256(archive.read(MANIFEST)) != evidence.get("manifest_sha256"):

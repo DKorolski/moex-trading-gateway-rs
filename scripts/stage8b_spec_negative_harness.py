@@ -20,7 +20,7 @@ MUTATIONS = [
     ("r2-review", "ba624781b59741aae1c59acbf430f897c7c591ac78aecc9e0a0463883ffacaa0", "4" * 64),
     ("stage8a5-ref", "bf58b47fdef8af774a4107455dfcc6204e594283", "5" * 40),
     ("gov-ref", "7bc9fdab190e011111b15ebdf2f35ff2263a8e34", "6" * 40),
-    ("phase-order", '"8B-I", "8B-P"', '"8B-P", "8B-I"'),
+    ("phase-order", '"8B-I", "8B-IT", "8B-P"', '"8B-I", "8B-P", "8B-IT"'),
     ("composition-crate", '"crate": "finam-gateway"', '"crate": "broker-cli"'),
     ("public-composition", '"visibility": "pub(crate)"', '"visibility": "pub"'),
     ("drop-stage8a", '"consumes_stage8a1_current_capability": true', '"consumes_stage8a1_current_capability": false'),
@@ -102,7 +102,17 @@ MUTATIONS = [
     ("k2-before-arm", '"K1_fresh_control_before_arm_issuance", "DurableArmIssuedForExactRun"', '"K2_exact_arm_preflight_owns_arm", "DurableArmIssuedForExactRun"'),
     ("second-serializer-open", '"independent_serializer_allowed": false', '"independent_serializer_allowed": true'),
     ("third-classifier-open", '"stage8a3_model": "A_reuse_accepted_classifier"', '"stage8a3_model": "C_new_classifier"'),
-    ("xt-not-independent", '"xt_independent_acceptance_before_xe": true', '"xt_independent_acceptance_before_xe": false'),
+    ("adapter-not-before-p", '"qualification_independently_accepted_before_exact_8b_p": true', '"qualification_independently_accepted_before_exact_8b_p": false'),
+    ("p-build-not-bound", '"p_build_sha_equals_accepted_adapter_build_sha": true', '"p_build_sha_equals_accepted_adapter_build_sha": false'),
+    ("p-source-not-bound", '"p_source_equals_accepted_adapter_source": true', '"p_source_equals_accepted_adapter_source": false'),
+    ("p-executable-not-bound", '"p_executable_equals_accepted_adapter_executable": true', '"p_executable_equals_accepted_adapter_executable": false'),
+    ("p-renderer-body-not-bound", '"p_endpoint_renderer_and_body_schema_equal_accepted_adapter": true', '"p_endpoint_renderer_and_body_schema_equal_accepted_adapter": false'),
+    ("post-p-drift-retains-authority", '"post_p_drift_invalidates_p": true', '"post_p_drift_invalidates_p": false'),
+    ("prequalification-p-accepted", '"p_issued_before_adapter_qualification_allowed": false', '"p_issued_before_adapter_qualification_allowed": true'),
+    ("xe-different-build", '"xe_requires_exact_p_bound_build": true', '"xe_requires_exact_p_bound_build": false'),
+    ("p-authority-carry-over", '"automatic_p_refresh_or_authority_carry_over_allowed": false', '"automatic_p_refresh_or_authority_carry_over_allowed": true'),
+    ("skip-requalification", '"material_drift_requires_adapter_requalification_where_relevant": true', '"material_drift_requires_adapter_requalification_where_relevant": false'),
+    ("skip-fresh-p-after-drift", '"material_drift_requires_fresh_contract_preflight_and_new_p": true', '"material_drift_requires_fresh_contract_preflight_and_new_p": false'),
 ]
 
 
@@ -117,8 +127,8 @@ def mutate(tree: Path, old: str, new: str) -> None:
 
 
 def main() -> None:
-    if len(MUTATIONS) != 90:
-        raise SystemExit(f"stage8b-spec-negative: FAIL inventory={len(MUTATIONS)} expected=90")
+    if len(MUTATIONS) != 100:
+        raise SystemExit(f"stage8b-spec-negative: FAIL inventory={len(MUTATIONS)} expected=100")
     with tempfile.TemporaryDirectory(prefix="stage8b-spec-negative-") as raw:
         base = Path(raw) / "base"
         shutil.copytree(ROOT / "docs", base / "docs")
@@ -133,7 +143,7 @@ def main() -> None:
             if result.returncode == 0:
                 raise SystemExit(f"stage8b-spec-negative: FAIL {name}")
             print(f"PASS {name}")
-    print("stage8b-spec-negative: PASS cases=90/90")
+    print("stage8b-spec-negative: PASS cases=100/100")
 
 
 if __name__ == "__main__":

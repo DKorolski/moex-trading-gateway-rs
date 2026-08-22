@@ -27,11 +27,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `f296d0be782b8aa550a20e27600ba16826214349` and merged tree-identically to
   `main` by `50ed5382fdbe2d62ed253d65a312f951e2a267ff`.
 - Stage 8B-S R1 at `a675a772e02fa6da1a33973127542696019eb2f7`
-  retained the architecture but was not frozen. The only active slice is
-  corrective Stage 8B-S R2, still specification/checker-only. It resolves the
+  retained the architecture but was not frozen. R2 at `831eec8` closed the R1
+  findings but was not frozen because IT followed exact P authorization. The
+  only active slice is corrective Stage 8B-S R3, still specification/checker-only. It retains the
   public operator facade/private root topology, byte-exact HMAC authority,
   complete R2 invariant projection, K1→arm→K2 chronology, accepted Stage 8A-2/
-  8A-3 successor seams and separate no-effect 8B-XT review before 8B-XE.
+  8A-3 successor seams and freezes `I → IT(no effect) → P(exact build) → XE`.
   Stage 8B-I implementation, operator arming, FINAM execution, Redis live
   consumption, broker dispatch, runtime-live, real orders and Stage 12 remain
   closed.
@@ -130,9 +131,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   FINAM POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real
   orders and Stage 8B execution remain CLOSED.
 - Stage 8B-D R2 is independently accepted and merged. Stage 8B-S R1 was not
-  frozen; corrective Stage 8B-S R2 is the only active candidate. It remains
+  frozen; R2 at `831eec8` was also not frozen due to phase ordering. Corrective
+  Stage 8B-S R3 is the only active candidate. It remains
   specification/checker-only and freezes the exact API/type-state and durability
-  topology for the accepted five-phase path. Acceptance of S R2 may open only
+  topology for the exact adapter-qualified path. Acceptance of S R3 may open only
   Stage 8B-I no-send implementation and
   deterministic rehearsal. It does not authorize transport, operator arming or
   a real request.

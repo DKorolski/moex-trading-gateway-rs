@@ -1,8 +1,13 @@
 {
-  "schema_version": 2,
-  "stage": "8B-S-R2",
+  "schema_version": 3,
+  "stage": "8B-S-R3",
   "status": "corrective_specification_checker_only_candidate",
-  "branch": "stage8b-s-r2",
+  "branch": "stage8b-s-r3",
+  "retained_stage8b_s_r2": {
+    "source_ref": "831eec8f830fa57e4ada8c135d803c34bea29298",
+    "handoff_sha256": "66a54c1948ca09cd06c97a19a7759a44c03522f47557c636e16fb1ff19d13f6d",
+    "review_sha256": "48c37291df87453ce342dd32dfc6e91d6d7630b1ea586c8dd51db048933861e6"
+  },
   "retained_stage8b_s_r1": {
     "source_ref": "a675a772e02fa6da1a33973127542696019eb2f7",
     "handoff_sha256": "5f875e1cbd2ae9491f1ae4c50d53022f8949dfbabc5a81240ce1a2ef7124f570",
@@ -20,8 +25,7 @@
   "s_fields_may_weaken_or_override_stage8b_d": false,
   "accepted_stage8a5_ref": "bf58b47fdef8af774a4107455dfcc6204e594283",
   "accepted_gov_ci_merge_ref": "7bc9fdab190e011111b15ebdf2f35ff2263a8e34",
-  "phase_order": ["8B-D", "8B-S", "8B-I", "8B-P", "8B-X"],
-  "stage8b_x_subphases": ["8B-XT_no_effect_real_adapter_qualification", "8B-XE_separately_authorized_one_effect"],
+  "phase_order": ["8B-D", "8B-S", "8B-I", "8B-IT", "8B-P", "8B-XE"],
   "public_operator_facade": {
     "crate": "finam-gateway",
     "name": "invoke_stage8b_operator_once",
@@ -195,14 +199,26 @@
     "calendar_and_exclusions_frozen_before_series": true
   },
   "real_adapter_review": {
-    "xt_name": "8B-XT",
-    "xt_no_broker_effect": true,
-    "xt_independent_acceptance_before_xe": true,
-    "xt_local_controlled_non_broker_tests": true,
-    "xt_permit_only_reachability": true,
+    "qualification_name": "8B-IT",
+    "qualification_no_broker_effect": true,
+    "qualification_independently_accepted_before_exact_8b_p": true,
+    "qualification_local_controlled_non_broker_tests": true,
+    "qualification_permit_only_reachability": true,
+    "accepted_adapter_identity_fields": ["source_commit", "source_archive_sha256", "cargo_manifests_sha256", "cargo_lock_sha256", "resolved_feature_graph_sha256", "resolved_dependency_graph_sha256", "toolchain_identity_sha256", "config_policy_sha256", "instrument_identity_sha256", "api_snapshot_sha256", "endpoint_renderer_sha256", "request_body_schema_sha256", "executable_sha256"],
+    "p_build_sha_equals_accepted_adapter_build_sha": true,
+    "p_source_equals_accepted_adapter_source": true,
+    "p_executable_equals_accepted_adapter_executable": true,
+    "p_endpoint_renderer_and_body_schema_equal_accepted_adapter": true,
     "xe_name": "8B-XE",
     "xe_first_possible_broker_effect": true,
-    "adapter_review_and_first_effect_same_event_allowed": false
+    "p_issued_before_adapter_qualification_allowed": false,
+    "adapter_review_and_first_effect_same_event_allowed": false,
+    "automatic_p_refresh_or_authority_carry_over_allowed": false,
+    "post_p_drift_fields": ["source", "cargo_manifests", "cargo_lock", "resolved_feature_graph", "toolchain", "dependencies", "config", "policy", "instrument", "api_snapshot", "endpoint_renderer", "request_body_schema", "executable"],
+    "post_p_drift_invalidates_p": true,
+    "material_drift_requires_adapter_requalification_where_relevant": true,
+    "material_drift_requires_fresh_contract_preflight_and_new_p": true,
+    "xe_requires_exact_p_bound_build": true
   },
   "promotion_gates": {
     "fresh_official_finam_contract_before": "8B-P",
@@ -224,10 +240,10 @@
     "market_protective_replace_multileg": true,
     "stage8b_i": true,
     "stage8b_p": true,
-    "stage8b_xt": true,
+    "stage8b_it": true,
     "stage8b_xe": true,
     "stage12": true
   },
-  "acceptance_matrix_rows": 100,
-  "negative_cases": 90
+  "acceptance_matrix_rows": 110,
+  "negative_cases": 100
 }

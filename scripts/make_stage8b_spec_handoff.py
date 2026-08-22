@@ -16,8 +16,8 @@ import stage8b_spec_handoff_safety_check as safety
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
-BRANCH = "stage8b-s-r2"
-BASE = "a675a772e02fa6da1a33973127542696019eb2f7"
+BRANCH = "stage8b-s-r3"
+BASE = "831eec8f830fa57e4ada8c135d803c34bea29298"
 
 
 def run(*args: str) -> bytes:
@@ -45,21 +45,21 @@ def main() -> None:
     OUTPUT.mkdir(parents=True, exist_ok=True)
 
     gate = subprocess.run(["bash", "scripts/stage8b_spec_gate.sh"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
-    marker = b"stage8b-spec-gate: PASS rows=100 negatives=90 corrective_specification=true implementation=false execution=false finam=false redis=false dispatch=false live=false stage8b_i=false stage8b_p=false stage8b_xt=false stage8b_xe=false stage12=false"
+    marker = b"stage8b-spec-gate: PASS rows=110 negatives=100 corrective_specification=true implementation=false execution=false finam=false redis=false dispatch=false live=false stage8b_i=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false"
     if gate.returncode != 0 or marker not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
 
     manifest, entries = common.source_manifest(full_ref)
     evidence = (json.dumps({
-        "schema_version": 2, "stage": "8B-S-R2", "source_ref": full_ref,
+        "schema_version": 3, "stage": "8B-S-R3", "source_ref": full_ref,
         "source_short_ref": short_ref, "archive_name": archive_name,
-        "branch": branch, "retained_stage8b_s_r1_ref": BASE,
+        "branch": branch, "retained_stage8b_s_r2_ref": BASE,
         "accepted_stage8b_d_merge_ref": "50ed5382fdbe2d62ed253d65a312f951e2a267ff",
         "accepted_stage8b_d_candidate_ref": "f296d0be782b8aa550a20e27600ba16826214349",
-        "acceptance_rows": 100, "negative_cases": 90,
+        "acceptance_rows": 110, "negative_cases": 100,
         "gate_sha256": sha256(gate.stdout), "manifest_sha256": sha256(manifest),
         "specification_only": True, "production_implementation": False,
-        "stage8b_i": False, "stage8b_p": False, "stage8b_xt": False,
+        "stage8b_i": False, "stage8b_it": False, "stage8b_p": False,
         "stage8b_xe": False, "operator_arm_issuance": False, "finam_post_delete": False,
         "network_send": False, "redis_live": False,
         "ack_readiness_publication": False, "broker_dispatch": False,

@@ -91,4 +91,14 @@ Every mutation must be rejected by `stage8b_spec_check.py --no-git`.
 87. K2 preflight can precede or substitute the exact arm;
 88. Stage 8A-2 source/builder bridge drifts or a second serializer opens;
 89. Stage 8A-3 Model A bridge drifts or another classifier opens;
-90. 8B-XT no-effect acceptance no longer independently precedes 8B-XE.
+90. 8B-IT no-effect qualification no longer independently precedes exact 8B-P and 8B-XE.
+91. adapter qualification occurs after exact 8B-P;
+92. P build SHA differs from accepted adapter-qualified build SHA;
+93. P source commit/archive differs from accepted adapter-qualified source;
+94. P executable SHA differs from accepted adapter-qualified executable;
+95. P endpoint renderer or body schema identity differs from accepted adapter;
+96. post-P code/Cargo/feature/toolchain/config/API/endpoint/executable drift retains P;
+97. XE accepts a P package issued before adapter qualification;
+98. XE accepts a build different from the exact P-bound build;
+99. P is automatically refreshed or old authority is carried over;
+100. material drift skips relevant adapter requalification, fresh contract preflight or new P.

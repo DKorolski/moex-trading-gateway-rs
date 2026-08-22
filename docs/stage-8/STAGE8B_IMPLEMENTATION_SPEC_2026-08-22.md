@@ -1,4 +1,4 @@
-# Stage 8B-S R2 — bounded engineering effect implementation specification
+# Stage 8B-S R3 — bounded engineering effect implementation specification
 
 Status: corrective specification/checker-only candidate; independent acceptance required.
 
@@ -11,8 +11,11 @@ to `main` by `50ed5382fdbe2d62ed253d65a312f951e2a267ff`. The accepted tree is
 `ac351d9c03c98d59e90affeb423dbb7fff2cd3722b3d601889c53ae90c6cc06b`.
 
 Stage 8B-S R1 at `a675a772e02fa6da1a33973127542696019eb2f7` retained the
-architecture but was not frozen. R2 corrects its cross-crate facade, byte-exact
-HMAC authority and implementation-critical projections. This specification is
+architecture but was not frozen. R2 at
+`831eec8f830fa57e4ada8c135d803c34bea29298` closed those findings but was not
+frozen because its adapter qualification followed exact 8B-P authorization.
+R3 retains every R2 correction and fixes only that phase-order/build-binding
+contradiction. This specification is
 strictly additive over the exact accepted Stage 8B-D R2 authority file SHA-256
 `83e85722fcf41e6abdd215569c4337f6c83994baeafbae47c5ad80bb9e935d09`.
 No S field can weaken, override or replace an R2 invariant.
@@ -359,26 +362,36 @@ production types and deterministic fixtures. It must prove:
 
 Stage 8B-I acceptance still does not authorize Stage 8B-P or any broker effect.
 
-## 13.1 Real adapter review subdivision before effect
+## 13.1 Real adapter qualification before exact run authorization
 
-The Stage 8B-D macro order remains D → S → I → P → X. Stage 8B-X is subdivided
-and independently reviewed:
+The immutable phase order is `8B-D → 8B-S → 8B-I → 8B-IT → 8B-P → 8B-XE`:
 
-- `8B-XT`: implement and qualify the exact real FINAM transport adapter against
+- `8B-IT`: implement and independently qualify the exact real FINAM transport adapter against
   local/controlled non-broker endpoints; prove host/TLS/method/route policy,
   no redirects/proxy/retry and permit-only reachability. FINAM POST/DELETE effect
   remains forbidden.
-- `8B-XE`: only after accepted XT, accepted exact 8B-P package and a fresh
+- `8B-P`: only after accepted IT, perform the fresh official contract/preflight
+  and authorize the exact accepted adapter-qualified source, Cargo/lock/feature
+  graph, toolchain, dependencies, config/policy/instrument/API snapshot,
+  endpoint renderer, body schema and executable identities.
+- `8B-XE`: only after accepted IT, the exact matching 8B-P package and a fresh
   operator authorization, permit at most one broker effect followed by durable
   reconciliation and safe closure.
 
 The first review of real adapter code and the first broker effect can therefore
-never be the same acceptance event.
+never be the same acceptance event. A P package issued before adapter
+qualification is invalid. From accepted IT through P to XE, the P-bound build is
+immutable. Any source, Cargo manifest/lock, resolved feature graph, toolchain,
+dependency, config, policy, instrument, API snapshot, endpoint renderer,
+request-body schema or executable drift invalidates and discards P. Relevant
+adapter qualification must then be repeated, followed by fresh FINAM contract
+preflight and a new exact P package. Automatic P refresh, authority carry-over
+and use of a different build at XE are forbidden.
 
 ## 14. Closed surfaces
 
-Stage 8B-S R2 keeps closed: production implementation; operator arming; FINAM
+Stage 8B-S R3 keeps closed: production implementation; operator arming; FINAM
 POST/DELETE; network send; Redis XADD/XACK/live consumer; ACK/readiness
 publication; broker dispatch; retry/resend/re-arm; runtime-live; real orders;
-MARKET/Stop/SLTP/bracket/replace/multi-leg; Stage 8B-P/X; Stage 11 execution
+MARKET/Stop/SLTP/bracket/replace/multi-leg; Stage 8B-I/IT/P/XE; Stage 11 execution
 promotion; Stage 12.

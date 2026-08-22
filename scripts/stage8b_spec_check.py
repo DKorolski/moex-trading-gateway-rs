@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the docs/checker-only corrective Stage 8B-S R2 contract."""
+"""Validate the docs/checker-only corrective Stage 8B-S R3 contract."""
 
 from __future__ import annotations
 
@@ -21,8 +21,9 @@ MATRIX = ROOT / "docs/stage-8/STAGE8B_SPEC_ACCEPTANCE_MATRIX_2026-08-22.csv"
 NEGATIVE = ROOT / "docs/stage-8/STAGE8B_SPEC_NEGATIVE_INVENTORY_2026-08-22.md"
 AUTHORITY = ROOT / "docs/stage-8/stage8b-spec-authority.json"
 R2_AUTHORITY = ROOT / "docs/stage-8/stage8b-design-authority.json"
-BRANCH = "stage8b-s-r2"
+BRANCH = "stage8b-s-r3"
 R1 = "a675a772e02fa6da1a33973127542696019eb2f7"
+R2 = "831eec8f830fa57e4ada8c135d803c34bea29298"
 MAIN_PREDECESSOR = "50ed5382fdbe2d62ed253d65a312f951e2a267ff"
 
 
@@ -79,10 +80,15 @@ def check(git_scope: bool) -> None:
     for path in (DOC, MATRIX, NEGATIVE, AUTHORITY, R2_AUTHORITY):
         require(path.is_file(), f"missing file: {path.relative_to(ROOT)}")
     authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
-    require(authority.get("schema_version") == 2, "schema drift")
-    require(authority.get("stage") == "8B-S-R2", "stage drift")
+    require(authority.get("schema_version") == 3, "schema drift")
+    require(authority.get("stage") == "8B-S-R3", "stage drift")
     require(authority.get("status") == "corrective_specification_checker_only_candidate", "status drift")
     require(authority.get("branch") == BRANCH, "branch authority drift")
+
+    retained_r2 = authority.get("retained_stage8b_s_r2", {})
+    require(retained_r2.get("source_ref") == R2, "S R2 source drift")
+    require(retained_r2.get("handoff_sha256") == "66a54c1948ca09cd06c97a19a7759a44c03522f47557c636e16fb1ff19d13f6d", "S R2 handoff drift")
+    require(retained_r2.get("review_sha256") == "48c37291df87453ce342dd32dfc6e91d6d7630b1ea586c8dd51db048933861e6", "S R2 review drift")
 
     retained = authority.get("retained_stage8b_s_r1", {})
     require(retained.get("source_ref") == R1, "S R1 source drift")
@@ -100,8 +106,7 @@ def check(git_scope: bool) -> None:
     require_false(authority, "s_fields_may_weaken_or_override_stage8b_d")
     require(authority.get("accepted_stage8a5_ref") == "bf58b47fdef8af774a4107455dfcc6204e594283", "Stage 8A5 ref drift")
     require(authority.get("accepted_gov_ci_merge_ref") == "7bc9fdab190e011111b15ebdf2f35ff2263a8e34", "GOV ref drift")
-    require(authority.get("phase_order") == ["8B-D", "8B-S", "8B-I", "8B-P", "8B-X"], "phase order drift")
-    require(authority.get("stage8b_x_subphases") == ["8B-XT_no_effect_real_adapter_qualification", "8B-XE_separately_authorized_one_effect"], "X subdivision drift")
+    require(authority.get("phase_order") == ["8B-D", "8B-S", "8B-I", "8B-IT", "8B-P", "8B-XE"], "phase order drift")
     require(authority.get("next_if_accepted") == "8B-I_no_send_implementation_and_crash_replay", "next stage drift")
 
     facade = authority.get("public_operator_facade", {})
@@ -177,36 +182,38 @@ def check(git_scope: bool) -> None:
     require_false(stage11, "no_activity_session_sufficient", "semantic_cli_overrides_allowed")
 
     adapter = authority.get("real_adapter_review", {})
-    require(adapter.get("xt_name") == "8B-XT" and adapter.get("xe_name") == "8B-XE", "adapter subdivision names drift")
-    require_true(adapter, "xt_no_broker_effect", "xt_independent_acceptance_before_xe", "xt_local_controlled_non_broker_tests", "xt_permit_only_reachability", "xe_first_possible_broker_effect")
-    require_false(adapter, "adapter_review_and_first_effect_same_event_allowed")
+    require(adapter.get("qualification_name") == "8B-IT" and adapter.get("xe_name") == "8B-XE", "adapter phase names drift")
+    require_true(adapter, "qualification_no_broker_effect", "qualification_independently_accepted_before_exact_8b_p", "qualification_local_controlled_non_broker_tests", "qualification_permit_only_reachability", "p_build_sha_equals_accepted_adapter_build_sha", "p_source_equals_accepted_adapter_source", "p_executable_equals_accepted_adapter_executable", "p_endpoint_renderer_and_body_schema_equal_accepted_adapter", "xe_first_possible_broker_effect", "post_p_drift_invalidates_p", "material_drift_requires_adapter_requalification_where_relevant", "material_drift_requires_fresh_contract_preflight_and_new_p", "xe_requires_exact_p_bound_build")
+    require_false(adapter, "p_issued_before_adapter_qualification_allowed", "adapter_review_and_first_effect_same_event_allowed", "automatic_p_refresh_or_authority_carry_over_allowed")
+    require(adapter.get("accepted_adapter_identity_fields") == ["source_commit", "source_archive_sha256", "cargo_manifests_sha256", "cargo_lock_sha256", "resolved_feature_graph_sha256", "resolved_dependency_graph_sha256", "toolchain_identity_sha256", "config_policy_sha256", "instrument_identity_sha256", "api_snapshot_sha256", "endpoint_renderer_sha256", "request_body_schema_sha256", "executable_sha256"], "adapter-qualified identity inventory drift")
+    require(adapter.get("post_p_drift_fields") == ["source", "cargo_manifests", "cargo_lock", "resolved_feature_graph", "toolchain", "dependencies", "config", "policy", "instrument", "api_snapshot", "endpoint_renderer", "request_body_schema", "executable"], "post-P drift inventory drift")
     promotion = authority.get("promotion_gates", {})
     require(promotion.get("fresh_official_finam_contract_before") == "8B-P" and promotion.get("branch_protection_or_equivalent_before") == "8B-P" and promotion.get("immutable_action_and_toolchain_pins_before") == "8B-P", "promotion deadline drift")
     require_true(promotion, "material_contract_drift_blocks")
 
     closed = authority.get("closed_surfaces", {})
     require(len(closed) == 15 and all(value is True for value in closed.values()), "closed surface opened")
-    require(authority.get("acceptance_matrix_rows") == 100 and authority.get("negative_cases") == 90, "count authority drift")
+    require(authority.get("acceptance_matrix_rows") == 110 and authority.get("negative_cases") == 100, "count authority drift")
     with MATRIX.open(newline="", encoding="utf-8") as stream:
         rows = list(csv.DictReader(stream))
-    require([row.get("id") for row in rows] == [f"S-{number:03d}" for number in range(1, 101)], "matrix IDs/count drift")
+    require([row.get("id") for row in rows] == [f"S-{number:03d}" for number in range(1, 111)], "matrix IDs/count drift")
     require(all(row.get("area") and row.get("requirement") and row.get("evidence") and row.get("status") == "pending" for row in rows), "matrix row incomplete")
     numbers = [int(value) for value in re.findall(r"^(\d+)\.", NEGATIVE.read_text(encoding="utf-8"), flags=re.MULTILINE)]
-    require(numbers == list(range(1, 91)), "negative inventory must be exact 1..90")
+    require(numbers == list(range(1, 101)), "negative inventory must be exact 1..100")
 
     doc = DOC.read_text(encoding="utf-8")
-    for marker in ("corrective specification/checker-only candidate", "strictly additive over the exact accepted Stage 8B-D R2 authority", "invoke_stage8b_operator_once", "compose_stage8b_effect_authority", "cannot contain account IDs, URL", "K2 cannot be minted before the exact durable arm exists", "domain `moex-stage8b-account-binding-v1`, suffix hex `00`", "message_hex = 6d6f6578", "max_notional", "exact network policy", "Durable one-use arm record", "one FINAM execution owner", "ALOR is the sole execution owner/oracle", "compose_stage8b_private_request_parts_from_stage8a2", "classify_stage8b_transport_observation_with_stage8a3", "Classifier output is candidate/diagnostic evidence", "`8B-XT`", "`8B-XE`", "Stage 8B-S R2 keeps closed"):
+    for marker in ("corrective specification/checker-only candidate", "strictly additive over the exact accepted Stage 8B-D R2 authority", "invoke_stage8b_operator_once", "compose_stage8b_effect_authority", "cannot contain account IDs, URL", "K2 cannot be minted before the exact durable arm exists", "domain `moex-stage8b-account-binding-v1`, suffix hex `00`", "message_hex = 6d6f6578", "max_notional", "exact network policy", "Durable one-use arm record", "one FINAM execution owner", "ALOR is the sole execution owner/oracle", "compose_stage8b_private_request_parts_from_stage8a2", "classify_stage8b_transport_observation_with_stage8a3", "Classifier output is candidate/diagnostic evidence", "8B-D → 8B-S → 8B-I → 8B-IT → 8B-P → 8B-XE", "P package issued before adapter", "Automatic P refresh", "Stage 8B-S R3 keeps closed"):
         require(marker in doc, f"missing contract marker: {marker}")
 
     if git_scope:
         require(git("branch", "--show-current") == BRANCH, "branch drift")
-        subprocess.run(["git", "merge-base", "--is-ancestor", R1, "HEAD"], cwd=ROOT, check=True)
-        for path in git("diff", "--name-only", R1, "--").splitlines():
+        subprocess.run(["git", "merge-base", "--is-ancestor", R2, "HEAD"], cwd=ROOT, check=True)
+        for path in git("diff", "--name-only", R2, "--").splitlines():
             require(not path.startswith(("crates/", ".github/workflows/")), f"production/workflow delta: {path}")
             require(path not in ("Cargo.toml", "Cargo.lock"), f"Cargo delta: {path}")
             require(path.startswith(("docs/", "scripts/")) or path == "README.md", f"spec scope widened: {path}")
 
-    print("stage8b-spec-check: PASS rows=100 negatives=90 corrective_specification=true implementation=false execution=false stage8b_i=false stage8b_p=false stage8b_xt=false stage8b_xe=false stage12=false")
+    print("stage8b-spec-check: PASS rows=110 negatives=100 corrective_specification=true implementation=false execution=false stage8b_i=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false")
 
 
 def main() -> None:

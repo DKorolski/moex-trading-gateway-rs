@@ -38,8 +38,10 @@ facts when current readiness is unavailable. Stage 8A-5 is independently
 accepted and closed at `bf58b47`; Stage 8A is formally closed. GOV-CI-1B is
 accepted and merged at `7bc9fda`. Stage 8B-D R2 is accepted at `f296d0b` and
 merged at `50ed538`. Stage 8B-S R1 at `a675a77` retained the architecture but
-was not frozen. Corrective Stage 8B-S R2 is the active specification/checker-only
-slice for the future linear bounded-effect topology. It is not implementation,
+was not frozen. Corrective Stage 8B-S R2 at `831eec8` closed its substantive
+findings but exposed a preflight/build-order contradiction. Stage 8B-S R3 is the
+active specification/checker-only slice; it freezes
+`I → IT(no effect) → P(exact build) → XE(max one effect)`. It is not implementation,
 operator-arm or execution authority.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
