@@ -18,6 +18,7 @@ ALLOWED_PRODUCTION = {
     "crates/broker-cli/tests/stage8b_i_no_send_facade.rs",
     "crates/finam-gateway/Cargo.toml",
     "crates/finam-gateway/src/lib.rs",
+    "crates/finam-gateway/src/stage8a1_execution_capability.rs",
     "crates/finam-gateway/src/stage8b_no_send.rs",
 }
 

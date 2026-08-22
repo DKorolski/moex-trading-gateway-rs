@@ -16,8 +16,9 @@ import stage8b_i_handoff_safety_check as safety
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
-BRANCH = "stage8b-i"
-BASE = "d1581962666aa82b993854d0642e67bd66624032"
+GATE_LOG = ROOT / "reports/stage8b-i-r2-gate.log"
+BRANCH = "stage8b-i-r2"
+BASE = "a52fbcae5340d632ce8b983eda6ecb4b8dedabce"
 
 
 def run(*args: str) -> bytes:
@@ -44,33 +45,33 @@ def main() -> None:
     archive_path = OUTPUT / archive_name
     OUTPUT.mkdir(parents=True, exist_ok=True)
 
-    gate = subprocess.run(
-        ["bash", "scripts/stage8b_i_gate.sh"],
-        cwd=ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    marker = b"stage8b-i-gate: PASS rows=60 negatives=40 compile_fail=12 no_send=true adapter=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false"
-    if gate.returncode != 0 or marker not in gate.stdout:
-        raise SystemExit(gate.stdout.decode(errors="replace"))
+    if not GATE_LOG.is_file():
+        raise SystemExit("stage8b-i-handoff: FAIL exact-commit gate log missing")
+    gate = GATE_LOG.read_bytes()
+    marker = b"stage8b-i-gate: PASS revision=R2 rows=92 negatives=70 compile_fail=18 canonical_regression=true no_send=true adapter=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false"
+    exact_ref_marker = f"current-tree-ci-gate: PASS source_ref={full_ref} ".encode()
+    regression_marker = b"stage8b-i-full-regression: PASS canonical_ci=true"
+    if marker not in gate or exact_ref_marker not in gate or regression_marker not in gate:
+        raise SystemExit("stage8b-i-handoff: FAIL stale or incomplete exact-commit gate log")
 
     manifest, entries = common.source_manifest(full_ref)
     evidence = (
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8B-I",
+                "stage": "8B-I-R2",
                 "source_ref": full_ref,
                 "source_short_ref": short_ref,
                 "archive_name": archive_name,
                 "branch": branch,
                 "accepted_stage8b_s_candidate_ref": "afecc2584593570b62cbe7f00ee81f64d4b9b26b",
-                "accepted_stage8b_s_merge_ref": BASE,
-                "acceptance_rows": 60,
-                "negative_cases": 40,
-                "compile_fail_negative_cases": 12,
-                "gate_sha256": sha256(gate.stdout),
+                "accepted_stage8b_s_merge_ref": "d1581962666aa82b993854d0642e67bd66624032",
+                "rejected_stage8b_i_ref": BASE,
+                "acceptance_rows": 92,
+                "negative_cases": 70,
+                "compile_fail_negative_cases": 18,
+                "canonical_full_regression": True,
+                "gate_sha256": sha256(gate),
                 "manifest_sha256": sha256(manifest),
                 "no_send_implementation": True,
                 "authority_constructed_by_public_facade": False,
@@ -97,7 +98,7 @@ def main() -> None:
         "handoff-commit.txt": (
             f"source_short_ref={short_ref}\nsource_ref={full_ref}\narchive_name={archive_name}\n"
         ).encode(),
-        safety.GATE: gate.stdout,
+        safety.GATE: gate,
         safety.EVIDENCE: evidence,
         safety.MANIFEST: manifest,
     }

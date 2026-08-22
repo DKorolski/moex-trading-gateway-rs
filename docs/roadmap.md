@@ -93,9 +93,11 @@ GOV-CI-1B was independently accepted at `13f659f` and merged to `main` by
 at `831eec8` closed the R1 findings but was not frozen because adapter
 qualification followed exact P authorization. Stage 8B-S R3 was independently
 accepted at `afecc2584593570b62cbe7f00ee81f64d4b9b26b` and merged by
-`d1581962666aa82b993854d0642e67bd66624032`. Stage 8B-I is the active candidate:
-one public redacted no-send facade, one private composition root, exact HMAC and
-filesystem evidence, and deterministic arm/crash/replay rehearsal. Execution,
+`d1581962666aa82b993854d0642e67bd66624032`. Stage 8B-I at `a52fbca` was not
+accepted despite preserving the no-send boundary. Corrective Stage 8B-I R2 is
+the active candidate: one public redacted no-send facade, permit-ordered private
+composition, durable K2 binding, exact five-state recovery, build/endpoint
+provenance and bound arm rehearsal. Execution,
 operator-arm issuance, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live, real orders, Stage 8B-IT/P/XE and Stage 12 remain closed.
 

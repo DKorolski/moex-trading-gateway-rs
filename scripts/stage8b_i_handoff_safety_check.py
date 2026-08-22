@@ -73,7 +73,7 @@ def check(path: str) -> dict[str, object]:
         )
         evidence = json.loads(archive.read(EVIDENCE))
         manifest = json.loads(archive.read(MANIFEST))
-        if evidence.get("stage") != "8B-I":
+        if evidence.get("stage") != "8B-I-R2":
             raise ValueError("stage mismatch")
         if (
             evidence.get("source_ref") != marker.get("source_ref")
@@ -82,10 +82,12 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("source mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive mismatch")
-        if evidence.get("acceptance_rows") != 60 or evidence.get("negative_cases") != 40:
+        if evidence.get("acceptance_rows") != 92 or evidence.get("negative_cases") != 70:
             raise ValueError("count mismatch")
         if evidence.get("no_send_implementation") is not True:
             raise ValueError("implementation scope mismatch")
+        if evidence.get("canonical_full_regression") is not True:
+            raise ValueError("canonical regression evidence missing")
         for key in (
             "authority_constructed_by_public_facade",
             "real_adapter",

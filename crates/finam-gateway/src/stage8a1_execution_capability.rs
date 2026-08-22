@@ -525,6 +525,28 @@ pub struct Stage8a1DurableRequestAuthority {
 }
 
 impl Stage8a1DurableRequestAuthority {
+    /// Consume the exact durable authority into the Stage 8B private domain.
+    /// The returned digest is opaque outside this crate and covers the full
+    /// validated Stage 7B/Stage 6 provenance rather than a caller supplied ID.
+    pub(crate) fn into_stage8b_binding_sha256(
+        self,
+    ) -> Result<String, Stage8ExecutionPreflightError> {
+        self.validate()?;
+        Ok(digest_parts(
+            b"stage8b-durable-request-binding-v1",
+            &[
+                self.provenance_sha256.as_bytes(),
+                self.operational_identity_sha256.as_bytes(),
+                self.canonical_command_sha256.as_bytes(),
+                self.accepted_record_id_sha256.as_bytes(),
+                self.dispatch_record_id_sha256.as_bytes(),
+                &self.dispatch_sequence.to_be_bytes(),
+                &self.seal_generation.to_be_bytes(),
+                self.seal_commitment_sha256.as_bytes(),
+            ],
+        ))
+    }
+
     pub fn from_stage7b_owner(
         owner: &mut Stage7bRecoveryReadyOwner,
         commitment_key: &Stage5gLifecycleCommitmentKey,
@@ -3878,6 +3900,19 @@ mod tests {
         };
         value.provenance_sha256 = value.calculate_provenance();
         value
+    }
+
+    #[test]
+    fn stage8b_binding_changes_with_exact_durable_request_authority() {
+        let first = place();
+        let mut second = place();
+        second.request_id = request_id(2);
+        second.client_order_id = ClientOrderId::from_strategy_request(second.request_id);
+        let first_binding = durable_place(&first).into_stage8b_binding_sha256().unwrap();
+        let second_binding = durable_place(&second)
+            .into_stage8b_binding_sha256()
+            .unwrap();
+        assert_ne!(first_binding, second_binding);
     }
 
     fn policy(durable: &Stage8a1DurableRequestAuthority) -> Stage8a1FrozenExecutionPolicy {

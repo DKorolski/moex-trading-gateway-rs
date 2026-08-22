@@ -59,3 +59,35 @@ I-057,closed,8B-IT remains closed,authority+checker,pending
 I-058,closed,8B-P remains closed,authority+checker,pending
 I-059,closed,8B-XE remains closed,authority+checker,pending
 I-060,closed,Stage12 remains closed,authority+checker,pending
+I-061,type-state,K2 root never invokes Stage8A2 builder,source+checker,pending
+I-062,type-state,fresh preflight owns continuation and no request parts,source+checker,pending
+I-063,type-state,fresh preflight consumed into fsynced sealed attempt,source+test,pending
+I-064,type-state,sealed attempt consumed into exact permit,source+checker,pending
+I-065,type-state,exact permit consumed by Stage8A2 builder bridge,source+checker,pending
+I-066,type-state,private request witness consumed by one no-network boundary,source+compile-fail,pending
+I-067,binding,durable Stage7B request authority consumed into opaque binding,source+checker,pending
+I-068,binding,K2 exact current-source witness required by type,source+checker,pending
+I-069,binding,K2 requires exactly one FINAM owner,source+test,pending
+I-070,binding,K2 requires ambiguity count zero,source+test,pending
+I-071,binding,K2 requires unresolved lifecycle count zero,source+test,pending
+I-072,binding,K2 requires fresh readiness,source+test,pending
+I-073,binding,K2 requires open fresh schedule,source+test,pending
+I-074,binding,K2 requires fresh broker truth,source+test,pending
+I-075,arm,authenticated arm binds durable run account build config policy endpoint body control K2 exact fresh timestamp and expiry,source+test,pending
+I-076,restart,all five durable closure classes survive pre-publication restart,source+test,pending
+I-077,restart,all five durable closure classes survive post-publication restart,source+test,pending
+I-078,restart,torn unknown or mismatched closure payload rejected,source+test,pending
+I-079,build,source archive ref member mode and source-tree identity bound,source+test,pending
+I-080,build,Cargo lock manifests and pre/post tree identity bound,source+test,pending
+I-081,build,resolved feature graph exact legacy false and unknown zero,source+test,pending
+I-082,build,canonical dependency metadata projection bound,source+test,pending
+I-083,build,Cargo rustc target release package and binary bound,source+test,pending
+I-084,build,config policy instrument API renderer and body schema bound,source+test,pending
+I-085,privacy,endpoint identity binds method template keyed account and renderer,source+test,pending
+I-086,regression,current canonical full workspace CI regression evidence required,gate+evidence,pending
+I-087,binding,K2 requires exactly one remaining invocation budget,source+checker,pending
+I-088,type-state,K3 covering seal and control are bound after durable attempt append,source+checker,pending
+I-089,type-state,K4 rechecks and consumes exact sealed attempt and control,source+checker,pending
+I-090,type-state,K5 binds fresh broker truth control and exact closure classification,source+checker,pending
+I-091,restart,publication persists the exact durable closure classification,source+checker,pending
+I-092,type-state,durable closure owner is consumed into terminal closure receipt,source+checker,pending

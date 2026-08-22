@@ -19,5 +19,6 @@ cargo test -p broker-cli --test stage8b_i_no_send_facade --no-default-features
 cargo clippy -p finam-gateway -p broker-cli --all-targets --no-default-features -- -D warnings
 cargo fmt --all -- --check
 git diff --check
+bash scripts/stage8b_i_full_regression.sh
 
-echo "stage8b-i-gate: PASS rows=60 negatives=40 compile_fail=12 no_send=true adapter=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false"
+echo "stage8b-i-gate: PASS revision=R2 rows=92 negatives=70 compile_fail=18 canonical_regression=true no_send=true adapter=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false"

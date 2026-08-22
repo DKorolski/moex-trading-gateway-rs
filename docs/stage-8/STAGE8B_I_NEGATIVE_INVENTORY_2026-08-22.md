@@ -42,3 +42,33 @@ Every mutation must be rejected by `stage8b_i_check.py --root <mutated-tree>`.
 38. automatic retry/resend is opened;
 39. any execution/live surface is opened;
 40. acceptance or negative count drifts.
+41. K2 root invokes Stage 8A-2 builder before permit;
+42. builder bridge accepts a capability instead of consuming exact permit;
+43. fresh preflight stores request parts;
+44. sealed-attempt transition is removed;
+45. exact permit transition is removed or permit becomes reusable;
+46. private request witness or raw parts escape;
+47. durable request argument is ignored or its consumed binding is removed;
+48. K2 fresh-source witness is omitted;
+49. build input is removed from K2 binding;
+50. keyed account input is removed from K2 binding;
+51. contract/config/policy/endpoint input is removed from K2 binding;
+52. run/body input is removed from K2 binding;
+53. K1 control input is removed from K2 binding;
+54. exact arm input is removed from K2 binding;
+55. single FINAM owner predicate is weakened;
+56. zero ambiguity predicate is weakened;
+57. zero unresolved-lifecycle predicate is weakened;
+58. readiness schedule or broker-truth freshness predicate is weakened;
+59. durable closure payload is removed;
+60. residual unknown or conflict is normalized to closed-safe;
+61. torn unknown mismatched or corrupt closure payload is accepted;
+62. build verifier permits a legacy-send feature or unknown feature state;
+63. endpoint identity omits method template account binding or renderer;
+64. K2 authentication/record-digest/fresh-timestamp/expiry validation is bypassed.
+65. K2 accepts zero or more than one remaining invocation budget.
+66. K3 covering seal is omitted from the durable attempt binding.
+67. K4 does not recheck the exact sealed attempt identity.
+68. K5 reconciliation transition is removed or bypassed.
+69. K5 control authority is omitted from the durable closure binding.
+70. exact durable closure publication transition is removed or normalized.

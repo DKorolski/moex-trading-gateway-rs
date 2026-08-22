@@ -17,8 +17,9 @@ not frozen because adapter qualification followed exact P authorization.
 Stage 8B-S R3 was independently accepted at `afecc258` and merged by
 `d158196`. It freezes `D/S/I/IT(no effect)/P(exact build)/XE(one effect)` and
 opens only Stage 8B-I no-send implementation and deterministic crash/replay
-rehearsal. Stage 8B-I is the active candidate. Its public facade returns only
-redacted diagnostics and cannot call the private authority root.
+rehearsal. Stage 8B-I at `a52fbca` was not accepted; corrective Stage 8B-I R2
+is the active candidate. Its public facade returns only redacted diagnostics
+and cannot call the private authority root.
 
 Stage 8B-I does not authorize operator-arm issuance, Stage 8B-IT/P/XE, a real
 FINAM POST/DELETE or any broker effect.
