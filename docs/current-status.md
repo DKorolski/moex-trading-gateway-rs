@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-21.
+Status date: 2026-08-22.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -20,11 +20,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   authorized history-preserving administrative merge
   `1dea519cbf2affc3d99866fdae66bbddbafefa24`. Canonical `ci.yml` was unchanged in
   that merge; the historical Stage-5 workflow is now manual-only.
-- The only active corrective slice is `GOV-CI-1B`: independently review a fail-closed
-  current-tree authority with exact production/control-plane manifests and immutable
-  replay of accepted Stage 8A-5. Stage 8B-S, FINAM execution, Redis live consumption,
-  broker dispatch, runtime-live and real orders remain closed. Stage 8B-D R2 remains a
-  later separate design/checker-only correction.
+- GOV-CI-1B was independently accepted at
+  `13f659f368cbb36a2d38c2b0b88efa376f0b690c` and merged to `main` by
+  `7bc9fdab190e011111b15ebdf2f35ff2263a8e34`. GOV-CI-1 is closed.
+- The only active slice is Stage 8B-D R2, a docs/checker-only correction for
+  exact build/feature/toolchain binding, keyed account binding, residual-state
+  safe closure, the Stage 11 multi-session parity gate and reachable-action
+  coverage. Stage 8B-S, operator arming, FINAM execution, Redis live
+  consumption, broker dispatch, runtime-live, real orders and Stage 12 remain
+  closed.
 
 - Stage 8A-0 is independently accepted and closed at
   `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.
@@ -119,6 +123,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   authorized. ACK/readiness publication, Redis XADD/XACK and live consumption,
   FINAM POST/DELETE, broker dispatch, retry/resend/re-arm, runtime-live, real
   orders and Stage 8B execution remain CLOSED.
+- Stage 8B-D R2 is the only active candidate. It is docs/checker-only and
+  freezes a five-phase path for exactly one later operator-armed command:
+  design, implementation specification, no-send rehearsal, GET-only
+  preflight/run authorization, then separately accepted one-shot execution and
+  closure. Acceptance of 8B-D may open only the implementation specification.
+  It does not authorize transport, operator arming or a real request.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

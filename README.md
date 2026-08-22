@@ -35,8 +35,10 @@ at `1da0a65` and R2 at `6a7f07c` were not accepted. I4 Implementation R3 is
 independently accepted and closed at `4a11688`; it reconstructs the private
 read-only issuer from terminal/root authority and preserves historical ACK
 facts when current readiness is unavailable. Stage 8A-5 is independently
-accepted and closed at `bf58b47`; Stage 8A is formally closed. The only open
-next slice is a separate Stage 8B design package, not execution authority.
+accepted and closed at `bf58b47`; Stage 8A is formally closed. GOV-CI-1B is
+accepted and merged at `7bc9fda`. Stage 8B-D R2 is the active
+docs/checker-only corrective design candidate for one bounded engineering
+effect. It is not implementation, operator-arm or execution authority.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
 strategy orders and Stage 8B execution authority remain closed.
@@ -92,25 +94,18 @@ shadow/runtime smoke tests.
 
 ```bash
 cargo fmt --all --check
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-bash scripts/forbidden_surface_scan.sh
-bash scripts/forbidden_surface_negative_harness.sh
-python3 scripts/stage5d_additive_freeze_negative_harness.py
-# Full Stage 5D restart-closure gate:
-bash scripts/stage5d_b2bc_review_gate.sh
-# Stage 5E-a no-live/no-send lifecycle/event-time gate:
-bash scripts/stage5e_lifecycle_event_time_gate.sh
-# Stage 5F-a inherited atomic-Hybrid paper-only entry gate:
-bash scripts/stage5f_atomic_hybrid_semantics_gate.sh
-python3 scripts/stage5f_atomic_hybrid_semantics_negative_harness.py
-python3 scripts/stage5f_ci_snapshot_inheritance_negative_harness.py
-python3 scripts/stage5f_ci_snapshot_inheritance_check.py --execute-verified-provenance
-# Protected-base authority and future in-band rotation matrix:
-python3 scripts/stage5f_base_authority_negative_harness.py
-# Focused final Stage 5D restart-closure check:
-cargo test -p strategy-runtime-core stage5d_final -- --nocapture
+cargo test --workspace --all-targets -- --test-threads=1
+cargo test --workspace --release --all-targets -- --test-threads=1
+cargo test --workspace --doc
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+# Current authoritative governance gate:
+bash scripts/current_tree_ci_gate.sh
+# Active Stage 8B-D R2 design/checker gate:
+bash scripts/stage8b_design_gate.sh
 ```
+
+Historical stage gates remain in the repository as immutable lineage evidence;
+they are not substitutes for the current authoritative gates above.
 
 Read-only FINAM diagnostics:
 

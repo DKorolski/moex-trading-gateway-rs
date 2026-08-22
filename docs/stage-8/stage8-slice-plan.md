@@ -9,6 +9,13 @@ separate Stage 8B design package. Stage 8B execution, real FINAM POST/DELETE,
 Redis live consumption, broker dispatch, runtime-live, real strategy orders,
 native protective orders and unattended execution remain CLOSED.
 
+Stage 8B-D R1 architecture was retained but not frozen. GOV-CI-1 is now closed.
+Stage 8B-D R2 is the active docs/checker-only corrective design candidate. It
+retains the separately reviewed D/S/I/P/X order and may open only Stage 8B-S
+implementation specification after independent acceptance. It additionally
+freezes build/feature/toolchain identity, keyed account binding, safe residual
+closure, Stage 11 multi-session parity and reachable-action coverage.
+
 It does not authorize a real FINAM POST/DELETE.
 
 ## Mandatory Stage 8A order
