@@ -1,0 +1,61 @@
+id,area,requirement,evidence,status
+I-001,lineage,accepted S R3 candidate pinned,authority+checker,pending
+I-002,lineage,accepted S R3 merge and tree pinned,authority+checker,pending
+I-003,lineage,accepted S authority content hash pinned,authority+checker,pending
+I-004,boundary,exactly one public gateway facade,source+checker,pending
+I-005,boundary,exactly one private composition root,source+checker,pending
+I-006,boundary,broker-cli positive integration fixture,source+test,pending
+I-007,boundary,public request fields private,source+compile-fail,pending
+I-008,boundary,public output redacted and non-authority,source+test,pending
+I-009,privacy,private root inaccessible cross-crate,compile-fail,pending
+I-010,privacy,authority types inaccessible cross-crate,compile-fail,pending
+I-011,privacy,authority types nonconstructible,compile-fail,pending
+I-012,privacy,authority types noncloneable,compile-fail+checker,pending
+I-013,builder,accepted Stage8A2 source hash exact,authority+checker,pending
+I-014,builder,existing Stage8A2 builder bridge only,source+checker,pending
+I-015,builder,no second request serializer,source+checker,pending
+I-016,classifier,accepted Stage8A3 source hash exact,authority+checker,pending
+I-017,classifier,Model A classifier bridge only,source+checker,pending
+I-018,classifier,classifier cannot grant broker truth,source+contract,pending
+I-019,hmac,HMAC SHA256 exact ASCII domain,source+test,pending
+I-020,hmac,exact NUL suffix byte,source+test,pending
+I-021,hmac,account length encoded u32be,source+test,pending
+I-022,hmac,exact UTF8 account bytes,source+test,pending
+I-023,hmac,minimum 256 bit key,source+checker,pending
+I-024,hmac,golden digest matches,source+test,pending
+I-025,hmac,constant time verification,source+checker,pending
+I-026,hmac,key and message zeroized,source+checker,pending
+I-027,path,absolute paths required,source+test,pending
+I-028,path,symlink components rejected,source+test,pending
+I-029,path,regular single-link package required,source+test,pending
+I-030,path,O_NOFOLLOW descriptor open,source+checker,pending
+I-031,path,path descriptor identity checked twice,source+test,pending
+I-032,path,deterministic post-open path swap rejected,source+test,pending
+I-033,path,manifest child opened via openat,source+checker,pending
+I-034,path,manifest child symlink rejected,source+test,pending
+I-035,path,evidence reads bounded,source+checker,pending
+I-036,arm,O_EXCL one-use rehearsal record,source+checker,pending
+I-037,arm,arm file and directory fsync,source+checker,pending
+I-038,arm,two-process race has one winner,source+test,pending
+I-039,kill,K1 fault closes safe,source+test,pending
+I-040,kill,K2 fault closes safe,source+test,pending
+I-041,kill,K3 fault closes safe,source+test,pending
+I-042,kill,K4 fault becomes unknown no send,source+test,pending
+I-043,kill,K5 fault becomes unknown no continuation,source+test,pending
+I-044,restart,before-attempt restart deterministic,source+test,pending
+I-045,restart,attempt-no-transport restart deterministic,source+test,pending
+I-046,restart,possible-send-no-response becomes unknown,source+test,pending
+I-047,restart,response-no-durable-outcome becomes unknown,source+test,pending
+I-048,restart,durable-outcome-no-publication never resends,source+test,pending
+I-049,restart,restart at every boundary reopens journal,source+test,pending
+I-050,restart,impossible sequence rejected,source+test,pending
+I-051,closure,all five closure classes distinct,source+test,pending
+I-052,closure,automatic retry or resend absent,authority+checker,pending
+I-053,closed,real adapter absent,authority+checker,pending
+I-054,closed,FINAM POST DELETE and network send closed,authority+checker,pending
+I-055,closed,Redis execution and ACK publication closed,authority+checker,pending
+I-056,closed,broker dispatch runtime live real orders closed,authority+checker,pending
+I-057,closed,8B-IT remains closed,authority+checker,pending
+I-058,closed,8B-P remains closed,authority+checker,pending
+I-059,closed,8B-XE remains closed,authority+checker,pending
+I-060,closed,Stage12 remains closed,authority+checker,pending

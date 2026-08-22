@@ -33,7 +33,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "6c0640f093faf754f7c438aaa1bc2d101086b2fa3e64dce574a5304af9e74829",
+    "aggregate_sha256": "1f675ba48e34b6ed1c3ccf7ef8eab81037525423d322a3f8a33bd03b91c61523",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -47,13 +47,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "7c66223dec8266b8d1c72cd64d6c9551b76675c3385cb4c79cc9a40b19525477",
-        "size": 80253
+        "sha256": "cf73cb51d379652dbe883833daa737b9d02a83774d14d1c30d4601f0c6f9d49c",
+        "size": 80301
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "ba7997c7355d78cee1bd73bde4692402a33e4fc21522caeea3ac73b51d698622",
-        "size": 13481
+        "sha256": "72316002002874da514f69c0033d9f083dfe9168260a19fb211475de3e993884",
+        "size": 13420
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -140,13 +140,13 @@
   },
   "negative_cases": 27,
   "production_code_manifest": {
-    "aggregate_sha256": "5d52e395000461a58b228c8609e5fb95c2ca3f3380b5f0e97c8d7ed24e9c6a81",
-    "content_sha256": "766066bfd4b535ecf1a3f512994d18d422b05f45f11e5c280b9e94d5c800f5b9",
+    "aggregate_sha256": "2a8f71e8dd73ab24381f6a7c79d324d46063702eb4ac526afbe3327cc432bdfc",
+    "content_sha256": "656f2d873575763e59e999717c4f07634876d9621681ddee69a5da2c62c7e974",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
-        "sha256": "62b8e73bea51d55b927950be818d49df3643e7a0c34ad8b40b9307aec3595ea3",
-        "size": 67142
+        "sha256": "cd49214f5c29c1e3d082fb9ad0017e6eacbcfd406a30cd823bd856f07c465831",
+        "size": 67163
       },
       "Cargo.toml": {
         "mode": "100644",
@@ -158,10 +158,20 @@
         "sha256": "8f642b380ae8db32047504e632d1b710cdbc235f5058f57ad0780d72182f2754",
         "size": 804
       },
+      "crates/broker-cli/src/lib.rs": {
+        "mode": "100644",
+        "sha256": "b8f2fd03a9a53529cb82eee5a6ce9de67c5dbd6cbbd8b433b32fee0d43cc486f",
+        "size": 318
+      },
       "crates/broker-cli/src/main.rs": {
         "mode": "100644",
         "sha256": "a2b395c077dbbf43eba22b42a2f993b55bf415d0446ff32370e670065d954bfe",
         "size": 484895
+      },
+      "crates/broker-cli/tests/stage8b_i_no_send_facade.rs": {
+        "mode": "100644",
+        "sha256": "c68ecf624fd9febe806bddfc761aa8263b249fb524aa40cba27b4bf18349da58",
+        "size": 1006
       },
       "crates/broker-core/Cargo.toml": {
         "mode": "100644",
@@ -360,13 +370,13 @@
       },
       "crates/finam-gateway/Cargo.toml": {
         "mode": "100644",
-        "sha256": "0ffbcc9297f186bd8a6958491d7aca85197745b5ea58a34e0b41cb52d3b372f5",
-        "size": 1028
+        "sha256": "d0f94a76042e3d60540f7cbe4b92bf91f5426c58bc7affa81fd702fa63ad7c79",
+        "size": 1075
       },
       "crates/finam-gateway/src/lib.rs": {
         "mode": "100644",
-        "sha256": "3c2e0f8f7e36352b0e89f63454d832b629fda28ff76544b3345e0a6fec57f9f7",
-        "size": 1224019
+        "sha256": "fe8fecda93c6493bb863fb86ae2ef29da363dee7b2a737778e320827ca34b194",
+        "size": 1224197
       },
       "crates/finam-gateway/src/m3d2_local_mock_endpoint.rs": {
         "mode": "100644",
@@ -437,6 +447,11 @@
         "mode": "100644",
         "sha256": "4e37552dbcf532909a97b16cc081c3d87f950401527ea56abf18c925f2687c06",
         "size": 46218
+      },
+      "crates/finam-gateway/src/stage8b_no_send.rs": {
+        "mode": "100644",
+        "sha256": "02215e551e897b3dc671c4121f73e1972082b39ff442f422f64e7740b6aed0d2",
+        "size": 36404
       },
       "crates/finam-gateway/tests/stage8a1_r3_authority_boundary.rs": {
         "mode": "100644",
@@ -664,7 +679,7 @@
         "size": 6212
       }
     },
-    "file_count": 104
+    "file_count": 107
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,

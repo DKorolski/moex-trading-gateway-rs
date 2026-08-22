@@ -14,14 +14,14 @@ Stage 8B-D R2 was independently accepted at `f296d0b` and merged to `main` by
 `50ed538`. Stage 8B-S R1 at `a675a77` retained the architecture but was not
 frozen. Corrective Stage 8B-S R2 at `831eec8` closed its prior findings but was
 not frozen because adapter qualification followed exact P authorization.
-Stage 8B-S R3 is the active specification/checker-only candidate. It freezes
-`D/S/I/IT(no effect)/P(exact build)/XE(one effect)` and may open only Stage 8B-I no-send
-implementation and deterministic crash/replay rehearsal after independent
-acceptance. It retains one public non-authority facade over one private root,
-byte-exact HMAC evidence, complete R2 invariant projection, K1→arm→K2 chronology
-and the accepted Stage 8A-2/8A-3 successor seams.
+Stage 8B-S R3 was independently accepted at `afecc258` and merged by
+`d158196`. It freezes `D/S/I/IT(no effect)/P(exact build)/XE(one effect)` and
+opens only Stage 8B-I no-send implementation and deterministic crash/replay
+rehearsal. Stage 8B-I is the active candidate. Its public facade returns only
+redacted diagnostics and cannot call the private authority root.
 
-It does not authorize Stage 8B-I, a real FINAM POST/DELETE or any broker effect.
+Stage 8B-I does not authorize operator-arm issuance, Stage 8B-IT/P/XE, a real
+FINAM POST/DELETE or any broker effect.
 
 ## Mandatory Stage 8A order
 

@@ -91,14 +91,13 @@ GOV-CI-1B was independently accepted at `13f659f` and merged to `main` by
 `f296d0b` and merged tree-identically to `main` by `50ed538`. Stage 8B-S R1 at
 `a675a77` retained the architecture but was not frozen. Corrective Stage 8B-S R2
 at `831eec8` closed the R1 findings but was not frozen because adapter
-qualification followed exact P authorization. Stage 8B-S R3 is active and
-remains specification/checker-only. It retains one public
-non-authority facade over one private root, byte-exact HMAC evidence, complete
-R2 invariant projection, K1→arm→K2 chronology, Stage 8A-2/8A-3 successor seams
-and freezes `8B-I → 8B-IT(no effect) → 8B-P(exact build) → 8B-XE`. Its acceptance may open
-only Stage 8B-I no-send implementation and deterministic rehearsal. Execution,
-FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
-orders, Stage 8B-IT/P/XE and Stage 12 remain closed.
+qualification followed exact P authorization. Stage 8B-S R3 was independently
+accepted at `afecc2584593570b62cbe7f00ee81f64d4b9b26b` and merged by
+`d1581962666aa82b993854d0642e67bd66624032`. Stage 8B-I is the active candidate:
+one public redacted no-send facade, one private composition root, exact HMAC and
+filesystem evidence, and deterministic arm/crash/replay rehearsal. Execution,
+operator-arm issuance, FINAM POST/DELETE, Redis live consumption, broker
+dispatch, runtime-live, real orders, Stage 8B-IT/P/XE and Stage 12 remain closed.
 
 ### Accepted lineage and transition history
 

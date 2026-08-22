@@ -15,6 +15,7 @@ pub mod real_order_endpoint;
 pub mod stage8a1_execution_capability;
 mod stage8a3_endpoint_classifier;
 mod stage8a4_reconciliation;
+mod stage8b_no_send;
 
 pub use stage8a1_execution_capability::{
     authorize_stage8_cancel, authorize_stage8_place, Stage8CancelPreflightDecision,
@@ -45,6 +46,10 @@ pub use stage8a4_reconciliation::{
     Stage8a4NonPaginatedOrdersSnapshotComplete, Stage8a4OutcomeKind,
     Stage8a4ReconciliationDiagnostic, Stage8a4ReconciliationPolicy, Stage8a4ReconciliationReason,
     Stage8a4SourceEvidence, Stage8a4SourceTiming,
+};
+pub use stage8b_no_send::{
+    invoke_stage8b_operator_once, Stage8bOperatorDiagnostic, Stage8bOperatorFacadeError,
+    Stage8bOperatorInvocationRequest,
 };
 
 use std::collections::{HashMap, HashSet};

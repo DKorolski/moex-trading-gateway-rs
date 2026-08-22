@@ -28,14 +28,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `main` by `50ed5382fdbe2d62ed253d65a312f951e2a267ff`.
 - Stage 8B-S R1 at `a675a772e02fa6da1a33973127542696019eb2f7`
   retained the architecture but was not frozen. R2 at `831eec8` closed the R1
-  findings but was not frozen because IT followed exact P authorization. The
-  only active slice is corrective Stage 8B-S R3, still specification/checker-only. It retains the
-  public operator facade/private root topology, byte-exact HMAC authority,
-  complete R2 invariant projection, K1→arm→K2 chronology, accepted Stage 8A-2/
-  8A-3 successor seams and freezes `I → IT(no effect) → P(exact build) → XE`.
-  Stage 8B-I implementation, operator arming, FINAM execution, Redis live
-  consumption, broker dispatch, runtime-live, real orders and Stage 12 remain
-  closed.
+  findings but was not frozen because IT followed exact P authorization.
+  Corrective Stage 8B-S R3 was independently accepted at
+  `afecc2584593570b62cbe7f00ee81f64d4b9b26b` and merged tree-identically by
+  `d1581962666aa82b993854d0642e67bd66624032`. The active Stage 8B-I candidate
+  implements only no-send linear types, one redacted public facade, the private
+  composition root, exact HMAC/path evidence and deterministic crash/replay
+  rehearsal. Its public facade cannot construct authority. Operator arming,
+  transport, FINAM execution, Redis live consumption, broker dispatch,
+  runtime-live, real orders, Stage 8B-IT/P/XE and Stage 12 remain closed.
 
 - Stage 8A-0 is independently accepted and closed at
   `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.
@@ -132,12 +133,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   orders and Stage 8B execution remain CLOSED.
 - Stage 8B-D R2 is independently accepted and merged. Stage 8B-S R1 was not
   frozen; R2 at `831eec8` was also not frozen due to phase ordering. Corrective
-  Stage 8B-S R3 is the only active candidate. It remains
-  specification/checker-only and freezes the exact API/type-state and durability
-  topology for the exact adapter-qualified path. Acceptance of S R3 may open only
-  Stage 8B-I no-send implementation and
-  deterministic rehearsal. It does not authorize transport, operator arming or
-  a real request.
+  Stage 8B-S R3 is accepted and merged. Stage 8B-I is now the sole active
+  candidate and is limited to no-send production types plus deterministic
+  filesystem/restart rehearsal. Independent acceptance is required before any
+  Stage 8B-IT planning; transport, operator-arm issuance and real requests are
+  not authorized.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

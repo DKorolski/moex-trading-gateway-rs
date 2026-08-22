@@ -39,10 +39,11 @@ accepted and closed at `bf58b47`; Stage 8A is formally closed. GOV-CI-1B is
 accepted and merged at `7bc9fda`. Stage 8B-D R2 is accepted at `f296d0b` and
 merged at `50ed538`. Stage 8B-S R1 at `a675a77` retained the architecture but
 was not frozen. Corrective Stage 8B-S R2 at `831eec8` closed its substantive
-findings but exposed a preflight/build-order contradiction. Stage 8B-S R3 is the
-active specification/checker-only slice; it freezes
-`I → IT(no effect) → P(exact build) → XE(max one effect)`. It is not implementation,
-operator-arm or execution authority.
+findings but exposed a preflight/build-order contradiction. Stage 8B-S R3 was
+independently accepted at `afecc25` and merged tree-identically at `d158196`.
+The active Stage 8B-I candidate implements only its no-send type-state,
+filesystem/HMAC evidence and deterministic crash/replay rehearsal. It does not
+construct execution authority and cannot call a transport adapter.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
 strategy orders and Stage 8B execution authority remain closed.
@@ -104,8 +105,8 @@ cargo test --workspace --doc
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 # Current authoritative governance gate:
 bash scripts/current_tree_ci_gate.sh
-# Active Stage 8B-S specification/checker gate:
-bash scripts/stage8b_spec_gate.sh
+# Active Stage 8B-I no-send implementation gate:
+bash scripts/stage8b_i_gate.sh
 ```
 
 Historical stage gates remain in the repository as immutable lineage evidence;

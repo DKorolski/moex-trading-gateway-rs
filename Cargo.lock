@@ -583,6 +583,7 @@ dependencies = [
  "broker-finam",
  "chrono",
  "ed25519-dalek",
+ "hmac",
  "libc",
  "redis",
  "reqwest",
@@ -596,6 +597,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
