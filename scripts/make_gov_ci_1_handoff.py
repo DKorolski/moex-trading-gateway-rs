@@ -31,8 +31,18 @@ def sha256(data: bytes) -> str:
 
 def generated_info(name: str) -> zipfile.ZipInfo:
     info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.create_system = 3
     info.compress_type = zipfile.ZIP_DEFLATED
     info.external_attr = 0o100644 << 16
+    return info
+
+
+def tracked_info(name: str, mode: str) -> zipfile.ZipInfo:
+    """Create a deterministic Unix ZIP member from the Git tree mode."""
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.create_system = 3
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = int(mode, 8) << 16
     return info
 
 
@@ -215,11 +225,13 @@ def main() -> None:
             }
         )
         additions.update(artifact_additions)
+        manifest_entries = json.loads(manifest)["entries"]
         with zipfile.ZipFile(source_zip) as source, zipfile.ZipFile(
             archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9
         ) as target:
-            for info in source.infolist():
-                target.writestr(info, source.read(info.filename))
+            for entry in manifest_entries:
+                name = entry["path"]
+                target.writestr(tracked_info(name, entry["mode"]), source.read(name))
             for name, data in sorted(additions.items()):
                 target.writestr(generated_info(name), data)
 

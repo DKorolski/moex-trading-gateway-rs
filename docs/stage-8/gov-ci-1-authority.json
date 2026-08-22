@@ -33,7 +33,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "a1f2f918adc9fc70daa6e955b3bc52fe6e19b72acbe82790381b894b68364409",
+    "aggregate_sha256": "7dbd1e0322c4122da1962a8896a907baa16dc18f3fbe3a10e4d400808b1179bf",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -117,8 +117,8 @@
       },
       "scripts/make_gov_ci_1_handoff.py": {
         "mode": "100755",
-        "sha256": "856186e1fabb916baf7ce8c712db8468449caf927fc3514f07afcfa862db278e",
-        "size": 9465
+        "sha256": "79415178e9d67752ce06058c8f8b28a40d9f28676700065dd626dbdd94b2c375",
+        "size": 9941
       },
       "scripts/redis_shadow_smoke.sh": {
         "mode": "100755",
