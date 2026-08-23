@@ -41,14 +41,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65`. Stage 8B-IT candidate
   `e44053917a928aeb4bc8e3330a58a693edc31fd3` and corrective R2 at
   `74d07c842f0ef3a02c4c30a919542a108304b52e` were rejected. Corrective IT R3
-  is now the sole active implementation candidate: reqwest protocol retries
+  was independently accepted and history-preserving fast-forwarded to `main`
+  at `14e01a9f838080e196ece5945a7796f2bd2600bc`: reqwest protocol retries
   are explicitly disabled; K4 mints an opaque proof consumed by the Stage 8A-2
   extraction seam itself; request parts live in a sibling capsule whose fields
   the nested adapter cannot forge; raw observations still cannot escape the
-  mandatory Stage 8A-3 classifier. Production endpoint authority,
+  mandatory Stage 8A-3 classifier. The active candidate is now the separate
+  Stage 8B-IT-TLS R1 controlled rustls qualification: test-only local CA,
+  exact-host validation, HTTP/2 ALPN, wrong-CA/SAN/validity rejection and
+  post-handshake timeout/loss classification through the same adapter.
+  Production endpoint authority,
   operator arming, FINAM execution, Redis live consumption, broker dispatch,
   runtime-live, real orders, Stage 8B-P/XE and Stage 12 remain closed. A
-  controlled TLS qualification is a blocking Stage 8B-P precondition.
+  separately accepted controlled TLS qualification remains a blocking Stage
+  8B-P precondition.
 
 - Stage 8A-0 is independently accepted and closed at
   `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.

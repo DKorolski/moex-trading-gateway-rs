@@ -6,6 +6,8 @@
 
 mod stage8b_adapter;
 mod stage8b_permit_capsule;
+#[cfg(test)]
+mod stage8b_tls_qualification;
 pub(crate) use stage8b_permit_capsule::Stage8bA2PermitProof;
 
 use crate::stage8a1_execution_capability::{
@@ -1529,6 +1531,11 @@ fn hex_lower(bytes: &[u8]) -> String {
 mod tests {
     use super::stage8b_adapter::{
         Stage8bItAdapter, Stage8bItQualificationEndpoint, Stage8bItQualificationToken,
+        Stage8bItTlsQualificationAuthority,
+    };
+    use super::stage8b_tls_qualification::{
+        spawn_controlled_tls_server, unrelated_root_certificate_der, Stage8bTlsCertificateProfile,
+        Stage8bTlsServerBehavior,
     };
     use super::*;
     use broker_core::{AccountId, ClientOrderId, InstrumentId, StrategyRequestId};
@@ -2594,6 +2601,152 @@ mod tests {
             output.classified.diagnostic().reconciliation_reason,
             Some(crate::Stage8a3ReconciliationReason::Disconnect)
         );
+    }
+
+    async fn controlled_tls_attempt(
+        scope: crate::Stage8CommandScope,
+        profile: Stage8bTlsCertificateProfile,
+        behavior: Stage8bTlsServerBehavior,
+        trust_unrelated_ca: bool,
+    ) -> (
+        super::stage8b_adapter::Stage8bItClassifiedObservation,
+        super::stage8b_tls_qualification::Stage8bTlsServerResult,
+    ) {
+        let server = spawn_controlled_tls_server(profile, behavior).await;
+        let trusted_root = if trust_unrelated_ca {
+            unrelated_root_certificate_der()
+        } else {
+            server.root_certificate_der.clone()
+        };
+        let authority =
+            Stage8bItTlsQualificationAuthority::controlled(&trusted_root, server.address).unwrap();
+        let (adapter, endpoint) = Stage8bItAdapter::qualified_tls(authority).unwrap();
+        let output = adapter
+            .qualify_once(
+                permitted_parts_for_adapter(scope),
+                endpoint,
+                Stage8bItQualificationToken::controlled("LOCAL_TLS_QUALIFICATION_TOKEN").unwrap(),
+            )
+            .await;
+        let server_result = tokio::time::timeout(Duration::from_secs(6), server.task)
+            .await
+            .expect("controlled TLS server must finish")
+            .expect("controlled TLS task must not panic");
+        (output, server_result)
+    }
+
+    #[tokio::test]
+    async fn it_tls_valid_ca_hostname_and_h2_preserve_exact_place_request() {
+        let (output, server) = controlled_tls_attempt(
+            crate::Stage8CommandScope::Place,
+            Stage8bTlsCertificateProfile::Valid,
+            Stage8bTlsServerBehavior::ServiceUnavailable,
+            false,
+        )
+        .await;
+        assert!(output.diagnostic.controlled_tls);
+        assert_eq!(output.diagnostic.tls_backend, "rustls");
+        assert!(output.diagnostic.http2_enabled);
+        assert_eq!(output.diagnostic.transport_attempts, 1);
+        assert_eq!(output.diagnostic.response_status, Some(503));
+        assert!(server.handshake_completed);
+        assert_eq!(server.negotiated_alpn.as_deref(), Some(b"h2".as_slice()));
+        let request = server
+            .request
+            .expect("qualified HTTP/2 request must arrive");
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/v1/accounts/ACC_TEST_0001/orders");
+        assert!(request.authorization_present);
+        assert!(String::from_utf8(request.body)
+            .unwrap()
+            .contains("\"symbol\":\"IMOEXF@RTSX\""));
+    }
+
+    #[tokio::test]
+    async fn it_tls_valid_ca_hostname_and_h2_preserve_exact_cancel_request() {
+        let (output, server) = controlled_tls_attempt(
+            crate::Stage8CommandScope::Cancel,
+            Stage8bTlsCertificateProfile::Valid,
+            Stage8bTlsServerBehavior::ServiceUnavailable,
+            false,
+        )
+        .await;
+        assert_eq!(output.diagnostic.transport_attempts, 1);
+        assert_eq!(server.negotiated_alpn.as_deref(), Some(b"h2".as_slice()));
+        let request = server
+            .request
+            .expect("qualified HTTP/2 request must arrive");
+        assert_eq!(request.method, "DELETE");
+        assert_eq!(
+            request.path,
+            "/v1/accounts/ACC_TEST_0001/orders/BROKER_TEST_1"
+        );
+        assert!(request.authorization_present);
+        assert!(request.body.is_empty());
+    }
+
+    #[tokio::test]
+    async fn it_tls_rejects_wrong_ca_hostname_and_validity_without_http_request() {
+        for (profile, trust_unrelated_ca) in [
+            (Stage8bTlsCertificateProfile::Valid, true),
+            (Stage8bTlsCertificateProfile::WrongHostname, false),
+            (Stage8bTlsCertificateProfile::Expired, false),
+            (Stage8bTlsCertificateProfile::NotYetValid, false),
+        ] {
+            let (output, server) = controlled_tls_attempt(
+                crate::Stage8CommandScope::Place,
+                profile,
+                Stage8bTlsServerBehavior::ServiceUnavailable,
+                trust_unrelated_ca,
+            )
+            .await;
+            assert_eq!(output.diagnostic.transport_attempts, 1);
+            assert_eq!(output.diagnostic.response_status, None);
+            assert_eq!(
+                output.classified.diagnostic().reconciliation_reason,
+                Some(crate::Stage8a3ReconciliationReason::Disconnect)
+            );
+            assert!(server.request.is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn it_tls_timeout_and_response_loss_remain_classified_without_retry() {
+        for (behavior, expected) in [
+            (
+                Stage8bTlsServerBehavior::Timeout,
+                crate::Stage8a3ReconciliationReason::Timeout,
+            ),
+            (
+                Stage8bTlsServerBehavior::ResponseLost,
+                crate::Stage8a3ReconciliationReason::Disconnect,
+            ),
+        ] {
+            let (output, server) = controlled_tls_attempt(
+                crate::Stage8CommandScope::Place,
+                Stage8bTlsCertificateProfile::Valid,
+                behavior,
+                false,
+            )
+            .await;
+            assert_eq!(output.diagnostic.transport_attempts, 1);
+            assert_eq!(
+                output.classified.diagnostic().reconciliation_reason,
+                Some(expected)
+            );
+            assert!(server.handshake_completed);
+            assert_eq!(server.negotiated_alpn.as_deref(), Some(b"h2".as_slice()));
+            assert!(server.request.is_none());
+        }
+    }
+
+    #[test]
+    fn it_tls_authority_rejects_non_loopback_resolution_and_invalid_root() {
+        let non_loopback = "192.0.2.1:443".parse().unwrap();
+        assert!(Stage8bItTlsQualificationAuthority::controlled(&[1, 2, 3], non_loopback).is_err());
+        let loopback = "127.0.0.1:443".parse().unwrap();
+        assert!(Stage8bItTlsQualificationAuthority::controlled(&[], loopback).is_err());
+        assert!(Stage8bItTlsQualificationAuthority::controlled(&[1, 2, 3], loopback).is_err());
     }
 
     fn exercise_end_to_end_no_send_flow(scope: crate::Stage8CommandScope) {

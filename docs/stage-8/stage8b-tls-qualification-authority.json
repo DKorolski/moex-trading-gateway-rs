@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "stage": "8B-IT-TLS",
+  "revision": "R1",
+  "status": "controlled_qualification_candidate",
+  "branch": "stage8b-tls-qualification",
+  "accepted_predecessor_ref": "14e01a9f838080e196ece5945a7796f2bd2600bc",
+  "accepted_predecessor_status": "independently_accepted_and_merged_to_main",
+  "accepted_it_r3_adapter_sha256": "087856c8e170ddf318a124453987f7e5d85052acde3a260dd53eaed479e4cf87",
+  "tls_successor_adapter_sha256": "eae6425b47a056a3d82b96b306e899ea0646c42a42d99d34f9eabd83d11f593b",
+  "tls_harness_sha256": "5457ca14114a57c6240e8ff38ff922547818b8713b57794bed1979a077a9d3f2",
+  "stage8b_parent_sha256": "716093652a0526e20d7fdcc72ac15f434cf7bc692091ef630e119b91bb72635b",
+  "workspace_manifest_sha256": "4c16bd983e7c33cba6312c583e13234fe0219ff52260cced9763afdbed758fc2",
+  "finam_gateway_manifest_sha256": "c9c99931f6525ff6f7f026021df5302a743d8ef3dc73ef9958cf9cf4aea06b40",
+  "cargo_lock_sha256": "8233fd447ee0d7bc1cc1983960af771f70c8e3b4db53a57fb4ffb453d8c529b6",
+  "production_graph_sha256": "e314ac65c4093c9370dec3f21e7aada33f5b57981ae137d8f505820b79c54b70",
+  "qualification_graph_sha256": "f7c4346dd3dcd22491336681846e6d94291d3f5dfef100d082156c141e8f7cc2",
+  "client": {
+    "reqwest": "0.12.24",
+    "hyper_rustls": "0.27.9",
+    "rustls": "0.23.41",
+    "tokio_rustls": "0.26.4",
+    "crypto_provider": "ring",
+    "native_tls_present": false,
+    "automatic_retry": "never",
+    "redirects": "disabled",
+    "proxy": "disabled",
+    "connect_timeout_seconds": 2,
+    "request_timeout_seconds": 3,
+    "built_in_roots_for_controlled_qualification": false
+  },
+  "controlled_authority": {
+    "dns_name": "stage8b-it.invalid",
+    "resolution": "explicit_ephemeral_ipv4_loopback",
+    "root": "ephemeral_local_ca_test_only",
+    "credential": "synthetic_test_only",
+    "alpn": "h2",
+    "production_endpoint_constructible": false
+  },
+  "qualified_positive_cases": [
+    "valid_ca_hostname_h2_place_exact_request",
+    "valid_ca_hostname_h2_cancel_exact_request"
+  ],
+  "qualified_negative_cases": [
+    "wrong_ca",
+    "wrong_hostname",
+    "expired_certificate",
+    "not_yet_valid_certificate",
+    "response_lost_after_tls",
+    "timeout_after_tls",
+    "non_loopback_resolution",
+    "invalid_root_certificate"
+  ],
+  "danger_accept_invalid_certs": false,
+  "danger_accept_invalid_hostnames": false,
+  "acceptance_rows": 50,
+  "negative_mutations": 40,
+  "focused_tls_tests": 5,
+  "canonical_full_regression_required": true,
+  "closed_surfaces": {
+    "production_endpoint_authority": true,
+    "finam_credentials": true,
+    "real_finam_post_delete": true,
+    "broker_effect": true,
+    "redis_execution_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "stage8b_p": true,
+    "stage8b_xe": true,
+    "stage12": true
+  },
+  "next_if_accepted": "8B-P_preconditions_refresh_and_design_only_package",
+  "stage8b_p_additional_preconditions": [
+    "reviewed_change control is active",
+    "official FINAM REST contract freshly fetched and hash bound",
+    "immutable action toolchain and build identities frozen",
+    "exact TLS-qualified adapter build has not drifted"
+  ]
+}

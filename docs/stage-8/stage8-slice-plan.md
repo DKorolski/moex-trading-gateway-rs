@@ -26,8 +26,10 @@ module-private request parts through a parent-only adapter, consumes the exact
 Stage 8A-2 continuation once and returns only a mandatory Stage 8A-3 classified
 observation from controlled numeric-loopback endpoints. It does not authorize
 operator-arm issuance, Stage 8B-P/XE, a real FINAM POST/DELETE or any broker
-effect. Controlled TLS qualification remains a blocking Stage 8B-P
-precondition.
+effect. IT R2 was rejected; corrective IT R3 was independently accepted and
+merged exactly at `14e01a9f`. The active successor is Stage 8B-IT-TLS R1, a
+test-only controlled rustls/HTTP2 qualification of the exact adapter semantics.
+Its separate independent acceptance remains a blocking Stage 8B-P precondition.
 
 ## Mandatory Stage 8A order
 

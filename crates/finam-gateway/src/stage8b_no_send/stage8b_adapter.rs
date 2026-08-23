@@ -17,11 +17,15 @@ use crate::{Stage8a3ClassifiedObservation, Stage8a3EndpointContext, Stage8a3Loca
 use reqwest::{redirect::Policy, Url};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+#[cfg(test)]
+use std::net::SocketAddr;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
 const FINAM_PRODUCTION_SCHEME: &str = "https";
 const FINAM_PRODUCTION_HOST: &str = "api.finam.ru";
+#[cfg(test)]
+pub(super) const TLS_QUALIFICATION_HOST: &str = "stage8b-it.invalid";
 const PLACE_ROUTE_TEMPLATE: &str = "/v1/accounts/{account_id}/orders";
 const CANCEL_ROUTE_TEMPLATE: &str = "/v1/accounts/{account_id}/orders/{order_id}";
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
@@ -40,6 +44,9 @@ pub(super) struct Stage8bItAdapterDiagnostic {
     pub(super) method: Stage8bItAdapterMethod,
     pub(super) route_template: &'static str,
     pub(super) controlled_loopback: bool,
+    pub(super) controlled_tls: bool,
+    pub(super) tls_backend: &'static str,
+    pub(super) http2_enabled: bool,
     pub(super) tls_required_for_production: bool,
     pub(super) production_host: &'static str,
     pub(super) redirects_disabled: bool,
@@ -94,6 +101,43 @@ impl Stage8bItQualificationEndpoint {
     }
 }
 
+#[cfg(test)]
+pub(super) struct Stage8bItTlsQualificationAuthority {
+    endpoint: Stage8bItQualificationEndpoint,
+    root_certificate: reqwest::Certificate,
+    resolve: SocketAddr,
+}
+
+#[cfg(test)]
+impl Stage8bItTlsQualificationAuthority {
+    pub(super) fn controlled(
+        root_certificate_der: &[u8],
+        resolve: SocketAddr,
+    ) -> Result<Self, Stage8bItAdapterError> {
+        if !resolve.ip().is_loopback() || resolve.port() == 0 || root_certificate_der.is_empty() {
+            return Err(Stage8bItAdapterError::InvalidTlsQualificationAuthority);
+        }
+        let mut roots = rustls::RootCertStore::empty();
+        roots
+            .add(rustls::pki_types::CertificateDer::from(
+                root_certificate_der.to_vec(),
+            ))
+            .map_err(|_| Stage8bItAdapterError::InvalidTlsQualificationAuthority)?;
+        let root_certificate = reqwest::Certificate::from_der(root_certificate_der)
+            .map_err(|_| Stage8bItAdapterError::InvalidTlsQualificationAuthority)?;
+        let base_url = Url::parse(&format!(
+            "https://{TLS_QUALIFICATION_HOST}:{}/",
+            resolve.port()
+        ))
+        .map_err(|_| Stage8bItAdapterError::InvalidTlsQualificationAuthority)?;
+        Ok(Self {
+            endpoint: Stage8bItQualificationEndpoint { base_url },
+            root_certificate,
+            resolve,
+        })
+    }
+}
+
 pub(super) struct Stage8bItQualificationToken(Zeroizing<String>);
 
 impl Stage8bItQualificationToken {
@@ -112,16 +156,23 @@ pub(super) struct Stage8bItAdapter {
 
 impl Stage8bItAdapter {
     pub(super) fn qualified() -> Result<Self, Stage8bItAdapterError> {
-        let http = reqwest::Client::builder()
-            .retry(reqwest::retry::never())
-            .redirect(Policy::none())
-            .no_proxy()
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(REQUEST_TIMEOUT)
-            .pool_max_idle_per_host(0)
+        let http = exact_client_builder()
             .build()
             .map_err(|_| Stage8bItAdapterError::ClientBuild)?;
         Ok(Self { http })
+    }
+
+    #[cfg(test)]
+    pub(super) fn qualified_tls(
+        authority: Stage8bItTlsQualificationAuthority,
+    ) -> Result<(Self, Stage8bItQualificationEndpoint), Stage8bItAdapterError> {
+        let http = exact_client_builder()
+            .tls_built_in_root_certs(false)
+            .add_root_certificate(authority.root_certificate)
+            .resolve(TLS_QUALIFICATION_HOST, authority.resolve)
+            .build()
+            .map_err(|_| Stage8bItAdapterError::ClientBuild)?;
+        Ok((Self { http }, authority.endpoint))
     }
 
     /// One controlled transport attempt.  Consuming `self`, the qualification
@@ -141,6 +192,7 @@ impl Stage8bItAdapter {
                     Stage8bItAdapterMethod::Post,
                     PLACE_ROUTE_TEMPLATE,
                     body.as_deref(),
+                    endpoint.base_url.scheme() == "https",
                 );
                 let request = match url {
                     Ok(url) => self
@@ -160,8 +212,12 @@ impl Stage8bItAdapter {
             }
             Stage8bPrivateRequestSpec::Cancel { spec, context } => {
                 let url = exact_url(&endpoint.base_url, &spec.rest_path_segments());
-                let request_diagnostic =
-                    base_diagnostic(Stage8bItAdapterMethod::Delete, CANCEL_ROUTE_TEMPLATE, None);
+                let request_diagnostic = base_diagnostic(
+                    Stage8bItAdapterMethod::Delete,
+                    CANCEL_ROUTE_TEMPLATE,
+                    None,
+                    endpoint.base_url.scheme() == "https",
+                );
                 let request = match url {
                     Ok(url) => self.http.delete(url).bearer_auth(token.0.as_str()),
                     Err(error) => {
@@ -178,6 +234,16 @@ impl Stage8bItAdapter {
         let result = request.send().await;
         classify_raw_observation(observe_response(context, request_diagnostic, result).await)
     }
+}
+
+fn exact_client_builder() -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
+        .retry(reqwest::retry::never())
+        .redirect(Policy::none())
+        .no_proxy()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT)
+        .pool_max_idle_per_host(0)
 }
 
 fn exact_url(base: &Url, segments: &[String]) -> Result<Url, Stage8bItAdapterError> {
@@ -201,11 +267,15 @@ fn base_diagnostic(
     method: Stage8bItAdapterMethod,
     route_template: &'static str,
     body: Option<&[u8]>,
+    controlled_tls: bool,
 ) -> Stage8bItAdapterDiagnostic {
     Stage8bItAdapterDiagnostic {
         method,
         route_template,
         controlled_loopback: true,
+        controlled_tls,
+        tls_backend: "rustls",
+        http2_enabled: true,
         tls_required_for_production: true,
         production_host: FINAM_PRODUCTION_HOST,
         redirects_disabled: true,
@@ -313,6 +383,8 @@ pub(super) enum Stage8bItAdapterError {
     InvalidRouteSegment,
     #[error("Stage 8B-IT HTTP client could not be built")]
     ClientBuild,
+    #[error("Stage 8B-IT TLS qualification authority is invalid")]
+    InvalidTlsQualificationAuthority,
 }
 
 #[cfg(test)]

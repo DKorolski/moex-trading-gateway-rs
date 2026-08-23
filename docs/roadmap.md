@@ -98,16 +98,20 @@ accepted despite preserving the no-send boundary. I-R2 at `21426ee` was also
 not accepted. Corrective Stage 8B-I R3 was independently accepted and merged
 exactly at `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65`. The first Stage 8B-IT
 candidate `e440539` and corrective R2 at `74d07c8` were rejected. Corrective
-IT R3 is the active candidate: the Stage 8A-2 extraction itself consumes an
+IT R3 was independently accepted and merged exactly at
+`14e01a9f838080e196ece5945a7796f2bd2600bc`: the Stage 8A-2 extraction itself consumes an
 opaque K4 proof, adapter input fields are private to a sibling capsule, reqwest
 automatic retries are explicitly disabled, and the Stage 8A-3 classifier
 remains mandatory inside the adapter.
-Qualification remains numeric-loopback-only, single-attempt and no-effect,
-with no redirect, proxy, retry or production endpoint constructor. Production
+The active candidate is the separate Stage 8B-IT-TLS R1 controlled rustls
+qualification with an ephemeral loopback CA, exact reserved hostname, HTTP/2
+ALPN and fail-closed certificate/timeout/loss matrix. It remains
+single-attempt and no-effect, with no redirect, proxy, retry or production
+endpoint constructor. Production
 operator-arm issuance, real FINAM POST/DELETE effects, Redis live consumption,
 broker dispatch, runtime-live, real orders, Stage 8B-P/XE and Stage 12 remain
-closed. Independent IT R3 acceptance plus controlled TLS evidence may open
-only Stage 8B-P.
+closed. Independent TLS acceptance plus the remaining fresh-contract,
+change-control and immutable-build prerequisites may open only Stage 8B-P.
 
 ### Accepted lineage and transition history
 

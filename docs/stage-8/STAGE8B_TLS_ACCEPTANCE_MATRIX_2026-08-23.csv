@@ -1,0 +1,51 @@
+id,requirement,status,evidence
+TLS-001,Accepted IT-R3 predecessor is exact,PASS,authority predecessor ref
+TLS-002,Accepted adapter predecessor hash is frozen,PASS,authority source hash
+TLS-003,TLS successor adapter hash is frozen,PASS,authority source hash
+TLS-004,TLS harness hash is frozen,PASS,authority source hash
+TLS-005,Cargo.lock hash is frozen,PASS,authority lock hash
+TLS-006,Production dependency graph hash is frozen,PASS,graph evidence
+TLS-007,Qualification dependency graph hash is frozen,PASS,graph evidence
+TLS-008,reqwest version is exactly 0.12.24,PASS,Cargo.lock
+TLS-009,hyper-rustls version is exactly 0.27.9,PASS,Cargo.lock
+TLS-010,rustls version is exactly 0.23.41,PASS,Cargo.lock
+TLS-011,tokio-rustls version is exactly 0.26.4,PASS,Cargo.lock
+TLS-012,ring provider identity is explicit,PASS,manifest and graph
+TLS-013,native-tls is absent from production graph,PASS,graph evidence
+TLS-014,reqwest default features remain disabled,PASS,workspace manifest
+TLS-015,HTTP2 reqwest feature remains enabled,PASS,workspace manifest
+TLS-016,rustls-tls reqwest feature remains enabled,PASS,workspace manifest
+TLS-017,automatic retry is explicitly never,PASS,exact client builder
+TLS-018,redirects remain disabled,PASS,exact client builder
+TLS-019,proxy remains disabled,PASS,exact client builder
+TLS-020,connect timeout remains two seconds,PASS,exact client builder
+TLS-021,request timeout remains three seconds,PASS,exact client builder
+TLS-022,idle connection reuse remains disabled,PASS,exact client builder
+TLS-023,built-in roots are disabled for qualification,PASS,TLS constructor
+TLS-024,only one ephemeral local root is added,PASS,TLS constructor
+TLS-025,resolution requires explicit loopback,PASS,TLS authority constructor
+TLS-026,controlled DNS name is reserved .invalid,PASS,TLS authority constructor
+TLS-027,production endpoint constructor is absent,PASS,source checker
+TLS-028,danger_accept_invalid_certs is absent,PASS,source checker
+TLS-029,danger_accept_invalid_hostnames is absent,PASS,source checker
+TLS-030,local server binds IPv4 loopback only,PASS,TLS harness
+TLS-031,local server advertises ALPN h2 only,PASS,TLS harness
+TLS-032,valid CA and hostname complete handshake,PASS,focused test
+TLS-033,valid path negotiates HTTP2,PASS,focused test
+TLS-034,PLACE method and route are exact,PASS,focused test
+TLS-035,PLACE accepted body is preserved,PASS,focused test
+TLS-036,CANCEL method and route are exact,PASS,focused test
+TLS-037,CANCEL body remains empty,PASS,focused test
+TLS-038,wrong CA fails before HTTP request,PASS,focused test
+TLS-039,wrong hostname fails before HTTP request,PASS,focused test
+TLS-040,expired certificate fails before HTTP request,PASS,focused test
+TLS-041,not-yet-valid certificate fails before HTTP request,PASS,focused test
+TLS-042,TLS response loss classifies Disconnect,PASS,focused test
+TLS-043,TLS timeout classifies Timeout,PASS,focused test
+TLS-044,classified output remains Stage8A3-only,PASS,source checker
+TLS-045,transport attempt count remains one,PASS,focused test
+TLS-046,FINAM credentials remain absent,PASS,closed-surface checker
+TLS-047,real FINAM POST DELETE remains closed,PASS,closed-surface checker
+TLS-048,Redis execution and runtime-live remain closed,PASS,closed-surface checker
+TLS-049,Stage8B-P and XE remain closed,PASS,authority
+TLS-050,Canonical full regression is required,PASS,TLS gate
