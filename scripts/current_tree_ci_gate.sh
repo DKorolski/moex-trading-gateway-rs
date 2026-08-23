@@ -47,6 +47,16 @@ if ! STAGE8A5_ARTIFACT_DIR="$accepted_evidence" \
       fi
     fi
   done < <(find "$accepted_evidence" -type f -name '*.txt' -print0 2>/dev/null)
+  if [[ "$failure_files" -eq 0 ]]; then
+    echo "current-tree-ci-gate: no standard failure signature; bounded gate tails follow" >&2
+    for failure_file in \
+      "$accepted_evidence"/inherited-stage7b-gate*.txt \
+      "$accepted_evidence"/inherited-stage7b/*.txt; do
+      [[ -s "$failure_file" ]] || continue
+      echo "===== ${failure_file#"$artifact_dir/"} =====" >&2
+      tail -n 120 "$failure_file" >&2
+    done
+  fi
   echo "current-tree-ci-gate: nested_failure_files=$failure_files" >&2
   exit 1
 fi
