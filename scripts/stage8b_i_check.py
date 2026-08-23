@@ -68,11 +68,12 @@ def main() -> None:
     }
     authority = json.loads(text["authority"])
     require(authority.get("schema_version") == 2, "schema drift")
-    require(authority.get("stage") == "8B-I-R2", "stage drift")
+    require(authority.get("stage") == "8B-I-R3", "stage drift")
     require(authority.get("status") == "corrective_no_send_implementation_candidate", "status drift")
-    require(authority.get("branch") == "stage8b-i-r2", "branch drift")
+    require(authority.get("branch") == "stage8b-i-r3", "branch drift")
     require(authority.get("rejected_stage8b_i_ref") == "a52fbcae5340d632ce8b983eda6ecb4b8dedabce", "rejected I ref drift")
-    require(authority.get("stage8b_i_review_sha256") == "3f7b04caa6b402ab96432560c5ef5f48c7a0e77bbbc87c466c85054f15216399", "I review digest drift")
+    require(authority.get("rejected_stage8b_i_r2_ref") == "21426eec11ca6aa10ca4ca4675824defbc2451bb", "rejected I-R2 ref drift")
+    require(authority.get("stage8b_i_review_sha256") == "3b7f11af33bab83276d2c1cb96c7b116321f61949e46a58a56bf816db8abf971", "I review digest drift")
     require(authority.get("accepted_stage8b_s_r3_candidate") == S_CANDIDATE, "S candidate drift")
     require(authority.get("accepted_stage8b_s_r3_merge") == S_MERGE, "S merge drift")
     require(authority.get("accepted_stage8b_s_r3_tree") == S_TREE, "S tree drift")
@@ -96,14 +97,18 @@ def main() -> None:
         "impossible_replay_sequence_rejected",
         "stage8a2_builder_after_exact_permit_only", "permit_consumed_by_builder_bridge",
         "local_no_network_boundary_single_use", "durable_request_consumed_and_bound",
-        "k2_fresh_sources_typed_and_bound", "canonical_lower_arm_identity",
+        "capability_durable_cross_bound", "k1_arm_excludes_future_k2_evidence",
+        "k2_fresh_sources_typed_and_bound", "k2_sources_minted_from_opaque_authorities",
+        "canonical_lower_arm_identity",
         "authenticated_complete_arm_binding", "all_closure_classes_persist_exactly",
         "closure_payload_corruption_rejected", "execution_build_provenance_verified",
         "resolved_legacy_send_features_false", "unknown_feature_state_rejected",
         "endpoint_identity_exactly_bound", "canonical_full_regression_required",
         "k2_max_one_budget_enforced", "k3_covering_seal_bound",
+        "exact_attempt_persisted_before_k3", "k3_consumes_exact_durable_attempt_receipt",
         "k4_exact_attempt_rechecked", "k5_reconciliation_bound",
         "publication_preserves_exact_closure", "terminal_closure_receipt_typed",
+        "positive_place_cancel_end_to_end_rehearsal",
     )
     for key in required_true:
         require(authority.get(key) is True, f"required property weakened: {key}")
@@ -117,7 +122,7 @@ def main() -> None:
     for key in required_false:
         require(authority.get(key) is False, f"closed surface opened: {key}")
     require(authority.get("external_compile_fail_positive_cases") == 1, "compile positive count drift")
-    require(authority.get("external_compile_fail_negative_cases") == 18, "compile negative count drift")
+    require(authority.get("external_compile_fail_negative_cases") == 20, "compile negative count drift")
     require(authority.get("hmac_domain_ascii") == "moex-stage8b-account-binding-v1", "HMAC domain drift")
     require(authority.get("hmac_suffix_hex") == "00", "HMAC suffix drift")
     require(authority.get("hmac_length_encoding") == "u32be", "HMAC length drift")
@@ -127,33 +132,36 @@ def main() -> None:
     require(authority.get("crash_window_count") == 6, "crash-window count drift")
     require(authority.get("durable_restart_prefix_count") == 6, "restart-prefix count drift")
     require(authority.get("closure_class_count") == 5, "closure count drift")
-    require(authority.get("acceptance_rows") == 92 and authority.get("negative_cases") == 70, "authority count drift")
+    require(authority.get("acceptance_rows") == 104 and authority.get("negative_cases") == 82, "authority count drift")
 
     with paths["matrix"].open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
-    require([row.get("id") for row in rows] == [f"I-{index:03d}" for index in range(1, 93)], "matrix ID/count drift")
+    require([row.get("id") for row in rows] == [f"I-{index:03d}" for index in range(1, 105)], "matrix ID/count drift")
     require(all(row.get("area") and row.get("requirement") and row.get("evidence") and row.get("status") == "pending" for row in rows), "matrix row incomplete")
     numbers = [int(value) for value in re.findall(r"^(\d+)\.", text["negative"], re.MULTILINE)]
-    require(numbers == list(range(1, 71)), "negative inventory must be exact 1..70")
+    require(numbers == list(range(1, 83)), "negative inventory must be exact 1..82")
 
     module = text["module"]
     require(len(re.findall(r"(?m)^pub fn invoke_stage8b_operator_once\(", module)) == 1, "public facade count drift")
     require(len(re.findall(r"(?m)^pub\(crate\) fn compose_stage8b_effect_authority\(", module)) == 1, "private root count drift")
     require(len(re.findall(r"(?m)^fn compose_stage8b_private_request_parts_from_stage8a2\(", module)) == 1, "builder bridge count drift")
     require(len(re.findall(r"(?m)^fn classify_stage8b_transport_observation_with_stage8a3\(", module)) == 1, "classifier bridge count drift")
-    require(len(re.findall(r"(?m)^fn commit_stage8b_sealed_attempt\(", module)) == 1, "sealed-attempt transition drift")
+    require(len(re.findall(r"(?m)^fn record_stage8b_exact_durable_attempt\(", module)) == 1, "durable-attempt transition drift")
+    require(len(re.findall(r"(?m)^fn authenticate_stage8b_covering_seal_after_attempt\(", module)) == 1, "post-fsync K3 transition drift")
     require(len(re.findall(r"(?m)^fn authorize_stage8b_exact_transport_permit\(", module)) == 1, "exact-permit transition drift")
     require(len(re.findall(r"(?m)^fn invoke_stage8b_local_no_network_boundary\(", module)) == 1, "local no-network boundary drift")
     require(len(re.findall(r"(?m)^fn reconcile_stage8b_possible_effect\(", module)) == 1, "K5 reconciliation transition drift")
     require(len(re.findall(r"(?m)^fn publish_stage8b_durable_closure\(", module)) == 1, "closure publication transition drift")
     for marker in (
-        "permit.capability.compose_stage8a2_no_send(&mut sink)", "context.classify(observation)",
-        "commit_stage8b_sealed_attempt", "authorize_stage8b_exact_transport_permit",
-        "invoke_stage8b_local_no_network_boundary", ".into_stage8b_binding_sha256()",
-        "Stage8bK2FreshSources", "single_finam_owner", "ambiguity_count != 0",
-        "unresolved_lifecycle_count != 0", "readiness_fresh", "schedule_open_and_fresh",
-        "broker_truth_fresh", "max_one_budget_remaining != 1",
-        "Stage8bK3CoveringSealApproved", "Stage8bK4ControlApproved",
+        "permit.continuation.compose_stage8a2_no_send(&mut sink)", "context.classify(observation)",
+        "record_stage8b_exact_durable_attempt", "authenticate_stage8b_covering_seal_after_attempt",
+        "authorize_stage8b_exact_transport_permit", "invoke_stage8b_local_no_network_boundary",
+        "bind_exact_durable_for_stage8b", "Stage8bK2FreshSources",
+        "mint_stage8b_k2_fresh_sources", "Stage8bK2AcceptedAuthorityBundle",
+        "finam_owner_count != 1", "ambiguity_count != 0", "unresolved_lifecycle_count != 0",
+        "!bundle.readiness.ready", "!bundle.schedule.open", "!bundle.broker_truth.fresh",
+        "authority.valid_until_unix_ms <= bundle.observed_at_unix_ms",
+        "remaining_orders != 1", "Stage8bK3CoveringSealSource", "Stage8bK4ControlApproved",
         "Stage8bK5ReconciliationApproved", "reconcile_stage8b_possible_effect",
         "publish_stage8b_durable_closure", "verify_execution_qualified_build", "canonical_metadata_sha256",
         "resolved_feature_graph_sha256", "unknown_feature_count != 0",
@@ -175,8 +183,14 @@ def main() -> None:
         "corrupt_unknown_or_mismatched_closure_payload_fails_closed",
         "execution_build_verifier_binds_source_features_metadata_toolchain_and_binary",
         "endpoint_identity_binds_method_template_account_and_renderer",
-        "arm_binding_changes_for_each_exact_durable_run_and_k2_component",
+        "k1_arm_binding_changes_for_each_legal_pre_k2_component",
         "k2_accepts_only_fresh_authenticated_arm_capability",
+        "typed_k2_bundle_rejects_stale_substituted_or_non_unique_authorities",
+        "// K1 issuance happens before any K2 source authority exists.",
+        "place_executes_complete_linear_no_send_type_state_rehearsal",
+        "cancel_executes_complete_linear_no_send_type_state_rehearsal",
+        "capability_and_durable_from_different_commands_fail_before_k2",
+        "k3_rejects_covering_seal_from_another_control_generation",
         "package_path_swap_after_open_is_rejected", "manifest_child_symlink_is_rejected_by_openat",
     ):
         require(marker in module, f"implementation marker missing: {marker}")
@@ -204,17 +218,23 @@ def main() -> None:
         "validate_authenticated_arm_for_k2(&arm, &expected_arm_binding, &k2_sources)?;" in root_body,
         "authenticated arm validation missing from K2 root",
     )
+    arm_binding_match = re.search(r"fn calculate_arm_binding\(.*?\n\}", module, re.S)
+    require(arm_binding_match is not None, "K1 arm binding implementation missing")
+    require("k2_sources" not in arm_binding_match.group(0), "K1 arm illegally depends on future K2 evidence")
+    for required in ("arm_uniqueness_sha256", "micro_budget_generation", "expires_at_unix_ms"):
+        require(required in arm_binding_match.group(0), f"K1 arm binding missing: {required}")
     for required in (
-        "if !k2_sources.single_finam_owner", "k2_sources.ambiguity_count != 0",
-        "k2_sources.unresolved_lifecycle_count != 0", "!k2_sources.readiness_fresh",
-        "!k2_sources.schedule_open_and_fresh", "!k2_sources.broker_truth_fresh",
-        "k2_sources.max_one_budget_remaining != 1",
-        "k2_sources.observed_at_unix_ms == 0",
+        "k2_sources.observed_at_unix_ms == 0", "k2_sources.request_run_binding_sha256",
+        "k2_sources.control_lineage_sha256", ".bind_exact_durable_for_stage8b(durable)",
+        "k2_sources.request_run_binding_sha256 != expected_request_run_binding",
+        "k2_sources.control_lineage_sha256 != control.control_sha256",
+        "arm.binding_sha256.as_bytes()",
     ):
         require(required in root_body, f"K2 fail-closed predicate missing: {required}")
+    require(root_body.count("arm.binding_sha256.as_bytes()") == 2, "arm not bound independently to K2 scope and preflight")
     preflight_match = re.search(r"pub\(crate\) struct Stage8bFreshPreflightApproved\s*\{(?P<body>.*?)\n\}", module, re.S)
     require(preflight_match is not None, "fresh preflight type missing")
-    require("capability: Stage8a1CurrentlyAuthorizedCapability" in preflight_match.group("body"), "fresh preflight lost exact continuation")
+    require("continuation: Stage8a1Stage8bBoundContinuation" in preflight_match.group("body"), "fresh preflight lost cross-bound continuation")
     require("request_parts" not in preflight_match.group("body"), "fresh preflight contains pre-permit request parts")
     require("struct Stage8bApprovedRequestParts {" in module and "pub struct Stage8bApprovedRequestParts" not in module, "private request witness escaped")
     require("DurableOutcomeRecorded(Stage8bClosureClassification)" in module, "durable closure payload removed")
@@ -226,14 +246,27 @@ def main() -> None:
         re.S,
     )
     require(bridge_match is not None, "builder bridge does not consume exact permit")
-    require("pub(crate) fn into_stage8b_binding_sha256(" in text["a1"], "durable Stage8A1 binding bridge missing")
+    require("pub(crate) fn bind_exact_durable_for_stage8b(" in text["a1"], "capability/durable consuming bridge missing")
+    require("capability.durable_provenance_sha256 != durable.provenance_sha256" in text["a1"], "capability/durable provenance cross-check missing")
+    require("stage8b_cross_binding_rejects_current_state_mismatch" in text["a1"], "capability current-state mismatch fixture missing")
+    k2_match = re.search(r"pub\(crate\) struct Stage8bK2FreshSources\s*\{(?P<body>.*?)\n\}", module, re.S)
+    require(k2_match is not None, "typed K2 witness missing")
+    for forbidden in ("bool", "owner_count", "ambiguity_count", "unresolved_lifecycle_count", "remaining_orders"):
+        require(forbidden not in k2_match.group("body"), f"free K2 predicate escaped into final witness: {forbidden}")
+    require('Self::AttemptCommitted(attempt_sha256) => format!("A:{attempt_sha256}")' in module, "exact attempt journal encoding weakened")
     require("self.validate()?;" in text["a1"] and "stage8b-durable-request-binding-v1" in text["a1"], "durable authority not validated/bound")
 
     transition_contracts = {
+        "durable-attempt": (
+            r"fn record_stage8b_exact_durable_attempt\(.*?\n\}",
+            ("Stage8bDurableAttemptRecorded", "stage8b-i-r3-exact-durable-attempt-v1",
+             "append(Stage8bRehearsalRecord::AttemptCommitted(", "attempt_sha256.clone()"),
+        ),
         "K3": (
-            r"fn commit_stage8b_sealed_attempt\(.*?\n\}",
-            ("k3: Stage8bK3CoveringSealApproved", "append(Stage8bRehearsalRecord::AttemptCommitted)",
-             "k3.seal_sha256.as_bytes()", "k3.control_sha256.as_bytes()"),
+            r"fn authenticate_stage8b_covering_seal_after_attempt\(.*?\n\}",
+            ("durable_attempt: Stage8bDurableAttemptRecorded", "k3.exact_attempt_sha256 != durable_attempt.attempt_sha256",
+             "k3.control_lineage_sha256 != durable_attempt.control_lineage_sha256",
+             "stage8b-i-r3-post-fsync-covering-seal-v1", "k3.seal_sha256.as_bytes()", "k3.control_lineage_sha256.as_bytes()"),
         ),
         "K4": (
             r"fn authorize_stage8b_exact_transport_permit\(.*?\n\}",
@@ -279,21 +312,22 @@ def main() -> None:
         "endpoint_renderer_sha256.as_bytes()", "body_schema_sha256.as_bytes()",
     ):
         require(required in build_body, f"build provenance component missing: {required}")
-    recover_match = re.search(r"fn recover\(root: &Path\).*?\n    \}\n\}", module, re.S)
+    recover_match = re.search(r"fn recover_state\(root: &Path\).*?\n    \}\n\}", module, re.S)
     require(recover_match is not None, "durable recovery implementation missing")
     recover_body = recover_match.group(0)
     for required in (
-        'strip_prefix("D:")', 'strip_prefix("U:")', "Stage8bClosureClassification::parse",
-        "if durable == publication", "Ok(durable)", "body.ends_with(b\"\\n\")",
+        'strip_prefix("A:")', 'strip_prefix("D:")', 'strip_prefix("U:")',
+        "Stage8bClosureClassification::parse", "if durable == publication",
+        "exact_attempt_sha256: Some(exact_attempt_sha256)", "body.ends_with(b\"\\n\")",
     ):
         require(required in recover_body, f"closure recovery invariant missing: {required}")
 
     authority_types = (
         "Stage8bExecutionQualifiedBuild", "Stage8bKeyedAccountBinding",
         "Stage8bFreshContractAuthority", "Stage8bAcceptedRunSpec", "Stage8bK1ControlApproved",
-        "Stage8bAuthenticatedOperatorArm", "Stage8bK2FreshSources", "Stage8bK3CoveringSealApproved",
+        "Stage8bAuthenticatedOperatorArm", "Stage8bK2FreshSources", "Stage8bK3CoveringSealSource",
         "Stage8bK4ControlApproved", "Stage8bK5ReconciliationApproved",
-        "Stage8bFreshPreflightApproved", "Stage8bSealedAttemptCommitted",
+        "Stage8bFreshPreflightApproved", "Stage8bDurableAttemptRecorded", "Stage8bSealedAttemptCommitted",
         "Stage8bExactTransportPermit", "Stage8bPossibleEffectOwner",
         "Stage8bDurableClosureOwner", "Stage8bClosureReceipt",
     )
@@ -320,13 +354,14 @@ def main() -> None:
     require("invoke_stage8b_no_send_from_cli" in text["cli_lib"], "broker-cli facade missing")
     require("broker_cli_reaches_only_the_public_redacted_no_send_facade" in text["cli_test"], "positive integration fixture missing")
     compile_script = text["compile"]
-    require("stage8b-i-external-compile-fail: PASS positive=1 negative=18" in compile_script, "compile-fail count marker drift")
+    require("stage8b-i-external-compile-fail: PASS positive=1 negative=20" in compile_script, "compile-fail count marker drift")
     for marker in (
         "check_fail private_module", "check_fail private_root", "check_fail private_build",
         "check_fail private_binding", "check_fail private_arm", "check_fail private_permit",
         "check_fail request_literal", "check_fail request_clone", "check_fail raw_path_getter",
         "check_fail authority_conversion", "check_fail arm_issuer", "check_fail classifier_bridge",
-        "check_fail private_k2_sources", "check_fail sealed_transition",
+        "check_fail private_k2_sources", "check_fail durable_attempt_transition",
+        "check_fail covering_seal_transition", "check_fail private_durable_attempt",
         "check_fail permit_transition", "check_fail builder_before_permit",
         "check_fail raw_request_witness", "check_fail local_boundary",
     ):
@@ -343,13 +378,13 @@ def main() -> None:
         "python3 scripts/stage8b_i_negative_harness.py",
         "python3 scripts/stage8b_i_closed_surface_check.py",
         "bash scripts/stage8b_i_external_compile_fail.sh",
-        "stage8b-i-gate: PASS revision=R2 rows=92 negatives=70 compile_fail=18 canonical_regression=true",
+        "stage8b-i-gate: PASS revision=R3 rows=104 negatives=82 compile_fail=20 canonical_regression=true",
     ):
         require(marker in text["gate"], f"aggregate-gate marker missing: {marker}")
     require("stage8b-i-handoff-safety: PASS" in text["handoff_safety"], "handoff safety marker missing")
     require("stage8b-i-handoff: PASS" in text["handoff_maker"], "handoff maker marker missing")
     for marker in (
-        'GATE_LOG = ROOT / "reports/stage8b-i-r2-gate.log"',
+        'GATE_LOG = ROOT / "reports/stage8b-i-r3-gate.log"',
         "current-tree-ci-gate: PASS source_ref={full_ref}",
         "stage8b-i-full-regression: PASS canonical_ci=true",
         "stale or incomplete exact-commit gate log",
@@ -368,13 +403,13 @@ def main() -> None:
 
     contract = text["contract"]
     for marker in (
-        "Stage 8B-I R2", "corrective no-send type-state", "invoke_stage8b_operator_once",
+        "Stage 8B-I R3", "corrective no-send type-state", "invoke_stage8b_operator_once",
         "compose_stage8b_effect_authority", "O_CREAT|O_EXCL|O_NOFOLLOW",
         "six prefixes", "Stage 8B-I does not authorize 8B-IT", "canonical current-tree gate",
     ):
         require(marker in contract, f"contract marker missing: {marker}")
 
-    print("stage8b-i-check: PASS revision=R2 rows=92 negatives=70 facade=1 root=1 compile_fail=18 permit_ordered=true durable_k2_k3_k4_k5_bound=true closure_exact=true build_endpoint_bound=true arm_bound=true no_send=true finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false")
+    print("stage8b-i-check: PASS revision=R3 rows=104 negatives=82 facade=1 root=1 compile_fail=20 permit_ordered=true durable_k2_k3_k4_k5_bound=true closure_exact=true build_endpoint_bound=true arm_bound=true no_send=true finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false")
 
 
 if __name__ == "__main__":

@@ -71,7 +71,7 @@ CASES: tuple[tuple[str, Callable[[Path], None]], ...] = (
     ("authority-fields-public", mutate_json("authority_fields_private", False)),
     ("authority-traits-open", mutate_json("authority_clone_copy_debug_serde_forbidden", False)),
     ("a2-source-drift", replace("crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs", "//! Stage 8A-2", "//! drift\n//! Stage 8A-2")),
-    ("builder-bridge-bypassed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "permit.capability.compose_stage8a2_no_send(&mut sink)", "removed_existing_builder_bridge(permit, &mut sink)")),
+    ("builder-bridge-bypassed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "permit.continuation.compose_stage8a2_no_send(&mut sink)", "removed_existing_builder_bridge(permit, &mut sink)")),
     ("a3-source-drift", replace("crates/finam-gateway/src/stage8a3_endpoint_classifier.rs", "//! Stage 8A-3", "//! drift\n//! Stage 8A-3")),
     ("classifier-bridge-bypassed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "context.classify(observation)", "removed_classifier_bridge(context, observation)")),
     ("hmac-constructor-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "Hmac::<Sha256>::new_from_slice", "removed_hmac_constructor", all_occurrences=True)),
@@ -100,13 +100,13 @@ CASES: tuple[tuple[str, Callable[[Path], None]], ...] = (
     ("automatic-retry-open", mutate_json("automatic_retry_or_resend", True)),
     ("network-send-open", mutate_json("network_send_enabled", True)),
     ("acceptance-count-drift", mutate_json("acceptance_rows", 85)),
-    ("builder-before-permit", replace("crates/finam-gateway/src/stage8b_no_send.rs", "let durable_request_sha256 = durable", "let _early = compose_stage8b_private_request_parts_from_stage8a2(capability);\n    let durable_request_sha256 = durable")),
+    ("builder-before-permit", replace("crates/finam-gateway/src/stage8b_no_send.rs", "let continuation = capability", "let _early = compose_stage8b_private_request_parts_from_stage8a2(capability);\n    let continuation = capability")),
     ("builder-without-permit", replace("crates/finam-gateway/src/stage8b_no_send.rs", "permit: Stage8bExactTransportPermit", "capability: Stage8a1CurrentlyAuthorizedCapability")),
-    ("preflight-stores-request-parts", replace("crates/finam-gateway/src/stage8b_no_send.rs", "capability: Stage8a1CurrentlyAuthorizedCapability,", "request_parts: Stage8bApprovedRequestParts,", all_occurrences=False)),
-    ("sealed-transition-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "fn commit_stage8b_sealed_attempt(", "fn removed_commit_stage8b_sealed_attempt(")),
+    ("preflight-stores-request-parts", replace("crates/finam-gateway/src/stage8b_no_send.rs", "continuation: Stage8a1Stage8bBoundContinuation,", "request_parts: Stage8bApprovedRequestParts,", all_occurrences=False)),
+    ("durable-attempt-transition-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "fn record_stage8b_exact_durable_attempt(", "fn removed_record_stage8b_exact_durable_attempt(")),
     ("permit-transition-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "fn authorize_stage8b_exact_transport_permit(", "fn removed_authorize_stage8b_exact_transport_permit(")),
     ("raw-witness-escape", replace("crates/finam-gateway/src/stage8b_no_send.rs", "struct Stage8bApprovedRequestParts {", "pub struct Stage8bApprovedRequestParts {")),
-    ("durable-binding-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", ".into_stage8b_binding_sha256()", ".removed_stage8b_binding_sha256()")),
+    ("durable-binding-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", ".bind_exact_durable_for_stage8b(durable)", ".removed_bind_exact_durable_for_stage8b(durable)")),
     ("k2-sources-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k2_sources: Stage8bK2FreshSources,", "_k2_sources: Stage8bK2FreshSources,")),
     ("build-input-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "build: Stage8bExecutionQualifiedBuild,", "_build: Stage8bExecutionQualifiedBuild,")),
     ("account-input-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "account: Stage8bKeyedAccountBinding,", "_account: Stage8bKeyedAccountBinding,")),
@@ -114,22 +114,34 @@ CASES: tuple[tuple[str, Callable[[Path], None]], ...] = (
     ("run-input-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "run: Stage8bAcceptedRunSpec,", "_run: Stage8bAcceptedRunSpec,")),
     ("control-input-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "control: Stage8bK1ControlApproved,", "_control: Stage8bK1ControlApproved,")),
     ("arm-input-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "arm: Stage8bAuthenticatedOperatorArm,", "_arm: Stage8bAuthenticatedOperatorArm,")),
-    ("single-owner-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "if !k2_sources.single_finam_owner", "if false")),
-    ("ambiguity-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k2_sources.ambiguity_count != 0", "false")),
-    ("unresolved-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k2_sources.unresolved_lifecycle_count != 0", "false")),
-    ("freshness-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "|| !k2_sources.readiness_fresh", "|| false")),
+    ("single-owner-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "bundle.owner.finam_owner_count != 1", "false")),
+    ("ambiguity-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "bundle.ambiguity.ambiguity_count != 0", "false")),
+    ("unresolved-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "bundle.ambiguity.unresolved_lifecycle_count != 0", "false")),
+    ("freshness-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "|| !bundle.readiness.ready", "|| false")),
     ("closure-payload-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "DurableOutcomeRecorded(Stage8bClosureClassification)", "DurableOutcomeRecorded")),
-    ("closure-normalized-safe", replace("crates/finam-gateway/src/stage8b_no_send.rs", "Ok(durable)", "Ok(Stage8bClosureClassification::Stage8BClosedSafe)", all_occurrences=True)),
+    ("closure-normalized-safe", mutate_json("all_closure_classes_persist_exactly", False)),
     ("closure-corruption-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "corrupt_unknown_or_mismatched_closure_payload_fails_closed", "removed_corrupt_closure_fixture")),
     ("legacy-feature-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", '("finam-gateway/m3j16-actual-one-shot".to_string(), false)', '("finam-gateway/m3j16-actual-one-shot".to_string(), true)', all_occurrences=True)),
     ("endpoint-account-unbound", replace("crates/finam-gateway/src/stage8b_no_send.rs", "account.binding_sha256.as_bytes(),", "b\"account-omitted\",", all_occurrences=True)),
     ("arm-authentication-expiry-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "validate_authenticated_arm_for_k2(&arm, &expected_arm_binding, &k2_sources)?;", "let _ = (&arm, &expected_arm_binding);")),
-    ("max-one-budget-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k2_sources.max_one_budget_remaining != 1", "false")),
+    ("max-one-budget-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "bundle.budget.remaining_orders != 1", "false")),
     ("k3-covering-seal-unbound", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k3.seal_sha256.as_bytes(),", "b\"seal-omitted\",")),
     ("k4-exact-attempt-recheck-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k4.rechecked_attempt_sha256 != sealed.attempt_sha256", "false")),
     ("k5-reconciliation-transition-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "fn reconcile_stage8b_possible_effect(", "fn removed_reconcile_stage8b_possible_effect(")),
     ("k5-control-binding-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k5.control_sha256.as_bytes(),", "b\"control-omitted\",")),
     ("exact-closure-publication-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "fn publish_stage8b_durable_closure(", "fn removed_publish_stage8b_durable_closure(")),
+    ("k1-future-k2-dependency", replace("crates/finam-gateway/src/stage8b_no_send.rs", "evidence.arm_uniqueness_sha256.as_str()", "evidence.k2_sources_sha256.as_str()")),
+    ("k2-preread-before-arm", replace("crates/finam-gateway/src/stage8b_no_send.rs", "// K1 issuance happens before any K2 source authority exists.", "// removed chronology proof")),
+    ("k2-request-run-substitution", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k2_sources.request_run_binding_sha256 != expected_request_run_binding", "false")),
+    ("arm-substitution-after-k2", replace("crates/finam-gateway/src/stage8b_no_send.rs", "arm.binding_sha256.as_bytes(),", "b\"substitutable-arm\",")),
+    ("stale-k2-authority-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "authority.valid_until_unix_ms <= bundle.observed_at_unix_ms", "false")),
+    ("k2-control-lineage-mismatch", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k2_sources.control_lineage_sha256 != control.control_sha256", "false")),
+    ("capability-durable-cross-binding-removed", replace("crates/finam-gateway/src/stage8a1_execution_capability.rs", "capability.durable_provenance_sha256 != durable.provenance_sha256", "false")),
+    ("free-k2-flags-restored", replace("crates/finam-gateway/src/stage8b_no_send.rs", "request_run_binding_sha256: String,", "single_finam_owner: bool,", all_occurrences=False)),
+    ("generic-attempt-marker", replace("crates/finam-gateway/src/stage8b_no_send.rs", "format!(\"A:{attempt_sha256}\")", "\"A\".to_string()")),
+    ("k3-before-attempt-fsync", replace("crates/finam-gateway/src/stage8b_no_send.rs", "fn authenticate_stage8b_covering_seal_after_attempt(", "fn removed_authenticate_stage8b_covering_seal_after_attempt(")),
+    ("k3-wrong-attempt-open", replace("crates/finam-gateway/src/stage8b_no_send.rs", "k3.exact_attempt_sha256 != durable_attempt.attempt_sha256", "false")),
+    ("end-to-end-rehearsal-removed", replace("crates/finam-gateway/src/stage8b_no_send.rs", "place_executes_complete_linear_no_send_type_state_rehearsal", "removed_place_end_to_end_rehearsal")),
 )
 
 
@@ -142,8 +154,8 @@ def copy_minimal(root: Path) -> None:
 
 
 def main() -> None:
-    if len(CASES) != 70:
-        raise SystemExit(f"stage8b-i-negative: FAIL inventory={len(CASES)} expected=70")
+    if len(CASES) != 82:
+        raise SystemExit(f"stage8b-i-negative: FAIL inventory={len(CASES)} expected=82")
     with tempfile.TemporaryDirectory(prefix="stage8b-i-negative-") as raw:
         base = Path(raw) / "base"
         copy_minimal(base)
@@ -161,7 +173,7 @@ def main() -> None:
             if result.returncode == 0:
                 raise SystemExit(f"stage8b-i-negative: FAIL {name}")
             print(f"PASS {name}")
-    print("stage8b-i-negative: PASS cases=70/70")
+    print("stage8b-i-negative: PASS cases=82/82")
 
 
 if __name__ == "__main__":

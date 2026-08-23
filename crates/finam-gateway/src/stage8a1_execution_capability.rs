@@ -490,6 +490,17 @@ pub struct Stage8a1CurrentlyAuthorizedCapability {
     current_state_sha256: String,
 }
 
+/// Linear Stage 8B continuation produced only after the currently-authorized
+/// capability and the separately recovered durable request are proven to be
+/// the same exact command authority.  The durable authority is consumed by
+/// the bridge, so a caller cannot pair capability A with durable request B and
+/// retain either input for another attempt.
+pub(crate) struct Stage8a1Stage8bBoundContinuation {
+    capability: Stage8a1CurrentlyAuthorizedCapability,
+    durable_binding_sha256: String,
+    continuation_binding_sha256: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Stage8a1ContinuationDiagnostic {
     pub capability: Stage8CapabilityDiagnostic,
@@ -504,6 +515,66 @@ impl Stage8a1CurrentlyAuthorizedCapability {
             revalidated_at: self.revalidated_at,
             current_state_sha256: self.current_state_sha256.clone(),
         }
+    }
+
+    pub(crate) fn bind_exact_durable_for_stage8b(
+        self,
+        durable: Stage8a1DurableRequestAuthority,
+    ) -> Result<Stage8a1Stage8bBoundContinuation, Stage8ExecutionPreflightError> {
+        durable.validate()?;
+        let capability = &self.capability;
+        if capability.durable_provenance_sha256 != durable.provenance_sha256
+            || capability.seal_generation != durable.seal_generation
+            || capability.seal_commitment_sha256 != durable.seal_commitment_sha256
+            || capability.operational_identity_sha256 != durable.operational_identity_sha256
+            || capability.runtime_config_fingerprint_sha256
+                != durable.runtime_config_fingerprint_sha256
+            || self.current_state_sha256 != capability.current_state_sha256
+            || !valid_sha256(&self.current_state_sha256)
+            || !valid_sha256(&capability.audit_fingerprint)
+        {
+            return Err(Stage8ExecutionPreflightError::CurrentStateChanged);
+        }
+        let durable_binding_sha256 = durable.into_stage8b_binding_sha256()?;
+        let continuation_binding_sha256 = digest_parts(
+            b"stage8b-capability-durable-cross-binding-v1",
+            &[
+                durable_binding_sha256.as_bytes(),
+                capability.durable_provenance_sha256.as_bytes(),
+                capability.request_id.to_string().as_bytes(),
+                capability.accepted_command_payload_sha256.as_bytes(),
+                capability.operational_identity_sha256.as_bytes(),
+                capability.runtime_config_fingerprint_sha256.as_bytes(),
+                capability.authority_scope_sha256.as_bytes(),
+                capability.exact_command_sha256.as_bytes(),
+                capability.current_state_sha256.as_bytes(),
+                capability.audit_fingerprint.as_bytes(),
+                &capability.seal_generation.to_be_bytes(),
+                capability.seal_commitment_sha256.as_bytes(),
+            ],
+        );
+        Ok(Stage8a1Stage8bBoundContinuation {
+            capability: self,
+            durable_binding_sha256,
+            continuation_binding_sha256,
+        })
+    }
+}
+
+impl Stage8a1Stage8bBoundContinuation {
+    pub(crate) fn durable_binding_sha256(&self) -> &str {
+        &self.durable_binding_sha256
+    }
+
+    pub(crate) fn continuation_binding_sha256(&self) -> &str {
+        &self.continuation_binding_sha256
+    }
+
+    pub(crate) fn compose_stage8a2_no_send(
+        self,
+        sink: &mut Stage8a2InMemoryNoSendSink,
+    ) -> Result<Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError> {
+        self.capability.compose_stage8a2_no_send(sink)
     }
 }
 
@@ -525,12 +596,7 @@ pub struct Stage8a1DurableRequestAuthority {
 }
 
 impl Stage8a1DurableRequestAuthority {
-    /// Consume the exact durable authority into the Stage 8B private domain.
-    /// The returned digest is opaque outside this crate and covers the full
-    /// validated Stage 7B/Stage 6 provenance rather than a caller supplied ID.
-    pub(crate) fn into_stage8b_binding_sha256(
-        self,
-    ) -> Result<String, Stage8ExecutionPreflightError> {
+    pub(crate) fn stage8b_binding_sha256(&self) -> Result<String, Stage8ExecutionPreflightError> {
         self.validate()?;
         Ok(digest_parts(
             b"stage8b-durable-request-binding-v1",
@@ -545,6 +611,15 @@ impl Stage8a1DurableRequestAuthority {
                 self.seal_commitment_sha256.as_bytes(),
             ],
         ))
+    }
+
+    /// Consume the exact durable authority into the Stage 8B private domain.
+    /// The returned digest is opaque outside this crate and covers the full
+    /// validated Stage 7B/Stage 6 provenance rather than a caller supplied ID.
+    pub(crate) fn into_stage8b_binding_sha256(
+        self,
+    ) -> Result<String, Stage8ExecutionPreflightError> {
+        self.stage8b_binding_sha256()
     }
 
     pub fn from_stage7b_owner(
@@ -3805,7 +3880,7 @@ pub(crate) fn stage8a4_test_i4_current_sources(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use broker_core::{
         AccountId, BrokerFeedFreshness, BrokerInstrumentSpec, BrokerStopOrderReadiness,
@@ -4665,6 +4740,104 @@ mod tests {
         };
         value.provenance_sha256 = value.calculate_provenance();
         value
+    }
+
+    /// Exact matching test authorities for the Stage 8B-I linear rehearsal.
+    /// The production constructors remain unchanged and inaccessible; this
+    /// helper only avoids duplicating the accepted Stage 8A fixture machinery
+    /// in a sibling unit-test module.
+    pub(crate) fn stage8b_matching_authorities(
+        scope: Stage8CommandScope,
+    ) -> (
+        Stage8a1CurrentlyAuthorizedCapability,
+        Stage8a1DurableRequestAuthority,
+        PathBuf,
+    ) {
+        let observed_at = Utc::now();
+        let mut placed = place();
+        placed.created_ts = observed_at;
+        placed.ttl_ms = Some(30_000);
+        match scope {
+            Stage8CommandScope::Place => {
+                let durable = durable_place(&placed);
+                let root = issuer_root();
+                write_issuer_sources(&root, &durable, observed_at);
+                let (readiness, truth, broker_readiness) = current_sources(observed_at);
+                let mut issuer =
+                    Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+                let sources = issuer
+                    .issue_current_sources(&readiness, &truth, &broker_readiness)
+                    .unwrap();
+                let context = OrderPreflightContext {
+                    reference_price: Some(broker_core::OrderReferencePrice {
+                        price: Decimal::new(2220, 0),
+                        received_ts: observed_at,
+                    }),
+                    current_run_notional: Decimal::ZERO,
+                };
+                let capability = issuer
+                    .authorize_place(durable, &placed, &context, &sources)
+                    .unwrap();
+                let current_state_sha256 = capability.current_state_sha256.clone();
+                (
+                    Stage8a1CurrentlyAuthorizedCapability {
+                        capability,
+                        revalidated_at: observed_at,
+                        current_state_sha256,
+                    },
+                    durable_place(&placed),
+                    root,
+                )
+            }
+            Stage8CommandScope::Cancel => {
+                let existing = existing_record(&placed);
+                let cancel = CancelOrder {
+                    request_id: request_id(99),
+                    created_ts: observed_at,
+                    ttl_ms: Some(30_000),
+                    account_id: account(),
+                    order_id: existing.broker_order_id.clone().unwrap(),
+                    client_order_id: Some(placed.client_order_id.clone()),
+                };
+                let durable = durable_cancel(&cancel);
+                let root = issuer_root();
+                write_issuer_sources(&root, &durable, observed_at);
+                let (readiness, truth, broker_readiness) = current_sources(observed_at);
+                let mut issuer =
+                    Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+                let sources = issuer
+                    .issue_current_sources(&readiness, &truth, &broker_readiness)
+                    .unwrap();
+                let capability = match issuer
+                    .authorize_cancel(durable, &cancel, &existing, &sources)
+                    .unwrap()
+                {
+                    Stage8CancelPreflightDecision::Capability(capability) => *capability,
+                    Stage8CancelPreflightDecision::AlreadyTerminal => {
+                        panic!("working order expected")
+                    }
+                };
+                let current_state_sha256 = capability.current_state_sha256.clone();
+                (
+                    Stage8a1CurrentlyAuthorizedCapability {
+                        capability,
+                        revalidated_at: observed_at,
+                        current_state_sha256,
+                    },
+                    durable_cancel(&cancel),
+                    root,
+                )
+            }
+        }
+    }
+
+    #[test]
+    fn stage8b_cross_binding_rejects_current_state_mismatch() {
+        let (mut capability, durable, root) =
+            stage8b_matching_authorities(Stage8CommandScope::Place);
+        capability.current_state_sha256 = "f".repeat(64);
+        assert!(capability.bind_exact_durable_for_stage8b(durable).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

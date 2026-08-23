@@ -41,12 +41,11 @@ merged at `50ed538`. Stage 8B-S R1 at `a675a77` retained the architecture but
 was not frozen. Corrective Stage 8B-S R2 at `831eec8` closed its substantive
 findings but exposed a preflight/build-order contradiction. Stage 8B-S R3 was
 independently accepted at `afecc25` and merged tree-identically at `d158196`.
-The original Stage 8B-I candidate at `a52fbca` remained fail-closed but was not
-accepted because its type-state and restart rehearsal were incomplete. The
-active corrective Stage 8B-I R2 candidate delays builder composition until the
-exact permit, binds durable K2 authority, preserves all five closure outcomes,
-and adds build/endpoint/arm evidence. It remains no-send and cannot call a
-transport adapter.
+The Stage 8B-I candidates at `a52fbca` and `21426ee` remained fail-closed but
+were not accepted. Active corrective Stage 8B-I R3 cross-binds the Stage 8A
+capability to its exact durable request, keeps K1 independent of future K2
+evidence, persists the exact attempt before K3, and exercises complete PLACE
+and CANCEL no-send flows. It cannot call a transport adapter.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
 strategy orders and Stage 8B execution authority remain closed.

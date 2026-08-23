@@ -91,3 +91,15 @@ I-089,type-state,K4 rechecks and consumes exact sealed attempt and control,sourc
 I-090,type-state,K5 binds fresh broker truth control and exact closure classification,source+checker,pending
 I-091,restart,publication persists the exact durable closure classification,source+checker,pending
 I-092,type-state,durable closure owner is consumed into terminal closure receipt,source+checker,pending
+I-093,chronology,K1 arm binding excludes every future K2 source digest,source+checker+test,pending
+I-094,chronology,K2 current authorities are observed only after exact arm issuance,source+test,pending
+I-095,binding,currently authorized capability is cross-bound to the exact consumed durable request,source+test,pending
+I-096,binding,capability and durable mismatch fails before fresh preflight,source+test,pending
+I-097,authority,K2 witness is minted only from opaque scoped current authorities,source+checker,pending
+I-098,authority,K2 scoped authorities share exact request run and control lineage,source+test,pending
+I-099,durability,exact versioned attempt identity is appended and fsynced before K3,source+test,pending
+I-100,restart,attempt committed no transport recovers the exact attempt SHA without resend authority,source+test,pending
+I-101,chronology,K3 covering seal consumes and names the exact durable attempt receipt,source+checker,pending
+I-102,binding,wrong attempt or control generation cannot mint the sealed attempt,source+negative,pending
+I-103,type-state,PLACE traverses the complete linear no-send flow to durable closure,source+test,pending
+I-104,type-state,CANCEL traverses the complete linear no-send flow to durable closure,source+test,pending

@@ -72,3 +72,15 @@ Every mutation must be rejected by `stage8b_i_check.py --root <mutated-tree>`.
 68. K5 reconciliation transition is removed or bypassed.
 69. K5 control authority is omitted from the durable closure binding.
 70. exact durable closure publication transition is removed or normalized.
+71. K1 arm binding depends on a future K2 source digest;
+72. K2 current-source digest is read or frozen before arm issuance;
+73. K2 request/run scope is substituted after arm issuance;
+74. authenticated arm is substituted after K2 witness minting;
+75. a stale typed K2 source authority is accepted;
+76. K1 control lineage and K2 control lineage differ;
+77. currently authorized capability A is paired with durable request B;
+78. K2 witness is directly constructed from free booleans or counters;
+79. exact attempt journal record is replaced by generic `A`;
+80. K3 covering seal is authenticated before exact attempt fsync;
+81. K3 covering seal names a different exact attempt SHA;
+82. positive PLACE or CANCEL end-to-end linear no-send rehearsal is removed.

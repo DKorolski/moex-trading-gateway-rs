@@ -34,8 +34,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `d1581962666aa82b993854d0642e67bd66624032`. Stage 8B-I at `a52fbca` remained
   fail-closed but was not accepted: builder/permit ordering, durable K2 binding,
   exact five-state closure recovery, build/endpoint provenance, arm binding and
-  full regression evidence required correction. Stage 8B-I R2 is the active
-  corrective no-send candidate. Its public facade cannot construct authority. Operator arming,
+  full regression evidence required correction. I-R2 at `21426ee` closed those
+  findings but was not accepted because K1 depended on future K2 evidence, K3
+  preceded exact attempt durability, and capability/durable cross-binding was
+  incomplete. Stage 8B-I R3 is the active corrective no-send candidate. Its
+  public facade cannot construct authority. Operator arming,
   transport, FINAM execution, Redis live consumption, broker dispatch,
   runtime-live, real orders, Stage 8B-IT/P/XE and Stage 12 remain closed.
 
@@ -135,7 +138,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 8B-D R2 is independently accepted and merged. Stage 8B-S R1 was not
   frozen; R2 at `831eec8` was also not frozen due to phase ordering. Corrective
   Stage 8B-S R3 is accepted and merged. The first Stage 8B-I candidate was not
-  accepted; corrective Stage 8B-I R2 is now the sole active candidate and is limited to no-send production types plus deterministic
+  accepted; I-R2 was also not accepted. Corrective Stage 8B-I R3 is now the sole active candidate and is limited to no-send production types plus deterministic
   filesystem/restart rehearsal. Independent acceptance is required before any
   Stage 8B-IT planning; transport, operator-arm issuance and real requests are
   not authorized.

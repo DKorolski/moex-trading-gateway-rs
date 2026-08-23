@@ -94,10 +94,11 @@ at `831eec8` closed the R1 findings but was not frozen because adapter
 qualification followed exact P authorization. Stage 8B-S R3 was independently
 accepted at `afecc2584593570b62cbe7f00ee81f64d4b9b26b` and merged by
 `d1581962666aa82b993854d0642e67bd66624032`. Stage 8B-I at `a52fbca` was not
-accepted despite preserving the no-send boundary. Corrective Stage 8B-I R2 is
-the active candidate: one public redacted no-send facade, permit-ordered private
-composition, durable K2 binding, exact five-state recovery, build/endpoint
-provenance and bound arm rehearsal. Execution,
+accepted despite preserving the no-send boundary. I-R2 at `21426ee` was also
+not accepted. Corrective Stage 8B-I R3 is the active candidate: one public
+redacted no-send facade, exact capability/durable cross-binding, K1-before-K2,
+exact durable attempt before K3, typed current-source authorities and full
+PLACE/CANCEL no-send rehearsals. Execution,
 operator-arm issuance, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live, real orders, Stage 8B-IT/P/XE and Stage 12 remain closed.
 

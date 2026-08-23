@@ -4,6 +4,7 @@
 //! redacted diagnostic. It cannot construct an arm, transport permit or broker
 //! request, and this module contains no HTTP or Redis operation.
 
+use crate::stage8a1_execution_capability::Stage8a1Stage8bBoundContinuation;
 use crate::{
     Stage8a1CurrentlyAuthorizedCapability, Stage8a1DurableRequestAuthority,
     Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError,
@@ -329,19 +330,64 @@ struct Stage8bIssuedArmRecord {
 #[allow(dead_code)]
 pub(crate) struct Stage8bK2FreshSources {
     evidence_sha256: String,
+    request_run_binding_sha256: String,
+    control_lineage_sha256: String,
     observed_at_unix_ms: u64,
-    single_finam_owner: bool,
-    ambiguity_count: u32,
-    unresolved_lifecycle_count: u32,
-    readiness_fresh: bool,
-    schedule_open_and_fresh: bool,
-    broker_truth_fresh: bool,
-    max_one_budget_remaining: u8,
 }
 #[allow(dead_code)]
-pub(crate) struct Stage8bK3CoveringSealApproved {
+struct Stage8bK2ScopedAuthority {
+    request_run_binding_sha256: String,
+    control_lineage_sha256: String,
+    evidence_sha256: String,
+    observed_at_unix_ms: u64,
+    valid_until_unix_ms: u64,
+}
+#[allow(dead_code)]
+struct Stage8bK2OwnerAuthority {
+    scoped: Stage8bK2ScopedAuthority,
+    finam_owner_count: u8,
+}
+#[allow(dead_code)]
+struct Stage8bK2AmbiguityAuthority {
+    scoped: Stage8bK2ScopedAuthority,
+    ambiguity_count: u32,
+    unresolved_lifecycle_count: u32,
+}
+#[allow(dead_code)]
+struct Stage8bK2ReadinessAuthority {
+    scoped: Stage8bK2ScopedAuthority,
+    ready: bool,
+}
+#[allow(dead_code)]
+struct Stage8bK2ScheduleAuthority {
+    scoped: Stage8bK2ScopedAuthority,
+    open: bool,
+}
+#[allow(dead_code)]
+struct Stage8bK2BrokerTruthAuthority {
+    scoped: Stage8bK2ScopedAuthority,
+    fresh: bool,
+}
+#[allow(dead_code)]
+struct Stage8bK2BudgetAuthority {
+    scoped: Stage8bK2ScopedAuthority,
+    remaining_orders: u8,
+}
+#[allow(dead_code)]
+struct Stage8bK2AcceptedAuthorityBundle {
+    observed_at_unix_ms: u64,
+    owner: Stage8bK2OwnerAuthority,
+    ambiguity: Stage8bK2AmbiguityAuthority,
+    readiness: Stage8bK2ReadinessAuthority,
+    schedule: Stage8bK2ScheduleAuthority,
+    broker_truth: Stage8bK2BrokerTruthAuthority,
+    budget: Stage8bK2BudgetAuthority,
+}
+#[allow(dead_code)]
+pub(crate) struct Stage8bK3CoveringSealSource {
+    exact_attempt_sha256: String,
     seal_sha256: String,
-    control_sha256: String,
+    control_lineage_sha256: String,
 }
 #[allow(dead_code)]
 pub(crate) struct Stage8bK4ControlApproved {
@@ -357,17 +403,25 @@ pub(crate) struct Stage8bK5ReconciliationApproved {
 #[allow(dead_code)]
 pub(crate) struct Stage8bFreshPreflightApproved {
     binding_sha256: String,
-    capability: Stage8a1CurrentlyAuthorizedCapability,
+    control_lineage_sha256: String,
+    continuation: Stage8a1Stage8bBoundContinuation,
+}
+#[allow(dead_code)]
+pub(crate) struct Stage8bDurableAttemptRecorded {
+    attempt_sha256: String,
+    control_lineage_sha256: String,
+    continuation: Stage8a1Stage8bBoundContinuation,
 }
 #[allow(dead_code)]
 pub(crate) struct Stage8bSealedAttemptCommitted {
     attempt_sha256: String,
-    capability: Stage8a1CurrentlyAuthorizedCapability,
+    covering_seal_sha256: String,
+    continuation: Stage8a1Stage8bBoundContinuation,
 }
 #[allow(dead_code)]
 pub(crate) struct Stage8bExactTransportPermit {
     permit_sha256: String,
-    capability: Stage8a1CurrentlyAuthorizedCapability,
+    continuation: Stage8a1Stage8bBoundContinuation,
 }
 #[allow(dead_code)]
 pub(crate) struct Stage8bPossibleEffectOwner {
@@ -450,7 +504,8 @@ struct Stage8bArmBindingEvidence {
     endpoint_sha256: String,
     body_sha256: String,
     control_sha256: String,
-    k2_sources_sha256: String,
+    arm_uniqueness_sha256: String,
+    micro_budget_generation: u64,
     expires_at_unix_ms: u64,
 }
 
@@ -483,7 +538,7 @@ fn compose_stage8b_private_request_parts_from_stage8a2(
     permit: Stage8bExactTransportPermit,
 ) -> Result<Stage8bApprovedRequestParts, Stage8bNoSendCompositionError> {
     let mut sink = Stage8a2InMemoryNoSendSink::new();
-    let diagnostic = permit.capability.compose_stage8a2_no_send(&mut sink)?;
+    let diagnostic = permit.continuation.compose_stage8a2_no_send(&mut sink)?;
     Ok(Stage8bApprovedRequestParts {
         diagnostic,
         permit_binding_sha256: permit.permit_sha256,
@@ -505,21 +560,17 @@ pub(crate) fn compose_stage8b_effect_authority(
     arm: Stage8bAuthenticatedOperatorArm,
     k2_sources: Stage8bK2FreshSources,
 ) -> Result<Stage8bFreshPreflightApproved, Stage8bNoSendCompositionError> {
-    if !k2_sources.single_finam_owner
-        || k2_sources.ambiguity_count != 0
-        || k2_sources.unresolved_lifecycle_count != 0
-        || !k2_sources.readiness_fresh
-        || !k2_sources.schedule_open_and_fresh
-        || !k2_sources.broker_truth_fresh
-        || k2_sources.max_one_budget_remaining != 1
-        || k2_sources.observed_at_unix_ms == 0
+    if k2_sources.observed_at_unix_ms == 0
         || !is_lower_sha256(&k2_sources.evidence_sha256)
+        || !is_lower_sha256(&k2_sources.request_run_binding_sha256)
+        || !is_lower_sha256(&k2_sources.control_lineage_sha256)
     {
         return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
     }
-    let durable_request_sha256 = durable
-        .into_stage8b_binding_sha256()
+    let continuation = capability
+        .bind_exact_durable_for_stage8b(durable)
         .map_err(|_| Stage8bNoSendCompositionError::InvalidCrossBinding)?;
+    let durable_request_sha256 = continuation.durable_binding_sha256().to_string();
     let expected_arm_binding = calculate_arm_binding(&Stage8bArmBindingEvidence {
         durable_request_sha256: durable_request_sha256.clone(),
         run_sha256: run.run_sha256.clone(),
@@ -530,14 +581,32 @@ pub(crate) fn compose_stage8b_effect_authority(
         endpoint_sha256: contract.endpoint_identity_sha256.clone(),
         body_sha256: run.body_sha256.clone(),
         control_sha256: control.control_sha256.clone(),
-        k2_sources_sha256: k2_sources.evidence_sha256.clone(),
+        arm_uniqueness_sha256: digest_parts(
+            b"stage8b-i-r3-arm-uniqueness-v1",
+            &[durable_request_sha256.as_bytes(), run.run_sha256.as_bytes()],
+        ),
+        micro_budget_generation: 1,
         expires_at_unix_ms: arm.expires_at_unix_ms,
     })?;
     validate_authenticated_arm_for_k2(&arm, &expected_arm_binding, &k2_sources)?;
-    let binding_sha256 = digest_parts(
-        b"stage8b-i-r2-k2-preflight-v1",
+    let expected_request_run_binding = digest_parts(
+        b"stage8b-i-r3-k2-request-run-binding-v1",
         &[
             durable_request_sha256.as_bytes(),
+            run.run_sha256.as_bytes(),
+            arm.binding_sha256.as_bytes(),
+        ],
+    );
+    if k2_sources.request_run_binding_sha256 != expected_request_run_binding
+        || k2_sources.control_lineage_sha256 != control.control_sha256
+    {
+        return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
+    }
+    let binding_sha256 = digest_parts(
+        b"stage8b-i-r3-k2-preflight-v1",
+        &[
+            durable_request_sha256.as_bytes(),
+            continuation.continuation_binding_sha256().as_bytes(),
             build.identity_sha256.as_bytes(),
             account.binding_sha256.as_bytes(),
             contract.contract_sha256.as_bytes(),
@@ -552,12 +621,74 @@ pub(crate) fn compose_stage8b_effect_authority(
             &arm.expires_at_unix_ms.to_be_bytes(),
             &arm.verified_at_unix_ms.to_be_bytes(),
             k2_sources.evidence_sha256.as_bytes(),
+            k2_sources.request_run_binding_sha256.as_bytes(),
+            k2_sources.control_lineage_sha256.as_bytes(),
             &k2_sources.observed_at_unix_ms.to_be_bytes(),
         ],
     );
     Ok(Stage8bFreshPreflightApproved {
         binding_sha256,
-        capability,
+        control_lineage_sha256: k2_sources.control_lineage_sha256,
+        continuation,
+    })
+}
+
+/// Consume opaque current-source authorities into the only K2 witness shape.
+/// None of the final predicates can be asserted as free booleans by the K2
+/// root: each is validated here together with exact request/run scope,
+/// freshness and current control lineage.
+#[allow(dead_code)]
+fn mint_stage8b_k2_fresh_sources(
+    bundle: Stage8bK2AcceptedAuthorityBundle,
+) -> Result<Stage8bK2FreshSources, Stage8bNoSendCompositionError> {
+    let scopes = [
+        &bundle.owner.scoped,
+        &bundle.ambiguity.scoped,
+        &bundle.readiness.scoped,
+        &bundle.schedule.scoped,
+        &bundle.broker_truth.scoped,
+        &bundle.budget.scoped,
+    ];
+    let first = scopes[0];
+    if bundle.observed_at_unix_ms == 0
+        || !is_lower_sha256(&first.request_run_binding_sha256)
+        || !is_lower_sha256(&first.control_lineage_sha256)
+        || bundle.owner.finam_owner_count != 1
+        || bundle.ambiguity.ambiguity_count != 0
+        || bundle.ambiguity.unresolved_lifecycle_count != 0
+        || !bundle.readiness.ready
+        || !bundle.schedule.open
+        || !bundle.broker_truth.fresh
+        || bundle.budget.remaining_orders != 1
+        || scopes.iter().any(|authority| {
+            authority.request_run_binding_sha256 != first.request_run_binding_sha256
+                || authority.control_lineage_sha256 != first.control_lineage_sha256
+                || authority.observed_at_unix_ms != bundle.observed_at_unix_ms
+                || authority.valid_until_unix_ms <= bundle.observed_at_unix_ms
+                || !is_lower_sha256(&authority.evidence_sha256)
+        })
+    {
+        return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
+    }
+    let evidence_sha256 = digest_parts(
+        b"stage8b-i-r3-typed-k2-current-authorities-v1",
+        &[
+            first.request_run_binding_sha256.as_bytes(),
+            first.control_lineage_sha256.as_bytes(),
+            &bundle.observed_at_unix_ms.to_be_bytes(),
+            bundle.owner.scoped.evidence_sha256.as_bytes(),
+            bundle.ambiguity.scoped.evidence_sha256.as_bytes(),
+            bundle.readiness.scoped.evidence_sha256.as_bytes(),
+            bundle.schedule.scoped.evidence_sha256.as_bytes(),
+            bundle.broker_truth.scoped.evidence_sha256.as_bytes(),
+            bundle.budget.scoped.evidence_sha256.as_bytes(),
+        ],
+    );
+    Ok(Stage8bK2FreshSources {
+        evidence_sha256,
+        request_run_binding_sha256: first.request_run_binding_sha256.clone(),
+        control_lineage_sha256: first.control_lineage_sha256.clone(),
+        observed_at_unix_ms: bundle.observed_at_unix_ms,
     })
 }
 
@@ -577,27 +708,56 @@ fn validate_authenticated_arm_for_k2(
 }
 
 #[allow(dead_code)]
-fn commit_stage8b_sealed_attempt(
+fn record_stage8b_exact_durable_attempt(
     preflight: Stage8bFreshPreflightApproved,
-    k3: Stage8bK3CoveringSealApproved,
     journal: &mut Stage8bNoSendRehearsalJournal,
+) -> Result<Stage8bDurableAttemptRecorded, Stage8bNoSendCompositionError> {
+    let attempt_sha256 = digest_parts(
+        b"stage8b-i-r3-exact-durable-attempt-v1",
+        &[
+            preflight.binding_sha256.as_bytes(),
+            preflight
+                .continuation
+                .continuation_binding_sha256()
+                .as_bytes(),
+            preflight.continuation.durable_binding_sha256().as_bytes(),
+        ],
+    );
+    journal
+        .append(Stage8bRehearsalRecord::AttemptCommitted(
+            attempt_sha256.clone(),
+        ))
+        .map_err(|_| Stage8bNoSendCompositionError::DurableAttempt)?;
+    Ok(Stage8bDurableAttemptRecorded {
+        attempt_sha256,
+        control_lineage_sha256: preflight.control_lineage_sha256,
+        continuation: preflight.continuation,
+    })
+}
+
+#[allow(dead_code)]
+fn authenticate_stage8b_covering_seal_after_attempt(
+    durable_attempt: Stage8bDurableAttemptRecorded,
+    k3: Stage8bK3CoveringSealSource,
 ) -> Result<Stage8bSealedAttemptCommitted, Stage8bNoSendCompositionError> {
-    if !is_lower_sha256(&k3.seal_sha256) || !is_lower_sha256(&k3.control_sha256) {
+    if k3.exact_attempt_sha256 != durable_attempt.attempt_sha256
+        || !is_lower_sha256(&k3.seal_sha256)
+        || k3.control_lineage_sha256 != durable_attempt.control_lineage_sha256
+    {
         return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
     }
-    journal
-        .append(Stage8bRehearsalRecord::AttemptCommitted)
-        .map_err(|_| Stage8bNoSendCompositionError::DurableAttempt)?;
+    let covering_seal_sha256 = digest_parts(
+        b"stage8b-i-r3-post-fsync-covering-seal-v1",
+        &[
+            durable_attempt.attempt_sha256.as_bytes(),
+            k3.seal_sha256.as_bytes(),
+            k3.control_lineage_sha256.as_bytes(),
+        ],
+    );
     Ok(Stage8bSealedAttemptCommitted {
-        attempt_sha256: digest_parts(
-            b"stage8b-i-r2-sealed-attempt-v1",
-            &[
-                preflight.binding_sha256.as_bytes(),
-                k3.seal_sha256.as_bytes(),
-                k3.control_sha256.as_bytes(),
-            ],
-        ),
-        capability: preflight.capability,
+        attempt_sha256: durable_attempt.attempt_sha256,
+        covering_seal_sha256,
+        continuation: durable_attempt.continuation,
     })
 }
 
@@ -612,13 +772,14 @@ fn authorize_stage8b_exact_transport_permit(
     }
     Ok(Stage8bExactTransportPermit {
         permit_sha256: digest_parts(
-            b"stage8b-i-r2-exact-transport-permit-v1",
+            b"stage8b-i-r3-exact-transport-permit-v1",
             &[
                 sealed.attempt_sha256.as_bytes(),
+                sealed.covering_seal_sha256.as_bytes(),
                 k4.control_sha256.as_bytes(),
             ],
         ),
-        capability: sealed.capability,
+        continuation: sealed.continuation,
     })
 }
 
@@ -813,13 +974,16 @@ fn calculate_arm_binding(
         evidence.endpoint_sha256.as_str(),
         evidence.body_sha256.as_str(),
         evidence.control_sha256.as_str(),
-        evidence.k2_sources_sha256.as_str(),
+        evidence.arm_uniqueness_sha256.as_str(),
     ];
-    if hashes.iter().any(|value| !is_lower_sha256(value)) || evidence.expires_at_unix_ms == 0 {
+    if hashes.iter().any(|value| !is_lower_sha256(value))
+        || evidence.micro_budget_generation == 0
+        || evidence.expires_at_unix_ms == 0
+    {
         return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
     }
     Ok(digest_parts(
-        b"stage8b-i-r2-exact-arm-binding-v1",
+        b"stage8b-i-r3-k1-exact-arm-binding-v1",
         &[
             evidence.durable_request_sha256.as_bytes(),
             evidence.run_sha256.as_bytes(),
@@ -830,7 +994,8 @@ fn calculate_arm_binding(
             evidence.endpoint_sha256.as_bytes(),
             evidence.body_sha256.as_bytes(),
             evidence.control_sha256.as_bytes(),
-            evidence.k2_sources_sha256.as_bytes(),
+            evidence.arm_uniqueness_sha256.as_bytes(),
+            &evidence.micro_budget_generation.to_be_bytes(),
             &evidence.expires_at_unix_ms.to_be_bytes(),
         ],
     ))
@@ -942,12 +1107,12 @@ fn rehearse_crash_window(window: Stage8bCrashWindow) -> Stage8bClosureClassifica
     }
 }
 
-const REHEARSAL_JOURNAL_HEADER: &[u8] = b"STAGE8B-I-NO-SEND-V2\n";
+const REHEARSAL_JOURNAL_HEADER: &[u8] = b"STAGE8B-I-NO-SEND-V3\n";
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 #[allow(dead_code)]
 enum Stage8bRehearsalRecord {
-    AttemptCommitted,
+    AttemptCommitted(String),
     PossibleEffectObserved,
     ResponseObserved,
     DurableOutcomeRecorded(Stage8bClosureClassification),
@@ -955,15 +1120,21 @@ enum Stage8bRehearsalRecord {
 }
 
 impl Stage8bRehearsalRecord {
-    fn encoded(self) -> String {
+    fn encoded(&self) -> String {
         match self {
-            Self::AttemptCommitted => "A".to_string(),
+            Self::AttemptCommitted(attempt_sha256) => format!("A:{attempt_sha256}"),
             Self::PossibleEffectObserved => "P".to_string(),
             Self::ResponseObserved => "R".to_string(),
             Self::DurableOutcomeRecorded(closure) => format!("D:{}", closure.code()),
             Self::PublicationRecorded(closure) => format!("U:{}", closure.code()),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stage8bRecoveredRehearsalState {
+    exact_attempt_sha256: Option<String>,
+    closure: Stage8bClosureClassification,
 }
 
 impl Stage8bClosureClassification {
@@ -1033,6 +1204,10 @@ impl Stage8bNoSendRehearsalJournal {
     }
 
     fn recover(root: &Path) -> Result<Stage8bClosureClassification, Stage8bRehearsalError> {
+        Self::recover_state(root).map(|state| state.closure)
+    }
+
+    fn recover_state(root: &Path) -> Result<Stage8bRecoveredRehearsalState, Stage8bRehearsalError> {
         let path = root.join("stage8b-i-rehearsal.journal");
         let bytes = read_pinned_regular_file(&path, 4 * 1024)
             .map_err(|_| Stage8bRehearsalError::UnsafePath)?;
@@ -1047,14 +1222,25 @@ impl Stage8bNoSendRehearsalJournal {
             .map_err(|_| Stage8bRehearsalError::InvalidSequence)?
             .lines()
             .collect::<Vec<_>>();
-        match lines.as_slice() {
-            [] | ["A"] => Ok(Stage8bClosureClassification::Stage8BClosedSafe),
-            ["A", "P"] | ["A", "P", "R"] => Ok(Stage8bClosureClassification::OutcomeUnknown),
-            ["A", "P", "R", durable] => durable
+        if lines.is_empty() {
+            return Ok(Stage8bRecoveredRehearsalState {
+                exact_attempt_sha256: None,
+                closure: Stage8bClosureClassification::Stage8BClosedSafe,
+            });
+        }
+        let exact_attempt_sha256 = lines[0]
+            .strip_prefix("A:")
+            .filter(|value| is_lower_sha256(value))
+            .ok_or(Stage8bRehearsalError::InvalidSequence)?
+            .to_string();
+        let closure = match &lines[1..] {
+            [] => Stage8bClosureClassification::Stage8BClosedSafe,
+            ["P"] | ["P", "R"] => Stage8bClosureClassification::OutcomeUnknown,
+            ["P", "R", durable] => durable
                 .strip_prefix("D:")
                 .and_then(Stage8bClosureClassification::parse)
-                .ok_or(Stage8bRehearsalError::InvalidSequence),
-            ["A", "P", "R", durable, publication] => {
+                .ok_or(Stage8bRehearsalError::InvalidSequence)?,
+            ["P", "R", durable, publication] => {
                 let durable = durable
                     .strip_prefix("D:")
                     .and_then(Stage8bClosureClassification::parse)
@@ -1064,13 +1250,17 @@ impl Stage8bNoSendRehearsalJournal {
                     .and_then(Stage8bClosureClassification::parse)
                     .ok_or(Stage8bRehearsalError::InvalidSequence)?;
                 if durable == publication {
-                    Ok(durable)
+                    durable
                 } else {
-                    Err(Stage8bRehearsalError::InvalidSequence)
+                    return Err(Stage8bRehearsalError::InvalidSequence);
                 }
             }
-            _ => Err(Stage8bRehearsalError::InvalidSequence),
-        }
+            _ => return Err(Stage8bRehearsalError::InvalidSequence),
+        };
+        Ok(Stage8bRecoveredRehearsalState {
+            exact_attempt_sha256: Some(exact_attempt_sha256),
+            closure,
+        })
     }
 }
 
@@ -1330,6 +1520,64 @@ mod tests {
         path.canonicalize().unwrap()
     }
 
+    fn k2_scoped_authority(
+        label: &str,
+        request_run_binding_sha256: &str,
+        control_lineage_sha256: &str,
+        observed_at_unix_ms: u64,
+    ) -> Stage8bK2ScopedAuthority {
+        Stage8bK2ScopedAuthority {
+            request_run_binding_sha256: request_run_binding_sha256.to_string(),
+            control_lineage_sha256: control_lineage_sha256.to_string(),
+            evidence_sha256: sha256_hex(label.as_bytes()),
+            observed_at_unix_ms,
+            valid_until_unix_ms: observed_at_unix_ms + 5_000,
+        }
+    }
+
+    fn accepted_k2_bundle(
+        request_run_binding_sha256: &str,
+        control_lineage_sha256: &str,
+        observed_at_unix_ms: u64,
+    ) -> Stage8bK2AcceptedAuthorityBundle {
+        let scoped = |label: &str| {
+            k2_scoped_authority(
+                label,
+                request_run_binding_sha256,
+                control_lineage_sha256,
+                observed_at_unix_ms,
+            )
+        };
+        Stage8bK2AcceptedAuthorityBundle {
+            observed_at_unix_ms,
+            owner: Stage8bK2OwnerAuthority {
+                scoped: scoped("owner-authority"),
+                finam_owner_count: 1,
+            },
+            ambiguity: Stage8bK2AmbiguityAuthority {
+                scoped: scoped("ambiguity-authority"),
+                ambiguity_count: 0,
+                unresolved_lifecycle_count: 0,
+            },
+            readiness: Stage8bK2ReadinessAuthority {
+                scoped: scoped("readiness-authority"),
+                ready: true,
+            },
+            schedule: Stage8bK2ScheduleAuthority {
+                scoped: scoped("schedule-authority"),
+                open: true,
+            },
+            broker_truth: Stage8bK2BrokerTruthAuthority {
+                scoped: scoped("broker-truth-authority"),
+                fresh: true,
+            },
+            budget: Stage8bK2BudgetAuthority {
+                scoped: scoped("budget-authority"),
+                remaining_orders: 1,
+            },
+        }
+    }
+
     #[test]
     fn public_facade_is_redacted_and_no_send() {
         let root = temp_directory("facade");
@@ -1541,7 +1789,7 @@ mod tests {
     }
 
     #[test]
-    fn arm_binding_changes_for_each_exact_durable_run_and_k2_component() {
+    fn k1_arm_binding_changes_for_each_legal_pre_k2_component() {
         let hash = |label: &str| sha256_hex(label.as_bytes());
         let baseline = Stage8bArmBindingEvidence {
             durable_request_sha256: hash("durable"),
@@ -1553,7 +1801,8 @@ mod tests {
             endpoint_sha256: hash("endpoint"),
             body_sha256: hash("body"),
             control_sha256: hash("control"),
-            k2_sources_sha256: hash("k2-sources"),
+            arm_uniqueness_sha256: hash("arm-uniqueness"),
+            micro_budget_generation: 7,
             expires_at_unix_ms: 2_000,
         };
         let expected = calculate_arm_binding(&baseline).unwrap();
@@ -1567,7 +1816,7 @@ mod tests {
             "endpoint_sha256",
             "body_sha256",
             "control_sha256",
-            "k2_sources_sha256",
+            "arm_uniqueness_sha256",
         ] {
             let mut changed = Stage8bArmBindingEvidence {
                 durable_request_sha256: baseline.durable_request_sha256.clone(),
@@ -1579,7 +1828,8 @@ mod tests {
                 endpoint_sha256: baseline.endpoint_sha256.clone(),
                 body_sha256: baseline.body_sha256.clone(),
                 control_sha256: baseline.control_sha256.clone(),
-                k2_sources_sha256: baseline.k2_sources_sha256.clone(),
+                arm_uniqueness_sha256: baseline.arm_uniqueness_sha256.clone(),
+                micro_budget_generation: baseline.micro_budget_generation,
                 expires_at_unix_ms: baseline.expires_at_unix_ms,
             };
             let value = hash(&format!("changed-{replacement}"));
@@ -1593,7 +1843,7 @@ mod tests {
                 "endpoint_sha256" => changed.endpoint_sha256 = value,
                 "body_sha256" => changed.body_sha256 = value,
                 "control_sha256" => changed.control_sha256 = value,
-                "k2_sources_sha256" => changed.k2_sources_sha256 = value,
+                "arm_uniqueness_sha256" => changed.arm_uniqueness_sha256 = value,
                 _ => unreachable!(),
             }
             assert_ne!(calculate_arm_binding(&changed).unwrap(), expected);
@@ -1656,8 +1906,9 @@ mod tests {
 
     #[test]
     fn durable_rehearsal_reopens_every_crash_boundary_without_resend() {
+        let attempt_sha256 = sha256_hex(b"exact-restart-attempt");
         let records = [
-            Stage8bRehearsalRecord::AttemptCommitted,
+            Stage8bRehearsalRecord::AttemptCommitted(attempt_sha256.clone()),
             Stage8bRehearsalRecord::PossibleEffectObserved,
             Stage8bRehearsalRecord::ResponseObserved,
             Stage8bRehearsalRecord::DurableOutcomeRecorded(
@@ -1679,13 +1930,15 @@ mod tests {
             let root = temp_directory(&format!("restart-{prefix}"));
             let mut journal = Stage8bNoSendRehearsalJournal::create(&root).unwrap();
             for record in records.iter().take(prefix) {
-                journal.append(*record).unwrap();
+                journal.append(record.clone()).unwrap();
             }
             drop(journal);
+            let recovered = Stage8bNoSendRehearsalJournal::recover_state(&root).unwrap();
             assert_eq!(
-                Stage8bNoSendRehearsalJournal::recover(&root).unwrap(),
-                *expected_classification
+                recovered.exact_attempt_sha256,
+                (prefix > 0).then(|| attempt_sha256.clone())
             );
+            assert_eq!(recovered.closure, *expected_classification);
             fs::remove_dir_all(root).unwrap();
         }
     }
@@ -1719,7 +1972,7 @@ mod tests {
             let root = temp_directory(closure.code());
             let mut journal = Stage8bNoSendRehearsalJournal::create(&root).unwrap();
             for record in [
-                Stage8bRehearsalRecord::AttemptCommitted,
+                Stage8bRehearsalRecord::AttemptCommitted(sha256_hex(b"closure-attempt")),
                 Stage8bRehearsalRecord::PossibleEffectObserved,
                 Stage8bRehearsalRecord::ResponseObserved,
                 Stage8bRehearsalRecord::DurableOutcomeRecorded(closure),
@@ -1743,9 +1996,9 @@ mod tests {
     #[test]
     fn corrupt_unknown_or_mismatched_closure_payload_fails_closed() {
         for suffix in [
-            "A\nP\nR\nD:not-a-closure\n",
-            "A\nP\nR\nD:residual-position",
-            "A\nP\nR\nD:residual-position\nU:closed-safe\n",
+            "A:not-a-sha\nP\nR\nD:not-a-closure\n",
+            "A:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nP\nR\nD:residual-position",
+            "A:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nP\nR\nD:residual-position\nU:closed-safe\n",
         ] {
             let root = temp_directory("closure-corrupt");
             fs::write(
@@ -1915,17 +2168,12 @@ mod tests {
     fn k2_accepts_only_fresh_authenticated_arm_capability() {
         let identity = sha256_hex(b"exact-complete-arm-binding");
         let record = sha256_hex(b"authenticated-arm-record");
-        let sources = Stage8bK2FreshSources {
-            evidence_sha256: sha256_hex(b"fresh-k2-sources"),
-            observed_at_unix_ms: 1_500,
-            single_finam_owner: true,
-            ambiguity_count: 0,
-            unresolved_lifecycle_count: 0,
-            readiness_fresh: true,
-            schedule_open_and_fresh: true,
-            broker_truth_fresh: true,
-            max_one_budget_remaining: 1,
-        };
+        let sources = mint_stage8b_k2_fresh_sources(accepted_k2_bundle(
+            &sha256_hex(b"request-run"),
+            &sha256_hex(b"control-lineage"),
+            1_500,
+        ))
+        .unwrap();
         let authenticated = Stage8bAuthenticatedOperatorArm {
             binding_sha256: identity.clone(),
             expires_at_unix_ms: 2_000,
@@ -1951,6 +2199,221 @@ mod tests {
         assert!(
             validate_authenticated_arm_for_k2(&stale_verification, &identity, &sources).is_err()
         );
+    }
+
+    #[test]
+    fn typed_k2_bundle_rejects_stale_substituted_or_non_unique_authorities() {
+        let request_run = sha256_hex(b"request-run");
+        let control = sha256_hex(b"control");
+
+        let mut stale = accepted_k2_bundle(&request_run, &control, 1_500);
+        stale.readiness.scoped.valid_until_unix_ms = 1_500;
+        assert!(mint_stage8b_k2_fresh_sources(stale).is_err());
+
+        let mut substituted = accepted_k2_bundle(&request_run, &control, 1_500);
+        substituted.schedule.scoped.request_run_binding_sha256 = sha256_hex(b"other-run");
+        assert!(mint_stage8b_k2_fresh_sources(substituted).is_err());
+
+        let mut ambiguous = accepted_k2_bundle(&request_run, &control, 1_500);
+        ambiguous.ambiguity.unresolved_lifecycle_count = 1;
+        assert!(mint_stage8b_k2_fresh_sources(ambiguous).is_err());
+
+        let mut over_budget = accepted_k2_bundle(&request_run, &control, 1_500);
+        over_budget.budget.remaining_orders = 2;
+        assert!(mint_stage8b_k2_fresh_sources(over_budget).is_err());
+    }
+
+    fn exercise_end_to_end_no_send_flow(scope: crate::Stage8CommandScope) {
+        let (capability, durable, stage8a_root) =
+            crate::stage8a1_execution_capability::tests::stage8b_matching_authorities(scope);
+        let hash = |label: &str| sha256_hex(label.as_bytes());
+        let build = Stage8bExecutionQualifiedBuild {
+            identity_sha256: hash("qualified-build"),
+        };
+        let account = Stage8bKeyedAccountBinding {
+            binding_sha256: hash("keyed-account"),
+        };
+        let contract = Stage8bFreshContractAuthority {
+            contract_sha256: hash("contract"),
+            config_sha256: hash("config"),
+            policy_sha256: hash("policy"),
+            endpoint_identity_sha256: hash(match scope {
+                crate::Stage8CommandScope::Place => "place-endpoint",
+                crate::Stage8CommandScope::Cancel => "cancel-endpoint",
+            }),
+        };
+        let run = Stage8bAcceptedRunSpec {
+            run_sha256: hash("accepted-run"),
+            body_sha256: hash(match scope {
+                crate::Stage8CommandScope::Place => "place-body",
+                crate::Stage8CommandScope::Cancel => "cancel-body",
+            }),
+        };
+        let control = Stage8bK1ControlApproved {
+            control_sha256: hash("control-lineage"),
+        };
+        let durable_binding = durable.stage8b_binding_sha256().unwrap();
+        let arm_binding = calculate_arm_binding(&Stage8bArmBindingEvidence {
+            durable_request_sha256: durable_binding.clone(),
+            run_sha256: run.run_sha256.clone(),
+            account_binding_sha256: account.binding_sha256.clone(),
+            build_sha256: build.identity_sha256.clone(),
+            config_sha256: contract.config_sha256.clone(),
+            policy_sha256: contract.policy_sha256.clone(),
+            endpoint_sha256: contract.endpoint_identity_sha256.clone(),
+            body_sha256: run.body_sha256.clone(),
+            control_sha256: control.control_sha256.clone(),
+            arm_uniqueness_sha256: digest_parts(
+                b"stage8b-i-r3-arm-uniqueness-v1",
+                &[durable_binding.as_bytes(), run.run_sha256.as_bytes()],
+            ),
+            micro_budget_generation: 1,
+            expires_at_unix_ms: 2_000,
+        })
+        .unwrap();
+
+        // K1 issuance happens before any K2 source authority exists.
+        let arm_root = temp_directory("end-to-end-arm");
+        issue_rehearsal_arm(
+            &arm_root,
+            Stage8bCanonicalBindingDigest::from_lower_hex(&arm_binding).unwrap(),
+            2_000,
+            1_000,
+            Zeroizing::new(vec![11; 32]),
+        )
+        .unwrap();
+        let arm = verify_rehearsal_arm_record(
+            &arm_root,
+            Stage8bCanonicalBindingDigest::from_lower_hex(&arm_binding).unwrap(),
+            2_000,
+            1_500,
+            Zeroizing::new(vec![11; 32]),
+        )
+        .unwrap();
+
+        // K2 current authorities are observed and reduced only after K1.
+        let request_run_binding = digest_parts(
+            b"stage8b-i-r3-k2-request-run-binding-v1",
+            &[
+                durable_binding.as_bytes(),
+                run.run_sha256.as_bytes(),
+                arm.binding_sha256.as_bytes(),
+            ],
+        );
+        let k2_sources = mint_stage8b_k2_fresh_sources(accepted_k2_bundle(
+            &request_run_binding,
+            &control.control_sha256,
+            1_500,
+        ))
+        .unwrap();
+        let preflight = compose_stage8b_effect_authority(
+            capability, durable, build, account, contract, run, control, arm, k2_sources,
+        )
+        .unwrap();
+
+        let journal_root = temp_directory("end-to-end-journal");
+        let mut journal = Stage8bNoSendRehearsalJournal::create(&journal_root).unwrap();
+        let durable_attempt =
+            record_stage8b_exact_durable_attempt(preflight, &mut journal).unwrap();
+        let attempt_sha256 = durable_attempt.attempt_sha256.clone();
+        let recovered = Stage8bNoSendRehearsalJournal::recover_state(&journal_root).unwrap();
+        assert_eq!(recovered.exact_attempt_sha256, Some(attempt_sha256.clone()));
+        assert_eq!(
+            recovered.closure,
+            Stage8bClosureClassification::Stage8BClosedSafe
+        );
+
+        // K3 can be authenticated only by consuming the post-fsync receipt.
+        let sealed = authenticate_stage8b_covering_seal_after_attempt(
+            durable_attempt,
+            Stage8bK3CoveringSealSource {
+                exact_attempt_sha256: attempt_sha256.clone(),
+                seal_sha256: hash("covering-seal"),
+                control_lineage_sha256: hash("control-lineage"),
+            },
+        )
+        .unwrap();
+        let permit = authorize_stage8b_exact_transport_permit(
+            sealed,
+            Stage8bK4ControlApproved {
+                rechecked_attempt_sha256: attempt_sha256,
+                control_sha256: hash("k4-control"),
+            },
+        )
+        .unwrap();
+        let parts = compose_stage8b_private_request_parts_from_stage8a2(permit).unwrap();
+        let possible = invoke_stage8b_local_no_network_boundary(parts, &mut journal).unwrap();
+        let closure = reconcile_stage8b_possible_effect(
+            possible,
+            Stage8bK5ReconciliationApproved {
+                broker_truth_sha256: hash("synthetic-fresh-broker-truth"),
+                control_sha256: hash("k5-control"),
+                closure: Stage8bClosureClassification::Stage8BClosedSafe,
+            },
+            &mut journal,
+        )
+        .unwrap();
+        let receipt = publish_stage8b_durable_closure(closure, &mut journal).unwrap();
+        assert!(is_lower_sha256(&receipt.receipt_sha256));
+        assert_eq!(
+            Stage8bNoSendRehearsalJournal::recover(&journal_root),
+            Ok(Stage8bClosureClassification::Stage8BClosedSafe)
+        );
+
+        fs::remove_dir_all(stage8a_root).unwrap();
+        fs::remove_dir_all(arm_root).unwrap();
+        fs::remove_dir_all(journal_root).unwrap();
+    }
+
+    #[test]
+    fn place_executes_complete_linear_no_send_type_state_rehearsal() {
+        exercise_end_to_end_no_send_flow(crate::Stage8CommandScope::Place);
+    }
+
+    #[test]
+    fn cancel_executes_complete_linear_no_send_type_state_rehearsal() {
+        exercise_end_to_end_no_send_flow(crate::Stage8CommandScope::Cancel);
+    }
+
+    #[test]
+    fn capability_and_durable_from_different_commands_fail_before_k2() {
+        let (place_capability, _, place_root) =
+            crate::stage8a1_execution_capability::tests::stage8b_matching_authorities(
+                crate::Stage8CommandScope::Place,
+            );
+        let (_, cancel_durable, cancel_root) =
+            crate::stage8a1_execution_capability::tests::stage8b_matching_authorities(
+                crate::Stage8CommandScope::Cancel,
+            );
+        assert!(place_capability
+            .bind_exact_durable_for_stage8b(cancel_durable)
+            .is_err());
+        fs::remove_dir_all(place_root).unwrap();
+        fs::remove_dir_all(cancel_root).unwrap();
+    }
+
+    #[test]
+    fn k3_rejects_covering_seal_from_another_control_generation() {
+        let (capability, durable, root) =
+            crate::stage8a1_execution_capability::tests::stage8b_matching_authorities(
+                crate::Stage8CommandScope::Place,
+            );
+        let continuation = capability.bind_exact_durable_for_stage8b(durable).unwrap();
+        let exact_attempt_sha256 = sha256_hex(b"exact-attempt");
+        let result = authenticate_stage8b_covering_seal_after_attempt(
+            Stage8bDurableAttemptRecorded {
+                attempt_sha256: exact_attempt_sha256.clone(),
+                control_lineage_sha256: sha256_hex(b"accepted-control-generation"),
+                continuation,
+            },
+            Stage8bK3CoveringSealSource {
+                exact_attempt_sha256,
+                seal_sha256: sha256_hex(b"covering-seal"),
+                control_lineage_sha256: sha256_hex(b"other-control-generation"),
+            },
+        );
+        assert!(result.is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

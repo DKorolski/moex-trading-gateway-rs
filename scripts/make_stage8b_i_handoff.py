@@ -16,9 +16,9 @@ import stage8b_i_handoff_safety_check as safety
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
-GATE_LOG = ROOT / "reports/stage8b-i-r2-gate.log"
-BRANCH = "stage8b-i-r2"
-BASE = "a52fbcae5340d632ce8b983eda6ecb4b8dedabce"
+GATE_LOG = ROOT / "reports/stage8b-i-r3-gate.log"
+BRANCH = "stage8b-i-r3"
+BASE = "21426eec11ca6aa10ca4ca4675824defbc2451bb"
 
 
 def run(*args: str) -> bytes:
@@ -48,7 +48,7 @@ def main() -> None:
     if not GATE_LOG.is_file():
         raise SystemExit("stage8b-i-handoff: FAIL exact-commit gate log missing")
     gate = GATE_LOG.read_bytes()
-    marker = b"stage8b-i-gate: PASS revision=R2 rows=92 negatives=70 compile_fail=18 canonical_regression=true no_send=true adapter=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false"
+    marker = b"stage8b-i-gate: PASS revision=R3 rows=104 negatives=82 compile_fail=20 canonical_regression=true no_send=true adapter=false finam=false redis=false dispatch=false live=false real_orders=false stage8b_it=false stage8b_p=false stage8b_xe=false stage12=false"
     exact_ref_marker = f"current-tree-ci-gate: PASS source_ref={full_ref} ".encode()
     regression_marker = b"stage8b-i-full-regression: PASS canonical_ci=true"
     if marker not in gate or exact_ref_marker not in gate or regression_marker not in gate:
@@ -59,7 +59,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "8B-I-R2",
+                "stage": "8B-I-R3",
                 "source_ref": full_ref,
                 "source_short_ref": short_ref,
                 "archive_name": archive_name,
@@ -67,9 +67,9 @@ def main() -> None:
                 "accepted_stage8b_s_candidate_ref": "afecc2584593570b62cbe7f00ee81f64d4b9b26b",
                 "accepted_stage8b_s_merge_ref": "d1581962666aa82b993854d0642e67bd66624032",
                 "rejected_stage8b_i_ref": BASE,
-                "acceptance_rows": 92,
-                "negative_cases": 70,
-                "compile_fail_negative_cases": 18,
+                "acceptance_rows": 104,
+                "negative_cases": 82,
+                "compile_fail_negative_cases": 20,
                 "canonical_full_regression": True,
                 "gate_sha256": sha256(gate),
                 "manifest_sha256": sha256(manifest),

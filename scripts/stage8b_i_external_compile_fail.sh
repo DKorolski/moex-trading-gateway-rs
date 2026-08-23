@@ -74,8 +74,12 @@ check_fail classifier_bridge 'use finam_gateway::classify_stage8b_transport_obse
 fn main() { let _ = classify_stage8b_transport_observation_with_stage8a3; }'
 check_fail private_k2_sources 'use finam_gateway::Stage8bK2FreshSources;
 fn main() { let _ = std::mem::size_of::<Stage8bK2FreshSources>(); }'
-check_fail sealed_transition 'use finam_gateway::commit_stage8b_sealed_attempt;
-fn main() { let _ = commit_stage8b_sealed_attempt; }'
+check_fail durable_attempt_transition 'use finam_gateway::record_stage8b_exact_durable_attempt;
+fn main() { let _ = record_stage8b_exact_durable_attempt; }'
+check_fail covering_seal_transition 'use finam_gateway::authenticate_stage8b_covering_seal_after_attempt;
+fn main() { let _ = authenticate_stage8b_covering_seal_after_attempt; }'
+check_fail private_durable_attempt 'use finam_gateway::Stage8bDurableAttemptRecorded;
+fn main() { let _ = std::mem::size_of::<Stage8bDurableAttemptRecorded>(); }'
 check_fail permit_transition 'use finam_gateway::authorize_stage8b_exact_transport_permit;
 fn main() { let _ = authorize_stage8b_exact_transport_permit; }'
 check_fail builder_before_permit 'use finam_gateway::compose_stage8b_private_request_parts_from_stage8a2;
@@ -85,4 +89,4 @@ fn main() { let _ = std::mem::size_of::<Stage8bApprovedRequestParts>(); }'
 check_fail local_boundary 'use finam_gateway::invoke_stage8b_local_no_network_boundary;
 fn main() { let _ = invoke_stage8b_local_no_network_boundary; }'
 
-echo "stage8b-i-external-compile-fail: PASS positive=1 negative=18"
+echo "stage8b-i-external-compile-fail: PASS positive=1 negative=20"
