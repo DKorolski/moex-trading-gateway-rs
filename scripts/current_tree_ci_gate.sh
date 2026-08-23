@@ -49,13 +49,22 @@ if ! STAGE8A5_ARTIFACT_DIR="$accepted_evidence" \
   done < <(find "$accepted_evidence" -type f -name '*.txt' -print0 2>/dev/null)
   if [[ "$failure_files" -eq 0 ]]; then
     echo "current-tree-ci-gate: no standard failure signature; bounded gate tails follow" >&2
-    for failure_file in \
-      "$accepted_evidence"/inherited-stage7b-gate*.txt \
-      "$accepted_evidence"/inherited-stage7b/*.txt; do
-      [[ -s "$failure_file" ]] || continue
-      echo "===== ${failure_file#"$artifact_dir/"} =====" >&2
-      tail -n 120 "$failure_file" >&2
-    done
+    python3 - "$artifact_dir" <<'PY' >&2
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+files = sorted(
+    (path for path in root.rglob("*") if path.is_file()),
+    key=lambda path: path.stat().st_mtime_ns,
+    reverse=True,
+)
+for path in files[:30]:
+    print(f"===== {path.relative_to(root)} =====")
+    data = path.read_bytes()[-16_384:]
+    print(data.decode("utf-8", errors="replace"))
+print(f"current-tree-ci-gate: diagnostic_files_available={len(files)} emitted={min(30, len(files))}")
+PY
   fi
   echo "current-tree-ci-gate: nested_failure_files=$failure_files" >&2
   exit 1
