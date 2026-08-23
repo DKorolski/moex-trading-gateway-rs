@@ -1,7 +1,9 @@
 # Stage 8B-IT — adapter-qualified no-effect integration
 
-Status: implementation candidate. Accepted predecessor:
+Status: corrective R2 implementation candidate. Accepted predecessor:
 `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65` (Stage 8B-I R3).
+The first IT candidate `e44053917a928aeb4bc8e3330a58a693edc31fd3`
+was not accepted and is retained only as review lineage.
 
 ## Purpose and phase boundary
 
@@ -13,22 +15,26 @@ Acceptance of IT may open only exact adapter-qualified build authorization in
 
 ## Permit-only request composition
 
-The adapter receives only `Stage8bApprovedRequestParts`, a crate-private,
+The adapter receives only `Stage8bApprovedRequestParts`, a fully module-private,
 non-Debug, non-Serialize, non-Clone type created by the sole bridge
 `compose_stage8b_private_request_parts_from_stage8a2`. The bridge consumes
-`Stage8bExactTransportPermit`, retains the accepted Stage 8A-2 no-send
-diagnostic and invokes only `build_place_order_request` or
-`build_cancel_order_request` for the exact approved command cloned from the
-already cross-bound linear continuation. The accepted Stage 8A-2 and Stage
-8A-3 source files remain byte-identical to their frozen hashes.
+`Stage8bExactTransportPermit` and then consumes its exact cross-bound
+continuation through `consume_stage8a2_request_capsule`. The shared Stage 8A-2
+`compose_once` path invokes exactly one accepted `build_place_order_request` or
+`build_cancel_order_request`, records the existing no-send diagnostic and
+returns an opaque one-use capsule. There is no borrow/clone extraction seam.
+The Stage 8A-3 source remains byte-identical to its frozen hash; the additive
+Stage 8A-2 successor source is separately hash-bound by the R2 authority.
 
-No public facade can construct the permit, private parts, adapter,
+The adapter is nested as a private child of `stage8b_no_send`; child access to
+private parent fields requires no `pub(crate)` widening. No sibling or public
+facade can construct the permit, private parts, adapter,
 qualification endpoint or qualification token. There is no raw route, body,
 token, response, request-builder or retry getter.
 
 ## Single adapter and network policy
 
-`crates/finam-gateway/src/stage8b_adapter.rs` owns the single IT transport
+`crates/finam-gateway/src/stage8b_no_send/stage8b_adapter.rs` owns the single IT transport
 surface. It has exactly one fixed `.post`, one fixed `.delete` and one common
 `.send` call. It uses `reqwest::Client::builder()` with:
 
@@ -59,8 +65,12 @@ body, redirect, 429 and 5xx never create retry authority. Once `.send` is
 entered, the diagnostic conservatively records a possible write and exactly
 one attempt.
 
-Every local observation is passed through the accepted sole classifier seam
-`classify_stage8b_transport_observation_with_stage8a3`. Classifier output is
+Raw context and transport observation are private to the nested adapter. Every
+success, error, timeout, disconnect and redirect path is consumed by the sole
+`classify_raw_observation` transition, which invokes the accepted classifier
+seam `classify_stage8b_transport_observation_with_stage8a3` before returning.
+Only `Stage8a3ClassifiedObservation` plus redacted adapter diagnostics may
+escape to the parent privacy module. Classifier output is
 candidate/diagnostic evidence only. It is not broker truth and cannot close an
 effect; later possible effects still require accepted Stage 8A-4 fresh broker
 truth and durable closure.
@@ -69,6 +79,12 @@ Controlled tests cover PLACE, CANCEL, redirect-not-followed, response loss,
 timeout and connection failure. Captured local wire evidence proves the exact
 method and route. No test resolves, connects to or writes to `api.finam.ru`.
 
+Same-crate compile-fail probes prove that sibling modules cannot name request
+parts, access the nested adapter, export raw observations or perform a second
+consuming extraction. The exact IT gate also runs the canonical full workspace
+debug/release/doctest/clippy and isolated Redis/dry-bridge regression suite; its
+complete log is source-ref-bound inside the handoff.
+
 ## Adapter-qualified identity
 
 The future 8B-P package must bind the exact independently accepted IT source,
@@ -76,6 +92,10 @@ archive, Cargo manifests/lock, resolved feature/dependency graphs, toolchain,
 config/policy, instrument, API snapshot, endpoint renderer, body schema and
 executable SHA-256. Any drift requires relevant IT requalification before a
 new P package. P cannot precede IT and cannot refresh automatically.
+
+Controlled TLS handshake qualification for the exact adapter build remains a
+blocking Stage 8B-P precondition. IT-R2 does not weaken certificate validation
+and does not introduce a production endpoint constructor.
 
 ## Closed surfaces
 

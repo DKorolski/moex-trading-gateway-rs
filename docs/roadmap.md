@@ -96,13 +96,16 @@ accepted at `afecc2584593570b62cbe7f00ee81f64d4b9b26b` and merged by
 `d1581962666aa82b993854d0642e67bd66624032`. Stage 8B-I at `a52fbca` was not
 accepted despite preserving the no-send boundary. I-R2 at `21426ee` was also
 not accepted. Corrective Stage 8B-I R3 was independently accepted and merged
-exactly at `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65`. Stage 8B-IT is the
-active candidate: it qualifies one private permit-only PLACE/CANCEL adapter
-only against controlled numeric loopback, with a single attempt and no
-redirect, proxy, retry or production endpoint constructor. Production
+exactly at `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65`. The first Stage 8B-IT
+candidate `e440539` was rejected. Corrective IT R2 is the active candidate: it
+uses module-private request parts, a parent-only adapter, one consuming Stage
+8A-2 transition and an in-adapter mandatory Stage 8A-3 classifier.
+Qualification remains numeric-loopback-only, single-attempt and no-effect,
+with no redirect, proxy, retry or production endpoint constructor. Production
 operator-arm issuance, real FINAM POST/DELETE effects, Redis live consumption,
 broker dispatch, runtime-live, real orders, Stage 8B-P/XE and Stage 12 remain
-closed. Independent IT acceptance may open only Stage 8B-P.
+closed. Independent IT R2 acceptance plus controlled TLS evidence may open
+only Stage 8B-P.
 
 ### Accepted lineage and transition history
 

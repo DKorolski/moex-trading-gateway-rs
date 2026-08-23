@@ -17,7 +17,7 @@ FILES = (
     "docs/stage-8/STAGE8B_IT_IMPLEMENTATION_2026-08-23.md",
     "docs/stage-8/STAGE8B_IT_ACCEPTANCE_MATRIX_2026-08-23.csv",
     "docs/stage-8/STAGE8B_IT_NEGATIVE_INVENTORY_2026-08-23.md",
-    "crates/finam-gateway/src/stage8b_adapter.rs",
+    "crates/finam-gateway/src/stage8b_no_send/stage8b_adapter.rs",
     "crates/finam-gateway/src/stage8b_no_send.rs",
     "crates/finam-gateway/src/stage8a1_execution_capability.rs",
     "crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs",
@@ -25,6 +25,7 @@ FILES = (
     "crates/finam-gateway/src/lib.rs",
     "crates/broker-finam/src/order_request.rs",
     "scripts/stage8b_it_external_compile_fail.sh",
+    "scripts/stage8b_it_internal_compile_fail.sh",
     "scripts/stage8b_it_gate.sh",
     "scripts/make_stage8b_it_handoff.py",
     "scripts/stage8b_it_handoff_safety_check.py",
@@ -37,14 +38,15 @@ def mutation(path: str, old: str, new: str) -> tuple[str, str, str]:
 
 A = "docs/stage-8/stage8b-it-authority.json"
 D = "docs/stage-8/STAGE8B_IT_IMPLEMENTATION_2026-08-23.md"
-M = "crates/finam-gateway/src/stage8b_adapter.rs"
+M = "crates/finam-gateway/src/stage8b_no_send/stage8b_adapter.rs"
 P = "crates/finam-gateway/src/stage8b_no_send.rs"
-L = "crates/finam-gateway/src/lib.rs"
+B = "crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs"
+G = "scripts/stage8b_it_gate.sh"
 
 CASES = [
     ("predecessor", mutation(A, "0af222f252cdc2b4c763c9e04935a5cb5f0c6d65", "1" * 40)),
     ("a2-ref", mutation(A, "16180ac4f8eab761b3b055c1f5515f62cd94bfb9", "2" * 40)),
-    ("a2-digest", mutation(A, "1026a24962bf45de8653c80ba095f892af35523da58f4fa4fccad706fb023653", "3" * 64)),
+    ("a2-r2-successor-digest", mutation(A, "eddb151f6a07e6fd78be95a5af81b6bf11562e34c4e8ab8bc0d28758eba91d26", "3" * 64)),
     ("a3-ref", mutation(A, "012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d", "4" * 40)),
     ("a3-digest", mutation(A, "f34c9fef5e219dad15b0a00ce1eaf63311ec9f77d1997e422b977e5c8ffe47b3", "5" * 64)),
     ("adapter-count", mutation(A, '"adapter_count": 1', '"adapter_count": 2')),
@@ -66,12 +68,12 @@ CASES = [
     ("place-builder-inventory", mutation(A, '"build_place_order_request"', '"build_other_place_request"')),
     ("cancel-builder-inventory", mutation(A, '"build_cancel_order_request"', '"build_other_cancel_request"')),
     ("classifier-inventory", mutation(A, '"classify_stage8b_transport_observation_with_stage8a3"', '"classify_second_model"')),
-    ("public-module", mutation(L, "mod stage8b_adapter;", "pub mod stage8b_adapter;")),
-    ("public-adapter", mutation(M, "pub(crate) struct Stage8bItAdapter {", "pub struct Stage8bItAdapter {")),
-    ("public-endpoint", mutation(M, "pub(crate) struct Stage8bItQualificationEndpoint {", "pub struct Stage8bItQualificationEndpoint {")),
-    ("public-token", mutation(M, "pub(crate) struct Stage8bItQualificationToken", "pub struct Stage8bItQualificationToken")),
-    ("public-parts", mutation(P, "pub(crate) struct Stage8bApprovedRequestParts {", "pub struct Stage8bApprovedRequestParts {")),
-    ("permit-bypass", mutation(P, "permit.continuation.compose_stage8a2_no_send(&mut sink)", "Stage8a2InMemoryNoSendSink::new().consumed")),
+    ("public-module", mutation(P, "mod stage8b_adapter;", "pub(crate) mod stage8b_adapter;")),
+    ("crate-visible-adapter", mutation(M, "pub(super) struct Stage8bItAdapter {", "pub(crate) struct Stage8bItAdapter {")),
+    ("crate-visible-endpoint", mutation(M, "pub(super) struct Stage8bItQualificationEndpoint {", "pub(crate) struct Stage8bItQualificationEndpoint {")),
+    ("crate-visible-token", mutation(M, "pub(super) struct Stage8bItQualificationToken", "pub(crate) struct Stage8bItQualificationToken")),
+    ("crate-visible-parts", mutation(P, "struct Stage8bApprovedRequestParts {", "pub(crate) struct Stage8bApprovedRequestParts {")),
+    ("permit-bypass", mutation(P, ".consume_stage8a2_request_capsule(&mut sink)?", ".compose_stage8a2_no_send(&mut sink)?")),
     ("generic-request", mutation(M, ".post(url)", ".request(reqwest::Method::POST, url)")),
     ("second-post", mutation(M, ".post(url)", ".post(url).post(url)")),
     ("second-delete", mutation(M, ".delete(url)", ".delete(url).delete(url)")),
@@ -79,22 +81,34 @@ CASES = [
     ("redirect-limited", mutation(M, "redirect(Policy::none())", "redirect(Policy::limited(10))")),
     ("proxy-removed", mutation(M, ".no_proxy()", ".user_agent(\"proxy-allowed\")")),
     ("alternate-host-literal", mutation(M, 'const FINAM_PRODUCTION_HOST: &str = "api.finam.ru";', 'const FINAM_PRODUCTION_HOST: &str = "alternate.invalid";')),
-    ("production-constructor", mutation(M, "pub(crate) fn production_policy_accepts", "pub(crate) fn production_endpoint")),
+    ("production-constructor", mutation(M, "fn production_policy_accepts", "fn production_endpoint")),
     ("dns-loopback", mutation(M, ".parse::<std::net::IpAddr>()", ".parse::<String>()")),
     ("port-optional", mutation(M, "|| url.port().is_none()", "|| false")),
     ("route-segment", mutation(M, 'segment == "." || segment == ".." || segment.contains(\'/\')', "segment.is_empty()")),
     ("response-unbounded", mutation(M, "<= MAX_RESPONSE_BYTES", "<= usize::MAX")),
     ("classifier-is-truth", mutation(D, "It is not broker truth", "It is broker truth")),
     ("redis-import", mutation(M, "use reqwest::{redirect::Policy, Url};", "use reqwest::{redirect::Policy, Url};\nuse redis::Commands;")),
-    ("retry-authority", mutation(M, "pub(crate) struct Stage8bItQualifiedObservation", "pub(crate) struct retry_authority;\npub(crate) struct Stage8bItQualifiedObservation")),
+    ("retry-authority", mutation(M, "pub(super) struct Stage8bItClassifiedObservation", "pub(crate) struct retry_authority;\npub(super) struct Stage8bItClassifiedObservation")),
     ("open-p", mutation(A, '"stage8b_p": true', '"stage8b_p": false')),
     ("open-xe", mutation(A, '"stage8b_xe": true', '"stage8b_xe": false')),
     ("open-production", mutation(A, '"production_endpoint_authority": true', '"production_endpoint_authority": false')),
+    ("raw-observation-visible", mutation(M, "struct Stage8bItRawObservation {", "pub(super) struct Stage8bItRawObservation {")),
+    ("raw-context-visible", mutation(M, "struct Stage8bItRawObservation {\n    context: Stage8a3EndpointContext,", "struct Stage8bItRawObservation {\n    pub(super) context: Stage8a3EndpointContext,")),
+    ("raw-result-escape", mutation(M, "    ) -> Stage8bItClassifiedObservation {", "    ) -> Stage8bItRawObservation {")),
+    ("classifier-bypass", mutation(M, "classify_stage8b_transport_observation_with_stage8a3(", "Stage8a3ClassifiedObservation::from_raw(")),
+    ("second-classifier", mutation(M, "fn classify_raw_observation(", "const SECOND_CLASSIFIER: &str = \"classify_stage8b_transport_observation_with_stage8a3(\";\n\nfn classify_raw_observation(")),
+    ("broker-truth-marker", mutation(M, "use super::{", "struct BrokerTruth;\n\nuse super::{")),
+    ("clone-extraction", mutation(P, "fn compose_stage8b_private_request_parts_from_stage8a2(", "fn clone_approved_command_for_stage8b() {}\n\nfn compose_stage8b_private_request_parts_from_stage8a2(")),
+    ("borrowed-extraction", mutation(B, "pub(crate) fn consume_stage8a2_request_capsule(\n        self,", "pub(crate) fn consume_stage8a2_request_capsule(\n        &self,")),
+    ("second-builder-outside-a2", mutation(P, "fn compose_stage8b_private_request_parts_from_stage8a2(", "fn build_place_order_request() {}\n\nfn compose_stage8b_private_request_parts_from_stage8a2(")),
+    ("internal-compile-gate-removed", mutation(G, "bash scripts/stage8b_it_internal_compile_fail.sh", "true # internal compile gate removed")),
+    ("full-regression-gate-removed", mutation(G, "bash scripts/stage8b_i_full_regression.sh", "true # full regression gate removed")),
+    ("tls-precondition-opened", mutation(A, '"controlled_tls_qualification": "blocking_stage8b_p_precondition"', '"controlled_tls_qualification": "optional"')),
 ]
 
 
 def main() -> None:
-    if len(CASES) != 48:
+    if len(CASES) != 60:
         raise SystemExit(f"negative case inventory drift: {len(CASES)}")
     with tempfile.TemporaryDirectory(prefix="stage8b-it-negative-") as raw:
         base = Path(raw) / "base"
@@ -121,7 +135,7 @@ def main() -> None:
                 raise SystemExit(f"negative mutation unexpectedly passed: {index} {name}")
             print(f"PASS {index:02d} {name}")
             passed += 1
-    print(f"stage8b-it-negative-harness: PASS {passed}/48")
+    print(f"stage8b-it-negative-harness: PASS {passed}/60")
 
 
 if __name__ == "__main__":

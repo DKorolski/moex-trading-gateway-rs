@@ -45,7 +45,9 @@
 
 use super::{
     valid_sha256, Stage8ApprovedCommand, Stage8CommandScope, Stage8a1CurrentlyAuthorizedCapability,
+    Stage8a1Stage8bBoundContinuation,
 };
+use broker_core::{AccountId, BrokerOrderId, ClientOrderId, InstrumentId, StrategyRequestId};
 use broker_finam::{
     build_cancel_order_request, build_place_order_request, FinamCancelOrderRequestSpec,
     FinamOrderRequestBuildError, FinamPlaceOrderRequestSpec,
@@ -192,61 +194,177 @@ impl Stage8a1CurrentlyAuthorizedCapability {
         self,
         sink: &mut Stage8a2InMemoryNoSendSink,
     ) -> Result<Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError> {
-        let Stage8a1CurrentlyAuthorizedCapability {
-            capability,
-            revalidated_at,
-            current_state_sha256,
-        } = self;
-        let now = Utc::now();
-        if revalidated_at > now
-            || now >= capability.valid_until
-            || current_state_sha256 != capability.current_state_sha256
-            || !valid_sha256(&current_state_sha256)
-        {
-            return Err(Stage8a2BuilderCompositionError::ContinuationInvalid);
-        }
-
-        let authority_binding_sha256 = digest_parts(
-            b"stage8a2-fresh-continuation-binding-v1",
-            &[
-                capability.audit_fingerprint.as_bytes(),
-                current_state_sha256.as_bytes(),
-                revalidated_at.to_rfc3339().as_bytes(),
-                capability.valid_until.to_rfc3339().as_bytes(),
-            ],
-        );
-        let scope = capability.scope;
-        let request_id = capability.request_id;
-        let witness = match (scope, capability.approved) {
-            (Stage8CommandScope::Place, Stage8ApprovedCommand::Place(approved)) => {
-                if approved.order().request_id != request_id {
-                    return Err(Stage8a2BuilderCompositionError::ContinuationInvalid);
-                }
-                // Stage 8A-2 has no outgoing-comment authority. `None` is the
-                // only accepted command-to-wire composition.
-                let spec = build_place_order_request(&approved, None)?;
-                place_witness(spec, authority_binding_sha256)?
-            }
-            (Stage8CommandScope::Cancel, Stage8ApprovedCommand::Cancel(approved)) => {
-                if approved.cancel().request_id != request_id {
-                    return Err(Stage8a2BuilderCompositionError::ContinuationInvalid);
-                }
-                let spec = build_cancel_order_request(&approved)?;
-                cancel_witness(spec, authority_binding_sha256)
-            }
-            _ => return Err(Stage8a2BuilderCompositionError::ContinuationInvalid),
-        };
-        sink.consume(witness)
+        Ok(compose_once(self, sink)?.diagnostic)
     }
 }
 
+/// Opaque one-use output of the sole Stage 8B successor transition. The fields
+/// stay private to this module, so sibling modules cannot manufacture a capsule
+/// from public FINAM request specs or caller-supplied binding strings.
+pub(crate) struct Stage8a2Stage8bRequestCapsule {
+    diagnostic: Stage8a2BuilderCompositionDiagnostic,
+    request: Stage8a2Stage8bRequestSpec,
+    durable_binding_sha256: String,
+    continuation_binding_sha256: String,
+}
+
+/// Raw request spec carried only after the unforgeable capsule has been
+/// consumed. Constructing this enum alone grants no adapter-input authority.
+pub(crate) enum Stage8a2Stage8bRequestSpec {
+    Place {
+        spec: Box<FinamPlaceOrderRequestSpec>,
+        request_id: StrategyRequestId,
+        client_order_id: ClientOrderId,
+        account_id: AccountId,
+        instrument: InstrumentId,
+    },
+    Cancel {
+        spec: FinamCancelOrderRequestSpec,
+        request_id: StrategyRequestId,
+        account_id: AccountId,
+        order_id: BrokerOrderId,
+        client_order_id: Option<ClientOrderId>,
+    },
+}
+
+impl Stage8a2Stage8bRequestCapsule {
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        Stage8a2BuilderCompositionDiagnostic,
+        Stage8a2Stage8bRequestSpec,
+        String,
+        String,
+    ) {
+        (
+            self.diagnostic,
+            self.request,
+            self.durable_binding_sha256,
+            self.continuation_binding_sha256,
+        )
+    }
+}
+
+impl Stage8a1Stage8bBoundContinuation {
+    /// Consume the exact capability/durable continuation and execute the
+    /// accepted Stage 8A-2 builder/sink semantics exactly once. No borrow or
+    /// clone extraction seam exists, so a second request extraction cannot
+    /// type-check.
+    pub(crate) fn consume_stage8a2_request_capsule(
+        self,
+        sink: &mut Stage8a2InMemoryNoSendSink,
+    ) -> Result<Stage8a2Stage8bRequestCapsule, Stage8a2BuilderCompositionError> {
+        let Stage8a1Stage8bBoundContinuation {
+            capability,
+            durable_binding_sha256,
+            continuation_binding_sha256,
+        } = self;
+        let composed = compose_once(capability, sink)?;
+        Ok(Stage8a2Stage8bRequestCapsule {
+            diagnostic: composed.diagnostic,
+            request: composed.request,
+            durable_binding_sha256,
+            continuation_binding_sha256,
+        })
+    }
+}
+
+struct Stage8a2ComposedOnce {
+    diagnostic: Stage8a2BuilderCompositionDiagnostic,
+    request: Stage8a2Stage8bRequestSpec,
+}
+
+fn compose_once(
+    continuation: Stage8a1CurrentlyAuthorizedCapability,
+    sink: &mut Stage8a2InMemoryNoSendSink,
+) -> Result<Stage8a2ComposedOnce, Stage8a2BuilderCompositionError> {
+    let Stage8a1CurrentlyAuthorizedCapability {
+        capability,
+        revalidated_at,
+        current_state_sha256,
+    } = continuation;
+    let now = Utc::now();
+    if revalidated_at > now
+        || now >= capability.valid_until
+        || current_state_sha256 != capability.current_state_sha256
+        || !valid_sha256(&current_state_sha256)
+    {
+        return Err(Stage8a2BuilderCompositionError::ContinuationInvalid);
+    }
+
+    let authority_binding_sha256 = digest_parts(
+        b"stage8a2-fresh-continuation-binding-v1",
+        &[
+            capability.audit_fingerprint.as_bytes(),
+            current_state_sha256.as_bytes(),
+            revalidated_at.to_rfc3339().as_bytes(),
+            capability.valid_until.to_rfc3339().as_bytes(),
+        ],
+    );
+    let scope = capability.scope;
+    let request_id = capability.request_id;
+    let (witness, request) = match (scope, capability.approved) {
+        (Stage8CommandScope::Place, Stage8ApprovedCommand::Place(approved)) => {
+            if approved.order().request_id != request_id {
+                return Err(Stage8a2BuilderCompositionError::ContinuationInvalid);
+            }
+            let order = approved.order();
+            let request_id = order.request_id;
+            let client_order_id = order.client_order_id.clone();
+            let account_id = order.account_id.clone();
+            let instrument = order.instrument.clone();
+            // Stage 8A-2 has no outgoing-comment authority. `None` remains the
+            // only accepted command-to-wire composition.
+            let spec = build_place_order_request(&approved, None)?;
+            let witness = place_witness(&spec, authority_binding_sha256)?;
+            (
+                witness,
+                Stage8a2Stage8bRequestSpec::Place {
+                    spec: Box::new(spec),
+                    request_id,
+                    client_order_id,
+                    account_id,
+                    instrument,
+                },
+            )
+        }
+        (Stage8CommandScope::Cancel, Stage8ApprovedCommand::Cancel(approved)) => {
+            if approved.cancel().request_id != request_id {
+                return Err(Stage8a2BuilderCompositionError::ContinuationInvalid);
+            }
+            let cancel = approved.cancel();
+            let request_id = cancel.request_id;
+            let account_id = cancel.account_id.clone();
+            let order_id = cancel.order_id.clone();
+            let client_order_id = cancel.client_order_id.clone();
+            let spec = build_cancel_order_request(&approved)?;
+            let witness = cancel_witness(&spec, authority_binding_sha256);
+            (
+                witness,
+                Stage8a2Stage8bRequestSpec::Cancel {
+                    spec,
+                    request_id,
+                    account_id,
+                    order_id,
+                    client_order_id,
+                },
+            )
+        }
+        _ => return Err(Stage8a2BuilderCompositionError::ContinuationInvalid),
+    };
+    Ok(Stage8a2ComposedOnce {
+        diagnostic: sink.consume(witness)?,
+        request,
+    })
+}
+
 fn place_witness(
-    spec: FinamPlaceOrderRequestSpec,
+    spec: &FinamPlaceOrderRequestSpec,
     authority_binding_sha256: String,
 ) -> Result<Stage8a2OpaqueRequestShapeWitness, Stage8a2BuilderCompositionError> {
     let path = spec.redacted_path_shape();
     let body = spec.redacted_body_shape();
-    let request_shape_sha256 = place_request_shape_sha256(&spec)?;
+    let request_shape_sha256 = place_request_shape_sha256(spec)?;
     let kind = if spec.body.limit_price.is_some() {
         Stage8a2RequestShapeKind::LimitDayPlace
     } else {
@@ -272,14 +390,14 @@ fn place_witness(
 }
 
 fn cancel_witness(
-    spec: FinamCancelOrderRequestSpec,
+    spec: &FinamCancelOrderRequestSpec,
     authority_binding_sha256: String,
 ) -> Stage8a2OpaqueRequestShapeWitness {
     let path = spec.redacted_path_shape();
     Stage8a2OpaqueRequestShapeWitness {
         scope: Stage8CommandScope::Cancel,
         kind: Stage8a2RequestShapeKind::Cancel,
-        request_shape_sha256: cancel_request_shape_sha256(&spec),
+        request_shape_sha256: cancel_request_shape_sha256(spec),
         authority_binding_sha256,
         account_id_present: path.account_id_present,
         account_id_len: path.account_id_len,

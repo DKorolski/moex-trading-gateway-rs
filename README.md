@@ -43,14 +43,19 @@ findings but exposed a preflight/build-order contradiction. Stage 8B-S R3 was
 independently accepted at `afecc25` and merged tree-identically at `d158196`.
 The Stage 8B-I candidates at `a52fbca` and `21426ee` remained fail-closed but
 were not accepted. Corrective Stage 8B-I R3 was independently accepted and
-merged exactly at `0af222f`. Active Stage 8B-IT qualifies one private,
-permit-only adapter against controlled numeric-loopback endpoints. It has one
-PLACE path, one CANCEL path and one transport attempt, with redirects, proxies,
-retry/resend and production endpoint construction disabled. All observations
-remain diagnostic and flow through the accepted Stage 8A-3 classifier.
+merged exactly at `0af222f`. The first Stage 8B-IT candidate `e440539` was
+rejected because same-crate construction, repeatable extraction and raw
+observation escape remained possible. Corrective Stage 8B-IT R2 is active: its
+request parts are module-private, its adapter is a private child of the permit
+module, the exact Stage 8A-2 continuation is consumed once, and the adapter
+returns only the mandatory Stage 8A-3 classified observation. It still has one
+PLACE path, one CANCEL path and one controlled transport attempt, with
+redirects, proxies, retry/resend and production endpoint construction disabled.
 
-FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
-strategy orders and Stage 8B execution authority remain closed.
+FINAM production POST/DELETE, Redis live consumption, broker dispatch,
+runtime-live, real strategy orders and Stage 8B execution authority remain
+closed. Controlled TLS qualification is an explicit blocking precondition for
+Stage 8B-P and is not claimed by IT R2.
 
 This repository is not enabled for continuous live trading.
 

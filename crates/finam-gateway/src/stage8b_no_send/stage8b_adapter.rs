@@ -11,8 +11,11 @@
     reason = "Stage 8B-IT adapter is reachable only from crate-private qualification tests before P"
 )]
 
-use crate::stage8b_no_send::{Stage8bApprovedRequestParts, Stage8bPrivateRequestSpec};
-use crate::{Stage8a3EndpointContext, Stage8a3LocalHttpObservation};
+use super::{
+    classify_stage8b_transport_observation_with_stage8a3, Stage8bApprovedRequestParts,
+    Stage8bPrivateRequestSpec,
+};
+use crate::{Stage8a3ClassifiedObservation, Stage8a3EndpointContext, Stage8a3LocalHttpObservation};
 use reqwest::{redirect::Policy, Url};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -29,43 +32,48 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum Stage8bItAdapterMethod {
+pub(super) enum Stage8bItAdapterMethod {
     Post,
     Delete,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub(crate) struct Stage8bItAdapterDiagnostic {
-    pub(crate) method: Stage8bItAdapterMethod,
-    pub(crate) route_template: &'static str,
-    pub(crate) controlled_loopback: bool,
-    pub(crate) tls_required_for_production: bool,
-    pub(crate) production_host: &'static str,
-    pub(crate) redirects_disabled: bool,
-    pub(crate) proxy_disabled: bool,
-    pub(crate) automatic_retry_disabled: bool,
-    pub(crate) request_body_present: bool,
-    pub(crate) request_body_len: usize,
-    pub(crate) request_body_sha256: Option<String>,
-    pub(crate) response_status: Option<u16>,
-    pub(crate) response_body_len: usize,
-    pub(crate) possible_write: bool,
-    pub(crate) transport_attempts: u8,
+pub(super) struct Stage8bItAdapterDiagnostic {
+    pub(super) method: Stage8bItAdapterMethod,
+    pub(super) route_template: &'static str,
+    pub(super) controlled_loopback: bool,
+    pub(super) tls_required_for_production: bool,
+    pub(super) production_host: &'static str,
+    pub(super) redirects_disabled: bool,
+    pub(super) proxy_disabled: bool,
+    pub(super) automatic_retry_disabled: bool,
+    pub(super) request_body_present: bool,
+    pub(super) request_body_len: usize,
+    pub(super) request_body_sha256: Option<String>,
+    pub(super) response_status: Option<u16>,
+    pub(super) response_body_len: usize,
+    pub(super) possible_write: bool,
+    pub(super) transport_attempts: u8,
 }
 
-pub(crate) struct Stage8bItQualifiedObservation {
-    pub(crate) context: Stage8a3EndpointContext,
-    pub(crate) observation: Stage8a3LocalHttpObservation,
-    pub(crate) diagnostic: Stage8bItAdapterDiagnostic,
+pub(super) struct Stage8bItClassifiedObservation {
+    pub(super) classified: Stage8a3ClassifiedObservation,
+    pub(super) diagnostic: Stage8bItAdapterDiagnostic,
 }
 
-pub(crate) struct Stage8bItQualificationEndpoint {
+struct Stage8bItRawObservation {
+    context: Stage8a3EndpointContext,
+    observation: Stage8a3LocalHttpObservation,
+    diagnostic: Stage8bItAdapterDiagnostic,
+}
+
+pub(super) struct Stage8bItQualificationEndpoint {
     base_url: Url,
 }
 
 impl Stage8bItQualificationEndpoint {
     #[cfg(test)]
-    pub(crate) fn controlled_loopback(raw: &str) -> Result<Self, Stage8bItAdapterError> {
+    pub(super) fn controlled_loopback(raw: &str) -> Result<Self, Stage8bItAdapterError> {
         let url = Url::parse(raw).map_err(|_| Stage8bItAdapterError::InvalidEndpoint)?;
         let host = url
             .host_str()
@@ -88,11 +96,11 @@ impl Stage8bItQualificationEndpoint {
     }
 }
 
-pub(crate) struct Stage8bItQualificationToken(Zeroizing<String>);
+pub(super) struct Stage8bItQualificationToken(Zeroizing<String>);
 
 impl Stage8bItQualificationToken {
     #[cfg(test)]
-    pub(crate) fn controlled(value: &str) -> Result<Self, Stage8bItAdapterError> {
+    pub(super) fn controlled(value: &str) -> Result<Self, Stage8bItAdapterError> {
         if value.len() < 16 || value.bytes().any(|byte| byte.is_ascii_whitespace()) {
             return Err(Stage8bItAdapterError::InvalidQualificationToken);
         }
@@ -100,12 +108,12 @@ impl Stage8bItQualificationToken {
     }
 }
 
-pub(crate) struct Stage8bItAdapter {
+pub(super) struct Stage8bItAdapter {
     http: reqwest::Client,
 }
 
 impl Stage8bItAdapter {
-    pub(crate) fn qualified() -> Result<Self, Stage8bItAdapterError> {
+    pub(super) fn qualified() -> Result<Self, Stage8bItAdapterError> {
         let http = reqwest::Client::builder()
             .redirect(Policy::none())
             .no_proxy()
@@ -119,12 +127,12 @@ impl Stage8bItAdapter {
 
     /// One controlled transport attempt.  Consuming `self`, the qualification
     /// endpoint, token and private request parts prevents reuse or retry.
-    pub(crate) async fn qualify_once(
+    pub(super) async fn qualify_once(
         self,
         parts: Stage8bApprovedRequestParts,
         endpoint: Stage8bItQualificationEndpoint,
         token: Stage8bItQualificationToken,
-    ) -> Stage8bItQualifiedObservation {
+    ) -> Stage8bItClassifiedObservation {
         let Stage8bApprovedRequestParts {
             diagnostic: _,
             permit_binding_sha256: _,
@@ -146,7 +154,11 @@ impl Stage8bItAdapter {
                         .bearer_auth(token.0.as_str())
                         .json(&spec.body),
                     Err(error) => {
-                        return failed_before_write(context, request_diagnostic, error);
+                        return classify_raw_observation(failed_before_write(
+                            context,
+                            request_diagnostic,
+                            error,
+                        ));
                     }
                 };
                 (request, context, request_diagnostic)
@@ -158,14 +170,18 @@ impl Stage8bItAdapter {
                 let request = match url {
                     Ok(url) => self.http.delete(url).bearer_auth(token.0.as_str()),
                     Err(error) => {
-                        return failed_before_write(context, request_diagnostic, error);
+                        return classify_raw_observation(failed_before_write(
+                            context,
+                            request_diagnostic,
+                            error,
+                        ));
                     }
                 };
                 (request, context, request_diagnostic)
             }
         };
         let result = request.send().await;
-        observe_response(context, request_diagnostic, result).await
+        classify_raw_observation(observe_response(context, request_diagnostic, result).await)
     }
 }
 
@@ -214,8 +230,8 @@ fn failed_before_write(
     context: Stage8a3EndpointContext,
     diagnostic: Stage8bItAdapterDiagnostic,
     _error: Stage8bItAdapterError,
-) -> Stage8bItQualifiedObservation {
-    Stage8bItQualifiedObservation {
+) -> Stage8bItRawObservation {
+    Stage8bItRawObservation {
         context,
         observation: Stage8a3LocalHttpObservation::disconnected(),
         diagnostic,
@@ -226,7 +242,7 @@ async fn observe_response(
     context: Stage8a3EndpointContext,
     mut diagnostic: Stage8bItAdapterDiagnostic,
     result: Result<reqwest::Response, reqwest::Error>,
-) -> Stage8bItQualifiedObservation {
+) -> Stage8bItRawObservation {
     diagnostic.transport_attempts = 1;
     diagnostic.possible_write = true;
     let observation = match result {
@@ -254,14 +270,24 @@ async fn observe_response(
             }
         }
     };
-    Stage8bItQualifiedObservation {
+    Stage8bItRawObservation {
         context,
         observation,
         diagnostic,
     }
 }
 
-pub(crate) fn production_policy_accepts(url: &Url) -> bool {
+fn classify_raw_observation(raw: Stage8bItRawObservation) -> Stage8bItClassifiedObservation {
+    Stage8bItClassifiedObservation {
+        classified: classify_stage8b_transport_observation_with_stage8a3(
+            raw.context,
+            raw.observation,
+        ),
+        diagnostic: raw.diagnostic,
+    }
+}
+
+fn production_policy_accepts(url: &Url) -> bool {
     url.scheme() == FINAM_PRODUCTION_SCHEME
         && url.host_str() == Some(FINAM_PRODUCTION_HOST)
         && matches!(url.port(), None | Some(443))
@@ -283,7 +309,7 @@ fn sha256_hex(value: &[u8]) -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum Stage8bItAdapterError {
+pub(super) enum Stage8bItAdapterError {
     #[error("Stage 8B-IT endpoint is not the controlled loopback authority")]
     InvalidEndpoint,
     #[error("Stage 8B-IT qualification token is invalid")]

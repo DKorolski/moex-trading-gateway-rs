@@ -24,11 +24,11 @@
 22. accepted place builder removed or substituted;
 23. accepted cancel builder removed or substituted;
 24. accepted classifier bridge removed or substituted;
-25. adapter module made public;
-26. adapter type made public;
-27. qualification endpoint made public;
-28. qualification token made public;
-29. approved request parts made public;
+25. nested adapter module moved back to crate-root sibling scope;
+26. adapter type widened beyond parent-only visibility;
+27. qualification endpoint widened beyond parent-only visibility;
+28. qualification token widened beyond parent-only visibility;
+29. approved request parts or any authority-bearing field widened beyond module-private;
 30. exact permit no longer consumed by private parts bridge;
 31. adapter gains a generic `.request` call;
 32. adapter gains a second `.post` call;
@@ -48,3 +48,15 @@
 46. Stage 8B-P marked open;
 47. Stage 8B-XE marked open;
 48. any closed surface set false.
+49. raw adapter observation widened to parent or crate visibility;
+50. raw endpoint context widened to parent or crate visibility;
+51. adapter returns raw observation instead of classified wrapper;
+52. mandatory classifier call removed from adapter;
+53. a second classifier implementation is introduced;
+54. direct HTTP status is mapped to execution or broker-truth state;
+55. borrow-and-clone approved-command extraction is reintroduced;
+56. consuming continuation transition changed to borrow;
+57. second builder invocation is introduced in Stage 8B request-parts bridge;
+58. same-crate internal compile-fail gate is omitted;
+59. canonical full regression runner is omitted from exact IT gate;
+60. controlled TLS qualification is no longer a blocking Stage 8B-P precondition.

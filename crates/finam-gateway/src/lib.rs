@@ -15,7 +15,6 @@ pub mod real_order_endpoint;
 pub mod stage8a1_execution_capability;
 mod stage8a3_endpoint_classifier;
 mod stage8a4_reconciliation;
-mod stage8b_adapter;
 mod stage8b_no_send;
 
 pub use stage8a1_execution_capability::{

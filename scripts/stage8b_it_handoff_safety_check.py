@@ -18,7 +18,7 @@ REQUIRED = {
     EVIDENCE,
     GATE,
     MANIFEST,
-    "crates/finam-gateway/src/stage8b_adapter.rs",
+    "crates/finam-gateway/src/stage8b_no_send/stage8b_adapter.rs",
     "docs/stage-8/STAGE8B_IT_IMPLEMENTATION_2026-08-23.md",
     "docs/stage-8/STAGE8B_IT_ACCEPTANCE_MATRIX_2026-08-23.csv",
     "docs/stage-8/STAGE8B_IT_NEGATIVE_INVENTORY_2026-08-23.md",
@@ -26,6 +26,7 @@ REQUIRED = {
     "scripts/stage8b_it_check.py",
     "scripts/stage8b_it_negative_harness.py",
     "scripts/stage8b_it_external_compile_fail.sh",
+    "scripts/stage8b_it_internal_compile_fail.sh",
     "scripts/stage8b_it_gate.sh",
 }
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
@@ -76,6 +77,8 @@ def check(path: str) -> dict[str, object]:
         manifest = json.loads(archive.read(MANIFEST))
         if evidence.get("stage") != "8B-IT":
             raise ValueError("stage mismatch")
+        if evidence.get("revision") != "R2":
+            raise ValueError("revision mismatch")
         if (
             evidence.get("source_ref") != marker.get("source_ref")
             or manifest.get("source_ref") != marker.get("source_ref")
@@ -83,14 +86,22 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("source mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive mismatch")
-        if evidence.get("acceptance_rows") != 60:
+        if evidence.get("acceptance_rows") != 72:
             raise ValueError("acceptance count mismatch")
-        if evidence.get("negative_cases") != 48:
+        if evidence.get("negative_cases") != 60:
             raise ValueError("negative count mismatch")
-        if evidence.get("compile_fail_negative_cases") != 12:
-            raise ValueError("compile-fail count mismatch")
+        if evidence.get("external_compile_fail_negative_cases") != 12:
+            raise ValueError("external compile-fail count mismatch")
+        if evidence.get("internal_compile_fail_negative_cases") != 4:
+            raise ValueError("internal compile-fail count mismatch")
         for key in (
             "adapter_qualified",
+            "request_parts_module_private",
+            "adapter_parent_only",
+            "single_consuming_transition",
+            "mandatory_classifier_inside_adapter",
+            "classified_only_result",
+            "canonical_full_regression",
             "controlled_loopback_only",
             "single_transport_attempt",
             "accepted_builder_bridge",
@@ -98,6 +109,15 @@ def check(path: str) -> dict[str, object]:
         ):
             if evidence.get(key) is not True:
                 raise ValueError(f"qualification evidence missing: {key}")
+        if evidence.get("controlled_tls_qualification") != "blocking_stage8b_p_precondition":
+            raise ValueError("controlled TLS precondition drift")
+        gate = archive.read(GATE)
+        if b"stage8b-it-gate: PASS revision=R2 rows=72 negatives=60" not in gate:
+            raise ValueError("R2 gate marker missing")
+        if f"current-tree-ci-gate: PASS source_ref={evidence['source_ref']} ".encode() not in gate:
+            raise ValueError("gate is not exact-commit bound")
+        if b"stage8b-i-full-regression: PASS canonical_ci=true" not in gate:
+            raise ValueError("canonical full regression missing")
         for key in (
             "production_endpoint_authority",
             "production_operator_arm",

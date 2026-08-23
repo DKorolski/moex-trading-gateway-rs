@@ -3,20 +3,20 @@ IT-001,phase,Accepted predecessor is exact Stage 8B-I R3,authority+git,pending
 IT-002,phase,IT independently precedes P and XE,authority+doc,pending
 IT-003,scope,IT qualification has zero broker effect,authority+tests,pending
 IT-004,scope,Only local controlled endpoint is constructible,source+tests,pending
-IT-005,privacy,Adapter module is crate-private,source+compile_fail,pending
+IT-005,privacy,Adapter is a private child of the Stage 8B privacy module,source+internal_compile_fail,pending
 IT-006,privacy,Adapter type is not externally nameable,compile_fail,pending
 IT-007,privacy,Qualification endpoint is not externally nameable,compile_fail,pending
 IT-008,privacy,Qualification token is not externally nameable,compile_fail,pending
-IT-009,privacy,Approved request parts remain crate-private,source+compile_fail,pending
+IT-009,privacy,Approved request parts and all fields remain module-private,source+internal_compile_fail,pending
 IT-010,privacy,No raw route body token or response getter,source+compile_fail,pending
 IT-011,permit,Private parts require exact transport permit,source+inherited_gate,pending
 IT-012,permit,Capability and durable request remain cross-bound,inherited_gate,pending
-IT-013,builder,Accepted Stage 8A-2 source remains byte-identical,hash+checker,pending
+IT-013,builder,Accepted Stage 8A-2 semantics are retained by one shared compose-once path,source+tests,pending
 IT-014,builder,Only accepted place builder is used,source+checker,pending
 IT-015,builder,Only accepted cancel builder is used,source+checker,pending
 IT-016,builder,No independent request model or serializer exists,source+checker,pending
 IT-017,classifier,Accepted Stage 8A-3 source remains byte-identical,hash+checker,pending
-IT-018,classifier,Only accepted classifier seam receives observations,source+tests,pending
+IT-018,classifier,Adapter invokes the sole accepted classifier before any result escapes,source+tests,pending
 IT-019,classifier,Classifier output is not broker truth,source+doc,pending
 IT-020,adapter,Exactly one Stage 8B IT adapter exists,source+checker,pending
 IT-021,adapter,Exactly one POST builder call exists,source+checker,pending
@@ -49,7 +49,7 @@ IT-047,fault,Response loss produces reconciliation-only observation,test,pending
 IT-048,fault,Redirect is observed and never followed,test,pending
 IT-049,fault,503 response is classified through accepted Model A,test,pending
 IT-050,retry,Every controlled scenario records at most one attempt,tests,pending
-IT-051,retry,Consumed adapter and parts cannot be reused,source+compile_fail,pending
+IT-051,retry,Consumed adapter parts and continuation cannot be reused,source+internal_compile_fail,pending
 IT-052,evidence,Adapter identity inventory has thirteen exact fields,authority+checker,pending
 IT-053,evidence,Future P must bind exact accepted IT source and executable,authority+doc,pending
 IT-054,evidence,Material drift requires IT requalification,authority+doc,pending
@@ -58,4 +58,16 @@ IT-056,closed,FINAM POST DELETE effect remains closed,authority+checker,pending
 IT-057,closed,Redis live consumer and XADD XACK remain closed,authority+checker,pending
 IT-058,closed,Broker dispatch runtime-live and real orders remain closed,authority+checker,pending
 IT-059,closed,Stage 8B-P XE and Stage 12 remain closed,authority+checker,pending
-IT-060,regression,Inherited I and canonical regression gates remain green,aggregate_gate,pending
+IT-060,regression,Inherited I and exact-commit canonical full regression gates remain green,aggregate_gate+bound_log,pending
+IT-061,privacy,Sibling modules cannot name or construct approved request parts,internal_compile_fail,pending
+IT-062,privacy,Sibling modules cannot name or call the nested adapter,internal_compile_fail,pending
+IT-063,permit,Permit-derived binding fields cannot be caller supplied,source+negative,pending
+IT-064,permit,Exact continuation is consumed by request capsule transition,source+compile_fail,pending
+IT-065,permit,A second approved-command extraction does not compile,internal_compile_fail,pending
+IT-066,builder,Each PLACE or CANCEL path invokes its FINAM builder exactly once,source+checker,pending
+IT-067,classifier,Raw context and observation remain adapter-private,source+internal_compile_fail,pending
+IT-068,classifier,Only classified observation and redacted diagnostic escape adapter,source+checker,pending
+IT-069,classifier,Success error timeout disconnect and redirect all cross mandatory classifier seam,tests+negative,pending
+IT-070,classifier,Direct status mapping to execution or broker truth is forbidden,source+negative,pending
+IT-071,regression,Full workspace debug release doctest clippy Redis and dry bridge evidence is source-ref-bound,gate+handoff,pending
+IT-072,tls,Controlled TLS qualification is an explicit blocking Stage 8B-P precondition,authority+doc,pending

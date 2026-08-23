@@ -21,9 +21,13 @@ rehearsal. Stage 8B-I at `a52fbca` was not accepted; corrective Stage 8B-I R2
 at `21426ee` was also not accepted.
 
 Stage 8B-I R3 is independently accepted and merged exactly at `0af222f`. The
-active Stage 8B-IT slice qualifies one private adapter only against controlled
-numeric-loopback endpoints. It does not authorize operator-arm issuance,
-Stage 8B-P/XE, a real FINAM POST/DELETE or any broker effect.
+first Stage 8B-IT candidate `e440539` was rejected. Corrective IT R2 qualifies
+module-private request parts through a parent-only adapter, consumes the exact
+Stage 8A-2 continuation once and returns only a mandatory Stage 8A-3 classified
+observation from controlled numeric-loopback endpoints. It does not authorize
+operator-arm issuance, Stage 8B-P/XE, a real FINAM POST/DELETE or any broker
+effect. Controlled TLS qualification remains a blocking Stage 8B-P
+precondition.
 
 ## Mandatory Stage 8A order
 

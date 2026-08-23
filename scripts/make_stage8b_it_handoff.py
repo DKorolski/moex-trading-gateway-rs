@@ -48,9 +48,13 @@ def main() -> None:
     if not GATE_LOG.is_file():
         raise SystemExit("stage8b-it-handoff: FAIL exact-commit gate log missing")
     gate = GATE_LOG.read_bytes()
-    marker = b"stage8b-it-gate: PASS rows=60 negatives=48 compile_fail=12 adapter=1 post=1 delete=1 send=1 controlled_only=true broker_effect=false stage8b_p=false stage8b_xe=false stage12=false"
+    marker = b"stage8b-it-gate: PASS revision=R2 rows=72 negatives=60 external_compile_fail=12 internal_compile_fail=4 canonical_full_regression=true adapter=1 post=1 delete=1 send=1 controlled_only=true broker_effect=false stage8b_p=false stage8b_xe=false stage12=false"
     if marker not in gate:
         raise SystemExit("stage8b-it-handoff: FAIL stale or incomplete exact-commit gate log")
+    if f"current-tree-ci-gate: PASS source_ref={full_ref} ".encode() not in gate:
+        raise SystemExit("stage8b-it-handoff: FAIL full regression is not exact-commit bound")
+    if b"stage8b-i-full-regression: PASS canonical_ci=true" not in gate:
+        raise SystemExit("stage8b-it-handoff: FAIL canonical full regression missing")
 
     manifest, entries = common.source_manifest(full_ref)
     evidence = (
@@ -58,17 +62,27 @@ def main() -> None:
             {
                 "schema_version": 1,
                 "stage": "8B-IT",
+                "revision": "R2",
                 "source_ref": full_ref,
                 "source_short_ref": short_ref,
                 "archive_name": archive_name,
                 "branch": branch,
                 "accepted_predecessor_ref": BASE,
-                "acceptance_rows": 60,
-                "negative_cases": 48,
-                "compile_fail_negative_cases": 12,
+                "rejected_stage8b_it_ref": "e44053917a928aeb4bc8e3330a58a693edc31fd3",
+                "acceptance_rows": 72,
+                "negative_cases": 60,
+                "external_compile_fail_negative_cases": 12,
+                "internal_compile_fail_negative_cases": 4,
                 "gate_sha256": sha256(gate),
                 "manifest_sha256": sha256(manifest),
                 "adapter_qualified": True,
+                "request_parts_module_private": True,
+                "adapter_parent_only": True,
+                "single_consuming_transition": True,
+                "mandatory_classifier_inside_adapter": True,
+                "classified_only_result": True,
+                "canonical_full_regression": True,
+                "controlled_tls_qualification": "blocking_stage8b_p_precondition",
                 "controlled_loopback_only": True,
                 "single_transport_attempt": True,
                 "accepted_builder_bridge": True,

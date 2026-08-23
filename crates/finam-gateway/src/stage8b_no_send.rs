@@ -4,18 +4,16 @@
 //! redacted diagnostic. It cannot construct an arm, transport permit or broker
 //! request, and this module contains no HTTP or Redis operation.
 
+mod stage8b_adapter;
+
 use crate::stage8a1_execution_capability::{
-    Stage8a1Stage8bApprovedCommand, Stage8a1Stage8bBoundContinuation,
+    Stage8a1Stage8bBoundContinuation, Stage8a2Stage8bRequestSpec,
 };
 use crate::{
     Stage8a1CurrentlyAuthorizedCapability, Stage8a1DurableRequestAuthority,
     Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError,
     Stage8a2InMemoryNoSendSink, Stage8a3ClassifiedObservation, Stage8a3EndpointContext,
     Stage8a3LocalHttpObservation,
-};
-use broker_finam::{
-    build_cancel_order_request, build_place_order_request, FinamCancelOrderRequestSpec,
-    FinamPlaceOrderRequestSpec,
 };
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
@@ -444,20 +442,20 @@ pub(crate) struct Stage8bClosureReceipt {
 }
 
 #[allow(dead_code)]
-pub(crate) struct Stage8bApprovedRequestParts {
-    pub(crate) diagnostic: Stage8a2BuilderCompositionDiagnostic,
-    pub(crate) permit_binding_sha256: String,
-    pub(crate) request: Stage8bPrivateRequestSpec,
+struct Stage8bApprovedRequestParts {
+    diagnostic: Stage8a2BuilderCompositionDiagnostic,
+    permit_binding_sha256: String,
+    request: Stage8bPrivateRequestSpec,
 }
 
 #[allow(dead_code)]
-pub(crate) enum Stage8bPrivateRequestSpec {
+enum Stage8bPrivateRequestSpec {
     Place {
-        spec: FinamPlaceOrderRequestSpec,
+        spec: broker_finam::FinamPlaceOrderRequestSpec,
         context: Stage8a3EndpointContext,
     },
     Cancel {
-        spec: FinamCancelOrderRequestSpec,
+        spec: broker_finam::FinamCancelOrderRequestSpec,
         context: Stage8a3EndpointContext,
     },
 }
@@ -556,34 +554,53 @@ pub(crate) enum Stage8bNoSendCompositionError {
 fn compose_stage8b_private_request_parts_from_stage8a2(
     permit: Stage8bExactTransportPermit,
 ) -> Result<Stage8bApprovedRequestParts, Stage8bNoSendCompositionError> {
-    let approved = permit.continuation.clone_approved_command_for_stage8b()?;
+    let expected_durable_binding = permit.continuation.durable_binding_sha256().to_string();
+    let expected_continuation_binding = permit
+        .continuation
+        .continuation_binding_sha256()
+        .to_string();
     let mut sink = Stage8a2InMemoryNoSendSink::new();
-    let diagnostic = permit.continuation.compose_stage8a2_no_send(&mut sink)?;
-    let request = match approved {
-        Stage8a1Stage8bApprovedCommand::Place(approved) => {
-            let order = approved.order();
+    let capsule = permit
+        .continuation
+        .consume_stage8a2_request_capsule(&mut sink)?;
+    let (diagnostic, request, durable_binding, continuation_binding) = capsule.into_parts();
+    if durable_binding != expected_durable_binding
+        || continuation_binding != expected_continuation_binding
+    {
+        return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
+    }
+    let request = match request {
+        Stage8a2Stage8bRequestSpec::Place {
+            spec,
+            request_id,
+            client_order_id,
+            account_id,
+            instrument,
+        } => {
+            let spec = *spec;
             let context = Stage8a3EndpointContext::for_place(
-                order.request_id,
-                order.client_order_id.clone(),
-                order.account_id.clone(),
-                order.instrument.clone(),
+                request_id,
+                client_order_id,
+                account_id,
+                instrument,
             )
             .map_err(|_| Stage8bNoSendCompositionError::InvalidCrossBinding)?;
-            let spec = build_place_order_request(&approved, None)
-                .map_err(Stage8a2BuilderCompositionError::ExistingBuilder)?;
             Stage8bPrivateRequestSpec::Place { spec, context }
         }
-        Stage8a1Stage8bApprovedCommand::Cancel(approved) => {
-            let cancel = approved.cancel();
+        Stage8a2Stage8bRequestSpec::Cancel {
+            spec,
+            request_id,
+            account_id,
+            order_id,
+            client_order_id,
+        } => {
             let context = Stage8a3EndpointContext::for_cancel(
-                cancel.request_id,
-                cancel.account_id.clone(),
-                cancel.order_id.clone(),
-                cancel.client_order_id.clone(),
+                request_id,
+                account_id,
+                order_id,
+                client_order_id,
             )
             .map_err(|_| Stage8bNoSendCompositionError::InvalidCrossBinding)?;
-            let spec = build_cancel_order_request(&approved)
-                .map_err(Stage8a2BuilderCompositionError::ExistingBuilder)?;
             Stage8bPrivateRequestSpec::Cancel { spec, context }
         }
     };
@@ -1554,10 +1571,10 @@ fn hex_lower(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::stage8b_adapter::{
+    use super::stage8b_adapter::{
         Stage8bItAdapter, Stage8bItQualificationEndpoint, Stage8bItQualificationToken,
     };
+    use super::*;
     use broker_core::{AccountId, ClientOrderId, InstrumentId, StrategyRequestId};
     use std::process::Command;
     use std::time::Duration;
@@ -2486,11 +2503,7 @@ mod tests {
             .await;
         assert_eq!(output.diagnostic.transport_attempts, 1);
         assert!(output.diagnostic.possible_write);
-        let classified = classify_stage8b_transport_observation_with_stage8a3(
-            output.context,
-            output.observation,
-        );
-        assert!(classified.diagnostic().reconciliation_required);
+        assert!(output.classified.diagnostic().reconciliation_required);
         let wire = String::from_utf8(captured.await.unwrap()).unwrap();
         assert!(wire.starts_with("POST /v1/accounts/ACC_TEST_0001/orders HTTP/1.1\r\n"));
         assert!(wire.contains("authorization: Bearer LOCAL_QUALIFICATION_TOKEN"));
@@ -2511,11 +2524,7 @@ mod tests {
             .await;
         assert_eq!(output.diagnostic.transport_attempts, 1);
         assert!(!output.diagnostic.request_body_present);
-        let classified = classify_stage8b_transport_observation_with_stage8a3(
-            output.context,
-            output.observation,
-        );
-        assert!(classified.diagnostic().reconciliation_required);
+        assert!(output.classified.diagnostic().reconciliation_required);
         let wire = String::from_utf8(captured.await.unwrap()).unwrap();
         assert!(
             wire.starts_with("DELETE /v1/accounts/ACC_TEST_0001/orders/BROKER_TEST_1 HTTP/1.1\r\n")
@@ -2536,12 +2545,8 @@ mod tests {
             )
             .await;
         assert_eq!(output.diagnostic.response_status, Some(302));
-        let classified = classify_stage8b_transport_observation_with_stage8a3(
-            output.context,
-            output.observation,
-        );
         assert_eq!(
-            classified.diagnostic().reconciliation_reason,
+            output.classified.diagnostic().reconciliation_reason,
             Some(crate::Stage8a3ReconciliationReason::UndocumentedStatus)
         );
         assert_eq!(
@@ -2569,12 +2574,8 @@ mod tests {
             )
             .await;
         assert_eq!(output.diagnostic.transport_attempts, 1);
-        let classified = classify_stage8b_transport_observation_with_stage8a3(
-            output.context,
-            output.observation,
-        );
         assert_eq!(
-            classified.diagnostic().reconciliation_reason,
+            output.classified.diagnostic().reconciliation_reason,
             Some(crate::Stage8a3ReconciliationReason::Disconnect)
         );
         assert_eq!(
@@ -2601,12 +2602,8 @@ mod tests {
             )
             .await;
         assert_eq!(output.diagnostic.transport_attempts, 1);
-        let classified = classify_stage8b_transport_observation_with_stage8a3(
-            output.context,
-            output.observation,
-        );
         assert_eq!(
-            classified.diagnostic().reconciliation_reason,
+            output.classified.diagnostic().reconciliation_reason,
             Some(crate::Stage8a3ReconciliationReason::Timeout)
         );
         assert_eq!(
@@ -2637,12 +2634,8 @@ mod tests {
             .await;
         assert_eq!(output.diagnostic.transport_attempts, 1);
         assert!(output.diagnostic.possible_write);
-        let classified = classify_stage8b_transport_observation_with_stage8a3(
-            output.context,
-            output.observation,
-        );
         assert_eq!(
-            classified.diagnostic().reconciliation_reason,
+            output.classified.diagnostic().reconciliation_reason,
             Some(crate::Stage8a3ReconciliationReason::Disconnect)
         );
     }
