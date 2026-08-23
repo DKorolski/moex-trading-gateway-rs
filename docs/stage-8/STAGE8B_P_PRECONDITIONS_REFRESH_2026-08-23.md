@@ -113,6 +113,9 @@ The handoff gate also runs the inherited current-tree replay, current workspace
 debug and release tests, doctests, all-feature clippy, no-Redis evidence smoke,
 Redis shadow smoke and runtime-bridge dry smoke. Its terminal regression marker
 is emitted only after every command succeeds on the exact corrective commit.
+If an immutable historical replay fails, the current-tree wrapper emits bounded
+fail-only nested diagnostics; this changes observability only and does not add
+an allowance, retry or bypass.
 
 ## Explicitly closed surfaces
 

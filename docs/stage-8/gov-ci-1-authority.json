@@ -33,7 +33,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "bf0b08e1878eac1a6a3da3d8506ecafa5beb81781933314b5e675cdacad42286",
+    "aggregate_sha256": "25c82a1372da69e34e280b242ec4dfb9d1ce705d8e2f6592ebbc0ac69c683390",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -102,8 +102,8 @@
       },
       "scripts/current_tree_ci_gate.sh": {
         "mode": "100755",
-        "sha256": "37c2415d262bc2e5e1c9ef35a3a7457d5ed619ec87cd27c32453e189513186cf",
-        "size": 1476
+        "sha256": "96457120b376198309abc1a50a9f3a742a1d9c155b8b9e260da73176cd1f3741",
+        "size": 2256
       },
       "scripts/gov_ci_1_handoff_safety_check.py": {
         "mode": "100755",
@@ -700,10 +700,10 @@
     "accepted_stage8a5_immutable_replay_required": true,
     "current_tree_authority_required": true,
     "current_tree_negative_harness_required": true,
+    "exact_rust_toolchain_required": true,
     "handoff_complete_logs_required": true,
     "immutable_action_pins_required": true,
     "redis_regression_smoke_required": true,
-    "exact_rust_toolchain_required": true,
     "workspace_debug_release_doc_clippy_required": true
   },
   "schema_version": 2,
