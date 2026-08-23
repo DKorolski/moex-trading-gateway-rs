@@ -42,10 +42,12 @@ was not frozen. Corrective Stage 8B-S R2 at `831eec8` closed its substantive
 findings but exposed a preflight/build-order contradiction. Stage 8B-S R3 was
 independently accepted at `afecc25` and merged tree-identically at `d158196`.
 The Stage 8B-I candidates at `a52fbca` and `21426ee` remained fail-closed but
-were not accepted. Active corrective Stage 8B-I R3 cross-binds the Stage 8A
-capability to its exact durable request, keeps K1 independent of future K2
-evidence, persists the exact attempt before K3, and exercises complete PLACE
-and CANCEL no-send flows. It cannot call a transport adapter.
+were not accepted. Corrective Stage 8B-I R3 was independently accepted and
+merged exactly at `0af222f`. Active Stage 8B-IT qualifies one private,
+permit-only adapter against controlled numeric-loopback endpoints. It has one
+PLACE path, one CANCEL path and one transport attempt, with redirects, proxies,
+retry/resend and production endpoint construction disabled. All observations
+remain diagnostic and flow through the accepted Stage 8A-3 classifier.
 
 FINAM POST/DELETE, Redis live consumption, broker dispatch, runtime-live, real
 strategy orders and Stage 8B execution authority remain closed.
@@ -107,8 +109,9 @@ cargo test --workspace --doc
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 # Current authoritative governance gate:
 bash scripts/current_tree_ci_gate.sh
-# Active Stage 8B-I no-send implementation gate:
+# Accepted Stage 8B-I no-send gate and active Stage 8B-IT qualification gate:
 bash scripts/stage8b_i_gate.sh
+bash scripts/stage8b_it_gate.sh
 ```
 
 Historical stage gates remain in the repository as immutable lineage evidence;

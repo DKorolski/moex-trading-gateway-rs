@@ -1,0 +1,61 @@
+id,area,requirement,evidence,status
+IT-001,phase,Accepted predecessor is exact Stage 8B-I R3,authority+git,pending
+IT-002,phase,IT independently precedes P and XE,authority+doc,pending
+IT-003,scope,IT qualification has zero broker effect,authority+tests,pending
+IT-004,scope,Only local controlled endpoint is constructible,source+tests,pending
+IT-005,privacy,Adapter module is crate-private,source+compile_fail,pending
+IT-006,privacy,Adapter type is not externally nameable,compile_fail,pending
+IT-007,privacy,Qualification endpoint is not externally nameable,compile_fail,pending
+IT-008,privacy,Qualification token is not externally nameable,compile_fail,pending
+IT-009,privacy,Approved request parts remain crate-private,source+compile_fail,pending
+IT-010,privacy,No raw route body token or response getter,source+compile_fail,pending
+IT-011,permit,Private parts require exact transport permit,source+inherited_gate,pending
+IT-012,permit,Capability and durable request remain cross-bound,inherited_gate,pending
+IT-013,builder,Accepted Stage 8A-2 source remains byte-identical,hash+checker,pending
+IT-014,builder,Only accepted place builder is used,source+checker,pending
+IT-015,builder,Only accepted cancel builder is used,source+checker,pending
+IT-016,builder,No independent request model or serializer exists,source+checker,pending
+IT-017,classifier,Accepted Stage 8A-3 source remains byte-identical,hash+checker,pending
+IT-018,classifier,Only accepted classifier seam receives observations,source+tests,pending
+IT-019,classifier,Classifier output is not broker truth,source+doc,pending
+IT-020,adapter,Exactly one Stage 8B IT adapter exists,source+checker,pending
+IT-021,adapter,Exactly one POST builder call exists,source+checker,pending
+IT-022,adapter,Exactly one DELETE builder call exists,source+checker,pending
+IT-023,adapter,Exactly one common send call exists,source+checker,pending
+IT-024,adapter,No generic request method API exists,source+checker,pending
+IT-025,adapter,No arbitrary header builder exists,source+checker,pending
+IT-026,network,Production scheme is exactly HTTPS,source+tests,pending
+IT-027,network,Production host is exactly api.finam.ru,source+tests,pending
+IT-028,network,Alternate hosts and ports are rejected,tests+negative,pending
+IT-029,network,Production URL credentials query fragment and prefix reject,tests,pending
+IT-030,network,Redirect policy is none,source+tests,pending
+IT-031,network,Proxy is disabled,source+checker,pending
+IT-032,network,Automatic transport retry is absent,source+checker,pending
+IT-033,network,Connection pooling does not retain idle adapter connection,source,pending
+IT-034,network,Connect timeout is fixed at two seconds,authority+source,pending
+IT-035,network,Request timeout is fixed at three seconds,authority+source,pending
+IT-036,qualification,Endpoint requires numeric loopback address,source+tests,pending
+IT-037,qualification,Endpoint requires explicit port,source+tests,pending
+IT-038,qualification,Endpoint rejects path query credentials and fragment,tests,pending
+IT-039,route,PLACE route is exact PlaceOrderV1,wire_test,pending
+IT-040,route,CANCEL route is exact CancelOrderV1,wire_test,pending
+IT-041,route,Invalid path segments fail before write,source+negative,pending
+IT-042,body,PLACE body comes from accepted FINAM spec,wire_test,pending
+IT-043,body,CANCEL body is absent,wire_test,pending
+IT-044,response,Response body is bounded at 64 KiB,authority+source,pending
+IT-045,fault,Connection failure produces reconciliation-only observation,test,pending
+IT-046,fault,Timeout produces reconciliation-only observation,test,pending
+IT-047,fault,Response loss produces reconciliation-only observation,test,pending
+IT-048,fault,Redirect is observed and never followed,test,pending
+IT-049,fault,503 response is classified through accepted Model A,test,pending
+IT-050,retry,Every controlled scenario records at most one attempt,tests,pending
+IT-051,retry,Consumed adapter and parts cannot be reused,source+compile_fail,pending
+IT-052,evidence,Adapter identity inventory has thirteen exact fields,authority+checker,pending
+IT-053,evidence,Future P must bind exact accepted IT source and executable,authority+doc,pending
+IT-054,evidence,Material drift requires IT requalification,authority+doc,pending
+IT-055,closed,Production endpoint authority remains absent,source+checker,pending
+IT-056,closed,FINAM POST DELETE effect remains closed,authority+checker,pending
+IT-057,closed,Redis live consumer and XADD XACK remain closed,authority+checker,pending
+IT-058,closed,Broker dispatch runtime-live and real orders remain closed,authority+checker,pending
+IT-059,closed,Stage 8B-P XE and Stage 12 remain closed,authority+checker,pending
+IT-060,regression,Inherited I and canonical regression gates remain green,aggregate_gate,pending

@@ -4,12 +4,18 @@
 //! redacted diagnostic. It cannot construct an arm, transport permit or broker
 //! request, and this module contains no HTTP or Redis operation.
 
-use crate::stage8a1_execution_capability::Stage8a1Stage8bBoundContinuation;
+use crate::stage8a1_execution_capability::{
+    Stage8a1Stage8bApprovedCommand, Stage8a1Stage8bBoundContinuation,
+};
 use crate::{
     Stage8a1CurrentlyAuthorizedCapability, Stage8a1DurableRequestAuthority,
     Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError,
     Stage8a2InMemoryNoSendSink, Stage8a3ClassifiedObservation, Stage8a3EndpointContext,
     Stage8a3LocalHttpObservation,
+};
+use broker_finam::{
+    build_cancel_order_request, build_place_order_request, FinamCancelOrderRequestSpec,
+    FinamPlaceOrderRequestSpec,
 };
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
@@ -438,9 +444,22 @@ pub(crate) struct Stage8bClosureReceipt {
 }
 
 #[allow(dead_code)]
-struct Stage8bApprovedRequestParts {
-    diagnostic: Stage8a2BuilderCompositionDiagnostic,
-    permit_binding_sha256: String,
+pub(crate) struct Stage8bApprovedRequestParts {
+    pub(crate) diagnostic: Stage8a2BuilderCompositionDiagnostic,
+    pub(crate) permit_binding_sha256: String,
+    pub(crate) request: Stage8bPrivateRequestSpec,
+}
+
+#[allow(dead_code)]
+pub(crate) enum Stage8bPrivateRequestSpec {
+    Place {
+        spec: FinamPlaceOrderRequestSpec,
+        context: Stage8a3EndpointContext,
+    },
+    Cancel {
+        spec: FinamCancelOrderRequestSpec,
+        context: Stage8a3EndpointContext,
+    },
 }
 
 #[allow(dead_code)]
@@ -537,11 +556,41 @@ pub(crate) enum Stage8bNoSendCompositionError {
 fn compose_stage8b_private_request_parts_from_stage8a2(
     permit: Stage8bExactTransportPermit,
 ) -> Result<Stage8bApprovedRequestParts, Stage8bNoSendCompositionError> {
+    let approved = permit.continuation.clone_approved_command_for_stage8b()?;
     let mut sink = Stage8a2InMemoryNoSendSink::new();
     let diagnostic = permit.continuation.compose_stage8a2_no_send(&mut sink)?;
+    let request = match approved {
+        Stage8a1Stage8bApprovedCommand::Place(approved) => {
+            let order = approved.order();
+            let context = Stage8a3EndpointContext::for_place(
+                order.request_id,
+                order.client_order_id.clone(),
+                order.account_id.clone(),
+                order.instrument.clone(),
+            )
+            .map_err(|_| Stage8bNoSendCompositionError::InvalidCrossBinding)?;
+            let spec = build_place_order_request(&approved, None)
+                .map_err(Stage8a2BuilderCompositionError::ExistingBuilder)?;
+            Stage8bPrivateRequestSpec::Place { spec, context }
+        }
+        Stage8a1Stage8bApprovedCommand::Cancel(approved) => {
+            let cancel = approved.cancel();
+            let context = Stage8a3EndpointContext::for_cancel(
+                cancel.request_id,
+                cancel.account_id.clone(),
+                cancel.order_id.clone(),
+                cancel.client_order_id.clone(),
+            )
+            .map_err(|_| Stage8bNoSendCompositionError::InvalidCrossBinding)?;
+            let spec = build_cancel_order_request(&approved)
+                .map_err(Stage8a2BuilderCompositionError::ExistingBuilder)?;
+            Stage8bPrivateRequestSpec::Cancel { spec, context }
+        }
+    };
     Ok(Stage8bApprovedRequestParts {
         diagnostic,
         permit_binding_sha256: permit.permit_sha256,
+        request,
     })
 }
 
@@ -1506,8 +1555,14 @@ fn hex_lower(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::stage8b_adapter::{
+        Stage8bItAdapter, Stage8bItQualificationEndpoint, Stage8bItQualificationToken,
+    };
     use broker_core::{AccountId, ClientOrderId, InstrumentId, StrategyRequestId};
     use std::process::Command;
+    use std::time::Duration;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
     use uuid::Uuid;
 
     fn temp_directory(label: &str) -> PathBuf {
@@ -2221,6 +2276,375 @@ mod tests {
         let mut over_budget = accepted_k2_bundle(&request_run, &control, 1_500);
         over_budget.budget.remaining_orders = 2;
         assert!(mint_stage8b_k2_fresh_sources(over_budget).is_err());
+    }
+
+    fn permitted_parts_for_adapter(
+        scope: crate::Stage8CommandScope,
+    ) -> Stage8bApprovedRequestParts {
+        let (capability, durable, stage8a_root) =
+            crate::stage8a1_execution_capability::tests::stage8b_matching_authorities(scope);
+        let hash = |label: &str| sha256_hex(label.as_bytes());
+        let build = Stage8bExecutionQualifiedBuild {
+            identity_sha256: hash("qualified-build"),
+        };
+        let account = Stage8bKeyedAccountBinding {
+            binding_sha256: hash("keyed-account"),
+        };
+        let contract = Stage8bFreshContractAuthority {
+            contract_sha256: hash("contract"),
+            config_sha256: hash("config"),
+            policy_sha256: hash("policy"),
+            endpoint_identity_sha256: hash(match scope {
+                crate::Stage8CommandScope::Place => "place-endpoint",
+                crate::Stage8CommandScope::Cancel => "cancel-endpoint",
+            }),
+        };
+        let run = Stage8bAcceptedRunSpec {
+            run_sha256: hash("accepted-run"),
+            body_sha256: hash(match scope {
+                crate::Stage8CommandScope::Place => "place-body",
+                crate::Stage8CommandScope::Cancel => "cancel-body",
+            }),
+        };
+        let control = Stage8bK1ControlApproved {
+            control_sha256: hash("control-lineage"),
+        };
+        let durable_binding = durable.stage8b_binding_sha256().unwrap();
+        let arm_binding = calculate_arm_binding(&Stage8bArmBindingEvidence {
+            durable_request_sha256: durable_binding.clone(),
+            run_sha256: run.run_sha256.clone(),
+            account_binding_sha256: account.binding_sha256.clone(),
+            build_sha256: build.identity_sha256.clone(),
+            config_sha256: contract.config_sha256.clone(),
+            policy_sha256: contract.policy_sha256.clone(),
+            endpoint_sha256: contract.endpoint_identity_sha256.clone(),
+            body_sha256: run.body_sha256.clone(),
+            control_sha256: control.control_sha256.clone(),
+            arm_uniqueness_sha256: digest_parts(
+                b"stage8b-i-r3-arm-uniqueness-v1",
+                &[durable_binding.as_bytes(), run.run_sha256.as_bytes()],
+            ),
+            micro_budget_generation: 1,
+            expires_at_unix_ms: 2_000,
+        })
+        .unwrap();
+        let arm_root = temp_directory("it-adapter-arm");
+        issue_rehearsal_arm(
+            &arm_root,
+            Stage8bCanonicalBindingDigest::from_lower_hex(&arm_binding).unwrap(),
+            2_000,
+            1_000,
+            Zeroizing::new(vec![17; 32]),
+        )
+        .unwrap();
+        let arm = verify_rehearsal_arm_record(
+            &arm_root,
+            Stage8bCanonicalBindingDigest::from_lower_hex(&arm_binding).unwrap(),
+            2_000,
+            1_500,
+            Zeroizing::new(vec![17; 32]),
+        )
+        .unwrap();
+        let request_run_binding = digest_parts(
+            b"stage8b-i-r3-k2-request-run-binding-v1",
+            &[
+                durable_binding.as_bytes(),
+                run.run_sha256.as_bytes(),
+                arm.binding_sha256.as_bytes(),
+            ],
+        );
+        let k2_sources = mint_stage8b_k2_fresh_sources(accepted_k2_bundle(
+            &request_run_binding,
+            &control.control_sha256,
+            1_500,
+        ))
+        .unwrap();
+        let preflight = compose_stage8b_effect_authority(
+            capability, durable, build, account, contract, run, control, arm, k2_sources,
+        )
+        .unwrap();
+        let journal_root = temp_directory("it-adapter-journal");
+        let mut journal = Stage8bNoSendRehearsalJournal::create(&journal_root).unwrap();
+        let durable_attempt =
+            record_stage8b_exact_durable_attempt(preflight, &mut journal).unwrap();
+        let attempt_sha256 = durable_attempt.attempt_sha256.clone();
+        let sealed = authenticate_stage8b_covering_seal_after_attempt(
+            durable_attempt,
+            Stage8bK3CoveringSealSource {
+                exact_attempt_sha256: attempt_sha256.clone(),
+                seal_sha256: hash("covering-seal"),
+                control_lineage_sha256: hash("control-lineage"),
+            },
+        )
+        .unwrap();
+        let permit = authorize_stage8b_exact_transport_permit(
+            sealed,
+            Stage8bK4ControlApproved {
+                rechecked_attempt_sha256: attempt_sha256,
+                control_sha256: hash("k4-control"),
+            },
+        )
+        .unwrap();
+        let parts = compose_stage8b_private_request_parts_from_stage8a2(permit).unwrap();
+        fs::remove_dir_all(stage8a_root).unwrap();
+        fs::remove_dir_all(arm_root).unwrap();
+        fs::remove_dir_all(journal_root).unwrap();
+        parts
+    }
+
+    #[derive(Clone, Copy)]
+    enum ControlledServerBehavior {
+        ServiceUnavailable,
+        Redirect,
+        ResponseLost,
+        Timeout,
+    }
+
+    async fn controlled_server_with(
+        behavior: ControlledServerBehavior,
+    ) -> (String, tokio::task::JoinHandle<Vec<u8>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let mut expected_len = None;
+            loop {
+                let count = stream.read(&mut chunk).await.unwrap();
+                if count == 0 {
+                    break;
+                }
+                request.extend_from_slice(&chunk[..count]);
+                if expected_len.is_none() {
+                    if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
+                        let header_end = end + 4;
+                        let headers = String::from_utf8_lossy(&request[..header_end]);
+                        let content_len = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().ok())
+                                    .flatten()
+                            })
+                            .unwrap_or(0);
+                        expected_len = Some(header_end + content_len);
+                    }
+                }
+                if expected_len.is_some_and(|length| request.len() >= length) {
+                    break;
+                }
+            }
+            match behavior {
+                ControlledServerBehavior::ServiceUnavailable => {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                        )
+                        .await
+                        .unwrap();
+                    stream.shutdown().await.unwrap();
+                }
+                ControlledServerBehavior::Redirect => {
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 302 Found\r\nLocation: https://api.finam.ru/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .await
+                        .unwrap();
+                    stream.shutdown().await.unwrap();
+                }
+                ControlledServerBehavior::ResponseLost => {
+                    stream.shutdown().await.unwrap();
+                }
+                ControlledServerBehavior::Timeout => {
+                    tokio::time::sleep(Duration::from_secs(4)).await;
+                    stream.shutdown().await.unwrap();
+                }
+            }
+            request
+        });
+        (format!("http://{address}/"), handle)
+    }
+
+    async fn controlled_server() -> (String, tokio::task::JoinHandle<Vec<u8>>) {
+        controlled_server_with(ControlledServerBehavior::ServiceUnavailable).await
+    }
+
+    #[tokio::test]
+    async fn it_place_uses_permit_only_adapter_and_accepted_classifier() {
+        let parts = permitted_parts_for_adapter(crate::Stage8CommandScope::Place);
+        let (base_url, captured) = controlled_server().await;
+        let output = Stage8bItAdapter::qualified()
+            .unwrap()
+            .qualify_once(
+                parts,
+                Stage8bItQualificationEndpoint::controlled_loopback(&base_url).unwrap(),
+                Stage8bItQualificationToken::controlled("LOCAL_QUALIFICATION_TOKEN").unwrap(),
+            )
+            .await;
+        assert_eq!(output.diagnostic.transport_attempts, 1);
+        assert!(output.diagnostic.possible_write);
+        let classified = classify_stage8b_transport_observation_with_stage8a3(
+            output.context,
+            output.observation,
+        );
+        assert!(classified.diagnostic().reconciliation_required);
+        let wire = String::from_utf8(captured.await.unwrap()).unwrap();
+        assert!(wire.starts_with("POST /v1/accounts/ACC_TEST_0001/orders HTTP/1.1\r\n"));
+        assert!(wire.contains("authorization: Bearer LOCAL_QUALIFICATION_TOKEN"));
+        assert!(wire.contains("\"symbol\":\"IMOEXF@RTSX\""));
+    }
+
+    #[tokio::test]
+    async fn it_cancel_uses_exact_delete_route_without_body_or_retry() {
+        let parts = permitted_parts_for_adapter(crate::Stage8CommandScope::Cancel);
+        let (base_url, captured) = controlled_server().await;
+        let output = Stage8bItAdapter::qualified()
+            .unwrap()
+            .qualify_once(
+                parts,
+                Stage8bItQualificationEndpoint::controlled_loopback(&base_url).unwrap(),
+                Stage8bItQualificationToken::controlled("LOCAL_QUALIFICATION_TOKEN").unwrap(),
+            )
+            .await;
+        assert_eq!(output.diagnostic.transport_attempts, 1);
+        assert!(!output.diagnostic.request_body_present);
+        let classified = classify_stage8b_transport_observation_with_stage8a3(
+            output.context,
+            output.observation,
+        );
+        assert!(classified.diagnostic().reconciliation_required);
+        let wire = String::from_utf8(captured.await.unwrap()).unwrap();
+        assert!(
+            wire.starts_with("DELETE /v1/accounts/ACC_TEST_0001/orders/BROKER_TEST_1 HTTP/1.1\r\n")
+        );
+        assert_eq!(wire.matches("DELETE ").count(), 1);
+    }
+
+    #[tokio::test]
+    async fn it_redirect_is_observed_locally_and_never_followed() {
+        let parts = permitted_parts_for_adapter(crate::Stage8CommandScope::Place);
+        let (base_url, captured) = controlled_server_with(ControlledServerBehavior::Redirect).await;
+        let output = Stage8bItAdapter::qualified()
+            .unwrap()
+            .qualify_once(
+                parts,
+                Stage8bItQualificationEndpoint::controlled_loopback(&base_url).unwrap(),
+                Stage8bItQualificationToken::controlled("LOCAL_QUALIFICATION_TOKEN").unwrap(),
+            )
+            .await;
+        assert_eq!(output.diagnostic.response_status, Some(302));
+        let classified = classify_stage8b_transport_observation_with_stage8a3(
+            output.context,
+            output.observation,
+        );
+        assert_eq!(
+            classified.diagnostic().reconciliation_reason,
+            Some(crate::Stage8a3ReconciliationReason::UndocumentedStatus)
+        );
+        assert_eq!(
+            captured
+                .await
+                .unwrap()
+                .windows(5)
+                .filter(|v| *v == b"POST ")
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn it_response_loss_is_reconciliation_only_without_retry() {
+        let parts = permitted_parts_for_adapter(crate::Stage8CommandScope::Cancel);
+        let (base_url, captured) =
+            controlled_server_with(ControlledServerBehavior::ResponseLost).await;
+        let output = Stage8bItAdapter::qualified()
+            .unwrap()
+            .qualify_once(
+                parts,
+                Stage8bItQualificationEndpoint::controlled_loopback(&base_url).unwrap(),
+                Stage8bItQualificationToken::controlled("LOCAL_QUALIFICATION_TOKEN").unwrap(),
+            )
+            .await;
+        assert_eq!(output.diagnostic.transport_attempts, 1);
+        let classified = classify_stage8b_transport_observation_with_stage8a3(
+            output.context,
+            output.observation,
+        );
+        assert_eq!(
+            classified.diagnostic().reconciliation_reason,
+            Some(crate::Stage8a3ReconciliationReason::Disconnect)
+        );
+        assert_eq!(
+            captured
+                .await
+                .unwrap()
+                .windows(7)
+                .filter(|v| *v == b"DELETE ")
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn it_timeout_is_reconciliation_only_without_retry() {
+        let parts = permitted_parts_for_adapter(crate::Stage8CommandScope::Place);
+        let (base_url, captured) = controlled_server_with(ControlledServerBehavior::Timeout).await;
+        let output = Stage8bItAdapter::qualified()
+            .unwrap()
+            .qualify_once(
+                parts,
+                Stage8bItQualificationEndpoint::controlled_loopback(&base_url).unwrap(),
+                Stage8bItQualificationToken::controlled("LOCAL_QUALIFICATION_TOKEN").unwrap(),
+            )
+            .await;
+        assert_eq!(output.diagnostic.transport_attempts, 1);
+        let classified = classify_stage8b_transport_observation_with_stage8a3(
+            output.context,
+            output.observation,
+        );
+        assert_eq!(
+            classified.diagnostic().reconciliation_reason,
+            Some(crate::Stage8a3ReconciliationReason::Timeout)
+        );
+        assert_eq!(
+            captured
+                .await
+                .unwrap()
+                .windows(5)
+                .filter(|v| *v == b"POST ")
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn it_connection_failure_is_single_attempt_and_reconciliation_only() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let parts = permitted_parts_for_adapter(crate::Stage8CommandScope::Place);
+        let output = Stage8bItAdapter::qualified()
+            .unwrap()
+            .qualify_once(
+                parts,
+                Stage8bItQualificationEndpoint::controlled_loopback(&format!("http://{address}/"))
+                    .unwrap(),
+                Stage8bItQualificationToken::controlled("LOCAL_QUALIFICATION_TOKEN").unwrap(),
+            )
+            .await;
+        assert_eq!(output.diagnostic.transport_attempts, 1);
+        assert!(output.diagnostic.possible_write);
+        let classified = classify_stage8b_transport_observation_with_stage8a3(
+            output.context,
+            output.observation,
+        );
+        assert_eq!(
+            classified.diagnostic().reconciliation_reason,
+            Some(crate::Stage8a3ReconciliationReason::Disconnect)
+        );
     }
 
     fn exercise_end_to_end_no_send_flow(scope: crate::Stage8CommandScope) {

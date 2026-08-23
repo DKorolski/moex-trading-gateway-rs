@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-22.
+Status date: 2026-08-23.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -37,10 +37,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   full regression evidence required correction. I-R2 at `21426ee` closed those
   findings but was not accepted because K1 depended on future K2 evidence, K3
   preceded exact attempt durability, and capability/durable cross-binding was
-  incomplete. Stage 8B-I R3 is the active corrective no-send candidate. Its
-  public facade cannot construct authority. Operator arming,
-  transport, FINAM execution, Redis live consumption, broker dispatch,
-  runtime-live, real orders, Stage 8B-IT/P/XE and Stage 12 remain closed.
+  incomplete. Stage 8B-I R3 was independently accepted and merged exactly at
+  `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65`. Stage 8B-IT is now the sole
+  active implementation candidate. It adds one private permit-only adapter for
+  controlled numeric-loopback qualification; production endpoint authority,
+  operator arming, FINAM execution, Redis live consumption, broker dispatch,
+  runtime-live, real orders, Stage 8B-P/XE and Stage 12 remain closed.
 
 - Stage 8A-0 is independently accepted and closed at
   `c949d7f83aa87cf990204a5b8ae66e5ca37c9f1d`.
@@ -138,10 +140,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 8B-D R2 is independently accepted and merged. Stage 8B-S R1 was not
   frozen; R2 at `831eec8` was also not frozen due to phase ordering. Corrective
   Stage 8B-S R3 is accepted and merged. The first Stage 8B-I candidate was not
-  accepted; I-R2 was also not accepted. Corrective Stage 8B-I R3 is now the sole active candidate and is limited to no-send production types plus deterministic
-  filesystem/restart rehearsal. Independent acceptance is required before any
-  Stage 8B-IT planning; transport, operator-arm issuance and real requests are
-  not authorized.
+  accepted; I-R2 was also not accepted. Corrective Stage 8B-I R3 is accepted
+  and merged exactly at `0af222f`. Stage 8B-IT is the active candidate: its
+  sole crate-private adapter can target only explicitly constructed numeric
+  loopback endpoints in qualification tests and cannot construct production
+  endpoint or operator-arm authority. Independent IT acceptance is required
+  before Stage 8B-P; real requests remain unauthorized.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).

@@ -570,6 +570,36 @@ impl Stage8a1Stage8bBoundContinuation {
         &self.continuation_binding_sha256
     }
 
+    /// Borrow the exact approved command for the sole Stage 8B private builder
+    /// bridge. This does not clone or expose the continuation itself; the
+    /// caller must still consume `self` through `compose_stage8a2_no_send`.
+    pub(crate) fn clone_approved_command_for_stage8b(
+        &self,
+    ) -> Result<Stage8a1Stage8bApprovedCommand, Stage8a2BuilderCompositionError> {
+        let now = Utc::now();
+        let capability = &self.capability.capability;
+        if self.capability.revalidated_at > now
+            || now >= capability.valid_until
+            || self.capability.current_state_sha256 != capability.current_state_sha256
+            || !valid_sha256(&self.capability.current_state_sha256)
+        {
+            return Err(Stage8a2BuilderCompositionError::ContinuationInvalid);
+        }
+        match &capability.approved {
+            Stage8ApprovedCommand::Place(approved)
+                if approved.order().request_id == capability.request_id =>
+            {
+                Ok(Stage8a1Stage8bApprovedCommand::Place(approved.clone()))
+            }
+            Stage8ApprovedCommand::Cancel(approved)
+                if approved.cancel().request_id == capability.request_id =>
+            {
+                Ok(Stage8a1Stage8bApprovedCommand::Cancel(approved.clone()))
+            }
+            _ => Err(Stage8a2BuilderCompositionError::ContinuationInvalid),
+        }
+    }
+
     pub(crate) fn compose_stage8a2_no_send(
         self,
         sink: &mut Stage8a2InMemoryNoSendSink,
@@ -843,6 +873,15 @@ pub struct Stage8CancelPreflightInput<'a> {
 }
 
 enum Stage8ApprovedCommand {
+    Place(PreflightApprovedPlaceOrder),
+    Cancel(PreflightApprovedCancelOrder),
+}
+
+/// Crate-private clone of the exact approved command for the Stage 8B
+/// successor bridge. It is deliberately unavailable outside this crate and
+/// carries no transport, URL, token or reusable capability. The original
+/// linear continuation is still consumed by the accepted Stage 8A-2 seam.
+pub(crate) enum Stage8a1Stage8bApprovedCommand {
     Place(PreflightApprovedPlaceOrder),
     Cancel(PreflightApprovedCancelOrder),
 }

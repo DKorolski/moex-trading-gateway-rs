@@ -1960,6 +1960,19 @@ mod tests {
 
         assert!(!checked_files.is_empty());
         for path in checked_files {
+            if path.ends_with("crates/finam-gateway/src/stage8b_adapter.rs") {
+                let source = std::fs::read_to_string(&path).expect("source file readable");
+                assert_eq!(source.matches(&[".", "post("].concat()).count(), 1);
+                assert_eq!(source.matches(&[".", "delete("].concat()).count(), 1);
+                assert_eq!(source.matches(&[".", "send()"].concat()).count(), 1);
+                assert!(!source.contains(&[".", "request("].concat()));
+                assert!(source.contains("redirect(Policy::none())"));
+                assert!(source.contains(".no_proxy()"));
+                assert!(source.contains("automatic_retry_disabled: true"));
+                assert!(source.contains("#[cfg(test)]\n    pub(crate) fn controlled_loopback"));
+                assert!(!source.contains("production_endpoint("));
+                continue;
+            }
             if path.ends_with("crates/finam-gateway/src/m3d2_real_order_transport.rs") {
                 let source = std::fs::read_to_string(&path).expect("source file readable");
                 assert_eq!(source.matches(&[".", "post("].concat()).count(), 1);
