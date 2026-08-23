@@ -381,7 +381,13 @@ def main() -> None:
         "stage8b-i-gate: PASS revision=R3 rows=104 negatives=82 compile_fail=20 canonical_regression=true",
     ):
         require(marker in text["gate"], f"aggregate-gate marker missing: {marker}")
-    require("stage8b-i-handoff-safety: PASS" in text["handoff_safety"], "handoff safety marker missing")
+    for marker in (
+        'evidence.get("stage") != "8B-I-R3"',
+        'evidence.get("acceptance_rows") != 104',
+        'evidence.get("negative_cases") != 82',
+        "stage8b-i-handoff-safety: PASS",
+    ):
+        require(marker in text["handoff_safety"], f"handoff safety R3 pin missing: {marker}")
     require("stage8b-i-handoff: PASS" in text["handoff_maker"], "handoff maker marker missing")
     for marker in (
         'GATE_LOG = ROOT / "reports/stage8b-i-r3-gate.log"',
