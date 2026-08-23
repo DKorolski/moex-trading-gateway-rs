@@ -187,6 +187,8 @@ def check(root: Path, git_scope: bool) -> None:
     require(compile_script.count("check_fail ") == 12, "external compile-fail inventory drift")
     require("python3 scripts/stage8b_it_negative_harness.py" in gate_script, "negative harness omitted from gate")
     require("bash scripts/stage8b_it_external_compile_fail.sh" in gate_script, "compile-fail omitted from gate")
+    require("python3 scripts/current_tree_authority_check.py" in gate_script, "current-tree authority omitted from gate")
+    require("python3 scripts/current_tree_authority_negative_harness.py" in gate_script, "current-tree negatives omitted from gate")
     require("stage8b-it-gate: PASS rows=60 negatives=48 compile_fail=12" in gate_script, "gate marker drift")
     require('BRANCH = "stage8b-it"' in maker and f'BASE = "{ACCEPTED_PREDECESSOR}"' in maker, "handoff lineage drift")
     require('"stage": "8B-IT"' in maker, "handoff evidence stage drift")

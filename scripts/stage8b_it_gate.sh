@@ -4,6 +4,8 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
+python3 scripts/current_tree_authority_check.py
+python3 scripts/current_tree_authority_negative_harness.py
 python3 scripts/stage8b_design_check.py --no-git
 python3 scripts/stage8b_spec_check.py --no-git
 python3 scripts/stage8b_i_check.py
