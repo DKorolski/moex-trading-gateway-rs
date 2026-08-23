@@ -39,11 +39,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   preceded exact attempt durability, and capability/durable cross-binding was
   incomplete. Stage 8B-I R3 was independently accepted and merged exactly at
   `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65`. Stage 8B-IT candidate
-  `e44053917a928aeb4bc8e3330a58a693edc31fd3` was rejected. Corrective IT R2 is
-  now the sole active implementation candidate: request parts are
-  module-private, the adapter is parent-only, command extraction consumes the
-  exact Stage 8A-2 continuation once, and raw transport observations cannot
-  escape the mandatory Stage 8A-3 classifier. Production endpoint authority,
+  `e44053917a928aeb4bc8e3330a58a693edc31fd3` and corrective R2 at
+  `74d07c842f0ef3a02c4c30a919542a108304b52e` were rejected. Corrective IT R3
+  is now the sole active implementation candidate: reqwest protocol retries
+  are explicitly disabled; K4 mints an opaque proof consumed by the Stage 8A-2
+  extraction seam itself; request parts live in a sibling capsule whose fields
+  the nested adapter cannot forge; raw observations still cannot escape the
+  mandatory Stage 8A-3 classifier. Production endpoint authority,
   operator arming, FINAM execution, Redis live consumption, broker dispatch,
   runtime-live, real orders, Stage 8B-P/XE and Stage 12 remain closed. A
   controlled TLS qualification is a blocking Stage 8B-P precondition.
@@ -146,9 +148,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Stage 8B-S R3 is accepted and merged. The first Stage 8B-I candidate was not
   accepted; I-R2 was also not accepted. Corrective Stage 8B-I R3 is accepted
   and merged exactly at `0af222f`. The rejected IT candidate `e440539` is
-  retained in lineage. Corrective IT R2 uses module-private request parts, a
-  parent-only adapter, one consuming continuation and a mandatory in-adapter
-  classifier. Independent IT R2 acceptance and controlled TLS qualification
+  retained in lineage, together with rejected R2 at `74d07c8`. Corrective IT
+  R3 uses K4-proof-bound Stage 8A-2 extraction, sibling-private request parts,
+  explicit reqwest never-retry policy and a mandatory in-adapter classifier.
+  Independent IT R3 acceptance and controlled TLS qualification
   are required before Stage 8B-P; real requests remain unauthorized.
 
 The reviewer transition package is documented in

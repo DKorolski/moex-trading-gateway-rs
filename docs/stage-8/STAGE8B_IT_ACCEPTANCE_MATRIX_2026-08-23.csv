@@ -71,3 +71,9 @@ IT-069,classifier,Success error timeout disconnect and redirect all cross mandat
 IT-070,classifier,Direct status mapping to execution or broker truth is forbidden,source+negative,pending
 IT-071,regression,Full workspace debug release doctest clippy Redis and dry bridge evidence is source-ref-bound,gate+handoff,pending
 IT-072,tls,Controlled TLS qualification is an explicit blocking Stage 8B-P precondition,authority+doc,pending
+IT-073,retry,Reqwest automatic protocol-NACK retry is explicitly disabled with retry never,source+negative,pending
+IT-074,permit,Stage 8A-2 raw request extraction consumes an exact K4 permit proof,source+internal_compile_fail,pending
+IT-075,permit,K4 proof binds attempt covering seal durable request and continuation,source+checker,pending
+IT-076,privacy,Permit proof fields and constructor are private to the sibling capsule module,source+internal_compile_fail,pending
+IT-077,privacy,Nested adapter cannot construct approved request parts from synthetic fields,internal_compile_fail+negative,pending
+IT-078,regression,All R2 negatives remain and R3 semantic bypass mutations fail,negative_harness+gate,pending

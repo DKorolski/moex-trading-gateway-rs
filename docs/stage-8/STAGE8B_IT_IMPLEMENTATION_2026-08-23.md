@@ -1,12 +1,13 @@
 # Stage 8B-IT — adapter-qualified no-effect integration
 
-Status: corrective R2 implementation candidate. Accepted predecessor:
+Status: corrective R3 implementation candidate. Accepted predecessor:
 `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65` (Stage 8B-I R3).
 The first IT candidate `e44053917a928aeb4bc8e3330a58a693edc31fd3`
-was not accepted and is retained only as review lineage.
+and R2 candidate `74d07c842f0ef3a02c4c30a919542a108304b52e`
+were not accepted and are retained only as review lineage.
 The accepted Stage 8B-I R3 checker is replayed immutably at `0af222f`; it is not
 weakened or rebound to the controlled Stage 8A-2 successor source introduced by
-IT R2. The current successor is independently digest-pinned by the IT checker.
+IT R3. The current successor is independently digest-pinned by the IT checker.
 
 ## Purpose and phase boundary
 
@@ -18,20 +19,25 @@ Acceptance of IT may open only exact adapter-qualified build authorization in
 
 ## Permit-only request composition
 
-The adapter receives only `Stage8bApprovedRequestParts`, a fully module-private,
-non-Debug, non-Serialize, non-Clone type created by the sole bridge
+The adapter receives only `Stage8bApprovedRequestParts`, a non-Debug,
+non-Serialize, non-Clone opaque type defined in the sibling
+`stage8b_permit_capsule` module and created by the sole bridge
 `compose_stage8b_private_request_parts_from_stage8a2`. The bridge consumes
-`Stage8bExactTransportPermit` and then consumes its exact cross-bound
-continuation through `consume_stage8a2_request_capsule`. The shared Stage 8A-2
+`Stage8bExactTransportPermit`. K4 privately mints an opaque
+`Stage8bA2PermitProof` bound to the exact attempt, covering seal, durable
+request and continuation. The Stage 8A-2 extraction seam itself requires and
+consumes that proof through `consume_stage8a2_request_capsule`; continuation
+and sink alone cannot extract a raw request capsule. The shared Stage 8A-2
 `compose_once` path invokes exactly one accepted `build_place_order_request` or
 `build_cancel_order_request`, records the existing no-send diagnostic and
 returns an opaque one-use capsule. There is no borrow/clone extraction seam.
 The Stage 8A-3 source remains byte-identical to its frozen hash; the additive
-Stage 8A-2 successor source is separately hash-bound by the R2 authority.
+Stage 8A-2 successor source is separately hash-bound by the R3 authority.
 
-The adapter is nested as a private child of `stage8b_no_send`; child access to
-private parent fields requires no `pub(crate)` widening. No sibling or public
-facade can construct the permit, private parts, adapter,
+The adapter and permit capsule are sibling children of `stage8b_no_send`.
+Proof and request-part fields are private to the permit-capsule sibling, so the
+adapter cannot construct either type even though it can consume the opaque
+input. No other sibling or public facade can construct the permit, parts, adapter,
 qualification endpoint or qualification token. There is no raw route, body,
 token, response, request-builder or retry getter.
 
@@ -42,11 +48,12 @@ surface. It has exactly one fixed `.post`, one fixed `.delete` and one common
 `.send` call. It uses `reqwest::Client::builder()` with:
 
 - `redirect(Policy::none())`;
+- explicit `retry(reqwest::retry::never())`;
 - `.no_proxy()`;
 - fixed two-second connect timeout;
 - fixed three-second request timeout;
 - no idle connection reuse;
-- no automatic retry or resend loop.
+- no automatic protocol-NACK retry or application resend loop.
 
 The frozen production policy accepts only TLS `https://api.finam.ru` on the
 default/443 port, with no credentials, query, fragment or path prefix. IT has
@@ -83,8 +90,8 @@ timeout and connection failure. Captured local wire evidence proves the exact
 method and route. No test resolves, connects to or writes to `api.finam.ru`.
 
 Same-crate compile-fail probes prove that sibling modules cannot name request
-parts, access the nested adapter, export raw observations or perform a second
-consuming extraction. The exact IT gate also runs the canonical full workspace
+parts, access the nested adapter, export raw observations, extract without K4
+proof, or fabricate the proof/request-parts from inside the adapter. The exact IT gate also runs the canonical full workspace
 debug/release/doctest/clippy and isolated Redis/dry-bridge regression suite; its
 complete log is source-ref-bound inside the handoff.
 
@@ -97,7 +104,7 @@ executable SHA-256. Any drift requires relevant IT requalification before a
 new P package. P cannot precede IT and cannot refresh automatically.
 
 Controlled TLS handshake qualification for the exact adapter build remains a
-blocking Stage 8B-P precondition. IT-R2 does not weaken certificate validation
+blocking Stage 8B-P precondition. IT-R3 does not weaken certificate validation
 and does not introduce a production endpoint constructor.
 
 ## Closed surfaces

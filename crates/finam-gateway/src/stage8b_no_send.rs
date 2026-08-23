@@ -5,18 +5,22 @@
 //! request, and this module contains no HTTP or Redis operation.
 
 mod stage8b_adapter;
+mod stage8b_permit_capsule;
+pub(crate) use stage8b_permit_capsule::Stage8bA2PermitProof;
 
 use crate::stage8a1_execution_capability::{
     Stage8a1Stage8bBoundContinuation, Stage8a2Stage8bRequestSpec,
 };
 use crate::{
     Stage8a1CurrentlyAuthorizedCapability, Stage8a1DurableRequestAuthority,
-    Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError,
-    Stage8a2InMemoryNoSendSink, Stage8a3ClassifiedObservation, Stage8a3EndpointContext,
-    Stage8a3LocalHttpObservation,
+    Stage8a2BuilderCompositionError, Stage8a2InMemoryNoSendSink, Stage8a3ClassifiedObservation,
+    Stage8a3EndpointContext, Stage8a3LocalHttpObservation,
 };
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
+use stage8b_permit_capsule::{
+    Stage8bApprovedRequestParts, Stage8bExactTransportPermit, Stage8bPrivateRequestSpec,
+};
 use std::collections::BTreeMap;
 use std::ffi::CString;
 use std::fs::{self, File, Metadata};
@@ -423,11 +427,6 @@ pub(crate) struct Stage8bSealedAttemptCommitted {
     continuation: Stage8a1Stage8bBoundContinuation,
 }
 #[allow(dead_code)]
-pub(crate) struct Stage8bExactTransportPermit {
-    permit_sha256: String,
-    continuation: Stage8a1Stage8bBoundContinuation,
-}
-#[allow(dead_code)]
 pub(crate) struct Stage8bPossibleEffectOwner {
     lifecycle_sha256: String,
 }
@@ -439,25 +438,6 @@ pub(crate) struct Stage8bDurableClosureOwner {
 #[allow(dead_code)]
 pub(crate) struct Stage8bClosureReceipt {
     receipt_sha256: String,
-}
-
-#[allow(dead_code)]
-struct Stage8bApprovedRequestParts {
-    diagnostic: Stage8a2BuilderCompositionDiagnostic,
-    permit_binding_sha256: String,
-    request: Stage8bPrivateRequestSpec,
-}
-
-#[allow(dead_code)]
-enum Stage8bPrivateRequestSpec {
-    Place {
-        spec: broker_finam::FinamPlaceOrderRequestSpec,
-        context: Stage8a3EndpointContext,
-    },
-    Cancel {
-        spec: broker_finam::FinamCancelOrderRequestSpec,
-        context: Stage8a3EndpointContext,
-    },
 }
 
 #[allow(dead_code)]
@@ -554,19 +534,10 @@ pub(crate) enum Stage8bNoSendCompositionError {
 fn compose_stage8b_private_request_parts_from_stage8a2(
     permit: Stage8bExactTransportPermit,
 ) -> Result<Stage8bApprovedRequestParts, Stage8bNoSendCompositionError> {
-    let expected_durable_binding = permit.continuation.durable_binding_sha256().to_string();
-    let expected_continuation_binding = permit
-        .continuation
-        .continuation_binding_sha256()
-        .to_string();
     let mut sink = Stage8a2InMemoryNoSendSink::new();
-    let capsule = permit
-        .continuation
-        .consume_stage8a2_request_capsule(&mut sink)?;
-    let (diagnostic, request, durable_binding, continuation_binding) = capsule.into_parts();
-    if durable_binding != expected_durable_binding
-        || continuation_binding != expected_continuation_binding
-    {
+    let capsule = permit.consume_stage8a2_request_capsule(&mut sink)?;
+    let (proof, diagnostic, request, durable_binding, continuation_binding) = capsule.into_parts();
+    if !proof.authorizes_stage8a2_extraction(&durable_binding, &continuation_binding) {
         return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
     }
     let request = match request {
@@ -604,11 +575,9 @@ fn compose_stage8b_private_request_parts_from_stage8a2(
             Stage8bPrivateRequestSpec::Cancel { spec, context }
         }
     };
-    Ok(Stage8bApprovedRequestParts {
-        diagnostic,
-        permit_binding_sha256: permit.permit_sha256,
-        request,
-    })
+    Ok(Stage8bApprovedRequestParts::from_permit_bound_capsule(
+        proof, diagnostic, request,
+    ))
 }
 
 /// Single private K2 composition root. It binds and consumes the exact durable
@@ -832,21 +801,7 @@ fn authorize_stage8b_exact_transport_permit(
     sealed: Stage8bSealedAttemptCommitted,
     k4: Stage8bK4ControlApproved,
 ) -> Result<Stage8bExactTransportPermit, Stage8bNoSendCompositionError> {
-    if k4.rechecked_attempt_sha256 != sealed.attempt_sha256 || !is_lower_sha256(&k4.control_sha256)
-    {
-        return Err(Stage8bNoSendCompositionError::InvalidCrossBinding);
-    }
-    Ok(Stage8bExactTransportPermit {
-        permit_sha256: digest_parts(
-            b"stage8b-i-r3-exact-transport-permit-v1",
-            &[
-                sealed.attempt_sha256.as_bytes(),
-                sealed.covering_seal_sha256.as_bytes(),
-                k4.control_sha256.as_bytes(),
-            ],
-        ),
-        continuation: sealed.continuation,
-    })
+    Stage8bExactTransportPermit::authorize_at_k4(sealed, k4)
 }
 
 #[allow(dead_code)]
@@ -854,6 +809,7 @@ fn invoke_stage8b_local_no_network_boundary(
     parts: Stage8bApprovedRequestParts,
     journal: &mut Stage8bNoSendRehearsalJournal,
 ) -> Result<Stage8bPossibleEffectOwner, Stage8bNoSendCompositionError> {
+    let (_request, diagnostic, permit_binding_sha256) = parts.into_adapter_payload();
     journal
         .append(Stage8bRehearsalRecord::PossibleEffectObserved)
         .map_err(|_| Stage8bNoSendCompositionError::DurableAttempt)?;
@@ -861,9 +817,9 @@ fn invoke_stage8b_local_no_network_boundary(
         lifecycle_sha256: digest_parts(
             b"stage8b-i-r2-local-no-network-boundary-v1",
             &[
-                parts.permit_binding_sha256.as_bytes(),
-                parts.diagnostic.authority_binding_sha256.as_bytes(),
-                parts.diagnostic.request_shape_sha256.as_bytes(),
+                permit_binding_sha256.as_bytes(),
+                diagnostic.authority_binding_sha256.as_bytes(),
+                diagnostic.request_shape_sha256.as_bytes(),
             ],
         ),
     })

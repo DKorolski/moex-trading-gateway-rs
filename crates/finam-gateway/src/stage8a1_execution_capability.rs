@@ -74,10 +74,12 @@
 
 mod stage8a2_builder_composition;
 
-pub(crate) use stage8a2_builder_composition::Stage8a2Stage8bRequestSpec;
 pub use stage8a2_builder_composition::{
     Stage8a2BuilderCompositionDiagnostic, Stage8a2BuilderCompositionError,
     Stage8a2InMemoryNoSendSink, Stage8a2RequestShapeKind,
+};
+pub(crate) use stage8a2_builder_composition::{
+    Stage8a2Stage8bRequestCapsule, Stage8a2Stage8bRequestSpec,
 };
 
 use broker_core::{

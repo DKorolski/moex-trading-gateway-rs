@@ -47,6 +47,7 @@ use super::{
     valid_sha256, Stage8ApprovedCommand, Stage8CommandScope, Stage8a1CurrentlyAuthorizedCapability,
     Stage8a1Stage8bBoundContinuation,
 };
+use crate::stage8b_no_send::Stage8bA2PermitProof;
 use broker_core::{AccountId, BrokerOrderId, ClientOrderId, InstrumentId, StrategyRequestId};
 use broker_finam::{
     build_cancel_order_request, build_place_order_request, FinamCancelOrderRequestSpec,
@@ -97,6 +98,8 @@ pub enum Stage8a2BuilderCompositionError {
     ShapeEncoding,
     #[error("Stage 8A-2 no-send sink sequence is exhausted")]
     SinkSequenceExhausted,
+    #[error("Stage 8A-2 Stage 8B extraction lacks the exact K4 permit proof")]
+    Stage8bPermitProofInvalid,
 }
 
 /// Deterministic sink with no transport, URL, token or broker outcome surface.
@@ -202,6 +205,7 @@ impl Stage8a1CurrentlyAuthorizedCapability {
 /// stay private to this module, so sibling modules cannot manufacture a capsule
 /// from public FINAM request specs or caller-supplied binding strings.
 pub(crate) struct Stage8a2Stage8bRequestCapsule {
+    proof: Stage8bA2PermitProof,
     diagnostic: Stage8a2BuilderCompositionDiagnostic,
     request: Stage8a2Stage8bRequestSpec,
     durable_binding_sha256: String,
@@ -231,12 +235,14 @@ impl Stage8a2Stage8bRequestCapsule {
     pub(crate) fn into_parts(
         self,
     ) -> (
+        Stage8bA2PermitProof,
         Stage8a2BuilderCompositionDiagnostic,
         Stage8a2Stage8bRequestSpec,
         String,
         String,
     ) {
         (
+            self.proof,
             self.diagnostic,
             self.request,
             self.durable_binding_sha256,
@@ -252,6 +258,7 @@ impl Stage8a1Stage8bBoundContinuation {
     /// type-check.
     pub(crate) fn consume_stage8a2_request_capsule(
         self,
+        permit_proof: Stage8bA2PermitProof,
         sink: &mut Stage8a2InMemoryNoSendSink,
     ) -> Result<Stage8a2Stage8bRequestCapsule, Stage8a2BuilderCompositionError> {
         let Stage8a1Stage8bBoundContinuation {
@@ -259,8 +266,14 @@ impl Stage8a1Stage8bBoundContinuation {
             durable_binding_sha256,
             continuation_binding_sha256,
         } = self;
+        if !permit_proof
+            .authorizes_stage8a2_extraction(&durable_binding_sha256, &continuation_binding_sha256)
+        {
+            return Err(Stage8a2BuilderCompositionError::Stage8bPermitProofInvalid);
+        }
         let composed = compose_once(capability, sink)?;
         Ok(Stage8a2Stage8bRequestCapsule {
+            proof: permit_proof,
             diagnostic: composed.diagnostic,
             request: composed.request,
             durable_binding_sha256,

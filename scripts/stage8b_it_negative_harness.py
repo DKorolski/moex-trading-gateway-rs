@@ -18,6 +18,7 @@ FILES = (
     "docs/stage-8/STAGE8B_IT_ACCEPTANCE_MATRIX_2026-08-23.csv",
     "docs/stage-8/STAGE8B_IT_NEGATIVE_INVENTORY_2026-08-23.md",
     "crates/finam-gateway/src/stage8b_no_send/stage8b_adapter.rs",
+    "crates/finam-gateway/src/stage8b_no_send/stage8b_permit_capsule.rs",
     "crates/finam-gateway/src/stage8b_no_send.rs",
     "crates/finam-gateway/src/stage8a1_execution_capability.rs",
     "crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs",
@@ -40,6 +41,7 @@ def mutation(path: str, old: str, new: str) -> tuple[str, str, str]:
 A = "docs/stage-8/stage8b-it-authority.json"
 D = "docs/stage-8/STAGE8B_IT_IMPLEMENTATION_2026-08-23.md"
 M = "crates/finam-gateway/src/stage8b_no_send/stage8b_adapter.rs"
+C = "crates/finam-gateway/src/stage8b_no_send/stage8b_permit_capsule.rs"
 P = "crates/finam-gateway/src/stage8b_no_send.rs"
 B = "crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs"
 G = "scripts/stage8b_it_gate.sh"
@@ -47,7 +49,7 @@ G = "scripts/stage8b_it_gate.sh"
 CASES = [
     ("predecessor", mutation(A, "0af222f252cdc2b4c763c9e04935a5cb5f0c6d65", "1" * 40)),
     ("a2-ref", mutation(A, "16180ac4f8eab761b3b055c1f5515f62cd94bfb9", "2" * 40)),
-    ("a2-r2-successor-digest", mutation(A, "eddb151f6a07e6fd78be95a5af81b6bf11562e34c4e8ab8bc0d28758eba91d26", "3" * 64)),
+    ("a2-r3-successor-digest", mutation(A, "148e8bf906a7823763f6b6fd66e2484cee20c140393d6221cf11c6c58ce40295", "3" * 64)),
     ("a3-ref", mutation(A, "012c9bfa51c1d6206fbd9a7e1f06f1fc90fdf30d", "4" * 40)),
     ("a3-digest", mutation(A, "f34c9fef5e219dad15b0a00ce1eaf63311ec9f77d1997e422b977e5c8ffe47b3", "5" * 64)),
     ("adapter-count", mutation(A, '"adapter_count": 1', '"adapter_count": 2')),
@@ -73,8 +75,8 @@ CASES = [
     ("crate-visible-adapter", mutation(M, "pub(super) struct Stage8bItAdapter {", "pub(crate) struct Stage8bItAdapter {")),
     ("crate-visible-endpoint", mutation(M, "pub(super) struct Stage8bItQualificationEndpoint {", "pub(crate) struct Stage8bItQualificationEndpoint {")),
     ("crate-visible-token", mutation(M, "pub(super) struct Stage8bItQualificationToken", "pub(crate) struct Stage8bItQualificationToken")),
-    ("crate-visible-parts", mutation(P, "struct Stage8bApprovedRequestParts {", "pub(crate) struct Stage8bApprovedRequestParts {")),
-    ("permit-bypass", mutation(P, ".consume_stage8a2_request_capsule(&mut sink)?", ".compose_stage8a2_no_send(&mut sink)?")),
+    ("crate-visible-parts", mutation(C, "pub(super) struct Stage8bApprovedRequestParts {", "pub(crate) struct Stage8bApprovedRequestParts {")),
+    ("permit-bypass", mutation(C, ".consume_stage8a2_request_capsule(self.proof, sink)?", ".compose_stage8a2_no_send(sink)?")),
     ("generic-request", mutation(M, ".post(url)", ".request(reqwest::Method::POST, url)")),
     ("second-post", mutation(M, ".post(url)", ".post(url).post(url)")),
     ("second-delete", mutation(M, ".delete(url)", ".delete(url).delete(url)")),
@@ -98,18 +100,26 @@ CASES = [
     ("raw-result-escape", mutation(M, "    ) -> Stage8bItClassifiedObservation {", "    ) -> Stage8bItRawObservation {")),
     ("classifier-bypass", mutation(M, "classify_stage8b_transport_observation_with_stage8a3(", "Stage8a3ClassifiedObservation::from_raw(")),
     ("second-classifier", mutation(M, "fn classify_raw_observation(", "const SECOND_CLASSIFIER: &str = \"classify_stage8b_transport_observation_with_stage8a3(\";\n\nfn classify_raw_observation(")),
-    ("broker-truth-marker", mutation(M, "use super::{", "struct BrokerTruth;\n\nuse super::{")),
+    ("broker-truth-marker", mutation(M, "use super::classify_stage8b_transport_observation_with_stage8a3;", "struct BrokerTruth;\n\nuse super::classify_stage8b_transport_observation_with_stage8a3;")),
     ("clone-extraction", mutation(P, "fn compose_stage8b_private_request_parts_from_stage8a2(", "fn clone_approved_command_for_stage8b() {}\n\nfn compose_stage8b_private_request_parts_from_stage8a2(")),
     ("borrowed-extraction", mutation(B, "pub(crate) fn consume_stage8a2_request_capsule(\n        self,", "pub(crate) fn consume_stage8a2_request_capsule(\n        &self,")),
     ("second-builder-outside-a2", mutation(P, "fn compose_stage8b_private_request_parts_from_stage8a2(", "fn build_place_order_request() {}\n\nfn compose_stage8b_private_request_parts_from_stage8a2(")),
     ("internal-compile-gate-removed", mutation(G, "bash scripts/stage8b_it_internal_compile_fail.sh", "true # internal compile gate removed")),
     ("full-regression-gate-removed", mutation(G, "bash scripts/stage8b_i_full_regression.sh", "true # full regression gate removed")),
     ("tls-precondition-opened", mutation(A, '"controlled_tls_qualification": "blocking_stage8b_p_precondition"', '"controlled_tls_qualification": "optional"')),
+    ("retry-policy-omitted", mutation(M, ".retry(reqwest::retry::never())", ".user_agent(\"retry-policy-omitted\")")),
+    ("custom-retry-policy", mutation(M, ".retry(reqwest::retry::never())", ".retry(reqwest::retry::Builder::new().build())")),
+    ("second-retry-policy", mutation(M, ".redirect(Policy::none())", ".retry(reqwest::retry::never()).redirect(Policy::none())")),
+    ("a2-proof-parameter-removed", mutation(B, "        permit_proof: Stage8bA2PermitProof,\n", "")),
+    ("a2-proof-validation-removed", mutation(B, "if !permit_proof\n            .authorizes_stage8a2_extraction(&durable_binding_sha256, &continuation_binding_sha256)", "if false")),
+    ("adapter-proof-mint", mutation(M, "const MAX_RESPONSE_BYTES: usize = 64 * 1024;", "fn forged_proof() { let _ = Stage8bA2PermitProof::mint_at_k4; }\nconst MAX_RESPONSE_BYTES: usize = 64 * 1024;")),
+    ("adapter-parts-construction", mutation(M, "const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);", "fn forged_parts() { let _ = Stage8bApprovedRequestParts { }; }\nconst CONNECT_TIMEOUT: Duration = Duration::from_secs(2);")),
+    ("proof-drops-attempt-binding", mutation(C, "&& is_lower_sha256(&self.exact_attempt_sha256)", "&& true")),
 ]
 
 
 def main() -> None:
-    if len(CASES) != 60:
+    if len(CASES) != 68:
         raise SystemExit(f"negative case inventory drift: {len(CASES)}")
     with tempfile.TemporaryDirectory(prefix="stage8b-it-negative-") as raw:
         base = Path(raw) / "base"
@@ -136,7 +146,7 @@ def main() -> None:
                 raise SystemExit(f"negative mutation unexpectedly passed: {index} {name}")
             print(f"PASS {index:02d} {name}")
             passed += 1
-    print(f"stage8b-it-negative-harness: PASS {passed}/60")
+    print(f"stage8b-it-negative-harness: PASS {passed}/68")
 
 
 if __name__ == "__main__":

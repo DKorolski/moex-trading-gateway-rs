@@ -78,7 +78,7 @@ def check(path: str) -> dict[str, object]:
         manifest = json.loads(archive.read(MANIFEST))
         if evidence.get("stage") != "8B-IT":
             raise ValueError("stage mismatch")
-        if evidence.get("revision") != "R2":
+        if evidence.get("revision") != "R3":
             raise ValueError("revision mismatch")
         if (
             evidence.get("source_ref") != marker.get("source_ref")
@@ -87,19 +87,22 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("source mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive mismatch")
-        if evidence.get("acceptance_rows") != 72:
+        if evidence.get("acceptance_rows") != 78:
             raise ValueError("acceptance count mismatch")
-        if evidence.get("negative_cases") != 60:
+        if evidence.get("negative_cases") != 68:
             raise ValueError("negative count mismatch")
         if evidence.get("external_compile_fail_negative_cases") != 12:
             raise ValueError("external compile-fail count mismatch")
-        if evidence.get("internal_compile_fail_negative_cases") != 4:
+        if evidence.get("internal_compile_fail_negative_cases") != 6:
             raise ValueError("internal compile-fail count mismatch")
         for key in (
             "adapter_qualified",
             "request_parts_module_private",
             "adapter_parent_only",
             "single_consuming_transition",
+            "k4_proof_bound_stage8a2_extraction",
+            "adapter_input_unforgeable",
+            "reqwest_automatic_retry_disabled",
             "mandatory_classifier_inside_adapter",
             "classified_only_result",
             "canonical_full_regression",
@@ -114,8 +117,8 @@ def check(path: str) -> dict[str, object]:
         if evidence.get("controlled_tls_qualification") != "blocking_stage8b_p_precondition":
             raise ValueError("controlled TLS precondition drift")
         gate = archive.read(GATE)
-        if b"stage8b-it-gate: PASS revision=R2 rows=72 negatives=60" not in gate:
-            raise ValueError("R2 gate marker missing")
+        if b"stage8b-it-gate: PASS revision=R3 rows=78 negatives=68" not in gate:
+            raise ValueError("R3 gate marker missing")
         if f"current-tree-ci-gate: PASS source_ref={evidence['source_ref']} ".encode() not in gate:
             raise ValueError("gate is not exact-commit bound")
         if b"stage8b-i-full-regression: PASS canonical_ci=true" not in gate:

@@ -60,3 +60,11 @@
 58. same-crate internal compile-fail gate is omitted;
 59. canonical full regression runner is omitted from exact IT gate;
 60. controlled TLS qualification is no longer a blocking Stage 8B-P precondition.
+61. explicit reqwest never-retry policy is omitted;
+62. never-retry policy is replaced by a custom/default retry builder;
+63. an additional retry policy is introduced after qualification;
+64. Stage 8A-2 extraction drops the exact K4 permit-proof parameter;
+65. Stage 8A-2 extraction stops validating proof-to-continuation binding;
+66. the adapter invokes the private K4 proof mint path;
+67. the adapter directly constructs sibling-private approved request parts;
+68. permit proof no longer binds the exact attempt or covering seal.

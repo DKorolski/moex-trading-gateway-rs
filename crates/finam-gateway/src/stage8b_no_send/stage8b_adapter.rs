@@ -11,10 +11,8 @@
     reason = "Stage 8B-IT adapter is reachable only from crate-private qualification tests before P"
 )]
 
-use super::{
-    classify_stage8b_transport_observation_with_stage8a3, Stage8bApprovedRequestParts,
-    Stage8bPrivateRequestSpec,
-};
+use super::classify_stage8b_transport_observation_with_stage8a3;
+use super::stage8b_permit_capsule::{Stage8bApprovedRequestParts, Stage8bPrivateRequestSpec};
 use crate::{Stage8a3ClassifiedObservation, Stage8a3EndpointContext, Stage8a3LocalHttpObservation};
 use reqwest::{redirect::Policy, Url};
 use serde::Serialize;
@@ -115,6 +113,7 @@ pub(super) struct Stage8bItAdapter {
 impl Stage8bItAdapter {
     pub(super) fn qualified() -> Result<Self, Stage8bItAdapterError> {
         let http = reqwest::Client::builder()
+            .retry(reqwest::retry::never())
             .redirect(Policy::none())
             .no_proxy()
             .connect_timeout(CONNECT_TIMEOUT)
@@ -133,11 +132,7 @@ impl Stage8bItAdapter {
         endpoint: Stage8bItQualificationEndpoint,
         token: Stage8bItQualificationToken,
     ) -> Stage8bItClassifiedObservation {
-        let Stage8bApprovedRequestParts {
-            diagnostic: _,
-            permit_binding_sha256: _,
-            request,
-        } = parts;
+        let (request, _diagnostic, _permit_binding_sha256) = parts.into_adapter_payload();
         let (request, context, request_diagnostic) = match request {
             Stage8bPrivateRequestSpec::Place { spec, context } => {
                 let body = serde_json::to_vec(&spec.body).ok();
