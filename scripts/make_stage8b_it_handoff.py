@@ -68,6 +68,7 @@ def main() -> None:
                 "archive_name": archive_name,
                 "branch": branch,
                 "accepted_predecessor_ref": BASE,
+                "accepted_predecessor_replay": True,
                 "rejected_stage8b_it_ref": "e44053917a928aeb4bc8e3330a58a693edc31fd3",
                 "acceptance_rows": 72,
                 "negative_cases": 60,

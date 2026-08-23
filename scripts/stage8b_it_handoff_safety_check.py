@@ -27,6 +27,7 @@ REQUIRED = {
     "scripts/stage8b_it_negative_harness.py",
     "scripts/stage8b_it_external_compile_fail.sh",
     "scripts/stage8b_it_internal_compile_fail.sh",
+    "scripts/stage8b_it_predecessor_replay.sh",
     "scripts/stage8b_it_gate.sh",
 }
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
@@ -102,6 +103,7 @@ def check(path: str) -> dict[str, object]:
             "mandatory_classifier_inside_adapter",
             "classified_only_result",
             "canonical_full_regression",
+            "accepted_predecessor_replay",
             "controlled_loopback_only",
             "single_transport_attempt",
             "accepted_builder_bridge",

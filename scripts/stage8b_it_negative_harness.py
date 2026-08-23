@@ -26,6 +26,7 @@ FILES = (
     "crates/broker-finam/src/order_request.rs",
     "scripts/stage8b_it_external_compile_fail.sh",
     "scripts/stage8b_it_internal_compile_fail.sh",
+    "scripts/stage8b_it_predecessor_replay.sh",
     "scripts/stage8b_it_gate.sh",
     "scripts/make_stage8b_it_handoff.py",
     "scripts/stage8b_it_handoff_safety_check.py",

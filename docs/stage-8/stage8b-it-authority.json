@@ -5,6 +5,7 @@
   "status": "corrective_implementation_candidate",
   "branch": "stage8b-it",
   "accepted_predecessor_ref": "0af222f252cdc2b4c763c9e04935a5cb5f0c6d65",
+  "accepted_predecessor_replay_required": true,
   "rejected_stage8b_it_ref": "e44053917a928aeb4bc8e3330a58a693edc31fd3",
   "accepted_stage8a2_ref": "16180ac4f8eab761b3b055c1f5515f62cd94bfb9",
   "accepted_stage8a2_source_sha256": "1026a24962bf45de8653c80ba095f892af35523da58f4fa4fccad706fb023653",

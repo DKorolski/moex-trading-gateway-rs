@@ -4,6 +4,9 @@ Status: corrective R2 implementation candidate. Accepted predecessor:
 `0af222f252cdc2b4c763c9e04935a5cb5f0c6d65` (Stage 8B-I R3).
 The first IT candidate `e44053917a928aeb4bc8e3330a58a693edc31fd3`
 was not accepted and is retained only as review lineage.
+The accepted Stage 8B-I R3 checker is replayed immutably at `0af222f`; it is not
+weakened or rebound to the controlled Stage 8A-2 successor source introduced by
+IT R2. The current successor is independently digest-pinned by the IT checker.
 
 ## Purpose and phase boundary
 

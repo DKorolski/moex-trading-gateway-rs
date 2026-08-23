@@ -42,6 +42,7 @@ def load_paths(root: Path) -> dict[str, Path]:
         "surface": root / "crates/broker-finam/src/order_request.rs",
         "compile": root / "scripts/stage8b_it_external_compile_fail.sh",
         "internal_compile": root / "scripts/stage8b_it_internal_compile_fail.sh",
+        "predecessor_replay": root / "scripts/stage8b_it_predecessor_replay.sh",
         "gate": root / "scripts/stage8b_it_gate.sh",
         "maker": root / "scripts/make_stage8b_it_handoff.py",
         "safety": root / "scripts/stage8b_it_handoff_safety_check.py",
@@ -64,6 +65,7 @@ def check(root: Path, git_scope: bool) -> None:
     surface = paths["surface"].read_text(encoding="utf-8")
     compile_script = paths["compile"].read_text(encoding="utf-8")
     internal_compile_script = paths["internal_compile"].read_text(encoding="utf-8")
+    predecessor_replay = paths["predecessor_replay"].read_text(encoding="utf-8")
     gate_script = paths["gate"].read_text(encoding="utf-8")
     maker = paths["maker"].read_text(encoding="utf-8")
     safety = paths["safety"].read_text(encoding="utf-8")
@@ -74,6 +76,7 @@ def check(root: Path, git_scope: bool) -> None:
     require(authority.get("status") == "corrective_implementation_candidate", "status drift")
     require(authority.get("branch") == "stage8b-it", "branch drift")
     require(authority.get("accepted_predecessor_ref") == ACCEPTED_PREDECESSOR, "predecessor drift")
+    require(authority.get("accepted_predecessor_replay_required") is True, "predecessor replay requirement drift")
     require(authority.get("rejected_stage8b_it_ref") == "e44053917a928aeb4bc8e3330a58a693edc31fd3", "rejected candidate lineage drift")
     require(authority.get("accepted_stage8a2_ref") == "16180ac4f8eab761b3b055c1f5515f62cd94bfb9", "A2 ref drift")
     require(authority.get("accepted_stage8a2_source_sha256") == A2_SHA256, "A2 authority digest drift")
@@ -221,9 +224,14 @@ def check(root: Path, git_scope: bool) -> None:
     require(compile_script.count("check_fail ") == 12, "external compile-fail inventory drift")
     require("stage8b-it-internal-compile-fail: PASS negative=4" in internal_compile_script, "internal compile-fail marker drift")
     require(internal_compile_script.count("check_fail ") == 4, "internal compile-fail inventory drift")
+    require(f'accepted_i_ref="{ACCEPTED_PREDECESSOR}"' in predecessor_replay, "predecessor replay ref drift")
+    require("python3 scripts/stage8b_i_check.py" in predecessor_replay, "accepted I-R3 checker replay missing")
+    require("stage8b-it-predecessor-replay: PASS" in predecessor_replay, "predecessor replay marker missing")
     require("python3 scripts/stage8b_it_negative_harness.py" in gate_script, "negative harness omitted from gate")
     require("bash scripts/stage8b_it_external_compile_fail.sh" in gate_script, "compile-fail omitted from gate")
     require("bash scripts/stage8b_it_internal_compile_fail.sh" in gate_script, "internal compile-fail omitted from gate")
+    require("bash scripts/stage8b_it_predecessor_replay.sh" in gate_script, "accepted predecessor replay omitted from gate")
+    require("python3 scripts/stage8b_i_check.py" not in gate_script, "accepted Stage 8B-I checker must not be rebound to successor tree")
     require("bash scripts/stage8b_i_full_regression.sh" in gate_script, "canonical full regression omitted from gate")
     require("python3 scripts/current_tree_authority_check.py" in gate_script, "current-tree authority omitted from gate")
     require("python3 scripts/current_tree_authority_negative_harness.py" in gate_script, "current-tree negatives omitted from gate")
