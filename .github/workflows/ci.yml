@@ -23,6 +23,12 @@ jobs:
           toolchain: 1.95.0
           components: rustfmt, clippy
 
+      - name: Install inherited Redis test toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes redis-server
+          redis-server --version
+
       - name: Current-tree authority gate
         run: bash scripts/current_tree_ci_gate.sh
         timeout-minutes: 75
