@@ -29,6 +29,9 @@ ACCEPTED_STAGE8A5_REF = "bf58b47fdef8af774a4107455dfcc6204e594283"
 ACCEPTED_STAGE8A5_GATE_SHA256 = (
     "1361ad49d41351484cf61c86822deb640818e755b7b35bda44592fd437ff69f8"
 )
+CHECKOUT_ACTION_SHA = "11d5960a326750d5838078e36cf38b85af677262"
+RUST_TOOLCHAIN_ACTION_SHA = "4360b52568e2003a75bf9bc1d59f33a8e3fc893c"
+RUST_TOOLCHAIN_VERSION = "1.95.0"
 ALLOWED_WORKFLOWS = {CURRENT_WORKFLOW.as_posix(), HISTORICAL_WORKFLOW.as_posix()}
 HISTORICAL_CURRENT_TREE_MARKERS = (
     "bash scripts/forbidden_surface_scan.sh",
@@ -183,6 +186,8 @@ def check(root: Path) -> None:
         "workspace_debug_release_doc_clippy_required",
         "redis_regression_smoke_required",
         "handoff_complete_logs_required",
+        "immutable_action_pins_required",
+        "exact_rust_toolchain_required",
     ):
         require(authority.get("requirements", {}).get(key) is True, f"requirement drift: {key}")
     expected_closed = {
@@ -217,6 +222,24 @@ def check(root: Path) -> None:
     require("pull_request:" in current_triggers, "canonical CI pull_request trigger missing")
     require("push:" in current_triggers and "- main" in current_triggers, "canonical CI main push missing")
     require("pull_request_target" not in current_triggers, "canonical CI pull_request_target forbidden")
+    require(
+        current_workflow.count(f"uses: actions/checkout@{CHECKOUT_ACTION_SHA}") == 2,
+        "canonical CI checkout immutable pin drift",
+    )
+    require(
+        current_workflow.count(f"uses: dtolnay/rust-toolchain@{RUST_TOOLCHAIN_ACTION_SHA}") == 2,
+        "canonical CI rust-toolchain immutable pin drift",
+    )
+    require(
+        current_workflow.count(f"toolchain: {RUST_TOOLCHAIN_VERSION}") == 2,
+        "canonical CI exact Rust version drift",
+    )
+    for mutable_ref in (
+        "actions/checkout@v4",
+        "dtolnay/rust-toolchain@stable",
+        "toolchain: stable",
+    ):
+        require(mutable_ref not in current_workflow, f"mutable canonical CI ref: {mutable_ref}")
     require("workflow_dispatch:" in historical_triggers, "historical manual trigger missing")
     for forbidden in ("pull_request_target", "pull_request:", "push:"):
         require(forbidden not in historical_triggers, f"historical authority reactivated: {forbidden}")
@@ -271,7 +294,8 @@ def check(root: Path) -> None:
     contract = (root / CONTRACT).read_text(encoding="utf-8")
     for marker in (
         "GOV-CI-1A", "GOV-CI-1B", ACCEPTED_PREDECESSOR, ACCEPTED_STAGE8A5_REF,
-        "Stage 8B-D R2", "FINAM POST/DELETE", "runtime-live",
+        "Stage 8B-D R2", "FINAM POST/DELETE", "runtime-live", CHECKOUT_ACTION_SHA,
+        RUST_TOOLCHAIN_ACTION_SHA, RUST_TOOLCHAIN_VERSION,
     ):
         require(marker in contract, f"governance contract marker missing: {marker}")
 

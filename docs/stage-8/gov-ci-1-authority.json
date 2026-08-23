@@ -1,5 +1,5 @@
 {
-  "acceptance_rows": 30,
+  "acceptance_rows": 32,
   "accepted_predecessor": "1dea519cbf2affc3d99866fdae66bbddbafefa24",
   "accepted_stage8a5_replay": {
     "current_i4_negative_cases": 28,
@@ -33,12 +33,12 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "29b48ea83d4aeb49443c4af915b516a17c4ff22d663f926a538393e930ba34ae",
+    "aggregate_sha256": "bf0b08e1878eac1a6a3da3d8506ecafa5beb81781933314b5e675cdacad42286",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
-        "sha256": "17ecff977b932b49c019d87517e67def13fe2eb86b59b7c3825fad358f5ac957",
-        "size": 1818
+        "sha256": "954de1999e5054b1abf58624fb6c6a05206cb082b2aa5568a84399d54f107c97",
+        "size": 2032
       },
       ".github/workflows/stage5f-base-authority.yml": {
         "mode": "100644",
@@ -77,28 +77,28 @@
       },
       "docs/stage-8/GOV_CI_1_ACCEPTANCE_MATRIX_2026-08-21.csv": {
         "mode": "100644",
-        "sha256": "87f09728a91b7a9e4ba2e6fe9b3c3568c11eeffc3ecbdbc088b6973fb7cbc018",
-        "size": 2593
+        "sha256": "cce5ef8d446433182da07399e19a97395266d606627699b7e20d40c7297d43c6",
+        "size": 2816
       },
       "docs/stage-8/GOV_CI_1_CURRENT_TREE_AUTHORITY_2026-08-21.md": {
         "mode": "100644",
-        "sha256": "846428d5823d6d818f72377002adb22a65845b7b85d024a54391c78cfb3b3c4a",
-        "size": 2844
+        "sha256": "c83dce73d3487dfcc5dbf3de92ec17d814e6395539a51cdd841d9eef4a6ab8f5",
+        "size": 3240
       },
       "docs/stage-8/GOV_CI_1_NEGATIVE_INVENTORY_2026-08-21.md": {
         "mode": "100644",
-        "sha256": "0382c68246fbbe4e3817edaaeb24d33602c765f89134ccaacf5a1106290d1ff4",
-        "size": 2052
+        "sha256": "7dc07b60a9a32b166c1a8b250c0b2008272c71236907f7691f87cea69624f816",
+        "size": 2443
       },
       "scripts/current_tree_authority_check.py": {
         "mode": "100755",
-        "sha256": "b8d41ca41616f6d542e9506619a24d06224c2bfc522fd9f596cd0036fbbc75bc",
-        "size": 13023
+        "sha256": "1b706c4829f27f1b50533941ed631ad04250baa1bdab75e972c5cbfff3d8d257",
+        "size": 14065
       },
       "scripts/current_tree_authority_negative_harness.py": {
         "mode": "100755",
-        "sha256": "c970cb144879a99e60b24a3735f5a36fc9141ce8028cd2a0dc1133d604bc2cbf",
-        "size": 9254
+        "sha256": "95042985bbb05993240a08ab8f8883eddcccc768ce3d643287eaa318d571082b",
+        "size": 10233
       },
       "scripts/current_tree_ci_gate.sh": {
         "mode": "100755",
@@ -138,7 +138,7 @@
     },
     "file_count": 20
   },
-  "negative_cases": 27,
+  "negative_cases": 33,
   "production_code_manifest": {
     "aggregate_sha256": "674d629c5bb325c0396a80b620cc928aeabac993b3229ae7619306e8de3840ea",
     "content_sha256": "dcf1b9dd9fe456d026f3f0ede34d340549a2d8f52491d2d0c73158c0710fcd15",
@@ -701,7 +701,9 @@
     "current_tree_authority_required": true,
     "current_tree_negative_harness_required": true,
     "handoff_complete_logs_required": true,
+    "immutable_action_pins_required": true,
     "redis_regression_smoke_required": true,
+    "exact_rust_toolchain_required": true,
     "workspace_debug_release_doc_clippy_required": true
   },
   "schema_version": 2,
