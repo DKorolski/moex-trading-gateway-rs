@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static fail-closed checker for Stage 8B-P preconditions R1."""
+"""Static fail-closed checker for Stage 8B-P preconditions R2 / GOV-P1A."""
 
 from __future__ import annotations
 
@@ -33,6 +33,23 @@ BUILD_REPRO = ROOT / "scripts/stage8b_p_build_repro.py"
 GATE = ROOT / "scripts/stage8b_p_preconditions_gate.sh"
 MAKER = ROOT / "scripts/make_stage8b_p_preconditions_handoff.py"
 SAFETY = ROOT / "scripts/stage8b_p_preconditions_handoff_safety_check.py"
+GOVERNANCE_REFRESH = ROOT / "scripts/stage8b_p_governance_refresh.py"
+
+CHECKOUT_ACTION_SHA = "11d5960a326750d5838078e36cf38b85af677262"
+RUST_ACTION_SHA = "4360b52568e2003a75bf9bc1d59f33a8e3fc893c"
+RUST_RELEASE = "1.95.0"
+GOVERNANCE_POLICY_KEYS = {
+    "active_main_ruleset_required",
+    "pull_request_required",
+    "one_independent_approval_required",
+    "canonical_status_checks_required",
+    "force_push_blocked_required",
+    "branch_deletion_blocked_required",
+    "empty_bypass_policy_required",
+    "post_merge_exact_head_and_tree_verification_required",
+    "current_tree_gate_required",
+    "administrator_self_acceptance_for_p_forbidden",
+}
 
 
 def require(value: bool, message: str) -> None:
@@ -59,7 +76,7 @@ def main() -> None:
     parser.add_argument("--no-git", action="store_true")
     args = parser.parse_args()
 
-    for path in (A, C, B, G, BASELINE, DESIGN, MATRIX, NEGATIVE, SOURCE, WORKSPACE, FINAM_MANIFEST, LOCK, CI, CHECKER, HARNESS, CONTRACT_REFRESH, BUILD_REPRO, GATE, MAKER, SAFETY):
+    for path in (A, C, B, G, BASELINE, DESIGN, MATRIX, NEGATIVE, SOURCE, WORKSPACE, FINAM_MANIFEST, LOCK, CI, CHECKER, HARNESS, CONTRACT_REFRESH, BUILD_REPRO, GOVERNANCE_REFRESH, GATE, MAKER, SAFETY):
         require(path.is_file(), f"missing {path.relative_to(ROOT)}")
     authority = json.loads(A.read_text())
     contract = json.loads(C.read_text())
@@ -70,9 +87,9 @@ def main() -> None:
     ci = CI.read_text()
 
     require(authority.get("stage") == "8B-P-PRECONDITIONS", "stage drift")
-    require(authority.get("revision") == "R1", "revision drift")
-    require(authority.get("status") == "design_only_candidate_pending_independent_acceptance", "status drift")
-    require(authority.get("branch") == "stage8b-p-preconditions-refresh", "branch drift")
+    require(authority.get("revision") == "R2", "revision drift")
+    require(authority.get("status") == "gov_p1_candidate_pending_independent_acceptance", "status drift")
+    require(authority.get("branch") == "stage8b-p-preconditions-r2-gov", "branch drift")
     require(authority.get("accepted_tls_ref") == "6cb179509fad97e8be56e31bb930b2a86caefc6a", "TLS ref drift")
     require(authority.get("accepted_tls_tree") == "4900fd38d741ab24f643acf211e7d1f807d23792", "TLS tree drift")
     require(authority.get("accepted_tls_archive_sha256") == "1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6", "TLS archive drift")
@@ -108,7 +125,7 @@ def main() -> None:
     require(contract["cancel_order"].get("method") == "DELETE" and contract["cancel_order"].get("path") == "/v1/accounts/{account_id}/orders/{order_id}", "CANCEL contract drift")
     require(contract["initial_effect_policy"].get("automatic_retry") is False, "retry opened")
     require(contract["initial_effect_policy"].get("same_request_resend_after_attempt") is False, "resend opened")
-    require(contract.get("contract_p1_status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "contract status drift")
+    require(contract.get("contract_p1_status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "contract evidence status drift")
     require(contract.get("stage8b_p_authorized") is False and contract.get("finam_request_sent") is False, "contract opened execution")
     require(authority["contract_p1"].get("snapshot_sha256") == sha(C), "fresh snapshot hash drift")
 
@@ -150,47 +167,96 @@ def main() -> None:
     }
     for field, value in projections.items():
         require(bindings.get(field) == digest(value.encode()), f"projection drift: {field}")
-    require(build.get("build_p1_status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "build status drift")
+    require(build.get("build_p1_status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "build evidence status drift")
     require(build.get("executable_executed") is False and build.get("broker_effect") is False, "build opened execution")
 
-    require(governance.get("observed_head") == authority["accepted_tls_ref"], "governance head drift")
-    github = governance["github_public_api"]
-    require(github.get("branch_protected") is False, "unverified protection claim")
-    require(github.get("ruleset_id") == 20111805 and github.get("ruleset_enforcement") == "disabled", "ruleset drift")
-    require(governance.get("mutable_ci_references_observed") == ["actions/checkout@v4", "dtolnay/rust-toolchain@stable"], "mutable CI inventory drift")
-    require("uses: actions/checkout@v4" in ci and "uses: dtolnay/rust-toolchain@stable" in ci, "CI observation drift")
-    require(governance.get("gov_p1_status") == "PENDING_INDEPENDENT_ACCEPTANCE_OR_RULESET_ENABLEMENT", "GOV-P1 self-accepted")
-    require(governance.get("workflow_modified_by_this_slice") is False, "workflow modification claimed")
-    require(all(governance["equivalent_reviewed_change_control_candidate"].values()), "equivalent control weakened")
+    require(governance.get("schema_version") == 2, "governance schema drift")
+    require(governance.get("repository") == "DKorolski/moex-trading-gateway-rs", "repository drift")
+    require(governance.get("default_branch") == "main", "default branch drift")
+    require(governance.get("branch_protected") is True, "main is not protected")
+    ruleset = governance.get("ruleset", {})
+    require(set(ruleset) == {
+        "id", "name", "target", "source_type", "enforcement", "conditions",
+        "bypass_actors", "rule_types", "deletion_blocked", "force_push_blocked",
+        "pull_request", "required_status_checks",
+    }, "ruleset key-set drift")
+    require(ruleset.get("id") == 20111805 and ruleset.get("name") == "moex-trading-project", "ruleset identity drift")
+    require(ruleset.get("target") == "branch" and ruleset.get("source_type") == "Repository", "ruleset target drift")
+    require(ruleset.get("enforcement") == "active", "ruleset is not active")
+    require(ruleset.get("conditions") == {"include": ["~DEFAULT_BRANCH"], "exclude": []}, "main target drift")
+    require(ruleset.get("bypass_actors") == [], "ruleset bypass opened")
+    require(ruleset.get("rule_types") == ["deletion", "non_fast_forward", "pull_request", "required_status_checks"], "ruleset rule inventory drift")
+    require(ruleset.get("deletion_blocked") is True, "branch deletion opened")
+    require(ruleset.get("force_push_blocked") is True, "force push opened")
+    require(ruleset.get("pull_request") == {
+        "required_approving_review_count": 1,
+        "dismiss_stale_reviews_on_push": True,
+        "require_last_push_approval": True,
+        "required_review_thread_resolution": True,
+        "require_extra_approval_for_unattributed_changes": True,
+        "allowed_merge_methods": ["merge"],
+    }, "pull-request rule drift")
+    require(ruleset.get("required_status_checks") == {
+        "contexts": ["redis-smoke", "rust"],
+        "strict_required_status_checks_policy": True,
+    }, "required status-check drift")
+    pins = governance.get("canonical_ci", {})
+    require(set(pins) == {"sha256", "actions_checkout_sha", "rust_toolchain_action_sha", "rust_release", "mutable_references_present"}, "CI pin key-set drift")
+    require(pins.get("sha256") == sha(CI), "canonical CI hash drift")
+    require(pins.get("actions_checkout_sha") == CHECKOUT_ACTION_SHA, "checkout pin drift")
+    require(pins.get("rust_toolchain_action_sha") == RUST_ACTION_SHA, "Rust action pin drift")
+    require(pins.get("rust_release") == RUST_RELEASE, "Rust release drift")
+    require(pins.get("mutable_references_present") is False, "mutable CI reference claim")
+    require(ci.count(f"uses: actions/checkout@{CHECKOUT_ACTION_SHA}") == 2, "checkout workflow pin drift")
+    require(ci.count(f"uses: dtolnay/rust-toolchain@{RUST_ACTION_SHA}") == 2, "Rust action workflow pin drift")
+    require(ci.count(f"toolchain: {RUST_RELEASE}") == 2, "Rust workflow release drift")
+    for mutable in ("actions/checkout@v4", "dtolnay/rust-toolchain@stable", "toolchain: stable"):
+        require(mutable not in ci, f"mutable workflow reference: {mutable}")
+    policy = governance.get("required_governance_policy", {})
+    require(set(policy) == GOVERNANCE_POLICY_KEYS, "governance policy key-set drift")
+    require(all(value is True for value in policy.values()), "governance control weakened")
+    require(governance.get("compliant") is True, "ruleset compliance false")
+    require(governance.get("gov_p1_status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "GOV-P1 status drift")
+    require(governance.get("workflow_modified_by_this_slice") is True, "workflow correction hidden")
+    require(governance.get("stage8b_p_authorized") is False, "GOV-P1 opened Stage 8B-P")
 
-    require(authority["contract_p1"].get("status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "CONTRACT-P1 authority drift")
-    require(authority["build_p1"].get("status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "BUILD-P1 authority drift")
+    require(authority["contract_p1"].get("status") == "ACCEPTED_R1", "CONTRACT-P1 authority drift")
+    require(authority["build_p1"].get("status") == "ACCEPTED_R1", "BUILD-P1 authority drift")
     gov = authority["gov_p1"]
-    require(gov.get("status") == "PENDING_INDEPENDENT_ACCEPTANCE_OR_RULESET_ENABLEMENT", "GOV-P1 authority drift")
-    require(gov.get("branch_protection_active") is False and gov.get("ruleset_enforcement_active") is False and gov.get("immutable_action_pins_active") is False, "governance blocker hidden")
+    require(gov.get("status") == "READY_FOR_INDEPENDENT_ACCEPTANCE", "GOV-P1 authority drift")
+    require(gov.get("branch_protection_active") is True and gov.get("ruleset_enforcement_active") is True and gov.get("immutable_action_pins_active") is True, "governance prerequisite missing")
     aggregate = authority["aggregate"]
-    require(aggregate.get("prerequisite_count") == 3 and aggregate.get("ready_for_independent_acceptance_count") == 2 and aggregate.get("pending_count") == 1, "aggregate counts drift")
+    require(aggregate.get("prerequisite_count") == 3 and aggregate.get("accepted_count") == 2 and aggregate.get("ready_for_independent_acceptance_count") == 1, "aggregate counts drift")
     require(aggregate.get("all_prerequisites_accepted") is False and aggregate.get("stage8b_p_open") is False, "P opened")
-    require(aggregate.get("next_allowed_action") == "independent_review_of_this_design_only_preconditions_package", "next action drift")
+    require(aggregate.get("next_allowed_action") == "independent_review_of_gov_p1_r2_package", "next action drift")
     require(all(authority["closed_surfaces"].values()), "closed surface opened")
-    require(authority.get("acceptance_rows") == 36 and authority.get("negative_mutations") == 24, "authority matrix count drift")
+    require(authority.get("acceptance_rows") == 48 and authority.get("negative_mutations") == 53, "authority matrix count drift")
 
     with MATRIX.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 36, "acceptance row count drift")
-    require([row["id"] for row in rows] == [f"PPR-{i:03d}" for i in range(1, 37)], "acceptance IDs drift")
+    require(len(rows) == 48, "acceptance row count drift")
+    require([row["id"] for row in rows] == [f"PPR-{i:03d}" for i in range(1, 49)], "acceptance IDs drift")
     require(all(row["status"] == "PASS" for row in rows), "acceptance matrix not green")
-    require(len(re.findall(r"^\d+\. ", NEGATIVE.read_text(), flags=re.MULTILINE)) == 24, "negative inventory drift")
-    require("Stage 8B-P remains closed" in design and "GOV-P1 is pending" in design, "boundary docs drift")
+    require(len(re.findall(r"^\d+\. ", NEGATIVE.read_text(), flags=re.MULTILINE)) == 53, "negative inventory drift")
+    require("Stage 8B-P remains closed" in design and "GOV-P1 is ready for independent acceptance" in design, "boundary docs drift")
     gate_text = GATE.read_text()
     for command in (
         "python3 scripts/current_tree_authority_check.py",
         "python3 scripts/stage8b_tls_qualification_check.py --no-git",
         "python3 scripts/stage8b_p_contract_refresh.py",
         "python3 scripts/stage8b_p_build_repro.py",
+        "python3 scripts/stage8b_p_governance_refresh.py",
         "python3 scripts/stage8b_p_preconditions_check.py",
         "python3 scripts/stage8b_p_preconditions_negative_harness.py",
+        "bash scripts/current_tree_ci_gate.sh",
+        "bash scripts/test_m4_3x_evidence_no_redis.sh",
         "cargo fmt --all -- --check",
+        "cargo test --workspace --all-targets -- --test-threads=1",
+        "cargo test --workspace --release --all-targets -- --test-threads=1",
+        "cargo test --workspace --doc",
+        "cargo clippy --workspace --all-targets --all-features -- -D warnings",
+        "scripts/redis_shadow_smoke.sh",
+        "scripts/runtime_bridge_dry_smoke.sh",
         "git diff --check",
     ):
         require(gate_text.count(command) == 1, f"gate command drift: {command}")
@@ -202,7 +268,7 @@ def main() -> None:
         changed = [line[3:] for line in status if len(line) > 3]
         require(not any(path.startswith(("crates/", "Cargo.toml", "Cargo.lock", ".github/", "config/")) for path in changed), "production/workflow surface changed")
 
-    print("stage8b-p-preconditions-check: PASS revision=R1 rows=36 contract=ready build=ready governance=pending stage8b_p=false")
+    print("stage8b-p-preconditions-check: PASS revision=R2 rows=48 contract=accepted build=accepted governance=ready stage8b_p=false")
 
 
 if __name__ == "__main__":

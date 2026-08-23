@@ -1,4 +1,4 @@
-# Stage 8B-P preconditions refresh — design-only review package
+# Stage 8B-P preconditions R2 — GOV-P1 corrective review package
 
 Status: candidate for independent review. Stage 8B-P remains closed.
 
@@ -11,22 +11,23 @@ history-preserving fast-forwarded to `main`. The merged tree is exactly
 `moex-trading-project-6cb1795.zip`, SHA-256
 `1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6`.
 
-This additive package performs only the allowed preconditions refresh. It does
-not change Rust, Cargo manifests, workflows, config, endpoint code or any
-runtime path. It does not issue an operator arm and cannot call FINAM.
+This corrective package retains the independently accepted CONTRACT-P1 and
+BUILD-P1 evidence and changes only governance/workflow control-plane files. It
+does not change Rust, Cargo manifests, config, endpoint code or any runtime
+path. It does not issue an operator arm and cannot call FINAM.
 
 ## Preconditions result
 
 | Gate | Current result | Meaning |
 |---|---|---|
-| CONTRACT-P1 | Ready for independent acceptance | Seven official FINAM pages were freshly fetched; status, byte count and SHA-256 are identical to the accepted 2026-08-14 snapshot. |
-| BUILD-P1 | Ready for independent acceptance | The accepted TLS archive was built twice from clean roots in locked/offline release mode with deterministic path remapping; both executable hashes are identical. |
-| GOV-P1 | Pending | `main.protected=false`, ruleset 20111805 is disabled and canonical CI still contains mutable action/toolchain references. An exact-review/handoff/tree-identical-merge equivalent is proposed but is not self-accepted here. |
+| CONTRACT-P1 | Accepted in R1 | Seven official FINAM pages were freshly fetched; status, byte count and SHA-256 are identical to the accepted 2026-08-14 snapshot. It must be refreshed again immediately before actual Stage 8B-P. |
+| BUILD-P1 | Accepted in R1 | The accepted TLS archive was built twice from clean roots in locked/offline release mode with deterministic path remapping; both executable hashes are identical. No execution-source input changed in R2. |
+| GOV-P1 | Ready for independent acceptance | Ruleset 20111805 is active on the default `main` branch, PR review/status checks are enforced, bypass is empty, force-push/deletion are blocked, and canonical CI identities are immutable. |
 
-Because GOV-P1 is pending, `all_prerequisites_accepted=false` and Stage 8B-P is
-not open. Independent review may accept the documented equivalent mechanism or
-require the repository ruleset and immutable CI pins to be enabled in a later,
-separately reviewed governance slice.
+GOV-P1 is ready for independent acceptance, not self-accepted. Therefore
+`all_prerequisites_accepted=false` and Stage 8B-P remains closed. Only an
+independent R2 verdict followed by an exact reviewed merge and post-merge
+verification can close GOV-P1.
 
 ## Fresh FINAM contract
 
@@ -79,32 +80,39 @@ bound in the build identity. The executable was not invoked.
 This evidence proves a deterministic local artifact for review. It does not
 make the artifact deployable or execution-authorized.
 
-## Governance observation and proposed equivalent
+## Enforced GOV-P1 controls
 
-The public GitHub API reported:
+The public GitHub API is checked by `stage8b_p_governance_refresh.py`. The
+required normalized state is:
 
 ```text
-main head              6cb179509fad97e8be56e31bb930b2a86caefc6a
-main protected         false
-ruleset 20111805       disabled
+default branch         main
+main protected         true
+ruleset 20111805       active
+ruleset target         ~DEFAULT_BRANCH
+bypass actors          none
+required checks        rust, redis-smoke
 ```
 
-Canonical CI currently refers to `actions/checkout@v4` and
-`dtolnay/rust-toolchain@stable`. The public upstream revisions observed for
-those refs are recorded, but this package does not silently edit the frozen
-workflow and does not claim those mutable references are acceptable.
+The ruleset requires one approval, dismisses stale reviews, requires approval
+of the last push, requires review-thread resolution and permits only merge
+commits. Branch deletion and non-fast-forward updates are blocked. The exact
+policy key set is checker-frozen; missing or additional authority keys fail.
 
-The proposed equivalent reviewed-change mechanism requires all of:
+Canonical CI is pinned in both jobs to:
 
-1. independent review of an exact full commit;
-2. immutable source ZIP plus SHA-256 and source manifest;
-3. a history-preserving tree-identical merge only after acceptance;
-4. post-merge exact head/tree verification;
-5. the current-tree and negative gates;
-6. no administrator self-acceptance for Stage 8B-P.
+- `actions/checkout@11d5960a326750d5838078e36cf38b85af677262`;
+- `dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c`;
+- Rust `1.95.0`.
 
-Independent acceptance of that mechanism, or activation of reviewed branch
-protection with immutable action/toolchain pins, is required to close GOV-P1.
+Mutable tags and `stable` are rejected by both the current-tree authority and
+the R2 negative harness. Any break-glass/bypass use invalidates this candidate
+and requires a new governance observation and independent review.
+
+The handoff gate also runs the inherited current-tree replay, current workspace
+debug and release tests, doctests, all-feature clippy, no-Redis evidence smoke,
+Redis shadow smoke and runtime-bridge dry smoke. Its terminal regression marker
+is emitted only after every command succeeds on the exact corrective commit.
 
 ## Explicitly closed surfaces
 
@@ -119,5 +127,5 @@ This package keeps all of the following closed:
 - market/protective/replace/multi-leg expansion;
 - Stage 12.
 
-The only next action authorized by this candidate is independent review of this
-preconditions package. It cannot authorize a GET, POST, DELETE or any live run.
+The only next action authorized by this candidate is independent review of
+GOV-P1 R2. It cannot authorize a GET, POST, DELETE or any live run.

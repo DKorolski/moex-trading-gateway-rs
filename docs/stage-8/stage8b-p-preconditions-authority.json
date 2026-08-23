@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "stage": "8B-P-PRECONDITIONS",
-  "revision": "R1",
-  "status": "design_only_candidate_pending_independent_acceptance",
-  "branch": "stage8b-p-preconditions-refresh",
+  "revision": "R2",
+  "status": "gov_p1_candidate_pending_independent_acceptance",
+  "branch": "stage8b-p-preconditions-r2-gov",
   "accepted_tls_ref": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
   "accepted_tls_tree": "4900fd38d741ab24f643acf211e7d1f807d23792",
   "accepted_tls_archive_sha256": "1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6",
@@ -17,7 +17,7 @@
     "all_http_200": true,
     "all_hashes_bound": true,
     "material_drift": false,
-    "status": "READY_FOR_INDEPENDENT_ACCEPTANCE"
+    "status": "ACCEPTED_R1"
   },
   "build_p1": {
     "identity": "docs/stage-8/stage8b-p-build-identity-2026-08-23.json",
@@ -27,23 +27,24 @@
     "executable_sha256_bound": true,
     "toolchain_identity_bound": true,
     "dependency_and_feature_graphs_bound": true,
-    "status": "READY_FOR_INDEPENDENT_ACCEPTANCE"
+    "status": "ACCEPTED_R1"
   },
   "gov_p1": {
     "observation": "docs/stage-8/stage8b-p-governance-observation-2026-08-23.json",
-    "branch_protection_active": false,
-    "ruleset_enforcement_active": false,
-    "immutable_action_pins_active": false,
-    "equivalent_reviewed_change_control_proposed": true,
-    "status": "PENDING_INDEPENDENT_ACCEPTANCE_OR_RULESET_ENABLEMENT"
+    "branch_protection_active": true,
+    "ruleset_enforcement_active": true,
+    "immutable_action_pins_active": true,
+    "equivalent_reviewed_change_control_proposed": false,
+    "status": "READY_FOR_INDEPENDENT_ACCEPTANCE"
   },
   "aggregate": {
     "prerequisite_count": 3,
-    "ready_for_independent_acceptance_count": 2,
-    "pending_count": 1,
+    "accepted_count": 2,
+    "ready_for_independent_acceptance_count": 1,
+    "pending_independent_acceptance_count": 1,
     "all_prerequisites_accepted": false,
     "stage8b_p_open": false,
-    "next_allowed_action": "independent_review_of_this_design_only_preconditions_package"
+    "next_allowed_action": "independent_review_of_gov_p1_r2_package"
   },
   "closed_surfaces": {
     "operator_arm_issuance": true,
@@ -57,6 +58,6 @@
     "real_orders": true,
     "stage12": true
   },
-  "acceptance_rows": 36,
-  "negative_mutations": 24
+  "acceptance_rows": 48,
+  "negative_mutations": 53
 }

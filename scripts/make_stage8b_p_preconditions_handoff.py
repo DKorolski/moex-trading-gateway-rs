@@ -18,7 +18,7 @@ OUTPUT = ROOT / "reports/handoff"
 GATE_LOG = ROOT / "reports/stage8b-p-preconditions-gate.log"
 BUILD_REPORT = ROOT / "reports/stage8b-p-build-repro.json"
 BINARY = ROOT / "reports/stage8b-p-broker-cli-aarch64-apple-darwin"
-BRANCH = "stage8b-p-preconditions-refresh"
+BRANCH = "stage8b-p-preconditions-r2-gov"
 BASE = "6cb179509fad97e8be56e31bb930b2a86caefc6a"
 
 
@@ -45,7 +45,7 @@ def main() -> None:
     gate = subprocess.run(["bash", "scripts/stage8b_p_preconditions_gate.sh"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False).stdout
     GATE_LOG.parent.mkdir(parents=True, exist_ok=True)
     GATE_LOG.write_bytes(gate)
-    if b"stage8b-p-preconditions-gate: PASS revision=R1 rows=36 negatives=24" not in gate:
+    if b"stage8b-p-preconditions-gate: PASS revision=R2 rows=48 negatives=53" not in gate:
         raise SystemExit("stage8b-p-preconditions-handoff: FAIL gate")
     build_report = BUILD_REPORT.read_bytes()
     binary = BINARY.read_bytes()
@@ -60,17 +60,17 @@ def main() -> None:
     evidence = (json.dumps({
         "schema_version": 1,
         "stage": "8B-P-PRECONDITIONS",
-        "revision": "R1",
+        "revision": "R2",
         "source_ref": source_ref,
         "accepted_tls_ref": BASE,
         "archive_name": archive_name,
         "branch": branch,
-        "contract_ready": True,
-        "build_ready": True,
-        "governance_pending": True,
+        "contract_accepted": True,
+        "build_accepted": True,
+        "governance_ready": True,
         "all_prerequisites_accepted": False,
-        "acceptance_rows": 36,
-        "negative_mutations": 24,
+        "acceptance_rows": 48,
+        "negative_mutations": 53,
         "gate_sha256": sha(gate),
         "build_report_sha256": sha(build_report),
         "executable_sha256": sha(binary),
