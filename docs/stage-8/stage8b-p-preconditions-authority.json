@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P-PRECONDITIONS",
+  "revision": "R1",
+  "status": "design_only_candidate_pending_independent_acceptance",
+  "branch": "stage8b-p-preconditions-refresh",
+  "accepted_tls_ref": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+  "accepted_tls_tree": "4900fd38d741ab24f643acf211e7d1f807d23792",
+  "accepted_tls_archive_sha256": "1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6",
+  "accepted_tls_review_verdict": "INDEPENDENTLY_ACCEPTED",
+  "accepted_tls_merged_to_main": true,
+  "accepted_tls_tree_identical_after_merge": true,
+  "contract_p1": {
+    "snapshot": "docs/stage-8/stage8b-p-finam-contract-snapshot-2026-08-23.json",
+    "snapshot_sha256": "fc836dcc696651dd273b658807636b23793cd92d0343282949f38ac7161c789c",
+    "official_response_count": 7,
+    "all_http_200": true,
+    "all_hashes_bound": true,
+    "material_drift": false,
+    "status": "READY_FOR_INDEPENDENT_ACCEPTANCE"
+  },
+  "build_p1": {
+    "identity": "docs/stage-8/stage8b-p-build-identity-2026-08-23.json",
+    "accepted_source_archive_used": true,
+    "offline_locked_release_build": true,
+    "source_unchanged_after_build": true,
+    "executable_sha256_bound": true,
+    "toolchain_identity_bound": true,
+    "dependency_and_feature_graphs_bound": true,
+    "status": "READY_FOR_INDEPENDENT_ACCEPTANCE"
+  },
+  "gov_p1": {
+    "observation": "docs/stage-8/stage8b-p-governance-observation-2026-08-23.json",
+    "branch_protection_active": false,
+    "ruleset_enforcement_active": false,
+    "immutable_action_pins_active": false,
+    "equivalent_reviewed_change_control_proposed": true,
+    "status": "PENDING_INDEPENDENT_ACCEPTANCE_OR_RULESET_ENABLEMENT"
+  },
+  "aggregate": {
+    "prerequisite_count": 3,
+    "ready_for_independent_acceptance_count": 2,
+    "pending_count": 1,
+    "all_prerequisites_accepted": false,
+    "stage8b_p_open": false,
+    "next_allowed_action": "independent_review_of_this_design_only_preconditions_package"
+  },
+  "closed_surfaces": {
+    "operator_arm_issuance": true,
+    "stage8b_p": true,
+    "stage8b_xe": true,
+    "finam_post_delete": true,
+    "broker_effect": true,
+    "redis_execution_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "stage12": true
+  },
+  "acceptance_rows": 36,
+  "negative_mutations": 24
+}

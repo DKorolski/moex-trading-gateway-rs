@@ -1,0 +1,37 @@
+id,area,requirement,evidence,status
+PPR-001,lineage,Accepted TLS full commit is exact,authority,PASS
+PPR-002,lineage,Accepted TLS tree is exact,authority,PASS
+PPR-003,lineage,Accepted TLS archive SHA-256 is exact,authority,PASS
+PPR-004,lineage,TLS candidate is merged to main tree-identically,authority,PASS
+PPR-005,scope,Package is additive docs/scripts only,git diff,PASS
+PPR-006,scope,Production Rust is unchanged,git diff,PASS
+PPR-007,scope,Cargo manifests and lock are unchanged,git diff,PASS
+PPR-008,scope,Canonical workflows are unchanged,git diff,PASS
+PPR-009,contract,Seven official FINAM responses are bound,snapshot,PASS
+PPR-010,contract,All official fetch statuses are 200,snapshot,PASS
+PPR-011,contract,All response byte counts match baseline,snapshot,PASS
+PPR-012,contract,All response hashes match baseline,snapshot,PASS
+PPR-013,contract,Production host is api.finam.ru,snapshot,PASS
+PPR-014,contract,PLACE method and route are exact,snapshot,PASS
+PPR-015,contract,CANCEL method and route are exact,snapshot,PASS
+PPR-016,contract,Request and response fields are normalized,snapshot,PASS
+PPR-017,contract,Error and reconciliation semantics remain conservative,snapshot,PASS
+PPR-018,contract,Material contract drift is false,snapshot,PASS
+PPR-019,build,Build consumes accepted immutable source archive,build identity,PASS
+PPR-020,build,Source manifest is verified before and after build,build identity,PASS
+PPR-021,build,Build is offline locked release broker-cli,build identity,PASS
+PPR-022,build,Build path is deterministically remapped,build identity,PASS
+PPR-023,build,Two independent clean builds were performed,build identity,PASS
+PPR-024,build,Both executable SHA-256 values are identical,build identity,PASS
+PPR-025,build,Exact Cargo manifests and lock are bound,build identity,PASS
+PPR-026,build,Production and all-feature graphs are bound,build identity,PASS
+PPR-027,build,Exact Cargo and rustc identities are bound,build identity,PASS
+PPR-028,build,Config policy instrument API renderer and schema are bound,build identity,PASS
+PPR-029,governance,Public GitHub main head observation is exact,governance observation,PASS
+PPR-030,governance,Branch protection absence is recorded fail-closed,governance observation,PASS
+PPR-031,governance,Disabled ruleset is recorded fail-closed,governance observation,PASS
+PPR-032,governance,Mutable CI action references are recorded,governance observation,PASS
+PPR-033,governance,Equivalent reviewed-change mechanism is explicit,governance observation,PASS
+PPR-034,boundary,GOV-P1 remains pending,authority,PASS
+PPR-035,boundary,Stage 8B-P and all effect surfaces remain closed,authority,PASS
+PPR-036,transition,Only independent review of this package is next,authority,PASS
