@@ -1,6 +1,6 @@
-# Stage 8B-P preconditions R3 — GOV-P1 solo-mode merge package
+# Stage 8B-P preconditions R4 — GOV-P1 solo-mode merge closure
 
-Status: operator-authorized solo mode pending exact reviewed merge. Stage 8B-P remains closed.
+Status: GOV-P1 accepted and closed in operator-authorized solo mode. Stage 8B-P remains closed.
 
 ## Scope and accepted predecessor
 
@@ -18,10 +18,18 @@ BUILD-P1 evidence. GOV-P1 R2 at
 `7e1b9b308a188f61db9585c4a95146aa081ea7aa994916d0f5f9876721a089e3`.
 The repository operator then explicitly authorized a solo-mode GitHub merge
 policy because the sole owner cannot approve their own PR and the external
-review integration cannot submit an approval. R3 changes only
+review integration cannot submit an approval. R3 changed only
 governance/workflow control-plane files. It
 does not change Rust, Cargo manifests, config, endpoint code or any runtime
 path. It does not issue an operator arm and cannot call FINAM.
+
+R3 candidate `c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4` passed the
+mandatory `rust` and `redis-smoke` checks and was merged normally through PR
+#4 as `d1eb028dca9b142312adcd40ece2d77eacf82cbb`. Candidate and merge trees are
+identical at `a091309adc7029ec69eeefb3403c3096f695dde5`. No bypass, squash,
+rebase or force-push was used. R4 records that immutable closure and separates
+it from the live ruleset check so future normal `main` commits cannot make
+historical merge evidence self-reject.
 
 ## Preconditions result
 
@@ -29,12 +37,14 @@ path. It does not issue an operator arm and cannot call FINAM.
 |---|---|---|
 | CONTRACT-P1 | Accepted in R1 | Seven official FINAM pages were freshly fetched; status, byte count and SHA-256 are identical to the accepted 2026-08-14 snapshot. It must be refreshed again immediately before actual Stage 8B-P. |
 | BUILD-P1 | Accepted in R1 | The accepted TLS archive was built twice from clean roots in locked/offline release mode with deterministic path remapping; both executable hashes are identical. No execution-source input changed in R2. |
-| GOV-P1 | R2 independently accepted; R3 solo merge authorized | Ruleset 20111805 is active on the default `main` branch, the PR path and strict status checks are enforced, GitHub approval count is zero, bypass is empty, force-push/deletion are blocked, and canonical CI identities are immutable. |
+| GOV-P1 | Accepted and closed | Ruleset 20111805 is active on the default `main` branch, the R3 candidate passed both required checks and was merged tree-identically through PR #4, GitHub approval count is zero, bypass is empty, force-push/deletion are blocked, and canonical CI identities are immutable. |
 
 The external engineering verdict remains the semantic acceptance evidence; a
 GitHub approval is not used as semantic acceptance in operator-authorized solo
-mode. `all_prerequisites_accepted=false` remains fail-closed until the R3 tree
-is merged normally and verified exactly on `main`. Stage 8B-P remains closed.
+mode. `all_prerequisites_accepted=true` now means only that CONTRACT-P1,
+BUILD-P1 and GOV-P1 have accepted evidence. It does not authorize Stage 8B-P:
+the official FINAM contract must be refreshed again and a separate Stage 8B-P
+authorization package must be accepted first.
 
 ## Fresh FINAM contract
 
@@ -101,6 +111,14 @@ bypass actors          none
 required checks        rust, redis-smoke
 ```
 
+`observed_main_head` is the immutable R3 merge-closure anchor, not a permanent
+equality lock on the moving default branch. Every live refresh still compares
+the repository, protection state, complete normalized ruleset and compliance
+result. It also fetches PR #4, both Git commit objects and the check runs bound
+to the exact R3 candidate; merge parent order, candidate/merge tree identity,
+GitHub Actions ownership and successful `rust`/`redis-smoke` conclusions must
+all match before closure evidence can be emitted.
+
 The ruleset requires a PR but zero GitHub approvals. Approval-dependent stale,
 last-push and unattributed-change settings are disabled so a sole owner cannot
 deadlock their own reviewed change. Review-thread resolution remains required
@@ -116,14 +134,14 @@ Canonical CI is pinned in both jobs to:
 - Rust `1.95.0`.
 
 Mutable tags and `stable` are rejected by both the current-tree authority and
-the R3 negative harness. Any break-glass/bypass use invalidates this candidate
+the R4 negative harness. Any break-glass/bypass use invalidates this governance
 and requires a new governance observation. Independent engineering acceptance
 remains mandatory before Stage 8B-P even though GitHub approval is not.
 
 The handoff gate also runs the inherited current-tree replay, current workspace
 debug and release tests, doctests, all-feature clippy, no-Redis evidence smoke,
 Redis shadow smoke and runtime-bridge dry smoke. Its terminal regression marker
-is emitted only after every command succeeds on the exact corrective commit.
+is emitted only after every command succeeds on the current candidate.
 The canonical `rust` job runs on the explicit `macos-15` Arm64 image matching
 the accepted BUILD-P1 `aarch64-apple-darwin` target and explicitly installs the
 `redis-server` test toolchain required by the immutable Stage 7B replay. The
@@ -154,6 +172,7 @@ This package keeps all of the following closed:
 - market/protective/replace/multi-leg expansion;
 - Stage 12.
 
-The only next action authorized by this candidate is a normal merge commit of
-the exact R3 tree followed by `main` head/tree and protected-branch check
-verification. It cannot authorize a GET, POST, DELETE or any live run.
+The only next action authorized after this closure is a fresh official FINAM
+contract refresh followed by preparation and independent acceptance of a
+separate Stage 8B-P authorization package. It cannot authorize a GET, POST,
+DELETE or any live run.

@@ -9,10 +9,35 @@
   },
   "compliant": true,
   "default_branch": "main",
-  "gov_p1_status": "OPERATOR_AUTHORIZED_SOLO_MODE",
+  "gov_p1_status": "ACCEPTED_SOLO_MODE",
+  "merge_closure": {
+    "candidate_check_run_ids": {
+      "redis-smoke": 97397966234,
+      "rust": 97397966418
+    },
+    "candidate_checks_head_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+    "candidate_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+    "candidate_required_checks": {
+      "redis-smoke": "success",
+      "rust": "success"
+    },
+    "candidate_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
+    "github_api_verified": true,
+    "merge_method": "merge",
+    "merge_parent_refs": [
+      "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+      "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4"
+    ],
+    "merge_ref": "d1eb028dca9b142312adcd40ece2d77eacf82cbb",
+    "merge_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
+    "pr_number": 4,
+    "pull_request_merged": true,
+    "tree_identical": true
+  },
   "observation_kind": "stage8b_p_enforced_governance_precondition",
-  "observed_at_utc": "2026-08-24T10:17:48.103208Z",
-  "observed_main_head": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+  "observed_at_utc": "2026-08-24T12:11:14Z",
+  "observed_main_head": "d1eb028dca9b142312adcd40ece2d77eacf82cbb",
+  "observed_main_head_role": "verified_r3_merge_closure_anchor",
   "repository": "DKorolski/moex-trading-gateway-rs",
   "required_governance_policy": {
     "active_main_ruleset_required": true,
@@ -22,7 +47,7 @@
     "empty_bypass_policy_required": true,
     "force_push_blocked_required": true,
     "independent_engineering_acceptance_required_for_stage8b_p": true,
-    "post_merge_exact_head_and_tree_verification_required": true,
+    "immutable_post_merge_closure_evidence_required": true,
     "pull_request_required": true,
     "zero_github_approvals_required_for_solo_mode": true
   },

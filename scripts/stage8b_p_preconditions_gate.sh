@@ -31,4 +31,4 @@ scripts/runtime_bridge_dry_smoke.sh
 git diff --check
 
 echo "stage8b-p-full-regression: PASS current-tree=true debug=true release=true doc=true clippy=true redis-shadow=true runtime-bridge=true"
-echo "stage8b-p-preconditions-gate: PASS revision=R3 rows=48 negatives=57 contract=accepted build=accepted governance=solo-authorized stage8b_p=false finam=false broker_effect=false"
+echo "stage8b-p-preconditions-gate: PASS revision=R4 rows=48 negatives=64 contract=accepted build=accepted governance=solo-accepted stage8b_p=false finam=false broker_effect=false"

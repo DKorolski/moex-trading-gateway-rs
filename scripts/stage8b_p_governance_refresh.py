@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch and validate the exact public GitHub GOV-P1 solo-mode ruleset state."""
+"""Validate live GOV-P1 controls without rebinding immutable merge evidence."""
 
 from __future__ import annotations
 
@@ -21,6 +21,10 @@ CHECKOUT_SHA = "11d5960a326750d5838078e36cf38b85af677262"
 RUST_ACTION_SHA = "4360b52568e2003a75bf9bc1d59f33a8e3fc893c"
 RUST_RELEASE = "1.95.0"
 REQUIRED_CHECKS = ["redis-smoke", "rust"]
+R3_CANDIDATE_REF = "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4"
+R3_CANDIDATE_TREE = "a091309adc7029ec69eeefb3403c3096f695dde5"
+R3_MERGE_REF = "d1eb028dca9b142312adcd40ece2d77eacf82cbb"
+R3_BASE_REF = "6cb179509fad97e8be56e31bb930b2a86caefc6a"
 
 
 def fetch(path: str) -> dict[str, Any]:
@@ -69,6 +73,60 @@ def normalize_rules(rules: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def verified_merge_closure() -> dict[str, Any]:
+    pull = fetch("/pulls/4")
+    candidate = fetch(f"/git/commits/{R3_CANDIDATE_REF}")
+    merge = fetch(f"/git/commits/{R3_MERGE_REF}")
+    runs = fetch(f"/commits/{R3_CANDIDATE_REF}/check-runs").get("check_runs", [])
+    checks = {
+        str(run.get("name")): run
+        for run in runs
+        if run.get("name") in REQUIRED_CHECKS
+    }
+    if not all(
+        (
+            pull.get("number") == 4,
+            pull.get("state") == "closed",
+            pull.get("merged") is True,
+            pull.get("merge_commit_sha") == R3_MERGE_REF,
+            pull.get("head", {}).get("sha") == R3_CANDIDATE_REF,
+            pull.get("base", {}).get("sha") == R3_BASE_REF,
+            candidate.get("sha") == R3_CANDIDATE_REF,
+            candidate.get("tree", {}).get("sha") == R3_CANDIDATE_TREE,
+            merge.get("sha") == R3_MERGE_REF,
+            merge.get("tree", {}).get("sha") == R3_CANDIDATE_TREE,
+            [parent.get("sha") for parent in merge.get("parents", [])]
+            == [R3_BASE_REF, R3_CANDIDATE_REF],
+            sorted(checks) == REQUIRED_CHECKS,
+            all(
+                run.get("head_sha") == R3_CANDIDATE_REF
+                and run.get("status") == "completed"
+                and run.get("conclusion") == "success"
+                and run.get("app", {}).get("slug") == "github-actions"
+                for run in checks.values()
+            ),
+        )
+    ):
+        raise RuntimeError("GitHub R3 merge/check closure is not exact")
+    return {
+        "pr_number": 4,
+        "candidate_ref": R3_CANDIDATE_REF,
+        "candidate_tree": R3_CANDIDATE_TREE,
+        "merge_ref": R3_MERGE_REF,
+        "merge_tree": R3_CANDIDATE_TREE,
+        "merge_parent_refs": [R3_BASE_REF, R3_CANDIDATE_REF],
+        "tree_identical": True,
+        "merge_method": "merge",
+        "pull_request_merged": True,
+        "github_api_verified": True,
+        "candidate_checks_head_ref": R3_CANDIDATE_REF,
+        "candidate_check_run_ids": {
+            name: checks[name]["id"] for name in REQUIRED_CHECKS
+        },
+        "candidate_required_checks": {name: "success" for name in REQUIRED_CHECKS},
+    }
+
+
 def material_observation() -> dict[str, Any]:
     repository = fetch("")
     branch = fetch("/branches/main")
@@ -78,7 +136,6 @@ def material_observation() -> dict[str, Any]:
     material = {
         "repository": REPOSITORY,
         "default_branch": repository.get("default_branch"),
-        "observed_main_head": branch.get("commit", {}).get("sha"),
         "branch_protected": branch.get("protected"),
         "ruleset": {
             "id": ruleset.get("id"),
@@ -93,6 +150,7 @@ def material_observation() -> dict[str, Any]:
             "bypass_actors": ruleset.get("bypass_actors", []),
             **normalized_rules,
         },
+        "merge_closure": verified_merge_closure(),
     }
     material["compliant"] = compliant(material)
     return material
@@ -157,7 +215,7 @@ def document(material: dict[str, Any]) -> dict[str, Any]:
             "force_push_blocked_required": True,
             "branch_deletion_blocked_required": True,
             "empty_bypass_policy_required": True,
-            "post_merge_exact_head_and_tree_verification_required": True,
+            "immutable_post_merge_closure_evidence_required": True,
             "current_tree_gate_required": True,
             "independent_engineering_acceptance_required_for_stage8b_p": True,
         },
@@ -167,7 +225,9 @@ def document(material: dict[str, Any]) -> dict[str, Any]:
             "independent_engineering_review_required_for_stage8b_p": True,
             "github_approval_is_semantic_acceptance": False,
         },
-        "gov_p1_status": "OPERATOR_AUTHORIZED_SOLO_MODE"
+        "observed_main_head": R3_MERGE_REF,
+        "observed_main_head_role": "verified_r3_merge_closure_anchor",
+        "gov_p1_status": "ACCEPTED_SOLO_MODE"
         if material["compliant"]
         else "PENDING_RULESET_ACTIVATION",
         "workflow_modified_by_this_slice": True,
@@ -188,9 +248,9 @@ def main() -> None:
         for key in (
             "repository",
             "default_branch",
-            "observed_main_head",
             "branch_protected",
             "ruleset",
+            "merge_closure",
             "compliant",
         ):
             if recorded.get(key) != candidate.get(key):

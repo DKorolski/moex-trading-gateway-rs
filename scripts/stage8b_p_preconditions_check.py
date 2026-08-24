@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static fail-closed checker for Stage 8B-P preconditions R3 / GOV-P1 solo mode."""
+"""Static fail-closed checker for Stage 8B-P preconditions R4 / GOV-P1 closure."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ GOVERNANCE_POLICY_KEYS = {
     "force_push_blocked_required",
     "branch_deletion_blocked_required",
     "empty_bypass_policy_required",
-    "post_merge_exact_head_and_tree_verification_required",
+    "immutable_post_merge_closure_evidence_required",
     "current_tree_gate_required",
     "independent_engineering_acceptance_required_for_stage8b_p",
 }
@@ -87,9 +87,9 @@ def main() -> None:
     ci = CI.read_text()
 
     require(authority.get("stage") == "8B-P-PRECONDITIONS", "stage drift")
-    require(authority.get("revision") == "R3", "revision drift")
-    require(authority.get("status") == "gov_p1_solo_mode_merge_candidate", "status drift")
-    require(authority.get("branch") == "stage8b-p-preconditions-r2-gov", "branch drift")
+    require(authority.get("revision") == "R4", "revision drift")
+    require(authority.get("status") == "gov_p1_solo_mode_accepted", "status drift")
+    require(authority.get("branch") == "gov-p1-r4-post-merge-closure", "branch drift")
     require(authority.get("accepted_tls_ref") == "6cb179509fad97e8be56e31bb930b2a86caefc6a", "TLS ref drift")
     require(authority.get("accepted_tls_tree") == "4900fd38d741ab24f643acf211e7d1f807d23792", "TLS tree drift")
     require(authority.get("accepted_tls_archive_sha256") == "1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6", "TLS archive drift")
@@ -222,14 +222,39 @@ def main() -> None:
         "github_approval_is_semantic_acceptance": False,
     }, "solo-mode observation drift")
     require(governance.get("compliant") is True, "ruleset compliance false")
-    require(governance.get("gov_p1_status") == "OPERATOR_AUTHORIZED_SOLO_MODE", "GOV-P1 status drift")
+    closure = governance.get("merge_closure", {})
+    expected_closure = {
+        "pr_number": 4,
+        "candidate_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+        "candidate_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
+        "merge_ref": "d1eb028dca9b142312adcd40ece2d77eacf82cbb",
+        "merge_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
+        "merge_parent_refs": [
+            "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+            "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+        ],
+        "tree_identical": True,
+        "merge_method": "merge",
+        "pull_request_merged": True,
+        "github_api_verified": True,
+        "candidate_checks_head_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+        "candidate_check_run_ids": {
+            "redis-smoke": 97397966234,
+            "rust": 97397966418,
+        },
+        "candidate_required_checks": {"redis-smoke": "success", "rust": "success"},
+    }
+    require(closure == expected_closure, "R3 merge closure drift")
+    require(governance.get("observed_main_head") == expected_closure["merge_ref"], "merge observation ref drift")
+    require(governance.get("observed_main_head_role") == "verified_r3_merge_closure_anchor", "merge observation role drift")
+    require(governance.get("gov_p1_status") == "ACCEPTED_SOLO_MODE", "GOV-P1 status drift")
     require(governance.get("workflow_modified_by_this_slice") is True, "workflow correction hidden")
     require(governance.get("stage8b_p_authorized") is False, "GOV-P1 opened Stage 8B-P")
 
     require(authority["contract_p1"].get("status") == "ACCEPTED_R1", "CONTRACT-P1 authority drift")
     require(authority["build_p1"].get("status") == "ACCEPTED_R1", "BUILD-P1 authority drift")
     gov = authority["gov_p1"]
-    require(gov.get("status") == "OPERATOR_AUTHORIZED_SOLO_MODE", "GOV-P1 authority drift")
+    require(gov.get("status") == "ACCEPTED_SOLO_MODE", "GOV-P1 authority drift")
     require(gov.get("branch_protection_active") is True and gov.get("ruleset_enforcement_active") is True and gov.get("immutable_action_pins_active") is True, "governance prerequisite missing")
     review = gov.get("r2_independent_acceptance", {})
     require(review.get("candidate_ref") == "7ee89e700177cb5854a838ba023e12c07b50ee45", "R2 review ref drift")
@@ -239,19 +264,20 @@ def main() -> None:
     solo = gov.get("solo_mode_decision", {})
     require(solo.get("operator_authorized") is True and solo.get("github_approval_count") == 0, "solo-mode authority drift")
     require(solo.get("semantic_independent_review_retained") is True, "semantic review removed")
+    require(gov.get("r3_merge_closure") == expected_closure, "authority merge closure drift")
     aggregate = authority["aggregate"]
     require(aggregate.get("prerequisite_count") == 3 and aggregate.get("accepted_count") == 3 and aggregate.get("ready_for_independent_acceptance_count") == 0, "aggregate counts drift")
-    require(aggregate.get("all_prerequisites_accepted") is False and aggregate.get("merge_condition_pending") is True and aggregate.get("stage8b_p_open") is False, "P opened")
-    require(aggregate.get("next_allowed_action") == "merge_gov_p1_r3_then_verify_exact_main_tree", "next action drift")
+    require(aggregate.get("all_prerequisites_accepted") is True and aggregate.get("merge_condition_pending") is False and aggregate.get("stage8b_p_open") is False, "P opened")
+    require(aggregate.get("next_allowed_action") == "refresh_finam_contract_then_prepare_stage8b_p_authorization", "next action drift")
     require(all(authority["closed_surfaces"].values()), "closed surface opened")
-    require(authority.get("acceptance_rows") == 48 and authority.get("negative_mutations") == 57, "authority matrix count drift")
+    require(authority.get("acceptance_rows") == 48 and authority.get("negative_mutations") == 64, "authority matrix count drift")
 
     with MATRIX.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     require(len(rows) == 48, "acceptance row count drift")
     require([row["id"] for row in rows] == [f"PPR-{i:03d}" for i in range(1, 49)], "acceptance IDs drift")
     require(all(row["status"] == "PASS" for row in rows), "acceptance matrix not green")
-    require(len(re.findall(r"^\d+\. ", NEGATIVE.read_text(), flags=re.MULTILINE)) == 57, "negative inventory drift")
+    require(len(re.findall(r"^\d+\. ", NEGATIVE.read_text(), flags=re.MULTILINE)) == 64, "negative inventory drift")
     require("Stage 8B-P remains closed" in design and "operator-authorized solo mode" in design, "boundary docs drift")
     gate_text = GATE.read_text()
     for command in (
@@ -282,7 +308,7 @@ def main() -> None:
         changed = [line[3:] for line in status if len(line) > 3]
         require(not any(path.startswith(("crates/", "Cargo.toml", "Cargo.lock", ".github/", "config/")) for path in changed), "production/workflow surface changed")
 
-    print("stage8b-p-preconditions-check: PASS revision=R3 rows=48 contract=accepted build=accepted governance=solo-authorized stage8b_p=false")
+    print("stage8b-p-preconditions-check: PASS revision=R4 rows=48 contract=accepted build=accepted governance=solo-accepted negatives=64 stage8b_p=false")
 
 
 if __name__ == "__main__":
