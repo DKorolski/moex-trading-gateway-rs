@@ -1,6 +1,6 @@
-# Stage 8B-P preconditions R2 — GOV-P1 corrective review package
+# Stage 8B-P preconditions R3 — GOV-P1 solo-mode merge package
 
-Status: candidate for independent review. Stage 8B-P remains closed.
+Status: operator-authorized solo mode pending exact reviewed merge. Stage 8B-P remains closed.
 
 ## Scope and accepted predecessor
 
@@ -12,7 +12,14 @@ history-preserving fast-forwarded to `main`. The merged tree is exactly
 `1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6`.
 
 This corrective package retains the independently accepted CONTRACT-P1 and
-BUILD-P1 evidence and changes only governance/workflow control-plane files. It
+BUILD-P1 evidence. GOV-P1 R2 at
+`7ee89e700177cb5854a838ba023e12c07b50ee45` was independently accepted by
+`GOV_P1_R2_ENGINEERING_REVIEW_2026-08-24.md`, SHA-256
+`7e1b9b308a188f61db9585c4a95146aa081ea7aa994916d0f5f9876721a089e3`.
+The repository operator then explicitly authorized a solo-mode GitHub merge
+policy because the sole owner cannot approve their own PR and the external
+review integration cannot submit an approval. R3 changes only
+governance/workflow control-plane files. It
 does not change Rust, Cargo manifests, config, endpoint code or any runtime
 path. It does not issue an operator arm and cannot call FINAM.
 
@@ -22,12 +29,12 @@ path. It does not issue an operator arm and cannot call FINAM.
 |---|---|---|
 | CONTRACT-P1 | Accepted in R1 | Seven official FINAM pages were freshly fetched; status, byte count and SHA-256 are identical to the accepted 2026-08-14 snapshot. It must be refreshed again immediately before actual Stage 8B-P. |
 | BUILD-P1 | Accepted in R1 | The accepted TLS archive was built twice from clean roots in locked/offline release mode with deterministic path remapping; both executable hashes are identical. No execution-source input changed in R2. |
-| GOV-P1 | Ready for independent acceptance | Ruleset 20111805 is active on the default `main` branch, PR review/status checks are enforced, bypass is empty, force-push/deletion are blocked, and canonical CI identities are immutable. |
+| GOV-P1 | R2 independently accepted; R3 solo merge authorized | Ruleset 20111805 is active on the default `main` branch, the PR path and strict status checks are enforced, GitHub approval count is zero, bypass is empty, force-push/deletion are blocked, and canonical CI identities are immutable. |
 
-GOV-P1 is ready for independent acceptance, not self-accepted. Therefore
-`all_prerequisites_accepted=false` and Stage 8B-P remains closed. Only an
-independent R2 verdict followed by an exact reviewed merge and post-merge
-verification can close GOV-P1.
+The external engineering verdict remains the semantic acceptance evidence; a
+GitHub approval is not used as semantic acceptance in operator-authorized solo
+mode. `all_prerequisites_accepted=false` remains fail-closed until the R3 tree
+is merged normally and verified exactly on `main`. Stage 8B-P remains closed.
 
 ## Fresh FINAM contract
 
@@ -94,10 +101,13 @@ bypass actors          none
 required checks        rust, redis-smoke
 ```
 
-The ruleset requires one approval, dismisses stale reviews, requires approval
-of the last push, requires review-thread resolution and permits only merge
-commits. Branch deletion and non-fast-forward updates are blocked. The exact
-policy key set is checker-frozen; missing or additional authority keys fail.
+The ruleset requires a PR but zero GitHub approvals. Approval-dependent stale,
+last-push and unattributed-change settings are disabled so a sole owner cannot
+deadlock their own reviewed change. Review-thread resolution remains required
+and only merge commits are permitted. Strict `rust` and `redis-smoke` checks,
+branch deletion/non-fast-forward blocking and the empty bypass list remain
+unchanged. The exact solo-mode policy key set is checker-frozen; missing or
+additional authority keys fail.
 
 Canonical CI is pinned in both jobs to:
 
@@ -106,8 +116,9 @@ Canonical CI is pinned in both jobs to:
 - Rust `1.95.0`.
 
 Mutable tags and `stable` are rejected by both the current-tree authority and
-the R2 negative harness. Any break-glass/bypass use invalidates this candidate
-and requires a new governance observation and independent review.
+the R3 negative harness. Any break-glass/bypass use invalidates this candidate
+and requires a new governance observation. Independent engineering acceptance
+remains mandatory before Stage 8B-P even though GitHub approval is not.
 
 The handoff gate also runs the inherited current-tree replay, current workspace
 debug and release tests, doctests, all-feature clippy, no-Redis evidence smoke,
@@ -143,5 +154,6 @@ This package keeps all of the following closed:
 - market/protective/replace/multi-leg expansion;
 - Stage 12.
 
-The only next action authorized by this candidate is independent review of
-GOV-P1 R2. It cannot authorize a GET, POST, DELETE or any live run.
+The only next action authorized by this candidate is a normal merge commit of
+the exact R3 tree followed by `main` head/tree and protected-branch check
+verification. It cannot authorize a GET, POST, DELETE or any live run.

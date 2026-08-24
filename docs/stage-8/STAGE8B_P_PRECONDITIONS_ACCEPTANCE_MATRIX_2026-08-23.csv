@@ -6,7 +6,7 @@ PPR-004,lineage,TLS candidate is merged to main tree-identically,authority,PASS
 PPR-005,scope,Corrective slice changes only workflow and governance artifacts,git diff,PASS
 PPR-006,scope,Production Rust is unchanged,git diff,PASS
 PPR-007,scope,Cargo manifests and lock are unchanged,git diff,PASS
-PPR-008,scope,Canonical workflow changes are limited to immutable action and Rust pins,git diff+checker,PASS
+PPR-008,scope,Canonical workflow changes are limited to reviewed governance and test infrastructure with no execution-source change,git diff+checker,PASS
 PPR-009,contract,Seven official FINAM responses are bound,snapshot,PASS
 PPR-010,contract,All official fetch statuses are 200,snapshot,PASS
 PPR-011,contract,All response byte counts match baseline,snapshot,PASS
@@ -32,12 +32,12 @@ PPR-030,governance,Main is protected by the active repository ruleset,live gover
 PPR-031,governance,Ruleset targets the default main branch exactly,live governance refresh,PASS
 PPR-032,governance,Ruleset has an empty bypass actor list,live governance refresh,PASS
 PPR-033,governance,Governance policy exact key set is checker-frozen,checker+negative harness,PASS
-PPR-034,boundary,GOV-P1 is ready only for independent acceptance,authority,PASS
+PPR-034,boundary,GOV-P1 R2 independent acceptance and the R3 solo-mode decision are exactly bound,authority,PASS
 PPR-035,boundary,Stage 8B-P and all effect surfaces remain closed,authority,PASS
-PPR-036,transition,Only independent review of GOV-P1 R2 is next,authority,PASS
-PPR-037,governance,Pull request path requires one independent approval,ruleset observation,PASS
-PPR-038,governance,Stale reviews are dismissed after push,ruleset observation,PASS
-PPR-039,governance,The last push requires separate approval,ruleset observation,PASS
+PPR-036,transition,Only normal merge of GOV-P1 R3 and exact post-merge verification are next,authority,PASS
+PPR-037,governance,Pull request path requires zero GitHub approvals under the explicit solo-mode decision,ruleset observation,PASS
+PPR-038,governance,Stale-review approval handling is disabled because approvals are not a solo-mode merge authority,ruleset observation,PASS
+PPR-039,governance,Last-push approval is disabled while strict required checks remain mandatory,ruleset observation,PASS
 PPR-040,governance,Review threads must be resolved,ruleset observation,PASS
 PPR-041,governance,Only merge commits are allowed,ruleset observation,PASS
 PPR-042,governance,Canonical rust and redis-smoke checks are required,ruleset observation,PASS

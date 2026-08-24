@@ -9,22 +9,22 @@
   },
   "compliant": true,
   "default_branch": "main",
-  "gov_p1_status": "READY_FOR_INDEPENDENT_ACCEPTANCE",
+  "gov_p1_status": "OPERATOR_AUTHORIZED_SOLO_MODE",
   "observation_kind": "stage8b_p_enforced_governance_precondition",
-  "observed_at_utc": "2026-08-24T07:56:57.924112Z",
+  "observed_at_utc": "2026-08-24T10:17:48.103208Z",
   "observed_main_head": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
   "repository": "DKorolski/moex-trading-gateway-rs",
   "required_governance_policy": {
     "active_main_ruleset_required": true,
-    "administrator_self_acceptance_for_p_forbidden": true,
     "branch_deletion_blocked_required": true,
     "canonical_status_checks_required": true,
     "current_tree_gate_required": true,
     "empty_bypass_policy_required": true,
     "force_push_blocked_required": true,
-    "one_independent_approval_required": true,
+    "independent_engineering_acceptance_required_for_stage8b_p": true,
     "post_merge_exact_head_and_tree_verification_required": true,
-    "pull_request_required": true
+    "pull_request_required": true,
+    "zero_github_approvals_required_for_solo_mode": true
   },
   "ruleset": {
     "bypass_actors": [],
@@ -43,10 +43,10 @@
       "allowed_merge_methods": [
         "merge"
       ],
-      "dismiss_stale_reviews_on_push": true,
-      "require_extra_approval_for_unattributed_changes": true,
-      "require_last_push_approval": true,
-      "required_approving_review_count": 1,
+      "dismiss_stale_reviews_on_push": false,
+      "require_extra_approval_for_unattributed_changes": false,
+      "require_last_push_approval": false,
+      "required_approving_review_count": 0,
       "required_review_thread_resolution": true
     },
     "required_status_checks": {
@@ -66,6 +66,12 @@
     "target": "branch"
   },
   "schema_version": 2,
+  "solo_mode": {
+    "github_approval_count": 0,
+    "github_approval_is_semantic_acceptance": false,
+    "independent_engineering_review_required_for_stage8b_p": true,
+    "operator_authorized": true
+  },
   "stage8b_p_authorized": false,
   "workflow_modified_by_this_slice": true
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch and validate the exact public GitHub GOV-P1 ruleset state."""
+"""Fetch and validate the exact public GitHub GOV-P1 solo-mode ruleset state."""
 
 from __future__ import annotations
 
@@ -119,11 +119,11 @@ def compliant(value: dict[str, Any]) -> bool:
             ruleset.get("force_push_blocked") is True,
             pull
             == {
-                "required_approving_review_count": 1,
-                "dismiss_stale_reviews_on_push": True,
-                "require_last_push_approval": True,
+                "required_approving_review_count": 0,
+                "dismiss_stale_reviews_on_push": False,
+                "require_last_push_approval": False,
                 "required_review_thread_resolution": True,
-                "require_extra_approval_for_unattributed_changes": True,
+                "require_extra_approval_for_unattributed_changes": False,
                 "allowed_merge_methods": ["merge"],
             },
             checks
@@ -152,16 +152,22 @@ def document(material: dict[str, Any]) -> dict[str, Any]:
         "required_governance_policy": {
             "active_main_ruleset_required": True,
             "pull_request_required": True,
-            "one_independent_approval_required": True,
+            "zero_github_approvals_required_for_solo_mode": True,
             "canonical_status_checks_required": True,
             "force_push_blocked_required": True,
             "branch_deletion_blocked_required": True,
             "empty_bypass_policy_required": True,
             "post_merge_exact_head_and_tree_verification_required": True,
             "current_tree_gate_required": True,
-            "administrator_self_acceptance_for_p_forbidden": True,
+            "independent_engineering_acceptance_required_for_stage8b_p": True,
         },
-        "gov_p1_status": "READY_FOR_INDEPENDENT_ACCEPTANCE"
+        "solo_mode": {
+            "operator_authorized": True,
+            "github_approval_count": 0,
+            "independent_engineering_review_required_for_stage8b_p": True,
+            "github_approval_is_semantic_acceptance": False,
+        },
+        "gov_p1_status": "OPERATOR_AUTHORIZED_SOLO_MODE"
         if material["compliant"]
         else "PENDING_RULESET_ACTIVATION",
         "workflow_modified_by_this_slice": True,

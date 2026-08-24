@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject every declared Stage 8B-P preconditions R2 authority mutation."""
+"""Reject every declared Stage 8B-P preconditions R3 solo-mode mutation."""
 
 from __future__ import annotations
 
@@ -59,14 +59,14 @@ def case_replace(relative: str, old: str, new: str) -> Callable[[Path], None]:
 POLICY_KEYS = (
     "active_main_ruleset_required",
     "pull_request_required",
-    "one_independent_approval_required",
+    "zero_github_approvals_required_for_solo_mode",
     "canonical_status_checks_required",
     "force_push_blocked_required",
     "branch_deletion_blocked_required",
     "empty_bypass_policy_required",
     "post_merge_exact_head_and_tree_verification_required",
     "current_tree_gate_required",
-    "administrator_self_acceptance_for_p_forbidden",
+    "independent_engineering_acceptance_required_for_stage8b_p",
 )
 
 
@@ -95,11 +95,11 @@ def cases() -> list[tuple[str, Callable[[Path], None]]]:
         ("deletion-rule-removed", lambda r: mutate_json(r, G, ("ruleset", "rule_types"), ["non_fast_forward", "pull_request", "required_status_checks"])),
         ("force-push-rule-removed", lambda r: mutate_json(r, G, ("ruleset", "rule_types"), ["deletion", "pull_request", "required_status_checks"])),
         ("pull-request-rule-removed", lambda r: mutate_json(r, G, ("ruleset", "rule_types"), ["deletion", "non_fast_forward", "required_status_checks"])),
-        ("approval-count-zero", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "required_approving_review_count"), 0)),
-        ("stale-review-retained", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "dismiss_stale_reviews_on_push"), False)),
-        ("last-push-approval-disabled", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "require_last_push_approval"), False)),
+        ("approval-count-restored", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "required_approving_review_count"), 1)),
+        ("stale-review-requirement-restored", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "dismiss_stale_reviews_on_push"), True)),
+        ("last-push-approval-restored", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "require_last_push_approval"), True)),
         ("review-resolution-disabled", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "required_review_thread_resolution"), False)),
-        ("extra-approval-disabled", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "require_extra_approval_for_unattributed_changes"), False)),
+        ("extra-approval-restored", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "require_extra_approval_for_unattributed_changes"), True)),
         ("squash-merge-opened", lambda r: mutate_json(r, G, ("ruleset", "pull_request", "allowed_merge_methods"), ["merge", "squash"])),
         ("redis-check-removed", lambda r: mutate_json(r, G, ("ruleset", "required_status_checks", "contexts"), ["rust"])),
         ("rust-check-removed", lambda r: mutate_json(r, G, ("ruleset", "required_status_checks", "contexts"), ["redis-smoke"])),
@@ -119,6 +119,10 @@ def cases() -> list[tuple[str, Callable[[Path], None]]]:
             ("gov-self-accept", lambda r: mutate_json(r, G, ("gov_p1_status",), "ACCEPTED")),
             ("open-p", lambda r: mutate_json(r, A, ("closed_surfaces", "stage8b_p"), False)),
             ("next-execution", lambda r: mutate_json(r, A, ("aggregate", "next_allowed_action"), "execute_stage8b_p")),
+            ("solo-operator-authorization-removed", lambda r: mutate_json(r, G, ("solo_mode", "operator_authorized"), False)),
+            ("solo-approval-count-drift", lambda r: mutate_json(r, G, ("solo_mode", "github_approval_count"), 1)),
+            ("solo-independent-review-removed", lambda r: mutate_json(r, G, ("solo_mode", "independent_engineering_review_required_for_stage8b_p"), False)),
+            ("github-approval-promoted-to-semantic-acceptance", lambda r: mutate_json(r, G, ("solo_mode", "github_approval_is_semantic_acceptance"), True)),
         ]
     )
     return result
@@ -126,7 +130,7 @@ def cases() -> list[tuple[str, Callable[[Path], None]]]:
 
 def main() -> None:
     mutations = cases()
-    if len(mutations) != 53:
+    if len(mutations) != 57:
         raise SystemExit(f"stage8b-p-preconditions-negative: FAIL inventory count={len(mutations)}")
     with tempfile.TemporaryDirectory(prefix="stage8b-p-preconditions-negative-") as tmp:
         base = Path(tmp) / "base"
@@ -140,8 +144,8 @@ def main() -> None:
             )
             if result.returncode == 0:
                 raise SystemExit(f"stage8b-p-preconditions-negative: FAIL mutation passed: {name}")
-            print(f"PASS {index:02d}/53 {name}")
-    print("stage8b-p-preconditions-negative: PASS 53/53")
+            print(f"PASS {index:02d}/57 {name}")
+    print("stage8b-p-preconditions-negative: PASS 57/57")
 
 
 if __name__ == "__main__":
