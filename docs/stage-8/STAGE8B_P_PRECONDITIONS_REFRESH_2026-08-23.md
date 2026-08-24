@@ -114,8 +114,10 @@ required checks        rust, redis-smoke
 `observed_main_head` is the immutable R3 merge-closure anchor, not a permanent
 equality lock on the moving default branch. Every live refresh still compares
 the repository, protection state, complete normalized ruleset and compliance
-result. The exact R3 candidate, merge commit and tree identity are validated
-separately as immutable closure evidence.
+result. It also fetches PR #4, both Git commit objects and the check runs bound
+to the exact R3 candidate; merge parent order, candidate/merge tree identity,
+GitHub Actions ownership and successful `rust`/`redis-smoke` conclusions must
+all match before closure evidence can be emitted.
 
 The ruleset requires a PR but zero GitHub approvals. Approval-dependent stale,
 last-push and unattributed-change settings are disabled so a sole owner cannot

@@ -11,16 +11,27 @@
   "default_branch": "main",
   "gov_p1_status": "ACCEPTED_SOLO_MODE",
   "merge_closure": {
+    "candidate_check_run_ids": {
+      "redis-smoke": 97397966234,
+      "rust": 97397966418
+    },
+    "candidate_checks_head_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
     "candidate_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
     "candidate_required_checks": {
       "redis-smoke": "success",
       "rust": "success"
     },
     "candidate_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
+    "github_api_verified": true,
     "merge_method": "merge",
+    "merge_parent_refs": [
+      "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+      "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4"
+    ],
     "merge_ref": "d1eb028dca9b142312adcd40ece2d77eacf82cbb",
     "merge_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
     "pr_number": 4,
+    "pull_request_merged": true,
     "tree_identical": true
   },
   "observation_kind": "stage8b_p_enforced_governance_precondition",

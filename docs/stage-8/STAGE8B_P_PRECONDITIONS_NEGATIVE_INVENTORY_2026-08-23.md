@@ -64,3 +64,5 @@ The checker and negative harness must reject every mutation below.
 60. Change the verified post-merge tree.
 61. Mark the candidate and merge trees non-identical.
 62. Change a required candidate check from success.
+63. Remove the live GitHub API verification claim from merge closure.
+64. Rebind candidate checks to a different commit.

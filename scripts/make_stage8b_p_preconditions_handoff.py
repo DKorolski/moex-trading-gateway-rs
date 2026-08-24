@@ -46,7 +46,7 @@ def main() -> None:
     gate = subprocess.run(["bash", "scripts/stage8b_p_preconditions_gate.sh"], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False).stdout
     GATE_LOG.parent.mkdir(parents=True, exist_ok=True)
     GATE_LOG.write_bytes(gate)
-    if b"stage8b-p-preconditions-gate: PASS revision=R4 rows=48 negatives=62" not in gate:
+    if b"stage8b-p-preconditions-gate: PASS revision=R4 rows=48 negatives=64" not in gate:
         raise SystemExit("stage8b-p-preconditions-handoff: FAIL gate")
     build_report = BUILD_REPORT.read_bytes()
     binary = BINARY.read_bytes()
@@ -72,7 +72,7 @@ def main() -> None:
         "governance_ready": True,
         "all_prerequisites_accepted": True,
         "acceptance_rows": 48,
-        "negative_mutations": 62,
+        "negative_mutations": 64,
         "gate_sha256": sha(gate),
         "build_report_sha256": sha(build_report),
         "executable_sha256": sha(binary),

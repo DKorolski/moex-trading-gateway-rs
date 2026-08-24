@@ -128,6 +128,8 @@ def cases() -> list[tuple[str, Callable[[Path], None]]]:
             ("merge-closure-tree", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "merge_tree"), "0091309adc7029ec69eeefb3403c3096f695dde5")),
             ("merge-closure-nonidentical", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "tree_identical"), False)),
             ("merge-closure-required-check", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "candidate_required_checks", "rust"), "failure")),
+            ("merge-closure-api-verification", lambda r: mutate_json(r, G, ("merge_closure", "github_api_verified"), False)),
+            ("merge-closure-check-head", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "candidate_checks_head_ref"), "031f2a55fc1ef3bfdc93928b3f51ce763493f8e4")),
         ]
     )
     return result
@@ -135,7 +137,7 @@ def cases() -> list[tuple[str, Callable[[Path], None]]]:
 
 def main() -> None:
     mutations = cases()
-    if len(mutations) != 62:
+    if len(mutations) != 64:
         raise SystemExit(f"stage8b-p-preconditions-negative: FAIL inventory count={len(mutations)}")
     with tempfile.TemporaryDirectory(prefix="stage8b-p-preconditions-negative-") as tmp:
         base = Path(tmp) / "base"
@@ -149,8 +151,8 @@ def main() -> None:
             )
             if result.returncode == 0:
                 raise SystemExit(f"stage8b-p-preconditions-negative: FAIL mutation passed: {name}")
-            print(f"PASS {index:02d}/62 {name}")
-    print("stage8b-p-preconditions-negative: PASS 62/62")
+            print(f"PASS {index:02d}/64 {name}")
+    print("stage8b-p-preconditions-negative: PASS 64/64")
 
 
 if __name__ == "__main__":

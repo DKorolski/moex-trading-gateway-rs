@@ -54,8 +54,19 @@
       "candidate_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
       "merge_ref": "d1eb028dca9b142312adcd40ece2d77eacf82cbb",
       "merge_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
+      "merge_parent_refs": [
+        "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+        "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4"
+      ],
       "tree_identical": true,
       "merge_method": "merge",
+      "pull_request_merged": true,
+      "github_api_verified": true,
+      "candidate_checks_head_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+      "candidate_check_run_ids": {
+        "redis-smoke": 97397966234,
+        "rust": 97397966418
+      },
       "candidate_required_checks": {
         "redis-smoke": "success",
         "rust": "success"
@@ -86,5 +97,5 @@
     "stage12": true
   },
   "acceptance_rows": 48,
-  "negative_mutations": 62
+  "negative_mutations": 64
 }

@@ -229,8 +229,19 @@ def main() -> None:
         "candidate_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
         "merge_ref": "d1eb028dca9b142312adcd40ece2d77eacf82cbb",
         "merge_tree": "a091309adc7029ec69eeefb3403c3096f695dde5",
+        "merge_parent_refs": [
+            "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+            "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+        ],
         "tree_identical": True,
         "merge_method": "merge",
+        "pull_request_merged": True,
+        "github_api_verified": True,
+        "candidate_checks_head_ref": "c31f2a55fc1ef3bfdc93928b3f51ce763493f8e4",
+        "candidate_check_run_ids": {
+            "redis-smoke": 97397966234,
+            "rust": 97397966418,
+        },
         "candidate_required_checks": {"redis-smoke": "success", "rust": "success"},
     }
     require(closure == expected_closure, "R3 merge closure drift")
@@ -259,14 +270,14 @@ def main() -> None:
     require(aggregate.get("all_prerequisites_accepted") is True and aggregate.get("merge_condition_pending") is False and aggregate.get("stage8b_p_open") is False, "P opened")
     require(aggregate.get("next_allowed_action") == "refresh_finam_contract_then_prepare_stage8b_p_authorization", "next action drift")
     require(all(authority["closed_surfaces"].values()), "closed surface opened")
-    require(authority.get("acceptance_rows") == 48 and authority.get("negative_mutations") == 62, "authority matrix count drift")
+    require(authority.get("acceptance_rows") == 48 and authority.get("negative_mutations") == 64, "authority matrix count drift")
 
     with MATRIX.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     require(len(rows) == 48, "acceptance row count drift")
     require([row["id"] for row in rows] == [f"PPR-{i:03d}" for i in range(1, 49)], "acceptance IDs drift")
     require(all(row["status"] == "PASS" for row in rows), "acceptance matrix not green")
-    require(len(re.findall(r"^\d+\. ", NEGATIVE.read_text(), flags=re.MULTILINE)) == 62, "negative inventory drift")
+    require(len(re.findall(r"^\d+\. ", NEGATIVE.read_text(), flags=re.MULTILINE)) == 64, "negative inventory drift")
     require("Stage 8B-P remains closed" in design and "operator-authorized solo mode" in design, "boundary docs drift")
     gate_text = GATE.read_text()
     for command in (
@@ -297,7 +308,7 @@ def main() -> None:
         changed = [line[3:] for line in status if len(line) > 3]
         require(not any(path.startswith(("crates/", "Cargo.toml", "Cargo.lock", ".github/", "config/")) for path in changed), "production/workflow surface changed")
 
-    print("stage8b-p-preconditions-check: PASS revision=R4 rows=48 contract=accepted build=accepted governance=solo-accepted stage8b_p=false")
+    print("stage8b-p-preconditions-check: PASS revision=R4 rows=48 contract=accepted build=accepted governance=solo-accepted negatives=64 stage8b_p=false")
 
 
 if __name__ == "__main__":

@@ -89,7 +89,7 @@ def check(path: str) -> dict[str, object]:
             if evidence.get(key) is not False:
                 raise ValueError(f"closed surface opened: {key}")
         gate = archive.read(GATE)
-        if b"stage8b-p-preconditions-gate: PASS revision=R4 rows=48 negatives=62" not in gate:
+        if b"stage8b-p-preconditions-gate: PASS revision=R4 rows=48 negatives=64" not in gate:
             raise ValueError("gate marker missing")
         if b"stage8b-p-contract-refresh: PASS responses=7 material_drift=false" not in gate:
             raise ValueError("fresh contract marker missing")
