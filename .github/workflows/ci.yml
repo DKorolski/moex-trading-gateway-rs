@@ -12,6 +12,10 @@ jobs:
     # The immutable Stage 7B source has a Linux-only Clippy diagnostic under
     # Rust 1.95, so replaying it on Linux would not reproduce its acceptance.
     runs-on: macos-15
+    env:
+      # Historical acceptance parsers bind exact Cargo terminal markers.
+      # Disable ANSI decoration so immutable replay evidence stays parseable.
+      CARGO_TERM_COLOR: never
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4 immutable pin

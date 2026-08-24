@@ -116,6 +116,9 @@ is emitted only after every command succeeds on the exact corrective commit.
 The canonical `rust` job runs on the explicit `macos-15` Arm64 image matching
 the accepted BUILD-P1 `aarch64-apple-darwin` target and explicitly installs the
 `redis-server` test toolchain required by the immutable Stage 7B replay. The
+job also fixes `CARGO_TERM_COLOR=never` because the immutable acceptance report
+binds exact plain-text Cargo completion markers and cannot parse ANSI-decorated
+variants. The
 separate Linux Redis smoke remains mandatory. These are test-infrastructure
 choices only and do not enable the closed Redis execution consumer.
 If an immutable historical replay fails, the current-tree wrapper emits bounded
