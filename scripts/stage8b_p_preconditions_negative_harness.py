@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject every declared Stage 8B-P preconditions R3 solo-mode mutation."""
+"""Reject every declared Stage 8B-P preconditions R4 closure mutation."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ POLICY_KEYS = (
     "force_push_blocked_required",
     "branch_deletion_blocked_required",
     "empty_bypass_policy_required",
-    "post_merge_exact_head_and_tree_verification_required",
+    "immutable_post_merge_closure_evidence_required",
     "current_tree_gate_required",
     "independent_engineering_acceptance_required_for_stage8b_p",
 )
@@ -123,6 +123,11 @@ def cases() -> list[tuple[str, Callable[[Path], None]]]:
             ("solo-approval-count-drift", lambda r: mutate_json(r, G, ("solo_mode", "github_approval_count"), 1)),
             ("solo-independent-review-removed", lambda r: mutate_json(r, G, ("solo_mode", "independent_engineering_review_required_for_stage8b_p"), False)),
             ("github-approval-promoted-to-semantic-acceptance", lambda r: mutate_json(r, G, ("solo_mode", "github_approval_is_semantic_acceptance"), True)),
+            ("merge-closure-candidate-ref", lambda r: mutate_json(r, G, ("merge_closure", "candidate_ref"), "031f2a55fc1ef3bfdc93928b3f51ce763493f8e4")),
+            ("merge-closure-merge-ref", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "merge_ref"), "01eb028dca9b142312adcd40ece2d77eacf82cbb")),
+            ("merge-closure-tree", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "merge_tree"), "0091309adc7029ec69eeefb3403c3096f695dde5")),
+            ("merge-closure-nonidentical", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "tree_identical"), False)),
+            ("merge-closure-required-check", lambda r: mutate_json(r, A, ("gov_p1", "r3_merge_closure", "candidate_required_checks", "rust"), "failure")),
         ]
     )
     return result
@@ -130,7 +135,7 @@ def cases() -> list[tuple[str, Callable[[Path], None]]]:
 
 def main() -> None:
     mutations = cases()
-    if len(mutations) != 57:
+    if len(mutations) != 62:
         raise SystemExit(f"stage8b-p-preconditions-negative: FAIL inventory count={len(mutations)}")
     with tempfile.TemporaryDirectory(prefix="stage8b-p-preconditions-negative-") as tmp:
         base = Path(tmp) / "base"
@@ -144,8 +149,8 @@ def main() -> None:
             )
             if result.returncode == 0:
                 raise SystemExit(f"stage8b-p-preconditions-negative: FAIL mutation passed: {name}")
-            print(f"PASS {index:02d}/57 {name}")
-    print("stage8b-p-preconditions-negative: PASS 57/57")
+            print(f"PASS {index:02d}/62 {name}")
+    print("stage8b-p-preconditions-negative: PASS 62/62")
 
 
 if __name__ == "__main__":

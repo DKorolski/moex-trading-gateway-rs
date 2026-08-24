@@ -1,4 +1,4 @@
-# Stage 8B-P preconditions R3 solo-mode negative inventory
+# Stage 8B-P preconditions R4 governance-closure negative inventory
 
 The checker and negative harness must reject every mutation below.
 
@@ -43,7 +43,7 @@ The checker and negative harness must reject every mutation below.
 39. Delete `force_push_blocked_required`.
 40. Delete `branch_deletion_blocked_required`.
 41. Delete `empty_bypass_policy_required`.
-42. Delete `post_merge_exact_head_and_tree_verification_required`.
+42. Delete `immutable_post_merge_closure_evidence_required`.
 43. Delete `current_tree_gate_required`.
 44. Delete `independent_engineering_acceptance_required_for_stage8b_p`.
 45. Add an unreviewed governance policy key.
@@ -52,10 +52,15 @@ The checker and negative harness must reject every mutation below.
 48. Revert the Rust action to a mutable tag.
 49. Change the Rust action full SHA.
 50. Revert the Rust toolchain to `stable`.
-51. Replace the exact operator-authorized solo status with generic in-band acceptance.
+51. Replace the exact accepted solo-mode status with generic in-band acceptance.
 52. Open Stage 8B-P or an effect surface.
 53. Change the next action from reviewed merge verification to execution.
 54. Remove the explicit operator solo-mode authorization.
 55. Change the solo-mode approval count away from zero.
 56. Remove independent engineering review as a Stage 8B-P prerequisite.
 57. Promote a GitHub approval to semantic acceptance evidence.
+58. Change the reviewed R3 candidate ref in immutable merge evidence.
+59. Change the normal merge commit ref in immutable merge evidence.
+60. Change the verified post-merge tree.
+61. Mark the candidate and merge trees non-identical.
+62. Change a required candidate check from success.

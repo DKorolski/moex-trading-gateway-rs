@@ -27,14 +27,14 @@ PPR-025,build,Exact Cargo manifests and lock are bound,build identity,PASS
 PPR-026,build,Production and all-feature graphs are bound,build identity,PASS
 PPR-027,build,Exact Cargo and rustc identities are bound,build identity,PASS
 PPR-028,build,Config policy instrument API renderer and schema are bound,build identity,PASS
-PPR-029,governance,Public GitHub main head observation is exact,governance observation,PASS
+PPR-029,governance,R3 merge commit and tree-identical candidate closure are immutable,governance observation,PASS
 PPR-030,governance,Main is protected by the active repository ruleset,live governance refresh,PASS
 PPR-031,governance,Ruleset targets the default main branch exactly,live governance refresh,PASS
 PPR-032,governance,Ruleset has an empty bypass actor list,live governance refresh,PASS
 PPR-033,governance,Governance policy exact key set is checker-frozen,checker+negative harness,PASS
-PPR-034,boundary,GOV-P1 R2 independent acceptance and the R3 solo-mode decision are exactly bound,authority,PASS
+PPR-034,boundary,GOV-P1 R2 independent acceptance R3 solo decision and normal merge closure are exactly bound,authority,PASS
 PPR-035,boundary,Stage 8B-P and all effect surfaces remain closed,authority,PASS
-PPR-036,transition,Only normal merge of GOV-P1 R3 and exact post-merge verification are next,authority,PASS
+PPR-036,transition,GOV-P1 merge is closed and only fresh contract plus Stage 8B-P authorization preparation are next,authority,PASS
 PPR-037,governance,Pull request path requires zero GitHub approvals under the explicit solo-mode decision,ruleset observation,PASS
 PPR-038,governance,Stale-review approval handling is disabled because approvals are not a solo-mode merge authority,ruleset observation,PASS
 PPR-039,governance,Last-push approval is disabled while strict required checks remain mandatory,ruleset observation,PASS
@@ -46,4 +46,4 @@ PPR-044,governance,Force pushes are blocked,ruleset observation,PASS
 PPR-045,governance,Branch deletion is blocked,ruleset observation,PASS
 PPR-046,governance,Checkout and Rust actions use exact full SHAs,workflow+checker,PASS
 PPR-047,governance,Rust toolchain is pinned to exact release 1.95.0,workflow+checker,PASS
-PPR-048,regression,Full current-tree debug release doc clippy and Redis regression is bound to the exact corrective commit,handoff gate,PASS
+PPR-048,regression,Full current-tree debug release doc clippy and Redis regression remains mandatory for every candidate,handoff gate,PASS

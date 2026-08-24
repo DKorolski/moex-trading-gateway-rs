@@ -77,17 +77,19 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("source binding mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive name mismatch")
-        if evidence.get("stage") != "8B-P-PRECONDITIONS" or evidence.get("revision") != "R2":
+        if evidence.get("stage") != "8B-P-PRECONDITIONS" or evidence.get("revision") != "R4":
             raise ValueError("stage/revision mismatch")
+        if evidence.get("accepted_r3_merge_ref") != "d1eb028dca9b142312adcd40ece2d77eacf82cbb":
+            raise ValueError("R3 merge closure mismatch")
         if evidence.get("contract_accepted") is not True or evidence.get("build_accepted") is not True:
             raise ValueError("technical prerequisite evidence missing")
-        if evidence.get("governance_ready") is not True or evidence.get("all_prerequisites_accepted") is not False:
+        if evidence.get("governance_ready") is not True or evidence.get("all_prerequisites_accepted") is not True:
             raise ValueError("governance fail-closed status missing")
         for key in ("stage8b_p", "stage8b_xe", "finam_post_delete", "broker_effect", "redis_execution", "broker_dispatch", "runtime_live", "real_orders", "stage12"):
             if evidence.get(key) is not False:
                 raise ValueError(f"closed surface opened: {key}")
         gate = archive.read(GATE)
-        if b"stage8b-p-preconditions-gate: PASS revision=R3 rows=48 negatives=57" not in gate:
+        if b"stage8b-p-preconditions-gate: PASS revision=R4 rows=48 negatives=62" not in gate:
             raise ValueError("gate marker missing")
         if b"stage8b-p-contract-refresh: PASS responses=7 material_drift=false" not in gate:
             raise ValueError("fresh contract marker missing")
