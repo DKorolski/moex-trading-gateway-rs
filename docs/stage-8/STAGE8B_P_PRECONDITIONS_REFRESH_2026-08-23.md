@@ -121,6 +121,11 @@ binds exact plain-text Cargo completion markers and cannot parse ANSI-decorated
 variants. The
 separate Linux Redis smoke remains mandatory. These are test-infrastructure
 choices only and do not enable the closed Redis execution consumer.
+The inherited current-tree replay has a 120-minute step limit: its nested
+debug/release/doctest/clippy qualification exceeded 75 minutes on the shared
+Arm64 runner, while the exact same gate completed locally. This changes only
+the execution budget; no command, acceptance marker or failure behavior is
+relaxed.
 If an immutable historical replay fails, the current-tree wrapper emits bounded
 fail-only nested diagnostics; this changes observability only and does not add
 an allowance, retry or bypass.

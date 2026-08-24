@@ -33,12 +33,12 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "f8fb13b552e46897acaa5bb18bf8f8b0133a6d42bb1f9ed1ea667de0afa05f54",
+    "aggregate_sha256": "a475c90e40728c074bf4d49ce6d324077a538f50a0e7a338256f94d0009355c6",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
-        "sha256": "1469c6585999e9f2abe36b9341d420c94083b97a3f385b3535237460a68b7060",
-        "size": 2615
+        "sha256": "9df53c83ac9d22a8df7b711791c4e6e21351d6bd74af6f241c12c9e236a09b88",
+        "size": 2616
       },
       ".github/workflows/stage5f-base-authority.yml": {
         "mode": "100644",

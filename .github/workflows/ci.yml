@@ -37,7 +37,7 @@ jobs:
 
       - name: Current-tree authority gate
         run: bash scripts/current_tree_ci_gate.sh
-        timeout-minutes: 75
+        timeout-minutes: 120
 
       - name: No-Redis evidence smoke
         run: bash scripts/test_m4_3x_evidence_no_redis.sh
