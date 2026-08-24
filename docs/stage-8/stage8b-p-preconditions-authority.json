@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P-PRECONDITIONS",
+  "revision": "R3",
+  "status": "gov_p1_solo_mode_merge_candidate",
+  "branch": "stage8b-p-preconditions-r2-gov",
+  "accepted_tls_ref": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+  "accepted_tls_tree": "4900fd38d741ab24f643acf211e7d1f807d23792",
+  "accepted_tls_archive_sha256": "1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6",
+  "accepted_tls_review_verdict": "INDEPENDENTLY_ACCEPTED",
+  "accepted_tls_merged_to_main": true,
+  "accepted_tls_tree_identical_after_merge": true,
+  "contract_p1": {
+    "snapshot": "docs/stage-8/stage8b-p-finam-contract-snapshot-2026-08-23.json",
+    "snapshot_sha256": "fc836dcc696651dd273b658807636b23793cd92d0343282949f38ac7161c789c",
+    "official_response_count": 7,
+    "all_http_200": true,
+    "all_hashes_bound": true,
+    "material_drift": false,
+    "status": "ACCEPTED_R1"
+  },
+  "build_p1": {
+    "identity": "docs/stage-8/stage8b-p-build-identity-2026-08-23.json",
+    "accepted_source_archive_used": true,
+    "offline_locked_release_build": true,
+    "source_unchanged_after_build": true,
+    "executable_sha256_bound": true,
+    "toolchain_identity_bound": true,
+    "dependency_and_feature_graphs_bound": true,
+    "status": "ACCEPTED_R1"
+  },
+  "gov_p1": {
+    "observation": "docs/stage-8/stage8b-p-governance-observation-2026-08-23.json",
+    "branch_protection_active": true,
+    "ruleset_enforcement_active": true,
+    "immutable_action_pins_active": true,
+    "equivalent_reviewed_change_control_proposed": false,
+    "r2_independent_acceptance": {
+      "candidate_ref": "7ee89e700177cb5854a838ba023e12c07b50ee45",
+      "candidate_tree": "fc1976ae053ead473a9e0fbe2e064e314e5a756b",
+      "review_file": "GOV_P1_R2_ENGINEERING_REVIEW_2026-08-24.md",
+      "review_sha256": "7e1b9b308a188f61db9585c4a95146aa081ea7aa994916d0f5f9876721a089e3",
+      "verdict": "INDEPENDENTLY_ACCEPTED"
+    },
+    "solo_mode_decision": {
+      "decision_date": "2026-08-24",
+      "github_approval_count": 0,
+      "operator_authorized": true,
+      "semantic_independent_review_retained": true
+    },
+    "status": "OPERATOR_AUTHORIZED_SOLO_MODE"
+  },
+  "aggregate": {
+    "prerequisite_count": 3,
+    "accepted_count": 3,
+    "ready_for_independent_acceptance_count": 0,
+    "pending_independent_acceptance_count": 0,
+    "all_prerequisites_accepted": false,
+    "merge_condition_pending": true,
+    "stage8b_p_open": false,
+    "next_allowed_action": "merge_gov_p1_r3_then_verify_exact_main_tree"
+  },
+  "closed_surfaces": {
+    "operator_arm_issuance": true,
+    "stage8b_p": true,
+    "stage8b_xe": true,
+    "finam_post_delete": true,
+    "broker_effect": true,
+    "redis_execution_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "stage12": true
+  },
+  "acceptance_rows": 48,
+  "negative_mutations": 57
+}

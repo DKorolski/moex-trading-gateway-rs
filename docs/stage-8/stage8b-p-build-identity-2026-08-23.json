@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "identity_kind": "stage8b_p_tls_qualified_offline_release_build",
+  "captured_at_utc": "2026-08-23T16:16:45Z",
+  "source": {
+    "commit": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+    "tree": "4900fd38d741ab24f643acf211e7d1f807d23792",
+    "archive_name": "moex-trading-project-6cb1795.zip",
+    "archive_sha256": "1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6",
+    "source_member_manifest_sha256": "0b503d1f692bad3b5de7dec00d30028943661342a7c828e17321fd5655539d64",
+    "source_member_count": 1409,
+    "source_unchanged_after_build": true
+  },
+  "build": {
+    "command": "CARGO_NET_OFFLINE=true CARGO_INCREMENTAL=0 SOURCE_DATE_EPOCH=1787497046 RUSTFLAGS=--remap-path-prefix=<canonical-extracted-root>=/stage8b-source --remap-path-prefix=<extracted-root>=/stage8b-source cargo build --release --locked -p broker-cli",
+    "network_dependency_fetch": false,
+    "profile": "release",
+    "package": "broker-cli",
+    "binary_target": "broker-cli",
+    "target_triple": "aarch64-apple-darwin",
+    "executable_sha256": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+    "executable_size": 11202608,
+    "source_date_epoch": 1787497046,
+    "extraction_parent": "/tmp",
+    "cargo_working_directory": "<extracted-root>",
+    "path_remap_destination": "/stage8b-source",
+    "independent_clean_build_count": 2,
+    "all_executable_hashes_identical": true
+  },
+  "cargo": {
+    "version": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "workspace_manifest_sha256": "4c16bd983e7c33cba6312c583e13234fe0219ff52260cced9763afdbed758fc2",
+    "finam_gateway_manifest_sha256": "c9c99931f6525ff6f7f026021df5302a743d8ef3dc73ef9958cf9cf4aea06b40",
+    "cargo_manifests_aggregate_sha256": "191e4730369e68ae32a59525bfafee424a63d8f16169431a3794f994c1d8aff7",
+    "cargo_lock_sha256": "8233fd447ee0d7bc1cc1983960af771f70c8e3b4db53a57fb4ffb453d8c529b6",
+    "resolved_production_graph_sha256": "e314ac65c4093c9370dec3f21e7aada33f5b57981ae137d8f505820b79c54b70",
+    "resolved_all_features_graph_sha256": "f7c4346dd3dcd22491336681846e6d94291d3f5dfef100d082156c141e8f7cc2",
+    "unknown_feature_count": 0
+  },
+  "rustc": {
+    "toolchain_channel": "stable-aarch64-apple-darwin",
+    "release": "1.95.0",
+    "commit_hash": "59807616e1fa2540724bfbac14d7976d7e4a3860",
+    "commit_date": "2026-04-14",
+    "host": "aarch64-apple-darwin",
+    "llvm_version": "22.1.2",
+    "rustc_vv_sha256": "7829aebdd07e53c9a511710aff1aca9a7a88761d4fd926e453e07085a366b319"
+  },
+  "semantic_bindings": {
+    "stage8b_source_sha256": "716093652a0526e20d7fdcc72ac15f434cf7bc692091ef630e119b91bb72635b",
+    "config_policy_authority_sha256": "7650e529498dbc5adfccd646878d43909c062cedc49c957bbf17c60f53d0ca1a",
+    "instrument_projection_sha256": "6281a80779975f31daf8467070a2a6dab94400ffaa2d03d9a63a7fabbd12d0fe",
+    "endpoint_renderer_projection_sha256": "24bc99b8e794ad85e7c83be7bd7d56cbc7568a01acdd4728785c2de600429d62",
+    "request_body_schema_projection_sha256": "eb708d225df87b0d8e3833bbec8059e2d3a51fc8b3eb232490eee7308ea862b8",
+    "fresh_api_snapshot_path": "docs/stage-8/stage8b-p-finam-contract-snapshot-2026-08-23.json",
+    "fresh_api_snapshot_sha256": "fc836dcc696651dd273b658807636b23793cd92d0343282949f38ac7161c789c"
+  },
+  "build_p1_status": "READY_FOR_INDEPENDENT_ACCEPTANCE",
+  "executable_executed": false,
+  "stage8b_p_authorized": false,
+  "broker_effect": false
+}

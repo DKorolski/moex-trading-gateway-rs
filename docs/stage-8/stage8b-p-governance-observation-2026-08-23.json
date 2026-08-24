@@ -1,0 +1,77 @@
+{
+  "branch_protected": true,
+  "canonical_ci": {
+    "actions_checkout_sha": "11d5960a326750d5838078e36cf38b85af677262",
+    "mutable_references_present": false,
+    "rust_release": "1.95.0",
+    "rust_toolchain_action_sha": "4360b52568e2003a75bf9bc1d59f33a8e3fc893c",
+    "sha256": "9df53c83ac9d22a8df7b711791c4e6e21351d6bd74af6f241c12c9e236a09b88"
+  },
+  "compliant": true,
+  "default_branch": "main",
+  "gov_p1_status": "OPERATOR_AUTHORIZED_SOLO_MODE",
+  "observation_kind": "stage8b_p_enforced_governance_precondition",
+  "observed_at_utc": "2026-08-24T10:17:48.103208Z",
+  "observed_main_head": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+  "repository": "DKorolski/moex-trading-gateway-rs",
+  "required_governance_policy": {
+    "active_main_ruleset_required": true,
+    "branch_deletion_blocked_required": true,
+    "canonical_status_checks_required": true,
+    "current_tree_gate_required": true,
+    "empty_bypass_policy_required": true,
+    "force_push_blocked_required": true,
+    "independent_engineering_acceptance_required_for_stage8b_p": true,
+    "post_merge_exact_head_and_tree_verification_required": true,
+    "pull_request_required": true,
+    "zero_github_approvals_required_for_solo_mode": true
+  },
+  "ruleset": {
+    "bypass_actors": [],
+    "conditions": {
+      "exclude": [],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
+    },
+    "deletion_blocked": true,
+    "enforcement": "active",
+    "force_push_blocked": true,
+    "id": 20111805,
+    "name": "moex-trading-project",
+    "pull_request": {
+      "allowed_merge_methods": [
+        "merge"
+      ],
+      "dismiss_stale_reviews_on_push": false,
+      "require_extra_approval_for_unattributed_changes": false,
+      "require_last_push_approval": false,
+      "required_approving_review_count": 0,
+      "required_review_thread_resolution": true
+    },
+    "required_status_checks": {
+      "contexts": [
+        "redis-smoke",
+        "rust"
+      ],
+      "strict_required_status_checks_policy": true
+    },
+    "rule_types": [
+      "deletion",
+      "non_fast_forward",
+      "pull_request",
+      "required_status_checks"
+    ],
+    "source_type": "Repository",
+    "target": "branch"
+  },
+  "schema_version": 2,
+  "solo_mode": {
+    "github_approval_count": 0,
+    "github_approval_is_semantic_acceptance": false,
+    "independent_engineering_review_required_for_stage8b_p": true,
+    "operator_authorized": true
+  },
+  "stage8b_p_authorized": false,
+  "workflow_modified_by_this_slice": true
+}

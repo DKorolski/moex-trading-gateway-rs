@@ -27,3 +27,9 @@
 25. GOV-CI-N25 — set Stage 8B-S authorization true.
 26. GOV-CI-N26 — replace the accepted Stage 8A-5 ref inside the authority record.
 27. GOV-CI-N27 — restore a historical Stage-5D checker as current authority.
+28. GOV-CI-N28 — replace the immutable checkout action SHA with a mutable tag.
+29. GOV-CI-N29 — change the immutable checkout action SHA.
+30. GOV-CI-N30 — replace the immutable Rust action SHA with a mutable tag.
+31. GOV-CI-N31 — change the immutable Rust action SHA.
+32. GOV-CI-N32 — replace the exact Rust release with `stable`.
+33. GOV-CI-N33 — change the exact Rust release.

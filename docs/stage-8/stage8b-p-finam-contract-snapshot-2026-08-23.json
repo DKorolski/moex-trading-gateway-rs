@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "snapshot_kind": "stage8b_p_fresh_normalized_finam_order_contract",
+  "retrieved_at_utc": "2026-08-23T16:16:45Z",
+  "retrieval": {
+    "method": "unauthenticated HTTP GET of official public FINAM text/markdown documentation",
+    "production_host": "api.finam.ru",
+    "responses": [
+      {"name":"rest_place_order","url":"https://api.finam.ru/docs/rest/ordersservice_placeorder.md","http_status":200,"sha256":"0fc4494e2f06a9bc8aebb10eb0a7de0500b661c9988a9fdfda526364348ff589","bytes":23736},
+      {"name":"rest_cancel_order","url":"https://api.finam.ru/docs/rest/ordersservice_cancelorder.md","http_status":200,"sha256":"595f123796fca321e9027c81ea1dc54d61b85862b9a1031fea73eaa2ef92b63e","bytes":6727},
+      {"name":"grpc_place_order","url":"https://api.finam.ru/docs/grpc/placeorder.md","http_status":200,"sha256":"3df67157308a1add9c27953912bd279ac66e6a715438c5034cec3a5b5d7bca12","bytes":59500},
+      {"name":"grpc_get_order","url":"https://api.finam.ru/docs/grpc/getorder.md","http_status":200,"sha256":"71cc118c771c9c960594f4e0cc3a0f2466ed76377c8f6e48a87a88d19df74dd8","bytes":45948},
+      {"name":"rest_get_asset","url":"https://api.finam.ru/docs/rest/assetsservice_getasset.md","http_status":200,"sha256":"a7292fe5e0948bd926075baba3f1d9f318f380e3531e7d2f5b6698c353f9d6d3","bytes":6421},
+      {"name":"rest_get_asset_params","url":"https://api.finam.ru/docs/rest/assetsservice_getassetparams.md","http_status":200,"sha256":"bb7c07ebadb6b3fdd0ed531ffab64aae91f547687348ffddc02209c46281b98d","bytes":6552},
+      {"name":"rest_schedule","url":"https://api.finam.ru/docs/rest/assetsservice_schedule.md","http_status":200,"sha256":"9739d401763845a82c8a401b8e174694a0f6689cc760f54dc3b4792b4c1dd5d7","bytes":5139}
+    ]
+  },
+  "comparison": {
+    "baseline_path": "docs/stage-8/stage8a0-finam-contract-snapshot-2026-08-14.json",
+    "baseline_sha256": "11062063c5f1f4f83f645af6b3a2e2716af363dca0bafdbdf3ee2b00da5d572e",
+    "response_count": 7,
+    "byte_counts_identical": true,
+    "response_sha256_identical": true,
+    "material_contract_drift": false
+  },
+  "place_order": {
+    "method": "POST",
+    "path": "/v1/accounts/{account_id}/orders",
+    "request_fields": ["symbol","quantity","side","type","time_in_force","limit_price","stop_price","stop_condition","legs","client_order_id","valid_before","comment"],
+    "response_identity_fields": ["order_id","exec_id","status","order","transact_at","accept_at","withdraw_at","initial_quantity","executed_quantity","remaining_quantity","sltp_order","triggered_order_id"],
+    "response_statuses": ["200","400","401","404","429","500","503","504","default"]
+  },
+  "cancel_order": {
+    "method": "DELETE",
+    "path": "/v1/accounts/{account_id}/orders/{order_id}",
+    "response_statuses": ["200","400","401","404","429","500","503","504","default"],
+    "cancel_200_is_observation_not_terminal_truth": true,
+    "cancel_400_404_require_reconciliation": true,
+    "cancel_409_410_undocumented_defensive_reconciliation": true
+  },
+  "initial_effect_policy": {
+    "instrument": "IMOEXF@RTSX",
+    "allowed_order_types": ["ORDER_TYPE_LIMIT"],
+    "allowed_time_in_force": ["TIME_IN_FORCE_DAY"],
+    "quantity": "1",
+    "client_order_id": "explicit_nonempty_max_20",
+    "conditional_fields_forbidden": ["stop_price","stop_condition","legs","valid_before"],
+    "automatic_retry": false,
+    "same_request_resend_after_attempt": false
+  },
+  "contract_p1_status": "READY_FOR_INDEPENDENT_ACCEPTANCE",
+  "stage8b_p_authorized": false,
+  "finam_request_sent": false
+}
