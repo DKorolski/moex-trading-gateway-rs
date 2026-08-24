@@ -27,9 +27,18 @@ Stage 8A-2 continuation once and returns only a mandatory Stage 8A-3 classified
 observation from controlled numeric-loopback endpoints. It does not authorize
 operator-arm issuance, Stage 8B-P/XE, a real FINAM POST/DELETE or any broker
 effect. IT R2 was rejected; corrective IT R3 was independently accepted and
-merged exactly at `14e01a9f`. The active successor is Stage 8B-IT-TLS R1, a
-test-only controlled rustls/HTTP2 qualification of the exact adapter semantics.
-Its separate independent acceptance remains a blocking Stage 8B-P precondition.
+merged exactly at `14e01a9f`. Stage 8B-IT-TLS R1 was independently accepted at
+`6cb179509fad97e8be56e31bb930b2a86caefc6a` and merged tree-identically. GOV-P1
+solo-mode change control and the P preconditions are accepted on `main` at
+`16a59bca74f94881c70d9fa39bbdf1c357e65f95`.
+
+The active successor is Stage 8B-P R1: a design-only exact-build authorization
+candidate. Its fresh official FINAM contract refresh passed 7/7 without
+material drift, but authorization remains `NOT_ISSUED`. R1 selects no operation,
+uses no account credential, sends no broker GET or POST/DELETE, records no
+dispatch attempt and issues no operator arm. Independent R1 acceptance may open
+only a separate operator-selected Stage 8B-P R2 GET-only preflight package;
+Stage 8B-XE and every execution surface remain closed.
 
 ## Mandatory Stage 8A order
 

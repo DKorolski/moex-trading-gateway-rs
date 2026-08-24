@@ -1,0 +1,56 @@
+id,area,requirement,evidence,status
+P1-001,lineage,Exact accepted main predecessor is bound,authority,PASS
+P1-002,lineage,Exact predecessor tree is bound,authority,PASS
+P1-003,lineage,GOV-P1 accepted status is inherited,authority,PASS
+P1-004,lineage,Preconditions authority SHA-256 is exact,authority,PASS
+P1-005,lineage,Governance observation SHA-256 is exact,authority,PASS
+P1-006,build,Accepted TLS source ref and tree are exact,authority+build identity,PASS
+P1-007,build,Accepted source archive SHA-256 is exact,authority+build identity,PASS
+P1-008,build,Accepted executable SHA-256 and size are exact,authority+build identity,PASS
+P1-009,build,Target and Rust release/commit are exact,authority+build identity,PASS
+P1-010,build,Legacy actual-send features remain disabled,authority,PASS
+P1-011,build,Production code drift since TLS qualification is false,current-tree authority,PASS
+P1-012,contract,Fresh snapshot is dated 2026-08-24,contract snapshot,PASS
+P1-013,contract,Seven official FINAM documents were fetched,contract snapshot,PASS
+P1-014,contract,All official responses are HTTP 200,contract snapshot,PASS
+P1-015,contract,All byte counts match accepted baseline,contract snapshot,PASS
+P1-016,contract,All response SHA-256 values match baseline,contract snapshot,PASS
+P1-017,contract,Material contract drift is false,contract snapshot,PASS
+P1-018,contract,No credentials or broker endpoint were used,contract snapshot,PASS
+P1-019,contract,Public documentation retry is bounded and GET-only,refresh script+checker,PASS
+P1-020,manifest,Future exact manifest has a frozen key inventory,authority+checker,PASS
+P1-021,manifest,StrategyRequestId and durable ClientOrderId are required,authority,PASS
+P1-022,manifest,Keyed account binding and generation are required,authority,PASS
+P1-023,manifest,Exact build config policy instrument and API identities are required,authority,PASS
+P1-024,manifest,Stage 7B seal and Stage 6 checkpoint are required,authority,PASS
+P1-025,manifest,Budget kill-switch and ownership generations are required,authority,PASS
+P1-026,manifest,Arm nonce issue/expiry and position baseline are required,authority,PASS
+P1-027,policy,Exactly one operation is allowed per future run,authority,PASS
+P1-028,policy,Only PLACE or CANCEL may be selected,authority,PASS
+P1-029,policy,PLACE is IMOEXF LIMIT DAY quantity one,authority,PASS
+P1-030,policy,CANCEL requires exact working same-lifecycle target,authority,PASS
+P1-031,policy,LimitCancel pair is forbidden in one run,authority,PASS
+P1-032,policy,MARKET Stop SLTP bracket replace and multi-leg remain forbidden,authority,PASS
+P1-033,policy,Automatic retry and same-request resend remain forbidden,authority,PASS
+P1-034,preflight,R2 requires operator-selected exact manifest,authority,PASS
+P1-035,preflight,R2 requires local secret account binding,authority,PASS
+P1-036,preflight,R2 requires fresh seal and dispatch-ready command,authority,PASS
+P1-037,preflight,R2 requires fresh kill switch schedule and instrument spec,authority,PASS
+P1-038,preflight,R2 requires fresh scoped orders positions and trades,authority,PASS
+P1-039,preflight,R2 requires single broker ownership and zero ambiguity,authority,PASS
+P1-040,preflight,R2 requires approved target position baseline,authority,PASS
+P1-041,preflight,Caller-built or cached snapshot is forbidden,authority,PASS
+P1-042,preflight,R1 and R2 preflight cannot issue arm or record attempt,authority,PASS
+P1-043,preflight,R1 and R2 preflight cannot enter transport boundary,authority,PASS
+P1-044,arm,R1 does not construct or issue operator arm,authority,PASS
+P1-045,arm,Future arm is one-shot request-keyed and build/account-bound,authority,PASS
+P1-046,arm,Future arm is non-Clone non-Copy and non-serializable,authority,PASS
+P1-047,arm,Future arm cannot be reconstructed or issued twice,authority,PASS
+P1-048,authorization,Authorization status is NOT_ISSUED,authority,PASS
+P1-049,authorization,No exact operation or manifest is selected,authority,PASS
+P1-050,authorization,No operator go is present,authority,PASS
+P1-051,boundary,Stage 8B-P and Stage 8B-XE remain closed,authority,PASS
+P1-052,boundary,FINAM POST DELETE transport and broker effect remain closed,authority,PASS
+P1-053,boundary,Redis execution broker dispatch and runtime-live remain closed,authority,PASS
+P1-054,boundary,Stage 11 execution promotion and Stage 12 remain closed,authority,PASS
+P1-055,transition,Only separately reviewed R2 exact GET-only preflight is next,authority,PASS
