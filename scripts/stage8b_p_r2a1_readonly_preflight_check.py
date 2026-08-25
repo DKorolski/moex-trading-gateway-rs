@@ -19,6 +19,7 @@ LOCK = TOOLS / "Cargo.lock"
 NETWORK = ROOT / "docs/stage-8/stage8b-p-r2a1-network-topology-authority.json"
 QUERY = ROOT / "docs/stage-8/stage8b-p-r2a1-query-policy-authority.json"
 CURRENT = ROOT / "docs/stage-8/stage8b-p-r2a1-current-source-authority.json"
+EVIDENCE = ROOT / "docs/stage-8/stage8b-p-r2a1-build-evidence.json"
 R2A = ROOT / "docs/stage-8/stage8b-p-r2a-readonly-preflight-authority.json"
 OLD_EFFECT_SHA = "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06"
 CURRENT_AUTHORITY_SHA = "bff33a9ff8c816daae63d1e758baa985c8bf769885c07a3f9992147a1a900867"
@@ -41,6 +42,7 @@ def main() -> None:
     network = load(NETWORK)
     query = load(QUERY)
     current = load(CURRENT)
+    evidence = load(EVIDENCE)
     old = load(R2A)
     source = SOURCE.read_text()
     production_source = source.split("#[cfg(test)]", 1)[0]
@@ -102,6 +104,15 @@ def main() -> None:
     require(set(current["failure_semantics"].values()) == {"BLOCK"}, "source failure semantics weakened")
     require(current["export_policy"] == "redacted_digests_and_timestamps_only", "raw source export enabled")
     require(all(value is False for value in current["authority"].values()), "current source authority widened")
+    require(evidence["implementation_source_ref"] == "42fcba448abbfc870be4ffaa108e1334a30d21cb", "implementation evidence ref drift")
+    require(evidence["helper"]["executable_sha256"] == "08b42e663a06bd8da69c84dc5e013b09d1cdac7fe38ad95fd62fe881ae4ca468", "helper build evidence drift")
+    require(evidence["accepted_effect_executable"]["sha256"] == OLD_EFFECT_SHA and evidence["accepted_effect_executable"]["modified"] is False, "effect evidence drift")
+    require(evidence["qualification"]["controlled_tests_passed"] == 9, "test evidence drift")
+    require(evidence["qualification"]["new_negative_mutations_passed"] == evidence["qualification"]["new_negative_mutations_total"] == 40, "new negative evidence drift")
+    require(evidence["qualification"]["inherited_negative_mutations_passed"] == evidence["qualification"]["inherited_negative_mutations_total"] == 134, "inherited negative evidence drift")
+    require(evidence["qualification"]["full_gate_exit_code"] == 0, "full gate evidence failed")
+    require(all(value is False for key, value in evidence["closed_surfaces"].items() if key != "authorization_status"), "evidence opened a closed surface")
+    require(evidence["closed_surfaces"]["authorization_status"] == "NOT_ISSUED", "evidence authorization issued")
 
     for exact in (
         ".retry(reqwest::retry::never())",

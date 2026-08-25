@@ -1,0 +1,22 @@
+Stage 8B-P R2A1 corrective qualification summary
+generated_at_utc=2026-08-25T16:17:33Z
+implementation_source_ref=42fcba448abbfc870be4ffaa108e1334a30d21cb
+implementation_source_tree=18b58ba73fb4d2c7e990416548dd6d74092e7317
+effect_executable_unchanged_sha256=677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06
+readonly_helper_release_sha256=08b42e663a06bd8da69c84dc5e013b09d1cdac7fe38ad95fd62fe881ae4ca468
+controlled_tests=9/9
+new_negative_mutations=40/40
+inherited_negative_mutations=134/134
+fmt=PASS
+test=PASS
+clippy_deny_warnings=PASS
+release_build=PASS
+full_gate=PASS
+real_credential_used=false
+real_auth_request_sent=false
+real_broker_get_sent=false
+operator_arm_issued=false
+dispatch_attempt_appended=false
+effect_transport_entered=false
+finam_order_post_delete_sent=false
+authorization=NOT_ISSUED
