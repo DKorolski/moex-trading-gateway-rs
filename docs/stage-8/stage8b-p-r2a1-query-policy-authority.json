@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "authority_kind": "stage8b_p_r2a1_query_policy_authority",
+  "stage": "8B-P",
+  "revision": "R2A1",
+  "status": "candidate_pending_independent_acceptance",
+  "policy_id": "stage8b-p-r2a1-query-policy-v1",
+  "orders_filter": "ClientSideAccountInstrumentAndOrderIdentity",
+  "trades": {
+    "limit": 1000,
+    "window_ms": 86400000,
+    "time_basis": "RequestRequestedAt",
+    "pagination": "SinglePageNoCursor",
+    "page_full_is_blocking": true
+  },
+  "caller_override_allowed": false,
+  "unknown_response_shape_is_blocking": true,
+  "non_200_is_blocking": true
+}

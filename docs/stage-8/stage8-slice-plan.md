@@ -42,11 +42,16 @@ PLACE/CANCEL run identity while retaining all R1A protections. R1B selects no
 operation, uses no account credential, sends no broker GET or POST/DELETE,
 records no dispatch attempt and issues no operator arm. Authorization remains
 `NOT_ISSUED`. R1B was independently accepted at `b9a423c` and merged by
-`f1070a4`. The active successor is R2A, which freezes a reviewable exact-build,
-operator-selected GET-only preparation contract and emits only a redacted
-no-GET plan. R2A uses no credential and performs no broker request. Independent
-R2A acceptance may open only a separate R2B one-shot GET-only evidence run;
-Stage 8B-XE and every execution surface remain closed.
+`f1070a4`. R2A at `d9c67a9` remained safely fail-closed but was not accepted:
+the pinned legacy command performs two AuthService POSTs before GETs, lacks
+explicit retry/redirect/proxy hardening and has a CANCEL-shaped probe.
+Corrective R2A1 therefore introduces a separate non-authority helper workspace,
+freezes exact `2 POST + 3 GET` PLACE and `2 POST + 4 GET` CANCEL plans, binds
+the query policy and all 17 current-source provenance contracts, and qualifies
+the boundary only against controlled local mocks. It uses no credential and
+sends no real HTTP request. Independent R2A1 acceptance may open only a
+separate operator-selected R2B evidence run; Stage 8B-XE and every execution
+surface remain closed.
 
 ## Mandatory Stage 8A order
 

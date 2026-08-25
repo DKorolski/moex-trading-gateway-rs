@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "authority_kind": "stage8b_p_r2a1_current_source_authority",
+  "stage": "8B-P",
+  "revision": "R2A1",
+  "status": "candidate_pending_independent_acceptance",
+  "evidence_digest_preimage": [
+    "source_name",
+    "issuer",
+    "evidence_schema",
+    "observed_at_utc",
+    "payload_sha256",
+    "freshness_budget_key",
+    "skew_group",
+    "run_identity_sha256",
+    "selected_account_binding_sha256",
+    "execution_build_identity_sha256"
+  ],
+  "required_inputs": [
+    {"source_name":"trusted_clock","issuer":"Stage8bTrustedClockIssuer","evidence_schema":"stage8b-trusted-clock-v1","digest_domain":"stage8b-p-r2a1/trusted-clock/v1","freshness_budget_key":"trusted_clock","skew_group":"trusted_clock"},
+    {"source_name":"stage7b_current_recovery_seal","issuer":"Stage7bRecoverySealReader","evidence_schema":"stage7b-current-recovery-seal-v1","digest_domain":"stage8b-p-r2a1/stage7b-current-recovery-seal/v1","freshness_budget_key":"current_control","skew_group":"control_sources"},
+    {"source_name":"stage6_exact_dispatch_ready_command","issuer":"Stage6DispatchReadyCommandReader","evidence_schema":"stage6-dispatch-ready-command-v1","digest_domain":"stage8b-p-r2a1/stage6-dispatch-ready-command/v1","freshness_budget_key":"current_control","skew_group":"control_sources"},
+    {"source_name":"stage8a_root_config_policy_control","issuer":"Stage8aCurrentControlIssuer","evidence_schema":"stage8a-root-config-policy-control-v1","digest_domain":"stage8b-p-r2a1/stage8a-root-config-policy-control/v1","freshness_budget_key":"current_control","skew_group":"control_sources"},
+    {"source_name":"composite_readiness","issuer":"Stage8aCompositeReadinessIssuer","evidence_schema":"stage8a-composite-readiness-v1","digest_domain":"stage8b-p-r2a1/composite-readiness/v1","freshness_budget_key":"readiness","skew_group":"runtime_current_sources"},
+    {"source_name":"kill_switch_run_allowed","issuer":"Stage8aPersistentKillSwitchIssuer","evidence_schema":"stage8a-kill-switch-run-allowed-v1","digest_domain":"stage8b-p-r2a1/kill-switch-run-allowed/v1","freshness_budget_key":"current_control","skew_group":"control_sources"},
+    {"source_name":"single_finam_ownership","issuer":"Stage8aSingleFinamOwnershipIssuer","evidence_schema":"stage8a-single-finam-ownership-v1","digest_domain":"stage8b-p-r2a1/single-finam-ownership/v1","freshness_budget_key":"ownership","skew_group":"runtime_current_sources"},
+    {"source_name":"schedule","issuer":"Stage8aScheduleIssuer","evidence_schema":"stage8a-schedule-window-v1","digest_domain":"stage8b-p-r2a1/schedule/v1","freshness_budget_key":"schedule","skew_group":"runtime_current_sources"},
+    {"source_name":"instrument_specification","issuer":"Stage8aInstrumentIssuer","evidence_schema":"stage8a-instrument-specification-v1","digest_domain":"stage8b-p-r2a1/instrument-specification/v1","freshness_budget_key":"instrument","skew_group":"runtime_current_sources"},
+    {"source_name":"account_binding","issuer":"Stage8bTokenDetailsAccountBindingIssuer","evidence_schema":"stage8b-token-details-account-binding-v1","digest_domain":"stage8b-p-r2a1/account-binding/v1","freshness_budget_key":"api_snapshot","skew_group":"api_snapshot"},
+    {"source_name":"account_orders","issuer":"Stage8bBrokerTruthIssuer","evidence_schema":"stage8b-account-orders-v1","digest_domain":"stage8b-p-r2a1/account-orders/v1","freshness_budget_key":"account_orders","skew_group":"runtime_current_sources"},
+    {"source_name":"target_orders","issuer":"Stage8bBrokerTruthIssuer","evidence_schema":"stage8b-target-orders-v1","digest_domain":"stage8b-p-r2a1/target-orders/v1","freshness_budget_key":"exact_order","skew_group":"runtime_current_sources"},
+    {"source_name":"positions","issuer":"Stage8bBrokerTruthIssuer","evidence_schema":"stage8b-positions-v1","digest_domain":"stage8b-p-r2a1/positions/v1","freshness_budget_key":"positions","skew_group":"runtime_current_sources"},
+    {"source_name":"trades","issuer":"Stage8bBrokerTruthIssuer","evidence_schema":"stage8b-trades-v1","digest_domain":"stage8b-p-r2a1/trades/v1","freshness_budget_key":"trades","skew_group":"runtime_current_sources"},
+    {"source_name":"ambiguity_orphan_unresolved_lifecycle","issuer":"Stage8aLifecycleAmbiguityIssuer","evidence_schema":"stage8a-lifecycle-ambiguity-v1","digest_domain":"stage8b-p-r2a1/lifecycle-ambiguity/v1","freshness_budget_key":"readiness","skew_group":"runtime_current_sources"},
+    {"source_name":"durable_micro_budget","issuer":"Stage8aDurableMicroBudgetIssuer","evidence_schema":"stage8a-durable-micro-budget-v1","digest_domain":"stage8b-p-r2a1/durable-micro-budget/v1","freshness_budget_key":"current_control","skew_group":"control_sources"},
+    {"source_name":"target_instrument_pre_run_position","issuer":"Stage8bBrokerTruthReducer","evidence_schema":"stage8b-target-instrument-position-v1","digest_domain":"stage8b-p-r2a1/target-instrument-position/v1","freshness_budget_key":"positions","skew_group":"runtime_current_sources"}
+  ],
+  "freshness_budgets_ms": {
+    "trusted_clock": {"max_age_ms":1000,"max_future_skew_ms":250},
+    "readiness": {"max_age_ms":1000,"max_future_skew_ms":250},
+    "current_control": {"max_age_ms":1000,"max_future_skew_ms":250},
+    "ownership": {"max_age_ms":1000,"max_future_skew_ms":250},
+    "schedule": {"max_age_ms":5000,"max_future_skew_ms":250},
+    "instrument": {"max_age_ms":5000,"max_future_skew_ms":250},
+    "account_orders": {"max_age_ms":2000,"max_future_skew_ms":250},
+    "positions": {"max_age_ms":5000,"max_future_skew_ms":250},
+    "trades": {"max_age_ms":5000,"max_future_skew_ms":250},
+    "exact_order": {"max_age_ms":1000,"max_future_skew_ms":250},
+    "api_snapshot": {"max_age_ms":86400000,"max_future_skew_ms":300000}
+  },
+  "cross_source_budgets_ms": {
+    "control_sources": 1000,
+    "runtime_current_sources": 5000
+  },
+  "identity_links": ["run_identity_sha256","selected_account_binding_sha256","execution_build_identity_sha256"],
+  "failure_semantics": {
+    "missing":"BLOCK",
+    "duplicate":"BLOCK",
+    "unknown":"BLOCK",
+    "stale":"BLOCK",
+    "future_beyond_budget":"BLOCK",
+    "cross_source_skew_exceeded":"BLOCK",
+    "identity_mismatch":"BLOCK",
+    "digest_mismatch":"BLOCK",
+    "ambiguous":"BLOCK"
+  },
+  "export_policy": "redacted_digests_and_timestamps_only",
+  "authority": {
+    "can_issue_k2": false,
+    "can_issue_operator_arm": false,
+    "can_append_dispatch_attempt": false,
+    "can_enter_effect_transport": false
+  }
+}
