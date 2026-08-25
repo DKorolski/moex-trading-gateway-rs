@@ -159,15 +159,6 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   explicit reqwest never-retry policy and a mandatory in-adapter classifier.
   Independent IT R3 acceptance and controlled TLS qualification
   are required before Stage 8B-P; real requests remain unauthorized.
-- Stage 8B-P R1B is accepted and merged at `f1070a4`. R2A at `d9c67a9` was
-  safely fail-closed but not accepted due to an inaccurate GET-only model of
-  the pinned legacy command. Corrective R2A1 is now a candidate: a standalone
-  non-authority helper explicitly models two AuthService POSTs plus three
-  PLACE or four CANCEL BrokerTruth GETs, applies never-retry/no-redirect/
-  no-proxy to both clients, and binds all 17 current inputs. Its 9 controlled
-  tests, 40/40 source-bound negatives and inherited 134/134 negatives pass.
-  No credential or real request was used; authorization is `NOT_ISSUED` and
-  R2B/XE remain closed pending independent R2A1 acceptance.
 
 The reviewer transition package is documented in
 [stage8a2-reviewer-transition-handoff.md](stage-8/stage8a2-reviewer-transition-handoff.md).
