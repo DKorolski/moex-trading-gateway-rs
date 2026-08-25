@@ -5,6 +5,7 @@
 //! It has no order-effect request builder and exports redacted evidence only.
 
 pub mod r2a2;
+pub mod r2a3;
 
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use reqwest::redirect::Policy;
@@ -29,7 +30,7 @@ pub const TRADES_LIMIT: usize = 1_000;
 pub const TRADES_WINDOW_MS: i64 = 24 * 60 * 60 * 1_000;
 pub const QUERY_POLICY_ID: &str = "stage8b-p-r2a1-query-policy-v1";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Operation {
     Place,
@@ -468,14 +469,20 @@ pub fn read_plan_from_manifest(bytes: &[u8]) -> Result<ReadPlan, PreflightError>
     }
 }
 
-fn hardened_client(https_only: bool) -> Result<reqwest::Client, PreflightError> {
-    Ok(reqwest::Client::builder()
+pub(crate) fn hardened_client_builder(
+    https_only: bool,
+    timeout: Duration,
+) -> reqwest::ClientBuilder {
+    reqwest::Client::builder()
         .https_only(https_only)
-        .timeout(Duration::from_millis(REQUEST_TIMEOUT_MS))
+        .timeout(timeout)
         .retry(reqwest::retry::never())
         .redirect(Policy::none())
         .no_proxy()
-        .build()?)
+}
+
+fn hardened_client(https_only: bool) -> Result<reqwest::Client, PreflightError> {
+    Ok(hardened_client_builder(https_only, Duration::from_millis(REQUEST_TIMEOUT_MS)).build()?)
 }
 
 pub fn production_clients() -> Result<(reqwest::Client, reqwest::Client), PreflightError> {
@@ -502,7 +509,7 @@ fn base_url(value: &str, allow_http_for_test: bool) -> Result<reqwest::Url, Pref
 }
 
 #[allow(dead_code)] // retained solely by the inherited R2A1 controlled tests.
-fn route(
+pub(crate) fn route(
     base: &reqwest::Url,
     source: Source,
     account_id: &str,

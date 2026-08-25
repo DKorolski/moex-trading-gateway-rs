@@ -1,0 +1,34 @@
+{
+  "account_id": "ACCOUNT",
+  "type": "ACCOUNT_TYPE_UNSPECIFIED",
+  "status": "ACCOUNT_STATUS_ACTIVE",
+  "equity": {"value": "100000"},
+  "unrealized_profit": {"value": "0"},
+  "positions": [
+    {
+      "symbol": "IMOEXF@RTSX",
+      "quantity": {"value": "0"},
+      "average_price": {"value": "0"},
+      "current_price": {"value": "2223"},
+      "maintenance_margin": {"value": "1000"},
+      "daily_pnl": {"value": "0"},
+      "unrealized_pnl": {"value": "0"}
+    }
+  ],
+  "cash": [
+    {"currency_code": "RUB", "units": "100000", "nanos": 0}
+  ],
+  "portfolio_mc": {
+    "available_cash": {"value": "100000"},
+    "initial_margin": {"value": "0"},
+    "maintenance_margin": {"value": "0"}
+  },
+  "portfolio_mct": "0",
+  "portfolio_forts": {
+    "available_cash": {"value": "100000"},
+    "money_reserved": {"value": "0"}
+  },
+  "open_account_date": "2020-01-01T00:00:00Z",
+  "first_trade_date": "2020-01-02T00:00:00Z",
+  "first_non_trade_date": "2020-01-03T00:00:00Z"
+}

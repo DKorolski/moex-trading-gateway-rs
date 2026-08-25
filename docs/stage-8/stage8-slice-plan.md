@@ -53,6 +53,16 @@ sends no real HTTP request. Independent R2A1 acceptance may open only a
 separate operator-selected R2B evidence run; Stage 8B-XE and every execution
 surface remain closed.
 
+R2A2 at `497cf72` retained the safe boundary but was not accepted: the frozen
+binary could not execute R2B, strict DTOs lagged the current FINAM read schema,
+and receipt issuance/provenance was not end-to-end qualified. Corrective R2A3
+is the active no-real-network slice. It compiles the exact one-shot entry,
+hash-binds Auth/TokenDetails/GetAccount/Trades/GetOrders/GetOrder, qualifies
+strict current fixtures, separated Ed25519 issuers, anti-replay/freshness,
+exact lifecycle reducers, full controlled TLS and fd-bound launch. Acceptance
+of R2A3 may open only a separately issued R2B read-only run package; it does
+not open an arm, effect transport, order POST/DELETE, Redis or runtime-live.
+
 ## Mandatory Stage 8A order
 
 Each slice requires its own immutable handoff and independent acceptance before

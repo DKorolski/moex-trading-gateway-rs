@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A3",
+  "authorization_status": "NOT_ISSUED",
+  "accepted_predecessor": "497cf7244c1e717c56303385193dff004bbd4b31",
+  "runnable_helper": {
+    "one_shot_mode": "--r2b-one-shot",
+    "controlled_mode": "--qualify-controlled",
+    "scheduler_present": false,
+    "caller_selected_paths": false,
+    "issued_run_package_in_repository": false,
+    "fd_bound_linux_execveat": true,
+    "ambient_environment_forwarded": false,
+    "accepted_helper_sha256_status": "FROZEN",
+    "accepted_helper_sha256": "2ebfbc43e8fdbb257f9a368548f9a40784906f0054ace2dffa2e5c65a759179a"
+  },
+  "official_read_contract": {
+    "snapshot_sha256": "7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5",
+    "document_count": 6,
+    "strict_unknown_field_policy": "BLOCK_AND_REFRESH",
+    "golden_fixture_count": 6,
+    "triggered_order_id_covered": true
+  },
+  "provenance": {
+    "model": "SOURCE_SPECIFIC_ED25519_ISSUERS",
+    "source_count": 11,
+    "producer_uid_first": 8101,
+    "producer_uid_last": 8111,
+    "issuer_uid_first": 8201,
+    "issuer_uid_last": 8211,
+    "producer_and_issuer_separated": true,
+    "verifier_private_key_access": false,
+    "fixed_source_paths": true,
+    "closed_claim_inventory_per_source": true,
+    "run_nonce_signed": true,
+    "durable_nonce_replay_registry": true,
+    "receipt_key_rotation": "R2B_CHANGE_CONTROL_ONLY"
+  },
+  "chronology": {
+    "control_source_max_skew_ms": 1000,
+    "runtime_source_max_skew_ms": 5000,
+    "minimum_broker_get_interval_ms": 250,
+    "revalidate_before_each_network_class": true,
+    "revalidate_before_each_get": true,
+    "revalidate_before_final_evidence": true,
+    "token_timestamps_parsed": true,
+    "request_start_end_recorded": true
+  },
+  "reducer": {
+    "place_prior_matching_trade": "BLOCK",
+    "cancel_trade_must_match_exact_order": true,
+    "exact_and_list_full_immutable_equality": true
+  },
+  "controlled_tls": {
+    "auth_posts": 2,
+    "place_broker_gets": 3,
+    "cancel_broker_gets": 4,
+    "complete_place_sequence_qualified": true,
+    "wrong_ca_rejected_before_http": true,
+    "wrong_hostname_rejected_before_http": true,
+    "redirect_retry_proxy_disabled": true
+  },
+  "token_policy": {
+    "readonly_required": true,
+    "exact_account_count": 1,
+    "exact_manifest_account_required": true
+  },
+  "closed_surfaces": {
+    "real_credential_used": false,
+    "real_authservice_post_sent": false,
+    "real_broker_get_sent": false,
+    "operator_arm_issued": false,
+    "dispatch_attempt_recorded": false,
+    "effect_transport_entered": false,
+    "finam_order_post_delete_sent": false,
+    "redis_execution_enabled": false,
+    "runtime_live_enabled": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "trades": [
+    {
+      "trade_id": "TRADE-1",
+      "symbol": "IMOEXF@RTSX",
+      "price": {"value": "2210"},
+      "size": {"value": "1"},
+      "side": "SIDE_BUY",
+      "timestamp": "2026-08-25T12:00:00Z",
+      "order_id": "ORDER-1",
+      "account_id": "ACCOUNT",
+      "comment": "S8BP000000000000001",
+      "accrued_interest": {"value": "0"},
+      "currency": "RUB"
+    }
+  ]
+}

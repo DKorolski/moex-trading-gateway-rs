@@ -238,7 +238,7 @@ struct EndpointOperation {
     route_template_id: String,
 }
 
-fn exact_millis(value: DateTime<Utc>) -> String {
+pub(crate) fn exact_millis(value: DateTime<Utc>) -> String {
     value.to_rfc3339_opts(SecondsFormat::Millis, true)
 }
 
@@ -277,7 +277,7 @@ fn decode_key_file(bytes: &[u8]) -> Result<Zeroizing<Vec<u8>>, R2a2Error> {
     Ok(Zeroizing::new(decoded))
 }
 
-fn required_local_source_names() -> impl Iterator<Item = &'static str> {
+pub(crate) fn required_local_source_names() -> impl Iterator<Item = &'static str> {
     LOCAL_SOURCES.iter().map(|source| source.0)
 }
 
@@ -409,6 +409,19 @@ fn authenticate_receipt_for_test(
     Ok(())
 }
 
+pub(crate) fn authenticate_verified_receipt_adapter(
+    receipt: &mut LocalAuthorityReceipt,
+    key: &[u8],
+) -> Result<(), R2a2Error> {
+    if key.len() < MIN_HMAC_KEY_BYTES {
+        return Err(R2a2Error::InvalidReceipt);
+    }
+    let mut mac = HmacSha256::new_from_slice(key).map_err(|_| R2a2Error::InvalidReceipt)?;
+    mac.update(&receipt_preimage(receipt));
+    receipt.authentication_tag_hmac_sha256 = format!("{:x}", mac.finalize().into_bytes());
+    Ok(())
+}
+
 pub fn keyed_account_binding(account_id: &str, key: &[u8]) -> Result<String, R2a2Error> {
     if account_id.is_empty() || key.len() < MIN_HMAC_KEY_BYTES {
         return Err(R2a2Error::AccountBinding);
@@ -443,7 +456,7 @@ pub fn verify_account_binding(
         .map_err(|_| R2a2Error::AccountBinding)
 }
 
-fn endpoint_identity(
+pub(crate) fn endpoint_identity(
     operation: Operation,
     account_binding: &str,
     renderer: &str,
@@ -889,40 +902,79 @@ pub struct StrictTokenDetails {
     pub account_ids: Vec<String>,
     pub created_at: Option<String>,
     pub expires_at: Option<String>,
-    pub md_permissions: Vec<Value>,
+    pub md_permissions: Vec<StrictMarketDataPermission>,
     pub readonly: bool,
 }
 
-#[cfg(test)]
-fn validate_token_details(details: StrictTokenDetails, account_id: &str) -> Result<(), R2a2Error> {
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StrictMarketDataPermission {
+    pub quote_level: String,
+    pub delay_minutes: i64,
+    pub mic: String,
+    pub country: String,
+    pub continent: String,
+    pub worldwide: bool,
+}
+
+pub(crate) fn validate_token_details(
+    details: StrictTokenDetails,
+    account_id: &str,
+    trusted_now: DateTime<Utc>,
+) -> Result<(), R2a2Error> {
+    let created = details
+        .created_at
+        .as_deref()
+        .ok_or(R2a2Error::AccountBinding)?
+        .parse::<DateTime<Utc>>()
+        .map_err(|_| R2a2Error::AccountBinding)?;
+    let expires = details
+        .expires_at
+        .as_deref()
+        .ok_or(R2a2Error::AccountBinding)?
+        .parse::<DateTime<Utc>>()
+        .map_err(|_| R2a2Error::AccountBinding)?;
     if !details.readonly
         || details.account_ids.as_slice() != [account_id]
-        || details.expires_at.as_deref().is_none_or(str::is_empty)
-        || details.created_at.as_deref().is_none_or(str::is_empty)
+        || created > trusted_now
+        || expires <= trusted_now
+        || expires <= created
     {
         return Err(R2a2Error::AccountBinding);
     }
-    let _ = details.md_permissions;
+    for permission in details.md_permissions {
+        if permission.quote_level.is_empty()
+            || permission.delay_minutes < 0
+            || (permission.mic.is_empty()
+                && permission.country.is_empty()
+                && permission.continent.is_empty()
+                && !permission.worldwide)
+        {
+            return Err(R2a2Error::AccountBinding);
+        }
+    }
     Ok(())
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct StrictDecimal {
     value: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct StrictOrderRequest {
     account_id: String,
     client_order_id: Option<String>,
     comment: Option<String>,
-    legs: Vec<Value>,
+    #[serde(default)]
+    legs: Vec<StrictOrderLeg>,
     limit_price: Option<StrictDecimal>,
     quantity: Option<StrictDecimal>,
     side: String,
     stop_condition: Option<String>,
+    stop_price: Option<StrictDecimal>,
     symbol: String,
     time_in_force: Option<String>,
     #[serde(rename = "type")]
@@ -930,17 +982,48 @@ struct StrictOrderRequest {
     valid_before: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct StrictOrderLeg {
+    symbol: String,
+    quantity: StrictDecimal,
+    side: String,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+struct StrictSltpOrder {
+    account_id: String,
+    symbol: String,
+    side: String,
+    quantity_sl: Option<StrictDecimal>,
+    sl_price: Option<StrictDecimal>,
+    limit_price: Option<StrictDecimal>,
+    quantity_tp: Option<StrictDecimal>,
+    tp_price: Option<StrictDecimal>,
+    tp_guard_spread: Option<StrictDecimal>,
+    tp_spread_measure: String,
+    client_order_id: Option<String>,
+    valid_before: Option<String>,
+    valid_expiry_time: Option<String>,
+    comment: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct StrictOrder {
+    accept_at: Option<String>,
     exec_id: Option<String>,
     executed_quantity: Option<StrictDecimal>,
     initial_quantity: Option<StrictDecimal>,
     order: StrictOrderRequest,
     order_id: Option<String>,
     remaining_quantity: Option<StrictDecimal>,
+    sltp_order: Option<StrictSltpOrder>,
     status: String,
     transact_at: Option<String>,
+    triggered_order_id: Option<String>,
+    withdraw_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -954,17 +1037,15 @@ struct StrictOrdersResponse {
 struct StrictTrade {
     trade_id: Option<String>,
     order_id: Option<String>,
-    client_order_id: Option<String>,
     account_id: Option<String>,
     symbol: Option<String>,
     side: Option<String>,
     price: Option<StrictDecimal>,
-    quantity: Option<StrictDecimal>,
     size: Option<StrictDecimal>,
-    amount: Option<StrictDecimal>,
-    commission: Option<Value>,
     timestamp: Option<String>,
-    transact_at: Option<String>,
+    comment: Option<String>,
+    accrued_interest: Option<StrictDecimal>,
+    currency: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -976,25 +1057,50 @@ struct StrictTradesResponse {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StrictPosition {
-    asset_type: Option<String>,
     average_price: Option<StrictDecimal>,
-    avg_price: Option<StrictDecimal>,
-    balance: Option<StrictDecimal>,
     current_price: Option<StrictDecimal>,
+    daily_pnl: Option<StrictDecimal>,
+    maintenance_margin: Option<StrictDecimal>,
     quantity: Option<StrictDecimal>,
     symbol: Option<String>,
-    unrealized_profit: Option<StrictDecimal>,
+    unrealized_pnl: Option<StrictDecimal>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictCash {
+    currency_code: String,
+    units: String,
+    nanos: i32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictPortfolioMc {
+    available_cash: Option<StrictDecimal>,
+    initial_margin: Option<StrictDecimal>,
+    maintenance_margin: Option<StrictDecimal>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictPortfolioForts {
+    available_cash: Option<StrictDecimal>,
+    money_reserved: Option<StrictDecimal>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StrictAccountResponse {
     account_id: String,
-    cash: Vec<Value>,
+    cash: Vec<StrictCash>,
     equity: Option<StrictDecimal>,
+    first_trade_date: Option<String>,
     first_non_trade_date: Option<String>,
     open_account_date: Option<String>,
-    portfolio_mc: Option<Value>,
+    portfolio_mc: Option<StrictPortfolioMc>,
+    portfolio_mct: Option<String>,
+    portfolio_forts: Option<StrictPortfolioForts>,
     positions: Vec<StrictPosition>,
     status: Option<String>,
     #[serde(rename = "type")]
@@ -1093,13 +1199,16 @@ fn validate_order_identity(
         || order.order_id.as_deref().is_none_or(str::is_empty)
         || order.order.side.is_empty()
         || order.order.order_type.is_empty()
-        || order.order.legs.iter().any(|_| true)
+        || !order.order.legs.is_empty()
         || order.order.quantity.is_none()
     {
         return Err(R2a2Error::BrokerTruth);
     }
     let _ = parse_decimal(order.order.quantity.as_ref().unwrap(), false)?;
     if let Some(price) = &order.order.limit_price {
+        let _ = parse_decimal(price, false)?;
+    }
+    if let Some(price) = &order.order.stop_price {
         let _ = parse_decimal(price, false)?;
     }
     if let Some(value) = &order.executed_quantity {
@@ -1111,6 +1220,40 @@ fn validate_order_identity(
     if let Some(value) = &order.remaining_quantity {
         let _ = parse_decimal(value, false)?;
     }
+    for leg in &order.order.legs {
+        if leg.symbol.is_empty() || leg.side.is_empty() {
+            return Err(R2a2Error::BrokerTruth);
+        }
+        let _ = parse_decimal(&leg.quantity, false)?;
+    }
+    if let Some(sltp) = &order.sltp_order {
+        if sltp.account_id.is_empty()
+            || sltp.symbol.is_empty()
+            || sltp.side.is_empty()
+            || sltp.tp_spread_measure.is_empty()
+        {
+            return Err(R2a2Error::BrokerTruth);
+        }
+        for value in [
+            &sltp.quantity_sl,
+            &sltp.sl_price,
+            &sltp.limit_price,
+            &sltp.quantity_tp,
+            &sltp.tp_price,
+            &sltp.tp_guard_spread,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let _ = parse_decimal(value, false)?;
+        }
+        let _ = (
+            &sltp.client_order_id,
+            &sltp.valid_before,
+            &sltp.valid_expiry_time,
+            &sltp.comment,
+        );
+    }
     let _ = (
         &order.exec_id,
         &order.order.comment,
@@ -1121,10 +1264,24 @@ fn validate_order_identity(
         &order.order.valid_before,
         &order.transact_at,
     );
+    let _ = (
+        &order.accept_at,
+        &order.withdraw_at,
+        &order.triggered_order_id,
+    );
     status_class(&order.status).ok_or(R2a2Error::BrokerTruth)?;
     Ok(order.order.symbol == TARGET_INSTRUMENT
         && order.order.client_order_id.as_deref()
             == Some(manifest.field("durable_client_order_id")))
+}
+
+fn exact_and_list_identity_equal(exact: &StrictOrder, listed: &StrictOrder) -> bool {
+    exact.order_id == listed.order_id
+        && exact.order == listed.order
+        && exact.initial_quantity == listed.initial_quantity
+        && exact.triggered_order_id == listed.triggered_order_id
+        && exact.sltp_order == listed.sltp_order
+        && exact.status == listed.status
 }
 
 fn position_quantity(
@@ -1149,46 +1306,67 @@ fn position_quantity(
     if matches.len() > 1 {
         return Err(R2a2Error::BrokerTruth);
     }
+    for cash in &account.cash {
+        if cash.currency_code.is_empty() || cash.units.is_empty() {
+            return Err(R2a2Error::BrokerTruth);
+        }
+        let _ = cash.nanos;
+    }
+    if let Some(portfolio) = &account.portfolio_mc {
+        for value in [
+            &portfolio.available_cash,
+            &portfolio.initial_margin,
+            &portfolio.maintenance_margin,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let _ = parse_decimal(value, true)?;
+        }
+    }
+    if let Some(portfolio) = &account.portfolio_forts {
+        for value in [&portfolio.available_cash, &portfolio.money_reserved]
+            .into_iter()
+            .flatten()
+        {
+            let _ = parse_decimal(value, true)?;
+        }
+    }
     let _ = (
-        &account.cash,
         &account.equity,
+        &account.first_trade_date,
         &account.first_non_trade_date,
     );
     let _ = (
         &account.open_account_date,
-        &account.portfolio_mc,
+        &account.portfolio_mct,
         &account.status,
     );
     let _ = (&account.account_type, &account.unrealized_profit);
     let Some(position) = matches.first() else {
         return Ok(Decimal::ZERO);
     };
-    let quantity = match (&position.quantity, &position.balance) {
-        (Some(quantity), Some(balance)) => {
-            let quantity = parse_decimal(quantity, true)?;
-            let balance = parse_decimal(balance, true)?;
-            if quantity != balance {
-                return Err(R2a2Error::BrokerTruth);
-            }
-            quantity
-        }
-        (Some(quantity), None) => parse_decimal(quantity, true)?,
-        (None, Some(balance)) => parse_decimal(balance, true)?,
-        (None, None) => return Err(R2a2Error::BrokerTruth),
-    };
+    let quantity = position
+        .quantity
+        .as_ref()
+        .ok_or(R2a2Error::BrokerTruth)
+        .and_then(|value| parse_decimal(value, true))?;
     if let Some(value) = &position.average_price {
-        let _ = parse_decimal(value, true)?;
-    }
-    if let Some(value) = &position.avg_price {
         let _ = parse_decimal(value, true)?;
     }
     if let Some(value) = &position.current_price {
         let _ = parse_decimal(value, true)?;
     }
-    if let Some(value) = &position.unrealized_profit {
+    for value in [
+        &position.maintenance_margin,
+        &position.daily_pnl,
+        &position.unrealized_pnl,
+    ]
+    .into_iter()
+    .flatten()
+    {
         let _ = parse_decimal(value, true)?;
     }
-    let _ = &position.asset_type;
     Ok(quantity)
 }
 
@@ -1225,6 +1403,7 @@ pub(crate) fn reduce_broker_truth(
     let mut target_order_count = 0usize;
     let mut account_wide_active = 0usize;
     let mut target_order: Option<&StrictOrder> = None;
+    let mut lifecycle_order_ids = BTreeSet::new();
     for order in &orders.orders {
         let active = status_class(&order.status).ok_or(R2a2Error::BrokerTruth)?;
         if active {
@@ -1232,6 +1411,13 @@ pub(crate) fn reduce_broker_truth(
         }
         if validate_order_identity(order, manifest, account_id)? {
             target_order_count += 1;
+            lifecycle_order_ids.insert(
+                order
+                    .order_id
+                    .as_ref()
+                    .ok_or(R2a2Error::BrokerTruth)?
+                    .clone(),
+            );
             if manifest.broker_order_id.as_deref() == order.order_id.as_deref() {
                 if target_order.is_some() {
                     return Err(R2a2Error::BrokerTruth);
@@ -1247,36 +1433,48 @@ pub(crate) fn reduce_broker_truth(
         {
             return Err(R2a2Error::BrokerTruth);
         }
+        let trade_order_id = trade.order_id.as_deref();
         let relevant = trade.account_id.as_deref() == Some(account_id)
             && trade.symbol.as_deref() == Some(TARGET_INSTRUMENT)
-            && trade.client_order_id.as_deref() == Some(manifest.field("durable_client_order_id"));
+            && (trade_order_id.is_some_and(|id| lifecycle_order_ids.contains(id))
+                || trade.comment.as_deref() == Some(manifest.field("durable_client_order_id")));
         if relevant {
             if trade.trade_id.as_deref().is_none_or(str::is_empty)
                 || trade.side.as_deref().is_none_or(str::is_empty)
                 || trade.price.as_ref().is_none()
-                || (trade.quantity.is_none() && trade.size.is_none())
+                || trade.size.is_none()
             {
                 return Err(R2a2Error::BrokerTruth);
             }
             let _ = parse_decimal(trade.price.as_ref().unwrap(), false)?;
-            if let Some(value) = &trade.quantity {
-                let _ = parse_decimal(value, false)?;
-            }
             if let Some(value) = &trade.size {
                 let _ = parse_decimal(value, false)?;
             }
-            if let Some(value) = &trade.amount {
+            if let Some(value) = &trade.accrued_interest {
                 let _ = parse_decimal(value, true)?;
             }
-            let _ = (&trade.commission, &trade.timestamp, &trade.transact_at);
-            let _ = &trade.order_id;
+            if trade.currency.as_deref().is_none_or(str::is_empty)
+                || trade.timestamp.as_deref().is_none_or(str::is_empty)
+                || trade.order_id.as_deref().is_none_or(str::is_empty)
+            {
+                return Err(R2a2Error::BrokerTruth);
+            }
+            if manifest.operation == Operation::Cancel
+                && trade.order_id.as_deref() != manifest.broker_order_id.as_deref()
+            {
+                return Err(R2a2Error::BrokerTruth);
+            }
             target_trade_count += 1;
         }
     }
 
     let (exact_order_hash, exact_working) = match manifest.operation {
         Operation::Place => {
-            if bodies.exact_order.is_some() || account_wide_active != 0 || target_order_count != 0 {
+            if bodies.exact_order.is_some()
+                || account_wide_active != 0
+                || target_order_count != 0
+                || target_trade_count != 0
+            {
                 return Err(R2a2Error::BrokerTruth);
             }
             (None, None)
@@ -1289,8 +1487,7 @@ pub(crate) fn reduce_broker_truth(
                 || exact.order.client_order_id.as_deref()
                     != Some(manifest.field("cancel_target_durable_client_order_id"))
                 || target_order.is_none()
-                || target_order.unwrap().status != exact.status
-                || target_order.unwrap().order.client_order_id != exact.order.client_order_id
+                || !exact_and_list_identity_equal(&exact, target_order.unwrap())
             {
                 return Err(R2a2Error::BrokerTruth);
             }
@@ -1374,8 +1571,7 @@ pub fn bounded_content_length(
     }
 }
 
-#[cfg(test)]
-async fn read_bounded_response(
+pub(crate) async fn read_bounded_response(
     response: reqwest::Response,
     cap: usize,
 ) -> Result<(u16, Zeroizing<Vec<u8>>), R2a2Error> {
@@ -1491,7 +1687,7 @@ async fn execute_controlled_pipeline(
         return Err(R2a2Error::BrokerTruth);
     }
     let details: StrictTokenDetails = serde_json::from_slice(&body)?;
-    validate_token_details(details, account_id)?;
+    validate_token_details(details, account_id, local.trusted_now_utc)?;
 
     let plan = crate::ReadPlan {
         operation: manifest.operation,
@@ -1791,6 +1987,7 @@ mod tests {
 
     fn order(order_id: &str, status: &str) -> Value {
         serde_json::json!({
+            "accept_at": null,
             "exec_id": null,
             "executed_quantity": {"value":"0"},
             "initial_quantity": {"value":"1"},
@@ -1803,6 +2000,7 @@ mod tests {
                 "quantity": {"value":"1"},
                 "side": "ORDER_SIDE_BUY",
                 "stop_condition": null,
+                "stop_price": null,
                 "symbol": TARGET_INSTRUMENT,
                 "time_in_force": "TIME_IN_FORCE_DAY",
                 "type": "ORDER_TYPE_LIMIT",
@@ -1810,8 +2008,11 @@ mod tests {
             },
             "order_id": order_id,
             "remaining_quantity": {"value":"1"},
+            "sltp_order": null,
             "status": status,
-            "transact_at": null
+            "transact_at": null,
+            "triggered_order_id": null,
+            "withdraw_at": null
         })
     }
 
@@ -1820,18 +2021,20 @@ mod tests {
             "account_id": ACCOUNT,
             "cash": [],
             "equity": null,
+            "first_trade_date": null,
             "first_non_trade_date": null,
             "open_account_date": null,
             "portfolio_mc": null,
+            "portfolio_mct": null,
+            "portfolio_forts": null,
             "positions": [{
-                "asset_type": null,
                 "average_price": null,
-                "avg_price": null,
-                "balance": null,
                 "current_price": null,
+                "daily_pnl": null,
+                "maintenance_margin": null,
                 "quantity": {"value": position},
                 "symbol": TARGET_INSTRUMENT,
-                "unrealized_profit": null
+                "unrealized_pnl": null
             }],
             "status": "ACCOUNT_ACTIVE",
             "type": null,
@@ -1955,7 +2158,8 @@ mod tests {
             md_permissions: vec![],
             readonly: true,
         };
-        validate_token_details(valid, ACCOUNT).unwrap();
+        let now = "2026-08-25T12:00:00Z".parse().unwrap();
+        validate_token_details(valid, ACCOUNT, now).unwrap();
         let wrong = StrictTokenDetails {
             account_ids: vec!["OTHER".to_owned()],
             created_at: Some("2026-08-25T11:59:00Z".to_owned()),
@@ -1963,7 +2167,25 @@ mod tests {
             md_permissions: vec![],
             readonly: true,
         };
-        assert!(validate_token_details(wrong, ACCOUNT).is_err());
+        assert!(validate_token_details(wrong, ACCOUNT, now).is_err());
+    }
+
+    #[test]
+    fn current_official_wire_golden_fixtures_are_strictly_accepted() {
+        let auth: StrictAuthResponse =
+            serde_json::from_str(include_str!("../fixtures/r2a3/auth.json")).unwrap();
+        assert!(!auth.token.is_empty());
+        let details: StrictTokenDetails =
+            serde_json::from_str(include_str!("../fixtures/r2a3/token-details.json")).unwrap();
+        validate_token_details(details, ACCOUNT, "2026-08-25T12:01:00Z".parse().unwrap()).unwrap();
+        let _: StrictAccountResponse =
+            serde_json::from_str(include_str!("../fixtures/r2a3/account.json")).unwrap();
+        let _: StrictTradesResponse =
+            serde_json::from_str(include_str!("../fixtures/r2a3/trades.json")).unwrap();
+        let _: StrictOrdersResponse =
+            serde_json::from_str(include_str!("../fixtures/r2a3/orders.json")).unwrap();
+        let _: StrictOrder =
+            serde_json::from_str(include_str!("../fixtures/r2a3/order.json")).unwrap();
     }
 
     #[test]
@@ -2061,6 +2283,70 @@ mod tests {
                 exact_order: Some(&wrong_id),
                 orders: &orders,
                 trades: &trades,
+                account: &account,
+            }
+        )
+        .is_err());
+
+        let mut immutable_mismatch = order("2033126385648208390", "ORDER_STATUS_NEW");
+        immutable_mismatch["order"]["limit_price"]["value"] = Value::String("2209".to_owned());
+        let immutable_mismatch = serde_json::to_vec(&immutable_mismatch).unwrap();
+        assert!(reduce_broker_truth(
+            &manifest,
+            ACCOUNT,
+            BrokerTruthBodies {
+                exact_order: Some(&immutable_mismatch),
+                orders: &orders,
+                trades: &trades,
+                account: &account,
+            }
+        )
+        .is_err());
+
+        let wrong_order_trade = serde_json::to_vec(&serde_json::json!({
+            "trades":[{
+                "trade_id":"TRADE-1",
+                "order_id":"WRONG-ORDER",
+                "account_id":ACCOUNT,
+                "symbol":TARGET_INSTRUMENT,
+                "side":"SIDE_BUY",
+                "price":{"value":"2210"},
+                "size":{"value":"1"},
+                "timestamp":"2026-08-25T12:00:00Z",
+                "comment":"S8BP000000000000001",
+                "accrued_interest":{"value":"0"},
+                "currency":"RUB"
+            }]
+        }))
+        .unwrap();
+        assert!(reduce_broker_truth(
+            &manifest,
+            ACCOUNT,
+            BrokerTruthBodies {
+                exact_order: Some(&exact),
+                orders: &orders,
+                trades: &wrong_order_trade,
+                account: &account,
+            }
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn place_prior_matching_trade_is_a_duplicate_effect_blocker() {
+        let now = "2026-08-25T12:00:00Z".parse().unwrap();
+        let (manifest, receipts, keys) = fixture(Operation::Place, now);
+        let (manifest, _) =
+            validate_manifest_and_local_authorities(&manifest, &receipts, &keys, now).unwrap();
+        let trades = include_bytes!("../fixtures/r2a3/trades.json");
+        let account = account("0");
+        assert!(reduce_broker_truth(
+            &manifest,
+            ACCOUNT,
+            BrokerTruthBodies {
+                exact_order: None,
+                orders: b"{\"orders\":[]}",
+                trades,
                 account: &account,
             }
         )

@@ -1,0 +1,55 @@
+{
+  "authservice_request_sent": false,
+  "broker_get_sent": false,
+  "documents": [
+    {
+      "bytes": 3631,
+      "name": "auth",
+      "path": "docs/stage-8/finam-r2a3-read-contracts/auth.md",
+      "sha256": "1ec9a5651096d611616fbb22fd9945c7b228b5b130f306d870cee13ae2d2edc6",
+      "url": "https://api.finam.ru/docs/rest/authservice_auth.md"
+    },
+    {
+      "bytes": 3875,
+      "name": "token_details",
+      "path": "docs/stage-8/finam-r2a3-read-contracts/token_details.md",
+      "sha256": "92781951badfe5ab9f3eeda60170a58b4a3a3518d8bceaec995b4d5103e69590",
+      "url": "https://api.finam.ru/docs/rest/authservice_tokendetails.md"
+    },
+    {
+      "bytes": 5896,
+      "name": "get_account",
+      "path": "docs/stage-8/finam-r2a3-read-contracts/get_account.md",
+      "sha256": "5f5b9c30a1a37facb9af8b56ee22d908ae2442c9e7e7eabbc8f158942a6d9487",
+      "url": "https://api.finam.ru/docs/rest/accountsservice_getaccount.md"
+    },
+    {
+      "bytes": 6984,
+      "name": "trades",
+      "path": "docs/stage-8/finam-r2a3-read-contracts/trades.md",
+      "sha256": "ef0d7cee05843f55d0eded23e7f8bb535b91234cce0089f026529983573af6a3",
+      "url": "https://api.finam.ru/docs/rest/accountsservice_trades.md"
+    },
+    {
+      "bytes": 6729,
+      "name": "get_orders",
+      "path": "docs/stage-8/finam-r2a3-read-contracts/get_orders.md",
+      "sha256": "7ebf7e9ab8f5d4c512e61c1a7a9a954ac35f57b419326e950296ef8e3e2dc6b4",
+      "url": "https://api.finam.ru/docs/rest/ordersservice_getorders.md"
+    },
+    {
+      "bytes": 6613,
+      "name": "get_order",
+      "path": "docs/stage-8/finam-r2a3-read-contracts/get_order.md",
+      "sha256": "2355de318f5ebed527b84a0006c0032336f077d867d3bb7a8851695d4f226f64",
+      "url": "https://api.finam.ru/docs/rest/ordersservice_getorder.md"
+    }
+  ],
+  "official_index": "https://api.finam.ru/docs/rest/",
+  "production_host": "api.finam.ru",
+  "real_credential_used": false,
+  "retrieved_at_utc": "2026-08-25T18:36:16Z",
+  "revision": "R2A3",
+  "schema_version": 1,
+  "stage": "8B-P"
+}
