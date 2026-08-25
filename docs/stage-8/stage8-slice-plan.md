@@ -36,14 +36,17 @@ Stage 8B-P R1 at `12a7aee` was safely fail-closed but not accepted because its
 future exact-run manifest under-bound the accepted Stage 8B-S R3 contract. R1A
 at `f922ad6` closed those semantic gaps but was not accepted because its new
 endpoint identity differed from the qualified build and run identity lacked a
-canonical derivation. The active successor is narrow Stage 8B-P R1B. It binds
+canonical derivation. Narrow Stage 8B-P R1B binds
 the exact qualified endpoint formula/goldens and one canonical computed
 PLACE/CANCEL run identity while retaining all R1A protections. R1B selects no
 operation, uses no account credential, sends no broker GET or POST/DELETE,
 records no dispatch attempt and issues no operator arm. Authorization remains
-`NOT_ISSUED`. Independent R1B acceptance may open only a separate
-operator-selected Stage 8B-P R2 GET-only preflight package; Stage 8B-XE and
-every execution surface remain closed.
+`NOT_ISSUED`. R1B was independently accepted at `b9a423c` and merged by
+`f1070a4`. The active successor is R2A, which freezes a reviewable exact-build,
+operator-selected GET-only preparation contract and emits only a redacted
+no-GET plan. R2A uses no credential and performs no broker request. Independent
+R2A acceptance may open only a separate R2B one-shot GET-only evidence run;
+Stage 8B-XE and every execution surface remain closed.
 
 ## Mandatory Stage 8A order
 
