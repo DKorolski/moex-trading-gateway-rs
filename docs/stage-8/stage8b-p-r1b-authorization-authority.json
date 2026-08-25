@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R1B",
+  "status": "design_only_identity_correction_candidate",
+  "branch": "stage8b-p-authorization-r1",
+  "lineage": {
+    "r1a_candidate_ref": "f922ad65f7221488fcfc591d641b822f635b1993",
+    "r1a_authority_sha256": "4894355b730174b4e4f48fae60a2940f4f3fddbd1f7c6d43acf1f77b64f93ded",
+    "accepted_main_ref": "16a59bca74f94881c70d9fa39bbdf1c357e65f95",
+    "inherited_negative_mutations": 98
+  },
+  "identity_authorities": {
+    "network_endpoint_path": "docs/stage-8/stage8b-p-r1b-network-endpoint-authority.json",
+    "network_endpoint_sha256": "ec6f4b643e2cdc9b6b2cd531ce67bcb1cb52f3158298dece3b0ee371fd43d247",
+    "accepted_run_path": "docs/stage-8/stage8b-p-r1b-run-identity-authority.json",
+    "accepted_run_sha256": "2fe373e4e2f68229a0df7356cfb5e9c256b63aeab0ad61d94f6ca8319315d468",
+    "caller_selected_identity_authority_allowed": false,
+    "missing_or_modified_identity_authority_fails_closed": true
+  },
+  "endpoint_correction": {
+    "qualified_source_function": "compose_endpoint_identity",
+    "qualified_digest_function": "digest_parts",
+    "qualified_domain": "stage8b-i-r2-endpoint-identity-v1",
+    "operation_extra_component_allowed": false,
+    "nul_delimited_encoding_allowed": false,
+    "place_golden_sha256": "84e170daa63dad57d1d88258daa00205b20f13cae7122074cbb0a5af77450b48",
+    "cancel_golden_sha256": "f00cff30e4b4c3d001fe09d8bea8dcdd46639475c906f70d5b1c49b855d2e78a",
+    "production_source_change_required": false
+  },
+  "run_identity_correction": {
+    "domain": "stage8b-p-r1b-accepted-run-identity-v1",
+    "encoding": "digest_parts_v1_domain_raw_then_each_part_u64be_length_and_raw_bytes",
+    "operation_discriminator_bound": true,
+    "common_and_variant_field_order_bound": true,
+    "run_identity_self_excluded": true,
+    "computed_and_verified_not_caller_asserted": true,
+    "endpoint_network_freshness_process_boot_build_body_bound": true,
+    "place_golden_sha256": "bd3e7964ba2252252f10fc9a13677f9f2274a2c53ea12cfca39d927a0166410c",
+    "cancel_golden_sha256": "cb2778482d55b494884cd04589173853679505cff4ff5124451e0f1632e183e4"
+  },
+  "retained_r1a_contract": {
+    "process_boot_rules_unchanged": true,
+    "max_notional_rules_unchanged": true,
+    "freshness_budget_authority_unchanged": true,
+    "discriminated_manifest_unchanged": true,
+    "arm_chronology_unchanged": true,
+    "r2_k2_separation_unchanged": true,
+    "full_execution_build_identity_unchanged": true
+  },
+  "authorization": {
+    "status": "NOT_ISSUED",
+    "exact_run_manifest_present": false,
+    "account_credential_used": false,
+    "broker_readonly_get_sent": false,
+    "operator_arm_issued": false,
+    "dispatch_attempt_recorded": false,
+    "transport_entered": false,
+    "finam_post_delete_sent": false,
+    "broker_effect": false,
+    "stage8b_p_open": false,
+    "stage8b_xe_open": false,
+    "next_if_independently_accepted": "Stage8B-P-R2 operator-selected GET-only preflight"
+  },
+  "closed_surfaces": {
+    "account_credential": true,
+    "broker_readonly_get": true,
+    "operator_arm_issuance": true,
+    "dispatch_attempt_recording": true,
+    "transport_boundary": true,
+    "finam_post_delete": true,
+    "broker_effect": true,
+    "redis_execution_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "stage8b_xe": true,
+    "stage11_execution_promotion": true,
+    "stage12": true
+  },
+  "acceptance_rows": 40,
+  "r1b_negative_mutations": 36,
+  "inherited_negative_mutations": 98,
+  "total_negative_mutations": 134
+}

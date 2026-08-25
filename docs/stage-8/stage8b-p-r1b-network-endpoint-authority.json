@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "authority_kind": "stage8b_p_exact_qualified_network_endpoint_authority",
+  "stage": "8B-P",
+  "revision": "R1B",
+  "status": "candidate_pending_independent_acceptance",
+  "supersedes_rejected_formula_in": "docs/stage-8/stage8b-p-r1a-network-policy-authority.json",
+  "qualified_implementation": {
+    "source_path": "crates/finam-gateway/src/stage8b_no_send.rs",
+    "source_sha256": "716093652a0526e20d7fdcc72ac15f434cf7bc692091ef630e119b91bb72635b",
+    "function": "compose_endpoint_identity",
+    "digest_function": "digest_parts",
+    "execution_build_identity_sha256": "ca330934df540de69b52d0463a665a1ab0ff89fa13eeb663b162763cc6bc83a0"
+  },
+  "transport": {
+    "tls_required": true,
+    "scheme": "https",
+    "exact_host": "api.finam.ru",
+    "redirects_allowed": false,
+    "proxy_allowed": false,
+    "alternate_host_allowed": false,
+    "arbitrary_request_api_allowed": false,
+    "automatic_transport_retry_allowed": false
+  },
+  "operations": {
+    "PLACE": {
+      "method": "POST",
+      "route_template_id": "PlaceOrderV1",
+      "route_template": "/v1/accounts/{account_id}/orders"
+    },
+    "CANCEL": {
+      "method": "DELETE",
+      "route_template_id": "CancelOrderV1",
+      "route_template": "/v1/accounts/{account_id}/orders/{order_id}"
+    }
+  },
+  "accepted_endpoint_renderer_sha256": "24bc99b8e794ad85e7c83be7bd7d56cbc7568a01acdd4728785c2de600429d62",
+  "endpoint_identity": {
+    "algorithm": "sha256",
+    "domain_utf8": "stage8b-i-r2-endpoint-identity-v1",
+    "encoding": "digest_parts_v1_domain_raw_then_each_part_u64be_length_and_raw_bytes",
+    "parts_in_exact_order": [
+      "method_ascii",
+      "route_template_id_ascii",
+      "keyed_account_binding_lower_hex_ascii",
+      "endpoint_renderer_sha256_lower_hex_ascii"
+    ],
+    "operation_as_extra_component_allowed": false,
+    "nul_delimited_encoding_allowed": false,
+    "component_reordering_allowed": false,
+    "length_prefix_width_bits": 64,
+    "length_prefix_byte_order": "big_endian",
+    "raw_account_id_in_digest_artifact_allowed": false,
+    "rendered_route_export_allowed": false
+  },
+  "golden_vectors": {
+    "keyed_account_binding_sha256": "60106309bd530bd0cec76c3fa78fa4b7004ef34e44447fb7cd78fdda87444435",
+    "endpoint_renderer_sha256": "24bc99b8e794ad85e7c83be7bd7d56cbc7568a01acdd4728785c2de600429d62",
+    "place_endpoint_identity_sha256": "84e170daa63dad57d1d88258daa00205b20f13cae7122074cbb0a5af77450b48",
+    "cancel_endpoint_identity_sha256": "f00cff30e4b4c3d001fe09d8bea8dcdd46639475c906f70d5b1c49b855d2e78a"
+  },
+  "validation": {
+    "domain_exact_match_required": true,
+    "digest_parts_encoding_exact_match_required": true,
+    "operation_method_route_exact_match_required": true,
+    "keyed_account_binding_exact_match_required": true,
+    "renderer_exact_build_match_required": true,
+    "golden_vectors_required": true,
+    "unknown_network_field_fails_closed": true,
+    "route_method_account_renderer_mutation_fails_closed": true
+  },
+  "authorization": {
+    "r1b_constructs_rendered_route": false,
+    "r1b_enters_transport": false,
+    "r1b_sends_finam_post_delete": false
+  }
+}
