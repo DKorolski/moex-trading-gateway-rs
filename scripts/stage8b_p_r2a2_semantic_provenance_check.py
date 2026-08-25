@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -101,6 +102,9 @@ def main() -> None:
     for dependency in ("hmac = \"0.12\"", "rust_decimal", "rcgen", "tokio-rustls"):
         require(dependency in manifest, f"qualification dependency missing: {dependency}")
     helper_sha = "0c6dcde920de131863fe12632b0e3092f30fedc796e4627873cea89b6aace363"
+    require(build["implementation_source_ref"] == "55c598066e67d338f515c9c8f70015ae37f4fc63", "implementation source ref drift")
+    require(build["implementation_source_sha256"] == hashlib.sha256((root / "tools/stage8b-readonly-preflight/src/r2a2.rs").read_bytes()).hexdigest(), "implementation source hash drift")
+    require(build["qualification_main_sha256"] == hashlib.sha256((root / "tools/stage8b-readonly-preflight/src/main.rs").read_bytes()).hexdigest(), "qualification main hash drift")
     require(build["helper"]["executable_sha256"] == helper_sha, "candidate helper digest drift")
     require(build["helper"]["self_hash_is_authority"] is False, "build evidence trusts self hash")
     require(build["qualification"]["unit_and_controlled_tests_passed"] == build["qualification"]["unit_and_controlled_tests_total"] == 22, "controlled test evidence drift")

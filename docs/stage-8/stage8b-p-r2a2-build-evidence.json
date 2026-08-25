@@ -3,6 +3,9 @@
   "stage": "8B-P",
   "revision": "R2A2",
   "status": "candidate_pending_independent_acceptance",
+  "implementation_source_ref": "55c598066e67d338f515c9c8f70015ae37f4fc63",
+  "implementation_source_sha256": "2857b81613e05ed432f1c712d038fb752b818e62a1ead6f0fc3e308619c30309",
+  "qualification_main_sha256": "92058bd209b6423d6f4ec4f17ef22a3c2dcba9c3e33d346b21bb7a1bd16eb68e",
   "helper": {
     "workspace": "tools/stage8b-readonly-preflight",
     "build_profile": "release",
