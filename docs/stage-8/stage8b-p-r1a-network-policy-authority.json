@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "authority_kind": "stage8b_p_endpoint_and_network_policy_authority",
+  "stage": "8B-P",
+  "revision": "R1A",
+  "status": "candidate_pending_independent_acceptance",
+  "transport": {
+    "tls_required": true,
+    "scheme": "https",
+    "exact_host": "api.finam.ru",
+    "redirects_allowed": false,
+    "proxy_allowed": false,
+    "alternate_host_allowed": false,
+    "arbitrary_request_api_allowed": false,
+    "automatic_transport_retry_allowed": false
+  },
+  "operations": {
+    "PLACE": {
+      "method": "POST",
+      "route_template_id": "PlaceOrderV1",
+      "route_template": "/v1/accounts/{account_id}/orders"
+    },
+    "CANCEL": {
+      "method": "DELETE",
+      "route_template_id": "CancelOrderV1",
+      "route_template": "/v1/accounts/{account_id}/orders/{order_id}"
+    }
+  },
+  "accepted_endpoint_renderer_sha256": "24bc99b8e794ad85e7c83be7bd7d56cbc7568a01acdd4728785c2de600429d62",
+  "endpoint_identity": {
+    "algorithm": "sha256",
+    "domain": "moex-stage8b-endpoint-identity-v1",
+    "canonical_formula": "sha256(domain_nul_operation_nul_method_nul_route_template_id_nul_keyed_account_binding_hmac_sha256_nul_endpoint_renderer_sha256)",
+    "required_components": [
+      "operation",
+      "method",
+      "route_template_id",
+      "keyed_account_binding_hmac_sha256",
+      "endpoint_renderer_sha256"
+    ],
+    "raw_account_id_in_digest_artifact_allowed": false,
+    "rendered_route_export_allowed": false
+  },
+  "validation": {
+    "operation_method_route_exact_match_required": true,
+    "keyed_account_binding_exact_match_required": true,
+    "renderer_exact_build_match_required": true,
+    "network_policy_digest_exact_match_required": true,
+    "unknown_network_field_fails_closed": true,
+    "unknown_operation_fails_closed": true,
+    "route_or_method_substitution_fails_closed": true,
+    "tls_host_redirect_proxy_retry_drift_fails_closed": true
+  },
+  "authorization": {
+    "r1a_constructs_rendered_route": false,
+    "r1a_enters_transport": false,
+    "r1a_sends_finam_post_delete": false
+  }
+}

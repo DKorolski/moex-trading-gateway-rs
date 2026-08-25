@@ -32,13 +32,16 @@ merged exactly at `14e01a9f`. Stage 8B-IT-TLS R1 was independently accepted at
 solo-mode change control and the P preconditions are accepted on `main` at
 `16a59bca74f94881c70d9fa39bbdf1c357e65f95`.
 
-The active successor is Stage 8B-P R1: a design-only exact-build authorization
-candidate. Its fresh official FINAM contract refresh passed 7/7 without
-material drift, but authorization remains `NOT_ISSUED`. R1 selects no operation,
-uses no account credential, sends no broker GET or POST/DELETE, records no
-dispatch attempt and issues no operator arm. Independent R1 acceptance may open
-only a separate operator-selected Stage 8B-P R2 GET-only preflight package;
-Stage 8B-XE and every execution surface remain closed.
+Stage 8B-P R1 at `12a7aee` was safely fail-closed but not accepted because its
+future exact-run manifest under-bound the accepted Stage 8B-S R3 contract. The
+active successor is corrective Stage 8B-P R1A: a design-only contract candidate
+that adds exact process-boot, discriminated PLACE/CANCEL, canonical notional,
+full build, endpoint/network and immutable numeric freshness authorities. R1A
+selects no operation, uses no account credential, sends no broker GET or
+POST/DELETE, records no dispatch attempt and issues no operator arm.
+Authorization remains `NOT_ISSUED`. Independent R1A acceptance may open only a
+separate operator-selected Stage 8B-P R2 GET-only preflight package; Stage
+8B-XE and every execution surface remain closed.
 
 ## Mandatory Stage 8A order
 
