@@ -4,6 +4,8 @@
 //! exactly two AuthService POSTs followed by three PLACE or four CANCEL GETs.
 //! It has no order-effect request builder and exports redacted evidence only.
 
+pub mod r2a2;
+
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
@@ -116,8 +118,11 @@ pub struct CurrentSourcesEvidenceSummary {
 
 pub struct ValidatedCurrentSources {
     summary: CurrentSourcesEvidenceSummary,
+    #[allow(dead_code)] // R2A1 controlled-topology binding; production entry retired in R2A2.
     run_identity_sha256: String,
+    #[allow(dead_code)] // R2A1 controlled-topology binding; production entry retired in R2A2.
     selected_account_binding_sha256: String,
+    #[allow(dead_code)] // R2A1 controlled-topology binding; production entry retired in R2A2.
     execution_build_identity_sha256: String,
 }
 
@@ -223,6 +228,7 @@ struct RunIdentityAuthority {
     cancel_fields_in_exact_order: Vec<String>,
 }
 
+#[allow(dead_code)] // retained solely by the inherited R2A1 controlled tests.
 fn sha256(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -476,6 +482,7 @@ pub fn production_clients() -> Result<(reqwest::Client, reqwest::Client), Prefli
     Ok((hardened_client(true)?, hardened_client(true)?))
 }
 
+#[allow(dead_code)] // retained solely by the inherited R2A1 controlled tests.
 fn append_segment(url: &mut reqwest::Url, segment: &str) -> Result<(), PreflightError> {
     url.path_segments_mut()
         .map_err(|_| PreflightError::Url)?
@@ -483,6 +490,7 @@ fn append_segment(url: &mut reqwest::Url, segment: &str) -> Result<(), Preflight
     Ok(())
 }
 
+#[allow(dead_code)] // retained solely by the inherited R2A1 controlled tests.
 fn base_url(value: &str, allow_http_for_test: bool) -> Result<reqwest::Url, PreflightError> {
     let url = reqwest::Url::parse(value).map_err(|_| PreflightError::Url)?;
     if (!allow_http_for_test && url.as_str() != "https://api.finam.ru/")
@@ -493,6 +501,7 @@ fn base_url(value: &str, allow_http_for_test: bool) -> Result<reqwest::Url, Pref
     Ok(url)
 }
 
+#[allow(dead_code)] // retained solely by the inherited R2A1 controlled tests.
 fn route(
     base: &reqwest::Url,
     source: Source,
@@ -541,11 +550,13 @@ fn route(
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct AuthResponse {
     token: String,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct TokenDetails {
     #[serde(default)]
     account_ids: Vec<String>,
@@ -553,17 +564,20 @@ struct TokenDetails {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OrdersResponse {
     #[serde(default)]
     orders: Vec<Value>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct TradesResponse {
     #[serde(default)]
     trades: Vec<Value>,
 }
 
+#[allow(dead_code)] // R2A1 body-hash evidence is not used by R2A2 production code.
 async fn body_and_evidence(
     ordinal: usize,
     class: NetworkClass,
@@ -585,6 +599,7 @@ async fn body_and_evidence(
     Ok((status, body, evidence))
 }
 
+#[allow(dead_code)]
 struct HttpBoundary<'a> {
     auth_client: &'a reqwest::Client,
     broker_client: &'a reqwest::Client,
@@ -592,6 +607,7 @@ struct HttpBoundary<'a> {
     allow_http_for_test: bool,
 }
 
+#[allow(dead_code)] // inherited topology oracle; callable only by controlled tests.
 async fn execute_with_clients(
     boundary: HttpBoundary<'_>,
     secret: &str,
@@ -745,7 +761,9 @@ async fn execute_with_clients(
     })
 }
 
-pub async fn execute_production(
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) async fn execute_production(
     secret: &str,
     account_id: &str,
     manifest: &[u8],
