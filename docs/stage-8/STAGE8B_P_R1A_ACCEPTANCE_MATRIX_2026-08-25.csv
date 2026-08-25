@@ -1,0 +1,65 @@
+id,area,requirement,evidence,status
+P1A-001,lineage,R1 candidate ref exact,authority+checker,PASS
+P1A-002,lineage,R1 authority digest exact,authority+checker,PASS
+P1A-003,lineage,accepted main unchanged,authority+checker,PASS
+P1A-004,lineage,R1 48 negatives inherited,gate,PASS
+P1A-005,build,full execution build digest required,authority+checker,PASS
+P1A-006,build,full build exact equality required,authority+checker,PASS
+P1A-007,build,weaker subset reconstruction forbidden,authority+checker,PASS
+P1A-008,manifest,closed discriminated union,authority+checker,PASS
+P1A-009,manifest,PLACE and CANCEL only,authority+checker,PASS
+P1A-010,manifest,common field inventory exact,authority+checker,PASS
+P1A-011,manifest,PLACE field inventory exact,authority+checker,PASS
+P1A-012,manifest,CANCEL field inventory exact,authority+checker,PASS
+P1A-013,manifest,unknown fields fail closed,authority+checker,PASS
+P1A-014,manifest,irrelevant variant fields fail closed,authority+checker,PASS
+P1A-015,manifest,missing fields fail closed,authority+checker,PASS
+P1A-016,manifest,flat union forbidden,authority+checker,PASS
+P1A-017,manifest,price and cancel target not conflated,authority+checker,PASS
+P1A-018,boot,process boot identity required,authority+checker,PASS
+P1A-019,boot,exact current boot match required,authority+checker,PASS
+P1A-020,boot,omission and mutation fail closed,authority+checker,PASS
+P1A-021,boot,cross boot substitution fails closed,authority+checker,PASS
+P1A-022,boot,restart reuse forbidden,authority+checker,PASS
+P1A-023,place,IMOEXF instrument exact,authority+checker,PASS
+P1A-024,place,LIMIT and DAY exact,authority+checker,PASS
+P1A-025,place,quantity exact one,authority+checker,PASS
+P1A-026,place,canonical decimal grammar frozen,authority+checker,PASS
+P1A-027,place,positive price and notional required,authority+checker,PASS
+P1A-028,place,checked decimal multiplication required,authority+checker,PASS
+P1A-029,place,noncanonical and overflow fail closed,authority+checker,PASS
+P1A-030,place,notional exceedance fails closed,authority+checker,PASS
+P1A-031,place,notional checked before attempt append,authority+checker,PASS
+P1A-032,place,notional rechecked before K4,authority+checker,PASS
+P1A-033,cancel,exact broker order id required,authority+checker,PASS
+P1A-034,cancel,same lifecycle required,authority+checker,PASS
+P1A-035,cancel,request identity must match common,authority+checker,PASS
+P1A-036,cancel,client identity must match common,authority+checker,PASS
+P1A-037,cancel,current working proof required,authority+checker,PASS
+P1A-038,cancel,account wide selection forbidden,authority+checker,PASS
+P1A-039,network,TLS and api.finam.ru exact,network authority+checker,PASS
+P1A-040,network,PLACE POST PlaceOrderV1 exact,network authority+checker,PASS
+P1A-041,network,CANCEL DELETE CancelOrderV1 exact,network authority+checker,PASS
+P1A-042,network,redirect proxy alternate host forbidden,network authority+checker,PASS
+P1A-043,network,arbitrary request and retry forbidden,network authority+checker,PASS
+P1A-044,network,endpoint identity formula exact,network authority+checker,PASS
+P1A-045,network,keyed account and renderer bound,network authority+checker,PASS
+P1A-046,network,raw account and rendered path not exported,network authority+checker,PASS
+P1A-047,freshness,one SHA bound budget authority,authority+checker,PASS
+P1A-048,freshness,eleven source budgets numeric and exact,freshness authority+checker,PASS
+P1A-049,freshness,control skew frozen,freshness authority+checker,PASS
+P1A-050,freshness,runtime current skew frozen,freshness authority+checker,PASS
+P1A-051,freshness,API snapshot independently age bound,freshness authority+checker,PASS
+P1A-052,freshness,caller selected policy forbidden,freshness authority+checker,PASS
+P1A-053,freshness,missing stale future unknown fail closed,freshness authority+checker,PASS
+P1A-054,arm,issued arm fields absent before K1,authority+checker,PASS
+P1A-055,arm,optional commitment is non authority,authority+checker,PASS
+P1A-056,arm,actual arm metadata created only at K1,authority+checker,PASS
+P1A-057,arm,R1A and R2 cannot issue arm,authority+checker,PASS
+P1A-058,r2-k2,R2 evidence is not K2 sources,authority+checker,PASS
+P1A-059,r2-k2,R2 evidence cannot satisfy K1 K2 freshness,authority+checker,PASS
+P1A-060,r2-k2,R2 evidence cannot enter XE current truth,authority+checker,PASS
+P1A-061,r2-k2,fresh post arm K2 reread required,authority+checker,PASS
+P1A-062,boundary,authorization remains NOT_ISSUED,authority+checker,PASS
+P1A-063,boundary,no GET arm attempt transport or effect,authority+checker,PASS
+P1A-064,coverage,50 new plus 48 inherited negatives,gate+negative harness,PASS

@@ -1,0 +1,186 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R1A",
+  "status": "design_only_corrective_authorization_candidate",
+  "branch": "stage8b-p-authorization-r1",
+  "lineage": {
+    "r1_candidate_ref": "12a7aeec20824d3b90e18caa5961ba28a3eb7fd6",
+    "r1_authority_sha256": "7296c9ef77f2ec6b2f7ef014eab79e147f08753cf6062a78f5a6937da9b09132",
+    "accepted_main_ref": "16a59bca74f94881c70d9fa39bbdf1c357e65f95",
+    "accepted_stage8b_s_r3_ref": "afecc258",
+    "r1_negative_cases_inherited": 48
+  },
+  "accepted_execution_build": {
+    "execution_build_identity_sha256": "ca330934df540de69b52d0463a665a1ab0ff89fa13eeb663b162763cc6bc83a0",
+    "source_ref": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+    "source_archive_sha256": "1066ab44b32451f921f2d3cdd49118471f78b214de7dd848a3273c95e19143b6",
+    "executable_sha256": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+    "exact_equality_required": true,
+    "weaker_subset_reconstruction_allowed": false
+  },
+  "bound_authorities": {
+    "freshness_budget_authority_path": "docs/stage-8/stage8b-p-r1a-freshness-budget-authority.json",
+    "freshness_budget_authority_sha256": "6f50b6e11292c2493c07fca11ad4e257190dad9941cb85ab6b8177091576d00f",
+    "network_policy_authority_path": "docs/stage-8/stage8b-p-r1a-network-policy-authority.json",
+    "network_policy_authority_sha256": "02e3cb2429a82e5563a0c3135d7fbf9cd746198cc00f990b813a283ed35f6af8",
+    "caller_selected_authority_allowed": false,
+    "missing_or_modified_authority_fails_closed": true
+  },
+  "canonical_manifest": {
+    "schema_kind": "closed_discriminated_union",
+    "operation_discriminator": "operation",
+    "operation_values": [
+      "PLACE",
+      "CANCEL"
+    ],
+    "common_required_fields": [
+      "strategy_request_id",
+      "durable_client_order_id",
+      "operation",
+      "process_boot_fingerprint_sha256",
+      "keyed_account_binding_hmac_sha256",
+      "account_key_generation_id",
+      "execution_build_identity_sha256",
+      "source_ref",
+      "source_archive_sha256",
+      "executable_sha256",
+      "config_sha256",
+      "policy_sha256",
+      "config_policy_authority_sha256",
+      "instrument_contract_sha256",
+      "api_contract_sha256",
+      "endpoint_renderer_sha256",
+      "endpoint_identity_sha256",
+      "network_policy_sha256",
+      "stage7b_seal_generation",
+      "stage6_checkpoint_fingerprint",
+      "durable_budget_generation",
+      "kill_switch_generation",
+      "ownership_lease_fingerprint",
+      "freshness_budget_authority_sha256",
+      "run_expires_at_utc",
+      "run_identity_sha256",
+      "approved_pre_run_position"
+    ],
+    "place_required_fields": [
+      "instrument",
+      "side",
+      "quantity",
+      "order_type",
+      "time_in_force",
+      "limit_price_canonical_decimal",
+      "max_notional_canonical_decimal",
+      "place_request_body_sha256"
+    ],
+    "cancel_required_fields": [
+      "cancel_target_broker_order_id",
+      "cancel_target_lifecycle_fingerprint",
+      "cancel_target_strategy_request_id",
+      "cancel_target_durable_client_order_id",
+      "cancel_target_currently_working_proof_sha256",
+      "cancel_request_body_sha256"
+    ],
+    "unknown_fields_allowed": false,
+    "irrelevant_variant_fields_allowed": false,
+    "missing_fields_allowed": false,
+    "flat_place_cancel_union_allowed": false,
+    "conflated_limit_price_or_cancel_target_allowed": false
+  },
+  "process_boot_contract": {
+    "field": "process_boot_fingerprint_sha256",
+    "exact_current_boot_match_required": true,
+    "omission_fails_closed": true,
+    "mutation_fails_closed": true,
+    "cross_boot_substitution_fails_closed": true,
+    "restart_reuse_allowed": false
+  },
+  "place_contract": {
+    "instrument": "IMOEXF@RTSX",
+    "order_type": "ORDER_TYPE_LIMIT",
+    "time_in_force": "TIME_IN_FORCE_DAY",
+    "quantity_canonical_decimal": "1",
+    "canonical_decimal_regex": "^(0|[1-9][0-9]*)(\\.[0-9]*[1-9])?$",
+    "positive_limit_price_required": true,
+    "positive_max_notional_required": true,
+    "checked_exact_decimal_multiplication_required": true,
+    "noncanonical_decimal_fails_closed": true,
+    "decimal_overflow_fails_closed": true,
+    "price_times_quantity_exceeds_max_notional_fails_closed": true,
+    "notional_check_before_attempt_append": true,
+    "notional_recheck_immediately_before_k4_transport": true
+  },
+  "cancel_contract": {
+    "exact_broker_order_id_required": true,
+    "same_durable_lifecycle_required": true,
+    "target_request_id_must_equal_common_request_id": true,
+    "target_client_order_id_must_equal_common_client_order_id": true,
+    "currently_working_proof_required": true,
+    "account_wide_order_selection_allowed": false,
+    "caller_selected_unproved_order_allowed": false
+  },
+  "endpoint_and_network_contract": {
+    "endpoint_identity_sha256_required": true,
+    "network_policy_sha256_required": true,
+    "endpoint_identity_exact_formula_required": true,
+    "operation_method_route_exact_match_required": true,
+    "exact_host": "api.finam.ru",
+    "tls_required": true,
+    "redirect_proxy_alternate_host_arbitrary_request_retry_allowed": false
+  },
+  "pre_arm_contract": {
+    "issued_arm_shaped_fields_forbidden": [
+      "operator_arm_nonce",
+      "operator_arm_id",
+      "issued_at_utc",
+      "arm_expires_at_utc",
+      "durable_arm_issuance_record",
+      "covering_arm_seal"
+    ],
+    "arm_nonce_commitment_optional_non_authority": true,
+    "actual_arm_metadata_created_only_at_k1": true,
+    "r1a_issues_arm": false,
+    "r2_may_issue_arm": false
+  },
+  "r2_k2_separation": {
+    "r2_readonly_preflight_evidence_equals_k2_fresh_sources": false,
+    "r2_evidence_convertible_to_k2_authority": false,
+    "r2_evidence_satisfies_k1_or_k2_freshness": false,
+    "r2_evidence_carryable_into_xe_as_current_truth": false,
+    "fresh_reread_and_reduction_after_arm_at_k2_required": true,
+    "direct_r2_evidence_promotion_to_transport_allowed": false
+  },
+  "authorization": {
+    "status": "NOT_ISSUED",
+    "exact_run_manifest_present": false,
+    "broker_readonly_get_sent": false,
+    "operator_arm_issued": false,
+    "dispatch_attempt_recorded": false,
+    "transport_entered": false,
+    "finam_post_delete_sent": false,
+    "broker_effect": false,
+    "stage8b_p_open": false,
+    "stage8b_xe_open": false,
+    "next_if_independently_accepted": "Stage8B-P-R2 operator-selected GET-only preflight"
+  },
+  "closed_surfaces": {
+    "account_credential": true,
+    "broker_readonly_get": true,
+    "operator_arm_issuance": true,
+    "dispatch_attempt_recording": true,
+    "transport_boundary": true,
+    "finam_post_delete": true,
+    "broker_effect": true,
+    "redis_execution_consumer": true,
+    "broker_dispatch": true,
+    "runtime_live": true,
+    "real_orders": true,
+    "stage8b_xe": true,
+    "stage11_execution_promotion": true,
+    "stage12": true
+  },
+  "acceptance_rows": 64,
+  "r1a_negative_mutations": 50,
+  "inherited_r1_negative_mutations": 48,
+  "total_negative_mutations": 98
+}

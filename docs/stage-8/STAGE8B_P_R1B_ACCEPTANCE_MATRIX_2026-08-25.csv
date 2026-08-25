@@ -1,0 +1,41 @@
+id,area,requirement,evidence,status
+P1B-001,lineage,R1A exact ref bound,authority+checker,PASS
+P1B-002,lineage,R1A authority exact digest bound,authority+checker,PASS
+P1B-003,lineage,accepted main unchanged,authority+checker,PASS
+P1B-004,endpoint,qualified source function exact,source+authority+checker,PASS
+P1B-005,endpoint,qualified digest function exact,source+authority+checker,PASS
+P1B-006,endpoint,qualified domain exact,source+authority+checker,PASS
+P1B-007,endpoint,u64be length encoding exact,source+authority+checker,PASS
+P1B-008,endpoint,operation extra component forbidden,authority+checker,PASS
+P1B-009,endpoint,NUL encoding forbidden,authority+checker,PASS
+P1B-010,endpoint,component order exact,authority+checker,PASS
+P1B-011,endpoint,PLACE method route exact,authority+checker,PASS
+P1B-012,endpoint,CANCEL method route exact,authority+checker,PASS
+P1B-013,endpoint,keyed account binding exact,authority+checker,PASS
+P1B-014,endpoint,accepted renderer exact,authority+checker,PASS
+P1B-015,endpoint,PLACE golden reproduced,checker,PASS
+P1B-016,endpoint,CANCEL golden reproduced,checker,PASS
+P1B-017,run,run domain version frozen,authority+checker,PASS
+P1B-018,run,run digest encoding frozen,authority+checker,PASS
+P1B-019,run,common field order exact,authority+checker,PASS
+P1B-020,run,PLACE field order exact,authority+checker,PASS
+P1B-021,run,CANCEL field order exact,authority+checker,PASS
+P1B-022,run,operation discriminator included,authority+checker,PASS
+P1B-023,run,self digest excluded from preimage,authority+checker,PASS
+P1B-024,run,digest computed and verified,authority+checker,PASS
+P1B-025,run,caller assertion never authoritative,authority+checker,PASS
+P1B-026,run,numeric generations canonical,authority+checker,PASS
+P1B-027,run,expiry canonical UTC milliseconds,authority+checker,PASS
+P1B-028,run,approved position canonical signed decimal,authority+checker,PASS
+P1B-029,run,endpoint network freshness boot build body bound,authority+checker,PASS
+P1B-030,run,PLACE full golden reproduced,checker,PASS
+P1B-031,run,CANCEL full golden reproduced,checker,PASS
+P1B-032,retained,R1A semantic protections unchanged,R1A gate,PASS
+P1B-033,boundary,no production source change,git checker,PASS
+P1B-034,boundary,authorization remains NOT_ISSUED,authority+checker,PASS
+P1B-035,boundary,no GET arm attempt transport or effect,authority+checker,PASS
+P1B-036,coverage,36 R1B negatives rejected,negative harness,PASS
+P1B-037,coverage,98 inherited negatives rejected,R1A gate,PASS
+P1B-038,coverage,134 total mutations rejected,combined gate,PASS
+P1B-039,handoff,commit bound safe ZIP required,handoff checker,PASS
+P1B-040,promotion,only independent acceptance may open GET-only R2,authority+docs,PASS

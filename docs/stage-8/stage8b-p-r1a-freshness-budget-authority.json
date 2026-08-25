@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "authority_kind": "stage8b_p_freshness_budget_authority",
+  "stage": "8B-P",
+  "revision": "R1A",
+  "status": "candidate_pending_independent_acceptance",
+  "clock_semantics": {
+    "age_reference": "opaque_trusted_clock_now",
+    "timestamp_unit": "milliseconds_since_unix_epoch_utc",
+    "missing_timestamp_allowed": false,
+    "future_timestamp_allowed_within_source_budget_only": true,
+    "caller_selected_now_allowed": false,
+    "caller_selected_budget_allowed": false
+  },
+  "source_budgets": {
+    "trusted_clock": {
+      "max_age_ms": 1000,
+      "max_future_skew_ms": 250
+    },
+    "readiness": {
+      "max_age_ms": 1000,
+      "max_future_skew_ms": 250
+    },
+    "current_control": {
+      "max_age_ms": 1000,
+      "max_future_skew_ms": 250
+    },
+    "ownership": {
+      "max_age_ms": 1000,
+      "max_future_skew_ms": 250
+    },
+    "schedule": {
+      "max_age_ms": 5000,
+      "max_future_skew_ms": 250
+    },
+    "instrument": {
+      "max_age_ms": 5000,
+      "max_future_skew_ms": 250
+    },
+    "account_orders": {
+      "max_age_ms": 2000,
+      "max_future_skew_ms": 250
+    },
+    "positions": {
+      "max_age_ms": 5000,
+      "max_future_skew_ms": 250
+    },
+    "trades": {
+      "max_age_ms": 5000,
+      "max_future_skew_ms": 250
+    },
+    "exact_order": {
+      "max_age_ms": 1000,
+      "max_future_skew_ms": 250
+    },
+    "api_snapshot": {
+      "max_age_ms": 86400000,
+      "max_future_skew_ms": 300000
+    }
+  },
+  "cross_source_budgets": {
+    "control_sources": {
+      "members": [
+        "readiness",
+        "current_control",
+        "ownership"
+      ],
+      "max_skew_ms": 1000
+    },
+    "runtime_current_sources": {
+      "members": [
+        "readiness",
+        "current_control",
+        "ownership",
+        "schedule",
+        "instrument",
+        "account_orders",
+        "positions",
+        "trades",
+        "exact_order"
+      ],
+      "max_skew_ms": 5000
+    }
+  },
+  "api_snapshot_cross_source_rule": "age_bound_independently_not_compared_to_runtime_current_source_skew",
+  "validation": {
+    "missing_source_fails_closed": true,
+    "missing_budget_fails_closed": true,
+    "unknown_source_fails_closed": true,
+    "zero_or_negative_budget_fails_closed": true,
+    "stale_source_fails_closed": true,
+    "future_source_beyond_budget_fails_closed": true,
+    "cross_source_skew_exceeded_fails_closed": true,
+    "modified_authority_digest_fails_closed": true,
+    "historical_ack_implies_current_readiness": false,
+    "earlier_successful_get_implies_current_readiness": false
+  },
+  "authorization": {
+    "r1a_issues_authority": false,
+    "r1a_performs_broker_get": false,
+    "r1a_issues_operator_arm": false,
+    "r1a_enters_transport": false,
+    "r1a_sends_finam_post_delete": false
+  }
+}
