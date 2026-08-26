@@ -1,0 +1,19 @@
+[Unit]
+Description=MOEX Stage 8B R2A5 authority producer UID %i
+ConditionPathExists=/var/lib/moex-trading/operational-authorities
+
+[Service]
+Type=oneshot
+User=%i
+Group=%i
+ExecStart=/opt/moex-trading/stage8b-r2a5/bin/stage8b-r2a5-authority-producer
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/moex-trading/operational-authorities /run/moex-trading/stage8b/r2a5/run-nonce.sha256 /proc/sys/kernel/random/boot_id
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a5/authority-sources
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+UMask=0077

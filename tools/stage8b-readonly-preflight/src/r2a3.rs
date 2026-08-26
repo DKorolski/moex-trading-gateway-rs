@@ -132,6 +132,8 @@ pub struct SignedAuthorityReceipt {
     pub producer_executable_sha256: String,
     pub issuer_executable_sha256: String,
     pub authoritative_store_sha256: String,
+    pub source_observed_at_utc: DateTime<Utc>,
+    pub produced_at_utc: DateTime<Utc>,
     pub issuer_key_id: String,
     pub signature_ed25519_hex: String,
 }
@@ -155,7 +157,8 @@ pub struct AuthoritySourceSnapshot {
     pub producer_executable_sha256: String,
     pub authoritative_store_sha256: String,
     pub run_nonce_sha256: String,
-    pub observed_at_utc: DateTime<Utc>,
+    pub source_observed_at_utc: DateTime<Utc>,
+    pub produced_at_utc: DateTime<Utc>,
     pub claims: BTreeMap<String, String>,
 }
 
@@ -332,6 +335,8 @@ pub(crate) fn validate_signed_authorities(
     for signed in envelope.receipts {
         if signed.run_nonce_sha256 != expected_run_nonce
             || !signed.receipt.authentication_tag_hmac_sha256.is_empty()
+            || signed.source_observed_at_utc != signed.receipt.observed_at_utc
+            || signed.produced_at_utc < signed.source_observed_at_utc
             || signed.issuer_key_id != format!("{}-ed25519-v1", signed.receipt.source_name)
             || decode_hex::<32>(&signed.source_snapshot_sha256).is_err()
             || signed.source_generation == 0
@@ -842,7 +847,7 @@ pub fn issue_from_fixed_source(source_name: &str) -> Result<(), R2a3Error> {
         source_name: source_name.to_owned(),
         issuer: (*issuer).to_owned(),
         evidence_schema: (*schema).to_owned(),
-        observed_at_utc: source.observed_at_utc,
+        observed_at_utc: source.source_observed_at_utc,
         key_generation_id: r2a2::LOCAL_RECEIPT_KEY_GENERATION_ID.to_owned(),
         run_identity_sha256: fields
             .get("run_identity_sha256")
@@ -868,6 +873,8 @@ pub fn issue_from_fixed_source(source_name: &str) -> Result<(), R2a3Error> {
             producer_executable_sha256: source.producer_executable_sha256,
             issuer_executable_sha256: current_linux_executable_sha256()?,
             authoritative_store_sha256: source.authoritative_store_sha256,
+            source_observed_at_utc: source.source_observed_at_utc,
+            produced_at_utc: source.produced_at_utc,
             issuer_key_id: format!("{source_name}-ed25519-v1"),
             signature_ed25519_hex: String::new(),
         },
@@ -1313,6 +1320,8 @@ pub(crate) fn controlled_fixture_for(
                 ),
                 issuer_executable_sha256: sha256(format!("controlled-issuer-{source}").as_bytes()),
                 authoritative_store_sha256: sha256(format!("controlled-store-{source}").as_bytes()),
+                source_observed_at_utc: now,
+                produced_at_utc: now,
                 issuer_key_id: format!("{source}-ed25519-v1"),
                 signature_ed25519_hex: String::new(),
             },
@@ -1617,6 +1626,8 @@ mod tests {
             producer_executable_sha256: "6".repeat(64),
             issuer_executable_sha256: "7".repeat(64),
             authoritative_store_sha256: "8".repeat(64),
+            source_observed_at_utc: Utc::now(),
+            produced_at_utc: Utc::now(),
             issuer_key_id: "trusted_clock-ed25519-v1".to_owned(),
             signature_ed25519_hex: String::new(),
         };
@@ -1660,6 +1671,10 @@ mod tests {
             producer_executable_sha256: "1".repeat(64),
             issuer_executable_sha256: "2".repeat(64),
             authoritative_store_sha256: "3".repeat(64),
+            source_observed_at_utc: at,
+            // All producers run simultaneously. Skew must still use the
+            // immutable source observations rather than this fresh timestamp.
+            produced_at_utc: now,
             issuer_key_id: String::new(),
             signature_ed25519_hex: String::new(),
         };
@@ -1731,7 +1746,8 @@ mod tests {
             producer_executable_sha256: "a".repeat(64),
             authoritative_store_sha256: "b".repeat(64),
             run_nonce_sha256: nonce.clone(),
-            observed_at_utc: Utc::now(),
+            source_observed_at_utc: Utc::now(),
+            produced_at_utc: Utc::now(),
             claims: BTreeMap::from([("ready".to_owned(), "true".to_owned())]),
         };
         assert_ne!(

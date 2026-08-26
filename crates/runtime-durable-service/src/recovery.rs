@@ -651,6 +651,7 @@ pub struct Stage7bStage8a1DurableRequestAuthority {
     stage6: Stage6DurableRequestAuthorityV1,
     operational_identity_sha256: String,
     seal_generation: u64,
+    seal_created_at_ts_utc_ms: i64,
     seal_commitment_sha256: String,
 }
 
@@ -759,6 +760,10 @@ impl Stage7bStage8a1DurableRequestAuthority {
 
     pub fn seal_generation(&self) -> u64 {
         self.seal_generation
+    }
+
+    pub fn seal_created_at_ts_utc_ms(&self) -> i64 {
+        self.seal_created_at_ts_utc_ms
     }
 
     pub fn seal_commitment_sha256(&self) -> &str {
@@ -954,6 +959,7 @@ impl Stage7bRecoveryReadyOwner {
                 .operational_identity_sha256()
                 .to_string(),
             seal_generation: self.committed_seal.seal_generation(),
+            seal_created_at_ts_utc_ms: self.committed_seal.created_at_ts_utc_ms(),
             seal_commitment_sha256: self.committed_seal.seal_commitment_sha256().to_string(),
         })
     }
@@ -997,6 +1003,7 @@ impl Stage7bRecoveryReadyOwner {
                 .operational_identity_sha256()
                 .to_string(),
             seal_generation: self.committed_seal.seal_generation(),
+            seal_created_at_ts_utc_ms: self.committed_seal.created_at_ts_utc_ms(),
             seal_commitment_sha256: self.committed_seal.seal_commitment_sha256().to_string(),
         })
     }
@@ -1890,6 +1897,7 @@ impl Stage8a4I3RecoveryPendingOwner {
                 .operational_identity_sha256()
                 .to_string(),
             seal_generation: self.committed_s0.seal_generation(),
+            seal_created_at_ts_utc_ms: self.committed_s0.created_at_ts_utc_ms(),
             seal_commitment_sha256: self.committed_s0.seal_commitment_sha256().to_string(),
         })
     }

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A5",
+  "authorization_status": "NOT_ISSUED",
+  "source_truth": {
+    "manual_intermediate_store_allowed": false,
+    "operational_adapter_owner": "finam_gateway::Stage8a1OperationalAuthorityIssuer",
+    "source_observation_timestamp_immutable": true,
+    "producer_timestamp_is_diagnostic_only": true,
+    "cross_source_skew_uses_source_observation": true
+  },
+  "helper_identity": {
+    "independent_acceptance_key": true,
+    "package_issuer_enforces_accepted_helper": true,
+    "helper_enforces_accepted_helper_before_credentials": true,
+    "launcher_enforces_accepted_helper": true
+  },
+  "promotion": {
+    "r2b_real_credentials_allowed": false,
+    "typed_operator_decision_required_in_r2b": true,
+    "reason": "R2A5 remains a controlled no-network qualification candidate pending independent acceptance"
+  },
+  "closed_surfaces": {
+    "real_finam_credentials": false,
+    "real_authservice_post": false,
+    "real_broker_get": false,
+    "finam_order_post_delete": false,
+    "operator_arm": false,
+    "dispatch_attempt": false,
+    "effect_transport": false,
+    "redis_execution": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

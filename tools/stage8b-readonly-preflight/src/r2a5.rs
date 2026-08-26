@@ -1,6 +1,6 @@
-//! Stage 8B-P R2A4 exact selected-run and trust-set qualification.
+//! Stage 8B-P R2A5 source-truth, freshness and helper-identity qualification.
 //!
-//! R2A4 retains the R2A3 bounded GET-only pipeline, but no credential or
+//! R2A5 retains the R2A3 bounded GET-only pipeline, but no credential or
 //! network client is reached until an independently signed package is bound to
 //! the exact manifest, helper, trust set, source generations and account-key
 //! generation. The repository intentionally ships no ISSUED package.
@@ -29,21 +29,25 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 use zeroize::{Zeroize, Zeroizing};
 
-pub const PACKAGE_SIGNATURE_DOMAIN: &str = "stage8b-p-r2a4-run-package-ed25519-v1";
-pub const PUBLIC_KEY_SET_DOMAIN: &str = "stage8b-p-r2a4-public-key-set-v1";
-pub const SOURCE_GENERATION_DOMAIN: &str = "stage8b-p-r2a4-source-generation-set-v1";
-pub const PRODUCTION_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a4";
-pub const PRODUCTION_ETC: &str = "/etc/moex-trading/stage8b/r2a4";
-pub const PRODUCTION_RUN: &str = "/run/moex-trading/stage8b/r2a4";
-pub const PRODUCTION_CREDENTIALS: &str = "/run/credentials/moex-trading/stage8b/r2a4";
-pub const CONTROLLED_HOST: &str = "stage8b-r2a4.invalid";
-const CONTROLLED_CA_PATH: &str = "/run/moex-trading/stage8b/r2a4/controlled-ca.der";
-const CONTROLLED_ENDPOINT_PATH: &str = "/run/moex-trading/stage8b/r2a4/controlled-endpoint.txt";
-const AUTHORITY: &str = include_str!("../../../docs/stage-8/stage8b-p-r2a4-authority.json");
+pub const PACKAGE_SIGNATURE_DOMAIN: &str = "stage8b-p-r2a5-run-package-ed25519-v1";
+pub const PUBLIC_KEY_SET_DOMAIN: &str = "stage8b-p-r2a5-public-key-set-v1";
+pub const SOURCE_GENERATION_DOMAIN: &str = "stage8b-p-r2a5-source-generation-set-v1";
+pub const HELPER_ACCEPTANCE_DOMAIN: &str = "stage8b-p-r2a5-helper-acceptance-ed25519-v1";
+pub const PRODUCTION_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a5";
+pub const PRODUCTION_ETC: &str = "/etc/moex-trading/stage8b/r2a5";
+pub const PRODUCTION_RUN: &str = "/run/moex-trading/stage8b/r2a5";
+pub const PRODUCTION_CREDENTIALS: &str = "/run/credentials/moex-trading/stage8b/r2a5";
+pub const PRODUCTION_UPSTREAM_ROOT: &str = "/var/lib/moex-trading/operational-authorities";
+pub const CONTROLLED_HOST: &str = "stage8b-r2a5.invalid";
+const CONTROLLED_CA_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-ca.der";
+const CONTROLLED_ENDPOINT_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-endpoint.txt";
+const AUTHORITY: &str = include_str!("../../../docs/stage-8/stage8b-p-r2a5-authority.json");
 const CONTROLLED_AUTHORITY: &str =
-    include_str!("../../../docs/stage-8/stage8b-p-r2a4-controlled-authority.json");
+    include_str!("../../../docs/stage-8/stage8b-p-r2a5-controlled-authority.json");
 const READ_CONTRACT_SNAPSHOT: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p-r2a3-finam-read-contract-snapshot.json");
+const SOURCE_ADAPTER_AUTHORITY: &[u8] =
+    include_bytes!("../../../docs/stage-8/stage8b-p-r2a5-source-adapter-authority.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -62,9 +66,25 @@ pub struct TrustSetManifest {
     pub schema_version: u8,
     pub environment: String,
     pub authorization_key: PinnedPublicKey,
+    pub helper_acceptance_key: PinnedPublicKey,
     pub source_keys: BTreeMap<String, PinnedPublicKey>,
     pub public_key_set_sha256: String,
     pub rotation_requires_new_reviewed_package: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptedHelperAuthority {
+    pub schema_version: u8,
+    pub stage: String,
+    pub revision: String,
+    pub status: String,
+    pub helper_executable_sha256: String,
+    pub effect_build_identity_sha256: String,
+    pub valid_from_utc: DateTime<Utc>,
+    pub valid_until_utc: DateTime<Utc>,
+    pub acceptance_key_id: String,
+    pub signature_ed25519_hex: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -84,20 +104,112 @@ pub struct AccountKeyManifest {
     pub entries: Vec<AccountKeyEntry>,
 }
 
+/// Closed, source-specific records emitted by the accepted operational owners.
+/// The R2A producer reads these records directly; there is no manually
+/// manually populated R2A authoritative-store production seam.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct AuthoritativeStoreRecord {
-    pub schema_version: u8,
-    pub source_name: String,
-    pub reader_contract: String,
-    pub store_generation: u64,
-    pub observed_at_utc: DateTime<Utc>,
-    pub claims: BTreeMap<String, String>,
+#[serde(tag = "source_name", deny_unknown_fields)]
+pub enum OperationalAuthorityRecord {
+    #[serde(rename = "stage7b_current_recovery_seal")]
+    Stage7bRecoverySeal {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        stage7b_seal_generation: u64,
+        stage6_checkpoint_fingerprint: String,
+    },
+    #[serde(rename = "stage6_exact_dispatch_ready_command")]
+    Stage6DispatchReadyCommand {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        strategy_request_id: String,
+        durable_client_order_id: String,
+        operation: String,
+        request_body_sha256: String,
+        cancel_target_broker_order_id: Option<String>,
+        cancel_target_lifecycle_fingerprint: Option<String>,
+        cancel_target_currently_working_proof_sha256: Option<String>,
+    },
+    #[serde(rename = "stage8a_root_config_policy_control")]
+    Stage8aRootControl {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        config_sha256: String,
+        policy_sha256: String,
+        config_policy_authority_sha256: String,
+    },
+    #[serde(rename = "composite_readiness")]
+    CompositeReadiness {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        ready: bool,
+    },
+    #[serde(rename = "kill_switch_run_allowed")]
+    KillSwitch {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        run_allowed: bool,
+        kill_switch_generation: String,
+    },
+    #[serde(rename = "single_finam_ownership")]
+    SingleFinamOwnership {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        single_owner: bool,
+        ownership_lease_fingerprint: String,
+    },
+    #[serde(rename = "schedule")]
+    Schedule {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        eligible: bool,
+    },
+    #[serde(rename = "instrument_specification")]
+    InstrumentSpecification {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        instrument: String,
+        eligible: bool,
+    },
+    #[serde(rename = "ambiguity_orphan_unresolved_lifecycle")]
+    LifecycleClarity {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        clear: bool,
+    },
+    #[serde(rename = "durable_micro_budget")]
+    DurableMicroBudget {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        available: bool,
+        durable_budget_generation: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct R2a4RunPackage {
+struct ControlledSourceAdapterFixture {
+    schema_version: u8,
+    writer_owner: String,
+    writer_api: String,
+    source_name: String,
+    generation: u64,
+    source_observed_at_utc: DateTime<Utc>,
+    claims: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct R2a5RunPackage {
     pub package_version: u8,
     pub authorization_status: String,
     pub issued_at_utc: DateTime<Utc>,
@@ -112,6 +224,7 @@ pub struct R2a4RunPackage {
     pub effect_build_identity_sha256: String,
     pub helper_executable_sha256: String,
     pub contract_snapshot_sha256: String,
+    pub source_adapter_authority_sha256: String,
     pub trust_manifest_sha256: String,
     pub public_key_set_sha256: String,
     pub source_generation_commitment_sha256: String,
@@ -122,7 +235,7 @@ pub struct R2a4RunPackage {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AcceptedR2a4Authority {
+struct AcceptedR2a5Authority {
     schema_version: u8,
     stage: String,
     revision: String,
@@ -131,10 +244,11 @@ struct AcceptedR2a4Authority {
     trust_manifest_sha256: String,
     public_key_set_sha256: String,
     account_key_manifest_sha256: String,
+    source_adapter_authority_sha256: String,
 }
 
-pub(crate) struct PreparedR2a4Run {
-    package: R2a4RunPackage,
+pub(crate) struct PreparedR2a5Run {
+    package: R2a5RunPackage,
     manifest: Zeroizing<Vec<u8>>,
     receipts: Zeroizing<Vec<u8>>,
     public_keys: BTreeMap<String, VerifyingKey>,
@@ -181,7 +295,13 @@ pub fn public_key_set_digest(manifest: &TrustSetManifest) -> Result<String, R2a3
     {
         return Err(R2a3Error::Authorization);
     }
-    let mut parts = Vec::new();
+    let mut parts = vec![
+        manifest.helper_acceptance_key.key_id.clone(),
+        manifest.helper_acceptance_key.generation.to_string(),
+        manifest.helper_acceptance_key.public_key_sha256.clone(),
+        r2a2::exact_millis(manifest.helper_acceptance_key.valid_from_utc),
+        r2a2::exact_millis(manifest.helper_acceptance_key.valid_until_utc),
+    ];
     for (source, key) in &manifest.source_keys {
         parts.push(source.clone());
         parts.push(key.key_id.clone());
@@ -220,7 +340,7 @@ pub fn source_generation_commitment(
     ))
 }
 
-fn package_preimage(package: &R2a4RunPackage) -> Result<Vec<u8>, R2a3Error> {
+fn package_preimage(package: &R2a5RunPackage) -> Result<Vec<u8>, R2a3Error> {
     let mut unsigned = package.clone();
     unsigned.signature_ed25519_hex.zeroize();
     let body = serde_json::to_vec(&unsigned)?;
@@ -231,10 +351,93 @@ fn package_preimage(package: &R2a4RunPackage) -> Result<Vec<u8>, R2a3Error> {
     Ok(preimage)
 }
 
-pub fn sign_run_package(
-    mut package: R2a4RunPackage,
+fn helper_acceptance_preimage(authority: &AcceptedHelperAuthority) -> Result<Vec<u8>, R2a3Error> {
+    let mut unsigned = authority.clone();
+    unsigned.signature_ed25519_hex.zeroize();
+    let body = serde_json::to_vec(&unsigned)?;
+    let mut preimage = Vec::with_capacity(HELPER_ACCEPTANCE_DOMAIN.len() + 1 + body.len());
+    preimage.extend_from_slice(HELPER_ACCEPTANCE_DOMAIN.as_bytes());
+    preimage.push(0);
+    preimage.extend_from_slice(&body);
+    Ok(preimage)
+}
+
+fn sign_helper_acceptance(
+    mut authority: AcceptedHelperAuthority,
     signing_key: &SigningKey,
-) -> Result<R2a4RunPackage, R2a3Error> {
+) -> Result<AcceptedHelperAuthority, R2a3Error> {
+    authority.signature_ed25519_hex.zeroize();
+    authority.signature_ed25519_hex = lower_hex(
+        &signing_key
+            .sign(&helper_acceptance_preimage(&authority)?)
+            .to_bytes(),
+    );
+    Ok(authority)
+}
+
+/// Accepts one exact reviewed helper/effect pair with the independent helper
+/// acceptance key. This ceremony is deliberately separate from run-package
+/// authorization, and writes no run package or execution capability.
+pub fn accept_helper_from_fixed_authority(
+    helper_executable_sha256: &str,
+    effect_build_identity_sha256: &str,
+) -> Result<(), R2a3Error> {
+    if unsafe { libc::geteuid() } != 0 {
+        return Err(R2a3Error::Authorization);
+    }
+    decode_hex::<32>(helper_executable_sha256)?;
+    decode_hex::<32>(effect_build_identity_sha256)?;
+    let etc_root = Path::new(PRODUCTION_ETC);
+    let credentials_root = Path::new(PRODUCTION_CREDENTIALS);
+    let trust: TrustSetManifest = serde_json::from_slice(&read_owned_fd(
+        &etc_root.join("trust-manifest.json"),
+        128 * 1024,
+        0,
+        false,
+    )?)?;
+    let now = Utc::now();
+    validate_pinned_key(&trust.helper_acceptance_key, now)?;
+    let seed = strict_single_line(
+        &read_owned_fd(
+            &credentials_root.join("helper-acceptance.ed25519"),
+            128,
+            0,
+            true,
+        )?,
+        128,
+    )?;
+    let signing = SigningKey::from_bytes(&decode_hex::<32>(&seed)?);
+    if lower_hex(&signing.verifying_key().to_bytes())
+        != trust.helper_acceptance_key.public_key_ed25519_hex
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let authority = sign_helper_acceptance(
+        AcceptedHelperAuthority {
+            schema_version: 1,
+            stage: "8B-P".to_owned(),
+            revision: "R2A5".to_owned(),
+            status: "ACCEPTED".to_owned(),
+            helper_executable_sha256: helper_executable_sha256.to_owned(),
+            effect_build_identity_sha256: effect_build_identity_sha256.to_owned(),
+            valid_from_utc: trust.helper_acceptance_key.valid_from_utc,
+            valid_until_utc: trust.helper_acceptance_key.valid_until_utc,
+            acceptance_key_id: trust.helper_acceptance_key.key_id,
+            signature_ed25519_hex: String::new(),
+        },
+        &signing,
+    )?;
+    atomic_write_owned(
+        &etc_root.join("accepted-helper-authority.json"),
+        &serde_json::to_vec_pretty(&authority)?,
+        0,
+    )
+}
+
+pub fn sign_run_package(
+    mut package: R2a5RunPackage,
+    signing_key: &SigningKey,
+) -> Result<R2a5RunPackage, R2a3Error> {
     package.signature_ed25519_hex.zeroize();
     let signature = signing_key.sign(&package_preimage(&package)?);
     package.signature_ed25519_hex = lower_hex(&signature.to_bytes());
@@ -254,6 +457,23 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
         0,
         false,
     )?)?;
+    let now = Utc::now();
+    let accepted_helper = load_accepted_helper_authority(etc_root, &trust, now)?;
+    let draft_bytes = read_owned_fd(
+        &state_root.join("r2b-run-package.unsigned.json"),
+        128 * 1024,
+        0,
+        false,
+    )?;
+    let draft: R2a5RunPackage = serde_json::from_slice(&draft_bytes)?;
+    if draft.authorization_status != "ISSUED"
+        || !draft.signature_ed25519_hex.is_empty()
+        || draft.authorization_key_id != trust.authorization_key.key_id
+        || draft.helper_executable_sha256 != accepted_helper.helper_executable_sha256
+        || draft.effect_build_identity_sha256 != accepted_helper.effect_build_identity_sha256
+    {
+        return Err(R2a3Error::Authorization);
+    }
     let key_text = strict_single_line(
         &read_owned_fd(
             &credentials_root.join("package-authorization.ed25519"),
@@ -267,19 +487,6 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
     let public = signing.verifying_key().to_bytes();
     if lower_hex(&public) != trust.authorization_key.public_key_ed25519_hex
         || sha256(&public) != trust.authorization_key.public_key_sha256
-    {
-        return Err(R2a3Error::Authorization);
-    }
-    let draft_bytes = read_owned_fd(
-        &state_root.join("r2b-run-package.unsigned.json"),
-        128 * 1024,
-        0,
-        false,
-    )?;
-    let draft: R2a4RunPackage = serde_json::from_slice(&draft_bytes)?;
-    if draft.authorization_status != "ISSUED"
-        || !draft.signature_ed25519_hex.is_empty()
-        || draft.authorization_key_id != trust.authorization_key.key_id
     {
         return Err(R2a3Error::Authorization);
     }
@@ -350,6 +557,37 @@ fn validate_pinned_key(
     VerifyingKey::from_bytes(&raw).map_err(|_| R2a3Error::Authorization)
 }
 
+fn load_accepted_helper_authority(
+    etc_root: &Path,
+    trust: &TrustSetManifest,
+    now: DateTime<Utc>,
+) -> Result<AcceptedHelperAuthority, R2a3Error> {
+    let bytes = read_owned_fd(
+        &etc_root.join("accepted-helper-authority.json"),
+        64 * 1024,
+        0,
+        false,
+    )?;
+    let authority: AcceptedHelperAuthority = serde_json::from_slice(&bytes)?;
+    let key = validate_pinned_key(&trust.helper_acceptance_key, now)?;
+    if authority.schema_version != 1
+        || authority.stage != "8B-P"
+        || authority.revision != "R2A5"
+        || authority.status != "ACCEPTED"
+        || authority.acceptance_key_id != trust.helper_acceptance_key.key_id
+        || now < authority.valid_from_utc
+        || now >= authority.valid_until_utc
+        || decode_hex::<32>(&authority.helper_executable_sha256).is_err()
+        || decode_hex::<32>(&authority.effect_build_identity_sha256).is_err()
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let signature = Signature::from_bytes(&decode_hex::<64>(&authority.signature_ed25519_hex)?);
+    key.verify(&helper_acceptance_preimage(&authority)?, &signature)
+        .map_err(|_| R2a3Error::Authorization)?;
+    Ok(authority)
+}
+
 fn chown_path(path: &Path, uid: u32, gid: u32) -> Result<(), R2a3Error> {
     let path = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|_| R2a3Error::Input)?;
     if unsafe { libc::chown(path.as_ptr(), uid, gid) } != 0 {
@@ -391,10 +629,21 @@ fn controlled_trust_and_account_manifests(
     let authorization_signing = SigningKey::from_bytes(&[99u8; 32]);
     let authorization_public = authorization_signing.verifying_key().to_bytes();
     let authorization_key = PinnedPublicKey {
-        key_id: "stage8b-r2a4-controlled-package-authorization-v1".to_owned(),
+        key_id: "stage8b-r2a5-controlled-package-authorization-v1".to_owned(),
         generation: 1,
         public_key_ed25519_hex: lower_hex(&authorization_public),
         public_key_sha256: sha256(&authorization_public),
+        valid_from_utc: valid_from,
+        valid_until_utc: valid_until,
+    };
+    let helper_acceptance_public = SigningKey::from_bytes(&[98u8; 32])
+        .verifying_key()
+        .to_bytes();
+    let helper_acceptance_key = PinnedPublicKey {
+        key_id: "stage8b-r2a5-controlled-helper-acceptance-v1".to_owned(),
+        generation: 1,
+        public_key_ed25519_hex: lower_hex(&helper_acceptance_public),
+        public_key_sha256: sha256(&helper_acceptance_public),
         valid_from_utc: valid_from,
         valid_until_utc: valid_until,
     };
@@ -418,6 +667,7 @@ fn controlled_trust_and_account_manifests(
         schema_version: 1,
         environment: "production".to_owned(),
         authorization_key,
+        helper_acceptance_key,
         source_keys,
         public_key_set_sha256: String::new(),
         rotation_requires_new_reviewed_package: true,
@@ -455,7 +705,50 @@ pub fn controlled_authority_values() -> Result<BTreeMap<String, String>, R2a3Err
             "account_key_manifest_sha256".to_owned(),
             sha256(&account_bytes),
         ),
+        (
+            "source_adapter_authority_sha256".to_owned(),
+            sha256(SOURCE_ADAPTER_AUTHORITY),
+        ),
     ]))
+}
+
+fn publish_controlled_source_adapter_fixtures(
+    fixture_root: &Path,
+    upstream_root: &Path,
+) -> Result<(), R2a3Error> {
+    for source in source_names()
+        .into_iter()
+        .filter(|source| *source != "trusted_clock")
+    {
+        let bytes = read_owned_fd(
+            &fixture_root.join(format!("{source}.json")),
+            128 * 1024,
+            0,
+            false,
+        )?;
+        let fixture: ControlledSourceAdapterFixture = serde_json::from_slice(&bytes)?;
+        if fixture.schema_version != 1
+            || fixture.writer_owner != "finam_gateway::Stage8a1OperationalAuthorityIssuer"
+            || fixture.writer_api != "publish_stage8b_r2a5_operational_sources"
+            || fixture.source_name != source
+            || fixture.generation == 0
+        {
+            return Err(R2a3Error::Provenance);
+        }
+        let authority = controlled_operational_authority(
+            source,
+            fixture.generation,
+            fixture.source_observed_at_utc,
+            &fixture.claims,
+        )?;
+        write_seed_file(
+            &upstream_root.join(operational_authority_file(source)?),
+            &serde_json::to_vec(&authority)?,
+            0,
+            0o644,
+        )?;
+    }
+    Ok(())
 }
 
 fn random_seed() -> Result<Zeroizing<[u8; 32]>, R2a3Error> {
@@ -476,7 +769,7 @@ fn ceremony_write(path: &Path, bytes: &[u8], mode: u32) -> Result<(), R2a3Error>
     Ok(())
 }
 
-/// Generates an offline R2A4 key ceremony. Secret material is written only to
+/// Generates an offline R2A5 key ceremony. Secret material is written only to
 /// the caller-selected, newly-created directory; only the two public manifests
 /// are intended to enter source control.
 pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, R2a3Error> {
@@ -497,10 +790,26 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
         0o600,
     )?;
     let authorization_key = PinnedPublicKey {
-        key_id: "stage8b-r2a4-production-package-authorization-v1".to_owned(),
+        key_id: "stage8b-r2a5-production-package-authorization-v1".to_owned(),
         generation: 1,
         public_key_ed25519_hex: lower_hex(&authorization_public),
         public_key_sha256: sha256(&authorization_public),
+        valid_from_utc: valid_from,
+        valid_until_utc: valid_until,
+    };
+    let helper_acceptance_seed = random_seed()?;
+    let helper_acceptance_signing = SigningKey::from_bytes(&helper_acceptance_seed);
+    let helper_acceptance_public = helper_acceptance_signing.verifying_key().to_bytes();
+    ceremony_write(
+        &output.join("helper-acceptance.ed25519"),
+        format!("{}\n", lower_hex(&helper_acceptance_seed[..])).as_bytes(),
+        0o600,
+    )?;
+    let helper_acceptance_key = PinnedPublicKey {
+        key_id: "stage8b-r2a5-production-helper-acceptance-v1".to_owned(),
+        generation: 1,
+        public_key_ed25519_hex: lower_hex(&helper_acceptance_public),
+        public_key_sha256: sha256(&helper_acceptance_public),
         valid_from_utc: valid_from,
         valid_until_utc: valid_until,
     };
@@ -536,6 +845,7 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
         schema_version: 1,
         environment: "production".to_owned(),
         authorization_key,
+        helper_acceptance_key,
         source_keys,
         public_key_set_sha256: String::new(),
         rotation_requires_new_reviewed_package: true,
@@ -580,6 +890,10 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
             "account_key_manifest_sha256".to_owned(),
             sha256(&account_bytes),
         ),
+        (
+            "source_adapter_authority_sha256".to_owned(),
+            sha256(SOURCE_ADAPTER_AUTHORITY),
+        ),
     ]))
 }
 
@@ -599,7 +913,15 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
     let state_root = Path::new(PRODUCTION_ROOT);
     let run_root = Path::new(PRODUCTION_RUN);
     let credentials_root = Path::new(PRODUCTION_CREDENTIALS);
-    for root in [etc_root, state_root, run_root, credentials_root] {
+    let upstream_root = Path::new(PRODUCTION_UPSTREAM_ROOT);
+    let fixture_root = state_root.join("source-adapter-fixtures");
+    for root in [
+        etc_root,
+        state_root,
+        run_root,
+        credentials_root,
+        upstream_root,
+    ] {
         prepare_directory(root, 0, 0o755)?;
     }
     prepare_directory(&state_root.join("used-run-nonces"), 0, 0o700)?;
@@ -607,6 +929,7 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
     prepare_directory(&credentials_root.join("account-binding-keys"), 0, 0o700)?;
     prepare_directory(&credentials_root.join("issuer-private-keys"), 0, 0o711)?;
     prepare_directory(&run_root.join("receipts"), 0, 0o711)?;
+    prepare_directory(&fixture_root, 0, 0o700)?;
     write_seed_file(
         &run_root.join("run-nonce.sha256"),
         format!("{nonce}\n").as_bytes(),
@@ -630,7 +953,7 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
     )?;
     write_seed_file(
         &etc_root.join("operator-decision.json"),
-        br#"{"decision":"controlled-r2a4-rehearsal-only","real_finam":false}"#,
+        br#"{"decision":"controlled-r2a5-rehearsal-only","real_finam":false}"#,
         0,
         0o644,
     )?;
@@ -663,29 +986,30 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
     for (index, source) in source_names().into_iter().enumerate() {
         let producer_uid = r2a3::source_producer_uid(source)?;
         let issuer_uid = r2a3::source_issuer_uid(source)?;
-        let store_directory = state_root.join("authoritative-stores").join(source);
         let source_directory = state_root.join("authority-sources").join(source);
         let receipt_directory = run_root.join("receipts").join(source);
         let private_directory = credentials_root.join("issuer-private-keys").join(source);
-        prepare_directory(&store_directory, 0, 0o755)?;
         prepare_directory(&source_directory, producer_uid, 0o755)?;
         prepare_directory(&source_directory.join("generations"), producer_uid, 0o700)?;
         prepare_directory(&receipt_directory, issuer_uid, 0o755)?;
         prepare_directory(&private_directory, issuer_uid, 0o700)?;
-        let store = AuthoritativeStoreRecord {
-            schema_version: 1,
-            source_name: source.to_owned(),
-            reader_contract: expected_reader_contract(source)?.to_owned(),
-            store_generation: index as u64 + 1,
-            observed_at_utc: now,
-            claims: claims.get(source).cloned().ok_or(R2a3Error::Input)?,
-        };
-        write_seed_file(
-            &store_directory.join("current.json"),
-            &serde_json::to_vec(&store)?,
-            0,
-            0o644,
-        )?;
+        if source != "trusted_clock" {
+            let fixture = ControlledSourceAdapterFixture {
+                schema_version: 1,
+                writer_owner: "finam_gateway::Stage8a1OperationalAuthorityIssuer".to_owned(),
+                writer_api: "publish_stage8b_r2a5_operational_sources".to_owned(),
+                source_name: source.to_owned(),
+                generation: index as u64 + 1,
+                source_observed_at_utc: now,
+                claims: claims.get(source).cloned().ok_or(R2a3Error::Input)?,
+            };
+            write_seed_file(
+                &fixture_root.join(format!("{source}.json")),
+                &serde_json::to_vec(&fixture)?,
+                0,
+                0o644,
+            )?;
+        }
         let signing = SigningKey::from_bytes(&[index as u8 + 1; 32]);
         write_seed_file(
             &private_directory.join("key.ed25519"),
@@ -702,6 +1026,7 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
             0o644,
         )?;
     }
+    publish_controlled_source_adapter_fixtures(&fixture_root, upstream_root)?;
     Ok(())
 }
 
@@ -741,7 +1066,32 @@ pub fn finalize_controlled_fixed_layout(helper_sha256: &str) -> Result<(), R2a3E
     let receipts = load_receipts(run_root, &nonce)?;
     let envelope: SignedAuthorityEnvelope = serde_json::from_slice(&receipts)?;
     let now = Utc::now();
-    let package = R2a4RunPackage {
+    let accepted_helper = sign_helper_acceptance(
+        AcceptedHelperAuthority {
+            schema_version: 1,
+            stage: "8B-P".to_owned(),
+            revision: "R2A5".to_owned(),
+            status: "ACCEPTED".to_owned(),
+            helper_executable_sha256: helper_sha256.to_owned(),
+            effect_build_identity_sha256: manifest_field(
+                &fields,
+                "execution_build_identity_sha256",
+            )?
+            .to_owned(),
+            valid_from_utc: now - chrono::Duration::seconds(1),
+            valid_until_utc: now + chrono::Duration::minutes(5),
+            acceptance_key_id: trust.helper_acceptance_key.key_id.clone(),
+            signature_ed25519_hex: String::new(),
+        },
+        &SigningKey::from_bytes(&[98u8; 32]),
+    )?;
+    write_seed_file(
+        &etc_root.join("accepted-helper-authority.json"),
+        &serde_json::to_vec(&accepted_helper)?,
+        0,
+        0o644,
+    )?;
+    let package = R2a5RunPackage {
         package_version: 1,
         authorization_status: "ISSUED".to_owned(),
         issued_at_utc: now,
@@ -761,6 +1111,7 @@ pub fn finalize_controlled_fixed_layout(helper_sha256: &str) -> Result<(), R2a3E
             .to_owned(),
         helper_executable_sha256: helper_sha256.to_owned(),
         contract_snapshot_sha256: sha256(READ_CONTRACT_SNAPSHOT),
+        source_adapter_authority_sha256: sha256(SOURCE_ADAPTER_AUTHORITY),
         trust_manifest_sha256: sha256(&trust_bytes),
         public_key_set_sha256: trust.public_key_set_sha256,
         source_generation_commitment_sha256: source_generation_commitment(&envelope.receipts)?,
@@ -816,21 +1167,387 @@ fn exact_operation(operation: Operation) -> &'static str {
     }
 }
 
-fn expected_reader_contract(source: &str) -> Result<&'static str, R2a3Error> {
+fn source_freshness_budget_ms(source: &str) -> Result<(i64, i64), R2a3Error> {
+    let maximum_age = match source {
+        "schedule" | "instrument_specification" => 5_000,
+        "trusted_clock"
+        | "stage7b_current_recovery_seal"
+        | "stage6_exact_dispatch_ready_command"
+        | "stage8a_root_config_policy_control"
+        | "composite_readiness"
+        | "kill_switch_run_allowed"
+        | "single_finam_ownership"
+        | "ambiguity_orphan_unresolved_lifecycle"
+        | "durable_micro_budget" => 1_000,
+        _ => return Err(R2a3Error::Input),
+    };
+    Ok((maximum_age, 250))
+}
+
+fn validate_source_freshness(
+    source: &str,
+    source_observed_at_utc: DateTime<Utc>,
+    produced_at_utc: DateTime<Utc>,
+) -> Result<(), R2a3Error> {
+    let (maximum_age_ms, maximum_future_skew_ms) = source_freshness_budget_ms(source)?;
+    let age_ms = produced_at_utc
+        .signed_duration_since(source_observed_at_utc)
+        .num_milliseconds();
+    if age_ms > maximum_age_ms || age_ms < -maximum_future_skew_ms {
+        return Err(R2a3Error::Freshness);
+    }
+    Ok(())
+}
+
+fn operational_authority_file(source: &str) -> Result<&'static str, R2a3Error> {
     match source {
-        "trusted_clock" => Ok("linux-clock-realtime-boottime-reader-v1"),
-        "stage7b_current_recovery_seal" => Ok("stage7b-current-recovery-seal-reader-v1"),
-        "stage6_exact_dispatch_ready_command" => {
-            Ok("stage6-journal-dispatch-ready-command-reader-v2")
+        "stage7b_current_recovery_seal" => Ok("stage7b-current-recovery-seal.json"),
+        "stage6_exact_dispatch_ready_command" => Ok("stage6-dispatch-ready-command.json"),
+        "stage8a_root_config_policy_control" => Ok("stage8a-root-control.json"),
+        "composite_readiness" => Ok("stage8a-composite-readiness.json"),
+        "kill_switch_run_allowed" => Ok("stage8a-kill-switch.json"),
+        "single_finam_ownership" => Ok("stage8a-finam-ownership.json"),
+        "schedule" => Ok("stage8a-schedule.json"),
+        "instrument_specification" => Ok("stage8a-instrument.json"),
+        "ambiguity_orphan_unresolved_lifecycle" => Ok("stage8a-lifecycle-clarity.json"),
+        "durable_micro_budget" => Ok("stage8a-durable-micro-budget.json"),
+        _ => Err(R2a3Error::Input),
+    }
+}
+
+fn exact_bool(value: bool) -> String {
+    if value { "true" } else { "false" }.to_owned()
+}
+
+fn validate_sha256(value: &str) -> Result<(), R2a3Error> {
+    decode_hex::<32>(value).map(|_| ())
+}
+
+type ReducedOperationalAuthority = (u64, DateTime<Utc>, BTreeMap<String, String>);
+
+fn reduce_operational_authority(
+    expected_source: &str,
+    record: OperationalAuthorityRecord,
+) -> Result<ReducedOperationalAuthority, R2a3Error> {
+    let (source, schema, generation, observed_at, claims) = match record {
+        OperationalAuthorityRecord::Stage7bRecoverySeal {
+            schema_version,
+            generation,
+            observed_at_utc,
+            stage7b_seal_generation,
+            stage6_checkpoint_fingerprint,
+        } => {
+            validate_sha256(&stage6_checkpoint_fingerprint)?;
+            (
+                "stage7b_current_recovery_seal",
+                schema_version,
+                generation,
+                observed_at_utc,
+                BTreeMap::from([
+                    (
+                        "stage7b_seal_generation".to_owned(),
+                        stage7b_seal_generation.to_string(),
+                    ),
+                    (
+                        "stage6_checkpoint_fingerprint".to_owned(),
+                        stage6_checkpoint_fingerprint,
+                    ),
+                ]),
+            )
         }
-        "stage8a_root_config_policy_control" => Ok("stage8a-root-config-policy-reader-v1"),
-        "composite_readiness" => Ok("stage8a-composite-readiness-reader-v1"),
-        "kill_switch_run_allowed" => Ok("stage8a-persistent-kill-switch-reader-v1"),
-        "single_finam_ownership" => Ok("stage8a-single-finam-lease-reader-v1"),
-        "schedule" => Ok("stage8a-schedule-window-reader-v1"),
-        "instrument_specification" => Ok("stage8a-instrument-registry-reader-v1"),
-        "ambiguity_orphan_unresolved_lifecycle" => Ok("stage8a-lifecycle-ambiguity-reader-v1"),
-        "durable_micro_budget" => Ok("stage8a-durable-micro-budget-reader-v1"),
+        OperationalAuthorityRecord::Stage6DispatchReadyCommand {
+            schema_version,
+            generation,
+            observed_at_utc,
+            strategy_request_id,
+            durable_client_order_id,
+            operation,
+            request_body_sha256,
+            cancel_target_broker_order_id,
+            cancel_target_lifecycle_fingerprint,
+            cancel_target_currently_working_proof_sha256,
+        } => {
+            validate_sha256(&request_body_sha256)?;
+            let mut claims = BTreeMap::from([
+                ("strategy_request_id".to_owned(), strategy_request_id),
+                (
+                    "durable_client_order_id".to_owned(),
+                    durable_client_order_id,
+                ),
+                ("operation".to_owned(), operation.clone()),
+                ("request_body_sha256".to_owned(), request_body_sha256),
+            ]);
+            match operation.as_str() {
+                "PLACE"
+                    if cancel_target_broker_order_id.is_none()
+                        && cancel_target_lifecycle_fingerprint.is_none()
+                        && cancel_target_currently_working_proof_sha256.is_none() => {}
+                "CANCEL" => {
+                    let broker_order_id =
+                        cancel_target_broker_order_id.ok_or(R2a3Error::Provenance)?;
+                    let lifecycle =
+                        cancel_target_lifecycle_fingerprint.ok_or(R2a3Error::Provenance)?;
+                    let working = cancel_target_currently_working_proof_sha256
+                        .ok_or(R2a3Error::Provenance)?;
+                    validate_sha256(&lifecycle)?;
+                    validate_sha256(&working)?;
+                    claims.insert("cancel_target_broker_order_id".to_owned(), broker_order_id);
+                    claims.insert("cancel_target_lifecycle_fingerprint".to_owned(), lifecycle);
+                    claims.insert(
+                        "cancel_target_currently_working_proof_sha256".to_owned(),
+                        working,
+                    );
+                }
+                _ => return Err(R2a3Error::Provenance),
+            }
+            (
+                "stage6_exact_dispatch_ready_command",
+                schema_version,
+                generation,
+                observed_at_utc,
+                claims,
+            )
+        }
+        OperationalAuthorityRecord::Stage8aRootControl {
+            schema_version,
+            generation,
+            observed_at_utc,
+            config_sha256,
+            policy_sha256,
+            config_policy_authority_sha256,
+        } => {
+            validate_sha256(&config_sha256)?;
+            validate_sha256(&policy_sha256)?;
+            validate_sha256(&config_policy_authority_sha256)?;
+            (
+                "stage8a_root_config_policy_control",
+                schema_version,
+                generation,
+                observed_at_utc,
+                BTreeMap::from([
+                    ("config_sha256".to_owned(), config_sha256),
+                    ("policy_sha256".to_owned(), policy_sha256),
+                    (
+                        "config_policy_authority_sha256".to_owned(),
+                        config_policy_authority_sha256,
+                    ),
+                ]),
+            )
+        }
+        OperationalAuthorityRecord::CompositeReadiness {
+            schema_version,
+            generation,
+            observed_at_utc,
+            ready,
+        } => (
+            "composite_readiness",
+            schema_version,
+            generation,
+            observed_at_utc,
+            BTreeMap::from([("ready".to_owned(), exact_bool(ready))]),
+        ),
+        OperationalAuthorityRecord::KillSwitch {
+            schema_version,
+            generation,
+            observed_at_utc,
+            run_allowed,
+            kill_switch_generation,
+        } => (
+            "kill_switch_run_allowed",
+            schema_version,
+            generation,
+            observed_at_utc,
+            BTreeMap::from([
+                ("run_allowed".to_owned(), exact_bool(run_allowed)),
+                ("kill_switch_generation".to_owned(), kill_switch_generation),
+            ]),
+        ),
+        OperationalAuthorityRecord::SingleFinamOwnership {
+            schema_version,
+            generation,
+            observed_at_utc,
+            single_owner,
+            ownership_lease_fingerprint,
+        } => {
+            validate_sha256(&ownership_lease_fingerprint)?;
+            (
+                "single_finam_ownership",
+                schema_version,
+                generation,
+                observed_at_utc,
+                BTreeMap::from([
+                    ("single_owner".to_owned(), exact_bool(single_owner)),
+                    (
+                        "ownership_lease_fingerprint".to_owned(),
+                        ownership_lease_fingerprint,
+                    ),
+                ]),
+            )
+        }
+        OperationalAuthorityRecord::Schedule {
+            schema_version,
+            generation,
+            observed_at_utc,
+            eligible,
+        } => (
+            "schedule",
+            schema_version,
+            generation,
+            observed_at_utc,
+            BTreeMap::from([("eligible".to_owned(), exact_bool(eligible))]),
+        ),
+        OperationalAuthorityRecord::InstrumentSpecification {
+            schema_version,
+            generation,
+            observed_at_utc,
+            instrument,
+            eligible,
+        } => (
+            "instrument_specification",
+            schema_version,
+            generation,
+            observed_at_utc,
+            BTreeMap::from([
+                ("instrument".to_owned(), instrument),
+                ("eligible".to_owned(), exact_bool(eligible)),
+            ]),
+        ),
+        OperationalAuthorityRecord::LifecycleClarity {
+            schema_version,
+            generation,
+            observed_at_utc,
+            clear,
+        } => (
+            "ambiguity_orphan_unresolved_lifecycle",
+            schema_version,
+            generation,
+            observed_at_utc,
+            BTreeMap::from([("clear".to_owned(), exact_bool(clear))]),
+        ),
+        OperationalAuthorityRecord::DurableMicroBudget {
+            schema_version,
+            generation,
+            observed_at_utc,
+            available,
+            durable_budget_generation,
+        } => (
+            "durable_micro_budget",
+            schema_version,
+            generation,
+            observed_at_utc,
+            BTreeMap::from([
+                ("available".to_owned(), exact_bool(available)),
+                (
+                    "durable_budget_generation".to_owned(),
+                    durable_budget_generation,
+                ),
+            ]),
+        ),
+    };
+    if source != expected_source || schema != 1 || generation == 0 {
+        return Err(R2a3Error::Provenance);
+    }
+    Ok((generation, observed_at, claims))
+}
+
+fn controlled_operational_authority(
+    source: &str,
+    generation: u64,
+    observed_at_utc: DateTime<Utc>,
+    claims: &BTreeMap<String, String>,
+) -> Result<OperationalAuthorityRecord, R2a3Error> {
+    let claim = |name: &str| claims.get(name).cloned().ok_or(R2a3Error::Input);
+    let boolean = |name: &str| match claims.get(name).map(String::as_str) {
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        _ => Err(R2a3Error::Input),
+    };
+    match source {
+        "stage7b_current_recovery_seal" => Ok(OperationalAuthorityRecord::Stage7bRecoverySeal {
+            schema_version: 1,
+            generation,
+            observed_at_utc,
+            stage7b_seal_generation: claim("stage7b_seal_generation")?
+                .parse()
+                .map_err(|_| R2a3Error::Input)?,
+            stage6_checkpoint_fingerprint: claim("stage6_checkpoint_fingerprint")?,
+        }),
+        "stage6_exact_dispatch_ready_command" => {
+            Ok(OperationalAuthorityRecord::Stage6DispatchReadyCommand {
+                schema_version: 1,
+                generation,
+                observed_at_utc,
+                strategy_request_id: claim("strategy_request_id")?,
+                durable_client_order_id: claim("durable_client_order_id")?,
+                operation: claim("operation")?,
+                request_body_sha256: claim("request_body_sha256")?,
+                cancel_target_broker_order_id: claims.get("cancel_target_broker_order_id").cloned(),
+                cancel_target_lifecycle_fingerprint: claims
+                    .get("cancel_target_lifecycle_fingerprint")
+                    .cloned(),
+                cancel_target_currently_working_proof_sha256: claims
+                    .get("cancel_target_currently_working_proof_sha256")
+                    .cloned(),
+            })
+        }
+        "stage8a_root_config_policy_control" => {
+            Ok(OperationalAuthorityRecord::Stage8aRootControl {
+                schema_version: 1,
+                generation,
+                observed_at_utc,
+                config_sha256: claim("config_sha256")?,
+                policy_sha256: claim("policy_sha256")?,
+                config_policy_authority_sha256: claim("config_policy_authority_sha256")?,
+            })
+        }
+        "composite_readiness" => Ok(OperationalAuthorityRecord::CompositeReadiness {
+            schema_version: 1,
+            generation,
+            observed_at_utc,
+            ready: boolean("ready")?,
+        }),
+        "kill_switch_run_allowed" => Ok(OperationalAuthorityRecord::KillSwitch {
+            schema_version: 1,
+            generation,
+            observed_at_utc,
+            run_allowed: boolean("run_allowed")?,
+            kill_switch_generation: claim("kill_switch_generation")?,
+        }),
+        "single_finam_ownership" => Ok(OperationalAuthorityRecord::SingleFinamOwnership {
+            schema_version: 1,
+            generation,
+            observed_at_utc,
+            single_owner: boolean("single_owner")?,
+            ownership_lease_fingerprint: claim("ownership_lease_fingerprint")?,
+        }),
+        "schedule" => Ok(OperationalAuthorityRecord::Schedule {
+            schema_version: 1,
+            generation,
+            observed_at_utc,
+            eligible: boolean("eligible")?,
+        }),
+        "instrument_specification" => Ok(OperationalAuthorityRecord::InstrumentSpecification {
+            schema_version: 1,
+            generation,
+            observed_at_utc,
+            instrument: claim("instrument")?,
+            eligible: boolean("eligible")?,
+        }),
+        "ambiguity_orphan_unresolved_lifecycle" => {
+            Ok(OperationalAuthorityRecord::LifecycleClarity {
+                schema_version: 1,
+                generation,
+                observed_at_utc,
+                clear: boolean("clear")?,
+            })
+        }
+        "durable_micro_budget" => Ok(OperationalAuthorityRecord::DurableMicroBudget {
+            schema_version: 1,
+            generation,
+            observed_at_utc,
+            available: boolean("available")?,
+            durable_budget_generation: claim("durable_budget_generation")?,
+        }),
         _ => Err(R2a3Error::Input),
     }
 }
@@ -845,7 +1562,7 @@ fn atomic_write_owned(
     if !metadata.is_dir() || metadata.uid() != expected_parent_uid || metadata.mode() & 0o022 != 0 {
         return Err(R2a3Error::Input);
     }
-    let temporary = parent.join(format!(".r2a4.{}.tmp", std::process::id()));
+    let temporary = parent.join(format!(".r2a5.{}.tmp", std::process::id()));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -859,33 +1576,9 @@ fn atomic_write_owned(
     Ok(())
 }
 
-fn validate_store_record(record: &AuthoritativeStoreRecord, source: &str) -> Result<(), R2a3Error> {
-    let mut expected_claims = r2a3::expected_claim_names(source)?;
-    if source == "stage6_exact_dispatch_ready_command"
-        && record.claims.get("operation").map(String::as_str) == Some("PLACE")
-    {
-        expected_claims.remove("cancel_target_broker_order_id");
-        expected_claims.remove("cancel_target_lifecycle_fingerprint");
-        expected_claims.remove("cancel_target_currently_working_proof_sha256");
-    }
-    if record.schema_version != 1
-        || record.source_name != source
-        || record.reader_contract != expected_reader_contract(source)?
-        || record.store_generation == 0
-        || record
-            .claims
-            .keys()
-            .map(String::as_str)
-            .collect::<BTreeSet<_>>()
-            != expected_claims
-    {
-        return Err(R2a3Error::Provenance);
-    }
-    Ok(())
-}
-
 fn produce_from_store_at(
     source: &str,
+    upstream_root: &Path,
     state_root: &Path,
     run_root: &Path,
     executable_sha256: &str,
@@ -897,44 +1590,67 @@ fn produce_from_store_at(
         return Err(R2a3Error::Provenance);
     }
     decode_hex::<32>(executable_sha256)?;
-    let store_path = state_root
-        .join("authoritative-stores")
-        .join(source)
-        .join("current.json");
-    let store_bytes = read_owned_fd(&store_path, 128 * 1024, 0, false)?;
-    let record: AuthoritativeStoreRecord = serde_json::from_slice(&store_bytes)?;
-    validate_store_record(&record, source)?;
+    let produced_at = Utc::now();
+    let (store_bytes, store_generation, source_observed_at_utc, claims) = if source
+        == "trusted_clock"
+    {
+        let boot_id = strict_single_line(&std::fs::read("/proc/sys/kernel/random/boot_id")?, 128)?;
+        let boot_sha = sha256(boot_id.as_bytes());
+        let generation_bytes = decode_hex::<32>(&boot_sha)?;
+        let mut generation = u64::from_be_bytes(
+            generation_bytes[..8]
+                .try_into()
+                .map_err(|_| R2a3Error::Provenance)?,
+        );
+        if generation == 0 {
+            generation = 1;
+        }
+        let claims = BTreeMap::from([
+            (
+                "trusted_now_utc".to_owned(),
+                r2a2::exact_millis(produced_at),
+            ),
+            ("process_boot_fingerprint_sha256".to_owned(), boot_sha),
+        ]);
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "source_name": "trusted_clock",
+            "generation": generation,
+            "source_observed_at_utc": r2a2::exact_millis(produced_at),
+            "claims": claims,
+        }))?;
+        (Zeroizing::new(bytes), generation, produced_at, claims)
+    } else {
+        let store_path = upstream_root.join(operational_authority_file(source)?);
+        let bytes = read_owned_fd(&store_path, 128 * 1024, 0, false)?;
+        let record: OperationalAuthorityRecord = serde_json::from_slice(&bytes)?;
+        let (generation, observed_at, claims) = reduce_operational_authority(source, record)?;
+        (bytes, generation, observed_at, claims)
+    };
     let nonce = strict_single_line(
         &read_owned_fd(&run_root.join("run-nonce.sha256"), 128, 0, false)?,
         128,
     )?;
     decode_hex::<32>(&nonce)?;
-    let observed_at = Utc::now();
-    let mut claims = record.claims;
-    if source == "trusted_clock" {
-        claims.insert(
-            "trusted_now_utc".to_owned(),
-            r2a2::exact_millis(observed_at),
-        );
-    }
+    validate_source_freshness(source, source_observed_at_utc, produced_at)?;
     let snapshot = r2a3::AuthoritySourceSnapshot {
         schema_version: 1,
         source_name: source.to_owned(),
-        producer_service: format!("moex-stage8b-r2a4-source-{source}.service"),
+        producer_service: format!("moex-stage8b-r2a5-source-{source}.service"),
         producer_uid: expected_uid,
-        source_generation: record.store_generation,
+        source_generation: store_generation,
         producer_executable_sha256: executable_sha256.to_owned(),
         authoritative_store_sha256: sha256(&store_bytes),
         run_nonce_sha256: nonce,
-        source_observed_at_utc: record.observed_at_utc,
-        produced_at_utc: observed_at,
+        source_observed_at_utc,
+        produced_at_utc: produced_at,
         claims,
     };
     let generation_path = state_root
         .join("authority-sources")
         .join(source)
         .join("generations")
-        .join(record.store_generation.to_string());
+        .join(store_generation.to_string());
     let mut generation = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -942,7 +1658,7 @@ fn produce_from_store_at(
         .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(generation_path)
         .map_err(|_| R2a3Error::Provenance)?;
-    generation.write_all(b"stage8b-r2a4-source-generation-consumed-v1\n")?;
+    generation.write_all(b"stage8b-r2a5-source-generation-consumed-v1\n")?;
     generation.sync_all()?;
     atomic_write_owned(
         &state_root
@@ -960,6 +1676,7 @@ pub fn produce_from_fixed_store(source: &str) -> Result<(), R2a3Error> {
     }
     produce_from_store_at(
         source,
+        Path::new(PRODUCTION_UPSTREAM_ROOT),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
         &current_linux_executable_sha256()?,
@@ -979,7 +1696,7 @@ pub fn produce_for_effective_uid(requested_source: Option<&str>) -> Result<(), R
     produce_from_fixed_store(source)
 }
 
-fn validate_r2a4_source_snapshot(
+fn validate_r2a5_source_snapshot(
     snapshot: &r2a3::AuthoritySourceSnapshot,
     source: &str,
     nonce: &str,
@@ -995,7 +1712,7 @@ fn validate_r2a4_source_snapshot(
     }
     if snapshot.schema_version != 1
         || snapshot.source_name != source
-        || snapshot.producer_service != format!("moex-stage8b-r2a4-source-{source}.service")
+        || snapshot.producer_service != format!("moex-stage8b-r2a5-source-{source}.service")
         || snapshot.producer_uid != expected_uid
         || snapshot.source_generation == 0
         || snapshot.run_nonce_sha256 != nonce
@@ -1010,6 +1727,11 @@ fn validate_r2a4_source_snapshot(
     {
         return Err(R2a3Error::Provenance);
     }
+    validate_source_freshness(
+        source,
+        snapshot.source_observed_at_utc,
+        snapshot.produced_at_utc,
+    )?;
     Ok(())
 }
 
@@ -1066,7 +1788,7 @@ fn issue_from_source_at(
         false,
     )?;
     let snapshot: r2a3::AuthoritySourceSnapshot = serde_json::from_slice(&source_bytes)?;
-    validate_r2a4_source_snapshot(&snapshot, source, &nonce)?;
+    validate_r2a5_source_snapshot(&snapshot, source, &nonce)?;
     let manifest = read_owned_fd(&state_root.join("run-manifest.json"), 256 * 1024, 0, false)?;
     let fields: BTreeMap<String, String> = serde_json::from_slice(&manifest)?;
     let receipt = r2a2::LocalAuthorityReceipt {
@@ -1191,7 +1913,7 @@ fn claim_nonce(directory: &Path, nonce: &str) -> Result<(), R2a3Error> {
         .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(path)
         .map_err(|_| R2a3Error::Authorization)?;
-    file.write_all(b"stage8b-p-r2a4-run-nonce-consumed-v1\n")?;
+    file.write_all(b"stage8b-p-r2a5-run-nonce-consumed-v1\n")?;
     file.sync_all()?;
     File::open(directory)?.sync_all()?;
     Ok(())
@@ -1214,18 +1936,24 @@ fn validate_local_package_at(
     credentials_root: &Path,
     now: DateTime<Utc>,
     executable_sha256: &str,
-    accepted: &AcceptedR2a4Authority,
-) -> Result<PreparedR2a4Run, R2a3Error> {
+    accepted: &AcceptedR2a5Authority,
+) -> Result<PreparedR2a5Run, R2a3Error> {
     if accepted.schema_version != 1
         || accepted.stage != "8B-P"
-        || accepted.revision != "R2A4"
+        || accepted.revision != "R2A5"
         || accepted.authorization_status != "NOT_ISSUED"
     {
         return Err(R2a3Error::Authorization);
     }
+    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    let accepted_helper = load_accepted_helper_authority(etc_root, &trust, now)?;
+    if executable_sha256 != accepted_helper.helper_executable_sha256 {
+        return Err(R2a3Error::Authorization);
+    }
     let package_bytes =
         read_owned_fd(&etc_root.join("r2b-run-package.json"), 128 * 1024, 0, false)?;
-    let package: R2a4RunPackage = serde_json::from_slice(&package_bytes)?;
+    let package: R2a5RunPackage = serde_json::from_slice(&package_bytes)?;
     if package.package_version != 1
         || package.authorization_status != "ISSUED"
         || now < package.issued_at_utc
@@ -1236,13 +1964,14 @@ fn validate_local_package_at(
             .num_seconds()
             > 60
         || package.helper_executable_sha256 != executable_sha256
+        || package.effect_build_identity_sha256 != accepted_helper.effect_build_identity_sha256
         || package.contract_snapshot_sha256 != sha256(READ_CONTRACT_SNAPSHOT)
+        || package.source_adapter_authority_sha256 != sha256(SOURCE_ADAPTER_AUTHORITY)
+        || package.source_adapter_authority_sha256 != accepted.source_adapter_authority_sha256
     {
         return Err(R2a3Error::Authorization);
     }
 
-    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
-    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
     if trust.schema_version != 1
         || trust.environment != "production"
         || !trust.rotation_requires_new_reviewed_package
@@ -1383,7 +2112,7 @@ fn validate_local_package_at(
         &package.account_key_generation_id,
         &account_key,
     )?;
-    Ok(PreparedR2a4Run {
+    Ok(PreparedR2a5Run {
         package,
         manifest,
         receipts,
@@ -1396,7 +2125,7 @@ fn validate_local_package_at(
 
 pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
     let executable = current_linux_executable_sha256()?;
-    let accepted: AcceptedR2a4Authority = serde_json::from_str(AUTHORITY)?;
+    let accepted: AcceptedR2a5Authority = serde_json::from_str(AUTHORITY)?;
     let prepared = validate_local_package_at(
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
@@ -1464,7 +2193,7 @@ fn controlled_client_from_fixed_files() -> Result<(reqwest::Client, String), R2a
 /// only the compile-time controlled authority plus loopback TLS endpoint.
 pub async fn run_controlled_fixed_layout() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
     let executable = current_linux_executable_sha256()?;
-    let accepted: AcceptedR2a4Authority = serde_json::from_str(CONTROLLED_AUTHORITY)?;
+    let accepted: AcceptedR2a5Authority = serde_json::from_str(CONTROLLED_AUTHORITY)?;
     let prepared = validate_local_package_at(
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
@@ -1578,12 +2307,13 @@ mod tests {
 
     #[test]
     fn source_generation_commitment_covers_producer_and_store() {
+        let observed_at = Utc::now();
         let mut receipt = SignedAuthorityReceipt {
             receipt: r2a2::LocalAuthorityReceipt {
                 source_name: "trusted_clock".to_owned(),
                 issuer: String::new(),
                 evidence_schema: String::new(),
-                observed_at_utc: Utc::now(),
+                observed_at_utc: observed_at,
                 key_generation_id: "1".to_owned(),
                 run_identity_sha256: "1".repeat(64),
                 keyed_account_binding_hmac_sha256: "2".repeat(64),
@@ -1597,8 +2327,8 @@ mod tests {
             producer_executable_sha256: "6".repeat(64),
             issuer_executable_sha256: "7".repeat(64),
             authoritative_store_sha256: "8".repeat(64),
-            source_observed_at_utc: Utc::now(),
-            produced_at_utc: Utc::now(),
+            source_observed_at_utc: observed_at,
+            produced_at_utc: observed_at,
             issuer_key_id: "trusted_clock-ed25519-v1".to_owned(),
             signature_ed25519_hex: "8".repeat(128),
         };
@@ -1613,11 +2343,87 @@ mod tests {
     }
 
     #[test]
+    fn stale_source_cannot_be_laundered_by_fresh_producer_time() {
+        let produced = Utc::now();
+        assert!(matches!(
+            validate_source_freshness(
+                "composite_readiness",
+                produced - chrono::Duration::milliseconds(1_001),
+                produced,
+            ),
+            Err(R2a3Error::Freshness)
+        ));
+        assert!(validate_source_freshness(
+            "composite_readiness",
+            produced - chrono::Duration::milliseconds(1_000),
+            produced,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn future_source_beyond_budget_is_rejected() {
+        let produced = Utc::now();
+        assert!(matches!(
+            validate_source_freshness(
+                "schedule",
+                produced + chrono::Duration::milliseconds(251),
+                produced,
+            ),
+            Err(R2a3Error::Freshness)
+        ));
+    }
+
+    #[test]
+    fn source_timestamp_substitution_fails_even_with_valid_source_signature() {
+        let now = Utc::now();
+        let (manifest, envelope, keys, nonce) =
+            r2a3::controlled_fixture_for(now, Operation::Place).unwrap();
+        let mut signed: SignedAuthorityEnvelope = serde_json::from_slice(&envelope).unwrap();
+        let mut substituted = signed.receipts.remove(0);
+        substituted.source_observed_at_utc += chrono::Duration::milliseconds(1);
+        substituted.signature_ed25519_hex.clear();
+        signed.receipts.insert(
+            0,
+            r2a3::sign_authority_receipt(substituted, &SigningKey::from_bytes(&[1u8; 32])).unwrap(),
+        );
+        assert!(r2a3::validate_signed_authorities(
+            &manifest,
+            &serde_json::to_vec(&signed).unwrap(),
+            &keys,
+            &nonce,
+            now,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn source_adapter_rejects_wrong_variant_schema_and_generation() {
+        let now = Utc::now();
+        let wrong_variant = OperationalAuthorityRecord::Schedule {
+            schema_version: 1,
+            generation: 1,
+            observed_at_utc: now,
+            eligible: true,
+        };
+        assert!(reduce_operational_authority("instrument_specification", wrong_variant).is_err());
+        for (schema_version, generation) in [(2, 1), (1, 0)] {
+            let record = OperationalAuthorityRecord::Schedule {
+                schema_version,
+                generation,
+                observed_at_utc: now,
+                eligible: true,
+            };
+            assert!(reduce_operational_authority("schedule", record).is_err());
+        }
+    }
+
+    #[test]
     fn signed_package_rejects_selected_run_substitution() {
         let issued = Utc::now();
         let key = SigningKey::from_bytes(&[42u8; 32]);
         let package = sign_run_package(
-            R2a4RunPackage {
+            R2a5RunPackage {
                 package_version: 1,
                 authorization_status: "ISSUED".to_owned(),
                 issued_at_utc: issued,
@@ -1632,6 +2438,7 @@ mod tests {
                 effect_build_identity_sha256: "6".repeat(64),
                 helper_executable_sha256: "7".repeat(64),
                 contract_snapshot_sha256: "8".repeat(64),
+                source_adapter_authority_sha256: "d".repeat(64),
                 trust_manifest_sha256: "9".repeat(64),
                 public_key_set_sha256: "a".repeat(64),
                 source_generation_commitment_sha256: "b".repeat(64),
@@ -1647,13 +2454,15 @@ mod tests {
         key.verifying_key()
             .verify(&package_preimage(&package).unwrap(), &signature)
             .unwrap();
-        type PackageMutation = Box<dyn Fn(&mut R2a4RunPackage)>;
+        type PackageMutation = Box<dyn Fn(&mut R2a5RunPackage)>;
         let mutations: Vec<PackageMutation> = vec![
             Box::new(|value| value.manifest_sha256 = "d".repeat(64)),
             Box::new(|value| value.run_identity_sha256 = "d".repeat(64)),
             Box::new(|value| value.keyed_account_binding_hmac_sha256 = "d".repeat(64)),
             Box::new(|value| value.account_key_generation_id = "2".to_owned()),
             Box::new(|value| value.public_key_set_sha256 = "d".repeat(64)),
+            Box::new(|value| value.helper_executable_sha256 = "d".repeat(64)),
+            Box::new(|value| value.source_adapter_authority_sha256 = "e".repeat(64)),
             Box::new(|value| value.source_generation_commitment_sha256 = "d".repeat(64)),
             Box::new(|value| value.operator_decision_sha256 = "d".repeat(64)),
             Box::new(|value| value.operation = Operation::Place),

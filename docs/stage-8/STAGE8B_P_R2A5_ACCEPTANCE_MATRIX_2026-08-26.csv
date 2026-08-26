@@ -1,0 +1,11 @@
+id,requirement,evidence,expected
+R2A5-01,immutable source time,r2a3/r2a5 receipt model and tests,stale source plus fresh producer rejected
+R2A5-02,source-specific freshness,r2a5 source adapter validation,missing stale future wrong schema or generation rejected
+R2A5-03,source-time skew,r2a3 cross-source test,simultaneous producer invocation cannot launder skew
+R2A5-04,actual owner adapter,finam-gateway Stage8a1OperationalAuthorityIssuer,opaque Stage7B/6/8A inputs only
+R2A5-05,no manual intermediate,source adapter authority and fixed-path rehearsal,manual final JSON path absent
+R2A5-06,independent helper acceptance,accepted helper authority and distinct Ed25519 key,package key cannot accept helper
+R2A5-07,three-layer helper enforcement,issuer helper and launcher checks,wrong helper rejected before credentials
+R2A5-08,controlled PLACE and CANCEL,stage8b_p_r2a5_linux_rehearsal.sh,both complete controlled TLS sequences PASS
+R2A5-09,closed production,status and authority documents,authorization NOT_ISSUED and real FINAM false
+R2A5-10,R2B carry-forward,status document,typed operator decision remains mandatory before R2B issuance

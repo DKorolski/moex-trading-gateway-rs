@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A5",
+  "writer_owner": "finam_gateway::Stage8a1OperationalAuthorityIssuer",
+  "writer_api": "publish_stage8b_r2a5_operational_sources",
+  "production_root": "/var/lib/moex-trading/operational-authorities",
+  "manual_or_operator_publication_allowed": false,
+  "publication": "same-directory-create-new-fsync-rename-directory-fsync",
+  "reader": "open-no-follow-owner-checked-exact-file",
+  "sources": [
+    {"source_name":"stage7b_current_recovery_seal","file":"stage7b-current-recovery-seal.json","schema_version":1,"generation":"stage7b_seal_generation","observed_at":"authenticated_stage7b_seal_created_at","max_age_ms":1000,"max_future_skew_ms":250},
+    {"source_name":"stage6_exact_dispatch_ready_command","file":"stage6-dispatch-ready-command.json","schema_version":1,"generation":"stage6_dispatch_sequence","observed_at":"durable_stage6_command_created_at","max_age_ms":1000,"max_future_skew_ms":250},
+    {"source_name":"stage8a_root_config_policy_control","file":"stage8a-root-control.json","schema_version":1,"generation":"stage8a_control_durable_revision","observed_at":"stage8a_control_observed_at","max_age_ms":1000,"max_future_skew_ms":250},
+    {"source_name":"composite_readiness","file":"stage8a-composite-readiness.json","schema_version":1,"generation":"readiness_observation_unix_ms","observed_at":"stage7b_composite_readiness_checked_at","max_age_ms":1000,"max_future_skew_ms":250},
+    {"source_name":"kill_switch_run_allowed","file":"stage8a-kill-switch.json","schema_version":1,"generation":"stage8a_control_durable_revision","observed_at":"stage8a_control_observed_at","max_age_ms":1000,"max_future_skew_ms":250},
+    {"source_name":"single_finam_ownership","file":"stage8a-finam-ownership.json","schema_version":1,"generation":"broker_truth_observation_unix_ms","observed_at":"broker_truth_received_at","max_age_ms":1000,"max_future_skew_ms":250},
+    {"source_name":"schedule","file":"stage8a-schedule.json","schema_version":1,"generation":"schedule_observation_unix_ms","observed_at":"broker_readiness_schedule_observed_at","max_age_ms":5000,"max_future_skew_ms":250},
+    {"source_name":"instrument_specification","file":"stage8a-instrument.json","schema_version":1,"generation":"instrument_observation_unix_ms","observed_at":"broker_readiness_instrument_observed_at","max_age_ms":5000,"max_future_skew_ms":250},
+    {"source_name":"ambiguity_orphan_unresolved_lifecycle","file":"stage8a-lifecycle-clarity.json","schema_version":1,"generation":"broker_truth_observation_unix_ms","observed_at":"broker_truth_received_at","max_age_ms":1000,"max_future_skew_ms":250},
+    {"source_name":"durable_micro_budget","file":"stage8a-durable-micro-budget.json","schema_version":1,"generation":"stage8a_control_durable_revision","observed_at":"stage8a_control_observed_at","max_age_ms":1000,"max_future_skew_ms":250}
+  ],
+  "trusted_clock": {
+    "path": "/proc/sys/kernel/random/boot_id",
+    "observed_at": "producer_clock_now",
+    "max_age_ms": 1000,
+    "max_future_skew_ms": 250
+  },
+  "closed_surfaces": {
+    "finam_credentials": false,
+    "network": false,
+    "operator_arm": false,
+    "dispatch": false,
+    "real_orders": false
+  }
+}

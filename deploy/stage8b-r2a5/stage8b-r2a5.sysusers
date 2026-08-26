@@ -1,0 +1,22 @@
+u m8p8101 8101 "R2A5 trusted clock producer" -
+u m8p8102 8102 "R2A5 recovery seal producer" -
+u m8p8103 8103 "R2A5 dispatch command producer" -
+u m8p8104 8104 "R2A5 policy producer" -
+u m8p8105 8105 "R2A5 readiness producer" -
+u m8p8106 8106 "R2A5 kill switch producer" -
+u m8p8107 8107 "R2A5 ownership producer" -
+u m8p8108 8108 "R2A5 schedule producer" -
+u m8p8109 8109 "R2A5 instrument producer" -
+u m8p8110 8110 "R2A5 lifecycle producer" -
+u m8p8111 8111 "R2A5 budget producer" -
+u m8i8201 8201 "R2A5 trusted clock issuer" -
+u m8i8202 8202 "R2A5 recovery seal issuer" -
+u m8i8203 8203 "R2A5 dispatch command issuer" -
+u m8i8204 8204 "R2A5 policy issuer" -
+u m8i8205 8205 "R2A5 readiness issuer" -
+u m8i8206 8206 "R2A5 kill switch issuer" -
+u m8i8207 8207 "R2A5 ownership issuer" -
+u m8i8208 8208 "R2A5 schedule issuer" -
+u m8i8209 8209 "R2A5 instrument issuer" -
+u m8i8210 8210 "R2A5 lifecycle issuer" -
+u m8i8211 8211 "R2A5 budget issuer" -

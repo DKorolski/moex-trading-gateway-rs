@@ -7,6 +7,7 @@
 pub mod r2a2;
 pub mod r2a3;
 pub mod r2a4;
+pub mod r2a5;
 
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use reqwest::redirect::Policy;
