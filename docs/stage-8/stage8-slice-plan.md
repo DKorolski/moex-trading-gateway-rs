@@ -63,6 +63,15 @@ exact lifecycle reducers, full controlled TLS and fd-bound launch. Acceptance
 of R2A3 may open only a separately issued R2B read-only run package; it does
 not open an arm, effect transport, order POST/DELETE, Redis or runtime-live.
 
+R2A3 at `0798db9` was not accepted because the shared receipt directory was
+not deployable, the run package and trust/account generations were under-bound,
+real producer topology was absent, only PLACE traversed full controlled TLS and
+build provenance was weaker than BUILD-P1. Corrective R2A4 provides per-source
+producer/issuer custody, exact signed package and key-set binding, strict file
+grammar, late nonce claim, complete exact/list lifecycle equality, immutable
+two-build Linux provenance and full fixed-path PLACE/CANCEL qualification. R2A4
+remains no-real-network and requires independent acceptance before R2B.
+
 ## Mandatory Stage 8A order
 
 Each slice requires its own immutable handoff and independent acceptance before

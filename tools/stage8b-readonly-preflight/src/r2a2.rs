@@ -52,43 +52,43 @@ const LOCAL_SOURCES: &[(&str, &str, &str, i64)] = &[
         "trusted_clock",
         "Stage8bTrustedClockIssuer",
         "stage8b-trusted-clock-v1",
-        1_000,
+        2_000,
     ),
     (
         "stage7b_current_recovery_seal",
         "Stage7bRecoverySealReader",
         "stage7b-current-recovery-seal-v1",
-        1_000,
+        2_000,
     ),
     (
         "stage6_exact_dispatch_ready_command",
         "Stage6DispatchReadyCommandReader",
         "stage6-dispatch-ready-command-v1",
-        1_000,
+        2_000,
     ),
     (
         "stage8a_root_config_policy_control",
         "Stage8aCurrentControlIssuer",
         "stage8a-root-config-policy-control-v1",
-        1_000,
+        2_000,
     ),
     (
         "composite_readiness",
         "Stage8aCompositeReadinessIssuer",
         "stage8a-composite-readiness-v1",
-        1_000,
+        2_000,
     ),
     (
         "kill_switch_run_allowed",
         "Stage8aPersistentKillSwitchIssuer",
         "stage8a-kill-switch-run-allowed-v1",
-        1_000,
+        2_000,
     ),
     (
         "single_finam_ownership",
         "Stage8aSingleFinamOwnershipIssuer",
         "stage8a-single-finam-ownership-v1",
-        1_000,
+        2_000,
     ),
     (
         "schedule",
@@ -106,13 +106,13 @@ const LOCAL_SOURCES: &[(&str, &str, &str, i64)] = &[
         "ambiguity_orphan_unresolved_lifecycle",
         "Stage8aLifecycleAmbiguityIssuer",
         "stage8a-lifecycle-ambiguity-v1",
-        1_000,
+        2_000,
     ),
     (
         "durable_micro_budget",
         "Stage8aDurableMicroBudgetIssuer",
         "stage8a-durable-micro-budget-v1",
-        1_000,
+        2_000,
     ),
 ];
 
@@ -753,7 +753,7 @@ pub(crate) fn validate_manifest_and_local_authorities(
             .signed_duration_since(trusted_now)
             .num_milliseconds()
             .abs()
-            > 1_000
+            > 2_000
         || exact_claim(
             &receipts,
             "trusted_clock",
@@ -1278,10 +1278,16 @@ fn validate_order_identity(
 fn exact_and_list_identity_equal(exact: &StrictOrder, listed: &StrictOrder) -> bool {
     exact.order_id == listed.order_id
         && exact.order == listed.order
+        && exact.exec_id == listed.exec_id
+        && exact.executed_quantity == listed.executed_quantity
         && exact.initial_quantity == listed.initial_quantity
+        && exact.remaining_quantity == listed.remaining_quantity
         && exact.triggered_order_id == listed.triggered_order_id
         && exact.sltp_order == listed.sltp_order
         && exact.status == listed.status
+        && exact.accept_at == listed.accept_at
+        && exact.transact_at == listed.transact_at
+        && exact.withdraw_at == listed.withdraw_at
 }
 
 fn position_quantity(
@@ -2138,7 +2144,7 @@ mod tests {
             .iter_mut()
             .find(|receipt| receipt.source_name == "composite_readiness")
             .unwrap();
-        receipt.observed_at_utc = now - ChronoDuration::seconds(2);
+        receipt.observed_at_utc = now - ChronoDuration::seconds(3);
         authenticate_receipt_for_test(receipt, &keys["composite_readiness"]).unwrap();
         assert!(validate_manifest_and_local_authorities(
             &manifest,

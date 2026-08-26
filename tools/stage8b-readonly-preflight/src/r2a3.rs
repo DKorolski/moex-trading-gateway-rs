@@ -61,8 +61,8 @@ const RUN_AUTHORITY: &str =
     include_str!("../../../docs/stage-8/stage8b-p-r1b-run-identity-authority.json");
 const READ_CONTRACT_SNAPSHOT: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p-r2a3-finam-read-contract-snapshot.json");
-const CONTROLLED_ACCOUNT: &str = "R2A3-CONTROLLED-ACCOUNT";
-const CONTROLLED_ACCOUNT_KEY: &[u8] = b"r2a3-controlled-account-key-32b!";
+pub(crate) const CONTROLLED_ACCOUNT: &str = "R2A3-CONTROLLED-ACCOUNT";
+pub(crate) const CONTROLLED_ACCOUNT_KEY: &[u8] = b"r2a3-controlled-account-key-32b!";
 
 const SOURCE_IDENTITIES: &[(&str, &str, &str)] = &[
     (
@@ -128,6 +128,10 @@ pub struct SignedAuthorityReceipt {
     pub receipt: LocalAuthorityReceipt,
     pub run_nonce_sha256: String,
     pub source_snapshot_sha256: String,
+    pub source_generation: u64,
+    pub producer_executable_sha256: String,
+    pub issuer_executable_sha256: String,
+    pub authoritative_store_sha256: String,
     pub issuer_key_id: String,
     pub signature_ed25519_hex: String,
 }
@@ -148,6 +152,8 @@ pub struct AuthoritySourceSnapshot {
     pub producer_service: String,
     pub producer_uid: u32,
     pub source_generation: u64,
+    pub producer_executable_sha256: String,
+    pub authoritative_store_sha256: String,
     pub run_nonce_sha256: String,
     pub observed_at_utc: DateTime<Utc>,
     pub claims: BTreeMap<String, String>,
@@ -328,6 +334,10 @@ pub(crate) fn validate_signed_authorities(
             || !signed.receipt.authentication_tag_hmac_sha256.is_empty()
             || signed.issuer_key_id != format!("{}-ed25519-v1", signed.receipt.source_name)
             || decode_hex::<32>(&signed.source_snapshot_sha256).is_err()
+            || signed.source_generation == 0
+            || decode_hex::<32>(&signed.producer_executable_sha256).is_err()
+            || decode_hex::<32>(&signed.issuer_executable_sha256).is_err()
+            || decode_hex::<32>(&signed.authoritative_store_sha256).is_err()
         {
             return Err(R2a3Error::Provenance);
         }
@@ -630,7 +640,7 @@ fn safe_component(value: &str) -> Result<&str, R2a3Error> {
     Ok(value)
 }
 
-fn source_issuer_uid(source_name: &str) -> Result<u32, R2a3Error> {
+pub(crate) fn source_issuer_uid(source_name: &str) -> Result<u32, R2a3Error> {
     let source_index = SOURCE_IDENTITIES
         .iter()
         .position(|(name, _, _)| *name == source_name)
@@ -640,7 +650,7 @@ fn source_issuer_uid(source_name: &str) -> Result<u32, R2a3Error> {
         .ok_or(R2a3Error::Input)
 }
 
-fn source_producer_uid(source_name: &str) -> Result<u32, R2a3Error> {
+pub(crate) fn source_producer_uid(source_name: &str) -> Result<u32, R2a3Error> {
     let source_index = SOURCE_IDENTITIES
         .iter()
         .position(|(name, _, _)| *name == source_name)
@@ -650,7 +660,7 @@ fn source_producer_uid(source_name: &str) -> Result<u32, R2a3Error> {
         .ok_or(R2a3Error::Input)
 }
 
-fn expected_claim_names(source_name: &str) -> Result<BTreeSet<&'static str>, R2a3Error> {
+pub(crate) fn expected_claim_names(source_name: &str) -> Result<BTreeSet<&'static str>, R2a3Error> {
     let names: &[&str] = match source_name {
         "trusted_clock" => &["trusted_now_utc", "process_boot_fingerprint_sha256"],
         "stage7b_current_recovery_seal" => {
@@ -707,6 +717,8 @@ fn validate_owner_snapshot(
         || source.producer_service != expected_service
         || source.producer_uid != expected_uid
         || source.source_generation == 0
+        || decode_hex::<32>(&source.producer_executable_sha256).is_err()
+        || decode_hex::<32>(&source.authoritative_store_sha256).is_err()
         || source.run_nonce_sha256 != run_nonce
         || actual_claims != expected_claims
     {
@@ -790,9 +802,13 @@ pub fn issue_from_fixed_source(source_name: &str) -> Result<(), R2a3Error> {
     if !r2a2::required_local_source_names().any(|name| name == source_name) {
         return Err(R2a3Error::Input);
     }
-    let source_path = Path::new(PRODUCTION_SOURCE_DIR).join(format!("{source_name}.json"));
+    let source_path = Path::new(PRODUCTION_SOURCE_DIR)
+        .join(source_name)
+        .join("source.json");
     let key_path = Path::new(PRODUCTION_PRIVATE_KEY_DIR).join(format!("{source_name}.ed25519"));
-    let output_path = Path::new(PRODUCTION_RECEIPT_DIR).join(format!("{source_name}.json"));
+    let output_path = Path::new(PRODUCTION_RECEIPT_DIR)
+        .join(source_name)
+        .join("receipt.json");
     let issuer_uid = source_issuer_uid(source_name)?;
     if unsafe { libc::geteuid() } != issuer_uid {
         return Err(R2a3Error::Provenance);
@@ -848,6 +864,10 @@ pub fn issue_from_fixed_source(source_name: &str) -> Result<(), R2a3Error> {
             receipt,
             run_nonce_sha256: run_nonce.to_owned(),
             source_snapshot_sha256: sha256(&source_bytes),
+            source_generation: source.source_generation,
+            producer_executable_sha256: source.producer_executable_sha256,
+            issuer_executable_sha256: current_linux_executable_sha256()?,
+            authoritative_store_sha256: source.authoritative_store_sha256,
             issuer_key_id: format!("{source_name}-ed25519-v1"),
             signature_ed25519_hex: String::new(),
         },
@@ -1057,7 +1077,9 @@ fn current_linux_executable_sha256() -> Result<String, R2a3Error> {
 fn assemble_production_receipts(run_nonce: &str) -> Result<Vec<u8>, R2a3Error> {
     let mut receipts = Vec::new();
     for source in r2a2::required_local_source_names() {
-        let path = Path::new(PRODUCTION_RECEIPT_DIR).join(format!("{source}.json"));
+        let path = Path::new(PRODUCTION_RECEIPT_DIR)
+            .join(source)
+            .join("receipt.json");
         require_owned_file(&path, source_issuer_uid(source)?, false)?;
         receipts.push(serde_json::from_slice::<SignedAuthorityReceipt>(
             &read_regular_file(&path, 128 * 1024, false)?,
@@ -1101,11 +1123,24 @@ fn claim_run_nonce_once_for_uid(
     Ok(())
 }
 
-type ControlledFixture = (Vec<u8>, Vec<u8>, BTreeMap<String, VerifyingKey>, String);
+pub(crate) type ControlledFixture = (Vec<u8>, Vec<u8>, BTreeMap<String, VerifyingKey>, String);
 
+#[cfg(test)]
 fn controlled_fixture(now: DateTime<Utc>) -> Result<ControlledFixture, R2a3Error> {
+    controlled_fixture_for(now, Operation::Place)
+}
+
+pub(crate) fn controlled_fixture_for(
+    now: DateTime<Utc>,
+    operation: Operation,
+) -> Result<ControlledFixture, R2a3Error> {
     let authority: serde_json::Value = serde_json::from_str(RUN_AUTHORITY)?;
-    let mut fields = authority["golden_vectors"]["PLACE"]["manifest_without_run_identity_sha256"]
+    let operation_name = match operation {
+        Operation::Place => "PLACE",
+        Operation::Cancel => "CANCEL",
+    };
+    let mut fields = authority["golden_vectors"][operation_name]
+        ["manifest_without_run_identity_sha256"]
         .as_object()
         .ok_or(R2a3Error::Input)?
         .iter()
@@ -1124,7 +1159,7 @@ fn controlled_fixture(now: DateTime<Utc>) -> Result<ControlledFixture, R2a3Error
     fields.insert(
         "endpoint_identity_sha256".to_owned(),
         r2a2::endpoint_identity(
-            Operation::Place,
+            operation,
             &account_hmac,
             &fields["endpoint_renderer_sha256"],
         )?,
@@ -1136,7 +1171,11 @@ fn controlled_fixture(now: DateTime<Utc>) -> Result<ControlledFixture, R2a3Error
     let common = authority["run_identity"]["common_fields_in_exact_order_excluding_run_identity"]
         .as_array()
         .ok_or(R2a3Error::Input)?;
-    let variant = authority["run_identity"]["place_fields_in_exact_order"]
+    let variant_name = match operation {
+        Operation::Place => "place_fields_in_exact_order",
+        Operation::Cancel => "cancel_fields_in_exact_order",
+    };
+    let variant = authority["run_identity"][variant_name]
         .as_array()
         .ok_or(R2a3Error::Input)?;
     let values = common
@@ -1178,21 +1217,37 @@ fn controlled_fixture(now: DateTime<Utc>) -> Result<ControlledFixture, R2a3Error
                     fields["stage6_checkpoint_fingerprint"].clone(),
                 ),
             ]),
-            "stage6_exact_dispatch_ready_command" => BTreeMap::from([
-                (
-                    "strategy_request_id".to_owned(),
-                    fields["strategy_request_id"].clone(),
-                ),
-                (
-                    "durable_client_order_id".to_owned(),
-                    fields["durable_client_order_id"].clone(),
-                ),
-                ("operation".to_owned(), fields["operation"].clone()),
-                (
-                    "request_body_sha256".to_owned(),
-                    fields["place_request_body_sha256"].clone(),
-                ),
-            ]),
+            "stage6_exact_dispatch_ready_command" => {
+                let mut claims = BTreeMap::from([
+                    (
+                        "strategy_request_id".to_owned(),
+                        fields["strategy_request_id"].clone(),
+                    ),
+                    (
+                        "durable_client_order_id".to_owned(),
+                        fields["durable_client_order_id"].clone(),
+                    ),
+                    ("operation".to_owned(), fields["operation"].clone()),
+                    (
+                        "request_body_sha256".to_owned(),
+                        fields[match operation {
+                            Operation::Place => "place_request_body_sha256",
+                            Operation::Cancel => "cancel_request_body_sha256",
+                        }]
+                        .clone(),
+                    ),
+                ]);
+                if operation == Operation::Cancel {
+                    for name in [
+                        "cancel_target_broker_order_id",
+                        "cancel_target_lifecycle_fingerprint",
+                        "cancel_target_currently_working_proof_sha256",
+                    ] {
+                        claims.insert(name.to_owned(), fields[name].clone());
+                    }
+                }
+                claims
+            }
             "stage8a_root_config_policy_control" => BTreeMap::from([
                 ("config_sha256".to_owned(), fields["config_sha256"].clone()),
                 ("policy_sha256".to_owned(), fields["policy_sha256"].clone()),
@@ -1252,6 +1307,12 @@ fn controlled_fixture(now: DateTime<Utc>) -> Result<ControlledFixture, R2a3Error
                 receipt,
                 run_nonce_sha256: run_nonce.clone(),
                 source_snapshot_sha256: sha256(source.as_bytes()),
+                source_generation: u64::try_from(index + 1).map_err(|_| R2a3Error::Input)?,
+                producer_executable_sha256: sha256(
+                    format!("controlled-producer-{source}").as_bytes(),
+                ),
+                issuer_executable_sha256: sha256(format!("controlled-issuer-{source}").as_bytes()),
+                authoritative_store_sha256: sha256(format!("controlled-store-{source}").as_bytes()),
                 issuer_key_id: format!("{source}-ed25519-v1"),
                 signature_ed25519_hex: String::new(),
             },
@@ -1267,7 +1328,7 @@ fn controlled_fixture(now: DateTime<Utc>) -> Result<ControlledFixture, R2a3Error
     Ok((manifest, envelope, public_keys, run_nonce))
 }
 
-fn controlled_account_body() -> String {
+pub(crate) fn controlled_account_body() -> String {
     serde_json::json!({
         "account_id": CONTROLLED_ACCOUNT,
         "type": "ACCOUNT_TYPE_UNSPECIFIED",
@@ -1293,7 +1354,40 @@ fn controlled_account_body() -> String {
     .to_string()
 }
 
-fn controlled_tls_configuration(host: &str) -> Result<(Vec<u8>, ServerConfig), R2a3Error> {
+pub(crate) fn controlled_cancel_order() -> serde_json::Value {
+    serde_json::json!({
+        "order_id": "2033126385648208390",
+        "exec_id": "CONTROLLED-EXEC-1",
+        "status": "ORDER_STATUS_WORKING",
+        "order": {
+            "account_id": CONTROLLED_ACCOUNT,
+            "symbol": r2a2::TARGET_INSTRUMENT,
+            "quantity": {"value":"1"},
+            "side": "SIDE_BUY",
+            "type": "ORDER_TYPE_LIMIT",
+            "time_in_force": "TIME_IN_FORCE_DAY",
+            "limit_price": {"value":"2210"},
+            "stop_price": null,
+            "stop_condition": null,
+            "legs": [],
+            "client_order_id": "S8BP000000000000001",
+            "valid_before": null,
+            "comment": "S8BP000000000000001"
+        },
+        "transact_at": "2026-08-25T12:00:00Z",
+        "accept_at": "2026-08-25T12:00:00Z",
+        "withdraw_at": null,
+        "initial_quantity": {"value":"1"},
+        "executed_quantity": {"value":"0"},
+        "remaining_quantity": {"value":"1"},
+        "sltp_order": null,
+        "triggered_order_id": null
+    })
+}
+
+pub(crate) fn controlled_tls_configuration(
+    host: &str,
+) -> Result<(Vec<u8>, ServerConfig), R2a3Error> {
     let mut ca = CertificateParams::new(Vec::new()).map_err(|_| R2a3Error::Input)?;
     ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     ca.distinguished_name
@@ -1342,17 +1436,23 @@ fn controlled_client(
         .map_err(|_| R2a3Error::Input)
 }
 
-async fn controlled_qualification_evidence() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
+async fn controlled_qualification_evidence_for(
+    operation: Operation,
+) -> Result<R2a3ReadonlyEvidence, R2a3Error> {
     const HOST: &str = "stage8b-r2a3.invalid";
     let now = Utc::now();
-    let (manifest, receipts, public_keys, run_nonce) = controlled_fixture(now)?;
+    let (manifest, receipts, public_keys, run_nonce) = controlled_fixture_for(now, operation)?;
     let (root_der, tls_config) = controlled_tls_configuration(HOST)?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
     let server = tokio::spawn(async move {
         let acceptor = TlsAcceptor::from(Arc::new(tls_config));
         let mut request_lines = Vec::new();
-        for _ in 0..5 {
+        let request_count = match operation {
+            Operation::Place => 5,
+            Operation::Cancel => 6,
+        };
+        for _ in 0..request_count {
             let (socket, _) = listener.accept().await.map_err(|_| R2a3Error::Network)?;
             let mut tls = acceptor
                 .accept(socket)
@@ -1376,8 +1476,15 @@ async fn controlled_qualification_evidence() -> Result<R2a3ReadonlyEvidence, R2a
                 serde_json::json!({"token":"controlled-readonly-token"}).to_string()
             } else if first.contains("/trades?") {
                 serde_json::json!({"trades":[]}).to_string()
+            } else if first.contains("/orders/2033126385648208390") {
+                controlled_cancel_order().to_string()
             } else if first.ends_with("/orders HTTP/1.1") {
-                serde_json::json!({"orders":[]}).to_string()
+                match operation {
+                    Operation::Place => serde_json::json!({"orders":[]}).to_string(),
+                    Operation::Cancel => {
+                        serde_json::json!({"orders":[controlled_cancel_order()]}).to_string()
+                    }
+                }
             } else {
                 controlled_account_body()
             };
@@ -1413,10 +1520,15 @@ async fn controlled_qualification_evidence() -> Result<R2a3ReadonlyEvidence, R2a
         "POST /v1/sessions HTTP/1.1",
         "POST /v1/sessions/details HTTP/1.1",
     ];
-    if requests.len() != 5
+    let expected_requests = match operation {
+        Operation::Place => 5,
+        Operation::Cancel => 6,
+    };
+    if requests.len() != expected_requests
         || requests[0] != exact[0]
         || requests[1] != exact[1]
-        || evidence.request_order.len() != 5
+        || evidence.request_order.len() != expected_requests
+        || evidence.operation != operation
         || !evidence.final_freshness_revalidated
         || evidence.authorization_status != "NOT_ISSUED"
     {
@@ -1426,7 +1538,8 @@ async fn controlled_qualification_evidence() -> Result<R2a3ReadonlyEvidence, R2a
 }
 
 pub async fn run_controlled_qualification() -> Result<(), R2a3Error> {
-    let _ = controlled_qualification_evidence().await?;
+    let _ = controlled_qualification_evidence_for(Operation::Place).await?;
+    let _ = controlled_qualification_evidence_for(Operation::Cancel).await?;
     Ok(())
 }
 
@@ -1500,6 +1613,10 @@ mod tests {
             },
             run_nonce_sha256: "4".repeat(64),
             source_snapshot_sha256: "5".repeat(64),
+            source_generation: 1,
+            producer_executable_sha256: "6".repeat(64),
+            issuer_executable_sha256: "7".repeat(64),
+            authoritative_store_sha256: "8".repeat(64),
             issuer_key_id: "trusted_clock-ed25519-v1".to_owned(),
             signature_ed25519_hex: String::new(),
         };
@@ -1539,6 +1656,10 @@ mod tests {
             },
             run_nonce_sha256: String::new(),
             source_snapshot_sha256: String::new(),
+            source_generation: 1,
+            producer_executable_sha256: "1".repeat(64),
+            issuer_executable_sha256: "2".repeat(64),
+            authoritative_store_sha256: "3".repeat(64),
             issuer_key_id: String::new(),
             signature_ed25519_hex: String::new(),
         };
@@ -1589,7 +1710,7 @@ mod tests {
             &envelope,
             &keys,
             &nonce,
-            now + chrono::Duration::seconds(2)
+            now + chrono::Duration::seconds(3)
         )
         .is_err());
         assert!(
@@ -1607,6 +1728,8 @@ mod tests {
             producer_service: format!("moex-stage8b-r2a3-source-{source_name}.service"),
             producer_uid: source_producer_uid(source_name).unwrap(),
             source_generation: 7,
+            producer_executable_sha256: "a".repeat(64),
+            authoritative_store_sha256: "b".repeat(64),
             run_nonce_sha256: nonce.clone(),
             observed_at_utc: Utc::now(),
             claims: BTreeMap::from([("ready".to_owned(), "true".to_owned())]),
@@ -1637,7 +1760,9 @@ mod tests {
 
     #[tokio::test]
     async fn exact_runnable_entry_completes_full_tls_sequence_with_pacing() {
-        let evidence = controlled_qualification_evidence().await.unwrap();
+        let evidence = controlled_qualification_evidence_for(Operation::Place)
+            .await
+            .unwrap();
         assert_eq!(evidence.request_order.len(), 5);
         let broker = evidence
             .request_order
@@ -1652,6 +1777,17 @@ mod tests {
                 .num_milliseconds();
             assert!(elapsed >= MIN_BROKER_GET_INTERVAL_MS as i64 - 5);
         }
+    }
+
+    #[tokio::test]
+    async fn exact_runnable_entry_completes_full_cancel_tls_sequence() {
+        let evidence = controlled_qualification_evidence_for(Operation::Cancel)
+            .await
+            .unwrap();
+        assert_eq!(evidence.request_order.len(), 6);
+        assert_eq!(evidence.operation, Operation::Cancel);
+        assert_eq!(evidence.broker_truth.target_order_count, 1);
+        assert_eq!(evidence.broker_truth.exact_cancel_working, Some(true));
     }
 
     #[tokio::test]
