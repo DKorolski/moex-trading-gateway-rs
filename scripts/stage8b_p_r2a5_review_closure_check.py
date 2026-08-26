@@ -45,6 +45,7 @@ def main() -> None:
     source = json.loads(source_path.read_text())
     helper = json.loads(helper_path.read_text())
     status = json.loads((docs / "stage8b-p-r2a5-status.json").read_text())
+    build = json.loads((docs / "stage8b-p-r2a5-build-evidence.json").read_text())
 
     require(production["revision"] == "R2A5", "identity drift")
     require(production["authorization_status"] == "NOT_ISSUED", "R2B opened")
@@ -66,6 +67,10 @@ def main() -> None:
     require(helper["acceptance_key_id"] == trust["helper_acceptance_key"]["key_id"], "helper key drift")
     require(len(helper["signature_ed25519_hex"]) == 128, "helper signature malformed")
     require(trust["helper_acceptance_key"]["key_id"] != trust["authorization_key"]["key_id"], "helper/package keys conflated")
+    require(build["source_ref"] == "8ae658fff764b21fb753a7d5e5ad38b55fbb1308", "build source ref drift")
+    require(build["reproducible_build_count"] == 2 and build["all_linux_binaries_identical"] is True, "reproducible build absent")
+    require(build["linux_release_sha256"]["stage8b-readonly-preflight"] == helper_sha, "helper/build mismatch")
+    require(len(build["linux_release_sha256"]) == 11, "Linux binary inventory drift")
 
     for marker in (
         "pub source_observed_at_utc: DateTime<Utc>",

@@ -23,6 +23,9 @@ review. It does not authorize R2B or any real FINAM request.
    require the accepted helper SHA.
 6. Production authority remains `NOT_ISSUED`. Typed operator-decision semantics
    are explicitly carried forward to R2B, before any real credential or GET.
+7. The GOV-CI current-tree production manifest is rotated only for the three
+   accepted-code files changed by this source adapter. Canonical `ci.yml`, its
+   commands and all governance control files remain unchanged.
 
 ## Deliberately closed
 
