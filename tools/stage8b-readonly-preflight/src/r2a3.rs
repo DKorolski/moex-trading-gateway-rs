@@ -1141,6 +1141,14 @@ pub(crate) fn controlled_fixture_for(
     now: DateTime<Utc>,
     operation: Operation,
 ) -> Result<ControlledFixture, R2a3Error> {
+    controlled_fixture_for_boot(now, operation, None)
+}
+
+pub(crate) fn controlled_fixture_for_boot(
+    now: DateTime<Utc>,
+    operation: Operation,
+    process_boot_fingerprint_sha256: Option<&str>,
+) -> Result<ControlledFixture, R2a3Error> {
     let authority: serde_json::Value = serde_json::from_str(RUN_AUTHORITY)?;
     let operation_name = match operation {
         Operation::Place => "PLACE",
@@ -1175,6 +1183,15 @@ pub(crate) fn controlled_fixture_for(
         "run_expires_at_utc".to_owned(),
         r2a2::exact_millis(now + chrono::Duration::seconds(10)),
     );
+    if let Some(fingerprint) = process_boot_fingerprint_sha256 {
+        if decode_hex::<32>(fingerprint).is_err() {
+            return Err(R2a3Error::Input);
+        }
+        fields.insert(
+            "process_boot_fingerprint_sha256".to_owned(),
+            fingerprint.to_owned(),
+        );
+    }
     let common = authority["run_identity"]["common_fields_in_exact_order_excluding_run_identity"]
         .as_array()
         .ok_or(R2a3Error::Input)?;

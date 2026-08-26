@@ -902,7 +902,10 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
         return Err(R2a3Error::Authorization);
     }
     let now = Utc::now();
-    let (manifest, envelope, _, nonce) = r2a3::controlled_fixture_for(now, operation)?;
+    let boot_id = strict_single_line(&std::fs::read("/proc/sys/kernel/random/boot_id")?, 128)?;
+    let boot_fingerprint = sha256(boot_id.as_bytes());
+    let (manifest, envelope, _, nonce) =
+        r2a3::controlled_fixture_for_boot(now, operation, Some(&boot_fingerprint))?;
     let signed: SignedAuthorityEnvelope = serde_json::from_slice(&envelope)?;
     let claims = signed
         .receipts
