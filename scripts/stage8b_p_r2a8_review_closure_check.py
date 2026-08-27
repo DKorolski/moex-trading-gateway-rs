@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,8 +15,13 @@ def require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def main() -> None:
     status = json.loads((ROOT / "docs/stage-8/stage8b-p-r2a8-status.json").read_text())
+    build = json.loads((ROOT / "docs/stage-8/stage8b-p-r2a8-build-evidence.json").read_text())
     adapter = (ROOT / "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs").read_text()
     schema = (ROOT / "tools/stage8b-readonly-preflight/src/r2a5.rs").read_text()
     producer = (ROOT / "tools/stage8b-readonly-preflight/src/bin/stage8b-r2a5-authority-producer.rs").read_text()
@@ -27,6 +33,12 @@ def main() -> None:
     require(status["r2b_authorization"] == "NOT_ISSUED", "R2B opened")
     require(not status["finam_network_allowed"] and not status["real_order_allowed"], "effect opened")
     require(status["source_writer_uid"] == 8095 and status["manifest_issuer_uid"] == 8096, "UID drift")
+    require(
+        status["controlled_place_full_chain"] == "PASS"
+        and status["controlled_cancel_full_chain"] == "PASS"
+        and status["production_binaries_reproducible"] is True,
+        "full-chain/reproducibility evidence absent",
+    )
     for marker in (
         "publish_stage8b_r2a8_trusted_current_source_from_owner(",
         "Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(",
@@ -72,6 +84,28 @@ def main() -> None:
         "stage8b-r2a8-full-chain-$operation: PASS",
     ):
         require(marker in rehearsal, f"full-chain witness absent: {marker}")
+    require(build["authorization_status"] == "NOT_ISSUED", "build evidence opened R2B")
+    require(
+        build["controlled_full_chain"]["place"] == "PASS"
+        and build["controlled_full_chain"]["cancel"] == "PASS"
+        and build["controlled_full_chain"]["finam_network_accessed"] is False,
+        "full-chain evidence invalid",
+    )
+    for binary in build["production_binaries"].values():
+        require(
+            binary["reproducible"] is True
+            and binary["build_a_sha256"] == binary["build_b_sha256"],
+            "production reproducibility invalid",
+        )
+    for name, relative in (
+        ("adapter_binary_source", "crates/finam-gateway/src/bin/stage8b-r2a7-source-adapter.rs"),
+        ("issuer_binary_source", "crates/finam-gateway/src/bin/stage8b-r2a8-current-manifest-issuer.rs"),
+        ("adapter_module", "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs"),
+        ("owner_composition", "crates/finam-gateway/src/stage8a1_execution_capability.rs"),
+        ("downstream_schema", "tools/stage8b-readonly-preflight/src/r2a5.rs"),
+        ("linux_rehearsal", "scripts/stage8b_p_r2a7_linux_rehearsal.sh"),
+    ):
+        require(build["source_sha256"][name] == sha(ROOT / relative), f"source drift: {name}")
     print("stage8b-p-r2a8-check: PASS trusted_manifest=true schema_compatible=true strict_key=true place=true cancel=true r2b=NOT_ISSUED")
 
 

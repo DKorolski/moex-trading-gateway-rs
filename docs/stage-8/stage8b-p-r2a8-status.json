@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2A8",
-  "status": "IMPLEMENTATION_CANDIDATE",
+  "status": "REVIEW_CANDIDATE_FULL_CHAIN_GREEN",
   "trusted_current_source_writer": true,
   "fixed_current_manifest_issuer": true,
   "source_writer_uid": 8095,
@@ -13,6 +13,9 @@
   "lifecycle_key_strict_lower_hex": true,
   "place_full_chain_required": true,
   "cancel_full_chain_required": true,
+  "controlled_place_full_chain": "PASS",
+  "controlled_cancel_full_chain": "PASS",
+  "production_binaries_reproducible": true,
   "r2b_authorization": "NOT_ISSUED",
   "finam_network_allowed": false,
   "real_order_allowed": false,

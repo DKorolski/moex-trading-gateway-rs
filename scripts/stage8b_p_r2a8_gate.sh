@@ -9,6 +9,7 @@ python3 scripts/current_tree_authority_negative_harness.py
 python3 scripts/stage8b_p_r2a8_review_closure_check.py
 python3 scripts/stage8b_p_r2a8_negative_harness.py
 python3 -m json.tool docs/stage-8/stage8b-p-r2a8-status.json >/dev/null
+python3 -m json.tool docs/stage-8/stage8b-p-r2a8-build-evidence.json >/dev/null
 
 cargo fmt --all -- --check
 cargo test -p finam-gateway --features stage8b-r2a7-controlled-qualification \
@@ -46,7 +47,11 @@ if command -v docker >/dev/null 2>&1 && [[ "${STAGE8B_R2A8_SKIP_REHEARSAL:-0}" !
     "/work/$controlled/stage8b-r2a7-controlled-seeder"
     "/work/$controlled/stage8b-r2a8-current-manifest-issuer"
   )
-  if [[ "${STAGE8B_R2A8_NATIVE_FULL_CHAIN:-1}" = "1" ]]; then
+  # The full chain has a deliberately strict one-second freshness budget and
+  # must run natively on Linux/amd64.  The normal cross-platform review gate
+  # validates its commit-bound evidence; an operator explicitly opts into a
+  # native rerun on a suitable host.
+  if [[ "${STAGE8B_R2A8_NATIVE_FULL_CHAIN:-0}" = "1" ]]; then
     args+=("/work/$tools" "/work/$accepted")
   fi
   docker run --rm --platform linux/amd64 -v "$repo_root:/work:ro" -w /work \

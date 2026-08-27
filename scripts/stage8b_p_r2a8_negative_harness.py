@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     "docs/stage-8/stage8b-p-r2a8-status.json",
+    "docs/stage-8/stage8b-p-r2a8-build-evidence.json",
     "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs",
     "tools/stage8b-readonly-preflight/src/r2a5.rs",
     "tools/stage8b-readonly-preflight/src/bin/stage8b-r2a5-authority-producer.rs",
@@ -21,18 +22,19 @@ FILES = (
     "scripts/stage8b_p_r2a8_review_closure_check.py",
 )
 MUTATIONS = (
-    (1, "unsigned-source", ".sign_stage8b_r2a8_current_source_commitment(", ".skip_stage8b_r2a8_signature("),
-    (1, "skip-source-validation", "validate_trusted_current_source(&source, mode)?", "skip_trusted_current_source(&source, mode)?"),
-    (1, "remove-expiry", "source.expires_at <= now", "false"),
-    (1, "normalize-key", "let line = bytes.strip_suffix(b\"\\n\").unwrap_or(bytes);", "let line = bytes.trim_ascii();"),
-    (2, "drop-production-domain", "OperationalAdapterDomain::Production,", "OperationalAdapterDomain::ControlledQualification,"),
-    (2, "drop-mode-check", "record.adapter_mode != OperationalAdapterMode::OneShotRecoveryReader", "false"),
-    (3, "remove-controlled-place", 'Some("--controlled-r2a8-place")', 'Some("--removed-place")'),
-    (5, "issuer-network", "RestrictAddressFamilies=AF_UNIX", "RestrictAddressFamilies=AF_UNIX AF_INET"),
-    (5, "issuer-cannot-traverse-owner-root", "SupplementaryGroups=m8a8095", "SupplementaryGroups=m8m8096"),
-    (6, "remove-issuer-ordering", "Requires=stage8b-r2a8-current-manifest-issuer.service", "Requires=stage8b-r2a7-source-adapter.service"),
-    (7, "skip-full-chain", "stage8b-r2a8-full-chain-$operation: PASS", "stage8b-r2a8-short-chain-$operation: PASS"),
+    (2, "unsigned-source", ".sign_stage8b_r2a8_current_source_commitment(", ".skip_stage8b_r2a8_signature("),
+    (2, "skip-source-validation", "validate_trusted_current_source(&source, mode)?", "skip_trusted_current_source(&source, mode)?"),
+    (2, "remove-expiry", "source.expires_at <= now", "false"),
+    (2, "normalize-key", "let line = bytes.strip_suffix(b\"\\n\").unwrap_or(bytes);", "let line = bytes.trim_ascii();"),
+    (3, "drop-production-domain", "OperationalAdapterDomain::Production,", "OperationalAdapterDomain::ControlledQualification,"),
+    (3, "drop-mode-check", "record.adapter_mode != OperationalAdapterMode::OneShotRecoveryReader", "false"),
+    (4, "remove-controlled-place", 'Some("--controlled-r2a8-place")', 'Some("--removed-place")'),
+    (6, "issuer-network", "RestrictAddressFamilies=AF_UNIX", "RestrictAddressFamilies=AF_UNIX AF_INET"),
+    (6, "issuer-cannot-traverse-owner-root", "SupplementaryGroups=m8a8095", "SupplementaryGroups=m8m8096"),
+    (7, "remove-issuer-ordering", "Requires=stage8b-r2a8-current-manifest-issuer.service", "Requires=stage8b-r2a7-source-adapter.service"),
+    (8, "skip-full-chain", "stage8b-r2a8-full-chain-$operation: PASS", "stage8b-r2a8-short-chain-$operation: PASS"),
     (0, "open-r2b", '"r2b_authorization": "NOT_ISSUED"', '"r2b_authorization": "ISSUED"'),
+    (1, "forge-full-chain-evidence", '"place": "PASS"', '"place": "UNVERIFIED"'),
 )
 
 
