@@ -103,7 +103,7 @@ pub fn stage8a4_i3_production_test_setup_in(
     let BrokerCommand::PlaceOrder(place) = &mut command else {
         panic!("Stage8A4 production fixture requires PLACE");
     };
-    place.created_ts = Utc::now() - chrono::Duration::seconds(1);
+    place.created_ts = Utc::now();
     place.ttl_ms = Some(60_000);
     let request_identity = Stage6DurableRequestIdentityV1::from_place(
         place,
@@ -210,6 +210,155 @@ pub fn stage8a4_i3_production_test_setup_in(
     .expect("restart Stage8A4 fixture owner");
     let Stage7bRestartOutcome::Ready(owner) = restarted else {
         panic!("Stage8A4 fixture must restart Ready");
+    };
+    (
+        Stage8a4I3ProductionTestSetup {
+            parent,
+            root,
+            operational_identity,
+            commitment_key: fixture.commitment_key,
+            runtime: fixture.fresh_runtime,
+            command,
+            command_context: fixture.command_context,
+        },
+        *owner,
+    )
+}
+
+/// Source-exact CANCEL companion for the Stage 8B-P R2A6 adapter rehearsal.
+///
+/// The fixture retains the finalized working PLACE history from Stage 5G,
+/// rebuilds the current CANCEL accepted/dispatch suffix with a fresh command
+/// timestamp, and then crosses the normal file-backed Stage 7B restart
+/// boundary. It exposes no journal writer or constructible authority.
+#[cfg(feature = "stage8a4-i3-test-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_r2a6_cancel_production_test_setup_in(
+    parent: std::path::PathBuf,
+) -> (Stage8a4I3ProductionTestSetup, Stage7bRecoveryReadyOwner) {
+    use strategy_runtime_core::{
+        authorize_stage6d_first_boot, stage7b_test_authenticated_cancel_restart_fixture,
+        Stage6dFirstBootConfig,
+    };
+
+    let fixture = stage7b_test_authenticated_cancel_restart_fixture();
+    let mut command = fixture.command;
+    let BrokerCommand::CancelOrder(cancel) = &mut command else {
+        panic!("Stage8B R2A6 production fixture requires CANCEL");
+    };
+    cancel.created_ts = Utc::now();
+    cancel.ttl_ms = Some(60_000);
+    let request_identity = Stage6DurableRequestIdentityV1::from_cancel(
+        cancel,
+        fixture.command_context.instrument().clone(),
+        fixture.command_context.attribution().clone(),
+    )
+    .expect("Stage8B R2A6 CANCEL request identity");
+    let durable_command = Stage6DurableCommandSnapshotV1::from_cancel(&request_identity, cancel)
+        .expect("Stage8B R2A6 CANCEL durable command");
+    let accepted = strategy_runtime_core::Stage6JournalRecordV1::request_accepted(
+        request_identity.clone(),
+        durable_command,
+        strategy_runtime_core::Stage6LifecycleSequence::new(1)
+            .expect("Stage8B R2A6 CANCEL accepted sequence"),
+        None,
+        None,
+        strategy_runtime_core::Stage6Sha256Digest::parse("6".repeat(64))
+            .expect("Stage8B R2A6 CANCEL accepted frontier"),
+    )
+    .expect("Stage8B R2A6 CANCEL accepted record");
+    let dispatch = strategy_runtime_core::Stage6JournalRecordV1::dispatch_attempt_recorded(
+        request_identity,
+        1,
+        accepted.canonical_payload_sha256().clone(),
+        strategy_runtime_core::Stage6LifecycleSequence::new(2)
+            .expect("Stage8B R2A6 CANCEL dispatch sequence"),
+        Some(accepted.journal_record_id().clone()),
+        strategy_runtime_core::Stage6Sha256Digest::parse("7".repeat(64))
+            .expect("Stage8B R2A6 CANCEL dispatch frontier"),
+    )
+    .expect("Stage8B R2A6 CANCEL dispatch record");
+    let mut journal_records = fixture.journal_records;
+    let _previous_current = journal_records
+        .pop()
+        .expect("Stage8B R2A6 CANCEL fixture current accepted record");
+    journal_records.extend([accepted, dispatch]);
+
+    let operational_identity = Stage6dOperationalIdentityConfig {
+        broker_id: "paper".to_string(),
+        strategy_instance_id: "hybrid-imoexf".to_string(),
+        deployment_id: "stage8b-r2a6-cancel-production-test".to_string(),
+        deployment_generation: 1,
+        gateway_instance_id: "gateway-stage8b-r2a6-cancel-test".to_string(),
+        instrument_map_fingerprint_sha256: "1".repeat(64),
+        market_data_generation: 1,
+        command_consumer_generation: 1,
+        stage8a4_writer_issuer_public_key_hex:
+            "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a".to_string(),
+    };
+    let parent = std::fs::canonicalize(parent).expect("canonical R2A6 fixture parent");
+    let root = parent.join(
+        Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+            .expect("valid R2A6 fixture identity"),
+    );
+    std::fs::create_dir(&root).expect("create R2A6 fixture root");
+    let authorization = authorize_stage6d_first_boot(Stage6dFirstBootConfig {
+        deployment_id: operational_identity.deployment_id.clone(),
+        expected_runtime_config_fingerprint_sha256: fixture
+            .fresh_runtime
+            .stage5c_config_fingerprint(),
+        allow_create_missing_journal: true,
+    })
+    .expect("authorize R2A6 fixture first boot");
+    let mut storage = Stage7bWritableDurableAuthority::create_new(
+        Stage7bDurableRootAuthority::validate(&root, &operational_identity)
+            .expect("validate R2A6 fixture root"),
+        &operational_identity,
+        &authorization,
+    )
+    .expect("create R2A6 fixture storage");
+    let s0_checkpoint =
+        Stage6JournalCheckpointV1::from_frontier(storage.journal.frontier().clone())
+            .expect("R2A6 fixture S0 checkpoint");
+    for record in &journal_records {
+        storage
+            .journal
+            .append(record)
+            .expect("append R2A6 fixture record");
+    }
+    let package = seal_stage6d_restart_package(
+        &fixture.stage5g_authenticated_package,
+        s0_checkpoint.clone(),
+        operational_identity.clone(),
+        &fixture.commitment_key,
+    )
+    .expect("seal R2A6 fixture package");
+    let seal = Stage7bRecoverySealV1::new(
+        1,
+        package,
+        s0_checkpoint,
+        stage6d_operational_identity_sha256(&operational_identity)
+            .expect("digest R2A6 fixture identity")
+            .as_str()
+            .to_string(),
+        &fixture.commitment_key,
+    )
+    .expect("construct R2A6 fixture seal");
+    storage
+        ._writer_lease
+        .commit_recovery_seal(&seal)
+        .expect("commit R2A6 fixture S0");
+    drop(storage);
+    let restarted = Stage7bRecoveryReadyOwner::restart(
+        Stage7bDurableRootAuthority::validate(&root, &operational_identity)
+            .expect("revalidate R2A6 fixture root"),
+        operational_identity.clone(),
+        &fixture.commitment_key,
+        fixture.fresh_runtime.clone(),
+    )
+    .expect("restart R2A6 fixture owner");
+    let Stage7bRestartOutcome::Ready(owner) = restarted else {
+        panic!("Stage8B R2A6 fixture must restart Ready");
     };
     (
         Stage8a4I3ProductionTestSetup {

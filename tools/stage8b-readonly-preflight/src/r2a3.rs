@@ -1381,8 +1381,15 @@ pub(crate) fn controlled_account_body() -> String {
 }
 
 pub(crate) fn controlled_cancel_order() -> serde_json::Value {
+    controlled_cancel_order_for("2033126385648208390", "S8BP000000000000001")
+}
+
+pub(crate) fn controlled_cancel_order_for(
+    order_id: &str,
+    client_order_id: &str,
+) -> serde_json::Value {
     serde_json::json!({
-        "order_id": "2033126385648208390",
+        "order_id": order_id,
         "exec_id": "CONTROLLED-EXEC-1",
         "status": "ORDER_STATUS_WORKING",
         "order": {
@@ -1396,9 +1403,9 @@ pub(crate) fn controlled_cancel_order() -> serde_json::Value {
             "stop_price": null,
             "stop_condition": null,
             "legs": [],
-            "client_order_id": "S8BP000000000000001",
+            "client_order_id": client_order_id,
             "valid_before": null,
-            "comment": "S8BP000000000000001"
+            "comment": client_order_id
         },
         "transact_at": "2026-08-25T12:00:00Z",
         "accept_at": "2026-08-25T12:00:00Z",

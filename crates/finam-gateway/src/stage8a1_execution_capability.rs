@@ -142,6 +142,14 @@ const STAGE8A4_WRITER_SIGNING_KEY_FILE: &str = "stage8a4-writer-issuer-signing-k
 const MAX_AUTHORITY_TTL_MS: u64 = 60_000;
 const STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT: &str =
     "/var/lib/moex-trading/operational-authorities";
+pub const STAGE8B_R2A6_SOURCE_ADAPTER_UID: u32 = 8095;
+const STAGE8B_R2A6_ACCEPTED_EFFECT_CONFIG_SHA256: &str =
+    "893ae553bfd515eb27b774f003996495863f56aca282458423ce2de1c586e812";
+const STAGE8B_R2A6_ACCEPTED_EFFECT_POLICY_SHA256: &str =
+    "e7eb516859843cd717f47eb192309d7d5e840fe92aa26a2c2753fefac7e2712f";
+const STAGE8B_R2A6_ACCEPTED_CONFIG_POLICY_AUTHORITY_SHA256: &str =
+    "7650e529498dbc5adfccd646878d43909c062cedc49c957bbf17c60f53d0ca1a";
+const STAGE8B_R2A6_ADAPTER_WORK_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a6/adapter-work";
 
 /// Reviewed configuration source for the no-send Stage 8A-1 authority layer.
 /// This is source data, not an authority: callers still cannot construct any
@@ -280,6 +288,338 @@ pub struct Stage8bR2a5SourcePublicationEvidence {
     pub source_sha256: std::collections::BTreeMap<String, String>,
     pub publication_root_sha256: String,
     pub execution_authority_granted: bool,
+}
+
+/// Executes the R2A6 read-only composition without exposing the intermediate
+/// current-source authority. The caller must already own the linear Stage 7B
+/// recovery owner and exact Stage 6 request; public DTOs cannot be converted
+/// into an execution capability by this API.
+#[allow(clippy::too_many_arguments)]
+pub fn publish_stage8b_r2a6_operational_sources_from_owner(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    authority_root: &Path,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    if unsafe { libc::geteuid() } != STAGE8B_R2A6_SOURCE_ADAPTER_UID {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    validate_stage8b_r2a6_output_ownership()?;
+    let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+        owner,
+        commitment_key,
+        identity,
+        command,
+    )?;
+    let mut issuer = Stage8a1OperationalAuthorityIssuer::from_trusted_composition(
+        authority_root,
+        accepted_config_sha256,
+        &durable,
+        true,
+    )?;
+    let sources =
+        issuer.issue_current_sources(composite_readiness, broker_truth, broker_readiness)?;
+    issuer.publish_stage8b_r2a5_operational_sources_at(
+        &durable,
+        command,
+        &sources,
+        Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT),
+    )
+}
+
+fn validate_stage8b_r2a6_output_ownership() -> Result<(), Stage8ExecutionPreflightError> {
+    let root = Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT);
+    let root_metadata = fs::symlink_metadata(root)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let parent = root
+        .parent()
+        .ok_or(Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let parent_metadata = fs::symlink_metadata(parent)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    if !root_metadata.file_type().is_dir()
+        || root_metadata.file_type().is_symlink()
+        || root_metadata.uid() != STAGE8B_R2A6_SOURCE_ADAPTER_UID
+        || root_metadata.mode() & 0o022 != 0
+        || !parent_metadata.file_type().is_dir()
+        || parent_metadata.file_type().is_symlink()
+        || parent_metadata.uid() != 0
+        || parent_metadata.mode() & 0o022 != 0
+    {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    Ok(())
+}
+
+/// Controlled Linux witness for the exact R2A6 executable. It starts from a
+/// source-authenticated Stage 5G package, a file-backed Stage 6 journal and a
+/// normal Stage 7B restart owner, then invokes the production composition
+/// above. The feature is excluded from ordinary gateway/effect builds.
+#[cfg(feature = "stage8b-r2a6-controlled-rehearsal")]
+#[doc(hidden)]
+pub fn run_stage8b_r2a6_controlled_source_adapter(
+    operation: &str,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    use broker_core::{
+        BrokerFeedFreshness, BrokerInstrumentSpec, BrokerOrderSnapshot, BrokerStopOrderReadiness,
+        BrokerSymbol, Exchange, InstrumentMapEntry, InternalSymbol, Market, OrderSide, OrderStatus,
+        OrderType,
+    };
+    use runtime_durable_service::{
+        stage8a4_i3_production_test_setup_in, stage8b_r2a6_cancel_production_test_setup_in,
+    };
+
+    let work_root = Path::new(STAGE8B_R2A6_ADAPTER_WORK_ROOT).join(operation.to_ascii_lowercase());
+    if work_root.exists() {
+        fs::remove_dir_all(&work_root)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    }
+    fs::create_dir(&work_root).map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    fs::set_permissions(&work_root, fs::Permissions::from_mode(0o700))
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let stage7b_parent = work_root.join("stage7b");
+    fs::create_dir(&stage7b_parent)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let (setup, mut owner) = match operation {
+        "PLACE" => stage8a4_i3_production_test_setup_in(stage7b_parent),
+        "CANCEL" => stage8b_r2a6_cancel_production_test_setup_in(stage7b_parent),
+        _ => return Err(Stage8ExecutionPreflightError::DurableAuthorityInvalid),
+    };
+    let (identity, command, account_id) = match &setup.command {
+        broker_core::BrokerCommand::PlaceOrder(place) => (
+            Stage6DurableRequestIdentityV1::from_place(
+                place,
+                setup.command_context.attribution().clone(),
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?,
+            Stage6DurableCommandSnapshotV1::from_place(
+                &Stage6DurableRequestIdentityV1::from_place(
+                    place,
+                    setup.command_context.attribution().clone(),
+                )
+                .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?,
+                place,
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?,
+            place.account_id.clone(),
+        ),
+        broker_core::BrokerCommand::CancelOrder(cancel) => {
+            let identity = Stage6DurableRequestIdentityV1::from_cancel(
+                cancel,
+                setup.command_context.instrument().clone(),
+                setup.command_context.attribution().clone(),
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+            let command = Stage6DurableCommandSnapshotV1::from_cancel(&identity, cancel)
+                .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+            (identity, command, cancel.account_id.clone())
+        }
+    };
+    let instrument = setup.command_context.instrument().clone();
+    let venue_symbol = instrument
+        .venue_symbol
+        .clone()
+        .ok_or(Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let authority_root = work_root.join("stage8a1-authority");
+    fs::create_dir(&authority_root)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    fs::set_permissions(&authority_root, fs::Permissions::from_mode(0o700))
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let now = Utc::now();
+    let runtime_fingerprint = setup.runtime.stage5c_config_fingerprint();
+    let operational_identity_sha256 =
+        strategy_runtime_core::stage6d_operational_identity_sha256(&setup.operational_identity)
+            .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?
+            .as_str()
+            .to_owned();
+    let broker_policy = OrderPreflightPolicy {
+        allowed_accounts: vec![account_id.clone()],
+        allowed_venue_symbols: vec![venue_symbol.clone()],
+        allowed_order_types: vec![OrderType::Market, OrderType::Limit],
+        allowed_time_in_force: vec![TimeInForce::Day],
+        min_qty: rust_decimal::Decimal::ONE,
+        qty_step: rust_decimal::Decimal::ONE,
+        max_qty: rust_decimal::Decimal::new(2, 0),
+        price_step: Some(rust_decimal::Decimal::new(5, 1)),
+        max_market_qty: rust_decimal::Decimal::ONE,
+        max_notional_per_order: Some(rust_decimal::Decimal::new(10_000, 0)),
+        max_notional_per_run: Some(rust_decimal::Decimal::new(10_000, 0)),
+        max_limit_deviation_bps: Some(1_000),
+        max_reference_age_ms: 5_000,
+        allow_cancel_by_broker_order_id_without_mapping: false,
+        operator_arm: broker_core::OperatorArm {
+            session_id: "STAGE8B_R2A6_CONTROLLED_NO_EFFECT".into(),
+            armed_until: now + chrono::Duration::seconds(30),
+            // The inherited Stage8A accepted-config schema requires this bit;
+            // the R2A6 composition never consumes the arm or calls an effect
+            // method, and the exact adapter binary has no such entry point.
+            endpoint_calls_enabled: true,
+            one_shot: true,
+            endpoint_attempted: false,
+            preflight_digest: runtime_fingerprint.clone(),
+        },
+    };
+    let config = Stage8a1AcceptedExecutionConfigV1 {
+        schema_version: 1,
+        operational_identity_sha256: operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: runtime_fingerprint.clone(),
+        broker: BrokerKind::Finam,
+        strategy_instance_id: setup
+            .command_context
+            .attribution()
+            .strategy_id()
+            .to_string(),
+        account_id: account_id.clone(),
+        instrument: instrument.clone(),
+        broker_policy,
+        build_sha256: "b".repeat(64),
+        endpoint_policy_sha256: "e".repeat(64),
+        max_arm_ttl_ms: 20_000,
+        max_evidence_age_ms: 20_000,
+        stage8a4_writer_issuer_public_key_hex: setup
+            .operational_identity
+            .stage8a4_writer_issuer_public_key_hex
+            .clone(),
+    };
+    let config_bytes = canonical_json(&config);
+    let config_sha256 = digest_parts(b"stage8a1-accepted-config-file-v1", &[&config_bytes]);
+    fs::write(authority_root.join(ACCEPTED_CONFIG_FILE), config_bytes)
+        .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    fs::write(
+        authority_root.join(ACCEPTED_CONFIG_SHA256_FILE),
+        &config_sha256,
+    )
+    .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let source_observed_at = Utc::now();
+    let control = Stage8a1CurrentControlStateV1 {
+        schema_version: 1,
+        operational_identity_sha256,
+        runtime_config_fingerprint_sha256: runtime_fingerprint,
+        kill_switch: Stage8KillSwitchState::RunAllowed,
+        durable_revision: 1,
+        active_owner_count: 1,
+        reconciliation_required_count: 0,
+        max_orders: 1,
+        consumed_orders: 0,
+        observed_at: source_observed_at,
+        valid_until: now + chrono::Duration::seconds(20),
+    };
+    fs::write(
+        authority_root.join(CURRENT_CONTROL_FILE),
+        canonical_json(&control),
+    )
+    .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+    let signing_key_path = authority_root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+    fs::write(
+        &signing_key_path,
+        b"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    )
+    .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+    fs::set_permissions(&signing_key_path, fs::Permissions::from_mode(0o600))
+        .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+
+    // These are current source observations, not fixture creation time.  The
+    // downstream R2A5 producer deliberately gives most authorities only one
+    // second of age budget, so retain the last successful observation made
+    // immediately before the trusted issuer consumes the snapshots.
+    let observed = source_observed_at;
+    let orders = match &setup.command {
+        broker_core::BrokerCommand::PlaceOrder(_) => Vec::new(),
+        broker_core::BrokerCommand::CancelOrder(cancel) => vec![BrokerOrderSnapshot {
+            account_id: account_id.clone(),
+            broker_order_id: Some(cancel.order_id.clone()),
+            client_order_id: cancel.client_order_id.clone(),
+            instrument: instrument.clone(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            time_in_force: Some(TimeInForce::Day),
+            status: OrderStatus::New,
+            lifecycle: BrokerOrderSnapshot::lifecycle_for(&OrderStatus::New),
+            qty: rust_decimal::Decimal::ONE,
+            filled_qty: rust_decimal::Decimal::ZERO,
+            remaining_qty: Some(rust_decimal::Decimal::ONE),
+            limit_price: Some(rust_decimal::Decimal::new(2_210, 0)),
+            broker_asset_id: Some("ASSET_IMOEXF".into()),
+            board: Some("RFUD".into()),
+            expiration_date: None,
+            source_ts: Some(observed),
+            received_ts: observed,
+        }],
+    };
+    let truth = BrokerTruthSnapshot {
+        account_id: account_id.clone(),
+        orders,
+        positions: vec![],
+        cash: None,
+        trades: vec![],
+        instruments: vec![BrokerInstrumentSpec {
+            instrument: InstrumentMapEntry {
+                internal_symbol: InternalSymbol(instrument.symbol.clone()),
+                broker: BrokerKind::Finam,
+                broker_symbol: BrokerSymbol(venue_symbol),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
+                price_step: rust_decimal::Decimal::new(5, 1),
+                qty_step: rust_decimal::Decimal::ONE,
+                lot_size: rust_decimal::Decimal::ONE,
+                min_qty: rust_decimal::Decimal::ONE,
+                step_value: rust_decimal::Decimal::ONE,
+                currency: "RUB".into(),
+                schedule_id: "MOEX_FUT".into(),
+                expiration_date: None,
+                is_tradable: true,
+            },
+            broker_asset_id: Some("ASSET_IMOEXF".into()),
+            board: Some("RFUD".into()),
+            long_initial_margin: None,
+            short_initial_margin: None,
+        }],
+        received_ts: observed,
+    };
+    let freshness = || BrokerFeedFreshness {
+        observed_ts: Some(observed),
+        max_age_ms: 30_000,
+    };
+    let broker_readiness = BrokerReadinessSnapshot {
+        account: freshness(),
+        positions: freshness(),
+        orders: freshness(),
+        trades: freshness(),
+        quotes: freshness(),
+        instrument_spec: freshness(),
+        schedule: freshness(),
+        market_session: BrokerMarketSessionState::Open,
+        unknown_order_count: 0,
+        cash_margin_present: true,
+        instrument_spec_validated: true,
+        live_market_data_seen: true,
+        subscription_ready: true,
+        stream_or_polling_connected: true,
+        event_sink_degraded: false,
+        stop_order_readiness: BrokerStopOrderReadiness::UnsupportedBlocked,
+    };
+    let readiness = Stage7bCompositeReadinessSnapshot {
+        phase: Stage7bPaperReadinessPhase::PaperReady,
+        reasons: vec![],
+        blocked_entry_ids: vec![],
+        blocked_request_ids: vec![],
+        checked_at: observed,
+    };
+    publish_stage8b_r2a6_operational_sources_from_owner(
+        &mut owner,
+        &setup.commitment_key,
+        &identity,
+        &command,
+        &authority_root,
+        &config_sha256,
+        &readiness,
+        &truth,
+        &broker_readiness,
+    )
 }
 
 /// Opaque current-source authority issued only inside the trusted gateway
@@ -1480,12 +1820,14 @@ impl Stage8a1OperationalAuthorityIssuer {
                     schema_version: 1,
                     generation: control.durable_revision,
                     observed_at_utc: control.observed_at,
-                    config_sha256: policy.config_sha256.clone(),
-                    policy_sha256: policy.policy_sha256.clone(),
-                    config_policy_authority_sha256: self
-                        .authority_root
-                        .authority_root_sha256
-                        .clone(),
+                    // This record identifies the separately accepted effect
+                    // build contract.  The source adapter has its own build
+                    // identity and must not substitute its local authority
+                    // root/config digests for those frozen effect identities.
+                    config_sha256: STAGE8B_R2A6_ACCEPTED_EFFECT_CONFIG_SHA256.to_owned(),
+                    policy_sha256: STAGE8B_R2A6_ACCEPTED_EFFECT_POLICY_SHA256.to_owned(),
+                    config_policy_authority_sha256:
+                        STAGE8B_R2A6_ACCEPTED_CONFIG_POLICY_AUTHORITY_SHA256.to_owned(),
                 },
             ),
             (
@@ -3964,7 +4306,7 @@ fn publish_stage8b_r2a5_records(
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .mode(0o640)
+            .mode(0o644)
             .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
             .open(&temporary)
             .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;

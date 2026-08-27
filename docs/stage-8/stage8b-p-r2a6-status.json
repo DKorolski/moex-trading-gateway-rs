@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A6",
+  "status": "review_candidate",
+  "accepted_predecessor": "5d287042a6ea69ec7072ec8cba67451f65600c6e",
+  "accepted_effect_build_identity_sha256": "ca330934df540de69b52d0463a665a1ab0ff89fa13eeb663b162763cc6bc83a0",
+  "accepted_effect_executable_sha256": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+  "source_adapter": {
+    "uid": 8095,
+    "output_root": "/var/lib/moex-trading/operational-authorities",
+    "execution_authority_granted": false,
+    "build_identity": "pending_source_commit"
+  },
+  "authorization_status": "NOT_ISSUED",
+  "typed_r2b_operator_decision_required": true,
+  "closed_surfaces": {
+    "real_finam_credentials": false,
+    "authservice_post": false,
+    "broker_get": false,
+    "operator_arm": false,
+    "dispatch_attempt": false,
+    "order_post_delete": false,
+    "stage8b_xe": false,
+    "redis_execution": false,
+    "runtime_live": false
+  }
+}

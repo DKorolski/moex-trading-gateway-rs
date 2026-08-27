@@ -31,6 +31,15 @@ zeroize.workspace = true
 [features]
 default = []
 m3j16-actual-one-shot = []
+stage8b-r2a6-controlled-rehearsal = [
+    "runtime-durable-service/stage8a4-i3-test-fixtures",
+    "strategy-runtime-core/stage5g-artifact-fixtures",
+]
+
+[[bin]]
+name = "stage8b-r2a6-source-adapter"
+path = "src/bin/stage8b-r2a6-source-adapter.rs"
+required-features = ["stage8b-r2a6-controlled-rehearsal"]
 
 [dev-dependencies]
 bytes = "=1.12.0"

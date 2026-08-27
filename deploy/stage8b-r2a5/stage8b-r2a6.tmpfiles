@@ -1,0 +1,3 @@
+d /var/lib/moex-trading/stage8b/r2a6 0750 root root -
+d /var/lib/moex-trading/stage8b/r2a6/adapter-work 0700 m8a8095 m8a8095 -
+d /var/lib/moex-trading/operational-authorities 0755 m8a8095 m8a8095 -

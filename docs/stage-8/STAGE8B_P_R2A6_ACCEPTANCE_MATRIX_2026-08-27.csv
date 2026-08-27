@@ -1,0 +1,11 @@
+id,requirement,evidence,negative
+R2A6-01,runnable adapter caller,stage8b-r2a6-source-adapter invokes owner-mediated composition,no-call and synthetic-final-record bypass rejected
+R2A6-02,opaque durable path,Stage5G package to Stage6 journal to Stage7B owner to Stage8A publisher,caller-built authority remains impossible
+R2A6-03,separate build identity,R2A6 adapter build evidence binds source toolchain features and executable,unqualified or drifted binary rejected
+R2A6-04,effect build unchanged,status binds accepted effect build and executable independently,effect identity substitution rejected
+R2A6-05,non-root writer contract,UID 8095 output directory and files,wrong UID root replacement mode link and parent drift rejected
+R2A6-06,no effect authority,adapter API returns publication evidence with execution_authority_granted false,arm dispatch credential and network additions rejected
+R2A6-07,end-to-end PLACE,actual adapter then producer issuer package helper controlled TLS,fixture-to-final-record shortcut rejected
+R2A6-08,end-to-end CANCEL,actual durable CANCEL adapter and active target truth then full chain,missing target or synthetic cancel rejected
+R2A6-09,R2B remains closed,status authorization NOT_ISSUED and real_finam false,credential Auth GET arm and real endpoint opening rejected
+R2A6-10,typed decision carry-forward,R2B decision binding remains mandatory,no credential read may precede typed decision

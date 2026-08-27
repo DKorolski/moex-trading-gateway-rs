@@ -20,3 +20,4 @@ u m8i8208 8208 "R2A5 schedule issuer" -
 u m8i8209 8209 "R2A5 instrument issuer" -
 u m8i8210 8210 "R2A5 lifecycle issuer" -
 u m8i8211 8211 "R2A5 budget issuer" -
+u m8a8095 8095 "R2A6 read-only source adapter" -

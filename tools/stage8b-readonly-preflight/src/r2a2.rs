@@ -493,6 +493,30 @@ fn exact_claim<'a>(
         .ok_or(R2a2Error::InvalidReceipt)
 }
 
+pub(crate) fn recompute_manifest_run_identity(
+    fields: &BTreeMap<String, String>,
+) -> Result<String, R2a2Error> {
+    let operation = match fields.get("operation").map(String::as_str) {
+        Some("PLACE") => Operation::Place,
+        Some("CANCEL") => Operation::Cancel,
+        _ => return Err(R2a2Error::UnauthorizedManifest),
+    };
+    let authority: RunAuthority = serde_json::from_str(RUN_AUTHORITY)?;
+    let variant = match operation {
+        Operation::Place => &authority.run_identity.place_fields_in_exact_order,
+        Operation::Cancel => &authority.run_identity.cancel_fields_in_exact_order,
+    };
+    let values = authority
+        .run_identity
+        .common_fields_in_exact_order_excluding_run_identity
+        .iter()
+        .chain(variant)
+        .map(|field| fields.get(field).map(String::as_str))
+        .collect::<Option<Vec<_>>>()
+        .ok_or(R2a2Error::UnauthorizedManifest)?;
+    Ok(digest_parts(&authority.run_identity.domain_utf8, &values))
+}
+
 #[allow(dead_code)] // R2A2 qualifies this for the future fixed R2B entry.
 pub(crate) fn validate_manifest_and_local_authorities(
     manifest_bytes: &[u8],

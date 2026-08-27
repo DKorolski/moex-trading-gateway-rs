@@ -140,8 +140,7 @@
   },
   "negative_cases": 33,
   "production_code_manifest": {
-    "aggregate_sha256": "26fafba34581d639eda3968478d854a9ac485c43cdc6775699ca756cf0df2b43",
-    "content_sha256": "cafbaf9b45bacce7cbd55797911d0c771b0e485b5d1c6ca102ada9bf386afbd9",
+    "file_count": 111,
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -370,13 +369,18 @@
       },
       "crates/finam-gateway/Cargo.toml": {
         "mode": "100644",
-        "sha256": "c9c99931f6525ff6f7f026021df5302a743d8ef3dc73ef9958cf9cf4aea06b40",
-        "size": 1452
+        "sha256": "eed7904b255b69fba324e2cab1424572c677f4128020330912b51a5c62bc37a0",
+        "size": 1756
+      },
+      "crates/finam-gateway/src/bin/stage8b-r2a6-source-adapter.rs": {
+        "mode": "100644",
+        "sha256": "1f95898d663565cb56f070e52d840a62260503ae659d436843c31da2b20c0fa1",
+        "size": 1252
       },
       "crates/finam-gateway/src/lib.rs": {
         "mode": "100644",
-        "sha256": "fe8fecda93c6493bb863fb86ae2ef29da363dee7b2a737778e320827ca34b194",
-        "size": 1224197
+        "sha256": "8da401883a1a6435fa3e4f4dc66cc780e6f342e9dfc1bf9bbf6a02cff6054045",
+        "size": 1224391
       },
       "crates/finam-gateway/src/m3d2_local_mock_endpoint.rs": {
         "mode": "100644",
@@ -400,8 +404,8 @@
       },
       "crates/finam-gateway/src/stage8a1_execution_capability.rs": {
         "mode": "100644",
-        "sha256": "3265656df8a246674f26fe6027f15cfb2cd6e83ed74ba1921cec46d57d714dee",
-        "size": 223253
+        "sha256": "09fbdb61b07a22bb2113d88aa7133d0536be4409ae1c0d7b4e2b9a09b5ebdb7b",
+        "size": 238855
       },
       "crates/finam-gateway/src/stage8a1_execution_capability/stage8a2_builder_composition.rs": {
         "mode": "100644",
@@ -490,13 +494,13 @@
       },
       "crates/runtime-durable-service/src/lib.rs": {
         "mode": "100644",
-        "sha256": "b73ad3b5632f2d8326db70dd0b0da368b4d067c4216b3fd29df6d152d70b2c3a",
-        "size": 44906
+        "sha256": "98b1a73014e0dc21eecec649f56d36bfdf424aef7091bc1bc53664565af9bba1",
+        "size": 44952
       },
       "crates/runtime-durable-service/src/recovery.rs": {
         "mode": "100644",
-        "sha256": "c22f9db30cc397c1edfc6722b79b38c1687f9bfc6241d78b5730fa0958e7209b",
-        "size": 236842
+        "sha256": "b3a4cfea1c54b59f493ea0efa2ea62cf1eb0195dcbd5eecfa44c44b5794f07bf",
+        "size": 243039
       },
       "crates/runtime-durable-service/src/recovery/redis_service.rs": {
         "mode": "100644",
@@ -694,7 +698,8 @@
         "size": 6212
       }
     },
-    "file_count": 110
+    "aggregate_sha256": "4983c94b0daff26fab01b638dfbdd47dba578dd4a1251c9ae978deb43e6f5c24",
+    "content_sha256": "0a287c6d35d8df5776ddf80543654cd19383e3303efd5e515d11067655922581"
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,

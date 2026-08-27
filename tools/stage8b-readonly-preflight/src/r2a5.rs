@@ -38,6 +38,7 @@ pub const PRODUCTION_ETC: &str = "/etc/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_RUN: &str = "/run/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_CREDENTIALS: &str = "/run/credentials/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_UPSTREAM_ROOT: &str = "/var/lib/moex-trading/operational-authorities";
+pub const R2A6_SOURCE_ADAPTER_UID: u32 = 8095;
 pub const CONTROLLED_HOST: &str = "stage8b-r2a5.invalid";
 const CONTROLLED_CA_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-ca.der";
 const CONTROLLED_ENDPOINT_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-endpoint.txt";
@@ -898,6 +899,159 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
 }
 
 pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Error> {
+    seed_controlled_fixed_layout_inner(operation, None)
+}
+
+pub fn seed_controlled_r2a6_layout(operation: Operation) -> Result<(), R2a3Error> {
+    seed_controlled_fixed_layout_inner(operation, Some(R2A6_SOURCE_ADAPTER_UID))
+}
+
+/// Rebinds only the controlled rehearsal manifest to the exact records emitted
+/// by the qualified R2A6 adapter. Production R2B has its own signed operator
+/// decision/package path; this helper cannot issue that authority.
+pub fn bind_controlled_r2a6_manifest_to_operational_sources() -> Result<(), R2a3Error> {
+    if unsafe { libc::geteuid() } != 0 {
+        return Err(R2a3Error::Authorization);
+    }
+    let state_root = Path::new(PRODUCTION_ROOT);
+    let manifest_path = state_root.join("run-manifest.json");
+    let manifest = read_owned_fd(&manifest_path, 256 * 1024, 0, false)?;
+    let mut fields: BTreeMap<String, String> = serde_json::from_slice(&manifest)?;
+    let expected_operation = manifest_field(&fields, "operation")?.to_owned();
+    let mut claims_by_source = BTreeMap::new();
+    for source in source_names()
+        .into_iter()
+        .filter(|source| *source != "trusted_clock")
+    {
+        let source_path =
+            Path::new(PRODUCTION_UPSTREAM_ROOT).join(operational_authority_file(source)?);
+        let bytes = read_owned_fd(&source_path, 128 * 1024, R2A6_SOURCE_ADAPTER_UID, false)?;
+        let record: OperationalAuthorityRecord = serde_json::from_slice(&bytes)?;
+        let (_, _, claims) = reduce_operational_authority(source, record)?;
+        claims_by_source.insert(source, claims);
+    }
+    let claim = |source: &str, name: &str| -> Result<String, R2a3Error> {
+        claims_by_source
+            .get(source)
+            .and_then(|claims| claims.get(name))
+            .cloned()
+            .ok_or(R2a3Error::Input)
+    };
+    let stage6 = claims_by_source
+        .get("stage6_exact_dispatch_ready_command")
+        .ok_or(R2a3Error::Input)?;
+    if stage6.get("operation").map(String::as_str) != Some(expected_operation.as_str()) {
+        return Err(R2a3Error::Authorization);
+    }
+    for (field, source, source_claim) in [
+        (
+            "stage7b_seal_generation",
+            "stage7b_current_recovery_seal",
+            "stage7b_seal_generation",
+        ),
+        (
+            "stage6_checkpoint_fingerprint",
+            "stage7b_current_recovery_seal",
+            "stage6_checkpoint_fingerprint",
+        ),
+        (
+            "strategy_request_id",
+            "stage6_exact_dispatch_ready_command",
+            "strategy_request_id",
+        ),
+        (
+            "durable_client_order_id",
+            "stage6_exact_dispatch_ready_command",
+            "durable_client_order_id",
+        ),
+        (
+            "kill_switch_generation",
+            "kill_switch_run_allowed",
+            "kill_switch_generation",
+        ),
+        (
+            "ownership_lease_fingerprint",
+            "single_finam_ownership",
+            "ownership_lease_fingerprint",
+        ),
+        (
+            "durable_budget_generation",
+            "durable_micro_budget",
+            "durable_budget_generation",
+        ),
+    ] {
+        fields.insert(field.to_owned(), claim(source, source_claim)?);
+    }
+    let request_body_field = match expected_operation.as_str() {
+        "PLACE" => "place_request_body_sha256",
+        "CANCEL" => "cancel_request_body_sha256",
+        _ => return Err(R2a3Error::Authorization),
+    };
+    fields.insert(
+        request_body_field.to_owned(),
+        claim("stage6_exact_dispatch_ready_command", "request_body_sha256")?,
+    );
+    if expected_operation == "CANCEL" {
+        for field in [
+            "cancel_target_broker_order_id",
+            "cancel_target_lifecycle_fingerprint",
+            "cancel_target_currently_working_proof_sha256",
+        ] {
+            fields.insert(
+                field.to_owned(),
+                claim("stage6_exact_dispatch_ready_command", field)?,
+            );
+        }
+        fields.insert(
+            "cancel_target_durable_client_order_id".to_owned(),
+            claim(
+                "stage6_exact_dispatch_ready_command",
+                "durable_client_order_id",
+            )?,
+        );
+        fields.insert(
+            "cancel_target_strategy_request_id".to_owned(),
+            claim("stage6_exact_dispatch_ready_command", "strategy_request_id")?,
+        );
+    }
+    for (field, source_claim) in [
+        ("config_sha256", "config_sha256"),
+        ("policy_sha256", "policy_sha256"),
+        (
+            "config_policy_authority_sha256",
+            "config_policy_authority_sha256",
+        ),
+    ] {
+        if fields.get(field).map(String::as_str)
+            != Some(claim("stage8a_root_config_policy_control", source_claim)?.as_str())
+        {
+            return Err(R2a3Error::Authorization);
+        }
+    }
+    if claim("instrument_specification", "instrument")? != r2a2::TARGET_INSTRUMENT
+        || claim("composite_readiness", "ready")? != "true"
+        || claim("kill_switch_run_allowed", "run_allowed")? != "true"
+        || claim("single_finam_ownership", "single_owner")? != "true"
+        || claim("schedule", "eligible")? != "true"
+        || claim("instrument_specification", "eligible")? != "true"
+        || claim("ambiguity_orphan_unresolved_lifecycle", "clear")? != "true"
+        || claim("durable_micro_budget", "available")? != "true"
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    fields.insert(
+        "run_expires_at_utc".to_owned(),
+        r2a2::exact_millis(Utc::now() + chrono::Duration::seconds(30)),
+    );
+    let run_identity = r2a2::recompute_manifest_run_identity(&fields)?;
+    fields.insert("run_identity_sha256".to_owned(), run_identity);
+    atomic_write_owned(&manifest_path, &serde_json::to_vec(&fields)?, 0)
+}
+
+fn seed_controlled_fixed_layout_inner(
+    operation: Operation,
+    source_adapter_uid: Option<u32>,
+) -> Result<(), R2a3Error> {
     if unsafe { libc::geteuid() } != 0 {
         return Err(R2a3Error::Authorization);
     }
@@ -918,14 +1072,16 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
     let credentials_root = Path::new(PRODUCTION_CREDENTIALS);
     let upstream_root = Path::new(PRODUCTION_UPSTREAM_ROOT);
     let fixture_root = state_root.join("source-adapter-fixtures");
-    for root in [
-        etc_root,
-        state_root,
-        run_root,
-        credentials_root,
-        upstream_root,
-    ] {
+    for root in [etc_root, state_root, run_root, credentials_root] {
         prepare_directory(root, 0, 0o755)?;
+    }
+    prepare_directory(upstream_root, source_adapter_uid.unwrap_or(0), 0o755)?;
+    if let Some(adapter_uid) = source_adapter_uid {
+        prepare_directory(
+            Path::new("/var/lib/moex-trading/stage8b/r2a6/adapter-work"),
+            adapter_uid,
+            0o700,
+        )?;
     }
     prepare_directory(&state_root.join("used-run-nonces"), 0, 0o700)?;
     prepare_directory(&etc_root.join("authority-public-keys"), 0, 0o755)?;
@@ -1029,7 +1185,9 @@ pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Erro
             0o644,
         )?;
     }
-    publish_controlled_source_adapter_fixtures(&fixture_root, upstream_root)?;
+    if source_adapter_uid.is_none() {
+        publish_controlled_source_adapter_fixtures(&fixture_root, upstream_root)?;
+    }
     Ok(())
 }
 
@@ -1625,7 +1783,7 @@ fn produce_from_store_at(
         (Zeroizing::new(bytes), generation, produced_at, claims)
     } else {
         let store_path = upstream_root.join(operational_authority_file(source)?);
-        let bytes = read_owned_fd(&store_path, 128 * 1024, 0, false)?;
+        let bytes = read_owned_fd(&store_path, 128 * 1024, R2A6_SOURCE_ADAPTER_UID, false)?;
         let record: OperationalAuthorityRecord = serde_json::from_slice(&bytes)?;
         let (generation, observed_at, claims) = reduce_operational_authority(source, record)?;
         (bytes, generation, observed_at, claims)
@@ -2235,6 +2393,30 @@ pub async fn serve_controlled_tls_once(operation: Operation) -> Result<(), R2a3E
     if unsafe { libc::geteuid() } != 0 {
         return Err(R2a3Error::Authorization);
     }
+    let manifest = read_owned_fd(
+        &Path::new(PRODUCTION_ROOT).join("run-manifest.json"),
+        256 * 1024,
+        0,
+        false,
+    )?;
+    let manifest_fields: BTreeMap<String, String> = serde_json::from_slice(&manifest)?;
+    if manifest_field(&manifest_fields, "operation")? != exact_operation(operation) {
+        return Err(R2a3Error::Authorization);
+    }
+    let controlled_cancel = if operation == Operation::Cancel {
+        Some(r2a3::controlled_cancel_order_for(
+            manifest_field(&manifest_fields, "cancel_target_broker_order_id")?,
+            manifest_field(&manifest_fields, "cancel_target_durable_client_order_id")?,
+        ))
+    } else {
+        None
+    };
+    let controlled_cancel_path = controlled_cancel.as_ref().map(|_| {
+        format!(
+            "/orders/{}",
+            manifest_fields["cancel_target_broker_order_id"]
+        )
+    });
     let now = Utc::now();
     let (root_der, tls_config) = r2a3::controlled_tls_configuration(CONTROLLED_HOST)?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -2274,13 +2456,19 @@ pub async fn serve_controlled_tls_once(operation: Operation) -> Result<(), R2a3E
             serde_json::json!({"token":"controlled-readonly-token"}).to_string()
         } else if first.contains("/trades?") {
             serde_json::json!({"trades":[]}).to_string()
-        } else if first.contains("/orders/2033126385648208390") {
-            r2a3::controlled_cancel_order().to_string()
+        } else if controlled_cancel_path
+            .as_ref()
+            .is_some_and(|path| first.contains(path))
+        {
+            controlled_cancel
+                .as_ref()
+                .ok_or(R2a3Error::Authorization)?
+                .to_string()
         } else if first.ends_with("/orders HTTP/1.1") {
             match operation {
                 Operation::Place => serde_json::json!({"orders":[]}).to_string(),
                 Operation::Cancel => serde_json::json!({
-                    "orders":[r2a3::controlled_cancel_order()]
+                    "orders":[controlled_cancel.as_ref().ok_or(R2a3Error::Authorization)?]
                 })
                 .to_string(),
             }

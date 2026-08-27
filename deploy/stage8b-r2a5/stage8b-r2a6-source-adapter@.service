@@ -1,0 +1,24 @@
+[Unit]
+Description=MOEX Stage 8B R2A6 non-effect source-adapter qualification (%i)
+ConditionPathIsDirectory=/var/lib/moex-trading/operational-authorities
+
+[Service]
+Type=oneshot
+User=m8a8095
+Group=m8a8095
+ExecStart=/opt/moex-trading/stage8b-r2a6/bin/stage8b-r2a6-source-adapter --controlled-rehearsal %i
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a6/adapter-work /var/lib/moex-trading/operational-authorities
+SystemCallArchitectures=native
+UMask=0077
