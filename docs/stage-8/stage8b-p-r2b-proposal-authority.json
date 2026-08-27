@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B",
+  "artifact_kind": "design_only_readonly_preflight_proposal",
+  "status": "PROPOSAL_ONLY_NOT_AUTHORIZED",
+  "authorization_status": "NOT_ISSUED",
+  "accepted_predecessor": {
+    "stage": "Stage 8B-P R2A8-R1",
+    "source_ref": "5b2079d7d524d2fa6f084f44f961c4b5958c042a",
+    "archive_name": "moex-trading-project-5b2079d.zip",
+    "archive_sha256": "903df69b800477706f4b2e95097fe84174f42e89b0a85a4b5fa94430619acb6a",
+    "verdict": "ACCEPTED"
+  },
+  "proposed_capability": {
+    "purpose": "one operator-selected read-only FINAM broker-truth preflight",
+    "one_shot": true,
+    "operation_choices": ["PLACE", "CANCEL"],
+    "selection_count": 1,
+    "background_loop": false,
+    "unattended_execution": false,
+    "result_may_influence_execution": false
+  },
+  "network_contract": {
+    "scheme": "https",
+    "exact_host": "api.finam.ru",
+    "outbound_destinations": ["api.finam.ru:443"],
+    "dns_or_ip_rebinding_allowed": false,
+    "redirects_allowed": false,
+    "proxy_allowed": false,
+    "automatic_retries_allowed": false,
+    "request_timeout_seconds": 10,
+    "minimum_broker_get_interval_ms": 250,
+    "auth_requests": [
+      {"ordinal": 1, "method": "POST", "route_template": "/v1/sessions", "purpose": "read-only token acquisition"},
+      {"ordinal": 2, "method": "POST", "route_template": "/v1/sessions/details", "purpose": "read-only account binding verification"}
+    ],
+    "place_broker_truth_gets": [
+      {"ordinal": 3, "method": "GET", "route_template": "/v1/accounts/{account_id}/orders"},
+      {"ordinal": 4, "method": "GET", "route_template": "/v1/accounts/{account_id}/trades"},
+      {"ordinal": 5, "method": "GET", "route_template": "/v1/accounts/{account_id}"}
+    ],
+    "cancel_broker_truth_gets": [
+      {"ordinal": 3, "method": "GET", "route_template": "/v1/accounts/{account_id}/orders/{order_id}"},
+      {"ordinal": 4, "method": "GET", "route_template": "/v1/accounts/{account_id}/orders"},
+      {"ordinal": 5, "method": "GET", "route_template": "/v1/accounts/{account_id}/trades"},
+      {"ordinal": 6, "method": "GET", "route_template": "/v1/accounts/{account_id}"}
+    ],
+    "order_post_allowed": false,
+    "order_delete_allowed": false,
+    "arbitrary_request_allowed": false
+  },
+  "production_composition": {
+    "source_writer_sequence": [
+      "stage8b-r2a7-source-adapter",
+      "stage8b-r2a8-current-manifest-issuer",
+      "stage8b-r2a5-authority-producer",
+      "stage8b-r2a5-authority-issuer",
+      "stage8b-r2a5-package-issuer",
+      "accepted-stage8b-r2a5-launcher",
+      "accepted-stage8b-readonly-preflight"
+    ],
+    "exact_candidate_linux_amd64_sha256": {
+      "stage8b-r2a7-source-adapter": "b407b8997f0c5bcf299e7e0c25192ae7a0535680f75ed2d4b4bd941f1af945f5",
+      "stage8b-r2a8-current-manifest-issuer": "ab7a89b7f76e9f22c752447a0159740c0134bb952889ad75c890e2651745cdb9",
+      "stage8b-r2a5-authority-producer": "d042563b6fa8e548d3e32f56317ee7997a86f0402d4338f36629d15240adfafb",
+      "stage8b-r2a5-authority-issuer": "06f995df30915cdcf58c52c13cd680f8e9bb481abc3ba542dfee724e081889b8",
+      "stage8b-r2a5-package-issuer": "f806e91f3f2575e8c48fca3bd4eaa6b0f36f8e102f02c6cd5a2d88b86346d7c0",
+      "accepted-stage8b-r2a5-launcher": "a38116f19aaffe5539b58b351d57e81ec1c6328f5a1d9a9744134468a5a51f03",
+      "accepted-stage8b-readonly-preflight": "fdfc0311152fadf6f241331745dbf284d02701667375fb731f044ce0fb47f608"
+    },
+    "source_adapter_build_a_sha256": "e03a35a2889de323b285d1b57637d3c554063c1f5b249e53d8ab83341b7ed92b",
+    "source_adapter_build_b_sha256": "e03a35a2889de323b285d1b57637d3c554063c1f5b249e53d8ab83341b7ed92b",
+    "current_manifest_issuer_build_a_sha256": "6b85574323c6cc72e0382b72b958a8c222b7662351393b8caaafe4fb41414d0e",
+    "current_manifest_issuer_build_b_sha256": "6b85574323c6cc72e0382b72b958a8c222b7662351393b8caaafe4fb41414d0e",
+    "fixture_features_allowed": false
+  },
+  "credential_contract": {
+    "root": "/run/credentials/moex-trading/stage8b/r2a5",
+    "account_id_file": "account-id",
+    "readonly_secret_file": "finam-readonly-secret",
+    "credential_owner": "dedicated one-shot helper identity",
+    "credential_read_before_signed_package_validation": false,
+    "credential_export_allowed": false,
+    "token_export_allowed": false,
+    "raw_account_export_allowed": false,
+    "raw_response_export_allowed": false
+  },
+  "sandbox_contract": {
+    "one_shot_service_required": true,
+    "network_namespace": "dedicated R2B one-shot namespace",
+    "address_families": ["AF_INET", "AF_INET6"],
+    "destination_allowlist_enforced_outside_process": true,
+    "filesystem_paths_fixed": true,
+    "caller_supplied_path_allowed": false,
+    "redis_access_allowed": false,
+    "runtime_socket_access_allowed": false
+  },
+  "freshness_and_validation": {
+    "signed_package_required": true,
+    "typed_operator_decision_required": true,
+    "fresh_public_contract_refresh_required": true,
+    "exact_executable_hash_required": true,
+    "trusted_current_source_required": true,
+    "full_readiness_semantics_required": true,
+    "manifest_expiry_seconds": 30,
+    "token_account_binding_required": true,
+    "strict_dto_decode_required": true,
+    "orders_snapshot_complete_required": true,
+    "trades_limit": 1000,
+    "full_trades_page_means_incomplete": true,
+    "target_instrument_position_required": true,
+    "unknown_status_fails_closed": true
+  },
+  "error_and_rate_limit_contract": {
+    "http_non_200": "FAIL_CLOSED_NO_RETRY",
+    "timeout": "FAIL_CLOSED_NO_RETRY",
+    "redirect": "FAIL_CLOSED",
+    "dto_error": "FAIL_CLOSED",
+    "incomplete_snapshot": "FAIL_CLOSED",
+    "ambiguous_lifecycle": "FAIL_CLOSED",
+    "rate_limit_strategy": "fixed minimum interval; no retry",
+    "startup": "validate all local authority before credential read",
+    "degraded": "produce redacted failure evidence and stop"
+  },
+  "evidence_contract": {
+    "durable_local_evidence_required": true,
+    "immutable_handoff_required": true,
+    "request_ordinals_recorded": true,
+    "method_and_route_template_recorded": true,
+    "status_and_body_length_recorded": true,
+    "raw_body_recorded": false,
+    "secret_recorded": false,
+    "token_recorded": false,
+    "account_id_recorded": false,
+    "canonical_broker_truth_summary_recorded": true
+  },
+  "closed_surfaces": {
+    "operator_arm_issued": false,
+    "dispatch_attempt_recorded": false,
+    "effect_transport_entered": false,
+    "finam_order_post_sent": false,
+    "finam_order_delete_sent": false,
+    "redis_live_consumer": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "strategy_live": false,
+    "real_orders": false,
+    "stage8b_xe": false
+  },
+  "issuance_preconditions": {
+    "independent_proposal_acceptance": "PENDING",
+    "fresh_public_contract_refresh": "PENDING",
+    "exact_linux_build_recheck": "PENDING",
+    "production_service_sandbox_review": "PENDING",
+    "credential_custody_review": "PENDING",
+    "operator_selection": "ABSENT",
+    "signed_run_package": "ABSENT",
+    "r2b_authorization": "NOT_ISSUED"
+  }
+}

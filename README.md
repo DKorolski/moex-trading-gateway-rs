@@ -47,17 +47,18 @@ merged exactly at `0af222f`. The first Stage 8B-IT candidate `e440539` was
 rejected because same-crate construction, repeatable extraction and raw
 observation escape remained possible. Corrective Stage 8B-IT R3 is accepted
 and merged. Controlled TLS and Stage 8B-P governance/preconditions are also
-accepted. Stage 8B-P R1B is accepted; R2A/R2A1/R2A2/R2A3 were fail-closed
-corrective candidates but did not qualify the final R2B entry. Active R2A4
-binds an exact signed run package, pinned production trust/account generations,
-11 isolated producer/issuer chains, BUILD-P1 reproducible Linux artifacts and
-fixed-path PLACE/CANCEL controlled qualification. It still ships no ISSUED
-operator package and reads no FINAM credential.
+accepted. Stage 8B-P R1B is accepted; R2A through R2A7 record the fail-closed
+qualification lineage. Corrective R2A8-R1 is independently accepted at
+`5b2079d`: it preserves full authenticated readiness semantics, enforces exact
+lifecycle-key custody and passes full controlled PLACE/CANCEL qualification.
+The active R2B artifact is design-only and `NOT_ISSUED`; it freezes the proposed
+one-shot read-only endpoint, executable, credential, sandbox, validation and
+evidence contract without reading a credential or opening network access.
 
 FINAM production POST/DELETE, Redis live consumption, broker dispatch,
 runtime-live, real strategy orders and Stage 8B execution authority remain
-closed. R2A4 must be independently accepted before any separately authorized
-R2B read-only evidence run.
+closed. R2B requires independent proposal acceptance and a later separate exact
+issuance package before any read-only FINAM evidence run.
 
 This repository is not enabled for continuous live trading.
 

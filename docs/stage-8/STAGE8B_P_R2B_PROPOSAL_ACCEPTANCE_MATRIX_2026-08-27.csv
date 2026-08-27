@@ -1,0 +1,31 @@
+id,area,requirement,evidence,status
+R2B-P-001,lineage,R2A8-R1 exact accepted predecessor is bound,proposal authority,PASS
+R2B-P-002,status,proposal is not authorization,proposal authority,PASS
+R2B-P-003,scope,one operator-selected one-shot read-only preflight,proposal authority,PASS
+R2B-P-004,endpoints,exact AuthService POST endpoints frozen,proposal authority,PASS
+R2B-P-005,endpoints,exact PLACE broker GET sequence frozen,proposal authority,PASS
+R2B-P-006,endpoints,exact CANCEL broker GET sequence frozen,proposal authority,PASS
+R2B-P-007,network,host and port exact,proposal authority,PASS
+R2B-P-008,network,redirect proxy retry and arbitrary request forbidden,proposal authority,PASS
+R2B-P-009,composition,exact executable sequence frozen,proposal authority,PASS
+R2B-P-010,composition,candidate Linux amd64 hashes frozen,proposal authority,PASS
+R2B-P-011,credentials,fixed root and files frozen,proposal authority,PASS
+R2B-P-012,credentials,all authority validates before credential read,proposal authority,PASS
+R2B-P-013,sandbox,dedicated one-shot namespace and external destination allowlist required,proposal authority,PASS
+R2B-P-014,sandbox,no Redis or runtime socket access,proposal authority,PASS
+R2B-P-015,timeout,ten second timeout and no retry,proposal authority,PASS
+R2B-P-016,rate-limit,250 ms minimum broker GET interval,proposal authority,PASS
+R2B-P-017,freshness,trusted current source and full readiness semantics required,proposal authority,PASS
+R2B-P-018,contract,fresh public contract refresh required before issuance,proposal authority,PASS
+R2B-P-019,dto,strict decode and snapshot completeness required,proposal authority,PASS
+R2B-P-020,error,fail-closed error taxonomy frozen,proposal authority,PASS
+R2B-P-021,evidence,durable redacted evidence required,proposal authority,PASS
+R2B-P-022,evidence,secret token account and raw body export forbidden,proposal authority,PASS
+R2B-P-023,execution,result cannot influence execution,proposal authority,PASS
+R2B-P-024,closed,order POST and DELETE remain impossible,proposal authority,PASS
+R2B-P-025,closed,operator arm dispatch and effect transport remain closed,proposal authority,PASS
+R2B-P-026,closed,Redis broker dispatch and runtime live remain closed,proposal authority,PASS
+R2B-P-027,issuance,independent proposal acceptance pending,proposal authority,PASS
+R2B-P-028,issuance,operator selection absent,proposal authority,PASS
+R2B-P-029,issuance,signed run package absent,proposal authority,PASS
+R2B-P-030,issuance,R2B authorization is NOT_ISSUED,proposal authority,PASS

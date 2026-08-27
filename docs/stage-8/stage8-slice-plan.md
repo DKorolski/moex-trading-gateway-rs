@@ -72,6 +72,16 @@ grammar, late nonce claim, complete exact/list lifecycle equality, immutable
 two-build Linux provenance and full fixed-path PLACE/CANCEL qualification. R2A4
 remains no-real-network and requires independent acceptance before R2B.
 
+The qualification lineage continued through R2A5-R2A8. Corrective R2A8-R1 is
+independently accepted at
+`5b2079d7d524d2fa6f084f44f961c4b5958c042a`. It closes composite-readiness
+semantic laundering and exact lifecycle-key custody while preserving the
+controlled PLACE/CANCEL full chain. The next slice is a separate R2B proposal:
+it may freeze only a one-shot read-only FINAM preflight contract. Proposal
+acceptance does not issue authorization; a fresh contract refresh, exact build
+recheck, production sandbox/custody review, operator selection and separately
+signed run package remain mandatory before any real FINAM request.
+
 ## Mandatory Stage 8A order
 
 Each slice requires its own immutable handoff and independent acceptance before
