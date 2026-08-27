@@ -26,5 +26,4 @@ LockPersonality=yes
 ReadOnlyPaths=/var/lib/moex-trading/stage8b/r2a7/production /var/lib/moex-trading/stage8a1-authority
 ReadWritePaths=/var/lib/moex-trading/stage7b /var/lib/moex-trading/operational-authorities
 SystemCallArchitectures=native
-UMask=0077
-
+UMask=0022

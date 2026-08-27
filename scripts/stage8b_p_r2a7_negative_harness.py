@@ -30,17 +30,17 @@ MUTATIONS = (
     ("binary", "missing-production-caller", "run_stage8b_r2a7_source_adapter(mode)", 'panic!("missing production caller")'),
     ("binary", "add-network", "use finam_gateway::", "use reqwest as _;\nuse finam_gateway::"),
     ("adapter", "alternate-root", 'const PRODUCTION_STAGE7B_PARENT: &str = "/var/lib/moex-trading/stage7b";', 'const PRODUCTION_STAGE7B_PARENT: &str = "/tmp/operator-selected";'),
-    ("adapter", "remove-manifest-hmac", "stage8b_r2a7_verify_reader_manifest_hmac_sha256(", "stage8b_r2a7_manifest_hmac_skipped("),
-    ("adapter", "remove-domain-verification", "verify_published_domain(", "skip_published_domain_verification("),
+    ("adapter", "remove-manifest-hmac", "|| !commitment_key.stage8b_r2a7_verify_reader_manifest_hmac_sha256(", "|| stage8b_r2a7_manifest_hmac_skipped("),
+    ("adapter", "remove-domain-verification", "verify_published_domain(&layout.output_root", "skip_published_domain_verification(&layout.output_root"),
     ("runtime", "allow-duplicate", "if candidates.next().is_some()", "if false"),
-    ("runtime", "allow-terminal", "request.final_disposition().is_none()", "true"),
+    ("runtime", "allow-terminal", "== crate::Stage6DispatchSafetyStateV1::ReconciliationRequired\n                && request.final_disposition().is_none()", "== crate::Stage6DispatchSafetyStateV1::ReconciliationRequired\n                && true"),
     ("runtime", "allow-stale-dispatch", "request.dispatch_attempt_count() == 1", "request.dispatch_attempt_count() >= 1"),
-    ("composition", "remove-provenance", "attach_stage8b_r2a7_record_provenance", "skip_stage8b_r2a7_record_provenance"),
+    ("composition", "remove-provenance", "attach_stage8b_r2a7_record_provenance(output_root, evidence, adapter_domain)", "skip_stage8b_r2a7_record_provenance(output_root, evidence, adapter_domain)"),
     ("service", "controlled-production-service", "--one-shot-production", "--one-shot-controlled-place"),
     ("service", "enable-network", "RestrictAddressFamilies=AF_UNIX", "RestrictAddressFamilies=AF_UNIX AF_INET"),
     ("build", "build-drift", '"build_b_sha256":', '"build_b_sha256": "0", "discarded_build_b_sha256":'),
     ("build", "fixture-evidence", '"fixture_dependencies": false', '"fixture_dependencies": true'),
-    ("rehearsal", "drop-controlled-provenance", '"adapter_domain":"controlled_qualification"', '"adapter_domain":"production"'),
+    ("rehearsal", "drop-controlled-provenance", "grep -Fq '\"adapter_domain\":\"controlled_qualification\"' \"/tmp/stage8b-r2a7-$operation.json\"", "grep -Fq '\"adapter_domain\":\"production\"' \"/tmp/stage8b-r2a7-$operation.json\""),
 )
 
 

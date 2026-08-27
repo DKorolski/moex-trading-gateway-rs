@@ -2,20 +2,20 @@
   "schema_version": 1,
   "stage": "8B-P",
   "revision": "R2A7",
-  "status": "implementation_candidate",
+  "status": "review_candidate",
   "authorization_status": "NOT_ISSUED",
-  "causal_source_ref": "PENDING_SOURCE_COMMIT",
+  "causal_source_ref": "a29cbb92e52200c19b7454bc4979824cd958f31f",
   "source_adapter": {
-    "build_identity": "PENDING_SOURCE_COMMIT",
-    "executable_sha256": "PENDING_LINUX_BUILD",
+    "build_identity": "a29cbb92e52200c19b7454bc4979824cd958f31f",
+    "executable_sha256": "fd57b171960763501a4fc95ba9f5edaae8b67a330099bb5b70d65647ae30209b",
     "production_feature": "stage8b-r2a7-source-adapter",
     "fixture_dependencies": false,
     "uid": 8095,
     "one_shot": true
   },
   "controlled_qualification": {
-    "place": "PENDING",
-    "cancel": "PENDING",
+    "place": "PASS",
+    "cancel": "PASS",
     "domain": "controlled_qualification",
     "production_domain_accepted": false
   },

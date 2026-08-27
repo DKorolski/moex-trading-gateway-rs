@@ -39,7 +39,10 @@ commitment key and binds the operational identity, accepted Stage 8A config,
 current broker truth/readiness, adapter domain and fixed runtime profile. This
 key is internal restart authentication material, not a FINAM credential. The
 manifest and key are root-owned, non-symlink, single-link, bounded regular
-files. The adapter runs as UID/GID 8095 and has no network address family.
+files (production files are installed `root:m8a8095`, mode `0640`). The
+adapter runs as UID/GID 8095 and has no network address family. Published
+records remain mode `0644`, because the already accepted downstream producer
+identities are distinct read-only Unix users.
 
 Production orchestration must stop the prior Stage 7B writer before this
 one-shot reader starts and must make the accepted durable root writable by the

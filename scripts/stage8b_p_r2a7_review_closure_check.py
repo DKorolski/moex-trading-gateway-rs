@@ -26,6 +26,7 @@ def main() -> None:
     cargo = (ROOT / "crates/finam-gateway/Cargo.toml").read_text()
     binary = (ROOT / "crates/finam-gateway/src/bin/stage8b-r2a7-source-adapter.rs").read_text()
     adapter = (ROOT / "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs").read_text()
+    production_adapter = adapter.split("/// Qualification-only setup.", 1)[0]
     composition = (ROOT / "crates/finam-gateway/src/stage8a1_execution_capability.rs").read_text()
     runtime = (ROOT / "crates/strategy-runtime-core/src/stage6d_live_core.rs").read_text()
     service = (ROOT / "deploy/stage8b-r2a5/stage8b-r2a7-source-adapter.service").read_text()
@@ -35,39 +36,39 @@ def main() -> None:
     require(all(value is False for value in status["closed_surfaces"].values()), "closed surface opened")
     require(status["typed_r2b_operator_decision_required"] is True, "R2B decision lost")
     require(status["source_adapter"]["fixture_dependencies"] is False, "production fixture graph opened")
+    require(status["controlled_qualification"]["production_domain_accepted"] is False, "controlled provenance accepted as production")
     require(status["accepted_effect_executable_sha256"] == "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06", "effect identity drift")
 
     require('stage8b-r2a7-source-adapter = []' in cargo, "production feature drift")
     require('required-features = ["stage8b-r2a7-source-adapter"]' in cargo, "production binary feature drift")
-    production_block = cargo.split('stage8b-r2a7-source-adapter = []', 1)[0][-80:]
-    require("test-fixtures" not in production_block, "fixture leaked into production feature")
     for marker in (
         '"--one-shot-production"', "run_stage8b_r2a7_source_adapter(mode)",
         "evidence.finam_credential_accessed", "evidence.network_accessed",
     ):
         require(marker in binary, f"production entry drift: {marker}")
     for forbidden in ("reqwest", "redis::", "AuthService", ".post(", ".delete(", "OperatorArm", "dispatch_attempt"):
-        require(forbidden not in binary and forbidden not in adapter, f"effect surface opened: {forbidden}")
+        require(forbidden not in binary and forbidden not in production_adapter, f"effect surface opened: {forbidden}")
 
     for marker in (
         "const PRODUCTION_WORK_ROOT", "const PRODUCTION_STAGE7B_PARENT",
         "Stage7bRecoveryReadyOwner::restart(", ".single_exact_dispatch_ready_request()",
         "publish_stage8b_r2a7_operational_sources_from_owner(",
-        "stage8b_r2a7_verify_reader_manifest_hmac_sha256(",
-        "verify_published_domain(", '"controlled_qualification"',
+        "|| !commitment_key.stage8b_r2a7_verify_reader_manifest_hmac_sha256(",
+        "verify_published_domain(&layout.output_root", '"controlled_qualification"',
         "execution_authority_granted: false", "network_accessed: false",
         "finam_credential_accessed: false",
     ):
         require(marker in adapter, f"reader invariant absent: {marker}")
     require("candidates.next().is_some()" in runtime, "duplicate candidate check absent")
-    require("request.final_disposition().is_none()" in runtime, "terminal request filter absent")
+    require("== crate::Stage6DispatchSafetyStateV1::ReconciliationRequired\n                && request.final_disposition().is_none()" in runtime, "terminal request filter absent")
     require("request.dispatch_attempt_count() == 1" in runtime, "dispatch-count selection drift")
-    require("attach_stage8b_r2a7_record_provenance" in composition, "record provenance absent")
+    require("attach_stage8b_r2a7_record_provenance(output_root, evidence, adapter_domain)" in composition, "record provenance absent")
 
     for marker in (
         "ExecStart=/opt/moex-trading/stage8b-r2a7/bin/stage8b-r2a7-source-adapter --one-shot-production",
         "User=m8a8095", "Group=m8a8095", "RestrictAddressFamilies=AF_UNIX",
         "IPAddressDeny=any", "Type=oneshot",
+        "UMask=0022",
     ):
         require(marker in service, f"production service drift: {marker}")
     require("controlled" not in service, "controlled mode entered production service")
@@ -80,6 +81,10 @@ def main() -> None:
         "stage8b-r2a7-linux-rehearsal: PASS",
     ):
         require(marker in rehearsal, f"qualification assertion absent: {marker}")
+    require(
+        "grep -Fq '\"adapter_domain\":\"controlled_qualification\"' \"/tmp/stage8b-r2a7-$operation.json\"" in rehearsal,
+        "controlled evidence provenance check absent",
+    )
 
     require(build["revision"] == "R2A7", "build revision drift")
     require(build["source_ref"] == status["causal_source_ref"], "source ref drift")

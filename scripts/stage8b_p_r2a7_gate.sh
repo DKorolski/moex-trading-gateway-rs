@@ -8,7 +8,7 @@ python3 scripts/current_tree_authority_check.py
 python3 scripts/current_tree_authority_negative_harness.py
 python3 scripts/stage8b_p_r2a7_review_closure_check.py
 python3 scripts/stage8b_p_r2a7_negative_harness.py
-python3 -m py_compile scripts/stage8b_p_r2a7_review_closure_check.py scripts/stage8b_p_r2a7_negative_harness.py
+python3 -m py_compile scripts/stage8b_p_r2a7_review_closure_check.py scripts/stage8b_p_r2a7_negative_harness.py scripts/stage8b_p_r2a7_handoff_safety_check.py scripts/make_stage8b_p_r2a7_handoff.py
 python3 -m json.tool docs/stage-8/stage8b-p-r2a7-status.json >/dev/null
 python3 -m json.tool docs/stage-8/stage8b-p-r2a7-build-evidence.json >/dev/null
 
