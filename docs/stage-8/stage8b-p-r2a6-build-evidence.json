@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A6",
+  "source_ref": "566edb8ed76ebfdc50684a523958e9e9622fa162",
+  "source_tree": "99cb79e51183b3b8edc831ed14d2c2ecc1d5ea50",
+  "source_archive_name": "stage8b-r2a6-source-566edb8.zip",
+  "source_archive_sha256": "848aa9f2fc50940822842b35a6c4474c20a845c5cd735176c9337a90fb929a3c",
+  "target": "x86_64-unknown-linux-gnu",
+  "build_profile": "release",
+  "builder_image": "rust@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0",
+  "builder_platform": "linux/amd64",
+  "cargo_version": "cargo 1.88.0 (873a06493 2025-05-10)",
+  "rustc_version": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+  "adapter": {
+    "binary": "stage8b-r2a6-source-adapter",
+    "feature": "stage8b-r2a6-controlled-rehearsal",
+    "cargo_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a6-controlled-rehearsal --bin stage8b-r2a6-source-adapter",
+    "build_a_sha256": "e2dfab232a3761d2dc5c8f3d908abb0d70d600680f9e73b04fc2f06a17ad79c8",
+    "build_b_sha256": "e2dfab232a3761d2dc5c8f3d908abb0d70d600680f9e73b04fc2f06a17ad79c8",
+    "reproducible": true,
+    "execution_authority_granted": false
+  },
+  "accepted_effect_build_identity_sha256": "ca330934df540de69b52d0463a665a1ab0ff89fa13eeb663b162763cc6bc83a0",
+  "accepted_effect_executable_sha256": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+  "accepted_r2a5_helper": {
+    "executable_sha256": "fdfc0311152fadf6f241331745dbf284d02701667375fb731f044ce0fb47f608",
+    "launcher_sha256": "a38116f19aaffe5539b58b351d57e81ec1c6328f5a1d9a9744134468a5a51f03",
+    "rebuilt_or_replaced": false
+  },
+  "r2a6_downstream_tools": {
+    "cargo_command": "cargo build --locked --release --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bins",
+    "reproducible": true,
+    "stage8b-r2a5-authority-producer": "9795a265c7b29f6f8be90be6a7b83076423e8386dda1294978bd049946c628d8",
+    "stage8b-r2a5-authority-issuer": "01818a990f79c370be00d90dfed96eae4ebd84b88d00bafecc77fc68136a21e2",
+    "stage8b-r2a5-package-issuer": "77a926f28be402237f2b5fba27e98ea5e591bc78c89a4530a2247877e8d18013",
+    "stage8b-r2a5-controlled-layout": "be62330ce627298e869a714c76b15ecb7c91681b7525c23ac25105b96aa1e8b6",
+    "stage8b-r2a5-controlled-server": "c55101b37316c5eecf4868cd63e0f25e57adb4250897fefca811ae4dad300774"
+  },
+  "source_sha256": {
+    "adapter_binary_rs": "1f95898d663565cb56f070e52d840a62260503ae659d436843c31da2b20c0fa1",
+    "composition_rs": "09fbdb61b07a22bb2113d88aa7133d0536be4409ae1c0d7b4e2b9a09b5ebdb7b",
+    "root_cargo_lock": "8233fd447ee0d7bc1cc1983960af771f70c8e3b4db53a57fb4ffb453d8c529b6",
+    "finam_gateway_cargo_toml": "eed7904b255b69fba324e2cab1424572c677f4128020330912b51a5c62bc37a0",
+    "preflight_cargo_toml": "b582719086979765737bcb4be4207b0ee9ae7a497709f826011ce855a3023494",
+    "preflight_cargo_lock": "0b1e9b8472b5f960ed5d40aa0b14cb7f8d8eaf43c215a9c39ffacede07dfece2",
+    "r2a2_rs": "bfc4457c3403e878f98bce3c7f599a1d9169e8203fb7d9c0cba0619b45e51c2c",
+    "r2a3_rs": "135b12ce3065c44d9e674fbe8e6a6860c42a889f5e83c5999628af44243a6652",
+    "r2a5_rs": "7b4891e0de68a21dcedd46434be1d2de614195ad5652d6eeafd5014c386d2b62",
+    "controlled_layout_rs": "842623e8f20282ddee0ca358e33ca9453a6a739d2839120601bc7609d12180d1",
+    "linux_rehearsal_sh": "77673bd33a7c3eb591372a4b00403bb8a731e336409003f5c55bcb79a718d3a9"
+  },
+  "controlled_rehearsal": {
+    "place": "PASS",
+    "cancel": "PASS",
+    "real_finam": false
+  },
+  "authorization_status": "NOT_ISSUED"
+}

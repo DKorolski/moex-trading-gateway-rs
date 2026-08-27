@@ -67,6 +67,14 @@ def main() -> None:
     require("stage7b_test_authenticated_cancel_restart_fixture" in runtime, "source-authenticated CANCEL source absent")
     require("R2A6_SOURCE_ADAPTER_UID: u32 = 8095" in producer, "producer owner binding absent")
     require("R2A6_SOURCE_ADAPTER_UID" in producer and "read_owned_fd(" in producer, "producer read binding absent")
+    require(
+        "read_owned_fd(&store_path, 128 * 1024, R2A6_SOURCE_ADAPTER_UID, false)?" in producer,
+        "producer operational-record owner check drift",
+    )
+    require(
+        "read_owned_fd(&source_path, 128 * 1024, R2A6_SOURCE_ADAPTER_UID, false)?" in producer,
+        "controlled manifest owner check drift",
+    )
     require('command == "seed-r2a6"' in layout, "R2A6 layout entry absent")
     require('command == "bind-r2a6"' in layout, "R2A6 manifest binding entry absent")
     require("recompute_manifest_run_identity" in producer, "actual-source run identity binding absent")
@@ -76,6 +84,7 @@ def main() -> None:
         "IPAddressDeny=any", "NoNewPrivileges=yes", "ProtectSystem=strict",
     ):
         require(marker in service, f"service sandbox drift: {marker}")
+    require("AF_INET" not in service and "AF_INET6" not in service, "adapter network family opened")
     require("8095" in sysusers and "m8a8095" in sysusers, "adapter sysuser absent")
     require("0755 m8a8095 m8a8095" in tmpfiles, "adapter output ownership absent")
     require("0700 m8a8095 m8a8095" in tmpfiles, "adapter work ownership absent")

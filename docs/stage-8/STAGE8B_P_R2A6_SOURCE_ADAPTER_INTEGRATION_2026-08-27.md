@@ -14,6 +14,11 @@ The accepted effect executable remains:
 R2A6 adds a separately built adapter executable. Its only reviewed call path
 is:
 
+- causal source commit: `566edb8ed76ebfdc50684a523958e9e9622fa162`;
+- adapter Linux/amd64 SHA-256: `e2dfab232a3761d2dc5c8f3d908abb0d70d600680f9e73b04fc2f06a17ad79c8`;
+- independent release builds: `2`, byte-identical;
+- accepted R2A5 helper SHA-256: `fdfc0311152fadf6f241331745dbf284d02701667375fb731f044ce0fb47f608`.
+
 ```text
 source-authenticated Stage 5G restart package
   -> file-backed Stage 6 journal

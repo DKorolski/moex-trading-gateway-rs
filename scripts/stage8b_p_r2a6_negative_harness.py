@@ -35,8 +35,8 @@ MUTATIONS = (
     ("adapter", "remove-output-ownership", "validate_stage8b_r2a6_output_ownership()?;", "let _ownership_skipped = true;"),
     ("binary", "add-network", "use finam_gateway::", "use reqwest as _;\nuse finam_gateway::"),
     ("binary", "remove-real-caller", "run_stage8b_r2a6_controlled_source_adapter(&value)", "panic!(\"synthetic records\")"),
-    ("runtime", "remove-cancel-source", "pub fn stage8b_r2a6_cancel_production_test_setup_in(", "pub fn removed_stage8b_r2a6_cancel_production_test_setup_in("),
-    ("producer", "accept-root-writer", "R2A6_SOURCE_ADAPTER_UID,\n            false,", "0,\n            false,"),
+    ("runtime", "remove-cancel-source", "pub fn stage8b_r2a6_cancel_production_test_setup_in(", "pub fn cancelled_fixture_removed("),
+    ("producer", "accept-root-writer", "read_owned_fd(&store_path, 128 * 1024, R2A6_SOURCE_ADAPTER_UID, false)?", "read_owned_fd(&store_path, 128 * 1024, 0, false)?"),
     ("producer", "remove-run-identity-rebind", "r2a2::recompute_manifest_run_identity(&fields)?", '"0".repeat(64)'),
     ("service", "enable-network", "RestrictAddressFamilies=AF_UNIX", "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6"),
     ("service", "run-root", "User=m8a8095", "User=root"),
@@ -45,7 +45,7 @@ MUTATIONS = (
     ("rehearsal", "remove-manifest-bind", '"$LAYOUT" bind-r2a6', 'true # removed manifest bind'),
     ("rehearsal", "replace-accepted-helper", 'HELPER="$ACCEPTED_R2A5_BIN_DIR/stage8b-readonly-preflight"', 'HELPER="$TOOL_BIN_DIR/stage8b-readonly-preflight"'),
     ("rehearsal", "remove-empty-root-proof", 'test -z "$(find /var/lib/moex-trading/operational-authorities', 'true # removed-empty-root-proof "$(find /var/lib/moex-trading/operational-authorities'),
-    ("build", "nonreproducible", '"reproducible": true', '"reproducible": false'),
+    ("build", "nonreproducible", '"build_b_sha256": "e2dfab232a3761d2dc5c8f3d908abb0d70d600680f9e73b04fc2f06a17ad79c8",\n    "reproducible": true', '"build_b_sha256": "e2dfab232a3761d2dc5c8f3d908abb0d70d600680f9e73b04fc2f06a17ad79c8",\n    "reproducible": false'),
     ("build", "adapter-digest-drift", '"build_b_sha256":', '"build_b_sha256": "0", "discarded_build_b_sha256":'),
 )
 TARGET = {

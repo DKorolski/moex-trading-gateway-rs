@@ -10,7 +10,8 @@
     "uid": 8095,
     "output_root": "/var/lib/moex-trading/operational-authorities",
     "execution_authority_granted": false,
-    "build_identity": "pending_source_commit"
+    "build_identity": "566edb8ed76ebfdc50684a523958e9e9622fa162",
+    "executable_sha256": "e2dfab232a3761d2dc5c8f3d908abb0d70d600680f9e73b04fc2f06a17ad79c8"
   },
   "authorization_status": "NOT_ISSUED",
   "typed_r2b_operator_decision_required": true,
