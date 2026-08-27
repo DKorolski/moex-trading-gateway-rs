@@ -11,6 +11,7 @@ python3 scripts/stage8b_p_r2a8_negative_harness.py
 python3 scripts/stage8b_p_r2a8_r1_readiness_negative_harness.py
 python3 -m json.tool docs/stage-8/stage8b-p-r2a8-status.json >/dev/null
 python3 -m json.tool docs/stage-8/stage8b-p-r2a8-build-evidence.json >/dev/null
+python3 -m json.tool docs/stage-8/stage8b-p-r2a8-r1-causal-build-evidence.json >/dev/null
 
 cargo fmt --all -- --check
 cargo test -p finam-gateway --features stage8b-r2a7-controlled-qualification \
@@ -22,10 +23,10 @@ cargo test --locked --manifest-path tools/stage8b-readonly-preflight/Cargo.toml 
 cargo clippy --locked --manifest-path tools/stage8b-readonly-preflight/Cargo.toml \
   --all-targets -- -D warnings
 
-adapter_a="${STAGE8B_R2A8_ADAPTER_A:-tmp/stage8b-r2a8-production-a/release/stage8b-r2a7-source-adapter}"
-adapter_b="${STAGE8B_R2A8_ADAPTER_B:-tmp/stage8b-r2a8-production-b/release/stage8b-r2a7-source-adapter}"
-issuer_a="${STAGE8B_R2A8_ISSUER_A:-tmp/stage8b-r2a8-production-a/release/stage8b-r2a8-current-manifest-issuer}"
-issuer_b="${STAGE8B_R2A8_ISSUER_B:-tmp/stage8b-r2a8-production-b/release/stage8b-r2a8-current-manifest-issuer}"
+adapter_a="${STAGE8B_R2A8_ADAPTER_A:-tmp/stage8b-r2a8-r1-production-a/release/stage8b-r2a7-source-adapter}"
+adapter_b="${STAGE8B_R2A8_ADAPTER_B:-tmp/stage8b-r2a8-r1-production-b/release/stage8b-r2a7-source-adapter}"
+issuer_a="${STAGE8B_R2A8_ISSUER_A:-tmp/stage8b-r2a8-r1-production-a/release/stage8b-r2a8-current-manifest-issuer}"
+issuer_b="${STAGE8B_R2A8_ISSUER_B:-tmp/stage8b-r2a8-r1-production-b/release/stage8b-r2a8-current-manifest-issuer}"
 python3 - "$adapter_a" "$adapter_b" "$issuer_a" "$issuer_b" <<'PY'
 import hashlib, pathlib, sys
 paths = [pathlib.Path(value) for value in sys.argv[1:]]
@@ -40,7 +41,7 @@ print("stage8b-p-r2a8-reproducibility: PASS binaries=2 runs=2")
 PY
 
 if command -v docker >/dev/null 2>&1 && [[ "${STAGE8B_R2A8_SKIP_REHEARSAL:-0}" != "1" ]]; then
-  controlled="${STAGE8B_R2A8_CONTROLLED_DIR:-tmp/stage8b-r2a8-linux/release}"
+  controlled="${STAGE8B_R2A8_CONTROLLED_DIR:-tmp/stage8b-r2a8-r1-linux/release}"
   tools="${STAGE8B_R2A8_TOOLS_DIR:-tmp/stage8b-r2a8-tools-linux/release}"
   accepted="${STAGE8B_R2A5_ACCEPTED_BIN_DIR:-tmp/stage8b-r2a5-build-a/release}"
   args=(

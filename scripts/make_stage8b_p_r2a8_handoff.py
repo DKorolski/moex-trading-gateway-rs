@@ -18,11 +18,11 @@ OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-p-r2-readonly-preflight"
 PREDECESSOR = "02acf8fd03ad3a80bbb3f87c5bd49316ae3ef7a6"
 BINARIES = {
-    "production_adapter": ROOT / "tmp/stage8b-r2a8-production-a/release/stage8b-r2a7-source-adapter",
-    "production_issuer": ROOT / "tmp/stage8b-r2a8-production-a/release/stage8b-r2a8-current-manifest-issuer",
-    "controlled_adapter": ROOT / "tmp/stage8b-r2a8-linux/release/stage8b-r2a7-source-adapter",
-    "controlled_seeder": ROOT / "tmp/stage8b-r2a8-linux/release/stage8b-r2a7-controlled-seeder",
-    "controlled_issuer": ROOT / "tmp/stage8b-r2a8-linux/release/stage8b-r2a8-current-manifest-issuer",
+    "production_adapter": ROOT / "tmp/stage8b-r2a8-r1-production-a/release/stage8b-r2a7-source-adapter",
+    "production_issuer": ROOT / "tmp/stage8b-r2a8-r1-production-a/release/stage8b-r2a8-current-manifest-issuer",
+    "controlled_adapter": ROOT / "tmp/stage8b-r2a8-r1-linux/release/stage8b-r2a7-source-adapter",
+    "controlled_seeder": ROOT / "tmp/stage8b-r2a8-r1-linux/release/stage8b-r2a7-controlled-seeder",
+    "controlled_issuer": ROOT / "tmp/stage8b-r2a8-r1-linux/release/stage8b-r2a8-current-manifest-issuer",
     "authority_producer": ROOT / "tmp/stage8b-r2a8-tools-linux/release/stage8b-r2a5-authority-producer",
     "authority_issuer": ROOT / "tmp/stage8b-r2a8-tools-linux/release/stage8b-r2a5-authority-issuer",
     "package_issuer": ROOT / "tmp/stage8b-r2a8-tools-linux/release/stage8b-r2a5-package-issuer",
@@ -65,9 +65,11 @@ def main() -> None:
     )
     if gate.returncode != 0 or b"stage8b-p-r2a8-gate: PASS" not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
-    build = json.loads((ROOT / "docs/stage-8/stage8b-p-r2a8-build-evidence.json").read_text())
+    build = json.loads(
+        (ROOT / "docs/stage-8/stage8b-p-r2a8-r1-causal-build-evidence.json").read_text()
+    )
     subprocess.run(
-        ["git", "merge-base", "--is-ancestor", build["source_ref"], source_ref],
+        ["git", "merge-base", "--is-ancestor", build["causal_build_source_ref"], source_ref],
         cwd=ROOT,
         check=True,
     )
@@ -82,16 +84,18 @@ def main() -> None:
             {
                 "schema_version": 1,
                 "stage": "8B-P",
-                "revision": "R2A8",
+                "revision": "R2A8-R1",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "archive_name": archive_name,
                 "branch": branch,
                 "accepted_predecessor_ref": PREDECESSOR,
-                "causal_source_ref": build["source_ref"],
+                "causal_build_source_ref": build["causal_build_source_ref"],
+                "final_handoff_source_ref": source_ref,
                 "gate_sha256": sha(gate.stdout),
                 "manifest_sha256": sha(manifest),
                 "negative_mutations": 13,
+                "readiness_negative_mutations": 27,
                 "current_tree_negative_mutations": 33,
                 "controlled_place_full_chain": True,
                 "controlled_cancel_full_chain": True,

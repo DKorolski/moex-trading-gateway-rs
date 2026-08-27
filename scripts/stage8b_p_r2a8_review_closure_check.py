@@ -21,7 +21,9 @@ def sha(path: Path) -> str:
 
 def main() -> None:
     status = json.loads((ROOT / "docs/stage-8/stage8b-p-r2a8-status.json").read_text())
-    build = json.loads((ROOT / "docs/stage-8/stage8b-p-r2a8-build-evidence.json").read_text())
+    build = json.loads(
+        (ROOT / "docs/stage-8/stage8b-p-r2a8-r1-causal-build-evidence.json").read_text()
+    )
     adapter = (ROOT / "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs").read_text()
     schema = (ROOT / "tools/stage8b-readonly-preflight/src/r2a5.rs").read_text()
     producer = (ROOT / "tools/stage8b-readonly-preflight/src/bin/stage8b-r2a5-authority-producer.rs").read_text()
@@ -149,6 +151,12 @@ def main() -> None:
     ):
         require(marker in rehearsal, f"full-chain witness absent: {marker}")
     require(build["authorization_status"] == "NOT_ISSUED", "build evidence opened R2B")
+    require(
+        build["revision"] == "R2A8-R1"
+        and build["evidence_role"] == "causal_build_and_native_full_chain"
+        and build["final_candidate_binding"] == "generated_by_immutable_handoff",
+        "causal/final evidence roles conflated",
+    )
     require(
         build["controlled_full_chain"]["place"] == "PASS"
         and build["controlled_full_chain"]["cancel"] == "PASS"

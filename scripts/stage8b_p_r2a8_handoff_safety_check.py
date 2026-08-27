@@ -28,6 +28,7 @@ GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST, *BINARIES.values()}
 REQUIRED = GENERATED | {
     "docs/stage-8/STAGE8B_P_R2A8_TRUSTED_CURRENT_SOURCE_2026-08-27.md",
     "docs/stage-8/stage8b-p-r2a8-build-evidence.json",
+    "docs/stage-8/stage8b-p-r2a8-r1-causal-build-evidence.json",
     "docs/stage-8/stage8b-p-r2a8-status.json",
     "crates/finam-gateway/src/bin/stage8b-r2a8-current-manifest-issuer.rs",
     "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs",
@@ -71,16 +72,22 @@ def check(path: str) -> dict[str, object]:
         )
         evidence = json.loads(archive.read(EVIDENCE))
         manifest = json.loads(archive.read(MANIFEST))
-        build = json.loads(archive.read("docs/stage-8/stage8b-p-r2a8-build-evidence.json"))
+        build = json.loads(
+            archive.read("docs/stage-8/stage8b-p-r2a8-r1-causal-build-evidence.json")
+        )
         source_ref = marker.get("source_ref")
         if not source_ref or evidence.get("source_ref") != source_ref or manifest.get("source_ref") != source_ref:
             raise ValueError("source binding mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive name mismatch")
-        if evidence.get("revision") != "R2A8" or evidence.get("authorization_status") != "NOT_ISSUED":
+        if evidence.get("revision") != "R2A8-R1" or evidence.get("authorization_status") != "NOT_ISSUED":
             raise ValueError("stage/authorization mismatch")
         if evidence.get("negative_mutations") != 13:
             raise ValueError("negative coverage mismatch")
+        if evidence.get("readiness_negative_mutations") != 27:
+            raise ValueError("readiness negative coverage mismatch")
+        if evidence.get("final_handoff_source_ref") != source_ref:
+            raise ValueError("final candidate binding mismatch")
         if evidence.get("controlled_place_full_chain") is not True or evidence.get("controlled_cancel_full_chain") is not True:
             raise ValueError("full-chain coverage mismatch")
         for closed in (
