@@ -140,8 +140,8 @@
   },
   "negative_cases": 33,
   "production_code_manifest": {
-    "aggregate_sha256": "0d4eac443f79b1c4f6e5b45cf85457078459b9100e895c915310bf7f9be3bcdc",
-    "content_sha256": "297f85d52470bcb166cca09e7e435e9503d87757afa3355d040cb8e391c1456e",
+    "aggregate_sha256": "5449ed5bfb9e444a55d85ec13b2df88714734a4a83da1568b0c5bfe124fdfc51",
+    "content_sha256": "1f0b58b8f46fbd5a0ffac8104d8d38baca8b003398def5aa16e103c097f7e674",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -490,8 +490,8 @@
       },
       "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": {
         "mode": "100644",
-        "sha256": "388bccf463d83113c6733893a89fcd86136dfc694682fce14eebc3a785f0f725",
-        "size": 45025
+        "sha256": "3d3e385ecb7935c83b4da49b245e43ec10127de3af730b8315fe348bf8b1e947",
+        "size": 65856
       },
       "crates/finam-gateway/tests/stage8a1_r3_authority_boundary.rs": {
         "mode": "100644",

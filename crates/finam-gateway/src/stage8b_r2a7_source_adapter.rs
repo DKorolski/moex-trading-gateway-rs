@@ -9,12 +9,12 @@ use crate::stage8a1_execution_capability::{
     publish_stage8b_r2a7_operational_sources_from_owner, Stage8a1OperationalAuthorityIssuer,
     Stage8bR2a5SourcePublicationEvidence, STAGE8B_R2A6_SOURCE_ADAPTER_UID,
 };
-use broker_core::{BrokerReadinessSnapshot, BrokerTruthSnapshot};
+use broker_core::{BrokerReadinessSnapshot, BrokerTruthSnapshot, StrategyRequestId};
 use chrono::{Duration, NaiveTime, TimeZone, Timelike, Utc};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use runtime_durable_service::{
     Stage7bCompositeReadinessSnapshot, Stage7bDurableRootAuthority, Stage7bPaperReadinessPhase,
-    Stage7bRecoveryReadyOwner, Stage7bRestartOutcome,
+    Stage7bPaperReadinessReason, Stage7bRecoveryReadyOwner, Stage7bRestartOutcome,
 };
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
@@ -46,8 +46,10 @@ const MAX_MANIFEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_KEY_BYTES: u64 = 256;
 const MAX_CURRENT_SOURCE_TTL_SECONDS: i64 = 30;
 const CURRENT_SOURCE_COMMITMENT_DOMAIN: &[u8] =
-    b"stage8b-r2a8-trusted-current-source-commitment-v1";
+    b"stage8b-r2a8-r1-trusted-current-source-commitment-v2";
 pub const STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID: u32 = 8096;
+const STAGE8B_R2A8_LIFECYCLE_KEY_GID: u32 = 8095;
+const STAGE8B_R2A8_LIFECYCLE_KEY_MODE: u32 = 0o640;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage8bR2a7RunMode {
@@ -100,9 +102,9 @@ struct Stage8bR2a7FixedLayout {
     output_root: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Stage8bR2a8TrustedCurrentSourceV1 {
+pub struct Stage8bR2a8TrustedCurrentSourceV2 {
     pub schema_version: u16,
     pub adapter_domain: String,
     pub adapter_mode: String,
@@ -112,7 +114,7 @@ pub struct Stage8bR2a8TrustedCurrentSourceV1 {
     pub runtime_profile_id: String,
     pub operational_identity: Stage6dOperationalIdentityConfig,
     pub accepted_config_sha256: String,
-    pub composite_checked_at: chrono::DateTime<Utc>,
+    pub composite_readiness: Stage8bCompositeReadinessAuthorityV1,
     pub broker_truth: BrokerTruthSnapshot,
     pub broker_readiness: BrokerReadinessSnapshot,
     pub current_source_commitment_sha256: String,
@@ -120,15 +122,15 @@ pub struct Stage8bR2a8TrustedCurrentSourceV1 {
     pub current_source_signature_ed25519_hex: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Stage8bR2a7ReaderManifestV1 {
+pub struct Stage8bR2a7ReaderManifestV2 {
     pub schema_version: u16,
     pub adapter_domain: String,
     pub runtime_profile_id: String,
     pub operational_identity: Stage6dOperationalIdentityConfig,
     pub accepted_config_sha256: String,
-    pub composite_checked_at: chrono::DateTime<Utc>,
+    pub composite_readiness: Stage8bCompositeReadinessAuthorityV1,
     pub broker_truth: BrokerTruthSnapshot,
     pub broker_readiness: BrokerReadinessSnapshot,
     pub source_generation: u64,
@@ -138,6 +140,136 @@ pub struct Stage8bR2a7ReaderManifestV1 {
     pub current_source_issuer_public_key_hex: String,
     pub current_source_signature_ed25519_hex: String,
     pub manifest_hmac_sha256: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage8bCompositeReadinessPhaseV1 {
+    PaperReady,
+    Degraded,
+    Stopped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage8bCompositeReadinessReasonV1 {
+    ConsumerNotAlive,
+    StorageUnavailable,
+    SourcePollStale,
+    ClaimScanStale,
+    SettlementUnavailable,
+    DurablePendingEntries,
+    CommandLifecycleBlocked,
+}
+
+/// Canonical readiness authority carried unchanged across the signed source
+/// and HMAC-bound reader manifest. It deliberately contains the verdict and
+/// every blocker, rather than only the observation timestamp.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bCompositeReadinessAuthorityV1 {
+    pub phase: Stage8bCompositeReadinessPhaseV1,
+    pub reasons: Vec<Stage8bCompositeReadinessReasonV1>,
+    pub blocked_entry_ids: Vec<String>,
+    pub blocked_request_ids: Vec<StrategyRequestId>,
+    pub checked_at: chrono::DateTime<Utc>,
+}
+
+impl Stage8bCompositeReadinessAuthorityV1 {
+    fn from_snapshot(snapshot: &Stage7bCompositeReadinessSnapshot) -> Self {
+        Self {
+            phase: match snapshot.phase {
+                Stage7bPaperReadinessPhase::PaperReady => {
+                    Stage8bCompositeReadinessPhaseV1::PaperReady
+                }
+                Stage7bPaperReadinessPhase::Degraded => Stage8bCompositeReadinessPhaseV1::Degraded,
+                Stage7bPaperReadinessPhase::Stopped => Stage8bCompositeReadinessPhaseV1::Stopped,
+            },
+            reasons: snapshot
+                .reasons
+                .iter()
+                .map(|reason| match reason {
+                    Stage7bPaperReadinessReason::ConsumerNotAlive => {
+                        Stage8bCompositeReadinessReasonV1::ConsumerNotAlive
+                    }
+                    Stage7bPaperReadinessReason::StorageUnavailable => {
+                        Stage8bCompositeReadinessReasonV1::StorageUnavailable
+                    }
+                    Stage7bPaperReadinessReason::SourcePollStale => {
+                        Stage8bCompositeReadinessReasonV1::SourcePollStale
+                    }
+                    Stage7bPaperReadinessReason::ClaimScanStale => {
+                        Stage8bCompositeReadinessReasonV1::ClaimScanStale
+                    }
+                    Stage7bPaperReadinessReason::SettlementUnavailable => {
+                        Stage8bCompositeReadinessReasonV1::SettlementUnavailable
+                    }
+                    Stage7bPaperReadinessReason::DurablePendingEntries => {
+                        Stage8bCompositeReadinessReasonV1::DurablePendingEntries
+                    }
+                    Stage7bPaperReadinessReason::CommandLifecycleBlocked => {
+                        Stage8bCompositeReadinessReasonV1::CommandLifecycleBlocked
+                    }
+                })
+                .collect(),
+            blocked_entry_ids: snapshot.blocked_entry_ids.clone(),
+            blocked_request_ids: snapshot.blocked_request_ids.clone(),
+            checked_at: snapshot.checked_at,
+        }
+    }
+
+    fn to_snapshot(&self) -> Stage7bCompositeReadinessSnapshot {
+        Stage7bCompositeReadinessSnapshot {
+            phase: match self.phase {
+                Stage8bCompositeReadinessPhaseV1::PaperReady => {
+                    Stage7bPaperReadinessPhase::PaperReady
+                }
+                Stage8bCompositeReadinessPhaseV1::Degraded => Stage7bPaperReadinessPhase::Degraded,
+                Stage8bCompositeReadinessPhaseV1::Stopped => Stage7bPaperReadinessPhase::Stopped,
+            },
+            reasons: self
+                .reasons
+                .iter()
+                .map(|reason| match reason {
+                    Stage8bCompositeReadinessReasonV1::ConsumerNotAlive => {
+                        Stage7bPaperReadinessReason::ConsumerNotAlive
+                    }
+                    Stage8bCompositeReadinessReasonV1::StorageUnavailable => {
+                        Stage7bPaperReadinessReason::StorageUnavailable
+                    }
+                    Stage8bCompositeReadinessReasonV1::SourcePollStale => {
+                        Stage7bPaperReadinessReason::SourcePollStale
+                    }
+                    Stage8bCompositeReadinessReasonV1::ClaimScanStale => {
+                        Stage7bPaperReadinessReason::ClaimScanStale
+                    }
+                    Stage8bCompositeReadinessReasonV1::SettlementUnavailable => {
+                        Stage7bPaperReadinessReason::SettlementUnavailable
+                    }
+                    Stage8bCompositeReadinessReasonV1::DurablePendingEntries => {
+                        Stage7bPaperReadinessReason::DurablePendingEntries
+                    }
+                    Stage8bCompositeReadinessReasonV1::CommandLifecycleBlocked => {
+                        Stage7bPaperReadinessReason::CommandLifecycleBlocked
+                    }
+                })
+                .collect(),
+            blocked_entry_ids: self.blocked_entry_ids.clone(),
+            blocked_request_ids: self.blocked_request_ids.clone(),
+            checked_at: self.checked_at,
+        }
+    }
+
+    fn validate_ready(&self) -> Result<(), Stage8bR2a7SourceAdapterError> {
+        if self.phase != Stage8bCompositeReadinessPhaseV1::PaperReady
+            || !self.reasons.is_empty()
+            || !self.blocked_entry_ids.is_empty()
+            || !self.blocked_request_ids.is_empty()
+        {
+            return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -190,6 +322,9 @@ pub fn publish_stage8b_r2a8_trusted_current_source_from_owner(
     if unsafe { libc::geteuid() } != STAGE8B_R2A6_SOURCE_ADAPTER_UID {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
+    let composite_readiness =
+        Stage8bCompositeReadinessAuthorityV1::from_snapshot(composite_readiness);
+    composite_readiness.validate_ready()?;
     let layout = mode.layout();
     let issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
         owner,
@@ -201,7 +336,11 @@ pub fn publish_stage8b_r2a8_trusted_current_source_from_owner(
     )
     .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     issuer
-        .issue_current_sources(composite_readiness, broker_truth, broker_readiness)
+        .issue_current_sources(
+            &composite_readiness.to_snapshot(),
+            broker_truth,
+            broker_readiness,
+        )
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     let source_observed_at = [
         composite_readiness.checked_at,
@@ -222,8 +361,8 @@ pub fn publish_stage8b_r2a8_trusted_current_source_from_owner(
         .ok()
         .filter(|generation| *generation > 0)
         .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
-    let mut source = Stage8bR2a8TrustedCurrentSourceV1 {
-        schema_version: 1,
+    let mut source = Stage8bR2a8TrustedCurrentSourceV2 {
+        schema_version: 2,
         adapter_domain: mode.adapter_domain().to_owned(),
         adapter_mode: "one_shot_recovery_reader".to_owned(),
         source_generation,
@@ -232,7 +371,7 @@ pub fn publish_stage8b_r2a8_trusted_current_source_from_owner(
         runtime_profile_id: RUNTIME_PROFILE_ID.to_owned(),
         operational_identity: operational_identity.clone(),
         accepted_config_sha256: accepted_config_sha256.to_owned(),
-        composite_checked_at: composite_readiness.checked_at,
+        composite_readiness,
         broker_truth: broker_truth.clone(),
         broker_readiness: broker_readiness.clone(),
         current_source_commitment_sha256: String::new(),
@@ -268,22 +407,18 @@ pub fn issue_stage8b_r2a8_reader_manifest(
         MAX_MANIFEST_BYTES,
         STAGE8B_R2A6_SOURCE_ADAPTER_UID,
     )?;
-    let source: Stage8bR2a8TrustedCurrentSourceV1 = serde_json::from_slice(&source_bytes)
+    let source: Stage8bR2a8TrustedCurrentSourceV2 = serde_json::from_slice(&source_bytes)
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     validate_trusted_current_source(&source, mode)?;
-    let key_bytes = read_fixed_regular_file(
-        &layout.work_root.join(LIFECYCLE_KEY_FILE),
-        MAX_KEY_BYTES,
-        STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID,
-    )?;
+    let key_bytes = read_lifecycle_key_file(&layout.work_root.join(LIFECYCLE_KEY_FILE))?;
     let commitment_key = parse_lifecycle_key(&key_bytes)?;
-    let mut manifest = Stage8bR2a7ReaderManifestV1 {
-        schema_version: 2,
+    let mut manifest = Stage8bR2a7ReaderManifestV2 {
+        schema_version: 3,
         adapter_domain: source.adapter_domain,
         runtime_profile_id: source.runtime_profile_id,
         operational_identity: source.operational_identity,
         accepted_config_sha256: source.accepted_config_sha256,
-        composite_checked_at: source.composite_checked_at,
+        composite_readiness: source.composite_readiness,
         broker_truth: source.broker_truth,
         broker_readiness: source.broker_readiness,
         source_generation: source.source_generation,
@@ -319,13 +454,9 @@ pub fn run_stage8b_r2a7_source_adapter(
         MAX_MANIFEST_BYTES,
         STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID,
     )?;
-    let manifest: Stage8bR2a7ReaderManifestV1 = serde_json::from_slice(&manifest_bytes)
+    let manifest: Stage8bR2a7ReaderManifestV2 = serde_json::from_slice(&manifest_bytes)
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
-    let key_bytes = read_fixed_regular_file(
-        &layout.work_root.join(LIFECYCLE_KEY_FILE),
-        MAX_KEY_BYTES,
-        STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID,
-    )?;
+    let key_bytes = read_lifecycle_key_file(&layout.work_root.join(LIFECYCLE_KEY_FILE))?;
     let commitment_key = parse_lifecycle_key(&key_bytes)?;
     validate_manifest(&manifest, mode, &commitment_key)?;
     let runtime = fixed_runtime_profile(&manifest.runtime_profile_id)?;
@@ -350,13 +481,8 @@ pub fn run_stage8b_r2a7_source_adapter(
         .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?
         .single_exact_dispatch_ready_request()
         .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?;
-    let readiness = Stage7bCompositeReadinessSnapshot {
-        phase: Stage7bPaperReadinessPhase::PaperReady,
-        reasons: Vec::new(),
-        blocked_entry_ids: Vec::new(),
-        blocked_request_ids: Vec::new(),
-        checked_at: manifest.composite_checked_at,
-    };
+    manifest.composite_readiness.validate_ready()?;
+    let readiness = manifest.composite_readiness.to_snapshot();
     let evidence = publish_stage8b_r2a7_operational_sources_from_owner(
         &mut owner,
         &commitment_key,
@@ -424,17 +550,18 @@ fn publication_evidence(
 }
 
 fn validate_manifest(
-    manifest: &Stage8bR2a7ReaderManifestV1,
+    manifest: &Stage8bR2a7ReaderManifestV2,
     mode: Stage8bR2a7RunMode,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<(), Stage8bR2a7SourceAdapterError> {
     let source = trusted_current_source_from_manifest(manifest);
-    if manifest.schema_version != 2
+    if manifest.schema_version != 3
         || manifest.adapter_domain != mode.adapter_domain()
         || manifest.runtime_profile_id != RUNTIME_PROFILE_ID
         || !valid_sha256(&manifest.accepted_config_sha256)
         || manifest.broker_truth.received_ts > Utc::now() + Duration::seconds(1)
-        || manifest.composite_checked_at > Utc::now() + Duration::seconds(1)
+        || manifest.composite_readiness.checked_at > Utc::now() + Duration::seconds(1)
+        || manifest.composite_readiness.validate_ready().is_err()
         || validate_trusted_current_source(&source, mode).is_err()
         || !commitment_key.stage8b_r2a7_verify_reader_manifest_hmac_sha256(
             &reader_manifest_commitment_sha256(manifest)?,
@@ -447,10 +574,10 @@ fn validate_manifest(
 }
 
 fn trusted_current_source_from_manifest(
-    manifest: &Stage8bR2a7ReaderManifestV1,
-) -> Stage8bR2a8TrustedCurrentSourceV1 {
-    Stage8bR2a8TrustedCurrentSourceV1 {
-        schema_version: 1,
+    manifest: &Stage8bR2a7ReaderManifestV2,
+) -> Stage8bR2a8TrustedCurrentSourceV2 {
+    Stage8bR2a8TrustedCurrentSourceV2 {
+        schema_version: 2,
         adapter_domain: manifest.adapter_domain.clone(),
         adapter_mode: "one_shot_recovery_reader".to_owned(),
         source_generation: manifest.source_generation,
@@ -459,7 +586,7 @@ fn trusted_current_source_from_manifest(
         runtime_profile_id: manifest.runtime_profile_id.clone(),
         operational_identity: manifest.operational_identity.clone(),
         accepted_config_sha256: manifest.accepted_config_sha256.clone(),
-        composite_checked_at: manifest.composite_checked_at,
+        composite_readiness: manifest.composite_readiness.clone(),
         broker_truth: manifest.broker_truth.clone(),
         broker_readiness: manifest.broker_readiness.clone(),
         current_source_commitment_sha256: manifest.current_source_commitment_sha256.clone(),
@@ -469,7 +596,7 @@ fn trusted_current_source_from_manifest(
 }
 
 fn current_source_commitment_sha256(
-    source: &Stage8bR2a8TrustedCurrentSourceV1,
+    source: &Stage8bR2a8TrustedCurrentSourceV2,
 ) -> Result<String, Stage8bR2a7SourceAdapterError> {
     use sha2::{Digest, Sha256};
     let mut unsigned = source.clone();
@@ -486,16 +613,18 @@ fn current_source_commitment_sha256(
 }
 
 fn validate_trusted_current_source(
-    source: &Stage8bR2a8TrustedCurrentSourceV1,
+    source: &Stage8bR2a8TrustedCurrentSourceV2,
     mode: Stage8bR2a7RunMode,
 ) -> Result<(), Stage8bR2a7SourceAdapterError> {
     let now = Utc::now();
-    if source.schema_version != 1
+    if source.schema_version != 2
         || source.adapter_domain != mode.adapter_domain()
         || source.adapter_mode != "one_shot_recovery_reader"
         || source.source_generation == 0
         || source.runtime_profile_id != RUNTIME_PROFILE_ID
         || !valid_sha256(&source.accepted_config_sha256)
+        || source.composite_readiness.checked_at > now + Duration::seconds(1)
+        || source.composite_readiness.validate_ready().is_err()
         || source.source_observed_at > now + Duration::seconds(1)
         || source.expires_at <= now
         || source.expires_at <= source.source_observed_at
@@ -527,7 +656,7 @@ fn validate_trusted_current_source(
 }
 
 fn reader_manifest_commitment_sha256(
-    manifest: &Stage8bR2a7ReaderManifestV1,
+    manifest: &Stage8bR2a7ReaderManifestV2,
 ) -> Result<String, Stage8bR2a7SourceAdapterError> {
     use sha2::{Digest, Sha256};
     let mut value = serde_json::to_value(manifest)
@@ -539,7 +668,7 @@ fn reader_manifest_commitment_sha256(
     let bytes = serde_json::to_vec(&value)
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
     let mut hasher = Sha256::new();
-    hasher.update(b"stage8b-r2a7-reader-manifest-commitment-v1");
+    hasher.update(b"stage8b-r2a8-r1-reader-manifest-commitment-v2");
     hasher.update(b"\0");
     hasher.update(bytes);
     Ok(format!("{:x}", hasher.finalize()))
@@ -567,6 +696,57 @@ fn read_fixed_regular_file(
         || metadata.len() > max_bytes
         || metadata.mode() & 0o022 != 0
     {
+        return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.read_to_end(&mut bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    if bytes.len() as u64 != metadata.len() {
+        return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
+    }
+    Ok(bytes)
+}
+
+fn lifecycle_key_properties_are_exact(
+    is_regular_file: bool,
+    uid: u32,
+    gid: u32,
+    mode: u32,
+    nlink: u64,
+    len: u64,
+) -> bool {
+    is_regular_file
+        && uid == STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID
+        && gid == STAGE8B_R2A8_LIFECYCLE_KEY_GID
+        && mode & 0o777 == STAGE8B_R2A8_LIFECYCLE_KEY_MODE
+        && nlink == 1
+        && matches!(len, 64 | 65)
+        && len <= MAX_KEY_BYTES
+}
+
+/// Lifecycle-key-specific custody reader. Generic read-only file checks are
+/// intentionally insufficient here: both the issuer and adapter rely on the
+/// exact owner/group/mode contract to share this single secret safely.
+fn read_lifecycle_key_file(path: &Path) -> Result<Vec<u8>, Stage8bR2a7SourceAdapterError> {
+    if !path.is_absolute() {
+        return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
+    }
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    if !lifecycle_key_properties_are_exact(
+        metadata.file_type().is_file(),
+        metadata.uid(),
+        metadata.gid(),
+        metadata.mode(),
+        metadata.nlink(),
+        metadata.len(),
+    ) {
         return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
@@ -1011,6 +1191,140 @@ pub fn seed_stage8b_r2a7_controlled_reader(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use broker_core::{
+        BrokerAccountId, BrokerFeedFreshness, BrokerMarketSessionState, BrokerStopOrderReadiness,
+    };
+    use ed25519_dalek::{Signer, SigningKey};
+
+    fn lower_hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn ready_authority(checked_at: chrono::DateTime<Utc>) -> Stage8bCompositeReadinessAuthorityV1 {
+        Stage8bCompositeReadinessAuthorityV1 {
+            phase: Stage8bCompositeReadinessPhaseV1::PaperReady,
+            reasons: Vec::new(),
+            blocked_entry_ids: Vec::new(),
+            blocked_request_ids: Vec::new(),
+            checked_at,
+        }
+    }
+
+    fn freshness(observed_at: chrono::DateTime<Utc>) -> broker_core::BrokerFeedFreshness {
+        BrokerFeedFreshness {
+            observed_ts: Some(observed_at),
+            max_age_ms: 30_000,
+        }
+    }
+
+    fn sample_broker_readiness(observed_at: chrono::DateTime<Utc>) -> BrokerReadinessSnapshot {
+        BrokerReadinessSnapshot {
+            account: freshness(observed_at),
+            positions: freshness(observed_at),
+            orders: freshness(observed_at),
+            trades: freshness(observed_at),
+            quotes: freshness(observed_at),
+            instrument_spec: freshness(observed_at),
+            schedule: freshness(observed_at),
+            market_session: BrokerMarketSessionState::Open,
+            unknown_order_count: 0,
+            cash_margin_present: true,
+            instrument_spec_validated: true,
+            live_market_data_seen: true,
+            subscription_ready: true,
+            stream_or_polling_connected: true,
+            event_sink_degraded: false,
+            stop_order_readiness: BrokerStopOrderReadiness::UnsupportedBlocked,
+        }
+    }
+
+    fn sign_source(source: &mut Stage8bR2a8TrustedCurrentSourceV2, signing_key: &SigningKey) {
+        source.current_source_issuer_public_key_hex =
+            lower_hex(signing_key.verifying_key().as_bytes());
+        source.current_source_signature_ed25519_hex.clear();
+        source.current_source_commitment_sha256.clear();
+        source.current_source_commitment_sha256 =
+            current_source_commitment_sha256(source).expect("source commitment");
+        source.current_source_signature_ed25519_hex = lower_hex(
+            &signing_key
+                .sign(source.current_source_commitment_sha256.as_bytes())
+                .to_bytes(),
+        );
+    }
+
+    fn sample_source() -> (Stage8bR2a8TrustedCurrentSourceV2, SigningKey) {
+        let now = Utc::now();
+        let signing_key = SigningKey::from_bytes(&[0x31; 32]);
+        let public_key = lower_hex(signing_key.verifying_key().as_bytes());
+        let mut source = Stage8bR2a8TrustedCurrentSourceV2 {
+            schema_version: 2,
+            adapter_domain: "controlled_qualification".to_owned(),
+            adapter_mode: "one_shot_recovery_reader".to_owned(),
+            source_generation: u64::try_from(now.timestamp_millis()).expect("positive timestamp"),
+            source_observed_at: now,
+            expires_at: now + Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS),
+            runtime_profile_id: RUNTIME_PROFILE_ID.to_owned(),
+            operational_identity: Stage6dOperationalIdentityConfig {
+                broker_id: "finam".to_owned(),
+                strategy_instance_id: "stage8b-r2a8-r1-test".to_owned(),
+                deployment_id: "stage8b-r2a8-r1-test".to_owned(),
+                deployment_generation: 1,
+                gateway_instance_id: "stage8b-r2a8-r1-test".to_owned(),
+                instrument_map_fingerprint_sha256: "1".repeat(64),
+                market_data_generation: 1,
+                command_consumer_generation: 1,
+                stage8a4_writer_issuer_public_key_hex: public_key,
+            },
+            accepted_config_sha256: "2".repeat(64),
+            composite_readiness: ready_authority(now),
+            broker_truth: BrokerTruthSnapshot {
+                account_id: BrokerAccountId::new("ACC-R2A8-R1"),
+                orders: Vec::new(),
+                positions: Vec::new(),
+                cash: None,
+                trades: Vec::new(),
+                instruments: Vec::new(),
+                received_ts: now,
+            },
+            broker_readiness: sample_broker_readiness(now),
+            current_source_commitment_sha256: String::new(),
+            current_source_issuer_public_key_hex: String::new(),
+            current_source_signature_ed25519_hex: String::new(),
+        };
+        sign_source(&mut source, &signing_key);
+        (source, signing_key)
+    }
+
+    fn manifest_from_source(
+        source: &Stage8bR2a8TrustedCurrentSourceV2,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> Stage8bR2a7ReaderManifestV2 {
+        let mut manifest = Stage8bR2a7ReaderManifestV2 {
+            schema_version: 3,
+            adapter_domain: source.adapter_domain.clone(),
+            runtime_profile_id: source.runtime_profile_id.clone(),
+            operational_identity: source.operational_identity.clone(),
+            accepted_config_sha256: source.accepted_config_sha256.clone(),
+            composite_readiness: source.composite_readiness.clone(),
+            broker_truth: source.broker_truth.clone(),
+            broker_readiness: source.broker_readiness.clone(),
+            source_generation: source.source_generation,
+            source_observed_at: source.source_observed_at,
+            expires_at: source.expires_at,
+            current_source_commitment_sha256: source.current_source_commitment_sha256.clone(),
+            current_source_issuer_public_key_hex: source
+                .current_source_issuer_public_key_hex
+                .clone(),
+            current_source_signature_ed25519_hex: source
+                .current_source_signature_ed25519_hex
+                .clone(),
+            manifest_hmac_sha256: String::new(),
+        };
+        manifest.manifest_hmac_sha256 = key.stage8b_r2a7_reader_manifest_hmac_sha256(
+            &reader_manifest_commitment_sha256(&manifest).expect("manifest commitment"),
+        );
+        manifest
+    }
 
     #[test]
     fn fixed_profile_is_stable_and_modes_have_disjoint_roots() {
@@ -1049,5 +1363,176 @@ mod tests {
         ] {
             assert!(parse_lifecycle_key(invalid.as_bytes()).is_err());
         }
+    }
+
+    #[test]
+    fn lifecycle_key_custody_requires_exact_uid_gid_mode_link_and_size() {
+        assert!(lifecycle_key_properties_are_exact(
+            true, 8096, 8095, 0o100640, 1, 64
+        ));
+        assert!(lifecycle_key_properties_are_exact(
+            true, 8096, 8095, 0o100640, 1, 65
+        ));
+        for properties in [
+            (true, 8095, 8095, 0o100640, 1, 64),
+            (true, 8096, 8096, 0o100640, 1, 64),
+            (true, 8096, 8095, 0o100644, 1, 64),
+            (true, 8096, 8095, 0o100600, 1, 64),
+            (true, 8096, 8095, 0o100640, 2, 64),
+            (true, 8096, 8095, 0o100640, 1, 63),
+            (true, 8096, 8095, 0o100640, 1, 66),
+            (false, 8096, 8095, 0o100640, 1, 64),
+        ] {
+            assert!(!lifecycle_key_properties_are_exact(
+                properties.0,
+                properties.1,
+                properties.2,
+                properties.3,
+                properties.4,
+                properties.5,
+            ));
+        }
+    }
+
+    #[test]
+    fn readiness_authority_rejects_every_degraded_or_blocked_semantic() {
+        let now = Utc::now();
+        for phase in [
+            Stage8bCompositeReadinessPhaseV1::Degraded,
+            Stage8bCompositeReadinessPhaseV1::Stopped,
+        ] {
+            let mut readiness = ready_authority(now);
+            readiness.phase = phase;
+            assert!(readiness.validate_ready().is_err());
+        }
+        for reason in [
+            Stage8bCompositeReadinessReasonV1::ConsumerNotAlive,
+            Stage8bCompositeReadinessReasonV1::StorageUnavailable,
+            Stage8bCompositeReadinessReasonV1::SourcePollStale,
+            Stage8bCompositeReadinessReasonV1::ClaimScanStale,
+            Stage8bCompositeReadinessReasonV1::SettlementUnavailable,
+            Stage8bCompositeReadinessReasonV1::DurablePendingEntries,
+            Stage8bCompositeReadinessReasonV1::CommandLifecycleBlocked,
+        ] {
+            let mut readiness = ready_authority(now);
+            readiness.reasons.push(reason);
+            assert!(readiness.validate_ready().is_err());
+        }
+        let mut blocked_entry = ready_authority(now);
+        blocked_entry.blocked_entry_ids.push("entry-1".to_owned());
+        assert!(blocked_entry.validate_ready().is_err());
+        let mut blocked_request = ready_authority(now);
+        blocked_request
+            .blocked_request_ids
+            .push(StrategyRequestId::new(uuid::Uuid::from_u128(1)));
+        assert!(blocked_request.validate_ready().is_err());
+    }
+
+    #[test]
+    fn signed_readiness_mutations_change_commitment_and_fail_verification() {
+        let (source, _) = sample_source();
+        assert!(
+            validate_trusted_current_source(&source, Stage8bR2a7RunMode::ControlledPlace).is_ok()
+        );
+        let signed_commitment = source.current_source_commitment_sha256.clone();
+        let mutations = [
+            {
+                let mut value = source.clone();
+                value.composite_readiness.phase = Stage8bCompositeReadinessPhaseV1::Degraded;
+                value
+            },
+            {
+                let mut value = source.clone();
+                value
+                    .composite_readiness
+                    .reasons
+                    .push(Stage8bCompositeReadinessReasonV1::ConsumerNotAlive);
+                value
+            },
+            {
+                let mut value = source.clone();
+                value
+                    .composite_readiness
+                    .blocked_entry_ids
+                    .push("entry-1".to_owned());
+                value
+            },
+            {
+                let mut value = source.clone();
+                value
+                    .composite_readiness
+                    .blocked_request_ids
+                    .push(StrategyRequestId::new(uuid::Uuid::from_u128(2)));
+                value
+            },
+        ];
+        let public_key = VerifyingKey::from_bytes(
+            &decode_lower_hex::<32>(&source.current_source_issuer_public_key_hex).unwrap(),
+        )
+        .unwrap();
+        let signature = Signature::from_bytes(
+            &decode_lower_hex::<64>(&source.current_source_signature_ed25519_hex).unwrap(),
+        );
+        for mutation in mutations {
+            let mutated_commitment = current_source_commitment_sha256(&mutation).unwrap();
+            assert_ne!(mutated_commitment, signed_commitment);
+            assert!(public_key
+                .verify(mutated_commitment.as_bytes(), &signature)
+                .is_err());
+            assert!(validate_trusted_current_source(
+                &mutation,
+                Stage8bR2a7RunMode::ControlledPlace
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn manifest_binds_readiness_and_preserves_exact_semantics() {
+        let (source, _) = sample_source();
+        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x5a; 32]).unwrap();
+        let manifest = manifest_from_source(&source, &key);
+        assert!(validate_manifest(&manifest, Stage8bR2a7RunMode::ControlledPlace, &key).is_ok());
+        let reconstructed = trusted_current_source_from_manifest(&manifest);
+        assert_eq!(
+            reconstructed.composite_readiness,
+            source.composite_readiness
+        );
+        assert_eq!(
+            reconstructed.composite_readiness.to_snapshot(),
+            source.composite_readiness.to_snapshot()
+        );
+
+        let mut rebound = manifest.clone();
+        rebound.composite_readiness.checked_at += Duration::milliseconds(1);
+        assert!(validate_manifest(&rebound, Stage8bR2a7RunMode::ControlledPlace, &key).is_err());
+    }
+
+    #[test]
+    fn cross_source_staleness_is_fail_closed() {
+        let (mut stale_composite, signing_key) = sample_source();
+        let now = Utc::now();
+        stale_composite.composite_readiness.checked_at = now - Duration::seconds(31);
+        stale_composite.source_observed_at = stale_composite.composite_readiness.checked_at;
+        stale_composite.expires_at =
+            stale_composite.source_observed_at + Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS);
+        sign_source(&mut stale_composite, &signing_key);
+        assert!(validate_trusted_current_source(
+            &stale_composite,
+            Stage8bR2a7RunMode::ControlledPlace
+        )
+        .is_err());
+
+        let (mut stale_broker, signing_key) = sample_source();
+        stale_broker.broker_truth.received_ts = now - Duration::seconds(31);
+        stale_broker.source_observed_at = stale_broker.broker_truth.received_ts;
+        stale_broker.expires_at =
+            stale_broker.source_observed_at + Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS);
+        sign_source(&mut stale_broker, &signing_key);
+        assert!(validate_trusted_current_source(
+            &stale_broker,
+            Stage8bR2a7RunMode::ControlledPlace
+        )
+        .is_err());
     }
 }

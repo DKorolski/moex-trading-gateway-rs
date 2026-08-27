@@ -8,6 +8,7 @@ python3 scripts/current_tree_authority_check.py
 python3 scripts/current_tree_authority_negative_harness.py
 python3 scripts/stage8b_p_r2a8_review_closure_check.py
 python3 scripts/stage8b_p_r2a8_negative_harness.py
+python3 scripts/stage8b_p_r2a8_r1_readiness_negative_harness.py
 python3 -m json.tool docs/stage-8/stage8b-p-r2a8-status.json >/dev/null
 python3 -m json.tool docs/stage-8/stage8b-p-r2a8-build-evidence.json >/dev/null
 

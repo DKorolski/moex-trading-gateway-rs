@@ -1,6 +1,6 @@
 # Stage 8B-P R2A8 — trusted current source and schema compatibility
 
-Status: implementation candidate. Real R2B remains `NOT_ISSUED`.
+Status: R2A8-R1 corrective implementation. Real R2B remains `NOT_ISSUED`.
 
 ## Scope
 
@@ -14,6 +14,12 @@ R2A8 closes only the two R2A7 review gaps:
 
 It also restores exact lowercase-hex single-line grammar for the lifecycle
 commitment key.
+
+R2A8-R1 additionally closes readiness semantic laundering. The signed trusted
+source and HMAC-bound manifest carry the canonical phase, reasons, blocked
+entry IDs, blocked request IDs and checked timestamp. Both writer and reader
+require exact `paper_ready` with empty blockers; the reader reconstructs the
+Stage 7B snapshot from authenticated fields and never synthesizes readiness.
 
 ## Production chain
 
@@ -31,7 +37,7 @@ Stage7bRecoveryReadyOwner
     -> existing readonly helper preparation boundary
 ```
 
-The current-source commitment is signed with the Stage8A writer-issuer key
+The V2 current-source commitment is signed with the Stage8A writer-issuer key
 already pinned by the durable operational identity. The adapter recomputes the
 commitment, verifies that public key against the durable identity, verifies the
 signature, generation, timestamps, 30-second expiry, exact domain and exact
@@ -62,6 +68,8 @@ reduction.
 - trusted source root: UID 8095, non-writable by issuer;
 - manifest root: UID 8096, non-writable by adapter;
 - lifecycle key: UID 8096, group 8095, mode `0640`;
+- the lifecycle-key-specific reader enforces that UID/GID/mode exactly, plus a
+  regular file, one hardlink, `O_NOFOLLOW`, and an exact 64/65-byte length;
 - accepted grammar: exactly 64 lowercase hex characters and at most one final
   LF; no CR, whitespace normalization, uppercase, NUL or extra line.
 
@@ -81,4 +89,3 @@ the controlled records.
 - no Stage 8B-XE, dispatch, effect or runtime-live;
 - no retry, redirect or proxy changes;
 - accepted R1B effect executable remains unchanged.
-
