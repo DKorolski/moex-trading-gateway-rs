@@ -6,11 +6,12 @@
 //! already-reviewed read-only operational records.
 
 use crate::stage8a1_execution_capability::{
-    publish_stage8b_r2a7_operational_sources_from_owner, Stage8bR2a5SourcePublicationEvidence,
-    STAGE8B_R2A6_SOURCE_ADAPTER_UID,
+    publish_stage8b_r2a7_operational_sources_from_owner, Stage8a1OperationalAuthorityIssuer,
+    Stage8bR2a5SourcePublicationEvidence, STAGE8B_R2A6_SOURCE_ADAPTER_UID,
 };
 use broker_core::{BrokerReadinessSnapshot, BrokerTruthSnapshot};
 use chrono::{Duration, NaiveTime, TimeZone, Timelike, Utc};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use runtime_durable_service::{
     Stage7bCompositeReadinessSnapshot, Stage7bDurableRootAuthority, Stage7bPaperReadinessPhase,
     Stage7bRecoveryReadyOwner, Stage7bRestartOutcome,
@@ -27,12 +28,15 @@ use strategy_runtime_core::hybrid_intraday::{
 use strategy_runtime_core::{
     BrokerNeutralMarketOrderStyle, HybridIntradayProfile, HybridIntradayRuntimeConfig,
     HybridIntradayRuntimeStrategy, MeanReversionVariant, MrGatePolicy, RiskGateMode,
-    Stage5gLifecycleCommitmentKey, Stage6dOperationalIdentityConfig,
+    Stage5gLifecycleCommitmentKey, Stage6DurableCommandSnapshotV1, Stage6DurableRequestIdentityV1,
+    Stage6dOperationalIdentityConfig,
 };
 
 const MANIFEST_FILE: &str = "stage8b-r2a7-reader-manifest.json";
+const TRUSTED_CURRENT_SOURCE_FILE: &str = "stage8b-r2a8-trusted-current-source.json";
 const LIFECYCLE_KEY_FILE: &str = "stage8b-r2a7-lifecycle-key.hex";
 const PRODUCTION_WORK_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a7/production";
+const PRODUCTION_CURRENT_SOURCE_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a8/current-source";
 const PRODUCTION_STAGE7B_PARENT: &str = "/var/lib/moex-trading/stage7b";
 const PRODUCTION_AUTHORITY_ROOT: &str = "/var/lib/moex-trading/stage8a1-authority";
 const PRODUCTION_OUTPUT_ROOT: &str = "/var/lib/moex-trading/operational-authorities";
@@ -40,6 +44,10 @@ const CONTROLLED_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a7-controlled";
 const RUNTIME_PROFILE_ID: &str = "imoexf-stage5ge-c-normal-append-v1";
 const MAX_MANIFEST_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_KEY_BYTES: u64 = 256;
+const MAX_CURRENT_SOURCE_TTL_SECONDS: i64 = 30;
+const CURRENT_SOURCE_COMMITMENT_DOMAIN: &[u8] =
+    b"stage8b-r2a8-trusted-current-source-commitment-v1";
+pub const STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID: u32 = 8096;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage8bR2a7RunMode {
@@ -56,17 +64,11 @@ impl Stage8bR2a7RunMode {
         }
     }
 
-    fn expected_file_owner(self) -> u32 {
-        match self {
-            Self::Production => 0,
-            Self::ControlledPlace | Self::ControlledCancel => STAGE8B_R2A6_SOURCE_ADAPTER_UID,
-        }
-    }
-
     fn layout(self) -> Stage8bR2a7FixedLayout {
         match self {
             Self::Production => Stage8bR2a7FixedLayout {
                 work_root: PathBuf::from(PRODUCTION_WORK_ROOT),
+                current_source_root: PathBuf::from(PRODUCTION_CURRENT_SOURCE_ROOT),
                 stage7b_parent: PathBuf::from(PRODUCTION_STAGE7B_PARENT),
                 authority_root: PathBuf::from(PRODUCTION_AUTHORITY_ROOT),
                 output_root: PathBuf::from(PRODUCTION_OUTPUT_ROOT),
@@ -79,9 +81,10 @@ impl Stage8bR2a7RunMode {
                 };
                 let base = Path::new(CONTROLLED_ROOT).join(operation);
                 Stage8bR2a7FixedLayout {
-                    work_root: base.join("input"),
-                    stage7b_parent: base.join("input/stage7b"),
-                    authority_root: base.join("input/stage8a1-authority"),
+                    work_root: base.join("manifest"),
+                    current_source_root: base.join("current-source"),
+                    stage7b_parent: base.join("stage7b"),
+                    authority_root: base.join("stage8a1-authority"),
                     output_root: base.join("operational-authorities"),
                 }
             }
@@ -91,9 +94,30 @@ impl Stage8bR2a7RunMode {
 
 struct Stage8bR2a7FixedLayout {
     work_root: PathBuf,
+    current_source_root: PathBuf,
     stage7b_parent: PathBuf,
     authority_root: PathBuf,
     output_root: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bR2a8TrustedCurrentSourceV1 {
+    pub schema_version: u16,
+    pub adapter_domain: String,
+    pub adapter_mode: String,
+    pub source_generation: u64,
+    pub source_observed_at: chrono::DateTime<Utc>,
+    pub expires_at: chrono::DateTime<Utc>,
+    pub runtime_profile_id: String,
+    pub operational_identity: Stage6dOperationalIdentityConfig,
+    pub accepted_config_sha256: String,
+    pub composite_checked_at: chrono::DateTime<Utc>,
+    pub broker_truth: BrokerTruthSnapshot,
+    pub broker_readiness: BrokerReadinessSnapshot,
+    pub current_source_commitment_sha256: String,
+    pub current_source_issuer_public_key_hex: String,
+    pub current_source_signature_ed25519_hex: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,6 +131,12 @@ pub struct Stage8bR2a7ReaderManifestV1 {
     pub composite_checked_at: chrono::DateTime<Utc>,
     pub broker_truth: BrokerTruthSnapshot,
     pub broker_readiness: BrokerReadinessSnapshot,
+    pub source_generation: u64,
+    pub source_observed_at: chrono::DateTime<Utc>,
+    pub expires_at: chrono::DateTime<Utc>,
+    pub current_source_commitment_sha256: String,
+    pub current_source_issuer_public_key_hex: String,
+    pub current_source_signature_ed25519_hex: String,
     pub manifest_hmac_sha256: String,
 }
 
@@ -128,6 +158,8 @@ pub enum Stage8bR2a7SourceAdapterError {
     WrongUid,
     #[error("R2A7 fixed reader input is unsafe or invalid")]
     ReaderInputInvalid,
+    #[error("R2A8 trusted current-source issuer input is invalid")]
+    CurrentSourceInvalid,
     #[error("R2A7 runtime profile is not the accepted fixed profile")]
     RuntimeProfileInvalid,
     #[error("R2A7 Stage 7B restart did not yield one ready owner")]
@@ -136,6 +168,140 @@ pub enum Stage8bR2a7SourceAdapterError {
     DurableRequestInvalid,
     #[error("R2A7 operational source publication failed")]
     PublicationFailed,
+}
+
+/// Owner-mediated production writer for the sole R2A8 current-source input.
+/// Raw snapshots are admitted only while the caller holds the recovered owner
+/// and the pinned Stage 8A authority issuer can validate and sign the exact
+/// commitment. No caller-supplied path crosses this boundary.
+#[allow(clippy::too_many_arguments)]
+pub fn publish_stage8b_r2a8_trusted_current_source_from_owner(
+    mode: Stage8bR2a7RunMode,
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    operational_identity: &Stage6dOperationalIdentityConfig,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    if unsafe { libc::geteuid() } != STAGE8B_R2A6_SOURCE_ADAPTER_UID {
+        return Err(Stage8bR2a7SourceAdapterError::WrongUid);
+    }
+    let layout = mode.layout();
+    let issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
+        owner,
+        commitment_key,
+        identity,
+        command,
+        &layout.authority_root,
+        accepted_config_sha256,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    issuer
+        .issue_current_sources(composite_readiness, broker_truth, broker_readiness)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let source_observed_at = [
+        composite_readiness.checked_at,
+        broker_truth.received_ts,
+        broker_readiness
+            .schedule
+            .observed_ts
+            .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
+        broker_readiness
+            .instrument_spec
+            .observed_ts
+            .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
+    ]
+    .into_iter()
+    .min()
+    .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let source_generation = u64::try_from(source_observed_at.timestamp_millis())
+        .ok()
+        .filter(|generation| *generation > 0)
+        .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let mut source = Stage8bR2a8TrustedCurrentSourceV1 {
+        schema_version: 1,
+        adapter_domain: mode.adapter_domain().to_owned(),
+        adapter_mode: "one_shot_recovery_reader".to_owned(),
+        source_generation,
+        source_observed_at,
+        expires_at: source_observed_at + Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS),
+        runtime_profile_id: RUNTIME_PROFILE_ID.to_owned(),
+        operational_identity: operational_identity.clone(),
+        accepted_config_sha256: accepted_config_sha256.to_owned(),
+        composite_checked_at: composite_readiness.checked_at,
+        broker_truth: broker_truth.clone(),
+        broker_readiness: broker_readiness.clone(),
+        current_source_commitment_sha256: String::new(),
+        current_source_issuer_public_key_hex: String::new(),
+        current_source_signature_ed25519_hex: String::new(),
+    };
+    source.current_source_commitment_sha256 = current_source_commitment_sha256(&source)?;
+    let (public_key, signature) = issuer
+        .sign_stage8b_r2a8_current_source_commitment(&source.current_source_commitment_sha256)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    source.current_source_issuer_public_key_hex = public_key;
+    source.current_source_signature_ed25519_hex = signature;
+    validate_trusted_current_source(&source, mode)?;
+    atomic_write_fixed(
+        &layout.current_source_root.join(TRUSTED_CURRENT_SOURCE_FILE),
+        &serde_json::to_vec(&source)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
+        STAGE8B_R2A6_SOURCE_ADAPTER_UID,
+    )
+}
+
+/// Exact one-shot current-manifest issuer. It accepts only the signed current
+/// source emitted above and publishes atomically to the mode-fixed root.
+pub fn issue_stage8b_r2a8_reader_manifest(
+    mode: Stage8bR2a7RunMode,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    if unsafe { libc::geteuid() } != STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID {
+        return Err(Stage8bR2a7SourceAdapterError::WrongUid);
+    }
+    let layout = mode.layout();
+    let source_bytes = read_fixed_regular_file(
+        &layout.current_source_root.join(TRUSTED_CURRENT_SOURCE_FILE),
+        MAX_MANIFEST_BYTES,
+        STAGE8B_R2A6_SOURCE_ADAPTER_UID,
+    )?;
+    let source: Stage8bR2a8TrustedCurrentSourceV1 = serde_json::from_slice(&source_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    validate_trusted_current_source(&source, mode)?;
+    let key_bytes = read_fixed_regular_file(
+        &layout.work_root.join(LIFECYCLE_KEY_FILE),
+        MAX_KEY_BYTES,
+        STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID,
+    )?;
+    let commitment_key = parse_lifecycle_key(&key_bytes)?;
+    let mut manifest = Stage8bR2a7ReaderManifestV1 {
+        schema_version: 2,
+        adapter_domain: source.adapter_domain,
+        runtime_profile_id: source.runtime_profile_id,
+        operational_identity: source.operational_identity,
+        accepted_config_sha256: source.accepted_config_sha256,
+        composite_checked_at: source.composite_checked_at,
+        broker_truth: source.broker_truth,
+        broker_readiness: source.broker_readiness,
+        source_generation: source.source_generation,
+        source_observed_at: source.source_observed_at,
+        expires_at: source.expires_at,
+        current_source_commitment_sha256: source.current_source_commitment_sha256,
+        current_source_issuer_public_key_hex: source.current_source_issuer_public_key_hex,
+        current_source_signature_ed25519_hex: source.current_source_signature_ed25519_hex,
+        manifest_hmac_sha256: String::new(),
+    };
+    manifest.manifest_hmac_sha256 = commitment_key
+        .stage8b_r2a7_reader_manifest_hmac_sha256(&reader_manifest_commitment_sha256(&manifest)?);
+    atomic_write_fixed(
+        &layout.work_root.join(MANIFEST_FILE),
+        &serde_json::to_vec(&manifest)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
+        STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID,
+    )
 }
 
 /// Runs the exact production-capable source adapter once.  `mode` selects one
@@ -151,14 +317,14 @@ pub fn run_stage8b_r2a7_source_adapter(
     let manifest_bytes = read_fixed_regular_file(
         &layout.work_root.join(MANIFEST_FILE),
         MAX_MANIFEST_BYTES,
-        mode.expected_file_owner(),
+        STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID,
     )?;
     let manifest: Stage8bR2a7ReaderManifestV1 = serde_json::from_slice(&manifest_bytes)
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
     let key_bytes = read_fixed_regular_file(
         &layout.work_root.join(LIFECYCLE_KEY_FILE),
         MAX_KEY_BYTES,
-        mode.expected_file_owner(),
+        STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID,
     )?;
     let commitment_key = parse_lifecycle_key(&key_bytes)?;
     validate_manifest(&manifest, mode, &commitment_key)?;
@@ -262,12 +428,14 @@ fn validate_manifest(
     mode: Stage8bR2a7RunMode,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<(), Stage8bR2a7SourceAdapterError> {
-    if manifest.schema_version != 1
+    let source = trusted_current_source_from_manifest(manifest);
+    if manifest.schema_version != 2
         || manifest.adapter_domain != mode.adapter_domain()
         || manifest.runtime_profile_id != RUNTIME_PROFILE_ID
         || !valid_sha256(&manifest.accepted_config_sha256)
         || manifest.broker_truth.received_ts > Utc::now() + Duration::seconds(1)
         || manifest.composite_checked_at > Utc::now() + Duration::seconds(1)
+        || validate_trusted_current_source(&source, mode).is_err()
         || !commitment_key.stage8b_r2a7_verify_reader_manifest_hmac_sha256(
             &reader_manifest_commitment_sha256(manifest)?,
             &manifest.manifest_hmac_sha256,
@@ -276,6 +444,86 @@ fn validate_manifest(
         return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
     }
     Ok(())
+}
+
+fn trusted_current_source_from_manifest(
+    manifest: &Stage8bR2a7ReaderManifestV1,
+) -> Stage8bR2a8TrustedCurrentSourceV1 {
+    Stage8bR2a8TrustedCurrentSourceV1 {
+        schema_version: 1,
+        adapter_domain: manifest.adapter_domain.clone(),
+        adapter_mode: "one_shot_recovery_reader".to_owned(),
+        source_generation: manifest.source_generation,
+        source_observed_at: manifest.source_observed_at,
+        expires_at: manifest.expires_at,
+        runtime_profile_id: manifest.runtime_profile_id.clone(),
+        operational_identity: manifest.operational_identity.clone(),
+        accepted_config_sha256: manifest.accepted_config_sha256.clone(),
+        composite_checked_at: manifest.composite_checked_at,
+        broker_truth: manifest.broker_truth.clone(),
+        broker_readiness: manifest.broker_readiness.clone(),
+        current_source_commitment_sha256: manifest.current_source_commitment_sha256.clone(),
+        current_source_issuer_public_key_hex: manifest.current_source_issuer_public_key_hex.clone(),
+        current_source_signature_ed25519_hex: manifest.current_source_signature_ed25519_hex.clone(),
+    }
+}
+
+fn current_source_commitment_sha256(
+    source: &Stage8bR2a8TrustedCurrentSourceV1,
+) -> Result<String, Stage8bR2a7SourceAdapterError> {
+    use sha2::{Digest, Sha256};
+    let mut unsigned = source.clone();
+    unsigned.current_source_commitment_sha256.clear();
+    unsigned.current_source_issuer_public_key_hex.clear();
+    unsigned.current_source_signature_ed25519_hex.clear();
+    let bytes = serde_json::to_vec(&unsigned)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let mut hasher = Sha256::new();
+    hasher.update(CURRENT_SOURCE_COMMITMENT_DOMAIN);
+    hasher.update(b"\0");
+    hasher.update(bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn validate_trusted_current_source(
+    source: &Stage8bR2a8TrustedCurrentSourceV1,
+    mode: Stage8bR2a7RunMode,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    let now = Utc::now();
+    if source.schema_version != 1
+        || source.adapter_domain != mode.adapter_domain()
+        || source.adapter_mode != "one_shot_recovery_reader"
+        || source.source_generation == 0
+        || source.runtime_profile_id != RUNTIME_PROFILE_ID
+        || !valid_sha256(&source.accepted_config_sha256)
+        || source.source_observed_at > now + Duration::seconds(1)
+        || source.expires_at <= now
+        || source.expires_at <= source.source_observed_at
+        || source.expires_at - source.source_observed_at
+            > Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS)
+        || source.current_source_commitment_sha256 != current_source_commitment_sha256(source)?
+        || source.current_source_issuer_public_key_hex
+            != source
+                .operational_identity
+                .stage8a4_writer_issuer_public_key_hex
+        || !valid_lower_hex(&source.current_source_issuer_public_key_hex, 64)
+        || !valid_lower_hex(&source.current_source_signature_ed25519_hex, 128)
+    {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    let public_key = VerifyingKey::from_bytes(&decode_lower_hex::<32>(
+        &source.current_source_issuer_public_key_hex,
+    )?)
+    .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let signature = Signature::from_bytes(&decode_lower_hex::<64>(
+        &source.current_source_signature_ed25519_hex,
+    )?);
+    public_key
+        .verify(
+            source.current_source_commitment_sha256.as_bytes(),
+            &signature,
+        )
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)
 }
 
 fn reader_manifest_commitment_sha256(
@@ -330,15 +578,86 @@ fn read_fixed_regular_file(
     Ok(bytes)
 }
 
+fn atomic_write_fixed(
+    path: &Path,
+    bytes: &[u8],
+    expected_parent_owner: u32,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    let parent = path
+        .parent()
+        .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let metadata = std::fs::symlink_metadata(parent)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    if !metadata.file_type().is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != expected_parent_owner
+        || metadata.mode() & 0o022 != 0
+    {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    if std::fs::symlink_metadata(path).is_ok_and(|current| current.file_type().is_symlink()) {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    let temporary = parent.join(format!(".stage8b-r2a8.{}.tmp", uuid::Uuid::new_v4()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o644)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&temporary)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    file.write_all(bytes)
+        .and_then(|_| file.sync_all())
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    std::fs::rename(&temporary, path)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)
+}
+
+fn valid_lower_hex(value: &str, expected_len: usize) -> bool {
+    value.len() == expected_len
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+fn decode_lower_hex<const N: usize>(value: &str) -> Result<[u8; N], Stage8bR2a7SourceAdapterError> {
+    if !valid_lower_hex(value, N * 2) {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    let mut decoded = [0u8; N];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        let pair = std::str::from_utf8(pair)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+        decoded[index] = u8::from_str_radix(pair, 16)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    }
+    Ok(decoded)
+}
+
 fn parse_lifecycle_key(
     bytes: &[u8],
 ) -> Result<Stage5gLifecycleCommitmentKey, Stage8bR2a7SourceAdapterError> {
-    let text = std::str::from_utf8(bytes)
-        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?
-        .trim();
-    if text.len() != 64 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if bytes.is_empty() || bytes.contains(&b'\r') || bytes.contains(&0) {
         return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
     }
+    let line = bytes.strip_suffix(b"\n").unwrap_or(bytes);
+    if line.len() != 64
+        || line.contains(&b'\n')
+        || !line
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    {
+        return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
+    }
+    let text =
+        std::str::from_utf8(line).map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
     let mut decoded = [0_u8; 32];
     for (index, slot) in decoded.iter_mut().enumerate() {
         *slot = u8::from_str_radix(&text[index * 2..index * 2 + 2], 16)
@@ -451,7 +770,14 @@ pub fn seed_stage8b_r2a7_controlled_reader(
     let layout = mode.layout();
     fs::create_dir_all(&layout.stage7b_parent)
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
-    let (setup, owner) = match mode {
+    fs::create_dir_all(&layout.current_source_root)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    fs::set_permissions(
+        &layout.current_source_root,
+        fs::Permissions::from_mode(0o755),
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    let (setup, mut owner) = match mode {
         Stage8bR2a7RunMode::ControlledPlace => {
             stage8a4_i3_production_test_setup_in(layout.stage7b_parent.clone())
         }
@@ -460,9 +786,7 @@ pub fn seed_stage8b_r2a7_controlled_reader(
         }
         Stage8bR2a7RunMode::Production => unreachable!("checked above"),
     };
-    drop(owner);
-
-    fs::create_dir(&layout.authority_root)
+    fs::create_dir_all(&layout.authority_root)
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
     fs::set_permissions(&layout.authority_root, fs::Permissions::from_mode(0o700))
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
@@ -658,29 +982,30 @@ pub fn seed_stage8b_r2a7_controlled_reader(
         event_sink_degraded: false,
         stop_order_readiness: BrokerStopOrderReadiness::UnsupportedBlocked,
     };
-    let mut manifest = Stage8bR2a7ReaderManifestV1 {
-        schema_version: 1,
-        adapter_domain: mode.adapter_domain().to_owned(),
-        runtime_profile_id: RUNTIME_PROFILE_ID.to_owned(),
-        operational_identity: setup.operational_identity,
-        accepted_config_sha256: config_sha256,
-        composite_checked_at: observed,
-        broker_truth: truth,
-        broker_readiness,
-        manifest_hmac_sha256: String::new(),
+    let (identity, durable_command) = owner
+        .recovered()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?
+        .single_exact_dispatch_ready_request()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?;
+    let composite_readiness = Stage7bCompositeReadinessSnapshot {
+        phase: Stage7bPaperReadinessPhase::PaperReady,
+        reasons: Vec::new(),
+        blocked_entry_ids: Vec::new(),
+        blocked_request_ids: Vec::new(),
+        checked_at: observed,
     };
-    manifest.manifest_hmac_sha256 = setup
-        .commitment_key
-        .stage8b_r2a7_reader_manifest_hmac_sha256(&reader_manifest_commitment_sha256(&manifest)?);
-    fs::write(
-        layout.work_root.join(MANIFEST_FILE),
-        serde_json::to_vec(&manifest)
-            .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?,
+    publish_stage8b_r2a8_trusted_current_source_from_owner(
+        mode,
+        &mut owner,
+        &setup.commitment_key,
+        &identity,
+        &durable_command,
+        &setup.operational_identity,
+        &config_sha256,
+        &composite_readiness,
+        &truth,
+        &broker_readiness,
     )
-    .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
-    fs::write(layout.work_root.join(LIFECYCLE_KEY_FILE), "5a".repeat(32))
-        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -708,5 +1033,21 @@ mod tests {
         let hmac = key.stage8b_r2a7_reader_manifest_hmac_sha256(&controlled_commitment);
         assert!(key.stage8b_r2a7_verify_reader_manifest_hmac_sha256(&controlled_commitment, &hmac));
         assert!(!key.stage8b_r2a7_verify_reader_manifest_hmac_sha256(&production_commitment, &hmac));
+    }
+
+    #[test]
+    fn lifecycle_key_uses_exact_lower_hex_single_line_grammar() {
+        let valid = "5a".repeat(32);
+        assert!(parse_lifecycle_key(valid.as_bytes()).is_ok());
+        assert!(parse_lifecycle_key(format!("{valid}\n").as_bytes()).is_ok());
+        for invalid in [
+            format!(" {valid}"),
+            format!("{valid} "),
+            format!("{valid}\n\n"),
+            format!("{valid}\r\n"),
+            valid.to_uppercase(),
+        ] {
+            assert!(parse_lifecycle_key(invalid.as_bytes()).is_err());
+        }
     }
 }

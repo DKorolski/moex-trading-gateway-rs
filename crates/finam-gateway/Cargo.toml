@@ -53,6 +53,11 @@ path = "src/bin/stage8b-r2a7-source-adapter.rs"
 required-features = ["stage8b-r2a7-source-adapter"]
 
 [[bin]]
+name = "stage8b-r2a8-current-manifest-issuer"
+path = "src/bin/stage8b-r2a8-current-manifest-issuer.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
 name = "stage8b-r2a7-controlled-seeder"
 path = "src/bin/stage8b-r2a7-controlled-seeder.rs"
 required-features = ["stage8b-r2a7-controlled-qualification"]

@@ -22,6 +22,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         [command] if command == "bind-r2a6" => {
             r2a5::bind_controlled_r2a6_manifest_to_operational_sources()?;
         }
+        [command, operation] if command == "bind-r2a8" => {
+            let operation = match operation.as_str() {
+                "PLACE" => Operation::Place,
+                "CANCEL" => Operation::Cancel,
+                _ => return Err("operation must be PLACE or CANCEL".into()),
+            };
+            r2a5::bind_controlled_r2a8_manifest_to_operational_sources(operation)?;
+        }
         [command, helper_sha256] if command == "finalize" => {
             r2a5::finalize_controlled_fixed_layout(helper_sha256)?;
         }
@@ -33,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         _ => {
             return Err(
-                "usage: seed|seed-r2a6 PLACE|CANCEL | bind-r2a6 | finalize HELPER_SHA256 | authority-values".into(),
+                "usage: seed|seed-r2a6 PLACE|CANCEL | bind-r2a6 | bind-r2a8 PLACE|CANCEL | finalize HELPER_SHA256 | authority-values".into(),
             )
         }
     }

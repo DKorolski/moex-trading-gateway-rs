@@ -109,8 +109,30 @@ pub struct AccountKeyManifest {
 /// The R2A producer reads these records directly; there is no manually
 /// manually populated R2A authoritative-store production seam.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationalAdapterDomain {
+    Production,
+    ControlledQualification,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationalAdapterMode {
+    OneShotRecoveryReader,
+}
+
+/// Exact R2A7+ wire record. Provenance is a required part of the closed
+/// downstream schema; it is never stripped before the payload is reduced.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationalAuthorityRecord {
+    pub adapter_domain: OperationalAdapterDomain,
+    pub adapter_mode: OperationalAdapterMode,
+    pub payload: OperationalAuthorityPayload,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "source_name", deny_unknown_fields)]
-pub enum OperationalAuthorityRecord {
+pub enum OperationalAuthorityPayload {
     #[serde(rename = "stage7b_current_recovery_seal")]
     Stage7bRecoverySeal {
         schema_version: u8,
@@ -194,6 +216,57 @@ pub enum OperationalAuthorityRecord {
         available: bool,
         durable_budget_generation: String,
     },
+}
+
+impl Serialize for OperationalAuthorityRecord {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut value = serde_json::to_value(&self.payload).map_err(serde::ser::Error::custom)?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| serde::ser::Error::custom("operational payload is not an object"))?;
+        object.insert(
+            "adapter_domain".to_owned(),
+            serde_json::to_value(&self.adapter_domain).map_err(serde::ser::Error::custom)?,
+        );
+        object.insert(
+            "adapter_mode".to_owned(),
+            serde_json::to_value(&self.adapter_mode).map_err(serde::ser::Error::custom)?,
+        );
+        value.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for OperationalAuthorityRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let mut value = serde_json::Value::deserialize(deserializer)?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| serde::de::Error::custom("operational record is not an object"))?;
+        let adapter_domain = serde_json::from_value(
+            object
+                .remove("adapter_domain")
+                .ok_or_else(|| serde::de::Error::missing_field("adapter_domain"))?,
+        )
+        .map_err(serde::de::Error::custom)?;
+        let adapter_mode = serde_json::from_value(
+            object
+                .remove("adapter_mode")
+                .ok_or_else(|| serde::de::Error::missing_field("adapter_mode"))?,
+        )
+        .map_err(serde::de::Error::custom)?;
+        let payload = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            adapter_domain,
+            adapter_mode,
+            payload,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -910,6 +983,32 @@ pub fn seed_controlled_r2a6_layout(operation: Operation) -> Result<(), R2a3Error
 /// by the qualified R2A6 adapter. Production R2B has its own signed operator
 /// decision/package path; this helper cannot issue that authority.
 pub fn bind_controlled_r2a6_manifest_to_operational_sources() -> Result<(), R2a3Error> {
+    bind_controlled_manifest_to_operational_sources_at(
+        Path::new(PRODUCTION_UPSTREAM_ROOT),
+        OperationalAdapterDomain::Production,
+    )
+}
+
+pub fn bind_controlled_r2a8_manifest_to_operational_sources(
+    operation: Operation,
+) -> Result<(), R2a3Error> {
+    let operation = match operation {
+        Operation::Place => "place",
+        Operation::Cancel => "cancel",
+    };
+    let root = Path::new("/var/lib/moex-trading/stage8b/r2a7-controlled")
+        .join(operation)
+        .join("operational-authorities");
+    bind_controlled_manifest_to_operational_sources_at(
+        &root,
+        OperationalAdapterDomain::ControlledQualification,
+    )
+}
+
+fn bind_controlled_manifest_to_operational_sources_at(
+    upstream_root: &Path,
+    expected_domain: OperationalAdapterDomain,
+) -> Result<(), R2a3Error> {
     if unsafe { libc::geteuid() } != 0 {
         return Err(R2a3Error::Authorization);
     }
@@ -923,11 +1022,10 @@ pub fn bind_controlled_r2a6_manifest_to_operational_sources() -> Result<(), R2a3
         .into_iter()
         .filter(|source| *source != "trusted_clock")
     {
-        let source_path =
-            Path::new(PRODUCTION_UPSTREAM_ROOT).join(operational_authority_file(source)?);
+        let source_path = upstream_root.join(operational_authority_file(source)?);
         let bytes = read_owned_fd(&source_path, 128 * 1024, R2A6_SOURCE_ADAPTER_UID, false)?;
         let record: OperationalAuthorityRecord = serde_json::from_slice(&bytes)?;
-        let (_, _, claims) = reduce_operational_authority(source, record)?;
+        let (_, _, claims) = reduce_operational_authority(source, record, expected_domain.clone())?;
         claims_by_source.insert(source, claims);
     }
     let claim = |source: &str, name: &str| -> Result<String, R2a3Error> {
@@ -1389,9 +1487,15 @@ type ReducedOperationalAuthority = (u64, DateTime<Utc>, BTreeMap<String, String>
 fn reduce_operational_authority(
     expected_source: &str,
     record: OperationalAuthorityRecord,
+    expected_domain: OperationalAdapterDomain,
 ) -> Result<ReducedOperationalAuthority, R2a3Error> {
-    let (source, schema, generation, observed_at, claims) = match record {
-        OperationalAuthorityRecord::Stage7bRecoverySeal {
+    if record.adapter_domain != expected_domain
+        || record.adapter_mode != OperationalAdapterMode::OneShotRecoveryReader
+    {
+        return Err(R2a3Error::Provenance);
+    }
+    let (source, schema, generation, observed_at, claims) = match record.payload {
+        OperationalAuthorityPayload::Stage7bRecoverySeal {
             schema_version,
             generation,
             observed_at_utc,
@@ -1416,7 +1520,7 @@ fn reduce_operational_authority(
                 ]),
             )
         }
-        OperationalAuthorityRecord::Stage6DispatchReadyCommand {
+        OperationalAuthorityPayload::Stage6DispatchReadyCommand {
             schema_version,
             generation,
             observed_at_utc,
@@ -1469,7 +1573,7 @@ fn reduce_operational_authority(
                 claims,
             )
         }
-        OperationalAuthorityRecord::Stage8aRootControl {
+        OperationalAuthorityPayload::Stage8aRootControl {
             schema_version,
             generation,
             observed_at_utc,
@@ -1495,7 +1599,7 @@ fn reduce_operational_authority(
                 ]),
             )
         }
-        OperationalAuthorityRecord::CompositeReadiness {
+        OperationalAuthorityPayload::CompositeReadiness {
             schema_version,
             generation,
             observed_at_utc,
@@ -1507,7 +1611,7 @@ fn reduce_operational_authority(
             observed_at_utc,
             BTreeMap::from([("ready".to_owned(), exact_bool(ready))]),
         ),
-        OperationalAuthorityRecord::KillSwitch {
+        OperationalAuthorityPayload::KillSwitch {
             schema_version,
             generation,
             observed_at_utc,
@@ -1523,7 +1627,7 @@ fn reduce_operational_authority(
                 ("kill_switch_generation".to_owned(), kill_switch_generation),
             ]),
         ),
-        OperationalAuthorityRecord::SingleFinamOwnership {
+        OperationalAuthorityPayload::SingleFinamOwnership {
             schema_version,
             generation,
             observed_at_utc,
@@ -1545,7 +1649,7 @@ fn reduce_operational_authority(
                 ]),
             )
         }
-        OperationalAuthorityRecord::Schedule {
+        OperationalAuthorityPayload::Schedule {
             schema_version,
             generation,
             observed_at_utc,
@@ -1557,7 +1661,7 @@ fn reduce_operational_authority(
             observed_at_utc,
             BTreeMap::from([("eligible".to_owned(), exact_bool(eligible))]),
         ),
-        OperationalAuthorityRecord::InstrumentSpecification {
+        OperationalAuthorityPayload::InstrumentSpecification {
             schema_version,
             generation,
             observed_at_utc,
@@ -1573,7 +1677,7 @@ fn reduce_operational_authority(
                 ("eligible".to_owned(), exact_bool(eligible)),
             ]),
         ),
-        OperationalAuthorityRecord::LifecycleClarity {
+        OperationalAuthorityPayload::LifecycleClarity {
             schema_version,
             generation,
             observed_at_utc,
@@ -1585,7 +1689,7 @@ fn reduce_operational_authority(
             observed_at_utc,
             BTreeMap::from([("clear".to_owned(), exact_bool(clear))]),
         ),
-        OperationalAuthorityRecord::DurableMicroBudget {
+        OperationalAuthorityPayload::DurableMicroBudget {
             schema_version,
             generation,
             observed_at_utc,
@@ -1623,8 +1727,8 @@ fn controlled_operational_authority(
         Some("false") => Ok(false),
         _ => Err(R2a3Error::Input),
     };
-    match source {
-        "stage7b_current_recovery_seal" => Ok(OperationalAuthorityRecord::Stage7bRecoverySeal {
+    let payload = match source {
+        "stage7b_current_recovery_seal" => Ok(OperationalAuthorityPayload::Stage7bRecoverySeal {
             schema_version: 1,
             generation,
             observed_at_utc,
@@ -1634,7 +1738,7 @@ fn controlled_operational_authority(
             stage6_checkpoint_fingerprint: claim("stage6_checkpoint_fingerprint")?,
         }),
         "stage6_exact_dispatch_ready_command" => {
-            Ok(OperationalAuthorityRecord::Stage6DispatchReadyCommand {
+            Ok(OperationalAuthorityPayload::Stage6DispatchReadyCommand {
                 schema_version: 1,
                 generation,
                 observed_at_utc,
@@ -1652,7 +1756,7 @@ fn controlled_operational_authority(
             })
         }
         "stage8a_root_config_policy_control" => {
-            Ok(OperationalAuthorityRecord::Stage8aRootControl {
+            Ok(OperationalAuthorityPayload::Stage8aRootControl {
                 schema_version: 1,
                 generation,
                 observed_at_utc,
@@ -1661,33 +1765,33 @@ fn controlled_operational_authority(
                 config_policy_authority_sha256: claim("config_policy_authority_sha256")?,
             })
         }
-        "composite_readiness" => Ok(OperationalAuthorityRecord::CompositeReadiness {
+        "composite_readiness" => Ok(OperationalAuthorityPayload::CompositeReadiness {
             schema_version: 1,
             generation,
             observed_at_utc,
             ready: boolean("ready")?,
         }),
-        "kill_switch_run_allowed" => Ok(OperationalAuthorityRecord::KillSwitch {
+        "kill_switch_run_allowed" => Ok(OperationalAuthorityPayload::KillSwitch {
             schema_version: 1,
             generation,
             observed_at_utc,
             run_allowed: boolean("run_allowed")?,
             kill_switch_generation: claim("kill_switch_generation")?,
         }),
-        "single_finam_ownership" => Ok(OperationalAuthorityRecord::SingleFinamOwnership {
+        "single_finam_ownership" => Ok(OperationalAuthorityPayload::SingleFinamOwnership {
             schema_version: 1,
             generation,
             observed_at_utc,
             single_owner: boolean("single_owner")?,
             ownership_lease_fingerprint: claim("ownership_lease_fingerprint")?,
         }),
-        "schedule" => Ok(OperationalAuthorityRecord::Schedule {
+        "schedule" => Ok(OperationalAuthorityPayload::Schedule {
             schema_version: 1,
             generation,
             observed_at_utc,
             eligible: boolean("eligible")?,
         }),
-        "instrument_specification" => Ok(OperationalAuthorityRecord::InstrumentSpecification {
+        "instrument_specification" => Ok(OperationalAuthorityPayload::InstrumentSpecification {
             schema_version: 1,
             generation,
             observed_at_utc,
@@ -1695,14 +1799,14 @@ fn controlled_operational_authority(
             eligible: boolean("eligible")?,
         }),
         "ambiguity_orphan_unresolved_lifecycle" => {
-            Ok(OperationalAuthorityRecord::LifecycleClarity {
+            Ok(OperationalAuthorityPayload::LifecycleClarity {
                 schema_version: 1,
                 generation,
                 observed_at_utc,
                 clear: boolean("clear")?,
             })
         }
-        "durable_micro_budget" => Ok(OperationalAuthorityRecord::DurableMicroBudget {
+        "durable_micro_budget" => Ok(OperationalAuthorityPayload::DurableMicroBudget {
             schema_version: 1,
             generation,
             observed_at_utc,
@@ -1710,7 +1814,12 @@ fn controlled_operational_authority(
             durable_budget_generation: claim("durable_budget_generation")?,
         }),
         _ => Err(R2a3Error::Input),
-    }
+    }?;
+    Ok(OperationalAuthorityRecord {
+        adapter_domain: OperationalAdapterDomain::ControlledQualification,
+        adapter_mode: OperationalAdapterMode::OneShotRecoveryReader,
+        payload,
+    })
 }
 
 fn atomic_write_owned(
@@ -1744,6 +1853,7 @@ fn produce_from_store_at(
     run_root: &Path,
     executable_sha256: &str,
     expected_uid: u32,
+    expected_domain: OperationalAdapterDomain,
 ) -> Result<(), R2a3Error> {
     if unsafe { libc::geteuid() } != expected_uid
         || expected_uid != r2a3::source_producer_uid(source)?
@@ -1785,7 +1895,8 @@ fn produce_from_store_at(
         let store_path = upstream_root.join(operational_authority_file(source)?);
         let bytes = read_owned_fd(&store_path, 128 * 1024, R2A6_SOURCE_ADAPTER_UID, false)?;
         let record: OperationalAuthorityRecord = serde_json::from_slice(&bytes)?;
-        let (generation, observed_at, claims) = reduce_operational_authority(source, record)?;
+        let (generation, observed_at, claims) =
+            reduce_operational_authority(source, record, expected_domain)?;
         (bytes, generation, observed_at, claims)
     };
     let nonce = strict_single_line(
@@ -1842,6 +1953,7 @@ pub fn produce_from_fixed_store(source: &str) -> Result<(), R2a3Error> {
         Path::new(PRODUCTION_RUN),
         &current_linux_executable_sha256()?,
         r2a3::source_producer_uid(source)?,
+        OperationalAdapterDomain::Production,
     )
 }
 
@@ -1855,6 +1967,39 @@ pub fn produce_for_effective_uid(requested_source: Option<&str>) -> Result<(), R
         return Err(R2a3Error::Provenance);
     }
     produce_from_fixed_store(source)
+}
+
+/// Qualification-only entry for the exact R2A8 controlled publication roots.
+/// Production producer entry above remains fixed to production provenance and
+/// therefore rejects these records.
+pub fn produce_controlled_r2a8_for_effective_uid(
+    operation: Operation,
+    requested_source: Option<&str>,
+) -> Result<(), R2a3Error> {
+    let effective_uid = unsafe { libc::geteuid() };
+    let source = source_names()
+        .into_iter()
+        .find(|source| r2a3::source_producer_uid(source).ok() == Some(effective_uid))
+        .ok_or(R2a3Error::Provenance)?;
+    if requested_source.is_some_and(|requested| requested != source) {
+        return Err(R2a3Error::Provenance);
+    }
+    let operation = match operation {
+        Operation::Place => "place",
+        Operation::Cancel => "cancel",
+    };
+    let upstream = Path::new("/var/lib/moex-trading/stage8b/r2a7-controlled")
+        .join(operation)
+        .join("operational-authorities");
+    produce_from_store_at(
+        source,
+        &upstream,
+        Path::new(PRODUCTION_ROOT),
+        Path::new(PRODUCTION_RUN),
+        &current_linux_executable_sha256()?,
+        r2a3::source_producer_uid(source)?,
+        OperationalAdapterDomain::ControlledQualification,
+    )
 }
 
 fn validate_r2a5_source_snapshot(
@@ -2591,22 +2736,83 @@ mod tests {
     #[test]
     fn source_adapter_rejects_wrong_variant_schema_and_generation() {
         let now = Utc::now();
-        let wrong_variant = OperationalAuthorityRecord::Schedule {
+        let record = |payload| OperationalAuthorityRecord {
+            adapter_domain: OperationalAdapterDomain::ControlledQualification,
+            adapter_mode: OperationalAdapterMode::OneShotRecoveryReader,
+            payload,
+        };
+        let wrong_variant = record(OperationalAuthorityPayload::Schedule {
             schema_version: 1,
             generation: 1,
             observed_at_utc: now,
             eligible: true,
-        };
-        assert!(reduce_operational_authority("instrument_specification", wrong_variant).is_err());
+        });
+        assert!(reduce_operational_authority(
+            "instrument_specification",
+            wrong_variant,
+            OperationalAdapterDomain::ControlledQualification,
+        )
+        .is_err());
         for (schema_version, generation) in [(2, 1), (1, 0)] {
-            let record = OperationalAuthorityRecord::Schedule {
+            let invalid = record(OperationalAuthorityPayload::Schedule {
                 schema_version,
                 generation,
                 observed_at_utc: now,
                 eligible: true,
-            };
-            assert!(reduce_operational_authority("schedule", record).is_err());
+            });
+            assert!(reduce_operational_authority(
+                "schedule",
+                invalid,
+                OperationalAdapterDomain::ControlledQualification,
+            )
+            .is_err());
         }
+    }
+
+    #[test]
+    fn source_adapter_requires_exact_provenance_and_domain() {
+        let now = Utc::now();
+        let value = serde_json::json!({
+            "source_name": "schedule",
+            "schema_version": 1,
+            "generation": 1,
+            "observed_at_utc": now,
+            "eligible": true,
+            "adapter_domain": "controlled_qualification",
+            "adapter_mode": "one_shot_recovery_reader"
+        });
+        let record: OperationalAuthorityRecord = serde_json::from_value(value.clone()).unwrap();
+        assert!(reduce_operational_authority(
+            "schedule",
+            record.clone(),
+            OperationalAdapterDomain::ControlledQualification,
+        )
+        .is_ok());
+        assert!(reduce_operational_authority(
+            "schedule",
+            record,
+            OperationalAdapterDomain::Production,
+        )
+        .is_err());
+
+        for mutation in [
+            ("adapter_domain", serde_json::Value::Null),
+            ("adapter_mode", serde_json::Value::Null),
+            ("adapter_domain", serde_json::json!("productionish")),
+            ("adapter_mode", serde_json::json!("cached_reader")),
+        ] {
+            let mut invalid = value.clone();
+            if mutation.1.is_null() {
+                invalid.as_object_mut().unwrap().remove(mutation.0);
+            } else {
+                invalid[mutation.0] = mutation.1;
+            }
+            assert!(serde_json::from_value::<OperationalAuthorityRecord>(invalid).is_err());
+        }
+
+        let mut unknown = value;
+        unknown["unreviewed_field"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<OperationalAuthorityRecord>(unknown).is_err());
     }
 
     #[test]

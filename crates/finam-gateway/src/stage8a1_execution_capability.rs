@@ -1714,6 +1714,33 @@ impl Stage8a1OperationalAuthorityIssuer {
         ))
     }
 
+    /// Signs the closed R2A8 current-source commitment after this issuer has
+    /// validated the owner-bound Stage 8A authority root. The caller supplies
+    /// only a lowercase SHA-256 commitment, never raw broker-truth JSON.
+    pub(crate) fn sign_stage8b_r2a8_current_source_commitment(
+        &self,
+        commitment_sha256: &str,
+    ) -> Result<(String, String), Stage8ExecutionPreflightError> {
+        if !valid_sha256(commitment_sha256) {
+            return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+        }
+        self.authority_root.validate()?;
+        let current = load_stage8a4_writer_signing_key_pinned(
+            &self.authority_root.root,
+            self.authority_root.writer_signing_key_identity,
+        )?;
+        if current.to_bytes() != self.stage8a4_writer_signing_key.to_bytes() {
+            return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+        }
+        let signature = self
+            .stage8a4_writer_signing_key
+            .sign(commitment_sha256.as_bytes());
+        Ok((
+            encode_lower_hex(self.stage8a4_writer_signing_key.verifying_key().as_bytes()),
+            encode_lower_hex(&signature.to_bytes()),
+        ))
+    }
+
     /// Captures current read-only sources behind the already trusted gateway
     /// composition. It is intentionally crate-private: downstream callers
     /// cannot turn arbitrary public snapshot structs into minting authority.
