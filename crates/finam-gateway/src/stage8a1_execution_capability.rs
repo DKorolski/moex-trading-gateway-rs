@@ -149,6 +149,7 @@ const STAGE8B_R2A6_ACCEPTED_EFFECT_POLICY_SHA256: &str =
     "e7eb516859843cd717f47eb192309d7d5e840fe92aa26a2c2753fefac7e2712f";
 const STAGE8B_R2A6_ACCEPTED_CONFIG_POLICY_AUTHORITY_SHA256: &str =
     "7650e529498dbc5adfccd646878d43909c062cedc49c957bbf17c60f53d0ca1a";
+#[cfg(feature = "stage8b-r2a6-controlled-rehearsal")]
 const STAGE8B_R2A6_ADAPTER_WORK_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a6/adapter-work";
 
 /// Reviewed configuration source for the no-send Stage 8A-1 authority layer.
@@ -306,10 +307,38 @@ pub fn publish_stage8b_r2a6_operational_sources_from_owner(
     broker_truth: &BrokerTruthSnapshot,
     broker_readiness: &BrokerReadinessSnapshot,
 ) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    validate_stage8b_r2a6_output_ownership()?;
+    publish_stage8b_operational_sources_from_owner_at(
+        owner,
+        commitment_key,
+        identity,
+        command,
+        authority_root,
+        accepted_config_sha256,
+        composite_readiness,
+        broker_truth,
+        broker_readiness,
+        Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn publish_stage8b_operational_sources_from_owner_at(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    authority_root: &Path,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+    output_root: &Path,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
     if unsafe { libc::geteuid() } != STAGE8B_R2A6_SOURCE_ADAPTER_UID {
         return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
     }
-    validate_stage8b_r2a6_output_ownership()?;
+    validate_stage8b_source_output_ownership(output_root)?;
     let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
         owner,
         commitment_key,
@@ -324,16 +353,16 @@ pub fn publish_stage8b_r2a6_operational_sources_from_owner(
     )?;
     let sources =
         issuer.issue_current_sources(composite_readiness, broker_truth, broker_readiness)?;
-    issuer.publish_stage8b_r2a5_operational_sources_at(
-        &durable,
-        command,
-        &sources,
-        Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT),
-    )
+    issuer.publish_stage8b_r2a5_operational_sources_at(&durable, command, &sources, output_root)
 }
 
 fn validate_stage8b_r2a6_output_ownership() -> Result<(), Stage8ExecutionPreflightError> {
-    let root = Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT);
+    validate_stage8b_source_output_ownership(Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT))
+}
+
+fn validate_stage8b_source_output_ownership(
+    root: &Path,
+) -> Result<(), Stage8ExecutionPreflightError> {
     let root_metadata = fs::symlink_metadata(root)
         .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
     let parent = root
@@ -353,6 +382,38 @@ fn validate_stage8b_r2a6_output_ownership() -> Result<(), Stage8ExecutionPreflig
         return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
     }
     Ok(())
+}
+
+/// R2A7 uses the same owner-mediated composition as R2A6 but writes to a
+/// domain-fixed output root and seals the origin into every source record.
+/// The domain is selected by the binary, never by caller-provided paths.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn publish_stage8b_r2a7_operational_sources_from_owner(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    authority_root: &Path,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+    output_root: &Path,
+    adapter_domain: &'static str,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    let evidence = publish_stage8b_operational_sources_from_owner_at(
+        owner,
+        commitment_key,
+        identity,
+        command,
+        authority_root,
+        accepted_config_sha256,
+        composite_readiness,
+        broker_truth,
+        broker_readiness,
+        output_root,
+    )?;
+    attach_stage8b_r2a7_record_provenance(output_root, evidence, adapter_domain)
 }
 
 /// Controlled Linux witness for the exact R2A6 executable. It starts from a
@@ -4330,6 +4391,80 @@ fn publish_stage8b_r2a5_records(
     );
     Ok(Stage8bR2a5SourcePublicationEvidence {
         schema_version: 1,
+        source_count: source_sha256.len(),
+        source_sha256,
+        publication_root_sha256,
+        execution_authority_granted: false,
+    })
+}
+
+fn attach_stage8b_r2a7_record_provenance(
+    output_root: &Path,
+    evidence: Stage8bR2a5SourcePublicationEvidence,
+    adapter_domain: &'static str,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    if !matches!(adapter_domain, "production" | "controlled_qualification") {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    validate_stage8b_source_output_ownership(output_root)?;
+    let mut source_sha256 = std::collections::BTreeMap::new();
+    for file_name in evidence.source_sha256.keys() {
+        let destination = output_root.join(file_name);
+        let metadata = fs::symlink_metadata(&destination)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        if !metadata.file_type().is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.uid() != STAGE8B_R2A6_SOURCE_ADAPTER_UID
+            || metadata.nlink() != 1
+        {
+            return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+        }
+        let bytes = fs::read(&destination)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let mut value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let object = value
+            .as_object_mut()
+            .ok_or(Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        object.insert(
+            "adapter_domain".to_owned(),
+            serde_json::Value::String(adapter_domain.to_owned()),
+        );
+        object.insert(
+            "adapter_mode".to_owned(),
+            serde_json::Value::String("one_shot_recovery_reader".to_owned()),
+        );
+        let bytes = serde_json::to_vec(&value)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let temporary = output_root.join(format!(
+            ".stage8b-r2a7.{}.{}.tmp",
+            file_name,
+            uuid::Uuid::new_v4()
+        ));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&temporary)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        fs::rename(&temporary, &destination)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        source_sha256.insert(file_name.clone(), format!("{:x}", Sha256::digest(&bytes)));
+    }
+    sync_directory(output_root)?;
+    let publication_root_sha256 = digest_parts(
+        b"stage8b-r2a7-operational-source-publication-v1",
+        &source_sha256
+            .iter()
+            .flat_map(|(name, digest)| [name.as_bytes(), digest.as_bytes()])
+            .collect::<Vec<_>>(),
+    );
+    Ok(Stage8bR2a5SourcePublicationEvidence {
+        schema_version: 2,
         source_count: source_sha256.len(),
         source_sha256,
         publication_root_sha256,

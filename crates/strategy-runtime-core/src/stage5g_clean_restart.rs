@@ -130,6 +130,33 @@ impl Stage5gLifecycleCommitmentKey {
         mac.update(commitment_sha256.as_bytes());
         mac.verify_slice(&tag).is_ok()
     }
+
+    /// Domain-separated authentication for the fixed-root Stage 8B R2A7
+    /// recovery-reader manifest.  This proves that current source material was
+    /// exported by the lifecycle owner rather than supplied as operator JSON.
+    pub fn stage8b_r2a7_reader_manifest_hmac_sha256(&self, commitment_sha256: &str) -> String {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage8b.r2a7.reader-manifest.v1\0");
+        mac.update(commitment_sha256.as_bytes());
+        let tag = mac.finalize().into_bytes();
+        tag.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    pub fn stage8b_r2a7_verify_reader_manifest_hmac_sha256(
+        &self,
+        commitment_sha256: &str,
+        expected_hmac_sha256: &str,
+    ) -> bool {
+        let Some(tag) = decode_sha256_hex(expected_hmac_sha256) else {
+            return false;
+        };
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage8b.r2a7.reader-manifest.v1\0");
+        mac.update(commitment_sha256.as_bytes());
+        mac.verify_slice(&tag).is_ok()
+    }
 }
 
 impl Drop for Stage5gLifecycleCommitmentKey {

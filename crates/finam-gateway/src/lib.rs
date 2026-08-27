@@ -16,6 +16,8 @@ pub mod stage8a1_execution_capability;
 mod stage8a3_endpoint_classifier;
 mod stage8a4_reconciliation;
 mod stage8b_no_send;
+#[cfg(feature = "stage8b-r2a7-source-adapter")]
+mod stage8b_r2a7_source_adapter;
 
 #[cfg(feature = "stage8b-r2a6-controlled-rehearsal")]
 #[doc(hidden)]
@@ -54,6 +56,14 @@ pub use stage8a4_reconciliation::{
 pub use stage8b_no_send::{
     invoke_stage8b_operator_once, Stage8bOperatorDiagnostic, Stage8bOperatorFacadeError,
     Stage8bOperatorInvocationRequest,
+};
+#[cfg(feature = "stage8b-r2a7-controlled-qualification")]
+#[doc(hidden)]
+pub use stage8b_r2a7_source_adapter::seed_stage8b_r2a7_controlled_reader;
+#[cfg(feature = "stage8b-r2a7-source-adapter")]
+pub use stage8b_r2a7_source_adapter::{
+    run_stage8b_r2a7_source_adapter, Stage8bR2a7PublicationEvidence, Stage8bR2a7RunMode,
+    Stage8bR2a7SourceAdapterError,
 };
 
 use std::collections::{HashMap, HashSet};
