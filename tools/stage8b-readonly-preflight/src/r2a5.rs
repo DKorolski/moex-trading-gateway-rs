@@ -7,8 +7,8 @@
 
 use crate::r2a2::{self, ValidatedManifest};
 use crate::r2a3::{
-    self, R2a3Error, R2a3PipelineInput, R2a3ReadonlyEvidence, SignedAuthorityEnvelope,
-    SignedAuthorityReceipt,
+    self, R2a3AttemptEvidence, R2a3AttemptFailureKind, R2a3Error, R2a3FailedAttemptEvidence,
+    R2a3PipelineInput, R2a3ReadonlyEvidence, SignedAuthorityEnvelope, SignedAuthorityReceipt,
 };
 use crate::Operation;
 use chrono::{DateTime, Utc};
@@ -21,7 +21,7 @@ use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -39,6 +39,11 @@ pub const PRODUCTION_RUN: &str = "/run/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_CREDENTIALS: &str = "/run/credentials/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_UPSTREAM_ROOT: &str = "/var/lib/moex-trading/operational-authorities";
 pub const R2A6_SOURCE_ADAPTER_UID: u32 = 8095;
+pub const R2B_HELPER_UID: u32 = 8_301;
+pub const R2B_EVIDENCE_GID: u32 = 8_301;
+pub const R2B_EVIDENCE_DIRECTORY_MODE: u32 = 0o730;
+pub const R2B_EVIDENCE_FILE_MODE: u32 = 0o640;
+pub const PRODUCTION_EVIDENCE_ROOT: &str = "/var/lib/moex-trading/stage8b/r2b-evidence";
 pub const CONTROLLED_HOST: &str = "stage8b-r2a5.invalid";
 const CONTROLLED_CA_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-ca.der";
 const CONTROLLED_ENDPOINT_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-endpoint.txt";
@@ -49,6 +54,89 @@ const READ_CONTRACT_SNAPSHOT: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p-r2a3-finam-read-contract-snapshot.json");
 const SOURCE_ADAPTER_AUTHORITY: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p-r2a5-source-adapter-authority.json");
+// This embedded contract intentionally excludes executable hashes. The helper
+// hash is frozen by external build/issuance evidence; embedding that hash in
+// the helper itself would create an unresolvable self-referential hash cycle.
+const R2B_RUNTIME_COMPOSITION_CONTRACT: &[u8] =
+    include_bytes!("../../../docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json");
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum R2bTerminalOutcome {
+    Success,
+    Failure,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum R2bTerminalErrorCategory {
+    AuthSessionFailure,
+    AuthDetailsFailure,
+    NetworkConnectFailure,
+    TlsFailure,
+    DnsFailure,
+    Timeout,
+    HttpNon200,
+    ResponseTooLarge,
+    DtoDecodeFailure,
+    ReadinessInvalid,
+    FreshnessInvalid,
+    BrokerTruthIncomplete,
+    TradesPageFull,
+    LifecycleMismatch,
+    FinalRevalidationFailure,
+    ContractDrift,
+    EvidencePersistenceFailure,
+    InternalInvariantFailure,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct R2bRequestAttemptEvidenceV1 {
+    pub ordinal: usize,
+    pub network_class: crate::NetworkClass,
+    pub method: &'static str,
+    pub route_template: &'static str,
+    pub query_policy_id: Option<&'static str>,
+    pub request_started_at_utc: DateTime<Utc>,
+    pub request_finished_at_utc: DateTime<Utc>,
+    pub status: Option<u16>,
+    pub response_body_length: Option<usize>,
+    pub semantic_receipt_sha256: Option<String>,
+    pub error_category: Option<R2a3AttemptFailureKind>,
+    pub timeout_stage: Option<&'static str>,
+    pub raw_body_exported: bool,
+}
+
+/// The only durable R2B terminal record. It intentionally contains no raw
+/// body, credential, token or account identifier.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct R2bTerminalEvidenceV1 {
+    pub schema_version: u8,
+    pub stage: String,
+    pub operation: Operation,
+    pub run_nonce_sha256: String,
+    pub signed_run_package_sha256: String,
+    pub contract_snapshot_sha256: String,
+    pub helper_executable_sha256: String,
+    pub production_composition_sha256: String,
+    pub started_at_utc: DateTime<Utc>,
+    pub finished_at_utc: DateTime<Utc>,
+    pub terminal_outcome: R2bTerminalOutcome,
+    pub terminal_error_category: Option<R2bTerminalErrorCategory>,
+    pub terminal_error_detail_redacted: Option<String>,
+    pub request_attempts: Vec<R2bRequestAttemptEvidenceV1>,
+    pub broker_truth_summary: Option<r2a2::BrokerTruthSummary>,
+    pub operator_arm_issued: bool,
+    pub dispatch_attempt_recorded: bool,
+    pub effect_transport_entered: bool,
+    pub order_post_sent: bool,
+    pub order_delete_sent: bool,
+    pub raw_body_exported: bool,
+    pub credential_exported: bool,
+    pub account_id_exported: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -2225,6 +2313,260 @@ fn claim_nonce(directory: &Path, nonce: &str) -> Result<(), R2a3Error> {
     Ok(())
 }
 
+fn terminal_error_category(
+    error: &R2a3Error,
+    attempts: &[R2a3AttemptEvidence],
+    failed_attempt: Option<&R2a3FailedAttemptEvidence>,
+) -> R2bTerminalErrorCategory {
+    if let Some(failed) = failed_attempt {
+        return match failed.error_kind {
+            R2a3AttemptFailureKind::NetworkConnectFailure
+            | R2a3AttemptFailureKind::ResponseBodyFailure => {
+                R2bTerminalErrorCategory::NetworkConnectFailure
+            }
+            R2a3AttemptFailureKind::Timeout => R2bTerminalErrorCategory::Timeout,
+            R2a3AttemptFailureKind::ResponseTooLarge => R2bTerminalErrorCategory::ResponseTooLarge,
+            R2a3AttemptFailureKind::FreshnessInvalid => R2bTerminalErrorCategory::FreshnessInvalid,
+        };
+    }
+    if let Some(last) = attempts.last() {
+        if last.status != 200 {
+            return R2bTerminalErrorCategory::HttpNon200;
+        }
+    }
+    match error {
+        R2a3Error::Freshness => R2bTerminalErrorCategory::FreshnessInvalid,
+        R2a3Error::Authorization | R2a3Error::Provenance | R2a3Error::Input => {
+            R2bTerminalErrorCategory::ContractDrift
+        }
+        R2a3Error::Network => match attempts.len() {
+            0 => R2bTerminalErrorCategory::AuthSessionFailure,
+            1 => R2bTerminalErrorCategory::AuthDetailsFailure,
+            _ => R2bTerminalErrorCategory::NetworkConnectFailure,
+        },
+        R2a3Error::R2a2(r2a2::R2a2Error::OversizeResponse) => {
+            R2bTerminalErrorCategory::ResponseTooLarge
+        }
+        R2a3Error::R2a2(r2a2::R2a2Error::BrokerTruth) => {
+            R2bTerminalErrorCategory::BrokerTruthIncomplete
+        }
+        R2a3Error::R2a2(_) | R2a3Error::Json(_) => R2bTerminalErrorCategory::DtoDecodeFailure,
+        R2a3Error::Io(_) | R2a3Error::EvidencePersistence => {
+            R2bTerminalErrorCategory::InternalInvariantFailure
+        }
+    }
+}
+
+fn terminal_success_attempt(value: &R2a3AttemptEvidence) -> R2bRequestAttemptEvidenceV1 {
+    R2bRequestAttemptEvidenceV1 {
+        ordinal: value.ordinal,
+        network_class: value.network_class,
+        method: value.method,
+        route_template: value.route_template,
+        query_policy_id: (value.route_template == "/v1/accounts/{account_id}/trades")
+            .then_some("stage8b-r2b-trades-single-page-v1"),
+        request_started_at_utc: value.request_started_at_utc,
+        request_finished_at_utc: value.request_finished_at_utc,
+        status: Some(value.status),
+        response_body_length: Some(value.response_body_len),
+        semantic_receipt_sha256: Some(value.semantic_receipt_sha256.clone()),
+        error_category: None,
+        timeout_stage: None,
+        raw_body_exported: false,
+    }
+}
+
+fn terminal_failed_attempt(value: &R2a3FailedAttemptEvidence) -> R2bRequestAttemptEvidenceV1 {
+    R2bRequestAttemptEvidenceV1 {
+        ordinal: value.ordinal,
+        network_class: value.network_class,
+        method: value.method,
+        route_template: value.route_template,
+        query_policy_id: (value.route_template == "/v1/accounts/{account_id}/trades")
+            .then_some("stage8b-r2b-trades-single-page-v1"),
+        request_started_at_utc: value.request_started_at_utc,
+        request_finished_at_utc: value.request_finished_at_utc,
+        status: None,
+        response_body_length: None,
+        semantic_receipt_sha256: None,
+        error_category: Some(value.error_kind),
+        timeout_stage: value.timeout_stage,
+        raw_body_exported: false,
+    }
+}
+
+fn terminal_evidence(
+    prepared: &PreparedR2a5Run,
+    helper_executable_sha256: &str,
+    started_at_utc: DateTime<Utc>,
+    result: &Result<R2a3ReadonlyEvidence, r2a3::R2a3PipelineFailure>,
+) -> Result<R2bTerminalEvidenceV1, R2a3Error> {
+    let signed_run_package_sha256 = sha256(&serde_json::to_vec(&prepared.package)?);
+    let (
+        terminal_outcome,
+        terminal_error_category,
+        terminal_error_detail_redacted,
+        attempts,
+        truth,
+    ) = match result {
+        Ok(evidence) => (
+            R2bTerminalOutcome::Success,
+            None,
+            None,
+            evidence
+                .request_order
+                .iter()
+                .map(terminal_success_attempt)
+                .collect(),
+            Some(evidence.broker_truth.clone()),
+        ),
+        Err(failure) => {
+            let category = terminal_error_category(
+                &failure.error,
+                &failure.attempts,
+                failure.failed_attempt.as_ref(),
+            );
+            let mut attempts = failure
+                .attempts
+                .iter()
+                .map(terminal_success_attempt)
+                .collect::<Vec<_>>();
+            if let Some(failed) = &failure.failed_attempt {
+                attempts.push(terminal_failed_attempt(failed));
+            }
+            (
+                R2bTerminalOutcome::Failure,
+                Some(category),
+                Some(format!("{category:?}")),
+                attempts,
+                None,
+            )
+        }
+    };
+    Ok(R2bTerminalEvidenceV1 {
+        schema_version: 1,
+        stage: "Stage 8B-P R2B".to_owned(),
+        operation: prepared.package.operation,
+        run_nonce_sha256: prepared.package.run_nonce_sha256.clone(),
+        signed_run_package_sha256,
+        contract_snapshot_sha256: prepared.package.contract_snapshot_sha256.clone(),
+        helper_executable_sha256: helper_executable_sha256.to_owned(),
+        production_composition_sha256: sha256(R2B_RUNTIME_COMPOSITION_CONTRACT),
+        started_at_utc,
+        finished_at_utc: Utc::now(),
+        terminal_outcome,
+        terminal_error_category,
+        terminal_error_detail_redacted,
+        request_attempts: attempts,
+        broker_truth_summary: truth,
+        operator_arm_issued: false,
+        dispatch_attempt_recorded: false,
+        effect_transport_entered: false,
+        order_post_sent: false,
+        order_delete_sent: false,
+        raw_body_exported: false,
+        credential_exported: false,
+        account_id_exported: false,
+    })
+}
+
+fn require_evidence_root(
+    root: &Path,
+    expected_uid: u32,
+    expected_gid: u32,
+    expected_mode: u32,
+) -> Result<(), R2a3Error> {
+    let metadata = std::fs::symlink_metadata(root)?;
+    if !metadata.file_type().is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != expected_uid
+        || metadata.gid() != expected_gid
+        || metadata.mode() & 0o777 != expected_mode
+        || root.canonicalize()? != root
+    {
+        return Err(R2a3Error::EvidencePersistence);
+    }
+    Ok(())
+}
+
+fn persist_terminal_evidence_at(
+    root: &Path,
+    evidence: &R2bTerminalEvidenceV1,
+    root_uid: u32,
+    evidence_uid: u32,
+    evidence_gid: u32,
+) -> Result<PathBuf, R2a3Error> {
+    decode_hex::<32>(&evidence.run_nonce_sha256)?;
+    require_evidence_root(root, root_uid, evidence_gid, R2B_EVIDENCE_DIRECTORY_MODE)?;
+    if unsafe { libc::geteuid() } != evidence_uid || unsafe { libc::getegid() } != evidence_gid {
+        return Err(R2a3Error::EvidencePersistence);
+    }
+    let final_name = format!("r2b-terminal-{}.json", evidence.run_nonce_sha256);
+    let pending_name = format!(".pending-{}.json", evidence.run_nonce_sha256);
+    let final_path = root.join(final_name);
+    let pending_path = root.join(pending_name);
+    let bytes = serde_json::to_vec(evidence)?;
+    if bytes.len() > 512 * 1024 {
+        return Err(R2a3Error::EvidencePersistence);
+    }
+    let mut pending = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(R2B_EVIDENCE_FILE_MODE)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&pending_path)
+        .map_err(|_| R2a3Error::EvidencePersistence)?;
+    pending
+        .set_permissions(std::fs::Permissions::from_mode(R2B_EVIDENCE_FILE_MODE))
+        .map_err(|_| R2a3Error::EvidencePersistence)?;
+    pending
+        .write_all(&bytes)
+        .and_then(|_| pending.write_all(b"\n"))
+        .and_then(|_| pending.sync_all())
+        .map_err(|_| R2a3Error::EvidencePersistence)?;
+    let metadata = pending
+        .metadata()
+        .map_err(|_| R2a3Error::EvidencePersistence)?;
+    if !metadata.file_type().is_file()
+        || metadata.nlink() != 1
+        || metadata.uid() != evidence_uid
+        || metadata.gid() != evidence_gid
+        || metadata.mode() & 0o777 != R2B_EVIDENCE_FILE_MODE
+    {
+        return Err(R2a3Error::EvidencePersistence);
+    }
+    // link(2) publishes the fully fsynced inode atomically and fails if a
+    // terminal record for this nonce already exists. Removing the private
+    // pending name leaves exactly one link to the immutable record.
+    std::fs::hard_link(&pending_path, &final_path).map_err(|_| R2a3Error::EvidencePersistence)?;
+    std::fs::remove_file(&pending_path).map_err(|_| R2a3Error::EvidencePersistence)?;
+    File::open(root)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| R2a3Error::EvidencePersistence)?;
+    let final_metadata =
+        std::fs::symlink_metadata(&final_path).map_err(|_| R2a3Error::EvidencePersistence)?;
+    if !final_metadata.file_type().is_file()
+        || final_metadata.file_type().is_symlink()
+        || final_metadata.nlink() != 1
+        || final_metadata.uid() != evidence_uid
+        || final_metadata.gid() != evidence_gid
+        || final_metadata.mode() & 0o777 != R2B_EVIDENCE_FILE_MODE
+    {
+        return Err(R2a3Error::EvidencePersistence);
+    }
+    Ok(final_path)
+}
+
+fn persist_terminal_evidence(evidence: &R2bTerminalEvidenceV1) -> Result<PathBuf, R2a3Error> {
+    persist_terminal_evidence_at(
+        Path::new(PRODUCTION_EVIDENCE_ROOT),
+        evidence,
+        0,
+        R2B_HELPER_UID,
+        R2B_EVIDENCE_GID,
+    )
+}
+
 fn manifest_field<'a>(
     fields: &'a BTreeMap<String, String>,
     name: &str,
@@ -2430,6 +2772,12 @@ fn validate_local_package_at(
 }
 
 pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
+    if unsafe { libc::geteuid() } != R2B_HELPER_UID
+        || unsafe { libc::getegid() } != R2B_EVIDENCE_GID
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let started_at_utc = Utc::now();
     let executable = current_linux_executable_sha256()?;
     let accepted: AcceptedR2a5Authority = serde_json::from_str(AUTHORITY)?;
     let prepared = validate_local_package_at(
@@ -2447,24 +2795,34 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
         &Path::new(PRODUCTION_ROOT).join("used-run-nonces"),
         &prepared.package.run_nonce_sha256,
     )?;
-    let (auth_client, broker_client) =
-        crate::production_clients().map_err(|_| R2a3Error::Network)?;
-    r2a3::execute_r2a3_pipeline(
-        &auth_client,
-        &broker_client,
-        r2a3::PRODUCTION_BASE_URL,
-        R2a3PipelineInput {
-            manifest: &prepared.manifest,
-            signed_authorities: &prepared.receipts,
-            public_keys: &prepared.public_keys,
-            run_nonce_sha256: &prepared.package.run_nonce_sha256,
-            account_id: &prepared.account_id,
-            account_key: &prepared.account_key[..],
-            secret: &prepared.secret,
-            authorization_status: "ISSUED",
-        },
-    )
-    .await
+    let result = match crate::production_clients() {
+        Ok((auth_client, broker_client)) => {
+            r2a3::execute_r2a3_pipeline_preserving_attempts(
+                &auth_client,
+                &broker_client,
+                r2a3::PRODUCTION_BASE_URL,
+                R2a3PipelineInput {
+                    manifest: &prepared.manifest,
+                    signed_authorities: &prepared.receipts,
+                    public_keys: &prepared.public_keys,
+                    run_nonce_sha256: &prepared.package.run_nonce_sha256,
+                    account_id: &prepared.account_id,
+                    account_key: &prepared.account_key[..],
+                    secret: &prepared.secret,
+                    authorization_status: "ISSUED",
+                },
+            )
+            .await
+        }
+        Err(_) => Err(r2a3::R2a3PipelineFailure {
+            error: R2a3Error::Network,
+            attempts: Vec::new(),
+            failed_attempt: None,
+        }),
+    };
+    let terminal = terminal_evidence(&prepared, &executable, started_at_utc, &result)?;
+    persist_terminal_evidence(&terminal).map_err(|_| R2a3Error::EvidencePersistence)?;
+    result.map_err(|failure| failure.error)
 }
 
 fn controlled_client_from_fixed_files() -> Result<(reqwest::Client, String), R2a3Error> {
@@ -2873,5 +3231,54 @@ mod tests {
                 .verify(&package_preimage(&forged).unwrap(), &signature)
                 .is_err());
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn terminal_evidence_is_create_new_single_link_and_non_replayable() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(
+            directory.path(),
+            std::fs::Permissions::from_mode(R2B_EVIDENCE_DIRECTORY_MODE),
+        )
+        .unwrap();
+        let uid = unsafe { libc::geteuid() };
+        let gid = unsafe { libc::getegid() };
+        let now = Utc::now();
+        let evidence = R2bTerminalEvidenceV1 {
+            schema_version: 1,
+            stage: "Stage 8B-P R2B".to_owned(),
+            operation: Operation::Place,
+            run_nonce_sha256: "a".repeat(64),
+            signed_run_package_sha256: "b".repeat(64),
+            contract_snapshot_sha256: "c".repeat(64),
+            helper_executable_sha256: "d".repeat(64),
+            production_composition_sha256: "e".repeat(64),
+            started_at_utc: now,
+            finished_at_utc: now,
+            terminal_outcome: R2bTerminalOutcome::Failure,
+            terminal_error_category: Some(R2bTerminalErrorCategory::NetworkConnectFailure),
+            terminal_error_detail_redacted: Some("NETWORK_CONNECT_FAILURE".to_owned()),
+            request_attempts: Vec::new(),
+            broker_truth_summary: None,
+            operator_arm_issued: false,
+            dispatch_attempt_recorded: false,
+            effect_transport_entered: false,
+            order_post_sent: false,
+            order_delete_sent: false,
+            raw_body_exported: false,
+            credential_exported: false,
+            account_id_exported: false,
+        };
+        let path =
+            persist_terminal_evidence_at(directory.path(), &evidence, uid, uid, gid).unwrap();
+        let metadata = std::fs::symlink_metadata(&path).unwrap();
+        assert!(metadata.file_type().is_file());
+        assert_eq!(metadata.nlink(), 1);
+        assert_eq!(metadata.mode() & 0o777, R2B_EVIDENCE_FILE_MODE);
+        assert!(matches!(
+            persist_terminal_evidence_at(directory.path(), &evidence, uid, uid, gid),
+            Err(R2a3Error::EvidencePersistence)
+        ));
     }
 }

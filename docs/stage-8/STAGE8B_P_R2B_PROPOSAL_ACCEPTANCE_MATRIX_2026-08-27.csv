@@ -7,8 +7,8 @@ R2B-P-005,endpoints,exact PLACE broker GET sequence frozen,proposal authority,PA
 R2B-P-006,endpoints,exact CANCEL broker GET sequence frozen,proposal authority,PASS
 R2B-P-007,network,host and port exact,proposal authority,PASS
 R2B-P-008,network,redirect proxy retry and arbitrary request forbidden,proposal authority,PASS
-R2B-P-009,composition,exact executable sequence frozen,proposal authority,PASS
-R2B-P-010,composition,candidate Linux amd64 hashes frozen,proposal authority,PASS
+R2B-P-009,composition,writer-first exact executable sequence and cardinality frozen,authority plus executable-aware checker,PASS
+R2B-P-010,composition,reproducible production Linux hashes separated from controlled hashes,R1 build evidence plus checker,PASS
 R2B-P-011,credentials,fixed root and files frozen,proposal authority,PASS
 R2B-P-012,credentials,all authority validates before credential read,proposal authority,PASS
 R2B-P-013,sandbox,dedicated one-shot namespace and external destination allowlist required,proposal authority,PASS
@@ -19,7 +19,7 @@ R2B-P-017,freshness,trusted current source and full readiness semantics required
 R2B-P-018,contract,fresh public contract refresh required before issuance,proposal authority,PASS
 R2B-P-019,dto,strict decode and snapshot completeness required,proposal authority,PASS
 R2B-P-020,error,fail-closed error taxonomy frozen,proposal authority,PASS
-R2B-P-021,evidence,durable redacted evidence required,proposal authority,PASS
+R2B-P-021,evidence,success and failure preserve attempts and publish one durable terminal record,helper code plus Linux tests plus checker,PASS
 R2B-P-022,evidence,secret token account and raw body export forbidden,proposal authority,PASS
 R2B-P-023,execution,result cannot influence execution,proposal authority,PASS
 R2B-P-024,closed,order POST and DELETE remain impossible,proposal authority,PASS

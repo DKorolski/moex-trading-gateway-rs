@@ -62,9 +62,9 @@ pub use stage8b_no_send::{
 pub use stage8b_r2a7_source_adapter::seed_stage8b_r2a7_controlled_reader;
 #[cfg(feature = "stage8b-r2a7-source-adapter")]
 pub use stage8b_r2a7_source_adapter::{
-    issue_stage8b_r2a8_reader_manifest, publish_stage8b_r2a8_trusted_current_source_from_owner,
-    run_stage8b_r2a7_source_adapter, Stage8bR2a7PublicationEvidence, Stage8bR2a7RunMode,
-    Stage8bR2a7SourceAdapterError,
+    issue_stage8b_r2a8_reader_manifest, run_stage8b_r2a7_source_adapter,
+    run_stage8b_r2a8_production_current_source_writer, Stage8bR2a7PublicationEvidence,
+    Stage8bR2a7RunMode, Stage8bR2a7SourceAdapterError, Stage8bR2a8ProductionWriterEvidence,
 };
 
 use std::collections::{HashMap, HashSet};

@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B",
+  "revision": "R1",
   "artifact_kind": "design_only_readonly_preflight_proposal",
   "status": "PROPOSAL_ONLY_NOT_AUTHORIZED",
   "authorization_status": "NOT_ISSUED",
@@ -50,29 +51,106 @@
     "arbitrary_request_allowed": false
   },
   "production_composition": {
-    "source_writer_sequence": [
-      "stage8b-r2a7-source-adapter",
+    "exact_executable_sequence": [
+      "stage8b-r2a8-production-current-source-writer",
       "stage8b-r2a8-current-manifest-issuer",
+      "stage8b-r2a7-source-adapter",
       "stage8b-r2a5-authority-producer",
       "stage8b-r2a5-authority-issuer",
       "stage8b-r2a5-package-issuer",
       "accepted-stage8b-r2a5-launcher",
       "accepted-stage8b-readonly-preflight"
     ],
-    "exact_candidate_linux_amd64_sha256": {
-      "stage8b-r2a7-source-adapter": "b407b8997f0c5bcf299e7e0c25192ae7a0535680f75ed2d4b4bd941f1af945f5",
-      "stage8b-r2a8-current-manifest-issuer": "ab7a89b7f76e9f22c752447a0159740c0134bb952889ad75c890e2651745cdb9",
+    "exact_invocation_cardinality": {
+      "stage8b-r2a8-production-current-source-writer": 1,
+      "stage8b-r2a8-current-manifest-issuer": 1,
+      "stage8b-r2a7-source-adapter": 1,
+      "stage8b-r2a5-authority-producer": 11,
+      "stage8b-r2a5-authority-issuer": 11,
+      "stage8b-r2a5-package-issuer": 1,
+      "accepted-stage8b-r2a5-launcher": 1,
+      "accepted-stage8b-readonly-preflight": 1
+    },
+    "exact_artifact_flow": [
+      "signed_production_writer_intake->trusted_current_source",
+      "trusted_current_source->reader_manifest",
+      "reader_manifest->operational_authority_records",
+      "operational_authority_records->signed_source_receipts",
+      "signed_source_receipts->signed_run_package",
+      "signed_run_package->fd_bound_launcher",
+      "fd_bound_launcher->readonly_preflight_helper",
+      "readonly_preflight_helper->durable_terminal_evidence"
+    ],
+    "production_linux_amd64_sha256": {
+      "stage8b-r2a8-production-current-source-writer": "2c5a8b7a47abafa99c782dada3b0e631de62b0e6988a4f8337db05b2514bb658",
+      "stage8b-r2a8-current-manifest-issuer": "a94d5969c1fbc4a8bb4dca1bf767bd63be75ef1c733c89968f095d12c69b2849",
+      "stage8b-r2a7-source-adapter": "61bd5038d40f437ba970e72d8b14f0a99eca74a6f2cee18045f86cb06443f7b8",
       "stage8b-r2a5-authority-producer": "d042563b6fa8e548d3e32f56317ee7997a86f0402d4338f36629d15240adfafb",
       "stage8b-r2a5-authority-issuer": "06f995df30915cdcf58c52c13cd680f8e9bb481abc3ba542dfee724e081889b8",
       "stage8b-r2a5-package-issuer": "f806e91f3f2575e8c48fca3bd4eaa6b0f36f8e102f02c6cd5a2d88b86346d7c0",
       "accepted-stage8b-r2a5-launcher": "a38116f19aaffe5539b58b351d57e81ec1c6328f5a1d9a9744134468a5a51f03",
-      "accepted-stage8b-readonly-preflight": "fdfc0311152fadf6f241331745dbf284d02701667375fb731f044ce0fb47f608"
+      "accepted-stage8b-readonly-preflight": "c747e824fcf0cb49fec1aa123c35acb9f5c4533e0c7a7edde691e084944cf46b"
     },
-    "source_adapter_build_a_sha256": "e03a35a2889de323b285d1b57637d3c554063c1f5b249e53d8ab83341b7ed92b",
-    "source_adapter_build_b_sha256": "e03a35a2889de323b285d1b57637d3c554063c1f5b249e53d8ab83341b7ed92b",
-    "current_manifest_issuer_build_a_sha256": "6b85574323c6cc72e0382b72b958a8c222b7662351393b8caaafe4fb41414d0e",
-    "current_manifest_issuer_build_b_sha256": "6b85574323c6cc72e0382b72b958a8c222b7662351393b8caaafe4fb41414d0e",
-    "fixture_features_allowed": false
+    "controlled_qualification_linux_amd64_sha256": {
+      "stage8b-r2a7-source-adapter": "4feded4255e25d403305754db4e32de1512900563a7afd1a98bf8fe8dcaae86c",
+      "stage8b-r2a8-current-manifest-issuer": "596bcfd6ed13c597c6ff5496d69ac2c03758eee73892cd8a3e17ac8b4939915b",
+      "stage8b-r2a7-controlled-seeder": "392e25492f9888d0d212605591bcd2f6aeb272436ae0346a7efdef83029a136b"
+    },
+    "production_build_features": [
+      "stage8b-r2a7-source-adapter"
+    ],
+    "controlled_build_features": [
+      "stage8b-r2a7-controlled-qualification"
+    ],
+    "fixture_features_allowed_in_production": false,
+    "production_may_resolve_controlled_hash_domain": false,
+    "embedded_runtime_composition_contract": {
+      "path": "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
+      "sha256": "718232d41cd1505978c881c1af5d8d8cdc567185c66bbe87133a9fc36d0b179e",
+      "contains_executable_hashes": false,
+      "hash_cycle_prevented": true
+    },
+    "terminal_evidence_finalizer": "integrated_into_accepted-stage8b-readonly-preflight"
+  },
+  "production_current_source_writer": {
+    "executable": "stage8b-r2a8-production-current-source-writer",
+    "source_entrypoint": "crates/finam-gateway/src/bin/stage8b-r2a8-production-current-source-writer.rs",
+    "library_entrypoint": "run_stage8b_r2a8_production_current_source_writer",
+    "sole_production_owner_seam": "publish_stage8b_r2a8_trusted_current_source_from_owner",
+    "package": "finam-gateway",
+    "build_command": "cargo build --release -p finam-gateway --bin stage8b-r2a8-production-current-source-writer --features stage8b-r2a7-source-adapter",
+    "uid": 8095,
+    "gid": 8095,
+    "systemd_unit": "moex-stage8b-r2a8-production-current-source-writer.service",
+    "supplementary_groups": [],
+    "linux_capabilities": [],
+    "working_directory": "/var/lib/moex-trading/stage8b/r2a8/current-source",
+    "fixed_input": "/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-production-writer-intake.json",
+    "fixed_output": "/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json",
+    "intake_owner_uid": 8094,
+    "output_owner_uid": 8095,
+    "output_gid": 8095,
+    "output_mode": "0644",
+    "stage7b_parent": "/var/lib/moex-trading/stage7b",
+    "authority_root": "/var/lib/moex-trading/stage8a1-authority",
+    "startup_after": [
+      "stage7b recovery-ready owner state is durable",
+      "signed current broker-truth/readiness intake is durably published"
+    ],
+    "shutdown_dependency": "none; one-shot exits after atomic publication",
+    "caller_arguments_allowed": false,
+    "caller_paths_allowed": false,
+    "caller_snapshots_allowed": false,
+    "signed_fixed_intake_required": true,
+    "stage7b_owner_restart_required": true,
+    "exact_durable_request_revalidation_required": true,
+    "atomic_publication": true,
+    "file_and_directory_fsync": true,
+    "network_access_allowed": false,
+    "finam_credential_access_allowed": false,
+    "redis_access_allowed": false,
+    "runtime_live_authority": false,
+    "concurrency_policy": "single oneshot unit; systemd RefuseManualStart until issuance"
   },
   "credential_contract": {
     "root": "/run/credentials/moex-trading/stage8b/r2a5",
@@ -106,8 +184,26 @@
     "token_account_binding_required": true,
     "strict_dto_decode_required": true,
     "orders_snapshot_complete_required": true,
-    "trades_limit": 1000,
-    "full_trades_page_means_incomplete": true,
+    "query_policy": {
+      "policy_id": "stage8b-r2b-trades-single-page-v1",
+      "method": "GET",
+      "route_template": "/v1/accounts/{account_id}/trades",
+      "trades_query_parameter_names": [
+        "limit",
+        "interval.start_time",
+        "interval.end_time"
+      ],
+      "trades_limit": 1000,
+      "trades_window_ms": 86400000,
+      "window_start_semantics": "request_requested_at_minus_window_inclusive",
+      "window_end_semantics": "request_requested_at_inclusive",
+      "time_basis": "request_requested_at",
+      "timestamp_encoding": "RFC3339_seconds_UTC",
+      "pagination": "single_page_no_cursor",
+      "cursor_parameter": null,
+      "full_page_means_incomplete": true,
+      "caller_override_allowed": false
+    },
     "target_instrument_position_required": true,
     "unknown_status_fails_closed": true
   },
@@ -132,7 +228,61 @@
     "secret_recorded": false,
     "token_recorded": false,
     "account_id_recorded": false,
-    "canonical_broker_truth_summary_recorded": true
+    "canonical_broker_truth_summary_recorded": true,
+    "finalizer": "integrated helper outer scope",
+    "fixed_root": "/var/lib/moex-trading/stage8b/r2b-evidence",
+    "filename_template": "r2b-terminal-{signed_run_nonce_sha256}.json",
+    "directory_uid": 0,
+    "directory_gid": 8301,
+    "directory_mode": "0730",
+    "file_uid": 8301,
+    "file_gid": 8301,
+    "file_mode": "0640",
+    "create_new": true,
+    "no_follow": true,
+    "single_link_required": true,
+    "atomic_publish": "fsynced pending inode then link-create final and unlink pending",
+    "file_fsync": true,
+    "directory_fsync": true,
+    "one_terminal_record_per_nonce": true,
+    "partial_attempts_preserved_on_failure": true,
+    "request_attempt_schema": {
+      "ordinal_required": true,
+      "network_class_required": true,
+      "method_required": true,
+      "route_template_required": true,
+      "query_policy_id_for_trades": "stage8b-r2b-trades-single-page-v1",
+      "request_started_at_required": true,
+      "request_finished_at_required": true,
+      "status_optional_on_transport_failure": true,
+      "response_body_length_optional_on_transport_failure": true,
+      "semantic_receipt_optional_on_transport_failure": true,
+      "error_category_required_on_failed_attempt": true,
+      "timeout_stage_required_on_timeout": true,
+      "raw_body_exported": false
+    },
+    "terminal_categories": [
+      "SUCCESS",
+      "AUTH_SESSION_FAILURE",
+      "AUTH_DETAILS_FAILURE",
+      "NETWORK_CONNECT_FAILURE",
+      "TLS_FAILURE",
+      "DNS_FAILURE",
+      "TIMEOUT",
+      "HTTP_NON_200",
+      "RESPONSE_TOO_LARGE",
+      "DTO_DECODE_FAILURE",
+      "READINESS_INVALID",
+      "FRESHNESS_INVALID",
+      "BROKER_TRUTH_INCOMPLETE",
+      "TRADES_PAGE_FULL",
+      "LIFECYCLE_MISMATCH",
+      "FINAL_REVALIDATION_FAILURE",
+      "CONTRACT_DRIFT",
+      "EVIDENCE_PERSISTENCE_FAILURE",
+      "INTERNAL_INVARIANT_FAILURE"
+    ],
+    "evidence_persistence_failure_policy": "nonce consumed; EVIDENCE_PERSISTENCE_FAILURE; no retry; operator review"
   },
   "closed_surfaces": {
     "operator_arm_issued": false,

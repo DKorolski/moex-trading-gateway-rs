@@ -187,6 +187,29 @@ pub struct R2a3AttemptEvidence {
     pub raw_body_sha256_exported: bool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum R2a3AttemptFailureKind {
+    NetworkConnectFailure,
+    Timeout,
+    ResponseTooLarge,
+    ResponseBodyFailure,
+    FreshnessInvalid,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct R2a3FailedAttemptEvidence {
+    pub ordinal: usize,
+    pub network_class: NetworkClass,
+    pub method: &'static str,
+    pub route_template: &'static str,
+    pub request_started_at_utc: DateTime<Utc>,
+    pub request_finished_at_utc: DateTime<Utc>,
+    pub error_kind: R2a3AttemptFailureKind,
+    pub timeout_stage: Option<&'static str>,
+    pub raw_body_sha256_exported: bool,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct R2a3ReadonlyEvidence {
     pub schema_version: u8,
@@ -216,12 +239,25 @@ pub enum R2a3Error {
     Input,
     #[error("R2A3 network or broker truth failed closed")]
     Network,
+    #[error("R2B terminal evidence could not be durably persisted; nonce remains consumed")]
+    EvidencePersistence,
     #[error(transparent)]
     R2a2(#[from] R2a2Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+/// Failure returned by the R2B pipeline without discarding requests that were
+/// already observed.  The production terminal-evidence finalizer consumes
+/// this type; callers that only need the historical error API use the wrapper
+/// below.
+#[derive(Debug)]
+pub struct R2a3PipelineFailure {
+    pub error: R2a3Error,
+    pub attempts: Vec<R2a3AttemptEvidence>,
+    pub failed_attempt: Option<R2a3FailedAttemptEvidence>,
 }
 
 fn lower_hex(bytes: &[u8]) -> String {
@@ -397,15 +433,79 @@ pub(crate) struct R2a3PipelineInput<'a> {
 async fn timed_response(
     request: reqwest::RequestBuilder,
     cap: usize,
-) -> Result<(DateTime<Utc>, DateTime<Utc>, u16, Zeroizing<Vec<u8>>), R2a3Error> {
+) -> Result<(DateTime<Utc>, DateTime<Utc>, u16, Zeroizing<Vec<u8>>), TimedResponseFailure> {
     let started = Utc::now();
-    let response = request.send().await.map_err(|_| R2a3Error::Network)?;
-    let (status, body) = r2a2::read_bounded_response(response, cap).await?;
+    let response = request.send().await.map_err(|error| TimedResponseFailure {
+        error: R2a3Error::Network,
+        started,
+        finished: Utc::now(),
+        kind: if error.is_timeout() {
+            R2a3AttemptFailureKind::Timeout
+        } else {
+            R2a3AttemptFailureKind::NetworkConnectFailure
+        },
+    })?;
+    let (status, body) = r2a2::read_bounded_response(response, cap)
+        .await
+        .map_err(|error| {
+            let kind = if matches!(&error, R2a2Error::OversizeResponse) {
+                R2a3AttemptFailureKind::ResponseTooLarge
+            } else {
+                R2a3AttemptFailureKind::ResponseBodyFailure
+            };
+            TimedResponseFailure {
+                error: error.into(),
+                started,
+                finished: Utc::now(),
+                kind,
+            }
+        })?;
     let finished = Utc::now();
     if finished < started {
-        return Err(R2a3Error::Freshness);
+        return Err(TimedResponseFailure {
+            error: R2a3Error::Freshness,
+            started,
+            finished,
+            kind: R2a3AttemptFailureKind::FreshnessInvalid,
+        });
     }
     Ok((started, finished, status, body))
+}
+
+struct TimedResponseFailure {
+    error: R2a3Error,
+    started: DateTime<Utc>,
+    finished: DateTime<Utc>,
+    kind: R2a3AttemptFailureKind,
+}
+
+struct FailedAttemptInput {
+    ordinal: usize,
+    class: NetworkClass,
+    method: &'static str,
+    template: &'static str,
+    failure: TimedResponseFailure,
+}
+
+fn failed_attempt(input: FailedAttemptInput) -> (R2a3Error, R2a3FailedAttemptEvidence) {
+    let TimedResponseFailure {
+        error,
+        started,
+        finished,
+        kind,
+    } = input.failure;
+    let evidence = R2a3FailedAttemptEvidence {
+        ordinal: input.ordinal,
+        network_class: input.class,
+        method: input.method,
+        route_template: input.template,
+        request_started_at_utc: started,
+        request_finished_at_utc: finished,
+        error_kind: kind,
+        timeout_stage: (kind == R2a3AttemptFailureKind::Timeout).then_some("request"),
+        raw_body_sha256_exported: false,
+    };
+    (error, evidence)
 }
 
 struct AttemptInput {
@@ -452,38 +552,80 @@ fn revalidate(
     )
 }
 
-pub(crate) async fn execute_r2a3_pipeline(
+pub(crate) async fn execute_r2a3_pipeline_preserving_attempts(
     auth_client: &reqwest::Client,
     broker_client: &reqwest::Client,
     base: &str,
     input: R2a3PipelineInput<'_>,
-) -> Result<R2a3ReadonlyEvidence, R2a3Error> {
-    if !matches!(input.authorization_status, "ISSUED" | "NOT_ISSUED") {
-        return Err(R2a3Error::Authorization);
+) -> Result<R2a3ReadonlyEvidence, R2a3PipelineFailure> {
+    let mut attempts = Vec::new();
+    let mut failed_request = None;
+    macro_rules! fail {
+        ($error:expr) => {
+            return Err(R2a3PipelineFailure {
+                error: $error,
+                attempts,
+                failed_attempt: failed_request,
+            })
+        };
     }
-    let (manifest, _) = revalidate(&input)?;
-    r2a2::verify_account_binding(
+    macro_rules! attempt_try {
+        ($expression:expr) => {
+            match $expression {
+                Ok(value) => value,
+                Err(error) => fail!(error.into()),
+            }
+        };
+    }
+    macro_rules! timed_try {
+        ($expression:expr, $ordinal:expr, $class:expr, $method:expr, $template:expr) => {
+            match $expression {
+                Ok(value) => value,
+                Err(failure) => {
+                    let (error, evidence) = failed_attempt(FailedAttemptInput {
+                        ordinal: $ordinal,
+                        class: $class,
+                        method: $method,
+                        template: $template,
+                        failure,
+                    });
+                    failed_request = Some(evidence);
+                    fail!(error)
+                }
+            }
+        };
+    }
+    if !matches!(input.authorization_status, "ISSUED" | "NOT_ISSUED") {
+        fail!(R2a3Error::Authorization);
+    }
+    let (manifest, _) = attempt_try!(revalidate(&input));
+    attempt_try!(r2a2::verify_account_binding(
         &manifest,
         input.account_id,
         &manifest.account_key_generation_id,
         input.account_key,
-    )?;
+    ));
     if input.secret.is_empty() {
-        return Err(R2a3Error::Input);
+        fail!(R2a3Error::Input);
     }
-    let base_url = reqwest::Url::parse(base).map_err(|_| R2a3Error::Input)?;
+    let base_url = attempt_try!(reqwest::Url::parse(base).map_err(|_| R2a3Error::Input));
     if !matches!(base_url.scheme(), "http" | "https") {
-        return Err(R2a3Error::Input);
+        fail!(R2a3Error::Input);
     }
-    let mut attempts = Vec::new();
-    let auth_url = base_url.join("v1/sessions").map_err(|_| R2a3Error::Input)?;
-    let (started, finished, status, body) = timed_response(
-        auth_client
-            .post(auth_url)
-            .json(&serde_json::json!({"secret": input.secret})),
-        AUTH_BODY_CAP,
-    )
-    .await?;
+    let auth_url = attempt_try!(base_url.join("v1/sessions").map_err(|_| R2a3Error::Input));
+    let (started, finished, status, body) = timed_try!(
+        timed_response(
+            auth_client
+                .post(auth_url)
+                .json(&serde_json::json!({"secret": input.secret})),
+            AUTH_BODY_CAP,
+        )
+        .await,
+        1,
+        NetworkClass::AuthService,
+        "POST",
+        "/v1/sessions"
+    );
     attempts.push(attempt(AttemptInput {
         ordinal: 1,
         class: NetworkClass::AuthService,
@@ -495,23 +637,29 @@ pub(crate) async fn execute_r2a3_pipeline(
         body_len: body.len(),
     }));
     if status != 200 {
-        return Err(R2a3Error::Network);
+        fail!(R2a3Error::Network);
     }
-    let auth: StrictAuthResponse = serde_json::from_slice(&body)?;
+    let auth: StrictAuthResponse = attempt_try!(serde_json::from_slice(&body));
     let token = Zeroizing::new(auth.token);
     if token.is_empty() {
-        return Err(R2a3Error::Network);
+        fail!(R2a3Error::Network);
     }
-    let details_url = base_url
+    let details_url = attempt_try!(base_url
         .join("v1/sessions/details")
-        .map_err(|_| R2a3Error::Input)?;
-    let (started, finished, status, body) = timed_response(
-        auth_client
-            .post(details_url)
-            .json(&serde_json::json!({"token": token.as_str()})),
-        AUTH_BODY_CAP,
-    )
-    .await?;
+        .map_err(|_| R2a3Error::Input));
+    let (started, finished, status, body) = timed_try!(
+        timed_response(
+            auth_client
+                .post(details_url)
+                .json(&serde_json::json!({"token": token.as_str()})),
+            AUTH_BODY_CAP,
+        )
+        .await,
+        2,
+        NetworkClass::AuthService,
+        "POST",
+        "/v1/sessions/details"
+    );
     attempts.push(attempt(AttemptInput {
         ordinal: 2,
         class: NetworkClass::AuthService,
@@ -523,12 +671,16 @@ pub(crate) async fn execute_r2a3_pipeline(
         body_len: body.len(),
     }));
     if status != 200 {
-        return Err(R2a3Error::Network);
+        fail!(R2a3Error::Network);
     }
-    let details: StrictTokenDetails = serde_json::from_slice(&body)?;
-    r2a2::validate_token_details(details, input.account_id, Utc::now())?;
+    let details: StrictTokenDetails = attempt_try!(serde_json::from_slice(&body));
+    attempt_try!(r2a2::validate_token_details(
+        details,
+        input.account_id,
+        Utc::now()
+    ));
 
-    let (manifest, _) = revalidate(&input)?;
+    let (manifest, _) = attempt_try!(revalidate(&input));
     let plan = ReadPlan {
         operation: manifest.operation,
         run_identity_sha256: manifest.run_identity_sha256.clone(),
@@ -553,9 +705,9 @@ pub(crate) async fn execute_r2a3_pipeline(
     let mut account = None;
     let mut previous_get_started: Option<Instant> = None;
     for (index, source) in plan.sources.iter().copied().enumerate() {
-        let (current, local) = revalidate(&input)?;
+        let (current, local) = attempt_try!(revalidate(&input));
         if current.run_identity_sha256 != manifest.run_identity_sha256 {
-            return Err(R2a3Error::Freshness);
+            fail!(R2a3Error::Freshness);
         }
         if let Some(previous) = previous_get_started {
             let minimum = Duration::from_millis(MIN_BROKER_GET_INTERVAL_MS);
@@ -564,25 +716,30 @@ pub(crate) async fn execute_r2a3_pipeline(
                 tokio::time::sleep(minimum - elapsed).await;
             }
         }
-        revalidate(&input)?;
+        attempt_try!(revalidate(&input));
         previous_get_started = Some(Instant::now());
-        let (url, template) = crate::route(
+        let (url, template) = attempt_try!(crate::route(
             &base_url,
             source,
             input.account_id,
             plan.broker_order_id.as_deref(),
             local.trusted_now_utc,
         )
-        .map_err(|_| R2a3Error::Input)?;
+        .map_err(|_| R2a3Error::Input));
         let cap = match source {
             Source::GetOrder => EXACT_ORDER_BODY_CAP,
             Source::OrdersSnapshot => ORDERS_BODY_CAP,
             Source::TradesSnapshot => TRADES_BODY_CAP,
             Source::PositionSnapshot => ACCOUNT_BODY_CAP,
         };
-        let (started, finished, status, body) =
-            timed_response(broker_client.get(url).bearer_auth(token.as_str()), cap).await?;
         let ordinal = AUTH_REQUEST_BUDGET + index + 1;
+        let (started, finished, status, body) = timed_try!(
+            timed_response(broker_client.get(url).bearer_auth(token.as_str()), cap).await,
+            ordinal,
+            NetworkClass::BrokerTruth,
+            "GET",
+            template
+        );
         attempts.push(attempt(AttemptInput {
             ordinal,
             class: NetworkClass::BrokerTruth,
@@ -594,7 +751,7 @@ pub(crate) async fn execute_r2a3_pipeline(
             body_len: body.len(),
         }));
         if status != 200 {
-            return Err(R2a3Error::Network);
+            fail!(R2a3Error::Network);
         }
         match source {
             Source::GetOrder => exact_order = Some(body),
@@ -603,20 +760,29 @@ pub(crate) async fn execute_r2a3_pipeline(
             Source::PositionSnapshot => account = Some(body),
         }
     }
-    let (final_manifest, _) = revalidate(&input)?;
+    let (final_manifest, _) = attempt_try!(revalidate(&input));
     if final_manifest.run_identity_sha256 != manifest.run_identity_sha256 {
-        return Err(R2a3Error::Freshness);
+        fail!(R2a3Error::Freshness);
     }
-    let broker_truth = r2a2::reduce_broker_truth(
+    let Some(orders) = orders.as_deref() else {
+        fail!(R2a3Error::Network);
+    };
+    let Some(trades) = trades.as_deref() else {
+        fail!(R2a3Error::Network);
+    };
+    let Some(account) = account.as_deref() else {
+        fail!(R2a3Error::Network);
+    };
+    let broker_truth = attempt_try!(r2a2::reduce_broker_truth(
         &manifest,
         input.account_id,
         BrokerTruthBodies {
             exact_order: exact_order.as_ref().map(|body| body.as_slice()),
-            orders: orders.as_deref().ok_or(R2a3Error::Network)?,
-            trades: trades.as_deref().ok_or(R2a3Error::Network)?,
-            account: account.as_deref().ok_or(R2a3Error::Network)?,
+            orders,
+            trades,
+            account,
         },
-    )?;
+    ));
     Ok(R2a3ReadonlyEvidence {
         schema_version: 3,
         run_nonce_sha256: input.run_nonce_sha256.to_owned(),
@@ -632,6 +798,17 @@ pub(crate) async fn execute_r2a3_pipeline(
         finam_order_post_delete_sent: false,
         authorization_status: input.authorization_status,
     })
+}
+
+pub(crate) async fn execute_r2a3_pipeline(
+    auth_client: &reqwest::Client,
+    broker_client: &reqwest::Client,
+    base: &str,
+    input: R2a3PipelineInput<'_>,
+) -> Result<R2a3ReadonlyEvidence, R2a3Error> {
+    execute_r2a3_pipeline_preserving_attempts(auth_client, broker_client, base, input)
+        .await
+        .map_err(|failure| failure.error)
 }
 
 fn safe_component(value: &str) -> Result<&str, R2a3Error> {
@@ -1605,7 +1782,7 @@ mod tests {
                 .is_err()
         });
         let client = controlled_client(client_host, address, &client_root).unwrap();
-        let result = execute_r2a3_pipeline(
+        let failure = execute_r2a3_pipeline_preserving_attempts(
             &client,
             &client,
             &format!("https://{client_host}:{}/", address.port()),
@@ -1620,8 +1797,18 @@ mod tests {
                 authorization_status: "NOT_ISSUED",
             },
         )
-        .await;
-        assert!(matches!(result, Err(R2a3Error::Network)));
+        .await
+        .unwrap_err();
+        assert!(matches!(failure.error, R2a3Error::Network));
+        assert!(failure.attempts.is_empty());
+        let failed = failure
+            .failed_attempt
+            .expect("started TLS request must remain in terminal evidence");
+        assert_eq!(failed.ordinal, 1);
+        assert_eq!(failed.network_class, NetworkClass::AuthService);
+        assert_eq!(failed.method, "POST");
+        assert_eq!(failed.route_template, "/v1/sessions");
+        assert!(!failed.raw_body_sha256_exported);
         assert!(
             server.await.unwrap(),
             "HTTP became reachable before TLS rejection"

@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-23.
+Status date: 2026-08-28.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,19 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
+
+- Stage 8B-P R2A8-R1 is independently accepted at
+  `5b2079d7d524d2fa6f084f44f961c4b5958c042a`; its immutable handoff is
+  `moex-trading-project-5b2079d.zip`, SHA-256
+  `903df69b800477706f4b2e95097fe84174f42e89b0a85a4b5fa94430619acb6a`.
+- The original Stage 8B-P R2B proposal at `94345a9` was not accepted. The
+  active candidate is **Stage 8B-P R2B Proposal R1**, a design-only correction
+  for production writer ordering, production-versus-controlled executable
+  hash domains and durable success/failure evidence. R2B authorization remains
+  `NOT_ISSUED`; operator selection and signed run package are absent.
+- FINAM network access, account-order POST/DELETE, Redis live consumption,
+  broker dispatch, runtime-live, strategy-live and real orders remain closed.
+  Proposal R1 does not authorize a credential read or any broker request.
 
 - Stage 8B-D R1 at `b3358ba2268da3db4eb8352c097495ebb85575d7` retained the
   proposed bounded-effect architecture but was not accepted as a frozen transition

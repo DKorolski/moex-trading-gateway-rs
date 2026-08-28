@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B",
+  "revision": "R1",
+  "contract_id": "stage8b-p-r2b-runtime-composition-v1",
+  "authorization_status": "NOT_ISSUED",
+  "exact_executable_sequence": [
+    "stage8b-r2a8-production-current-source-writer",
+    "stage8b-r2a8-current-manifest-issuer",
+    "stage8b-r2a7-source-adapter",
+    "stage8b-r2a5-authority-producer",
+    "stage8b-r2a5-authority-issuer",
+    "stage8b-r2a5-package-issuer",
+    "accepted-stage8b-r2a5-launcher",
+    "accepted-stage8b-readonly-preflight"
+  ],
+  "query_policy": {
+    "policy_id": "stage8b-r2b-trades-single-page-v1",
+    "method": "GET",
+    "route_template": "/v1/accounts/{account_id}/trades",
+    "trades_query_parameter_names": [
+      "limit",
+      "interval.start_time",
+      "interval.end_time"
+    ],
+    "trades_limit": 1000,
+    "trades_window_ms": 86400000,
+    "time_basis": "request_requested_at",
+    "timestamp_encoding": "RFC3339_seconds_UTC",
+    "pagination": "single_page_no_cursor",
+    "full_page_means_incomplete": true,
+    "caller_override_allowed": false
+  },
+  "terminal_evidence": {
+    "schema_version": 1,
+    "fixed_root": "/var/lib/moex-trading/stage8b/r2b-evidence",
+    "filename_template": "r2b-terminal-{signed_run_nonce_sha256}.json",
+    "one_terminal_record_per_nonce": true,
+    "partial_attempts_preserved_on_failure": true,
+    "raw_body_exported": false,
+    "credential_exported": false,
+    "account_id_exported": false
+  },
+  "closed_surfaces": {
+    "order_post": false,
+    "order_delete": false,
+    "broker_dispatch": false,
+    "redis_live_consumer": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

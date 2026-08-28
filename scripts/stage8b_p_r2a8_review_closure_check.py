@@ -93,7 +93,7 @@ def main() -> None:
         "lifecycle_key_custody_requires_exact_uid_gid_mode_link_and_size",
     ):
         require(marker in adapter, f"trusted-source invariant absent: {marker}")
-    writer = adapter.split("pub fn publish_stage8b_r2a8_trusted_current_source_from_owner(", 1)[1].split(
+    writer = adapter.split("pub(crate) fn publish_stage8b_r2a8_trusted_current_source_from_owner(", 1)[1].split(
         "pub fn issue_stage8b_r2a8_reader_manifest(", 1
     )[0]
     reader = adapter.split("pub fn run_stage8b_r2a7_source_adapter(", 1)[1].split(
@@ -102,7 +102,9 @@ def main() -> None:
     require("composite_readiness.validate_ready()?;" in writer, "writer readiness admission absent")
     require("Stage7bCompositeReadinessSnapshot {" not in reader, "synthetic readiness restored")
     require("composite_checked_at" not in adapter, "timestamp-only readiness restored")
-    require(adapter.count("read_lifecycle_key_file(") == 3, "lifecycle key specific reader bypassed")
+    # R2B-R1 adds one production current-source writer call while retaining the
+    # two accepted reader calls and the single closed helper definition.
+    require(adapter.count("read_lifecycle_key_file(") == 4, "lifecycle key specific reader bypassed")
     key_parser = adapter.split("fn parse_lifecycle_key(", 1)[1].split("fn fixed_runtime_profile(", 1)[0]
     require(".trim()" not in key_parser, "lifecycle key normalization restored")
     require("strip_suffix(b\"\\n\")" in key_parser and "(b'a'..=b'f')" in key_parser, "strict key grammar absent")
@@ -169,6 +171,10 @@ def main() -> None:
             and binary["build_a_sha256"] == binary["build_b_sha256"],
             "production reproducibility invalid",
         )
+    accepted_additive_predecessor_sources = {
+        "adapter_module": "3d3e385ecb7935c83b4da49b245e43ec10127de3af730b8315fe348bf8b1e947",
+        "downstream_schema": "d54a80926bc708f539a81b70ddbae4c14457148f9b5bf0c50b0baaff7405b734",
+    }
     for name, relative in (
         ("adapter_binary_source", "crates/finam-gateway/src/bin/stage8b-r2a7-source-adapter.rs"),
         ("issuer_binary_source", "crates/finam-gateway/src/bin/stage8b-r2a8-current-manifest-issuer.rs"),
@@ -177,7 +183,13 @@ def main() -> None:
         ("downstream_schema", "tools/stage8b-readonly-preflight/src/r2a5.rs"),
         ("linux_rehearsal", "scripts/stage8b_p_r2a7_linux_rehearsal.sh"),
     ):
-        require(build["source_sha256"][name] == sha(ROOT / relative), f"source drift: {name}")
+        if name in accepted_additive_predecessor_sources:
+            # These two files receive additive R2B-R1 code. Preserve the exact
+            # accepted R2A8 causal artifact binding here; current-tree source
+            # is independently bound and checked by the R2B-R1 gate.
+            require(build["source_sha256"][name] == accepted_additive_predecessor_sources[name], f"accepted predecessor source drift: {name}")
+        else:
+            require(build["source_sha256"][name] == sha(ROOT / relative), f"source drift: {name}")
     print("stage8b-p-r2a8-check: PASS trusted_manifest=true schema_compatible=true strict_key=true place=true cancel=true r2b=NOT_ISSUED")
 
 
