@@ -1,10 +1,11 @@
-# Stage 8B-P R2B Proposal R4 — isolated admission, typed terminal and reachable creator
+# Stage 8B-P R2B Proposal R4-R1 — first-generation bootstrap closure
 
 Status: **design-only proposal; `R2B authorization = NOT_ISSUED`**.
 
 ## Purpose and scope
 
-R4 closes the review findings against R3 without issuing a FINAM capability.
+R4-R1 preserves the accepted R4 isolation/terminal design and closes the sole
+remaining first-generation creator finding without issuing a FINAM capability.
 The proposed future operation remains one operator-selected, one-shot,
 read-only broker-truth preflight for either PLACE or CANCEL context. This
 revision does not use a FINAM credential or external network and does not open
@@ -29,17 +30,25 @@ It requires all of the following non-serializable authorities at once:
 - the accepted operational identity and execution configuration;
 - the protected Stage 8A signing capability.
 
-The accepted owner-signed intake is a pinned bootstrap projection, not a
-caller DTO: its signature, config and freshness are checked before its opaque
-snapshots can be reminted by the reconstructed issuer. The creator derives
-chronology and expiry from those authoritative snapshots,
-signs the canonical commitment and atomically publishes one fixed owner-signed
-intake under a create-new producer lock. It accepts no caller JSON, snapshots,
-timestamps, paths or signing request and has no FINAM credential or network.
-The bootstrap predecessor is explicitly one still-fresh owner-signed intake
-from accepted R2A8; it is not a first-generation provisioning mechanism. The
-creator runs as UID/GID 8094 with only supplementary GID 8095 for the fixed
-Stage 5G lifecycle-key custody file. Its unit has no automatic install target.
+The creator's fixed input is now a separate
+`stage8b-r2a8-upstream-current-authority.json`. It can only be published while
+the accepted `Stage7bRecoveryReadyOwner`, exact durable request, opaque
+`Stage8a1TrustedCurrentSources` and protected Stage 8A issuer are held together.
+It is signed, freshness-bound and independent from the creator's output.
+
+With no prior creator output present, the creator emits generation 1. With a
+cryptographically valid predecessor present, it revalidates the current owner
+and independently fresh upstream authority, then emits generation N+1 and
+binds the predecessor commitment. A predecessor, including an expired one, is
+continuity evidence only and never supplies readiness, broker truth, broker
+readiness or timestamps. The creator therefore supports an empty production
+intake root without the qualification seeder, caller JSON or manual snapshot.
+It signs and atomically publishes the fixed output under a create-new lock;
+file data, post-mode metadata and the parent directory are fsynced. It accepts
+no caller arguments and has no FINAM credential or network. The creator runs
+as UID/GID 8094 with supplementary GID 8095 only for the fixed Stage 5G
+lifecycle-key custody file. Its unit requires the independent upstream
+authority, not its own output, and has no automatic install target.
 
 `stage8b-r2a8-production-intake-stager` is intentionally named and limited to
 verifying and staging those exact signed bytes. It is not represented as the
@@ -170,7 +179,7 @@ exclusive-end interval `[request_time-24h, request_time)`.
 
 ## Required acceptance before issuance
 
-R4 requires reproducible Linux/amd64 production and controlled builds, the
+R4-R1 requires reproducible Linux/amd64 production and controlled builds, the
 full static/negative gate and an adversarial no-external-network rehearsal that
 proves direct/forged helper rejection, root terminal immutability, replay
 rejection, same-UID isolation, exact typed terminal validation, absolute

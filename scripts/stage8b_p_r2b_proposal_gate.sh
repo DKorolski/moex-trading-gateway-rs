@@ -97,4 +97,4 @@ if command -v docker >/dev/null 2>&1 && [[ "${STAGE8B_R2B_SKIP_LINUX_TESTS:-0}" 
 fi
 
 git diff --check
-echo "stage8b-p-r2b-proposal-gate: PASS revision=R4 rows=66 creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true hardening=true place=true cancel=true authorization=NOT_ISSUED external_network=false order_post_delete=false runtime_live=false"
+echo "stage8b-p-r2b-proposal-gate: PASS revision=R4-R1 rows=74 empty_root_generation_one=true renewal=true predecessor_snapshot_source=false creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true hardening=true place=true cancel=true authorization=NOT_ISSUED external_network=false order_post_delete=false runtime_live=false"

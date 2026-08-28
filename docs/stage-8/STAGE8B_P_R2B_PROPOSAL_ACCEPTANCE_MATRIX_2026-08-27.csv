@@ -65,3 +65,11 @@ R2B-P-063,protocol,root accepts only exact typed terminal and derives a canonica
 R2B-P-064,lifecycle,one monotonic deadline bounds frame reads child exit kill and reap,launcher and timeout fault rehearsal,PASS
 R2B-P-065,intake,authoritative creator has a reachable no-argument binary exact unit Linux hash and one invocation,creator source unit build evidence and checker,PASS
 R2B-P-066,durability,nonce and admission chmod metadata receive file fsync before directory fsync,admission source checker and negative harness,PASS
+R2B-P-067,bootstrap,empty production intake root creates owner-signed generation one without controlled seeder,production creator plus no-network Linux rehearsal,PASS
+R2B-P-068,bootstrap,fixed upstream authority is owner-mediated signed fresh and independent from creator output,source boundary checker and rehearsal,PASS
+R2B-P-069,continuity,generation N plus fresh upstream authority creates N+1 with predecessor commitment,production creator plus no-network Linux rehearsal,PASS
+R2B-P-070,continuity,predecessor never supplies readiness broker truth broker readiness or timestamps,creator evidence checker and negative harness,PASS
+R2B-P-071,continuity,expired but valid predecessor is continuity-only and cannot bypass fresh upstream authority,continuity validator unit policy and checker,PASS
+R2B-P-072,unit,creator condition references upstream authority and never its own output,systemd unit checker and negative harness,PASS
+R2B-P-073,durability,generation output receives data fsync post-mode fsync and directory fsync,atomic writer source checker and rehearsal,PASS
+R2B-P-074,closure,R4-R1 bootstrap path has no network credential Redis dispatch runtime-live or real orders,aggregate gate and safety evidence,PASS

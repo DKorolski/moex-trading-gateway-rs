@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B",
-  "revision": "R4",
+  "revision": "R4-R1",
   "artifact_kind": "design_only_readonly_preflight_proposal",
   "status": "PROPOSAL_ONLY_NOT_AUTHORIZED",
   "authorization_status": "NOT_ISSUED",
@@ -76,7 +76,7 @@
       "accepted-stage8b-readonly-preflight": 1
     },
     "exact_artifact_flow": [
-      "recovered_owner_plus_opaque_stage8a_sources->owner_signed_intake",
+      "owner_signed_upstream_current_authority->empty_root_generation_one_or_continuity_renewal",
       "owner_signed_intake->staged_production_writer_intake",
       "signed_production_writer_intake->trusted_current_source",
       "trusted_current_source->reader_manifest",
@@ -90,11 +90,11 @@
       "root_supervisor->immutable_terminal_evidence"
     ],
     "production_linux_amd64_sha256": {
-      "stage8b-r2a8-authoritative-intake-creator": "1b3589589c20954a7541873f013a14ff005993c1b4f57f1f0fd4c425f3ff9b37",
-      "stage8b-r2a8-production-intake-stager": "27b9f0893b74237050ddceef7bc3046276a54fd70c4e8d1ae506b954b9aa4992",
-      "stage8b-r2a8-production-current-source-writer": "bc0ece4551d295355fc5b238e3058641b0dbb6043adf124358f2fab8e805db96",
-      "stage8b-r2a8-current-manifest-issuer": "6c7ada14efb2f0789932561fec22ce7df232baaa170fc826f6d77476609c8963",
-      "stage8b-r2a7-source-adapter": "8b40a4e0726353d5160a77e07ce258b828eb8552ab1f11a9606af819285e95d5",
+      "stage8b-r2a8-authoritative-intake-creator": "c2545073eecc97a41091973ca11aca96046c781d135d9a97510e11864410a951",
+      "stage8b-r2a8-production-intake-stager": "35b4b22b65dd7e9a1d572492619ba344c729d81c600d3c8b38252e68f9adf321",
+      "stage8b-r2a8-production-current-source-writer": "c952127459a86ef64b31dcbbf644d0ff1f931d9b3f21935ce3b68a5341d8da14",
+      "stage8b-r2a8-current-manifest-issuer": "675783038430d9fa59397c0548ca083f4beca43b42d02842985bd6323f4686b1",
+      "stage8b-r2a7-source-adapter": "7e0777445e210432edfa7da4abbe9df240734c123cfd1b55f5997305daa7596f",
       "stage8b-r2a5-authority-producer": "98183d07362aee68fe8a630da65bf316433d333c723d8960b7927f886bac934b",
       "stage8b-r2a5-authority-issuer": "b893076d23fc03e12d7900d07b4cd9e9fc08b9daf03a70fb96587f120bc4536c",
       "stage8b-r2a5-package-issuer": "e3e3cad28206cf6f0db537af2b208fe82e25532a3bf79abf1d2ee48e09e7d94e",
@@ -102,10 +102,10 @@
       "accepted-stage8b-readonly-preflight": "5db401937b5e90e0237f9371a00b5af9ad2c0c3ce8e8b0899cdccafdb514578e"
     },
     "controlled_qualification_linux_amd64_sha256": {
-      "stage8b-r2a7-source-adapter": "1366d77951ad4150126aa6ec092cb9324194a66dc7393424917a539d3a56acb0",
-      "stage8b-r2a8-current-manifest-issuer": "3ce64380a11923f3804937f0533c7e6936cfa42751d053993f410aa42bb975cb",
-      "stage8b-r2a7-controlled-seeder": "11b2c63f287ff502fdaa57a58f1a976de4fac3a64a76a547b5139eb834486eca",
-      "stage8b-r2b-creator-chain-seeder": "9037f143f1470e0fdfbd3dab336d8b1111a9728ca51fa59f00344127a9d80a2a",
+      "stage8b-r2a7-source-adapter": "e77ddb330d7c07f12e935d4e59acef90ab00ff99f0c8504a99b12b753308dd1f",
+      "stage8b-r2a8-current-manifest-issuer": "a134a1bbdf4eb336c31660b2c91fe2fe402f1c74cb51670e76a2c990cfbbc672",
+      "stage8b-r2a7-controlled-seeder": "5b86e845ef1ad7ad3b0418751f77c58ba32222ae57e9bdf764fed8980ff85689",
+      "stage8b-r2b-creator-chain-seeder": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a",
       "stage8b-r2a5-controlled-server": "bc1d9feb16dbb4b40c14882ac15e0e3efe54eb19beb5fbaee8e8dff94c20f59f",
       "stage8b-r2a5-controlled-layout": "ebe5f57135a72cc61c80b5e8947ac998f9148edf687ce39f8437b6ebac94845e",
       "stage8b-r2b-controlled-custody-launcher": "2aff0ccd3199d9fac0bcee6eda46d5a2fce51ef9acafb1eafe61929474767426"
@@ -121,7 +121,7 @@
     "production_may_resolve_controlled_hash_domain": false,
     "embedded_runtime_composition_contract": {
       "path": "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
-      "sha256": "13da0d669466b97168107dbc06c167d8d74526cbdbc523084e0a8909166541ec",
+      "sha256": "53de1f6faaff0152baccdb5ae587d45c069f9d03c5cf7ff0edbfee3345e26e8e",
       "contains_executable_hashes": false,
       "hash_cycle_prevented": true
     },
@@ -141,8 +141,14 @@
     "systemd_unit": "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service",
     "systemd_invocation": "one fixed-input oneshot before the accurately named stager; enablement remains forbidden until R2B issuance",
     "invocation_cardinality": 1,
-    "bootstrap_predecessor": "one still-fresh owner-signed R2A8 intake accepted before R2B; it supplies projections only and is revalidated before the Stage7B owner, issuer and opaque sources are reconstructed",
-    "bootstrap_predecessor_required": true,
+    "fixed_upstream_authority": "/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json",
+    "upstream_authority_producer": "publish_stage8b_r2a8_upstream_current_authority_from_owner",
+    "empty_root_generation_one_supported": true,
+    "bootstrap_predecessor_required": false,
+    "predecessor_snapshot_source": false,
+    "expired_predecessor_policy": "signature_and_continuity_only",
+    "generation_continuity": "intake_generation and predecessor_intake_commitment_sha256",
+    "production_bootstrap_uses_controlled_seeder": false,
     "signing_key_custody": "Stage8a1OperationalAuthorityIssuer pins the protected Stage8A4 writer key; private material never crosses the opaque service seam",
     "upstream_owner_component": "Stage7bRecoveryReadyOwner plus Stage8a1TrustedCurrentSources",
     "upstream_owner_boundary": "accepted Stage7B recovery-ready owner plus accepted Stage8A trusted composition",
@@ -153,7 +159,7 @@
     "output_owner_uid": 8094,
     "output_gid": 8094,
     "output_mode": "0644",
-    "single_producer_lock": "UID8094 fixed-root create-new lock; crash requires operator review",
+    "single_producer_lock": "UID8094 fixed-root create-new lock removed only after durable publication; crash requires operator review",
     "atomic_write": true,
     "file_fsync": true,
     "directory_fsync": true,

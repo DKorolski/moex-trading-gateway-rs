@@ -177,10 +177,11 @@ test ! -e /var/lib/moex-trading/stage8b/r2a5/admissions
 echo "stage8b-r2b-r4-dedicated-uid-preflight: PASS"
 
 # The production creator and stager are executable, fixed-path components,
-# not documentation-only names.  A qualification-only predecessor seeder
-# reconstructs the accepted durable owner and signs one fresh bootstrap
-# projection.  The exact production binaries then refresh and stage it under
-# their frozen UID, with Docker network disabled by the aggregate gate.
+# not documentation-only names. A qualification-only setup reconstructs the
+# accepted durable owner and publishes the independently owner-signed upstream
+# authority, but deliberately does not create the creator's output. The exact
+# production creator therefore exercises empty-root generation one, immediate
+# N-to-N+1 renewal and staging with Docker networking disabled.
 rm -rf \
   /var/lib/moex-trading/stage7b \
   /var/lib/moex-trading/stage8a1-authority \
@@ -193,26 +194,53 @@ printf '%s\n' "$(printf '5a%.0s' {1..32})" \
   | install -o 8096 -g 8095 -m 0640 /dev/stdin \
       /var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-lifecycle-key.hex
 "$CREATOR_CHAIN_SEEDER" >/tmp/stage8b-r2b-r4-creator-seed.json
-rm -f /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.lock
 chown -R 8094:8094 /var/lib/moex-trading/stage7b
 chown 8094:8094 \
   /var/lib/moex-trading/stage8a1-authority/stage8a4-writer-issuer-signing-key.hex \
-  /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json
-before_creator_sha="$(sha256sum /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json | awk '{print $1}')"
+  /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json
+test ! -e /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json
+test ! -e /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.lock
 setpriv --reuid 8094 --regid 8094 --groups 8095 \
-  "$AUTHORITATIVE_CREATOR" >/tmp/stage8b-r2b-r4-creator.json
+  "$AUTHORITATIVE_CREATOR" >/tmp/stage8b-r2b-r4-creator-generation-1.json
+python3 - <<'PY'
+import json
+from pathlib import Path
+creator = json.loads(Path('/tmp/stage8b-r2b-r4-creator-generation-1.json').read_text())
+intake = json.loads(Path('/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json').read_text())
+assert creator['intake_generation'] == 1
+assert creator['bootstrap_mode'] == 'empty_root_generation_one'
+assert creator['predecessor_used_as_snapshot_source'] is False
+assert intake['intake_generation'] == 1
+assert intake['predecessor_intake_commitment_sha256'] is None
+PY
+generation_one_sha="$(sha256sum /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json | awk '{print $1}')"
+setpriv --reuid 8094 --regid 8094 --groups 8095 \
+  "$AUTHORITATIVE_CREATOR" >/tmp/stage8b-r2b-r4-creator-generation-2.json
+python3 - <<'PY'
+import json
+from pathlib import Path
+creator = json.loads(Path('/tmp/stage8b-r2b-r4-creator-generation-2.json').read_text())
+intake = json.loads(Path('/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json').read_text())
+assert creator['intake_generation'] == 2
+assert creator['bootstrap_mode'] == 'predecessor_continuity_renewal'
+assert creator['predecessor_used_as_snapshot_source'] is False
+assert intake['intake_generation'] == 2
+assert len(intake['predecessor_intake_commitment_sha256']) == 64
+PY
 setpriv --reuid 8094 --regid 8094 --groups 8095 \
   "$INTAKE_STAGER" >/tmp/stage8b-r2b-r4-stager.json
 after_creator_sha="$(sha256sum /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json | awk '{print $1}')"
 staged_sha="$(sha256sum /var/lib/moex-trading/stage8b/r2a8/intake/stage8b-r2a8-production-writer-intake.json | awk '{print $1}')"
 test "$after_creator_sha" = "$staged_sha"
-test -f /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.lock
-grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-creator.json
-grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-creator.json
+test "$generation_one_sha" != "$after_creator_sha"
+test ! -e /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.lock
+grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-creator-generation-1.json
+grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-creator-generation-1.json
+grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-creator-generation-2.json
+grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-creator-generation-2.json
 grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-stager.json
 grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-stager.json
-test -n "$before_creator_sha"
-echo "stage8b-r2b-r4-creator-stager-chain: PASS fixed_paths=true network=false credentials=false"
+echo "stage8b-r2b-r4-r1-empty-root-renewal-chain: PASS generation1=true generation2=true fixed_paths=true network=false credentials=false"
 
 # Privileged helper metadata is rejected before nonce admission.
 for privileged_mode in 4755 2755; do

@@ -36,6 +36,8 @@ use strategy_runtime_core::{
 const MANIFEST_FILE: &str = "stage8b-r2a7-reader-manifest.json";
 const TRUSTED_CURRENT_SOURCE_FILE: &str = "stage8b-r2a8-trusted-current-source.json";
 const PRODUCTION_WRITER_INTAKE_FILE: &str = "stage8b-r2a8-production-writer-intake.json";
+const PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_FILE: &str =
+    "stage8b-r2a8-upstream-current-authority.json";
 const PRODUCTION_OWNER_SIGNED_INTAKE_FILE: &str = "stage8b-r2a8-owner-signed-intake.json";
 const LIFECYCLE_KEY_FILE: &str = "stage8b-r2a7-lifecycle-key.hex";
 const PRODUCTION_WORK_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a7/production";
@@ -53,6 +55,8 @@ const CURRENT_SOURCE_COMMITMENT_DOMAIN: &[u8] =
     b"stage8b-r2a8-r1-trusted-current-source-commitment-v2";
 const PRODUCTION_WRITER_INTAKE_COMMITMENT_DOMAIN: &[u8] =
     b"stage8b-r2b-proposal-r1-production-writer-intake-v1";
+const PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_COMMITMENT_DOMAIN: &[u8] =
+    b"stage8b-r2b-proposal-r4-r1-upstream-current-authority-v1";
 const ACCEPTED_EXECUTION_CONFIG_FILE: &str = "stage8a1-accepted-execution-config.json";
 const ACCEPTED_EXECUTION_CONFIG_SHA256_FILE: &str =
     "stage8a1-accepted-execution-config.json.sha256";
@@ -140,6 +144,8 @@ pub struct Stage8bR2a8TrustedCurrentSourceV2 {
 #[serde(deny_unknown_fields)]
 pub struct Stage8bR2a8ProductionWriterIntakeV1 {
     pub schema_version: u16,
+    pub intake_generation: u64,
+    pub predecessor_intake_commitment_sha256: Option<String>,
     pub adapter_domain: String,
     pub runtime_profile_id: String,
     pub operational_identity: Stage6dOperationalIdentityConfig,
@@ -152,6 +158,30 @@ pub struct Stage8bR2a8ProductionWriterIntakeV1 {
     pub observed_at: chrono::DateTime<Utc>,
     pub expires_at: chrono::DateTime<Utc>,
     pub intake_commitment_sha256: String,
+    pub issuer_public_key_ed25519_hex: String,
+    pub issuer_signature_ed25519_hex: String,
+}
+
+/// Fresh owner-mediated input for the production creator. This is emitted by
+/// the accepted Stage 7B/Stage 8A owner boundary and is independent from the
+/// creator's own output. Consequently an empty intake root can produce
+/// generation one without a controlled seeder or caller-authored JSON.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bR2a8UpstreamCurrentAuthorityV1 {
+    pub schema_version: u16,
+    pub adapter_domain: String,
+    pub runtime_profile_id: String,
+    pub operational_identity: Stage6dOperationalIdentityConfig,
+    pub accepted_config_sha256: String,
+    pub durable_request_identity: Stage6DurableRequestIdentityV1,
+    pub durable_command: Stage6DurableCommandSnapshotV1,
+    pub composite_readiness: Stage8bCompositeReadinessAuthorityV1,
+    pub broker_truth: BrokerTruthSnapshot,
+    pub broker_readiness: BrokerReadinessSnapshot,
+    pub observed_at: chrono::DateTime<Utc>,
+    pub expires_at: chrono::DateTime<Utc>,
+    pub authority_commitment_sha256: String,
     pub issuer_public_key_ed25519_hex: String,
     pub issuer_signature_ed25519_hex: String,
 }
@@ -191,6 +221,9 @@ pub struct Stage8bR2a8AuthoritativeIntakeCreatorEvidence {
     pub service: &'static str,
     pub fixed_output: &'static str,
     pub intake_commitment_sha256: String,
+    pub intake_generation: u64,
+    pub bootstrap_mode: &'static str,
+    pub predecessor_used_as_snapshot_source: bool,
     pub opaque_current_sources_required: bool,
     pub recovered_owner_required: bool,
     pub caller_supplied_json_accepted: bool,
@@ -401,11 +434,35 @@ fn validate_production_writer_intake(
     accepted_config: &Stage8a1AcceptedExecutionConfigV1,
     accepted_config_sha256: &str,
 ) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    validate_production_writer_intake_common(intake, accepted_config, accepted_config_sha256, true)
+}
+
+fn validate_production_writer_intake_continuity(
+    intake: &Stage8bR2a8ProductionWriterIntakeV1,
+    accepted_config: &Stage8a1AcceptedExecutionConfigV1,
+    accepted_config_sha256: &str,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    validate_production_writer_intake_common(intake, accepted_config, accepted_config_sha256, false)
+}
+
+fn validate_production_writer_intake_common(
+    intake: &Stage8bR2a8ProductionWriterIntakeV1,
+    accepted_config: &Stage8a1AcceptedExecutionConfigV1,
+    accepted_config_sha256: &str,
+    require_fresh: bool,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
     let now = Utc::now();
     let operational_identity_sha256 =
         strategy_runtime_core::stage6d_operational_identity_sha256(&intake.operational_identity)
             .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     if intake.schema_version != 1
+        || intake.intake_generation == 0
+        || (intake.intake_generation == 1 && intake.predecessor_intake_commitment_sha256.is_some())
+        || (intake.intake_generation > 1
+            && match intake.predecessor_intake_commitment_sha256.as_deref() {
+                Some(commitment) => !valid_sha256(commitment),
+                None => true,
+            })
         || intake.adapter_domain != "production"
         || intake.runtime_profile_id != RUNTIME_PROFILE_ID
         || intake.accepted_config_sha256 != accepted_config_sha256
@@ -415,10 +472,7 @@ fn validate_production_writer_intake(
             .stage8a4_writer_issuer_public_key_hex
             != accepted_config.stage8a4_writer_issuer_public_key_hex
         || intake.observed_at > now + Duration::seconds(1)
-        || intake.expires_at <= now
-        || intake.expires_at <= intake.observed_at
-        || intake.expires_at - intake.observed_at
-            > Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS)
+        || !intake_chronology_is_valid(intake.observed_at, intake.expires_at, now, require_fresh)
         || intake.composite_readiness.validate_ready().is_err()
         || intake.intake_commitment_sha256 != production_writer_intake_commitment_sha256(intake)?
         || intake.issuer_public_key_ed25519_hex
@@ -440,6 +494,171 @@ fn validate_production_writer_intake(
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)
 }
 
+fn intake_chronology_is_valid(
+    observed_at: chrono::DateTime<Utc>,
+    expires_at: chrono::DateTime<Utc>,
+    now: chrono::DateTime<Utc>,
+    require_fresh: bool,
+) -> bool {
+    observed_at <= now + Duration::seconds(1)
+        && (!require_fresh || expires_at > now)
+        && expires_at > observed_at
+        && expires_at - observed_at <= Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS)
+}
+
+fn upstream_current_authority_commitment_sha256(
+    authority: &Stage8bR2a8UpstreamCurrentAuthorityV1,
+) -> Result<String, Stage8bR2a7SourceAdapterError> {
+    use sha2::{Digest, Sha256};
+    let mut unsigned = authority.clone();
+    unsigned.authority_commitment_sha256.clear();
+    unsigned.issuer_public_key_ed25519_hex.clear();
+    unsigned.issuer_signature_ed25519_hex.clear();
+    let bytes = serde_json::to_vec(&unsigned)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let mut hasher = Sha256::new();
+    hasher.update(PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_COMMITMENT_DOMAIN);
+    hasher.update(b"\0");
+    hasher.update(bytes);
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn validate_upstream_current_authority(
+    authority: &Stage8bR2a8UpstreamCurrentAuthorityV1,
+    accepted_config: &Stage8a1AcceptedExecutionConfigV1,
+    accepted_config_sha256: &str,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    let now = Utc::now();
+    let operational_identity_sha256 =
+        strategy_runtime_core::stage6d_operational_identity_sha256(&authority.operational_identity)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    if authority.schema_version != 1
+        || authority.adapter_domain != "production"
+        || authority.runtime_profile_id != RUNTIME_PROFILE_ID
+        || authority.accepted_config_sha256 != accepted_config_sha256
+        || operational_identity_sha256.as_str() != accepted_config.operational_identity_sha256
+        || authority
+            .operational_identity
+            .stage8a4_writer_issuer_public_key_hex
+            != accepted_config.stage8a4_writer_issuer_public_key_hex
+        || authority.observed_at > now + Duration::seconds(1)
+        || authority.expires_at <= now
+        || authority.expires_at <= authority.observed_at
+        || authority.expires_at - authority.observed_at
+            > Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS)
+        || authority.composite_readiness.validate_ready().is_err()
+        || authority.authority_commitment_sha256
+            != upstream_current_authority_commitment_sha256(authority)?
+        || authority.issuer_public_key_ed25519_hex
+            != accepted_config.stage8a4_writer_issuer_public_key_hex
+        || !valid_lower_hex(&authority.issuer_public_key_ed25519_hex, 64)
+        || !valid_lower_hex(&authority.issuer_signature_ed25519_hex, 128)
+    {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    let public_key = VerifyingKey::from_bytes(&decode_lower_hex::<32>(
+        &authority.issuer_public_key_ed25519_hex,
+    )?)
+    .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let signature = Signature::from_bytes(&decode_lower_hex::<64>(
+        &authority.issuer_signature_ed25519_hex,
+    )?);
+    public_key
+        .verify(authority.authority_commitment_sha256.as_bytes(), &signature)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)
+}
+
+/// Publishes the sole fresh upstream owner authority consumed by the creator.
+/// This seam is called only while the accepted Stage 7B owner and protected
+/// Stage 8A issuer are held in-process; no serializable caller input can mint
+/// the artifact. The artifact is independent of the creator output root.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn publish_stage8b_r2a8_upstream_current_authority_from_owner(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    operational_identity: &Stage6dOperationalIdentityConfig,
+    accepted_config_sha256: &str,
+    issuer: &Stage8a1OperationalAuthorityIssuer,
+    current_sources: &Stage8a1TrustedCurrentSources,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    let effective_uid = unsafe { libc::geteuid() };
+    #[cfg(feature = "stage8b-r2a7-controlled-qualification")]
+    let qualification_root = effective_uid == 0;
+    #[cfg(not(feature = "stage8b-r2a7-controlled-qualification"))]
+    let qualification_root = false;
+    if effective_uid != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID && !qualification_root {
+        return Err(Stage8bR2a7SourceAdapterError::WrongUid);
+    }
+    let (recovered_identity, recovered_command) = owner
+        .recovered()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?
+        .single_exact_dispatch_ready_request()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?;
+    if &recovered_identity != identity || &recovered_command != command {
+        return Err(Stage8bR2a7SourceAdapterError::DurableRequestInvalid);
+    }
+    let (readiness, broker_truth, broker_readiness) = current_sources
+        .stage8b_r2a8_current_snapshots(issuer)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let readiness = Stage8bCompositeReadinessAuthorityV1::from_snapshot(&readiness);
+    readiness.validate_ready()?;
+    let observed_at = [
+        readiness.checked_at,
+        broker_truth.received_ts,
+        broker_readiness
+            .schedule
+            .observed_ts
+            .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
+        broker_readiness
+            .instrument_spec
+            .observed_ts
+            .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
+    ]
+    .into_iter()
+    .min()
+    .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let mut authority = Stage8bR2a8UpstreamCurrentAuthorityV1 {
+        schema_version: 1,
+        adapter_domain: "production".to_owned(),
+        runtime_profile_id: RUNTIME_PROFILE_ID.to_owned(),
+        operational_identity: operational_identity.clone(),
+        accepted_config_sha256: accepted_config_sha256.to_owned(),
+        durable_request_identity: identity.clone(),
+        durable_command: command.clone(),
+        composite_readiness: readiness,
+        broker_truth,
+        broker_readiness,
+        observed_at,
+        expires_at: observed_at + Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS),
+        authority_commitment_sha256: String::new(),
+        issuer_public_key_ed25519_hex: String::new(),
+        issuer_signature_ed25519_hex: String::new(),
+    };
+    authority.authority_commitment_sha256 =
+        upstream_current_authority_commitment_sha256(&authority)?;
+    let (public_key, signature) = issuer
+        .sign_stage8b_r2a8_current_source_commitment(&authority.authority_commitment_sha256)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    authority.issuer_public_key_ed25519_hex = public_key;
+    authority.issuer_signature_ed25519_hex = signature;
+    let authority_root = Path::new(PRODUCTION_AUTHORITY_ROOT);
+    let config_bytes = read_fixed_regular_file(
+        &authority_root.join(ACCEPTED_EXECUTION_CONFIG_FILE),
+        MAX_MANIFEST_BYTES,
+        0,
+    )?;
+    let config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    validate_upstream_current_authority(&authority, &config, accepted_config_sha256)?;
+    atomic_write_fixed(
+        &authority_root.join(PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_FILE),
+        &serde_json::to_vec(&authority)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
+        STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+    )
+}
+
 /// The actual authoritative intake creator is an in-process service boundary,
 /// not a JSON-signing CLI. Construction requires the recovered Stage 7B owner,
 /// its exact durable request and an opaque current-source bundle minted by the
@@ -454,6 +673,8 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
     accepted_config_sha256: &str,
     issuer: &Stage8a1OperationalAuthorityIssuer,
     current_sources: &Stage8a1TrustedCurrentSources,
+    intake_generation: u64,
+    predecessor_intake_commitment_sha256: Option<String>,
 ) -> Result<Stage8bR2a8AuthoritativeIntakeCreatorEvidence, Stage8bR2a7SourceAdapterError> {
     use std::io::Write;
     let effective_uid = unsafe { libc::geteuid() };
@@ -510,6 +731,8 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
     .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     let mut intake = Stage8bR2a8ProductionWriterIntakeV1 {
         schema_version: 1,
+        intake_generation,
+        predecessor_intake_commitment_sha256,
         adapter_domain: "production".to_owned(),
         runtime_profile_id: RUNTIME_PROFILE_ID.to_owned(),
         operational_identity: operational_identity.clone(),
@@ -554,12 +777,22 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
             .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
         STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
     )?;
+    std::fs::remove_file(&lock_path)
+        .and_then(|_| std::fs::File::open(authority_root)?.sync_all())
+        .map_err(|_| Stage8bR2a7SourceAdapterError::PublicationFailed)?;
     Ok(Stage8bR2a8AuthoritativeIntakeCreatorEvidence {
         schema_version: 1,
         service: "stage8b-r2a8-authoritative-intake-creator-service",
         fixed_output:
             "/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json",
         intake_commitment_sha256: intake.intake_commitment_sha256,
+        intake_generation,
+        bootstrap_mode: if intake_generation == 1 {
+            "empty_root_generation_one"
+        } else {
+            "predecessor_continuity_renewal"
+        },
+        predecessor_used_as_snapshot_source: false,
         opaque_current_sources_required: true,
         recovered_owner_required: true,
         caller_supplied_json_accepted: false,
@@ -570,10 +803,10 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
 }
 
 /// Fixed-input production owner service for the authoritative intake creator.
-/// It accepts no arguments or caller DTOs. The previously owner-signed intake
-/// is used only as a pinned bootstrap projection; the durable owner, issuer,
-/// and opaque current-source capabilities are reconstructed independently
-/// before the creator writes the next exact owner-signed generation.
+/// It accepts no arguments or caller DTOs. Fresh snapshots come only from the
+/// independently owner-signed upstream authority. An existing intake is
+/// optional and, when present, is validated only as continuity evidence; it is
+/// never the snapshot source for either bootstrap or renewal.
 pub fn run_stage8b_r2a8_authoritative_intake_creator(
 ) -> Result<Stage8bR2a8AuthoritativeIntakeCreatorEvidence, Stage8bR2a7SourceAdapterError> {
     if unsafe { libc::geteuid() } != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID {
@@ -582,13 +815,14 @@ pub fn run_stage8b_r2a8_authoritative_intake_creator(
     let mode = Stage8bR2a7RunMode::Production;
     let layout = mode.layout();
     let authority_root = Path::new(PRODUCTION_AUTHORITY_ROOT);
-    let seed_bytes = read_fixed_regular_file(
-        &authority_root.join(PRODUCTION_OWNER_SIGNED_INTAKE_FILE),
+    let upstream_bytes = read_fixed_regular_file(
+        &authority_root.join(PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_FILE),
         MAX_MANIFEST_BYTES,
         STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
     )?;
-    let seed: Stage8bR2a8ProductionWriterIntakeV1 = serde_json::from_slice(&seed_bytes)
-        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let upstream: Stage8bR2a8UpstreamCurrentAuthorityV1 =
+        serde_json::from_slice(&upstream_bytes)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     let config_bytes = read_fixed_regular_file(
         &authority_root.join(ACCEPTED_EXECUTION_CONFIG_FILE),
         MAX_MANIFEST_BYTES,
@@ -607,22 +841,58 @@ pub fn run_stage8b_r2a8_authoritative_intake_creator(
     }
     let config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
-    validate_production_writer_intake(&seed, &config, config_sha)?;
+    validate_upstream_current_authority(&upstream, &config, config_sha)?;
+    let predecessor =
+        match std::fs::symlink_metadata(authority_root.join(PRODUCTION_OWNER_SIGNED_INTAKE_FILE)) {
+            Ok(metadata)
+                if metadata.file_type().is_symlink() || !metadata.file_type().is_file() =>
+            {
+                return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+            }
+            Ok(_) => {
+                let bytes = read_fixed_regular_file(
+                    &authority_root.join(PRODUCTION_OWNER_SIGNED_INTAKE_FILE),
+                    MAX_MANIFEST_BYTES,
+                    STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+                )?;
+                let intake: Stage8bR2a8ProductionWriterIntakeV1 = serde_json::from_slice(&bytes)
+                    .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+                validate_production_writer_intake_continuity(&intake, &config, config_sha)?;
+                if intake.operational_identity != upstream.operational_identity
+                    || intake.durable_request_identity != upstream.durable_request_identity
+                    || intake.durable_command != upstream.durable_command
+                {
+                    return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+                }
+                Some(intake)
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid),
+        };
+    let intake_generation = predecessor.as_ref().map_or(Ok(1), |intake| {
+        intake
+            .intake_generation
+            .checked_add(1)
+            .ok_or(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)
+    })?;
+    let predecessor_commitment = predecessor
+        .as_ref()
+        .map(|intake| intake.intake_commitment_sha256.clone());
     let commitment_key = parse_lifecycle_key(&read_lifecycle_key_file(
         &layout.work_root.join(LIFECYCLE_KEY_FILE),
     )?)?;
-    let runtime = fixed_runtime_profile(&seed.runtime_profile_id)?;
+    let runtime = fixed_runtime_profile(&upstream.runtime_profile_id)?;
     let root_name =
-        Stage7bDurableRootAuthority::expected_directory_name(&seed.operational_identity)
+        Stage7bDurableRootAuthority::expected_directory_name(&upstream.operational_identity)
             .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
     let root = Stage7bDurableRootAuthority::validate(
         layout.stage7b_parent.join(root_name),
-        &seed.operational_identity,
+        &upstream.operational_identity,
     )
     .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
     let Stage7bRestartOutcome::Ready(mut owner) = Stage7bRecoveryReadyOwner::restart(
         root,
-        seed.operational_identity.clone(),
+        upstream.operational_identity.clone(),
         &commitment_key,
         runtime,
     )
@@ -635,6 +905,9 @@ pub fn run_stage8b_r2a8_authoritative_intake_creator(
         .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?
         .single_exact_dispatch_ready_request()
         .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?;
+    if identity != upstream.durable_request_identity || command != upstream.durable_command {
+        return Err(Stage8bR2a7SourceAdapterError::DurableRequestInvalid);
+    }
     let issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
         &mut owner,
         &commitment_key,
@@ -646,19 +919,21 @@ pub fn run_stage8b_r2a8_authoritative_intake_creator(
     .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     let sources = issuer
         .issue_current_sources(
-            &seed.composite_readiness.to_snapshot(),
-            &seed.broker_truth,
-            &seed.broker_readiness,
+            &upstream.composite_readiness.to_snapshot(),
+            &upstream.broker_truth,
+            &upstream.broker_readiness,
         )
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     create_stage8b_r2a8_owner_signed_intake_from_owner(
         &mut owner,
         &identity,
         &command,
-        &seed.operational_identity,
+        &upstream.operational_identity,
         config_sha,
         &issuer,
         &sources,
+        intake_generation,
+        predecessor_commitment,
     )
 }
 
@@ -1321,6 +1596,12 @@ fn atomic_write_fixed(
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(path)
+        .and_then(|file| file.sync_all())
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
     std::fs::File::open(parent)
         .and_then(|directory| directory.sync_all())
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)
@@ -1474,7 +1755,7 @@ pub fn seed_stage8b_r2b_creator_chain_qualification() -> Result<(), Stage8bR2a7S
 #[cfg(feature = "stage8b-r2a7-controlled-qualification")]
 fn seed_stage8b_r2a7_qualification_fixture(
     mode: Stage8bR2a7RunMode,
-    create_owner_signed_intake: bool,
+    create_upstream_authority: bool,
 ) -> Result<(), Stage8bR2a7SourceAdapterError> {
     use crate::{
         Stage8KillSwitchState, Stage8a1AcceptedExecutionConfigV1, Stage8a1CurrentControlStateV1,
@@ -1492,7 +1773,7 @@ fn seed_stage8b_r2a7_qualification_fixture(
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
-    let expected_uid = if create_owner_signed_intake {
+    let expected_uid = if create_upstream_authority {
         0
     } else {
         STAGE8B_R2A6_SOURCE_ADAPTER_UID
@@ -1500,7 +1781,7 @@ fn seed_stage8b_r2a7_qualification_fixture(
     if unsafe { libc::geteuid() } != expected_uid {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
-    if create_owner_signed_intake != matches!(mode, Stage8bR2a7RunMode::Production) {
+    if create_upstream_authority != matches!(mode, Stage8bR2a7RunMode::Production) {
         return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
     }
     let layout = mode.layout();
@@ -1729,7 +2010,7 @@ fn seed_stage8b_r2a7_qualification_fixture(
         blocked_request_ids: Vec::new(),
         checked_at: observed,
     };
-    if create_owner_signed_intake {
+    if create_upstream_authority {
         std::os::unix::fs::chown(
             &layout.authority_root,
             Some(STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID),
@@ -1748,7 +2029,7 @@ fn seed_stage8b_r2a7_qualification_fixture(
         let sources = issuer
             .issue_current_sources(&composite_readiness, &truth, &broker_readiness)
             .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
-        create_stage8b_r2a8_owner_signed_intake_from_owner(
+        publish_stage8b_r2a8_upstream_current_authority_from_owner(
             &mut owner,
             &identity,
             &durable_command,
@@ -1978,6 +2259,25 @@ mod tests {
                 properties.5,
             ));
         }
+    }
+
+    #[test]
+    fn expired_predecessor_is_continuity_only_while_fresh_intake_requires_freshness() {
+        let now = Utc::now();
+        let observed_at = now - Duration::seconds(MAX_CURRENT_SOURCE_TTL_SECONDS);
+        let expires_at = now - Duration::seconds(1);
+        assert!(!intake_chronology_is_valid(
+            observed_at,
+            expires_at,
+            now,
+            true,
+        ));
+        assert!(intake_chronology_is_valid(
+            observed_at,
+            expires_at,
+            now,
+            false,
+        ));
     }
 
     #[test]
