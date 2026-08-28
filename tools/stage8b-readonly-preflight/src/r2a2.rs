@@ -1601,6 +1601,7 @@ pub fn bounded_content_length(
     }
 }
 
+#[allow(dead_code)] // R2B uses an evidence-preserving response reader.
 pub(crate) async fn read_bounded_response(
     response: reqwest::Response,
     cap: usize,

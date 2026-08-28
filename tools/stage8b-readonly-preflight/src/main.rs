@@ -9,6 +9,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string(&evidence)?);
             Ok(())
         }
+        [_program, mode] if mode == "--r2b-controlled-custody-one-shot" => {
+            let evidence =
+                stage8b_readonly_preflight::r2a5::run_r2b_controlled_custody_one_shot().await?;
+            println!("{}", serde_json::to_string(&evidence)?);
+            Ok(())
+        }
         [_program, mode] if mode == "--qualify-controlled" => {
             stage8b_readonly_preflight::r2a3::run_controlled_qualification().await?;
             println!("stage8b-r2a3-controlled-qualification: PASS");
@@ -27,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         _ => Err(std::io::Error::other(
-            "usage: stage8b-readonly-preflight (--qualify-controlled|--r2a4-qualify-fixed-layout|--r2a5-qualify-fixed-layout|--r2b-one-shot)",
+            "usage: stage8b-readonly-preflight (--qualify-controlled|--r2a4-qualify-fixed-layout|--r2a5-qualify-fixed-layout|--r2b-one-shot|--r2b-controlled-custody-one-shot)",
         )
         .into()),
     }

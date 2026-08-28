@@ -1,4 +1,4 @@
-# Stage 8B-P R2B Proposal R1 — production composition and durable evidence correction
+# Stage 8B-P R2B Proposal R2 — executable admission chain correction
 
 Status: **design-only proposal; `NOT_ISSUED`**.
 
@@ -11,10 +11,11 @@ operator-selected, one-shot FINAM broker-truth preflight for either a PLACE or
 CANCEL lifecycle. This commit does not issue that capability and does not use
 a credential or network.
 
-R1 corrects the rejected `94345a9` proposal: it adds the missing production
-current-source writer, orders the composition by its real artifact dependencies,
-separates production and controlled build hashes, and makes one durable terminal
-record mandatory after every admitted run. The machine-readable authority is
+R2 corrects the non-accepted R1 at `a3e10fd`: it closes the executable
+launcher/helper hash binding, moves nonce consumption into a root-owned durable
+admission step, adds the missing fixed-path intake producer, corrects the FINAM
+trades interval to `[start,end)`, and aligns terminal evidence with reachable
+typed classifier outcomes. The machine-readable authority is
 `docs/stage-8/stage8b-p-r2b-proposal-authority.json`. It is normative for this
 proposal.
 
@@ -43,23 +44,32 @@ background loops and schedulers remain forbidden.
 
 The exact production flow is:
 
-1. the production current-source writer,
+1. `stage8b-r2a8-production-intake-producer` accepts no arguments and moves
+   only an already owner-signed, pinned-key-verified Stage 8A snapshot from its
+   fixed source to the UID 8094 intake staging root using atomic write and both
+   file/directory `fsync`;
+2. the production current-source writer,
    `stage8b-r2a8-production-current-source-writer`, consumes one signed,
    fixed-path intake owned by UID 8094, independently restores the Stage 7B
    owner and exact durable request, and atomically publishes the trusted
    current source;
-2. `stage8b-r2a8-current-manifest-issuer` reads that source and publishes the
+3. `stage8b-r2a8-current-manifest-issuer` reads that source and publishes the
    reader manifest;
-3. `stage8b-r2a7-source-adapter` reads that manifest and emits the eleven
+4. `stage8b-r2a7-source-adapter` reads that manifest and emits the eleven
    operational authority records;
-4. the authority producer and issuer run exactly once for each of the eleven
+5. the authority producer and issuer run exactly once for each of the eleven
    source classes;
-5. the package issuer, fd-bound launcher and read-only helper each run once;
-6. the helper finalizes exactly one durable terminal evidence record for the
+6. the package issuer runs once; the separately accepted R2B launcher verifies
+   the exact current helper hash, consumes the nonce under root custody,
+   durably records admission transitions, seals a receipt on inherited FD 3,
+   opens the helper once with `O_NOFOLLOW`, verifies that descriptor's hash,
+   removes supplementary groups and drops to UID/GID 8301 before `fexecve` of
+   the same descriptor;
+7. the helper verifies the sealed receipt and finalizes exactly one durable terminal evidence record for the
    consumed nonce.
 
-The writer accepts no CLI arguments, path parameters or unsigned snapshots.
-Its owner-mediated publication seam is crate-private; the controlled seeder is
+The intake producer and writer accept no CLI arguments, path parameters or unsigned snapshots.
+Their owner-mediated publication seam is crate-private; the controlled seeder is
 compiled only in the separate controlled qualification feature domain. The
 writer has no FINAM network, credential, Redis, dispatch or runtime-live
 authority. It uses fixed roots and revalidates the signed intake against the
@@ -70,6 +80,16 @@ R2B issuance must bind the exact reviewed Linux/amd64 hashes from
 `production_linux_amd64_sha256`. Controlled PLACE/CANCEL hashes live only in
 `controlled_qualification_linux_amd64_sha256`; they cannot satisfy a
 production package, service or launcher hash requirement.
+
+The no-network custody rehearsal does not forge or substitute the still
+`NOT_ISSUED` production trust package. It compiles a separate launcher from
+the explicit `stage8b-r2b-controlled-custody` feature and runs the same
+root-owned admission, sealed-FD, privilege-drop and `fexecve` state machine
+against the controlled signed authority and local TLS peer. The production
+launcher is built without that feature, accepts no arguments and can select
+only the production authority path. Both launchers pin and open the same exact
+accepted production helper binary; their hashes are frozen in separate hash
+domains.
 
 The helper embeds the hash-free runtime composition contract
 `stage8b-p-r2b-runtime-composition-contract.json`; executable hashes remain in
@@ -101,17 +121,26 @@ Redis or runtime socket access.
 - the trades query is exactly `limit=1000`,
   `interval.start_time=request_requested_at-86400000ms` and
   `interval.end_time=request_requested_at`, encoded as RFC3339 UTC seconds;
+  the start boundary is inclusive and the end boundary is exclusive;
 - pagination/cursors and caller overrides are forbidden;
 - any failure writes only redacted evidence and terminates.
 
-After the run nonce is durably consumed, both success and failure are finalized
-through one outer helper scope. Partial request attempts survive later failure.
+Before helper execution, the root-owned launcher writes durable
+`ADMISSION_REQUESTED`, nonce-marker, `ADMISSION_DURABLE` and `HELPER_STARTED`
+records. A partial
+admission failure therefore consumes the nonce, leaves durable audit evidence
+and forbids automatic replay. The UID 8301 helper cannot write or delete the
+root-owned `0700` nonce registry and receives no DAC capability. After sealed
+admission, both success and failure are finalized through one outer helper
+scope. Partial request attempts survive later failure, including known HTTP
+status, observed body length, configured cap and overflow state.
 The record is written below
 `/var/lib/moex-trading/stage8b/r2b-evidence` through a create-new, no-follow,
 single-link, bounded pending inode, file `fsync`, atomic link publication and
 directory `fsync`. A pre-existing nonce record, custody/mode drift or any write
-failure is fail-closed as `EVIDENCE_PERSISTENCE_FAILURE`; the nonce remains
-consumed, automatic retry is forbidden and operator review is required. The
+failure leaves the root-owned admission evidence and nonce consumed; it cannot
+pretend that a terminal category was persisted. Automatic retry is forbidden
+and operator review is required. The
 record contains no secret, token, raw body or account identifier.
 
 The canonical result is preparation evidence only. It cannot issue K1/K2, an

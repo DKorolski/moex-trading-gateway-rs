@@ -16,14 +16,15 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `5b2079d7d524d2fa6f084f44f961c4b5958c042a`; its immutable handoff is
   `moex-trading-project-5b2079d.zip`, SHA-256
   `903df69b800477706f4b2e95097fe84174f42e89b0a85a4b5fa94430619acb6a`.
-- The original Stage 8B-P R2B proposal at `94345a9` was not accepted. The
-  active candidate is **Stage 8B-P R2B Proposal R1**, a design-only correction
-  for production writer ordering, production-versus-controlled executable
-  hash domains and durable success/failure evidence. R2B authorization remains
+- The Stage 8B-P R2B proposals at `94345a9` and `a3e10fd` were not accepted.
+  The active candidate is **Stage 8B-P R2B Proposal R2**, a design-only
+  executable-admission correction covering an exact R2B launcher/helper pair,
+  root-owned durable nonce admission, fixed authoritative intake production,
+  exclusive trades-window end semantics and response-stage evidence. R2B authorization remains
   `NOT_ISSUED`; operator selection and signed run package are absent.
 - FINAM network access, account-order POST/DELETE, Redis live consumption,
   broker dispatch, runtime-live, strategy-live and real orders remain closed.
-  Proposal R1 does not authorize a credential read or any broker request.
+  Proposal R2 does not authorize a credential read or any broker request.
 
 - Stage 8B-D R1 at `b3358ba2268da3db4eb8352c097495ebb85575d7` retained the
   proposed bounded-effect architecture but was not accepted as a frozen transition

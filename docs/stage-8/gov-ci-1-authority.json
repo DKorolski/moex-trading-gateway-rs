@@ -33,7 +33,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "3c7d041587790ea5c96ea3055581d8a81563462a55e1f88dfc92e0528046cf12",
+    "aggregate_sha256": "68461ddc9e929414f0a8dc12830b2091edcd96a3f9b4b98ee74c94b6e064cd33",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -47,8 +47,8 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "32447c0a5b4aa9095e7c9c0e1538b8d873a8d51dcb0c5b390de81a84faf5e802",
-        "size": 82683
+        "sha256": "e8181c809b80275e8545224b849cd2d2d9d6a171193ff81b1025cfa6fcab8e48",
+        "size": 82776
       },
       "docs/roadmap.md": {
         "mode": "100644",
@@ -140,8 +140,8 @@
   },
   "negative_cases": 33,
   "production_code_manifest": {
-    "aggregate_sha256": "d2340c80ce75c2dedaad1ec9fb2d286960f82f28c37d3b834b218238a9f3d76b",
-    "content_sha256": "c57c0eb01f4992002ee9ed6009364a5bcc2d74ea18c10593a1c914ba96ccb0d7",
+    "aggregate_sha256": "ede2af2304852cd40c562c764c368ffceccc447567de72217920bce27912c288",
+    "content_sha256": "175e7e0450b3c41b2fffa41ce5c67ee6d6535c8a10172bdf487de7fc5e69348f",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -370,8 +370,8 @@
       },
       "crates/finam-gateway/Cargo.toml": {
         "mode": "100644",
-        "sha256": "61ebc7bd15f5628c91eb6106388748666f0488d255f79c3f4fd86cc18846a19f",
-        "size": 2634
+        "sha256": "c411f9e7ce55c3bbea2972cf6b492ab54397286382c3d0c7d68ee642c4c1cf77",
+        "size": 2804
       },
       "crates/finam-gateway/src/bin/stage8b-r2a6-source-adapter.rs": {
         "mode": "100644",
@@ -393,6 +393,11 @@
         "sha256": "84a49b9978d821af0dc8815467955f5b2fb3e254e1f76fbd596f4bedf023c0fd",
         "size": 907
       },
+      "crates/finam-gateway/src/bin/stage8b-r2a8-production-intake-producer.rs": {
+        "mode": "100644",
+        "sha256": "3b6eaff4b8a63f97e67f6ca0e693f72ab3bdc60bad5a43822a42a0b797fd5b03",
+        "size": 461
+      },
       "crates/finam-gateway/src/bin/stage8b-r2a8-production-current-source-writer.rs": {
         "mode": "100644",
         "sha256": "1e9372df10f7c845150c8224201fb59dd3a139cb9f17f36ef803ed29b71ac219",
@@ -400,8 +405,8 @@
       },
       "crates/finam-gateway/src/lib.rs": {
         "mode": "100644",
-        "sha256": "03d1f944c7f25f4fd561a7f77b2871d713e706ef917e96d4d7dd774168f3d535",
-        "size": 1224961
+        "sha256": "29d2f453210558d089d36502f6422f6603681391edde48c8bca4fe915d969048",
+        "size": 1225055
       },
       "crates/finam-gateway/src/m3d2_local_mock_endpoint.rs": {
         "mode": "100644",
@@ -495,8 +500,8 @@
       },
       "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": {
         "mode": "100644",
-        "sha256": "e905ee66fd6d7ded975155a27351898cfe8845daeb0ad43c6926d29d84f60359",
-        "size": 75889
+        "sha256": "9f11bb3d0cf15ee023a592fd925095efa859a3fcddca65928c6b86d3007b60a3",
+        "size": 79427
       },
       "crates/finam-gateway/tests/stage8a1_r3_authority_boundary.rs": {
         "mode": "100644",
@@ -724,7 +729,7 @@
         "size": 6212
       }
     },
-    "file_count": 116
+    "file_count": 117
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,

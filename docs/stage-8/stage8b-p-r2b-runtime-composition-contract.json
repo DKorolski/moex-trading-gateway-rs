@@ -1,17 +1,18 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B",
-  "revision": "R1",
-  "contract_id": "stage8b-p-r2b-runtime-composition-v1",
+  "revision": "R2",
+  "contract_id": "stage8b-p-r2b-runtime-composition-v2",
   "authorization_status": "NOT_ISSUED",
   "exact_executable_sequence": [
+    "stage8b-r2a8-production-intake-producer",
     "stage8b-r2a8-production-current-source-writer",
     "stage8b-r2a8-current-manifest-issuer",
     "stage8b-r2a7-source-adapter",
     "stage8b-r2a5-authority-producer",
     "stage8b-r2a5-authority-issuer",
     "stage8b-r2a5-package-issuer",
-    "accepted-stage8b-r2a5-launcher",
+    "stage8b-r2b-launcher",
     "accepted-stage8b-readonly-preflight"
   ],
   "query_policy": {
@@ -25,6 +26,8 @@
     ],
     "trades_limit": 1000,
     "trades_window_ms": 86400000,
+    "window_start_semantics": "request_requested_at_minus_window_inclusive",
+    "window_end_semantics": "request_requested_at_exclusive",
     "time_basis": "request_requested_at",
     "timestamp_encoding": "RFC3339_seconds_UTC",
     "pagination": "single_page_no_cursor",
@@ -40,6 +43,49 @@
     "raw_body_exported": false,
     "credential_exported": false,
     "account_id_exported": false
+  },
+  "privileged_admission": {
+    "launcher_uid": 0,
+    "launcher_gid": 0,
+    "helper_uid": 8301,
+    "helper_gid": 8301,
+    "nonce_registry_owner": "root:root",
+    "nonce_registry_mode": "0700",
+    "sealed_receipt_fd": 3,
+    "helper_executable_fd_min": 4,
+    "helper_execution": "open_once_O_NOFOLLOW_hash_then_fexecve_same_fd",
+    "helper_dac_override": false,
+    "states": [
+      "ADMISSION_REQUESTED",
+      "ADMISSION_MARKER_CREATED",
+      "ADMISSION_DURABLE",
+      "HELPER_STARTED",
+      "TERMINAL_SUCCESS",
+      "TERMINAL_FAILURE",
+      "ADMISSION_PERSISTENCE_FAILURE"
+    ]
+  },
+  "terminal_taxonomy": [
+    "SUCCESS",
+    "AUTH_SESSION_FAILURE",
+    "AUTH_DETAILS_FAILURE",
+    "NETWORK_CONNECT_FAILURE",
+    "TIMEOUT",
+    "HTTP_NON_200",
+    "RESPONSE_TOO_LARGE",
+    "RESPONSE_BODY_FAILURE",
+    "DTO_DECODE_FAILURE",
+    "FRESHNESS_INVALID",
+    "BROKER_TRUTH_INCOMPLETE",
+    "CONTRACT_DRIFT",
+    "INTERNAL_INVARIANT_FAILURE"
+  ],
+  "response_failure_evidence": {
+    "status_preserved_after_response": true,
+    "observed_body_length_preserved_after_body_read": true,
+    "configured_body_cap_preserved": true,
+    "overflow_flag_preserved": true,
+    "raw_body_exported": false
   },
   "closed_surfaces": {
     "order_post": false,

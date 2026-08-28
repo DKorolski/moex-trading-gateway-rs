@@ -7,8 +7,8 @@ R2B-P-005,endpoints,exact PLACE broker GET sequence frozen,proposal authority,PA
 R2B-P-006,endpoints,exact CANCEL broker GET sequence frozen,proposal authority,PASS
 R2B-P-007,network,host and port exact,proposal authority,PASS
 R2B-P-008,network,redirect proxy retry and arbitrary request forbidden,proposal authority,PASS
-R2B-P-009,composition,writer-first exact executable sequence and cardinality frozen,authority plus executable-aware checker,PASS
-R2B-P-010,composition,reproducible production Linux hashes separated from controlled hashes,R1 build evidence plus checker,PASS
+R2B-P-009,composition,intake-producer-first exact executable sequence and cardinality frozen,authority plus executable-aware checker,PASS
+R2B-P-010,composition,reproducible production Linux hashes separated from controlled hashes,R2 build evidence plus checker,PASS
 R2B-P-011,credentials,fixed root and files frozen,proposal authority,PASS
 R2B-P-012,credentials,all authority validates before credential read,proposal authority,PASS
 R2B-P-013,sandbox,dedicated one-shot namespace and external destination allowlist required,proposal authority,PASS
@@ -29,3 +29,23 @@ R2B-P-027,issuance,independent proposal acceptance pending,proposal authority,PA
 R2B-P-028,issuance,operator selection absent,proposal authority,PASS
 R2B-P-029,issuance,signed run package absent,proposal authority,PASS
 R2B-P-030,issuance,R2B authorization is NOT_ISSUED,proposal authority,PASS
+R2B-P-031,launcher,separate R2B launcher pins exact current helper hash,launcher source plus build evidence plus checker,PASS
+R2B-P-032,launcher,old R2A5 launcher and helper cannot satisfy R2B acceptance,R2B authority plus negative harness,PASS
+R2B-P-033,launcher,helper acceptance authority is separately signed,acceptance authority plus launcher executable signature test,PASS
+R2B-P-034,admission,nonce is consumed by root before privilege drop,launcher and admission source plus Linux rehearsal,PASS
+R2B-P-035,admission,nonce registry remains root root 0700,authority plus Linux rehearsal,PASS
+R2B-P-036,admission,helper runs UID GID 8301 without DAC capability,launcher source plus Linux rehearsal,PASS
+R2B-P-037,admission,sealed inherited FD binds nonce package and helper,launcher and helper source plus tests,PASS
+R2B-P-038,admission,partial admission leaves durable non replayable evidence,admission source plus negative harness,PASS
+R2B-P-039,intake,authoritative fixed input producer is in exact sequence,producer source plus authority plus checker,PASS
+R2B-P-040,intake,producer accepts no caller JSON readiness truth or timestamps,producer source plus negative harness,PASS
+R2B-P-041,intake,producer verifies pinned signature config and freshness,producer source plus tests,PASS
+R2B-P-042,intake,producer publication is atomic and fsynced,producer source plus Linux rehearsal,PASS
+R2B-P-043,contract,trades start is inclusive and end is exclusive,authority runtime contract and negatives,PASS
+R2B-P-044,taxonomy,every frozen category has a reachable typed classifier outcome,helper source plus checker,PASS
+R2B-P-045,evidence,response stage failures preserve known status,helper unit test plus checker,PASS
+R2B-P-046,evidence,body failures preserve observed length cap and overflow,helper unit test plus checker,PASS
+R2B-P-047,rehearsal,feature-gated qualification launcher and exact accepted helper admit PLACE and persist one terminal under production-equivalent custody without production authority,Linux controlled-authority custody rehearsal plus local TLS PLACE test,PASS
+R2B-P-048,rehearsal,feature-gated qualification launcher and exact accepted helper admit CANCEL and persist one terminal under production-equivalent custody without production authority,Linux controlled-authority custody rehearsal plus local TLS CANCEL test,PASS
+R2B-P-049,rehearsal,replay wrong helper and wrong intake fail before external network,Linux rehearsal plus negative harness,PASS
+R2B-P-050,closure,FINAM network effect Redis and runtime live remain closed,aggregate gate evidence,PASS

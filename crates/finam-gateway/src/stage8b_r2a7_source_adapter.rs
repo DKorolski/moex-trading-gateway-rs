@@ -36,9 +36,11 @@ use strategy_runtime_core::{
 const MANIFEST_FILE: &str = "stage8b-r2a7-reader-manifest.json";
 const TRUSTED_CURRENT_SOURCE_FILE: &str = "stage8b-r2a8-trusted-current-source.json";
 const PRODUCTION_WRITER_INTAKE_FILE: &str = "stage8b-r2a8-production-writer-intake.json";
+const PRODUCTION_OWNER_SIGNED_INTAKE_FILE: &str = "stage8b-r2a8-owner-signed-intake.json";
 const LIFECYCLE_KEY_FILE: &str = "stage8b-r2a7-lifecycle-key.hex";
 const PRODUCTION_WORK_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a7/production";
 const PRODUCTION_CURRENT_SOURCE_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a8/current-source";
+const PRODUCTION_INTAKE_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a8/intake";
 const PRODUCTION_STAGE7B_PARENT: &str = "/var/lib/moex-trading/stage7b";
 const PRODUCTION_AUTHORITY_ROOT: &str = "/var/lib/moex-trading/stage8a1-authority";
 const PRODUCTION_OUTPUT_ROOT: &str = "/var/lib/moex-trading/operational-authorities";
@@ -166,6 +168,20 @@ pub struct Stage8bR2a8ProductionWriterEvidence {
     pub finam_credential_accessed: bool,
     pub caller_supplied_path_accepted: bool,
     pub caller_supplied_snapshot_accepted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Stage8bR2a8ProductionIntakeProducerEvidence {
+    pub schema_version: u16,
+    pub producer: &'static str,
+    pub fixed_owner_input: &'static str,
+    pub fixed_writer_output: &'static str,
+    pub intake_commitment_sha256: String,
+    pub source_owner_uid: u32,
+    pub output_owner_uid: u32,
+    pub network_accessed: bool,
+    pub finam_credential_accessed: bool,
+    pub caller_supplied_input_accepted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -421,9 +437,7 @@ pub fn run_stage8b_r2a8_production_current_source_writer(
     let mode = Stage8bR2a7RunMode::Production;
     let layout = mode.layout();
     let intake_bytes = read_fixed_regular_file(
-        &layout
-            .current_source_root
-            .join(PRODUCTION_WRITER_INTAKE_FILE),
+        &Path::new(PRODUCTION_INTAKE_ROOT).join(PRODUCTION_WRITER_INTAKE_FILE),
         MAX_MANIFEST_BYTES,
         STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
     )?;
@@ -518,6 +532,63 @@ pub fn run_stage8b_r2a8_production_current_source_writer(
         finam_credential_accessed: false,
         caller_supplied_path_accepted: false,
         caller_supplied_snapshot_accepted: false,
+    })
+}
+
+/// Exact no-network producer for the writer intake. The accepted Stage 8A
+/// owner is the only component allowed to create the signed source file. This
+/// producer accepts no arguments or caller snapshots, verifies the pinned
+/// signature/config/freshness, and atomically stages the exact same bytes for
+/// the independently privileged current-source writer.
+pub fn run_stage8b_r2a8_production_intake_producer(
+) -> Result<Stage8bR2a8ProductionIntakeProducerEvidence, Stage8bR2a7SourceAdapterError> {
+    use sha2::{Digest, Sha256};
+    if unsafe { libc::geteuid() } != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID {
+        return Err(Stage8bR2a7SourceAdapterError::WrongUid);
+    }
+    let authority_root = Path::new(PRODUCTION_AUTHORITY_ROOT);
+    let source_path = authority_root.join(PRODUCTION_OWNER_SIGNED_INTAKE_FILE);
+    let bytes = read_fixed_regular_file(
+        &source_path,
+        MAX_MANIFEST_BYTES,
+        STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+    )?;
+    let intake: Stage8bR2a8ProductionWriterIntakeV1 = serde_json::from_slice(&bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let config_bytes = read_fixed_regular_file(
+        &authority_root.join(ACCEPTED_EXECUTION_CONFIG_FILE),
+        MAX_MANIFEST_BYTES,
+        0,
+    )?;
+    let config_sha_bytes = read_fixed_regular_file(
+        &authority_root.join(ACCEPTED_EXECUTION_CONFIG_SHA256_FILE),
+        128,
+        0,
+    )?;
+    let config_sha = std::str::from_utf8(&config_sha_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?
+        .trim_end_matches(['\r', '\n']);
+    if !valid_sha256(config_sha) || format!("{:x}", Sha256::digest(&config_bytes)) != config_sha {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    let config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    validate_production_writer_intake(&intake, &config, config_sha)?;
+    let output = Path::new(PRODUCTION_INTAKE_ROOT).join(PRODUCTION_WRITER_INTAKE_FILE);
+    atomic_write_fixed(&output, &bytes, STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID)?;
+    Ok(Stage8bR2a8ProductionIntakeProducerEvidence {
+        schema_version: 1,
+        producer: "stage8b-r2a8-production-intake-producer",
+        fixed_owner_input:
+            "/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json",
+        fixed_writer_output:
+            "/var/lib/moex-trading/stage8b/r2a8/intake/stage8b-r2a8-production-writer-intake.json",
+        intake_commitment_sha256: intake.intake_commitment_sha256,
+        source_owner_uid: STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+        output_owner_uid: STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+        network_accessed: false,
+        finam_credential_accessed: false,
+        caller_supplied_input_accepted: false,
     })
 }
 

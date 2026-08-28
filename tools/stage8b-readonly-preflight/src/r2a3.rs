@@ -207,6 +207,11 @@ pub struct R2a3FailedAttemptEvidence {
     pub request_finished_at_utc: DateTime<Utc>,
     pub error_kind: R2a3AttemptFailureKind,
     pub timeout_stage: Option<&'static str>,
+    pub status: Option<u16>,
+    pub observed_body_length: Option<usize>,
+    pub configured_body_cap: usize,
+    pub body_overflow: bool,
+    pub response_stage_error: bool,
     pub raw_body_sha256_exported: bool,
 }
 
@@ -444,22 +449,80 @@ async fn timed_response(
         } else {
             R2a3AttemptFailureKind::NetworkConnectFailure
         },
+        status: None,
+        observed_body_length: None,
+        configured_body_cap: cap,
+        body_overflow: false,
+        response_stage_error: false,
     })?;
-    let (status, body) = r2a2::read_bounded_response(response, cap)
-        .await
-        .map_err(|error| {
-            let kind = if matches!(&error, R2a2Error::OversizeResponse) {
-                R2a3AttemptFailureKind::ResponseTooLarge
-            } else {
-                R2a3AttemptFailureKind::ResponseBodyFailure
-            };
-            TimedResponseFailure {
-                error: error.into(),
+    let status = response.status().as_u16();
+    if response
+        .content_length()
+        .is_some_and(|value| value > cap as u64)
+    {
+        return Err(TimedResponseFailure {
+            error: R2a2Error::OversizeResponse.into(),
+            started,
+            finished: Utc::now(),
+            kind: R2a3AttemptFailureKind::ResponseTooLarge,
+            status: Some(status),
+            observed_body_length: Some(0),
+            configured_body_cap: cap,
+            body_overflow: true,
+            response_stage_error: true,
+        });
+    }
+    let mut response = response;
+    let mut body = Zeroizing::new(Vec::new());
+    loop {
+        let chunk = response
+            .chunk()
+            .await
+            .map_err(|error| TimedResponseFailure {
+                error: R2a3Error::Network,
                 started,
                 finished: Utc::now(),
-                kind,
-            }
-        })?;
+                kind: if error.is_timeout() {
+                    R2a3AttemptFailureKind::Timeout
+                } else {
+                    R2a3AttemptFailureKind::ResponseBodyFailure
+                },
+                status: Some(status),
+                observed_body_length: Some(body.len()),
+                configured_body_cap: cap,
+                body_overflow: false,
+                response_stage_error: true,
+            })?;
+        let Some(chunk) = chunk else { break };
+        let next = body
+            .len()
+            .checked_add(chunk.len())
+            .ok_or_else(|| TimedResponseFailure {
+                error: R2a2Error::OversizeResponse.into(),
+                started,
+                finished: Utc::now(),
+                kind: R2a3AttemptFailureKind::ResponseTooLarge,
+                status: Some(status),
+                observed_body_length: Some(body.len()),
+                configured_body_cap: cap,
+                body_overflow: true,
+                response_stage_error: true,
+            })?;
+        if next > cap {
+            return Err(TimedResponseFailure {
+                error: R2a2Error::OversizeResponse.into(),
+                started,
+                finished: Utc::now(),
+                kind: R2a3AttemptFailureKind::ResponseTooLarge,
+                status: Some(status),
+                observed_body_length: Some(next),
+                configured_body_cap: cap,
+                body_overflow: true,
+                response_stage_error: true,
+            });
+        }
+        body.extend_from_slice(&chunk);
+    }
     let finished = Utc::now();
     if finished < started {
         return Err(TimedResponseFailure {
@@ -467,6 +530,11 @@ async fn timed_response(
             started,
             finished,
             kind: R2a3AttemptFailureKind::FreshnessInvalid,
+            status: Some(status),
+            observed_body_length: Some(body.len()),
+            configured_body_cap: cap,
+            body_overflow: false,
+            response_stage_error: true,
         });
     }
     Ok((started, finished, status, body))
@@ -477,6 +545,11 @@ struct TimedResponseFailure {
     started: DateTime<Utc>,
     finished: DateTime<Utc>,
     kind: R2a3AttemptFailureKind,
+    status: Option<u16>,
+    observed_body_length: Option<usize>,
+    configured_body_cap: usize,
+    body_overflow: bool,
+    response_stage_error: bool,
 }
 
 struct FailedAttemptInput {
@@ -493,6 +566,11 @@ fn failed_attempt(input: FailedAttemptInput) -> (R2a3Error, R2a3FailedAttemptEvi
         started,
         finished,
         kind,
+        status,
+        observed_body_length,
+        configured_body_cap,
+        body_overflow,
+        response_stage_error,
     } = input.failure;
     let evidence = R2a3FailedAttemptEvidence {
         ordinal: input.ordinal,
@@ -503,6 +581,11 @@ fn failed_attempt(input: FailedAttemptInput) -> (R2a3Error, R2a3FailedAttemptEvi
         request_finished_at_utc: finished,
         error_kind: kind,
         timeout_stage: (kind == R2a3AttemptFailureKind::Timeout).then_some("request"),
+        status,
+        observed_body_length,
+        configured_body_cap,
+        body_overflow,
+        response_stage_error,
         raw_body_sha256_exported: false,
     };
     (error, evidence)
@@ -1983,6 +2066,36 @@ mod tests {
             claim_run_nonce_once_for_uid(directory.path(), &nonce, uid),
             Err(R2a3Error::Authorization)
         ));
+    }
+
+    #[test]
+    fn response_stage_failure_preserves_status_length_cap_and_overflow() {
+        let now = Utc::now();
+        let (_, evidence) = failed_attempt(FailedAttemptInput {
+            ordinal: 3,
+            class: NetworkClass::BrokerTruth,
+            method: "GET",
+            template: "/v1/accounts/{account_id}/trades",
+            failure: TimedResponseFailure {
+                error: R2a2Error::OversizeResponse.into(),
+                started: now,
+                finished: now,
+                kind: R2a3AttemptFailureKind::ResponseTooLarge,
+                status: Some(200),
+                observed_body_length: Some(r2a2::TRADES_BODY_CAP + 1),
+                configured_body_cap: r2a2::TRADES_BODY_CAP,
+                body_overflow: true,
+                response_stage_error: true,
+            },
+        });
+        assert_eq!(evidence.status, Some(200));
+        assert_eq!(
+            evidence.observed_body_length,
+            Some(r2a2::TRADES_BODY_CAP + 1)
+        );
+        assert_eq!(evidence.configured_body_cap, r2a2::TRADES_BODY_CAP);
+        assert!(evidence.body_overflow);
+        assert!(evidence.response_stage_error);
     }
 
     #[tokio::test]
