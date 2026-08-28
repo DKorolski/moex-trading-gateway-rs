@@ -1,169 +1,160 @@
-# Stage 8B-P R2B Proposal R2 — executable admission chain correction
+# Stage 8B-P R2B Proposal R3 — authenticated admission and immutable evidence
 
-Status: **design-only proposal; `NOT_ISSUED`**.
+Status: **design-only proposal; `R2B authorization = NOT_ISSUED`**.
 
-## Purpose and predecessor
+## Purpose and scope
 
-R2A8-R1 was independently accepted at
-`5b2079d7d524d2fa6f084f44f961c4b5958c042a`. This proposal describes the
-only new capability that a later R2B issuance may open: one explicitly
-operator-selected, one-shot FINAM broker-truth preflight for either a PLACE or
-CANCEL lifecycle. This commit does not issue that capability and does not use
-a credential or network.
+R3 closes the review findings against R2 without issuing a FINAM capability.
+The proposed future operation remains one operator-selected, one-shot,
+read-only broker-truth preflight for either PLACE or CANCEL context. This
+revision does not use a FINAM credential or external network and does not open
+order POST/DELETE, Redis live, broker dispatch, runtime-live or real orders.
 
-R2 corrects the non-accepted R1 at `a3e10fd`: it closes the executable
-launcher/helper hash binding, moves nonce consumption into a root-owned durable
-admission step, adds the missing fixed-path intake producer, corrects the FINAM
-trades interval to `[start,end)`, and aligns terminal evidence with reachable
-typed classifier outcomes. The machine-readable authority is
-`docs/stage-8/stage8b-p-r2b-proposal-authority.json`. It is normative for this
-proposal.
+The machine authority is
+`docs/stage-8/stage8b-p-r2b-proposal-authority.json`; the embedded hash-free
+composition contract is
+`docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json`.
 
-## Exact network surface proposed
+## Authoritative intake creation
 
-The destination is exactly `https://api.finam.ru`. The authentication phase is
-exactly two AuthService POST requests:
+The exact production chain begins inside the accepted owner service at the
+crate-private `create_stage8b_r2a8_owner_signed_intake_from_owner` boundary.
+It requires all of the following non-serializable authorities at once:
 
-1. `POST /v1/sessions` — obtain a short-lived read-only token;
-2. `POST /v1/sessions/details` — verify that token belongs to the one bound
-   account.
+- the current `Stage7bRecoveryReadyOwner` and its single exact durable request;
+- opaque `Stage8a1TrustedCurrentSources` minted by the same pinned issuer;
+- the accepted operational identity and execution configuration;
+- the protected Stage 8A signing capability.
 
-These are authentication requests, not order-effect POST endpoints. The
-broker-truth phase is GET-only:
+The creator derives chronology and expiry from the authoritative snapshots,
+signs the canonical commitment and atomically publishes one fixed owner-signed
+intake under a create-new producer lock. It accepts no caller JSON, snapshots,
+timestamps, paths or signing request and has no FINAM credential or network.
 
-- PLACE context: account orders, trades and account/position snapshot;
-- CANCEL context: exact order, then account orders, trades and account/position
-  snapshot.
+`stage8b-r2a8-production-intake-stager` is intentionally named and limited to
+verifying and staging those exact signed bytes. It is not represented as the
+creator. The remaining current-source writer, manifest issuer, source adapter,
+authority producer/issuer and package issuer retain their accepted fixed-path,
+no-network boundaries.
 
-`POST /v1/accounts/{account_id}/orders` and
-`DELETE /v1/accounts/{account_id}/orders/{order_id}` remain forbidden.
-Redirects, proxies, alternate destinations, arbitrary request APIs, retries,
-background loops and schedulers remain forbidden.
+## Root-authenticated admission
 
-## Composition and custody
+The R2B launcher is a surviving root supervisor and implements a
+root-owned inode-bound admission. Before nonce admission it
+opens the exact helper once with `O_NOFOLLOW`, rejects setuid/setgid bits and
+`security.capability`, hashes the opened FD, and creates the structured
+terminal socketpair. Root then consumes the nonce and creates immutable
+root-owned `0400` nonce and admission records under root-only `0700`
+directories.
 
-The exact production flow is:
+The helper receives this explicit FD allowlist only:
 
-1. `stage8b-r2a8-production-intake-producer` accepts no arguments and moves
-   only an already owner-signed, pinned-key-verified Stage 8A snapshot from its
-   fixed source to the UID 8094 intake staging root using atomic write and both
-   file/directory `fsync`;
-2. the production current-source writer,
-   `stage8b-r2a8-production-current-source-writer`, consumes one signed,
-   fixed-path intake owned by UID 8094, independently restores the Stage 7B
-   owner and exact durable request, and atomically publishes the trusted
-   current source;
-3. `stage8b-r2a8-current-manifest-issuer` reads that source and publishes the
-   reader manifest;
-4. `stage8b-r2a7-source-adapter` reads that manifest and emits the eleven
-   operational authority records;
-5. the authority producer and issuer run exactly once for each of the eleven
-   source classes;
-6. the package issuer runs once; the separately accepted R2B launcher verifies
-   the exact current helper hash, consumes the nonce under root custody,
-   durably records admission transitions, seals a receipt on inherited FD 3,
-   opens the helper once with `O_NOFOLLOW`, verifies that descriptor's hash,
-   removes supplementary groups and drops to UID/GID 8301 before `fexecve` of
-   the same descriptor;
-7. the helper verifies the sealed receipt and finalizes exactly one durable terminal evidence record for the
-   consumed nonce.
+```text
+0,1,2  standard descriptors
+3      root-owned sealed admission receipt
+4      root-created structured terminal channel
+5      exact root-owned admission-record inode
+6      exact root-owned nonce-marker inode
+7      exact already-verified helper executable
+```
 
-The intake producer and writer accept no CLI arguments, path parameters or unsigned snapshots.
-Their owner-mediated publication seam is crate-private; the controlled seeder is
-compiled only in the separate controlled qualification feature domain. The
-writer has no FINAM network, credential, Redis, dispatch or runtime-live
-authority. It uses fixed roots and revalidates the signed intake against the
-root-owned Stage 8A accepted config, Stage 7B recovery owner and exact durable
-request before publication.
+The receipt binds operation, nonce, package, helper, supervisor hash, contract,
+both root-owned inode identities, terminal-channel identity and a 30-second
+expiry. The helper verifies owner/group/type/mode/link count, exact memfd seals,
+bounded size and every device/inode binding. A UID 8301 process cannot create
+or open equivalent root-owned records; direct helper execution therefore fails
+before credentials or network.
 
-R2B issuance must bind the exact reviewed Linux/amd64 hashes from
-`production_linux_amd64_sha256`. Controlled PLACE/CANCEL hashes live only in
-`controlled_qualification_linux_amd64_sha256`; they cannot satisfy a
-production package, service or launcher hash requirement.
+Root validates only package and authority material and never opens the FINAM
+secret. In the child, receipt provenance is verified before credential loading;
+credential files are opened only after the irreversible UID/GID drop.
 
-The no-network custody rehearsal does not forge or substitute the still
-`NOT_ISSUED` production trust package. It compiles a separate launcher from
-the explicit `stage8b-r2b-controlled-custody` feature and runs the same
-root-owned admission, sealed-FD, privilege-drop and `fexecve` state machine
-against the controlled signed authority and local TLS peer. The production
-launcher is built without that feature, accepts no arguments and can select
-only the production authority path. Both launchers pin and open the same exact
-accepted production helper binary; their hashes are frozen in separate hash
-domains.
+Before `fexecve` the child applies `PR_SET_NO_NEW_PRIVS`, clears supplementary
+groups and ambient capabilities, performs `setresgid(8301,8301,8301)` and
+`setresuid(8301,8301,8301)`, verifies real/effective/saved identities and empty
+inheritable/permitted/effective/ambient capability sets, then closes every FD
+above 7. The same verified FD 7 is executed.
 
-The helper embeds the hash-free runtime composition contract
-`stage8b-p-r2b-runtime-composition-contract.json`; executable hashes remain in
-external build and issuance evidence. This prevents a self-referential helper
-hash cycle while preserving an exact semantic composition fingerprint in every
-terminal record.
+No repository test key is presented as independent helper approval. Helper
+acceptance is the exact frozen SHA-256, reproducible build provenance, signed
+run-package binding and independently accepted supervisor hash.
 
-The account ID and FINAM read-only secret remain fixed credential files under
-`/run/credentials/moex-trading/stage8b/r2a5`. A later service definition must
-give access only to the dedicated one-shot helper identity. Every signed local
-authority, executable hash and package field must validate before the first
-credential read.
+## Unified admission-to-terminal lifecycle
 
-Network access must be constrained both in process and externally by a
-dedicated one-shot service/network namespace that permits only
-`api.finam.ru:443`. The service receives no caller-supplied paths and has no
-Redis or runtime socket access.
+After durable nonce consumption all fallible outcomes are owned by the root
+supervisor. `HELPER_PROCESS_STARTED` is recorded only after the helper has
+completed privilege-drop/fexecve/bootstrap and sent its authenticated channel
+handshake. The lifecycle states are:
 
-## Request and failure policy
+```text
+ADMISSION_REQUESTED
+ADMISSION_MARKER_CREATED
+ADMISSION_DURABLE
+HELPER_EXEC_ATTEMPTED
+HELPER_PROCESS_STARTED
+HELPER_TERMINAL_RECEIVED
+HELPER_EXITED_SUCCESS | HELPER_EXITED_FAILURE
+TERMINAL_EVIDENCE_DURABLE
+ADMISSION_PERSISTENCE_FAILURE | TERMINAL_PERSISTENCE_FAILURE
+```
 
-- total requests: PLACE 5, CANCEL 6;
-- timeout: 10 seconds per request;
-- minimum interval between broker GETs: 250 ms;
-- retries: none;
-- redirects: none;
-- response status: exact 200 only;
-- DTO decode, completeness, lifecycle and account binding: strict/fail-closed;
-- a full 1000-row trades page means incomplete truth;
-- the trades query is exactly `limit=1000`,
-  `interval.start_time=request_requested_at-86400000ms` and
-  `interval.end_time=request_requested_at`, encoded as RFC3339 UTC seconds;
-  the start boundary is inclusive and the end boundary is exclusive;
-- pagination/cursors and caller overrides are forbidden;
-- any failure writes only redacted evidence and terminates.
+Missing/invalid frames, startup timeout, helper crash, privilege-drop or
+`fexecve` failure and post-admission package/credential failure produce a
+root-generated redacted fallback terminal. The nonce stays consumed and no
+automatic retry is allowed.
 
-Before helper execution, the root-owned launcher writes durable
-`ADMISSION_REQUESTED`, nonce-marker, `ADMISSION_DURABLE` and `HELPER_STARTED`
-records. A partial
-admission failure therefore consumes the nonce, leaves durable audit evidence
-and forbids automatic replay. The UID 8301 helper cannot write or delete the
-root-owned `0700` nonce registry and receives no DAC capability. After sealed
-admission, both success and failure are finalized through one outer helper
-scope. Partial request attempts survive later failure, including known HTTP
-status, observed body length, configured cap and overflow state.
-The record is written below
-`/var/lib/moex-trading/stage8b/r2b-evidence` through a create-new, no-follow,
-single-link, bounded pending inode, file `fsync`, atomic link publication and
-directory `fsync`. A pre-existing nonce record, custody/mode drift or any write
-failure leaves the root-owned admission evidence and nonce consumed; it cannot
-pretend that a terminal category was persisted. Automatic retry is forbidden
-and operator review is required. The
-record contains no secret, token, raw body or account identifier.
+## Immutable final evidence
 
-The canonical result is preparation evidence only. It cannot issue K1/K2, an
-operator arm, a dispatch attempt or any execution authority. Any future arm
-must reread fresh broker truth after that arm under a separately accepted
-stage.
+The UID 8301 helper cannot write the final evidence directory. It only sends a
+bounded structured terminal message through FD 4. Root validates the message
+against the admission, waits for the child and wraps it in
+`R2bRootTerminalRecordV1`, binding:
 
-## Required independent review before issuance
+- admission commitment and supervisor/package/helper hashes;
+- nonce-marker and admission-record device/inode identities;
+- kernel-observed child PID, exit code or signal;
+- redacted semantic request attempts and broker-truth summary.
 
-The R2B proposal review must verify the exact endpoint set, production and
-controlled executable hash domains, source-writer implementation and order,
-terminal success/failure persistence, credential owner, service sandbox, destination allowlist,
-authentication, timeout/retry policy, error taxonomy, freshness, DTO mapping,
-snapshot completeness, rate limiting, startup/degraded behavior, redacted
-evidence and negative harness.
+Root publishes exactly one final file below
+`/var/lib/moex-trading/stage8b/r2b-evidence` using create-new, `O_NOFOLLOW`, a
+bounded fsynced pending inode, atomic hard-link publication and directory
+`fsync`. Directory custody is `root:root 0700`; final file custody is
+`root:root 0400`. UID 8301 cannot truncate, chmod, unlink, rename or recreate
+the record. Finalization failure writes a separate root-owned admission marker
+and requires operator review.
 
-After proposal acceptance, issuance still requires all pending fields in the
-machine authority to be closed: fresh official contract refresh, exact Linux
-build recheck, production service and credential-custody review, explicit
-operator selection and a separately signed exact run package.
+The controlled Linux rehearsal exercises three post-admission failures:
+`fexecve` failure, helper death after its authenticated startup handshake, and
+root-finalizer fsync failure. The first two end in root-owned terminal failure
+evidence. The fsync case consumes the nonce and leaves a separate root-owned
+`TERMINAL_PERSISTENCE_FAILURE` marker; it cannot be retried automatically.
 
-## Explicitly closed
+## Frozen read-only network contract
 
-This proposal does not authorize or perform FINAM network access. It does not
-open order POST/DELETE, Redis live consumption, broker dispatch, Stage 8B-XE,
-runtime-live, strategy-live or real orders.
+A later, separate issuance may allow only `https://api.finam.ru`: two
+AuthService POST calls (`/v1/sessions`, `/v1/sessions/details`) followed by the
+fixed broker-truth GET sequence. Order POST/DELETE remain forbidden. Redirects,
+proxies, retries, arbitrary request APIs, loops and caller query overrides are
+forbidden. Trades use a single page of 1000 rows and the exact inclusive-start,
+exclusive-end interval `[request_time-24h, request_time)`.
+
+## Required acceptance before issuance
+
+R3 requires reproducible Linux/amd64 production and controlled builds, the
+full static/negative gate and an adversarial no-external-network rehearsal that
+proves direct/forged helper rejection, root terminal immutability, replay
+rejection, controlled PLACE/CANCEL behavior, child-failure finalization and
+explicit effect closure. Proposal acceptance still does not issue R2B; an
+independent issuance package remains mandatory.
+
+## Explicit closure
+
+```text
+R2B authorization       NOT_ISSUED
+FINAM external network  not used
+order POST/DELETE       closed
+Redis live              closed
+broker dispatch         closed
+runtime-live            closed
+real orders             false
+```

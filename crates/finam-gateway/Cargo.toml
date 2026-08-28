@@ -58,8 +58,8 @@ path = "src/bin/stage8b-r2a8-current-manifest-issuer.rs"
 required-features = ["stage8b-r2a7-source-adapter"]
 
 [[bin]]
-name = "stage8b-r2a8-production-intake-producer"
-path = "src/bin/stage8b-r2a8-production-intake-producer.rs"
+name = "stage8b-r2a8-production-intake-stager"
+path = "src/bin/stage8b-r2a8-production-intake-stager.rs"
 required-features = ["stage8b-r2a7-source-adapter"]
 
 [[bin]]

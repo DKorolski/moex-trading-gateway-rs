@@ -986,6 +986,30 @@ impl Stage8a1TrustedCurrentSources {
         }
         Ok(())
     }
+
+    /// Crate-private, issuer-bound extraction for the fixed Stage 8B intake
+    /// creator service. Raw public DTOs cannot cross this seam: the opaque
+    /// source bundle must still validate against the exact pinned authority
+    /// root that minted it.
+    #[allow(dead_code, reason = "R2B intake creator remains closed until issuance")]
+    pub(crate) fn stage8b_r2a8_current_snapshots(
+        &self,
+        issuer: &Stage8a1OperationalAuthorityIssuer,
+    ) -> Result<
+        (
+            Stage7bCompositeReadinessSnapshot,
+            BrokerTruthSnapshot,
+            BrokerReadinessSnapshot,
+        ),
+        Stage8ExecutionPreflightError,
+    > {
+        self.validate(&issuer.authority_root)?;
+        Ok((
+            self.composite_readiness.clone(),
+            self.broker_truth.clone(),
+            self.broker_readiness.clone(),
+        ))
+    }
 }
 
 /// Linear continuation proof. It intentionally exposes neither the approved

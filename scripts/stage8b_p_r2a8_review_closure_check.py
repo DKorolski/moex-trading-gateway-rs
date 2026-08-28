@@ -65,6 +65,8 @@ def main() -> None:
         "current_source_signature_ed25519_hex",
         "source.expires_at <= now",
         "STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID: u32 = 8096",
+        "STAGE8B_R2A8_LIFECYCLE_KEY_GID: u32 = 8095",
+        "STAGE8B_R2A8_LIFECYCLE_KEY_MODE: u32 = 0o640",
         "atomic_write_fixed(",
         "Stage8bR2a8TrustedCurrentSourceV2",
         "Stage8bR2a7ReaderManifestV2",
@@ -173,6 +175,7 @@ def main() -> None:
         )
     accepted_additive_predecessor_sources = {
         "adapter_module": "3d3e385ecb7935c83b4da49b245e43ec10127de3af730b8315fe348bf8b1e947",
+        "owner_composition": "f6ddc7468f9c9600684e2c891111af9353bddceb2a983c2a72a7710e6800764f",
         "downstream_schema": "d54a80926bc708f539a81b70ddbae4c14457148f9b5bf0c50b0baaff7405b734",
     }
     for name, relative in (
@@ -184,7 +187,7 @@ def main() -> None:
         ("linux_rehearsal", "scripts/stage8b_p_r2a7_linux_rehearsal.sh"),
     ):
         if name in accepted_additive_predecessor_sources:
-            # These two files receive additive R2B-R1 code. Preserve the exact
+            # These files receive additive later-stage code. Preserve the exact
             # accepted R2A8 causal artifact binding here; current-tree source
             # is independently bound and checked by the R2B-R1 gate.
             require(build["source_sha256"][name] == accepted_additive_predecessor_sources[name], f"accepted predecessor source drift: {name}")

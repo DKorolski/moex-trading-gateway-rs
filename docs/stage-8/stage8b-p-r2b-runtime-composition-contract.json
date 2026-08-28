@@ -1,11 +1,12 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B",
-  "revision": "R2",
-  "contract_id": "stage8b-p-r2b-runtime-composition-v2",
+  "revision": "R3",
+  "contract_id": "stage8b-p-r2b-runtime-composition-v3",
   "authorization_status": "NOT_ISSUED",
-  "exact_executable_sequence": [
-    "stage8b-r2a8-production-intake-producer",
+  "exact_component_sequence": [
+    "stage8b-r2a8-authoritative-intake-creator-service",
+    "stage8b-r2a8-production-intake-stager",
     "stage8b-r2a8-production-current-source-writer",
     "stage8b-r2a8-current-manifest-issuer",
     "stage8b-r2a7-source-adapter",
@@ -15,15 +16,21 @@
     "stage8b-r2b-launcher",
     "accepted-stage8b-readonly-preflight"
   ],
+  "authoritative_intake_creation": {
+    "owner_service_entrypoint": "create_stage8b_r2a8_owner_signed_intake_from_owner",
+    "recovered_stage7b_owner_required": true,
+    "opaque_stage8a_current_sources_required": true,
+    "caller_json_allowed": false,
+    "caller_snapshot_allowed": false,
+    "caller_timestamp_allowed": false,
+    "network_allowed": false,
+    "finam_credential_allowed": false
+  },
   "query_policy": {
     "policy_id": "stage8b-r2b-trades-single-page-v1",
     "method": "GET",
     "route_template": "/v1/accounts/{account_id}/trades",
-    "trades_query_parameter_names": [
-      "limit",
-      "interval.start_time",
-      "interval.end_time"
-    ],
+    "trades_query_parameter_names": ["limit", "interval.start_time", "interval.end_time"],
     "trades_limit": 1000,
     "trades_window_ms": 86400000,
     "window_start_semantics": "request_requested_at_minus_window_inclusive",
@@ -31,13 +38,35 @@
     "time_basis": "request_requested_at",
     "timestamp_encoding": "RFC3339_seconds_UTC",
     "pagination": "single_page_no_cursor",
+    "cursor_parameter": null,
     "full_page_means_incomplete": true,
     "caller_override_allowed": false
   },
+  "authenticated_admission": {
+    "model": "root-owned inode-bound admission",
+    "receipt_fd": 3,
+    "terminal_channel_fd": 4,
+    "admission_record_fd": 5,
+    "nonce_marker_fd": 6,
+    "helper_executable_fd": 7,
+    "root_owned_receipt_required": true,
+    "root_owned_admission_record_required": true,
+    "root_owned_nonce_marker_required": true,
+    "exact_device_inode_binding_required": true,
+    "direct_helper_invocation_allowed": false
+  },
   "terminal_evidence": {
     "schema_version": 1,
+    "finalizer": "surviving root supervisor",
     "fixed_root": "/var/lib/moex-trading/stage8b/r2b-evidence",
     "filename_template": "r2b-terminal-{signed_run_nonce_sha256}.json",
+    "directory_owner": "root:root",
+    "directory_mode": "0700",
+    "file_owner": "root:root",
+    "file_mode": "0400",
+    "helper_write_access": false,
+    "helper_unlink_access": false,
+    "child_pid_and_exit_status_bound": true,
     "one_terminal_record_per_nonce": true,
     "partial_attempts_preserved_on_failure": true,
     "raw_body_exported": false,
@@ -51,18 +80,25 @@
     "helper_gid": 8301,
     "nonce_registry_owner": "root:root",
     "nonce_registry_mode": "0700",
-    "sealed_receipt_fd": 3,
-    "helper_executable_fd_min": 4,
     "helper_execution": "open_once_O_NOFOLLOW_hash_then_fexecve_same_fd",
+    "no_new_privs": true,
+    "saved_uid_gid_rejected": true,
+    "setuid_setgid_helper_rejected": true,
+    "helper_file_capability_rejected": true,
+    "allowed_child_fds": [0, 1, 2, 3, 4, 5, 6, 7],
     "helper_dac_override": false,
     "states": [
       "ADMISSION_REQUESTED",
       "ADMISSION_MARKER_CREATED",
       "ADMISSION_DURABLE",
-      "HELPER_STARTED",
-      "TERMINAL_SUCCESS",
-      "TERMINAL_FAILURE",
-      "ADMISSION_PERSISTENCE_FAILURE"
+      "HELPER_EXEC_ATTEMPTED",
+      "HELPER_PROCESS_STARTED",
+      "HELPER_TERMINAL_RECEIVED",
+      "HELPER_EXITED_SUCCESS",
+      "HELPER_EXITED_FAILURE",
+      "TERMINAL_EVIDENCE_DURABLE",
+      "ADMISSION_PERSISTENCE_FAILURE",
+      "TERMINAL_PERSISTENCE_FAILURE"
     ]
   },
   "terminal_taxonomy": [

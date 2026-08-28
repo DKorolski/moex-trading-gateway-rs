@@ -44,10 +44,14 @@ pub const PRODUCTION_UPSTREAM_ROOT: &str = "/var/lib/moex-trading/operational-au
 pub const R2A6_SOURCE_ADAPTER_UID: u32 = 8095;
 pub const R2B_HELPER_UID: u32 = 8_301;
 pub const R2B_EVIDENCE_GID: u32 = 8_301;
-pub const R2B_EVIDENCE_DIRECTORY_MODE: u32 = 0o730;
-pub const R2B_EVIDENCE_FILE_MODE: u32 = 0o640;
+pub const R2B_EVIDENCE_DIRECTORY_MODE: u32 = 0o700;
+pub const R2B_EVIDENCE_FILE_MODE: u32 = 0o400;
 pub const PRODUCTION_EVIDENCE_ROOT: &str = "/var/lib/moex-trading/stage8b/r2b-evidence";
 pub const R2B_ADMISSION_RECEIPT_FD: RawFd = 3;
+pub const R2B_TERMINAL_CHANNEL_FD: RawFd = 4;
+pub const R2B_ADMISSION_RECORD_FD: RawFd = 5;
+pub const R2B_NONCE_MARKER_FD: RawFd = 6;
+pub const R2B_HELPER_EXECUTABLE_FD: RawFd = 7;
 pub const CONTROLLED_HOST: &str = "stage8b-r2a5.invalid";
 const CONTROLLED_CA_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-ca.der";
 const CONTROLLED_ENDPOINT_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-endpoint.txt";
@@ -145,7 +149,14 @@ pub enum R2bAdmissionState {
     AdmissionRequested,
     AdmissionMarkerCreated,
     AdmissionDurable,
-    HelperStarted,
+    HelperExecAttempted,
+    HelperProcessStarted,
+    HelperTerminalReceived,
+    HelperExitedSuccess,
+    HelperExitedFailure,
+    TerminalEvidenceDurable,
+    AdmissionPersistenceFailure,
+    TerminalPersistenceFailure,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -153,11 +164,58 @@ pub enum R2bAdmissionState {
 pub struct R2bAdmissionReceiptV1 {
     pub schema_version: u8,
     pub state: R2bAdmissionState,
+    pub operation: Operation,
     pub run_nonce_sha256: String,
     pub helper_executable_sha256: String,
+    pub launcher_executable_sha256: String,
     pub signed_run_package_sha256: String,
+    pub contract_snapshot_sha256: String,
+    pub nonce_marker_device: u64,
+    pub nonce_marker_inode: u64,
+    pub admission_record_device: u64,
+    pub admission_record_inode: u64,
+    pub terminal_channel_device: u64,
+    pub terminal_channel_inode: u64,
     pub admitted_at_utc: DateTime<Utc>,
+    pub expires_at_utc: DateTime<Utc>,
     pub admission_commitment_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(tag = "message_type", rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum R2bSupervisorMessageV1 {
+    HelperProcessStarted {
+        schema_version: u8,
+        admission_commitment_sha256: String,
+    },
+    Terminal {
+        schema_version: u8,
+        admission_commitment_sha256: String,
+        evidence: Box<R2bTerminalEvidenceV1>,
+    },
+}
+
+/// Root-authenticated terminal envelope. The unprivileged helper can supply
+/// only the nested semantic evidence; the surviving root supervisor adds the
+/// admission provenance and the kernel-observed child outcome before the
+/// record is durably published in the root-only evidence directory.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct R2bRootTerminalRecordV1 {
+    pub schema_version: u8,
+    pub stage: String,
+    pub admission_commitment_sha256: String,
+    pub launcher_executable_sha256: String,
+    pub signed_run_package_sha256: String,
+    pub helper_executable_sha256: String,
+    pub nonce_marker_device: u64,
+    pub nonce_marker_inode: u64,
+    pub admission_record_device: u64,
+    pub admission_record_inode: u64,
+    pub child_pid: Option<i32>,
+    pub child_exit_code: Option<i32>,
+    pub child_signal: Option<i32>,
+    pub helper_terminal: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -439,6 +497,16 @@ pub(crate) struct PreparedR2a5Run {
     account_id: Zeroizing<String>,
     account_key: Zeroizing<[u8; 32]>,
     secret: Zeroizing<String>,
+}
+
+struct ValidatedLocalR2a5Authority {
+    package: R2a5RunPackage,
+    manifest: Zeroizing<Vec<u8>>,
+    receipts: Zeroizing<Vec<u8>>,
+    public_keys: BTreeMap<String, VerifyingKey>,
+    validated_manifest: r2a2::ValidatedManifest,
+    account_key_relative_path: String,
+    account_key_sha256: String,
 }
 
 fn lower_hex(bytes: &[u8]) -> String {
@@ -2337,7 +2405,14 @@ fn persist_admission_state(
         R2bAdmissionState::AdmissionRequested => "requested",
         R2bAdmissionState::AdmissionMarkerCreated => "marker-created",
         R2bAdmissionState::AdmissionDurable => "durable",
-        R2bAdmissionState::HelperStarted => "helper-started",
+        R2bAdmissionState::HelperExecAttempted => "helper-exec-attempted",
+        R2bAdmissionState::HelperProcessStarted => "helper-process-started",
+        R2bAdmissionState::HelperTerminalReceived => "helper-terminal-received",
+        R2bAdmissionState::HelperExitedSuccess => "helper-exited-success",
+        R2bAdmissionState::HelperExitedFailure => "helper-exited-failure",
+        R2bAdmissionState::TerminalEvidenceDurable => "terminal-evidence-durable",
+        R2bAdmissionState::AdmissionPersistenceFailure => "admission-persistence-failure",
+        R2bAdmissionState::TerminalPersistenceFailure => "terminal-persistence-failure",
     };
     let mut file = OpenOptions::new()
         .write(true)
@@ -2347,6 +2422,7 @@ fn persist_admission_state(
         .open(directory.join(format!("{nonce}.{suffix}")))?;
     file.write_all(format!("stage8b-p-r2b-admission-{suffix}-v1\n").as_bytes())?;
     file.sync_all()?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o400))?;
     File::open(directory)?.sync_all()?;
     Ok(())
 }
@@ -2357,8 +2433,17 @@ fn persist_admission_state(
 /// passed through a sealed inherited descriptor.
 pub fn prepare_r2b_privileged_admission(
     expected_helper_sha256: &str,
+    launcher_executable_sha256: &str,
+    terminal_channel_device: u64,
+    terminal_channel_inode: u64,
 ) -> Result<Vec<u8>, R2a3Error> {
-    prepare_r2b_privileged_admission_against(expected_helper_sha256, AUTHORITY)
+    prepare_r2b_privileged_admission_against(
+        expected_helper_sha256,
+        launcher_executable_sha256,
+        terminal_channel_device,
+        terminal_channel_inode,
+        AUTHORITY,
+    )
 }
 
 /// Qualification-only admission seam. It exercises the identical root-owned
@@ -2367,24 +2452,39 @@ pub fn prepare_r2b_privileged_admission(
 /// required by the Linux custody rehearsal.
 pub fn prepare_r2b_controlled_custody_admission(
     expected_helper_sha256: &str,
+    launcher_executable_sha256: &str,
+    terminal_channel_device: u64,
+    terminal_channel_inode: u64,
 ) -> Result<Vec<u8>, R2a3Error> {
-    prepare_r2b_privileged_admission_against(expected_helper_sha256, CONTROLLED_AUTHORITY)
+    prepare_r2b_privileged_admission_against(
+        expected_helper_sha256,
+        launcher_executable_sha256,
+        terminal_channel_device,
+        terminal_channel_inode,
+        CONTROLLED_AUTHORITY,
+    )
 }
 
 fn prepare_r2b_privileged_admission_against(
     expected_helper_sha256: &str,
+    launcher_executable_sha256: &str,
+    terminal_channel_device: u64,
+    terminal_channel_inode: u64,
     authority: &str,
 ) -> Result<Vec<u8>, R2a3Error> {
     if unsafe { libc::geteuid() } != 0 || unsafe { libc::getegid() } != 0 {
         return Err(R2a3Error::Authorization);
     }
     decode_hex::<32>(expected_helper_sha256)?;
+    decode_hex::<32>(launcher_executable_sha256)?;
+    if terminal_channel_device == 0 || terminal_channel_inode == 0 {
+        return Err(R2a3Error::Authorization);
+    }
     let accepted: AcceptedR2a5Authority = serde_json::from_str(authority)?;
-    let prepared = validate_local_package_at(
+    let prepared = validate_local_authority_at(
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
-        (Path::new(PRODUCTION_CREDENTIALS), R2B_HELPER_UID),
         Utc::now(),
         expected_helper_sha256,
         &accepted,
@@ -2411,30 +2511,56 @@ fn prepare_r2b_privileged_admission_against(
         nonce,
         R2bAdmissionState::AdmissionRequested,
     )?;
-    claim_nonce(&Path::new(PRODUCTION_ROOT).join("used-run-nonces"), nonce)?;
-    persist_admission_state(
-        &admission_root,
-        nonce,
-        R2bAdmissionState::AdmissionMarkerCreated,
-    )?;
-    let mut receipt = R2bAdmissionReceiptV1 {
-        schema_version: 1,
-        state: R2bAdmissionState::AdmissionDurable,
-        run_nonce_sha256: nonce.clone(),
-        helper_executable_sha256: expected_helper_sha256.to_owned(),
-        signed_run_package_sha256: sha256(&serde_json::to_vec(&prepared.package)?),
-        admitted_at_utc: Utc::now(),
-        admission_commitment_sha256: String::new(),
-    };
-    receipt.admission_commitment_sha256 = admission_commitment(&receipt)?;
-    persist_admission_state(&admission_root, nonce, R2bAdmissionState::AdmissionDurable)?;
-    serde_json::to_vec(&receipt).map_err(Into::into)
+    let nonce_marker = claim_nonce(&Path::new(PRODUCTION_ROOT).join("used-run-nonces"), nonce)?;
+    let after_nonce_claim = (|| {
+        persist_admission_state(
+            &admission_root,
+            nonce,
+            R2bAdmissionState::AdmissionMarkerCreated,
+        )?;
+        persist_admission_state(&admission_root, nonce, R2bAdmissionState::AdmissionDurable)?;
+        let admission_record =
+            std::fs::symlink_metadata(admission_root.join(format!("{nonce}.durable")))?;
+        let admitted_at_utc = Utc::now();
+        let mut receipt = R2bAdmissionReceiptV1 {
+            schema_version: 1,
+            state: R2bAdmissionState::AdmissionDurable,
+            operation: prepared.package.operation,
+            run_nonce_sha256: nonce.clone(),
+            helper_executable_sha256: expected_helper_sha256.to_owned(),
+            launcher_executable_sha256: launcher_executable_sha256.to_owned(),
+            signed_run_package_sha256: sha256(&serde_json::to_vec(&prepared.package)?),
+            contract_snapshot_sha256: prepared.package.contract_snapshot_sha256.clone(),
+            nonce_marker_device: nonce_marker.dev(),
+            nonce_marker_inode: nonce_marker.ino(),
+            admission_record_device: admission_record.dev(),
+            admission_record_inode: admission_record.ino(),
+            terminal_channel_device,
+            terminal_channel_inode,
+            admitted_at_utc,
+            expires_at_utc: admitted_at_utc + chrono::Duration::seconds(30),
+            admission_commitment_sha256: String::new(),
+        };
+        receipt.admission_commitment_sha256 = admission_commitment(&receipt)?;
+        serde_json::to_vec(&receipt).map_err(Into::into)
+    })();
+    if after_nonce_claim.is_err() {
+        let _ = persist_admission_state(
+            &admission_root,
+            nonce,
+            R2bAdmissionState::AdmissionPersistenceFailure,
+        );
+    }
+    after_nonce_claim
 }
 
 /// Records the last privileged transition before the exact accepted helper
 /// starts. Failure leaves the nonce consumed and the preceding durable
 /// admission evidence intact; automatic replay remains impossible.
-pub fn record_r2b_helper_started(receipt_bytes: &[u8]) -> Result<(), R2a3Error> {
+pub fn record_r2b_supervisor_state(
+    receipt_bytes: &[u8],
+    state: R2bAdmissionState,
+) -> Result<(), R2a3Error> {
     if unsafe { libc::geteuid() } != 0 || unsafe { libc::getegid() } != 0 {
         return Err(R2a3Error::Authorization);
     }
@@ -2448,46 +2574,119 @@ pub fn record_r2b_helper_started(receipt_bytes: &[u8]) -> Result<(), R2a3Error> 
     persist_admission_state(
         &Path::new(PRODUCTION_ROOT).join("admissions"),
         &receipt.run_nonce_sha256,
-        R2bAdmissionState::HelperStarted,
+        state,
     )
 }
 
 fn consume_sealed_r2b_admission_receipt(
-    prepared: &PreparedR2a5Run,
     executable_sha256: &str,
-) -> Result<(), R2a3Error> {
+) -> Result<R2bAdmissionReceiptV1, R2a3Error> {
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = (prepared, executable_sha256);
+        let _ = executable_sha256;
         Err(R2a3Error::Authorization)
     }
     #[cfg(target_os = "linux")]
     {
+        fn fd_stat(fd: RawFd) -> Result<libc::stat, R2a3Error> {
+            let mut value = std::mem::MaybeUninit::<libc::stat>::zeroed();
+            if unsafe { libc::fstat(fd, value.as_mut_ptr()) } != 0 {
+                return Err(R2a3Error::Authorization);
+            }
+            Ok(unsafe { value.assume_init() })
+        }
+
+        let receipt_stat = fd_stat(R2B_ADMISSION_RECEIPT_FD)?;
+        let admission_stat = fd_stat(R2B_ADMISSION_RECORD_FD)?;
+        let nonce_stat = fd_stat(R2B_NONCE_MARKER_FD)?;
+        let terminal_stat = fd_stat(R2B_TERMINAL_CHANNEL_FD)?;
+        if receipt_stat.st_uid != 0
+            || receipt_stat.st_gid != 0
+            || receipt_stat.st_nlink != 0
+            || receipt_stat.st_mode & libc::S_IFMT != libc::S_IFREG
+            || receipt_stat.st_mode & 0o777 != 0o400
+            || receipt_stat.st_size <= 0
+            || receipt_stat.st_size > 16 * 1024
+            || admission_stat.st_uid != 0
+            || admission_stat.st_gid != 0
+            || admission_stat.st_nlink != 1
+            || admission_stat.st_mode & libc::S_IFMT != libc::S_IFREG
+            || admission_stat.st_mode & 0o777 != 0o400
+            || nonce_stat.st_uid != 0
+            || nonce_stat.st_gid != 0
+            || nonce_stat.st_nlink != 1
+            || nonce_stat.st_mode & libc::S_IFMT != libc::S_IFREG
+            || nonce_stat.st_mode & 0o777 != 0o400
+            || terminal_stat.st_uid != 0
+            || terminal_stat.st_gid != 0
+            || terminal_stat.st_mode & libc::S_IFMT != libc::S_IFSOCK
+        {
+            eprintln!("stage8b-r2b-helper: receipt-metadata-rejected");
+            return Err(R2a3Error::Authorization);
+        }
         let seals = unsafe { libc::fcntl(R2B_ADMISSION_RECEIPT_FD, libc::F_GET_SEALS) };
         let required =
             libc::F_SEAL_SEAL | libc::F_SEAL_SHRINK | libc::F_SEAL_GROW | libc::F_SEAL_WRITE;
-        if seals < 0 || seals & required != required {
+        if seals != required {
+            eprintln!("stage8b-r2b-helper: receipt-seals-rejected");
             return Err(R2a3Error::Authorization);
         }
         let file = unsafe { File::from_raw_fd(R2B_ADMISSION_RECEIPT_FD) };
         let mut bytes = Vec::new();
         file.take(16 * 1024).read_to_end(&mut bytes)?;
         let receipt: R2bAdmissionReceiptV1 = serde_json::from_slice(&bytes)?;
-        if receipt.schema_version != 1
+        let binding_category = if receipt.schema_version != 1
             || receipt.state != R2bAdmissionState::AdmissionDurable
-            || receipt.run_nonce_sha256 != prepared.package.run_nonce_sha256
-            || receipt.helper_executable_sha256 != executable_sha256
-            || receipt.signed_run_package_sha256 != sha256(&serde_json::to_vec(&prepared.package)?)
-            || receipt.admission_commitment_sha256 != admission_commitment(&receipt)?
-            || receipt.admitted_at_utc > Utc::now() + chrono::Duration::seconds(1)
         {
+            Some("receipt-state-rejected")
+        } else if receipt.helper_executable_sha256 != executable_sha256 {
+            Some("receipt-helper-rejected")
+        } else if receipt.nonce_marker_device != nonce_stat.st_dev
+            || receipt.nonce_marker_inode != nonce_stat.st_ino
+        {
+            Some("receipt-nonce-rejected")
+        } else if receipt.admission_record_device != admission_stat.st_dev
+            || receipt.admission_record_inode != admission_stat.st_ino
+        {
+            Some("receipt-admission-rejected")
+        } else if receipt.terminal_channel_device != terminal_stat.st_dev
+            || receipt.terminal_channel_inode != terminal_stat.st_ino
+        {
+            Some("receipt-terminal-rejected")
+        } else if receipt.admission_commitment_sha256 != admission_commitment(&receipt)? {
+            Some("receipt-commitment-rejected")
+        } else if receipt.admitted_at_utc > Utc::now() + chrono::Duration::seconds(1)
+            || receipt.expires_at_utc <= Utc::now()
+            || receipt.expires_at_utc <= receipt.admitted_at_utc
+            || receipt.expires_at_utc - receipt.admitted_at_utc > chrono::Duration::seconds(30)
+        {
+            Some("receipt-time-rejected")
+        } else {
+            None
+        };
+        if let Some(category) = binding_category {
+            eprintln!("stage8b-r2b-helper: {category}");
             return Err(R2a3Error::Authorization);
         }
-        Ok(())
+        Ok(receipt)
     }
 }
 
-fn claim_nonce(directory: &Path, nonce: &str) -> Result<(), R2a3Error> {
+fn validate_r2b_receipt_package_binding(
+    receipt: &R2bAdmissionReceiptV1,
+    validated: &ValidatedLocalR2a5Authority,
+) -> Result<(), R2a3Error> {
+    if receipt.operation != validated.package.operation
+        || receipt.run_nonce_sha256 != validated.package.run_nonce_sha256
+        || receipt.signed_run_package_sha256 != sha256(&serde_json::to_vec(&validated.package)?)
+        || receipt.contract_snapshot_sha256 != validated.package.contract_snapshot_sha256
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    Ok(())
+}
+
+fn claim_nonce(directory: &Path, nonce: &str) -> Result<std::fs::Metadata, R2a3Error> {
     decode_hex::<32>(nonce)?;
     let metadata = directory.metadata()?;
     if !metadata.is_dir() || metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
@@ -2503,8 +2702,9 @@ fn claim_nonce(directory: &Path, nonce: &str) -> Result<(), R2a3Error> {
         .map_err(|_| R2a3Error::Authorization)?;
     file.write_all(b"stage8b-p-r2a5-run-nonce-consumed-v1\n")?;
     file.sync_all()?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o400))?;
     File::open(directory)?.sync_all()?;
-    Ok(())
+    file.metadata().map_err(Into::into)
 }
 
 fn terminal_error_category(
@@ -2683,6 +2883,105 @@ fn terminal_evidence(
     })
 }
 
+pub fn r2b_supervisor_fallback_terminal(
+    receipt: &R2bAdmissionReceiptV1,
+    started_at_utc: DateTime<Utc>,
+    detail: &str,
+) -> R2bTerminalEvidenceV1 {
+    R2bTerminalEvidenceV1 {
+        schema_version: 1,
+        stage: "Stage 8B-P R2B".to_owned(),
+        operation: receipt.operation,
+        run_nonce_sha256: receipt.run_nonce_sha256.clone(),
+        signed_run_package_sha256: receipt.signed_run_package_sha256.clone(),
+        contract_snapshot_sha256: receipt.contract_snapshot_sha256.clone(),
+        helper_executable_sha256: receipt.helper_executable_sha256.clone(),
+        production_composition_sha256: sha256(R2B_RUNTIME_COMPOSITION_CONTRACT),
+        started_at_utc,
+        finished_at_utc: Utc::now(),
+        terminal_outcome: R2bTerminalOutcome::Failure,
+        terminal_error_category: Some(R2bTerminalErrorCategory::InternalInvariantFailure),
+        terminal_error_detail_redacted: Some(detail.to_owned()),
+        request_attempts: Vec::new(),
+        broker_truth_summary: None,
+        operator_arm_issued: false,
+        dispatch_attempt_recorded: false,
+        effect_transport_entered: false,
+        order_post_sent: false,
+        order_delete_sent: false,
+        raw_body_exported: false,
+        credential_exported: false,
+        account_id_exported: false,
+    }
+}
+
+pub fn r2b_root_terminal_record(
+    receipt: &R2bAdmissionReceiptV1,
+    child_pid: Option<i32>,
+    wait_status: Option<i32>,
+    helper_terminal: serde_json::Value,
+) -> R2bRootTerminalRecordV1 {
+    let (child_exit_code, child_signal) = wait_status.map_or((None, None), |status| {
+        if libc::WIFEXITED(status) {
+            (Some(libc::WEXITSTATUS(status)), None)
+        } else if libc::WIFSIGNALED(status) {
+            (None, Some(libc::WTERMSIG(status)))
+        } else {
+            (None, None)
+        }
+    });
+    R2bRootTerminalRecordV1 {
+        schema_version: 1,
+        stage: "Stage 8B-P R2B root terminal envelope".to_owned(),
+        admission_commitment_sha256: receipt.admission_commitment_sha256.clone(),
+        launcher_executable_sha256: receipt.launcher_executable_sha256.clone(),
+        signed_run_package_sha256: receipt.signed_run_package_sha256.clone(),
+        helper_executable_sha256: receipt.helper_executable_sha256.clone(),
+        nonce_marker_device: receipt.nonce_marker_device,
+        nonce_marker_inode: receipt.nonce_marker_inode,
+        admission_record_device: receipt.admission_record_device,
+        admission_record_inode: receipt.admission_record_inode,
+        child_pid,
+        child_exit_code,
+        child_signal,
+        helper_terminal,
+    }
+}
+
+pub fn send_r2b_supervisor_message(message: &R2bSupervisorMessageV1) -> Result<(), R2a3Error> {
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = message;
+        Err(R2a3Error::Authorization)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let payload = serde_json::to_vec(message)?;
+        if payload.len() > 512 * 1024 {
+            return Err(R2a3Error::EvidencePersistence);
+        }
+        let mut frame = Vec::with_capacity(4 + payload.len());
+        frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        frame.extend_from_slice(&payload);
+        let mut offset = 0;
+        while offset < frame.len() {
+            let written = unsafe {
+                libc::send(
+                    R2B_TERMINAL_CHANNEL_FD,
+                    frame[offset..].as_ptr().cast(),
+                    frame.len() - offset,
+                    libc::MSG_NOSIGNAL,
+                )
+            };
+            if written <= 0 {
+                return Err(R2a3Error::EvidencePersistence);
+            }
+            offset += written as usize;
+        }
+        Ok(())
+    }
+}
+
 fn require_evidence_root(
     root: &Path,
     expected_uid: u32,
@@ -2702,39 +3001,40 @@ fn require_evidence_root(
     Ok(())
 }
 
-fn persist_terminal_evidence_at(
+fn persist_terminal_payload_at(
     root: &Path,
-    evidence: &R2bTerminalEvidenceV1,
+    nonce: &str,
+    bytes: &[u8],
     root_uid: u32,
     evidence_uid: u32,
     evidence_gid: u32,
 ) -> Result<PathBuf, R2a3Error> {
-    decode_hex::<32>(&evidence.run_nonce_sha256)?;
+    decode_hex::<32>(nonce)?;
     require_evidence_root(root, root_uid, evidence_gid, R2B_EVIDENCE_DIRECTORY_MODE)?;
     if unsafe { libc::geteuid() } != evidence_uid || unsafe { libc::getegid() } != evidence_gid {
         return Err(R2a3Error::EvidencePersistence);
     }
-    let final_name = format!("r2b-terminal-{}.json", evidence.run_nonce_sha256);
-    let pending_name = format!(".pending-{}.json", evidence.run_nonce_sha256);
+    let final_name = format!("r2b-terminal-{nonce}.json");
+    let pending_name = format!(".pending-{nonce}.json");
     let final_path = root.join(final_name);
     let pending_path = root.join(pending_name);
-    let bytes = serde_json::to_vec(evidence)?;
     if bytes.len() > 512 * 1024 {
         return Err(R2a3Error::EvidencePersistence);
     }
     let mut pending = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(R2B_EVIDENCE_FILE_MODE)
+        .mode(0o600)
         .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(&pending_path)
         .map_err(|_| R2a3Error::EvidencePersistence)?;
     pending
-        .set_permissions(std::fs::Permissions::from_mode(R2B_EVIDENCE_FILE_MODE))
+        .write_all(bytes)
+        .and_then(|_| pending.write_all(b"\n"))
+        .and_then(|_| pending.sync_all())
         .map_err(|_| R2a3Error::EvidencePersistence)?;
     pending
-        .write_all(&bytes)
-        .and_then(|_| pending.write_all(b"\n"))
+        .set_permissions(std::fs::Permissions::from_mode(R2B_EVIDENCE_FILE_MODE))
         .and_then(|_| pending.sync_all())
         .map_err(|_| R2a3Error::EvidencePersistence)?;
     let metadata = pending
@@ -2770,13 +3070,40 @@ fn persist_terminal_evidence_at(
     Ok(final_path)
 }
 
-fn persist_terminal_evidence(evidence: &R2bTerminalEvidenceV1) -> Result<PathBuf, R2a3Error> {
-    persist_terminal_evidence_at(
+fn persist_terminal_evidence_at(
+    root: &Path,
+    evidence: &R2bTerminalEvidenceV1,
+    root_uid: u32,
+    evidence_uid: u32,
+    evidence_gid: u32,
+) -> Result<PathBuf, R2a3Error> {
+    persist_terminal_payload_at(
+        root,
+        &evidence.run_nonce_sha256,
+        &serde_json::to_vec(evidence)?,
+        root_uid,
+        evidence_uid,
+        evidence_gid,
+    )
+}
+
+pub fn persist_r2b_root_terminal_evidence(
+    evidence: &R2bTerminalEvidenceV1,
+) -> Result<PathBuf, R2a3Error> {
+    persist_terminal_evidence_at(Path::new(PRODUCTION_EVIDENCE_ROOT), evidence, 0, 0, 0)
+}
+
+pub fn persist_r2b_root_terminal_json(
+    nonce: &str,
+    evidence: &serde_json::Value,
+) -> Result<PathBuf, R2a3Error> {
+    persist_terminal_payload_at(
         Path::new(PRODUCTION_EVIDENCE_ROOT),
-        evidence,
+        nonce,
+        &serde_json::to_vec(evidence)?,
         0,
-        R2B_HELPER_UID,
-        R2B_EVIDENCE_GID,
+        0,
+        0,
     )
 }
 
@@ -2790,16 +3117,14 @@ fn manifest_field<'a>(
         .ok_or(R2a3Error::Authorization)
 }
 
-fn validate_local_package_at(
+fn validate_local_authority_at(
     etc_root: &Path,
     state_root: &Path,
     run_root: &Path,
-    credentials: (&Path, u32),
     now: DateTime<Utc>,
     executable_sha256: &str,
     accepted: &AcceptedR2a5Authority,
-) -> Result<PreparedR2a5Run, R2a3Error> {
-    let (credentials_root, credential_owner_uid) = credentials;
+) -> Result<ValidatedLocalR2a5Authority, R2a3Error> {
     if accepted.schema_version != 1
         || accepted.stage != "8B-P"
         || accepted.revision != "R2A5"
@@ -2926,21 +3251,6 @@ fn validate_local_package_at(
     {
         return Err(R2a3Error::Authorization);
     }
-    let account_key_text = strict_single_line(
-        &read_owned_fd(
-            &credentials_root
-                .join("account-binding-keys")
-                .join(&key_entry.relative_key_path),
-            128,
-            credential_owner_uid,
-            true,
-        )?,
-        128,
-    )?;
-    let account_key = decode_hex::<32>(&account_key_text)?;
-    if sha256(&account_key) != key_entry.key_sha256 {
-        return Err(R2a3Error::Authorization);
-    }
     let operator_decision = read_owned_fd(
         &etc_root.join("operator-decision.json"),
         64 * 1024,
@@ -2948,6 +3258,37 @@ fn validate_local_package_at(
         false,
     )?;
     if sha256(&operator_decision) != package.operator_decision_sha256 {
+        return Err(R2a3Error::Authorization);
+    }
+    Ok(ValidatedLocalR2a5Authority {
+        package,
+        manifest,
+        receipts,
+        public_keys,
+        validated_manifest: validated.0,
+        account_key_relative_path: key_entry.relative_key_path.clone(),
+        account_key_sha256: key_entry.key_sha256.clone(),
+    })
+}
+
+fn load_r2a5_credentials_at(
+    validated: ValidatedLocalR2a5Authority,
+    credentials: (&Path, u32),
+) -> Result<PreparedR2a5Run, R2a3Error> {
+    let (credentials_root, credential_owner_uid) = credentials;
+    let account_key_text = strict_single_line(
+        &read_owned_fd(
+            &credentials_root
+                .join("account-binding-keys")
+                .join(&validated.account_key_relative_path),
+            128,
+            credential_owner_uid,
+            true,
+        )?,
+        128,
+    )?;
+    let account_key = decode_hex::<32>(&account_key_text)?;
+    if sha256(&account_key) != validated.account_key_sha256 {
         return Err(R2a3Error::Authorization);
     }
     let account_id = Zeroizing::new(strict_single_line(
@@ -2969,20 +3310,40 @@ fn validate_local_package_at(
         4096,
     )?);
     r2a2::verify_account_binding(
-        &validated.0,
+        &validated.validated_manifest,
         &account_id,
-        &package.account_key_generation_id,
+        &validated.package.account_key_generation_id,
         &account_key,
     )?;
     Ok(PreparedR2a5Run {
-        package,
-        manifest,
-        receipts,
-        public_keys,
+        package: validated.package,
+        manifest: validated.manifest,
+        receipts: validated.receipts,
+        public_keys: validated.public_keys,
         account_id,
         account_key: Zeroizing::new(account_key),
         secret,
     })
+}
+
+fn validate_local_package_at(
+    etc_root: &Path,
+    state_root: &Path,
+    run_root: &Path,
+    credentials: (&Path, u32),
+    now: DateTime<Utc>,
+    executable_sha256: &str,
+    accepted: &AcceptedR2a5Authority,
+) -> Result<PreparedR2a5Run, R2a3Error> {
+    let validated = validate_local_authority_at(
+        etc_root,
+        state_root,
+        run_root,
+        now,
+        executable_sha256,
+        accepted,
+    )?;
+    load_r2a5_credentials_at(validated, credentials)
 }
 
 pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
@@ -2991,23 +3352,34 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
     {
         return Err(R2a3Error::Authorization);
     }
+    eprintln!("stage8b-r2b-helper: identity-verified");
     let started_at_utc = Utc::now();
     let executable = current_linux_executable_sha256()?;
+    // Authenticate the root-created FD set before reading any FINAM or
+    // account-binding credential. Direct helper execution therefore cannot
+    // use the helper identity as a credential-reading oracle.
+    let receipt = consume_sealed_r2b_admission_receipt(&executable)?;
+    eprintln!("stage8b-r2b-helper: receipt-verified");
+    send_r2b_supervisor_message(&R2bSupervisorMessageV1::HelperProcessStarted {
+        schema_version: 1,
+        admission_commitment_sha256: receipt.admission_commitment_sha256.clone(),
+    })?;
     let accepted: AcceptedR2a5Authority = serde_json::from_str(AUTHORITY)?;
-    let prepared = validate_local_package_at(
+    let validated = validate_local_authority_at(
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
-        (Path::new(PRODUCTION_CREDENTIALS), R2B_HELPER_UID),
         Utc::now(),
         &executable,
         &accepted,
     )?;
-    // The root-owned R2B launcher already consumed the nonce durably before
-    // dropping privileges. The helper accepts only the sealed receipt carried
-    // on the inherited fixed descriptor; it cannot write or delete registry
-    // markers and receives no DAC override capability.
-    consume_sealed_r2b_admission_receipt(&prepared, &executable)?;
+    eprintln!("stage8b-r2b-helper: authority-verified");
+    validate_r2b_receipt_package_binding(&receipt, &validated)?;
+    let prepared = load_r2a5_credentials_at(
+        validated,
+        (Path::new(PRODUCTION_CREDENTIALS), R2B_HELPER_UID),
+    )?;
+    eprintln!("stage8b-r2b-helper: credentials-loaded");
     let result = match crate::production_clients() {
         Ok((auth_client, broker_client)) => {
             r2a3::execute_r2a3_pipeline_preserving_attempts(
@@ -3034,7 +3406,11 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
         }),
     };
     let terminal = terminal_evidence(&prepared, &executable, started_at_utc, &result)?;
-    persist_terminal_evidence(&terminal).map_err(|_| R2a3Error::EvidencePersistence)?;
+    send_r2b_supervisor_message(&R2bSupervisorMessageV1::Terminal {
+        schema_version: 1,
+        admission_commitment_sha256: receipt.admission_commitment_sha256,
+        evidence: Box::new(terminal),
+    })?;
     result.map_err(|failure| failure.error)
 }
 
@@ -3047,19 +3423,31 @@ pub async fn run_r2b_controlled_custody_one_shot() -> Result<R2a3ReadonlyEvidenc
     {
         return Err(R2a3Error::Authorization);
     }
+    eprintln!("stage8b-r2b-helper: identity-verified");
     let started_at_utc = Utc::now();
     let executable = current_linux_executable_sha256()?;
+    let receipt = consume_sealed_r2b_admission_receipt(&executable)?;
+    eprintln!("stage8b-r2b-helper: receipt-verified");
+    send_r2b_supervisor_message(&R2bSupervisorMessageV1::HelperProcessStarted {
+        schema_version: 1,
+        admission_commitment_sha256: receipt.admission_commitment_sha256.clone(),
+    })?;
     let accepted: AcceptedR2a5Authority = serde_json::from_str(CONTROLLED_AUTHORITY)?;
-    let prepared = validate_local_package_at(
+    let validated = validate_local_authority_at(
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
-        (Path::new(PRODUCTION_CREDENTIALS), R2B_HELPER_UID),
         Utc::now(),
         &executable,
         &accepted,
     )?;
-    consume_sealed_r2b_admission_receipt(&prepared, &executable)?;
+    eprintln!("stage8b-r2b-helper: authority-verified");
+    validate_r2b_receipt_package_binding(&receipt, &validated)?;
+    let prepared = load_r2a5_credentials_at(
+        validated,
+        (Path::new(PRODUCTION_CREDENTIALS), R2B_HELPER_UID),
+    )?;
+    eprintln!("stage8b-r2b-helper: credentials-loaded");
     let result = match controlled_client_from_fixed_files() {
         Ok((client, endpoint)) => {
             r2a3::execute_r2a3_pipeline_preserving_attempts(
@@ -3086,7 +3474,11 @@ pub async fn run_r2b_controlled_custody_one_shot() -> Result<R2a3ReadonlyEvidenc
         }),
     };
     let terminal = terminal_evidence(&prepared, &executable, started_at_utc, &result)?;
-    persist_terminal_evidence(&terminal).map_err(|_| R2a3Error::EvidencePersistence)?;
+    send_r2b_supervisor_message(&R2bSupervisorMessageV1::Terminal {
+        schema_version: 1,
+        admission_commitment_sha256: receipt.admission_commitment_sha256,
+        evidence: Box::new(terminal),
+    })?;
     result.map_err(|failure| failure.error)
 }
 
@@ -3502,16 +3894,31 @@ mod tests {
 
     #[test]
     fn admission_receipt_binds_nonce_package_helper_and_state() {
+        let admitted_at_utc = Utc::now();
         let mut receipt = R2bAdmissionReceiptV1 {
             schema_version: 1,
             state: R2bAdmissionState::AdmissionDurable,
+            operation: Operation::Place,
             run_nonce_sha256: "1".repeat(64),
             helper_executable_sha256: "2".repeat(64),
+            launcher_executable_sha256: "7".repeat(64),
             signed_run_package_sha256: "3".repeat(64),
-            admitted_at_utc: Utc::now(),
+            contract_snapshot_sha256: "8".repeat(64),
+            nonce_marker_device: 1,
+            nonce_marker_inode: 2,
+            admission_record_device: 3,
+            admission_record_inode: 4,
+            terminal_channel_device: 5,
+            terminal_channel_inode: 6,
+            admitted_at_utc,
+            expires_at_utc: admitted_at_utc + chrono::Duration::seconds(30),
             admission_commitment_sha256: String::new(),
         };
         receipt.admission_commitment_sha256 = admission_commitment(&receipt).unwrap();
+        assert_eq!(
+            receipt.expires_at_utc - receipt.admitted_at_utc,
+            chrono::Duration::seconds(30)
+        );
         let original = receipt.admission_commitment_sha256.clone();
         for mutate in [
             |value: &mut R2bAdmissionReceiptV1| value.run_nonce_sha256 = "4".repeat(64),
