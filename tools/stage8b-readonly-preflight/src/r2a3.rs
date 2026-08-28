@@ -187,7 +187,7 @@ pub struct R2a3AttemptEvidence {
     pub raw_body_sha256_exported: bool,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum R2a3AttemptFailureKind {
     NetworkConnectFailure,

@@ -12,9 +12,13 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 #[cfg(target_os = "linux")]
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+#[cfg(target_os = "linux")]
+use std::time::{Duration, Instant};
 
 #[cfg(target_os = "linux")]
-use stage8b_readonly_preflight::r2a5::{self, R2bAdmissionReceiptV1, R2bAdmissionState};
+use stage8b_readonly_preflight::r2a5::{
+    self, R2bAdmissionReceiptV1, R2bAdmissionState, R2bSupervisorMessageV1, R2bTerminalEvidenceV1,
+};
 
 #[cfg(target_os = "linux")]
 const HELPER: &str = "/opt/moex-trading/stage8b-r2b/bin/stage8b-readonly-preflight";
@@ -23,6 +27,8 @@ const ACCEPTED_SHA256: &str =
     include_str!("../../../../docs/stage-8/stage8b-p-r2b-accepted-helper-sha256.txt");
 #[cfg(target_os = "linux")]
 const CHILD_TIMEOUT_MS: i32 = 120_000;
+#[cfg(all(target_os = "linux", feature = "stage8b-r2b-controlled-custody"))]
+const CONTROLLED_FAULT_TIMEOUT_MS: i32 = 500;
 #[cfg(target_os = "linux")]
 const MAX_FRAME_BYTES: usize = 512 * 1024;
 
@@ -194,6 +200,37 @@ fn child_capability_sets_are_empty() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "linux")]
+fn verify_runtime_isolation_before_admission() -> Result<(), Box<dyn std::error::Error>> {
+    let yama = std::fs::read_to_string("/proc/sys/kernel/yama/ptrace_scope")?;
+    let scope: u32 = yama.trim().parse()?;
+    if scope < 1 {
+        return Err("R2B requires kernel.yama.ptrace_scope >= 1".into());
+    }
+    for entry in std::fs::read_dir("/proc")? {
+        let entry = entry?;
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !name.bytes().all(|byte| byte.is_ascii_digit()) {
+            continue;
+        }
+        let status = match std::fs::read_to_string(entry.path().join("status")) {
+            Ok(status) => status,
+            Err(_) => continue,
+        };
+        let uid = status.lines().find_map(|line| {
+            line.strip_prefix("Uid:")
+                .and_then(|value| value.split_whitespace().next())
+                .and_then(|value| value.parse::<u32>().ok())
+        });
+        if uid == Some(r2a5::R2B_HELPER_UID) {
+            return Err("R2B dedicated helper UID already has a process".into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
 fn close_non_allowlisted_descriptors() -> Result<(), Box<dyn std::error::Error>> {
     if unsafe { libc::close_range(8, u32::MAX, 0) } == 0 {
         return Ok(());
@@ -233,8 +270,11 @@ fn child_exec(
     terminal: RawFd,
     admission: RawFd,
     nonce: RawFd,
+    receipt_model: &R2bAdmissionReceiptV1,
     controlled_custody: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(not(feature = "stage8b-r2b-controlled-custody"))]
+    let _ = receipt_model;
     dup_to(receipt, r2a5::R2B_ADMISSION_RECEIPT_FD)?;
     dup_to(terminal, r2a5::R2B_TERMINAL_CHANNEL_FD)?;
     dup_to(admission, r2a5::R2B_ADMISSION_RECORD_FD)?;
@@ -284,6 +324,13 @@ fn child_exec(
         return Err("R2B irreversible identity drop did not stick".into());
     }
     child_capability_sets_are_empty()?;
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    #[cfg(feature = "stage8b-r2b-controlled-custody")]
+    if controlled_custody {
+        run_controlled_protocol_fault(receipt_model)?;
+    }
     #[cfg(feature = "stage8b-r2b-controlled-custody")]
     if controlled_custody && controlled_fault("FEXECVE_FAILURE") {
         return Err("controlled qualification fexecve failure".into());
@@ -303,6 +350,82 @@ fn child_exec(
 }
 
 #[cfg(all(target_os = "linux", feature = "stage8b-r2b-controlled-custody"))]
+fn send_controlled_bytes(bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    let mut offset = 0;
+    while offset < bytes.len() {
+        let written = unsafe {
+            libc::send(
+                r2a5::R2B_TERMINAL_CHANNEL_FD,
+                bytes[offset..].as_ptr().cast(),
+                bytes.len() - offset,
+                libc::MSG_NOSIGNAL,
+            )
+        };
+        if written <= 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        offset += written as usize;
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "linux", feature = "stage8b-r2b-controlled-custody"))]
+fn send_controlled_message(
+    message: &R2bSupervisorMessageV1,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let payload = serde_json::to_vec(message)?;
+    send_controlled_bytes(&(payload.len() as u32).to_be_bytes())?;
+    send_controlled_bytes(&payload)
+}
+
+#[cfg(all(target_os = "linux", feature = "stage8b-r2b-controlled-custody"))]
+fn controlled_hang() -> ! {
+    loop {
+        unsafe { libc::pause() };
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "stage8b-r2b-controlled-custody"))]
+fn run_controlled_protocol_fault(
+    receipt: &R2bAdmissionReceiptV1,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if controlled_fault("NO_START_FRAME") || controlled_fault("CHILD_IGNORES_CHANNEL") {
+        controlled_hang();
+    }
+    if controlled_fault("PARTIAL_FRAME_HEADER") || controlled_fault("SLOW_DRIP_FRAME") {
+        send_controlled_bytes(&[0])?;
+        controlled_hang();
+    }
+    let started = R2bSupervisorMessageV1::HelperProcessStarted {
+        schema_version: 1,
+        admission_commitment_sha256: receipt.admission_commitment_sha256.clone(),
+    };
+    if controlled_fault("PARTIAL_FRAME_BODY") {
+        let payload = serde_json::to_vec(&started)?;
+        send_controlled_bytes(&(payload.len() as u32).to_be_bytes())?;
+        send_controlled_bytes(&payload[..payload.len() / 2])?;
+        controlled_hang();
+    }
+    if controlled_fault("NO_TERMINAL_FRAME") || controlled_fault("TERMINAL_THEN_HANG") {
+        send_controlled_message(&started)?;
+        if controlled_fault("TERMINAL_THEN_HANG") {
+            let terminal = R2bSupervisorMessageV1::Terminal {
+                schema_version: 1,
+                admission_commitment_sha256: receipt.admission_commitment_sha256.clone(),
+                evidence: Box::new(r2a5::r2b_supervisor_fallback_terminal(
+                    receipt,
+                    chrono::Utc::now(),
+                    "CONTROLLED_TERMINAL_THEN_HANG",
+                )),
+            };
+            send_controlled_message(&terminal)?;
+        }
+        controlled_hang();
+    }
+    Ok(())
+}
+
+#[cfg(all(target_os = "linux", feature = "stage8b-r2b-controlled-custody"))]
 fn controlled_fault(expected: &str) -> bool {
     std::env::var("STAGE8B_R2B_CONTROLLED_FAULT").as_deref() == Ok(expected)
 }
@@ -313,7 +436,11 @@ fn controlled_fault(_expected: &str) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn read_exact_timeout(fd: RawFd, output: &mut [u8]) -> Result<(), Box<dyn std::error::Error>> {
+fn read_exact_before(
+    fd: RawFd,
+    output: &mut [u8],
+    deadline: Instant,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut offset = 0;
     while offset < output.len() {
         let mut poll = libc::pollfd {
@@ -321,8 +448,26 @@ fn read_exact_timeout(fd: RawFd, output: &mut [u8]) -> Result<(), Box<dyn std::e
             events: libc::POLLIN | libc::POLLHUP,
             revents: 0,
         };
-        if unsafe { libc::poll(&mut poll, 1, CHILD_TIMEOUT_MS) } <= 0 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
             return Err("R2B helper terminal channel timeout".into());
+        }
+        let timeout = i32::try_from(
+            remaining
+                .as_nanos()
+                .div_ceil(1_000_000)
+                .min(i32::MAX as u128),
+        )?;
+        let polled = unsafe { libc::poll(&mut poll, 1, timeout) };
+        if polled == 0 {
+            continue;
+        }
+        if polled < 0 {
+            let error = std::io::Error::last_os_error();
+            if error.kind() == std::io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(error.into());
         }
         let read = unsafe {
             libc::recv(
@@ -341,15 +486,18 @@ fn read_exact_timeout(fd: RawFd, output: &mut [u8]) -> Result<(), Box<dyn std::e
 }
 
 #[cfg(target_os = "linux")]
-fn read_frame<T: DeserializeOwned>(fd: RawFd) -> Result<T, Box<dyn std::error::Error>> {
+fn read_frame_before<T: DeserializeOwned>(
+    fd: RawFd,
+    deadline: Instant,
+) -> Result<T, Box<dyn std::error::Error>> {
     let mut size = [0_u8; 4];
-    read_exact_timeout(fd, &mut size)?;
+    read_exact_before(fd, &mut size, deadline)?;
     let size = u32::from_be_bytes(size) as usize;
     if size == 0 || size > MAX_FRAME_BYTES {
         return Err("R2B helper terminal frame size invalid".into());
     }
     let mut payload = vec![0; size];
-    read_exact_timeout(fd, &mut payload)?;
+    read_exact_before(fd, &mut payload, deadline)?;
     Ok(serde_json::from_slice(&payload)?)
 }
 
@@ -374,63 +522,76 @@ fn controlled_custody_requested() -> Result<bool, Box<dyn std::error::Error>> {
 struct ChildCompletion {
     child_pid: Option<i32>,
     wait_status: Option<i32>,
-    terminal: serde_json::Value,
+    terminal: Option<R2bTerminalEvidenceV1>,
+    protocol_valid: bool,
+    root_error_category: Option<r2a5::R2bTerminalErrorCategory>,
     succeeded: bool,
 }
 
 #[cfg(target_os = "linux")]
 fn validated_terminal(
-    frame: serde_json::Value,
+    frame: R2bSupervisorMessageV1,
     receipt: &R2bAdmissionReceiptV1,
-) -> Option<serde_json::Value> {
-    let evidence = frame.get("evidence").cloned();
-    let string_matches = |name: &str, expected: &str| {
-        evidence
-            .as_ref()
-            .and_then(|value| value.get(name))
-            .and_then(serde_json::Value::as_str)
-            == Some(expected)
+) -> Option<R2bTerminalEvidenceV1> {
+    let R2bSupervisorMessageV1::Terminal {
+        schema_version,
+        admission_commitment_sha256,
+        evidence,
+    } = frame
+    else {
+        return None;
     };
-    let closed = |name: &str| {
-        evidence
-            .as_ref()
-            .and_then(|value| value.get(name))
-            .and_then(serde_json::Value::as_bool)
-            == Some(false)
-    };
-    if frame
-        .get("message_type")
-        .and_then(serde_json::Value::as_str)
-        == Some("TERMINAL")
-        && frame
-            .get("schema_version")
-            .and_then(serde_json::Value::as_u64)
-            == Some(1)
-        && frame
-            .get("admission_commitment_sha256")
-            .and_then(serde_json::Value::as_str)
-            == Some(receipt.admission_commitment_sha256.as_str())
-        && string_matches("run_nonce_sha256", &receipt.run_nonce_sha256)
-        && string_matches(
-            "signed_run_package_sha256",
-            &receipt.signed_run_package_sha256,
-        )
-        && string_matches(
-            "helper_executable_sha256",
-            &receipt.helper_executable_sha256,
-        )
-        && closed("operator_arm_issued")
-        && closed("dispatch_attempt_recorded")
-        && closed("effect_transport_entered")
-        && closed("order_post_sent")
-        && closed("order_delete_sent")
-        && closed("raw_body_exported")
-        && closed("credential_exported")
-        && closed("account_id_exported")
-    {
-        evidence
-    } else {
-        None
+    (schema_version == 1
+        && admission_commitment_sha256 == receipt.admission_commitment_sha256
+        && r2a5::validate_r2b_helper_terminal(receipt, &evidence))
+    .then_some(*evidence)
+}
+
+#[cfg(target_os = "linux")]
+enum ChildWaitOutcome {
+    Reaped,
+    TimedOutAndReaped,
+    TimedOutUnreaped,
+}
+
+#[cfg(target_os = "linux")]
+fn wait_child_before(
+    child: libc::pid_t,
+    deadline: Instant,
+    status: &mut i32,
+) -> Result<ChildWaitOutcome, Box<dyn std::error::Error>> {
+    let pidfd = unsafe { libc::syscall(libc::SYS_pidfd_open, child, 0) } as RawFd;
+    if pidfd < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let pidfd = unsafe { std::fs::File::from_raw_fd(pidfd) };
+    loop {
+        let waited = unsafe { libc::waitpid(child, status, libc::WNOHANG) };
+        if waited == child {
+            return Ok(ChildWaitOutcome::Reaped);
+        }
+        if waited < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            unsafe { libc::kill(child, libc::SIGKILL) };
+            let reap_deadline = Instant::now() + Duration::from_secs(2);
+            while Instant::now() < reap_deadline {
+                if unsafe { libc::waitpid(child, status, libc::WNOHANG) } == child {
+                    return Ok(ChildWaitOutcome::TimedOutAndReaped);
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            return Ok(ChildWaitOutcome::TimedOutUnreaped);
+        }
+        let mut poll = libc::pollfd {
+            fd: pidfd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let timeout = i32::try_from(remaining.as_millis().min(100))?;
+        unsafe { libc::poll(&mut poll, 1, timeout.max(1)) };
     }
 }
 
@@ -444,7 +605,6 @@ fn run_admitted_child(
     child_channel: std::fs::File,
     receipt_bytes: &[u8],
     receipt: &R2bAdmissionReceiptV1,
-    started: chrono::DateTime<chrono::Utc>,
 ) -> Result<ChildCompletion, Box<dyn std::error::Error>> {
     let sealed = sealed_receipt(receipt_bytes)?;
     let admission_path = std::path::Path::new(r2a5::PRODUCTION_ROOT)
@@ -476,6 +636,7 @@ fn run_admitted_child(
             child_channel.as_raw_fd(),
             admission.as_raw_fd(),
             nonce.as_raw_fd(),
+            receipt,
             controlled,
         ) {
             eprintln!("stage8b-r2b-child-exec: {error}");
@@ -484,22 +645,39 @@ fn run_admitted_child(
     }
     drop(child_channel_raw);
     drop(child_channel);
-    let mut terminal: Option<serde_json::Value> = None;
+    #[cfg(feature = "stage8b-r2b-controlled-custody")]
+    let timeout_ms = if controlled
+        && [
+            "NO_START_FRAME",
+            "NO_TERMINAL_FRAME",
+            "TERMINAL_THEN_HANG",
+            "SLOW_DRIP_FRAME",
+            "PARTIAL_FRAME_HEADER",
+            "PARTIAL_FRAME_BODY",
+            "CHILD_IGNORES_CHANNEL",
+        ]
+        .iter()
+        .any(|fault| controlled_fault(fault))
+    {
+        CONTROLLED_FAULT_TIMEOUT_MS
+    } else {
+        CHILD_TIMEOUT_MS
+    };
+    #[cfg(not(feature = "stage8b-r2b-controlled-custody"))]
+    let timeout_ms = CHILD_TIMEOUT_MS;
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
+    let mut terminal: Option<R2bTerminalEvidenceV1> = None;
+    let mut protocol_valid = false;
     let mut lifecycle_state_failed = false;
-    let first = read_frame::<serde_json::Value>(parent_channel.as_raw_fd());
-    if let Ok(first) = first {
-        if first
-            .get("message_type")
-            .and_then(serde_json::Value::as_str)
-            == Some("HELPER_PROCESS_STARTED")
-            && first
-                .get("schema_version")
-                .and_then(serde_json::Value::as_u64)
-                == Some(1)
-            && first
-                .get("admission_commitment_sha256")
-                .and_then(serde_json::Value::as_str)
-                == Some(receipt.admission_commitment_sha256.as_str())
+    let mut channel_timed_out = false;
+    let first = read_frame_before::<R2bSupervisorMessageV1>(parent_channel.as_raw_fd(), deadline);
+    channel_timed_out |= first.is_err() && Instant::now() >= deadline;
+    if let Ok(R2bSupervisorMessageV1::HelperProcessStarted {
+        schema_version,
+        admission_commitment_sha256,
+    }) = first
+    {
+        if schema_version == 1 && admission_commitment_sha256 == receipt.admission_commitment_sha256
         {
             lifecycle_state_failed |= r2a5::record_r2b_supervisor_state(
                 receipt_bytes,
@@ -508,14 +686,22 @@ fn run_admitted_child(
             .is_err();
             if controlled && controlled_fault("HELPER_CRASH_AFTER_STARTED") {
                 unsafe { libc::kill(child, libc::SIGKILL) };
-            } else if let Ok(frame) = read_frame::<serde_json::Value>(parent_channel.as_raw_fd()) {
-                if let Some(evidence) = validated_terminal(frame, receipt) {
-                    lifecycle_state_failed |= r2a5::record_r2b_supervisor_state(
-                        receipt_bytes,
-                        R2bAdmissionState::HelperTerminalReceived,
-                    )
-                    .is_err();
-                    terminal = Some(evidence);
+            } else {
+                let next = read_frame_before::<R2bSupervisorMessageV1>(
+                    parent_channel.as_raw_fd(),
+                    deadline,
+                );
+                channel_timed_out |= next.is_err() && Instant::now() >= deadline;
+                if let Ok(frame) = next {
+                    if let Some(evidence) = validated_terminal(frame, receipt) {
+                        lifecycle_state_failed |= r2a5::record_r2b_supervisor_state(
+                            receipt_bytes,
+                            R2bAdmissionState::HelperTerminalReceived,
+                        )
+                        .is_err();
+                        terminal = Some(evidence);
+                        protocol_valid = true;
+                    }
                 }
             }
         }
@@ -524,7 +710,13 @@ fn run_admitted_child(
     if terminal.is_none() {
         unsafe { libc::kill(child, libc::SIGKILL) };
     }
-    let waited = unsafe { libc::waitpid(child, &mut status, 0) } == child;
+    let wait_outcome = wait_child_before(child, deadline, &mut status);
+    let (waited, wait_timed_out) = match wait_outcome {
+        Ok(ChildWaitOutcome::Reaped) => (true, false),
+        Ok(ChildWaitOutcome::TimedOutAndReaped) => (true, true),
+        Ok(ChildWaitOutcome::TimedOutUnreaped) | Err(_) => (false, true),
+    };
+    let timed_out = channel_timed_out || wait_timed_out;
     let success = waited && libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0;
     lifecycle_state_failed |= r2a5::record_r2b_supervisor_state(
         receipt_bytes,
@@ -535,26 +727,35 @@ fn run_admitted_child(
         },
     )
     .is_err();
-    if lifecycle_state_failed || terminal.is_none() || !waited {
-        terminal = Some(serde_json::to_value(
-            r2a5::r2b_supervisor_fallback_terminal(
-                receipt,
-                started,
-                if lifecycle_state_failed {
-                    "SUPERVISOR_STATE_PERSISTENCE_FAILURE"
-                } else if !waited {
-                    "SUPERVISOR_WAIT_FAILURE"
-                } else {
-                    "SUPERVISOR_CHILD_FAILURE"
-                },
-            ),
-        )?);
+    let exit_consistent = terminal.as_ref().is_some_and(|evidence| {
+        matches!(
+            (evidence.terminal_outcome, success),
+            (r2a5::R2bTerminalOutcome::Success, true) | (r2a5::R2bTerminalOutcome::Failure, false)
+        )
+    });
+    if lifecycle_state_failed || terminal.is_none() || !waited || timed_out || !exit_consistent {
+        protocol_valid = false;
     }
+    let root_error_category = if timed_out {
+        Some(r2a5::R2bTerminalErrorCategory::Timeout)
+    } else if lifecycle_state_failed || !waited {
+        Some(r2a5::R2bTerminalErrorCategory::InternalInvariantFailure)
+    } else if !protocol_valid || !exit_consistent {
+        Some(r2a5::R2bTerminalErrorCategory::ContractDrift)
+    } else {
+        None
+    };
     Ok(ChildCompletion {
         child_pid: Some(child),
         wait_status: waited.then_some(status),
-        terminal: terminal.ok_or("R2B terminal construction failed")?,
-        succeeded: success && !lifecycle_state_failed,
+        terminal,
+        protocol_valid,
+        root_error_category,
+        succeeded: success
+            && !lifecycle_state_failed
+            && protocol_valid
+            && !timed_out
+            && exit_consistent,
     })
 }
 
@@ -565,6 +766,7 @@ fn supervise(controlled: bool) -> Result<(), Box<dyn std::error::Error>> {
     }
     let accepted = accepted_helper_sha256()?;
     let helper = open_accepted_helper(&accepted)?;
+    verify_runtime_isolation_before_admission()?;
     let launcher_sha256 = current_executable_sha256()?;
     let (parent_channel, child_channel_raw) = socket_pair()?;
     let child_channel = duplicate_high(child_channel_raw.as_raw_fd())?;
@@ -594,17 +796,18 @@ fn supervise(controlled: bool) -> Result<(), Box<dyn std::error::Error>> {
         child_channel,
         &receipt_bytes,
         &receipt,
-        started,
     ) {
         Ok(completion) => completion,
         Err(_) => ChildCompletion {
             child_pid: None,
             wait_status: None,
-            terminal: serde_json::to_value(r2a5::r2b_supervisor_fallback_terminal(
+            terminal: Some(r2a5::r2b_supervisor_fallback_terminal(
                 &receipt,
                 started,
                 "SUPERVISOR_POST_ADMISSION_FAILURE",
-            ))?,
+            )),
+            protocol_valid: false,
+            root_error_category: Some(r2a5::R2bTerminalErrorCategory::InternalInvariantFailure),
             succeeded: false,
         },
     };
@@ -613,6 +816,8 @@ fn supervise(controlled: bool) -> Result<(), Box<dyn std::error::Error>> {
         completion.child_pid,
         completion.wait_status,
         completion.terminal,
+        completion.protocol_valid,
+        completion.root_error_category,
     );
     let terminal_persistence = if controlled && controlled_fault("FINALIZER_FSYNC_FAILURE") {
         Err(stage8b_readonly_preflight::r2a3::R2a3Error::EvidencePersistence)

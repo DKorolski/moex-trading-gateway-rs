@@ -1,10 +1,10 @@
-# Stage 8B-P R2B Proposal R3 — authenticated admission and immutable evidence
+# Stage 8B-P R2B Proposal R4 — isolated admission, typed terminal and reachable creator
 
 Status: **design-only proposal; `R2B authorization = NOT_ISSUED`**.
 
 ## Purpose and scope
 
-R3 closes the review findings against R2 without issuing a FINAM capability.
+R4 closes the review findings against R3 without issuing a FINAM capability.
 The proposed future operation remains one operator-selected, one-shot,
 read-only broker-truth preflight for either PLACE or CANCEL context. This
 revision does not use a FINAM credential or external network and does not open
@@ -17,8 +17,11 @@ composition contract is
 
 ## Authoritative intake creation
 
-The exact production chain begins inside the accepted owner service at the
-crate-private `create_stage8b_r2a8_owner_signed_intake_from_owner` boundary.
+The exact production chain now has a built, no-argument
+`stage8b-r2a8-authoritative-intake-creator` binary and frozen oneshot unit.
+Its public fixed-input entrypoint reconstructs the Stage 7B owner and pinned
+Stage 8A issuer, then reaches the crate-private
+`create_stage8b_r2a8_owner_signed_intake_from_owner` boundary.
 It requires all of the following non-serializable authorities at once:
 
 - the current `Stage7bRecoveryReadyOwner` and its single exact durable request;
@@ -26,21 +29,38 @@ It requires all of the following non-serializable authorities at once:
 - the accepted operational identity and execution configuration;
 - the protected Stage 8A signing capability.
 
-The creator derives chronology and expiry from the authoritative snapshots,
+The accepted owner-signed intake is a pinned bootstrap projection, not a
+caller DTO: its signature, config and freshness are checked before its opaque
+snapshots can be reminted by the reconstructed issuer. The creator derives
+chronology and expiry from those authoritative snapshots,
 signs the canonical commitment and atomically publishes one fixed owner-signed
 intake under a create-new producer lock. It accepts no caller JSON, snapshots,
 timestamps, paths or signing request and has no FINAM credential or network.
+The bootstrap predecessor is explicitly one still-fresh owner-signed intake
+from accepted R2A8; it is not a first-generation provisioning mechanism. The
+creator runs as UID/GID 8094 with only supplementary GID 8095 for the fixed
+Stage 5G lifecycle-key custody file. Its unit has no automatic install target.
 
 `stage8b-r2a8-production-intake-stager` is intentionally named and limited to
 verifying and staging those exact signed bytes. It is not represented as the
-creator. The remaining current-source writer, manifest issuer, source adapter,
+creator. Its exact oneshot unit requires and follows the creator unit, so the
+runtime sequence is executable rather than conceptual. An isolated Linux
+rehearsal runs the exact production creator and stager binaries with Docker
+networking disabled and proves byte-identical staging plus false network and
+credential evidence. The remaining current-source writer, manifest issuer, source adapter,
 authority producer/issuer and package issuer retain their accepted fixed-path,
 no-network boundaries.
 
 ## Root-authenticated admission
 
 The R2B launcher is a surviving root supervisor and implements a
-root-owned inode-bound admission. Before nonce admission it
+root-owned inode-bound admission. Before nonce admission it fail-closes unless
+`kernel.yama.ptrace_scope >= 1` and no process already exists under the
+dedicated UID 8301. The frozen systemd unit uses `ProtectProc=invisible` and
+`ProcSubset=pid`. The helper sets `PR_SET_DUMPABLE=0` before constructing its
+async runtime. The Linux rehearsal proves that a same-UID process cannot use
+`pidfd_getfd`, `process_vm_readv` or `ptrace` to steal or inspect the admitted
+child. Before nonce admission the launcher also
 opens the exact helper once with `O_NOFOLLOW`, rejects setuid/setgid bits and
 `security.capability`, hashes the opened FD, and creates the structured
 terminal socketpair. Root then consumes the nonce and creates immutable
@@ -98,7 +118,16 @@ TERMINAL_EVIDENCE_DURABLE
 ADMISSION_PERSISTENCE_FAILURE | TERMINAL_PERSISTENCE_FAILURE
 ```
 
-Missing/invalid frames, startup timeout, helper crash, privilege-drop or
+Every frame is deserialized as the exact deny-unknown-fields
+`R2bSupervisorMessageV1`/`R2bTerminalEvidenceV1` protocol. Root validates all
+operation, package, contract, composition, chronology, route, method, attempt,
+response and redaction invariants. It derives its own canonical outcome and
+reconciles the child report with kernel exit status.
+
+One monotonic 120-second deadline covers startup, every frame byte and child
+exit. Root supervises through a pidfd, kills on expiry and bounds reap to two
+seconds. Missing/invalid/partial frames, byte-drip, terminal-then-hang, startup
+timeout, helper crash, privilege-drop or
 `fexecve` failure and post-admission package/credential failure produce a
 root-generated redacted fallback terminal. The nonce stays consumed and no
 automatic retry is allowed.
@@ -123,9 +152,10 @@ bounded fsynced pending inode, atomic hard-link publication and directory
 the record. Finalization failure writes a separate root-owned admission marker
 and requires operator review.
 
-The controlled Linux rehearsal exercises three post-admission failures:
+The controlled Linux rehearsal exercises post-admission failures including:
 `fexecve` failure, helper death after its authenticated startup handshake, and
-root-finalizer fsync failure. The first two end in root-owned terminal failure
+root-finalizer fsync failure, no-start/no-terminal frames, partial header/body,
+slow-drip and terminal-then-hang. Timeout paths end in canonical root failure
 evidence. The fsync case consumes the nonce and leaves a separate root-owned
 `TERMINAL_PERSISTENCE_FAILURE` marker; it cannot be retried automatically.
 
@@ -140,11 +170,14 @@ exclusive-end interval `[request_time-24h, request_time)`.
 
 ## Required acceptance before issuance
 
-R3 requires reproducible Linux/amd64 production and controlled builds, the
+R4 requires reproducible Linux/amd64 production and controlled builds, the
 full static/negative gate and an adversarial no-external-network rehearsal that
 proves direct/forged helper rejection, root terminal immutability, replay
-rejection, controlled PLACE/CANCEL behavior, child-failure finalization and
-explicit effect closure. Proposal acceptance still does not issue R2B; an
+rejection, same-UID isolation, exact typed terminal validation, absolute
+deadline behavior, reachable creator composition, controlled PLACE/CANCEL
+behavior, child-failure finalization and explicit effect closure. Nonce and
+admission markers perform a second file `fsync` after `chmod 0400` before the
+directory `fsync`. Proposal acceptance still does not issue R2B; an
 independent issuance package remains mandatory.
 
 ## Explicit closure

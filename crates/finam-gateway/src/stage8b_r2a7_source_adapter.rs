@@ -446,7 +446,6 @@ fn validate_production_writer_intake(
 /// same pinned Stage 8A issuer. Consequently no caller-supplied readiness,
 /// broker truth, timestamps or arbitrary signing request can reach this seam.
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code, reason = "R2B intake creator remains closed until issuance")]
 pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
     owner: &mut Stage7bRecoveryReadyOwner,
     identity: &Stage6DurableRequestIdentityV1,
@@ -456,9 +455,13 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
     issuer: &Stage8a1OperationalAuthorityIssuer,
     current_sources: &Stage8a1TrustedCurrentSources,
 ) -> Result<Stage8bR2a8AuthoritativeIntakeCreatorEvidence, Stage8bR2a7SourceAdapterError> {
-    use sha2::{Digest, Sha256};
     use std::io::Write;
-    if unsafe { libc::geteuid() } != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID {
+    let effective_uid = unsafe { libc::geteuid() };
+    #[cfg(feature = "stage8b-r2a7-controlled-qualification")]
+    let qualification_root = effective_uid == 0;
+    #[cfg(not(feature = "stage8b-r2a7-controlled-qualification"))]
+    let qualification_root = false;
+    if effective_uid != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID && !qualification_root {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
     let (recovered_identity, recovered_command) = owner
@@ -482,7 +485,7 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
     )?;
     let accepted_config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
-    if format!("{:x}", Sha256::digest(&config_bytes)) != accepted_config_sha256
+    if accepted_config_file_sha256(&config_bytes) != accepted_config_sha256
         || strategy_runtime_core::stage6d_operational_identity_sha256(operational_identity)
             .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?
             .as_str()
@@ -566,6 +569,99 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
     })
 }
 
+/// Fixed-input production owner service for the authoritative intake creator.
+/// It accepts no arguments or caller DTOs. The previously owner-signed intake
+/// is used only as a pinned bootstrap projection; the durable owner, issuer,
+/// and opaque current-source capabilities are reconstructed independently
+/// before the creator writes the next exact owner-signed generation.
+pub fn run_stage8b_r2a8_authoritative_intake_creator(
+) -> Result<Stage8bR2a8AuthoritativeIntakeCreatorEvidence, Stage8bR2a7SourceAdapterError> {
+    if unsafe { libc::geteuid() } != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID {
+        return Err(Stage8bR2a7SourceAdapterError::WrongUid);
+    }
+    let mode = Stage8bR2a7RunMode::Production;
+    let layout = mode.layout();
+    let authority_root = Path::new(PRODUCTION_AUTHORITY_ROOT);
+    let seed_bytes = read_fixed_regular_file(
+        &authority_root.join(PRODUCTION_OWNER_SIGNED_INTAKE_FILE),
+        MAX_MANIFEST_BYTES,
+        STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+    )?;
+    let seed: Stage8bR2a8ProductionWriterIntakeV1 = serde_json::from_slice(&seed_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let config_bytes = read_fixed_regular_file(
+        &authority_root.join(ACCEPTED_EXECUTION_CONFIG_FILE),
+        MAX_MANIFEST_BYTES,
+        0,
+    )?;
+    let config_sha_bytes = read_fixed_regular_file(
+        &authority_root.join(ACCEPTED_EXECUTION_CONFIG_SHA256_FILE),
+        128,
+        0,
+    )?;
+    let config_sha = std::str::from_utf8(&config_sha_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?
+        .trim_end_matches(['\r', '\n']);
+    if !valid_sha256(config_sha) || accepted_config_file_sha256(&config_bytes) != config_sha {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    let config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    validate_production_writer_intake(&seed, &config, config_sha)?;
+    let commitment_key = parse_lifecycle_key(&read_lifecycle_key_file(
+        &layout.work_root.join(LIFECYCLE_KEY_FILE),
+    )?)?;
+    let runtime = fixed_runtime_profile(&seed.runtime_profile_id)?;
+    let root_name =
+        Stage7bDurableRootAuthority::expected_directory_name(&seed.operational_identity)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    let root = Stage7bDurableRootAuthority::validate(
+        layout.stage7b_parent.join(root_name),
+        &seed.operational_identity,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    let Stage7bRestartOutcome::Ready(mut owner) = Stage7bRecoveryReadyOwner::restart(
+        root,
+        seed.operational_identity.clone(),
+        &commitment_key,
+        runtime,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::RecoveryNotReady)?
+    else {
+        return Err(Stage8bR2a7SourceAdapterError::RecoveryNotReady);
+    };
+    let (identity, command) = owner
+        .recovered()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?
+        .single_exact_dispatch_ready_request()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?;
+    let issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
+        &mut owner,
+        &commitment_key,
+        &identity,
+        &command,
+        authority_root,
+        config_sha,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let sources = issuer
+        .issue_current_sources(
+            &seed.composite_readiness.to_snapshot(),
+            &seed.broker_truth,
+            &seed.broker_readiness,
+        )
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    create_stage8b_r2a8_owner_signed_intake_from_owner(
+        &mut owner,
+        &identity,
+        &command,
+        &seed.operational_identity,
+        config_sha,
+        &issuer,
+        &sources,
+    )
+}
+
 /// Dedicated production current-source writer. It accepts no arguments,
 /// paths or snapshots: all paths are compile-time constants and the sole
 /// intake is signed by the pinned Stage8A writer issuer. The Stage7B owner and
@@ -603,7 +699,7 @@ pub fn run_stage8b_r2a8_production_current_source_writer(
         return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
     }
     use sha2::{Digest, Sha256};
-    if format!("{:x}", Sha256::digest(&config_bytes)) != accepted_config_sha256 {
+    if accepted_config_file_sha256(&config_bytes) != accepted_config_sha256 {
         return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
     }
     let accepted_config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
@@ -683,7 +779,6 @@ pub fn run_stage8b_r2a8_production_current_source_writer(
 /// the independently privileged current-source writer.
 pub fn run_stage8b_r2a8_production_intake_stager(
 ) -> Result<Stage8bR2a8ProductionIntakeStagerEvidence, Stage8bR2a7SourceAdapterError> {
-    use sha2::{Digest, Sha256};
     if unsafe { libc::geteuid() } != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
@@ -709,7 +804,7 @@ pub fn run_stage8b_r2a8_production_intake_stager(
     let config_sha = std::str::from_utf8(&config_sha_bytes)
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?
         .trim_end_matches(['\r', '\n']);
-    if !valid_sha256(config_sha) || format!("{:x}", Sha256::digest(&config_bytes)) != config_sha {
+    if !valid_sha256(config_sha) || accepted_config_file_sha256(&config_bytes) != config_sha {
         return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
     }
     let config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
@@ -1345,6 +1440,15 @@ fn valid_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
+fn accepted_config_file_sha256(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"stage8a1-accepted-config-file-v1");
+    hasher.update(b"\0");
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
 /// Qualification-only setup.  This executable is built separately with test
 /// fixtures; the accepted source-adapter executable is built without that
 /// feature and only reads the resulting fixed durable layout.
@@ -1352,6 +1456,25 @@ fn valid_sha256(value: &str) -> bool {
 #[doc(hidden)]
 pub fn seed_stage8b_r2a7_controlled_reader(
     mode: Stage8bR2a7RunMode,
+) -> Result<(), Stage8bR2a7SourceAdapterError> {
+    seed_stage8b_r2a7_qualification_fixture(mode, false)
+}
+
+/// Qualification-only setup for the exact fixed-path creator -> stager
+/// production binaries. This function is unavailable from production builds;
+/// it supplies the already accepted predecessor intake and durable owners in
+/// an isolated Linux container, then the two production binaries must refresh
+/// and stage that intake without network access or caller-provided DTOs.
+#[cfg(feature = "stage8b-r2a7-controlled-qualification")]
+#[doc(hidden)]
+pub fn seed_stage8b_r2b_creator_chain_qualification() -> Result<(), Stage8bR2a7SourceAdapterError> {
+    seed_stage8b_r2a7_qualification_fixture(Stage8bR2a7RunMode::Production, true)
+}
+
+#[cfg(feature = "stage8b-r2a7-controlled-qualification")]
+fn seed_stage8b_r2a7_qualification_fixture(
+    mode: Stage8bR2a7RunMode,
+    create_owner_signed_intake: bool,
 ) -> Result<(), Stage8bR2a7SourceAdapterError> {
     use crate::{
         Stage8KillSwitchState, Stage8a1AcceptedExecutionConfigV1, Stage8a1CurrentControlStateV1,
@@ -1369,13 +1492,15 @@ pub fn seed_stage8b_r2a7_controlled_reader(
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
-    if unsafe { libc::geteuid() } != STAGE8B_R2A6_SOURCE_ADAPTER_UID {
+    let expected_uid = if create_owner_signed_intake {
+        0
+    } else {
+        STAGE8B_R2A6_SOURCE_ADAPTER_UID
+    };
+    if unsafe { libc::geteuid() } != expected_uid {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
-    if !matches!(
-        mode,
-        Stage8bR2a7RunMode::ControlledPlace | Stage8bR2a7RunMode::ControlledCancel
-    ) {
+    if create_owner_signed_intake != matches!(mode, Stage8bR2a7RunMode::Production) {
         return Err(Stage8bR2a7SourceAdapterError::ReaderInputInvalid);
     }
     let layout = mode.layout();
@@ -1389,13 +1514,12 @@ pub fn seed_stage8b_r2a7_controlled_reader(
     )
     .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
     let (setup, mut owner) = match mode {
-        Stage8bR2a7RunMode::ControlledPlace => {
+        Stage8bR2a7RunMode::Production | Stage8bR2a7RunMode::ControlledPlace => {
             stage8a4_i3_production_test_setup_in(layout.stage7b_parent.clone())
         }
         Stage8bR2a7RunMode::ControlledCancel => {
             stage8b_r2a6_cancel_production_test_setup_in(layout.stage7b_parent.clone())
         }
-        Stage8bR2a7RunMode::Production => unreachable!("checked above"),
     };
     fs::create_dir_all(&layout.authority_root)
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
@@ -1605,18 +1729,49 @@ pub fn seed_stage8b_r2a7_controlled_reader(
         blocked_request_ids: Vec::new(),
         checked_at: observed,
     };
-    publish_stage8b_r2a8_trusted_current_source_from_owner(
-        mode,
-        &mut owner,
-        &setup.commitment_key,
-        &identity,
-        &durable_command,
-        &setup.operational_identity,
-        &config_sha256,
-        &composite_readiness,
-        &truth,
-        &broker_readiness,
-    )
+    if create_owner_signed_intake {
+        std::os::unix::fs::chown(
+            &layout.authority_root,
+            Some(STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID),
+            Some(STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID),
+        )
+        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+        let issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &durable_command,
+            &layout.authority_root,
+            &config_sha256,
+        )
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+        let sources = issuer
+            .issue_current_sources(&composite_readiness, &truth, &broker_readiness)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+        create_stage8b_r2a8_owner_signed_intake_from_owner(
+            &mut owner,
+            &identity,
+            &durable_command,
+            &setup.operational_identity,
+            &config_sha256,
+            &issuer,
+            &sources,
+        )?;
+        Ok(())
+    } else {
+        publish_stage8b_r2a8_trusted_current_source_from_owner(
+            mode,
+            &mut owner,
+            &setup.commitment_key,
+            &identity,
+            &durable_command,
+            &setup.operational_identity,
+            &config_sha256,
+            &composite_readiness,
+            &truth,
+            &broker_readiness,
+        )
+    }
 }
 
 #[cfg(test)]

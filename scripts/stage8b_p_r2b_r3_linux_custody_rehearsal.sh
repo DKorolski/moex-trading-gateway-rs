@@ -2,13 +2,14 @@
 set -euo pipefail
 
 if [[ "$(id -u)" != "0" ]]; then
-  echo "stage8b-r2b-r3-custody: must run as root" >&2
+  echo "stage8b-r2b-r4-custody: must run as root" >&2
   exit 1
 fi
 
 BIN_DIR="${1:-/work/tools/stage8b-readonly-preflight/target/release}"
 CONTROLLED_BIN_DIR="${2:-/work/target/release}"
 CONTROLLED_LAUNCHER="${3:-$BIN_DIR/stage8b-r2b-launcher-controlled-custody}"
+PRODUCTION_BIN_DIR="${4:-/work/target/release}"
 HELPER="$BIN_DIR/stage8b-readonly-preflight"
 LAUNCHER="$BIN_DIR/stage8b-r2b-launcher"
 PRODUCER="$BIN_DIR/stage8b-r2a5-authority-producer"
@@ -19,8 +20,11 @@ SERVER="$BIN_DIR/stage8b-r2a5-controlled-server"
 ADAPTER="$CONTROLLED_BIN_DIR/stage8b-r2a7-source-adapter"
 SEEDER="$CONTROLLED_BIN_DIR/stage8b-r2a7-controlled-seeder"
 MANIFEST_ISSUER="$CONTROLLED_BIN_DIR/stage8b-r2a8-current-manifest-issuer"
+CREATOR_CHAIN_SEEDER="$CONTROLLED_BIN_DIR/stage8b-r2b-creator-chain-seeder"
+AUTHORITATIVE_CREATOR="$PRODUCTION_BIN_DIR/stage8b-r2a8-authoritative-intake-creator"
+INTAKE_STAGER="$PRODUCTION_BIN_DIR/stage8b-r2a8-production-intake-stager"
 
-for binary in "$HELPER" "$LAUNCHER" "$CONTROLLED_LAUNCHER" "$PRODUCER" "$ISSUER" "$PACKAGE_ISSUER" "$LAYOUT" "$SERVER" "$ADAPTER" "$SEEDER" "$MANIFEST_ISSUER"; do
+for binary in "$HELPER" "$LAUNCHER" "$CONTROLLED_LAUNCHER" "$PRODUCER" "$ISSUER" "$PACKAGE_ISSUER" "$LAYOUT" "$SERVER" "$ADAPTER" "$SEEDER" "$MANIFEST_ISSUER" "$CREATOR_CHAIN_SEEDER" "$AUTHORITATIVE_CREATOR" "$INTAKE_STAGER"; do
   test -x "$binary"
 done
 
@@ -65,6 +69,150 @@ fi
 test ! -e /var/lib/moex-trading/stage8b/r2a5/admissions
 install -o 0 -g 0 -m 0755 /tmp/stage8b-r2b-accepted-helper \
   /opt/moex-trading/stage8b-r2b/bin/stage8b-readonly-preflight
+
+# R4 freezes Yama plus an exclusive helper identity before any nonce is
+# admitted. Exercise the kernel boundary directly: a same-UID sibling must
+# not duplicate receipt/terminal/helper descriptors, read memory, or attach.
+test "$(cat /proc/sys/kernel/yama/ptrace_scope)" -ge 1
+python3 <<'PY'
+import ctypes
+import errno
+import fcntl
+import os
+import signal
+import socket
+import struct
+import time
+
+libc = ctypes.CDLL(None, use_errno=True)
+SYS_pidfd_getfd = 438
+PTRACE_ATTACH = 16
+PR_SET_DUMPABLE = 4
+PR_GET_DUMPABLE = 3
+
+class IOVec(ctypes.Structure):
+    _fields_ = [("iov_base", ctypes.c_void_p), ("iov_len", ctypes.c_size_t)]
+
+read_fd, write_fd = os.pipe()
+target = os.fork()
+if target == 0:
+    os.close(read_fd)
+    root_fd = os.open("/etc/hostname", os.O_RDONLY)
+    left, right = socket.socketpair()
+    metadata_fd = fcntl.fcntl(write_fd, fcntl.F_DUPFD_CLOEXEC, 8)
+    os.dup2(root_fd, 3)
+    os.dup2(left.fileno(), 4)
+    os.dup2(root_fd, 7)
+    os.setgroups([])
+    os.setgid(8301)
+    os.setuid(8301)
+    if libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+        os._exit(90)
+    secret = ctypes.create_string_buffer(b"r2b-root-fd-secret")
+    os.write(
+        metadata_fd,
+        struct.pack("=iQ", libc.prctl(PR_GET_DUMPABLE, 0, 0, 0, 0), ctypes.addressof(secret)),
+    )
+    signal.pause()
+    os._exit(0)
+
+os.close(write_fd)
+wire_size = struct.calcsize("=iQ")
+wire = b""
+while len(wire) < wire_size:
+    chunk = os.read(read_fd, wire_size - len(wire))
+    if not chunk:
+        raise SystemExit("helper bootstrap metadata channel closed early")
+    wire += chunk
+dumpable, remote_address = struct.unpack("=iQ", wire)
+if dumpable != 0:
+    raise SystemExit("helper bootstrap remained dumpable")
+
+attacker = os.fork()
+if attacker == 0:
+    os.setgroups([])
+    os.setgid(8301)
+    os.setuid(8301)
+    pidfd = os.pidfd_open(target)
+    for target_fd in (3, 4, 6, 7):
+        ctypes.set_errno(0)
+        stolen = libc.syscall(SYS_pidfd_getfd, pidfd, target_fd, 0)
+        if stolen >= 0 or ctypes.get_errno() not in (errno.EPERM, errno.EACCES):
+            os._exit(91)
+    local = ctypes.create_string_buffer(16)
+    local_iov = IOVec(ctypes.addressof(local), len(local))
+    remote_iov = IOVec(remote_address, len(local))
+    ctypes.set_errno(0)
+    read = libc.process_vm_readv(
+        target, ctypes.byref(local_iov), 1, ctypes.byref(remote_iov), 1, 0
+    )
+    if read >= 0 or ctypes.get_errno() not in (errno.EPERM, errno.EACCES):
+        os._exit(92)
+    ctypes.set_errno(0)
+    attached = libc.ptrace(PTRACE_ATTACH, target, 0, 0)
+    if attached == 0 or ctypes.get_errno() not in (errno.EPERM, errno.EACCES):
+        os._exit(93)
+    os._exit(0)
+
+_, status = os.waitpid(attacker, 0)
+os.kill(target, signal.SIGKILL)
+os.waitpid(target, 0)
+if not os.WIFEXITED(status) or os.WEXITSTATUS(status) != 0:
+    raise SystemExit(f"same-UID isolation attack unexpectedly succeeded: {status}")
+PY
+echo "stage8b-r2b-r4-same-uid-isolation: PASS pidfd_getfd=false process_vm_readv=false ptrace=false dumpable=false"
+
+# Any already-running UID8301 process blocks the launcher before root nonce
+# admission. This also prevents a pre-positioned terminal-channel sender.
+setpriv --reuid 8301 --regid 8301 --clear-groups sleep 10 &
+uid8301_pid="$!"
+if "$LAUNCHER" >/tmp/stage8b-r2b-r4-dedicated-uid.log 2>&1; then
+  kill "$uid8301_pid" || true
+  echo "stage8b-r2b-r4-custody: concurrent UID8301 process was accepted" >&2
+  exit 1
+fi
+kill "$uid8301_pid" || true
+wait "$uid8301_pid" 2>/dev/null || true
+test ! -e /var/lib/moex-trading/stage8b/r2a5/admissions
+echo "stage8b-r2b-r4-dedicated-uid-preflight: PASS"
+
+# The production creator and stager are executable, fixed-path components,
+# not documentation-only names.  A qualification-only predecessor seeder
+# reconstructs the accepted durable owner and signs one fresh bootstrap
+# projection.  The exact production binaries then refresh and stage it under
+# their frozen UID, with Docker network disabled by the aggregate gate.
+rm -rf \
+  /var/lib/moex-trading/stage7b \
+  /var/lib/moex-trading/stage8a1-authority \
+  /var/lib/moex-trading/stage8b/r2a7/production \
+  /var/lib/moex-trading/stage8b/r2a8
+install -d -o 8094 -g 8094 -m 0750 \
+  /var/lib/moex-trading/stage8b/r2a7/production \
+  /var/lib/moex-trading/stage8b/r2a8/intake
+printf '%s\n' "$(printf '5a%.0s' {1..32})" \
+  | install -o 8096 -g 8095 -m 0640 /dev/stdin \
+      /var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-lifecycle-key.hex
+"$CREATOR_CHAIN_SEEDER" >/tmp/stage8b-r2b-r4-creator-seed.json
+rm -f /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.lock
+chown -R 8094:8094 /var/lib/moex-trading/stage7b
+chown 8094:8094 \
+  /var/lib/moex-trading/stage8a1-authority/stage8a4-writer-issuer-signing-key.hex \
+  /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json
+before_creator_sha="$(sha256sum /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json | awk '{print $1}')"
+setpriv --reuid 8094 --regid 8094 --groups 8095 \
+  "$AUTHORITATIVE_CREATOR" >/tmp/stage8b-r2b-r4-creator.json
+setpriv --reuid 8094 --regid 8094 --groups 8095 \
+  "$INTAKE_STAGER" >/tmp/stage8b-r2b-r4-stager.json
+after_creator_sha="$(sha256sum /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json | awk '{print $1}')"
+staged_sha="$(sha256sum /var/lib/moex-trading/stage8b/r2a8/intake/stage8b-r2a8-production-writer-intake.json | awk '{print $1}')"
+test "$after_creator_sha" = "$staged_sha"
+test -f /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.lock
+grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-creator.json
+grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-creator.json
+grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-stager.json
+grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-stager.json
+test -n "$before_creator_sha"
+echo "stage8b-r2b-r4-creator-stager-chain: PASS fixed_paths=true network=false credentials=false"
 
 # Privileged helper metadata is rejected before nonce admission.
 for privileged_mode in 4755 2755; do
@@ -282,4 +430,21 @@ run_supervisor_fault FEXECVE_FAILURE
 run_supervisor_fault HELPER_CRASH_AFTER_STARTED
 run_supervisor_fault FINALIZER_FSYNC_FAILURE
 
-echo "stage8b-r2b-r3-linux-custody: PASS root_authenticated=true immutable_terminal=true helper_fd_bound=true root_nonce=true uid8301=true replay=false direct_helper=false fexecve_failure=true helper_crash=true fsync_failure_marker=true external_network=false"
+for timeout_fault in \
+  NO_START_FRAME NO_TERMINAL_FRAME TERMINAL_THEN_HANG SLOW_DRIP_FRAME \
+  PARTIAL_FRAME_HEADER PARTIAL_FRAME_BODY CHILD_IGNORES_CHANNEL; do
+  run_supervisor_fault "$timeout_fault"
+  nonce="$(tr -d '\r\n' </run/moex-trading/stage8b/r2a5/run-nonce.sha256)"
+  terminal="/var/lib/moex-trading/stage8b/r2b-evidence/r2b-terminal-$nonce.json"
+  python3 - "$terminal" <<'PY'
+import json
+import sys
+
+terminal = json.load(open(sys.argv[1], encoding="utf-8"))
+assert terminal["root_terminal_outcome"] == "FAILURE", terminal
+assert terminal["root_error_category"] == "TIMEOUT", terminal
+assert terminal["child_protocol_valid"] is False, terminal
+PY
+done
+
+echo "stage8b-r2b-r4-linux-custody: PASS root_authenticated=true immutable_terminal=true typed_terminal=true absolute_deadline=true bounded_reap=true yama=true dedicated_uid=true pidfd_getfd=false process_vm_readv=false ptrace=false second_sender=false metadata_fsync=true replay=false direct_helper=false fexecve_failure=true helper_crash=true fsync_failure_marker=true external_network=false"

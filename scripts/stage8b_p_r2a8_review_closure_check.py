@@ -104,9 +104,9 @@ def main() -> None:
     require("composite_readiness.validate_ready()?;" in writer, "writer readiness admission absent")
     require("Stage7bCompositeReadinessSnapshot {" not in reader, "synthetic readiness restored")
     require("composite_checked_at" not in adapter, "timestamp-only readiness restored")
-    # R2B-R1 adds one production current-source writer call while retaining the
-    # two accepted reader calls and the single closed helper definition.
-    require(adapter.count("read_lifecycle_key_file(") == 4, "lifecycle key specific reader bypassed")
+    # R2B-R4 adds the fixed-input authoritative creator call while retaining
+    # the production writer, two accepted reader calls and closed definition.
+    require(adapter.count("read_lifecycle_key_file(") == 5, "lifecycle key specific reader bypassed")
     key_parser = adapter.split("fn parse_lifecycle_key(", 1)[1].split("fn fixed_runtime_profile(", 1)[0]
     require(".trim()" not in key_parser, "lifecycle key normalization restored")
     require("strip_suffix(b\"\\n\")" in key_parser and "(b'a'..=b'f')" in key_parser, "strict key grammar absent")

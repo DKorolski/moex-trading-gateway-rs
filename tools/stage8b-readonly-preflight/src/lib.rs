@@ -39,7 +39,7 @@ pub enum Operation {
     Cancel,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NetworkClass {
     AuthService,
     BrokerTruth,

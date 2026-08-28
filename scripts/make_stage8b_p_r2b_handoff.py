@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8B-P R2B Proposal R3 review handoff."""
+"""Create the immutable Stage 8B-P R2B Proposal R4 review handoff."""
 
 from __future__ import annotations
 
@@ -18,20 +18,23 @@ OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-p-r2b-proposal"
 PREDECESSOR = "4ae9ecd858ecf75d9cb6c819c369ee827bf5976f"
 BINARIES = {
-    "production_stager": ROOT / "tmp/stage8b-r2b-r3-production-a/release/stage8b-r2a8-production-intake-stager",
-    "production_writer": ROOT / "tmp/stage8b-r2b-r3-production-a/release/stage8b-r2a8-production-current-source-writer",
-    "production_manifest_issuer": ROOT / "tmp/stage8b-r2b-r3-production-a/release/stage8b-r2a8-current-manifest-issuer",
-    "production_adapter": ROOT / "tmp/stage8b-r2b-r3-production-a/release/stage8b-r2a7-source-adapter",
-    "authority_producer": ROOT / "tmp/stage8b-r2b-r3-tool-a/release/stage8b-r2a5-authority-producer",
-    "authority_issuer": ROOT / "tmp/stage8b-r2b-r3-tool-a/release/stage8b-r2a5-authority-issuer",
-    "package_issuer": ROOT / "tmp/stage8b-r2b-r3-tool-a/release/stage8b-r2a5-package-issuer",
-    "production_launcher": ROOT / "tmp/stage8b-r2b-r3-tool-a/release/stage8b-r2b-launcher",
-    "accepted_helper": ROOT / "tmp/stage8b-r2b-r3-tool-a/release/stage8b-readonly-preflight",
-    "controlled_adapter": ROOT / "tmp/stage8b-r2b-r3-controlled-a/release/stage8b-r2a7-source-adapter",
-    "controlled_manifest_issuer": ROOT / "tmp/stage8b-r2b-r3-controlled-a/release/stage8b-r2a8-current-manifest-issuer",
-    "controlled_seeder": ROOT / "tmp/stage8b-r2b-r3-controlled-a/release/stage8b-r2a7-controlled-seeder",
-    "controlled_tls_server": ROOT / "tmp/stage8b-r2b-r3-tool-a/release/stage8b-r2a5-controlled-server",
-    "controlled_launcher": ROOT / "tmp/stage8b-r2b-r3-controlled-launcher-a/release/stage8b-r2b-launcher",
+    "authoritative_creator": ROOT / "tmp/stage8b-r2b-r4-production-a/release/stage8b-r2a8-authoritative-intake-creator",
+    "production_stager": ROOT / "tmp/stage8b-r2b-r4-production-a/release/stage8b-r2a8-production-intake-stager",
+    "production_writer": ROOT / "tmp/stage8b-r2b-r4-production-a/release/stage8b-r2a8-production-current-source-writer",
+    "production_manifest_issuer": ROOT / "tmp/stage8b-r2b-r4-production-a/release/stage8b-r2a8-current-manifest-issuer",
+    "production_adapter": ROOT / "tmp/stage8b-r2b-r4-production-a/release/stage8b-r2a7-source-adapter",
+    "authority_producer": ROOT / "tmp/stage8b-r2b-r4-tool-a/release/stage8b-r2a5-authority-producer",
+    "authority_issuer": ROOT / "tmp/stage8b-r2b-r4-tool-a/release/stage8b-r2a5-authority-issuer",
+    "package_issuer": ROOT / "tmp/stage8b-r2b-r4-tool-a/release/stage8b-r2a5-package-issuer",
+    "production_launcher": ROOT / "tmp/stage8b-r2b-r4-tool-a/release/stage8b-r2b-launcher",
+    "accepted_helper": ROOT / "tmp/stage8b-r2b-r4-tool-a/release/stage8b-readonly-preflight",
+    "controlled_adapter": ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2a7-source-adapter",
+    "controlled_manifest_issuer": ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2a8-current-manifest-issuer",
+    "controlled_seeder": ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2a7-controlled-seeder",
+    "creator_chain_seeder": ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2b-creator-chain-seeder",
+    "controlled_tls_server": ROOT / "tmp/stage8b-r2b-r4-tool-a/release/stage8b-r2a5-controlled-server",
+    "controlled_layout": ROOT / "tmp/stage8b-r2b-r4-tool-a/release/stage8b-r2a5-controlled-layout",
+    "controlled_launcher": ROOT / "tmp/stage8b-r2b-r4-controlled-launcher-a/release/stage8b-r2b-launcher",
 }
 
 
@@ -63,7 +66,7 @@ def main() -> None:
         stderr=subprocess.STDOUT,
         check=False,
     )
-    if gate.returncode != 0 or b"stage8b-p-r2b-proposal-gate: PASS revision=R3" not in gate.stdout:
+    if gate.returncode != 0 or b"stage8b-p-r2b-proposal-gate: PASS revision=R4" not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
     binary_bytes = {name: path.read_bytes() for name, path in BINARIES.items()}
 
@@ -84,7 +87,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Proposal R3",
+                "stage": "Stage 8B-P R2B Proposal R4",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "archive_name": archive_name,
@@ -95,8 +98,13 @@ def main() -> None:
                 "root_authenticated_admission": True,
                 "immutable_root_terminal_evidence": True,
                 "authoritative_intake_creator": True,
+                "same_uid_isolation": True,
+                "typed_terminal_protocol": True,
+                "absolute_supervisor_deadline": True,
+                "creator_to_stager_rehearsed": True,
+                "post_chmod_metadata_fsync": True,
                 "full_admission_to_terminal_supervisor": True,
-                "negative_mutations": 146,
+                "negative_mutations": safety.NEGATIVE_MUTATIONS,
                 **closure,
             },
             indent=2,

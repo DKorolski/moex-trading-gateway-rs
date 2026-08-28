@@ -1140,11 +1140,12 @@ pub struct BrokerTruthBodies<'a> {
     pub account: &'a [u8],
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct BrokerTruthSummary {
     pub schema_version: u8,
     pub operation: Operation,
-    pub target_instrument: &'static str,
+    pub target_instrument: String,
     pub target_position_canonical_decimal: String,
     pub approved_position_matches: bool,
     pub target_order_count: usize,
@@ -1557,7 +1558,7 @@ pub(crate) fn reduce_broker_truth(
     Ok(BrokerTruthSummary {
         schema_version: 1,
         operation: manifest.operation,
-        target_instrument: TARGET_INSTRUMENT,
+        target_instrument: TARGET_INSTRUMENT.to_owned(),
         target_position_canonical_decimal: position_text,
         approved_position_matches: true,
         target_order_count,

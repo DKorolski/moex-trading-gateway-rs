@@ -16,16 +16,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `5b2079d7d524d2fa6f084f44f961c4b5958c042a`; its immutable handoff is
   `moex-trading-project-5b2079d.zip`, SHA-256
   `903df69b800477706f4b2e95097fe84174f42e89b0a85a4b5fa94430619acb6a`.
-- The Stage 8B-P R2B proposals through R2 at `4ae9ecd` were not accepted.
-  The active candidate is **Stage 8B-P R2B Proposal R3**, a design-only
-  authenticated-admission and immutable-evidence correction. It adds the
-  owner-mediated authoritative intake creator, accurately named stager,
-  root-owned inode-bound admission, surviving root supervisor, irreversible
-  UID/GID/capability/FD hardening and root-only terminal finalization. R2B authorization remains
+- The Stage 8B-P R2B proposals through R3 at `03bb39e` were not accepted.
+  The active candidate is **Stage 8B-P R2B Proposal R4**, a design-only
+  runtime-isolation, typed-terminal and reachable-creator correction. It keeps
+  the owner-mediated creator/stager chain and adds a built creator entrypoint,
+  fail-closed Yama plus exclusive UID8301 admission, pre-runtime nondumpability,
+  an exact typed terminal protocol, canonical root verdict, one monotonic
+  pidfd-backed child deadline, bounded reap and crash-durable chmod metadata.
+  R2B authorization remains
   `NOT_ISSUED`; operator selection and signed run package are absent.
 - FINAM network access, account-order POST/DELETE, Redis live consumption,
   broker dispatch, runtime-live, strategy-live and real orders remain closed.
-  Proposal R3 does not authorize a credential read or any broker request.
+  Proposal R4 does not authorize a credential read or any broker request.
 
 - Stage 8B-D R1 at `b3358ba2268da3db4eb8352c097495ebb85575d7` retained the
   proposed bounded-effect architecture but was not accepted as a frozen transition

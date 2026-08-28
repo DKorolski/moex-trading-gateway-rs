@@ -63,6 +63,11 @@ path = "src/bin/stage8b-r2a8-production-intake-stager.rs"
 required-features = ["stage8b-r2a7-source-adapter"]
 
 [[bin]]
+name = "stage8b-r2a8-authoritative-intake-creator"
+path = "src/bin/stage8b-r2a8-authoritative-intake-creator.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
 name = "stage8b-r2a8-production-current-source-writer"
 path = "src/bin/stage8b-r2a8-production-current-source-writer.rs"
 required-features = ["stage8b-r2a7-source-adapter"]
@@ -70,6 +75,11 @@ required-features = ["stage8b-r2a7-source-adapter"]
 [[bin]]
 name = "stage8b-r2a7-controlled-seeder"
 path = "src/bin/stage8b-r2a7-controlled-seeder.rs"
+required-features = ["stage8b-r2a7-controlled-qualification"]
+
+[[bin]]
+name = "stage8b-r2b-creator-chain-seeder"
+path = "src/bin/stage8b-r2b-creator-chain-seeder.rs"
 required-features = ["stage8b-r2a7-controlled-qualification"]
 
 [dev-dependencies]

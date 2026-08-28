@@ -1,0 +1,24 @@
+[Unit]
+Description=Stage 8B R2B root admission supervisor
+After=local-fs.target
+ConditionPathExists=/proc/sys/kernel/yama/ptrace_scope
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2b-launcher
+NoNewPrivileges=no
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a5 /var/lib/moex-trading/stage8b/r2b-evidence
+
+# The launcher independently requires kernel.yama.ptrace_scope >= 1 and an
+# empty dedicated UID 8301 process set before irreversible nonce admission.

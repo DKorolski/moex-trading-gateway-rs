@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable Stage 8B-P R2B Proposal R3 handoff."""
+"""Validate an immutable Stage 8B-P R2B Proposal R4 handoff."""
 
 from __future__ import annotations
 
@@ -9,10 +9,12 @@ import sys
 import zipfile
 from pathlib import PurePosixPath
 
-EVIDENCE = "handoff-evidence/stage8b-p-r2b-r3-evidence.json"
-GATE = "handoff-evidence/stage8b-p-r2b-r3-gate.txt"
+EVIDENCE = "handoff-evidence/stage8b-p-r2b-r4-evidence.json"
+GATE = "handoff-evidence/stage8b-p-r2b-r4-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
+NEGATIVE_MUTATIONS = 211
 BINARIES = {
+    "authoritative_creator": "handoff-evidence/linux-amd64/production/stage8b-r2a8-authoritative-intake-creator",
     "production_stager": "handoff-evidence/linux-amd64/production/stage8b-r2a8-production-intake-stager",
     "production_writer": "handoff-evidence/linux-amd64/production/stage8b-r2a8-production-current-source-writer",
     "production_manifest_issuer": "handoff-evidence/linux-amd64/production/stage8b-r2a8-current-manifest-issuer",
@@ -25,7 +27,9 @@ BINARIES = {
     "controlled_adapter": "handoff-evidence/linux-amd64/controlled/stage8b-r2a7-source-adapter",
     "controlled_manifest_issuer": "handoff-evidence/linux-amd64/controlled/stage8b-r2a8-current-manifest-issuer",
     "controlled_seeder": "handoff-evidence/linux-amd64/controlled/stage8b-r2a7-controlled-seeder",
+    "creator_chain_seeder": "handoff-evidence/linux-amd64/controlled/stage8b-r2b-creator-chain-seeder",
     "controlled_tls_server": "handoff-evidence/linux-amd64/controlled/stage8b-r2a5-controlled-server",
+    "controlled_layout": "handoff-evidence/linux-amd64/controlled/stage8b-r2a5-controlled-layout",
     "controlled_launcher": "handoff-evidence/linux-amd64/controlled/stage8b-r2b-launcher",
 }
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST, *BINARIES.values()}
@@ -34,7 +38,7 @@ REQUIRED = GENERATED | {
     "docs/stage-8/STAGE8B_P_R2B_PROPOSAL_ACCEPTANCE_MATRIX_2026-08-27.csv",
     "docs/stage-8/stage8b-p-r2b-proposal-authority.json",
     "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
-    "docs/stage-8/stage8b-p-r2b-r3-build-evidence.json",
+    "docs/stage-8/stage8b-p-r2b-r4-build-evidence.json",
     "scripts/stage8b_p_r2b_proposal_gate.sh",
     "scripts/stage8b_p_r2b_proposal_check.py",
     "scripts/stage8b_p_r2b_proposal_negative_harness.py",
@@ -75,7 +79,7 @@ def check(path: str) -> dict[str, object]:
         )
         evidence = json.loads(archive.read(EVIDENCE))
         manifest = json.loads(archive.read(MANIFEST))
-        build = json.loads(archive.read("docs/stage-8/stage8b-p-r2b-r3-build-evidence.json"))
+        build = json.loads(archive.read("docs/stage-8/stage8b-p-r2b-r4-build-evidence.json"))
         source_ref = marker.get("source_ref")
         if not source_ref or evidence.get("source_ref") != source_ref or manifest.get("source_ref") != source_ref:
             raise ValueError("source binding mismatch")
@@ -93,15 +97,30 @@ def check(path: str) -> dict[str, object]:
         for name, expected in expected_closed.items():
             if evidence.get(name) != expected:
                 raise ValueError(f"closure field drift: {name}")
-        if evidence.get("negative_mutations") != 146:
+        expected_hardening = {
+            "root_authenticated_admission": True,
+            "immutable_root_terminal_evidence": True,
+            "authoritative_intake_creator": True,
+            "same_uid_isolation": True,
+            "typed_terminal_protocol": True,
+            "absolute_supervisor_deadline": True,
+            "creator_to_stager_rehearsed": True,
+            "post_chmod_metadata_fsync": True,
+            "full_admission_to_terminal_supervisor": True,
+        }
+        for name, expected in expected_hardening.items():
+            if evidence.get(name) != expected:
+                raise ValueError(f"hardening field drift: {name}")
+        if evidence.get("negative_mutations") != NEGATIVE_MUTATIONS:
             raise ValueError("negative coverage mismatch")
         gate = archive.read(GATE)
-        if b"stage8b-p-r2b-proposal-gate: PASS revision=R3" not in gate or sha(gate) != evidence.get("gate_sha256"):
+        if b"stage8b-p-r2b-proposal-gate: PASS revision=R4" not in gate or sha(gate) != evidence.get("gate_sha256"):
             raise ValueError("gate evidence mismatch")
 
         production = build["production_binaries"]
         controlled = build["controlled_qualification_binaries"]
         expected_hashes = {
+            "authoritative_creator": production["stage8b-r2a8-authoritative-intake-creator"]["build_a_sha256"],
             "production_stager": production["stage8b-r2a8-production-intake-stager"]["build_a_sha256"],
             "production_writer": production["stage8b-r2a8-production-current-source-writer"]["build_a_sha256"],
             "production_manifest_issuer": production["stage8b-r2a8-current-manifest-issuer"]["build_a_sha256"],
@@ -114,7 +133,9 @@ def check(path: str) -> dict[str, object]:
             "controlled_adapter": controlled["stage8b-r2a7-source-adapter"]["build_a_sha256"],
             "controlled_manifest_issuer": controlled["stage8b-r2a8-current-manifest-issuer"]["build_a_sha256"],
             "controlled_seeder": controlled["stage8b-r2a7-controlled-seeder"]["build_a_sha256"],
+            "creator_chain_seeder": controlled["stage8b-r2b-creator-chain-seeder"]["build_a_sha256"],
             "controlled_tls_server": controlled["stage8b-r2a5-controlled-server"]["build_a_sha256"],
+            "controlled_layout": controlled["stage8b-r2a5-controlled-layout"]["build_a_sha256"],
             "controlled_launcher": controlled["stage8b-r2b-controlled-custody-launcher"]["build_a_sha256"],
         }
         for name, expected in expected_hashes.items():

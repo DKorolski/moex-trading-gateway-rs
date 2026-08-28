@@ -92,14 +92,14 @@ pub enum R2bTerminalErrorCategory {
     InternalInvariantFailure,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct R2bRequestAttemptEvidenceV1 {
     pub ordinal: usize,
     pub network_class: crate::NetworkClass,
-    pub method: &'static str,
-    pub route_template: &'static str,
-    pub query_policy_id: Option<&'static str>,
+    pub method: String,
+    pub route_template: String,
+    pub query_policy_id: Option<String>,
     pub request_started_at_utc: DateTime<Utc>,
     pub request_finished_at_utc: DateTime<Utc>,
     pub status: Option<u16>,
@@ -109,13 +109,13 @@ pub struct R2bRequestAttemptEvidenceV1 {
     pub response_stage_error: bool,
     pub semantic_receipt_sha256: Option<String>,
     pub error_category: Option<R2a3AttemptFailureKind>,
-    pub timeout_stage: Option<&'static str>,
+    pub timeout_stage: Option<String>,
     pub raw_body_exported: bool,
 }
 
 /// The only durable R2B terminal record. It intentionally contains no raw
 /// body, credential, token or account identifier.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct R2bTerminalEvidenceV1 {
     pub schema_version: u8,
@@ -181,8 +181,12 @@ pub struct R2bAdmissionReceiptV1 {
     pub admission_commitment_sha256: String,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(tag = "message_type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(
+    tag = "message_type",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
+)]
 pub enum R2bSupervisorMessageV1 {
     HelperProcessStarted {
         schema_version: u8,
@@ -215,7 +219,12 @@ pub struct R2bRootTerminalRecordV1 {
     pub child_pid: Option<i32>,
     pub child_exit_code: Option<i32>,
     pub child_signal: Option<i32>,
-    pub helper_terminal: serde_json::Value,
+    pub root_terminal_outcome: R2bTerminalOutcome,
+    pub root_error_category: Option<R2bTerminalErrorCategory>,
+    pub child_reported_outcome: Option<R2bTerminalOutcome>,
+    pub child_protocol_valid: bool,
+    pub child_exit_consistent: bool,
+    pub validated_helper_terminal: Option<R2bTerminalEvidenceV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2423,6 +2432,7 @@ fn persist_admission_state(
     file.write_all(format!("stage8b-p-r2b-admission-{suffix}-v1\n").as_bytes())?;
     file.sync_all()?;
     file.set_permissions(std::fs::Permissions::from_mode(0o400))?;
+    file.sync_all()?;
     File::open(directory)?.sync_all()?;
     Ok(())
 }
@@ -2703,6 +2713,7 @@ fn claim_nonce(directory: &Path, nonce: &str) -> Result<std::fs::Metadata, R2a3E
     file.write_all(b"stage8b-p-r2a5-run-nonce-consumed-v1\n")?;
     file.sync_all()?;
     file.set_permissions(std::fs::Permissions::from_mode(0o400))?;
+    file.sync_all()?;
     File::open(directory)?.sync_all()?;
     file.metadata().map_err(Into::into)
 }
@@ -2757,10 +2768,10 @@ fn terminal_success_attempt(value: &R2a3AttemptEvidence) -> R2bRequestAttemptEvi
     R2bRequestAttemptEvidenceV1 {
         ordinal: value.ordinal,
         network_class: value.network_class,
-        method: value.method,
-        route_template: value.route_template,
+        method: value.method.to_owned(),
+        route_template: value.route_template.to_owned(),
         query_policy_id: (value.route_template == "/v1/accounts/{account_id}/trades")
-            .then_some("stage8b-r2b-trades-single-page-v1"),
+            .then_some("stage8b-r2b-trades-single-page-v1".to_owned()),
         request_started_at_utc: value.request_started_at_utc,
         request_finished_at_utc: value.request_finished_at_utc,
         status: Some(value.status),
@@ -2779,10 +2790,10 @@ fn terminal_failed_attempt(value: &R2a3FailedAttemptEvidence) -> R2bRequestAttem
     R2bRequestAttemptEvidenceV1 {
         ordinal: value.ordinal,
         network_class: value.network_class,
-        method: value.method,
-        route_template: value.route_template,
+        method: value.method.to_owned(),
+        route_template: value.route_template.to_owned(),
         query_policy_id: (value.route_template == "/v1/accounts/{account_id}/trades")
-            .then_some("stage8b-r2b-trades-single-page-v1"),
+            .then_some("stage8b-r2b-trades-single-page-v1".to_owned()),
         request_started_at_utc: value.request_started_at_utc,
         request_finished_at_utc: value.request_finished_at_utc,
         status: value.status,
@@ -2792,7 +2803,7 @@ fn terminal_failed_attempt(value: &R2a3FailedAttemptEvidence) -> R2bRequestAttem
         response_stage_error: value.response_stage_error,
         semantic_receipt_sha256: None,
         error_category: Some(value.error_kind),
-        timeout_stage: value.timeout_stage,
+        timeout_stage: value.timeout_stage.map(str::to_owned),
         raw_body_exported: false,
     }
 }
@@ -2919,7 +2930,9 @@ pub fn r2b_root_terminal_record(
     receipt: &R2bAdmissionReceiptV1,
     child_pid: Option<i32>,
     wait_status: Option<i32>,
-    helper_terminal: serde_json::Value,
+    helper_terminal: Option<R2bTerminalEvidenceV1>,
+    child_protocol_valid: bool,
+    supervisor_error_category: Option<R2bTerminalErrorCategory>,
 ) -> R2bRootTerminalRecordV1 {
     let (child_exit_code, child_signal) = wait_status.map_or((None, None), |status| {
         if libc::WIFEXITED(status) {
@@ -2930,6 +2943,17 @@ pub fn r2b_root_terminal_record(
             (None, None)
         }
     });
+    let child_reported_outcome = helper_terminal
+        .as_ref()
+        .map(|terminal| terminal.terminal_outcome);
+    let kernel_success = child_exit_code == Some(0) && child_signal.is_none();
+    let child_exit_consistent = child_protocol_valid
+        && matches!(
+            (child_reported_outcome, kernel_success),
+            (Some(R2bTerminalOutcome::Success), true) | (Some(R2bTerminalOutcome::Failure), false)
+        );
+    let root_success =
+        child_exit_consistent && child_reported_outcome == Some(R2bTerminalOutcome::Success);
     R2bRootTerminalRecordV1 {
         schema_version: 1,
         stage: "Stage 8B-P R2B root terminal envelope".to_owned(),
@@ -2944,8 +2968,173 @@ pub fn r2b_root_terminal_record(
         child_pid,
         child_exit_code,
         child_signal,
-        helper_terminal,
+        root_terminal_outcome: if root_success {
+            R2bTerminalOutcome::Success
+        } else {
+            R2bTerminalOutcome::Failure
+        },
+        root_error_category: if root_success {
+            None
+        } else if child_exit_consistent {
+            helper_terminal
+                .as_ref()
+                .and_then(|terminal| terminal.terminal_error_category)
+                .or(supervisor_error_category)
+        } else {
+            supervisor_error_category.or(Some(R2bTerminalErrorCategory::InternalInvariantFailure))
+        },
+        child_reported_outcome,
+        child_protocol_valid,
+        child_exit_consistent,
+        validated_helper_terminal: child_protocol_valid.then_some(helper_terminal).flatten(),
     }
+}
+
+pub fn validate_r2b_helper_terminal(
+    receipt: &R2bAdmissionReceiptV1,
+    evidence: &R2bTerminalEvidenceV1,
+) -> bool {
+    let expected_routes: &[&str] = match receipt.operation {
+        Operation::Place => &[
+            "/v1/sessions",
+            "/v1/sessions/details",
+            "/v1/accounts/{account_id}/orders",
+            "/v1/accounts/{account_id}/trades",
+            "/v1/accounts/{account_id}",
+        ],
+        Operation::Cancel => &[
+            "/v1/sessions",
+            "/v1/sessions/details",
+            "/v1/accounts/{account_id}/orders/{order_id}",
+            "/v1/accounts/{account_id}/orders",
+            "/v1/accounts/{account_id}/trades",
+            "/v1/accounts/{account_id}",
+        ],
+    };
+    let closed = !evidence.operator_arm_issued
+        && !evidence.dispatch_attempt_recorded
+        && !evidence.effect_transport_entered
+        && !evidence.order_post_sent
+        && !evidence.order_delete_sent
+        && !evidence.raw_body_exported
+        && !evidence.credential_exported
+        && !evidence.account_id_exported;
+    let outcome_consistent = matches!(
+        (evidence.terminal_outcome, evidence.terminal_error_category),
+        (R2bTerminalOutcome::Success, None) | (R2bTerminalOutcome::Failure, Some(_))
+    );
+    let attempts_valid = evidence
+        .request_attempts
+        .iter()
+        .enumerate()
+        .all(|(index, attempt)| {
+            let route_valid =
+                expected_routes.get(index).copied() == Some(attempt.route_template.as_str());
+            let method_valid = if index < 2 {
+                attempt.method == "POST"
+                    && matches!(
+                        attempt.route_template.as_str(),
+                        "/v1/sessions" | "/v1/sessions/details"
+                    )
+            } else {
+                attempt.method == "GET"
+            };
+            let cap_valid =
+                attempt.configured_body_cap == endpoint_body_cap(attempt.route_template.as_str());
+            let response_valid = match (
+                attempt.status,
+                attempt.semantic_receipt_sha256.as_deref(),
+                attempt.error_category,
+            ) {
+                (Some(200), Some(receipt_sha), None) => {
+                    decode_hex::<32>(receipt_sha).is_ok()
+                        && attempt.response_body_length.is_some()
+                        && !attempt.body_overflow
+                        && !attempt.response_stage_error
+                        && attempt.timeout_stage.is_none()
+                }
+                (_, None, Some(error)) => {
+                    attempt.response_stage_error
+                        || attempt.status.is_none()
+                        || attempt.status != Some(200)
+                        || matches!(
+                            error,
+                            R2a3AttemptFailureKind::FreshnessInvalid
+                                | R2a3AttemptFailureKind::ResponseTooLarge
+                        )
+                }
+                _ => false,
+            };
+            attempt.ordinal == index + 1
+                && route_valid
+                && method_valid
+                && cap_valid
+                && response_valid
+                && attempt.network_class
+                    == if index < 2 {
+                        crate::NetworkClass::AuthService
+                    } else {
+                        crate::NetworkClass::BrokerTruth
+                    }
+                && attempt.request_started_at_utc <= attempt.request_finished_at_utc
+                && !attempt.raw_body_exported
+                && attempt.response_body_length.is_none_or(|length| {
+                    length <= attempt.configured_body_cap || attempt.body_overflow
+                })
+                && ((attempt.route_template == "/v1/accounts/{account_id}/trades")
+                    == (attempt.query_policy_id.as_deref()
+                        == Some("stage8b-r2b-trades-single-page-v1")))
+        });
+    let detail_consistent = match evidence.terminal_outcome {
+        R2bTerminalOutcome::Success => evidence.terminal_error_detail_redacted.is_none(),
+        R2bTerminalOutcome::Failure => evidence
+            .terminal_error_detail_redacted
+            .as_deref()
+            .is_some_and(|detail| !detail.is_empty() && detail.len() <= 256),
+    };
+    let broker_truth_valid = match (&evidence.broker_truth_summary, evidence.terminal_outcome) {
+        (Some(summary), R2bTerminalOutcome::Success) => {
+            summary.schema_version == 1
+                && summary.operation == receipt.operation
+                && summary.target_instrument == r2a2::TARGET_INSTRUMENT
+                && decode_hex::<32>(&summary.semantic_receipt_sha256).is_ok()
+                && !summary.raw_bodies_exported
+                && match receipt.operation {
+                    Operation::Place => {
+                        summary.exact_cancel_order_id_sha256.is_none()
+                            && summary.exact_cancel_working.is_none()
+                    }
+                    Operation::Cancel => {
+                        summary
+                            .exact_cancel_order_id_sha256
+                            .as_deref()
+                            .is_some_and(|value| decode_hex::<32>(value).is_ok())
+                            && summary.exact_cancel_working.is_some()
+                    }
+                }
+        }
+        (None, R2bTerminalOutcome::Failure) => true,
+        _ => false,
+    };
+    evidence.schema_version == 1
+        && evidence.stage == "Stage 8B-P R2B"
+        && evidence.operation == receipt.operation
+        && evidence.run_nonce_sha256 == receipt.run_nonce_sha256
+        && evidence.signed_run_package_sha256 == receipt.signed_run_package_sha256
+        && evidence.contract_snapshot_sha256 == receipt.contract_snapshot_sha256
+        && evidence.helper_executable_sha256 == receipt.helper_executable_sha256
+        && evidence.production_composition_sha256 == sha256(R2B_RUNTIME_COMPOSITION_CONTRACT)
+        && evidence.started_at_utc <= evidence.finished_at_utc
+        && evidence.started_at_utc >= receipt.admitted_at_utc
+        && evidence.finished_at_utc <= receipt.expires_at_utc + chrono::Duration::minutes(2)
+        && closed
+        && outcome_consistent
+        && detail_consistent
+        && broker_truth_valid
+        && evidence.request_attempts.len() <= expected_routes.len()
+        && (evidence.terminal_outcome != R2bTerminalOutcome::Success
+            || evidence.request_attempts.len() == expected_routes.len())
+        && attempts_valid
 }
 
 pub fn send_r2b_supervisor_message(message: &R2bSupervisorMessageV1) -> Result<(), R2a3Error> {
@@ -3930,6 +4119,50 @@ mod tests {
             mutate(&mut changed);
             assert_ne!(admission_commitment(&changed).unwrap(), original);
         }
+    }
+
+    #[test]
+    fn typed_terminal_rejects_unknown_fields_and_exit_contradictions() {
+        let admitted_at_utc = Utc::now();
+        let mut receipt = R2bAdmissionReceiptV1 {
+            schema_version: 1,
+            state: R2bAdmissionState::AdmissionDurable,
+            operation: Operation::Place,
+            run_nonce_sha256: "1".repeat(64),
+            helper_executable_sha256: "2".repeat(64),
+            launcher_executable_sha256: "7".repeat(64),
+            signed_run_package_sha256: "3".repeat(64),
+            contract_snapshot_sha256: "8".repeat(64),
+            nonce_marker_device: 1,
+            nonce_marker_inode: 2,
+            admission_record_device: 3,
+            admission_record_inode: 4,
+            terminal_channel_device: 5,
+            terminal_channel_inode: 6,
+            admitted_at_utc,
+            expires_at_utc: admitted_at_utc + chrono::Duration::seconds(30),
+            admission_commitment_sha256: String::new(),
+        };
+        receipt.admission_commitment_sha256 = admission_commitment(&receipt).unwrap();
+        let terminal = r2b_supervisor_fallback_terminal(&receipt, admitted_at_utc, "TEST");
+        assert!(validate_r2b_helper_terminal(&receipt, &terminal));
+
+        let message = R2bSupervisorMessageV1::Terminal {
+            schema_version: 1,
+            admission_commitment_sha256: receipt.admission_commitment_sha256.clone(),
+            evidence: Box::new(terminal.clone()),
+        };
+        let mut unknown = serde_json::to_value(message).unwrap();
+        unknown["evidence"]["unexpected_secret_copy"] = serde_json::json!("redacted-test");
+        assert!(serde_json::from_value::<R2bSupervisorMessageV1>(unknown).is_err());
+
+        let contradictory =
+            r2b_root_terminal_record(&receipt, Some(42), Some(0), Some(terminal), true, None);
+        assert_eq!(
+            contradictory.root_terminal_outcome,
+            R2bTerminalOutcome::Failure
+        );
+        assert!(!contradictory.child_exit_consistent);
     }
 
     #[test]

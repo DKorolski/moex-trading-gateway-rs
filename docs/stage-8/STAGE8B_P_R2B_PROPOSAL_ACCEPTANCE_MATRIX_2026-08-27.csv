@@ -8,7 +8,7 @@ R2B-P-006,endpoints,exact CANCEL broker GET sequence frozen,proposal authority,P
 R2B-P-007,network,host and port exact,proposal authority,PASS
 R2B-P-008,network,redirect proxy retry and arbitrary request forbidden,proposal authority,PASS
 R2B-P-009,composition,owner creator then stager exact component sequence and cardinality frozen,authority plus executable-aware checker,PASS
-R2B-P-010,composition,reproducible production Linux hashes separated from controlled hashes,R3 build evidence plus checker,PASS
+R2B-P-010,composition,reproducible production Linux hashes separated from controlled hashes,R4 build evidence plus checker,PASS
 R2B-P-011,credentials,fixed root and files frozen,proposal authority,PASS
 R2B-P-012,credentials,all authority validates before credential read,proposal authority,PASS
 R2B-P-013,sandbox,dedicated one-shot namespace and external destination allowlist required,proposal authority,PASS
@@ -58,4 +58,10 @@ R2B-P-056,hardening,no_new_privs saved IDs capability sets and FD allowlist are 
 R2B-P-057,hardening,setuid setgid and file-capability helpers are rejected before nonce admission,launcher source and adversarial Linux rehearsal,PASS
 R2B-P-058,intake,stager is not represented as authoritative creator,authority source and checker,PASS
 R2B-P-059,safety,handoff safety reports explicit authorization network effect Redis dispatch runtime and real-order closure,handoff safety checker,PASS
-R2B-P-060,issuance,independent R3 acceptance remains pending and no capability is issued,proposal authority,PASS
+R2B-P-060,issuance,independent R4 acceptance remains pending and no capability is issued,proposal authority,PASS
+R2B-P-061,isolation,Yama policy exclusive UID and helper nondumpability are checked before or at bootstrap,launcher helper unit and Linux rehearsal,PASS
+R2B-P-062,isolation,same UID pidfd_getfd process_vm_readv ptrace and second terminal sender are denied,adversarial Linux rehearsal,PASS
+R2B-P-063,protocol,root accepts only exact typed terminal and derives a canonical exit-consistent verdict,helper launcher unit and negative harness,PASS
+R2B-P-064,lifecycle,one monotonic deadline bounds frame reads child exit kill and reap,launcher and timeout fault rehearsal,PASS
+R2B-P-065,intake,authoritative creator has a reachable no-argument binary exact unit Linux hash and one invocation,creator source unit build evidence and checker,PASS
+R2B-P-066,durability,nonce and admission chmod metadata receive file fsync before directory fsync,admission source checker and negative harness,PASS
