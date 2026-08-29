@@ -44,7 +44,7 @@ def main() -> None:
         ["bash", "scripts/stage8b_p_r2b_issuance_r1_gate.sh"], cwd=ROOT,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
     )
-    marker = b"stage8b-p-r2b-issuance-r1-gate: PASS revision=R0-R1A rows=54"
+    marker = b"stage8b-p-r2b-issuance-r1-gate: PASS revision=R0-R1A1 rows=66"
     if gate.returncode != 0 or marker not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
 
@@ -56,8 +56,8 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Issuance Package R0-R1A",
-                "status": "EXACT_GOVERNANCE_FREEZE_CANDIDATE_NOT_ISSUED",
+                "stage": "Stage 8B-P R2B Issuance Package R0-R1A1",
+                "status": "STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "source_short_ref": short_ref,
@@ -69,10 +69,12 @@ def main() -> None:
                 "manifest_sha256": sha(manifest),
                 "read_contract_snapshot_sha256": SNAPSHOT_SHA,
                 "read_document_count": 6,
-                "acceptance_rows": 54,
-                "negative_mutations": 54,
+                "acceptance_rows": 66,
+                "negative_mutations": 66,
                 "r1_negative_mutations": 25,
                 "r1a_exact_negative_mutations": 29,
+                "r1a1_strict_schema_negative_mutations": 12,
+                "strict_schema_freeze": True,
                 "exact_governance_freeze": True,
                 "fixed_input_count": 7,
                 "receipt_source_count": 11,

@@ -46,6 +46,19 @@ EMBEDDERS = (
     "tools/stage8b-readonly-preflight/src/r2a4.rs",
     "tools/stage8b-readonly-preflight/src/r2a5.rs",
 )
+EVIDENCE_KEYS = {
+    "schema_version", "stage", "purpose", "retrieved_at_utc",
+    "read_contract_snapshot_path", "read_contract_snapshot_sha256",
+    "helper_embedded_snapshot_sha256", "future_run_package_contract_snapshot_sha256",
+    "document_count", "documents", "all_http_200", "all_match_embedded_snapshot",
+    "credentials_used", "authservice_called", "broker_get_sent",
+    "activation_refresh_required", "activation_max_age_seconds",
+}
+DOCUMENT_RECORD_KEYS = {
+    "name", "url", "http_status", "content_type", "observed_bytes",
+    "observed_sha256", "required_markers", "all_required_markers_present",
+    "matches_embedded_document",
+}
 
 
 def digest(data: bytes) -> str:
@@ -55,6 +68,10 @@ def digest(data: bytes) -> str:
 def require(value: bool, message: str) -> None:
     if not value:
         raise RuntimeError(message)
+
+
+def require_exact_keys(document: object, expected: set[str], message: str) -> None:
+    require(isinstance(document, dict) and set(document) == expected, message)
 
 
 def embedded_inventory(root: Path) -> tuple[bytes, dict[str, dict[str, object]]]:
@@ -82,6 +99,11 @@ def embedded_inventory(root: Path) -> tuple[bytes, dict[str, dict[str, object]]]
 def verify_evidence(root: Path) -> None:
     snapshot_bytes, inventory = embedded_inventory(root)
     evidence = json.loads((root / EVIDENCE).read_text(encoding="utf-8"))
+    require_exact_keys(evidence, EVIDENCE_KEYS, "refresh evidence exact schema drift")
+    require(evidence["schema_version"] == 1, "refresh evidence schema-version drift")
+    require(evidence["stage"] == "Stage 8B-P R2B Issuance Package R0-R1", "refresh evidence stage drift")
+    require(evidence["purpose"] == "DESIGN_CLOSURE_ONLY_NOT_ACTIVATION_AUTHORITY", "refresh evidence purpose drift")
+    require(isinstance(evidence["retrieved_at_utc"], str) and evidence["retrieved_at_utc"].endswith("Z"), "refresh evidence timestamp drift")
     require(evidence["document_count"] == 6, "evidence document count drift")
     require(evidence["read_contract_snapshot_path"] == SNAPSHOT.as_posix(), "evidence path drift")
     require(evidence["read_contract_snapshot_sha256"] == digest(snapshot_bytes), "evidence snapshot digest drift")
@@ -94,7 +116,10 @@ def verify_evidence(root: Path) -> None:
     require(evidence["activation_max_age_seconds"] == 1800, "activation max age drift")
     observed = evidence.get("documents")
     require(isinstance(observed, list) and len(observed) == 6, "observed inventory drift")
+    observed_names = [record.get("name") if isinstance(record, dict) else None for record in observed]
+    require(observed_names == list(DOCUMENTS), "observed exact ordered document inventory drift")
     for record in observed:
+        require_exact_keys(record, DOCUMENT_RECORD_KEYS, "refresh document record exact schema drift")
         name = record["name"]
         require(name in inventory, f"unknown observed document: {name}")
         require(record["url"] == DOCUMENTS[name][0], f"observed URL drift: {name}")

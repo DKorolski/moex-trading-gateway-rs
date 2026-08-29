@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "stage": "Stage 8B-P R2B Issuance Package R0-R1A",
-  "status": "EXACT_GOVERNANCE_FREEZE_CANDIDATE_NOT_ISSUED",
+  "stage": "Stage 8B-P R2B Issuance Package R0-R1A1",
+  "status": "STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED",
   "accepted_predecessor": "f24f1044ac0b29c2f588853b817e519cfe8d3d8b",
   "corrected_r0": "928168ed47e5b9dd873cd73815fbccecde7a8981",
   "finding_count": 2,
@@ -33,8 +33,8 @@
     "exact_phase_transaction_frozen": true,
     "result": "EXACT_GOVERNANCE_FROZEN"
   },
-  "acceptance_rows": "54/54",
-  "targeted_negative_mutations": "54/54",
+  "acceptance_rows": "66/66",
+  "targeted_negative_mutations": "66/66",
   "production_rust_or_cargo_changed": false,
   "activation_target_implemented": false,
   "authorization_status": "NOT_ISSUED",

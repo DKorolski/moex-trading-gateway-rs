@@ -59,6 +59,16 @@ The original R0-R1 harness retains 25 negative cases. The R0-R1A harness adds
 paths, phase topology, builder/signer identity and read-refresh binding. The
 combined required negative count is 54.
 
+### R0-R1A1 strict-schema closure
+
+R0-R1A1 additionally freezes schema exhaustiveness. The refresh evidence must
+contain the exact ordered six-document inventory with unique names and exact
+record fields. Authority, builder/output, activation, transaction/barrier,
+implementation state, operator inputs, authorization, closed surfaces and
+issuance evidence reject missing or unknown fields. The acceptance matrix is
+byte-pinned and requires 66 unique ordered row IDs. Twelve additional negative
+mutations bring combined targeted coverage to 66/66.
+
 No Rust, Cargo, deployment unit or production architecture is changed by this
 microfix. FINAM transport, HTTP POST/DELETE, Redis command consumption, broker
 dispatch, runtime-live, strategy-live and real orders remain closed.

@@ -53,3 +53,15 @@ R2BI-R1A-051,signer,signed output path custody durability and builder-before-sig
 R2BI-R1A-052,read-contract,refresh evidence path snapshot inventory and 1800 second maximum age frozen,machine authority,PASS
 R2BI-R1A-053,negative,twenty-nine R1A exact identity and path mutations rejected,targeted negative harness,PASS
 R2BI-R1A-054,closed,R1A changes governance evidence only and leaves implementation authorization and effects absent,git differential and machine authority,PASS
+R2BI-R1A1-055,refresh,refresh evidence has exact top-level schema,strict-schema checker,PASS
+R2BI-R1A1-056,refresh,six refresh documents are unique complete and in canonical order,strict-schema checker,PASS
+R2BI-R1A1-057,refresh,every refresh document record has exact field inventory,strict-schema checker,PASS
+R2BI-R1A1-058,schema,authority top-level and lineage objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-059,schema,builder output and package-formation objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-060,schema,future activation and transaction objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-061,schema,barrier implementation-state and operator-input objects are canonical exact values,strict-schema checker,PASS
+R2BI-R1A1-062,schema,authorization and closed-surface objects are canonical exact values,strict-schema checker,PASS
+R2BI-R1A1-063,evidence,issuance evidence top-level and nested objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-064,matrix,acceptance matrix bytes row IDs order uniqueness and count are pinned,strict-schema checker,PASS
+R2BI-R1A1-065,negative,twelve strict-schema and refresh-exhaustiveness mutations rejected,targeted negative harness,PASS
+R2BI-R1A1-066,closed,R1A1 remains governance-only with R2B not issued and every effect surface closed,git differential and machine authority,PASS

@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B Issuance Package",
-  "revision": "R0-R1A",
-  "status": "EXACT_GOVERNANCE_FREEZE_CANDIDATE_NOT_ISSUED",
+  "revision": "R0-R1A1",
+  "status": "STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED",
   "accepted_predecessor": {
     "stage": "Stage 8B-P R2B R4-R2A Acceptance Closure",
     "source_ref": "f24f1044ac0b29c2f588853b817e519cfe8d3d8b",
@@ -415,6 +415,6 @@
     "strategy_live": false,
     "real_orders": false
   },
-  "acceptance_rows": 54,
-  "targeted_negative_mutations": 54
+  "acceptance_rows": 66,
+  "targeted_negative_mutations": 66
 }

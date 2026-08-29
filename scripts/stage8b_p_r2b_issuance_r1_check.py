@@ -102,11 +102,127 @@ PHASES = [
     {"ordinal": 5, "name": "draft_and_signed_run_package", "target": "moex-stage8b-r2b-phase5-run-package.target", "after_target": "moex-stage8b-r2b-phase4-authority-issuers.target", "services": ["moex-stage8b-r2b-run-package-draft-builder.service", "moex-stage8b-r2b-package-issuer.service"]},
     {"ordinal": 6, "name": "root_admission_and_readonly_preflight", "target": "moex-stage8b-r2b-phase6-readonly-preflight.target", "after_target": "moex-stage8b-r2b-phase5-run-package.target", "services": ["moex-stage8b-r2b-readonly-supervisor.service"]},
 ]
+MATRIX_SHA256 = "6d05f521312e8db547493b367e232dcf145ac0ff5c839aef70c8795478cd2681"
+AUTHORITY_KEYS = {
+    "schema_version", "stage", "revision", "status", "accepted_predecessor",
+    "corrects_r0", "read_contract", "package_formation", "future_activation_target",
+    "transaction", "implementation_state", "operator_local_inputs", "authorization",
+    "closed_surfaces", "acceptance_rows", "targeted_negative_mutations",
+}
+CORRECTS_R0 = {
+    "source_ref": "928168ed47e5b9dd873cd73815fbccecde7a8981",
+    "verdict": "NOT_ACCEPTED_NARROW_CORRECTION_REQUIRED",
+    "finding_count": 2,
+}
+PACKAGE_FORMATION_KEYS = {"selected_model", "builder", "signer"}
+BUILDER_KEYS = {
+    "executable", "service", "implemented_by_r0_r1", "uid", "gid",
+    "signing_key_access", "credential_path_access", "network_allowed", "fixed_inputs",
+    "receipt_sources", "required_receipt_count", "required_same_run_nonce",
+    "stale_receipts_allowed", "controlled_fixture_producer_allowed", "schema",
+    "signature_ed25519_hex", "validity_seconds", "output",
+}
+BUILDER_OUTPUT_KEYS = {
+    "path", "owner_uid", "owner_gid", "mode", "atomic_publish",
+    "nofollow_regular_single_link", "file_fsync", "directory_fsync",
+    "existing_output_reuse_allowed",
+}
+FUTURE_ACTIVATION = {
+    "unit": "moex-stage8b-r2b-issuance.target",
+    "implemented_by_r0_r1": False,
+    "installed_by_r0_r1": False,
+    "enabled_by_r0_r1": False,
+    "manual_start_allowed": False,
+    "signed_local_activation_required": True,
+}
+TRANSACTION_KEYS = {"service_invocation_count", "phase_count", "phases", "barrier_contract"}
+BARRIER_CONTRACT = {
+    "phase_target_requires_all_phase_services": True,
+    "phase_target_after_all_phase_services": True,
+    "downstream_requires_previous_phase_target": True,
+    "downstream_after_previous_phase_target": True,
+    "failed_component_blocks_downstream": True,
+    "skipped_component_blocks_downstream": True,
+    "condition_skip_semantics_allowed": False,
+    "partial_fanout_allowed": False,
+    "same_run_nonce_required": True,
+    "stale_output_allowed": False,
+    "package_issuer_requires_draft_builder": True,
+    "supervisor_requires_package_issuer": True,
+}
+IMPLEMENTATION_STATE = {
+    "aggregate_target_present": False,
+    "phase_targets_present": False,
+    "draft_builder_binary_present": False,
+    "draft_builder_unit_present": False,
+    "package_issuer_unit_present": False,
+    "services_installed": False,
+    "services_enabled": False,
+    "services_started": False,
+}
+OPERATOR_LOCAL_INPUTS = {
+    "operation": "ABSENT",
+    "strategy_request_id": "ABSENT",
+    "durable_client_order_id": "ABSENT",
+    "account_hmac": "ABSENT_NOT_STORED_IN_GIT",
+    "operator_decision": "ABSENT",
+    "run_nonce": "ABSENT",
+    "signed_run_package": "ABSENT",
+    "fresh_kill_switch": "ABSENT",
+    "fresh_schedule": "ABSENT",
+    "fresh_broker_truth": "ABSENT",
+}
+AUTHORIZATION = {
+    "r2b": "NOT_ISSUED",
+    "operator_arm_issued": False,
+    "activation_authority_present": False,
+    "target_start_allowed": False,
+}
+CLOSED_SURFACES = {
+    "finam_credentials_accessed": False,
+    "auth_service_called": False,
+    "broker_account_get_sent": False,
+    "order_post_sent": False,
+    "order_delete_sent": False,
+    "dispatch_attempt_recorded": False,
+    "transport_entered": False,
+    "redis_live_consumer": False,
+    "broker_dispatch": False,
+    "runtime_live": False,
+    "strategy_live": False,
+    "real_orders": False,
+}
+EVIDENCE_KEYS = {
+    "schema_version", "stage", "status", "accepted_predecessor", "corrected_r0",
+    "finding_count", "read_contract", "package_formation", "acceptance_rows",
+    "targeted_negative_mutations", "production_rust_or_cargo_changed",
+    "activation_target_implemented", "authorization_status", "finam_credentials_accessed",
+    "auth_service_called", "broker_account_get_sent", "order_post_sent",
+    "order_delete_sent", "dispatch_attempt_recorded", "transport_entered",
+    "redis_live_consumer", "broker_dispatch", "runtime_live", "strategy_live",
+    "real_orders", "result",
+}
+EVIDENCE_READ_KEYS = {
+    "document_count", "snapshot_sha256", "fresh_refresh_evidence_sha256",
+    "all_http_200", "all_match_embedded_snapshot", "activation_refresh_required",
+    "activation_max_age_seconds", "credentials_used", "authservice_called",
+    "broker_get_sent", "result",
+}
+EVIDENCE_FORMATION_KEYS = {
+    "model", "service_invocations", "phase_count", "required_receipts",
+    "same_run_nonce_required", "stale_receipts_allowed", "signing_key_available_to_builder",
+    "draft_builder_implemented", "exact_fixed_input_count", "exact_receipt_source_count",
+    "exact_signer_identity_frozen", "exact_phase_transaction_frozen", "result",
+}
 
 
 def require(value: bool, message: str) -> None:
     if not value:
         raise RuntimeError(message)
+
+
+def require_exact_keys(document: object, expected: set[str], message: str) -> None:
+    require(isinstance(document, dict) and set(document) == expected, message)
 
 
 def sha256(data: bytes) -> str:
@@ -117,25 +233,30 @@ def check(root: Path) -> None:
     read_refresh.verify_evidence(root)
     authority = json.loads((root / AUTHORITY.relative_to(ROOT)).read_text(encoding="utf-8"))
     evidence = json.loads((root / EVIDENCE.relative_to(ROOT)).read_text(encoding="utf-8"))
-    rows = list(csv.DictReader((root / MATRIX.relative_to(ROOT)).open(encoding="utf-8")))
+    matrix_bytes = (root / MATRIX.relative_to(ROOT)).read_bytes()
+    rows = list(csv.DictReader(matrix_bytes.decode("utf-8").splitlines()))
     design = " ".join((root / DESIGN.relative_to(ROOT)).read_text(encoding="utf-8").split())
 
-    require(authority["schema_version"] == 1 and authority["revision"] == "R0-R1A", "revision drift")
-    require(authority["status"] == "EXACT_GOVERNANCE_FREEZE_CANDIDATE_NOT_ISSUED", "status opened")
+    require_exact_keys(authority, AUTHORITY_KEYS, "authority exact schema drift")
+    require(authority["schema_version"] == 1, "authority schema-version drift")
+    require(authority["stage"] == "Stage 8B-P R2B Issuance Package", "authority stage drift")
+    require(authority["revision"] == "R0-R1A1", "revision drift")
+    require(authority["status"] == "STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED", "status opened")
     require(authority["accepted_predecessor"] == {
         "stage": "Stage 8B-P R2B R4-R2A Acceptance Closure",
         "source_ref": "f24f1044ac0b29c2f588853b817e519cfe8d3d8b",
         "verdict": "ACCEPTED",
     }, "accepted predecessor drift")
-    require(authority["corrects_r0"]["source_ref"] == "928168ed47e5b9dd873cd73815fbccecde7a8981", "R0 binding drift")
-    require(authority["corrects_r0"]["finding_count"] == 2, "finding count drift")
+    require(authority["corrects_r0"] == CORRECTS_R0, "R0 correction object drift")
 
     contract = authority["read_contract"]
     require(contract == READ_CONTRACT, "exact read-contract authority drift")
 
     formation = authority["package_formation"]
+    require_exact_keys(formation, PACKAGE_FORMATION_KEYS, "package formation exact schema drift")
     require(formation["selected_model"] == "SEPARATE_DRAFT_BUILDER_THEN_SIGNER", "draft model drift")
     builder = formation["builder"]
+    require_exact_keys(builder, BUILDER_KEYS, "builder exact schema drift")
     require(builder["executable"] == "stage8b-r2b-run-package-draft-builder", "builder executable drift")
     require(builder["service"] == "moex-stage8b-r2b-run-package-draft-builder.service", "builder service drift")
     require(builder["implemented_by_r0_r1"] is False, "builder prematurely implemented")
@@ -152,6 +273,7 @@ def check(root: Path) -> None:
     require(builder["signature_ed25519_hex"] == "EMPTY", "draft unexpectedly signed")
     require(builder["validity_seconds"] == 30, "draft validity drift")
     output = builder["output"]
+    require_exact_keys(output, BUILDER_OUTPUT_KEYS, "builder output exact schema drift")
     require(output["path"] == "/var/lib/moex-trading/stage8b/r2a5/r2b-run-package.unsigned.json", "unsigned path drift")
     require(output["owner_uid"] == output["owner_gid"] == 0 and output["mode"] == "0600", "unsigned custody drift")
     require(all(output[key] is True for key in ("atomic_publish", "nofollow_regular_single_link", "file_fsync", "directory_fsync")), "unsigned durability drift")
@@ -161,12 +283,11 @@ def check(root: Path) -> None:
     require(signer["fixed_input"] == output["path"], "signer input drift")
 
     activation = authority["future_activation_target"]
-    require(activation["unit"] == "moex-stage8b-r2b-issuance.target", "aggregate target drift")
-    require(all(activation[key] is False for key in ("implemented_by_r0_r1", "installed_by_r0_r1", "enabled_by_r0_r1", "manual_start_allowed")), "activation opened")
-    require(activation["signed_local_activation_required"] is True, "signed activation requirement removed")
+    require(activation == FUTURE_ACTIVATION, "future activation exact schema/value drift")
     require(all(not (root / relative).exists() for relative in ABSENT_IMPLEMENTATION), "implementation artifact present in design closure")
 
     transaction = authority["transaction"]
+    require_exact_keys(transaction, TRANSACTION_KEYS, "transaction exact schema drift")
     phases = transaction["phases"]
     require(phases == PHASES, "exact phase transaction drift")
     require(transaction["phase_count"] == len(phases) == 6, "phase count drift")
@@ -177,36 +298,38 @@ def check(root: Path) -> None:
     require(phases[4]["services"] == [builder["service"], signer["service"]], "phase 5 order drift")
     require(phases[5]["services"] == ["moex-stage8b-r2b-readonly-supervisor.service"], "terminal supervisor drift")
     barriers = transaction["barrier_contract"]
-    require(all(barriers[key] is True for key in (
-        "phase_target_requires_all_phase_services", "phase_target_after_all_phase_services",
-        "downstream_requires_previous_phase_target", "downstream_after_previous_phase_target",
-        "failed_component_blocks_downstream", "skipped_component_blocks_downstream",
-        "same_run_nonce_required", "package_issuer_requires_draft_builder",
-        "supervisor_requires_package_issuer",
-    )), "required barrier opened")
-    require(barriers["condition_skip_semantics_allowed"] is False, "condition skip allowed")
-    require(barriers["partial_fanout_allowed"] is False, "partial fanout allowed")
-    require(barriers["stale_output_allowed"] is False, "stale output allowed")
+    require(barriers == BARRIER_CONTRACT, "barrier contract exact schema/value drift")
 
-    state = authority["implementation_state"]
-    require(all(value is False for value in state.values()), "implementation state opened")
-    require(all(str(value).startswith("ABSENT") for value in authority["operator_local_inputs"].values()), "operator input invented")
-    require(authority["authorization"] == {
-        "r2b": "NOT_ISSUED", "operator_arm_issued": False,
-        "activation_authority_present": False, "target_start_allowed": False,
-    }, "authorization opened")
-    require(all(value is False for value in authority["closed_surfaces"].values()), "effect surface opened")
-    require(len(rows) == authority["acceptance_rows"] == 54, "acceptance row count drift")
+    require(authority["implementation_state"] == IMPLEMENTATION_STATE, "implementation state exact drift")
+    require(authority["operator_local_inputs"] == OPERATOR_LOCAL_INPUTS, "operator input exact drift")
+    require(authority["authorization"] == AUTHORIZATION, "authorization exact drift")
+    require(authority["closed_surfaces"] == CLOSED_SURFACES, "closed surface exact drift")
+    require(sha256(matrix_bytes) == MATRIX_SHA256, "acceptance matrix content drift")
+    expected_ids = (
+        [f"R2BI-R1-{index:03d}" for index in range(1, 41)]
+        + [f"R2BI-R1A-{index:03d}" for index in range(41, 55)]
+        + [f"R2BI-R1A1-{index:03d}" for index in range(55, 67)]
+    )
+    row_ids = [row["id"] for row in rows]
+    require(row_ids == expected_ids and len(set(row_ids)) == len(row_ids), "acceptance row identity/order drift")
+    require(len(rows) == authority["acceptance_rows"] == 66, "acceptance row count drift")
     require(all(row["expected"] == "PASS" for row in rows), "acceptance expectation drift")
-    require(authority["targeted_negative_mutations"] == 54, "negative count drift")
-    require(evidence["status"] == "EXACT_GOVERNANCE_FREEZE_CANDIDATE_NOT_ISSUED", "evidence status drift")
+    require(authority["targeted_negative_mutations"] == 66, "negative count drift")
+    require_exact_keys(evidence, EVIDENCE_KEYS, "issuance evidence exact schema drift")
+    require(evidence["schema_version"] == 1, "evidence schema-version drift")
+    require(evidence["stage"] == "Stage 8B-P R2B Issuance Package R0-R1A1", "evidence stage drift")
+    require(evidence["status"] == "STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED", "evidence status drift")
+    require(evidence["accepted_predecessor"] == "f24f1044ac0b29c2f588853b817e519cfe8d3d8b", "evidence predecessor drift")
+    require(evidence["corrected_r0"] == CORRECTS_R0["source_ref"] and evidence["finding_count"] == 2, "evidence R0 lineage drift")
+    require_exact_keys(evidence["read_contract"], EVIDENCE_READ_KEYS, "issuance read evidence exact schema drift")
+    require_exact_keys(evidence["package_formation"], EVIDENCE_FORMATION_KEYS, "issuance formation evidence exact schema drift")
     require(evidence["read_contract"]["document_count"] == 6, "evidence contract count drift")
     require(evidence["read_contract"]["snapshot_sha256"] == SNAPSHOT_SHA, "evidence contract binding drift")
     refresh_path = root / read_refresh.EVIDENCE
     require(evidence["read_contract"]["fresh_refresh_evidence_sha256"] == sha256(refresh_path.read_bytes()), "refresh evidence digest drift")
     require(evidence["package_formation"]["model"] == "SEPARATE_DRAFT_BUILDER_THEN_SIGNER", "evidence builder model drift")
     require(evidence["package_formation"]["service_invocations"] == 31, "evidence service count drift")
-    require(evidence["acceptance_rows"] == "54/54" and evidence["targeted_negative_mutations"] == "54/54", "evidence coverage drift")
+    require(evidence["acceptance_rows"] == "66/66" and evidence["targeted_negative_mutations"] == "66/66", "evidence coverage drift")
     require(evidence["production_rust_or_cargo_changed"] is False, "evidence production drift")
     require(evidence["activation_target_implemented"] is False, "evidence target opened")
     require(evidence["authorization_status"] == "NOT_ISSUED", "evidence authorization opened")
@@ -227,8 +350,8 @@ def check(root: Path) -> None:
 def main() -> None:
     check(ROOT)
     print(
-        "stage8b-p-r2b-issuance-r1-check: PASS revision=R0-R1A rows=54 "
-        "read_documents=6 services=31 phases=6 negatives=54 exact_freeze=true builder=SEPARATE "
+        "stage8b-p-r2b-issuance-r1-check: PASS revision=R0-R1A1 rows=66 "
+        "read_documents=6 services=31 phases=6 negatives=66 strict_schema=true exact_freeze=true builder=SEPARATE "
         "target_implemented=false authorization=NOT_ISSUED finam=false broker_get=false"
     )
 
