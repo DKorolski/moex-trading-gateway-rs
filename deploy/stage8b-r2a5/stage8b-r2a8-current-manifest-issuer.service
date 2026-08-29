@@ -1,7 +1,6 @@
 [Unit]
 Description=MOEX Stage 8B R2A8 trusted current-manifest issuer
-ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json
-ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-lifecycle-key.hex
+RefuseManualStart=yes
 
 [Service]
 Type=oneshot

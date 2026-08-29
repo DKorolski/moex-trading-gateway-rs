@@ -1,5 +1,6 @@
 [Unit]
 Description=MOEX Stage 8B R2A5 authority producer UID %i
+RefuseManualStart=yes
 ConditionPathExists=/var/lib/moex-trading/operational-authorities
 
 [Service]

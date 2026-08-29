@@ -1,5 +1,6 @@
 [Unit]
 Description=Stage 8B R2B root admission supervisor
+RefuseManualStart=yes
 After=local-fs.target
 ConditionPathExists=/proc/sys/kernel/yama/ptrace_scope
 

@@ -1,5 +1,6 @@
 [Unit]
 Description=MOEX Stage 8B R2A5 authority issuer UID %i
+RefuseManualStart=yes
 
 [Service]
 Type=oneshot

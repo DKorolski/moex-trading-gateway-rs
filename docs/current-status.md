@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-28.
+Status date: 2026-08-29.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -33,12 +33,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   writer creates later output C1. The narrow R4-R2A closure freezes this
   distinction, corrects controlled-fixture wording, adds the missing exact
   writer oneshot unit and exact R4-R2 evidence naming. Independent review
-  accepted the closure substantively and requested one deployment-only systemd
-  syntax microfix. The exact publisher/creator/stager/writer units now place
+  accepted the closure at `f24f1044ac0b29c2f588853b817e519cfe8d3d8b`
+  after the deployment-only systemd syntax microfix. The exact
+  publisher/creator/stager/writer units place
   `RefuseManualStart=yes` under `[Unit]`, omit unsupported
   `ConditionPathIsRegular=`, and are covered by a section-aware checker plus a
-  target-version parser gate. Formal R4-R2 acceptance remains pending the
-  narrow micro-review.
+  target-version parser gate. R4-R2A is formally closed.
+  The active next candidate is **Stage 8B-P R2B Issuance Package R0**, a
+  design-only freeze of the future 30-service start transaction. The nine
+  currently shipped unit files pass a full parser gate; the future activation
+  target, operator selection, account binding, arm nonce and signed run package
+  are absent. R0 therefore remains `DESIGN_CANDIDATE_NOT_ISSUED`.
   R2B authorization remains
   `NOT_ISSUED`; operator selection and signed run package are absent.
 - FINAM network access, account-order POST/DELETE, Redis live consumption,

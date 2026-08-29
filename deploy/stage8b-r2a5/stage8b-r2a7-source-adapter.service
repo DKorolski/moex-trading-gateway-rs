@@ -1,9 +1,8 @@
 [Unit]
 Description=MOEX Stage 8B R2A7 production recovery-reader source adapter
+RefuseManualStart=yes
 Requires=stage8b-r2a8-current-manifest-issuer.service
 After=stage8b-r2a8-current-manifest-issuer.service
-ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-reader-manifest.json
-ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-lifecycle-key.hex
 ConditionPathIsDirectory=/var/lib/moex-trading/stage7b
 ConditionPathIsDirectory=/var/lib/moex-trading/stage8a1-authority
 ConditionPathIsDirectory=/var/lib/moex-trading/operational-authorities
