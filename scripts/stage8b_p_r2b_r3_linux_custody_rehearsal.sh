@@ -21,10 +21,14 @@ ADAPTER="$CONTROLLED_BIN_DIR/stage8b-r2a7-source-adapter"
 SEEDER="$CONTROLLED_BIN_DIR/stage8b-r2a7-controlled-seeder"
 MANIFEST_ISSUER="$CONTROLLED_BIN_DIR/stage8b-r2a8-current-manifest-issuer"
 CREATOR_CHAIN_SEEDER="$CONTROLLED_BIN_DIR/stage8b-r2b-creator-chain-seeder"
+UPSTREAM_PUBLISHER="$PRODUCTION_BIN_DIR/stage8b-r2a8-upstream-current-authority-publisher"
 AUTHORITATIVE_CREATOR="$PRODUCTION_BIN_DIR/stage8b-r2a8-authoritative-intake-creator"
 INTAKE_STAGER="$PRODUCTION_BIN_DIR/stage8b-r2a8-production-intake-stager"
+CURRENT_SOURCE_WRITER="$PRODUCTION_BIN_DIR/stage8b-r2a8-production-current-source-writer"
+PRODUCTION_MANIFEST_ISSUER="$PRODUCTION_BIN_DIR/stage8b-r2a8-current-manifest-issuer"
+PRODUCTION_SOURCE_ADAPTER="$PRODUCTION_BIN_DIR/stage8b-r2a7-source-adapter"
 
-for binary in "$HELPER" "$LAUNCHER" "$CONTROLLED_LAUNCHER" "$PRODUCER" "$ISSUER" "$PACKAGE_ISSUER" "$LAYOUT" "$SERVER" "$ADAPTER" "$SEEDER" "$MANIFEST_ISSUER" "$CREATOR_CHAIN_SEEDER" "$AUTHORITATIVE_CREATOR" "$INTAKE_STAGER"; do
+for binary in "$HELPER" "$LAUNCHER" "$CONTROLLED_LAUNCHER" "$PRODUCER" "$ISSUER" "$PACKAGE_ISSUER" "$LAYOUT" "$SERVER" "$ADAPTER" "$SEEDER" "$MANIFEST_ISSUER" "$CREATOR_CHAIN_SEEDER" "$UPSTREAM_PUBLISHER" "$AUTHORITATIVE_CREATOR" "$INTAKE_STAGER" "$CURRENT_SOURCE_WRITER" "$PRODUCTION_MANIFEST_ISSUER" "$PRODUCTION_SOURCE_ADAPTER"; do
   test -x "$binary"
 done
 
@@ -178,29 +182,48 @@ echo "stage8b-r2b-r4-dedicated-uid-preflight: PASS"
 
 # The production creator and stager are executable, fixed-path components,
 # not documentation-only names. A qualification-only setup reconstructs the
-# accepted durable owner and publishes the independently owner-signed upstream
-# authority, but deliberately does not create the creator's output. The exact
-# production creator therefore exercises empty-root generation one, immediate
-# N-to-N+1 renewal and staging with Docker networking disabled.
+# accepted durable owner and publishes only the accepted signed Stage8A/R2A8
+# current-source prerequisite. The exact production publisher must create the
+# upstream authority before the exact production creator can exercise
+# empty-root generation one, N-to-N+1 renewal and staging with networking disabled.
 rm -rf \
   /var/lib/moex-trading/stage7b \
   /var/lib/moex-trading/stage8a1-authority \
   /var/lib/moex-trading/stage8b/r2a7/production \
   /var/lib/moex-trading/stage8b/r2a8
-install -d -o 8094 -g 8094 -m 0750 \
-  /var/lib/moex-trading/stage8b/r2a7/production \
+install -d -o 8094 -g 8095 -m 0750 \
+  /var/lib/moex-trading/stage8b/r2a7/production
+install -d -o 8094 -g 8095 -m 0750 \
   /var/lib/moex-trading/stage8b/r2a8/intake
 printf '%s\n' "$(printf '5a%.0s' {1..32})" \
   | install -o 8096 -g 8095 -m 0640 /dev/stdin \
       /var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-lifecycle-key.hex
 "$CREATOR_CHAIN_SEEDER" >/tmp/stage8b-r2b-r4-creator-seed.json
-chown -R 8094:8094 /var/lib/moex-trading/stage7b
-chown 8094:8094 \
-  /var/lib/moex-trading/stage8a1-authority/stage8a4-writer-issuer-signing-key.hex \
-  /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json
+chown -R 8095:8095 /var/lib/moex-trading/stage7b
+chown 8095:8094 /var/lib/moex-trading/stage8a1-authority
+chmod 0750 /var/lib/moex-trading/stage8a1-authority
+chown 8095:8095 \
+  /var/lib/moex-trading/stage8a1-authority/stage8a4-writer-issuer-signing-key.hex
+chmod 0600 \
+  /var/lib/moex-trading/stage8a1-authority/stage8a4-writer-issuer-signing-key.hex
+test -s /var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json
+test ! -e /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json
 test ! -e /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json
 test ! -e /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.lock
-setpriv --reuid 8094 --regid 8094 --groups 8095 \
+test "$(stat -c '%u:%g:%a' /var/lib/moex-trading/stage8a1-authority)" = "8095:8094:750"
+test "$(stat -c '%u:%g:%a' /var/lib/moex-trading/stage8a1-authority/stage8a4-writer-issuer-signing-key.hex)" = "8095:8095:600"
+setpriv --reuid 8095 --regid 8095 --clear-groups sh -c '
+  test -r /var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-lifecycle-key.hex
+  test -r /var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json
+  test -r /var/lib/moex-trading/stage8a1-authority/stage8a4-writer-issuer-signing-key.hex
+  find /var/lib/moex-trading/stage7b -type f -exec test -r {} \;
+'
+setpriv --reuid 8095 --regid 8095 --clear-groups \
+  "$UPSTREAM_PUBLISHER" >/tmp/stage8b-r2b-r4-upstream-publisher-generation-1.json
+test -s /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json
+grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-upstream-publisher-generation-1.json
+grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-upstream-publisher-generation-1.json
+setpriv --reuid 8095 --regid 8095 --clear-groups \
   "$AUTHORITATIVE_CREATOR" >/tmp/stage8b-r2b-r4-creator-generation-1.json
 python3 - <<'PY'
 import json
@@ -214,7 +237,27 @@ assert intake['intake_generation'] == 1
 assert intake['predecessor_intake_commitment_sha256'] is None
 PY
 generation_one_sha="$(sha256sum /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json | awk '{print $1}')"
-setpriv --reuid 8094 --regid 8094 --groups 8095 \
+cp /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json \
+  /tmp/stage8b-r2b-r4-fresh-upstream.json
+python3 - <<'PY'
+import json
+from pathlib import Path
+path = Path('/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json')
+value = json.loads(path.read_text())
+value['expires_at'] = '2000-01-01T00:00:00Z'
+path.write_text(json.dumps(value, separators=(',', ':')))
+PY
+chown 8095:8095 /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json
+if setpriv --reuid 8095 --regid 8095 --clear-groups \
+  "$AUTHORITATIVE_CREATOR" >/tmp/stage8b-r2b-r4-stale-upstream.log 2>&1; then
+  echo "stage8b-r2b-r4-r2: stale upstream authority was accepted" >&2
+  exit 1
+fi
+install -o 8095 -g 8095 -m 0644 /tmp/stage8b-r2b-r4-fresh-upstream.json \
+  /var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json
+setpriv --reuid 8095 --regid 8095 --clear-groups \
+  "$UPSTREAM_PUBLISHER" >/tmp/stage8b-r2b-r4-upstream-publisher-generation-2.json
+setpriv --reuid 8095 --regid 8095 --clear-groups \
   "$AUTHORITATIVE_CREATOR" >/tmp/stage8b-r2b-r4-creator-generation-2.json
 python3 - <<'PY'
 import json
@@ -240,7 +283,37 @@ grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-creator-generation-2.jso
 grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-creator-generation-2.json
 grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-stager.json
 grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-stager.json
-echo "stage8b-r2b-r4-r1-empty-root-renewal-chain: PASS generation1=true generation2=true fixed_paths=true network=false credentials=false"
+test "$(stat -c '%u:%g:%a' /var/lib/moex-trading/stage8b/r2a8/intake)" = "8094:8095:750"
+test "$(stat -c '%u:%g:%a' /var/lib/moex-trading/stage8b/r2a8/intake/stage8b-r2a8-production-writer-intake.json)" = "8094:8094:644"
+setpriv --reuid 8095 --regid 8095 --clear-groups sh -c '
+  test -r /var/lib/moex-trading/stage8b/r2a8/intake/stage8b-r2a8-production-writer-intake.json
+  test -r /var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-lifecycle-key.hex
+  test -r /var/lib/moex-trading/stage8a1-authority/stage8a1-accepted-execution-config.json
+  test -r /var/lib/moex-trading/stage8a1-authority/stage8a1-accepted-execution-config.json.sha256
+'
+
+# Continue through the remaining production source-composition steps. The
+# protected signer/writer identity remains UID/GID 8095 throughout; no ad-hoc
+# key ownership transition or caller-provided state is introduced.
+setpriv --reuid 8095 --regid 8095 --clear-groups \
+  "$CURRENT_SOURCE_WRITER" >/tmp/stage8b-r2b-r4-production-writer.json
+test -s /var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json
+grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-production-writer.json
+grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-production-writer.json
+chown 8096:8095 /var/lib/moex-trading/stage8b/r2a7/production
+setpriv --reuid 8096 --regid 8096 --groups 8095 \
+  "$PRODUCTION_MANIFEST_ISSUER" --one-shot-production \
+  >/tmp/stage8b-r2b-r4-production-manifest.json
+test -s /var/lib/moex-trading/stage8b/r2a7/production/stage8b-r2a7-reader-manifest.json
+install -d -o 8095 -g 8095 -m 0750 \
+  /var/lib/moex-trading/operational-authorities
+setpriv --reuid 8095 --regid 8095 --clear-groups \
+  "$PRODUCTION_SOURCE_ADAPTER" --one-shot-production \
+  >/tmp/stage8b-r2b-r4-production-adapter.json
+grep -Fq '"source_count":10' /tmp/stage8b-r2b-r4-production-adapter.json
+grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-production-adapter.json
+grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-production-adapter.json
+echo "stage8b-r2b-r4-r2-full-empty-root-publisher-chain: PASS upstream_publisher=true generation1=true stale_rejected=true refresh=true generation2=true source_chain=true fixed_paths=true network=false credentials=false"
 
 # Privileged helper metadata is rejected before nonce admission.
 for privileged_mode in 4755 2755; do

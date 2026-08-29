@@ -1,41 +1,46 @@
 {
   "schema_version": 1,
-  "stage": "Stage 8B-P R2B Proposal R4-R1",
-  "generated_at_utc": "2026-08-28T18:55:31Z",
+  "stage": "Stage 8B-P R2B Proposal R4-R2",
+  "generated_at_utc": "2026-08-29T04:58:19Z",
   "target": "x86_64-unknown-linux-gnu",
   "linux_builder_image": "rust@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0",
   "rustc_version": "rustc 1.88.0 (6b00bc388 2025-06-23)",
   "run_count": 2,
   "fixture_dependencies_in_production": false,
-  "production_build_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a7-source-adapter --bin stage8b-r2a8-authoritative-intake-creator --bin stage8b-r2a8-production-intake-stager --bin stage8b-r2a8-production-current-source-writer --bin stage8b-r2a8-current-manifest-issuer --bin stage8b-r2a7-source-adapter",
+  "production_build_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a7-source-adapter --bin stage8b-r2a8-upstream-current-authority-publisher --bin stage8b-r2a8-authoritative-intake-creator --bin stage8b-r2a8-production-intake-stager --bin stage8b-r2a8-production-current-source-writer --bin stage8b-r2a8-current-manifest-issuer --bin stage8b-r2a7-source-adapter",
   "tool_build_command": "cargo build --locked --release --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bin stage8b-readonly-preflight --bin stage8b-r2b-launcher --bin stage8b-r2a5-authority-producer --bin stage8b-r2a5-authority-issuer --bin stage8b-r2a5-package-issuer",
   "controlled_build_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a7-controlled-qualification --bin stage8b-r2a7-source-adapter --bin stage8b-r2a8-current-manifest-issuer --bin stage8b-r2a7-controlled-seeder --bin stage8b-r2b-creator-chain-seeder",
   "controlled_tls_server_build_command": "cargo build --locked --release --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bin stage8b-r2a5-controlled-server --bin stage8b-r2a5-controlled-layout",
   "controlled_custody_launcher_build_command": "cargo build --locked --release --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --features stage8b-r2b-controlled-custody --bin stage8b-r2b-launcher",
   "production_binaries": {
+    "stage8b-r2a8-upstream-current-authority-publisher": {
+      "build_a_sha256": "3d697198d77ee8b697d7dca7f5fc14d58b58bb68ad53efaa683efefa87e745f4",
+      "build_b_sha256": "3d697198d77ee8b697d7dca7f5fc14d58b58bb68ad53efaa683efefa87e745f4",
+      "reproducible": true
+    },
     "stage8b-r2a8-authoritative-intake-creator": {
-      "build_a_sha256": "c2545073eecc97a41091973ca11aca96046c781d135d9a97510e11864410a951",
-      "build_b_sha256": "c2545073eecc97a41091973ca11aca96046c781d135d9a97510e11864410a951",
+      "build_a_sha256": "5f4071100a962028d147bcf53772b3619f8e5bb28a41323c7865abff66430c07",
+      "build_b_sha256": "5f4071100a962028d147bcf53772b3619f8e5bb28a41323c7865abff66430c07",
       "reproducible": true
     },
     "stage8b-r2a8-production-intake-stager": {
-      "build_a_sha256": "35b4b22b65dd7e9a1d572492619ba344c729d81c600d3c8b38252e68f9adf321",
-      "build_b_sha256": "35b4b22b65dd7e9a1d572492619ba344c729d81c600d3c8b38252e68f9adf321",
+      "build_a_sha256": "97929be6af7638952fc3cc9d95b32d68417c6d92e17945702545e01a6801abd5",
+      "build_b_sha256": "97929be6af7638952fc3cc9d95b32d68417c6d92e17945702545e01a6801abd5",
       "reproducible": true
     },
     "stage8b-r2a8-production-current-source-writer": {
-      "build_a_sha256": "c952127459a86ef64b31dcbbf644d0ff1f931d9b3f21935ce3b68a5341d8da14",
-      "build_b_sha256": "c952127459a86ef64b31dcbbf644d0ff1f931d9b3f21935ce3b68a5341d8da14",
+      "build_a_sha256": "d0b86883a431f825c88220660f0d41e95448fd74cede575f0af8bb5b3d94caf9",
+      "build_b_sha256": "d0b86883a431f825c88220660f0d41e95448fd74cede575f0af8bb5b3d94caf9",
       "reproducible": true
     },
     "stage8b-r2a8-current-manifest-issuer": {
-      "build_a_sha256": "675783038430d9fa59397c0548ca083f4beca43b42d02842985bd6323f4686b1",
-      "build_b_sha256": "675783038430d9fa59397c0548ca083f4beca43b42d02842985bd6323f4686b1",
+      "build_a_sha256": "b7246ca2754725e8519e517d25021492bb99bd3a22bd3ef31ab2a9f226d57330",
+      "build_b_sha256": "b7246ca2754725e8519e517d25021492bb99bd3a22bd3ef31ab2a9f226d57330",
       "reproducible": true
     },
     "stage8b-r2a7-source-adapter": {
-      "build_a_sha256": "7e0777445e210432edfa7da4abbe9df240734c123cfd1b55f5997305daa7596f",
-      "build_b_sha256": "7e0777445e210432edfa7da4abbe9df240734c123cfd1b55f5997305daa7596f",
+      "build_a_sha256": "f51d09315d8b02244d7bc218447b588ba3f20f1d7fc2573408ccfb61dbbe1541",
+      "build_b_sha256": "f51d09315d8b02244d7bc218447b588ba3f20f1d7fc2573408ccfb61dbbe1541",
       "reproducible": true
     },
     "stage8b-r2a5-authority-producer": {
@@ -67,23 +72,23 @@
   "inherited_accepted_production_binaries": {},
   "controlled_qualification_binaries": {
     "stage8b-r2a7-source-adapter": {
-      "build_a_sha256": "e77ddb330d7c07f12e935d4e59acef90ab00ff99f0c8504a99b12b753308dd1f",
-      "build_b_sha256": "e77ddb330d7c07f12e935d4e59acef90ab00ff99f0c8504a99b12b753308dd1f",
+      "build_a_sha256": "340553dba6e37650158ac3707d7f55f226778f8e8c404c6018c928a633dc7fd9",
+      "build_b_sha256": "340553dba6e37650158ac3707d7f55f226778f8e8c404c6018c928a633dc7fd9",
       "reproducible": true
     },
     "stage8b-r2a8-current-manifest-issuer": {
-      "build_a_sha256": "a134a1bbdf4eb336c31660b2c91fe2fe402f1c74cb51670e76a2c990cfbbc672",
-      "build_b_sha256": "a134a1bbdf4eb336c31660b2c91fe2fe402f1c74cb51670e76a2c990cfbbc672",
+      "build_a_sha256": "7773309435218e3103b21c9933019086fe5e94196a85dc7034bed6d4ff4b2460",
+      "build_b_sha256": "7773309435218e3103b21c9933019086fe5e94196a85dc7034bed6d4ff4b2460",
       "reproducible": true
     },
     "stage8b-r2a7-controlled-seeder": {
-      "build_a_sha256": "5b86e845ef1ad7ad3b0418751f77c58ba32222ae57e9bdf764fed8980ff85689",
-      "build_b_sha256": "5b86e845ef1ad7ad3b0418751f77c58ba32222ae57e9bdf764fed8980ff85689",
+      "build_a_sha256": "efd74113141b19232c390b4e72eb63ed9691fe0bc8195a1ee36f0c5d17b8b6c7",
+      "build_b_sha256": "efd74113141b19232c390b4e72eb63ed9691fe0bc8195a1ee36f0c5d17b8b6c7",
       "reproducible": true
     },
     "stage8b-r2b-creator-chain-seeder": {
-      "build_a_sha256": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a",
-      "build_b_sha256": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a",
+      "build_a_sha256": "ddfa328697456c675ecd403f8af3b18541b89df9e91e6b6380cef005b40aebe0",
+      "build_b_sha256": "ddfa328697456c675ecd403f8af3b18541b89df9e91e6b6380cef005b40aebe0",
       "reproducible": true
     },
     "stage8b-r2a5-controlled-server": {
@@ -103,16 +108,16 @@
     }
   },
   "source_sha256": {
-    "docs/stage-8/stage8b-p-r2b-proposal-authority.json": "257563d69206979f4e2dca6db13544deb03a2291dd7dfce630b6e79089cd3214",
-    "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json": "53de1f6faaff0152baccdb5ae587d45c069f9d03c5cf7ff0edbfee3345e26e8e",
+    "docs/stage-8/stage8b-p-r2b-proposal-authority.json": "4f7dfd3ce4c98d094bc9646cfe67c252198394f9b8e3ded17c51c2518f45ac19",
+    "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json": "163da1a08a2d7b665cdf619d67f054d67b92634c42ea17206dfb48e365ab92de",
     "docs/stage-8/stage8b-p-r2b-accepted-helper-sha256.txt": "5cb1cc7cbaa608221cdfe96c40f42a64bff8689154ba9b57af11b0e01b937fca",
-    "docs/stage-8/STAGE8B_P_R2B_PROPOSAL_2026-08-27.md": "0f9d61cb9ecdb1d0ccc2e4c307add557bc939c102900daee89506b560f9ab374",
-    "docs/stage-8/STAGE8B_P_R2B_PROPOSAL_ACCEPTANCE_MATRIX_2026-08-27.csv": "5983a20f593b236cc0bde98293723e9c2e009e31f7384e2076473f97c05b11ad",
-    "docs/current-status.md": "ba726a8662a940fdbb788c141ea27760b9bca65b20fae1b7c5efb506517b91ac",
-    "crates/finam-gateway/Cargo.toml": "e8360bf62dbbe0b5dca80186cd840aa23849d27329cbbded90299b272c299fe0",
-    "crates/finam-gateway/src/lib.rs": "c8ff3ff13ea769bebcc8e5b0323ec944e1c9a9a3a172c320b49eda04a0b7ce0d",
+    "docs/stage-8/STAGE8B_P_R2B_PROPOSAL_2026-08-27.md": "41b5780b8e841fb1571fd7c78c0a9737d2aad21b73494abc6e7ec6c48b764e74",
+    "docs/stage-8/STAGE8B_P_R2B_PROPOSAL_ACCEPTANCE_MATRIX_2026-08-27.csv": "44c118741ba272d072a01a1c434ccd46d8c1f374e613a55f4b1fd3bf99279254",
+    "docs/current-status.md": "19aa1d5813c6b844aa154a7372733794b142ca2744cbe076884f3e7fb06cfdf3",
+    "crates/finam-gateway/Cargo.toml": "c273f0a722b35b5c41886dcb28ea7d085d66b42ba7e34493065cf9aacbda34a7",
+    "crates/finam-gateway/src/lib.rs": "88cc2320c6eac9f29ac9ade59abc76e2b204738cf25d22add477312fbce2cd49",
     "crates/finam-gateway/src/stage8a1_execution_capability.rs": "063ae3433d486b478c44e2dd786b7897601ed8bc08e75d9608378344f060bc4f",
-    "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": "4f97e2b1fd886b57e048150d92ab36d566384ef38da1292d20b3731ab56aebd8",
+    "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": "ffefd9412df36b3b9bc630e2778465a3f501b24acfd25e36a0bac0b5cf1329f7",
     "crates/finam-gateway/src/bin/stage8b-r2a8-authoritative-intake-creator.rs": "4148fff51a84b84ea6b90684f3abb700a4a26b8759c6613e48be486131d33168",
     "crates/finam-gateway/src/bin/stage8b-r2b-creator-chain-seeder.rs": "2c93a14a67e490d24226b7ce177fa40b8666da5c096c7f2a10a6ca2f1e03e386",
     "crates/finam-gateway/src/bin/stage8b-r2a8-production-intake-stager.rs": "e01738471e18b4b93c4a4b123c3a558912b396e010833065f47dbebbab90693d",
@@ -124,20 +129,29 @@
     "tools/stage8b-readonly-preflight/src/r2a5.rs": "901d85f313a495d453b836d6a51941d3fd240aff1f5f60d91bed4bafb990b3f5",
     "tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-launcher.rs": "e372461befe602e93800a4adbbff80ed49c05ee2fbe93a5f73556b6b715e51f0",
     "tools/stage8b-readonly-preflight/src/bin/stage8b-r2a5-controlled-server.rs": "bf447aef81a24e804993d6957293e81c244d284c462a3c5ac54d9bf32714a5d9",
-    "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh": "2621729f4b79f65cb83f2de5fa2de3425bbfcd228ddb865643cb7f9ac106eff7",
-    "scripts/stage8b_p_r2b_proposal_gate.sh": "6f53eb122e29f9927bd3a5a6559f577cf16b67d0021b43b57ab3d117c06a0714",
-    "scripts/make_stage8b_p_r2b_handoff.py": "bde0df4135b98c13bae949fac7b5ab70eecc7bde3c8901cc7f21ce59c58a52ca",
-    "scripts/stage8b_p_r2b_handoff_safety_check.py": "973e7198a92dc9ce115e1ac3ae5ba4f85d3de7e4e16d266569b5e5883653a8c2",
-    "scripts/stage8b_p_r2b_proposal_check.py": "5c3f7efacd8a75fa15008fb262646263a67ca2ef2975c0eb6b78ca5476292df1",
-    "scripts/stage8b_p_r2b_proposal_negative_harness.py": "0662ff093306ac64811ee06618f1d2c4658041b16c76ea286583ec3308746443",
-    "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service": "5de859d30f77876a5c74131f1b89543fbdd5523f5674a52ddef97b8328c09652",
+    "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh": "fe098e4d5be07d5439a7995e15787a34337c90369e25e3758b8dba82eba00f23",
+    "scripts/stage8b_p_r2b_proposal_gate.sh": "d7679d16300e222c5b366271634fcd5a33b1f029aa994005f11776d5960c5d17",
+    "scripts/make_stage8b_p_r2b_handoff.py": "3bb943e77d7e9cb85a4eb8449a17684589676d7a5396e5589ad087bb50502778",
+    "scripts/stage8b_p_r2b_handoff_safety_check.py": "a3a6a2be031aa8c611db7a5f0380a5be058be0b2bcd12a304e7cd6404a251d86",
+    "scripts/stage8b_p_r2b_proposal_check.py": "e186a7b64d0433234b0fea66e170d79006c47f170507e4b9f4b2fb4f9d29c505",
+    "scripts/stage8b_p_r2b_proposal_negative_harness.py": "1af2da507898faf7ed6e94c672a672e6eedb1e450a5b7e00fb89dceb51e9013d",
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service": "c03a3360a1efbbfbc1e96038f2666b82580604a2c590c6058df7f76efd271dec",
     "deploy/stage8b-r2b/moex-stage8b-r2a8-production-intake-stager.service": "011ed5e65869aabf56ff43375b1eaac3c46b7a2cdffe40ee453f71489c913b8e",
-    "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service": "31d4af2c25677f5d7387c3c8c6b53100c2230f428b857d9529449e1645b0b337"
+    "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service": "31d4af2c25677f5d7387c3c8c6b53100c2230f428b857d9529449e1645b0b337",
+    "crates/finam-gateway/src/bin/stage8b-r2a8-upstream-current-authority-publisher.rs": "336dd4702f8f5a2b12c59bca26b3dc8a02a706d3388e770bde6aacba790c0c69",
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-upstream-current-authority-publisher.service": "ab70470e56fa1785506f5d89da67d4a5d176f42d5665af13db67aba9f2e0c1c9"
   },
   "controlled_place_regression": "PASS",
   "controlled_cancel_regression": "PASS",
+  "current_tree_ci_gate": "PASS",
+  "accepted_stage8a5_replay_ref": "bf58b47fdef8af774a4107455dfcc6204e594283",
+  "current_tree_negative_mutations": "33/33",
+  "inherited_r2a8_negative_mutations": "13/13",
+  "inherited_r2a8_r1_negative_mutations": "27/27",
+  "r2b_negative_mutations": "269/269",
   "linux_terminal_evidence_test": "PASS",
   "linux_adversarial_custody_rehearsal": "PASS",
+  "linux_rehearsal_log_sha256": "6ab5f468ef74f554a84c58cbc237dac8dbaf7bd7e2a7ec1b8f32ae76c79ed68f",
   "direct_helper_rejected": "PASS",
   "forged_uid8301_receipt_rejected": "PASS",
   "uid8301_terminal_mutation_rejected": "PASS",
@@ -148,6 +162,11 @@
   "typed_terminal_protocol": "PASS",
   "absolute_deadline_fault_matrix": "PASS",
   "reachable_creator_rehearsal": "PASS",
+  "production_upstream_publisher_rehearsal": "PASS",
+  "production_source_chain_rehearsal": "PASS",
+  "full_authority_root_empty_bootstrap_rehearsal": "PASS",
+  "stale_upstream_rejected": "PASS",
+  "upstream_refresh_rehearsal": "PASS",
   "empty_root_generation_one_rehearsal": "PASS",
   "generation_two_renewal_rehearsal": "PASS",
   "expired_predecessor_continuity_policy": "PASS",

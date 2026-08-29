@@ -12,8 +12,9 @@ from pathlib import PurePosixPath
 EVIDENCE = "handoff-evidence/stage8b-p-r2b-r4-evidence.json"
 GATE = "handoff-evidence/stage8b-p-r2b-r4-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
-NEGATIVE_MUTATIONS = 211
+NEGATIVE_MUTATIONS = 269
 BINARIES = {
+    "upstream_publisher": "handoff-evidence/linux-amd64/production/stage8b-r2a8-upstream-current-authority-publisher",
     "authoritative_creator": "handoff-evidence/linux-amd64/production/stage8b-r2a8-authoritative-intake-creator",
     "production_stager": "handoff-evidence/linux-amd64/production/stage8b-r2a8-production-intake-stager",
     "production_writer": "handoff-evidence/linux-amd64/production/stage8b-r2a8-production-current-source-writer",
@@ -120,6 +121,7 @@ def check(path: str) -> dict[str, object]:
         production = build["production_binaries"]
         controlled = build["controlled_qualification_binaries"]
         expected_hashes = {
+            "upstream_publisher": production["stage8b-r2a8-upstream-current-authority-publisher"]["build_a_sha256"],
             "authoritative_creator": production["stage8b-r2a8-authoritative-intake-creator"]["build_a_sha256"],
             "production_stager": production["stage8b-r2a8-production-intake-stager"]["build_a_sha256"],
             "production_writer": production["stage8b-r2a8-production-current-source-writer"]["build_a_sha256"],

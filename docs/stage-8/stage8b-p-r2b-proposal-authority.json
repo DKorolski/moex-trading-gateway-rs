@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B",
-  "revision": "R4-R1",
+  "revision": "R4-R2",
   "artifact_kind": "design_only_readonly_preflight_proposal",
   "status": "PROPOSAL_ONLY_NOT_AUTHORIZED",
   "authorization_status": "NOT_ISSUED",
@@ -15,7 +15,10 @@
   "proposed_capability": {
     "purpose": "one operator-selected read-only FINAM broker-truth preflight",
     "one_shot": true,
-    "operation_choices": ["PLACE", "CANCEL"],
+    "operation_choices": [
+      "PLACE",
+      "CANCEL"
+    ],
     "selection_count": 1,
     "background_loop": false,
     "unattended_execution": false,
@@ -24,7 +27,9 @@
   "network_contract": {
     "scheme": "https",
     "exact_host": "api.finam.ru",
-    "outbound_destinations": ["api.finam.ru:443"],
+    "outbound_destinations": [
+      "api.finam.ru:443"
+    ],
     "dns_or_ip_rebinding_allowed": false,
     "redirects_allowed": false,
     "proxy_allowed": false,
@@ -32,19 +37,57 @@
     "request_timeout_seconds": 10,
     "minimum_broker_get_interval_ms": 250,
     "auth_requests": [
-      {"ordinal": 1, "method": "POST", "route_template": "/v1/sessions", "purpose": "read-only token acquisition"},
-      {"ordinal": 2, "method": "POST", "route_template": "/v1/sessions/details", "purpose": "read-only account binding verification"}
+      {
+        "ordinal": 1,
+        "method": "POST",
+        "route_template": "/v1/sessions",
+        "purpose": "read-only token acquisition"
+      },
+      {
+        "ordinal": 2,
+        "method": "POST",
+        "route_template": "/v1/sessions/details",
+        "purpose": "read-only account binding verification"
+      }
     ],
     "place_broker_truth_gets": [
-      {"ordinal": 3, "method": "GET", "route_template": "/v1/accounts/{account_id}/orders"},
-      {"ordinal": 4, "method": "GET", "route_template": "/v1/accounts/{account_id}/trades"},
-      {"ordinal": 5, "method": "GET", "route_template": "/v1/accounts/{account_id}"}
+      {
+        "ordinal": 3,
+        "method": "GET",
+        "route_template": "/v1/accounts/{account_id}/orders"
+      },
+      {
+        "ordinal": 4,
+        "method": "GET",
+        "route_template": "/v1/accounts/{account_id}/trades"
+      },
+      {
+        "ordinal": 5,
+        "method": "GET",
+        "route_template": "/v1/accounts/{account_id}"
+      }
     ],
     "cancel_broker_truth_gets": [
-      {"ordinal": 3, "method": "GET", "route_template": "/v1/accounts/{account_id}/orders/{order_id}"},
-      {"ordinal": 4, "method": "GET", "route_template": "/v1/accounts/{account_id}/orders"},
-      {"ordinal": 5, "method": "GET", "route_template": "/v1/accounts/{account_id}/trades"},
-      {"ordinal": 6, "method": "GET", "route_template": "/v1/accounts/{account_id}"}
+      {
+        "ordinal": 3,
+        "method": "GET",
+        "route_template": "/v1/accounts/{account_id}/orders/{order_id}"
+      },
+      {
+        "ordinal": 4,
+        "method": "GET",
+        "route_template": "/v1/accounts/{account_id}/orders"
+      },
+      {
+        "ordinal": 5,
+        "method": "GET",
+        "route_template": "/v1/accounts/{account_id}/trades"
+      },
+      {
+        "ordinal": 6,
+        "method": "GET",
+        "route_template": "/v1/accounts/{account_id}"
+      }
     ],
     "order_post_allowed": false,
     "order_delete_allowed": false,
@@ -52,6 +95,7 @@
   },
   "production_composition": {
     "exact_executable_sequence": [
+      "stage8b-r2a8-upstream-current-authority-publisher",
       "stage8b-r2a8-authoritative-intake-creator",
       "stage8b-r2a8-production-intake-stager",
       "stage8b-r2a8-production-current-source-writer",
@@ -64,6 +108,7 @@
       "accepted-stage8b-readonly-preflight"
     ],
     "exact_invocation_cardinality": {
+      "stage8b-r2a8-upstream-current-authority-publisher": 1,
       "stage8b-r2a8-authoritative-intake-creator": 1,
       "stage8b-r2a8-production-intake-stager": 1,
       "stage8b-r2a8-production-current-source-writer": 1,
@@ -90,11 +135,12 @@
       "root_supervisor->immutable_terminal_evidence"
     ],
     "production_linux_amd64_sha256": {
-      "stage8b-r2a8-authoritative-intake-creator": "c2545073eecc97a41091973ca11aca96046c781d135d9a97510e11864410a951",
-      "stage8b-r2a8-production-intake-stager": "35b4b22b65dd7e9a1d572492619ba344c729d81c600d3c8b38252e68f9adf321",
-      "stage8b-r2a8-production-current-source-writer": "c952127459a86ef64b31dcbbf644d0ff1f931d9b3f21935ce3b68a5341d8da14",
-      "stage8b-r2a8-current-manifest-issuer": "675783038430d9fa59397c0548ca083f4beca43b42d02842985bd6323f4686b1",
-      "stage8b-r2a7-source-adapter": "7e0777445e210432edfa7da4abbe9df240734c123cfd1b55f5997305daa7596f",
+      "stage8b-r2a8-upstream-current-authority-publisher": "3d697198d77ee8b697d7dca7f5fc14d58b58bb68ad53efaa683efefa87e745f4",
+      "stage8b-r2a8-authoritative-intake-creator": "5f4071100a962028d147bcf53772b3619f8e5bb28a41323c7865abff66430c07",
+      "stage8b-r2a8-production-intake-stager": "97929be6af7638952fc3cc9d95b32d68417c6d92e17945702545e01a6801abd5",
+      "stage8b-r2a8-production-current-source-writer": "d0b86883a431f825c88220660f0d41e95448fd74cede575f0af8bb5b3d94caf9",
+      "stage8b-r2a8-current-manifest-issuer": "b7246ca2754725e8519e517d25021492bb99bd3a22bd3ef31ab2a9f226d57330",
+      "stage8b-r2a7-source-adapter": "f51d09315d8b02244d7bc218447b588ba3f20f1d7fc2573408ccfb61dbbe1541",
       "stage8b-r2a5-authority-producer": "98183d07362aee68fe8a630da65bf316433d333c723d8960b7927f886bac934b",
       "stage8b-r2a5-authority-issuer": "b893076d23fc03e12d7900d07b4cd9e9fc08b9daf03a70fb96587f120bc4536c",
       "stage8b-r2a5-package-issuer": "e3e3cad28206cf6f0db537af2b208fe82e25532a3bf79abf1d2ee48e09e7d94e",
@@ -102,10 +148,10 @@
       "accepted-stage8b-readonly-preflight": "5db401937b5e90e0237f9371a00b5af9ad2c0c3ce8e8b0899cdccafdb514578e"
     },
     "controlled_qualification_linux_amd64_sha256": {
-      "stage8b-r2a7-source-adapter": "e77ddb330d7c07f12e935d4e59acef90ab00ff99f0c8504a99b12b753308dd1f",
-      "stage8b-r2a8-current-manifest-issuer": "a134a1bbdf4eb336c31660b2c91fe2fe402f1c74cb51670e76a2c990cfbbc672",
-      "stage8b-r2a7-controlled-seeder": "5b86e845ef1ad7ad3b0418751f77c58ba32222ae57e9bdf764fed8980ff85689",
-      "stage8b-r2b-creator-chain-seeder": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a",
+      "stage8b-r2a7-source-adapter": "340553dba6e37650158ac3707d7f55f226778f8e8c404c6018c928a633dc7fd9",
+      "stage8b-r2a8-current-manifest-issuer": "7773309435218e3103b21c9933019086fe5e94196a85dc7034bed6d4ff4b2460",
+      "stage8b-r2a7-controlled-seeder": "efd74113141b19232c390b4e72eb63ed9691fe0bc8195a1ee36f0c5d17b8b6c7",
+      "stage8b-r2b-creator-chain-seeder": "ddfa328697456c675ecd403f8af3b18541b89df9e91e6b6380cef005b40aebe0",
       "stage8b-r2a5-controlled-server": "bc1d9feb16dbb4b40c14882ac15e0e3efe54eb19beb5fbaee8e8dff94c20f59f",
       "stage8b-r2a5-controlled-layout": "ebe5f57135a72cc61c80b5e8947ac998f9148edf687ce39f8437b6ebac94845e",
       "stage8b-r2b-controlled-custody-launcher": "2aff0ccd3199d9fac0bcee6eda46d5a2fce51ef9acafb1eafe61929474767426"
@@ -121,11 +167,58 @@
     "production_may_resolve_controlled_hash_domain": false,
     "embedded_runtime_composition_contract": {
       "path": "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
-      "sha256": "53de1f6faaff0152baccdb5ae587d45c069f9d03c5cf7ff0edbfee3345e26e8e",
+      "sha256": "163da1a08a2d7b665cdf619d67f054d67b92634c42ea17206dfb48e365ab92de",
       "contains_executable_hashes": false,
       "hash_cycle_prevented": true
     },
     "terminal_evidence_finalizer": "root_owned_stage8b-r2b-launcher_supervisor"
+  },
+  "upstream_current_authority_publisher": {
+    "service": "moex-stage8b-r2a8-upstream-current-authority-publisher.service",
+    "executable": "stage8b-r2a8-upstream-current-authority-publisher",
+    "source_entrypoint": "publish_stage8b_r2a8_upstream_current_authority_from_owner",
+    "binary_entrypoint": "run_stage8b_r2a8_upstream_current_authority_publisher",
+    "binary_source": "crates/finam-gateway/src/bin/stage8b-r2a8-upstream-current-authority-publisher.rs",
+    "package": "finam-gateway",
+    "build_features": [
+      "stage8b-r2a7-source-adapter"
+    ],
+    "uid": 8095,
+    "gid": 8095,
+    "supplementary_groups": [],
+    "systemd_unit": "deploy/stage8b-r2b/moex-stage8b-r2a8-upstream-current-authority-publisher.service",
+    "systemd_invocation": "one fixed-input oneshot before authoritative intake creator; enablement remains forbidden until R2B issuance",
+    "invocation_cardinality": 1,
+    "fixed_current_source_input": "/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json",
+    "current_source_contract": "accepted signed and freshness-bound Stage8A/R2A8 owner publication",
+    "fixed_output": "/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json",
+    "authority_root_owner_uid": 8095,
+    "authority_root_gid": 8094,
+    "authority_root_mode": "0750",
+    "signing_key_owner_uid": 8095,
+    "signing_key_gid": 8095,
+    "signing_key_mode": "0600",
+    "output_owner_uid": 8095,
+    "output_gid": 8095,
+    "output_mode": "0644",
+    "single_producer_lock": "stage8b-r2a8-upstream-current-authority.lock create-new with durable publication and directory fsync",
+    "atomic_write": true,
+    "file_fsync": true,
+    "directory_fsync": true,
+    "recovered_owner_required": true,
+    "opaque_current_sources_required": true,
+    "caller_arguments_allowed": false,
+    "caller_json_allowed": false,
+    "caller_readiness_allowed": false,
+    "caller_broker_truth_allowed": false,
+    "caller_broker_readiness_allowed": false,
+    "caller_timestamps_allowed": false,
+    "caller_paths_allowed": false,
+    "network_access_allowed": false,
+    "finam_credential_access_allowed": false,
+    "order_post_delete_authority": false,
+    "redis_access_allowed": false,
+    "runtime_live_authority": false
   },
   "authoritative_intake_creator": {
     "service": "moex-stage8b-r2a8-authoritative-intake-creator.service",
@@ -134,10 +227,12 @@
     "binary_entrypoint": "run_stage8b_r2a8_authoritative_intake_creator",
     "binary_source": "crates/finam-gateway/src/bin/stage8b-r2a8-authoritative-intake-creator.rs",
     "package": "finam-gateway",
-    "build_features": ["stage8b-r2a7-source-adapter"],
-    "uid": 8094,
-    "gid": 8094,
-    "supplementary_groups": [8095],
+    "build_features": [
+      "stage8b-r2a7-source-adapter"
+    ],
+    "uid": 8095,
+    "gid": 8095,
+    "supplementary_groups": [],
     "systemd_unit": "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service",
     "systemd_invocation": "one fixed-input oneshot before the accurately named stager; enablement remains forbidden until R2B issuance",
     "invocation_cardinality": 1,
@@ -156,10 +251,16 @@
     "source_of_broker_truth": "accepted Stage8A broker-neutral broker-truth snapshot",
     "source_of_broker_readiness": "accepted Stage8A broker-readiness snapshot",
     "fixed_output": "/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json",
-    "output_owner_uid": 8094,
-    "output_gid": 8094,
+    "authority_root_owner_uid": 8095,
+    "authority_root_gid": 8094,
+    "authority_root_mode": "0750",
+    "signing_key_owner_uid": 8095,
+    "signing_key_gid": 8095,
+    "signing_key_mode": "0600",
+    "output_owner_uid": 8095,
+    "output_gid": 8095,
     "output_mode": "0644",
-    "single_producer_lock": "UID8094 fixed-root create-new lock removed only after durable publication; crash requires operator review",
+    "single_producer_lock": "UID8095 fixed-root create-new lock removed only after durable publication; crash requires operator review",
     "atomic_write": true,
     "file_fsync": true,
     "directory_fsync": true,
@@ -179,6 +280,8 @@
     "library_entrypoint": "run_stage8b_r2a8_production_intake_stager",
     "uid": 8094,
     "gid": 8094,
+    "authority_root_traverse_gid": 8094,
+    "private_signing_key_readable": false,
     "systemd_unit": "deploy/stage8b-r2b/moex-stage8b-r2a8-production-intake-stager.service",
     "requires_creator_unit": "moex-stage8b-r2a8-authoritative-intake-creator.service",
     "fixed_input": "/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json",
@@ -225,7 +328,16 @@
     "pidfd_supervision": true,
     "timeout_signal": "SIGKILL",
     "bounded_reap_ms": 2000,
-    "inherited_fd_allowlist": [0, 1, 2, 3, 4, 5, 6, 7],
+    "inherited_fd_allowlist": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
     "helper_execution": "open_once_O_NOFOLLOW_hash_then_fexecve_same_fd",
     "privilege_drop_uid": 8301,
     "privilege_drop_gid": 8301,
@@ -301,7 +413,10 @@
   "sandbox_contract": {
     "one_shot_service_required": true,
     "network_namespace": "dedicated R2B one-shot namespace",
-    "address_families": ["AF_INET", "AF_INET6"],
+    "address_families": [
+      "AF_INET",
+      "AF_INET6"
+    ],
     "destination_allowlist_enforced_outside_process": true,
     "filesystem_paths_fixed": true,
     "caller_supplied_path_allowed": false,

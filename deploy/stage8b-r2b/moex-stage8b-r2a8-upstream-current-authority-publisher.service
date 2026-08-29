@@ -1,0 +1,25 @@
+[Unit]
+Description=Stage 8B owner-mediated upstream current-authority publisher
+After=local-fs.target
+Before=moex-stage8b-r2a8-authoritative-intake-creator.service
+ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json
+
+[Service]
+Type=oneshot
+User=8095
+Group=8095
+ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-upstream-current-authority-publisher
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadWritePaths=/var/lib/moex-trading/stage8a1-authority
+ReadOnlyPaths=/var/lib/moex-trading/stage7b /var/lib/moex-trading/stage8b/r2a7/production /var/lib/moex-trading/stage8b/r2a8/current-source

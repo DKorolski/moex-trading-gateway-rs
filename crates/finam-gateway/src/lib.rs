@@ -62,8 +62,9 @@ pub use stage8b_r2a7_source_adapter::{
     issue_stage8b_r2a8_reader_manifest, run_stage8b_r2a7_source_adapter,
     run_stage8b_r2a8_authoritative_intake_creator,
     run_stage8b_r2a8_production_current_source_writer, run_stage8b_r2a8_production_intake_stager,
-    Stage8bR2a7PublicationEvidence, Stage8bR2a7RunMode, Stage8bR2a7SourceAdapterError,
-    Stage8bR2a8ProductionIntakeStagerEvidence, Stage8bR2a8ProductionWriterEvidence,
+    run_stage8b_r2a8_upstream_current_authority_publisher, Stage8bR2a7PublicationEvidence,
+    Stage8bR2a7RunMode, Stage8bR2a7SourceAdapterError, Stage8bR2a8ProductionIntakeStagerEvidence,
+    Stage8bR2a8ProductionWriterEvidence, Stage8bR2a8UpstreamCurrentAuthorityPublisherEvidence,
 };
 #[cfg(feature = "stage8b-r2a7-controlled-qualification")]
 #[doc(hidden)]

@@ -63,6 +63,11 @@ path = "src/bin/stage8b-r2a8-production-intake-stager.rs"
 required-features = ["stage8b-r2a7-source-adapter"]
 
 [[bin]]
+name = "stage8b-r2a8-upstream-current-authority-publisher"
+path = "src/bin/stage8b-r2a8-upstream-current-authority-publisher.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
 name = "stage8b-r2a8-authoritative-intake-creator"
 path = "src/bin/stage8b-r2a8-authoritative-intake-creator.rs"
 required-features = ["stage8b-r2a7-source-adapter"]

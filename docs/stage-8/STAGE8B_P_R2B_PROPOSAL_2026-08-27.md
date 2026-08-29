@@ -1,11 +1,11 @@
-# Stage 8B-P R2B Proposal R4-R1 — first-generation bootstrap closure
+# Stage 8B-P R2B Proposal R4-R2 — upstream publisher closure
 
 Status: **design-only proposal; `R2B authorization = NOT_ISSUED`**.
 
 ## Purpose and scope
 
-R4-R1 preserves the accepted R4 isolation/terminal design and closes the sole
-remaining first-generation creator finding without issuing a FINAM capability.
+R4-R2 preserves the accepted R4 isolation/terminal design and closes the sole
+remaining production reachability finding without issuing a FINAM capability.
 The proposed future operation remains one operator-selected, one-shot,
 read-only broker-truth preflight for either PLACE or CANCEL context. This
 revision does not use a FINAM credential or external network and does not open
@@ -17,6 +17,20 @@ composition contract is
 `docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json`.
 
 ## Authoritative intake creation
+
+The exact composition starts with the built no-argument
+`stage8b-r2a8-upstream-current-authority-publisher`. It consumes only the
+already accepted signed and freshness-bound Stage8A/R2A8 current-source at its
+compile-time path, independently restores the Stage7B owner and exact durable
+request, reconstructs the pinned issuer and opaque current-source capability,
+and is the production caller of
+`publish_stage8b_r2a8_upstream_current_authority_from_owner`. Its systemd unit
+runs as the protected Stage 8A authority owner UID/GID 8095, has no
+supplementary groups, no network address family, no FINAM credential, no CLI
+arguments and one fixed atomic output. A
+create-new lock plus file and directory fsync make refresh concurrency and
+crash handling fail closed. The accepted signed current-source is an upstream
+Stage8A owner publication, not caller JSON and not the creator's output.
 
 The exact production chain now has a built, no-argument
 `stage8b-r2a8-authoritative-intake-creator` binary and frozen oneshot unit.
@@ -46,8 +60,11 @@ intake root without the qualification seeder, caller JSON or manual snapshot.
 It signs and atomically publishes the fixed output under a create-new lock;
 file data, post-mode metadata and the parent directory are fsynced. It accepts
 no caller arguments and has no FINAM credential or network. The creator runs
-as UID/GID 8094 with supplementary GID 8095 only for the fixed Stage 5G
-lifecycle-key custody file. Its unit requires the independent upstream
+as the same protected authority owner UID/GID 8095 with no supplementary
+groups. The Stage 8A signing key remains owner-only `0600`; it is never made
+group-readable. The authority root is owner 8095/group 8094 with mode `0750`,
+so the UID/GID 8094 stager can traverse and read only the public `0644` signed
+intake while the private key remains inaccessible. Its unit requires the independent upstream
 authority, not its own output, and has no automatic install target.
 
 `stage8b-r2a8-production-intake-stager` is intentionally named and limited to
@@ -179,7 +196,7 @@ exclusive-end interval `[request_time-24h, request_time)`.
 
 ## Required acceptance before issuance
 
-R4-R1 requires reproducible Linux/amd64 production and controlled builds, the
+R4-R2 requires reproducible Linux/amd64 production and controlled builds, the
 full static/negative gate and an adversarial no-external-network rehearsal that
 proves direct/forged helper rejection, root terminal immutability, replay
 rejection, same-UID isolation, exact typed terminal validation, absolute

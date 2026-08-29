@@ -73,3 +73,9 @@ R2B-P-071,continuity,expired but valid predecessor is continuity-only and cannot
 R2B-P-072,unit,creator condition references upstream authority and never its own output,systemd unit checker and negative harness,PASS
 R2B-P-073,durability,generation output receives data fsync post-mode fsync and directory fsync,atomic writer source checker and rehearsal,PASS
 R2B-P-074,closure,R4-R1 bootstrap path has no network credential Redis dispatch runtime-live or real orders,aggregate gate and safety evidence,PASS
+R2B-P-075,publisher,no-argument production publisher is the first exact component and sole production owner-seam caller,source Cargo unit machine authority and checker,PASS
+R2B-P-076,publisher,publisher reconstructs owner issuer and opaque current sources from fixed signed fresh StageA authority only,source checker and no-network rehearsal,PASS
+R2B-P-077,publisher,publisher has fixed UID GID input output mode lock and fsync custody,systemd source checker and no-network rehearsal,PASS
+R2B-P-078,bootstrap,full upstream and intake empty root reaches publisher creator generation one and stager without controlled runtime component,no-network Linux rehearsal,PASS
+R2B-P-079,renewal,fresh current owner source refreshes upstream and creates generation two while stale upstream is rejected,no-network Linux rehearsal and negative harness,PASS
+R2B-P-080,publisher,no-network empty-root rehearsal continues through production writer manifest issuer and source adapter,Linux network-none rehearsal,PASS

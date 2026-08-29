@@ -28,12 +28,12 @@ cargo test --locked --manifest-path tools/stage8b-readonly-preflight/Cargo.toml 
 cargo clippy --locked --manifest-path tools/stage8b-readonly-preflight/Cargo.toml \
   --all-targets -- -D warnings
 
-production_a="${STAGE8B_R2B_PRODUCTION_A:-tmp/stage8b-r2b-r4-production-a/release}"
-production_b="${STAGE8B_R2B_PRODUCTION_B:-tmp/stage8b-r2b-r4-production-b/release}"
+production_a="${STAGE8B_R2B_PRODUCTION_A:-tmp/stage8b-r2b-r4r2-production-a/release}"
+production_b="${STAGE8B_R2B_PRODUCTION_B:-tmp/stage8b-r2b-r4r2-production-b/release}"
 tool_a="${STAGE8B_R2B_TOOL_A:-tmp/stage8b-r2b-r4-tool-a/release}"
 tool_b="${STAGE8B_R2B_TOOL_B:-tmp/stage8b-r2b-r4-tool-b/release}"
-controlled_a="${STAGE8B_R2B_CONTROLLED_A:-tmp/stage8b-r2b-r4-controlled-a/release}"
-controlled_b="${STAGE8B_R2B_CONTROLLED_B:-tmp/stage8b-r2b-r4-controlled-b/release}"
+controlled_a="${STAGE8B_R2B_CONTROLLED_A:-tmp/stage8b-r2b-r4r2-controlled-a/release}"
+controlled_b="${STAGE8B_R2B_CONTROLLED_B:-tmp/stage8b-r2b-r4r2-controlled-b/release}"
 controlled_launcher_a="${STAGE8B_R2B_CONTROLLED_LAUNCHER_A:-tmp/stage8b-r2b-r4-controlled-launcher-a/release}"
 controlled_launcher_b="${STAGE8B_R2B_CONTROLLED_LAUNCHER_B:-tmp/stage8b-r2b-r4-controlled-launcher-b/release}"
 
@@ -97,4 +97,4 @@ if command -v docker >/dev/null 2>&1 && [[ "${STAGE8B_R2B_SKIP_LINUX_TESTS:-0}" 
 fi
 
 git diff --check
-echo "stage8b-p-r2b-proposal-gate: PASS revision=R4-R1 rows=74 empty_root_generation_one=true renewal=true predecessor_snapshot_source=false creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true hardening=true place=true cancel=true authorization=NOT_ISSUED external_network=false order_post_delete=false runtime_live=false"
+echo "stage8b-p-r2b-proposal-gate: PASS revision=R4-R2 rows=80 upstream_publisher=true production_reachable=true empty_root_generation_one=true renewal=true source_chain=true predecessor_snapshot_source=false creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true hardening=true place=true cancel=true authorization=NOT_ISSUED external_network=false order_post_delete=false runtime_live=false"

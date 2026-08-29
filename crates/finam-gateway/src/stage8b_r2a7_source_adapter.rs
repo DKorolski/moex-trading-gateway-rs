@@ -38,6 +38,8 @@ const TRUSTED_CURRENT_SOURCE_FILE: &str = "stage8b-r2a8-trusted-current-source.j
 const PRODUCTION_WRITER_INTAKE_FILE: &str = "stage8b-r2a8-production-writer-intake.json";
 const PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_FILE: &str =
     "stage8b-r2a8-upstream-current-authority.json";
+const PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_LOCK_FILE: &str =
+    "stage8b-r2a8-upstream-current-authority.lock";
 const PRODUCTION_OWNER_SIGNED_INTAKE_FILE: &str = "stage8b-r2a8-owner-signed-intake.json";
 const LIFECYCLE_KEY_FILE: &str = "stage8b-r2a7-lifecycle-key.hex";
 const PRODUCTION_WORK_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a7/production";
@@ -61,6 +63,7 @@ const ACCEPTED_EXECUTION_CONFIG_FILE: &str = "stage8a1-accepted-execution-config
 const ACCEPTED_EXECUTION_CONFIG_SHA256_FILE: &str =
     "stage8a1-accepted-execution-config.json.sha256";
 pub const STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID: u32 = 8094;
+const STAGE8B_R2A8_AUTHORITY_SIGNER_UID: u32 = STAGE8B_R2A6_SOURCE_ADAPTER_UID;
 pub const STAGE8B_R2A8_CURRENT_MANIFEST_ISSUER_UID: u32 = 8096;
 const STAGE8B_R2A8_LIFECYCLE_KEY_GID: u32 = 8095;
 const STAGE8B_R2A8_LIFECYCLE_KEY_MODE: u32 = 0o640;
@@ -212,6 +215,22 @@ pub struct Stage8bR2a8ProductionIntakeStagerEvidence {
     pub network_accessed: bool,
     pub finam_credential_accessed: bool,
     pub caller_supplied_input_accepted: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Stage8bR2a8UpstreamCurrentAuthorityPublisherEvidence {
+    pub schema_version: u16,
+    pub publisher: &'static str,
+    pub fixed_current_source_input: &'static str,
+    pub fixed_output: &'static str,
+    pub current_source_commitment_sha256: String,
+    pub upstream_authority_commitment_sha256: String,
+    pub recovered_owner_required: bool,
+    pub opaque_current_sources_required: bool,
+    pub caller_supplied_input_accepted: bool,
+    pub caller_supplied_timestamp_accepted: bool,
+    pub network_accessed: bool,
+    pub finam_credential_accessed: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -587,7 +606,7 @@ pub(crate) fn publish_stage8b_r2a8_upstream_current_authority_from_owner(
     let qualification_root = effective_uid == 0;
     #[cfg(not(feature = "stage8b-r2a7-controlled-qualification"))]
     let qualification_root = false;
-    if effective_uid != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID && !qualification_root {
+    if effective_uid != STAGE8B_R2A8_AUTHORITY_SIGNER_UID && !qualification_root {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
     let (recovered_identity, recovered_command) = owner
@@ -655,8 +674,197 @@ pub(crate) fn publish_stage8b_r2a8_upstream_current_authority_from_owner(
         &authority_root.join(PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_FILE),
         &serde_json::to_vec(&authority)
             .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
-        STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+        STAGE8B_R2A8_AUTHORITY_SIGNER_UID,
     )
+}
+
+/// Restores the accepted owner through the single fixed-layout lifecycle-key
+/// reader shared by the production publisher and intake creator. Keeping this
+/// boundary common prevents either executable from creating an independent
+/// key-reading path while still making each one reconstruct broker-neutral
+/// durable truth rather than trusting caller-provided state.
+fn restore_stage7b_owner_from_fixed_layout(
+    layout: &Stage8bR2a7FixedLayout,
+    operational_identity: &Stage6dOperationalIdentityConfig,
+    runtime_profile_id: &str,
+) -> Result<
+    (
+        Box<Stage7bRecoveryReadyOwner>,
+        Stage5gLifecycleCommitmentKey,
+    ),
+    Stage8bR2a7SourceAdapterError,
+> {
+    let commitment_key = parse_lifecycle_key(&read_lifecycle_key_file(
+        &layout.work_root.join(LIFECYCLE_KEY_FILE),
+    )?)?;
+    let runtime = fixed_runtime_profile(runtime_profile_id)?;
+    let root_name = Stage7bDurableRootAuthority::expected_directory_name(operational_identity)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    let root = Stage7bDurableRootAuthority::validate(
+        layout.stage7b_parent.join(root_name),
+        operational_identity,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+    let Stage7bRestartOutcome::Ready(owner) = Stage7bRecoveryReadyOwner::restart(
+        root,
+        operational_identity.clone(),
+        &commitment_key,
+        runtime,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::RecoveryNotReady)?
+    else {
+        return Err(Stage8bR2a7SourceAdapterError::RecoveryNotReady);
+    };
+    Ok((owner, commitment_key))
+}
+
+/// Fixed-input production publisher for the first R2B authority-chain link.
+///
+/// The executable accepts no arguments. It consumes only the already accepted,
+/// owner-signed Stage 8A/R2A8 current-source artifact at its compile-time path,
+/// independently restores the exact Stage 7B owner, reconstructs the pinned
+/// issuer and opaque current-source capability, and then reaches the sole
+/// owner-mediated publisher seam above. The serialized source is evidence for
+/// reconstructing accepted authorities; it is never a caller-controlled mint.
+pub fn run_stage8b_r2a8_upstream_current_authority_publisher(
+) -> Result<Stage8bR2a8UpstreamCurrentAuthorityPublisherEvidence, Stage8bR2a7SourceAdapterError> {
+    use std::io::Write;
+
+    if unsafe { libc::geteuid() } != STAGE8B_R2A8_AUTHORITY_SIGNER_UID {
+        return Err(Stage8bR2a7SourceAdapterError::WrongUid);
+    }
+    let mode = Stage8bR2a7RunMode::Production;
+    let layout = mode.layout();
+    let authority_root = Path::new(PRODUCTION_AUTHORITY_ROOT);
+    let current_source_path = layout.current_source_root.join(TRUSTED_CURRENT_SOURCE_FILE);
+    let current_source_bytes = read_fixed_regular_file(
+        &current_source_path,
+        MAX_MANIFEST_BYTES,
+        STAGE8B_R2A6_SOURCE_ADAPTER_UID,
+    )?;
+    let current_source: Stage8bR2a8TrustedCurrentSourceV2 =
+        serde_json::from_slice(&current_source_bytes)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    validate_trusted_current_source(&current_source, mode)?;
+
+    let config_bytes = read_fixed_regular_file(
+        &authority_root.join(ACCEPTED_EXECUTION_CONFIG_FILE),
+        MAX_MANIFEST_BYTES,
+        0,
+    )?;
+    let config_sha_bytes = read_fixed_regular_file(
+        &authority_root.join(ACCEPTED_EXECUTION_CONFIG_SHA256_FILE),
+        128,
+        0,
+    )?;
+    let config_sha = std::str::from_utf8(&config_sha_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?
+        .trim_end_matches(['\r', '\n']);
+    if !valid_sha256(config_sha)
+        || accepted_config_file_sha256(&config_bytes) != config_sha
+        || current_source.accepted_config_sha256 != config_sha
+    {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+    let config: Stage8a1AcceptedExecutionConfigV1 = serde_json::from_slice(&config_bytes)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    if strategy_runtime_core::stage6d_operational_identity_sha256(
+        &current_source.operational_identity,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?
+    .as_str()
+        != config.operational_identity_sha256
+        || current_source
+            .operational_identity
+            .stage8a4_writer_issuer_public_key_hex
+            != config.stage8a4_writer_issuer_public_key_hex
+    {
+        return Err(Stage8bR2a7SourceAdapterError::CurrentSourceInvalid);
+    }
+
+    let (mut owner, commitment_key) = restore_stage7b_owner_from_fixed_layout(
+        &layout,
+        &current_source.operational_identity,
+        &current_source.runtime_profile_id,
+    )?;
+    let (identity, command) = owner
+        .recovered()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?
+        .single_exact_dispatch_ready_request()
+        .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?;
+    let issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
+        &mut owner,
+        &commitment_key,
+        &identity,
+        &command,
+        authority_root,
+        config_sha,
+    )
+    .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    let sources = issuer
+        .issue_current_sources(
+            &current_source.composite_readiness.to_snapshot(),
+            &current_source.broker_truth,
+            &current_source.broker_readiness,
+        )
+        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+
+    let lock_path = authority_root.join(PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_LOCK_FILE);
+    let mut lock = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&lock_path)
+        .map_err(|_| Stage8bR2a7SourceAdapterError::PublicationFailed)?;
+    lock.write_all(b"stage8b-r2a8-upstream-current-authority-publisher-lock-v1\n")
+        .and_then(|_| lock.sync_all())
+        .map_err(|_| Stage8bR2a7SourceAdapterError::PublicationFailed)?;
+    std::fs::File::open(authority_root)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| Stage8bR2a7SourceAdapterError::PublicationFailed)?;
+
+    let publication = publish_stage8b_r2a8_upstream_current_authority_from_owner(
+        &mut owner,
+        &identity,
+        &command,
+        &current_source.operational_identity,
+        config_sha,
+        &issuer,
+        &sources,
+    );
+    if publication.is_ok() {
+        std::fs::remove_file(&lock_path)
+            .and_then(|_| std::fs::File::open(authority_root)?.sync_all())
+            .map_err(|_| Stage8bR2a7SourceAdapterError::PublicationFailed)?;
+    }
+    publication?;
+
+    let upstream_bytes = read_fixed_regular_file(
+        &authority_root.join(PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_FILE),
+        MAX_MANIFEST_BYTES,
+        STAGE8B_R2A8_AUTHORITY_SIGNER_UID,
+    )?;
+    let upstream: Stage8bR2a8UpstreamCurrentAuthorityV1 =
+        serde_json::from_slice(&upstream_bytes)
+            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
+    validate_upstream_current_authority(&upstream, &config, config_sha)?;
+    Ok(Stage8bR2a8UpstreamCurrentAuthorityPublisherEvidence {
+        schema_version: 1,
+        publisher: "stage8b-r2a8-upstream-current-authority-publisher",
+        fixed_current_source_input:
+            "/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json",
+        fixed_output:
+            "/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json",
+        current_source_commitment_sha256: current_source.current_source_commitment_sha256,
+        upstream_authority_commitment_sha256: upstream.authority_commitment_sha256,
+        recovered_owner_required: true,
+        opaque_current_sources_required: true,
+        caller_supplied_input_accepted: false,
+        caller_supplied_timestamp_accepted: false,
+        network_accessed: false,
+        finam_credential_accessed: false,
+    })
 }
 
 /// The actual authoritative intake creator is an in-process service boundary,
@@ -682,7 +890,7 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
     let qualification_root = effective_uid == 0;
     #[cfg(not(feature = "stage8b-r2a7-controlled-qualification"))]
     let qualification_root = false;
-    if effective_uid != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID && !qualification_root {
+    if effective_uid != STAGE8B_R2A8_AUTHORITY_SIGNER_UID && !qualification_root {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
     let (recovered_identity, recovered_command) = owner
@@ -775,7 +983,7 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
         &output,
         &serde_json::to_vec(&intake)
             .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?,
-        STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+        STAGE8B_R2A8_AUTHORITY_SIGNER_UID,
     )?;
     std::fs::remove_file(&lock_path)
         .and_then(|_| std::fs::File::open(authority_root)?.sync_all())
@@ -809,7 +1017,7 @@ pub(crate) fn create_stage8b_r2a8_owner_signed_intake_from_owner(
 /// never the snapshot source for either bootstrap or renewal.
 pub fn run_stage8b_r2a8_authoritative_intake_creator(
 ) -> Result<Stage8bR2a8AuthoritativeIntakeCreatorEvidence, Stage8bR2a7SourceAdapterError> {
-    if unsafe { libc::geteuid() } != STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID {
+    if unsafe { libc::geteuid() } != STAGE8B_R2A8_AUTHORITY_SIGNER_UID {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
     let mode = Stage8bR2a7RunMode::Production;
@@ -818,7 +1026,7 @@ pub fn run_stage8b_r2a8_authoritative_intake_creator(
     let upstream_bytes = read_fixed_regular_file(
         &authority_root.join(PRODUCTION_UPSTREAM_CURRENT_AUTHORITY_FILE),
         MAX_MANIFEST_BYTES,
-        STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+        STAGE8B_R2A8_AUTHORITY_SIGNER_UID,
     )?;
     let upstream: Stage8bR2a8UpstreamCurrentAuthorityV1 =
         serde_json::from_slice(&upstream_bytes)
@@ -853,7 +1061,7 @@ pub fn run_stage8b_r2a8_authoritative_intake_creator(
                 let bytes = read_fixed_regular_file(
                     &authority_root.join(PRODUCTION_OWNER_SIGNED_INTAKE_FILE),
                     MAX_MANIFEST_BYTES,
-                    STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+                    STAGE8B_R2A8_AUTHORITY_SIGNER_UID,
                 )?;
                 let intake: Stage8bR2a8ProductionWriterIntakeV1 = serde_json::from_slice(&bytes)
                     .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
@@ -878,28 +1086,11 @@ pub fn run_stage8b_r2a8_authoritative_intake_creator(
     let predecessor_commitment = predecessor
         .as_ref()
         .map(|intake| intake.intake_commitment_sha256.clone());
-    let commitment_key = parse_lifecycle_key(&read_lifecycle_key_file(
-        &layout.work_root.join(LIFECYCLE_KEY_FILE),
-    )?)?;
-    let runtime = fixed_runtime_profile(&upstream.runtime_profile_id)?;
-    let root_name =
-        Stage7bDurableRootAuthority::expected_directory_name(&upstream.operational_identity)
-            .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
-    let root = Stage7bDurableRootAuthority::validate(
-        layout.stage7b_parent.join(root_name),
+    let (mut owner, commitment_key) = restore_stage7b_owner_from_fixed_layout(
+        &layout,
         &upstream.operational_identity,
-    )
-    .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
-    let Stage7bRestartOutcome::Ready(mut owner) = Stage7bRecoveryReadyOwner::restart(
-        root,
-        upstream.operational_identity.clone(),
-        &commitment_key,
-        runtime,
-    )
-    .map_err(|_| Stage8bR2a7SourceAdapterError::RecoveryNotReady)?
-    else {
-        return Err(Stage8bR2a7SourceAdapterError::RecoveryNotReady);
-    };
+        &upstream.runtime_profile_id,
+    )?;
     let (identity, command) = owner
         .recovered()
         .map_err(|_| Stage8bR2a7SourceAdapterError::DurableRequestInvalid)?
@@ -1062,7 +1253,7 @@ pub fn run_stage8b_r2a8_production_intake_stager(
     let bytes = read_fixed_regular_file(
         &source_path,
         MAX_MANIFEST_BYTES,
-        STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+        STAGE8B_R2A8_AUTHORITY_SIGNER_UID,
     )?;
     let intake: Stage8bR2a8ProductionWriterIntakeV1 = serde_json::from_slice(&bytes)
         .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
@@ -1095,7 +1286,7 @@ pub fn run_stage8b_r2a8_production_intake_stager(
         fixed_writer_output:
             "/var/lib/moex-trading/stage8b/r2a8/intake/stage8b-r2a8-production-writer-intake.json",
         intake_commitment_sha256: intake.intake_commitment_sha256,
-        source_owner_uid: STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
+        source_owner_uid: STAGE8B_R2A8_AUTHORITY_SIGNER_UID,
         output_owner_uid: STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID,
         network_accessed: false,
         finam_credential_accessed: false,
@@ -1120,7 +1311,12 @@ pub(crate) fn publish_stage8b_r2a8_trusted_current_source_from_owner(
     broker_truth: &BrokerTruthSnapshot,
     broker_readiness: &BrokerReadinessSnapshot,
 ) -> Result<(), Stage8bR2a7SourceAdapterError> {
-    if unsafe { libc::geteuid() } != STAGE8B_R2A6_SOURCE_ADAPTER_UID {
+    let effective_uid = unsafe { libc::geteuid() };
+    #[cfg(feature = "stage8b-r2a7-controlled-qualification")]
+    let qualification_root = effective_uid == 0;
+    #[cfg(not(feature = "stage8b-r2a7-controlled-qualification"))]
+    let qualification_root = false;
+    if effective_uid != STAGE8B_R2A6_SOURCE_ADAPTER_UID && !qualification_root {
         return Err(Stage8bR2a7SourceAdapterError::WrongUid);
     }
     let composite_readiness =
@@ -2013,31 +2209,37 @@ fn seed_stage8b_r2a7_qualification_fixture(
     if create_upstream_authority {
         std::os::unix::fs::chown(
             &layout.authority_root,
-            Some(STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID),
-            Some(STAGE8B_R2A8_CURRENT_SOURCE_INPUT_UID),
+            Some(STAGE8B_R2A8_AUTHORITY_SIGNER_UID),
+            Some(STAGE8B_R2A8_AUTHORITY_SIGNER_UID),
         )
         .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
-        let issuer = Stage8a1OperationalAuthorityIssuer::from_stage7b_owner(
+        std::os::unix::fs::chown(
+            &layout.current_source_root,
+            Some(STAGE8B_R2A6_SOURCE_ADAPTER_UID),
+            Some(STAGE8B_R2A6_SOURCE_ADAPTER_UID),
+        )
+        .map_err(|_| Stage8bR2a7SourceAdapterError::ReaderInputInvalid)?;
+        publish_stage8b_r2a8_trusted_current_source_from_owner(
+            mode,
             &mut owner,
             &setup.commitment_key,
             &identity,
             &durable_command,
-            &layout.authority_root,
-            &config_sha256,
-        )
-        .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
-        let sources = issuer
-            .issue_current_sources(&composite_readiness, &truth, &broker_readiness)
-            .map_err(|_| Stage8bR2a7SourceAdapterError::CurrentSourceInvalid)?;
-        publish_stage8b_r2a8_upstream_current_authority_from_owner(
-            &mut owner,
-            &identity,
-            &durable_command,
             &setup.operational_identity,
             &config_sha256,
-            &issuer,
-            &sources,
+            &composite_readiness,
+            &truth,
+            &broker_readiness,
         )?;
+        let current_source_path = layout.current_source_root.join(TRUSTED_CURRENT_SOURCE_FILE);
+        std::os::unix::fs::chown(
+            &current_source_path,
+            Some(STAGE8B_R2A6_SOURCE_ADAPTER_UID),
+            Some(STAGE8B_R2A6_SOURCE_ADAPTER_UID),
+        )
+        .and_then(|_| std::fs::File::open(&current_source_path)?.sync_all())
+        .and_then(|_| std::fs::File::open(&layout.current_source_root)?.sync_all())
+        .map_err(|_| Stage8bR2a7SourceAdapterError::PublicationFailed)?;
         Ok(())
     } else {
         publish_stage8b_r2a8_trusted_current_source_from_owner(
