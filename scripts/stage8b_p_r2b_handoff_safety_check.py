@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 EVIDENCE = "handoff-evidence/stage8b-p-r2b-r4-r2-evidence.json"
 GATE = "handoff-evidence/stage8b-p-r2b-r4-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
-NEGATIVE_MUTATIONS = 284
+NEGATIVE_MUTATIONS = 293
 BINARIES = {
     "upstream_publisher": "handoff-evidence/linux-amd64/production/stage8b-r2a8-upstream-current-authority-publisher",
     "authoritative_creator": "handoff-evidence/linux-amd64/production/stage8b-r2a8-authoritative-intake-creator",
@@ -40,9 +40,12 @@ REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p-r2b-proposal-authority.json",
     "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
     "docs/stage-8/stage8b-p-r2b-r4-build-evidence.json",
+    "docs/stage-8/stage8b-p-r2b-r4-r2a-systemd-verify-evidence.json",
     "scripts/stage8b_p_r2b_proposal_gate.sh",
     "scripts/stage8b_p_r2b_proposal_check.py",
     "scripts/stage8b_p_r2b_proposal_negative_harness.py",
+    "scripts/stage8b_p_r2b_systemd_unit_check.py",
+    "scripts/stage8b_p_r2b_target_systemd_verify.sh",
     "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh",
     "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service",
 }

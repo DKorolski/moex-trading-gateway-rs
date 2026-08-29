@@ -1,9 +1,9 @@
 [Unit]
 Description=Stage 8B fixed production current-source writer
+RefuseManualStart=yes
 Requires=moex-stage8b-r2a8-production-intake-stager.service
 After=local-fs.target moex-stage8b-r2a8-production-intake-stager.service
 Before=stage8b-r2a8-current-manifest-issuer.service
-ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a8/intake/stage8b-r2a8-production-writer-intake.json
 
 [Service]
 Type=oneshot
@@ -12,7 +12,6 @@ Group=8095
 SupplementaryGroups=
 WorkingDirectory=/var/lib/moex-trading/stage8b/r2a8/current-source
 ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-production-current-source-writer
-RefuseManualStart=yes
 NoNewPrivileges=yes
 PrivateDevices=yes
 PrivateTmp=yes

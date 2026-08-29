@@ -259,3 +259,13 @@ This document and its machine evidence are exactly **Stage 8B-P R2B R4-R2**.
 The narrow R4-R2A review closure changes documentation, deployment composition
 and targeted enforcement only; it does not issue R2B or change the production
 Rust authority architecture.
+
+The R4-R2A systemd syntax microfix covers the exact publisher, creator, stager
+and writer units. `RefuseManualStart=yes` is a `[Unit]` directive in each unit,
+and the unsupported `ConditionPathIsRegular=` spelling is absent. A
+section-aware project checker rejects misplaced or unknown directives, while
+`systemd-analyze verify` on the target systemd version supplies the parser
+evidence. Fixed-input regular-file, no-follow, ownership, mode, link-count,
+size, signature and semantic validation remains authoritative in the Rust
+binaries; systemd syntax and ordering are defense in depth. The future issuance
+package must still freeze a start transaction containing the full exact chain.

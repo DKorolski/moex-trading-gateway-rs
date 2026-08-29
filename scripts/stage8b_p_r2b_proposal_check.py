@@ -9,6 +9,8 @@ import json
 import re
 from pathlib import Path
 
+import stage8b_p_r2b_systemd_unit_check as systemd_unit_check
+
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "docs/stage-8"
 HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -37,11 +39,15 @@ def require_all(source: str, markers: tuple[str, ...], area: str) -> None:
 
 
 def main() -> None:
+    systemd_unit_check.check(ROOT)
     authority = load("docs/stage-8/stage8b-p-r2b-proposal-authority.json")
     runtime_path = ROOT / "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json"
     runtime_bytes = runtime_path.read_bytes()
     runtime = json.loads(runtime_bytes)
     build = load("docs/stage-8/stage8b-p-r2b-r4-build-evidence.json")
+    systemd_evidence = load(
+        "docs/stage-8/stage8b-p-r2b-r4-r2a-systemd-verify-evidence.json"
+    )
     helper_sha = text("docs/stage-8/stage8b-p-r2b-accepted-helper-sha256.txt").strip()
     proposal = text("docs/stage-8/STAGE8B_P_R2B_PROPOSAL_2026-08-27.md")
     status = text("docs/current-status.md")
@@ -192,8 +198,8 @@ def main() -> None:
         "User=8095", "Group=8095",
         "ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-upstream-current-authority-publisher",
         "RestrictAddressFamilies=AF_UNIX", "IPAddressDeny=any",
+        "RefuseManualStart=yes",
         "Before=moex-stage8b-r2a8-authoritative-intake-creator.service",
-        "ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json",
     ), "publisher unit")
     shared_owner_restore_body = adapter.split("fn restore_stage7b_owner_from_fixed_layout", 1)[1].split("/// Fixed-input production publisher", 1)[0]
     require_all(shared_owner_restore_body, (
@@ -273,10 +279,9 @@ def main() -> None:
         "User=8095", "Group=8095",
         "ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-authoritative-intake-creator",
         "RestrictAddressFamilies=AF_UNIX", "IPAddressDeny=any",
+        "RefuseManualStart=yes",
         "Before=moex-stage8b-r2a8-production-intake-stager.service",
-        "ConditionPathIsRegular=/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json",
     ), "creator unit")
-    require("ConditionPathExists=/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json" not in creator_unit, "creator unit requires its own output")
     require('name = "stage8b-r2a8-authoritative-intake-creator"' in gateway_cargo, "creator Cargo target absent")
     require(
         "--bin stage8b-r2a8-authoritative-intake-creator" in build["production_build_command"],
@@ -316,6 +321,7 @@ def main() -> None:
         "User=8094", "Group=8094",
         "ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-production-intake-stager",
         "RestrictAddressFamilies=AF_UNIX", "IPAddressDeny=any",
+        "RefuseManualStart=yes",
     ), "stager unit")
     stager_body = adapter.split("pub fn run_stage8b_r2a8_production_intake_stager", 1)[1].split("pub(crate) fn publish_stage8b_r2a8_trusted_current_source_from_owner", 1)[0]
     require_all(stager_body, ("read_fixed_regular_file(", "validate_production_writer_intake(", "atomic_write_fixed("), "stager")
@@ -329,6 +335,16 @@ def main() -> None:
     require(writer["requires_unit"] == "moex-stage8b-r2a8-production-intake-stager.service", "writer stager dependency drift")
     require(writer["before_unit"] == "stage8b-r2a8-current-manifest-issuer.service", "writer manifest ordering drift")
     require(writer["invocation_cardinality"] == 1 and "one fixed-input oneshot" in writer["systemd_invocation"], "writer invocation drift")
+    systemd_contract = writer["systemd_syntax_contract"]
+    require(
+        systemd_contract["exact_chain_units"] == 4
+        and systemd_contract["refuse_manual_start_section"] == "Unit"
+        and systemd_contract["condition_path_is_regular_allowed"] is False
+        and systemd_contract["target_systemd_parser_required"] is True
+        and systemd_contract["binary_fixed_input_validation_authoritative"] is True,
+        "systemd syntax authority drift",
+    )
+    require("ConditionPathIsRegular=" not in publisher_unit + creator_unit + stager_unit + writer_unit, "unsupported systemd condition restored")
     require_all(writer_unit, (
         "Requires=moex-stage8b-r2a8-production-intake-stager.service",
         "After=local-fs.target moex-stage8b-r2a8-production-intake-stager.service",
@@ -344,6 +360,25 @@ def main() -> None:
     require("std::env::args_os().len() != 1" in writer_bin, "writer accepts arguments")
     require("pub(crate) fn publish_stage8b_r2a8_trusted_current_source_from_owner(" in adapter, "owner seam absent")
     require("publish_stage8b_r2a8_trusted_current_source_from_owner," not in gateway_lib, "owner seam re-exported")
+    require(
+        systemd_evidence["systemd_analyze_verify_exit_code"] == 0
+        and systemd_evidence["unknown_key_warnings"] == 0
+        and systemd_evidence["unknown_lvalue_warnings"] == 0
+        and systemd_evidence["refuse_manual_start_section"] == "Unit"
+        and systemd_evidence["condition_path_is_regular_present"] is False
+        and systemd_evidence["units_loaded"] is False
+        and systemd_evidence["units_started"] is False
+        and systemd_evidence["result"] == "PASS",
+        "target systemd evidence drift",
+    )
+    require(
+        build["r2b_negative_mutations"] == "293/293"
+        and build["systemd_section_aware_static_gate"] == "PASS"
+        and build["systemd_target_verify"] == "PASS"
+        and build["systemd_unknown_key_or_lvalue_warnings"] == "0"
+        and build["systemd_units_loaded_or_started"] is False,
+        "systemd build evidence drift",
+    )
 
     admission = authority["r2b_launcher_and_admission"]
     require(admission["launcher_uid"] == admission["launcher_gid"] == 0, "launcher privilege drift")

@@ -438,7 +438,15 @@
     "finam_credential_access_allowed": false,
     "redis_access_allowed": false,
     "runtime_live_authority": false,
-    "concurrency_policy": "single oneshot unit; systemd RefuseManualStart until issuance"
+    "concurrency_policy": "single oneshot unit; systemd RefuseManualStart in Unit until issuance",
+    "systemd_syntax_contract": {
+      "exact_chain_units": 4,
+      "section_aware_checker": "scripts/stage8b_p_r2b_systemd_unit_check.py",
+      "refuse_manual_start_section": "Unit",
+      "condition_path_is_regular_allowed": false,
+      "target_systemd_parser_required": true,
+      "binary_fixed_input_validation_authoritative": true
+    }
   },
   "credential_contract": {
     "root": "/run/credentials/moex-trading/stage8b/r2a5",

@@ -10,9 +10,14 @@ python3 scripts/stage8b_p_r2a8_review_closure_check.py
 python3 scripts/stage8b_p_r2a8_negative_harness.py
 python3 scripts/stage8b_p_r2a8_r1_readiness_negative_harness.py
 python3 scripts/stage8b_p_r2b_proposal_check.py
+python3 scripts/stage8b_p_r2b_systemd_unit_check.py
+if [[ "${STAGE8B_R2B_REQUIRE_SYSTEMD_ANALYZE:-0}" == "1" ]]; then
+  python3 scripts/stage8b_p_r2b_systemd_unit_check.py --systemd-analyze
+fi
 python3 scripts/stage8b_p_r2b_proposal_negative_harness.py
 python3 -m py_compile \
   scripts/stage8b_p_r2b_proposal_check.py \
+  scripts/stage8b_p_r2b_systemd_unit_check.py \
   scripts/stage8b_p_r2b_proposal_negative_harness.py
 python3 -m json.tool docs/stage-8/stage8b-p-r2b-proposal-authority.json >/dev/null
 python3 -m json.tool docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json >/dev/null
@@ -97,4 +102,4 @@ if command -v docker >/dev/null 2>&1 && [[ "${STAGE8B_R2B_SKIP_LINUX_TESTS:-0}" 
 fi
 
 git diff --check
-echo "stage8b-p-r2b-proposal-gate: PASS revision=R4-R2 closure=R4-R2A rows=85 negative_mutations=284 external_c0=true refreshed_c1=true causal_cycle=false writer_unit=true upstream_publisher=true production_reachable=true empty_root_generation_one=true renewal=true source_chain=true predecessor_snapshot_source=false creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true hardening=true place=true cancel=true authorization=NOT_ISSUED external_network=false order_post_delete=false runtime_live=false"
+echo "stage8b-p-r2b-proposal-gate: PASS revision=R4-R2 closure=R4-R2A rows=85 negative_mutations=293 systemd_section_aware=true unsupported_conditions=false external_c0=true refreshed_c1=true causal_cycle=false writer_unit=true upstream_publisher=true production_reachable=true empty_root_generation_one=true renewal=true source_chain=true predecessor_snapshot_source=false creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true hardening=true place=true cancel=true authorization=NOT_ISSUED external_network=false order_post_delete=false runtime_live=false"

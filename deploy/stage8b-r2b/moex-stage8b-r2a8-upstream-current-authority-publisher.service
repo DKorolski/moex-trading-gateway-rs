@@ -1,8 +1,8 @@
 [Unit]
 Description=Stage 8B owner-mediated upstream current-authority publisher
+RefuseManualStart=yes
 After=local-fs.target
 Before=moex-stage8b-r2a8-authoritative-intake-creator.service
-ConditionPathIsRegular=/var/lib/moex-trading/stage8b/r2a8/current-source/stage8b-r2a8-trusted-current-source.json
 
 [Service]
 Type=oneshot

@@ -1,8 +1,8 @@
 [Unit]
 Description=Stage 8B fixed owner-signed intake stager
+RefuseManualStart=yes
 Requires=moex-stage8b-r2a8-authoritative-intake-creator.service
 After=moex-stage8b-r2a8-authoritative-intake-creator.service
-ConditionPathIsRegular=/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json
 
 [Service]
 Type=oneshot

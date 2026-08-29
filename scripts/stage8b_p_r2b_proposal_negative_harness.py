@@ -18,6 +18,7 @@ BUILD = "docs/stage-8/stage8b-p-r2b-r4-build-evidence.json"
 FILES = (
     AUTHORITY,
     BUILD,
+    "docs/stage-8/stage8b-p-r2b-r4-r2a-systemd-verify-evidence.json",
     "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
     "docs/stage-8/stage8b-p-r2b-accepted-helper-sha256.txt",
     "docs/stage-8/STAGE8B_P_R2B_PROPOSAL_2026-08-27.md",
@@ -42,6 +43,8 @@ FILES = (
     "tools/stage8b-readonly-preflight/src/bin/stage8b-r2a5-controlled-server.rs",
     "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh",
     "scripts/stage8b_p_r2b_proposal_gate.sh",
+    "scripts/stage8b_p_r2b_systemd_unit_check.py",
+    "scripts/stage8b_p_r2b_target_systemd_verify.sh",
     "scripts/stage8b_p_r2b_proposal_negative_harness.py",
     "scripts/make_stage8b_p_r2b_handoff.py",
     "scripts/stage8b_p_r2b_handoff_safety_check.py",
@@ -236,6 +239,20 @@ BUILD_CASES: tuple[tuple[str, str, Any], ...] = (
 )
 
 TEXT_CASES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "writer-refuse-manual-start-wrong-section",
+        "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service",
+        "RefuseManualStart=yes\nRequires=moex-stage8b-r2a8-production-intake-stager.service\nAfter=local-fs.target moex-stage8b-r2a8-production-intake-stager.service\nBefore=stage8b-r2a8-current-manifest-issuer.service\n\n[Service]\nType=oneshot",
+        "Requires=moex-stage8b-r2a8-production-intake-stager.service\nAfter=local-fs.target moex-stage8b-r2a8-production-intake-stager.service\nBefore=stage8b-r2a8-current-manifest-issuer.service\n\n[Service]\nRefuseManualStart=yes\nType=oneshot",
+    ),
+    ("writer-refuse-manual-start-removed", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "RefuseManualStart=yes", "# RefuseManualStart removed"),
+    ("writer-unknown-condition-directive", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "Before=stage8b-r2a8-current-manifest-issuer.service", "Before=stage8b-r2a8-current-manifest-issuer.service\nConditionPathIsRegular=/tmp/unsupported"),
+    ("r2b-unit-unknown-key", "deploy/stage8b-r2b/moex-stage8b-r2a8-upstream-current-authority-publisher.service", "Description=Stage 8B owner-mediated upstream current-authority publisher", "Description=Stage 8B owner-mediated upstream current-authority publisher\nUnknownStage8bKey=yes"),
+    ("r2b-unit-systemd-verify-warning", "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service", "NoNewPrivileges=yes", "UnknownLvalue=yes"),
+    ("unsupported-condition-restored", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "Requires=moex-stage8b-r2a8-production-intake-stager.service", "Requires=moex-stage8b-r2a8-production-intake-stager.service\nConditionPathIsRegular=/tmp/intake"),
+    ("publisher-unknown-condition-directive", "deploy/stage8b-r2b/moex-stage8b-r2a8-upstream-current-authority-publisher.service", "After=local-fs.target", "After=local-fs.target\nConditionPathIsRegular=/tmp/source"),
+    ("creator-unknown-condition-directive", "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service", "Before=moex-stage8b-r2a8-production-intake-stager.service", "Before=moex-stage8b-r2a8-production-intake-stager.service\nConditionPathIsRegular=/tmp/upstream"),
+    ("stager-unknown-condition-directive", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-intake-stager.service", "After=moex-stage8b-r2a8-authoritative-intake-creator.service", "After=moex-stage8b-r2a8-authoritative-intake-creator.service\nConditionPathIsRegular=/tmp/intake"),
     ("declared-writer-systemd-unit-missing", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-production-current-source-writer", "ExecStart=/opt/moex-trading/stage8b-r2b/bin/missing-writer"),
     ("writer-unit-path-drift", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "ReadWritePaths=/var/lib/moex-trading/stage8b/r2a8/current-source", "ReadWritePaths=/tmp/current-source"),
     ("r4-r2-evidence-stage-label-drift", "scripts/make_stage8b_p_r2b_handoff.py", '"stage": "Stage 8B-P R2B R4-R2"', '"stage": "Stage 8B-P R2B Proposal R4"'),
@@ -274,7 +291,7 @@ TEXT_CASES: tuple[tuple[str, str, str, str], ...] = (
     ("expired-bootstrap-predecessor-policy-test-missing", "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs", "expired_predecessor_is_continuity_only_while_fresh_intake_requires_freshness", "expired_policy_test_removed"),
     ("generation-one-not-distinct", "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs", "predecessor_intake_commitment_sha256: Option<String>", "predecessor_intake_commitment_removed: Option<String>"),
     ("generation-one-not-fsynced", "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs", ".and_then(|file| file.sync_all())", ".and_then(|file| file.metadata().map(|_| ()))"),
-    ("creator-condition-path-requires-own-output", "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service", "ConditionPathIsRegular=/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json", "ConditionPathExists=/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json"),
+    ("creator-before-stager-removed", "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service", "Before=moex-stage8b-r2a8-production-intake-stager.service", "Before=none.service"),
     ("rehearsal-no-empty-root", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "stage8b-r2b-r4-r2-post-c0-empty-r2b-root-chain", "empty_root_test_removed"),
     ("rehearsal-no-production-source-chain", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", '"$CURRENT_SOURCE_WRITER"', '"$REMOVED_CURRENT_SOURCE_WRITER"'),
     ("rehearsal-generation-one-missing", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "empty_root_generation_one", "generation_one_removed"),
