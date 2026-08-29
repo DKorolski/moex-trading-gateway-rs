@@ -9,10 +9,12 @@ python3 scripts/current_tree_authority_negative_harness.py
 python3 scripts/stage8b_p_r2b_read_contract_refresh.py
 python3 scripts/stage8b_p_r2b_issuance_r1_check.py
 python3 scripts/stage8b_p_r2b_issuance_r1_negative_harness.py
+python3 scripts/stage8b_p_r2b_issuance_r1a_negative_harness.py
 python3 -m py_compile \
   scripts/stage8b_p_r2b_read_contract_refresh.py \
   scripts/stage8b_p_r2b_issuance_r1_check.py \
   scripts/stage8b_p_r2b_issuance_r1_negative_harness.py \
+  scripts/stage8b_p_r2b_issuance_r1a_negative_harness.py \
   scripts/stage8b_p_r2b_issuance_r1_handoff_safety_check.py \
   scripts/make_stage8b_p_r2b_issuance_r1_handoff.py
 python3 -m json.tool \
@@ -44,4 +46,4 @@ do
 done
 
 git diff --check
-echo "stage8b-p-r2b-issuance-r1-gate: PASS revision=R0-R1 rows=40 read_documents=6 snapshot_sha256=7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5 services=31 phases=6 negative_mutations=25 builder=SEPARATE target_implemented=false operator_selection=ABSENT authorization=NOT_ISSUED finam=false authservice=false broker_get=false post_delete=false runtime_live=false"
+echo "stage8b-p-r2b-issuance-r1-gate: PASS revision=R0-R1A rows=54 read_documents=6 snapshot_sha256=7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5 services=31 phases=6 negative_mutations=54 exact_freeze=true builder=SEPARATE target_implemented=false operator_selection=ABSENT authorization=NOT_ISSUED finam=false authservice=false broker_get=false post_delete=false runtime_live=false"

@@ -44,16 +44,23 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   the seven-document effect inventory rather than the six-document read/auth
   snapshot embedded by the R2B helper, and its 30-service graph had no
   production producer for the package issuer's unsigned draft. The active next
-  candidate is the narrow **Stage 8B-P R2B Issuance Package R0-R1** design
-  closure. It binds Auth, TokenDetails, GetAccount, Trades, GetOrders and
+  candidate is the narrow **Stage 8B-P R2B Issuance Package R0-R1A Exact
+  Governance Freeze**. R0-R1 was substantively accepted, with formal
+  acceptance deferred for this exact-identity microfix. It binds Auth,
+  TokenDetails, GetAccount, Trades, GetOrders and
   GetOrder to embedded snapshot SHA-256 `7c8e6bcd...03c5`, records a fresh 6/6
   public-doc match, and selects a separate no-signing-key draft builder. The
   future fail-closed graph now contains 31 service invocations in six exact
   phase targets with failure, skip, partial-fanout, mixed-nonce and stale-output
   propagation frozen. The builder executable/unit, package-issuer unit, phase
   targets and aggregate activation target remain absent; operator selection,
-  account binding, arm nonce and signed run package remain absent. R0-R1 is
-  `DESIGN_CLOSURE_CANDIDATE_NOT_ISSUED`.
+  account binding, arm nonce and signed run package remain absent. R0-R1A
+  additionally freezes seven ordered builder inputs, eleven source-specific
+  producer/issuer/UID/receipt mappings, all six complete phase objects, the
+  sole signer identity and read-refresh provenance. Its 54 acceptance rows and
+  54 targeted negatives comprise the retained R0-R1 25/25 matrix plus 29/29
+  exact-governance mutations. R0-R1A is
+  `EXACT_GOVERNANCE_FREEZE_CANDIDATE_NOT_ISSUED`.
   R2B authorization remains
   `NOT_ISSUED`; operator selection and signed run package are absent.
 - FINAM network access, account-order POST/DELETE, Redis live consumption,

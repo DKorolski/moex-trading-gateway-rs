@@ -39,3 +39,17 @@ R2BI-R1-037,implementation,builder target and phase units absent,checker,PASS
 R2BI-R1-038,implementation,no Rust Cargo or binary change,git differential gate,PASS
 R2BI-R1-039,closed,FINAM POST DELETE Redis dispatch runtime live closed,machine authority,PASS
 R2BI-R1-040,closed,operator selection nonce credentials and package absent,machine authority,PASS
+R2BI-R1A-041,builder,seven fixed inputs frozen with exact order path custody producer nonce and freshness,machine authority,PASS
+R2BI-R1A-042,receipts,eleven receipt source names frozen in exact order,machine authority,PASS
+R2BI-R1A-043,receipts,producer service instances and UIDs frozen per source,machine authority,PASS
+R2BI-R1A-044,receipts,issuer service instances and UIDs frozen per source,machine authority,PASS
+R2BI-R1A-045,receipts,receipt paths authority types schemas and max ages frozen per source,machine authority,PASS
+R2BI-R1A-046,transaction,six phase objects frozen exactly including ordinals and predecessor links,machine authority,PASS
+R2BI-R1A-047,transaction,all 31 service names and their phase-local order frozen,machine authority,PASS
+R2BI-R1A-048,builder,draft builder executable service identity output and custody frozen,machine authority,PASS
+R2BI-R1A-049,builder,draft builder remains networkless and without signing credential access,machine authority,PASS
+R2BI-R1A-050,signer,signer executable service identity fixed input and key custody frozen,machine authority,PASS
+R2BI-R1A-051,signer,signed output path custody durability and builder-before-signer order frozen,machine authority,PASS
+R2BI-R1A-052,read-contract,refresh evidence path snapshot inventory and 1800 second maximum age frozen,machine authority,PASS
+R2BI-R1A-053,negative,twenty-nine R1A exact identity and path mutations rejected,targeted negative harness,PASS
+R2BI-R1A-054,closed,R1A changes governance evidence only and leaves implementation authorization and effects absent,git differential and machine authority,PASS

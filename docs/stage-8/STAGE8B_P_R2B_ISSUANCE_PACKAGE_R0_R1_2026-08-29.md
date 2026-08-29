@@ -1,5 +1,10 @@
 # Stage 8B-P R2B Issuance Package R0-R1
 
+> R0-R1 is retained as the substantive closure record. Its formal
+> exact-identity microfix is frozen by
+> `STAGE8B_P_R2B_ISSUANCE_PACKAGE_R0_R1A_EXACT_GOVERNANCE_FREEZE_2026-08-29.md`.
+> R0-R1A changes governance evidence only and keeps R2B `NOT_ISSUED`.
+
 Status: narrow design-closure candidate, `NOT_ISSUED`.
 
 R0-R1 closes only the two findings against R0 commit

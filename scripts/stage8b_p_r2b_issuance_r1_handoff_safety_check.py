@@ -16,6 +16,7 @@ MANIFEST = "handoff-evidence/source-tree-manifest.json"
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 REQUIRED = GENERATED | {
     "docs/stage-8/STAGE8B_P_R2B_ISSUANCE_PACKAGE_R0_R1_2026-08-29.md",
+    "docs/stage-8/STAGE8B_P_R2B_ISSUANCE_PACKAGE_R0_R1A_EXACT_GOVERNANCE_FREEZE_2026-08-29.md",
     "docs/stage-8/STAGE8B_P_R2B_ISSUANCE_PACKAGE_R0_R1_ACCEPTANCE_MATRIX_2026-08-29.csv",
     "docs/stage-8/stage8b-p-r2b-issuance-package-r0-r1-authority.json",
     "docs/stage-8/stage8b-p-r2b-issuance-package-r0-r1-evidence.json",
@@ -24,6 +25,7 @@ REQUIRED = GENERATED | {
     "scripts/stage8b_p_r2b_read_contract_refresh.py",
     "scripts/stage8b_p_r2b_issuance_r1_check.py",
     "scripts/stage8b_p_r2b_issuance_r1_negative_harness.py",
+    "scripts/stage8b_p_r2b_issuance_r1a_negative_harness.py",
     "scripts/stage8b_p_r2b_issuance_r1_gate.sh",
     "scripts/make_stage8b_p_r2b_issuance_r1_handoff.py",
     "scripts/stage8b_p_r2b_issuance_r1_handoff_safety_check.py",
@@ -77,7 +79,7 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("source binding mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive name mismatch")
-        if evidence.get("stage") != "Stage 8B-P R2B Issuance Package R0-R1":
+        if evidence.get("stage") != "Stage 8B-P R2B Issuance Package R0-R1A":
             raise ValueError("stage mismatch")
         if evidence.get("accepted_predecessor") != "f24f1044ac0b29c2f588853b817e519cfe8d3d8b":
             raise ValueError("accepted predecessor mismatch")
@@ -87,10 +89,16 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("read contract binding mismatch")
         if evidence.get("read_document_count") != 6 or evidence.get("service_invocations") != 31:
             raise ValueError("contract/transaction count mismatch")
-        if evidence.get("phase_count") != 6 or evidence.get("negative_mutations") != 25:
+        if evidence.get("phase_count") != 6 or evidence.get("negative_mutations") != 54:
             raise ValueError("phase/negative count mismatch")
-        if evidence.get("acceptance_rows") != 40:
+        if evidence.get("acceptance_rows") != 54:
             raise ValueError("acceptance count mismatch")
+        if evidence.get("r1_negative_mutations") != 25 or evidence.get("r1a_exact_negative_mutations") != 29:
+            raise ValueError("split negative count mismatch")
+        if evidence.get("exact_governance_freeze") is not True:
+            raise ValueError("exact governance freeze missing")
+        if evidence.get("fixed_input_count") != 7 or evidence.get("receipt_source_count") != 11:
+            raise ValueError("exact builder inventory mismatch")
         if evidence.get("draft_builder_implemented") is not False or evidence.get("activation_target_implemented") is not False:
             raise ValueError("implementation unexpectedly present")
         if evidence.get("authorization_status") != "NOT_ISSUED":
@@ -105,6 +113,10 @@ def check(path: str) -> dict[str, object]:
                 raise ValueError(f"closed surface opened: {key}")
         if authority["transaction"]["service_invocation_count"] != 31:
             raise ValueError("authority transaction drift")
+        if authority.get("revision") != "R0-R1A" or authority.get("acceptance_rows") != 54:
+            raise ValueError("authority exact-freeze revision drift")
+        if authority.get("targeted_negative_mutations") != 54:
+            raise ValueError("authority exact-freeze negative count drift")
         if authority["package_formation"]["selected_model"] != "SEPARATE_DRAFT_BUILDER_THEN_SIGNER":
             raise ValueError("authority builder model drift")
         if authority["authorization"]["r2b"] != "NOT_ISSUED":
@@ -114,9 +126,9 @@ def check(path: str) -> dict[str, object]:
 
         gate = archive.read(GATE)
         gate_marker = (
-            b"stage8b-p-r2b-issuance-r1-gate: PASS revision=R0-R1 rows=40 "
+            b"stage8b-p-r2b-issuance-r1-gate: PASS revision=R0-R1A rows=54 "
             b"read_documents=6 snapshot_sha256=" + SNAPSHOT_SHA.encode() +
-            b" services=31 phases=6 negative_mutations=25 builder=SEPARATE"
+            b" services=31 phases=6 negative_mutations=54 exact_freeze=true builder=SEPARATE"
         )
         if gate_marker not in gate or sha(gate) != evidence.get("gate_sha256"):
             raise ValueError("gate evidence mismatch")
