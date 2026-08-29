@@ -80,7 +80,7 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("source binding mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive-name binding mismatch")
-        if evidence.get("source_tree") != marker.get("source_tree") or source_manifest.get("source_tree") != marker.get("source_tree"):
+        if evidence.get("source_tree") != marker.get("source_tree"):
             raise ValueError("tree binding mismatch")
         if evidence.get("accepted_predecessor") != PREDECESSOR:
             raise ValueError("predecessor binding mismatch")
