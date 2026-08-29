@@ -56,6 +56,7 @@ def main() -> None:
     creator_unit = text("deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service")
     publisher_unit = text("deploy/stage8b-r2b/moex-stage8b-r2a8-upstream-current-authority-publisher.service")
     stager_unit = text("deploy/stage8b-r2b/moex-stage8b-r2a8-production-intake-stager.service")
+    writer_unit = text("deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service")
     supervisor_unit = text("deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service")
     writer_bin = text("crates/finam-gateway/src/bin/stage8b-r2a8-production-current-source-writer.rs")
     launcher = text("tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-launcher.rs")
@@ -73,11 +74,48 @@ def main() -> None:
     require(authority["status"] == "PROPOSAL_ONLY_NOT_AUTHORIZED", "proposal status opened")
     require(authority["authorization_status"] == "NOT_ISSUED", "R2B authorization issued")
     require(authority["accepted_predecessor"]["source_ref"] == "5b2079d7d524d2fa6f084f44f961c4b5958c042a", "predecessor drift")
+    roots = authority["external_accepted_roots"]
+    require(len(roots) == 1, "external-root cardinality drift")
+    external_c0 = roots[0]
+    require(
+        external_c0["root_id"] == "stage8b-p-r2a8-r1-trusted-current-source-v2"
+        and external_c0["producer_stage"] == "Stage 8B-P R2A8-R1"
+        and external_c0["accepted_commit"] == "5b2079d7d524d2fa6f084f44f961c4b5958c042a"
+        and external_c0["artifact_role"] == "accepted_external_current_source_C0",
+        "external C0 identity drift",
+    )
+    for field in (
+        "required_signature_valid", "required_readiness_valid",
+        "required_freshness_valid", "required_exact_config_binding",
+        "required_exact_durable_request_binding",
+    ):
+        require(external_c0[field] is True, f"external C0 requirement absent: {field}")
+    require(external_c0["max_age_seconds"] == 30, "external C0 maximum age drift")
+    for field in ("caller_supplied", "manual_operator_artifact", "controlled_production_component"):
+        require(external_c0[field] is False, f"external C0 forbidden source opened: {field}")
+
+    roles = authority["temporal_current_source_roles"]
+    c0 = roles["accepted_external_current_source_C0"]
+    c1 = roles["r2b_refreshed_current_source_C1"]
+    require(c0["produced_by_r2b_owned_sequence"] is False, "C0 became R2B output")
+    require(c0["consumed_by"] == "stage8b-r2a8-upstream-current-authority-publisher", "C0 consumer drift")
+    require(c1["produced_by_r2b_owned_sequence"] is True, "C1 ceased to be R2B output")
+    require(c1["produced_by"] == "stage8b-r2a8-production-current-source-writer", "C1 producer drift")
+    require(roles["causal_sequence"] == "C0 -> R2B publisher/creator/stager/writer -> C1", "C0/C1 causal sequence drift")
+    require(roles["same_generation_cycle"] is False, "C0/C1 role collapse")
+    require(roles["physical_path_reuse_requires_atomic_replacement_and_chronology"] is True, "C0/C1 chronology drift")
+
+    qualification = authority["qualification_rehearsal_boundary"]
+    require(qualification["r2b_owned_roots_start_empty"] is True, "R2B roots not empty")
+    require(qualification["c0_materialized_by_controlled_qualification_fixture"] is True, "C0 fixture role drift")
+    require(qualification["post_boundary_sequence_uses_exact_production_binaries"] is True, "post-C0 production sequence drift")
+    require(qualification["controlled_component_after_external_c0_boundary"] is False, "controlled post-C0 component entered")
+    require(qualification["controlled_component_in_production_composition"] is False, "controlled component entered production")
     require(build["stage"] == "Stage 8B-P R2B Proposal R4-R2", "build stage drift")
     for field in (
         "production_upstream_publisher_rehearsal",
         "production_source_chain_rehearsal",
-        "full_authority_root_empty_bootstrap_rehearsal",
+        "post_c0_empty_r2b_root_rehearsal",
         "stale_upstream_rejected",
         "upstream_refresh_rehearsal",
         "empty_root_generation_one_rehearsal",
@@ -249,7 +287,7 @@ def main() -> None:
         "creator-chain qualification seeder accepts no arguments",
     ), "creator-chain qualification seeder")
     require_all(rehearsal, (
-        "stage8b-r2b-r4-r2-full-empty-root-publisher-chain",
+        "stage8b-r2b-r4-r2-post-c0-empty-r2b-root-chain",
         '"$UPSTREAM_PUBLISHER"',
         "empty_root_generation_one",
         "predecessor_continuity_renewal",
@@ -287,6 +325,22 @@ def main() -> None:
 
     writer = authority["production_current_source_writer"]
     require(writer["executable"] == sequence[3] and writer["uid"] == writer["gid"] == 8095, "writer identity drift")
+    require(writer["systemd_unit"] == "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "writer unit path drift")
+    require(writer["requires_unit"] == "moex-stage8b-r2a8-production-intake-stager.service", "writer stager dependency drift")
+    require(writer["before_unit"] == "stage8b-r2a8-current-manifest-issuer.service", "writer manifest ordering drift")
+    require(writer["invocation_cardinality"] == 1 and "one fixed-input oneshot" in writer["systemd_invocation"], "writer invocation drift")
+    require_all(writer_unit, (
+        "Requires=moex-stage8b-r2a8-production-intake-stager.service",
+        "After=local-fs.target moex-stage8b-r2a8-production-intake-stager.service",
+        "Before=stage8b-r2a8-current-manifest-issuer.service",
+        "User=8095", "Group=8095", "SupplementaryGroups=",
+        "WorkingDirectory=/var/lib/moex-trading/stage8b/r2a8/current-source",
+        "ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-production-current-source-writer",
+        "RefuseManualStart=yes",
+        "RestrictAddressFamilies=AF_UNIX", "IPAddressDeny=any",
+        "ReadOnlyPaths=/var/lib/moex-trading/stage7b /var/lib/moex-trading/stage8a1-authority /var/lib/moex-trading/stage8b/r2a7/production /var/lib/moex-trading/stage8b/r2a8/intake",
+        "ReadWritePaths=/var/lib/moex-trading/stage8b/r2a8/current-source",
+    ), "writer unit")
     require("std::env::args_os().len() != 1" in writer_bin, "writer accepts arguments")
     require("pub(crate) fn publish_stage8b_r2a8_trusted_current_source_from_owner(" in adapter, "owner seam absent")
     require("publish_stage8b_r2a8_trusted_current_source_from_owner," not in gateway_lib, "owner seam re-exported")
@@ -403,7 +457,7 @@ def main() -> None:
         "terminal-persistence-failure", "same-uid-isolation", "pidfd_getfd=false",
         "for target_fd in (3, 4, 6, 7)",
         "TERMINAL_THEN_HANG", "SLOW_DRIP_FRAME", "PARTIAL_FRAME_BODY",
-        'terminal["root_error_category"] == "TIMEOUT"', "stage8b-r2b-r4-r2-full-empty-root-publisher-chain",
+        'terminal["root_error_category"] == "TIMEOUT"', "stage8b-r2b-r4-r2-post-c0-empty-r2b-root-chain",
         '"$AUTHORITATIVE_CREATOR"', '"$INTAKE_STAGER"',
     ), "adversarial supervisor rehearsal")
     require_all(gate, (
@@ -463,15 +517,20 @@ def main() -> None:
     require(all(value is False for value in authority["closed_surfaces"].values()), "closed surface opened")
     require(authority["issuance_preconditions"]["r2b_authorization"] == "NOT_ISSUED", "issuance state drift")
     require_all(status, ("Stage 8B-P R2B Proposal R4-R2", "NOT_ISSUED", "FINAM network access", "POST/DELETE", "runtime-live"), "status")
-    require_all(proposal, ("Proposal R4-R2", "root-owned inode-bound admission", "root:root 0400", "does not issue R2B"), "proposal")
+    require_all(proposal, (
+        "Proposal R4-R2", "root-owned inode-bound admission", "root:root 0400",
+        "does not issue R2B", "accepted_external_current_source_C0",
+        "r2b_refreshed_current_source_C1", "no same-generation causal cycle",
+        "no controlled binary belongs to the production",
+    ), "proposal")
 
     with (BASE / "STAGE8B_P_R2B_PROPOSAL_ACCEPTANCE_MATRIX_2026-08-27.csv").open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    require(len(rows) == 80, "acceptance row count drift")
-    require([row["id"] for row in rows] == [f"R2B-P-{index:03d}" for index in range(1, 81)], "acceptance IDs drift")
+    require(len(rows) == 85, "acceptance row count drift")
+    require([row["id"] for row in rows] == [f"R2B-P-{index:03d}" for index in range(1, 86)], "acceptance IDs drift")
     require(all(row["status"] == "PASS" for row in rows), "acceptance row not PASS")
 
-    print("stage8b-p-r2b-proposal-check: PASS revision=R4-R2 rows=80 upstream_publisher=true production_reachable=true empty_root_generation_one=true renewal=true source_chain=true predecessor_snapshot_source=false creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true authorization=NOT_ISSUED network=false post_delete=false runtime_live=false")
+    print("stage8b-p-r2b-proposal-check: PASS revision=R4-R2 closure=R4-R2A rows=85 external_c0=true refreshed_c1=true causal_cycle=false writer_unit=true upstream_publisher=true production_reachable=true empty_root_generation_one=true renewal=true source_chain=true predecessor_snapshot_source=false creator=true isolation=true typed_terminal=true absolute_deadline=true metadata_fsync=true stager=true root_authenticated=true immutable_terminal=true supervisor=true authorization=NOT_ISSUED network=false post_delete=false runtime_live=false")
 
 
 if __name__ == "__main__":

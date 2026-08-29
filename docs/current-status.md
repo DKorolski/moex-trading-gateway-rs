@@ -17,7 +17,8 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `moex-trading-project-5b2079d.zip`, SHA-256
   `903df69b800477706f4b2e95097fe84174f42e89b0a85a4b5fa94430619acb6a`.
 - The Stage 8B-P R2B proposals through R4 at `293dbad` were not accepted.
-  The active candidate is **Stage 8B-P R2B Proposal R4-R2**, a design-only
+  The active candidate is **Stage 8B-P R2B Proposal R4-R2A Acceptance
+  Closure**, a design-only
   runtime-isolation, typed-terminal and reachable-creator correction. It keeps
   the owner-mediated creator/stager chain and adds a built creator entrypoint,
   fail-closed Yama plus exclusive UID8301 admission, pre-runtime nondumpability,
@@ -27,6 +28,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   and retains R4-R1's removal of the creator's cyclic dependency: an
   independently owner-signed upstream authority drives empty-root generation
   1, while an optional predecessor binds only N-to-N+1 continuity.
+  Independent review withdrew the previously alleged production dependency
+  cycle: the accepted R2A8-R1 current source is external input C0 and the R2B
+  writer creates later output C1. The narrow R4-R2A closure freezes this
+  distinction, corrects controlled-fixture wording, adds the missing exact
+  writer oneshot unit and exact R4-R2 evidence naming. Formal R4-R2 acceptance
+  remains pending this closure review.
   R2B authorization remains
   `NOT_ISSUED`; operator selection and signed run package are absent.
 - FINAM network access, account-order POST/DELETE, Redis live consumption,

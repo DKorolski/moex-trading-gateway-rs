@@ -16,6 +16,29 @@ The machine authority is
 composition contract is
 `docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json`.
 
+## Accepted external root and temporal current-source roles
+
+The independently accepted Stage 8B-P R2A8-R1 output at
+`5b2079d7d524d2fa6f084f44f961c4b5958c042a` is the external input of this
+proposal. It is frozen in machine authority as
+`accepted_external_current_source_C0`: signature, readiness, freshness, exact
+configuration and exact durable-request binding are mandatory; maximum age is
+30 seconds; caller JSON, operator-created artifacts and controlled production
+components are forbidden.
+
+The production writer later creates
+`r2b_refreshed_current_source_C1`. C0 and C1 may use the same atomic pathname
+at different times, but they are distinct causal artifact instances:
+
+```text
+accepted R2A8-R1 current source C0
+        -> R2B publisher -> creator -> stager -> writer
+        -> refreshed R2B current source C1
+```
+
+C0 is not produced by the R2B-owned sequence. C1 is its downstream output;
+there is no same-generation causal cycle.
+
 ## Authoritative intake creation
 
 The exact composition starts with the built no-argument
@@ -76,6 +99,20 @@ networking disabled and proves byte-identical staging plus false network and
 credential evidence. The remaining current-source writer, manifest issuer, source adapter,
 authority producer/issuer and package issuer retain their accepted fixed-path,
 no-network boundaries.
+
+The qualification rehearsal materializes only the already accepted external
+C0 boundary with a controlled fixture. All R2B-owned upstream, intake and
+downstream roots start empty. After C0, the complete publisher-to-adapter chain
+uses exact production binaries; no controlled binary belongs to the production
+composition or executes after that accepted external boundary.
+
+The production writer has its own frozen oneshot unit at
+`deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service`.
+It runs as UID/GID 8095 with no supplementary groups, accepts no arguments,
+requires/follows the production stager, precedes the current-manifest issuer,
+reads only fixed Stage7B/authority/intake inputs, writes only the fixed
+current-source root and has AF_UNIX-only/no-network confinement. Unit
+enablement remains forbidden until a separate R2B issuance.
 
 ## Root-authenticated admission
 
@@ -217,3 +254,8 @@ broker dispatch         closed
 runtime-live            closed
 real orders             false
 ```
+
+This document and its machine evidence are exactly **Stage 8B-P R2B R4-R2**.
+The narrow R4-R2A review closure changes documentation, deployment composition
+and targeted enforcement only; it does not issue R2B or change the production
+Rust authority architecture.

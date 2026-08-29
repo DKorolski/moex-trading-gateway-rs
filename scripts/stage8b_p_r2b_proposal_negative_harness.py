@@ -48,6 +48,7 @@ FILES = (
     "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service",
     "deploy/stage8b-r2b/moex-stage8b-r2a8-upstream-current-authority-publisher.service",
     "deploy/stage8b-r2b/moex-stage8b-r2a8-production-intake-stager.service",
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service",
     "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service",
     CHECKER,
 )
@@ -65,6 +66,18 @@ def set_path(document: dict[str, Any], dotted: str, value: Any) -> None:
 
 
 JSON_CASES: tuple[tuple[str, str, Any], ...] = (
+    ("external-root-stage-drift", "external_accepted_roots.0.producer_stage", "Stage 8B-P R2A7"),
+    ("external-root-accepted-commit-drift", "external_accepted_roots.0.accepted_commit", "0" * 40),
+    ("external-root-max-age-removed", "external_accepted_roots.0.max_age_seconds", 0),
+    ("external-root-signature-requirement-removed", "external_accepted_roots.0.required_signature_valid", False),
+    ("external-root-readiness-requirement-removed", "external_accepted_roots.0.required_readiness_valid", False),
+    ("external-root-caller-supplied-enabled", "external_accepted_roots.0.caller_supplied", True),
+    ("c0-c1-role-collapse", "temporal_current_source_roles.same_generation_cycle", True),
+    ("c1-declared-as-external-root", "temporal_current_source_roles.r2b_refreshed_current_source_C1.produced_by_r2b_owned_sequence", False),
+    ("c0-declared-as-r2b-output", "temporal_current_source_roles.accepted_external_current_source_C0.produced_by_r2b_owned_sequence", True),
+    ("controlled-binary-enters-post-boundary-production-sequence", "qualification_rehearsal_boundary.controlled_component_after_external_c0_boundary", True),
+    ("controlled-seeder-listed-in-production-composition", "qualification_rehearsal_boundary.controlled_component_in_production_composition", True),
+    ("current-source-writer-invocation-missing", "production_current_source_writer.invocation_cardinality", 0),
     ("authorization-issued", "authorization_status", "ISSUED"),
     ("proposal-authorized", "status", "AUTHORIZED"),
     ("background-loop", "proposed_capability.background_loop", True),
@@ -205,7 +218,7 @@ BUILD_CASES: tuple[tuple[str, str, Any], ...] = (
     ("deadline-matrix-not-pass", "absolute_deadline_fault_matrix", "FAIL"),
     ("creator-rehearsal-not-pass", "reachable_creator_rehearsal", "FAIL"),
     ("upstream-publisher-rehearsal-not-pass", "production_upstream_publisher_rehearsal", "FAIL"),
-    ("full-empty-root-rehearsal-not-pass", "full_authority_root_empty_bootstrap_rehearsal", "FAIL"),
+    ("post-c0-empty-r2b-root-rehearsal-not-pass", "post_c0_empty_r2b_root_rehearsal", "FAIL"),
     ("stale-upstream-not-rejected", "stale_upstream_rejected", "FAIL"),
     ("upstream-refresh-not-pass", "upstream_refresh_rehearsal", "FAIL"),
     ("empty-root-rehearsal-not-pass", "empty_root_generation_one_rehearsal", "FAIL"),
@@ -223,6 +236,9 @@ BUILD_CASES: tuple[tuple[str, str, Any], ...] = (
 )
 
 TEXT_CASES: tuple[tuple[str, str, str, str], ...] = (
+    ("declared-writer-systemd-unit-missing", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-production-current-source-writer", "ExecStart=/opt/moex-trading/stage8b-r2b/bin/missing-writer"),
+    ("writer-unit-path-drift", "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service", "ReadWritePaths=/var/lib/moex-trading/stage8b/r2a8/current-source", "ReadWritePaths=/tmp/current-source"),
+    ("r4-r2-evidence-stage-label-drift", "scripts/make_stage8b_p_r2b_handoff.py", '"stage": "Stage 8B-P R2B R4-R2"', '"stage": "Stage 8B-P R2B Proposal R4"'),
     ("runtime-authorized", "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json", '"authorization_status": "NOT_ISSUED"', '"authorization_status": "ISSUED"'),
     ("runtime-contract-live", "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json", '"runtime_live": false', '"runtime_live": true'),
     ("upstream-publisher-no-production-callsite", "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs", "pub fn run_stage8b_r2a8_upstream_current_authority_publisher(", "fn unreachable_upstream_current_authority_publisher("),
@@ -259,7 +275,7 @@ TEXT_CASES: tuple[tuple[str, str, str, str], ...] = (
     ("generation-one-not-distinct", "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs", "predecessor_intake_commitment_sha256: Option<String>", "predecessor_intake_commitment_removed: Option<String>"),
     ("generation-one-not-fsynced", "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs", ".and_then(|file| file.sync_all())", ".and_then(|file| file.metadata().map(|_| ()))"),
     ("creator-condition-path-requires-own-output", "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service", "ConditionPathIsRegular=/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-upstream-current-authority.json", "ConditionPathExists=/var/lib/moex-trading/stage8a1-authority/stage8b-r2a8-owner-signed-intake.json"),
-    ("rehearsal-no-empty-root", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "stage8b-r2b-r4-r2-full-empty-root-publisher-chain", "empty_root_test_removed"),
+    ("rehearsal-no-empty-root", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "stage8b-r2b-r4-r2-post-c0-empty-r2b-root-chain", "empty_root_test_removed"),
     ("rehearsal-no-production-source-chain", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", '"$CURRENT_SOURCE_WRITER"', '"$REMOVED_CURRENT_SOURCE_WRITER"'),
     ("rehearsal-generation-one-missing", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "empty_root_generation_one", "generation_one_removed"),
     ("rehearsal-renewal-missing", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "predecessor_continuity_renewal", "renewal_removed"),
@@ -301,7 +317,7 @@ TEXT_CASES: tuple[tuple[str, str, str, str], ...] = (
     ("slow-drip-frame", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "SLOW_DRIP_FRAME", "slow_drip_removed"),
     ("partial-frame-header", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "PARTIAL_FRAME_HEADER", "partial_header_removed"),
     ("partial-frame-body", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "PARTIAL_FRAME_BODY", "partial_body_removed"),
-    ("rehearsal-no-creator-chain", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "stage8b-r2b-r4-r2-full-empty-root-publisher-chain", "creator_chain_removed"),
+    ("rehearsal-no-creator-chain", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", "stage8b-r2b-r4-r2-post-c0-empty-r2b-root-chain", "creator_chain_removed"),
     ("rehearsal-no-loopback-server", "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh", '"$SERVER" "$operation"', "controlled_tls_server_removed"),
     ("gate-drops-inherited-r2a8-negatives", "scripts/stage8b_p_r2b_proposal_gate.sh", "python3 scripts/stage8b_p_r2a8_negative_harness.py", "true # inherited negatives removed"),
     ("handoff-safety-drops-runtime-closure", "scripts/stage8b_p_r2b_handoff_safety_check.py", '"runtime_live_entered": False', '"runtime_live_entered": True'),

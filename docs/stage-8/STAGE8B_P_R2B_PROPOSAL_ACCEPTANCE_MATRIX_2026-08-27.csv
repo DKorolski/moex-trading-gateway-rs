@@ -65,7 +65,7 @@ R2B-P-063,protocol,root accepts only exact typed terminal and derives a canonica
 R2B-P-064,lifecycle,one monotonic deadline bounds frame reads child exit kill and reap,launcher and timeout fault rehearsal,PASS
 R2B-P-065,intake,authoritative creator has a reachable no-argument binary exact unit Linux hash and one invocation,creator source unit build evidence and checker,PASS
 R2B-P-066,durability,nonce and admission chmod metadata receive file fsync before directory fsync,admission source checker and negative harness,PASS
-R2B-P-067,bootstrap,empty production intake root creates owner-signed generation one without controlled seeder,production creator plus no-network Linux rehearsal,PASS
+R2B-P-067,bootstrap,after accepted external C0 the empty R2B production intake root creates owner-signed generation one without controlled production components,production creator plus no-network Linux rehearsal,PASS
 R2B-P-068,bootstrap,fixed upstream authority is owner-mediated signed fresh and independent from creator output,source boundary checker and rehearsal,PASS
 R2B-P-069,continuity,generation N plus fresh upstream authority creates N+1 with predecessor commitment,production creator plus no-network Linux rehearsal,PASS
 R2B-P-070,continuity,predecessor never supplies readiness broker truth broker readiness or timestamps,creator evidence checker and negative harness,PASS
@@ -76,6 +76,11 @@ R2B-P-074,closure,R4-R1 bootstrap path has no network credential Redis dispatch 
 R2B-P-075,publisher,no-argument production publisher is the first exact component and sole production owner-seam caller,source Cargo unit machine authority and checker,PASS
 R2B-P-076,publisher,publisher reconstructs owner issuer and opaque current sources from fixed signed fresh StageA authority only,source checker and no-network rehearsal,PASS
 R2B-P-077,publisher,publisher has fixed UID GID input output mode lock and fsync custody,systemd source checker and no-network rehearsal,PASS
-R2B-P-078,bootstrap,full upstream and intake empty root reaches publisher creator generation one and stager without controlled runtime component,no-network Linux rehearsal,PASS
+R2B-P-078,bootstrap,R2B-owned roots start empty after controlled materialization of accepted external C0 and the exact production chain reaches publisher creator generation one and stager,no-network Linux rehearsal,PASS
 R2B-P-079,renewal,fresh current owner source refreshes upstream and creates generation two while stale upstream is rejected,no-network Linux rehearsal and negative harness,PASS
-R2B-P-080,publisher,no-network empty-root rehearsal continues through production writer manifest issuer and source adapter,Linux network-none rehearsal,PASS
+R2B-P-080,publisher,no-network post-C0 empty-R2B-root rehearsal continues only through production writer manifest issuer and source adapter,Linux network-none rehearsal,PASS
+R2B-P-081,external-root,R2A8-R1 accepted commit is frozen as signature readiness freshness config and durable-request bound C0 with 30 second maximum age,machine authority and targeted closure checker,PASS
+R2B-P-082,causality,C0 external input and C1 R2B writer output are distinct temporal roles and do not form a same-generation cycle,machine authority and proposal,PASS
+R2B-P-083,rehearsal,controlled fixture only materializes accepted C0 and no controlled component enters the post-boundary production sequence,proposal authority rehearsal and checker,PASS
+R2B-P-084,deployment,current-source writer has an exact fixed-input oneshot unit between stager and manifest issuer,systemd unit authority and checker,PASS
+R2B-P-085,closure,exact R4-R2 evidence naming and all closed surfaces remain fail-closed,handoff generator safety checker and closure negatives,PASS

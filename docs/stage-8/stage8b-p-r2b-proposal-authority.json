@@ -12,6 +12,45 @@
     "archive_sha256": "903df69b800477706f4b2e95097fe84174f42e89b0a85a4b5fa94430619acb6a",
     "verdict": "ACCEPTED"
   },
+  "external_accepted_roots": [
+    {
+      "root_id": "stage8b-p-r2a8-r1-trusted-current-source-v2",
+      "producer_stage": "Stage 8B-P R2A8-R1",
+      "accepted_commit": "5b2079d7d524d2fa6f084f44f961c4b5958c042a",
+      "artifact_role": "accepted_external_current_source_C0",
+      "required_signature_valid": true,
+      "required_readiness_valid": true,
+      "required_freshness_valid": true,
+      "required_exact_config_binding": true,
+      "required_exact_durable_request_binding": true,
+      "max_age_seconds": 30,
+      "caller_supplied": false,
+      "manual_operator_artifact": false,
+      "controlled_production_component": false
+    }
+  ],
+  "temporal_current_source_roles": {
+    "accepted_external_current_source_C0": {
+      "causal_role": "external_input_from_accepted_predecessor_stage",
+      "produced_by_r2b_owned_sequence": false,
+      "consumed_by": "stage8b-r2a8-upstream-current-authority-publisher"
+    },
+    "r2b_refreshed_current_source_C1": {
+      "causal_role": "downstream_output_of_current_r2b_sequence",
+      "produced_by_r2b_owned_sequence": true,
+      "produced_by": "stage8b-r2a8-production-current-source-writer"
+    },
+    "causal_sequence": "C0 -> R2B publisher/creator/stager/writer -> C1",
+    "same_generation_cycle": false,
+    "physical_path_reuse_requires_atomic_replacement_and_chronology": true
+  },
+  "qualification_rehearsal_boundary": {
+    "r2b_owned_roots_start_empty": true,
+    "c0_materialized_by_controlled_qualification_fixture": true,
+    "controlled_component_after_external_c0_boundary": false,
+    "controlled_component_in_production_composition": false,
+    "post_boundary_sequence_uses_exact_production_binaries": true
+  },
   "proposed_capability": {
     "purpose": "one operator-selected read-only FINAM broker-truth preflight",
     "one_shot": true,
@@ -366,7 +405,11 @@
     "build_command": "cargo build --release -p finam-gateway --bin stage8b-r2a8-production-current-source-writer --features stage8b-r2a7-source-adapter",
     "uid": 8095,
     "gid": 8095,
-    "systemd_unit": "moex-stage8b-r2a8-production-current-source-writer.service",
+    "systemd_unit": "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service",
+    "systemd_invocation": "one fixed-input oneshot after the production intake stager and before the current manifest issuer; enablement remains forbidden until R2B issuance",
+    "requires_unit": "moex-stage8b-r2a8-production-intake-stager.service",
+    "before_unit": "stage8b-r2a8-current-manifest-issuer.service",
+    "invocation_cardinality": 1,
     "supplementary_groups": [],
     "linux_capabilities": [],
     "working_directory": "/var/lib/moex-trading/stage8b/r2a8/current-source",

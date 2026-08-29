@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8B-P R2B Proposal R4 review handoff."""
+"""Create the immutable Stage 8B-P R2B R4-R2 acceptance-closure handoff."""
 
 from __future__ import annotations
 
@@ -88,7 +88,8 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Proposal R4",
+                "stage": "Stage 8B-P R2B R4-R2",
+                "closure": "Stage 8B-P R2B R4-R2A Acceptance Closure",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "archive_name": archive_name,
@@ -103,6 +104,10 @@ def main() -> None:
                 "typed_terminal_protocol": True,
                 "absolute_supervisor_deadline": True,
                 "creator_to_stager_rehearsed": True,
+                "external_accepted_c0_frozen": True,
+                "c0_c1_temporal_roles_distinct": True,
+                "post_c0_production_only": True,
+                "production_writer_unit_frozen": True,
                 "post_chmod_metadata_fsync": True,
                 "full_admission_to_terminal_supervisor": True,
                 "negative_mutations": safety.NEGATIVE_MUTATIONS,

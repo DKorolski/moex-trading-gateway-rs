@@ -182,10 +182,12 @@ echo "stage8b-r2b-r4-dedicated-uid-preflight: PASS"
 
 # The production creator and stager are executable, fixed-path components,
 # not documentation-only names. A qualification-only setup reconstructs the
-# accepted durable owner and publishes only the accepted signed Stage8A/R2A8
-# current-source prerequisite. The exact production publisher must create the
-# upstream authority before the exact production creator can exercise
-# empty-root generation one, N-to-N+1 renewal and staging with networking disabled.
+# accepted durable owner and materializes only the accepted external StageA/R2A8
+# current-source input C0. All R2B-owned roots start empty. After that accepted
+# boundary, only exact production binaries execute: publisher, creator, stager,
+# writer, manifest issuer and source adapter. The controlled fixture is not a
+# production component. This proves generation one, N-to-N+1 renewal and the
+# complete post-C0 chain with networking disabled.
 rm -rf \
   /var/lib/moex-trading/stage7b \
   /var/lib/moex-trading/stage8a1-authority \
@@ -313,7 +315,7 @@ setpriv --reuid 8095 --regid 8095 --clear-groups \
 grep -Fq '"source_count":10' /tmp/stage8b-r2b-r4-production-adapter.json
 grep -Fq '"network_accessed":false' /tmp/stage8b-r2b-r4-production-adapter.json
 grep -Fq '"finam_credential_accessed":false' /tmp/stage8b-r2b-r4-production-adapter.json
-echo "stage8b-r2b-r4-r2-full-empty-root-publisher-chain: PASS upstream_publisher=true generation1=true stale_rejected=true refresh=true generation2=true source_chain=true fixed_paths=true network=false credentials=false"
+echo "stage8b-r2b-r4-r2-post-c0-empty-r2b-root-chain: PASS external_c0=accepted_fixture r2b_owned_roots_empty=true post_boundary_production_only=true upstream_publisher=true generation1=true stale_rejected=true refresh=true generation2=true source_chain=true fixed_paths=true network=false credentials=false"
 
 # Privileged helper metadata is rejected before nonce admission.
 for privileged_mode in 4755 2755; do

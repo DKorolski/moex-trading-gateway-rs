@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable Stage 8B-P R2B Proposal R4 handoff."""
+"""Validate an immutable Stage 8B-P R2B R4-R2 acceptance-closure handoff."""
 
 from __future__ import annotations
 
@@ -9,10 +9,10 @@ import sys
 import zipfile
 from pathlib import PurePosixPath
 
-EVIDENCE = "handoff-evidence/stage8b-p-r2b-r4-evidence.json"
+EVIDENCE = "handoff-evidence/stage8b-p-r2b-r4-r2-evidence.json"
 GATE = "handoff-evidence/stage8b-p-r2b-r4-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
-NEGATIVE_MUTATIONS = 269
+NEGATIVE_MUTATIONS = 284
 BINARIES = {
     "upstream_publisher": "handoff-evidence/linux-amd64/production/stage8b-r2a8-upstream-current-authority-publisher",
     "authoritative_creator": "handoff-evidence/linux-amd64/production/stage8b-r2a8-authoritative-intake-creator",
@@ -44,6 +44,7 @@ REQUIRED = GENERATED | {
     "scripts/stage8b_p_r2b_proposal_check.py",
     "scripts/stage8b_p_r2b_proposal_negative_harness.py",
     "scripts/stage8b_p_r2b_r3_linux_custody_rehearsal.sh",
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service",
 }
 
 
@@ -106,12 +107,18 @@ def check(path: str) -> dict[str, object]:
             "typed_terminal_protocol": True,
             "absolute_supervisor_deadline": True,
             "creator_to_stager_rehearsed": True,
+            "external_accepted_c0_frozen": True,
+            "c0_c1_temporal_roles_distinct": True,
+            "post_c0_production_only": True,
+            "production_writer_unit_frozen": True,
             "post_chmod_metadata_fsync": True,
             "full_admission_to_terminal_supervisor": True,
         }
         for name, expected in expected_hardening.items():
             if evidence.get(name) != expected:
                 raise ValueError(f"hardening field drift: {name}")
+        if evidence.get("stage") != "Stage 8B-P R2B R4-R2" or evidence.get("closure") != "Stage 8B-P R2B R4-R2A Acceptance Closure":
+            raise ValueError("exact R4-R2 closure naming drift")
         if evidence.get("negative_mutations") != NEGATIVE_MUTATIONS:
             raise ValueError("negative coverage mismatch")
         gate = archive.read(GATE)
