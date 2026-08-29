@@ -43,28 +43,36 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   retained the correct design direction but was not accepted: its refresh used
   the seven-document effect inventory rather than the six-document read/auth
   snapshot embedded by the R2B helper, and its 30-service graph had no
-  production producer for the package issuer's unsigned draft. The active next
-  candidate is the narrow **Stage 8B-P R2B Issuance Package R0-R1A1 Strict
-  Schema Freeze**. R0-R1A was substantively accepted, with formal acceptance
-  deferred for this final schema-exhaustiveness microfix. It binds Auth,
+  production producer for the package issuer's unsigned draft. The narrow
+  **Stage 8B-P R2B Issuance Package R0-R1A1 Strict Schema Freeze** was
+  independently accepted at
+  `ebec9a100c92872134f3de91644cec50e2ed073a`. It binds Auth,
   TokenDetails, GetAccount, Trades, GetOrders and
   GetOrder to embedded snapshot SHA-256 `7c8e6bcd...03c5`, records a fresh 6/6
   public-doc match, and selects a separate no-signing-key draft builder. The
-  future fail-closed graph now contains 31 service invocations in six exact
-  phase targets with failure, skip, partial-fanout, mixed-nonce and stale-output
-  propagation frozen. The builder executable/unit, package-issuer unit, phase
-  targets and aggregate activation target remain absent; operator selection,
-  account binding, arm nonce and signed run package remain absent. R0-R1A
-  additionally freezes seven ordered builder inputs, eleven source-specific
+  fail-closed graph contains 31 service invocations in six exact phase targets
+  with failure, skip, partial-fanout, mixed-nonce and stale-output propagation
+  frozen. R0-R1A freezes seven ordered builder inputs, eleven source-specific
   producer/issuer/UID/receipt mappings, all six complete phase objects, the
   sole signer identity and read-refresh provenance. R0-R1A1 additionally
   enforces exact dictionary
   keysets, the unique ordered six-document refresh inventory and byte-pinned
   acceptance rows. Its 66 acceptance rows and 66 targeted negatives comprise
   the retained 25/25 and 29/29 matrices plus 12/12 strict-schema mutations.
-  R0-R1A1 is `STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED`.
-  R2B authorization remains
-  `NOT_ISSUED`; operator selection and signed run package are absent.
+  R0-R1A1 is the accepted design predecessor.
+  The active candidate is **Stage 8B-P R2B Implementation Package R0**. It
+  materializes the no-argument production draft builder, independent package
+  signer revalidation, six phase targets and aggregate target as source only.
+  The graph is statically frozen at 31 service invocations; every barrier uses
+  exact `Requires=` plus `After=`, targets stop when unneeded, oneshots retain
+  no active success state, and unsigned/signed package creation is no-replace.
+  The implementation checker passes 52 acceptance rows and rejects 70/70
+  targeted mutations. Isolated Ubuntu 24.04 systemd 255 verification passes
+  all 18 units without loading or starting them. Implementation R0 requires
+  independent review before any activation work. The units are not installed,
+  enabled or started. R2B authorization remains `NOT_ISSUED`; operator
+  selection, run nonce, credentials and unsigned/signed run packages are
+  absent.
 - FINAM network access, account-order POST/DELETE, Redis live consumption,
   broker dispatch, runtime-live, strategy-live and real orders remain closed.
   Proposal R4-R2 does not authorize a credential read or any broker request.

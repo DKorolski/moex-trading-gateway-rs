@@ -37,7 +37,8 @@ for name in \
   stage8b-r2a8-authoritative-intake-creator \
   stage8b-r2a8-production-intake-stager \
   stage8b-r2a8-production-current-source-writer \
-  stage8b-r2b-launcher
+  stage8b-r2b-launcher \
+  stage8b-r2b-run-package-draft-builder
 do
   install -m 0755 /bin/true "/opt/moex-trading/stage8b-r2b/bin/$name"
 done
@@ -45,7 +46,8 @@ install -m 0755 /bin/true /opt/moex-trading/stage8b-r2a8/bin/stage8b-r2a8-curren
 install -m 0755 /bin/true /opt/moex-trading/stage8b-r2a7/bin/stage8b-r2a7-source-adapter
 install -m 0755 /bin/true /opt/moex-trading/stage8b-r2a5/bin/stage8b-r2a5-authority-producer
 install -m 0755 /bin/true /opt/moex-trading/stage8b-r2a5/bin/stage8b-r2a5-authority-issuer
+install -m 0755 /bin/true /opt/moex-trading/stage8b-r2a5/bin/stage8b-r2a5-package-issuer
 
 python3 scripts/stage8b_p_r2b_issuance_systemd_check.py --systemd-analyze
 version="$(systemd-analyze --version | head -1)"
-echo "stage8b-p-r2b-issuance-target-systemd-verify: PASS version=${version#systemd } units=9 parser_warnings=0 services_started=0"
+echo "stage8b-p-r2b-issuance-target-systemd-verify: PASS version=${version#systemd } units=18 parser_warnings=0 services_started=0"

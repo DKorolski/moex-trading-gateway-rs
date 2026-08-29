@@ -1,0 +1,53 @@
+id,area,requirement,evidence,status
+IMP-001,authority,accepted predecessor exact,implementation authority,pass
+IMP-002,authority,builder identity and source frozen,implementation authority,pass
+IMP-003,authority,signer identity and custody frozen,implementation authority,pass
+IMP-004,authority,six phase targets frozen,implementation authority,pass
+IMP-005,authority,aggregate target frozen,implementation authority,pass
+IMP-006,authority,exact 31 service graph frozen,implementation authority,pass
+IMP-007,builder,no caller arguments,builder binary source,pass
+IMP-008,builder,seven fixed input classes,r2a5 source,pass
+IMP-009,builder,exact eleven receipts,r2a5 source,pass
+IMP-010,builder,same run nonce validated,r2a5 source,pass
+IMP-011,builder,source generation commitment validated,r2a5 source,pass
+IMP-012,builder,stale and controlled receipts rejected,r2a3 validator,pass
+IMP-013,builder,operator binding validated,r2a5 source,pass
+IMP-014,builder,account binding validated,r2a5 source,pass
+IMP-015,builder,helper and contract binding validated,r2a5 source,pass
+IMP-016,builder,no signing key access,builder unit,pass
+IMP-017,builder,no FINAM credential access,builder unit,pass
+IMP-018,builder,no external network,builder unit,pass
+IMP-019,builder,fixed unsigned output,builder source and unit,pass
+IMP-020,builder,create-new no-replace output,r2a5 test,pass
+IMP-021,builder,file and directory fsync,r2a5 source,pass
+IMP-022,signer,fixed input and output,signer unit and source,pass
+IMP-023,signer,sole signing credential custody,signer unit,pass
+IMP-024,signer,revalidates builder inputs,r2a5 source,pass
+IMP-025,signer,exact 30 second validity,r2a5 source,pass
+IMP-026,signer,cannot repair draft,r2a5 source,pass
+IMP-027,signer,existing signed output rejected,r2a5 test,pass
+IMP-028,graph,phase count is six,authority and checker,pass
+IMP-029,graph,service arithmetic is 4+2+11+11+2+1,authority and checker,pass
+IMP-030,graph,every phase requires all services,systemd checker,pass
+IMP-031,graph,every phase follows all services,systemd checker,pass
+IMP-032,graph,every downstream requires prior phase,systemd checker,pass
+IMP-033,graph,every downstream follows prior phase,systemd checker,pass
+IMP-034,graph,builder requires phase four,builder unit,pass
+IMP-035,graph,signer requires builder,signer unit,pass
+IMP-036,graph,supervisor requires phase five,supervisor unit,pass
+IMP-037,graph,no condition skip barriers,systemd checker,pass
+IMP-038,replay,targets stop when unneeded,systemd checker,pass
+IMP-039,replay,no retained oneshots,systemd checker,pass
+IMP-040,replay,old unsigned output fails closed,r2a5 test,pass
+IMP-041,replay,old signed output fails closed,r2a5 test,pass
+IMP-042,activation,no install sections,implementation checker,pass
+IMP-043,activation,no preset or indirect activation,implementation checker,pass
+IMP-044,activation,not installed enabled or started,evidence,pass
+IMP-045,activation,no operator selection,evidence,pass
+IMP-046,activation,no run nonce or credentials,evidence,pass
+IMP-047,authorization,R2B remains NOT_ISSUED,authority and evidence,pass
+IMP-048,closed,FINAM requests equal zero,evidence,pass
+IMP-049,closed,POST and DELETE closed,evidence,pass
+IMP-050,closed,Redis dispatch runtime-live closed,evidence,pass
+IMP-051,verification,targeted negative harness required,implementation gate,pass
+IMP-052,verification,immutable safe handoff required,handoff scripts,pass

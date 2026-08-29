@@ -19,12 +19,21 @@ UNITS = (
     "deploy/stage8b-r2a5/stage8b-r2a5-producer@.service",
     "deploy/stage8b-r2a5/stage8b-r2a5-issuer@.service",
     "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-run-package-draft-builder.service",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-package-issuer.service",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase1-current-source.target",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase2-manifest-source.target",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase3-authority-producers.target",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase4-authority-issuers.target",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase5-run-package.target",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase6-readonly-preflight.target",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-issuance.target",
 )
 ALLOWED = {
     "Unit": {
         "Description", "Requires", "Wants", "After", "Before", "Conflicts",
         "ConditionPathExists", "ConditionPathIsDirectory", "AssertPathExists",
-        "RefuseManualStart",
+        "RefuseManualStart", "StopWhenUnneeded",
     },
     "Service": {
         "Type", "User", "Group", "SupplementaryGroups", "WorkingDirectory",
@@ -72,6 +81,10 @@ def check(root: Path) -> None:
             raise RuntimeError(f"{relative}: RefuseManualStart misplaced in [Service]")
         if "ConditionPathIsRegular=" in path.read_text(encoding="utf-8"):
             raise RuntimeError(f"{relative}: unsupported ConditionPathIsRegular restored")
+        if relative.endswith(".target") and sections.get("Unit", []).count("StopWhenUnneeded") != 1:
+            raise RuntimeError(f"{relative}: StopWhenUnneeded must occur once in [Unit]")
+        if "RemainAfterExit=" in path.read_text(encoding="utf-8"):
+            raise RuntimeError(f"{relative}: stale active service state forbidden")
 
 
 def systemd_verify(root: Path) -> None:
@@ -98,7 +111,7 @@ def main() -> None:
         systemd_verify(args.root)
     print(
         "stage8b-p-r2b-issuance-systemd-check: PASS "
-        f"units={len(UNITS)} section_aware=true parser_warnings=0 "
+        f"units={len(UNITS)} section_aware=true reusable_transaction=true parser_warnings=0 "
         f"systemd_analyze={str(args.systemd_analyze).lower()}"
     )
 

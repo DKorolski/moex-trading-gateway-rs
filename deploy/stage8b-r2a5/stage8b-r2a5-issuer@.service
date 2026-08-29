@@ -1,6 +1,8 @@
 [Unit]
 Description=MOEX Stage 8B R2A5 authority issuer UID %i
 RefuseManualStart=yes
+Requires=moex-stage8b-r2b-phase3-authority-producers.target
+After=moex-stage8b-r2b-phase3-authority-producers.target
 
 [Service]
 Type=oneshot

@@ -1,8 +1,8 @@
 [Unit]
 Description=Stage 8B R2B root admission supervisor
 RefuseManualStart=yes
-After=local-fs.target
-ConditionPathExists=/proc/sys/kernel/yama/ptrace_scope
+Requires=moex-stage8b-r2b-phase5-run-package.target
+After=local-fs.target moex-stage8b-r2b-phase5-run-package.target
 
 [Service]
 Type=oneshot

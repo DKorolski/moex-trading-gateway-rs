@@ -1,6 +1,8 @@
 [Unit]
 Description=MOEX Stage 8B R2A8 trusted current-manifest issuer
 RefuseManualStart=yes
+Requires=moex-stage8b-r2b-phase1-current-source.target
+After=moex-stage8b-r2b-phase1-current-source.target
 
 [Service]
 Type=oneshot

@@ -735,6 +735,14 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
     {
         return Err(R2a3Error::Authorization);
     }
+    validate_unsigned_draft_inputs(
+        etc_root,
+        state_root,
+        Path::new(PRODUCTION_RUN),
+        &draft,
+        &trust,
+        now,
+    )?;
     let key_text = strict_single_line(
         &read_owned_fd(
             &credentials_root.join("package-authorization.ed25519"),
@@ -752,10 +760,216 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
         return Err(R2a3Error::Authorization);
     }
     let signed = sign_run_package(draft, &signing)?;
-    atomic_write_owned(
+    atomic_create_owned_mode(
         &etc_root.join("r2b-run-package.json"),
         &serde_json::to_vec(&signed)?,
         0,
+        0o644,
+    )
+}
+
+fn validate_unsigned_draft_inputs(
+    etc_root: &Path,
+    state_root: &Path,
+    run_root: &Path,
+    draft: &R2a5RunPackage,
+    trust: &TrustSetManifest,
+    now: DateTime<Utc>,
+) -> Result<(), R2a3Error> {
+    if draft.package_version != 1
+        || now < draft.issued_at_utc
+        || now >= draft.expires_at_utc
+        || draft
+            .expires_at_utc
+            .signed_duration_since(draft.issued_at_utc)
+            .num_seconds()
+            != 30
+        || draft.contract_snapshot_sha256 != sha256(READ_CONTRACT_SNAPSHOT)
+        || draft.source_adapter_authority_sha256 != sha256(SOURCE_ADAPTER_AUTHORITY)
+        || draft.public_key_set_sha256 != trust.public_key_set_sha256
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let nonce = strict_single_line(
+        &read_owned_fd(&run_root.join("run-nonce.sha256"), 128, 0, false)?,
+        128,
+    )?;
+    if draft.run_nonce_sha256 != nonce {
+        return Err(R2a3Error::Authorization);
+    }
+    let manifest = read_owned_fd(&state_root.join("run-manifest.json"), 256 * 1024, 0, false)?;
+    let fields: BTreeMap<String, String> = serde_json::from_slice(&manifest)?;
+    if draft.manifest_sha256 != sha256(&manifest)
+        || draft.run_identity_sha256 != manifest_field(&fields, "run_identity_sha256")?
+        || draft.keyed_account_binding_hmac_sha256
+            != manifest_field(&fields, "keyed_account_binding_hmac_sha256")?
+        || draft.account_key_generation_id != manifest_field(&fields, "account_key_generation_id")?
+        || draft.effect_build_identity_sha256
+            != manifest_field(&fields, "execution_build_identity_sha256")?
+        || exact_operation(draft.operation) != manifest_field(&fields, "operation")?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    if draft.trust_manifest_sha256 != sha256(&trust_bytes) {
+        return Err(R2a3Error::Authorization);
+    }
+    let account_manifest = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
+        0,
+        false,
+    )?;
+    if draft.account_key_manifest_sha256 != sha256(&account_manifest) {
+        return Err(R2a3Error::Authorization);
+    }
+    let operator_decision = read_owned_fd(
+        &etc_root.join("operator-decision.json"),
+        64 * 1024,
+        0,
+        false,
+    )?;
+    if draft.operator_decision_sha256 != sha256(&operator_decision) {
+        return Err(R2a3Error::Authorization);
+    }
+    let receipts = load_receipts(run_root, &nonce)?;
+    let envelope: SignedAuthorityEnvelope = serde_json::from_slice(&receipts)?;
+    if draft.source_generation_commitment_sha256
+        != source_generation_commitment(&envelope.receipts)?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), trust, now)?;
+    let validated: (ValidatedManifest, _) =
+        r2a3::validate_signed_authorities(&manifest, &receipts, &public_keys, &nonce, now)?;
+    if validated.0.run_identity_sha256 != draft.run_identity_sha256 {
+        return Err(R2a3Error::Authorization);
+    }
+    Ok(())
+}
+
+/// Builds the unsigned production run package from the exact local authorities.
+///
+/// This function has no credential or network input. It creates one new draft
+/// and fails closed when a prior draft is present; only the separate package
+/// issuer may read the authorization signing credential.
+pub fn build_run_package_draft_from_fixed_inputs() -> Result<(), R2a3Error> {
+    if unsafe { libc::geteuid() } != 0 {
+        return Err(R2a3Error::Authorization);
+    }
+    build_run_package_draft_at(
+        Path::new(PRODUCTION_ETC),
+        Path::new(PRODUCTION_ROOT),
+        Path::new(PRODUCTION_RUN),
+        Utc::now(),
+    )
+}
+
+fn build_run_package_draft_at(
+    etc_root: &Path,
+    state_root: &Path,
+    run_root: &Path,
+    now: DateTime<Utc>,
+) -> Result<(), R2a3Error> {
+    let nonce = strict_single_line(
+        &read_owned_fd(&run_root.join("run-nonce.sha256"), 128, 0, false)?,
+        128,
+    )?;
+    decode_hex::<32>(&nonce)?;
+    let manifest = read_owned_fd(&state_root.join("run-manifest.json"), 256 * 1024, 0, false)?;
+    let fields: BTreeMap<String, String> = serde_json::from_slice(&manifest)?;
+    let operation = match manifest_field(&fields, "operation")? {
+        "PLACE" => Operation::Place,
+        "CANCEL" => Operation::Cancel,
+        _ => return Err(R2a3Error::Authorization),
+    };
+
+    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    if trust.schema_version != 1
+        || trust.environment != "production"
+        || !trust.rotation_requires_new_reviewed_package
+        || public_key_set_digest(&trust)? != trust.public_key_set_sha256
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    validate_pinned_key(&trust.authorization_key, now)?;
+    let accepted_helper = load_accepted_helper_authority(etc_root, &trust, now)?;
+    if accepted_helper.effect_build_identity_sha256
+        != manifest_field(&fields, "execution_build_identity_sha256")?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+
+    let account_manifest_bytes = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
+        0,
+        false,
+    )?;
+    let account_manifest: AccountKeyManifest = serde_json::from_slice(&account_manifest_bytes)?;
+    let account_generation = manifest_field(&fields, "account_key_generation_id")?;
+    let account_entry = account_manifest
+        .entries
+        .iter()
+        .find(|entry| entry.generation_id == account_generation)
+        .ok_or(R2a3Error::Authorization)?;
+    if account_manifest.schema_version != 1
+        || now < account_entry.valid_from_utc
+        || now >= account_entry.valid_until_utc
+        || account_entry.relative_key_path.contains('/')
+        || account_entry.relative_key_path.contains("..")
+        || decode_hex::<32>(&account_entry.key_sha256).is_err()
+    {
+        return Err(R2a3Error::Authorization);
+    }
+
+    let receipts = load_receipts(run_root, &nonce)?;
+    let envelope: SignedAuthorityEnvelope = serde_json::from_slice(&receipts)?;
+    let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), &trust, now)?;
+    let validated: (ValidatedManifest, _) =
+        r2a3::validate_signed_authorities(&manifest, &receipts, &public_keys, &nonce, now)?;
+    if validated.0.run_identity_sha256 != manifest_field(&fields, "run_identity_sha256")? {
+        return Err(R2a3Error::Authorization);
+    }
+    let operator_decision = read_owned_fd(
+        &etc_root.join("operator-decision.json"),
+        64 * 1024,
+        0,
+        false,
+    )?;
+    let package = R2a5RunPackage {
+        package_version: 1,
+        authorization_status: "ISSUED".to_owned(),
+        issued_at_utc: now,
+        expires_at_utc: now + chrono::Duration::seconds(30),
+        operation,
+        run_nonce_sha256: nonce,
+        run_identity_sha256: manifest_field(&fields, "run_identity_sha256")?.to_owned(),
+        manifest_sha256: sha256(&manifest),
+        keyed_account_binding_hmac_sha256: manifest_field(
+            &fields,
+            "keyed_account_binding_hmac_sha256",
+        )?
+        .to_owned(),
+        account_key_generation_id: account_generation.to_owned(),
+        account_key_manifest_sha256: sha256(&account_manifest_bytes),
+        effect_build_identity_sha256: accepted_helper.effect_build_identity_sha256,
+        helper_executable_sha256: accepted_helper.helper_executable_sha256,
+        contract_snapshot_sha256: sha256(READ_CONTRACT_SNAPSHOT),
+        source_adapter_authority_sha256: sha256(SOURCE_ADAPTER_AUTHORITY),
+        trust_manifest_sha256: sha256(&trust_bytes),
+        public_key_set_sha256: trust.public_key_set_sha256,
+        source_generation_commitment_sha256: source_generation_commitment(&envelope.receipts)?,
+        operator_decision_sha256: sha256(&operator_decision),
+        authorization_key_id: trust.authorization_key.key_id,
+        signature_ed25519_hex: String::new(),
+    };
+    atomic_create_owned_mode(
+        &state_root.join("r2b-run-package.unsigned.json"),
+        &serde_json::to_vec(&package)?,
+        0,
+        0o600,
     )
 }
 
@@ -2029,6 +2243,41 @@ fn atomic_write_owned(
     file.write_all(bytes)?;
     file.sync_all()?;
     std::fs::rename(&temporary, path)?;
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn atomic_create_owned_mode(
+    path: &Path,
+    bytes: &[u8],
+    expected_parent_uid: u32,
+    mode: u32,
+) -> Result<(), R2a3Error> {
+    let parent = path.parent().ok_or(R2a3Error::Input)?;
+    let metadata = parent.metadata()?;
+    if !metadata.is_dir()
+        || metadata.uid() != expected_parent_uid
+        || metadata.mode() & 0o022 != 0
+        || path.symlink_metadata().is_ok()
+    {
+        return Err(R2a3Error::Input);
+    }
+    let temporary = parent.join(format!(".r2b-package.{}.tmp", std::process::id()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(&temporary)?;
+    file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    if let Err(error) = std::fs::hard_link(&temporary, path) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    std::fs::remove_file(&temporary)?;
     File::open(parent)?.sync_all()?;
     Ok(())
 }
@@ -4212,5 +4461,26 @@ mod tests {
             persist_terminal_evidence_at(directory.path(), &evidence, uid, uid, gid),
             Err(R2a3Error::EvidencePersistence)
         ));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn run_package_atomic_create_is_no_replace_and_symlink_safe() {
+        let directory = tempfile::tempdir().unwrap();
+        let uid = std::fs::metadata(directory.path()).unwrap().uid();
+        let output = directory.path().join("r2b-run-package.unsigned.json");
+
+        atomic_create_owned_mode(&output, br#"{"run":"first"}"#, uid, 0o600).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), br#"{"run":"first"}"#);
+        assert_eq!(std::fs::metadata(&output).unwrap().mode() & 0o777, 0o600);
+        assert!(atomic_create_owned_mode(&output, br#"{"run":"second"}"#, uid, 0o600).is_err());
+        assert_eq!(std::fs::read(&output).unwrap(), br#"{"run":"first"}"#);
+
+        std::fs::remove_file(&output).unwrap();
+        let victim = directory.path().join("victim.json");
+        std::fs::write(&victim, b"unchanged").unwrap();
+        std::os::unix::fs::symlink(&victim, &output).unwrap();
+        assert!(atomic_create_owned_mode(&output, b"replacement", uid, 0o600).is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"unchanged");
     }
 }

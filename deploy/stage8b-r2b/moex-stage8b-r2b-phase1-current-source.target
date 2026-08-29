@@ -1,0 +1,7 @@
+[Unit]
+Description=Stage 8B R2B phase 1 exact current-source chain
+RefuseManualStart=yes
+StopWhenUnneeded=yes
+Requires=moex-stage8b-r2a8-upstream-current-authority-publisher.service moex-stage8b-r2a8-authoritative-intake-creator.service moex-stage8b-r2a8-production-intake-stager.service moex-stage8b-r2a8-production-current-source-writer.service
+After=moex-stage8b-r2a8-upstream-current-authority-publisher.service moex-stage8b-r2a8-authoritative-intake-creator.service moex-stage8b-r2a8-production-intake-stager.service moex-stage8b-r2a8-production-current-source-writer.service
+Before=moex-stage8b-r2b-phase2-manifest-source.target

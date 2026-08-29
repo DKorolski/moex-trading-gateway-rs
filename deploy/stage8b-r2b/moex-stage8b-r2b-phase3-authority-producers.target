@@ -1,0 +1,7 @@
+[Unit]
+Description=Stage 8B R2B phase 3 exact authority producers
+RefuseManualStart=yes
+StopWhenUnneeded=yes
+Requires=moex-stage8b-r2b-phase2-manifest-source.target stage8b-r2a5-producer@m8p8101.service stage8b-r2a5-producer@m8p8102.service stage8b-r2a5-producer@m8p8103.service stage8b-r2a5-producer@m8p8104.service stage8b-r2a5-producer@m8p8105.service stage8b-r2a5-producer@m8p8106.service stage8b-r2a5-producer@m8p8107.service stage8b-r2a5-producer@m8p8108.service stage8b-r2a5-producer@m8p8109.service stage8b-r2a5-producer@m8p8110.service stage8b-r2a5-producer@m8p8111.service
+After=moex-stage8b-r2b-phase2-manifest-source.target stage8b-r2a5-producer@m8p8101.service stage8b-r2a5-producer@m8p8102.service stage8b-r2a5-producer@m8p8103.service stage8b-r2a5-producer@m8p8104.service stage8b-r2a5-producer@m8p8105.service stage8b-r2a5-producer@m8p8106.service stage8b-r2a5-producer@m8p8107.service stage8b-r2a5-producer@m8p8108.service stage8b-r2a5-producer@m8p8109.service stage8b-r2a5-producer@m8p8110.service stage8b-r2a5-producer@m8p8111.service
+Before=moex-stage8b-r2b-phase4-authority-issuers.target

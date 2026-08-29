@@ -1,0 +1,7 @@
+[Unit]
+Description=Stage 8B R2B phase 5 exact draft and signed run package
+RefuseManualStart=yes
+StopWhenUnneeded=yes
+Requires=moex-stage8b-r2b-phase4-authority-issuers.target moex-stage8b-r2b-run-package-draft-builder.service moex-stage8b-r2b-package-issuer.service
+After=moex-stage8b-r2b-phase4-authority-issuers.target moex-stage8b-r2b-run-package-draft-builder.service moex-stage8b-r2b-package-issuer.service
+Before=moex-stage8b-r2b-phase6-readonly-preflight.target

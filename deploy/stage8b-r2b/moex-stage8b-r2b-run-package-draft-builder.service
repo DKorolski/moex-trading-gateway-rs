@@ -1,0 +1,29 @@
+[Unit]
+Description=Stage 8B R2B exact unsigned run-package draft builder
+RefuseManualStart=yes
+After=moex-stage8b-r2b-phase4-authority-issuers.target
+Requires=moex-stage8b-r2b-phase4-authority-issuers.target
+Before=moex-stage8b-r2b-package-issuer.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2b-run-package-draft-builder
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadOnlyPaths=/etc/moex-trading/stage8b/r2a5 /run/moex-trading/stage8b/r2a5
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a5
+SystemCallArchitectures=native
+UMask=0077

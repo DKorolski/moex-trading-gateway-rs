@@ -3,9 +3,6 @@ Description=MOEX Stage 8B R2A7 production recovery-reader source adapter
 RefuseManualStart=yes
 Requires=stage8b-r2a8-current-manifest-issuer.service
 After=stage8b-r2a8-current-manifest-issuer.service
-ConditionPathIsDirectory=/var/lib/moex-trading/stage7b
-ConditionPathIsDirectory=/var/lib/moex-trading/stage8a1-authority
-ConditionPathIsDirectory=/var/lib/moex-trading/operational-authorities
 
 [Service]
 Type=oneshot
