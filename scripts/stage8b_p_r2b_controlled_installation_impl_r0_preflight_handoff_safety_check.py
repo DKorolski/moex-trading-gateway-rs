@@ -21,6 +21,7 @@ REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-staging-inventory.json",
     "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-canary-ceremony.json",
     "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-reset-uninstall.json",
+    "deploy/stage8b-r2b-proof/stage8b-r2b-controlled-proof-trigger.service",
     "scripts/stage8b_p_r2b_controlled_installation_impl_r0_preflight_check.py",
     "scripts/stage8b_p_r2b_controlled_installation_impl_r0_preflight_negative_harness.py",
     "scripts/stage8b_p_r2b_controlled_installation_impl_r0_preflight_gate.sh",
@@ -84,16 +85,20 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("accepted design archive mismatch")
         if evidence.get("authorization") != "NOT_ISSUED" or authority.get("authorization") != "NOT_ISSUED":
             raise ValueError("authorization opened")
-        if authority.get("status") != "PREFLIGHT_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED":
+        if authority.get("status") != "PROOF_SEMANTICS_TRIGGER_CLEANUP_CLOSURE_REVIEW_REQUIRED_NOT_EXECUTED":
             raise ValueError("preflight status drift")
         if any(authority.get("execution_state", {}).values()):
             raise ValueError("preflight claims execution")
-        if inventory.get("status") != "PLANNED_NOT_CREATED" or ceremony.get("status") != "REVIEWED_ID_NOT_MATERIALIZED":
+        if inventory.get("status") != "PLANNED_NOT_CREATED" or ceremony.get("status") != "PLANNED_NOT_MATERIALIZED":
             raise ValueError("planned state drift")
         for key in ("container_created", "installed", "enabled", "started", "ceremony_executed", "proof_executed", "finam_open", "runtime_live"):
             if evidence.get(key) is not False:
                 raise ValueError(f"closed handoff surface opened: {key}")
-        if evidence.get("binary_count") != 12 or evidence.get("unit_target_count") != 18 or evidence.get("negative_mutations") != 31:
+        if evidence.get("production_aggregate_expected_success") is not False:
+            raise ValueError("production aggregate must be expected fail-closed")
+        if evidence.get("outer_runner_expected_success") is not True:
+            raise ValueError("outer runner must recognize the expected fail-closed result")
+        if evidence.get("binary_count") != 12 or evidence.get("unit_target_count") != 19 or evidence.get("negative_mutations") != 40:
             raise ValueError("preflight inventory drift")
         gate = archive.read(GATE)
         if b"stage8b-p-r2b-controlled-installation-impl-r0-preflight-gate: PASS" not in gate or sha256(gate) != evidence.get("gate_sha256"):
@@ -118,7 +123,7 @@ def check(path: str) -> dict[str, object]:
         return {
             "archive_members": len(names), "tracked_members_verified": len(tracked),
             "duplicates": 0, "symlinks": 0, "unsafe_paths": 0,
-            "source_ref": source_ref, "binary_count": 12, "unit_target_count": 18,
+            "source_ref": source_ref, "binary_count": 12, "unit_target_count": 19,
             "execution": False, "authorization": "NOT_ISSUED", "result": "PASS",
         }
 

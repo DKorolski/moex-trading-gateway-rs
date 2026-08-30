@@ -18,11 +18,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `1e4db79288b0809fd5975edfdd0fc14740bcc8c6`; its immutable archive
   `moex-trading-project-1e4db79.zip` has SHA-256
   `5d55ccd8a585d6da780531aa237c9fba215328bce502b1099a8dc5aa3c22faea`.
-  The current candidate is **Controlled Installation Implementation R0 preflight**:
-  a separately reviewed plan for a disposable Linux/amd64 systemd
-  contour, external exact-ELF artifact root, distinct canary ceremony and
-  mandatory reset/uninstall proof. The preflight has not created a container,
-  installed a unit, materialized a key or executed the proof. R2B remains
+  Initial Controlled Installation Implementation R0 preflight at `b9f0c43` was
+  not accepted because it incorrectly claimed aggregate success under no
+  network, mixed a fresh canary domain with production authority, omitted the
+  graph trigger and had an incomplete uninstall inventory. The current
+  candidate is **Implementation R0 Preflight R1**. It separates exact
+  production expected fail-closed proof from controlled TLS success, freezes a
+  proof-only aggregate trigger, all 19 unit removals, all 12 binary removals,
+  the final systemd image and fresh-handoff source mount. The preflight has not
+  created a container, installed a unit, materialized a key or executed the
+  proof. R2B remains
   `NOT_ISSUED`; FINAM network, AuthService and broker GET, POST/DELETE, broker
   dispatch, Redis live, runtime-live and real orders remain closed.
 

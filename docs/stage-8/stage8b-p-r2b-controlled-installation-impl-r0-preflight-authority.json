@@ -1,16 +1,19 @@
 {
-  "schema_version": 1,
-  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof — Implementation R0 Preflight",
-  "status": "PREFLIGHT_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+  "schema_version": 2,
+  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof — Implementation R0 Preflight R1",
+  "status": "PROOF_SEMANTICS_TRIGGER_CLEANUP_CLOSURE_REVIEW_REQUIRED_NOT_EXECUTED",
+  "rejected_predecessor": {
+    "source_ref": "b9f0c43f4865ee001b72abaf72c0a6a4dd77a32a",
+    "archive_sha256": "b71ec0160a2968db8f6e8c4107597b67be0d9a2be31d216b51321f457797b98c",
+    "verdict": "NOT_ACCEPTED"
+  },
   "accepted_design": {
     "source_ref": "1e4db79288b0809fd5975edfdd0fc14740bcc8c6",
-    "archive_name": "moex-trading-project-1e4db79.zip",
     "archive_sha256": "5d55ccd8a585d6da780531aa237c9fba215328bce502b1099a8dc5aa3c22faea",
     "verdict": "ACCEPTED"
   },
   "accepted_implementation": {
     "source_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
-    "archive_name": "moex-trading-project-6672819.zip",
     "archive_sha256": "2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77",
     "verdict": "ACCEPTED"
   },
@@ -19,15 +22,45 @@
     "docs/stage-8/stage8b-p-r2b-preproduction-supersession.json": "40f962a60cc721512bd07134e641e2ce69bb37f27dbea975fc552640ea3bd7b5",
     "docs/stage-8/stage8b-p-r2b-implementation-transaction-contract.json": "3d45203facd2634767d3ad21877d4c16b1bb3f9c7a2856bcf02471e69ad72af9"
   },
-  "new_contracts": {
-    "staging_inventory": "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-staging-inventory.json",
-    "canary_ceremony": "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-canary-ceremony.json",
-    "reset_uninstall": "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-reset-uninstall.json"
+  "proof_lanes": {
+    "lane_a": {
+      "identity": "EXACT_PRODUCTION_EXPECTED_FAIL_CLOSED",
+      "production_elf_count": 12,
+      "production_unit_count": 18,
+      "network_mode": "none",
+      "hardcoded_base_url": "https://api.finam.ru",
+      "aggregate_target_expected_success": false,
+      "expected_terminal_classes": [
+        "NETWORK_CONNECT_FAILURE",
+        "AUTH_SESSION_FAILURE"
+      ],
+      "outer_runner_expected_success": true,
+      "controlled_binary_substitution_allowed": false,
+      "accepted_public_authority_required": true,
+      "matching_offline_private_ceremony_required": true,
+      "execution_without_matching_ceremony_allowed": false
+    },
+    "lane_b": {
+      "identity": "CONTROLLED_TLS_READ_PIPELINE_SUCCESS",
+      "accepted_tls_ref": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+      "loopback_only": true,
+      "fresh_canary_domain_allowed": true,
+      "counted_as_production_binary_proof": false,
+      "new_execution_in_this_package": false
+    }
+  },
+  "trigger": {
+    "source": "deploy/stage8b-r2b-proof/stage8b-r2b-controlled-proof-trigger.service",
+    "destination": "/etc/systemd/system/stage8b-r2b-controlled-proof-trigger.service",
+    "sha256": "c30da9c111a0e681de6cd4cc23bab3b1d58f5b15b86aff885d0838cf43c6cf0f",
+    "production_service_arithmetic_member": false,
+    "enabled": false,
+    "direct_aggregate_manual_start_allowed": false,
+    "production_dropins_allowed": false
   },
   "artifact_root": {
     "argument": "--artifact-root",
     "required": true,
-    "accepted_predecessor_archive_embedded": false,
     "binary_count": 12,
     "hash_mismatch_action": "ABORT_BEFORE_CONTAINER_CREATE"
   },
@@ -37,7 +70,7 @@
     "units_installed": false,
     "units_enabled": false,
     "units_started": false,
-    "canary_private_material_created": false,
+    "private_material_created": false,
     "proof_executed": false,
     "cleanup_executed": false
   },

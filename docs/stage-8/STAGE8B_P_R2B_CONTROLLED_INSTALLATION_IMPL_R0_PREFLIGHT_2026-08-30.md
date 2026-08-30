@@ -1,86 +1,122 @@
-# Stage 8B-P R2B Controlled Installation — Implementation R0 preflight
+# Stage 8B-P R2B Controlled Installation — Implementation R0 Preflight R1
 
-Status: preflight contract, independent review required, execution not started.
+Status: proof-semantics, trigger and cleanup correction; independent review
+required; execution not started.
 
-## Purpose
+## Lineage and correction scope
 
-This package turns the accepted Controlled Installation R0 design at
-`1e4db79288b0809fd5975edfdd0fc14740bcc8c6` into an executable, reviewable
-plan. It does not install, enable or start a unit and does not materialize a
-private key. A subsequent reviewed execution package is required before the
-controlled proof may run.
+This R1 corrects the rejected preflight commit
+`b9f0c43f4865ee001b72abaf72c0a6a4dd77a32a`. It retains the accepted
+Controlled Installation R0 design at
+`1e4db79288b0809fd5975edfdd0fc14740bcc8c6` and the accepted production
+Implementation R0-R1A at `6672819e357a3c2a2c1e73e5408c393da01913a1`.
 
-The proof contour is a disposable Linux/amd64 systemd container on the local
-developer workstation. The container is not the production account host. It
-is created with Docker `--network none`; it receives only read-only source and
-accepted-artifact mounts plus a dedicated evidence output. Host root, Docker
-socket, `.env`, broker configuration and production runtime directories are
-not mounted.
+No production Rust or production unit is changed. R1 adds one explicitly
+proof-only trigger and corrects the proof semantics, ceremony preconditions,
+container pin and exact cleanup inventories.
 
-## Immutable predecessors
+## Two proof lanes
 
-- accepted design commit:
-  `1e4db79288b0809fd5975edfdd0fc14740bcc8c6`;
-- accepted design archive: `moex-trading-project-1e4db79.zip`;
-- accepted design archive SHA-256:
-  `5d55ccd8a585d6da780531aa237c9fba215328bce502b1099a8dc5aa3c22faea`;
-- accepted Implementation R0-R1A commit:
-  `6672819e357a3c2a2c1e73e5408c393da01913a1`;
-- accepted Implementation R0-R1A archive SHA-256:
-  `2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77`.
+### Lane A — exact production artifacts, expected fail-closed boundary
 
-The inherited controlled-installation authority, supersession record and full
-transaction contract are exact-hash inputs. This package does not rewrite
-them.
+Lane A installs the 12 exact production ELF and 18 exact production
+unit/target files. The helper remains hard-bound to `https://api.finam.ru`.
+The contour has no network route, so a successful broker read is neither
+expected nor claimed.
 
-## External ELF root
+The exact expected result is:
 
-The execution runner must receive `--artifact-root`. The root must contain all
-12 Linux/amd64 executables listed in the staging inventory and every byte must
-match the accepted transaction SHA-256. The accepted `6672819` archive carries
-the four final Phase 5/6 binaries in
-`handoff-evidence/linux-amd64/build-a`; the other accepted binaries must be
-materialized from their own accepted immutable evidence. Missing, duplicate,
-rebuilt-without-evidence or hash-mismatched binaries abort before container
-creation.
+```text
+Phases 1–5                         SUCCESS
+Phase 6 local authority/admission  SUCCESS
+production helper network attempt  EXPECTED FAIL-CLOSED
+root terminal evidence             DURABLE
+aggregate target                   EXPECTED FAILED
+outer proof runner                 PASS
+```
 
-This deliberately avoids copying predecessor ELF into every design handoff.
+Outer PASS means that the exact expected root-persisted network/auth failure
+was observed and all forbidden effects remained zero. It never means that the
+production aggregate target succeeded.
 
-## Canary ceremony
+Lane A requires ephemeral materialization of the accepted pre-production
+trust set. Public fingerprints must exactly match the embedded production
+authority. A newly generated random canary key set is forbidden in Lane A. The
+corresponding private ceremony is not stored in Git or any handoff; if a
+separately reviewed matching offline ceremony is unavailable, Lane A aborts
+before container creation. The earlier accepted Phase-5/6 evidence may be
+referenced as inherited semantic qualification, but cannot be represented as
+a new dynamic run.
 
-The reviewed ceremony ID is
-`stage8b-r2b-canary-offline-20260830-r0`. It is a new canary trust domain and
-does not claim continuity with generation 1 of the pre-production authority.
-Private material may be generated only after the networkless contour exists,
-inside a dedicated tmpfs. It must never enter source, reports, the handoff,
-shell arguments or host persistent storage. Only public fingerprints and
-redacted lifecycle evidence may leave the contour. Real FINAM token, account
-ID and operator identity are forbidden; fixed canary labels are used instead.
+### Lane B — controlled TLS read-pipeline success
 
-## Planned proof transaction
+Lane B is a separate controlled qualification domain. It uses the accepted
+controlled-custody feature, loopback-only TLS server, controlled endpoint/CA
+and a fresh canary trust domain. It may prove successful AuthService/GET
+semantics, but controlled binaries and results may not be counted as Lane A
+production-binary proof.
 
-After separate execution approval, one runner must:
+The accepted Stage 8B-IT-TLS R1 at
+`6cb179509fad97e8be56e31bb930b2a86caefc6a` is inherited for controlled TLS
+semantics. Any new Lane B execution must pin its own controlled ELF and server
+hashes in its execution package.
 
-1. validate the host/contour inventory and all inherited hashes;
-2. create a fresh networkless systemd container and verify absence of a
-   default route and DNS reachability;
-3. generate the named canary ceremony in tmpfs;
-4. install exactly 18 unit/target files and 12 exact accepted ELF files;
-5. run the 31-invocation success graph;
-6. prove failure blocking for each of the six phases, including partial
-   producer and issuer fanout;
-7. prove stale ceremony, stale nonce, stale receipt and stale output rejection;
-8. remove all transaction state and prove a second clean success run;
-9. stop/disable/reset every unit, remove units, ELF, state and canary material,
-   run `daemon-reload`, and prove the post-uninstall inventory is empty;
-10. destroy the container and emit only redacted evidence.
+## Exact graph trigger
 
-Any failure enters cleanup. Cleanup failure makes the whole proof fail.
+Direct `systemctl start moex-stage8b-r2b-issuance.target` is forbidden because
+the production target has `RefuseManualStart=yes`. The sole allowed activation
+entry is the proof-only unit:
+
+```text
+stage8b-r2b-controlled-proof-trigger.service
+```
+
+It has exact `Requires=` and `After=` edges to the aggregate target,
+`Type=oneshot`, `ExecStart=/bin/true`, no install section and SHA-256
+`c30da9c111a0e681de6cd4cc23bab3b1d58f5b15b86aff885d0838cf43c6cf0f`.
+It is the nineteenth installed unit file, is not part of the 31 production
+service-invocation arithmetic, is never enabled, and is removed after proof.
+No production drop-in or `RefuseManualStart` mutation is allowed.
+
+## Frozen contour
+
+The execution contour is a disposable Linux/amd64 systemd container on the
+local developer workstation. The exact final image ID is
+`sha256:3cc66c640df0444530a626d2acbcfeda9742039b917a747fd023b315ef2c1526`.
+Its base image, build recipe, systemd version and package inventory are pinned
+in the staging inventory. Rebuilding under the same tag is not accepted; the
+image ID must match before execution.
+
+The exact Docker boundary uses `--platform linux/amd64`, `--network none`,
+`--privileged`, `--cgroupns=host`, a cgroup mount, four allowlisted mounts and
+no devices or additional capabilities. Privileged mode is confined to Docker
+Desktop's Linux VM; host root, Docker socket, `.env`, broker configuration and
+production runtime directories are not mounted.
+
+`/work` must be a fresh extraction of the reviewed handoff. Its
+`handoff-commit.txt`, source manifest and archive SHA must pass before Docker
+creation. A developer checkout is forbidden.
+
+The runner must receive `--artifact-root`; all 12 ELF bytes must match the
+accepted transaction contract before Docker creation.
+
+## Reset and uninstall
+
+The reset contract now lists every one of 19 unit destinations and every one
+of 12 binary destinations explicitly. Wildcards are diagnostic only and are
+not cleanup authority. Each installed artifact has exactly one removal entry
+and one absence check.
+
+After the first run, all nonce, receipt, current-source, authority, package and
+ceremony projections are removed before the second run. Private material may
+not be reused. Cleanup runs on success and failure, removes all units,
+binaries, state and canary material, reloads systemd, resets failed state and
+destroys the container. Any cleanup failure makes the outer proof fail.
 
 ## Closed boundary
 
+- this R1 does not authorize execution;
 - `R2B = NOT_ISSUED`;
-- no installation or execution is authorized by this preflight package;
-- no production host, real operator or real credential;
-- no FINAM AuthService, broker GET, POST or DELETE;
+- no real operator, account or broker credential;
+- no FINAM route, AuthService, broker GET, POST or DELETE;
 - no broker dispatch, Redis live, runtime-live or real orders.

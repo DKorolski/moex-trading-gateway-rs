@@ -1,63 +1,71 @@
 {
-  "schema_version": 1,
-  "inventory_id": "stage8b-r2b-canary-systemd-docker-r0",
+  "schema_version": 2,
+  "inventory_id": "stage8b-r2b-controlled-proof-docker-r1",
   "status": "PLANNED_NOT_CREATED",
   "host": {
     "classification": "DEVELOPER_LOCAL_WORKSTATION",
     "production_account_host": false,
     "os": "darwin",
     "architecture": "arm64",
-    "production_runtime_mount_allowed": false
+    "virtualization_boundary": "DOCKER_DESKTOP_LINUX_VM",
+    "sensitive_workloads_in_vm_allowed": false
   },
-  "contour": {
-    "backend": "docker",
-    "container_platform": "linux/amd64",
+  "image": {
+    "tag": "stage8b-r2b-r0-r1a-systemd:ubuntu24.04-amd64",
+    "image_id": "sha256:3cc66c640df0444530a626d2acbcfeda9742039b917a747fd023b315ef2c1526",
+    "platform": "linux/amd64",
     "base_image": "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
-    "systemd_pid1_required": true,
-    "ephemeral": true,
-    "privileged_only_for_systemd_cgroup": true,
-    "network_mode": "none",
+    "systemd_version": "255.4-1ubuntu8.17",
+    "package_inventory": {
+      "findutils": "4.9.0-5build1",
+      "iproute2": "6.1.0-1ubuntu6.4",
+      "libc6:amd64": "2.39-0ubuntu8.8",
+      "libsystemd0:amd64": "255.4-1ubuntu8.17",
+      "python3": "3.12.3-0ubuntu2.1",
+      "systemd": "255.4-1ubuntu8.17",
+      "util-linux": "2.39.3-9ubuntu6.5"
+    },
+    "build_recipe": "FROM pinned ubuntu; apt-get install --no-install-recommends systemd util-linux iproute2 python3 findutils; STOPSIGNAL SIGRTMIN+3; CMD /lib/systemd/systemd",
+    "rebuild_under_same_tag_allowed": false
+  },
+  "docker_run": {
+    "exact_flags": [
+      "--privileged",
+      "--platform=linux/amd64",
+      "--cgroupns=host",
+      "--network=none",
+      "--tmpfs=/run/stage8b-r2b-canary:rw,nosuid,nodev,noexec,mode=0700",
+      "--mount=type=bind,source=FRESH_REVIEW_EXTRACTION,destination=/work,readonly",
+      "--mount=type=bind,source=ACCEPTED_ARTIFACT_ROOT,destination=/accepted-artifacts,readonly",
+      "--mount=type=bind,source=REDACTED_EVIDENCE_DIR,destination=/evidence",
+      "--mount=type=bind,source=/sys/fs/cgroup,destination=/sys/fs/cgroup"
+    ],
+    "additional_capabilities_allowed": false,
+    "devices_allowed": false,
+    "host_root_mount_allowed": false,
+    "docker_socket_mount_allowed": false,
     "default_route_allowed": false,
     "dns_allowed": false,
     "finam_route_allowed": false
   },
-  "mounts": [
-    {
-      "source_class": "REVIEWED_SOURCE_TREE",
-      "destination": "/work",
-      "mode": "ro"
-    },
-    {
-      "source_class": "ACCEPTED_ELF_ARTIFACT_ROOT",
-      "destination": "/accepted-artifacts",
-      "mode": "ro"
-    },
-    {
-      "source_class": "DEDICATED_REDACTED_EVIDENCE_OUTPUT",
-      "destination": "/evidence",
-      "mode": "rw"
-    },
-    {
-      "source_class": "EPHEMERAL_CANARY_TMPFS",
-      "destination": "/run/stage8b-r2b-canary",
-      "mode": "tmpfs"
-    }
-  ],
-  "forbidden_mounts": [
-    "/",
-    "/var/run/docker.sock",
-    "/opt/trading-hybrid",
-    "/opt/moex-trading",
-    ".env",
-    "BROKER_CREDENTIAL_DIRECTORY",
-    "PRODUCTION_REDIS_DIRECTORY"
-  ],
+  "source_mount": {
+    "kind": "FRESH_EXTRACTION_OF_REVIEWED_HANDOFF",
+    "developer_working_tree_allowed": false,
+    "handoff_commit_match_required": true,
+    "source_manifest_complete_required": true,
+    "archive_sha256_match_required": true,
+    "untracked_files_allowed": false,
+    "env_files_allowed": false
+  },
   "installation": {
-    "unit_target_file_count": 18,
+    "production_unit_target_file_count": 18,
+    "proof_trigger_file_count": 1,
+    "total_unit_file_count": 19,
     "service_invocation_count": 31,
     "phase_count": 6,
     "binary_count": 12,
     "enablement_allowed": false,
+    "production_dropins_allowed": false,
     "persistent_host_install_allowed": false
   },
   "production_linux_amd64_sha256": {

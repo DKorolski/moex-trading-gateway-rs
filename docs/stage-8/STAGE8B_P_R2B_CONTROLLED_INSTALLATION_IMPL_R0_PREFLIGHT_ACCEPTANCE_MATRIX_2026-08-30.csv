@@ -1,31 +1,41 @@
 id,category,requirement,evidence,status
-CIPF-001,lineage,accepted design commit and archive are exact,preflight authority,PASS
-CIPF-002,lineage,accepted implementation commit and archive are exact,preflight authority,PASS
-CIPF-003,lineage,inherited controlled-installation authority is byte pinned,checker,PASS
-CIPF-004,lineage,inherited supersession record is byte pinned,checker,PASS
-CIPF-005,lineage,inherited transaction contract is byte pinned,checker,PASS
-CIPF-006,artifacts,external artifact-root argument is mandatory,preflight authority,PASS
-CIPF-007,artifacts,all twelve production ELF hashes are exact,staging inventory plus checker,PASS
-CIPF-008,artifacts,all eighteen unit and target hashes remain inherited exactly,transaction contract plus checker,PASS
-CIPF-009,contour,contour is a disposable linux amd64 systemd container,staging inventory,PASS
-CIPF-010,contour,host is not the production account host,staging inventory,PASS
-CIPF-011,contour,network mode is none and FINAM route is forbidden,staging inventory,PASS
-CIPF-012,contour,host root docker socket env and production runtime mounts are forbidden,staging inventory,PASS
-CIPF-013,ceremony,canary ceremony has a distinct fixed identity,canary ceremony,PASS
-CIPF-014,ceremony,canary domain asserts no production continuity,canary ceremony,PASS
-CIPF-015,ceremony,private material is tmpfs only and cannot be exported,canary ceremony,PASS
-CIPF-016,ceremony,real operator account and token are forbidden,canary ceremony,PASS
-CIPF-017,ceremony,eleven exact source issuer identities are retained,canary ceremony plus transaction contract,PASS
-CIPF-018,proof,full success graph is required,preflight plan,PASS
-CIPF-019,proof,every one of six phase failures must block downstream,preflight plan,PASS
-CIPF-020,proof,partial producer and issuer fanout must block downstream,preflight plan,PASS
-CIPF-021,proof,stale ceremony nonce receipt and output must be rejected,preflight plan,PASS
-CIPF-022,reset,full reset is required before second run,reset and uninstall plan,PASS
-CIPF-023,reset,first-run private material cannot be reused,reset and uninstall plan,PASS
-CIPF-024,cleanup,cleanup is mandatory on success and failure,reset and uninstall plan,PASS
-CIPF-025,cleanup,units binaries state and credentials must be absent after proof,reset and uninstall plan,PASS
-CIPF-026,cleanup,container destruction is mandatory,reset and uninstall plan,PASS
-CIPF-027,status,current status records both accepted predecessors and next proof step,current-status plus checker,PASS
-CIPF-028,boundary,this preflight does not authorize execution,preflight authority,PASS
-CIPF-029,boundary,R2B remains NOT_ISSUED,preflight authority,PASS
-CIPF-030,boundary,FINAM effects Redis runtime-live and real orders remain closed,preflight authority,PASS
+CIPFR1-001,lineage,rejected R0 preflight is exact and retained,R1 authority,PASS
+CIPFR1-002,lineage,accepted controlled-installation design is exact,R1 authority,PASS
+CIPFR1-003,lineage,accepted production implementation is exact,R1 authority,PASS
+CIPFR1-004,lineage,inherited authority supersession and transaction are byte pinned,checker,PASS
+CIPFR1-005,production,exact production helper remains hard-bound to FINAM base URL,source plus checker,PASS
+CIPFR1-006,production,Lane A does not claim aggregate success under network none,R1 authority,PASS
+CIPFR1-007,production,Lane A requires durable expected failure terminal,R1 authority,PASS
+CIPFR1-008,production,outer runner PASS is distinct from aggregate FAILED,R1 authority,PASS
+CIPFR1-009,production,controlled binary substitution in Lane A is forbidden,R1 authority,PASS
+CIPFR1-010,ceremony,Lane A uses only accepted pre-production public trust set,ceremony contract,PASS
+CIPFR1-011,ceremony,new random trust domain in Lane A is forbidden,ceremony contract,PASS
+CIPFR1-012,ceremony,missing matching offline material aborts before container creation,ceremony contract,PASS
+CIPFR1-013,controlled,Lane B is controlled TLS only,R1 authority,PASS
+CIPFR1-014,controlled,Lane B inherits accepted TLS qualification,authority plus TLS status,PASS
+CIPFR1-015,controlled,Lane B cannot count as production binary proof,R1 authority,PASS
+CIPFR1-016,trigger,direct aggregate manual start is forbidden,R1 authority,PASS
+CIPFR1-017,trigger,proof-only trigger has exact Requires and After edges,unit plus checker,PASS
+CIPFR1-018,trigger,proof trigger is outside 31 invocation arithmetic,R1 authority,PASS
+CIPFR1-019,trigger,proof trigger is never enabled,R1 authority,PASS
+CIPFR1-020,trigger,production drop-ins and RefuseManualStart mutations are forbidden,R1 authority,PASS
+CIPFR1-021,cleanup,all 18 production units are listed exactly,reset contract plus transaction,PASS
+CIPFR1-022,cleanup,proof trigger is the nineteenth removal entry,reset contract,PASS
+CIPFR1-023,cleanup,all 12 binary destinations are listed exactly,reset contract,PASS
+CIPFR1-024,cleanup,R2A7 unit and binary are removed,reset contract,PASS
+CIPFR1-025,cleanup,R2A8 units and binaries are removed,reset contract,PASS
+CIPFR1-026,cleanup,cleanup is mandatory on success and failure,reset contract,PASS
+CIPFR1-027,reset,second run begins from empty transaction state,reset contract,PASS
+CIPFR1-028,reset,first-run private material is not reused,reset contract,PASS
+CIPFR1-029,reset,second Lane A result is the same expected fail-closed result,reset contract,PASS
+CIPFR1-030,image,final runnable systemd image ID is exact,staging inventory,PASS
+CIPFR1-031,image,systemd and package versions are pinned,staging inventory,PASS
+CIPFR1-032,docker,exact privileged Docker VM boundary is frozen,staging inventory,PASS
+CIPFR1-033,docker,network route DNS host root and Docker socket are absent,staging inventory,PASS
+CIPFR1-034,source,/work is a fresh reviewed handoff extraction,staging inventory,PASS
+CIPFR1-035,source,developer working tree and env files are forbidden,staging inventory,PASS
+CIPFR1-036,artifacts,external root carries 12 exact production ELF,inventory plus transaction,PASS
+CIPFR1-037,boundary,this R1 does not authorize execution,R1 authority,PASS
+CIPFR1-038,boundary,R2B remains NOT_ISSUED,R1 authority,PASS
+CIPFR1-039,boundary,FINAM Auth GET POST DELETE and dispatch remain closed,R1 authority,PASS
+CIPFR1-040,boundary,Redis runtime-live and real orders remain closed,R1 authority,PASS
