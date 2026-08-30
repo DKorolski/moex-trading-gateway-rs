@@ -1,19 +1,20 @@
-# Stage 8B-P R2B Controlled Installation — Implementation R0 Preflight R1
+# Stage 8B-P R2B Controlled Installation — Implementation R0 Preflight R1A
 
-Status: proof-semantics, trigger and cleanup correction; independent review
+Status: production request-boundary proof-oracle microfix; independent review
 required; execution not started.
 
 ## Lineage and correction scope
 
-This R1 corrects the rejected preflight commit
-`b9f0c43f4865ee001b72abaf72c0a6a4dd77a32a`. It retains the accepted
+This R1A follows the rejected R1 preflight commit
+`9fd9fa9e7eea38371bb412a713f0419697671f7c`, which closed the earlier R0
+findings but admitted a category-only production proof oracle. It retains the accepted
 Controlled Installation R0 design at
 `1e4db79288b0809fd5975edfdd0fc14740bcc8c6` and the accepted production
 Implementation R0-R1A at `6672819e357a3c2a2c1e73e5408c393da01913a1`.
 
-No production Rust or production unit is changed. R1 adds one explicitly
-proof-only trigger and corrects the proof semantics, ceremony preconditions,
-container pin and exact cleanup inventories.
+No production Rust or production unit is changed. R1A keeps the R1 trigger,
+ceremony, container and cleanup closures and narrows the production proof
+oracle to structured failed-request evidence.
 
 ## Two proof lanes
 
@@ -29,15 +30,24 @@ The exact expected result is:
 ```text
 Phases 1–5                         SUCCESS
 Phase 6 local authority/admission  SUCCESS
-production helper network attempt  EXPECTED FAIL-CLOSED
+POST /v1/sessions attempt #1       EXPECTED FAIL-CLOSED
 root terminal evidence             DURABLE
 aggregate target                   EXPECTED FAILED
 outer proof runner                 PASS
 ```
 
-Outer PASS means that the exact expected root-persisted network/auth failure
-was observed and all forbidden effects remained zero. It never means that the
-production aggregate target succeeded.
+Outer PASS requires `EXACT_TYPED_ROOT_TERMINAL_EVIDENCE`. The root admission,
+helper authority validation and child terminal protocol must have succeeded;
+the evidence must contain failed attempt ordinal `1`, method `POST`, route
+template `/v1/sessions`, no HTTP status and no response body. The only accepted
+attempt outcomes are `NETWORK_CONNECT_FAILURE` and request-level `TIMEOUT`.
+All order-effect, broker-dispatch and real-order flags must be false.
+
+`AUTH_SESSION_FAILURE` without an attempt, local HTTP-client construction
+failure, a root supervisor lifecycle timeout, a wrong route/method/ordinal or
+an HTTP response cannot satisfy Lane A. String matching on a terminal category
+is not an oracle. Outer PASS never means that the production aggregate target
+succeeded.
 
 Lane A requires ephemeral materialization of the accepted pre-production
 trust set. Public fingerprints must exactly match the embedded production
@@ -88,10 +98,12 @@ in the staging inventory. Rebuilding under the same tag is not accepted; the
 image ID must match before execution.
 
 The exact Docker boundary uses `--platform linux/amd64`, `--network none`,
-`--privileged`, `--cgroupns=host`, a cgroup mount, four allowlisted mounts and
-no devices or additional capabilities. Privileged mode is confined to Docker
-Desktop's Linux VM; host root, Docker socket, `.env`, broker configuration and
-production runtime directories are not mounted.
+`--privileged`, `--cgroupns=host`, a cgroup mount and four allowlisted mounts.
+`--privileged` grants broad capabilities and device access inside the
+disposable Docker Desktop Linux VM; no separate `--cap-add` or `--device`
+flags are supplied. The VM has no sensitive co-tenant workload. Host root,
+Docker socket, `.env`, broker configuration and production runtime directories
+are not mounted.
 
 `/work` must be a fresh extraction of the reviewed handoff. Its
 `handoff-commit.txt`, source manifest and archive SHA must pass before Docker
@@ -108,14 +120,17 @@ not cleanup authority. Each installed artifact has exactly one removal entry
 and one absence check.
 
 After the first run, all nonce, receipt, current-source, authority, package and
-ceremony projections are removed before the second run. Private material may
-not be reused. Cleanup runs on success and failure, removes all units,
-binaries, state and canary material, reloads systemd, resets failed state and
-destroys the container. Any cleanup failure makes the outer proof fail.
+ceremony projections are removed before the second run. Run-1 tmpfs files,
+file descriptors and projected copies are destroyed and cannot be retained.
+Run 2 must freshly rematerialize the same accepted offline key identities into
+a fresh tmpfs projection. Cleanup runs on success and failure, removes all
+units, binaries, state and canary material, reloads systemd, resets failed
+state and destroys the container. Any cleanup failure makes the outer proof
+fail.
 
 ## Closed boundary
 
-- this R1 does not authorize execution;
+- this R1A does not authorize execution;
 - `R2B = NOT_ISSUED`;
 - no real operator, account or broker credential;
 - no FINAM route, AuthService, broker GET, POST or DELETE;

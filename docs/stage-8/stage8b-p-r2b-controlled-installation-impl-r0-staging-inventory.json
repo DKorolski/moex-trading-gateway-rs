@@ -40,8 +40,9 @@
       "--mount=type=bind,source=REDACTED_EVIDENCE_DIR,destination=/evidence",
       "--mount=type=bind,source=/sys/fs/cgroup,destination=/sys/fs/cgroup"
     ],
-    "additional_capabilities_allowed": false,
-    "devices_allowed": false,
+    "privileged_inside_disposable_docker_desktop_vm": true,
+    "explicit_cap_add_flags": [],
+    "explicit_device_flags": [],
     "host_root_mount_allowed": false,
     "docker_socket_mount_allowed": false,
     "default_route_allowed": false,

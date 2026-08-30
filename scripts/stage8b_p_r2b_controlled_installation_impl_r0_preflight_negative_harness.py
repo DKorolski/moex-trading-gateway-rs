@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Execution-semantics mutations for Controlled Installation Preflight R1."""
+"""Execution-semantics mutations for Controlled Installation Preflight R1A."""
 
 from __future__ import annotations
 
@@ -72,8 +72,18 @@ CASES: list[tuple[str, Callable[[Path], None]]] = [
     ("production-success-claimed-under-network-none", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "aggregate_target_expected_success"), True)),
     ("production-helper-FINAM-base-url-drift", lambda r: replace_text(r, Path("tools/stage8b-readonly-preflight/src/r2a3.rs"), 'pub const PRODUCTION_BASE_URL: &str = "https://api.finam.ru";', 'pub const PRODUCTION_BASE_URL: &str = "https://localhost";')),
     ("controlled-helper-counted-as-production-proof", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_b", "counted_as_production_binary_proof"), True)),
-    ("expected-phase6-network-failure-not-recorded", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "expected_terminal_classes"), [])),
+    ("expected-phase6-network-failure-not-recorded", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "allowed_attempt_error_categories"), [])),
     ("outer-pass-removed", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "outer_runner_expected_success"), False)),
+    ("auth-session-failure-without-request-attempt", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "auth_session_failure_without_attempt_allowed"), True)),
+    ("production-client-construction-failure-counted-as-pass", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "client_construction_failure_allowed"), True)),
+    ("failed-request-attempt-missing", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "failed_attempt_required"), False)),
+    ("first-attempt-ordinal-drift", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "expected_attempt_ordinal"), 2)),
+    ("first-attempt-method-drift", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "expected_method"), "GET")),
+    ("first-attempt-route-drift", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "expected_route_template"), "/v1/orders")),
+    ("network-failure-with-http-status", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "http_status_must_be_absent"), False)),
+    ("request-timeout-rejected", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "allowed_attempt_error_categories"), ["NETWORK_CONNECT_FAILURE"])),
+    ("root-lifecycle-timeout-counted-as-network-proof", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "root_lifecycle_timeout_allowed"), True)),
+    ("effect-flag-opened-in-expected-failure", lambda r: mutate_json(r, AUTHORITY, ("proof_lanes", "lane_a", "production_network_boundary_proof", "effect_flags_must_be_false"), False)),
     ("new-canary-domain-used-with-production-authority", lambda r: mutate_json(r, CEREMONY, ("lane_a_exact_production", "ceremony_class"), "NEW_RANDOM_CANARY")),
     ("canary-trust-manifest-mismatch", lambda r: mutate_json(r, CEREMONY, ("lane_a_exact_production", "accepted_fingerprints", "trust_manifest_sha256"), "0" * 64)),
     ("canary-package-key-mismatch", lambda r: mutate_json(r, CEREMONY, ("lane_a_exact_production", "accepted_fingerprints", "authorization_public_key_sha256"), "0" * 64)),
@@ -97,7 +107,7 @@ CASES: list[tuple[str, Callable[[Path], None]]] = [
     ("r2a8-binary-left-installed", lambda r: remove_list_item(r, RESET, "binary_destinations", "/stage8b-r2a8/")),
     ("wildcard-cleanup-authority", lambda r: mutate_json(r, RESET, ("post_proof_uninstall", "wildcard_is_cleanup_authority"), True)),
     ("failure-cleanup-optional", lambda r: mutate_json(r, RESET, ("post_proof_uninstall", "required_on_failure"), False)),
-    ("private-material-reused", lambda r: mutate_json(r, RESET, ("reset_before_second_run", "reuse_first_run_private_material"), True)),
+    ("private-materialization-reused", lambda r: mutate_json(r, RESET, ("reset_before_second_run", "reuse_first_run_materialization"), True)),
     ("second-run-claimed-success", lambda r: mutate_json(r, RESET, ("reset_before_second_run", "second_run_expected_result"), "AGGREGATE_SUCCESS")),
     ("final-systemd-image-unpinned", lambda r: mutate_json(r, INVENTORY, ("image", "image_id"), "latest")),
     ("final-systemd-image-rebuild", lambda r: mutate_json(r, INVENTORY, ("image", "rebuild_under_same_tag_allowed"), True)),
@@ -115,7 +125,7 @@ CASES: list[tuple[str, Callable[[Path], None]]] = [
 def main() -> None:
     passed = 0
     for name, mutation in CASES:
-        with tempfile.TemporaryDirectory(prefix=f"stage8b-r2b-preflight-r1-{name}-") as temporary:
+        with tempfile.TemporaryDirectory(prefix=f"stage8b-r2b-preflight-r1a-{name}-") as temporary:
             root = Path(temporary)
             for relative in FILES:
                 target = root / relative
@@ -124,10 +134,10 @@ def main() -> None:
             mutation(root)
             result = subprocess.run([sys.executable, str(root / CHECKER), "--root", str(root)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
             if result.returncode == 0:
-                raise SystemExit(f"stage8b-p-r2b-controlled-installation-impl-r0-preflight-r1-negative: FAIL accepted {name}")
+                raise SystemExit(f"stage8b-p-r2b-controlled-installation-impl-r0-preflight-r1a-negative: FAIL accepted {name}")
         print(f"PASS {name}")
         passed += 1
-    print(f"stage8b-p-r2b-controlled-installation-impl-r0-preflight-r1-negative: PASS {passed}/{len(CASES)}")
+    print(f"stage8b-p-r2b-controlled-installation-impl-r0-preflight-r1a-negative: PASS {passed}/{len(CASES)}")
 
 
 if __name__ == "__main__":

@@ -85,7 +85,7 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("accepted design archive mismatch")
         if evidence.get("authorization") != "NOT_ISSUED" or authority.get("authorization") != "NOT_ISSUED":
             raise ValueError("authorization opened")
-        if authority.get("status") != "PROOF_SEMANTICS_TRIGGER_CLEANUP_CLOSURE_REVIEW_REQUIRED_NOT_EXECUTED":
+        if authority.get("status") != "PRODUCTION_REQUEST_BOUNDARY_ORACLE_CLOSURE_REVIEW_REQUIRED_NOT_EXECUTED":
             raise ValueError("preflight status drift")
         if any(authority.get("execution_state", {}).values()):
             raise ValueError("preflight claims execution")
@@ -98,7 +98,15 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("production aggregate must be expected fail-closed")
         if evidence.get("outer_runner_expected_success") is not True:
             raise ValueError("outer runner must recognize the expected fail-closed result")
-        if evidence.get("binary_count") != 12 or evidence.get("unit_target_count") != 19 or evidence.get("negative_mutations") != 40:
+        if evidence.get("production_network_boundary_proof_required") is not True:
+            raise ValueError("production request-boundary proof is not required")
+        if evidence.get("expected_request") != {"attempt_ordinal": 1, "method": "POST", "route_template": "/v1/sessions"}:
+            raise ValueError("production request identity drift")
+        if evidence.get("allowed_request_error_categories") != ["NETWORK_CONNECT_FAILURE", "TIMEOUT"]:
+            raise ValueError("production request outcome drift")
+        if evidence.get("category_only_oracle_allowed") is not False or evidence.get("root_lifecycle_timeout_allowed") is not False:
+            raise ValueError("weak production oracle opened")
+        if evidence.get("binary_count") != 12 or evidence.get("unit_target_count") != 19 or evidence.get("negative_mutations") != 50:
             raise ValueError("preflight inventory drift")
         gate = archive.read(GATE)
         if b"stage8b-p-r2b-controlled-installation-impl-r0-preflight-gate: PASS" not in gate or sha256(gate) != evidence.get("gate_sha256"):

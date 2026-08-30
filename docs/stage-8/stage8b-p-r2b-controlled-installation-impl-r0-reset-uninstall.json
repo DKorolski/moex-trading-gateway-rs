@@ -10,7 +10,10 @@
     "remove_nonce_and_receipts": true,
     "remove_current_source_and_intake": true,
     "remove_authority_projections": true,
-    "reuse_first_run_private_material": false,
+    "reuse_first_run_materialization": false,
+    "same_accepted_key_identities_required": true,
+    "fresh_tmpfs_projection_required": true,
+    "run1_projection_destroyed_before_run2": true,
     "empty_state_proof_required": true,
     "second_run_expected_result": "SAME_EXPECTED_FAIL_CLOSED_LANE_A_OUTER_PASS"
   },

@@ -34,7 +34,7 @@
   },
   "governance_control_plane_manifest": {
     "file_count": 20,
-    "aggregate_sha256": "550b76222f5a5a647887ea491fc3f4606651edf255fa5819a71506374b2fb7bf",
+    "aggregate_sha256": "035c2e1d07ee5e3ab9a82261d582ee7a66b9b4ddd753ea792fe9ca4f51262c5c",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -48,8 +48,8 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "e5653fa119f8cce22ae86229dcb1a5194bbfd3343c335184de425c759588a975",
-        "size": 87523
+        "sha256": "b11531663c65b9801b22a87b44bd91deb6ceba5ddbb7d5332ba4f5206980bfb7",
+        "size": 87775
       },
       "docs/roadmap.md": {
         "mode": "100644",

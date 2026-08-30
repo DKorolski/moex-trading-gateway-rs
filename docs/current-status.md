@@ -22,10 +22,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   not accepted because it incorrectly claimed aggregate success under no
   network, mixed a fresh canary domain with production authority, omitted the
   graph trigger and had an incomplete uninstall inventory. The current
-  candidate is **Implementation R0 Preflight R1**. It separates exact
-  production expected fail-closed proof from controlled TLS success, freezes a
-  proof-only aggregate trigger, all 19 unit removals, all 12 binary removals,
-  the final systemd image and fresh-handoff source mount. The preflight has not
+  R1 at `9fd9fa9` closed those findings but was not accepted because its
+  production oracle could accept an auth/client failure before any request.
+  The current candidate is **Implementation R0 Preflight R1A**. It additionally
+  requires exact typed evidence for failed attempt #1, `POST /v1/sessions`,
+  with only request-level network failure or timeout and every effect flag
+  closed. It retains the proof-only aggregate trigger, all 19 unit removals,
+  all 12 binary removals, final systemd image and fresh-handoff source mount.
+  The preflight has not
   created a container, installed a unit, materialized a key or executed the
   proof. R2B remains
   `NOT_ISSUED`; FINAM network, AuthService and broker GET, POST/DELETE, broker

@@ -22,4 +22,4 @@ python3 -m json.tool docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-
 python3 -m json.tool docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-reset-uninstall.json >/dev/null
 
 git diff --check
-echo "stage8b-p-r2b-controlled-installation-impl-r0-preflight-gate: PASS revision=R1 lanes=2 production_aggregate=expected-failed outer=pass binaries=12 units=19 phases=6 services=31 negatives=40 execution=false authorization=NOT_ISSUED finam=false"
+echo "stage8b-p-r2b-controlled-installation-impl-r0-preflight-gate: PASS revision=R1A request=POST:/v1/sessions:1 request_outcomes=NETWORK_CONNECT_FAILURE|TIMEOUT category_only=false production_aggregate=expected-failed outer=pass binaries=12 units=19 phases=6 services=31 negatives=50 execution=false authorization=NOT_ISSUED finam=false"

@@ -1,41 +1,51 @@
 id,category,requirement,evidence,status
-CIPFR1-001,lineage,rejected R0 preflight is exact and retained,R1 authority,PASS
-CIPFR1-002,lineage,accepted controlled-installation design is exact,R1 authority,PASS
-CIPFR1-003,lineage,accepted production implementation is exact,R1 authority,PASS
-CIPFR1-004,lineage,inherited authority supersession and transaction are byte pinned,checker,PASS
-CIPFR1-005,production,exact production helper remains hard-bound to FINAM base URL,source plus checker,PASS
-CIPFR1-006,production,Lane A does not claim aggregate success under network none,R1 authority,PASS
-CIPFR1-007,production,Lane A requires durable expected failure terminal,R1 authority,PASS
-CIPFR1-008,production,outer runner PASS is distinct from aggregate FAILED,R1 authority,PASS
-CIPFR1-009,production,controlled binary substitution in Lane A is forbidden,R1 authority,PASS
-CIPFR1-010,ceremony,Lane A uses only accepted pre-production public trust set,ceremony contract,PASS
-CIPFR1-011,ceremony,new random trust domain in Lane A is forbidden,ceremony contract,PASS
-CIPFR1-012,ceremony,missing matching offline material aborts before container creation,ceremony contract,PASS
-CIPFR1-013,controlled,Lane B is controlled TLS only,R1 authority,PASS
-CIPFR1-014,controlled,Lane B inherits accepted TLS qualification,authority plus TLS status,PASS
-CIPFR1-015,controlled,Lane B cannot count as production binary proof,R1 authority,PASS
-CIPFR1-016,trigger,direct aggregate manual start is forbidden,R1 authority,PASS
-CIPFR1-017,trigger,proof-only trigger has exact Requires and After edges,unit plus checker,PASS
-CIPFR1-018,trigger,proof trigger is outside 31 invocation arithmetic,R1 authority,PASS
-CIPFR1-019,trigger,proof trigger is never enabled,R1 authority,PASS
-CIPFR1-020,trigger,production drop-ins and RefuseManualStart mutations are forbidden,R1 authority,PASS
-CIPFR1-021,cleanup,all 18 production units are listed exactly,reset contract plus transaction,PASS
-CIPFR1-022,cleanup,proof trigger is the nineteenth removal entry,reset contract,PASS
-CIPFR1-023,cleanup,all 12 binary destinations are listed exactly,reset contract,PASS
-CIPFR1-024,cleanup,R2A7 unit and binary are removed,reset contract,PASS
-CIPFR1-025,cleanup,R2A8 units and binaries are removed,reset contract,PASS
-CIPFR1-026,cleanup,cleanup is mandatory on success and failure,reset contract,PASS
-CIPFR1-027,reset,second run begins from empty transaction state,reset contract,PASS
-CIPFR1-028,reset,first-run private material is not reused,reset contract,PASS
-CIPFR1-029,reset,second Lane A result is the same expected fail-closed result,reset contract,PASS
-CIPFR1-030,image,final runnable systemd image ID is exact,staging inventory,PASS
-CIPFR1-031,image,systemd and package versions are pinned,staging inventory,PASS
-CIPFR1-032,docker,exact privileged Docker VM boundary is frozen,staging inventory,PASS
-CIPFR1-033,docker,network route DNS host root and Docker socket are absent,staging inventory,PASS
-CIPFR1-034,source,/work is a fresh reviewed handoff extraction,staging inventory,PASS
-CIPFR1-035,source,developer working tree and env files are forbidden,staging inventory,PASS
-CIPFR1-036,artifacts,external root carries 12 exact production ELF,inventory plus transaction,PASS
-CIPFR1-037,boundary,this R1 does not authorize execution,R1 authority,PASS
-CIPFR1-038,boundary,R2B remains NOT_ISSUED,R1 authority,PASS
-CIPFR1-039,boundary,FINAM Auth GET POST DELETE and dispatch remain closed,R1 authority,PASS
-CIPFR1-040,boundary,Redis runtime-live and real orders remain closed,R1 authority,PASS
+CIPFR1A-001,lineage,rejected R0 preflight is exact and retained,R1A authority,PASS
+CIPFR1A-002,lineage,rejected R1 preflight is exact and retained,R1A authority,PASS
+CIPFR1A-003,lineage,accepted controlled-installation design is exact,R1A authority,PASS
+CIPFR1A-004,lineage,accepted production implementation is exact,R1A authority,PASS
+CIPFR1A-005,lineage,inherited authority supersession and transaction are byte pinned,checker,PASS
+CIPFR1A-006,production,exact production helper remains hard-bound to FINAM base URL,source plus checker,PASS
+CIPFR1A-007,production,Lane A does not claim aggregate success under network none,R1A authority,PASS
+CIPFR1A-008,production,outer runner PASS is distinct from aggregate FAILED,R1A authority,PASS
+CIPFR1A-009,oracle,exact production helper must reach first AuthService request boundary,R1A authority,PASS
+CIPFR1A-010,oracle,failed request attempt evidence is mandatory,R1A authority,PASS
+CIPFR1A-011,oracle,first failed attempt ordinal is exactly one,R1A authority,PASS
+CIPFR1A-012,oracle,first failed attempt method is POST,R1A authority,PASS
+CIPFR1A-013,oracle,first failed attempt route template is /v1/sessions,R1A authority,PASS
+CIPFR1A-014,oracle,only NETWORK_CONNECT_FAILURE or request-level TIMEOUT is accepted,R1A authority,PASS
+CIPFR1A-015,oracle,request-level timeout requires failed attempt evidence,R1A authority,PASS
+CIPFR1A-016,oracle,HTTP status and response body are absent,R1A authority,PASS
+CIPFR1A-017,oracle,root lifecycle timeout cannot prove network-boundary reach,R1A authority,PASS
+CIPFR1A-018,oracle,auth or client construction failure without attempt is rejected,R1A authority,PASS
+CIPFR1A-019,oracle,typed root terminal evidence is parsed without category grep,R1A authority,PASS
+CIPFR1A-020,oracle,order effect dispatch and real-order flags remain false,R1A authority,PASS
+CIPFR1A-021,production,controlled binary substitution in Lane A is forbidden,R1A authority,PASS
+CIPFR1A-022,ceremony,Lane A uses only accepted pre-production public trust set,ceremony contract,PASS
+CIPFR1A-023,ceremony,new random trust domain in Lane A is forbidden,ceremony contract,PASS
+CIPFR1A-024,ceremony,missing matching offline material aborts before container creation,ceremony contract,PASS
+CIPFR1A-025,controlled,Lane B is controlled TLS only,R1A authority,PASS
+CIPFR1A-026,controlled,Lane B inherits accepted TLS qualification,authority plus TLS status,PASS
+CIPFR1A-027,controlled,Lane B cannot count as production binary proof,R1A authority,PASS
+CIPFR1A-028,trigger,direct aggregate manual start is forbidden,R1A authority,PASS
+CIPFR1A-029,trigger,proof-only trigger has exact Requires and After edges,unit plus checker,PASS
+CIPFR1A-030,trigger,proof trigger is outside 31 invocation arithmetic,R1A authority,PASS
+CIPFR1A-031,trigger,proof trigger is never enabled,R1A authority,PASS
+CIPFR1A-032,trigger,production drop-ins and RefuseManualStart mutations are forbidden,R1A authority,PASS
+CIPFR1A-033,cleanup,all 18 production units are listed exactly,reset contract plus transaction,PASS
+CIPFR1A-034,cleanup,proof trigger is the nineteenth removal entry,reset contract,PASS
+CIPFR1A-035,cleanup,all 12 binary destinations are listed exactly,reset contract,PASS
+CIPFR1A-036,cleanup,R2A7 and R2A8 units and binaries are removed,reset contract,PASS
+CIPFR1A-037,cleanup,cleanup is mandatory on success and failure,reset contract,PASS
+CIPFR1A-038,reset,second run begins from empty transaction state,reset contract,PASS
+CIPFR1A-039,reset,run-one projection is destroyed before run two,reset contract,PASS
+CIPFR1A-040,reset,same accepted key identities are freshly rematerialized for run two,reset contract,PASS
+CIPFR1A-041,reset,second Lane A result is the same expected fail-closed result,reset contract,PASS
+CIPFR1A-042,image,final runnable systemd image ID and package versions are exact,staging inventory,PASS
+CIPFR1A-043,docker,privileged execution is confined to disposable nonsensitive Docker VM,staging inventory,PASS
+CIPFR1A-044,docker,no explicit cap-add device host-root Docker-socket route or DNS is allowed,staging inventory,PASS
+CIPFR1A-045,source,/work is a fresh reviewed handoff extraction,staging inventory,PASS
+CIPFR1A-046,source,developer working tree env files and untracked files are forbidden,staging inventory,PASS
+CIPFR1A-047,artifacts,external root carries 12 exact production ELF,inventory plus transaction,PASS
+CIPFR1A-048,boundary,this R1A does not authorize execution,R1A authority,PASS
+CIPFR1A-049,boundary,R2B remains NOT_ISSUED and FINAM effects remain closed,R1A authority,PASS
+CIPFR1A-050,boundary,Redis runtime-live broker dispatch and real orders remain closed,R1A authority,PASS

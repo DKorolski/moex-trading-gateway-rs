@@ -1,7 +1,12 @@
 {
   "schema_version": 2,
-  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof — Implementation R0 Preflight R1",
-  "status": "PROOF_SEMANTICS_TRIGGER_CLEANUP_CLOSURE_REVIEW_REQUIRED_NOT_EXECUTED",
+  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof — Implementation R0 Preflight R1A",
+  "status": "PRODUCTION_REQUEST_BOUNDARY_ORACLE_CLOSURE_REVIEW_REQUIRED_NOT_EXECUTED",
+  "rejected_preflight_r1": {
+    "source_ref": "9fd9fa9e7eea38371bb412a713f0419697671f7c",
+    "archive_sha256": "297897488d2bc53a8b690673a4ec1c177fffbe4f9028128f99d66bf325e02120",
+    "verdict": "NOT_ACCEPTED"
+  },
   "rejected_predecessor": {
     "source_ref": "b9f0c43f4865ee001b72abaf72c0a6a4dd77a32a",
     "archive_sha256": "b71ec0160a2968db8f6e8c4107597b67be0d9a2be31d216b51321f457797b98c",
@@ -30,10 +35,31 @@
       "network_mode": "none",
       "hardcoded_base_url": "https://api.finam.ru",
       "aggregate_target_expected_success": false,
-      "expected_terminal_classes": [
-        "NETWORK_CONNECT_FAILURE",
-        "AUTH_SESSION_FAILURE"
-      ],
+      "production_network_boundary_proof": {
+        "root_admission_required": true,
+        "helper_authority_validation_required": true,
+        "child_terminal_protocol_valid_required": true,
+        "root_terminal_evidence_durable_required": true,
+        "failed_attempt_required": true,
+        "expected_attempt_ordinal": 1,
+        "expected_method": "POST",
+        "expected_route_template": "/v1/sessions",
+        "allowed_attempt_error_categories": [
+          "NETWORK_CONNECT_FAILURE",
+          "TIMEOUT"
+        ],
+        "request_timeout_requires_failed_attempt": true,
+        "http_status_must_be_absent": true,
+        "response_body_must_be_absent": true,
+        "root_lifecycle_timeout_allowed": false,
+        "auth_session_failure_without_attempt_allowed": false,
+        "client_construction_failure_allowed": false,
+        "effect_flags_must_be_false": true,
+        "broker_dispatch_must_be_false": true,
+        "real_order_flags_must_be_false": true,
+        "outer_runner_evidence_parser": "EXACT_TYPED_ROOT_TERMINAL_EVIDENCE",
+        "string_category_only_match_allowed": false
+      },
       "outer_runner_expected_success": true,
       "controlled_binary_substitution_allowed": false,
       "accepted_public_authority_required": true,
