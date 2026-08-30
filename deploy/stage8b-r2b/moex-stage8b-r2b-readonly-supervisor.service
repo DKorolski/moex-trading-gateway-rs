@@ -15,7 +15,10 @@ PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
 ProtectProc=invisible
-ProcSubset=pid
+# The launcher must read /proc/sys/kernel/yama/ptrace_scope before nonce
+# admission. ProtectProc=invisible still hides foreign process details; the
+# full proc subset keeps the required read-only kernel policy node visible.
+ProcSubset=all
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictSUIDSGID=yes
 LockPersonality=yes

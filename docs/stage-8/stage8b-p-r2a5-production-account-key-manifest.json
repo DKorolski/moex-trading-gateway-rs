@@ -3,7 +3,7 @@
   "entries": [
     {
       "generation_id": "1",
-      "key_sha256": "6e8793a3515283c9133e9cd55261bd52ba2f69e13cb2cf48abf24369c306ba28",
+      "key_sha256": "256e8b967cb658f12456ca649f046ed76a7eaeddd196ad4f6830fc22a6ea8d84",
       "relative_key_path": "generation-1.hex",
       "valid_from_utc": "2026-08-26T00:00:00Z",
       "valid_until_utc": "2027-08-26T00:00:00Z"

@@ -15,17 +15,17 @@ R0R1-013,signer write scope dedicated,unit and failed config-root write,pass
 R0R1-014,supervisor package key unreadable,Linux canary read attempt,pass
 R0R1-015,supervisor issuer keys unreadable,Linux canary read attempt,pass
 R0R1-016,supervisor broker subset readable,Linux canary read attempt,pass
-R0R1-017,builder Linux ELF reproducible,two clean release builds,pass
-R0R1-018,signer Linux ELF reproducible,two clean release builds,pass
+R0R1-017,builder and signer Linux ELF reproducible,two clean release builds,pass
+R0R1-018,accepted helper and launcher Linux ELF reproducible,two clean release builds and exact helper acceptance,pass
 R0R1-019,controlled feature absent from production build,cargo feature record and authority,pass
-R0R1-020,production ELF hashes packaged,handoff artifact verification,pass
-R0R1-021,controlled builder and signer execute,no-network systemd rehearsal,pass
+R0R1-020,four production ELF hashes packaged,handoff artifact verification,pass
+R0R1-021,exact production Phase 5 to Phase 6 executes,no-network QEMU systemd rehearsal,pass
 R0R1-022,phase one failure blocks phase two,systemd fault injection,pass
 R0R1-023,producer failure blocks issuers,systemd fault injection,pass
 R0R1-024,issuer failure blocks builder,systemd fault injection,pass
 R0R1-025,builder failure blocks signer,systemd fault injection,pass
 R0R1-026,signer failure blocks supervisor,systemd fault injection,pass
 R0R1-027,old output blocks second transaction,systemd replay rehearsal,pass
-R0R1-028,production remains inactive,authority and handoff evidence,pass
+R0R1-028,untouched handoff self-verifies,fresh extraction checker negative ELF and safety gates,pass
 R0R1-029,R2B remains NOT_ISSUED,authority and rehearsal evidence,pass
 R0R1-030,FINAM and effect surfaces remain closed,authority and source scan,pass

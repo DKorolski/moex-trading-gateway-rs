@@ -417,7 +417,7 @@ def main() -> None:
     ), "root supervisor")
     require(launcher.index("verify_runtime_isolation_before_admission()") < launcher.index("prepare_r2b_privileged_admission("), "isolation check follows nonce admission")
     require_all(supervisor_unit, (
-        "User=root", "ProtectProc=invisible", "ProcSubset=pid",
+        "User=root", "ProtectProc=invisible", "ProcSubset=all",
         "ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2b-launcher",
     ), "supervisor unit")
     require_all(text("tools/stage8b-readonly-preflight/src/main.rs"), (

@@ -182,9 +182,9 @@
       "stage8b-r2a7-source-adapter": "f51d09315d8b02244d7bc218447b588ba3f20f1d7fc2573408ccfb61dbbe1541",
       "stage8b-r2a5-authority-producer": "98183d07362aee68fe8a630da65bf316433d333c723d8960b7927f886bac934b",
       "stage8b-r2a5-authority-issuer": "b893076d23fc03e12d7900d07b4cd9e9fc08b9daf03a70fb96587f120bc4536c",
-      "stage8b-r2a5-package-issuer": "e3e3cad28206cf6f0db537af2b208fe82e25532a3bf79abf1d2ee48e09e7d94e",
-      "stage8b-r2b-launcher": "c33673b2144a5ce967f71486c7e06ad9b10036ac4209ba6b802cdb9ceaa52a02",
-      "accepted-stage8b-readonly-preflight": "5db401937b5e90e0237f9371a00b5af9ad2c0c3ce8e8b0899cdccafdb514578e"
+      "stage8b-r2a5-package-issuer": "4c40e0c56bc9cb1d133eb79d73b44510d8e0a083c6bb20192eddcbf7f48329c9",
+      "stage8b-r2b-launcher": "effb4ff73fe375665cf4416806216d82727a40f0b2040333eda927bcda5bae55",
+      "accepted-stage8b-readonly-preflight": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065"
     },
     "controlled_qualification_linux_amd64_sha256": {
       "stage8b-r2a7-source-adapter": "340553dba6e37650158ac3707d7f55f226778f8e8c404c6018c928a633dc7fd9",
@@ -206,7 +206,7 @@
     "production_may_resolve_controlled_hash_domain": false,
     "embedded_runtime_composition_contract": {
       "path": "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
-      "sha256": "163da1a08a2d7b665cdf619d67f054d67b92634c42ea17206dfb48e365ab92de",
+      "sha256": "5f466c310aff8e1cd41fc89a0f89e162e9099c77f2133b600f106927e82de1ef",
       "contains_executable_hashes": false,
       "hash_cycle_prevented": true
     },
@@ -362,7 +362,7 @@
     "same_uid_ptrace_attach_allowed": false,
     "systemd_unit": "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service",
     "protect_proc": "invisible",
-    "proc_subset": "pid",
+    "proc_subset": "all_required_for_pre_admission_yama_check",
     "absolute_monotonic_child_deadline_ms": 120000,
     "pidfd_supervision": true,
     "timeout_signal": "SIGKILL",

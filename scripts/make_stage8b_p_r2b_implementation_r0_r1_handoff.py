@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import sys
+import tempfile
 import zipfile
 from pathlib import Path
 
@@ -17,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-p-r2b-implementation-r0-r1"
 PREDECESSOR = "da83f5922d9e2a9a5a1db3e581d2d9f55d810d81"
-ARTIFACT_ROOT = ROOT / "reports/stage8b-p-r2b-r0-r1/linux-amd64"
+ARTIFACT_ROOT = ROOT / "reports/stage8b-p-r2b-r0-r1a/linux-amd64"
 
 
 def run(*args: str) -> bytes:
@@ -74,7 +76,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Implementation Package R0-R1",
+                "stage": "Stage 8B-P R2B Implementation Package R0-R1A",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "source_short_ref": short_ref,
@@ -86,9 +88,11 @@ def main() -> None:
                 "phase_count": 6,
                 "service_invocations": 31,
                 "dynamic_failure_cases": 5,
-                "negative_mutations": 20,
-                "linux_elf_members": 4,
+                "negative_mutations": 35,
+                "linux_elf_members": 8,
                 "linux_build_reproducible": True,
+                "production_phase5_phase6_compatibility_proved": True,
+                "post_package_self_verification_required": True,
                 "installed": False,
                 "enabled": False,
                 "started": False,
@@ -128,12 +132,56 @@ def main() -> None:
             archive.writestr(common.zip_info(name, generated_mode), data)
 
     result = safety.check(str(archive_path))
+    with tempfile.TemporaryDirectory(prefix="stage8b-r2b-r0-r1a-final-handoff-") as temporary:
+        extracted = Path(temporary)
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(extracted)
+        commands = (
+            [sys.executable, "scripts/stage8b_p_r2b_implementation_r0_r1_check.py", "--root", str(extracted), "--artifact-root", "handoff-evidence/linux-amd64"],
+            [sys.executable, "scripts/stage8b_p_r2b_implementation_r0_r1_negative_harness.py", "--root", str(extracted), "--artifact-root", "handoff-evidence/linux-amd64"],
+        )
+        verification_output = []
+        for command in commands:
+            completed = subprocess.run(command, cwd=extracted, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+            verification_output.append(completed.stdout.decode(errors="replace"))
+            if completed.returncode != 0:
+                raise SystemExit("".join(verification_output))
+        extracted_safety = subprocess.run(
+            [sys.executable, "scripts/stage8b_p_r2b_implementation_r0_r1_handoff_safety_check.py", str(archive_path)],
+            cwd=extracted,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        verification_output.append(extracted_safety.stdout.decode(errors="replace"))
+        if extracted_safety.returncode != 0:
+            raise SystemExit("".join(verification_output))
     digest = sha(archive_path.read_bytes())
     archive_path.with_suffix(".zip.sha256").write_text(
         f"{digest}  {archive_name}\n", encoding="utf-8"
     )
     archive_path.with_suffix(".zip.safety.json").write_text(
         json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    archive_path.with_suffix(".zip.post-package-verification.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "archive_name": archive_name,
+                "archive_sha256": digest,
+                "fresh_extraction": True,
+                "artifact_root": "handoff-evidence/linux-amd64",
+                "checker_passed": True,
+                "negative_harness_passed": True,
+                "elf_hashes_passed": True,
+                "handoff_safety_passed": True,
+                "manual_artifact_copy_performed": False,
+                "output": "".join(verification_output),
+            },
+            indent=2,
+            sort_keys=True,
+        ) + "\n",
+        encoding="utf-8",
     )
     print(
         f"archive={archive_path}\nsha256={digest}\nsource_ref={source_ref}\n"

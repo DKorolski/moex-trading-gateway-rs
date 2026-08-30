@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B",
-  "revision": "R4-R2",
-  "contract_id": "stage8b-p-r2b-runtime-composition-v4-r2",
+  "revision": "R0-R1A",
+  "contract_id": "stage8b-p-r2b-runtime-composition-r0-r1a",
   "authorization_status": "NOT_ISSUED",
   "exact_component_sequence": [
     "stage8b-r2a8-upstream-current-authority-publisher",
@@ -81,6 +81,22 @@
     "cursor_parameter": null,
     "full_page_means_incomplete": true,
     "caller_override_allowed": false
+  },
+  "phase5_phase6_filesystem_contract": {
+    "unsigned_draft": "/var/lib/moex-trading/stage8b/r2a5/draft-output/r2b-run-package.unsigned.json",
+    "signed_package": "/var/lib/moex-trading/stage8b/r2a5/signed-output/r2b-run-package.json",
+    "package_signer_credentials": "/run/moex-stage8b-r2b-package-issuer",
+    "package_signing_key": "/run/moex-stage8b-r2b-package-issuer/package-authorization.ed25519",
+    "supervisor_credentials": "/run/moex-stage8b-r2b-supervisor",
+    "supervisor_credential_names": [
+      "account-id",
+      "finam-readonly-secret",
+      "account-binding-keys"
+    ],
+    "legacy_package_path_authoritative": false,
+    "legacy_shared_credential_root_visible_to_helper": false,
+    "production_launcher_helper_rebuild_required": true,
+    "controlled_helper_may_substitute_for_production_proof": false
   },
   "authenticated_admission": {
     "model": "root-owned inode-bound admission",

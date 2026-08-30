@@ -7,12 +7,17 @@ cd "$repo_root"
 image="messense/rust-musl-cross:x86_64-musl@sha256:020ec7f60e63ace4338f8cb492bb2521071d089133732d0fc6a0ecea722b87c5"
 target_triple="x86_64-unknown-linux-musl"
 build_platform="linux/arm64"
-cargo_home="$repo_root/tmp/stage8b-r2b-r0-r1-cargo-home"
-build_a="$repo_root/tmp/stage8b-r2b-r0-r1-linux-a"
-build_b="$repo_root/tmp/stage8b-r2b-r0-r1-linux-b"
-artifact_root="$repo_root/reports/stage8b-p-r2b-r0-r1/linux-amd64"
+cargo_home="$repo_root/tmp/stage8b-r2b-r0-r1a-cargo-home"
+build_a="$repo_root/tmp/stage8b-r2b-r0-r1a-linux-a"
+build_b="$repo_root/tmp/stage8b-r2b-r0-r1a-linux-b"
+artifact_root="$repo_root/reports/stage8b-p-r2b-r0-r1a/linux-amd64"
 evidence="$repo_root/docs/stage-8/stage8b-p-r2b-implementation-r0-r1-linux-build-evidence.json"
-binaries=(stage8b-r2b-run-package-draft-builder stage8b-r2a5-package-issuer)
+binaries=(
+  stage8b-r2b-run-package-draft-builder
+  stage8b-r2a5-package-issuer
+  stage8b-readonly-preflight
+  stage8b-r2b-launcher
+)
 
 command=(
   cargo build --locked --release --no-default-features
@@ -20,6 +25,8 @@ command=(
   --manifest-path tools/stage8b-readonly-preflight/Cargo.toml
   --bin stage8b-r2b-run-package-draft-builder
   --bin stage8b-r2a5-package-issuer
+  --bin stage8b-readonly-preflight
+  --bin stage8b-r2b-launcher
 )
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -61,7 +68,12 @@ root = pathlib.Path(sys.argv[1])
 evidence = pathlib.Path(sys.argv[2])
 image = sys.argv[3]
 command = sys.argv[4]
-binaries = ("stage8b-r2b-run-package-draft-builder", "stage8b-r2a5-package-issuer")
+binaries = (
+    "stage8b-r2b-run-package-draft-builder",
+    "stage8b-r2a5-package-issuer",
+    "stage8b-readonly-preflight",
+    "stage8b-r2b-launcher",
+)
 records = {}
 for binary in binaries:
     left = root / "build-a" / binary
@@ -84,13 +96,15 @@ for binary in binaries:
     }
 payload = {
     "schema_version": 1,
-    "stage": "Stage 8B-P R2B Implementation Package R0-R1",
+    "stage": "Stage 8B-P R2B Implementation Package R0-R1A",
     "target": "x86_64-unknown-linux-musl",
     "builder_platform": "linux/arm64",
     "cross_compiled": True,
     "build_profile": "release",
     "default_features": False,
     "controlled_custody_feature": False,
+    "production_helper_feature": "no-default-features",
+    "production_launcher_pins_helper_sha256": records["stage8b-readonly-preflight"]["build_a_sha256"],
     "clean_target_directories": 2,
     "container_image": image,
     "cargo_command": command,
@@ -101,5 +115,8 @@ payload = {
     "result": "PASS",
 }
 evidence.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-print("stage8b-p-r2b-r0-r1-linux-build: PASS binaries=2 builds=2 target=linux/amd64 controlled_feature=false")
+accepted = pathlib.Path("docs/stage-8/stage8b-p-r2b-accepted-helper-sha256.txt").read_text().strip()
+if records["stage8b-readonly-preflight"]["build_a_sha256"] != accepted:
+    raise SystemExit("stage8b-p-r2b-r0-r1a-linux-build: FAIL accepted helper SHA mismatch")
+print("stage8b-p-r2b-r0-r1a-linux-build: PASS binaries=4 builds=2 target=linux/amd64 controlled_feature=false")
 PY

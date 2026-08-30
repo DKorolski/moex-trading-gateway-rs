@@ -1,9 +1,10 @@
-# Stage 8B-P R2B Implementation Package R0-R1
+# Stage 8B-P R2B Implementation Package R0-R1A
 
 ## Scope
 
-This correction closes only the credential-custody, write-scope, Linux artifact,
-and controlled transaction-proof findings against accepted implementation R0.
+This correction closes only the Phase-6 binary/path compatibility and immutable
+handoff self-verification findings against implementation R0-R1. The accepted
+credential-custody and dedicated write-root corrections remain unchanged.
 The 31-service/six-phase design, read contract, package schema, receipt
 semantics, and broker boundary are unchanged.
 
@@ -47,19 +48,23 @@ semantics remain unchanged.
 Two clean `linux/amd64` release builds are made by a digest-pinned native ARM64
 cross toolchain from the same read-only source mount with separate target
 directories, no default or controlled-custody feature, path remapping, and
-incremental compilation disabled. Both binaries must be byte-identical across
-builds and must be stripped static x86-64 ELF files.
-Exact values are frozen in the R0-R1 authority and build evidence.
+incremental compilation disabled. All four binaries must be byte-identical across
+builds and must be stripped static x86-64 ELF files. The exact four-artifact
+set is the draft builder, package signer, accepted helper, and launcher. Helper
+acceptance is signed by an offline independent Ed25519 ceremony key, and the
+launcher is rebuilt only after the accepted helper SHA is frozen. Exact values
+are frozen in the R0-R1A authority and build evidence.
 
 ## Dynamic rehearsal
 
-The rehearsal runs natively inside a privileged disposable Linux/arm64 systemd
-container after its external network is detached; it does not use QEMU. It uses
-only canary credentials and performs real reads/writes from processes running
-under the unit sandboxes. It also executes native controlled builder and signer
-binaries against a controlled package and exercises the complete static graph
-with injected failures and stale-output replay. Production deployability is
-proved separately by the reproducible x86-64 ELF build evidence above.
+The earlier native Linux/arm64 rehearsal remains evidence for unit sandbox and
+failure propagation. R0-R1A adds a separate Linux/amd64 QEMU/systemd proof with
+no external network. It executes the exact packaged production builder, signer,
+launcher, and accepted helper. Public production authorities are paired with
+one-time offline ceremony material that is never committed or packaged. The
+helper verifies identity, sealed receipt, production authority and only the
+projected supervisor credentials before reaching the expected no-network
+terminal; the root launcher persists terminal evidence.
 
 Required results:
 
@@ -68,11 +73,21 @@ Required results:
 - supervisor cannot see package/helper/source signing keys but sees the exact
   broker-read subset;
 - builder and signer cannot write their input roots;
-- controlled draft construction and signing succeed;
+- exact production draft construction and signing succeed;
+- exact production launcher consumes the new signed-output path;
+- exact production helper consumes only the new supervisor credential root;
 - phase, producer, issuer, builder, and signer failures block downstream;
 - old unsigned/signed output blocks a second transaction;
 - no FINAM endpoint, real credential, production installation, or issuance is
   involved.
+
+## Immutable handoff self-verification
+
+The checker and negative harness accept an explicit `--artifact-root` and also
+auto-detect exactly one of the working-tree or handoff ELF roots. Handoff
+generation performs a fresh extraction and reruns the checker, all 35 targeted
+negative mutations, packaged ELF hash verification, and archive safety without
+copying artifacts back into a reports tree.
 
 ## Closed surfaces
 

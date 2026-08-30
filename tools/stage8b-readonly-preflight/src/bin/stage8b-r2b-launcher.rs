@@ -232,7 +232,11 @@ fn verify_runtime_isolation_before_admission() -> Result<(), Box<dyn std::error:
 
 #[cfg(target_os = "linux")]
 fn close_non_allowlisted_descriptors() -> Result<(), Box<dyn std::error::Error>> {
-    if unsafe { libc::close_range(8, u32::MAX, 0) } == 0 {
+    // Use the syscall directly: musl targets expose SYS_close_range but not
+    // the glibc-only libc::close_range wrapper.  This keeps the accepted
+    // launcher buildable as the same static Linux/amd64 artifact exercised by
+    // the Phase-6 compatibility proof.
+    if unsafe { libc::syscall(libc::SYS_close_range, 8u32, u32::MAX, 0u32) } == 0 {
         return Ok(());
     }
     let error = std::io::Error::last_os_error();

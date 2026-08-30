@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "Stage 8B-P R2B Issuance Package",
-  "revision": "R0-R1A1",
+  "revision": "R0-R1A",
   "status": "STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED",
   "accepted_predecessor": {
     "stage": "Stage 8B-P R2B R4-R2A Acceptance Closure",
@@ -250,7 +250,7 @@
       "signature_ed25519_hex": "EMPTY",
       "validity_seconds": 30,
       "output": {
-        "path": "/var/lib/moex-trading/stage8b/r2a5/r2b-run-package.unsigned.json",
+        "path": "/var/lib/moex-trading/stage8b/r2a5/draft-output/r2b-run-package.unsigned.json",
         "owner_uid": 0,
         "owner_gid": 0,
         "mode": "0600",
@@ -266,15 +266,15 @@
       "service": "moex-stage8b-r2b-package-issuer.service",
       "uid": 0,
       "gid": 0,
-      "fixed_input": "/var/lib/moex-trading/stage8b/r2a5/r2b-run-package.unsigned.json",
-      "signing_key_path": "/run/credentials/moex-trading/stage8b/r2a5/package-authorization.ed25519",
+      "fixed_input": "/var/lib/moex-trading/stage8b/r2a5/draft-output/r2b-run-package.unsigned.json",
+      "signing_key_path": "/run/moex-stage8b-r2b-package-issuer/package-authorization.ed25519",
       "signing_key_owner_uid": 0,
       "signing_key_owner_gid": 0,
       "signing_key_mode": "0600",
       "only_component_with_package_authorization_key": true,
       "requires_current_run_unsigned_draft": true,
       "output": {
-        "path": "/etc/moex-trading/stage8b/r2a5/r2b-run-package.json",
+        "path": "/var/lib/moex-trading/stage8b/r2a5/signed-output/r2b-run-package.json",
         "owner_uid": 0,
         "owner_gid": 0,
         "mode": "0644",

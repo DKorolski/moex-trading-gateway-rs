@@ -20,6 +20,8 @@ BINARIES = {
     for binary in (
         "stage8b-r2b-run-package-draft-builder",
         "stage8b-r2a5-package-issuer",
+        "stage8b-readonly-preflight",
+        "stage8b-r2b-launcher",
     )
 }
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST} | BINARIES
@@ -34,6 +36,8 @@ REQUIRED = GENERATED | {
     "scripts/stage8b_p_r2b_implementation_r0_r1_check.py",
     "scripts/stage8b_p_r2b_implementation_r0_r1_linux_rehearsal.sh",
     "scripts/stage8b_p_r2b_implementation_r0_r1_linux_runner.sh",
+    "scripts/stage8b_p_r2b_implementation_r0_r1a_phase6_rehearsal.sh",
+    "scripts/stage8b_p_r2b_implementation_r0_r1a_phase6_runner.sh",
     "scripts/stage8b_p_r2b_implementation_r0_r1_negative_harness.py",
     "scripts/stage8b_p_r2b_implementation_r0_r1_gate.sh",
     "scripts/stage8b_p_r2b_implementation_r0_r1_handoff_safety_check.py",
@@ -112,7 +116,7 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("authorization opened")
         if evidence.get("service_invocations") != 31:
             raise ValueError("transaction arithmetic drift")
-        if evidence.get("negative_mutations") != 20:
+        if evidence.get("negative_mutations") != 35:
             raise ValueError("negative inventory drift")
         for key in (
             "installed",
@@ -171,7 +175,7 @@ def check(path: str) -> dict[str, object]:
         return {
             "archive_members": len(names),
             "tracked_members_verified": len(tracked),
-            "linux_elf_members": 4,
+            "linux_elf_members": 8,
             "duplicates": 0,
             "symlinks": 0,
             "unsafe_paths": 0,
