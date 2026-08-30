@@ -23,6 +23,8 @@ ALLOWED = {
     "Service": {
         "Type", "User", "Group", "SupplementaryGroups", "WorkingDirectory",
         "ExecStart", "NoNewPrivileges", "PrivateDevices", "PrivateTmp",
+        "PrivateNetwork", "LoadCredential", "BindReadOnlyPaths", "InaccessiblePaths",
+        "CapabilityBoundingSet", "AmbientCapabilities",
         "ProtectSystem", "ProtectHome", "ProtectProc", "ProcSubset",
         "RestrictAddressFamilies", "IPAddressDeny", "RestrictSUIDSGID",
         "LockPersonality", "MemoryDenyWriteExecute", "ReadOnlyPaths",

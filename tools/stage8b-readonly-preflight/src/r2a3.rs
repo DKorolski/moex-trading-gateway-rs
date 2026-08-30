@@ -1223,8 +1223,13 @@ pub fn verified_exec(
         {
             return Err(std::io::Error::last_os_error().into());
         }
+        // `libc::execveat` is not exported for every Linux libc target (musl
+        // notably omits the wrapper), while the kernel syscall ABI is shared.
+        // Calling the syscall directly keeps the descriptor-bound execution
+        // invariant identical for both glibc and static musl production builds.
         let result = unsafe {
-            libc::execveat(
+            libc::syscall(
+                libc::SYS_execveat,
                 fd,
                 c"".as_ptr(),
                 argv.as_ptr(),

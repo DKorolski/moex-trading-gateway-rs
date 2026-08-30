@@ -1,0 +1,31 @@
+id,requirement,evidence,status
+R0R1-001,builder credential root inaccessible,systemd unit and Linux actual-read rehearsal,pass
+R0R1-002,builder package signing key unreadable,Linux canary read attempt,pass
+R0R1-003,builder FINAM secret unreadable,Linux canary read attempt,pass
+R0R1-004,builder account key unreadable,Linux canary read attempt,pass
+R0R1-005,builder issuer key unreadable,Linux canary read attempt,pass
+R0R1-006,builder capabilities empty,systemd unit and proc status,pass
+R0R1-007,builder external network closed,PrivateNetwork and detached-container probe,pass
+R0R1-008,builder write scope dedicated,unit and failed input-root write,pass
+R0R1-009,signer package key projected,read-only systemd bind projection and successful projected read,pass
+R0R1-010,signer unrelated credentials unreadable,Linux canary read attempts,pass
+R0R1-011,signer capabilities empty,systemd unit and proc status,pass
+R0R1-012,signer external network closed,PrivateNetwork and detached-container probe,pass
+R0R1-013,signer write scope dedicated,unit and failed config-root write,pass
+R0R1-014,supervisor package key unreadable,Linux canary read attempt,pass
+R0R1-015,supervisor issuer keys unreadable,Linux canary read attempt,pass
+R0R1-016,supervisor broker subset readable,Linux canary read attempt,pass
+R0R1-017,builder Linux ELF reproducible,two clean release builds,pass
+R0R1-018,signer Linux ELF reproducible,two clean release builds,pass
+R0R1-019,controlled feature absent from production build,cargo feature record and authority,pass
+R0R1-020,production ELF hashes packaged,handoff artifact verification,pass
+R0R1-021,controlled builder and signer execute,no-network systemd rehearsal,pass
+R0R1-022,phase one failure blocks phase two,systemd fault injection,pass
+R0R1-023,producer failure blocks issuers,systemd fault injection,pass
+R0R1-024,issuer failure blocks builder,systemd fault injection,pass
+R0R1-025,builder failure blocks signer,systemd fault injection,pass
+R0R1-026,signer failure blocks supervisor,systemd fault injection,pass
+R0R1-027,old output blocks second transaction,systemd replay rehearsal,pass
+R0R1-028,production remains inactive,authority and handoff evidence,pass
+R0R1-029,R2B remains NOT_ISSUED,authority and rehearsal evidence,pass
+R0R1-030,FINAM and effect surfaces remain closed,authority and source scan,pass

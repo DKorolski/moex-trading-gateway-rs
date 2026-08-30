@@ -40,6 +40,10 @@ pub const PRODUCTION_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_ETC: &str = "/etc/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_RUN: &str = "/run/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_CREDENTIALS: &str = "/run/credentials/moex-trading/stage8b/r2a5";
+pub const PRODUCTION_DRAFT_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a5/draft-output";
+pub const PRODUCTION_SIGNED_PACKAGE_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a5/signed-output";
+pub const PRODUCTION_PACKAGE_SIGNER_CREDENTIALS: &str = "/run/moex-stage8b-r2b-package-issuer";
+pub const PRODUCTION_SUPERVISOR_CREDENTIALS: &str = "/run/moex-stage8b-r2b-supervisor";
 pub const PRODUCTION_UPSTREAM_ROOT: &str = "/var/lib/moex-trading/operational-authorities";
 pub const R2A6_SOURCE_ADAPTER_UID: u32 = 8095;
 pub const R2B_HELPER_UID: u32 = 8_301;
@@ -711,7 +715,9 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
     }
     let etc_root = Path::new(PRODUCTION_ETC);
     let state_root = Path::new(PRODUCTION_ROOT);
-    let credentials_root = Path::new(PRODUCTION_CREDENTIALS);
+    let draft_root = Path::new(PRODUCTION_DRAFT_ROOT);
+    let signed_package_root = Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT);
+    let credentials_root = package_signer_credentials_root();
     let trust: TrustSetManifest = serde_json::from_slice(&read_owned_fd(
         &etc_root.join("trust-manifest.json"),
         128 * 1024,
@@ -721,7 +727,7 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
     let now = Utc::now();
     let accepted_helper = load_accepted_helper_authority(etc_root, &trust, now)?;
     let draft_bytes = read_owned_fd(
-        &state_root.join("r2b-run-package.unsigned.json"),
+        &draft_root.join("r2b-run-package.unsigned.json"),
         128 * 1024,
         0,
         false,
@@ -761,11 +767,29 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
     }
     let signed = sign_run_package(draft, &signing)?;
     atomic_create_owned_mode(
-        &etc_root.join("r2b-run-package.json"),
+        &signed_package_root.join("r2b-run-package.json"),
         &serde_json::to_vec(&signed)?,
         0,
         0o644,
     )
+}
+
+fn package_signer_credentials_root() -> &'static Path {
+    let projected = Path::new(PRODUCTION_PACKAGE_SIGNER_CREDENTIALS);
+    #[cfg(feature = "stage8b-r2b-controlled-custody")]
+    if !projected.is_dir() {
+        return Path::new(PRODUCTION_CREDENTIALS);
+    }
+    projected
+}
+
+fn supervisor_credentials_root() -> &'static Path {
+    let projected = Path::new(PRODUCTION_SUPERVISOR_CREDENTIALS);
+    #[cfg(feature = "stage8b-r2b-controlled-custody")]
+    if !projected.is_dir() {
+        return Path::new(PRODUCTION_CREDENTIALS);
+    }
+    projected
 }
 
 fn validate_unsigned_draft_inputs(
@@ -861,6 +885,7 @@ pub fn build_run_package_draft_from_fixed_inputs() -> Result<(), R2a3Error> {
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
+        Path::new(PRODUCTION_DRAFT_ROOT),
         Utc::now(),
     )
 }
@@ -869,6 +894,7 @@ fn build_run_package_draft_at(
     etc_root: &Path,
     state_root: &Path,
     run_root: &Path,
+    draft_root: &Path,
     now: DateTime<Utc>,
 ) -> Result<(), R2a3Error> {
     let nonce = strict_single_line(
@@ -966,7 +992,7 @@ fn build_run_package_draft_at(
         signature_ed25519_hex: String::new(),
     };
     atomic_create_owned_mode(
-        &state_root.join("r2b-run-package.unsigned.json"),
+        &draft_root.join("r2b-run-package.unsigned.json"),
         &serde_json::to_vec(&package)?,
         0,
         0o600,
@@ -1574,6 +1600,8 @@ fn seed_controlled_fixed_layout_inner(
     for root in [etc_root, state_root, run_root, credentials_root] {
         prepare_directory(root, 0, 0o755)?;
     }
+    prepare_directory(Path::new(PRODUCTION_DRAFT_ROOT), 0, 0o700)?;
+    prepare_directory(Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT), 0, 0o755)?;
     prepare_directory(upstream_root, source_adapter_uid.unwrap_or(0), 0o755)?;
     if let Some(adapter_uid) = source_adapter_uid {
         prepare_directory(
@@ -1697,6 +1725,7 @@ pub fn finalize_controlled_fixed_layout(helper_sha256: &str) -> Result<(), R2a3E
     decode_hex::<32>(helper_sha256)?;
     let etc_root = Path::new(PRODUCTION_ETC);
     let state_root = Path::new(PRODUCTION_ROOT);
+    let draft_root = Path::new(PRODUCTION_DRAFT_ROOT);
     let run_root = Path::new(PRODUCTION_RUN);
     let nonce = strict_single_line(
         &read_owned_fd(&run_root.join("run-nonce.sha256"), 128, 0, false)?,
@@ -1780,7 +1809,7 @@ pub fn finalize_controlled_fixed_layout(helper_sha256: &str) -> Result<(), R2a3E
         signature_ed25519_hex: String::new(),
     };
     write_seed_file(
-        &state_root.join("r2b-run-package.unsigned.json"),
+        &draft_root.join("r2b-run-package.unsigned.json"),
         &serde_json::to_vec(&package)?,
         0,
         0o600,
@@ -2744,6 +2773,7 @@ fn prepare_r2b_privileged_admission_against(
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
+        Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT),
         Utc::now(),
         expected_helper_sha256,
         &accepted,
@@ -3559,6 +3589,7 @@ fn validate_local_authority_at(
     etc_root: &Path,
     state_root: &Path,
     run_root: &Path,
+    signed_package_root: &Path,
     now: DateTime<Utc>,
     executable_sha256: &str,
     accepted: &AcceptedR2a5Authority,
@@ -3576,8 +3607,12 @@ fn validate_local_authority_at(
     if executable_sha256 != accepted_helper.helper_executable_sha256 {
         return Err(R2a3Error::Authorization);
     }
-    let package_bytes =
-        read_owned_fd(&etc_root.join("r2b-run-package.json"), 128 * 1024, 0, false)?;
+    let package_bytes = read_owned_fd(
+        &signed_package_root.join("r2b-run-package.json"),
+        128 * 1024,
+        0,
+        false,
+    )?;
     let package: R2a5RunPackage = serde_json::from_slice(&package_bytes)?;
     if package.package_version != 1
         || package.authorization_status != "ISSUED"
@@ -3764,19 +3799,25 @@ fn load_r2a5_credentials_at(
     })
 }
 
+struct LocalPackageRoots<'a> {
+    etc: &'a Path,
+    state: &'a Path,
+    run: &'a Path,
+    signed_package: &'a Path,
+}
+
 fn validate_local_package_at(
-    etc_root: &Path,
-    state_root: &Path,
-    run_root: &Path,
+    roots: LocalPackageRoots<'_>,
     credentials: (&Path, u32),
     now: DateTime<Utc>,
     executable_sha256: &str,
     accepted: &AcceptedR2a5Authority,
 ) -> Result<PreparedR2a5Run, R2a3Error> {
     let validated = validate_local_authority_at(
-        etc_root,
-        state_root,
-        run_root,
+        roots.etc,
+        roots.state,
+        roots.run,
+        roots.signed_package,
         now,
         executable_sha256,
         accepted,
@@ -3807,16 +3848,15 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
+        Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT),
         Utc::now(),
         &executable,
         &accepted,
     )?;
     eprintln!("stage8b-r2b-helper: authority-verified");
     validate_r2b_receipt_package_binding(&receipt, &validated)?;
-    let prepared = load_r2a5_credentials_at(
-        validated,
-        (Path::new(PRODUCTION_CREDENTIALS), R2B_HELPER_UID),
-    )?;
+    let prepared =
+        load_r2a5_credentials_at(validated, (supervisor_credentials_root(), R2B_HELPER_UID))?;
     eprintln!("stage8b-r2b-helper: credentials-loaded");
     let result = match crate::production_clients() {
         Ok((auth_client, broker_client)) => {
@@ -3875,16 +3915,15 @@ pub async fn run_r2b_controlled_custody_one_shot() -> Result<R2a3ReadonlyEvidenc
         Path::new(PRODUCTION_ETC),
         Path::new(PRODUCTION_ROOT),
         Path::new(PRODUCTION_RUN),
+        Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT),
         Utc::now(),
         &executable,
         &accepted,
     )?;
     eprintln!("stage8b-r2b-helper: authority-verified");
     validate_r2b_receipt_package_binding(&receipt, &validated)?;
-    let prepared = load_r2a5_credentials_at(
-        validated,
-        (Path::new(PRODUCTION_CREDENTIALS), R2B_HELPER_UID),
-    )?;
+    let prepared =
+        load_r2a5_credentials_at(validated, (supervisor_credentials_root(), R2B_HELPER_UID))?;
     eprintln!("stage8b-r2b-helper: credentials-loaded");
     let result = match controlled_client_from_fixed_files() {
         Ok((client, endpoint)) => {
@@ -3954,9 +3993,12 @@ pub async fn run_controlled_fixed_layout() -> Result<R2a3ReadonlyEvidence, R2a3E
     let executable = current_linux_executable_sha256()?;
     let accepted: AcceptedR2a5Authority = serde_json::from_str(CONTROLLED_AUTHORITY)?;
     let prepared = validate_local_package_at(
-        Path::new(PRODUCTION_ETC),
-        Path::new(PRODUCTION_ROOT),
-        Path::new(PRODUCTION_RUN),
+        LocalPackageRoots {
+            etc: Path::new(PRODUCTION_ETC),
+            state: Path::new(PRODUCTION_ROOT),
+            run: Path::new(PRODUCTION_RUN),
+            signed_package: Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT),
+        },
         (Path::new(PRODUCTION_CREDENTIALS), unsafe {
             libc::geteuid()
         }),
