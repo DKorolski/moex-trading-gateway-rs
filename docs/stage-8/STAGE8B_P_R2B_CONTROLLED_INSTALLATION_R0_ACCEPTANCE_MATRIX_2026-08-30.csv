@@ -1,0 +1,25 @@
+id,area,requirement,evidence,status
+CIR0-001,lineage,Accepted Implementation R0-R1A commit is exact,supersession plus authority,PASS
+CIR0-002,lineage,Accepted immutable archive SHA-256 is exact,supersession plus authority,PASS
+CIR0-003,lineage,Superseded candidate commit is retained,supersession,PASS
+CIR0-004,lineage,Old and new helper SHA-256 values are explicit,supersession plus checker,PASS
+CIR0-005,lineage,Old and new trust-set identities are explicit,supersession plus checker,PASS
+CIR0-006,lineage,Old and new account-key identities are explicit,supersession plus checker,PASS
+CIR0-007,lineage,Path migration is exact and legacy paths are non-authoritative,supersession plus runtime contract,PASS
+CIR0-008,lineage,Pre-production initial rebind is distinct from key continuity,supersession plus checker,PASS
+CIR0-009,safety,Prior production installation count is zero,supersession,PASS
+CIR0-010,safety,Prior issued R2B package count is zero,supersession,PASS
+CIR0-011,scope,Runtime contract is explicitly post-draft,transaction contract,PASS
+CIR0-012,scope,Full implementation contract includes draft builder,transaction contract plus checker,PASS
+CIR0-013,graph,Phase count is exactly six,transaction contract plus checker,PASS
+CIR0-014,graph,Service invocation count is exactly 31,transaction contract plus checker,PASS
+CIR0-015,graph,Eleven producer instance identities are exact,issuance authority plus checker,PASS
+CIR0-016,graph,Eleven issuer instance identities are exact,issuance authority plus checker,PASS
+CIR0-017,graph,All service and target files are hash-bound,transaction contract plus checker,PASS
+CIR0-018,binaries,All production executable hashes inherit accepted authorities,transaction contract plus checker,PASS
+CIR0-019,proof,Future proof is isolated staging only,transaction contract plus authority,PASS
+CIR0-020,proof,Success failure replay and reset proofs are mandatory,transaction contract,PASS
+CIR0-021,safety,Production host operator and real credentials remain forbidden,authority plus checker,PASS
+CIR0-022,safety,FINAM AuthService broker GET POST and DELETE remain closed,authority plus checker,PASS
+CIR0-023,safety,Redis broker dispatch runtime-live and real orders remain closed,authority plus checker,PASS
+CIR0-024,governance,This design package does not authorize installation or R2B issuance,authority plus checker,PASS
