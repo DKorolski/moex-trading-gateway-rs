@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof — Implementation R0 Preflight",
+  "status": "PREFLIGHT_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+  "accepted_design": {
+    "source_ref": "1e4db79288b0809fd5975edfdd0fc14740bcc8c6",
+    "archive_name": "moex-trading-project-1e4db79.zip",
+    "archive_sha256": "5d55ccd8a585d6da780531aa237c9fba215328bce502b1099a8dc5aa3c22faea",
+    "verdict": "ACCEPTED"
+  },
+  "accepted_implementation": {
+    "source_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
+    "archive_name": "moex-trading-project-6672819.zip",
+    "archive_sha256": "2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77",
+    "verdict": "ACCEPTED"
+  },
+  "inherited_contract_sha256": {
+    "docs/stage-8/stage8b-p-r2b-controlled-installation-r0-authority.json": "7610ad1f7aa43aa054cc2765a7b680043ef258cddc1383294799f693d7ddd229",
+    "docs/stage-8/stage8b-p-r2b-preproduction-supersession.json": "40f962a60cc721512bd07134e641e2ce69bb37f27dbea975fc552640ea3bd7b5",
+    "docs/stage-8/stage8b-p-r2b-implementation-transaction-contract.json": "3d45203facd2634767d3ad21877d4c16b1bb3f9c7a2856bcf02471e69ad72af9"
+  },
+  "new_contracts": {
+    "staging_inventory": "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-staging-inventory.json",
+    "canary_ceremony": "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-canary-ceremony.json",
+    "reset_uninstall": "docs/stage-8/stage8b-p-r2b-controlled-installation-impl-r0-reset-uninstall.json"
+  },
+  "artifact_root": {
+    "argument": "--artifact-root",
+    "required": true,
+    "accepted_predecessor_archive_embedded": false,
+    "binary_count": 12,
+    "hash_mismatch_action": "ABORT_BEFORE_CONTAINER_CREATE"
+  },
+  "execution_state": {
+    "installation_authorized_by_this_package": false,
+    "container_created": false,
+    "units_installed": false,
+    "units_enabled": false,
+    "units_started": false,
+    "canary_private_material_created": false,
+    "proof_executed": false,
+    "cleanup_executed": false
+  },
+  "authorization": "NOT_ISSUED",
+  "closed_surfaces": {
+    "production_account_host": false,
+    "real_operator": false,
+    "real_credentials": false,
+    "finam_network": false,
+    "finam_auth_service": false,
+    "finam_broker_get": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "redis_live": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

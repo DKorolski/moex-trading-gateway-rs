@@ -1,0 +1,31 @@
+id,category,requirement,evidence,status
+CIPF-001,lineage,accepted design commit and archive are exact,preflight authority,PASS
+CIPF-002,lineage,accepted implementation commit and archive are exact,preflight authority,PASS
+CIPF-003,lineage,inherited controlled-installation authority is byte pinned,checker,PASS
+CIPF-004,lineage,inherited supersession record is byte pinned,checker,PASS
+CIPF-005,lineage,inherited transaction contract is byte pinned,checker,PASS
+CIPF-006,artifacts,external artifact-root argument is mandatory,preflight authority,PASS
+CIPF-007,artifacts,all twelve production ELF hashes are exact,staging inventory plus checker,PASS
+CIPF-008,artifacts,all eighteen unit and target hashes remain inherited exactly,transaction contract plus checker,PASS
+CIPF-009,contour,contour is a disposable linux amd64 systemd container,staging inventory,PASS
+CIPF-010,contour,host is not the production account host,staging inventory,PASS
+CIPF-011,contour,network mode is none and FINAM route is forbidden,staging inventory,PASS
+CIPF-012,contour,host root docker socket env and production runtime mounts are forbidden,staging inventory,PASS
+CIPF-013,ceremony,canary ceremony has a distinct fixed identity,canary ceremony,PASS
+CIPF-014,ceremony,canary domain asserts no production continuity,canary ceremony,PASS
+CIPF-015,ceremony,private material is tmpfs only and cannot be exported,canary ceremony,PASS
+CIPF-016,ceremony,real operator account and token are forbidden,canary ceremony,PASS
+CIPF-017,ceremony,eleven exact source issuer identities are retained,canary ceremony plus transaction contract,PASS
+CIPF-018,proof,full success graph is required,preflight plan,PASS
+CIPF-019,proof,every one of six phase failures must block downstream,preflight plan,PASS
+CIPF-020,proof,partial producer and issuer fanout must block downstream,preflight plan,PASS
+CIPF-021,proof,stale ceremony nonce receipt and output must be rejected,preflight plan,PASS
+CIPF-022,reset,full reset is required before second run,reset and uninstall plan,PASS
+CIPF-023,reset,first-run private material cannot be reused,reset and uninstall plan,PASS
+CIPF-024,cleanup,cleanup is mandatory on success and failure,reset and uninstall plan,PASS
+CIPF-025,cleanup,units binaries state and credentials must be absent after proof,reset and uninstall plan,PASS
+CIPF-026,cleanup,container destruction is mandatory,reset and uninstall plan,PASS
+CIPF-027,status,current status records both accepted predecessors and next proof step,current-status plus checker,PASS
+CIPF-028,boundary,this preflight does not authorize execution,preflight authority,PASS
+CIPF-029,boundary,R2B remains NOT_ISSUED,preflight authority,PASS
+CIPF-030,boundary,FINAM effects Redis runtime-live and real orders remain closed,preflight authority,PASS

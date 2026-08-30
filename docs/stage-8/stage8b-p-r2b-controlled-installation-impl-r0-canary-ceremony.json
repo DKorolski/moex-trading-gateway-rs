@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "ceremony_id": "stage8b-r2b-canary-offline-20260830-r0",
+  "status": "REVIEWED_ID_NOT_MATERIALIZED",
+  "trust_domain": "CANARY_EPHEMERAL_NO_PRODUCTION_CONTINUITY",
+  "generation_interpretation": "NEW_CANARY_DOMAIN_INITIAL_GENERATION",
+  "materialization": {
+    "allowed_only_after_network_isolation_verified": true,
+    "location": "/run/stage8b-r2b-canary",
+    "storage": "tmpfs",
+    "private_material_export_allowed": false,
+    "host_persistence_allowed": false,
+    "source_or_handoff_persistence_allowed": false,
+    "shell_argument_exposure_allowed": false
+  },
+  "identity": {
+    "operator": "CANARY_OPERATOR_NOT_A_REAL_PERSON",
+    "account": "CANARY_ACCOUNT_NOT_A_BROKER_ACCOUNT",
+    "finam_secret": "CANARY_NON_TOKEN",
+    "real_operator_selection_allowed": false,
+    "real_account_allowed": false,
+    "real_broker_token_allowed": false
+  },
+  "key_inventory": {
+    "package_authorization_keypairs": 1,
+    "helper_acceptance_keypairs": 1,
+    "account_binding_keys": 1,
+    "source_issuer_keypairs": 11,
+    "source_names": [
+      "trusted_clock",
+      "stage7b_current_recovery_seal",
+      "stage6_exact_dispatch_ready_command",
+      "stage8a_root_config_policy_control",
+      "composite_readiness",
+      "kill_switch_run_allowed",
+      "single_finam_ownership",
+      "schedule",
+      "instrument_specification",
+      "ambiguity_orphan_unresolved_lifecycle",
+      "durable_micro_budget"
+    ]
+  },
+  "evidence_policy": {
+    "public_key_fingerprints_allowed": true,
+    "private_key_bytes_allowed": false,
+    "secret_values_allowed": false,
+    "redacted_lifecycle_events_required": true,
+    "destruction_receipt_required": true
+  },
+  "current_state": {
+    "private_material_present": false,
+    "public_manifest_present": false,
+    "ceremony_executed": false,
+    "destruction_receipt_present": false
+  }
+}

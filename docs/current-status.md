@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-29.
+Status date: 2026-08-30.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,20 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
+
+- Stage 8B-P R2B Implementation R0-R1A is independently accepted at
+  `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
+  Transaction Proof R0 is independently accepted as a design-only boundary at
+  `1e4db79288b0809fd5975edfdd0fc14740bcc8c6`; its immutable archive
+  `moex-trading-project-1e4db79.zip` has SHA-256
+  `5d55ccd8a585d6da780531aa237c9fba215328bce502b1099a8dc5aa3c22faea`.
+  The current candidate is **Controlled Installation Implementation R0 preflight**:
+  a separately reviewed plan for a disposable Linux/amd64 systemd
+  contour, external exact-ELF artifact root, distinct canary ceremony and
+  mandatory reset/uninstall proof. The preflight has not created a container,
+  installed a unit, materialized a key or executed the proof. R2B remains
+  `NOT_ISSUED`; FINAM network, AuthService and broker GET, POST/DELETE, broker
+  dispatch, Redis live, runtime-live and real orders remain closed.
 
 - Stage 8B-P R2A8-R1 is independently accepted at
   `5b2079d7d524d2fa6f084f44f961c4b5958c042a`; its immutable handoff is

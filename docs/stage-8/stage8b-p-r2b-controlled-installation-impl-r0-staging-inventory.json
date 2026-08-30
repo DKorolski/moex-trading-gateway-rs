@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "inventory_id": "stage8b-r2b-canary-systemd-docker-r0",
+  "status": "PLANNED_NOT_CREATED",
+  "host": {
+    "classification": "DEVELOPER_LOCAL_WORKSTATION",
+    "production_account_host": false,
+    "os": "darwin",
+    "architecture": "arm64",
+    "production_runtime_mount_allowed": false
+  },
+  "contour": {
+    "backend": "docker",
+    "container_platform": "linux/amd64",
+    "base_image": "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
+    "systemd_pid1_required": true,
+    "ephemeral": true,
+    "privileged_only_for_systemd_cgroup": true,
+    "network_mode": "none",
+    "default_route_allowed": false,
+    "dns_allowed": false,
+    "finam_route_allowed": false
+  },
+  "mounts": [
+    {
+      "source_class": "REVIEWED_SOURCE_TREE",
+      "destination": "/work",
+      "mode": "ro"
+    },
+    {
+      "source_class": "ACCEPTED_ELF_ARTIFACT_ROOT",
+      "destination": "/accepted-artifacts",
+      "mode": "ro"
+    },
+    {
+      "source_class": "DEDICATED_REDACTED_EVIDENCE_OUTPUT",
+      "destination": "/evidence",
+      "mode": "rw"
+    },
+    {
+      "source_class": "EPHEMERAL_CANARY_TMPFS",
+      "destination": "/run/stage8b-r2b-canary",
+      "mode": "tmpfs"
+    }
+  ],
+  "forbidden_mounts": [
+    "/",
+    "/var/run/docker.sock",
+    "/opt/trading-hybrid",
+    "/opt/moex-trading",
+    ".env",
+    "BROKER_CREDENTIAL_DIRECTORY",
+    "PRODUCTION_REDIS_DIRECTORY"
+  ],
+  "installation": {
+    "unit_target_file_count": 18,
+    "service_invocation_count": 31,
+    "phase_count": 6,
+    "binary_count": 12,
+    "enablement_allowed": false,
+    "persistent_host_install_allowed": false
+  },
+  "production_linux_amd64_sha256": {
+    "accepted-stage8b-readonly-preflight": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065",
+    "stage8b-r2a5-authority-issuer": "b893076d23fc03e12d7900d07b4cd9e9fc08b9daf03a70fb96587f120bc4536c",
+    "stage8b-r2a5-authority-producer": "98183d07362aee68fe8a630da65bf316433d333c723d8960b7927f886bac934b",
+    "stage8b-r2a5-package-issuer": "4c40e0c56bc9cb1d133eb79d73b44510d8e0a083c6bb20192eddcbf7f48329c9",
+    "stage8b-r2a7-source-adapter": "f51d09315d8b02244d7bc218447b588ba3f20f1d7fc2573408ccfb61dbbe1541",
+    "stage8b-r2a8-authoritative-intake-creator": "5f4071100a962028d147bcf53772b3619f8e5bb28a41323c7865abff66430c07",
+    "stage8b-r2a8-current-manifest-issuer": "b7246ca2754725e8519e517d25021492bb99bd3a22bd3ef31ab2a9f226d57330",
+    "stage8b-r2a8-production-current-source-writer": "d0b86883a431f825c88220660f0d41e95448fd74cede575f0af8bb5b3d94caf9",
+    "stage8b-r2a8-production-intake-stager": "97929be6af7638952fc3cc9d95b32d68417c6d92e17945702545e01a6801abd5",
+    "stage8b-r2a8-upstream-current-authority-publisher": "3d697198d77ee8b697d7dca7f5fc14d58b58bb68ad53efaa683efefa87e745f4",
+    "stage8b-r2b-launcher": "effb4ff73fe375665cf4416806216d82727a40f0b2040333eda927bcda5bae55",
+    "stage8b-r2b-run-package-draft-builder": "b63f5fb798cf34335fd5482e62782cc439dab00ba0e2459e294f086603981272"
+  }
+}
