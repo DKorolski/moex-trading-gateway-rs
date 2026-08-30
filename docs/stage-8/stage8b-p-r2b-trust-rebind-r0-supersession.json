@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Trust Rebind R0",
+  "record_id": "stage8b-p-r2b-generation-1-to-2-candidate-supersession-2026-08-30",
+  "status": "CANDIDATE_REBIND_RECORDED_NOT_ACTIVATED",
+  "superseded_candidate": {
+    "generation": 1,
+    "trust_manifest_sha256": "8014eea21ebe0b619122e0c7a332b50d173ff31d1cb2ea91e2505551dd547ef8",
+    "public_key_set_sha256": "2e609dcbb6b6e7eb12fabebe4eb5ce62712aea91c2971a4e247194484f23da24",
+    "authorization_public_key_sha256": "9149e9620ec0ea7ad3dab389542acf308471aaa0282e4b9020f75de7c13781af",
+    "account_key_manifest_sha256": "e40ea1d12ef5ebe4faf8ebaf6897056b9ac45d5efd0bb4c68eb4ff85f8bc7cd7",
+    "private_material_status": "LOST",
+    "authorization": "NOT_ISSUED",
+    "issued_packages": 0,
+    "installations": 0,
+    "finam_requests": 0,
+    "may_authorize_future_execution": false
+  },
+  "replacement_candidate": {
+    "generation": 2,
+    "trust_manifest_sha256": "dfe61ddb944df042cdf9514f56c14131e4a45bc732435ff89658ceaceb92d4ee",
+    "public_key_set_sha256": "a1094751e25613d1a9f10b54436f3229fc73774d9135812577978c22a7bb7465",
+    "authorization_public_key_sha256": "c3160a41e54fbeb9de4afe2163260f383fefa3fb531613d9754fc6b911a37c88",
+    "account_key_manifest_sha256": "206bb41415f5edd9c59aa0d256dea63219fa6e28def2e436b676a4de3d1b52ec",
+    "private_material_status": "PRESENT_PRIMARY_COPY_VERIFIED",
+    "backup_status": "REQUIRED_NOT_VERIFIED",
+    "authorization": "NOT_ISSUED",
+    "active": false
+  },
+  "transition_state": {
+    "historical_generation_1_artifacts_rewritten": false,
+    "generation_1_runtime_selection_changed": false,
+    "generation_2_runtime_selection_enabled": false,
+    "generation_2_helper_acceptance_issued": false,
+    "generation_2_production_binaries_accepted": false,
+    "generation_2_private_material_installed": false,
+    "generation_2_package_issued": false,
+    "execution_allowed": false
+  },
+  "activation_preconditions": [
+    "TRUST_REBIND_R0_INDEPENDENTLY_ACCEPTED",
+    "ENCRYPTED_OFFLINE_BACKUP_ATTESTED",
+    "GENERATION_2_PUBLIC_AUTHORITY_COMPOSITION_REVIEWED",
+    "AFFECTED_PRODUCTION_BINARIES_REBUILT_AND_HASH_PINNED",
+    "GENERATION_2_HELPER_ACCEPTANCE_REISSUED_AND_ACCEPTED",
+    "PHASE6_REHEARSAL_REBOUND_TO_ACCOUNT_GENERATION_2",
+    "ALL_CLOSED_SURFACE_GATES_GREEN"
+  ],
+  "rollback": {
+    "generation_1_private_material_recovery_assumed": false,
+    "fallback_to_superseded_private_set_allowed": false,
+    "new_rebind_requires_generation_greater_than_2": true
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Trust Rebind R0",
+  "record_id": "stage8b-p-r2b-trust-rebind-r0-2026-08-30",
+  "status": "GENERATION_2_MATERIALIZED_LOCALLY_BACKUP_REQUIRED_NOT_ACTIVE",
+  "accepted_predecessor": {
+    "source_ref": "a2586c428cd97349956efb12409ff37aea1fbe78",
+    "archive_name": "moex-trading-project-a2586c4.zip",
+    "archive_sha256": "9cfe5f76a0b2ef45c8daae11704c909687808787e3b7e99c5c54d5aeb8254b7a",
+    "verdict": "ACCEPTED"
+  },
+  "incident": {
+    "classification": "PRIVATE_MATERIAL_LOST",
+    "affected_generation": 1,
+    "affected_trust_manifest_sha256": "8014eea21ebe0b619122e0c7a332b50d173ff31d1cb2ea91e2505551dd547ef8",
+    "affected_public_key_set_sha256": "2e609dcbb6b6e7eb12fabebe4eb5ce62712aea91c2971a4e247194484f23da24",
+    "affected_authorization_public_key_sha256": "9149e9620ec0ea7ad3dab389542acf308471aaa0282e4b9020f75de7c13781af",
+    "affected_account_key_manifest_sha256": "e40ea1d12ef5ebe4faf8ebaf6897056b9ac45d5efd0bb4c68eb4ff85f8bc7cd7",
+    "private_material_recoverable_from_public_projection": false,
+    "private_material_found_in_source_or_handoff": false,
+    "authorization_issued_before_loss": false,
+    "installation_performed_before_loss": false,
+    "finam_requests_before_loss": 0
+  },
+  "candidate_generation_2": {
+    "generation": 2,
+    "trust_manifest": "docs/stage-8/stage8b-p-r2b-trust-rebind-generation-2-trust-manifest.json",
+    "trust_manifest_sha256": "dfe61ddb944df042cdf9514f56c14131e4a45bc732435ff89658ceaceb92d4ee",
+    "authorization_public_key_sha256": "c3160a41e54fbeb9de4afe2163260f383fefa3fb531613d9754fc6b911a37c88",
+    "public_key_set_sha256": "a1094751e25613d1a9f10b54436f3229fc73774d9135812577978c22a7bb7465",
+    "account_key_manifest": "docs/stage-8/stage8b-p-r2b-trust-rebind-generation-2-account-key-manifest.json",
+    "account_key_manifest_sha256": "206bb41415f5edd9c59aa0d256dea63219fa6e28def2e436b676a4de3d1b52ec",
+    "valid_from_utc": "2026-08-30T00:00:00Z",
+    "valid_until_utc": "2027-08-30T00:00:00Z",
+    "active": false
+  },
+  "generation_semantics": {
+    "signature_domain_version": 1,
+    "key_ids_remain_v1_domain_ids": true,
+    "rotation_is_bound_by_generation_field": true,
+    "authorization_generation": 2,
+    "helper_acceptance_generation": 2,
+    "source_key_generation": 2,
+    "account_key_generation": "2",
+    "lossy_or_same_generation_rebind_allowed": false
+  },
+  "custody": {
+    "primary_copy_status": "PRESENT_AND_CRYPTOGRAPHICALLY_VERIFIED",
+    "primary_location_class": "PERSISTENT_OPERATOR_OWNED_STORAGE_OUTSIDE_SOURCE_TREE",
+    "absolute_private_path_recorded_in_repository": false,
+    "private_material_in_repository": false,
+    "private_material_in_handoff": false,
+    "directory_mode": "0700",
+    "private_file_mode": "0600",
+    "private_signing_seed_count": 13,
+    "private_account_key_count": 1,
+    "encrypted_offline_backup_status": "REQUIRED_NOT_VERIFIED",
+    "backup_attestation_present": false,
+    "activation_without_verified_backup_allowed": false
+  },
+  "verification": {
+    "generator": "stage8b-r2b-trust-rebind-key-ceremony",
+    "verifier": "stage8b-r2b-trust-rebind-key-ceremony-verify",
+    "exact_directory_inventory_required": true,
+    "private_to_public_bindings_verified": 13,
+    "account_key_hash_binding_verified": true,
+    "generator_and_verifier_public_fingerprints_identical": true,
+    "private_values_exported": false
+  },
+  "activation": {
+    "public_authority_selection_changed": false,
+    "production_binaries_rebuilt": false,
+    "helper_acceptance_reissued": false,
+    "production_credentials_installed": false,
+    "package_authorization_issued": false,
+    "controlled_installation_allowed": false,
+    "next_allowed_step": "INDEPENDENT_REVIEW_THEN_BACKUP_ATTESTATION_AND_GENERATION_2_COMPOSITION_REBUILD"
+  },
+  "authorization": "NOT_ISSUED",
+  "closed_surfaces": {
+    "production_account_host": false,
+    "real_credentials": false,
+    "finam_network": false,
+    "finam_auth_service": false,
+    "finam_broker_get": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "redis_live": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

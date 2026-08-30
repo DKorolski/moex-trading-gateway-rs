@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "environment": "production",
+  "authorization_key": {
+    "key_id": "stage8b-r2a5-production-package-authorization-v1",
+    "generation": 2,
+    "public_key_ed25519_hex": "54722263a4412f5b1a0c0473da7d780cac1df628a0c7800dc3043aabac229071",
+    "public_key_sha256": "c3160a41e54fbeb9de4afe2163260f383fefa3fb531613d9754fc6b911a37c88",
+    "valid_from_utc": "2026-08-30T00:00:00Z",
+    "valid_until_utc": "2027-08-30T00:00:00Z"
+  },
+  "helper_acceptance_key": {
+    "key_id": "stage8b-r2a5-production-helper-acceptance-v1",
+    "generation": 2,
+    "public_key_ed25519_hex": "6ce67436f1102e49df206d1e6785f1c6214a98078d38762f576314c67773eefc",
+    "public_key_sha256": "daf2b9942accab3f21115ac3aad2375e9035b46f51483af9488ca8ba8f2a0bc9",
+    "valid_from_utc": "2026-08-30T00:00:00Z",
+    "valid_until_utc": "2027-08-30T00:00:00Z"
+  },
+  "source_keys": {
+    "ambiguity_orphan_unresolved_lifecycle": {
+      "key_id": "ambiguity_orphan_unresolved_lifecycle-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "119a4c4f5cef2fe9158191b3d56e3dc1092e04435d6b1f1b2196de50674a3507",
+      "public_key_sha256": "30d6a8ca6b5d2a9f4cd4cbe73c1beae6d509523e345d50b00ab542e2223f2992",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "composite_readiness": {
+      "key_id": "composite_readiness-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "994529f1811696fd82935bed8914fa916d58f04cb490d1a73df62ebc345e7d49",
+      "public_key_sha256": "2aa5fcc37dab7bcdaa8a71da8838adf63c0026bccd966df1b8ccaf8d008890fb",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "durable_micro_budget": {
+      "key_id": "durable_micro_budget-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "1388bd18a64862a9e49b6f883d325aea830e8b53cbea7d11a86894ed077690e9",
+      "public_key_sha256": "2bd08407595c8af432b43fac184a78b80b6bb62256a5222c24c14520255c1c2c",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "instrument_specification": {
+      "key_id": "instrument_specification-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "5032a1ce5fdbe44703e927f043cf0e95171816a577da807a2af15baa6adcea41",
+      "public_key_sha256": "2d4513a6c44c2a92f4d1e74b6b3d5b74991acc8ec20d3d2ac2a9f3bbbd9eb960",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "kill_switch_run_allowed": {
+      "key_id": "kill_switch_run_allowed-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "b68bf42b4be1dd463067e75d47ed6d05229413a6cfe5e2872fbd58347c20108b",
+      "public_key_sha256": "72452024b689a9b4ba214c517c25e1082f8572b865a27aa99e62f7a96f49968e",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "schedule": {
+      "key_id": "schedule-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "432a274889bc2b3a4492b3a1510f7356e1c2878337263e28472335f8600e4d99",
+      "public_key_sha256": "feff4cf8ddce79666c0dd71f0f3e634a396f2b0f479a2d5b12da230330c543b3",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "single_finam_ownership": {
+      "key_id": "single_finam_ownership-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "cafc909b3af80bdc6ce55e0b501cfd092a32acadedfcdd0d8ea60577f002271c",
+      "public_key_sha256": "995b011d88373bc6db9344333a3c6a04da6bf2fd444b8267210d77f104b12952",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "stage6_exact_dispatch_ready_command": {
+      "key_id": "stage6_exact_dispatch_ready_command-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "9a8b9bf4da49f94015dd86a8d03e0fcf7dab2b1b9a183f1cb9cdcf2c9ba2c30e",
+      "public_key_sha256": "1522972ebebaa24a1ec90624afca44eb30f640c342d711789ad526e54f467984",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "stage7b_current_recovery_seal": {
+      "key_id": "stage7b_current_recovery_seal-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "e1c54b62e8060e944b27e8b757ec7c6eae83d23eca6d1dbac3304ed0efa25b95",
+      "public_key_sha256": "7db8586d0f6b8020dfc5625397f281d17015234cb3a3b0964fc80a71f1a29676",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "stage8a_root_config_policy_control": {
+      "key_id": "stage8a_root_config_policy_control-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "dfbd199d22b35f76bc87e3baee7ed43c20db23efa1daa5c9f77a1cbbb4cbf1d1",
+      "public_key_sha256": "829e0f9eaf2765a0cf537df8ebfd36fd4e2e4bd5ca54781f892c645176afe67f",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    },
+    "trusted_clock": {
+      "key_id": "trusted_clock-ed25519-v1",
+      "generation": 2,
+      "public_key_ed25519_hex": "75a87dcb850f6d4371192370e8d9450a717d774cbaf1c260e96b1ca51bd3ee08",
+      "public_key_sha256": "6c1ef341da2e9906142bd09f17661662fb3a13faa15faa614be5118947a9f4b9",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    }
+  },
+  "public_key_set_sha256": "a1094751e25613d1a9f10b54436f3229fc73774d9135812577978c22a7bb7465",
+  "rotation_requires_new_reviewed_package": true
+}

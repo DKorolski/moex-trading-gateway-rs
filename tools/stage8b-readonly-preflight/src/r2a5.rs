@@ -1270,18 +1270,78 @@ fn ceremony_write(path: &Path, bytes: &[u8], mode: u32) -> Result<(), R2a3Error>
     Ok(())
 }
 
-/// Generates an offline R2A5 key ceremony. Secret material is written only to
-/// the caller-selected, newly-created directory; only the two public manifests
-/// are intended to enter source control.
-pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, R2a3Error> {
+#[derive(Clone, Copy)]
+struct KeyCeremonyProfile {
+    generation: u64,
+    valid_from_utc: &'static str,
+    valid_until_utc: &'static str,
+    account_key_file: &'static str,
+    account_key_relative_path: &'static str,
+}
+
+const R2A5_KEY_CEREMONY_PROFILE: KeyCeremonyProfile = KeyCeremonyProfile {
+    generation: 1,
+    valid_from_utc: "2026-08-26T00:00:00Z",
+    valid_until_utc: "2027-08-26T00:00:00Z",
+    account_key_file: "account-binding-generation-1.hex",
+    account_key_relative_path: "generation-1.hex",
+};
+
+const R2B_TRUST_REBIND_PROFILE: KeyCeremonyProfile = KeyCeremonyProfile {
+    generation: 2,
+    valid_from_utc: "2026-08-30T00:00:00Z",
+    valid_until_utc: "2027-08-30T00:00:00Z",
+    account_key_file: "account-binding-generation-2.hex",
+    account_key_relative_path: "generation-2.hex",
+};
+
+fn key_ceremony_public_values(
+    trust: &TrustSetManifest,
+    trust_bytes: &[u8],
+    account_bytes: &[u8],
+) -> BTreeMap<String, String> {
+    BTreeMap::from([
+        (
+            "authorization_public_key_sha256".to_owned(),
+            trust.authorization_key.public_key_sha256.clone(),
+        ),
+        ("trust_manifest_sha256".to_owned(), sha256(trust_bytes)),
+        (
+            "public_key_set_sha256".to_owned(),
+            trust.public_key_set_sha256.clone(),
+        ),
+        (
+            "account_key_manifest_sha256".to_owned(),
+            sha256(account_bytes),
+        ),
+        (
+            "source_adapter_authority_sha256".to_owned(),
+            sha256(SOURCE_ADAPTER_AUTHORITY),
+        ),
+    ])
+}
+
+fn generate_key_ceremony_for_profile(
+    output: &Path,
+    profile: KeyCeremonyProfile,
+) -> Result<BTreeMap<String, String>, R2a3Error> {
+    if profile.generation == 0
+        || profile.account_key_file.contains('/')
+        || profile.account_key_relative_path.contains('/')
+    {
+        return Err(R2a3Error::Input);
+    }
     std::fs::create_dir(output)?;
     std::fs::set_permissions(output, std::fs::Permissions::from_mode(0o700))?;
-    let valid_from = DateTime::parse_from_rfc3339("2026-08-26T00:00:00Z")
+    let valid_from = DateTime::parse_from_rfc3339(profile.valid_from_utc)
         .map_err(|_| R2a3Error::Input)?
         .with_timezone(&Utc);
-    let valid_until = DateTime::parse_from_rfc3339("2027-08-26T00:00:00Z")
+    let valid_until = DateTime::parse_from_rfc3339(profile.valid_until_utc)
         .map_err(|_| R2a3Error::Input)?
         .with_timezone(&Utc);
+    if valid_from >= valid_until {
+        return Err(R2a3Error::Input);
+    }
     let authorization_seed = random_seed()?;
     let authorization_signing = SigningKey::from_bytes(&authorization_seed);
     let authorization_public = authorization_signing.verifying_key().to_bytes();
@@ -1292,7 +1352,7 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
     )?;
     let authorization_key = PinnedPublicKey {
         key_id: "stage8b-r2a5-production-package-authorization-v1".to_owned(),
-        generation: 1,
+        generation: profile.generation,
         public_key_ed25519_hex: lower_hex(&authorization_public),
         public_key_sha256: sha256(&authorization_public),
         valid_from_utc: valid_from,
@@ -1308,7 +1368,7 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
     )?;
     let helper_acceptance_key = PinnedPublicKey {
         key_id: "stage8b-r2a5-production-helper-acceptance-v1".to_owned(),
-        generation: 1,
+        generation: profile.generation,
         public_key_ed25519_hex: lower_hex(&helper_acceptance_public),
         public_key_sha256: sha256(&helper_acceptance_public),
         valid_from_utc: valid_from,
@@ -1333,8 +1393,10 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
         source_keys.insert(
             source.to_owned(),
             PinnedPublicKey {
+                // The key-id names the accepted signature domain. Rotation is
+                // represented by the independently checked generation field.
                 key_id: format!("{source}-ed25519-v1"),
-                generation: 1,
+                generation: profile.generation,
                 public_key_ed25519_hex: lower_hex(&public),
                 public_key_sha256: sha256(&public),
                 valid_from_utc: valid_from,
@@ -1354,16 +1416,16 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
     trust.public_key_set_sha256 = public_key_set_digest(&trust)?;
     let account_key = random_seed()?;
     ceremony_write(
-        &output.join("account-binding-generation-1.hex"),
+        &output.join(profile.account_key_file),
         format!("{}\n", lower_hex(&account_key[..])).as_bytes(),
         0o600,
     )?;
     let account = AccountKeyManifest {
         schema_version: 1,
         entries: vec![AccountKeyEntry {
-            generation_id: "1".to_owned(),
+            generation_id: profile.generation.to_string(),
             key_sha256: sha256(&account_key[..]),
-            relative_key_path: "generation-1.hex".to_owned(),
+            relative_key_path: profile.account_key_relative_path.to_owned(),
             valid_from_utc: valid_from,
             valid_until_utc: valid_until,
         }],
@@ -1377,25 +1439,250 @@ pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, 
         0o644,
     )?;
     File::open(output)?.sync_all()?;
-    Ok(BTreeMap::from([
-        (
-            "authorization_public_key_sha256".to_owned(),
-            trust.authorization_key.public_key_sha256,
-        ),
-        ("trust_manifest_sha256".to_owned(), sha256(&trust_bytes)),
-        (
-            "public_key_set_sha256".to_owned(),
-            trust.public_key_set_sha256,
-        ),
-        (
-            "account_key_manifest_sha256".to_owned(),
-            sha256(&account_bytes),
-        ),
-        (
-            "source_adapter_authority_sha256".to_owned(),
-            sha256(SOURCE_ADAPTER_AUTHORITY),
-        ),
-    ]))
+    Ok(key_ceremony_public_values(
+        &trust,
+        &trust_bytes,
+        &account_bytes,
+    ))
+}
+
+/// Generates an offline R2A5 key ceremony. Secret material is written only to
+/// the caller-selected, newly-created directory; only the two public manifests
+/// are intended to enter source control.
+pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, R2a3Error> {
+    generate_key_ceremony_for_profile(output, R2A5_KEY_CEREMONY_PROFILE)
+}
+
+fn trust_rebind_path_is_persistent(output: &Path) -> bool {
+    if !output.is_absolute() {
+        return false;
+    }
+    for root in [
+        "/tmp",
+        "/private/tmp",
+        "/var/tmp",
+        "/run",
+        "/private/var/folders",
+    ] {
+        if output.starts_with(root) {
+            return false;
+        }
+    }
+    match std::env::current_dir() {
+        Ok(current) => !output.starts_with(current),
+        Err(_) => false,
+    }
+}
+
+/// Generates the Stage 8B-P R2B trust-rebind generation in a persistent,
+/// caller-owned directory outside the source tree. The key identifiers retain
+/// the accepted v1 signature domains; the independently validated generation
+/// is advanced to 2. This function issues no package and opens no transport.
+pub fn generate_trust_rebind_key_ceremony(
+    output: &Path,
+) -> Result<BTreeMap<String, String>, R2a3Error> {
+    if !trust_rebind_path_is_persistent(output) {
+        return Err(R2a3Error::Input);
+    }
+    generate_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE)
+}
+
+fn require_ceremony_directory(path: &Path, expected_uid: u32) -> Result<(), R2a3Error> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != expected_uid
+        || metadata.mode() & 0o777 != 0o700
+    {
+        return Err(R2a3Error::Input);
+    }
+    Ok(())
+}
+
+fn require_ceremony_file(
+    path: &Path,
+    expected_uid: u32,
+    expected_mode: u32,
+) -> Result<Vec<u8>, R2a3Error> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != expected_uid
+        || metadata.nlink() != 1
+        || metadata.mode() & 0o777 != expected_mode
+        || metadata.len() > 128 * 1024
+    {
+        return Err(R2a3Error::Input);
+    }
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    let file = options.open(path)?;
+    let mut bytes = Vec::new();
+    file.take(128 * 1024 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > 128 * 1024 {
+        return Err(R2a3Error::Input);
+    }
+    Ok(bytes)
+}
+
+fn exact_directory_entries(path: &Path) -> Result<BTreeSet<String>, R2a3Error> {
+    let mut entries = BTreeSet::new();
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let name = entry
+            .file_name()
+            .into_string()
+            .map_err(|_| R2a3Error::Input)?;
+        if !entries.insert(name) {
+            return Err(R2a3Error::Input);
+        }
+    }
+    Ok(entries)
+}
+
+fn verify_seed_binding(path: &Path, key: &PinnedPublicKey, uid: u32) -> Result<(), R2a3Error> {
+    let bytes = Zeroizing::new(require_ceremony_file(path, uid, 0o600)?);
+    let text = strict_single_line(&bytes, 65)?;
+    let seed = Zeroizing::new(decode_hex::<32>(&text)?);
+    let public = SigningKey::from_bytes(&seed).verifying_key().to_bytes();
+    if key.public_key_ed25519_hex != lower_hex(&public) || key.public_key_sha256 != sha256(&public)
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    Ok(())
+}
+
+fn verify_key_ceremony_for_profile(
+    output: &Path,
+    profile: KeyCeremonyProfile,
+    require_persistent_path: bool,
+) -> Result<BTreeMap<String, String>, R2a3Error> {
+    if require_persistent_path
+        && (!trust_rebind_path_is_persistent(output) || output.canonicalize()? != output)
+    {
+        return Err(R2a3Error::Input);
+    }
+    let uid = unsafe { libc::geteuid() };
+    require_ceremony_directory(output, uid)?;
+    let expected_root = BTreeSet::from([
+        profile.account_key_file.to_owned(),
+        "account-key-manifest.json".to_owned(),
+        "helper-acceptance.ed25519".to_owned(),
+        "issuer-private-keys".to_owned(),
+        "package-authorization.ed25519".to_owned(),
+        "trust-manifest.json".to_owned(),
+    ]);
+    if exact_directory_entries(output)? != expected_root {
+        return Err(R2a3Error::Input);
+    }
+
+    let trust_bytes = require_ceremony_file(&output.join("trust-manifest.json"), uid, 0o644)?;
+    let account_bytes =
+        require_ceremony_file(&output.join("account-key-manifest.json"), uid, 0o644)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    let account: AccountKeyManifest = serde_json::from_slice(&account_bytes)?;
+    let valid_from = DateTime::parse_from_rfc3339(profile.valid_from_utc)
+        .map_err(|_| R2a3Error::Input)?
+        .with_timezone(&Utc);
+    let valid_until = DateTime::parse_from_rfc3339(profile.valid_until_utc)
+        .map_err(|_| R2a3Error::Input)?
+        .with_timezone(&Utc);
+    let valid_key = |key: &PinnedPublicKey, expected_id: &str| {
+        key.key_id == expected_id
+            && key.generation == profile.generation
+            && key.valid_from_utc == valid_from
+            && key.valid_until_utc == valid_until
+            && decode_hex::<32>(&key.public_key_ed25519_hex).is_ok()
+            && decode_hex::<32>(&key.public_key_sha256).is_ok()
+    };
+    if trust.schema_version != 1
+        || trust.environment != "production"
+        || !trust.rotation_requires_new_reviewed_package
+        || !valid_key(
+            &trust.authorization_key,
+            "stage8b-r2a5-production-package-authorization-v1",
+        )
+        || !valid_key(
+            &trust.helper_acceptance_key,
+            "stage8b-r2a5-production-helper-acceptance-v1",
+        )
+        || trust
+            .source_keys
+            .keys()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+            != source_names()
+        || public_key_set_digest(&trust)? != trust.public_key_set_sha256
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    verify_seed_binding(
+        &output.join("package-authorization.ed25519"),
+        &trust.authorization_key,
+        uid,
+    )?;
+    verify_seed_binding(
+        &output.join("helper-acceptance.ed25519"),
+        &trust.helper_acceptance_key,
+        uid,
+    )?;
+
+    let issuer_root = output.join("issuer-private-keys");
+    require_ceremony_directory(&issuer_root, uid)?;
+    if exact_directory_entries(&issuer_root)?
+        != source_names().into_iter().map(str::to_owned).collect()
+    {
+        return Err(R2a3Error::Input);
+    }
+    for (source, key) in &trust.source_keys {
+        if !valid_key(key, &format!("{source}-ed25519-v1")) {
+            return Err(R2a3Error::Authorization);
+        }
+        let source_root = issuer_root.join(source);
+        require_ceremony_directory(&source_root, uid)?;
+        if exact_directory_entries(&source_root)? != BTreeSet::from(["key.ed25519".to_owned()]) {
+            return Err(R2a3Error::Input);
+        }
+        verify_seed_binding(&source_root.join("key.ed25519"), key, uid)?;
+    }
+
+    if account.schema_version != 1 || account.entries.len() != 1 {
+        return Err(R2a3Error::Authorization);
+    }
+    let entry = &account.entries[0];
+    if entry.generation_id != profile.generation.to_string()
+        || entry.relative_key_path != profile.account_key_relative_path
+        || entry.valid_from_utc != valid_from
+        || entry.valid_until_utc != valid_until
+        || decode_hex::<32>(&entry.key_sha256).is_err()
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let account_key_bytes = Zeroizing::new(require_ceremony_file(
+        &output.join(profile.account_key_file),
+        uid,
+        0o600,
+    )?);
+    let account_key_text = strict_single_line(&account_key_bytes, 65)?;
+    let account_key = Zeroizing::new(decode_hex::<32>(&account_key_text)?);
+    if sha256(&account_key[..]) != entry.key_sha256 {
+        return Err(R2a3Error::Authorization);
+    }
+    Ok(key_ceremony_public_values(
+        &trust,
+        &trust_bytes,
+        &account_bytes,
+    ))
+}
+
+/// Verifies a persistent generation-2 ceremony without exporting any private
+/// value. The returned map contains public fingerprints only.
+pub fn verify_trust_rebind_key_ceremony(
+    output: &Path,
+) -> Result<BTreeMap<String, String>, R2a3Error> {
+    verify_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE, true)
 }
 
 pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Error> {
@@ -4129,6 +4416,72 @@ pub async fn serve_controlled_tls_once(operation: Operation) -> Result<(), R2a3E
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn key_ceremony_profiles_preserve_v1_domains_and_advance_generation() {
+        for (profile, expected_generation, expected_account_file) in [
+            (
+                R2A5_KEY_CEREMONY_PROFILE,
+                1,
+                "account-binding-generation-1.hex",
+            ),
+            (
+                R2B_TRUST_REBIND_PROFILE,
+                2,
+                "account-binding-generation-2.hex",
+            ),
+        ] {
+            let parent = tempfile::tempdir().unwrap();
+            let output = parent
+                .path()
+                .join(format!("generation-{expected_generation}"));
+            let generated = generate_key_ceremony_for_profile(&output, profile).unwrap();
+            let verified = verify_key_ceremony_for_profile(&output, profile, false).unwrap();
+            assert_eq!(generated, verified);
+            let trust: TrustSetManifest =
+                serde_json::from_slice(&std::fs::read(output.join("trust-manifest.json")).unwrap())
+                    .unwrap();
+            assert_eq!(trust.authorization_key.generation, expected_generation);
+            assert_eq!(trust.helper_acceptance_key.generation, expected_generation);
+            assert_eq!(
+                trust.authorization_key.key_id,
+                "stage8b-r2a5-production-package-authorization-v1"
+            );
+            assert!(trust
+                .source_keys
+                .values()
+                .all(|key| key.generation == expected_generation
+                    && key.key_id.ends_with("-ed25519-v1")));
+            assert!(output.join(expected_account_file).is_file());
+        }
+    }
+
+    #[test]
+    fn ceremony_verifier_rejects_secret_mode_and_binding_drift() {
+        let parent = tempfile::tempdir().unwrap();
+        let output = parent.path().join("generation-2");
+        generate_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE).unwrap();
+        let secret = output.join("package-authorization.ed25519");
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(verify_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).is_err());
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let original = std::fs::read(&secret).unwrap();
+        std::fs::write(&secret, format!("{}\n", "0".repeat(64))).unwrap();
+        assert!(verify_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).is_err());
+        std::fs::write(&secret, original).unwrap();
+        assert!(verify_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).is_ok());
+    }
+
+    #[test]
+    fn trust_rebind_rejects_ephemeral_and_source_tree_paths() {
+        assert!(!trust_rebind_path_is_persistent(Path::new("relative/path")));
+        assert!(!trust_rebind_path_is_persistent(Path::new("/tmp/ceremony")));
+        assert!(!trust_rebind_path_is_persistent(Path::new(
+            "/private/var/folders/example/ceremony"
+        )));
+        let current = std::env::current_dir().unwrap();
+        assert!(!trust_rebind_path_is_persistent(&current.join("ceremony")));
+    }
 
     #[test]
     fn strict_secret_grammar_allows_only_one_terminal_lf() {

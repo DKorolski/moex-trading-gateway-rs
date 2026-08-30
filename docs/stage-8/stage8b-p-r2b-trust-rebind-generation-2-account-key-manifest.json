@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "generation_id": "2",
+      "key_sha256": "fac228144c38995bcec4f22b5810f92e5fbf1502fcab6c1325cda8a30ae47422",
+      "relative_key_path": "generation-2.hex",
+      "valid_from_utc": "2026-08-30T00:00:00Z",
+      "valid_until_utc": "2027-08-30T00:00:00Z"
+    }
+  ]
+}
