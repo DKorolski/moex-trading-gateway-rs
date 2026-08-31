@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-30.
+Status date: 2026-08-31.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,23 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
+
+- Stage 8B-P R2B Trust Rebind R0-R1 is independently accepted at
+  `d8c71154d7407358b638af9e0c690578050d1640` and merged to `main` by
+  `dd1af77efab89cc66f523bbe96821751465e12aa`. The active candidate is the
+  separate **Generation 2 Encrypted Offline Backup and Restore R0** custody
+  closure. Its operation source is
+  `b86cc6be0ff9c7748162d00137ef85ae4f97f168`: the encrypted removable-media
+  backup is hash-bound and restore-verified, the primary and disposable
+  restore copies passed all 13 signing-seed plus one account-key bindings, and
+  the disposable restore was deleted after verification. Only signed
+  public-only receipts enter source control; ciphertext, the recovery identity,
+  private values and custody paths remain outside Git and review handoff.
+  Independent acceptance is still required. Generation 2 is not selected or
+  active, affected production binaries are not rebuilt, helper acceptance is
+  not reissued, controlled installation is not performed and R2B authorization
+  remains `NOT_ISSUED`. FINAM/AuthService/broker requests, dispatch, Redis live,
+  runtime-live and real orders remain closed.
 
 - Stage 8B-P R2B Implementation R0-R1A is independently accepted at
   `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
