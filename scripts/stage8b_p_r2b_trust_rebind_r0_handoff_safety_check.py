@@ -6,14 +6,18 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import tempfile
 import zipfile
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+
+import stage8b_p_r2b_trust_rebind_r0_receipt as receipt_contract
 
 
 EVIDENCE = "handoff-evidence/stage8b-p-r2b-trust-rebind-r0-evidence.json"
 GATE = "handoff-evidence/stage8b-p-r2b-trust-rebind-r0-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
-GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
+RECEIPT = "handoff-evidence/stage8b-p-r2b-trust-rebind-r0-r1-primary-ceremony-verification-receipt.json"
+GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST, RECEIPT}
 AUTHORITY = "docs/stage-8/stage8b-p-r2b-trust-rebind-r0-authority.json"
 SUPERSESSION = "docs/stage-8/stage8b-p-r2b-trust-rebind-r0-supersession.json"
 TRUST = "docs/stage-8/stage8b-p-r2b-trust-rebind-generation-2-trust-manifest.json"
@@ -25,10 +29,15 @@ REQUIRED = GENERATED | {
     ACCOUNT,
     "docs/stage-8/STAGE8B_P_R2B_TRUST_REBIND_R0_2026-08-30.md",
     "docs/stage-8/STAGE8B_P_R2B_TRUST_REBIND_R0_ACCEPTANCE_MATRIX_2026-08-30.csv",
+    "docs/stage-8/STAGE8B_P_R2B_TRUST_REBIND_R0_R1_2026-08-31.md",
+    "docs/stage-8/STAGE8B_P_R2B_TRUST_REBIND_R0_R1_ACCEPTANCE_MATRIX_2026-08-31.csv",
     "scripts/stage8b_p_r2b_trust_rebind_r0_check.py",
     "scripts/stage8b_p_r2b_trust_rebind_r0_negative_harness.py",
     "scripts/stage8b_p_r2b_trust_rebind_r0_gate.sh",
     "scripts/stage8b_p_r2b_trust_rebind_r0_handoff_safety_check.py",
+    "scripts/stage8b_p_r2b_trust_rebind_r0_receipt.py",
+    "scripts/stage8b_p_r2b_trust_rebind_r0_actual_ceremony_verify.py",
+    "scripts/stage8b_p_r2b_trust_rebind_r0_handoff_negative_harness.py",
     "scripts/make_stage8b_p_r2b_trust_rebind_r0_handoff.py",
     "tools/stage8b-readonly-preflight/src/r2a5.rs",
     "tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-trust-rebind-key-ceremony.rs",
@@ -87,6 +96,8 @@ def check(path: str) -> dict[str, object]:
             if "=" in line
         )
         evidence = json.loads(archive.read(EVIDENCE))
+        receipt_bytes = archive.read(RECEIPT)
+        receipt = json.loads(receipt_bytes)
         authority = json.loads(archive.read(AUTHORITY))
         supersession = json.loads(archive.read(SUPERSESSION))
         trust = json.loads(archive.read(TRUST))
@@ -104,8 +115,17 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("accepted predecessor drift")
         if evidence.get("generation") != 2 or evidence.get("public_fingerprints") != PUBLIC:
             raise ValueError("generation-2 evidence drift")
-        if evidence.get("private_signing_seed_count_verified") != 13 or evidence.get("private_account_key_count_verified") != 1:
+        if (
+            evidence.get("private_signing_seed_count_verified") != receipt.get("signing_seed_count")
+            or evidence.get("private_account_key_count_verified") != receipt.get("account_key_count")
+            or evidence.get("private_public_bindings_verified")
+            != receipt.get("private_public_bindings_verified")
+        ):
             raise ValueError("private binding inventory drift")
+        if sha256(receipt_bytes) != evidence.get("ceremony_verification_receipt_sha256"):
+            raise ValueError("ceremony receipt binding drift")
+        if evidence.get("actual_ceremony_verifier_run") is not True or evidence.get("receipt_signature_verified") is not True:
+            raise ValueError("actual ceremony verification evidence missing")
         if evidence.get("backup_status") != "REQUIRED_NOT_VERIFIED" or evidence.get("backup_attestation_present") is not False:
             raise ValueError("backup gate drift")
         if evidence.get("authorization") != "NOT_ISSUED" or authority.get("authorization") != "NOT_ISSUED":
@@ -127,7 +147,7 @@ def check(path: str) -> dict[str, object]:
         ):
             if evidence.get(key) is not False:
                 raise ValueError(f"closed handoff surface opened: {key}")
-        if authority.get("status") != "GENERATION_2_MATERIALIZED_LOCALLY_BACKUP_REQUIRED_NOT_ACTIVE":
+        if authority.get("status") != "GENERATION_2_PRIMARY_VERIFIED_BACKUP_REQUIRED_NOT_ACTIVE":
             raise ValueError("authority status drift")
         if authority.get("candidate_generation_2", {}).get("active") is not False:
             raise ValueError("generation 2 activated")
@@ -146,10 +166,26 @@ def check(path: str) -> dict[str, object]:
         if account.get("entries", [{}])[0].get("generation_id") != "2":
             raise ValueError("account generation drift")
         gate = archive.read(GATE)
-        if b"stage8b-p-r2b-trust-rebind-r0-gate: PASS" not in gate or sha256(gate) != evidence.get("gate_sha256"):
+        if (
+            b"stage8b-p-r2b-trust-rebind-r0-gate: PASS" not in gate
+            or b"actual_ceremony_verifier=PASS" not in gate
+            or sha256(gate) != evidence.get("gate_sha256")
+        ):
             raise ValueError("gate evidence mismatch")
         if sha256(manifest_bytes) != evidence.get("manifest_sha256"):
             raise ValueError("manifest digest mismatch")
+
+        with tempfile.TemporaryDirectory(prefix="stage8b-trust-rebind-public-receipt-") as temporary:
+            public_root = Path(temporary)
+            for relative in (
+                TRUST,
+                ACCOUNT,
+                *(item.as_posix() for item in receipt_contract.VERIFIER_SOURCES),
+            ):
+                destination = public_root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(archive.read(relative))
+            receipt_contract.validate_receipt(receipt, public_root, source_ref)
 
         tracked: set[str] = set()
         entries = manifest.get("entries", [])
@@ -172,6 +208,8 @@ def check(path: str) -> dict[str, object]:
             "symlinks": 0,
             "unsafe_paths": 0,
             "private_ceremony_members": 0,
+            "actual_ceremony_verifier_run": True,
+            "receipt_signature_verified": True,
             "source_ref": source_ref,
             "generation": 2,
             "backup_status": "REQUIRED_NOT_VERIFIED",

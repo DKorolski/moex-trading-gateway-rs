@@ -28,7 +28,9 @@ FILES = (
     TRUST,
     ACCOUNT,
     MATRIX,
+    Path("docs/stage-8/STAGE8B_P_R2B_TRUST_REBIND_R0_R1_ACCEPTANCE_MATRIX_2026-08-31.csv"),
     Path("docs/stage-8/STAGE8B_P_R2B_TRUST_REBIND_R0_2026-08-30.md"),
+    Path("docs/stage-8/STAGE8B_P_R2B_TRUST_REBIND_R0_R1_2026-08-31.md"),
     Path("tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-trust-rebind-key-ceremony.rs"),
     Path("tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-trust-rebind-key-ceremony-verify.rs"),
     RUST,
@@ -53,6 +55,16 @@ def mutate_json(root: Path, relative: Path, keys: tuple[str | int, ...], replace
     for key in keys[:-1]:
         cursor = cursor[key]  # type: ignore[index]
     cursor[keys[-1]] = replacement  # type: ignore[index]
+    write_json(path, value)
+
+
+def delete_json_key(root: Path, relative: Path, keys: tuple[str, ...]) -> None:
+    path = root / relative
+    value = json.loads(path.read_text(encoding="utf-8"))
+    cursor = value
+    for key in keys[:-1]:
+        cursor = cursor[key]
+    del cursor[keys[-1]]
     write_json(path, value)
 
 
@@ -107,6 +119,16 @@ CASES: list[tuple[str, Callable[[Path], None]]] = [
     ("binding-verifier-renamed-away", lambda r: replace_text(r, RUST, "fn verify_seed_binding(", "fn unchecked_seed_binding(")),
     ("acceptance-matrix-failure", lambda r: replace_text(r, MATRIX, ",PASS\n", ",FAIL\n")),
     ("historical-authority-rewritten", lambda r: mutate_json(r, Path("docs/stage-8/stage8b-p-r2a5-authority.json"), ("authorization_status",), "ISSUED")),
+    ("supersession-replacement-trust-hash-drift", lambda r: mutate_json(r, SUPERSESSION, ("replacement_candidate", "trust_manifest_sha256"), "0" * 64)),
+    ("supersession-replacement-key-set-drift", lambda r: mutate_json(r, SUPERSESSION, ("replacement_candidate", "public_key_set_sha256"), "0" * 64)),
+    ("supersession-stage-drift", lambda r: mutate_json(r, SUPERSESSION, ("stage",), "Stage 8B-P R2B Trust Rebind R0")),
+    ("activation-precondition-substitution", lambda r: mutate_json(r, SUPERSESSION, ("activation_preconditions", 0), "ARBITRARY_PRECONDITION")),
+    ("activation-precondition-removal", lambda r: mutate_json(r, SUPERSESSION, ("activation_preconditions",), ["TRUST_REBIND_R0_INDEPENDENTLY_ACCEPTED"])),
+    ("transition-state-key-removed", lambda r: delete_json_key(r, SUPERSESSION, ("transition_state", "execution_allowed"))),
+    ("transition-state-key-added", lambda r: mutate_json(r, SUPERSESSION, ("transition_state", "arbitrary_transition"), False)),
+    ("activation-unknown-field", lambda r: mutate_json(r, AUTHORITY, ("activation", "generation_2_may_be_selected"), True)),
+    ("custody-unknown-field", lambda r: mutate_json(r, AUTHORITY, ("custody", "cloud_sync_allowed"), True)),
+    ("incident-unknown-field", lambda r: mutate_json(r, AUTHORITY, ("incident", "loss_reclassified"), False)),
 ]
 
 

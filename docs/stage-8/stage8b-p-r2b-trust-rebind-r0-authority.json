@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "stage": "Stage 8B-P R2B Trust Rebind R0",
-  "record_id": "stage8b-p-r2b-trust-rebind-r0-2026-08-30",
-  "status": "GENERATION_2_MATERIALIZED_LOCALLY_BACKUP_REQUIRED_NOT_ACTIVE",
+  "stage": "Stage 8B-P R2B Trust Rebind R0-R1",
+  "record_id": "stage8b-p-r2b-trust-rebind-r0-r1-2026-08-31",
+  "status": "GENERATION_2_PRIMARY_VERIFIED_BACKUP_REQUIRED_NOT_ACTIVE",
   "accepted_predecessor": {
     "source_ref": "a2586c428cd97349956efb12409ff37aea1fbe78",
     "archive_name": "moex-trading-project-a2586c4.zip",
@@ -61,11 +61,17 @@
   "verification": {
     "generator": "stage8b-r2b-trust-rebind-key-ceremony",
     "verifier": "stage8b-r2b-trust-rebind-key-ceremony-verify",
+    "actual_ceremony_verifier_required": true,
     "exact_directory_inventory_required": true,
     "private_to_public_bindings_verified": 13,
     "account_key_hash_binding_verified": true,
     "generator_and_verifier_public_fingerprints_identical": true,
-    "private_values_exported": false
+    "verification_receipt_required": true,
+    "verification_receipt_signature_required": true,
+    "verification_receipt_signature_domain": "stage8b-p-r2b-trust-rebind-verification-receipt-v1",
+    "private_path_recorded": false,
+    "private_values_exported": false,
+    "backup_status": "REQUIRED_NOT_VERIFIED"
   },
   "activation": {
     "public_authority_selection_changed": false,
@@ -74,7 +80,7 @@
     "production_credentials_installed": false,
     "package_authorization_issued": false,
     "controlled_installation_allowed": false,
-    "next_allowed_step": "INDEPENDENT_REVIEW_THEN_BACKUP_ATTESTATION_AND_GENERATION_2_COMPOSITION_REBUILD"
+    "next_allowed_step": "INDEPENDENT_REVIEW_THEN_ENCRYPTED_OFFLINE_BACKUP_AND_RESTORE_ATTESTATION"
   },
   "authorization": "NOT_ISSUED",
   "closed_surfaces": {

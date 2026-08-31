@@ -36,6 +36,8 @@ pub const PACKAGE_SIGNATURE_DOMAIN: &str = "stage8b-p-r2a5-run-package-ed25519-v
 pub const PUBLIC_KEY_SET_DOMAIN: &str = "stage8b-p-r2a5-public-key-set-v1";
 pub const SOURCE_GENERATION_DOMAIN: &str = "stage8b-p-r2a5-source-generation-set-v1";
 pub const HELPER_ACCEPTANCE_DOMAIN: &str = "stage8b-p-r2a5-helper-acceptance-ed25519-v1";
+pub const TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN: &str =
+    "stage8b-p-r2b-trust-rebind-verification-receipt-v1";
 pub const PRODUCTION_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_ETC: &str = "/etc/moex-trading/stage8b/r2a5";
 pub const PRODUCTION_RUN: &str = "/run/moex-trading/stage8b/r2a5";
@@ -284,6 +286,44 @@ pub struct AccountKeyEntry {
 pub struct AccountKeyManifest {
     pub schema_version: u8,
     pub entries: Vec<AccountKeyEntry>,
+}
+
+/// Public-only proof that the retained Generation-2 private ceremony was
+/// checked against the reviewed public projection. The signature is evidence
+/// of key possession in a domain that cannot authorize an R2B run package.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TrustRebindVerificationReceipt {
+    pub schema_version: u8,
+    pub stage: String,
+    pub generation: u64,
+    pub verification_status: String,
+    pub verified_at_utc: DateTime<Utc>,
+    pub source_ref: String,
+    pub verifier_source_sha256: String,
+    pub trust_manifest_sha256: String,
+    pub public_key_set_sha256: String,
+    pub authorization_public_key_sha256: String,
+    pub helper_acceptance_public_key_sha256: String,
+    pub account_key_manifest_sha256: String,
+    pub source_key_count: usize,
+    pub signing_seed_count: usize,
+    pub account_key_count: usize,
+    pub exact_inventory_verified: bool,
+    pub owner_verified: bool,
+    pub directory_modes_verified: bool,
+    pub file_modes_verified: bool,
+    pub single_link_verified: bool,
+    pub symlink_rejection_verified: bool,
+    pub private_public_bindings_verified: usize,
+    pub account_key_binding_verified: bool,
+    pub private_path_recorded: bool,
+    pub private_values_exported: bool,
+    pub backup_status: String,
+    pub signature_domain: String,
+    pub authorization_key_id: String,
+    pub authorization_key_generation: u64,
+    pub signature_ed25519_hex: String,
 }
 
 /// Closed, source-specific records emitted by the accepted operational owners.
@@ -1345,9 +1385,11 @@ fn generate_key_ceremony_for_profile(
     let authorization_seed = random_seed()?;
     let authorization_signing = SigningKey::from_bytes(&authorization_seed);
     let authorization_public = authorization_signing.verifying_key().to_bytes();
+    let mut authorization_seed_hex = Zeroizing::new(lower_hex(&authorization_seed[..]));
+    authorization_seed_hex.push('\n');
     ceremony_write(
         &output.join("package-authorization.ed25519"),
-        format!("{}\n", lower_hex(&authorization_seed[..])).as_bytes(),
+        authorization_seed_hex.as_bytes(),
         0o600,
     )?;
     let authorization_key = PinnedPublicKey {
@@ -1361,9 +1403,11 @@ fn generate_key_ceremony_for_profile(
     let helper_acceptance_seed = random_seed()?;
     let helper_acceptance_signing = SigningKey::from_bytes(&helper_acceptance_seed);
     let helper_acceptance_public = helper_acceptance_signing.verifying_key().to_bytes();
+    let mut helper_acceptance_seed_hex = Zeroizing::new(lower_hex(&helper_acceptance_seed[..]));
+    helper_acceptance_seed_hex.push('\n');
     ceremony_write(
         &output.join("helper-acceptance.ed25519"),
-        format!("{}\n", lower_hex(&helper_acceptance_seed[..])).as_bytes(),
+        helper_acceptance_seed_hex.as_bytes(),
         0o600,
     )?;
     let helper_acceptance_key = PinnedPublicKey {
@@ -1385,11 +1429,9 @@ fn generate_key_ceremony_for_profile(
         let seed = random_seed()?;
         let signing = SigningKey::from_bytes(&seed);
         let public = signing.verifying_key().to_bytes();
-        ceremony_write(
-            &directory.join("key.ed25519"),
-            format!("{}\n", lower_hex(&seed[..])).as_bytes(),
-            0o600,
-        )?;
+        let mut seed_hex = Zeroizing::new(lower_hex(&seed[..]));
+        seed_hex.push('\n');
+        ceremony_write(&directory.join("key.ed25519"), seed_hex.as_bytes(), 0o600)?;
         source_keys.insert(
             source.to_owned(),
             PinnedPublicKey {
@@ -1415,9 +1457,11 @@ fn generate_key_ceremony_for_profile(
     };
     trust.public_key_set_sha256 = public_key_set_digest(&trust)?;
     let account_key = random_seed()?;
+    let mut account_key_hex = Zeroizing::new(lower_hex(&account_key[..]));
+    account_key_hex.push('\n');
     ceremony_write(
         &output.join(profile.account_key_file),
-        format!("{}\n", lower_hex(&account_key[..])).as_bytes(),
+        account_key_hex.as_bytes(),
         0o600,
     )?;
     let account = AccountKeyManifest {
@@ -1544,7 +1588,7 @@ fn exact_directory_entries(path: &Path) -> Result<BTreeSet<String>, R2a3Error> {
 
 fn verify_seed_binding(path: &Path, key: &PinnedPublicKey, uid: u32) -> Result<(), R2a3Error> {
     let bytes = Zeroizing::new(require_ceremony_file(path, uid, 0o600)?);
-    let text = strict_single_line(&bytes, 65)?;
+    let text = Zeroizing::new(strict_single_line(&bytes, 65)?);
     let seed = Zeroizing::new(decode_hex::<32>(&text)?);
     let public = SigningKey::from_bytes(&seed).verifying_key().to_bytes();
     if key.public_key_ed25519_hex != lower_hex(&public) || key.public_key_sha256 != sha256(&public)
@@ -1665,7 +1709,7 @@ fn verify_key_ceremony_for_profile(
         uid,
         0o600,
     )?);
-    let account_key_text = strict_single_line(&account_key_bytes, 65)?;
+    let account_key_text = Zeroizing::new(strict_single_line(&account_key_bytes, 65)?);
     let account_key = Zeroizing::new(decode_hex::<32>(&account_key_text)?);
     if sha256(&account_key[..]) != entry.key_sha256 {
         return Err(R2a3Error::Authorization);
@@ -1683,6 +1727,171 @@ pub fn verify_trust_rebind_key_ceremony(
     output: &Path,
 ) -> Result<BTreeMap<String, String>, R2a3Error> {
     verify_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE, true)
+}
+
+fn trust_rebind_verification_receipt_preimage(
+    receipt: &TrustRebindVerificationReceipt,
+) -> Result<Vec<u8>, R2a3Error> {
+    let mut unsigned = receipt.clone();
+    unsigned.signature_ed25519_hex.zeroize();
+    let body = serde_json::to_vec(&unsigned)?;
+    let mut preimage =
+        Vec::with_capacity(TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN.len() + 1 + body.len());
+    preimage.extend_from_slice(TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN.as_bytes());
+    preimage.push(0);
+    preimage.extend_from_slice(&body);
+    Ok(preimage)
+}
+
+/// Verifies the public receipt and its dedicated-domain signature. This does
+/// not read private material and cannot authorize package issuance.
+pub fn verify_trust_rebind_verification_receipt(
+    receipt: &TrustRebindVerificationReceipt,
+    trust: &TrustSetManifest,
+    trust_bytes: &[u8],
+    account_bytes: &[u8],
+    expected_source_ref: &str,
+    expected_verifier_source_sha256: &str,
+) -> Result<(), R2a3Error> {
+    if decode_hex::<20>(expected_source_ref).is_err()
+        || decode_hex::<32>(expected_verifier_source_sha256).is_err()
+        || receipt.schema_version != 1
+        || receipt.stage != "Stage 8B-P R2B Trust Rebind R0-R1"
+        || receipt.generation != 2
+        || receipt.verification_status != "PASS"
+        || receipt.source_ref != expected_source_ref
+        || receipt.verifier_source_sha256 != expected_verifier_source_sha256
+        || receipt.trust_manifest_sha256 != sha256(trust_bytes)
+        || receipt.public_key_set_sha256 != trust.public_key_set_sha256
+        || receipt.authorization_public_key_sha256 != trust.authorization_key.public_key_sha256
+        || receipt.helper_acceptance_public_key_sha256
+            != trust.helper_acceptance_key.public_key_sha256
+        || receipt.account_key_manifest_sha256 != sha256(account_bytes)
+        || receipt.source_key_count != source_names().len()
+        || receipt.signing_seed_count != source_names().len() + 2
+        || receipt.account_key_count != 1
+        || !receipt.exact_inventory_verified
+        || !receipt.owner_verified
+        || !receipt.directory_modes_verified
+        || !receipt.file_modes_verified
+        || !receipt.single_link_verified
+        || !receipt.symlink_rejection_verified
+        || receipt.private_public_bindings_verified != source_names().len() + 2
+        || !receipt.account_key_binding_verified
+        || receipt.private_path_recorded
+        || receipt.private_values_exported
+        || receipt.backup_status != "REQUIRED_NOT_VERIFIED"
+        || receipt.signature_domain != TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN
+        || receipt.authorization_key_id != trust.authorization_key.key_id
+        || receipt.authorization_key_generation != 2
+        || trust.authorization_key.generation != 2
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let public = VerifyingKey::from_bytes(&decode_hex::<32>(
+        &trust.authorization_key.public_key_ed25519_hex,
+    )?)
+    .map_err(|_| R2a3Error::Authorization)?;
+    let signature = Signature::from_bytes(&decode_hex::<64>(&receipt.signature_ed25519_hex)?);
+    public
+        .verify(
+            &trust_rebind_verification_receipt_preimage(receipt)?,
+            &signature,
+        )
+        .map_err(|_| R2a3Error::Authorization)
+}
+
+/// Applies the exact verifier to the retained ceremony and emits only a
+/// signed, redacted receipt. The private path and values are never serialized.
+fn create_trust_rebind_verification_receipt_for_path(
+    output: &Path,
+    source_ref: &str,
+    verified_at_utc: DateTime<Utc>,
+    verifier_source_sha256: &str,
+    require_persistent_path: bool,
+) -> Result<TrustRebindVerificationReceipt, R2a3Error> {
+    if decode_hex::<20>(source_ref).is_err() || decode_hex::<32>(verifier_source_sha256).is_err() {
+        return Err(R2a3Error::Input);
+    }
+    verify_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE, require_persistent_path)?;
+    let uid = unsafe { libc::geteuid() };
+    let trust_bytes = require_ceremony_file(&output.join("trust-manifest.json"), uid, 0o644)?;
+    let account_bytes =
+        require_ceremony_file(&output.join("account-key-manifest.json"), uid, 0o644)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    let authorization_seed_bytes = Zeroizing::new(require_ceremony_file(
+        &output.join("package-authorization.ed25519"),
+        uid,
+        0o600,
+    )?);
+    let authorization_seed_text =
+        Zeroizing::new(strict_single_line(&authorization_seed_bytes, 65)?);
+    let authorization_seed = Zeroizing::new(decode_hex::<32>(&authorization_seed_text)?);
+    let authorization_signing = SigningKey::from_bytes(&authorization_seed);
+    if authorization_signing.verifying_key().to_bytes()
+        != decode_hex::<32>(&trust.authorization_key.public_key_ed25519_hex)?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    let mut receipt = TrustRebindVerificationReceipt {
+        schema_version: 1,
+        stage: "Stage 8B-P R2B Trust Rebind R0-R1".to_owned(),
+        generation: 2,
+        verification_status: "PASS".to_owned(),
+        verified_at_utc,
+        source_ref: source_ref.to_owned(),
+        verifier_source_sha256: verifier_source_sha256.to_owned(),
+        trust_manifest_sha256: sha256(&trust_bytes),
+        public_key_set_sha256: trust.public_key_set_sha256.clone(),
+        authorization_public_key_sha256: trust.authorization_key.public_key_sha256.clone(),
+        helper_acceptance_public_key_sha256: trust.helper_acceptance_key.public_key_sha256.clone(),
+        account_key_manifest_sha256: sha256(&account_bytes),
+        source_key_count: source_names().len(),
+        signing_seed_count: source_names().len() + 2,
+        account_key_count: 1,
+        exact_inventory_verified: true,
+        owner_verified: true,
+        directory_modes_verified: true,
+        file_modes_verified: true,
+        single_link_verified: true,
+        symlink_rejection_verified: true,
+        private_public_bindings_verified: source_names().len() + 2,
+        account_key_binding_verified: true,
+        private_path_recorded: false,
+        private_values_exported: false,
+        backup_status: "REQUIRED_NOT_VERIFIED".to_owned(),
+        signature_domain: TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN.to_owned(),
+        authorization_key_id: trust.authorization_key.key_id.clone(),
+        authorization_key_generation: trust.authorization_key.generation,
+        signature_ed25519_hex: String::new(),
+    };
+    let signature =
+        authorization_signing.sign(&trust_rebind_verification_receipt_preimage(&receipt)?);
+    receipt.signature_ed25519_hex = lower_hex(&signature.to_bytes());
+    verify_trust_rebind_verification_receipt(
+        &receipt,
+        &trust,
+        &trust_bytes,
+        &account_bytes,
+        source_ref,
+        verifier_source_sha256,
+    )?;
+    Ok(receipt)
+}
+
+pub fn create_trust_rebind_verification_receipt(
+    output: &Path,
+    source_ref: &str,
+    verified_at_utc: DateTime<Utc>,
+    verifier_source_sha256: &str,
+) -> Result<TrustRebindVerificationReceipt, R2a3Error> {
+    create_trust_rebind_verification_receipt_for_path(
+        output,
+        source_ref,
+        verified_at_utc,
+        verifier_source_sha256,
+        true,
+    )
 }
 
 pub fn seed_controlled_fixed_layout(operation: Operation) -> Result<(), R2a3Error> {
@@ -4470,6 +4679,46 @@ mod tests {
         assert!(verify_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).is_err());
         std::fs::write(&secret, original).unwrap();
         assert!(verify_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).is_ok());
+    }
+
+    #[test]
+    fn trust_rebind_receipt_is_signed_and_tamper_evident() {
+        let parent = tempfile::tempdir().unwrap();
+        let output = parent.path().join("generation-2");
+        generate_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE).unwrap();
+        let source_ref = "1".repeat(40);
+        let verifier_hash = "2".repeat(64);
+        let receipt = create_trust_rebind_verification_receipt_for_path(
+            &output,
+            &source_ref,
+            Utc::now(),
+            &verifier_hash,
+            false,
+        )
+        .unwrap();
+        let trust_bytes = std::fs::read(output.join("trust-manifest.json")).unwrap();
+        let account_bytes = std::fs::read(output.join("account-key-manifest.json")).unwrap();
+        let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes).unwrap();
+        verify_trust_rebind_verification_receipt(
+            &receipt,
+            &trust,
+            &trust_bytes,
+            &account_bytes,
+            &source_ref,
+            &verifier_hash,
+        )
+        .unwrap();
+        let mut tampered = receipt;
+        tampered.private_public_bindings_verified = 12;
+        assert!(verify_trust_rebind_verification_receipt(
+            &tampered,
+            &trust,
+            &trust_bytes,
+            &account_bytes,
+            &source_ref,
+            &verifier_hash,
+        )
+        .is_err());
     }
 
     #[test]

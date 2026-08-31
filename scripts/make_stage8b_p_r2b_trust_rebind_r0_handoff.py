@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Create the immutable public-only Trust Rebind R0 review handoff."""
+"""Create the immutable public-only Trust Rebind R0-R1 review handoff."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -19,14 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-p-r2b-trust-rebind-r0"
 PREDECESSOR = "a2586c428cd97349956efb12409ff37aea1fbe78"
-PUBLIC = {
-    "authorization_public_key_sha256": "c3160a41e54fbeb9de4afe2163260f383fefa3fb531613d9754fc6b911a37c88",
-    "trust_manifest_sha256": "dfe61ddb944df042cdf9514f56c14131e4a45bc732435ff89658ceaceb92d4ee",
-    "public_key_set_sha256": "a1094751e25613d1a9f10b54436f3229fc73774d9135812577978c22a7bb7465",
-    "account_key_manifest_sha256": "206bb41415f5edd9c59aa0d256dea63219fa6e28def2e436b676a4de3d1b52ec",
-}
-
-
 def run(*arguments: str) -> bytes:
     return subprocess.check_output(arguments, cwd=ROOT)
 
@@ -46,15 +39,22 @@ def main() -> None:
     if run("git", "merge-base", source_ref, PREDECESSOR).decode().strip() != PREDECESSOR:
         raise SystemExit("stage8b-p-r2b-trust-rebind-r0-handoff: FAIL predecessor drift")
 
-    gate = subprocess.run(
-        ["bash", "scripts/stage8b_p_r2b_trust_rebind_r0_gate.sh"],
-        cwd=ROOT,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-    )
-    if gate.returncode != 0 or b"stage8b-p-r2b-trust-rebind-r0-gate: PASS" not in gate.stdout:
-        raise SystemExit(gate.stdout.decode(errors="replace"))
+    with tempfile.TemporaryDirectory(prefix="stage8b-trust-rebind-r0-r1-receipt-") as receipt_temporary:
+        receipt_path = Path(receipt_temporary) / "primary-ceremony-verification-receipt.json"
+        environment = os.environ.copy()
+        environment["STAGE8B_R2B_TRUST_REBIND_RECEIPT_OUT"] = str(receipt_path)
+        gate = subprocess.run(
+            ["bash", "scripts/stage8b_p_r2b_trust_rebind_r0_gate.sh"],
+            cwd=ROOT,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if gate.returncode != 0 or b"stage8b-p-r2b-trust-rebind-r0-gate: PASS" not in gate.stdout:
+            raise SystemExit(gate.stdout.decode(errors="replace"))
+        receipt_bytes = receipt_path.read_bytes()
+        receipt = json.loads(receipt_bytes)
 
     short_ref = source_ref[:7]
     archive_name = f"moex-trading-project-{short_ref}.zip"
@@ -64,7 +64,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Trust Rebind R0",
+                "stage": "Stage 8B-P R2B Trust Rebind R0-R1",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "source_short_ref": short_ref,
@@ -74,14 +74,25 @@ def main() -> None:
                 "gate_sha256": sha256(gate.stdout),
                 "manifest_sha256": sha256(manifest),
                 "generation": 2,
-                "public_fingerprints": PUBLIC,
-                "private_signing_seed_count_verified": 13,
-                "private_account_key_count_verified": 1,
+                "public_fingerprints": {
+                    "authorization_public_key_sha256": receipt["authorization_public_key_sha256"],
+                    "trust_manifest_sha256": receipt["trust_manifest_sha256"],
+                    "public_key_set_sha256": receipt["public_key_set_sha256"],
+                    "account_key_manifest_sha256": receipt["account_key_manifest_sha256"],
+                },
+                "private_signing_seed_count_verified": receipt["signing_seed_count"],
+                "private_account_key_count_verified": receipt["account_key_count"],
+                "private_public_bindings_verified": receipt["private_public_bindings_verified"],
+                "actual_ceremony_verifier_run": receipt["verification_status"] == "PASS",
+                "ceremony_verification_receipt_sha256": sha256(receipt_bytes),
+                "receipt_signature_verified": True,
+                "verifier_source_sha256": receipt["verifier_source_sha256"],
                 "private_material_in_handoff": False,
                 "backup_status": "REQUIRED_NOT_VERIFIED",
                 "backup_attestation_present": False,
-                "rust_tests": 51,
-                "trust_rebind_negative_mutations": 36,
+                "rust_tests": 52,
+                "trust_rebind_negative_mutations": 46,
+                "receipt_negative_mutations": 10,
                 "current_tree_negative_mutations": 33,
                 "public_authority_selection_changed": False,
                 "production_binaries_rebuilt": False,
@@ -110,6 +121,7 @@ def main() -> None:
         safety.EVIDENCE: evidence,
         safety.GATE: gate.stdout,
         safety.MANIFEST: manifest,
+        safety.RECEIPT: receipt_bytes,
     }
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -152,6 +164,16 @@ def main() -> None:
         outputs.append(completed.stdout.decode(errors="replace"))
         if completed.returncode != 0:
             raise SystemExit("".join(outputs))
+        completed = subprocess.run(
+            [sys.executable, "scripts/stage8b_p_r2b_trust_rebind_r0_handoff_negative_harness.py", str(archive_path)],
+            cwd=extracted,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        outputs.append(completed.stdout.decode(errors="replace"))
+        if completed.returncode != 0:
+            raise SystemExit("".join(outputs))
 
     digest = sha256(archive_path.read_bytes())
     archive_path.with_suffix(".zip.sha256").write_text(f"{digest}  {archive_name}\n", encoding="utf-8")
@@ -166,6 +188,9 @@ def main() -> None:
                 "checker_passed": True,
                 "negative_harness_passed": True,
                 "handoff_safety_passed": True,
+                "actual_ceremony_verifier_run": True,
+                "receipt_signature_verified": True,
+                "receipt_negative_harness_passed": True,
                 "private_material_members": 0,
                 "backup_status": "REQUIRED_NOT_VERIFIED",
                 "activation_performed": False,
