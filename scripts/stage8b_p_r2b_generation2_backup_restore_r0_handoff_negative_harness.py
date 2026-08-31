@@ -46,6 +46,23 @@ def add_member(members: dict[str, bytes], name: str, data: bytes) -> None:
     members[name] = data
 
 
+def append_member(members: dict[str, bytes], name: str, data: bytes) -> None:
+    members[name] += b"\n" + data + b"\n"
+
+
+SYNTHETIC_PRIVATE_IDENTITY = bytes.fromhex(
+    "4147452d5345435245542d4b45592d3152455649455746495854555245"
+)
+SPLIT_USER_FIXTURE_SOURCE = bytes.fromhex(
+    "62222f55736572732f22202b20622273706c69742d7265766965772f"
+    "707269766174652d636572656d6f6e79220a"
+)
+SPLIT_VOLUME_FIXTURE_SOURCE = bytes.fromhex(
+    "62222f566f6c756d65732f22202b20622253504c49542d5245564945"
+    "572d4d45444941220a"
+)
+
+
 CASES: tuple[tuple[str, Mutation], ...] = (
     ("final-source-ref", lambda m: mutate_json(m, safety.EVIDENCE, ("source_ref",), "0" * 40)),
     ("operation-source-ref", lambda m: mutate_json(m, safety.EVIDENCE, ("operation_source_ref",), "0" * 40)),
@@ -67,10 +84,16 @@ CASES: tuple[tuple[str, Mutation], ...] = (
     ("ciphertext-member", lambda m: add_member(m, "handoff-evidence/unexpected.tar.age", b"ciphertext")),
     ("identity-member", lambda m: add_member(m, "handoff-evidence/recovery.agekey", b"identity")),
     ("ceremony-seed-member", lambda m: add_member(m, "issuer-private-keys/x/key.ed25519", b"seed")),
-    ("private-identity-value", lambda m: add_member(m, "handoff-evidence/leak.txt", b"AGE-SECRET-" + b"KEY-test")),
-    ("primary-path", lambda m: add_member(m, "handoff-evidence/path.txt", b"/Users/" + b"denisq/.config/moex-trading/stage8b/r2b-trust-rebind-generation-" + b"2-20260830")),
-    ("recovery-path", lambda m: add_member(m, "handoff-evidence/path.txt", b"/Users/" + b"denisq/Documents/moex-trading-ceremony-" + b"secret")),
-    ("external-volume-path", lambda m: add_member(m, "handoff-evidence/path.txt", b"/Volumes/" + b"TRAN" + b"SCEND")),
+    ("private-identity-value", lambda m: add_member(m, "handoff-evidence/leak.txt", SYNTHETIC_PRIVATE_IDENTITY)),
+    ("primary-path", lambda m: add_member(m, "handoff-evidence/path.txt", b"/Users/review-fixture/private-ceremony")),
+    ("recovery-path", lambda m: add_member(m, "handoff-evidence/path.txt", b"/Users/review-fixture/recovery-identity")),
+    ("external-volume-path", lambda m: add_member(m, "handoff-evidence/path.txt", b"/Volumes/TEST-OFFLINE-MEDIA")),
+    ("user-path-inside-safety-checker", lambda m: append_member(m, safety.SAFETY_SOURCE, b"# /Users/review-fixture/private-ceremony")),
+    ("volume-label-inside-safety-checker", lambda m: append_member(m, safety.SAFETY_SOURCE, b"# /Volumes/TEST-OFFLINE-MEDIA")),
+    ("private-marker-inside-safety-checker", lambda m: append_member(m, safety.SAFETY_SOURCE, SYNTHETIC_PRIVATE_IDENTITY)),
+    ("private-marker-inside-negative-harness", lambda m: append_member(m, safety.NEGATIVE_SOURCE, SYNTHETIC_PRIVATE_IDENTITY)),
+    ("split-user-path-reconstruction", lambda m: add_member(m, "handoff-evidence/split-user.py", SPLIT_USER_FIXTURE_SOURCE)),
+    ("split-volume-path-reconstruction", lambda m: add_member(m, "handoff-evidence/split-volume.py", SPLIT_VOLUME_FIXTURE_SOURCE)),
     ("unexpected-generated-member", lambda m: add_member(m, "handoff-evidence/unexpected.txt", b"public")),
     ("missing-destruction-receipt", lambda m: m.pop(safety.DESTRUCTION)),
 )

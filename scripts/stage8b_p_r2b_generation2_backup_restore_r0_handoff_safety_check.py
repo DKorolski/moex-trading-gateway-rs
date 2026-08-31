@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
+import re
 import sys
 import tempfile
 import zipfile
@@ -25,6 +27,10 @@ ACCOUNT = "docs/stage-8/stage8b-p-r2b-trust-rebind-generation-2-account-key-mani
 OPERATION_SOURCE_REF = "b86cc6be0ff9c7748162d00137ef85ae4f97f168"
 OPERATION_SOURCE_TREE = "8ce2be049776c04036e42cedb90629d3688e3485"
 ACCEPTED_TRUST_REBIND_REF = "d8c71154d7407358b638af9e0c690578050d1640"
+REDACTION_PREDECESSOR_REF = "14efc5ddcb71e524fa4784bd94c92e35b64e1578"
+SAFETY_SOURCE = "scripts/stage8b_p_r2b_generation2_backup_restore_r0_handoff_safety_check.py"
+NEGATIVE_SOURCE = "scripts/stage8b_p_r2b_generation2_backup_restore_r0_handoff_negative_harness.py"
+MAKER_SOURCE = "scripts/make_stage8b_p_r2b_generation2_backup_restore_r0_handoff.py"
 REQUIRED = GENERATED | {
     AUTHORITY,
     RESTORE,
@@ -70,6 +76,20 @@ CLOSED_SURFACES = {
     "runtime_live": False,
     "real_orders": False,
 }
+USER_ABSOLUTE_PATH = re.compile(rb"/Users/([A-Za-z0-9._-]+)/[^\x00\r\n\"']+")
+VOLUME_ABSOLUTE_PATH = re.compile(rb"/Volumes/([A-Za-z0-9._ -]+)")
+PRIVATE_IDENTITY_VALUE = re.compile(rb"AGE-(?:SECRET)-KEY-1[0-9A-Z]+")
+REDACTION_EVIDENCE = {
+    "packaging_time_local_scan_passed": True,
+    "exact_primary_path_absent_all_members": True,
+    "exact_recovery_identity_path_absent_all_members": True,
+    "primary_directory_basename_absent_all_members": True,
+    "recovery_directory_basename_absent_all_members": True,
+    "external_media_label_absent_all_members": True,
+    "user_specific_absolute_path_absent_from_stage_custody_surface": True,
+    "split_literal_semantic_scan_passed": True,
+    "synthetic_fixture_only": True,
+}
 
 
 def sha256(data: bytes) -> str:
@@ -80,15 +100,117 @@ def mode(item: zipfile.ZipInfo) -> str:
     return f"{(item.external_attr >> 16) & 0o177777:06o}"
 
 
-def private_markers() -> tuple[bytes, ...]:
-    # Split literals keep the safety checker itself free of exported custody paths.
+def constant_value(node: ast.AST) -> bytes | str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (bytes, str)):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = constant_value(node.left)
+        right = constant_value(node.right)
+        if isinstance(left, bytes) and isinstance(right, bytes):
+            return left + right
+        if isinstance(left, str) and isinstance(right, str):
+            return left + right
+    return None
+
+
+def semantic_payloads(name: str, data: bytes) -> list[bytes]:
+    payloads = [data]
+    if not name.endswith(".py"):
+        return payloads
+    try:
+        tree = ast.parse(data.decode("utf-8"), filename=name)
+    except (SyntaxError, UnicodeDecodeError) as error:
+        raise ValueError(f"Python redaction parse failed: {name}") from error
+    seen: set[bytes] = {data}
+    for node in ast.walk(tree):
+        value = constant_value(node)
+        if isinstance(value, str):
+            encoded = value.encode("utf-8")
+        elif isinstance(value, bytes):
+            encoded = value
+        else:
+            continue
+        if encoded not in seen:
+            seen.add(encoded)
+            payloads.append(encoded)
+    return payloads
+
+
+def redaction_surface(name: str) -> bool:
     return (
-        b"AGE-SECRET-" + b"KEY-",
-        b"/Users/" + b"denisq/.config/moex-trading/stage8b/"
-        + b"r2b-trust-rebind-generation-" + b"2-20260830",
-        b"/Users/" + b"denisq/Documents/moex-trading-ceremony-" + b"secret",
-        b"/Volumes/" + b"TRAN" + b"SCEND",
+        name.startswith("scripts/")
+        or name.startswith("tools/stage8b-readonly-preflight/")
+        or name.startswith("handoff-evidence/")
+        or name in {"handoff-commit.txt", AUTHORITY, RESTORE, DESTRUCTION}
     )
+
+
+def fixture_allowed(name: str, kind: str, match: re.Match[bytes]) -> bool:
+    if name != NEGATIVE_SOURCE:
+        return False
+    if kind == "user":
+        return match.group(1) == b"review-fixture"
+    if kind == "volume":
+        return match.group(1).startswith(b"TEST-OFFLINE-MEDIA")
+    return False
+
+
+def require_public_redaction(name: str, data: bytes) -> None:
+    if not redaction_surface(name):
+        return
+    for payload in semantic_payloads(name, data):
+        for match in USER_ABSOLUTE_PATH.finditer(payload):
+            if not fixture_allowed(name, "user", match):
+                raise ValueError(f"user-specific absolute path exported: {name}")
+        for match in VOLUME_ABSOLUTE_PATH.finditer(payload):
+            if not fixture_allowed(name, "volume", match):
+                raise ValueError(f"external-volume label exported: {name}")
+        if PRIVATE_IDENTITY_VALUE.search(payload):
+            raise ValueError(f"private identity value exported: {name}")
+
+
+def local_redaction_context() -> tuple[bytes, bytes, bytes, bytes, bytes, bytes]:
+    import os
+
+    names = (
+        "STAGE8B_R2B_G2_REDACTION_PRIMARY_PATH",
+        "STAGE8B_R2B_G2_REDACTION_IDENTITY_PATH",
+        "STAGE8B_R2B_G2_REDACTION_MEDIA_ROOT",
+    )
+    values = [os.environ.get(name) for name in names]
+    if any(not value for value in values):
+        raise ValueError("local redaction context missing")
+    primary, identity, media = (Path(value) for value in values if value is not None)
+    if not all(path.is_absolute() for path in (primary, identity, media)):
+        raise ValueError("local redaction context is not absolute")
+    if len(primary.parts) < 4 or len(identity.parts) < 4 or len(media.parts) != 3:
+        raise ValueError("local redaction context shape drift")
+    users = {primary.parts[2], identity.parts[2]}
+    if len(users) != 1:
+        raise ValueError("local redaction user mismatch")
+    tokens = (str(primary), str(identity), primary.name, identity.parent.name, media.name)
+    if any(len(token) < 4 or token in {"Users", "Volumes"} for token in tokens):
+        raise ValueError("local redaction token too weak")
+    user = next(iter(users))
+    return tuple(token.encode() for token in (*tokens, user))  # type: ignore[return-value]
+
+
+def check_local_redaction(path: str) -> dict[str, bool]:
+    primary_path, identity_path, primary_name, recovery_name, media_label, user = (
+        local_redaction_context()
+    )
+    with zipfile.ZipFile(path) as archive:
+        for item in archive.infolist():
+            if item.is_dir():
+                continue
+            data = archive.read(item.filename)
+            if any(token in data for token in (primary_path, identity_path, primary_name, recovery_name, media_label)):
+                raise ValueError("local custody token exported")
+            if redaction_surface(item.filename):
+                for payload in semantic_payloads(item.filename, data):
+                    if user in payload:
+                        raise ValueError("operator token exported from custody surface")
+    return dict(REDACTION_EVIDENCE)
 
 
 def check(path: str) -> dict[str, object]:
@@ -101,8 +223,6 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("duplicate members")
         if missing := REQUIRED - set(names):
             raise ValueError(f"missing members: {sorted(missing)}")
-        markers = private_markers()
-        identity_literal_guard = "scripts/stage8b_p_r2b_generation2_backup_restore_r0_check.py"
         for item in infos:
             member = PurePosixPath(item.filename)
             item_mode = (item.external_attr >> 16) & 0o177777
@@ -123,14 +243,7 @@ def check(path: str) -> dict[str, object]:
                 raise ValueError(f"environment artifact: {item.filename}")
             if not item.is_dir():
                 data = archive.read(item.filename)
-                for index, marker in enumerate(markers):
-                    if marker not in data:
-                        continue
-                    if index == 0 and item.filename == identity_literal_guard:
-                        # The operation-bound public checker rejects this exact
-                        # private-key prefix and is hash-pinned by both receipts.
-                        continue
-                    raise ValueError(f"private custody value exported: {item.filename}")
+                require_public_redaction(item.filename, data)
 
         marker = dict(
             line.split("=", 1)
@@ -157,6 +270,8 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("operation source-ref drift")
         if marker.get("operation_source_tree") != OPERATION_SOURCE_TREE or evidence.get("operation_source_tree") != OPERATION_SOURCE_TREE:
             raise ValueError("operation source-tree drift")
+        if marker.get("redaction_predecessor_ref") != REDACTION_PREDECESSOR_REF or evidence.get("redaction_predecessor_ref") != REDACTION_PREDECESSOR_REF:
+            raise ValueError("redaction predecessor drift")
         if evidence.get("accepted_trust_rebind_ref") != ACCEPTED_TRUST_REBIND_REF:
             raise ValueError("accepted Trust Rebind lineage drift")
         if authority.get("source_ref") != OPERATION_SOURCE_REF or authority.get("source_tree") != OPERATION_SOURCE_TREE:
@@ -196,6 +311,8 @@ def check(path: str) -> dict[str, object]:
             "primary_or_external_media_required_for_review": False,
         }:
             raise ValueError("private-material policy drift")
+        if evidence.get("redaction") != REDACTION_EVIDENCE:
+            raise ValueError("redaction evidence drift")
         if evidence.get("closed_surfaces") != CLOSED_SURFACES:
             raise ValueError("closed-surface evidence drift")
         if evidence.get("authorization") != "NOT_ISSUED" or authority.get("activation", {}).get("package_authorization") != "NOT_ISSUED":
@@ -238,6 +355,8 @@ def check(path: str) -> dict[str, object]:
             "ciphertext_members": 0,
             "recovery_identity_members": 0,
             "private_custody_markers": 0,
+            "semantic_redaction_scan": True,
+            "packaging_time_local_redaction_scan": True,
             "source_ref": source_ref,
             "operation_source_ref": OPERATION_SOURCE_REF,
             "generation": 2,

@@ -21,6 +21,7 @@ BRANCH = "stage8b-p-r2b-generation2-backup-restore-r0"
 OPERATION_SOURCE_REF = "b86cc6be0ff9c7748162d00137ef85ae4f97f168"
 OPERATION_SOURCE_TREE = "8ce2be049776c04036e42cedb90629d3688e3485"
 ACCEPTED_TRUST_REBIND_REF = "d8c71154d7407358b638af9e0c690578050d1640"
+REDACTION_PREDECESSOR_REF = "14efc5ddcb71e524fa4784bd94c92e35b64e1578"
 
 
 def run(*arguments: str) -> bytes:
@@ -59,6 +60,8 @@ def main() -> None:
         raise SystemExit("stage8b-generation2-backup-restore-r0-handoff: FAIL operation tree drift")
     if run("git", "merge-base", source_ref, ACCEPTED_TRUST_REBIND_REF).decode().strip() != ACCEPTED_TRUST_REBIND_REF:
         raise SystemExit("stage8b-generation2-backup-restore-r0-handoff: FAIL accepted lineage drift")
+    if run("git", "merge-base", source_ref, REDACTION_PREDECESSOR_REF).decode().strip() != REDACTION_PREDECESSOR_REF:
+        raise SystemExit("stage8b-generation2-backup-restore-r0-handoff: FAIL redaction predecessor drift")
 
     gate = subprocess.run(
         ["bash", "scripts/stage8b_p_r2b_generation2_backup_restore_r0_gate.sh"],
@@ -83,7 +86,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Generation 2 Encrypted Backup Restore R0",
+                "stage": "Stage 8B-P R2B Generation 2 Backup/Restore R0-R1 Public Handoff Redaction Closure",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "source_short_ref": short_ref,
@@ -92,6 +95,7 @@ def main() -> None:
                 "operation_source_ref": OPERATION_SOURCE_REF,
                 "operation_source_tree": OPERATION_SOURCE_TREE,
                 "accepted_trust_rebind_ref": ACCEPTED_TRUST_REBIND_REF,
+                "redaction_predecessor_ref": REDACTION_PREDECESSOR_REF,
                 "gate_sha256": sha256(gate.stdout),
                 "manifest_sha256": sha256(manifest),
                 "authority_sha256": sha256(authority_bytes),
@@ -120,10 +124,11 @@ def main() -> None:
                     "custody_paths_in_handoff": False,
                     "primary_or_external_media_required_for_review": False,
                 },
+                "redaction": safety.REDACTION_EVIDENCE,
                 "closed_surfaces": safety.CLOSED_SURFACES,
                 "rust_tests": 55,
                 "evidence_negative_mutations": 42,
-                "handoff_negative_mutations": 26,
+                "handoff_negative_mutations": 32,
                 "authorization": "NOT_ISSUED",
                 "review_status": "INDEPENDENT_REVIEW_REQUIRED",
             },
@@ -136,7 +141,8 @@ def main() -> None:
         "handoff-commit.txt": (
             f"source_short_ref={short_ref}\nsource_ref={source_ref}\nsource_tree={source_tree}\n"
             f"operation_source_ref={OPERATION_SOURCE_REF}\n"
-            f"operation_source_tree={OPERATION_SOURCE_TREE}\narchive_name={archive_name}\n"
+            f"operation_source_tree={OPERATION_SOURCE_TREE}\n"
+            f"redaction_predecessor_ref={REDACTION_PREDECESSOR_REF}\narchive_name={archive_name}\n"
         ).encode(),
         safety.EVIDENCE: evidence,
         safety.GATE: gate.stdout,
@@ -153,6 +159,7 @@ def main() -> None:
         for name, data in sorted(additions.items()):
             archive.writestr(common.zip_info(name, "100644"), data)
 
+    local_redaction = safety.check_local_redaction(str(archive_path))
     result = safety.check(str(archive_path))
     outputs: list[str] = []
     with tempfile.TemporaryDirectory(prefix="stage8b-g2-backup-handoff-") as temporary:
@@ -188,6 +195,7 @@ def main() -> None:
                 "private_material_members": 0,
                 "ciphertext_members": 0,
                 "recovery_identity_members": 0,
+                "local_redaction_scan": local_redaction,
                 "external_media_required_for_review": False,
                 "generation_2_active": False,
                 "authorization": "NOT_ISSUED",
