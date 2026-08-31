@@ -165,7 +165,11 @@ def metadata_profile(paths: Iterable[Path]) -> tuple[bool, bool, bool]:
     for path in paths:
         acl_ok = acl_ok and acl_absent(path)
         flags_ok = flags_ok and flags_absent(path)
-        names = set(os.listxattr(path, follow_symlinks=False))
+        names = set(
+            subprocess.check_output(
+                ["xattr", str(path)], text=True, stderr=subprocess.DEVNULL
+            ).splitlines()
+        )
         xattrs_ok = xattrs_ok and names.issubset(ALLOWED_XATTRS)
     return acl_ok, flags_ok, xattrs_ok
 
@@ -818,3 +822,8 @@ if __name__ == "__main__":
         main()
     except (KeyError, OSError, RuntimeError, subprocess.CalledProcessError, tarfile.TarError) as error:
         raise SystemExit(f"stage8b-generation2-backup-restore-r0: FAIL {error}") from error
+    except Exception as error:  # Keep custody paths out of unexpected tracebacks.
+        raise SystemExit(
+            "stage8b-generation2-backup-restore-r0: FAIL "
+            f"internal_error={type(error).__name__}"
+        ) from None
