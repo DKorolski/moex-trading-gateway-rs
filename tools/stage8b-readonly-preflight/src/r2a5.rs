@@ -1364,6 +1364,7 @@ fn key_ceremony_public_values(
 fn generate_key_ceremony_for_profile(
     output: &Path,
     profile: KeyCeremonyProfile,
+    require_canonical_output: bool,
 ) -> Result<BTreeMap<String, String>, R2a3Error> {
     if profile.generation == 0
         || profile.account_key_file.contains('/')
@@ -1373,6 +1374,12 @@ fn generate_key_ceremony_for_profile(
     }
     std::fs::create_dir(output)?;
     std::fs::set_permissions(output, std::fs::Permissions::from_mode(0o700))?;
+    // No secret is generated until the newly-created directory is proven to
+    // be the exact, canonical path selected by the caller. This closes the
+    // window in which an ancestor could redirect creation after preflight.
+    if require_canonical_output && output.canonicalize()? != output {
+        return Err(R2a3Error::Input);
+    }
     let valid_from = DateTime::parse_from_rfc3339(profile.valid_from_utc)
         .map_err(|_| R2a3Error::Input)?
         .with_timezone(&Utc);
@@ -1494,10 +1501,20 @@ fn generate_key_ceremony_for_profile(
 /// the caller-selected, newly-created directory; only the two public manifests
 /// are intended to enter source control.
 pub fn generate_key_ceremony(output: &Path) -> Result<BTreeMap<String, String>, R2a3Error> {
-    generate_key_ceremony_for_profile(output, R2A5_KEY_CEREMONY_PROFILE)
+    generate_key_ceremony_for_profile(output, R2A5_KEY_CEREMONY_PROFILE, false)
 }
 
-fn trust_rebind_path_is_persistent(output: &Path) -> bool {
+fn trust_rebind_compiled_workspace_root() -> Option<PathBuf> {
+    let manifest_directory = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let workspace_root = manifest_directory.parent()?.parent()?;
+    Some(
+        workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| workspace_root.to_path_buf()),
+    )
+}
+
+fn trust_rebind_resolved_path_is_persistent(output: &Path) -> bool {
     if !output.is_absolute() {
         return false;
     }
@@ -1511,10 +1528,60 @@ fn trust_rebind_path_is_persistent(output: &Path) -> bool {
         if output.starts_with(root) {
             return false;
         }
+        if Path::new(root)
+            .canonicalize()
+            .is_ok_and(|canonical_root| output.starts_with(canonical_root))
+        {
+            return false;
+        }
     }
-    match std::env::current_dir() {
+    let outside_current = match std::env::current_dir().and_then(|current| current.canonicalize()) {
         Ok(current) => !output.starts_with(current),
         Err(_) => false,
+    };
+    if !outside_current {
+        return false;
+    }
+    if trust_rebind_compiled_workspace_root()
+        .is_some_and(|workspace_root| output.starts_with(workspace_root))
+    {
+        return false;
+    }
+    // A copied binary can be launched outside the checkout that contains the
+    // selected path. Reject any Git worktree ancestor independently of cwd.
+    !output
+        .ancestors()
+        .any(|ancestor| std::fs::symlink_metadata(ancestor.join(".git")).is_ok())
+}
+
+fn trust_rebind_resolve_new_output(output: &Path) -> Result<PathBuf, R2a3Error> {
+    if !output.is_absolute() || std::fs::symlink_metadata(output).is_ok() {
+        return Err(R2a3Error::Input);
+    }
+    let file_name = output.file_name().ok_or(R2a3Error::Input)?;
+    let parent = output.parent().ok_or(R2a3Error::Input)?;
+    let parent_metadata = std::fs::symlink_metadata(parent)?;
+    if !parent_metadata.file_type().is_dir() || parent_metadata.file_type().is_symlink() {
+        return Err(R2a3Error::Input);
+    }
+    let canonical_parent = parent.canonicalize()?;
+    if canonical_parent != parent {
+        return Err(R2a3Error::Input);
+    }
+    let resolved_output = canonical_parent.join(file_name);
+    if resolved_output != output || !trust_rebind_resolved_path_is_persistent(&resolved_output) {
+        return Err(R2a3Error::Input);
+    }
+    Ok(resolved_output)
+}
+
+fn trust_rebind_path_is_persistent(output: &Path) -> bool {
+    match output.canonicalize() {
+        Ok(canonical_output) => {
+            canonical_output == output
+                && trust_rebind_resolved_path_is_persistent(&canonical_output)
+        }
+        Err(_) => trust_rebind_resolve_new_output(output).is_ok(),
     }
 }
 
@@ -1525,10 +1592,8 @@ fn trust_rebind_path_is_persistent(output: &Path) -> bool {
 pub fn generate_trust_rebind_key_ceremony(
     output: &Path,
 ) -> Result<BTreeMap<String, String>, R2a3Error> {
-    if !trust_rebind_path_is_persistent(output) {
-        return Err(R2a3Error::Input);
-    }
-    generate_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE)
+    let resolved_output = trust_rebind_resolve_new_output(output)?;
+    generate_key_ceremony_for_profile(&resolved_output, R2B_TRUST_REBIND_PROFILE, true)
 }
 
 fn require_ceremony_directory(path: &Path, expected_uid: u32) -> Result<(), R2a3Error> {
@@ -4644,7 +4709,7 @@ mod tests {
             let output = parent
                 .path()
                 .join(format!("generation-{expected_generation}"));
-            let generated = generate_key_ceremony_for_profile(&output, profile).unwrap();
+            let generated = generate_key_ceremony_for_profile(&output, profile, false).unwrap();
             let verified = verify_key_ceremony_for_profile(&output, profile, false).unwrap();
             assert_eq!(generated, verified);
             let trust: TrustSetManifest =
@@ -4669,7 +4734,7 @@ mod tests {
     fn ceremony_verifier_rejects_secret_mode_and_binding_drift() {
         let parent = tempfile::tempdir().unwrap();
         let output = parent.path().join("generation-2");
-        generate_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE).unwrap();
+        generate_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).unwrap();
         let secret = output.join("package-authorization.ed25519");
         std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
         assert!(verify_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).is_err());
@@ -4685,7 +4750,7 @@ mod tests {
     fn trust_rebind_receipt_is_signed_and_tamper_evident() {
         let parent = tempfile::tempdir().unwrap();
         let output = parent.path().join("generation-2");
-        generate_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE).unwrap();
+        generate_key_ceremony_for_profile(&output, R2B_TRUST_REBIND_PROFILE, false).unwrap();
         let source_ref = "1".repeat(40);
         let verifier_hash = "2".repeat(64);
         let receipt = create_trust_rebind_verification_receipt_for_path(
@@ -4730,6 +4795,27 @@ mod tests {
         )));
         let current = std::env::current_dir().unwrap();
         assert!(!trust_rebind_path_is_persistent(&current.join("ceremony")));
+    }
+
+    #[test]
+    fn trust_rebind_rejects_symlinked_parent_before_secret_write() {
+        let parent = tempfile::tempdir().unwrap();
+        let redirect_target = parent.path().join("redirect-target");
+        std::fs::create_dir(&redirect_target).unwrap();
+        let symlinked_parent = parent.path().join("symlinked-parent");
+        std::os::unix::fs::symlink(&redirect_target, &symlinked_parent).unwrap();
+        let output = symlinked_parent.join("generation-2");
+
+        assert!(generate_trust_rebind_key_ceremony(&output).is_err());
+        assert!(!redirect_target.join("generation-2").exists());
+    }
+
+    #[test]
+    fn trust_rebind_rejects_compiled_workspace_independently_of_current_directory() {
+        let workspace_root = trust_rebind_compiled_workspace_root().unwrap();
+        assert!(!trust_rebind_resolved_path_is_persistent(
+            &workspace_root.join("ceremony-outside-cwd-probe")
+        ));
     }
 
     #[test]

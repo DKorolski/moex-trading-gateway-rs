@@ -329,6 +329,11 @@ def check(root: Path) -> None:
         '"/private/var/folders",',
         "if output.starts_with(root) {",
         "!output.starts_with(current)",
+        "fn trust_rebind_compiled_workspace_root() -> Option<PathBuf>",
+        "fn trust_rebind_resolve_new_output(output: &Path) -> Result<PathBuf, R2a3Error>",
+        "let canonical_parent = parent.canonicalize()?;",
+        "if canonical_parent != parent {",
+        "if require_canonical_output && output.canonicalize()? != output {",
         ".custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);\n    let file = options.open(path)?;\n    let mut bytes = Vec::new();",
         "metadata.nlink() != 1",
         "fn verify_seed_binding(",
@@ -336,6 +341,8 @@ def check(root: Path) -> None:
         "create_trust_rebind_verification_receipt(",
         "TRUST_REBIND_VERIFICATION_RECEIPT_DOMAIN",
         "ceremony_verifier_rejects_secret_mode_and_binding_drift",
+        "trust_rebind_rejects_symlinked_parent_before_secret_write",
+        "trust_rebind_rejects_compiled_workspace_independently_of_current_directory",
     ):
         require(marker in rust, f"Rust ceremony enforcement missing: {marker}")
     require((root / GENERATOR).is_file() and (root / VERIFIER).is_file(), "ceremony CLI missing")

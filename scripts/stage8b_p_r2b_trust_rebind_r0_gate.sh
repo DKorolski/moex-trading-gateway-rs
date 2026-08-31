@@ -52,4 +52,4 @@ cargo test --locked --manifest-path tools/stage8b-readonly-preflight/Cargo.toml 
 cargo clippy --locked --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --all-targets -- -D warnings
 git diff --check
 
-echo "stage8b-p-r2b-trust-rebind-r0-gate: PASS stage=R0-R1 generation=2 rust_tests=52 source_negative=46 receipt_negative=10 actual_ceremony_verifier=PASS receipt_signed=true historical_immutable=true backup=REQUIRED_NOT_VERIFIED active=false authorization=NOT_ISSUED finam=false"
+echo "stage8b-p-r2b-trust-rebind-r0-gate: PASS stage=R0-R1 generation=2 rust_tests=54 source_negative=46 receipt_negative=10 actual_ceremony_verifier=PASS receipt_signed=true historical_immutable=true backup=REQUIRED_NOT_VERIFIED active=false authorization=NOT_ISSUED finam=false"

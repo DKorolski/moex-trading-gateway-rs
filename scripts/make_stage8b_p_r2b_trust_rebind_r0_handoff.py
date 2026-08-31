@@ -90,7 +90,7 @@ def main() -> None:
                 "private_material_in_handoff": False,
                 "backup_status": "REQUIRED_NOT_VERIFIED",
                 "backup_attestation_present": False,
-                "rust_tests": 52,
+                "rust_tests": 54,
                 "trust_rebind_negative_mutations": 46,
                 "receipt_negative_mutations": 10,
                 "current_tree_negative_mutations": 33,
