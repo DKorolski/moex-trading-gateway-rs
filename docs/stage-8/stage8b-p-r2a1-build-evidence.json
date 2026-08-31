@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "stage8b_p_r2a1_corrective_qualification",
+  "stage": "8B-P",
+  "revision": "R2A1",
+  "status": "candidate_pending_independent_acceptance",
+  "generated_at_utc": "2026-08-25T16:17:33Z",
+  "implementation_source_ref": "42fcba448abbfc870be4ffaa108e1334a30d21cb",
+  "implementation_source_tree": "18b58ba73fb4d2c7e990416548dd6d74092e7317",
+  "helper": {
+    "workspace": "tools/stage8b-readonly-preflight",
+    "profile": "release",
+    "target": "aarch64-apple-darwin",
+    "executable_name": "stage8b-readonly-preflight",
+    "executable_sha256": "08b42e663a06bd8da69c84dc5e013b09d1cdac7fe38ad95fd62fe881ae4ca468",
+    "rustc_version": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "cargo_version": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "effect_workspace_member": false,
+    "authority_issued": false
+  },
+  "accepted_effect_executable": {
+    "sha256": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+    "modified": false,
+    "requalified": false
+  },
+  "authority_sha256": {
+    "network_topology": "8f4da085577ea5c7b6a7bb2a990a13989096a5483e5072ea3b19dff7cc74c197",
+    "query_policy": "63a7985b3f9c46f03a6a26f422fb9aea81bb458069d216e452955fcac27544d8",
+    "current_sources": "bff33a9ff8c816daae63d1e758baa985c8bf769885c07a3f9992147a1a900867"
+  },
+  "qualification": {
+    "controlled_tests_passed": 9,
+    "new_negative_mutations_passed": 40,
+    "new_negative_mutations_total": 40,
+    "inherited_negative_mutations_passed": 134,
+    "inherited_negative_mutations_total": 134,
+    "fmt_passed": true,
+    "test_passed": true,
+    "clippy_deny_warnings_passed": true,
+    "release_build_passed": true,
+    "full_gate_exit_code": 0,
+    "full_gate_log_sha256": "e43a187ab858873a873f3dd3e7fd0ac0b7e8833b464b72d8b862139f45259c63"
+  },
+  "network_qualification": {
+    "real_credential_used": false,
+    "real_auth_request_sent": false,
+    "real_broker_get_sent": false,
+    "mock_place_source_level_requests": "2_POST_plus_3_GET",
+    "mock_cancel_source_level_requests": "2_POST_plus_4_GET",
+    "redirect_followed": false,
+    "protocol_nack_resent": false,
+    "system_proxy_used": false
+  },
+  "closed_surfaces": {
+    "authorization_status": "NOT_ISSUED",
+    "r2b_authorized": false,
+    "operator_arm_issued": false,
+    "dispatch_attempt_appended": false,
+    "effect_transport_entered": false,
+    "finam_order_post_delete_sent": false,
+    "broker_effect": false,
+    "redis_execution": false,
+    "runtime_live": false,
+    "real_strategy_orders": false
+  }
+}

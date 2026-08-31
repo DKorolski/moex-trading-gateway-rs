@@ -1,0 +1,49 @@
+id,area,requirement,evidence,status
+P2A-001,lineage,accepted merge ref exact,authority+checker,PASS
+P2A-002,lineage,accepted R1B ref exact,authority+checker,PASS
+P2A-003,lineage,R1B authority digest exact,authority+checker,PASS
+P2A-004,lineage,R1B network digest exact,authority+checker,PASS
+P2A-005,lineage,R1B run digest exact,authority+checker,PASS
+P2A-006,build,accepted build identity exact,authority+checker,PASS
+P2A-007,build,accepted executable digest exact,authority+checker,PASS
+P2A-008,build,rebuild forbidden,authority+checker,PASS
+P2A-009,build,alternate executable forbidden,authority+checker,PASS
+P2A-010,scope,operator selection absent in R2A,authority+checker,PASS
+P2A-011,scope,PLACE CANCEL closed enum,authority+checker,PASS
+P2A-012,scope,IMOEXF exact,authority+checker,PASS
+P2A-013,scope,LIMIT DAY quantity one exact,authority+checker,PASS
+P2A-014,scope,CANCEL exact order and lifecycle required,authority+checker,PASS
+P2A-015,scope,unknown fields forbidden,authority+checker,PASS
+P2A-016,secrets,selection contains no token,authority+checker,PASS
+P2A-017,secrets,evidence contains no raw account,authority+checker,PASS
+P2A-018,http,GET only allowlist,authority+checker,PASS
+P2A-019,http,four source order exact,authority+checker,PASS
+P2A-020,http,four route templates exact,authority+checker,PASS
+P2A-021,http,max requests four,authority+checker,PASS
+P2A-022,http,timeout fixed 10000ms,authority+checker,PASS
+P2A-023,http,min interval fixed 250ms,authority+checker,PASS
+P2A-024,http,preflight age fixed 60000ms,authority+checker,PASS
+P2A-025,http,retry redirect proxy disabled,authority+checker,PASS
+P2A-026,http,background scheduler disabled,authority+checker,PASS
+P2A-027,http,redacted output only,authority+checker,PASS
+P2A-028,current,complete current input inventory frozen,authority+checker,PASS
+P2A-029,current,Stage7B current seal required,authority+checker,PASS
+P2A-030,current,Stage6 dispatch ready command required,authority+checker,PASS
+P2A-031,current,kill ownership schedule instrument required,authority+checker,PASS
+P2A-032,current,orders trades positions required,authority+checker,PASS
+P2A-033,current,ambiguity lifecycle budget baseline required,authority+checker,PASS
+P2A-034,authority,R2 evidence distinct from K2 sources,authority+checker,PASS
+P2A-035,authority,R2 cannot satisfy K1 or K2,authority+checker,PASS
+P2A-036,authority,R2 cannot issue arm,authority+checker,PASS
+P2A-037,authority,R2 cannot append attempt,authority+checker,PASS
+P2A-038,authority,R2 cannot enter XE or effect transport,authority+checker,PASS
+P2A-039,authority,post arm fresh K2 reread required,authority+checker,PASS
+P2A-040,r2a,no credential or GET used,authority+checker,PASS
+P2A-041,r2a,no run evidence present,authority+checker,PASS
+P2A-042,r2a,R2B remains locked,authority+checker,PASS
+P2A-043,boundary,authorization NOT_ISSUED,authority+checker,PASS
+P2A-044,boundary,no POST DELETE or broker effect,authority+checker,PASS
+P2A-045,boundary,no Rust Cargo config workflow drift,git checker,PASS
+P2A-046,coverage,40 negative mutations rejected,negative harness,PASS
+P2A-047,promotion,R2B requires explicit operator decision,authority+docs,PASS
+P2A-048,promotion,R2B requires separate evidence review,authority+docs,PASS

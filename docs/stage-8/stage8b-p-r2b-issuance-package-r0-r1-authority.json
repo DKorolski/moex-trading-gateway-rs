@@ -1,0 +1,420 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Issuance Package",
+  "revision": "R0-R1A",
+  "status": "STRICT_SCHEMA_FREEZE_CANDIDATE_NOT_ISSUED",
+  "accepted_predecessor": {
+    "stage": "Stage 8B-P R2B R4-R2A Acceptance Closure",
+    "source_ref": "f24f1044ac0b29c2f588853b817e519cfe8d3d8b",
+    "verdict": "ACCEPTED"
+  },
+  "corrects_r0": {
+    "source_ref": "928168ed47e5b9dd873cd73815fbccecde7a8981",
+    "verdict": "NOT_ACCEPTED_NARROW_CORRECTION_REQUIRED",
+    "finding_count": 2
+  },
+  "read_contract": {
+    "snapshot_path": "docs/stage-8/stage8b-p-r2a3-finam-read-contract-snapshot.json",
+    "snapshot_sha256": "7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5",
+    "document_names": ["auth", "token_details", "get_account", "trades", "get_orders", "get_order"],
+    "document_count": 6,
+    "helper_embedded_snapshot_sha256": "7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5",
+    "future_run_package_contract_snapshot_sha256": "7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5",
+    "refresh_evidence": "docs/stage-8/stage8b-p-r2b-r0-r1-read-contract-refresh-evidence.json",
+    "effect_contract_snapshot_sufficient_for_r2b": false,
+    "activation_refresh_required": true,
+    "activation_max_age_seconds": 1800
+  },
+  "package_formation": {
+    "selected_model": "SEPARATE_DRAFT_BUILDER_THEN_SIGNER",
+    "builder": {
+      "executable": "stage8b-r2b-run-package-draft-builder",
+      "service": "moex-stage8b-r2b-run-package-draft-builder.service",
+      "implemented_by_r0_r1": false,
+      "uid": 0,
+      "gid": 0,
+      "signing_key_access": false,
+      "credential_path_access": false,
+      "network_allowed": false,
+      "fixed_inputs": [
+        {
+          "name": "run_nonce",
+          "path": "/run/moex-trading/stage8b/r2a5/run-nonce.sha256",
+          "owner_uid": 0,
+          "owner_gid": 0,
+          "mode": "0644",
+          "producer": "local_operator_activation_preparer",
+          "run_nonce_binding": "SOURCE_OF_CURRENT_RUN_NONCE",
+          "freshness_rule": "MUST_BE_NEW_AND_UNUSED_FOR_THIS_TRANSACTION"
+        },
+        {
+          "name": "run_manifest",
+          "path": "/var/lib/moex-trading/stage8b/r2a5/run-manifest.json",
+          "owner_uid": 0,
+          "owner_gid": 0,
+          "mode": "0644",
+          "producer": "local_operator_activation_preparer",
+          "run_nonce_binding": "EXACT_CURRENT_RUN_IDENTITY",
+          "freshness_rule": "MANIFEST_FIELDS_MATCH_CURRENT_NONCE_AUTHORITIES"
+        },
+        {
+          "name": "trust_manifest",
+          "path": "/etc/moex-trading/stage8b/r2a5/trust-manifest.json",
+          "owner_uid": 0,
+          "owner_gid": 0,
+          "mode": "0644",
+          "producer": "stage8b-r2a5-trust-ceremony",
+          "run_nonce_binding": "NOT_NONCE_SCOPED",
+          "freshness_rule": "ALL_KEY_GENERATIONS_VALID_AT_TRUSTED_NOW"
+        },
+        {
+          "name": "account_key_manifest",
+          "path": "/etc/moex-trading/stage8b/r2a5/account-key-manifest.json",
+          "owner_uid": 0,
+          "owner_gid": 0,
+          "mode": "0644",
+          "producer": "stage8b-r2a5-account-key-ceremony",
+          "run_nonce_binding": "BOUND_BY_RUN_MANIFEST_HMAC_AND_GENERATION",
+          "freshness_rule": "SELECTED_GENERATION_VALID_AT_TRUSTED_NOW"
+        },
+        {
+          "name": "operator_decision",
+          "path": "/etc/moex-trading/stage8b/r2a5/operator-decision.json",
+          "owner_uid": 0,
+          "owner_gid": 0,
+          "mode": "0644",
+          "producer": "local_operator_activation_preparer",
+          "run_nonce_binding": "DECISION_HASH_BOUND_IN_CURRENT_DRAFT",
+          "freshness_rule": "DECISION_CREATED_FOR_CURRENT_TRANSACTION_ONLY"
+        },
+        {
+          "name": "accepted_helper_authority",
+          "path": "/etc/moex-trading/stage8b/r2a5/accepted-helper-authority.json",
+          "owner_uid": 0,
+          "owner_gid": 0,
+          "mode": "0644",
+          "producer": "stage8b-r2a5-helper-acceptance-issuer",
+          "run_nonce_binding": "NOT_NONCE_SCOPED",
+          "freshness_rule": "SIGNATURE_AND_VALIDITY_WINDOW_CURRENT"
+        },
+        {
+          "name": "authority_receipts",
+          "path": "/run/moex-trading/stage8b/r2a5/receipts/{exact_source_name}/receipt.json",
+          "owner_uid": "EXACT_ISSUER_UID_FROM_RECEIPT_INVENTORY",
+          "owner_gid": "EXACT_ISSUER_GID_FROM_RECEIPT_INVENTORY",
+          "mode": "0644",
+          "producer": "EXACT_STAGE8B_R2A5_AUTHORITY_ISSUER_INSTANCE",
+          "run_nonce_binding": "EVERY_RECEIPT_EQUALS_CURRENT_RUN_NONCE",
+          "freshness_rule": "SOURCE_SPECIFIC_MAX_AGE_AND_CURRENT_GENERATION"
+        }
+      ],
+      "receipt_sources": [
+        {
+          "source": "trusted_clock",
+          "producer_service": "stage8b-r2a5-producer@m8p8101.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8201.service",
+          "producer_uid": 8101,
+          "issuer_uid": 8201,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/trusted_clock/receipt.json",
+          "authority_type": "Stage8bTrustedClockIssuer",
+          "evidence_schema": "stage8b-trusted-clock-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "stage7b_current_recovery_seal",
+          "producer_service": "stage8b-r2a5-producer@m8p8102.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8202.service",
+          "producer_uid": 8102,
+          "issuer_uid": 8202,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/stage7b_current_recovery_seal/receipt.json",
+          "authority_type": "Stage7bRecoverySealReader",
+          "evidence_schema": "stage7b-current-recovery-seal-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "stage6_exact_dispatch_ready_command",
+          "producer_service": "stage8b-r2a5-producer@m8p8103.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8203.service",
+          "producer_uid": 8103,
+          "issuer_uid": 8203,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/stage6_exact_dispatch_ready_command/receipt.json",
+          "authority_type": "Stage6DispatchReadyCommandReader",
+          "evidence_schema": "stage6-dispatch-ready-command-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "stage8a_root_config_policy_control",
+          "producer_service": "stage8b-r2a5-producer@m8p8104.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8204.service",
+          "producer_uid": 8104,
+          "issuer_uid": 8204,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/stage8a_root_config_policy_control/receipt.json",
+          "authority_type": "Stage8aCurrentControlIssuer",
+          "evidence_schema": "stage8a-root-config-policy-control-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "composite_readiness",
+          "producer_service": "stage8b-r2a5-producer@m8p8105.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8205.service",
+          "producer_uid": 8105,
+          "issuer_uid": 8205,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/composite_readiness/receipt.json",
+          "authority_type": "Stage8aCompositeReadinessIssuer",
+          "evidence_schema": "stage8a-composite-readiness-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "kill_switch_run_allowed",
+          "producer_service": "stage8b-r2a5-producer@m8p8106.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8206.service",
+          "producer_uid": 8106,
+          "issuer_uid": 8206,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/kill_switch_run_allowed/receipt.json",
+          "authority_type": "Stage8aPersistentKillSwitchIssuer",
+          "evidence_schema": "stage8a-kill-switch-run-allowed-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "single_finam_ownership",
+          "producer_service": "stage8b-r2a5-producer@m8p8107.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8207.service",
+          "producer_uid": 8107,
+          "issuer_uid": 8207,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/single_finam_ownership/receipt.json",
+          "authority_type": "Stage8aSingleFinamOwnershipIssuer",
+          "evidence_schema": "stage8a-single-finam-ownership-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "schedule",
+          "producer_service": "stage8b-r2a5-producer@m8p8108.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8208.service",
+          "producer_uid": 8108,
+          "issuer_uid": 8208,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/schedule/receipt.json",
+          "authority_type": "Stage8aScheduleIssuer",
+          "evidence_schema": "stage8a-schedule-window-v1",
+          "max_age_ms": 5000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "instrument_specification",
+          "producer_service": "stage8b-r2a5-producer@m8p8109.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8209.service",
+          "producer_uid": 8109,
+          "issuer_uid": 8209,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/instrument_specification/receipt.json",
+          "authority_type": "Stage8aInstrumentIssuer",
+          "evidence_schema": "stage8a-instrument-specification-v1",
+          "max_age_ms": 5000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "ambiguity_orphan_unresolved_lifecycle",
+          "producer_service": "stage8b-r2a5-producer@m8p8110.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8210.service",
+          "producer_uid": 8110,
+          "issuer_uid": 8210,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/ambiguity_orphan_unresolved_lifecycle/receipt.json",
+          "authority_type": "Stage8aLifecycleAmbiguityIssuer",
+          "evidence_schema": "stage8a-lifecycle-ambiguity-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        },
+        {
+          "source": "durable_micro_budget",
+          "producer_service": "stage8b-r2a5-producer@m8p8111.service",
+          "issuer_service": "stage8b-r2a5-issuer@m8i8211.service",
+          "producer_uid": 8111,
+          "issuer_uid": 8211,
+          "receipt_path": "/run/moex-trading/stage8b/r2a5/receipts/durable_micro_budget/receipt.json",
+          "authority_type": "Stage8aDurableMicroBudgetIssuer",
+          "evidence_schema": "stage8a-durable-micro-budget-v1",
+          "max_age_ms": 2000,
+          "same_run_nonce_required": true
+        }
+      ],
+      "required_receipt_count": 11,
+      "required_same_run_nonce": true,
+      "stale_receipts_allowed": false,
+      "controlled_fixture_producer_allowed": false,
+      "schema": "R2a5RunPackage",
+      "signature_ed25519_hex": "EMPTY",
+      "validity_seconds": 30,
+      "output": {
+        "path": "/var/lib/moex-trading/stage8b/r2a5/draft-output/r2b-run-package.unsigned.json",
+        "owner_uid": 0,
+        "owner_gid": 0,
+        "mode": "0600",
+        "atomic_publish": true,
+        "nofollow_regular_single_link": true,
+        "file_fsync": true,
+        "directory_fsync": true,
+        "existing_output_reuse_allowed": false
+      }
+    },
+    "signer": {
+      "executable": "stage8b-r2a5-package-issuer",
+      "service": "moex-stage8b-r2b-package-issuer.service",
+      "uid": 0,
+      "gid": 0,
+      "fixed_input": "/var/lib/moex-trading/stage8b/r2a5/draft-output/r2b-run-package.unsigned.json",
+      "signing_key_path": "/run/moex-stage8b-r2b-package-issuer/package-authorization.ed25519",
+      "signing_key_owner_uid": 0,
+      "signing_key_owner_gid": 0,
+      "signing_key_mode": "0600",
+      "only_component_with_package_authorization_key": true,
+      "requires_current_run_unsigned_draft": true,
+      "output": {
+        "path": "/var/lib/moex-trading/stage8b/r2a5/signed-output/r2b-run-package.json",
+        "owner_uid": 0,
+        "owner_gid": 0,
+        "mode": "0644",
+        "atomic_publish": true,
+        "file_fsync": true,
+        "directory_fsync": true
+      }
+    }
+  },
+  "future_activation_target": {
+    "unit": "moex-stage8b-r2b-issuance.target",
+    "implemented_by_r0_r1": false,
+    "installed_by_r0_r1": false,
+    "enabled_by_r0_r1": false,
+    "manual_start_allowed": false,
+    "signed_local_activation_required": true
+  },
+  "transaction": {
+    "service_invocation_count": 31,
+    "phase_count": 6,
+    "phases": [
+      {
+        "ordinal": 1,
+        "name": "current_source_chain",
+        "target": "moex-stage8b-r2b-phase1-current-source.target",
+        "after_target": null,
+        "services": [
+          "moex-stage8b-r2a8-upstream-current-authority-publisher.service",
+          "moex-stage8b-r2a8-authoritative-intake-creator.service",
+          "moex-stage8b-r2a8-production-intake-stager.service",
+          "moex-stage8b-r2a8-production-current-source-writer.service"
+        ]
+      },
+      {
+        "ordinal": 2,
+        "name": "manifest_and_source_adapter",
+        "target": "moex-stage8b-r2b-phase2-manifest-source.target",
+        "after_target": "moex-stage8b-r2b-phase1-current-source.target",
+        "services": ["stage8b-r2a8-current-manifest-issuer.service", "stage8b-r2a7-source-adapter.service"]
+      },
+      {
+        "ordinal": 3,
+        "name": "authority_producers",
+        "target": "moex-stage8b-r2b-phase3-authority-producers.target",
+        "after_target": "moex-stage8b-r2b-phase2-manifest-source.target",
+        "services": [
+          "stage8b-r2a5-producer@m8p8101.service", "stage8b-r2a5-producer@m8p8102.service",
+          "stage8b-r2a5-producer@m8p8103.service", "stage8b-r2a5-producer@m8p8104.service",
+          "stage8b-r2a5-producer@m8p8105.service", "stage8b-r2a5-producer@m8p8106.service",
+          "stage8b-r2a5-producer@m8p8107.service", "stage8b-r2a5-producer@m8p8108.service",
+          "stage8b-r2a5-producer@m8p8109.service", "stage8b-r2a5-producer@m8p8110.service",
+          "stage8b-r2a5-producer@m8p8111.service"
+        ]
+      },
+      {
+        "ordinal": 4,
+        "name": "authority_issuers",
+        "target": "moex-stage8b-r2b-phase4-authority-issuers.target",
+        "after_target": "moex-stage8b-r2b-phase3-authority-producers.target",
+        "services": [
+          "stage8b-r2a5-issuer@m8i8201.service", "stage8b-r2a5-issuer@m8i8202.service",
+          "stage8b-r2a5-issuer@m8i8203.service", "stage8b-r2a5-issuer@m8i8204.service",
+          "stage8b-r2a5-issuer@m8i8205.service", "stage8b-r2a5-issuer@m8i8206.service",
+          "stage8b-r2a5-issuer@m8i8207.service", "stage8b-r2a5-issuer@m8i8208.service",
+          "stage8b-r2a5-issuer@m8i8209.service", "stage8b-r2a5-issuer@m8i8210.service",
+          "stage8b-r2a5-issuer@m8i8211.service"
+        ]
+      },
+      {
+        "ordinal": 5,
+        "name": "draft_and_signed_run_package",
+        "target": "moex-stage8b-r2b-phase5-run-package.target",
+        "after_target": "moex-stage8b-r2b-phase4-authority-issuers.target",
+        "services": ["moex-stage8b-r2b-run-package-draft-builder.service", "moex-stage8b-r2b-package-issuer.service"]
+      },
+      {
+        "ordinal": 6,
+        "name": "root_admission_and_readonly_preflight",
+        "target": "moex-stage8b-r2b-phase6-readonly-preflight.target",
+        "after_target": "moex-stage8b-r2b-phase5-run-package.target",
+        "services": ["moex-stage8b-r2b-readonly-supervisor.service"]
+      }
+    ],
+    "barrier_contract": {
+      "phase_target_requires_all_phase_services": true,
+      "phase_target_after_all_phase_services": true,
+      "downstream_requires_previous_phase_target": true,
+      "downstream_after_previous_phase_target": true,
+      "failed_component_blocks_downstream": true,
+      "skipped_component_blocks_downstream": true,
+      "condition_skip_semantics_allowed": false,
+      "partial_fanout_allowed": false,
+      "same_run_nonce_required": true,
+      "stale_output_allowed": false,
+      "package_issuer_requires_draft_builder": true,
+      "supervisor_requires_package_issuer": true
+    }
+  },
+  "implementation_state": {
+    "aggregate_target_present": false,
+    "phase_targets_present": false,
+    "draft_builder_binary_present": false,
+    "draft_builder_unit_present": false,
+    "package_issuer_unit_present": false,
+    "services_installed": false,
+    "services_enabled": false,
+    "services_started": false
+  },
+  "operator_local_inputs": {
+    "operation": "ABSENT",
+    "strategy_request_id": "ABSENT",
+    "durable_client_order_id": "ABSENT",
+    "account_hmac": "ABSENT_NOT_STORED_IN_GIT",
+    "operator_decision": "ABSENT",
+    "run_nonce": "ABSENT",
+    "signed_run_package": "ABSENT",
+    "fresh_kill_switch": "ABSENT",
+    "fresh_schedule": "ABSENT",
+    "fresh_broker_truth": "ABSENT"
+  },
+  "authorization": {
+    "r2b": "NOT_ISSUED",
+    "operator_arm_issued": false,
+    "activation_authority_present": false,
+    "target_start_allowed": false
+  },
+  "closed_surfaces": {
+    "finam_credentials_accessed": false,
+    "auth_service_called": false,
+    "broker_account_get_sent": false,
+    "order_post_sent": false,
+    "order_delete_sent": false,
+    "dispatch_attempt_recorded": false,
+    "transport_entered": false,
+    "redis_live_consumer": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "strategy_live": false,
+    "real_orders": false
+  },
+  "acceptance_rows": 66,
+  "targeted_negative_mutations": 66
+}

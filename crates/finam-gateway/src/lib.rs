@@ -16,7 +16,12 @@ pub mod stage8a1_execution_capability;
 mod stage8a3_endpoint_classifier;
 mod stage8a4_reconciliation;
 mod stage8b_no_send;
+#[cfg(feature = "stage8b-r2a7-source-adapter")]
+mod stage8b_r2a7_source_adapter;
 
+#[cfg(feature = "stage8b-r2a6-controlled-rehearsal")]
+#[doc(hidden)]
+pub use stage8a1_execution_capability::run_stage8b_r2a6_controlled_source_adapter;
 pub use stage8a1_execution_capability::{
     authorize_stage8_cancel, authorize_stage8_place, Stage8CancelPreflightDecision,
     Stage8CancelPreflightInput, Stage8CapabilityDiagnostic, Stage8CommandScope,
@@ -30,6 +35,7 @@ pub use stage8a1_execution_capability::{
     Stage8a1ScheduleAuthority, Stage8a1TrustedClockAuthority, Stage8a1TrustedCurrentSources,
     Stage8a1ZeroAmbiguityAuthority, Stage8a2BuilderCompositionDiagnostic,
     Stage8a2BuilderCompositionError, Stage8a2InMemoryNoSendSink, Stage8a2RequestShapeKind,
+    Stage8bR2a5SourcePublicationEvidence,
 };
 pub use stage8a3_endpoint_classifier::{
     Stage8a3BodyCategory, Stage8a3ClassificationDiagnostic, Stage8a3ClassifiedObservation,
@@ -50,6 +56,20 @@ pub use stage8a4_reconciliation::{
 pub use stage8b_no_send::{
     invoke_stage8b_operator_once, Stage8bOperatorDiagnostic, Stage8bOperatorFacadeError,
     Stage8bOperatorInvocationRequest,
+};
+#[cfg(feature = "stage8b-r2a7-source-adapter")]
+pub use stage8b_r2a7_source_adapter::{
+    issue_stage8b_r2a8_reader_manifest, run_stage8b_r2a7_source_adapter,
+    run_stage8b_r2a8_authoritative_intake_creator,
+    run_stage8b_r2a8_production_current_source_writer, run_stage8b_r2a8_production_intake_stager,
+    run_stage8b_r2a8_upstream_current_authority_publisher, Stage8bR2a7PublicationEvidence,
+    Stage8bR2a7RunMode, Stage8bR2a7SourceAdapterError, Stage8bR2a8ProductionIntakeStagerEvidence,
+    Stage8bR2a8ProductionWriterEvidence, Stage8bR2a8UpstreamCurrentAuthorityPublisherEvidence,
+};
+#[cfg(feature = "stage8b-r2a7-controlled-qualification")]
+#[doc(hidden)]
+pub use stage8b_r2a7_source_adapter::{
+    seed_stage8b_r2a7_controlled_reader, seed_stage8b_r2b_creator_chain_qualification,
 };
 
 use std::collections::{HashMap, HashSet};

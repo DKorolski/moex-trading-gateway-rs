@@ -1,0 +1,6 @@
+[Unit]
+Description=Stage 8B R2B exact issuance transaction (not authorized)
+RefuseManualStart=yes
+StopWhenUnneeded=yes
+Requires=moex-stage8b-r2b-phase6-readonly-preflight.target
+After=moex-stage8b-r2b-phase6-readonly-preflight.target

@@ -1,0 +1,29 @@
+{
+  "stage": "Stage 8B-P R2B R4-R2A systemd syntax microfix",
+  "target": "Ubuntu VPS reference environment",
+  "target_systemd_version": "255 (255.4-1ubuntu8.17)",
+  "verification_script": "scripts/stage8b_p_r2b_target_systemd_verify.sh",
+  "verified_units": [
+    "moex-stage8b-r2a8-upstream-current-authority-publisher.service",
+    "moex-stage8b-r2a8-authoritative-intake-creator.service",
+    "moex-stage8b-r2a8-production-intake-stager.service",
+    "moex-stage8b-r2a8-production-current-source-writer.service"
+  ],
+  "systemd_analyze_verify_exit_code": 0,
+  "unknown_key_warnings": 0,
+  "unknown_lvalue_warnings": 0,
+  "refuse_manual_start_section": "Unit",
+  "condition_path_is_regular_present": false,
+  "placeholder_executables_used_for_static_execstart_resolution": true,
+  "units_loaded": false,
+  "units_started": false,
+  "binary_fixed_input_validation_authoritative": true,
+  "authorization_status": "NOT_ISSUED",
+  "finam_network_accessed": false,
+  "order_post_delete_sent": false,
+  "redis_live_accessed": false,
+  "broker_dispatch_entered": false,
+  "runtime_live_entered": false,
+  "real_orders_sent": false,
+  "result": "PASS"
+}

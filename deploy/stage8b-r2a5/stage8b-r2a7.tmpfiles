@@ -1,0 +1,4 @@
+d /var/lib/moex-trading/stage8b/r2a7 0750 root m8a8095 -
+d /var/lib/moex-trading/stage8b/r2a7/production 0750 m8m8096 m8a8095 -
+d /var/lib/moex-trading/stage8b/r2a8 0750 root m8a8095 -
+d /var/lib/moex-trading/stage8b/r2a8/current-source 0750 m8a8095 m8m8096 -

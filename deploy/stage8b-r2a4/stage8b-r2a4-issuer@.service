@@ -1,0 +1,18 @@
+[Unit]
+Description=MOEX Stage 8B R2A4 authority issuer UID %i
+
+[Service]
+Type=oneshot
+User=%i
+Group=%i
+ExecStart=/opt/moex-trading/stage8b-r2a4/bin/stage8b-r2a4-authority-issuer
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/etc/moex-trading/stage8b/r2a4 /var/lib/moex-trading/stage8b/r2a4 /run/credentials/moex-trading/stage8b/r2a4/issuer-private-keys /run/moex-trading/stage8b/r2a4/run-nonce.sha256
+ReadWritePaths=/run/moex-trading/stage8b/r2a4/receipts
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+UMask=0077

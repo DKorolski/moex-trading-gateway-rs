@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A",
+  "status": "GET_ONLY_PREFLIGHT_CONTRACT_CANDIDATE",
+  "lineage": {
+    "accepted_main_merge_ref": "f1070a428c884f846ed3a2007e38f2401b62e5ce",
+    "accepted_r1b_ref": "b9a423c4ffd96bf4a5f69027aa4fef4dcc503830",
+    "r1b_authority_sha256": "ffe34642c620f93b0732ce9ec1baea2cfd15bc35adeaea6945e95f9b858719cb",
+    "r1b_network_authority_sha256": "ec6f4b643e2cdc9b6b2cd531ce67bcb1cb52f3158298dece3b0ee371fd43d247",
+    "r1b_run_authority_sha256": "2fe373e4e2f68229a0df7356cfb5e9c256b63aeab0ad61d94f6ca8319315d468"
+  },
+  "qualified_executable": {
+    "build_identity_sha256": "ca330934df540de69b52d0463a665a1ab0ff89fa13eeb663b162763cc6bc83a0",
+    "executable_sha256": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+    "target": "aarch64-apple-darwin",
+    "command": "finam-real-readonly-evidence",
+    "rebuild_allowed": false,
+    "alternate_executable_allowed": false
+  },
+  "operator_selection": {
+    "schema": "stage8b-p-r2-operator-selection-v1",
+    "required_outside_repository": true,
+    "operation_enum": [
+      "PLACE",
+      "CANCEL"
+    ],
+    "instrument": "IMOEXF@RTSX",
+    "place_order_type": "ORDER_TYPE_LIMIT",
+    "place_time_in_force": "TIME_IN_FORCE_DAY",
+    "place_quantity": "1",
+    "cancel_exact_broker_order_id_required": true,
+    "cancel_same_lifecycle_required": true,
+    "unknown_fields_forbidden": true,
+    "raw_account_forbidden_in_evidence": true,
+    "token_forbidden_in_selection": true
+  },
+  "readonly_transport": {
+    "method_allowlist": [
+      "GET"
+    ],
+    "source_order": [
+      "GetOrder",
+      "OrdersSnapshot",
+      "TradesSnapshot",
+      "PositionSnapshot"
+    ],
+    "route_templates": [
+      "/v1/accounts/{account_id}/orders/{order_id}",
+      "/v1/accounts/{account_id}/orders",
+      "/v1/accounts/{account_id}/trades",
+      "/v1/accounts/{account_id}"
+    ],
+    "max_requests": 4,
+    "request_timeout_ms": 10000,
+    "min_request_interval_ms": 250,
+    "preflight_max_age_ms": 60000,
+    "retry_disabled": true,
+    "redirect_disabled": true,
+    "proxy_disabled": true,
+    "background_loop_disabled": true,
+    "scheduler_disabled": true,
+    "raw_response_exported": false,
+    "redacted_evidence_only": true
+  },
+  "required_current_inputs": [
+    "trusted_clock",
+    "stage7b_current_recovery_seal",
+    "stage6_exact_dispatch_ready_command",
+    "stage8a_root_config_policy_control",
+    "composite_readiness",
+    "kill_switch_run_allowed",
+    "single_finam_ownership",
+    "schedule",
+    "instrument_specification",
+    "account_binding",
+    "account_orders",
+    "target_orders",
+    "positions",
+    "trades",
+    "ambiguity_orphan_unresolved_lifecycle",
+    "durable_micro_budget",
+    "target_instrument_pre_run_position"
+  ],
+  "evidence_semantics": {
+    "type_name": "R2ReadOnlyPreflightEvidence",
+    "not_equal_to": "Stage8bK2FreshSources",
+    "cannot_satisfy_k1": true,
+    "cannot_satisfy_k2": true,
+    "cannot_enter_xe": true,
+    "cannot_issue_arm": true,
+    "cannot_record_dispatch_attempt": true,
+    "cannot_enter_effect_transport": true,
+    "cannot_authorize_post_delete": true,
+    "post_arm_fresh_k2_reread_required": true,
+    "caller_built_or_cached_truth_forbidden": true
+  },
+  "r2a_execution": {
+    "operator_selection_present": false,
+    "credential_used": false,
+    "token_details_get_sent": false,
+    "broker_get_sent": false,
+    "readonly_http_request_count": 0,
+    "r2_run_evidence_present": false,
+    "r2b_actual_get_unlocked": false
+  },
+  "authorization": {
+    "status": "NOT_ISSUED",
+    "operator_arm_issued": false,
+    "dispatch_attempt_recorded": false,
+    "effect_transport_entered": false,
+    "finam_post_delete_sent": false,
+    "broker_effect": false,
+    "stage8b_xe_open": false,
+    "runtime_live": false,
+    "real_strategy_orders": false
+  },
+  "promotion": {
+    "next_if_independently_accepted": "Stage8B-P-R2B exact operator-selected GET-only evidence run",
+    "explicit_operator_selection_required": true,
+    "explicit_readonly_get_decision_required": true,
+    "local_readonly_credential_required": true,
+    "fresh_contract_refresh_required": true,
+    "r2b_separate_review_required": true
+  },
+  "acceptance_rows": 48,
+  "negative_mutations": 40
+}

@@ -1,0 +1,43 @@
+{
+  "stage": "Stage 8B-P R2B Issuance Package R0",
+  "accepted_predecessor": "f24f1044ac0b29c2f588853b817e519cfe8d3d8b",
+  "public_contract_refresh": {
+    "observed_on": "2026-08-29",
+    "snapshot": "docs/stage-8/stage8b-p-finam-contract-snapshot-2026-08-24.json",
+    "snapshot_sha256": "758bd1c27a179f83dd0908c2ee371d4c41d5fb8d7c3d62ca86aa045aad65db49",
+    "responses": 7,
+    "all_http_200": true,
+    "all_bytes_and_hashes_match": true,
+    "credentials_used": false,
+    "broker_endpoint_called": false,
+    "result": "PASS"
+  },
+  "systemd_verification": {
+    "target_systemd_version": "255 (255.4-1ubuntu8.17)",
+    "shipped_unit_files": 9,
+    "systemd_analyze_verify_exit_code": 0,
+    "unknown_key_warnings": 0,
+    "unknown_lvalue_warnings": 0,
+    "condition_path_is_regular_present": false,
+    "refuse_manual_start_section": "Unit",
+    "units_loaded": false,
+    "units_started": false,
+    "result": "PASS"
+  },
+  "design_checker": "PASS",
+  "targeted_negative_mutations": "16/16",
+  "production_rust_or_cargo_changed": false,
+  "authorization_status": "NOT_ISSUED",
+  "finam_credentials_accessed": false,
+  "auth_service_called": false,
+  "broker_account_get_sent": false,
+  "order_post_sent": false,
+  "order_delete_sent": false,
+  "dispatch_attempt_recorded": false,
+  "transport_entered": false,
+  "redis_live_consumer": false,
+  "broker_dispatch": false,
+  "runtime_live": false,
+  "real_orders": false,
+  "result": "PASS"
+}

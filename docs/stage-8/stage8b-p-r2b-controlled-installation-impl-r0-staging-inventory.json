@@ -1,0 +1,86 @@
+{
+  "schema_version": 2,
+  "inventory_id": "stage8b-r2b-controlled-proof-docker-r1",
+  "status": "PLANNED_NOT_CREATED",
+  "host": {
+    "classification": "DEVELOPER_LOCAL_WORKSTATION",
+    "production_account_host": false,
+    "os": "darwin",
+    "architecture": "arm64",
+    "virtualization_boundary": "DOCKER_DESKTOP_LINUX_VM",
+    "sensitive_workloads_in_vm_allowed": false
+  },
+  "image": {
+    "tag": "stage8b-r2b-r0-r1a-systemd:ubuntu24.04-amd64",
+    "image_id": "sha256:3cc66c640df0444530a626d2acbcfeda9742039b917a747fd023b315ef2c1526",
+    "platform": "linux/amd64",
+    "base_image": "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
+    "systemd_version": "255.4-1ubuntu8.17",
+    "package_inventory": {
+      "findutils": "4.9.0-5build1",
+      "iproute2": "6.1.0-1ubuntu6.4",
+      "libc6:amd64": "2.39-0ubuntu8.8",
+      "libsystemd0:amd64": "255.4-1ubuntu8.17",
+      "python3": "3.12.3-0ubuntu2.1",
+      "systemd": "255.4-1ubuntu8.17",
+      "util-linux": "2.39.3-9ubuntu6.5"
+    },
+    "build_recipe": "FROM pinned ubuntu; apt-get install --no-install-recommends systemd util-linux iproute2 python3 findutils; STOPSIGNAL SIGRTMIN+3; CMD /lib/systemd/systemd",
+    "rebuild_under_same_tag_allowed": false
+  },
+  "docker_run": {
+    "exact_flags": [
+      "--privileged",
+      "--platform=linux/amd64",
+      "--cgroupns=host",
+      "--network=none",
+      "--tmpfs=/run/stage8b-r2b-canary:rw,nosuid,nodev,noexec,mode=0700",
+      "--mount=type=bind,source=FRESH_REVIEW_EXTRACTION,destination=/work,readonly",
+      "--mount=type=bind,source=ACCEPTED_ARTIFACT_ROOT,destination=/accepted-artifacts,readonly",
+      "--mount=type=bind,source=REDACTED_EVIDENCE_DIR,destination=/evidence",
+      "--mount=type=bind,source=/sys/fs/cgroup,destination=/sys/fs/cgroup"
+    ],
+    "privileged_inside_disposable_docker_desktop_vm": true,
+    "explicit_cap_add_flags": [],
+    "explicit_device_flags": [],
+    "host_root_mount_allowed": false,
+    "docker_socket_mount_allowed": false,
+    "default_route_allowed": false,
+    "dns_allowed": false,
+    "finam_route_allowed": false
+  },
+  "source_mount": {
+    "kind": "FRESH_EXTRACTION_OF_REVIEWED_HANDOFF",
+    "developer_working_tree_allowed": false,
+    "handoff_commit_match_required": true,
+    "source_manifest_complete_required": true,
+    "archive_sha256_match_required": true,
+    "untracked_files_allowed": false,
+    "env_files_allowed": false
+  },
+  "installation": {
+    "production_unit_target_file_count": 18,
+    "proof_trigger_file_count": 1,
+    "total_unit_file_count": 19,
+    "service_invocation_count": 31,
+    "phase_count": 6,
+    "binary_count": 12,
+    "enablement_allowed": false,
+    "production_dropins_allowed": false,
+    "persistent_host_install_allowed": false
+  },
+  "production_linux_amd64_sha256": {
+    "accepted-stage8b-readonly-preflight": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065",
+    "stage8b-r2a5-authority-issuer": "b893076d23fc03e12d7900d07b4cd9e9fc08b9daf03a70fb96587f120bc4536c",
+    "stage8b-r2a5-authority-producer": "98183d07362aee68fe8a630da65bf316433d333c723d8960b7927f886bac934b",
+    "stage8b-r2a5-package-issuer": "4c40e0c56bc9cb1d133eb79d73b44510d8e0a083c6bb20192eddcbf7f48329c9",
+    "stage8b-r2a7-source-adapter": "f51d09315d8b02244d7bc218447b588ba3f20f1d7fc2573408ccfb61dbbe1541",
+    "stage8b-r2a8-authoritative-intake-creator": "5f4071100a962028d147bcf53772b3619f8e5bb28a41323c7865abff66430c07",
+    "stage8b-r2a8-current-manifest-issuer": "b7246ca2754725e8519e517d25021492bb99bd3a22bd3ef31ab2a9f226d57330",
+    "stage8b-r2a8-production-current-source-writer": "d0b86883a431f825c88220660f0d41e95448fd74cede575f0af8bb5b3d94caf9",
+    "stage8b-r2a8-production-intake-stager": "97929be6af7638952fc3cc9d95b32d68417c6d92e17945702545e01a6801abd5",
+    "stage8b-r2a8-upstream-current-authority-publisher": "3d697198d77ee8b697d7dca7f5fc14d58b58bb68ad53efaa683efefa87e745f4",
+    "stage8b-r2b-launcher": "effb4ff73fe375665cf4416806216d82727a40f0b2040333eda927bcda5bae55",
+    "stage8b-r2b-run-package-draft-builder": "b63f5fb798cf34335fd5482e62782cc439dab00ba0e2459e294f086603981272"
+  }
+}

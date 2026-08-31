@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "contract_id": "stage8b-r2b-two-lane-ceremony-r1",
+  "status": "PLANNED_NOT_MATERIALIZED",
+  "lane_a_exact_production": {
+    "ceremony_class": "EPHEMERAL_MATERIALIZATION_OF_ACCEPTED_PREPRODUCTION_TRUST_SET",
+    "new_random_key_generation_allowed": false,
+    "accepted_fingerprints": {
+      "authorization_public_key_sha256": "9149e9620ec0ea7ad3dab389542acf308471aaa0282e4b9020f75de7c13781af",
+      "trust_manifest_sha256": "8014eea21ebe0b619122e0c7a332b50d173ff31d1cb2ea91e2505551dd547ef8",
+      "public_key_set_sha256": "2e609dcbb6b6e7eb12fabebe4eb5ce62712aea91c2971a4e247194484f23da24",
+      "account_key_manifest_sha256": "e40ea1d12ef5ebe4faf8ebaf6897056b9ac45d5efd0bb4c68eb4ff85f8bc7cd7"
+    },
+    "matching_private_material_source": "SEPARATELY_REVIEWED_OFFLINE_CEREMONY",
+    "matching_private_material_in_repository": false,
+    "matching_private_material_in_handoff": false,
+    "execution_precondition": "ALL_ACCEPTED_PUBLIC_FINGERPRINTS_MATCH_BEFORE_CONTAINER_CREATE",
+    "missing_or_mismatched_action": "ABORT_BEFORE_CONTAINER_CREATE"
+  },
+  "lane_b_controlled_tls": {
+    "ceremony_id": "stage8b-r2b-controlled-tls-canary-20260830-r1",
+    "trust_domain": "CONTROLLED_TLS_CANARY_NO_PRODUCTION_CONTINUITY",
+    "fresh_random_key_generation_allowed": true,
+    "accepted_tls_ref": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+    "loopback_only": true,
+    "production_binary_proof": false,
+    "execution_in_this_package": false
+  },
+  "materialization": {
+    "allowed_only_after_network_isolation_verified": true,
+    "location": "/run/stage8b-r2b-canary",
+    "storage": "tmpfs",
+    "private_material_export_allowed": false,
+    "host_persistence_allowed": false,
+    "source_or_handoff_persistence_allowed": false,
+    "shell_argument_exposure_allowed": false
+  },
+  "evidence_policy": {
+    "public_key_fingerprints_allowed": true,
+    "private_key_bytes_allowed": false,
+    "secret_values_allowed": false,
+    "redacted_lifecycle_events_required": true,
+    "destruction_receipt_required": true
+  },
+  "current_state": {
+    "private_material_present": false,
+    "public_manifest_present": false,
+    "ceremony_executed": false,
+    "destruction_receipt_present": false
+  }
+}

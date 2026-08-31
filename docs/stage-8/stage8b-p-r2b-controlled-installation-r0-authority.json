@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof R0",
+  "status": "DESIGN_PACKAGE_NOT_INSTALLED_NOT_ISSUED_REVIEW_REQUIRED",
+  "accepted_predecessor": {
+    "source_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
+    "archive_name": "moex-trading-project-6672819.zip",
+    "archive_sha256": "2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77",
+    "verdict": "ACCEPTED"
+  },
+  "scope": "SUPERSESSION_LINEAGE_AND_FULL_31_SERVICE_TRANSACTION_DESIGN",
+  "authorization": "NOT_ISSUED",
+  "repository_state": {
+    "installed": false,
+    "enabled": false,
+    "started": false,
+    "operator_selected": false,
+    "real_credentials_materialized": false
+  },
+  "installation_scope": {
+    "isolated_staging_only": true,
+    "production_account_host_allowed": false,
+    "real_operator_selection_allowed": false,
+    "real_credentials_allowed": false,
+    "finam_network_allowed": false,
+    "service_installation_authorized_by_design": false
+  },
+  "closed_surfaces": {
+    "finam_auth_service_called": false,
+    "finam_broker_get_sent": false,
+    "http_post_delete_enabled": false,
+    "broker_dispatch_enabled": false,
+    "redis_live_consumer_enabled": false,
+    "runtime_live_enabled": false,
+    "real_orders_enabled": false
+  },
+  "design_artifacts": {
+    "docs/stage-8/STAGE8B_P_R2B_CONTROLLED_INSTALLATION_R0_2026-08-30.md": "8e418f3bbc3ac0ce5582ced55aa58e33ca75dc3ed84ca5a502389541424714ff",
+    "docs/stage-8/STAGE8B_P_R2B_CONTROLLED_INSTALLATION_R0_ACCEPTANCE_MATRIX_2026-08-30.csv": "9179ff5868edfeabb45411ace62a8d91a57b90ad67d21122fe8c1a78237646b5",
+    "docs/stage-8/stage8b-p-r2b-preproduction-supersession.json": "40f962a60cc721512bd07134e641e2ce69bb37f27dbea975fc552640ea3bd7b5",
+    "docs/stage-8/stage8b-p-r2b-implementation-transaction-contract.json": "3d45203facd2634767d3ad21877d4c16b1bb3f9c7a2856bcf02471e69ad72af9",
+    "scripts/stage8b_p_r2b_controlled_installation_r0_check.py": "27ff9b8c8846450e97b2c3618b0a48a9109e32bf9535c5680bb2d8a6dcc340d9",
+    "scripts/stage8b_p_r2b_controlled_installation_r0_negative_harness.py": "d5f6fe3bc50041db2140dbede00532f74612ab3153ea3e1438319ae468af2f88",
+    "scripts/stage8b_p_r2b_controlled_installation_r0_gate.sh": "313b68adb3a32f9c62810406ee2d5e42ea5eb8f8145256fb7194eb9fa932d3d2",
+    "scripts/stage8b_p_r2b_controlled_installation_r0_handoff_safety_check.py": "49fb57f51790aa0a60b36c608c6660814d3d538f1be3ae62657a58d22e0af6db",
+    "scripts/make_stage8b_p_r2b_controlled_installation_r0_handoff.py": "3318cd921e4204abfef2bdfe2924ffc6b301988998ac3da18bd774adbf24e117"
+  },
+  "next_package_entry_conditions": {
+    "independent_acceptance_of_this_design_required": true,
+    "isolated_staging_inventory_required": true,
+    "canary_credential_ceremony_required": true,
+    "network_namespace_without_finam_route_required": true,
+    "success_failure_replay_reset_plan_required": true,
+    "post_proof_uninstall_plan_required": true
+  }
+}

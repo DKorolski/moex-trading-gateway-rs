@@ -1,0 +1,11 @@
+id,surface,positive,negative
+R2A7-01,production entry,exact binary accepts only one-shot fixed modes,arbitrary path request or JSON rejected
+R2A7-02,feature graph,production feature excludes fixture features,fixture-enabled accepted build rejected
+R2A7-03,recovery owner,Stage7B owner reconstructed from fixed durable root,missing lock drift and alternate root rejected
+R2A7-04,request selection,exactly one current reconciliation-required Stage6 request,zero duplicate conflict stale and terminal candidates rejected
+R2A7-05,current sources,accepted Stage8A root plus HMAC-bound current snapshots,operator supplied unauthenticated JSON rejected
+R2A7-06,composition,one production call to owner-mediated publication,synthetic record shortcut rejected
+R2A7-07,provenance,all ten records bind production or controlled domain,controlled as production rejected
+R2A7-08,deployment,production systemd invokes only one-shot-production,controlled rehearsal is not production service
+R2A7-09,reproducibility,two Linux amd64 production builds have identical SHA256,build drift rejected
+R2A7-10,closed surfaces,no network credential arm dispatch effect loop or real FINAM,opening any effect surface rejected

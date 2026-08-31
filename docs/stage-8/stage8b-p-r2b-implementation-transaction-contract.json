@@ -1,0 +1,163 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof R0",
+  "contract_id": "stage8b-r2b-full-31-service-transaction-r0",
+  "status": "DESIGN_ONLY_NOT_INSTALLED_NOT_ISSUED",
+  "accepted_implementation_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
+  "relationship_to_runtime_composition": {
+    "runtime_contract_path": "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json",
+    "runtime_contract_sha256": "5f466c310aff8e1cd41fc89a0f89e162e9099c77f2133b600f106927e82de1ef",
+    "runtime_contract_scope": "POST_DRAFT_EXECUTION_COMPOSITION",
+    "this_contract_scope": "FULL_IMPLEMENTATION_TRANSACTION_INCLUDING_DRAFT_BUILDER",
+    "runtime_helper_rebuild_required": false
+  },
+  "source_instances": [
+    "trusted_clock",
+    "stage7b_current_recovery_seal",
+    "stage6_exact_dispatch_ready_command",
+    "stage8a_root_config_policy_control",
+    "composite_readiness",
+    "kill_switch_run_allowed",
+    "single_finam_ownership",
+    "schedule",
+    "instrument_specification",
+    "ambiguity_orphan_unresolved_lifecycle",
+    "durable_micro_budget"
+  ],
+  "phases": [
+    {
+      "phase": 1,
+      "target": "moex-stage8b-r2b-phase1-current-source.target",
+      "predecessor_target": null,
+      "invocations": [
+        "moex-stage8b-r2a8-upstream-current-authority-publisher.service",
+        "moex-stage8b-r2a8-authoritative-intake-creator.service",
+        "moex-stage8b-r2a8-production-intake-stager.service",
+        "moex-stage8b-r2a8-production-current-source-writer.service"
+      ]
+    },
+    {
+      "phase": 2,
+      "target": "moex-stage8b-r2b-phase2-manifest-source.target",
+      "predecessor_target": "moex-stage8b-r2b-phase1-current-source.target",
+      "invocations": [
+        "stage8b-r2a8-current-manifest-issuer.service",
+        "stage8b-r2a7-source-adapter.service"
+      ]
+    },
+    {
+      "phase": 3,
+      "target": "moex-stage8b-r2b-phase3-authority-producers.target",
+      "predecessor_target": "moex-stage8b-r2b-phase2-manifest-source.target",
+      "invocations": [
+        "stage8b-r2a5-producer@m8p8101.service",
+        "stage8b-r2a5-producer@m8p8102.service",
+        "stage8b-r2a5-producer@m8p8103.service",
+        "stage8b-r2a5-producer@m8p8104.service",
+        "stage8b-r2a5-producer@m8p8105.service",
+        "stage8b-r2a5-producer@m8p8106.service",
+        "stage8b-r2a5-producer@m8p8107.service",
+        "stage8b-r2a5-producer@m8p8108.service",
+        "stage8b-r2a5-producer@m8p8109.service",
+        "stage8b-r2a5-producer@m8p8110.service",
+        "stage8b-r2a5-producer@m8p8111.service"
+      ]
+    },
+    {
+      "phase": 4,
+      "target": "moex-stage8b-r2b-phase4-authority-issuers.target",
+      "predecessor_target": "moex-stage8b-r2b-phase3-authority-producers.target",
+      "invocations": [
+        "stage8b-r2a5-issuer@m8i8201.service",
+        "stage8b-r2a5-issuer@m8i8202.service",
+        "stage8b-r2a5-issuer@m8i8203.service",
+        "stage8b-r2a5-issuer@m8i8204.service",
+        "stage8b-r2a5-issuer@m8i8205.service",
+        "stage8b-r2a5-issuer@m8i8206.service",
+        "stage8b-r2a5-issuer@m8i8207.service",
+        "stage8b-r2a5-issuer@m8i8208.service",
+        "stage8b-r2a5-issuer@m8i8209.service",
+        "stage8b-r2a5-issuer@m8i8210.service",
+        "stage8b-r2a5-issuer@m8i8211.service"
+      ]
+    },
+    {
+      "phase": 5,
+      "target": "moex-stage8b-r2b-phase5-run-package.target",
+      "predecessor_target": "moex-stage8b-r2b-phase4-authority-issuers.target",
+      "invocations": [
+        "moex-stage8b-r2b-run-package-draft-builder.service",
+        "moex-stage8b-r2b-package-issuer.service"
+      ]
+    },
+    {
+      "phase": 6,
+      "target": "moex-stage8b-r2b-phase6-readonly-preflight.target",
+      "predecessor_target": "moex-stage8b-r2b-phase5-run-package.target",
+      "invocations": [
+        "moex-stage8b-r2b-readonly-supervisor.service"
+      ]
+    }
+  ],
+  "aggregate_target": "moex-stage8b-r2b-issuance.target",
+  "service_invocation_count": 31,
+  "phase_count": 6,
+  "unit_file_sha256": {
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-upstream-current-authority-publisher.service": "b8c4bef37217dde9e7e05d128eaec556064d00b29ef97413ea8ae1beb4291a41",
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-authoritative-intake-creator.service": "a08e8022fda7705b535e5279015c2e80c0c31f100d6498475a43586731dfd276",
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-production-intake-stager.service": "90927144159cfe157664027d650dba2054ac3da22642fc790a86bbc7f0ff17ac",
+    "deploy/stage8b-r2b/moex-stage8b-r2a8-production-current-source-writer.service": "b77364e03212a880f88c9e64b15661103bfd6b8ff6985553daa3ab8e16abd128",
+    "deploy/stage8b-r2a5/stage8b-r2a8-current-manifest-issuer.service": "9e0d126c1a84cce822d7c56f3a2d36e9c11b427718de1797647c65b8e733c5ac",
+    "deploy/stage8b-r2a5/stage8b-r2a7-source-adapter.service": "1250faeea4a0204c7e1d7b05831fc31362d4a312ff9cb2e1836e51a37b3df555",
+    "deploy/stage8b-r2a5/stage8b-r2a5-producer@.service": "b29603de3930726352265e727ec4f6d58928aa937d12a8255b07b1d80089aa52",
+    "deploy/stage8b-r2a5/stage8b-r2a5-issuer@.service": "3bb33825ac4bd985513de7178fbb898dbb3c850f3ce61c9fb972084bf9c2f27e",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-run-package-draft-builder.service": "aedd8cd929f2aa81eaeec69c2da559b77ebf84530057591da5bda787ca972c68",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-package-issuer.service": "c7a22973db3163d176688884bcd40afb370391289f95c21b94629b83ae130848",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service": "e97272723326d7b5729a96b89d043ff9a82244f1eadbb47715332de8fe970a22",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase1-current-source.target": "90973fdfd0f5579e27a96ede424d55f8e859e4983f26f0314b52b76aca414917",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase2-manifest-source.target": "3a7eee3b6a2b80d711e999d2c72c0354e33dac17fb840f889bd2f03d27fc8d0a",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase3-authority-producers.target": "e62219669e8571ebf48dd7e71db4eb50fd80d2da7a8ec119a2a587b776b9dba8",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase4-authority-issuers.target": "9322ce0a131a45b3c088d8581a14af60f79e7c0bb159985edb5f52b41a9cdf93",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase5-run-package.target": "9e8dfa2a97e017b89c92ebe4ef43ec785e0c5af531c02ef2ce4788535be5e89d",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase6-readonly-preflight.target": "229f7e9284a7eec3ff71afa368cfe3408e3245a9587d5859a6633aef45fcfb6f",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-issuance.target": "82764ad997d2bb4cf19333b4fcf587e41580d1a7f4660f8cf508291eec0ea470"
+  },
+  "production_linux_amd64_sha256": {
+    "stage8b-r2a8-upstream-current-authority-publisher": "3d697198d77ee8b697d7dca7f5fc14d58b58bb68ad53efaa683efefa87e745f4",
+    "stage8b-r2a8-authoritative-intake-creator": "5f4071100a962028d147bcf53772b3619f8e5bb28a41323c7865abff66430c07",
+    "stage8b-r2a8-production-intake-stager": "97929be6af7638952fc3cc9d95b32d68417c6d92e17945702545e01a6801abd5",
+    "stage8b-r2a8-production-current-source-writer": "d0b86883a431f825c88220660f0d41e95448fd74cede575f0af8bb5b3d94caf9",
+    "stage8b-r2a8-current-manifest-issuer": "b7246ca2754725e8519e517d25021492bb99bd3a22bd3ef31ab2a9f226d57330",
+    "stage8b-r2a7-source-adapter": "f51d09315d8b02244d7bc218447b588ba3f20f1d7fc2573408ccfb61dbbe1541",
+    "stage8b-r2a5-authority-producer": "98183d07362aee68fe8a630da65bf316433d333c723d8960b7927f886bac934b",
+    "stage8b-r2a5-authority-issuer": "b893076d23fc03e12d7900d07b4cd9e9fc08b9daf03a70fb96587f120bc4536c",
+    "stage8b-r2b-run-package-draft-builder": "b63f5fb798cf34335fd5482e62782cc439dab00ba0e2459e294f086603981272",
+    "stage8b-r2a5-package-issuer": "4c40e0c56bc9cb1d133eb79d73b44510d8e0a083c6bb20192eddcbf7f48329c9",
+    "stage8b-r2b-launcher": "effb4ff73fe375665cf4416806216d82727a40f0b2040333eda927bcda5bae55",
+    "accepted-stage8b-readonly-preflight": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065"
+  },
+  "proof_requirements": {
+    "isolated_staging_only": true,
+    "production_account_host_allowed": false,
+    "canary_or_offline_credentials_only": true,
+    "real_operator_selection_allowed": false,
+    "finam_network_allowed": false,
+    "success_graph_required": true,
+    "failure_graph_required": true,
+    "replay_graph_required": true,
+    "transaction_reset_proof_required": true,
+    "post_proof_uninstall_required": true
+  },
+  "closed_surfaces": {
+    "authorization_issued": false,
+    "production_installation": false,
+    "real_credentials": false,
+    "finam_auth_service": false,
+    "finam_broker_get": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "redis_live": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

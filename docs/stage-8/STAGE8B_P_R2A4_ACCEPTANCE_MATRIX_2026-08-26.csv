@@ -1,0 +1,13 @@
+id,requirement,evidence,expected
+R2A4-01,per-source receipt custody,linux rehearsal and systemd/sysusers topology,11 producer plus 11 issuer identities PASS
+R2A4-02,exact selected-run package,r2a4 package preimage and substitution test,all bound-field mutations rejected
+R2A4-03,pinned trust set,production trust manifest and package aggregate digest,key replacement rejected
+R2A4-04,source producer provenance,producer executable/store/generation commitment,forged or replayed source rejected
+R2A4-05,production-path qualification,stage8b_p_r2a4_linux_rehearsal.sh,PLACE and CANCEL PASS
+R2A4-06,BUILD-P1 provenance,stage8b-p-r2a4-build-evidence.json,two builds and all binaries identical
+R2A4-07,account generation authority,production account-key manifest,generation replacement rejected
+R2A4-08,strict secret grammar,fd reader and unit tests,normalization rejected
+R2A4-09,exact/list lifecycle equality,r2a2 reducer tests,partial-fill and timestamp mismatch rejected
+R2A4-10,closed effect surfaces,status authority and static checker,real FINAM and effect flags false
+R2A4-11,focused adversarial coverage,stage8b_p_r2a4_negative_harness.py,32 of 32 rejected
+R2A4-12,independent promotion,stage8b-p-r2a4-status.json,R2B remains closed pending review

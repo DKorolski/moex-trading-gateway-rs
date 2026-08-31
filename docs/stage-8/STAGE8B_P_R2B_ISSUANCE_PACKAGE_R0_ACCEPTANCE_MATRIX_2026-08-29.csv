@@ -1,0 +1,26 @@
+id,area,requirement,evidence,expected
+R2BI-001,lineage,accepted R4-R2A exact predecessor is frozen,machine contract,PASS
+R2BI-002,status,R2B authorization remains NOT_ISSUED,contract and checker,PASS
+R2BI-003,transaction,exact future service invocation count is 30,contract and checker,PASS
+R2BI-004,transaction,four current-source chain services are first and ordered,contract,PASS
+R2BI-005,transaction,manifest issuer and source adapter precede authority production,contract,PASS
+R2BI-006,transaction,eleven exact producer instances are frozen,contract and sysusers,PASS
+R2BI-007,transaction,eleven exact issuer instances are frozen,contract and sysusers,PASS
+R2BI-008,transaction,one fixed package issuer precedes supervisor,contract,PASS
+R2BI-009,transaction,one root supervisor is terminal service invocation,contract,PASS
+R2BI-010,activation,aggregate target is design-only and absent,checker,PASS
+R2BI-011,activation,direct manual start remains refused,section-aware unit checker,PASS
+R2BI-012,parser,all currently shipped transaction unit files have zero unsupported conditions,unit checker,PASS
+R2BI-013,parser,target systemd verify has zero unknown key or lvalue warnings,target evidence,PASS
+R2BI-014,validation,binary fixed-input validation remains authoritative,contract and source inheritance,PASS
+R2BI-015,contract,seven public FINAM documents freshly match accepted bytes,refresh evidence,PASS
+R2BI-016,contract,public refresh uses no credentials or broker endpoint,refresh evidence,PASS
+R2BI-017,operator,operation selection is absent,machine contract,PASS
+R2BI-018,operator,account binding and key generation are absent,machine contract,PASS
+R2BI-019,operator,arm nonce and expiry are absent,machine contract,PASS
+R2BI-020,package,signed run package is absent,machine contract,PASS
+R2BI-021,sandbox,credential custody review remains pending,machine contract,PASS
+R2BI-022,effect,FINAM account GET and AuthService remain closed,machine contract,PASS
+R2BI-023,effect,order POST DELETE and transport remain closed,machine contract,PASS
+R2BI-024,runtime,Redis broker dispatch and runtime-live remain closed,machine contract,PASS
+R2BI-025,scope,no Rust Cargo or production binary change is required,diff and checker,PASS

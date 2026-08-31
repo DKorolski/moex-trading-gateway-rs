@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Implementation Package R0",
+  "status": "IMPLEMENTED_NOT_INSTALLED_NOT_ISSUED_REVIEW_REQUIRED",
+  "accepted_predecessor": {
+    "stage": "Stage 8B-P R2B Issuance Package R0-R1A1",
+    "source_ref": "ebec9a100c92872134f3de91644cec50e2ed073a",
+    "verdict": "ACCEPTED"
+  },
+  "scope": "SOURCE_IMPLEMENTATION_ONLY",
+  "builder": {
+    "executable": "/opt/moex-trading/stage8b-r2b/bin/stage8b-r2b-run-package-draft-builder",
+    "source": "tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-run-package-draft-builder.rs",
+    "source_sha256": "7e5db80ec328013474d5e0817aa0581f656c6a2b588949e1ef134b2c6fbf9f4a",
+    "service": "moex-stage8b-r2b-run-package-draft-builder.service",
+    "uid": 0,
+    "gid": 0,
+    "caller_arguments_allowed": false,
+    "network_allowed": false,
+    "signing_key_access": false,
+    "finam_credential_access": false,
+    "fixed_inputs": [
+      "/run/moex-trading/stage8b/r2a5/run-nonce.sha256",
+      "/var/lib/moex-trading/stage8b/r2a5/run-manifest.json",
+      "/etc/moex-trading/stage8b/r2a5/trust-manifest.json",
+      "/etc/moex-trading/stage8b/r2a5/account-key-manifest.json",
+      "/etc/moex-trading/stage8b/r2a5/operator-decision.json",
+      "/etc/moex-trading/stage8b/r2a5/accepted-helper-authority.json",
+      "/run/moex-trading/stage8b/r2a5/receipts/{exact_source_name}/receipt.json"
+    ],
+    "required_receipt_count": 11,
+    "fixed_output": "/var/lib/moex-trading/stage8b/r2a5/r2b-run-package.unsigned.json",
+    "output_mode": "0600",
+    "output_no_replace": true,
+    "file_fsync": true,
+    "directory_fsync": true
+  },
+  "signer": {
+    "executable": "/opt/moex-trading/stage8b-r2a5/bin/stage8b-r2a5-package-issuer",
+    "service": "moex-stage8b-r2b-package-issuer.service",
+    "uid": 0,
+    "gid": 0,
+    "fixed_input": "/var/lib/moex-trading/stage8b/r2a5/r2b-run-package.unsigned.json",
+    "fixed_output": "/etc/moex-trading/stage8b/r2a5/r2b-run-package.json",
+    "output_mode": "0644",
+    "output_no_replace": true,
+    "signing_key": "/run/credentials/moex-trading/stage8b/r2a5/package-authorization.ed25519",
+    "signing_key_mode": "0600",
+    "sole_signing_key_consumer": true,
+    "revalidates_all_builder_inputs": true,
+    "may_repair_or_synthesize_draft": false,
+    "requires_builder_success": true
+  },
+  "receipt_sources": [
+    "trusted_clock",
+    "stage7b_current_recovery_seal",
+    "stage6_exact_dispatch_ready_command",
+    "stage8a_root_config_policy_control",
+    "composite_readiness",
+    "kill_switch_run_allowed",
+    "single_finam_ownership",
+    "schedule",
+    "instrument_specification",
+    "ambiguity_orphan_unresolved_lifecycle",
+    "durable_micro_budget"
+  ],
+  "transaction": {
+    "aggregate_target": "moex-stage8b-r2b-issuance.target",
+    "phase_count": 6,
+    "service_invocation_count": 31,
+    "phases": [
+      {
+        "ordinal": 1,
+        "target": "moex-stage8b-r2b-phase1-current-source.target",
+        "after_target": null,
+        "services": [
+          "moex-stage8b-r2a8-upstream-current-authority-publisher.service",
+          "moex-stage8b-r2a8-authoritative-intake-creator.service",
+          "moex-stage8b-r2a8-production-intake-stager.service",
+          "moex-stage8b-r2a8-production-current-source-writer.service"
+        ]
+      },
+      {
+        "ordinal": 2,
+        "target": "moex-stage8b-r2b-phase2-manifest-source.target",
+        "after_target": "moex-stage8b-r2b-phase1-current-source.target",
+        "services": [
+          "stage8b-r2a8-current-manifest-issuer.service",
+          "stage8b-r2a7-source-adapter.service"
+        ]
+      },
+      {
+        "ordinal": 3,
+        "target": "moex-stage8b-r2b-phase3-authority-producers.target",
+        "after_target": "moex-stage8b-r2b-phase2-manifest-source.target",
+        "services": [
+          "stage8b-r2a5-producer@m8p8101.service",
+          "stage8b-r2a5-producer@m8p8102.service",
+          "stage8b-r2a5-producer@m8p8103.service",
+          "stage8b-r2a5-producer@m8p8104.service",
+          "stage8b-r2a5-producer@m8p8105.service",
+          "stage8b-r2a5-producer@m8p8106.service",
+          "stage8b-r2a5-producer@m8p8107.service",
+          "stage8b-r2a5-producer@m8p8108.service",
+          "stage8b-r2a5-producer@m8p8109.service",
+          "stage8b-r2a5-producer@m8p8110.service",
+          "stage8b-r2a5-producer@m8p8111.service"
+        ]
+      },
+      {
+        "ordinal": 4,
+        "target": "moex-stage8b-r2b-phase4-authority-issuers.target",
+        "after_target": "moex-stage8b-r2b-phase3-authority-producers.target",
+        "services": [
+          "stage8b-r2a5-issuer@m8i8201.service",
+          "stage8b-r2a5-issuer@m8i8202.service",
+          "stage8b-r2a5-issuer@m8i8203.service",
+          "stage8b-r2a5-issuer@m8i8204.service",
+          "stage8b-r2a5-issuer@m8i8205.service",
+          "stage8b-r2a5-issuer@m8i8206.service",
+          "stage8b-r2a5-issuer@m8i8207.service",
+          "stage8b-r2a5-issuer@m8i8208.service",
+          "stage8b-r2a5-issuer@m8i8209.service",
+          "stage8b-r2a5-issuer@m8i8210.service",
+          "stage8b-r2a5-issuer@m8i8211.service"
+        ]
+      },
+      {
+        "ordinal": 5,
+        "target": "moex-stage8b-r2b-phase5-run-package.target",
+        "after_target": "moex-stage8b-r2b-phase4-authority-issuers.target",
+        "services": [
+          "moex-stage8b-r2b-run-package-draft-builder.service",
+          "moex-stage8b-r2b-package-issuer.service"
+        ]
+      },
+      {
+        "ordinal": 6,
+        "target": "moex-stage8b-r2b-phase6-readonly-preflight.target",
+        "after_target": "moex-stage8b-r2b-phase5-run-package.target",
+        "services": [
+          "moex-stage8b-r2b-readonly-supervisor.service"
+        ]
+      }
+    ],
+    "all_targets_refuse_manual_start": true,
+    "all_targets_stop_when_unneeded": true,
+    "oneshot_remain_after_exit_allowed": false,
+    "condition_skip_allowed": false,
+    "failed_component_blocks_downstream": true,
+    "prior_active_state_may_satisfy_new_run": false
+  },
+  "implementation_artifacts": {
+    "tools/stage8b-readonly-preflight/src/r2a5.rs": "cd2525a369c537a7864b18f2a8b052361ae28b8988213db9f48952a533143291",
+    "tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-run-package-draft-builder.rs": "7e5db80ec328013474d5e0817aa0581f656c6a2b588949e1ef134b2c6fbf9f4a",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-issuance.target": "82764ad997d2bb4cf19333b4fcf587e41580d1a7f4660f8cf508291eec0ea470",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase1-current-source.target": "90973fdfd0f5579e27a96ede424d55f8e859e4983f26f0314b52b76aca414917",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase2-manifest-source.target": "3a7eee3b6a2b80d711e999d2c72c0354e33dac17fb840f889bd2f03d27fc8d0a",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase3-authority-producers.target": "e62219669e8571ebf48dd7e71db4eb50fd80d2da7a8ec119a2a587b776b9dba8",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase4-authority-issuers.target": "9322ce0a131a45b3c088d8581a14af60f79e7c0bb159985edb5f52b41a9cdf93",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase5-run-package.target": "9e8dfa2a97e017b89c92ebe4ef43ec785e0c5af531c02ef2ce4788535be5e89d",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-phase6-readonly-preflight.target": "229f7e9284a7eec3ff71afa368cfe3408e3245a9587d5859a6633aef45fcfb6f",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-run-package-draft-builder.service": "1de9dc8e8d58a3887651c7d87a6c44c73e10a456d434a5f883b20bf0dcd91092",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-package-issuer.service": "006114e90a0090d93b239d636a8a778ce1b13c21ff1fde887aab81ae50319611",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service": "b265d8a1641c7e4f018c5b5ebc3e6eb3cfac796de5aa3e8c8235502917fbc24e",
+    "deploy/stage8b-r2a5/stage8b-r2a5-producer@.service": "b29603de3930726352265e727ec4f6d58928aa937d12a8255b07b1d80089aa52",
+    "deploy/stage8b-r2a5/stage8b-r2a5-issuer@.service": "3bb33825ac4bd985513de7178fbb898dbb3c850f3ce61c9fb972084bf9c2f27e",
+    "deploy/stage8b-r2a5/stage8b-r2a7-source-adapter.service": "1250faeea4a0204c7e1d7b05831fc31362d4a312ff9cb2e1836e51a37b3df555",
+    "deploy/stage8b-r2a5/stage8b-r2a8-current-manifest-issuer.service": "9e0d126c1a84cce822d7c56f3a2d36e9c11b427718de1797647c65b8e733c5ac"
+  },
+  "repository_state": {
+    "source_artifacts_implemented": true,
+    "units_and_targets_implemented": true,
+    "installed": false,
+    "enabled": false,
+    "started": false,
+    "operator_selected": false,
+    "run_nonce_issued": false,
+    "credentials_materialized": false,
+    "unsigned_run_package_present": false,
+    "signed_run_package_present": false
+  },
+  "authorization": {
+    "r2b": "NOT_ISSUED",
+    "activation_authority_present": false,
+    "operator_arm_issued": false
+  },
+  "closed_surfaces": {
+    "finam_requests": 0,
+    "auth_service_called": false,
+    "broker_account_get_sent": false,
+    "order_post_sent": false,
+    "order_delete_sent": false,
+    "redis_live_consumer": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

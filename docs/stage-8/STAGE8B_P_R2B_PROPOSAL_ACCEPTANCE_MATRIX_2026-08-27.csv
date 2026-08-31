@@ -1,0 +1,86 @@
+id,area,requirement,evidence,status
+R2B-P-001,lineage,R2A8-R1 exact accepted predecessor is bound,proposal authority,PASS
+R2B-P-002,status,proposal is not authorization,proposal authority,PASS
+R2B-P-003,scope,one operator-selected one-shot read-only preflight,proposal authority,PASS
+R2B-P-004,endpoints,exact AuthService POST endpoints frozen,proposal authority,PASS
+R2B-P-005,endpoints,exact PLACE broker GET sequence frozen,proposal authority,PASS
+R2B-P-006,endpoints,exact CANCEL broker GET sequence frozen,proposal authority,PASS
+R2B-P-007,network,host and port exact,proposal authority,PASS
+R2B-P-008,network,redirect proxy retry and arbitrary request forbidden,proposal authority,PASS
+R2B-P-009,composition,owner creator then stager exact component sequence and cardinality frozen,authority plus executable-aware checker,PASS
+R2B-P-010,composition,reproducible production Linux hashes separated from controlled hashes,R4 build evidence plus checker,PASS
+R2B-P-011,credentials,fixed root and files frozen,proposal authority,PASS
+R2B-P-012,credentials,all authority validates before credential read,proposal authority,PASS
+R2B-P-013,sandbox,dedicated one-shot namespace and external destination allowlist required,proposal authority,PASS
+R2B-P-014,sandbox,no Redis or runtime socket access,proposal authority,PASS
+R2B-P-015,timeout,ten second timeout and no retry,proposal authority,PASS
+R2B-P-016,rate-limit,250 ms minimum broker GET interval,proposal authority,PASS
+R2B-P-017,freshness,trusted current source and full readiness semantics required,proposal authority,PASS
+R2B-P-018,contract,fresh public contract refresh required before issuance,proposal authority,PASS
+R2B-P-019,dto,strict decode and snapshot completeness required,proposal authority,PASS
+R2B-P-020,error,fail-closed error taxonomy frozen,proposal authority,PASS
+R2B-P-021,evidence,all post-admission success and failure paths publish one root-owned immutable terminal record,supervisor code plus adversarial Linux rehearsal plus checker,PASS
+R2B-P-022,evidence,secret token account and raw body export forbidden,proposal authority,PASS
+R2B-P-023,execution,result cannot influence execution,proposal authority,PASS
+R2B-P-024,closed,order POST and DELETE remain impossible,proposal authority,PASS
+R2B-P-025,closed,operator arm dispatch and effect transport remain closed,proposal authority,PASS
+R2B-P-026,closed,Redis broker dispatch and runtime live remain closed,proposal authority,PASS
+R2B-P-027,issuance,independent proposal acceptance pending,proposal authority,PASS
+R2B-P-028,issuance,operator selection absent,proposal authority,PASS
+R2B-P-029,issuance,signed run package absent,proposal authority,PASS
+R2B-P-030,issuance,R2B authorization is NOT_ISSUED,proposal authority,PASS
+R2B-P-031,launcher,separate R2B launcher pins exact current helper hash,launcher source plus build evidence plus checker,PASS
+R2B-P-032,launcher,old R2A5 launcher and helper cannot satisfy R2B acceptance,R2B authority plus negative harness,PASS
+R2B-P-033,launcher,exact helper hash and reproducible provenance replace repository test-key approval claim,launcher source plus build evidence plus checker,PASS
+R2B-P-034,admission,nonce is consumed by root before privilege drop,launcher and admission source plus Linux rehearsal,PASS
+R2B-P-035,admission,nonce registry remains root root 0700,authority plus Linux rehearsal,PASS
+R2B-P-036,admission,helper runs UID GID 8301 without DAC capability,launcher source plus Linux rehearsal,PASS
+R2B-P-037,admission,sealed receipt is bound to exact root-owned nonce and admission inodes and terminal channel,launcher helper source plus adversarial tests,PASS
+R2B-P-038,admission,direct helper forged receipt and receipt reuse fail before credential or network,adversarial Linux rehearsal plus negative harness,PASS
+R2B-P-039,intake,actual owner-mediated creator signer precedes the accurately named stager,creator source plus authority plus checker,PASS
+R2B-P-040,intake,creator accepts no caller JSON readiness truth timestamps paths or signing request,creator source plus negative harness,PASS
+R2B-P-041,intake,creator requires recovered owner opaque current sources and pinned issuer,creator source plus tests,PASS
+R2B-P-042,intake,creator and stager fixed publications are locked atomic and fsynced,source plus Linux rehearsal,PASS
+R2B-P-043,contract,trades start is inclusive and end is exclusive,authority runtime contract and negatives,PASS
+R2B-P-044,taxonomy,every frozen category has a reachable typed classifier outcome,helper source plus checker,PASS
+R2B-P-045,evidence,response stage failures preserve known status,helper unit test plus checker,PASS
+R2B-P-046,evidence,body failures preserve observed length cap and overflow,helper unit test plus checker,PASS
+R2B-P-047,rehearsal,controlled PLACE uses root supervisor and publishes immutable root terminal without production authority,adversarial Linux custody rehearsal plus local TLS PLACE test,PASS
+R2B-P-048,rehearsal,controlled CANCEL uses root supervisor and publishes immutable root terminal without production authority,adversarial Linux custody rehearsal plus local TLS CANCEL test,PASS
+R2B-P-049,rehearsal,replay wrong helper forged receipt direct helper and wrong intake fail before external network,Linux rehearsal plus negative harness,PASS
+R2B-P-050,closure,FINAM network effect Redis and runtime live remain closed,aggregate gate and safety evidence,PASS
+R2B-P-051,evidence,final directory is root root 0700 and final file root root 0400,authority code and adversarial Linux rehearsal,PASS
+R2B-P-052,evidence,UID8301 cannot write truncate chmod unlink rename or recreate terminal evidence,adversarial Linux rehearsal,PASS
+R2B-P-053,evidence,root terminal envelope binds admission child PID exit code or signal,supervisor code checker and Linux rehearsal,PASS
+R2B-P-054,lifecycle,root supervisor survives until child exit and finalizes missing or invalid terminal frames,supervisor code and fault rehearsal,PASS
+R2B-P-055,lifecycle,HELPER_PROCESS_STARTED follows privilege drop fexecve and helper bootstrap,helper handshake and state checker,PASS
+R2B-P-056,hardening,no_new_privs saved IDs capability sets and FD allowlist are enforced,launcher source and adversarial Linux rehearsal,PASS
+R2B-P-057,hardening,setuid setgid and file-capability helpers are rejected before nonce admission,launcher source and adversarial Linux rehearsal,PASS
+R2B-P-058,intake,stager is not represented as authoritative creator,authority source and checker,PASS
+R2B-P-059,safety,handoff safety reports explicit authorization network effect Redis dispatch runtime and real-order closure,handoff safety checker,PASS
+R2B-P-060,issuance,independent R4 acceptance remains pending and no capability is issued,proposal authority,PASS
+R2B-P-061,isolation,Yama policy exclusive UID and helper nondumpability are checked before or at bootstrap,launcher helper unit and Linux rehearsal,PASS
+R2B-P-062,isolation,same UID pidfd_getfd process_vm_readv ptrace and second terminal sender are denied,adversarial Linux rehearsal,PASS
+R2B-P-063,protocol,root accepts only exact typed terminal and derives a canonical exit-consistent verdict,helper launcher unit and negative harness,PASS
+R2B-P-064,lifecycle,one monotonic deadline bounds frame reads child exit kill and reap,launcher and timeout fault rehearsal,PASS
+R2B-P-065,intake,authoritative creator has a reachable no-argument binary exact unit Linux hash and one invocation,creator source unit build evidence and checker,PASS
+R2B-P-066,durability,nonce and admission chmod metadata receive file fsync before directory fsync,admission source checker and negative harness,PASS
+R2B-P-067,bootstrap,after accepted external C0 the empty R2B production intake root creates owner-signed generation one without controlled production components,production creator plus no-network Linux rehearsal,PASS
+R2B-P-068,bootstrap,fixed upstream authority is owner-mediated signed fresh and independent from creator output,source boundary checker and rehearsal,PASS
+R2B-P-069,continuity,generation N plus fresh upstream authority creates N+1 with predecessor commitment,production creator plus no-network Linux rehearsal,PASS
+R2B-P-070,continuity,predecessor never supplies readiness broker truth broker readiness or timestamps,creator evidence checker and negative harness,PASS
+R2B-P-071,continuity,expired but valid predecessor is continuity-only and cannot bypass fresh upstream authority,continuity validator unit policy and checker,PASS
+R2B-P-072,unit,creator condition references upstream authority and never its own output,systemd unit checker and negative harness,PASS
+R2B-P-073,durability,generation output receives data fsync post-mode fsync and directory fsync,atomic writer source checker and rehearsal,PASS
+R2B-P-074,closure,R4-R1 bootstrap path has no network credential Redis dispatch runtime-live or real orders,aggregate gate and safety evidence,PASS
+R2B-P-075,publisher,no-argument production publisher is the first exact component and sole production owner-seam caller,source Cargo unit machine authority and checker,PASS
+R2B-P-076,publisher,publisher reconstructs owner issuer and opaque current sources from fixed signed fresh StageA authority only,source checker and no-network rehearsal,PASS
+R2B-P-077,publisher,publisher has fixed UID GID input output mode lock and fsync custody,systemd source checker and no-network rehearsal,PASS
+R2B-P-078,bootstrap,R2B-owned roots start empty after controlled materialization of accepted external C0 and the exact production chain reaches publisher creator generation one and stager,no-network Linux rehearsal,PASS
+R2B-P-079,renewal,fresh current owner source refreshes upstream and creates generation two while stale upstream is rejected,no-network Linux rehearsal and negative harness,PASS
+R2B-P-080,publisher,no-network post-C0 empty-R2B-root rehearsal continues only through production writer manifest issuer and source adapter,Linux network-none rehearsal,PASS
+R2B-P-081,external-root,R2A8-R1 accepted commit is frozen as signature readiness freshness config and durable-request bound C0 with 30 second maximum age,machine authority and targeted closure checker,PASS
+R2B-P-082,causality,C0 external input and C1 R2B writer output are distinct temporal roles and do not form a same-generation cycle,machine authority and proposal,PASS
+R2B-P-083,rehearsal,controlled fixture only materializes accepted C0 and no controlled component enters the post-boundary production sequence,proposal authority rehearsal and checker,PASS
+R2B-P-084,deployment,current-source writer has an exact fixed-input oneshot unit between stager and manifest issuer,systemd unit authority and checker,PASS
+R2B-P-085,closure,exact R4-R2 evidence naming and all closed surfaces remain fail-closed,handoff generator safety checker and closure negatives,PASS

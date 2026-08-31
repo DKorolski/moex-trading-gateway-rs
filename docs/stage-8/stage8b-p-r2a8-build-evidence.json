@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A8",
+  "source_ref": "ea3a7df23ecbc9b8329592d9ee9a4751b25161a2",
+  "source_tree": "3ce4f00b56dead2c4e40a8c7e94d24465988646a",
+  "target": "x86_64-unknown-linux-gnu",
+  "linux_builder_image": "rust@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0",
+  "linux_rustc_version": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+  "production_feature": "stage8b-r2a7-source-adapter",
+  "fixture_dependencies": false,
+  "cargo_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a7-source-adapter --bin stage8b-r2a7-source-adapter --bin stage8b-r2a8-current-manifest-issuer",
+  "production_binaries": {
+    "stage8b-r2a7-source-adapter": {
+      "build_a_sha256": "ce55e299c93e3faad2d96e59ba1827157aa10dfe0db4844c74caedf874a903fe",
+      "build_b_sha256": "ce55e299c93e3faad2d96e59ba1827157aa10dfe0db4844c74caedf874a903fe",
+      "reproducible": true
+    },
+    "stage8b-r2a8-current-manifest-issuer": {
+      "build_a_sha256": "840582f8cd0403a7c8ee4473275a453ce6bd6ddac464031aac4ec46f0245fd83",
+      "build_b_sha256": "840582f8cd0403a7c8ee4473275a453ce6bd6ddac464031aac4ec46f0245fd83",
+      "reproducible": true
+    }
+  },
+  "controlled_linux_amd64_binaries": {
+    "stage8b-r2a7-source-adapter": "ddf0e99299728bed9e64bf0c03c174ff0283ec809a6600358def5a6473758d95",
+    "stage8b-r2a7-controlled-seeder": "5a8f52be7c6f478dd48304177e4354032316173fb1d89323e2baf73fe7279466",
+    "stage8b-r2a8-current-manifest-issuer": "f95a0b318bb2f7a2ebaab4e7d08dbbb6b25bf9ac23464f67db50902f4605b0c3",
+    "stage8b-r2a5-authority-producer": "d042563b6fa8e548d3e32f56317ee7997a86f0402d4338f36629d15240adfafb",
+    "stage8b-r2a5-authority-issuer": "06f995df30915cdcf58c52c13cd680f8e9bb481abc3ba542dfee724e081889b8",
+    "stage8b-r2a5-package-issuer": "f806e91f3f2575e8c48fca3bd4eaa6b0f36f8e102f02c6cd5a2d88b86346d7c0",
+    "accepted-stage8b-readonly-preflight": "fdfc0311152fadf6f241331745dbf284d02701667375fb731f044ce0fb47f608",
+    "accepted-stage8b-r2a5-launcher": "a38116f19aaffe5539b58b351d57e81ec1c6328f5a1d9a9744134468a5a51f03"
+  },
+  "controlled_full_chain": {
+    "host_architecture": "x86_64",
+    "container_image": "rust@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0",
+    "place": "PASS",
+    "cancel": "PASS",
+    "steps": [
+      "trusted-current-source-writer",
+      "signed-current-manifest-issuer",
+      "source-adapter",
+      "r2a5-producers-11",
+      "r2a5-issuers-11",
+      "signed-receipt-envelope",
+      "run-package-issuer",
+      "accepted-fd-bound-launcher",
+      "accepted-readonly-helper",
+      "loopback-tls-fixture"
+    ],
+    "network_scope": "loopback-only controlled TLS fixture",
+    "finam_network_accessed": false,
+    "finam_credential_accessed": false,
+    "real_order_sent": false,
+    "temporary_remote_files_removed": true
+  },
+  "verification": {
+    "workspace_tests": "PASS",
+    "workspace_clippy_all_features_deny_warnings": "PASS",
+    "current_tree_negative": "33/33",
+    "r2a8_negative": "12/12"
+  },
+  "source_sha256": {
+    "adapter_binary_source": "6dcb447465ea0d49c3424e533add0dd5c0f9cbf3d9a2149119b88cb382660dd6",
+    "issuer_binary_source": "84a49b9978d821af0dc8815467955f5b2fb3e254e1f76fbd596f4bedf023c0fd",
+    "adapter_module": "388bccf463d83113c6733893a89fcd86136dfc694682fce14eebc3a785f0f725",
+    "owner_composition": "f6ddc7468f9c9600684e2c891111af9353bddceb2a983c2a72a7710e6800764f",
+    "downstream_schema": "d54a80926bc708f539a81b70ddbae4c14457148f9b5bf0c50b0baaff7405b734",
+    "linux_rehearsal": "efcb48150b7decb0e484fcdabeda178c393f6886583e3f5e218ea92984f55680"
+  },
+  "authorization_status": "NOT_ISSUED",
+  "r2b_authorized": false,
+  "network_accessed": false,
+  "finam_credential_accessed": false,
+  "runtime_live": false,
+  "real_orders": false
+}

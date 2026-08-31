@@ -1,0 +1,23 @@
+id,area,requirement,evidence,status
+R2A3-001,lineage,R2A2 candidate is the exact predecessor,authority,PASS
+R2A3-002,contract,Six official current read/auth documents are byte and hash bound,snapshot+offline checker,PASS
+R2A3-003,dto,Six strict golden fixtures cover all current documented fields,Rust tests+checker,PASS
+R2A3-004,runnable,Exact production one-shot entry is compiled and controlled-qualified,binary+test,PASS
+R2A3-005,authorization,No ISSUED R2B package or real credential is included,checker,PASS
+R2A3-006,provenance,Eleven source-specific Ed25519 signatures are required,source+tests,PASS
+R2A3-007,custody,Producer issuer and verifier identities are separated,source+authority+tests,PASS
+R2A3-008,provenance,Producer UID service generation nonce and exact claims are sealed,source+tests,PASS
+R2A3-009,replay,Durable O_EXCL run-nonce claim blocks second invocation,source+test,PASS
+R2A3-010,freshness,Control and runtime source skew limits are enforced,source+test,PASS
+R2A3-011,freshness,Run and authority freshness are rechecked around all network classes,source+test,PASS
+R2A3-012,token,Token timestamps and exactly one readonly account are required,source+tests,PASS
+R2A3-013,pacing,Broker GET starts are separated by at least 250 ms,controlled test,PASS
+R2A3-014,reducer,PLACE prior matching trade blocks,source+test,PASS
+R2A3-015,reducer,CANCEL trade binds the exact broker order,source+test,PASS
+R2A3-016,reducer,Exact and list order immutable identities match fully,source+test,PASS
+R2A3-017,launch,Open descriptor hash and inode are the executed object,source+checker,PASS
+R2A3-018,tls,Complete two Auth plus three GET sequence succeeds locally,controlled test,PASS
+R2A3-019,tls,Wrong CA and hostname fail before HTTP,inherited+source tests,PASS
+R2A3-020,regression,Inherited R1 R1A R1B gates remain green,gate,PASS
+R2A3-021,negative,R2A2-equivalent and R2A3 mutations are all rejected,negative harness,PASS
+R2A3-022,boundary,All real FINAM arm effect Redis and runtime-live surfaces remain closed,authority+checker,PASS

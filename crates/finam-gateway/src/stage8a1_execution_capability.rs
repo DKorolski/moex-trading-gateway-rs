@@ -140,6 +140,17 @@ const CURRENT_CONTROL_FILE: &str = "stage8a1-current-control-state.json";
 const ARM_NONCE_DIR: &str = "stage8a1-arm-nonces";
 const STAGE8A4_WRITER_SIGNING_KEY_FILE: &str = "stage8a4-writer-issuer-signing-key.hex";
 const MAX_AUTHORITY_TTL_MS: u64 = 60_000;
+const STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT: &str =
+    "/var/lib/moex-trading/operational-authorities";
+pub const STAGE8B_R2A6_SOURCE_ADAPTER_UID: u32 = 8095;
+const STAGE8B_R2A6_ACCEPTED_EFFECT_CONFIG_SHA256: &str =
+    "893ae553bfd515eb27b774f003996495863f56aca282458423ce2de1c586e812";
+const STAGE8B_R2A6_ACCEPTED_EFFECT_POLICY_SHA256: &str =
+    "e7eb516859843cd717f47eb192309d7d5e840fe92aa26a2c2753fefac7e2712f";
+const STAGE8B_R2A6_ACCEPTED_CONFIG_POLICY_AUTHORITY_SHA256: &str =
+    "7650e529498dbc5adfccd646878d43909c062cedc49c957bbf17c60f53d0ca1a";
+#[cfg(feature = "stage8b-r2a6-controlled-rehearsal")]
+const STAGE8B_R2A6_ADAPTER_WORK_ROOT: &str = "/var/lib/moex-trading/stage8b/r2a6/adapter-work";
 
 /// Reviewed configuration source for the no-send Stage 8A-1 authority layer.
 /// This is source data, not an authority: callers still cannot construct any
@@ -178,6 +189,498 @@ pub struct Stage8a1CurrentControlStateV1 {
     pub consumed_orders: u32,
     pub observed_at: DateTime<Utc>,
     pub valid_until: DateTime<Utc>,
+}
+
+/// Closed source records written only from the already validated Stage 7B,
+/// Stage 6 and Stage 8A owner-held authorities. These are read-only exports;
+/// they grant no execution, operator-arm, dispatch or transport capability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "source_name")]
+pub enum Stage8bR2a5OperationalAuthorityRecord {
+    #[serde(rename = "stage7b_current_recovery_seal")]
+    Stage7bRecoverySeal {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        stage7b_seal_generation: u64,
+        stage6_checkpoint_fingerprint: String,
+    },
+    #[serde(rename = "stage6_exact_dispatch_ready_command")]
+    Stage6DispatchReadyCommand {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        strategy_request_id: String,
+        durable_client_order_id: String,
+        operation: String,
+        request_body_sha256: String,
+        cancel_target_broker_order_id: Option<String>,
+        cancel_target_lifecycle_fingerprint: Option<String>,
+        cancel_target_currently_working_proof_sha256: Option<String>,
+    },
+    #[serde(rename = "stage8a_root_config_policy_control")]
+    Stage8aRootControl {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        config_sha256: String,
+        policy_sha256: String,
+        config_policy_authority_sha256: String,
+    },
+    #[serde(rename = "composite_readiness")]
+    CompositeReadiness {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        ready: bool,
+    },
+    #[serde(rename = "kill_switch_run_allowed")]
+    KillSwitch {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        run_allowed: bool,
+        kill_switch_generation: String,
+    },
+    #[serde(rename = "single_finam_ownership")]
+    SingleFinamOwnership {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        single_owner: bool,
+        ownership_lease_fingerprint: String,
+    },
+    #[serde(rename = "schedule")]
+    Schedule {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        eligible: bool,
+    },
+    #[serde(rename = "instrument_specification")]
+    InstrumentSpecification {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        instrument: String,
+        eligible: bool,
+    },
+    #[serde(rename = "ambiguity_orphan_unresolved_lifecycle")]
+    LifecycleClarity {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        clear: bool,
+    },
+    #[serde(rename = "durable_micro_budget")]
+    DurableMicroBudget {
+        schema_version: u8,
+        generation: u64,
+        observed_at_utc: DateTime<Utc>,
+        available: bool,
+        durable_budget_generation: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bR2a5SourcePublicationEvidence {
+    pub schema_version: u8,
+    pub source_count: usize,
+    pub source_sha256: std::collections::BTreeMap<String, String>,
+    pub publication_root_sha256: String,
+    pub execution_authority_granted: bool,
+}
+
+/// Executes the R2A6 read-only composition without exposing the intermediate
+/// current-source authority. The caller must already own the linear Stage 7B
+/// recovery owner and exact Stage 6 request; public DTOs cannot be converted
+/// into an execution capability by this API.
+#[allow(clippy::too_many_arguments)]
+pub fn publish_stage8b_r2a6_operational_sources_from_owner(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    authority_root: &Path,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    validate_stage8b_r2a6_output_ownership()?;
+    publish_stage8b_operational_sources_from_owner_at(
+        owner,
+        commitment_key,
+        identity,
+        command,
+        authority_root,
+        accepted_config_sha256,
+        composite_readiness,
+        broker_truth,
+        broker_readiness,
+        Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn publish_stage8b_operational_sources_from_owner_at(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    authority_root: &Path,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+    output_root: &Path,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    if unsafe { libc::geteuid() } != STAGE8B_R2A6_SOURCE_ADAPTER_UID {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    validate_stage8b_source_output_ownership(output_root)?;
+    let durable = Stage8a1DurableRequestAuthority::from_stage7b_owner(
+        owner,
+        commitment_key,
+        identity,
+        command,
+    )?;
+    let mut issuer = Stage8a1OperationalAuthorityIssuer::from_trusted_composition(
+        authority_root,
+        accepted_config_sha256,
+        &durable,
+        true,
+    )?;
+    let sources =
+        issuer.issue_current_sources(composite_readiness, broker_truth, broker_readiness)?;
+    issuer.publish_stage8b_r2a5_operational_sources_at(&durable, command, &sources, output_root)
+}
+
+fn validate_stage8b_r2a6_output_ownership() -> Result<(), Stage8ExecutionPreflightError> {
+    validate_stage8b_source_output_ownership(Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT))
+}
+
+fn validate_stage8b_source_output_ownership(
+    root: &Path,
+) -> Result<(), Stage8ExecutionPreflightError> {
+    let root_metadata = fs::symlink_metadata(root)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let parent = root
+        .parent()
+        .ok_or(Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let parent_metadata = fs::symlink_metadata(parent)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    if !root_metadata.file_type().is_dir()
+        || root_metadata.file_type().is_symlink()
+        || root_metadata.uid() != STAGE8B_R2A6_SOURCE_ADAPTER_UID
+        || root_metadata.mode() & 0o022 != 0
+        || !parent_metadata.file_type().is_dir()
+        || parent_metadata.file_type().is_symlink()
+        || parent_metadata.uid() != 0
+        || parent_metadata.mode() & 0o022 != 0
+    {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    Ok(())
+}
+
+/// R2A7 uses the same owner-mediated composition as R2A6 but writes to a
+/// domain-fixed output root and seals the origin into every source record.
+/// The domain is selected by the binary, never by caller-provided paths.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn publish_stage8b_r2a7_operational_sources_from_owner(
+    owner: &mut Stage7bRecoveryReadyOwner,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    identity: &Stage6DurableRequestIdentityV1,
+    command: &Stage6DurableCommandSnapshotV1,
+    authority_root: &Path,
+    accepted_config_sha256: &str,
+    composite_readiness: &Stage7bCompositeReadinessSnapshot,
+    broker_truth: &BrokerTruthSnapshot,
+    broker_readiness: &BrokerReadinessSnapshot,
+    output_root: &Path,
+    adapter_domain: &'static str,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    let evidence = publish_stage8b_operational_sources_from_owner_at(
+        owner,
+        commitment_key,
+        identity,
+        command,
+        authority_root,
+        accepted_config_sha256,
+        composite_readiness,
+        broker_truth,
+        broker_readiness,
+        output_root,
+    )?;
+    attach_stage8b_r2a7_record_provenance(output_root, evidence, adapter_domain)
+}
+
+/// Controlled Linux witness for the exact R2A6 executable. It starts from a
+/// source-authenticated Stage 5G package, a file-backed Stage 6 journal and a
+/// normal Stage 7B restart owner, then invokes the production composition
+/// above. The feature is excluded from ordinary gateway/effect builds.
+#[cfg(feature = "stage8b-r2a6-controlled-rehearsal")]
+#[doc(hidden)]
+pub fn run_stage8b_r2a6_controlled_source_adapter(
+    operation: &str,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    use broker_core::{
+        BrokerFeedFreshness, BrokerInstrumentSpec, BrokerOrderSnapshot, BrokerStopOrderReadiness,
+        BrokerSymbol, Exchange, InstrumentMapEntry, InternalSymbol, Market, OrderSide, OrderStatus,
+        OrderType,
+    };
+    use runtime_durable_service::{
+        stage8a4_i3_production_test_setup_in, stage8b_r2a6_cancel_production_test_setup_in,
+    };
+
+    let work_root = Path::new(STAGE8B_R2A6_ADAPTER_WORK_ROOT).join(operation.to_ascii_lowercase());
+    if work_root.exists() {
+        fs::remove_dir_all(&work_root)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    }
+    fs::create_dir(&work_root).map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    fs::set_permissions(&work_root, fs::Permissions::from_mode(0o700))
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let stage7b_parent = work_root.join("stage7b");
+    fs::create_dir(&stage7b_parent)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let (setup, mut owner) = match operation {
+        "PLACE" => stage8a4_i3_production_test_setup_in(stage7b_parent),
+        "CANCEL" => stage8b_r2a6_cancel_production_test_setup_in(stage7b_parent),
+        _ => return Err(Stage8ExecutionPreflightError::DurableAuthorityInvalid),
+    };
+    let (identity, command, account_id) = match &setup.command {
+        broker_core::BrokerCommand::PlaceOrder(place) => (
+            Stage6DurableRequestIdentityV1::from_place(
+                place,
+                setup.command_context.attribution().clone(),
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?,
+            Stage6DurableCommandSnapshotV1::from_place(
+                &Stage6DurableRequestIdentityV1::from_place(
+                    place,
+                    setup.command_context.attribution().clone(),
+                )
+                .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?,
+                place,
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?,
+            place.account_id.clone(),
+        ),
+        broker_core::BrokerCommand::CancelOrder(cancel) => {
+            let identity = Stage6DurableRequestIdentityV1::from_cancel(
+                cancel,
+                setup.command_context.instrument().clone(),
+                setup.command_context.attribution().clone(),
+            )
+            .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+            let command = Stage6DurableCommandSnapshotV1::from_cancel(&identity, cancel)
+                .map_err(|_| Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+            (identity, command, cancel.account_id.clone())
+        }
+    };
+    let instrument = setup.command_context.instrument().clone();
+    let venue_symbol = instrument
+        .venue_symbol
+        .clone()
+        .ok_or(Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let authority_root = work_root.join("stage8a1-authority");
+    fs::create_dir(&authority_root)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    fs::set_permissions(&authority_root, fs::Permissions::from_mode(0o700))
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    let now = Utc::now();
+    let runtime_fingerprint = setup.runtime.stage5c_config_fingerprint();
+    let operational_identity_sha256 =
+        strategy_runtime_core::stage6d_operational_identity_sha256(&setup.operational_identity)
+            .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?
+            .as_str()
+            .to_owned();
+    let broker_policy = OrderPreflightPolicy {
+        allowed_accounts: vec![account_id.clone()],
+        allowed_venue_symbols: vec![venue_symbol.clone()],
+        allowed_order_types: vec![OrderType::Market, OrderType::Limit],
+        allowed_time_in_force: vec![TimeInForce::Day],
+        min_qty: rust_decimal::Decimal::ONE,
+        qty_step: rust_decimal::Decimal::ONE,
+        max_qty: rust_decimal::Decimal::new(2, 0),
+        price_step: Some(rust_decimal::Decimal::new(5, 1)),
+        max_market_qty: rust_decimal::Decimal::ONE,
+        max_notional_per_order: Some(rust_decimal::Decimal::new(10_000, 0)),
+        max_notional_per_run: Some(rust_decimal::Decimal::new(10_000, 0)),
+        max_limit_deviation_bps: Some(1_000),
+        max_reference_age_ms: 5_000,
+        allow_cancel_by_broker_order_id_without_mapping: false,
+        operator_arm: broker_core::OperatorArm {
+            session_id: "STAGE8B_R2A6_CONTROLLED_NO_EFFECT".into(),
+            armed_until: now + chrono::Duration::seconds(30),
+            // The inherited Stage8A accepted-config schema requires this bit;
+            // the R2A6 composition never consumes the arm or calls an effect
+            // method, and the exact adapter binary has no such entry point.
+            endpoint_calls_enabled: true,
+            one_shot: true,
+            endpoint_attempted: false,
+            preflight_digest: runtime_fingerprint.clone(),
+        },
+    };
+    let config = Stage8a1AcceptedExecutionConfigV1 {
+        schema_version: 1,
+        operational_identity_sha256: operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: runtime_fingerprint.clone(),
+        broker: BrokerKind::Finam,
+        strategy_instance_id: setup
+            .command_context
+            .attribution()
+            .strategy_id()
+            .to_string(),
+        account_id: account_id.clone(),
+        instrument: instrument.clone(),
+        broker_policy,
+        build_sha256: "b".repeat(64),
+        endpoint_policy_sha256: "e".repeat(64),
+        max_arm_ttl_ms: 20_000,
+        max_evidence_age_ms: 20_000,
+        stage8a4_writer_issuer_public_key_hex: setup
+            .operational_identity
+            .stage8a4_writer_issuer_public_key_hex
+            .clone(),
+    };
+    let config_bytes = canonical_json(&config);
+    let config_sha256 = digest_parts(b"stage8a1-accepted-config-file-v1", &[&config_bytes]);
+    fs::write(authority_root.join(ACCEPTED_CONFIG_FILE), config_bytes)
+        .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    fs::write(
+        authority_root.join(ACCEPTED_CONFIG_SHA256_FILE),
+        &config_sha256,
+    )
+    .map_err(|_| Stage8ExecutionPreflightError::AcceptedConfigInvalid)?;
+    let source_observed_at = Utc::now();
+    let control = Stage8a1CurrentControlStateV1 {
+        schema_version: 1,
+        operational_identity_sha256,
+        runtime_config_fingerprint_sha256: runtime_fingerprint,
+        kill_switch: Stage8KillSwitchState::RunAllowed,
+        durable_revision: 1,
+        active_owner_count: 1,
+        reconciliation_required_count: 0,
+        max_orders: 1,
+        consumed_orders: 0,
+        observed_at: source_observed_at,
+        valid_until: now + chrono::Duration::seconds(20),
+    };
+    fs::write(
+        authority_root.join(CURRENT_CONTROL_FILE),
+        canonical_json(&control),
+    )
+    .map_err(|_| Stage8ExecutionPreflightError::CurrentControlInvalid)?;
+    let signing_key_path = authority_root.join(STAGE8A4_WRITER_SIGNING_KEY_FILE);
+    fs::write(
+        &signing_key_path,
+        b"9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+    )
+    .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+    fs::set_permissions(&signing_key_path, fs::Permissions::from_mode(0o600))
+        .map_err(|_| Stage8ExecutionPreflightError::WriterIssuerInvalid)?;
+
+    // These are current source observations, not fixture creation time.  The
+    // downstream R2A5 producer deliberately gives most authorities only one
+    // second of age budget, so retain the last successful observation made
+    // immediately before the trusted issuer consumes the snapshots.
+    let observed = source_observed_at;
+    let orders = match &setup.command {
+        broker_core::BrokerCommand::PlaceOrder(_) => Vec::new(),
+        broker_core::BrokerCommand::CancelOrder(cancel) => vec![BrokerOrderSnapshot {
+            account_id: account_id.clone(),
+            broker_order_id: Some(cancel.order_id.clone()),
+            client_order_id: cancel.client_order_id.clone(),
+            instrument: instrument.clone(),
+            side: OrderSide::Buy,
+            order_type: OrderType::Limit,
+            time_in_force: Some(TimeInForce::Day),
+            status: OrderStatus::New,
+            lifecycle: BrokerOrderSnapshot::lifecycle_for(&OrderStatus::New),
+            qty: rust_decimal::Decimal::ONE,
+            filled_qty: rust_decimal::Decimal::ZERO,
+            remaining_qty: Some(rust_decimal::Decimal::ONE),
+            limit_price: Some(rust_decimal::Decimal::new(2_210, 0)),
+            broker_asset_id: Some("ASSET_IMOEXF".into()),
+            board: Some("RFUD".into()),
+            expiration_date: None,
+            source_ts: Some(observed),
+            received_ts: observed,
+        }],
+    };
+    let truth = BrokerTruthSnapshot {
+        account_id: account_id.clone(),
+        orders,
+        positions: vec![],
+        cash: None,
+        trades: vec![],
+        instruments: vec![BrokerInstrumentSpec {
+            instrument: InstrumentMapEntry {
+                internal_symbol: InternalSymbol(instrument.symbol.clone()),
+                broker: BrokerKind::Finam,
+                broker_symbol: BrokerSymbol(venue_symbol),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
+                price_step: rust_decimal::Decimal::new(5, 1),
+                qty_step: rust_decimal::Decimal::ONE,
+                lot_size: rust_decimal::Decimal::ONE,
+                min_qty: rust_decimal::Decimal::ONE,
+                step_value: rust_decimal::Decimal::ONE,
+                currency: "RUB".into(),
+                schedule_id: "MOEX_FUT".into(),
+                expiration_date: None,
+                is_tradable: true,
+            },
+            broker_asset_id: Some("ASSET_IMOEXF".into()),
+            board: Some("RFUD".into()),
+            long_initial_margin: None,
+            short_initial_margin: None,
+        }],
+        received_ts: observed,
+    };
+    let freshness = || BrokerFeedFreshness {
+        observed_ts: Some(observed),
+        max_age_ms: 30_000,
+    };
+    let broker_readiness = BrokerReadinessSnapshot {
+        account: freshness(),
+        positions: freshness(),
+        orders: freshness(),
+        trades: freshness(),
+        quotes: freshness(),
+        instrument_spec: freshness(),
+        schedule: freshness(),
+        market_session: BrokerMarketSessionState::Open,
+        unknown_order_count: 0,
+        cash_margin_present: true,
+        instrument_spec_validated: true,
+        live_market_data_seen: true,
+        subscription_ready: true,
+        stream_or_polling_connected: true,
+        event_sink_degraded: false,
+        stop_order_readiness: BrokerStopOrderReadiness::UnsupportedBlocked,
+    };
+    let readiness = Stage7bCompositeReadinessSnapshot {
+        phase: Stage7bPaperReadinessPhase::PaperReady,
+        reasons: vec![],
+        blocked_entry_ids: vec![],
+        blocked_request_ids: vec![],
+        checked_at: observed,
+    };
+    publish_stage8b_r2a6_operational_sources_from_owner(
+        &mut owner,
+        &setup.commitment_key,
+        &identity,
+        &command,
+        &authority_root,
+        &config_sha256,
+        &readiness,
+        &truth,
+        &broker_readiness,
+    )
 }
 
 /// Opaque current-source authority issued only inside the trusted gateway
@@ -483,6 +986,30 @@ impl Stage8a1TrustedCurrentSources {
         }
         Ok(())
     }
+
+    /// Crate-private, issuer-bound extraction for the fixed Stage 8B intake
+    /// creator service. Raw public DTOs cannot cross this seam: the opaque
+    /// source bundle must still validate against the exact pinned authority
+    /// root that minted it.
+    #[allow(dead_code, reason = "R2B intake creator remains closed until issuance")]
+    pub(crate) fn stage8b_r2a8_current_snapshots(
+        &self,
+        issuer: &Stage8a1OperationalAuthorityIssuer,
+    ) -> Result<
+        (
+            Stage7bCompositeReadinessSnapshot,
+            BrokerTruthSnapshot,
+            BrokerReadinessSnapshot,
+        ),
+        Stage8ExecutionPreflightError,
+    > {
+        self.validate(&issuer.authority_root)?;
+        Ok((
+            self.composite_readiness.clone(),
+            self.broker_truth.clone(),
+            self.broker_readiness.clone(),
+        ))
+    }
 }
 
 /// Linear continuation proof. It intentionally exposes neither the approved
@@ -587,6 +1114,8 @@ pub struct Stage8a1DurableRequestAuthority {
     checkpoint_sha256: String,
     operational_identity_sha256: String,
     seal_generation: u64,
+    seal_observed_at_utc: DateTime<Utc>,
+    command_observed_at_utc: DateTime<Utc>,
     seal_commitment_sha256: String,
     provenance_sha256: String,
 }
@@ -664,6 +1193,11 @@ impl Stage8a1DurableRequestAuthority {
             checkpoint_sha256: stage6.authenticated_checkpoint_sha256().to_string(),
             operational_identity_sha256: authority.operational_identity_sha256().to_string(),
             seal_generation: authority.seal_generation(),
+            seal_observed_at_utc: DateTime::from_timestamp_millis(
+                authority.seal_created_at_ts_utc_ms(),
+            )
+            .ok_or(Stage8ExecutionPreflightError::DurableAuthorityInvalid)?,
+            command_observed_at_utc: command.created_at_utc(),
             seal_commitment_sha256: authority.seal_commitment_sha256().to_string(),
             provenance_sha256: String::new(),
         };
@@ -684,6 +1218,8 @@ impl Stage8a1DurableRequestAuthority {
             || !valid_sha256(&self.checkpoint_sha256)
             || !valid_sha256(&self.operational_identity_sha256)
             || !valid_sha256(&self.seal_commitment_sha256)
+            || self.seal_observed_at_utc.timestamp_millis() <= 0
+            || self.command_observed_at_utc.timestamp_millis() <= 0
             || self.calculate_provenance() != self.provenance_sha256
         {
             return Err(Stage8ExecutionPreflightError::DurableAuthorityInvalid);
@@ -706,6 +1242,11 @@ impl Stage8a1DurableRequestAuthority {
                 self.checkpoint_sha256.as_bytes(),
                 self.operational_identity_sha256.as_bytes(),
                 &self.seal_generation.to_be_bytes(),
+                &self.seal_observed_at_utc.timestamp_millis().to_be_bytes(),
+                &self
+                    .command_observed_at_utc
+                    .timestamp_millis()
+                    .to_be_bytes(),
                 self.seal_commitment_sha256.as_bytes(),
             ],
         )
@@ -1197,6 +1738,33 @@ impl Stage8a1OperationalAuthorityIssuer {
         ))
     }
 
+    /// Signs the closed R2A8 current-source commitment after this issuer has
+    /// validated the owner-bound Stage 8A authority root. The caller supplies
+    /// only a lowercase SHA-256 commitment, never raw broker-truth JSON.
+    pub(crate) fn sign_stage8b_r2a8_current_source_commitment(
+        &self,
+        commitment_sha256: &str,
+    ) -> Result<(String, String), Stage8ExecutionPreflightError> {
+        if !valid_sha256(commitment_sha256) {
+            return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+        }
+        self.authority_root.validate()?;
+        let current = load_stage8a4_writer_signing_key_pinned(
+            &self.authority_root.root,
+            self.authority_root.writer_signing_key_identity,
+        )?;
+        if current.to_bytes() != self.stage8a4_writer_signing_key.to_bytes() {
+            return Err(Stage8ExecutionPreflightError::WriterIssuerInvalid);
+        }
+        let signature = self
+            .stage8a4_writer_signing_key
+            .sign(commitment_sha256.as_bytes());
+        Ok((
+            encode_lower_hex(self.stage8a4_writer_signing_key.verifying_key().as_bytes()),
+            encode_lower_hex(&signature.to_bytes()),
+        ))
+    }
+
     /// Captures current read-only sources behind the already trusted gateway
     /// composition. It is intentionally crate-private: downstream callers
     /// cannot turn arbitrary public snapshot structs into minting authority.
@@ -1217,6 +1785,235 @@ impl Stage8a1OperationalAuthorityIssuer {
             broker_truth,
             broker_readiness,
         )
+    }
+
+    /// Publishes the exact R2A5 source records from opaque, already validated
+    /// operational authorities. No public DTO-to-authority constructor exists,
+    /// and this path neither mints an operator arm nor opens a transport.
+    #[allow(
+        dead_code,
+        reason = "consumed by the closed Stage 8B-P R2B composition"
+    )]
+    pub fn publish_stage8b_r2a5_operational_sources(
+        &mut self,
+        durable: &Stage8a1DurableRequestAuthority,
+        command: &Stage6DurableCommandSnapshotV1,
+        sources: &Stage8a1TrustedCurrentSources,
+    ) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+        self.publish_stage8b_r2a5_operational_sources_at(
+            durable,
+            command,
+            sources,
+            Path::new(STAGE8B_R2A5_OPERATIONAL_AUTHORITY_ROOT),
+        )
+    }
+
+    fn publish_stage8b_r2a5_operational_sources_at(
+        &mut self,
+        durable: &Stage8a1DurableRequestAuthority,
+        command: &Stage6DurableCommandSnapshotV1,
+        sources: &Stage8a1TrustedCurrentSources,
+        output_root: &Path,
+    ) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+        self.validate_control_revision()?;
+        durable.validate()?;
+        self.authority_root.validate()?;
+        sources.validate(&self.authority_root)?;
+        if command.action() != durable.identity.action()
+            || digest_parts(b"stage8a1-stage6-command-v1", &[&canonical_json(command)])
+                != durable.durable_command_sha256
+        {
+            return Err(Stage8ExecutionPreflightError::DurableAuthorityInvalid);
+        }
+        let (config, config_file_sha256) = self.authority_root.load_accepted_config()?;
+        if config_file_sha256 != self.authority_root.accepted_config_sha256 {
+            return Err(Stage8ExecutionPreflightError::AcceptedConfigInvalid);
+        }
+        validate_config_binding(&config, durable)?;
+        let policy = frozen_policy_from_config(&config, durable);
+        validate_policy(&policy, durable)?;
+        let now = Utc::now();
+        let scope_sha256 = authority_scope_sha256(durable, &policy);
+        let current = derive_current_authorities(
+            &self.authority_root,
+            &config,
+            durable,
+            &policy,
+            &scope_sha256,
+            sources,
+            now,
+        )?;
+        let control = self.authority_root.load_current_control()?;
+        let schedule_observed = sources
+            .broker_readiness
+            .schedule
+            .observed_ts
+            .ok_or(Stage8ExecutionPreflightError::ScheduleInvalid)?;
+        let instrument_observed = sources
+            .broker_readiness
+            .instrument_spec
+            .observed_ts
+            .ok_or(Stage8ExecutionPreflightError::BrokerTruthInvalid)?;
+        let generation = |observed: DateTime<Utc>| -> Result<u64, Stage8ExecutionPreflightError> {
+            u64::try_from(observed.timestamp_millis())
+                .ok()
+                .filter(|value| *value > 0)
+                .ok_or(Stage8ExecutionPreflightError::CurrentStateChanged)
+        };
+        let (cancel_target_broker_order_id, cancel_lifecycle, cancel_working) =
+            match durable.identity.action() {
+                Stage6DurableActionKind::Place => (None, None, None),
+                Stage6DurableActionKind::Cancel => {
+                    let target = durable
+                        .identity
+                        .target_broker_order_id()
+                        .ok_or(Stage8ExecutionPreflightError::DurableAuthorityInvalid)?;
+                    let order = sources
+                        .broker_truth
+                        .orders
+                        .iter()
+                        .find(|order| {
+                            order.broker_order_id.as_ref() == Some(target)
+                                && order.is_active_for_lifecycle()
+                        })
+                        .ok_or(Stage8ExecutionPreflightError::BrokerTruthInvalid)?;
+                    let order_bytes = canonical_json(order);
+                    (
+                        Some(target.as_str().to_owned()),
+                        Some(digest_parts(
+                            b"stage8b-r2a5-cancel-target-lifecycle-v1",
+                            &[&order_bytes],
+                        )),
+                        Some(digest_parts(
+                            b"stage8b-r2a5-cancel-target-working-v1",
+                            &[&order_bytes],
+                        )),
+                    )
+                }
+            };
+        let operation = match durable.identity.action() {
+            Stage6DurableActionKind::Place => "PLACE",
+            Stage6DurableActionKind::Cancel => "CANCEL",
+        };
+        let instrument = config
+            .instrument
+            .venue_symbol
+            .clone()
+            .unwrap_or_else(|| config.instrument.symbol.clone());
+        let records = vec![
+            (
+                "stage7b-current-recovery-seal.json",
+                Stage8bR2a5OperationalAuthorityRecord::Stage7bRecoverySeal {
+                    schema_version: 1,
+                    generation: durable.seal_generation,
+                    observed_at_utc: durable.seal_observed_at_utc,
+                    stage7b_seal_generation: durable.seal_generation,
+                    stage6_checkpoint_fingerprint: durable.checkpoint_sha256.clone(),
+                },
+            ),
+            (
+                "stage6-dispatch-ready-command.json",
+                Stage8bR2a5OperationalAuthorityRecord::Stage6DispatchReadyCommand {
+                    schema_version: 1,
+                    generation: durable.dispatch_sequence,
+                    observed_at_utc: durable.command_observed_at_utc,
+                    strategy_request_id: durable.identity.strategy_request_id().to_string(),
+                    durable_client_order_id: durable.identity.durable_client_order_id().to_string(),
+                    operation: operation.to_owned(),
+                    request_body_sha256: durable.canonical_command_sha256.clone(),
+                    cancel_target_broker_order_id,
+                    cancel_target_lifecycle_fingerprint: cancel_lifecycle,
+                    cancel_target_currently_working_proof_sha256: cancel_working,
+                },
+            ),
+            (
+                "stage8a-root-control.json",
+                Stage8bR2a5OperationalAuthorityRecord::Stage8aRootControl {
+                    schema_version: 1,
+                    generation: control.durable_revision,
+                    observed_at_utc: control.observed_at,
+                    // This record identifies the separately accepted effect
+                    // build contract.  The source adapter has its own build
+                    // identity and must not substitute its local authority
+                    // root/config digests for those frozen effect identities.
+                    config_sha256: STAGE8B_R2A6_ACCEPTED_EFFECT_CONFIG_SHA256.to_owned(),
+                    policy_sha256: STAGE8B_R2A6_ACCEPTED_EFFECT_POLICY_SHA256.to_owned(),
+                    config_policy_authority_sha256:
+                        STAGE8B_R2A6_ACCEPTED_CONFIG_POLICY_AUTHORITY_SHA256.to_owned(),
+                },
+            ),
+            (
+                "stage8a-composite-readiness.json",
+                Stage8bR2a5OperationalAuthorityRecord::CompositeReadiness {
+                    schema_version: 1,
+                    generation: generation(sources.composite_readiness.checked_at)?,
+                    observed_at_utc: sources.composite_readiness.checked_at,
+                    ready: true,
+                },
+            ),
+            (
+                "stage8a-kill-switch.json",
+                Stage8bR2a5OperationalAuthorityRecord::KillSwitch {
+                    schema_version: 1,
+                    generation: control.durable_revision,
+                    observed_at_utc: control.observed_at,
+                    run_allowed: matches!(control.kill_switch, Stage8KillSwitchState::RunAllowed),
+                    kill_switch_generation: control.durable_revision.to_string(),
+                },
+            ),
+            (
+                "stage8a-finam-ownership.json",
+                Stage8bR2a5OperationalAuthorityRecord::SingleFinamOwnership {
+                    schema_version: 1,
+                    generation: generation(sources.broker_truth.received_ts)?,
+                    observed_at_utc: sources.broker_truth.received_ts,
+                    single_owner: control.active_owner_count == 1,
+                    ownership_lease_fingerprint: current.ownership.evidence_sha256.clone(),
+                },
+            ),
+            (
+                "stage8a-schedule.json",
+                Stage8bR2a5OperationalAuthorityRecord::Schedule {
+                    schema_version: 1,
+                    generation: generation(schedule_observed)?,
+                    observed_at_utc: schedule_observed,
+                    eligible: matches!(current.schedule.state, Stage8ScheduleState::Eligible),
+                },
+            ),
+            (
+                "stage8a-instrument.json",
+                Stage8bR2a5OperationalAuthorityRecord::InstrumentSpecification {
+                    schema_version: 1,
+                    generation: generation(instrument_observed)?,
+                    observed_at_utc: instrument_observed,
+                    instrument,
+                    eligible: true,
+                },
+            ),
+            (
+                "stage8a-lifecycle-clarity.json",
+                Stage8bR2a5OperationalAuthorityRecord::LifecycleClarity {
+                    schema_version: 1,
+                    generation: generation(current.ambiguity.observed_at)?,
+                    observed_at_utc: current.ambiguity.observed_at,
+                    clear: current.ambiguity.unresolved_order_count == 0
+                        && current.ambiguity.unresolved_delivery_count == 0
+                        && current.ambiguity.reconciliation_required_count == 0,
+                },
+            ),
+            (
+                "stage8a-durable-micro-budget.json",
+                Stage8bR2a5OperationalAuthorityRecord::DurableMicroBudget {
+                    schema_version: 1,
+                    generation: control.durable_revision,
+                    observed_at_utc: control.observed_at,
+                    available: current.budget.max_orders == 1
+                        && current.budget.consumed_orders == 0,
+                    durable_budget_generation: control.durable_revision.to_string(),
+                },
+            ),
+        ];
+        publish_stage8b_r2a5_records(output_root, records)
     }
 
     fn validate_control_revision(&mut self) -> Result<(), Stage8ExecutionPreflightError> {
@@ -3589,6 +4386,143 @@ fn build_capability(
     }
 }
 
+fn publish_stage8b_r2a5_records(
+    output_root: &Path,
+    records: Vec<(&'static str, Stage8bR2a5OperationalAuthorityRecord)>,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    let metadata = fs::symlink_metadata(output_root)
+        .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+    if !metadata.file_type().is_dir()
+        || metadata.file_type().is_symlink()
+        || metadata.uid() != unsafe { libc::geteuid() }
+        || metadata.mode() & 0o022 != 0
+    {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    let mut source_sha256 = std::collections::BTreeMap::new();
+    for (file_name, record) in records {
+        if file_name.contains('/') || file_name.contains("..") {
+            return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+        }
+        let destination = output_root.join(file_name);
+        if fs::symlink_metadata(&destination).is_ok_and(|current| current.file_type().is_symlink())
+        {
+            return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+        }
+        let bytes = canonical_json(&record);
+        let temporary = output_root.join(format!(
+            ".stage8b-r2a5.{}.{}.tmp",
+            file_name,
+            uuid::Uuid::new_v4()
+        ));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&temporary)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        fs::rename(&temporary, &destination)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        source_sha256.insert(
+            file_name.to_owned(),
+            format!("{:x}", Sha256::digest(&bytes)),
+        );
+    }
+    sync_directory(output_root)?;
+    let publication_root_sha256 = digest_parts(
+        b"stage8b-r2a5-operational-source-publication-v1",
+        &source_sha256
+            .iter()
+            .flat_map(|(name, digest)| [name.as_bytes(), digest.as_bytes()])
+            .collect::<Vec<_>>(),
+    );
+    Ok(Stage8bR2a5SourcePublicationEvidence {
+        schema_version: 1,
+        source_count: source_sha256.len(),
+        source_sha256,
+        publication_root_sha256,
+        execution_authority_granted: false,
+    })
+}
+
+fn attach_stage8b_r2a7_record_provenance(
+    output_root: &Path,
+    evidence: Stage8bR2a5SourcePublicationEvidence,
+    adapter_domain: &'static str,
+) -> Result<Stage8bR2a5SourcePublicationEvidence, Stage8ExecutionPreflightError> {
+    if !matches!(adapter_domain, "production" | "controlled_qualification") {
+        return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+    }
+    validate_stage8b_source_output_ownership(output_root)?;
+    let mut source_sha256 = std::collections::BTreeMap::new();
+    for file_name in evidence.source_sha256.keys() {
+        let destination = output_root.join(file_name);
+        let metadata = fs::symlink_metadata(&destination)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        if !metadata.file_type().is_file()
+            || metadata.file_type().is_symlink()
+            || metadata.uid() != STAGE8B_R2A6_SOURCE_ADAPTER_UID
+            || metadata.nlink() != 1
+        {
+            return Err(Stage8ExecutionPreflightError::AuthorityRootInvalid);
+        }
+        let bytes = fs::read(&destination)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let mut value: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let object = value
+            .as_object_mut()
+            .ok_or(Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        object.insert(
+            "adapter_domain".to_owned(),
+            serde_json::Value::String(adapter_domain.to_owned()),
+        );
+        object.insert(
+            "adapter_mode".to_owned(),
+            serde_json::Value::String("one_shot_recovery_reader".to_owned()),
+        );
+        let bytes = serde_json::to_vec(&value)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        let temporary = output_root.join(format!(
+            ".stage8b-r2a7.{}.{}.tmp",
+            file_name,
+            uuid::Uuid::new_v4()
+        ));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o644)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(&temporary)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        file.write_all(&bytes)
+            .and_then(|_| file.sync_all())
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        fs::rename(&temporary, &destination)
+            .map_err(|_| Stage8ExecutionPreflightError::AuthorityRootInvalid)?;
+        source_sha256.insert(file_name.clone(), format!("{:x}", Sha256::digest(&bytes)));
+    }
+    sync_directory(output_root)?;
+    let publication_root_sha256 = digest_parts(
+        b"stage8b-r2a7-operational-source-publication-v1",
+        &source_sha256
+            .iter()
+            .flat_map(|(name, digest)| [name.as_bytes(), digest.as_bytes()])
+            .collect::<Vec<_>>(),
+    );
+    Ok(Stage8bR2a5SourcePublicationEvidence {
+        schema_version: 2,
+        source_count: source_sha256.len(),
+        source_sha256,
+        publication_root_sha256,
+        execution_authority_granted: false,
+    })
+}
+
 fn canonical_json<T: Serialize>(value: &T) -> Vec<u8> {
     serde_json::to_vec(value).expect("Stage 8A-1 canonical values are serializable")
 }
@@ -3966,6 +4900,8 @@ pub(crate) mod tests {
             checkpoint_sha256: ENDPOINT.into(),
             operational_identity_sha256: EVIDENCE.into(),
             seal_generation: 7,
+            seal_observed_at_utc: order.created_ts,
+            command_observed_at_utc: order.created_ts,
             seal_commitment_sha256: FP.into(),
             provenance_sha256: String::new(),
         };
@@ -4391,6 +5327,50 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn r2a5_source_adapter_publishes_from_opaque_operational_authorities_only() {
+        let observed_at = Utc::now();
+        let mut order = place();
+        order.created_ts = observed_at;
+        order.ttl_ms = Some(30_000);
+        let durable = durable_place(&order);
+        let identity =
+            Stage6DurableRequestIdentityV1::from_place(&order, attribution("ENTRY")).unwrap();
+        let command = Stage6DurableCommandSnapshotV1::from_place(&identity, &order).unwrap();
+        let root = issuer_root();
+        write_issuer_sources(&root, &durable, observed_at);
+        let (readiness, truth, broker_readiness) = current_sources(observed_at);
+        let mut issuer =
+            Stage8a1OperationalAuthorityIssuer::open_for_test(&root, &durable).unwrap();
+        let sources = issuer
+            .issue_current_sources(&readiness, &truth, &broker_readiness)
+            .unwrap();
+        let output = issuer_root();
+        let evidence = issuer
+            .publish_stage8b_r2a5_operational_sources_at(&durable, &command, &sources, &output)
+            .unwrap();
+        assert_eq!(evidence.source_count, 10);
+        assert!(!evidence.execution_authority_granted);
+        for expected in [
+            "stage7b-current-recovery-seal.json",
+            "stage6-dispatch-ready-command.json",
+            "stage8a-root-control.json",
+            "stage8a-composite-readiness.json",
+            "stage8a-kill-switch.json",
+            "stage8a-finam-ownership.json",
+            "stage8a-schedule.json",
+            "stage8a-instrument.json",
+            "stage8a-lifecycle-clarity.json",
+            "stage8a-durable-micro-budget.json",
+        ] {
+            let bytes = fs::read(output.join(expected)).unwrap();
+            assert_eq!(
+                evidence.source_sha256[expected],
+                format!("{:x}", Sha256::digest(&bytes))
+            );
+        }
+    }
+
+    #[test]
     fn production_issuer_mints_all_proofs_and_rejects_second_arm_for_request() {
         let now = Utc::now();
         let mut order = place();
@@ -4731,6 +5711,8 @@ pub(crate) mod tests {
             checkpoint_sha256: ENDPOINT.into(),
             operational_identity_sha256: EVIDENCE.into(),
             seal_generation: 7,
+            seal_observed_at_utc: cancel.created_ts,
+            command_observed_at_utc: cancel.created_ts,
             seal_commitment_sha256: FP.into(),
             provenance_sha256: String::new(),
         };

@@ -1,0 +1,7 @@
+[Unit]
+Description=Stage 8B R2B phase 6 exact root admission and read-only preflight
+RefuseManualStart=yes
+StopWhenUnneeded=yes
+Requires=moex-stage8b-r2b-phase5-run-package.target moex-stage8b-r2b-readonly-supervisor.service
+After=moex-stage8b-r2b-phase5-run-package.target moex-stage8b-r2b-readonly-supervisor.service
+Before=moex-stage8b-r2b-issuance.target

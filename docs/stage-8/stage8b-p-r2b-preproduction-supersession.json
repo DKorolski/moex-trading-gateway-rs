@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof R0",
+  "record_id": "stage8b-r2b-preproduction-supersession-2026-08-30-r1",
+  "status": "RECORDED_NOT_INSTALLED_NOT_ISSUED",
+  "accepted_implementation": {
+    "source_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
+    "archive_name": "moex-trading-project-6672819.zip",
+    "archive_sha256": "2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77",
+    "verdict": "ACCEPTED"
+  },
+  "superseded_candidate": {
+    "source_ref": "9898edab5f5d4f7190b6ba9e8fd4c8c748cc661c",
+    "verdict": "NOT_ACCEPTED_PHASE5_PHASE6_CORRECTION_REQUIRED"
+  },
+  "ceremony_lineage": {
+    "lineage_id": "stage8b-r2b-preproduction-initial-rebind-r1",
+    "classification": "PRE_PRODUCTION_INITIAL_REBIND",
+    "old_declared_generation": 1,
+    "new_declared_generation": 1,
+    "same_generation_does_not_assert_key_continuity": true,
+    "distinct_ceremony_id_required_for_future_installation": true,
+    "production_installation_before_supersession": false,
+    "issued_r2b_packages_before_supersession": 0,
+    "real_credentials_materialized_before_supersession": false,
+    "finam_requests_before_supersession": 0
+  },
+  "helper": {
+    "old_executable_sha256": "5db401937b5e90e0237f9371a00b5af9ad2c0c3ce8e8b0899cdccafdb514578e",
+    "new_executable_sha256": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065",
+    "old_pin_file_sha256": "5cb1cc7cbaa608221cdfe96c40f42a64bff8689154ba9b57af11b0e01b937fca",
+    "new_pin_file_sha256": "f2e658d62b36f9458cf9931ba8ad1150c696aa3a0fd2098038d5ce3420a34a15"
+  },
+  "trust_set": {
+    "old_manifest_sha256": "4e73830c1a0cbc829a7146f864f9dfd9edf91fb20ae607a475d16879f237699f",
+    "new_manifest_sha256": "8014eea21ebe0b619122e0c7a332b50d173ff31d1cb2ea91e2505551dd547ef8",
+    "old_public_key_set_sha256": "84067e70584a6f4bfb19a7d475baa4185e7bfdf387305d12158683f1a26e1c7c",
+    "new_public_key_set_sha256": "2e609dcbb6b6e7eb12fabebe4eb5ce62712aea91c2971a4e247194484f23da24"
+  },
+  "account_key_manifest": {
+    "old_manifest_sha256": "e491509b7272ace02fc043ac113a7090e596e97f6ec50f05da20059de87bc055",
+    "new_manifest_sha256": "e40ea1d12ef5ebe4faf8ebaf6897056b9ac45d5efd0bb4c68eb4ff85f8bc7cd7",
+    "old_generation_1_key_sha256": "6e8793a3515283c9133e9cd55261bd52ba2f69e13cb2cf48abf24369c306ba28",
+    "new_generation_1_key_sha256": "256e8b967cb658f12456ca649f046ed76a7eaeddd196ad4f6830fc22a6ea8d84"
+  },
+  "filesystem_contract": {
+    "old_unsigned_draft": "/var/lib/moex-trading/stage8b/r2a5/r2b-run-package.unsigned.json",
+    "new_unsigned_draft": "/var/lib/moex-trading/stage8b/r2a5/draft-output/r2b-run-package.unsigned.json",
+    "old_signed_package": "/etc/moex-trading/stage8b/r2a5/r2b-run-package.json",
+    "new_signed_package": "/var/lib/moex-trading/stage8b/r2a5/signed-output/r2b-run-package.json",
+    "old_shared_credential_root": "/run/credentials/moex-trading/stage8b/r2a5",
+    "new_package_signer_credential_root": "/run/moex-stage8b-r2b-package-issuer",
+    "new_supervisor_credential_root": "/run/moex-stage8b-r2b-supervisor",
+    "legacy_paths_authoritative": false
+  },
+  "reason": [
+    "PHASE5_PHASE6_BINARY_PATH_COMPATIBILITY",
+    "CREDENTIAL_ISOLATION",
+    "EXACT_PRODUCTION_HELPER_REACCEPTANCE"
+  ],
+  "authorization": "NOT_ISSUED",
+  "installation_allowed_by_this_record": false
+}

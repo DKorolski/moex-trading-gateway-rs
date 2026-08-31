@@ -36,14 +36,51 @@ Stage 8B-P R1 at `12a7aee` was safely fail-closed but not accepted because its
 future exact-run manifest under-bound the accepted Stage 8B-S R3 contract. R1A
 at `f922ad6` closed those semantic gaps but was not accepted because its new
 endpoint identity differed from the qualified build and run identity lacked a
-canonical derivation. The active successor is narrow Stage 8B-P R1B. It binds
+canonical derivation. Narrow Stage 8B-P R1B binds
 the exact qualified endpoint formula/goldens and one canonical computed
 PLACE/CANCEL run identity while retaining all R1A protections. R1B selects no
 operation, uses no account credential, sends no broker GET or POST/DELETE,
 records no dispatch attempt and issues no operator arm. Authorization remains
-`NOT_ISSUED`. Independent R1B acceptance may open only a separate
-operator-selected Stage 8B-P R2 GET-only preflight package; Stage 8B-XE and
-every execution surface remain closed.
+`NOT_ISSUED`. R1B was independently accepted at `b9a423c` and merged by
+`f1070a4`. R2A at `d9c67a9` remained safely fail-closed but was not accepted:
+the pinned legacy command performs two AuthService POSTs before GETs, lacks
+explicit retry/redirect/proxy hardening and has a CANCEL-shaped probe.
+Corrective R2A1 therefore introduces a separate non-authority helper workspace,
+freezes exact `2 POST + 3 GET` PLACE and `2 POST + 4 GET` CANCEL plans, binds
+the query policy and all 17 current-source provenance contracts, and qualifies
+the boundary only against controlled local mocks. It uses no credential and
+sends no real HTTP request. Independent R2A1 acceptance may open only a
+separate operator-selected R2B evidence run; Stage 8B-XE and every execution
+surface remain closed.
+
+R2A2 at `497cf72` retained the safe boundary but was not accepted: the frozen
+binary could not execute R2B, strict DTOs lagged the current FINAM read schema,
+and receipt issuance/provenance was not end-to-end qualified. Corrective R2A3
+is the active no-real-network slice. It compiles the exact one-shot entry,
+hash-binds Auth/TokenDetails/GetAccount/Trades/GetOrders/GetOrder, qualifies
+strict current fixtures, separated Ed25519 issuers, anti-replay/freshness,
+exact lifecycle reducers, full controlled TLS and fd-bound launch. Acceptance
+of R2A3 may open only a separately issued R2B read-only run package; it does
+not open an arm, effect transport, order POST/DELETE, Redis or runtime-live.
+
+R2A3 at `0798db9` was not accepted because the shared receipt directory was
+not deployable, the run package and trust/account generations were under-bound,
+real producer topology was absent, only PLACE traversed full controlled TLS and
+build provenance was weaker than BUILD-P1. Corrective R2A4 provides per-source
+producer/issuer custody, exact signed package and key-set binding, strict file
+grammar, late nonce claim, complete exact/list lifecycle equality, immutable
+two-build Linux provenance and full fixed-path PLACE/CANCEL qualification. R2A4
+remains no-real-network and requires independent acceptance before R2B.
+
+The qualification lineage continued through R2A5-R2A8. Corrective R2A8-R1 is
+independently accepted at
+`5b2079d7d524d2fa6f084f44f961c4b5958c042a`. It closes composite-readiness
+semantic laundering and exact lifecycle-key custody while preserving the
+controlled PLACE/CANCEL full chain. The next slice is a separate R2B proposal:
+it may freeze only a one-shot read-only FINAM preflight contract. Proposal
+acceptance does not issue authorization; a fresh contract refresh, exact build
+recheck, production sandbox/custody review, operator selection and separately
+signed run package remain mandatory before any real FINAM request.
 
 ## Mandatory Stage 8A order
 

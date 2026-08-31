@@ -1,0 +1,117 @@
+{
+  "schema_version": 2,
+  "stage": "Stage 8B-P R2B Controlled Installation / Full Transaction Proof — Implementation R0 Preflight R1A",
+  "status": "PRODUCTION_REQUEST_BOUNDARY_ORACLE_CLOSURE_REVIEW_REQUIRED_NOT_EXECUTED",
+  "rejected_preflight_r1": {
+    "source_ref": "9fd9fa9e7eea38371bb412a713f0419697671f7c",
+    "archive_sha256": "297897488d2bc53a8b690673a4ec1c177fffbe4f9028128f99d66bf325e02120",
+    "verdict": "NOT_ACCEPTED"
+  },
+  "rejected_predecessor": {
+    "source_ref": "b9f0c43f4865ee001b72abaf72c0a6a4dd77a32a",
+    "archive_sha256": "b71ec0160a2968db8f6e8c4107597b67be0d9a2be31d216b51321f457797b98c",
+    "verdict": "NOT_ACCEPTED"
+  },
+  "accepted_design": {
+    "source_ref": "1e4db79288b0809fd5975edfdd0fc14740bcc8c6",
+    "archive_sha256": "5d55ccd8a585d6da780531aa237c9fba215328bce502b1099a8dc5aa3c22faea",
+    "verdict": "ACCEPTED"
+  },
+  "accepted_implementation": {
+    "source_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
+    "archive_sha256": "2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77",
+    "verdict": "ACCEPTED"
+  },
+  "inherited_contract_sha256": {
+    "docs/stage-8/stage8b-p-r2b-controlled-installation-r0-authority.json": "7610ad1f7aa43aa054cc2765a7b680043ef258cddc1383294799f693d7ddd229",
+    "docs/stage-8/stage8b-p-r2b-preproduction-supersession.json": "40f962a60cc721512bd07134e641e2ce69bb37f27dbea975fc552640ea3bd7b5",
+    "docs/stage-8/stage8b-p-r2b-implementation-transaction-contract.json": "3d45203facd2634767d3ad21877d4c16b1bb3f9c7a2856bcf02471e69ad72af9"
+  },
+  "proof_lanes": {
+    "lane_a": {
+      "identity": "EXACT_PRODUCTION_EXPECTED_FAIL_CLOSED",
+      "production_elf_count": 12,
+      "production_unit_count": 18,
+      "network_mode": "none",
+      "hardcoded_base_url": "https://api.finam.ru",
+      "aggregate_target_expected_success": false,
+      "production_network_boundary_proof": {
+        "root_admission_required": true,
+        "helper_authority_validation_required": true,
+        "child_terminal_protocol_valid_required": true,
+        "root_terminal_evidence_durable_required": true,
+        "failed_attempt_required": true,
+        "expected_attempt_ordinal": 1,
+        "expected_method": "POST",
+        "expected_route_template": "/v1/sessions",
+        "allowed_attempt_error_categories": [
+          "NETWORK_CONNECT_FAILURE",
+          "TIMEOUT"
+        ],
+        "request_timeout_requires_failed_attempt": true,
+        "http_status_must_be_absent": true,
+        "response_body_must_be_absent": true,
+        "root_lifecycle_timeout_allowed": false,
+        "auth_session_failure_without_attempt_allowed": false,
+        "client_construction_failure_allowed": false,
+        "effect_flags_must_be_false": true,
+        "broker_dispatch_must_be_false": true,
+        "real_order_flags_must_be_false": true,
+        "outer_runner_evidence_parser": "EXACT_TYPED_ROOT_TERMINAL_EVIDENCE",
+        "string_category_only_match_allowed": false
+      },
+      "outer_runner_expected_success": true,
+      "controlled_binary_substitution_allowed": false,
+      "accepted_public_authority_required": true,
+      "matching_offline_private_ceremony_required": true,
+      "execution_without_matching_ceremony_allowed": false
+    },
+    "lane_b": {
+      "identity": "CONTROLLED_TLS_READ_PIPELINE_SUCCESS",
+      "accepted_tls_ref": "6cb179509fad97e8be56e31bb930b2a86caefc6a",
+      "loopback_only": true,
+      "fresh_canary_domain_allowed": true,
+      "counted_as_production_binary_proof": false,
+      "new_execution_in_this_package": false
+    }
+  },
+  "trigger": {
+    "source": "deploy/stage8b-r2b-proof/stage8b-r2b-controlled-proof-trigger.service",
+    "destination": "/etc/systemd/system/stage8b-r2b-controlled-proof-trigger.service",
+    "sha256": "c30da9c111a0e681de6cd4cc23bab3b1d58f5b15b86aff885d0838cf43c6cf0f",
+    "production_service_arithmetic_member": false,
+    "enabled": false,
+    "direct_aggregate_manual_start_allowed": false,
+    "production_dropins_allowed": false
+  },
+  "artifact_root": {
+    "argument": "--artifact-root",
+    "required": true,
+    "binary_count": 12,
+    "hash_mismatch_action": "ABORT_BEFORE_CONTAINER_CREATE"
+  },
+  "execution_state": {
+    "installation_authorized_by_this_package": false,
+    "container_created": false,
+    "units_installed": false,
+    "units_enabled": false,
+    "units_started": false,
+    "private_material_created": false,
+    "proof_executed": false,
+    "cleanup_executed": false
+  },
+  "authorization": "NOT_ISSUED",
+  "closed_surfaces": {
+    "production_account_host": false,
+    "real_operator": false,
+    "real_credentials": false,
+    "finam_network": false,
+    "finam_auth_service": false,
+    "finam_broker_get": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "redis_live": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

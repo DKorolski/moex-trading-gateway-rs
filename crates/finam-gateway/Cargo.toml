@@ -31,6 +31,61 @@ zeroize.workspace = true
 [features]
 default = []
 m3j16-actual-one-shot = []
+stage8b-r2a6-controlled-rehearsal = [
+    "runtime-durable-service/stage8a4-i3-test-fixtures",
+    "strategy-runtime-core/stage5g-artifact-fixtures",
+]
+stage8b-r2a7-source-adapter = []
+stage8b-r2a7-controlled-qualification = [
+    "stage8b-r2a7-source-adapter",
+    "runtime-durable-service/stage8a4-i3-test-fixtures",
+    "strategy-runtime-core/stage5g-artifact-fixtures",
+]
+
+[[bin]]
+name = "stage8b-r2a6-source-adapter"
+path = "src/bin/stage8b-r2a6-source-adapter.rs"
+required-features = ["stage8b-r2a6-controlled-rehearsal"]
+
+[[bin]]
+name = "stage8b-r2a7-source-adapter"
+path = "src/bin/stage8b-r2a7-source-adapter.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
+name = "stage8b-r2a8-current-manifest-issuer"
+path = "src/bin/stage8b-r2a8-current-manifest-issuer.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
+name = "stage8b-r2a8-production-intake-stager"
+path = "src/bin/stage8b-r2a8-production-intake-stager.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
+name = "stage8b-r2a8-upstream-current-authority-publisher"
+path = "src/bin/stage8b-r2a8-upstream-current-authority-publisher.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
+name = "stage8b-r2a8-authoritative-intake-creator"
+path = "src/bin/stage8b-r2a8-authoritative-intake-creator.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
+name = "stage8b-r2a8-production-current-source-writer"
+path = "src/bin/stage8b-r2a8-production-current-source-writer.rs"
+required-features = ["stage8b-r2a7-source-adapter"]
+
+[[bin]]
+name = "stage8b-r2a7-controlled-seeder"
+path = "src/bin/stage8b-r2a7-controlled-seeder.rs"
+required-features = ["stage8b-r2a7-controlled-qualification"]
+
+[[bin]]
+name = "stage8b-r2b-creator-chain-seeder"
+path = "src/bin/stage8b-r2b-creator-chain-seeder.rs"
+required-features = ["stage8b-r2a7-controlled-qualification"]
 
 [dev-dependencies]
 bytes = "=1.12.0"

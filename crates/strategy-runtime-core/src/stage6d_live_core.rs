@@ -1092,6 +1092,47 @@ impl Stage6Stage8a4BatchAppendReceipt {
 }
 
 impl Stage6dDurableRuntimeRecovered {
+    /// Selects the sole current request that is eligible for read-only
+    /// reconciliation preflight after one durable dispatch attempt.  The
+    /// selection is derived exclusively from the authenticated journal/replay
+    /// state: callers cannot nominate a request id or supply command bytes.
+    ///
+    /// Historical terminal requests are ignored.  Zero candidates, multiple
+    /// non-terminal candidates, conflicts and any shape that cannot obtain the
+    /// existing exact-request authority all fail closed.
+    pub fn single_exact_dispatch_ready_request(
+        &self,
+    ) -> Result<
+        (
+            Stage6DurableRequestIdentityV1,
+            Stage6DurableCommandSnapshotV1,
+        ),
+        Stage6dLiveCoreError,
+    > {
+        let mut candidates = self.replay.requests().iter().filter(|request| {
+            request.dispatch_attempt_count() == 1
+                && request.dispatch_safety_state()
+                    == crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+                && request.final_disposition().is_none()
+                && !request.conflict_observed()
+        });
+        let candidate = candidates
+            .next()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if candidates.next().is_some() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let accepted = stage7a_accepted_record(self, candidate.strategy_request_id())
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let command = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        let identity = accepted.durable_request_identity().clone();
+        self.authorize_exact_durable_request(&identity, &command)?;
+        Ok((identity, command))
+    }
+
     /// Proves that `identity` and `command` are the exact accepted Stage 6
     /// durable request in this recovered owner. A merely well-formed command
     /// cannot obtain this authority.

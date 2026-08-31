@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Proposal R1",
+  "generated_at_utc": "2026-08-28T04:40:10Z",
+  "target": "x86_64-unknown-linux-gnu",
+  "linux_builder_image": "rust@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0",
+  "rustc_version": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+  "run_count": 2,
+  "fixture_dependencies_in_production": false,
+  "production_build_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a7-source-adapter --bin stage8b-r2a8-production-current-source-writer --bin stage8b-r2a8-current-manifest-issuer --bin stage8b-r2a7-source-adapter",
+  "helper_build_command": "cargo build --locked --release --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bin stage8b-readonly-preflight",
+  "controlled_build_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a7-controlled-qualification --bin stage8b-r2a7-source-adapter --bin stage8b-r2a8-current-manifest-issuer --bin stage8b-r2a7-controlled-seeder",
+  "production_binaries": {
+    "stage8b-r2a8-production-current-source-writer": {
+      "build_a_sha256": "2c5a8b7a47abafa99c782dada3b0e631de62b0e6988a4f8337db05b2514bb658",
+      "build_b_sha256": "2c5a8b7a47abafa99c782dada3b0e631de62b0e6988a4f8337db05b2514bb658",
+      "reproducible": true
+    },
+    "stage8b-r2a8-current-manifest-issuer": {
+      "build_a_sha256": "a94d5969c1fbc4a8bb4dca1bf767bd63be75ef1c733c89968f095d12c69b2849",
+      "build_b_sha256": "a94d5969c1fbc4a8bb4dca1bf767bd63be75ef1c733c89968f095d12c69b2849",
+      "reproducible": true
+    },
+    "stage8b-r2a7-source-adapter": {
+      "build_a_sha256": "61bd5038d40f437ba970e72d8b14f0a99eca74a6f2cee18045f86cb06443f7b8",
+      "build_b_sha256": "61bd5038d40f437ba970e72d8b14f0a99eca74a6f2cee18045f86cb06443f7b8",
+      "reproducible": true
+    },
+    "accepted-stage8b-readonly-preflight": {
+      "build_a_sha256": "c747e824fcf0cb49fec1aa123c35acb9f5c4533e0c7a7edde691e084944cf46b",
+      "build_b_sha256": "c747e824fcf0cb49fec1aa123c35acb9f5c4533e0c7a7edde691e084944cf46b",
+      "reproducible": true
+    }
+  },
+  "inherited_accepted_production_binaries": {
+    "stage8b-r2a5-authority-producer": "d042563b6fa8e548d3e32f56317ee7997a86f0402d4338f36629d15240adfafb",
+    "stage8b-r2a5-authority-issuer": "06f995df30915cdcf58c52c13cd680f8e9bb481abc3ba542dfee724e081889b8",
+    "stage8b-r2a5-package-issuer": "f806e91f3f2575e8c48fca3bd4eaa6b0f36f8e102f02c6cd5a2d88b86346d7c0",
+    "accepted-stage8b-r2a5-launcher": "a38116f19aaffe5539b58b351d57e81ec1c6328f5a1d9a9744134468a5a51f03"
+  },
+  "controlled_qualification_binaries": {
+    "stage8b-r2a7-source-adapter": {
+      "build_a_sha256": "4feded4255e25d403305754db4e32de1512900563a7afd1a98bf8fe8dcaae86c",
+      "build_b_sha256": "4feded4255e25d403305754db4e32de1512900563a7afd1a98bf8fe8dcaae86c",
+      "reproducible": true
+    },
+    "stage8b-r2a8-current-manifest-issuer": {
+      "build_a_sha256": "596bcfd6ed13c597c6ff5496d69ac2c03758eee73892cd8a3e17ac8b4939915b",
+      "build_b_sha256": "596bcfd6ed13c597c6ff5496d69ac2c03758eee73892cd8a3e17ac8b4939915b",
+      "reproducible": true
+    },
+    "stage8b-r2a7-controlled-seeder": {
+      "build_a_sha256": "392e25492f9888d0d212605591bcd2f6aeb272436ae0346a7efdef83029a136b",
+      "build_b_sha256": "392e25492f9888d0d212605591bcd2f6aeb272436ae0346a7efdef83029a136b",
+      "reproducible": true
+    }
+  },
+  "source_sha256": {
+    "crates/finam-gateway/Cargo.toml": "61ebc7bd15f5628c91eb6106388748666f0488d255f79c3f4fd86cc18846a19f",
+    "crates/finam-gateway/src/stage8b_r2a7_source_adapter.rs": "e905ee66fd6d7ded975155a27351898cfe8845daeb0ad43c6926d29d84f60359",
+    "crates/finam-gateway/src/bin/stage8b-r2a8-production-current-source-writer.rs": "1e9372df10f7c845150c8224201fb59dd3a139cb9f17f36ef803ed29b71ac219",
+    "tools/stage8b-readonly-preflight/src/r2a3.rs": "fff4d6819da7d8e3ae74679356ada2240eca3cd9d76b30b6180cb9caf991483f",
+    "tools/stage8b-readonly-preflight/src/r2a5.rs": "93e8c9438124b8968f672ffe2e5e592ed1b70c260955b8e668059443cd4cf464",
+    "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json": "718232d41cd1505978c881c1af5d8d8cdc567185c66bbe87133a9fc36d0b179e",
+    "docs/stage-8/stage8b-p-r2b-proposal-authority.json": "11d00e43e91f5b55ff41795f7888e7a61906839a1a9240278ce470d952851467"
+  },
+  "controlled_place_regression": "PASS",
+  "controlled_cancel_regression": "PASS",
+  "linux_terminal_evidence_test": "PASS",
+  "authorization_status": "NOT_ISSUED",
+  "finam_network_accessed": false,
+  "finam_credentials_accessed": false,
+  "order_post_sent": false,
+  "order_delete_sent": false,
+  "redis_live_accessed": false,
+  "runtime_live_entered": false
+}

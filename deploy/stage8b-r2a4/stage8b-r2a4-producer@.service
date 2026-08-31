@@ -1,0 +1,19 @@
+[Unit]
+Description=MOEX Stage 8B R2A4 authority producer UID %i
+ConditionPathExists=/var/lib/moex-trading/stage8b/r2a4/authoritative-stores
+
+[Service]
+Type=oneshot
+User=%i
+Group=%i
+ExecStart=/opt/moex-trading/stage8b-r2a4/bin/stage8b-r2a4-authority-producer
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/moex-trading/stage8b/r2a4/authoritative-stores /run/moex-trading/stage8b/r2a4/run-nonce.sha256
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a4/authority-sources
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+UMask=0077

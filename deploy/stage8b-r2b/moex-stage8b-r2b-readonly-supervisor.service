@@ -1,0 +1,32 @@
+[Unit]
+Description=Stage 8B R2B root admission supervisor
+RefuseManualStart=yes
+Requires=moex-stage8b-r2b-phase5-run-package.target
+After=local-fs.target moex-stage8b-r2b-phase5-run-package.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2b-launcher
+NoNewPrivileges=no
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+# The launcher must read /proc/sys/kernel/yama/ptrace_scope before nonce
+# admission. ProtectProc=invisible still hides foreign process details; the
+# full proc subset keeps the required read-only kernel policy node visible.
+ProcSubset=all
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+BindReadOnlyPaths=/run/credentials/moex-trading/stage8b/r2a5/account-id:/run/moex-stage8b-r2b-supervisor/account-id /run/credentials/moex-trading/stage8b/r2a5/finam-readonly-secret:/run/moex-stage8b-r2b-supervisor/finam-readonly-secret /run/credentials/moex-trading/stage8b/r2a5/account-binding-keys:/run/moex-stage8b-r2b-supervisor/account-binding-keys
+InaccessiblePaths=/run/credentials/moex-trading/stage8b/r2a5
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_KILL CAP_DAC_OVERRIDE CAP_FOWNER
+AmbientCapabilities=
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a5 /var/lib/moex-trading/stage8b/r2b-evidence
+
+# The launcher independently requires kernel.yama.ptrace_scope >= 1 and an
+# empty dedicated UID 8301 process set before irreversible nonce admission.

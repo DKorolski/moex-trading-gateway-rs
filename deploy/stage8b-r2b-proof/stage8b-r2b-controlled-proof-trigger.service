@@ -1,0 +1,16 @@
+[Unit]
+Description=Stage 8B-P R2B controlled proof-only aggregate trigger
+Requires=moex-stage8b-r2b-issuance.target
+After=moex-stage8b-r2b-issuance.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/true
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Implementation Package R0",
+  "status": "REVIEW_CANDIDATE_NOT_ISSUED",
+  "accepted_predecessor": "ebec9a100c92872134f3de91644cec50e2ed073a",
+  "source_implementation": {
+    "draft_builder": true,
+    "package_signer_revalidation": true,
+    "six_phase_targets": true,
+    "aggregate_target": true,
+    "exact_service_invocations": 31,
+    "exact_phase_count": 6,
+    "fault_propagation_static_proof": true,
+    "stale_active_state_reuse_blocked": true,
+    "existing_unsigned_output_reuse_blocked": true,
+    "existing_signed_output_reuse_blocked": true
+  },
+  "local_release_build": {
+    "platform": "aarch64-apple-darwin",
+    "profile": "release",
+    "draft_builder_sha256": "739c2fece8e155a51877540f8144be879470ab2990615ad207adb6d1c47c98ae",
+    "draft_builder_size": 1164448,
+    "package_issuer_sha256": "c000186993dee826a0b4a167f3736d9c4cc1ba82e27e081278f2312b10ddce04",
+    "package_issuer_size": 1215568,
+    "production_linux_binary_hash_pending_deployment_build": true
+  },
+  "systemd": {
+    "static_parser_result": "PASS",
+    "unit_count": 18,
+    "section_aware": true,
+    "reusable_transaction": true,
+    "parser_warnings": 0,
+    "systemd_analyze_available_on_developer_host": false,
+    "isolated_linux_verify": {
+      "container": "ubuntu:24.04",
+      "systemd_version": "255 (255.4-1ubuntu8.17)",
+      "exit_code": 0,
+      "verified_units": 18,
+      "parser_warnings": 0,
+      "units_loaded": false,
+      "services_started": 0,
+      "result": "PASS"
+    },
+    "linux_verify_script": "scripts/stage8b_p_r2b_issuance_target_systemd_verify.sh"
+  },
+  "activation_closure": {
+    "install_manifest_present": false,
+    "install_section_present": false,
+    "enabled": false,
+    "started": false,
+    "pulled_by_installed_target": false,
+    "timer_path_socket_reference": false,
+    "preset_reference": false,
+    "operator_selected": false,
+    "run_nonce_present": false,
+    "credential_present": false,
+    "unsigned_package_present": false,
+    "signed_package_present": false
+  },
+  "authorization": "NOT_ISSUED",
+  "finam_requests": 0,
+  "auth_service_called": false,
+  "broker_get_sent": false,
+  "post_delete_sent": false,
+  "redis_live_consumer": false,
+  "broker_dispatch": false,
+  "runtime_live": false,
+  "real_orders": false,
+  "result": "PASS_REVIEW_REQUIRED"
+}

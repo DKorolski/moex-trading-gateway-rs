@@ -1,0 +1,28 @@
+[Unit]
+Description=Stage 8B fixed production current-source writer
+RefuseManualStart=yes
+Requires=moex-stage8b-r2a8-production-intake-stager.service
+After=local-fs.target moex-stage8b-r2a8-production-intake-stager.service
+Before=stage8b-r2a8-current-manifest-issuer.service
+
+[Service]
+Type=oneshot
+User=8095
+Group=8095
+SupplementaryGroups=
+WorkingDirectory=/var/lib/moex-trading/stage8b/r2a8/current-source
+ExecStart=/opt/moex-trading/stage8b-r2b/bin/stage8b-r2a8-production-current-source-writer
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+ReadOnlyPaths=/var/lib/moex-trading/stage7b /var/lib/moex-trading/stage8a1-authority /var/lib/moex-trading/stage8b/r2a7/production /var/lib/moex-trading/stage8b/r2a8/intake
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a8/current-source

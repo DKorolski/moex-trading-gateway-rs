@@ -1,0 +1,7 @@
+[Unit]
+Description=Stage 8B R2B phase 2 exact manifest and source adapter
+RefuseManualStart=yes
+StopWhenUnneeded=yes
+Requires=moex-stage8b-r2b-phase1-current-source.target stage8b-r2a8-current-manifest-issuer.service stage8b-r2a7-source-adapter.service
+After=moex-stage8b-r2b-phase1-current-source.target stage8b-r2a8-current-manifest-issuer.service stage8b-r2a7-source-adapter.service
+Before=moex-stage8b-r2b-phase3-authority-producers.target

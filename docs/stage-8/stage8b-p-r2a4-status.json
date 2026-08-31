@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A4",
+  "promotion": {
+    "r2b_real_credentials_allowed": false,
+    "reason": "production key ceremony exists, but independent R2A4 acceptance and operator package are not issued"
+  },
+  "fixed_paths": {
+    "etc_root": "/etc/moex-trading/stage8b/r2a4",
+    "state_root": "/var/lib/moex-trading/stage8b/r2a4",
+    "run_root": "/run/moex-trading/stage8b/r2a4",
+    "credentials_root": "/run/credentials/moex-trading/stage8b/r2a4",
+    "helper": "/opt/moex-trading/stage8b-r2a4/bin/stage8b-readonly-preflight"
+  },
+  "qualification": {
+    "controlled_authority_separate": true,
+    "producer_count": 11,
+    "issuer_count": 11,
+    "source_specific_receipt_directories": true,
+    "place_full_tls_sequence": true,
+    "cancel_full_tls_sequence": true,
+    "real_finam_used": false
+  }
+}

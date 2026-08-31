@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A7",
+  "source_ref": "a29cbb92e52200c19b7454bc4979824cd958f31f",
+  "target": "x86_64-unknown-linux-gnu",
+  "linux_builder_image": "rust@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0",
+  "linux_rustc_version": "rustc 1.88.0 (6b00bc388 2025-06-23)",
+  "production_feature": "stage8b-r2a7-source-adapter",
+  "fixture_dependencies": false,
+  "cargo_command": "cargo build --locked --release -p finam-gateway --features stage8b-r2a7-source-adapter --bin stage8b-r2a7-source-adapter",
+  "build_a_sha256": "fd57b171960763501a4fc95ba9f5edaae8b67a330099bb5b70d65647ae30209b",
+  "build_b_sha256": "fd57b171960763501a4fc95ba9f5edaae8b67a330099bb5b70d65647ae30209b",
+  "reproducible": true,
+  "controlled_seeder_sha256": "f404465b1b6bca6855dd4799e7c3325b2168a7d1b514ac79a27f022c7a85a824",
+  "controlled_rehearsal": {
+    "place": "PASS",
+    "cancel": "PASS",
+    "real_finam": false
+  },
+  "source_sha256": {
+    "binary": "6dcb447465ea0d49c3424e533add0dd5c0f9cbf3d9a2149119b88cb382660dd6",
+    "adapter": "c0d5c4266ecf3f2613bbbd2964d41edcca3131e375f9c90d366ffc7c8e62f559",
+    "composition": "00ca2ef0178eb731ccb8bc15b4e80665f58fed86dd81c074f1cc1069d72ec83b"
+  },
+  "accepted_effect_build_identity_sha256": "ca330934df540de69b52d0463a665a1ab0ff89fa13eeb663b162763cc6bc83a0",
+  "accepted_effect_executable_sha256": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+  "network_accessed": false,
+  "finam_credential_accessed": false,
+  "authorization_status": "NOT_ISSUED"
+}

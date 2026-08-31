@@ -1,0 +1,63 @@
+{
+  "accepted_predecessor": "da83f5922d9e2a9a5a1db3e581d2d9f55d810d81",
+  "authorization": "NOT_ISSUED",
+  "closed_surfaces": {
+    "broker_dispatch_enabled": false,
+    "finam_endpoint_called": false,
+    "http_post_delete_enabled": false,
+    "operator_selection_enabled": false,
+    "real_orders_enabled": false,
+    "redis_live_consumer_enabled": false,
+    "runtime_live_enabled": false
+  },
+  "implementation_artifacts": {
+    "deploy/stage8b-r2b/moex-stage8b-r2b-package-issuer.service": "c7a22973db3163d176688884bcd40afb370391289f95c21b94629b83ae130848",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-readonly-supervisor.service": "e97272723326d7b5729a96b89d043ff9a82244f1eadbb47715332de8fe970a22",
+    "deploy/stage8b-r2b/moex-stage8b-r2b-run-package-draft-builder.service": "aedd8cd929f2aa81eaeec69c2da559b77ebf84530057591da5bda787ca972c68",
+    "docs/stage-8/STAGE8B_P_R2B_IMPLEMENTATION_R0_R1_2026-08-30.md": "f30fdd14eaf160a4cebb4815df2832364db002b0db6f7f3638f4619e3bf12839",
+    "docs/stage-8/STAGE8B_P_R2B_IMPLEMENTATION_R0_R1_ACCEPTANCE_MATRIX_2026-08-30.csv": "af542823c18a0da9548f1da5880848d69f2950e7cecab2df8fe76ca6a8d51fda",
+    "docs/stage-8/stage8b-p-r2a5-accepted-helper-authority.json": "5cf52ff7dcb31b05b6ec3eb5e34d778726e61b4c5fa03d86e433851d5e7edfdb",
+    "docs/stage-8/stage8b-p-r2a5-authority.json": "81df156d3d8a1633f6301b2873e0ead98c409bcb29a31fc1c0286427ab8d33bb",
+    "docs/stage-8/stage8b-p-r2a5-production-account-key-manifest.json": "e40ea1d12ef5ebe4faf8ebaf6897056b9ac45d5efd0bb4c68eb4ff85f8bc7cd7",
+    "docs/stage-8/stage8b-p-r2a5-production-trust-manifest.json": "8014eea21ebe0b619122e0c7a332b50d173ff31d1cb2ea91e2505551dd547ef8",
+    "docs/stage-8/stage8b-p-r2b-accepted-helper-sha256.txt": "f2e658d62b36f9458cf9931ba8ad1150c696aa3a0fd2098038d5ce3420a34a15",
+    "docs/stage-8/stage8b-p-r2b-implementation-r0-r1-linux-build-evidence.json": "f8a6ed7c6e2d80242b79871e51579494d21da10b60392cc008cd8b8a72d1e4b2",
+    "docs/stage-8/stage8b-p-r2b-implementation-r0-r1-linux-rehearsal-evidence.json": "25e9f8efee4d774be7bf57bce40cb6cf39fe7a0efd0ca65b1407be73e415a809",
+    "docs/stage-8/stage8b-p-r2b-issuance-package-r0-r1-authority.json": "54610555e2ea5f7551643c834f73f37945ad8f1ebbe64ce6188635167690b45f",
+    "docs/stage-8/stage8b-p-r2b-proposal-authority.json": "0dec7565972eed3ea5b99b55c42038cccdc078c8b1871cbaae709e2c5587cc5a",
+    "docs/stage-8/stage8b-p-r2b-runtime-composition-contract.json": "5f466c310aff8e1cd41fc89a0f89e162e9099c77f2133b600f106927e82de1ef",
+    "scripts/make_stage8b_p_r2b_implementation_r0_r1_handoff.py": "b96af82761759e804f29b782154e904c6d97eb8bd37f973a3212b4d2252609a0",
+    "scripts/stage8b_p_r2b_implementation_r0_r1_build_linux.sh": "2925ad3607a8e48feab32b29e3a76dc6a582ef2225c7c0fda5f078dff5c7e3c6",
+    "scripts/stage8b_p_r2b_implementation_r0_r1_check.py": "f5b9db3f2293b4ef955b8af418cff54fb66a0169f4ea0e0bdfeacf6eca567e70",
+    "scripts/stage8b_p_r2b_implementation_r0_r1_gate.sh": "67795418844d99aa8af27f43fc9d0f06a009d15d4979f09670799069d76db1d8",
+    "scripts/stage8b_p_r2b_implementation_r0_r1_handoff_safety_check.py": "75e2e3d8c7add29901fd7f9ab5250b4cc8486d18f6a2a1c78da5a5b456431d3a",
+    "scripts/stage8b_p_r2b_implementation_r0_r1_linux_rehearsal.sh": "160eeac67a2beaa690310bfb2a1f0fdaacc095b18e0107ff672415ec4da00364",
+    "scripts/stage8b_p_r2b_implementation_r0_r1_linux_runner.sh": "04fe72c85b61c77a734fb7aad269545a200587325268c4f35a7221e570079ca2",
+    "scripts/stage8b_p_r2b_implementation_r0_r1_negative_harness.py": "d9e4d969eef8f0e85a374ace43581cdb72377218d7f045d329d35fe73664a2b0",
+    "scripts/stage8b_p_r2b_implementation_r0_r1a_phase6_rehearsal.sh": "97ef39c944db607b5cb9a79509922e7bb9737dec8de1fdb9615356cf76763ac7",
+    "scripts/stage8b_p_r2b_implementation_r0_r1a_phase6_runner.sh": "f6286a4e1229448af67f171cfade173b7356f52787f2f218c1245594c5e635ac",
+    "scripts/stage8b_p_r2b_issuance_systemd_check.py": "631e54242b02b09c75b4cebda98c0e9d9eb7f43441c4e6ba0ccbf5b6019c129b",
+    "scripts/stage8b_p_r2b_systemd_unit_check.py": "95ad8610b35218491af4b0d15b276de4d0f5454477bc2a53cd206b40b3f82248",
+    "tools/stage8b-readonly-preflight/src/r2a3.rs": "1a1765d4c67d0fa1e5bf21a948c86c4f95e98fe01670e1dc2e9dc288a9d366ab",
+    "tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-launcher.rs": "464b06a900ece2f9f608fdb616429dc757d01e47f93a062d528ee643bee33565",
+    "tools/stage8b-readonly-preflight/src/r2a5.rs": "7728708a3eba5fdd28edc94a050965087fb1f39dd7a002761f14d5af3fa75952"
+  },
+  "repository_state": {
+    "enabled": false,
+    "installed": false,
+    "operator_selected": false,
+    "real_credentials_materialized": false,
+    "started": false
+  },
+  "schema_version": 1,
+  "production_linux_amd64_sha256": {
+    "stage8b-r2b-run-package-draft-builder": "b63f5fb798cf34335fd5482e62782cc439dab00ba0e2459e294f086603981272",
+    "stage8b-r2a5-package-issuer": "4c40e0c56bc9cb1d133eb79d73b44510d8e0a083c6bb20192eddcbf7f48329c9",
+    "accepted-stage8b-readonly-preflight": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065",
+    "stage8b-r2b-launcher": "effb4ff73fe375665cf4416806216d82727a40f0b2040333eda927bcda5bae55"
+  },
+  "post_package_self_verification_required": true,
+  "scope": "PHASE6_BINARY_COMPATIBILITY_AND_HANDOFF_SELF_VERIFICATION",
+  "stage": "Stage 8B-P R2B Implementation Package R0-R1A",
+  "status": "IMPLEMENTED_NOT_INSTALLED_NOT_ISSUED_REVIEW_REQUIRED"
+}

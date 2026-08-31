@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "authority_kind": "stage8b_p_r2a1_network_topology_authority",
+  "stage": "8B-P",
+  "revision": "R2A1",
+  "status": "candidate_pending_independent_acceptance",
+  "architecture": "separate_non_authority_readonly_preflight_helper",
+  "production_base_url": "https://api.finam.ru",
+  "effect_executable_sha256_unchanged": "677f277defb2591011486a061cb251264e3fd05bbc9f684b3ec9ff6ae55f3f06",
+  "helper_workspace": "tools/stage8b-readonly-preflight",
+  "helper_is_effect_workspace_member": false,
+  "auth_service": {
+    "exact_request_count": 2,
+    "exact_order": ["POST /v1/sessions", "POST /v1/sessions/details"],
+    "token_details_is_get": false
+  },
+  "broker_truth": {
+    "method_allowlist": ["GET"],
+    "PLACE": {
+      "exact_request_count": 3,
+      "exact_order": [
+        "GET /v1/accounts/{account_id}/orders",
+        "GET /v1/accounts/{account_id}/trades",
+        "GET /v1/accounts/{account_id}"
+      ],
+      "broker_order_id_allowed": false
+    },
+    "CANCEL": {
+      "exact_request_count": 4,
+      "exact_order": [
+        "GET /v1/accounts/{account_id}/orders/{order_id}",
+        "GET /v1/accounts/{account_id}/orders",
+        "GET /v1/accounts/{account_id}/trades",
+        "GET /v1/accounts/{account_id}"
+      ],
+      "broker_order_id_source": "exact_R1B_cancel_target_broker_order_id",
+      "synthetic_or_default_order_id_allowed": false
+    }
+  },
+  "source_level_total_request_count": {"PLACE": 5, "CANCEL": 6},
+  "client_policy": {
+    "https_only": true,
+    "timeout_ms": 10000,
+    "retry": "reqwest::retry::never()",
+    "redirect": "reqwest::redirect::Policy::none()",
+    "system_proxy": "disabled_by_no_proxy",
+    "minimum_broker_get_interval_ms": 250
+  },
+  "entry_preconditions": [
+    "closed_exact_R1B_manifest",
+    "validated_17_current_sources",
+    "exact_run_account_helper_build_identity_links"
+  ],
+  "output": "redacted_non_authority_evidence_only",
+  "r2a1_execution": {
+    "credential_used": false,
+    "auth_request_sent": false,
+    "broker_get_sent": false,
+    "operator_arm_issued": false,
+    "dispatch_attempt_appended": false,
+    "effect_transport_entered": false,
+    "finam_order_post_delete_sent": false,
+    "authorization_status": "NOT_ISSUED"
+  }
+}

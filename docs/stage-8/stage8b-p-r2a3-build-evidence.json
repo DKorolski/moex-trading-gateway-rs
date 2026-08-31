@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A3",
+  "build_profile": "release",
+  "build_target": "x86_64-unknown-linux-gnu",
+  "builder": "rust:1.88-bookworm linux/amd64 isolated container",
+  "cargo_command": "cargo build --release --locked --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bins",
+  "source_sha256": {
+    "lib_rs": "59ab030d1501149429f843ec3c11ae2d4dd93ada5b2fa0dab23a2f988ae8d2df",
+    "r2a2_rs": "885a4aba7238a4b3915c9ef9282aaa74b69c9509d6fe185cecf75746173aac99",
+    "r2a3_rs": "fe5979182b82178ce366131b07b0d71fbcb1c59a415618b05ed0d5305cc80f34",
+    "main_rs": "37ad35940b7a5fe6ece3290ad75c43b14d4c90df54ef1c66d8fd0c517aa64a96",
+    "launcher_rs": "432ff8257abbf21dbbe82cb6c36aa43ae399a7589308a513d74e0ab4b6560992",
+    "issuer_rs": "d545534286e91fb3417374e9fe83258645b1df957387a42573df70cc9cffb94e",
+    "cargo_lock": "0b1e9b8472b5f960ed5d40aa0b14cb7f8d8eaf43c215a9c39ffacede07dfece2"
+  },
+  "linux_release_sha256": {
+    "stage8b-readonly-preflight": "2ebfbc43e8fdbb257f9a368548f9a40784906f0054ace2dffa2e5c65a759179a",
+    "stage8b-r2a3-authority-issuer": "7fa1568a8aa7222c58d17916a41cd24823193ea8b6fd9e58539c74ae3a0704be",
+    "stage8b-r2a3-launcher": "6e47a14c40375aad3a8d9a31d1effae61056094029e4f4e94b4e01474173da5f"
+  },
+  "linux_file_type": "ELF 64-bit LSB pie executable, x86-64, GNU/Linux",
+  "controlled_tls_qualification": "PASS",
+  "fd_bound_launcher_to_helper": "PASS",
+  "missing_run_package_result": "FAIL_CLOSED_AUTHORIZATION",
+  "real_credential_used": false,
+  "real_authservice_request_sent": false,
+  "real_broker_get_sent": false,
+  "real_order_post_delete_sent": false,
+  "authorization_status": "NOT_ISSUED"
+}

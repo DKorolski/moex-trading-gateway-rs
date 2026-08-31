@@ -1,0 +1,31 @@
+id,requirement,evidence,status
+TRB-R0-R1-001,Generation 2 ceremony unchanged,public manifest hashes remain pinned,PASS
+TRB-R0-R1-002,Actual retained ceremony verifier required,gate invokes exact Rust verifier,PASS
+TRB-R0-R1-003,Private path environment only,verifier CLI rejects path arguments,PASS
+TRB-R0-R1-004,Typed public receipt emitted,receipt schema is deny-unknown-fields,PASS
+TRB-R0-R1-005,Receipt commit binding,source_ref equals reviewed commit,PASS
+TRB-R0-R1-006,Verifier source binding,receipt carries exact source digest,PASS
+TRB-R0-R1-007,Trust projection binding,receipt trust hash matches committed manifest,PASS
+TRB-R0-R1-008,Account projection binding,receipt account hash matches committed manifest,PASS
+TRB-R0-R1-009,All signing seeds verified,receipt reports 13 bindings,PASS
+TRB-R0-R1-010,Account key verified,receipt reports one account binding,PASS
+TRB-R0-R1-011,Filesystem invariants verified,receipt records inventory owner modes links and symlink checks,PASS
+TRB-R0-R1-012,Private path absent,receipt exact schema has no private path value,PASS
+TRB-R0-R1-013,Private values absent,receipt exports public hashes only,PASS
+TRB-R0-R1-014,Receipt signature isolated,dedicated verification domain is pinned,PASS
+TRB-R0-R1-015,Receipt signature verified,Ed25519 verification uses Generation 2 public key,PASS
+TRB-R0-R1-016,Handoff claims receipt-derived,counts and fingerprints are read from receipt,PASS
+TRB-R0-R1-017,Incident schema exact,unknown removed or changed fields fail closed,PASS
+TRB-R0-R1-018,Custody schema exact,unknown removed or changed fields fail closed,PASS
+TRB-R0-R1-019,Activation schema exact,unknown removed or changed fields fail closed,PASS
+TRB-R0-R1-020,Supersession schema exact,replacement hashes and stage are pinned,PASS
+TRB-R0-R1-021,Transition inventory exact,added or removed transition fields fail closed,PASS
+TRB-R0-R1-022,Preconditions exact and ordered,substitution or removal fails closed,PASS
+TRB-R0-R1-023,Targeted governance negatives,10 new source mutations fail closed,PASS
+TRB-R0-R1-024,Targeted receipt negatives,10 archive mutations fail closed,PASS
+TRB-R0-R1-025,Backup remains separate,REQUIRED_NOT_VERIFIED is preserved,PASS
+TRB-R0-R1-026,Generation 2 remains inactive,all activation fields remain false,PASS
+TRB-R0-R1-027,Authorization remains closed,authorization is NOT_ISSUED,PASS
+TRB-R0-R1-028,No production effects,FINAM installation dispatch Redis and runtime-live remain false,PASS
+TRB-R0-R1-029,No private handoff material,handoff safety rejects all ceremony secret names,PASS
+TRB-R0-R1-030,Temporary secret strings zeroized,generator and verifier use Zeroizing wrappers,PASS

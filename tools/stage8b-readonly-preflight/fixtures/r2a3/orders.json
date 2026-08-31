@@ -1,0 +1,32 @@
+{
+  "orders": [
+    {
+      "order_id": "ORDER-1",
+      "exec_id": "EXEC-1",
+      "status": "ORDER_STATUS_WORKING",
+      "order": {
+        "account_id": "ACCOUNT",
+        "symbol": "IMOEXF@RTSX",
+        "quantity": {"value": "1"},
+        "side": "SIDE_BUY",
+        "type": "ORDER_TYPE_LIMIT",
+        "time_in_force": "TIME_IN_FORCE_DAY",
+        "limit_price": {"value": "2210"},
+        "stop_price": null,
+        "stop_condition": null,
+        "legs": [],
+        "client_order_id": "S8BP000000000000001",
+        "valid_before": null,
+        "comment": "S8BP000000000000001"
+      },
+      "transact_at": "2026-08-25T12:00:00Z",
+      "accept_at": "2026-08-25T12:00:00Z",
+      "withdraw_at": null,
+      "initial_quantity": {"value": "1"},
+      "executed_quantity": {"value": "0"},
+      "remaining_quantity": {"value": "1"},
+      "sltp_order": null,
+      "triggered_order_id": null
+    }
+  ]
+}

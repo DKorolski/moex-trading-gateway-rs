@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Issuance Package R0-R1",
+  "purpose": "DESIGN_CLOSURE_ONLY_NOT_ACTIVATION_AUTHORITY",
+  "retrieved_at_utc": "2026-08-29T11:27:33Z",
+  "read_contract_snapshot_path": "docs/stage-8/stage8b-p-r2a3-finam-read-contract-snapshot.json",
+  "read_contract_snapshot_sha256": "7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5",
+  "helper_embedded_snapshot_sha256": "7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5",
+  "future_run_package_contract_snapshot_sha256": "7c8e6bcd02f907af93ea1386499d03bff194da76a1eb2b19dd9c2ff1f97403c5",
+  "document_count": 6,
+  "documents": [
+    {
+      "name": "auth",
+      "url": "https://api.finam.ru/docs/rest/authservice_auth.md",
+      "http_status": 200,
+      "content_type": "text/markdown",
+      "observed_bytes": 3631,
+      "observed_sha256": "1ec9a5651096d611616fbb22fd9945c7b228b5b130f306d870cee13ae2d2edc6",
+      "required_markers": ["**Path:** /v1/sessions", "\"token\": \"string\""],
+      "all_required_markers_present": true,
+      "matches_embedded_document": true
+    },
+    {
+      "name": "token_details",
+      "url": "https://api.finam.ru/docs/rest/authservice_tokendetails.md",
+      "http_status": 200,
+      "content_type": "text/markdown",
+      "observed_bytes": 3875,
+      "observed_sha256": "92781951badfe5ab9f3eeda60170a58b4a3a3518d8bceaec995b4d5103e69590",
+      "required_markers": ["**Path:** /v1/sessions/details", "\"account_ids\"", "\"readonly\""],
+      "all_required_markers_present": true,
+      "matches_embedded_document": true
+    },
+    {
+      "name": "get_account",
+      "url": "https://api.finam.ru/docs/rest/accountsservice_getaccount.md",
+      "http_status": 200,
+      "content_type": "text/markdown",
+      "observed_bytes": 5896,
+      "observed_sha256": "5f5b9c30a1a37facb9af8b56ee22d908ae2442c9e7e7eabbc8f158942a6d9487",
+      "required_markers": ["**Path:** /v1/accounts/{account_id}", "\"maintenance_margin\"", "\"portfolio_forts\""],
+      "all_required_markers_present": true,
+      "matches_embedded_document": true
+    },
+    {
+      "name": "trades",
+      "url": "https://api.finam.ru/docs/rest/accountsservice_trades.md",
+      "http_status": 200,
+      "content_type": "text/markdown",
+      "observed_bytes": 6984,
+      "observed_sha256": "ef0d7cee05843f55d0eded23e7f8bb535b91234cce0089f026529983573af6a3",
+      "required_markers": ["**Path:** /v1/accounts/{account_id}/trades", "\"comment\"", "\"currency\""],
+      "all_required_markers_present": true,
+      "matches_embedded_document": true
+    },
+    {
+      "name": "get_orders",
+      "url": "https://api.finam.ru/docs/rest/ordersservice_getorders.md",
+      "http_status": 200,
+      "content_type": "text/markdown",
+      "observed_bytes": 6729,
+      "observed_sha256": "7ebf7e9ab8f5d4c512e61c1a7a9a954ac35f57b419326e950296ef8e3e2dc6b4",
+      "required_markers": ["**Path:** /v1/accounts/{account_id}/orders", "\"triggered_order_id\""],
+      "all_required_markers_present": true,
+      "matches_embedded_document": true
+    },
+    {
+      "name": "get_order",
+      "url": "https://api.finam.ru/docs/rest/ordersservice_getorder.md",
+      "http_status": 200,
+      "content_type": "text/markdown",
+      "observed_bytes": 6613,
+      "observed_sha256": "2355de318f5ebed527b84a0006c0032336f077d867d3bb7a8851695d4f226f64",
+      "required_markers": ["**Path:** /v1/accounts/{account_id}/orders/{order_id}", "\"triggered_order_id\""],
+      "all_required_markers_present": true,
+      "matches_embedded_document": true
+    }
+  ],
+  "all_http_200": true,
+  "all_match_embedded_snapshot": true,
+  "credentials_used": false,
+  "authservice_called": false,
+  "broker_get_sent": false,
+  "activation_refresh_required": true,
+  "activation_max_age_seconds": 1800
+}

@@ -1,0 +1,67 @@
+id,area,requirement,evidence,expected
+R2BI-R1-001,lineage,accepted R4-R2A predecessor exact,machine authority,PASS
+R2BI-R1-002,lineage,R0 corrective source exact,machine authority,PASS
+R2BI-R1-003,authorization,R2B remains NOT_ISSUED,machine authority,PASS
+R2BI-R1-004,activation,aggregate target absent,checker and repository,PASS
+R2BI-R1-005,contract,exact six read/auth documents,refresh evidence,PASS
+R2BI-R1-006,contract,exact official URLs,refresh evidence,PASS
+R2BI-R1-007,contract,all public responses HTTP 200,refresh evidence,PASS
+R2BI-R1-008,contract,all bytes and hashes match embedded snapshot,refresh evidence,PASS
+R2BI-R1-009,contract,all required route and schema markers present,refresh evidence,PASS
+R2BI-R1-010,contract,authority SHA equals embedded helper SHA,checker,PASS
+R2BI-R1-011,contract,future run-package SHA equals embedded helper SHA,checker,PASS
+R2BI-R1-012,contract,seven effect documents not sufficient for R2B,machine authority,PASS
+R2BI-R1-013,contract,activation refresh repeated within 1800 seconds,machine authority,PASS
+R2BI-R1-014,contract,no credentials AuthService or broker GET during refresh,refresh evidence,PASS
+R2BI-R1-015,package,separate draft builder selected,machine authority,PASS
+R2BI-R1-016,package,draft builder has no signing key,machine authority,PASS
+R2BI-R1-017,package,draft builder has no credentials or network,machine authority,PASS
+R2BI-R1-018,package,draft input fixed paths frozen,machine authority,PASS
+R2BI-R1-019,package,all eleven exact receipts required,machine authority,PASS
+R2BI-R1-020,package,mixed run nonces and stale receipts rejected,machine authority,PASS
+R2BI-R1-021,package,controlled fixture producer forbidden,machine authority,PASS
+R2BI-R1-022,package,unsigned path owner mode frozen,machine authority,PASS
+R2BI-R1-023,package,unsigned publish atomic and durable,machine authority,PASS
+R2BI-R1-024,package,existing unsigned output cannot be reused,machine authority,PASS
+R2BI-R1-025,package,signature field empty before signer,machine authority,PASS
+R2BI-R1-026,package,package validity exactly 30 seconds,machine authority,PASS
+R2BI-R1-027,package,signer alone owns authorization key,machine authority,PASS
+R2BI-R1-028,transaction,service invocation count exactly 31,checker,PASS
+R2BI-R1-029,transaction,six exact phase target names frozen,machine authority,PASS
+R2BI-R1-030,transaction,phase targets require and order all services,machine authority,PASS
+R2BI-R1-031,transaction,downstream requires and orders predecessor,machine authority,PASS
+R2BI-R1-032,transaction,failure or skip blocks downstream,machine authority,PASS
+R2BI-R1-033,transaction,partial producer or issuer fanout rejected,machine authority,PASS
+R2BI-R1-034,transaction,package issuer requires builder,machine authority,PASS
+R2BI-R1-035,transaction,supervisor requires signer,machine authority,PASS
+R2BI-R1-036,transaction,stale output cannot satisfy current run,machine authority,PASS
+R2BI-R1-037,implementation,builder target and phase units absent,checker,PASS
+R2BI-R1-038,implementation,no Rust Cargo or binary change,git differential gate,PASS
+R2BI-R1-039,closed,FINAM POST DELETE Redis dispatch runtime live closed,machine authority,PASS
+R2BI-R1-040,closed,operator selection nonce credentials and package absent,machine authority,PASS
+R2BI-R1A-041,builder,seven fixed inputs frozen with exact order path custody producer nonce and freshness,machine authority,PASS
+R2BI-R1A-042,receipts,eleven receipt source names frozen in exact order,machine authority,PASS
+R2BI-R1A-043,receipts,producer service instances and UIDs frozen per source,machine authority,PASS
+R2BI-R1A-044,receipts,issuer service instances and UIDs frozen per source,machine authority,PASS
+R2BI-R1A-045,receipts,receipt paths authority types schemas and max ages frozen per source,machine authority,PASS
+R2BI-R1A-046,transaction,six phase objects frozen exactly including ordinals and predecessor links,machine authority,PASS
+R2BI-R1A-047,transaction,all 31 service names and their phase-local order frozen,machine authority,PASS
+R2BI-R1A-048,builder,draft builder executable service identity output and custody frozen,machine authority,PASS
+R2BI-R1A-049,builder,draft builder remains networkless and without signing credential access,machine authority,PASS
+R2BI-R1A-050,signer,signer executable service identity fixed input and key custody frozen,machine authority,PASS
+R2BI-R1A-051,signer,signed output path custody durability and builder-before-signer order frozen,machine authority,PASS
+R2BI-R1A-052,read-contract,refresh evidence path snapshot inventory and 1800 second maximum age frozen,machine authority,PASS
+R2BI-R1A-053,negative,twenty-nine R1A exact identity and path mutations rejected,targeted negative harness,PASS
+R2BI-R1A-054,closed,R1A changes governance evidence only and leaves implementation authorization and effects absent,git differential and machine authority,PASS
+R2BI-R1A1-055,refresh,refresh evidence has exact top-level schema,strict-schema checker,PASS
+R2BI-R1A1-056,refresh,six refresh documents are unique complete and in canonical order,strict-schema checker,PASS
+R2BI-R1A1-057,refresh,every refresh document record has exact field inventory,strict-schema checker,PASS
+R2BI-R1A1-058,schema,authority top-level and lineage objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-059,schema,builder output and package-formation objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-060,schema,future activation and transaction objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-061,schema,barrier implementation-state and operator-input objects are canonical exact values,strict-schema checker,PASS
+R2BI-R1A1-062,schema,authorization and closed-surface objects are canonical exact values,strict-schema checker,PASS
+R2BI-R1A1-063,evidence,issuance evidence top-level and nested objects have exact schemas,strict-schema checker,PASS
+R2BI-R1A1-064,matrix,acceptance matrix bytes row IDs order uniqueness and count are pinned,strict-schema checker,PASS
+R2BI-R1A1-065,negative,twelve strict-schema and refresh-exhaustiveness mutations rejected,targeted negative harness,PASS
+R2BI-R1A1-066,closed,R1A1 remains governance-only with R2B not issued and every effect surface closed,git differential and machine authority,PASS

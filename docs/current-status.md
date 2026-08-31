@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-23.
+Status date: 2026-08-30.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,94 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
+
+- Stage 8B-P R2B Implementation R0-R1A is independently accepted at
+  `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
+  Transaction Proof R0 is independently accepted as a design-only boundary at
+  `1e4db79288b0809fd5975edfdd0fc14740bcc8c6`; its immutable archive
+  `moex-trading-project-1e4db79.zip` has SHA-256
+  `5d55ccd8a585d6da780531aa237c9fba215328bce502b1099a8dc5aa3c22faea`.
+  Initial Controlled Installation Implementation R0 preflight at `b9f0c43` was
+  not accepted because it incorrectly claimed aggregate success under no
+  network, mixed a fresh canary domain with production authority, omitted the
+  graph trigger and had an incomplete uninstall inventory. The current
+  R1 at `9fd9fa9` closed those findings but was not accepted because its
+  production oracle could accept an auth/client failure before any request.
+  The current candidate is **Implementation R0 Preflight R1A**. It additionally
+  requires exact typed evidence for failed attempt #1, `POST /v1/sessions`,
+  with only request-level network failure or timeout and every effect flag
+  closed. It retains the proof-only aggregate trigger, all 19 unit removals,
+  all 12 binary removals, final systemd image and fresh-handoff source mount.
+  The preflight has not
+  created a container, installed a unit, materialized a key or executed the
+  proof. R2B remains
+  `NOT_ISSUED`; FINAM network, AuthService and broker GET, POST/DELETE, broker
+  dispatch, Redis live, runtime-live and real orders remain closed.
+
+- Stage 8B-P R2A8-R1 is independently accepted at
+  `5b2079d7d524d2fa6f084f44f961c4b5958c042a`; its immutable handoff is
+  `moex-trading-project-5b2079d.zip`, SHA-256
+  `903df69b800477706f4b2e95097fe84174f42e89b0a85a4b5fa94430619acb6a`.
+- The Stage 8B-P R2B proposals through R4 at `293dbad` were not accepted.
+  The active candidate is **Stage 8B-P R2B Proposal R4-R2A Acceptance
+  Closure**, a design-only
+  runtime-isolation, typed-terminal and reachable-creator correction. It keeps
+  the owner-mediated creator/stager chain and adds a built creator entrypoint,
+  fail-closed Yama plus exclusive UID8301 admission, pre-runtime nondumpability,
+  an exact typed terminal protocol, canonical root verdict, one monotonic
+  pidfd-backed child deadline, bounded reap and crash-durable chmod metadata.
+  R4-R2 adds the missing no-argument production publisher ahead of the creator
+  and retains R4-R1's removal of the creator's cyclic dependency: an
+  independently owner-signed upstream authority drives empty-root generation
+  1, while an optional predecessor binds only N-to-N+1 continuity.
+  Independent review withdrew the previously alleged production dependency
+  cycle: the accepted R2A8-R1 current source is external input C0 and the R2B
+  writer creates later output C1. The narrow R4-R2A closure freezes this
+  distinction, corrects controlled-fixture wording, adds the missing exact
+  writer oneshot unit and exact R4-R2 evidence naming. Independent review
+  accepted the closure at `f24f1044ac0b29c2f588853b817e519cfe8d3d8b`
+  after the deployment-only systemd syntax microfix. The exact
+  publisher/creator/stager/writer units place
+  `RefuseManualStart=yes` under `[Unit]`, omit unsupported
+  `ConditionPathIsRegular=`, and are covered by a section-aware checker plus a
+  target-version parser gate. R4-R2A is formally closed.
+  Issuance Package R0 at `928168ed47e5b9dd873cd73815fbccecde7a8981`
+  retained the correct design direction but was not accepted: its refresh used
+  the seven-document effect inventory rather than the six-document read/auth
+  snapshot embedded by the R2B helper, and its 30-service graph had no
+  production producer for the package issuer's unsigned draft. The narrow
+  **Stage 8B-P R2B Issuance Package R0-R1A1 Strict Schema Freeze** was
+  independently accepted at
+  `ebec9a100c92872134f3de91644cec50e2ed073a`. It binds Auth,
+  TokenDetails, GetAccount, Trades, GetOrders and
+  GetOrder to embedded snapshot SHA-256 `7c8e6bcd...03c5`, records a fresh 6/6
+  public-doc match, and selects a separate no-signing-key draft builder. The
+  fail-closed graph contains 31 service invocations in six exact phase targets
+  with failure, skip, partial-fanout, mixed-nonce and stale-output propagation
+  frozen. R0-R1A freezes seven ordered builder inputs, eleven source-specific
+  producer/issuer/UID/receipt mappings, all six complete phase objects, the
+  sole signer identity and read-refresh provenance. R0-R1A1 additionally
+  enforces exact dictionary
+  keysets, the unique ordered six-document refresh inventory and byte-pinned
+  acceptance rows. Its 66 acceptance rows and 66 targeted negatives comprise
+  the retained 25/25 and 29/29 matrices plus 12/12 strict-schema mutations.
+  R0-R1A1 is the accepted design predecessor.
+  The active candidate is **Stage 8B-P R2B Implementation Package R0**. It
+  materializes the no-argument production draft builder, independent package
+  signer revalidation, six phase targets and aggregate target as source only.
+  The graph is statically frozen at 31 service invocations; every barrier uses
+  exact `Requires=` plus `After=`, targets stop when unneeded, oneshots retain
+  no active success state, and unsigned/signed package creation is no-replace.
+  The implementation checker passes 52 acceptance rows and rejects 70/70
+  targeted mutations. Isolated Ubuntu 24.04 systemd 255 verification passes
+  all 18 units without loading or starting them. Implementation R0 requires
+  independent review before any activation work. The units are not installed,
+  enabled or started. R2B authorization remains `NOT_ISSUED`; operator
+  selection, run nonce, credentials and unsigned/signed run packages are
+  absent.
+- FINAM network access, account-order POST/DELETE, Redis live consumption,
+  broker dispatch, runtime-live, strategy-live and real orders remain closed.
+  Proposal R4-R2 does not authorize a credential read or any broker request.
 
 - Stage 8B-D R1 at `b3358ba2268da3db4eb8352c097495ebb85575d7` retained the
   proposed bounded-effect architecture but was not accepted as a frozen transition

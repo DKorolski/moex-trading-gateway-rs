@@ -1,0 +1,28 @@
+[Unit]
+Description=MOEX Stage 8B R2A8 trusted current-manifest issuer
+RefuseManualStart=yes
+Requires=moex-stage8b-r2b-phase1-current-source.target
+After=moex-stage8b-r2b-phase1-current-source.target
+
+[Service]
+Type=oneshot
+User=m8m8096
+Group=m8m8096
+SupplementaryGroups=m8a8095
+ExecStart=/opt/moex-trading/stage8b-r2a8/bin/stage8b-r2a8-current-manifest-issuer --one-shot-production
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+ReadOnlyPaths=/var/lib/moex-trading/stage8b/r2a8/current-source
+ReadWritePaths=/var/lib/moex-trading/stage8b/r2a7/production
+SystemCallArchitectures=native
+UMask=0022

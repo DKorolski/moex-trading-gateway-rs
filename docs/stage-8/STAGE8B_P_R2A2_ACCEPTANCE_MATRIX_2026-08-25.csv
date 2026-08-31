@@ -1,0 +1,36 @@
+id,area,requirement,evidence,status
+R2A2-001,lineage,Accepted R1B remains the semantic predecessor,authority+inherited gate,PASS
+R2A2-002,scope,R2A2 remains no-credential and no-real-network,main+authority+gate,PASS
+R2A2-003,manifest,Closed PLACE/CANCEL union and run digest are recomputed,source+tests,PASS
+R2A2-004,manifest,Accepted effect build source archive executable are exact,source+negative,PASS
+R2A2-005,manifest,Config policy API instrument renderer authorities are exact,source+negative,PASS
+R2A2-006,manifest,Dynamic boot generation checkpoint ownership claims are authenticated,source+tests,PASS
+R2A2-007,manifest,Expiry is canonical current and at most 60000 ms ahead,source+negative,PASS
+R2A2-008,manifest,PLACE decimal and checked notional semantics are exact,source+tests,PASS
+R2A2-009,manifest,CANCEL request client lifecycle and proof are exact,source+tests,PASS
+R2A2-010,account,Accepted domain-separated account HMAC is recomputed,source+test,PASS
+R2A2-011,account,Account HMAC comparison is constant-time,source+negative,PASS
+R2A2-012,account,Account key generation is exact,source+test,PASS
+R2A2-013,endpoint,Accepted R1B endpoint identity is recomputed,source+negative,PASS
+R2A2-014,provenance,Exactly eleven pre-network local sources exist,authority+checker,PASS
+R2A2-015,provenance,Each source has its own authenticated HMAC receipt,source+test,PASS
+R2A2-016,provenance,Key directory is fixed and not caller-selected,source+launcher+checker,PASS
+R2A2-017,chronology,Broker sources cannot be supplied before network,source+test,PASS
+R2A2-018,chronology,Token account is derived from same-run TokenDetails,source+test,PASS
+R2A2-019,chronology,Broker truth is reduced only after fresh GETs,controlled pipeline test,PASS
+R2A2-020,dto,Required response DTOs deny unknown fields,source+negative,PASS
+R2A2-021,dto,Empty or wrong response shape blocks,tests,PASS
+R2A2-022,reducer,PLACE requires exact position baseline and no active orders,source+tests,PASS
+R2A2-023,reducer,CANCEL exact and list views agree and remain working,source+tests,PASS
+R2A2-024,reducer,Wrong account instrument order and unknown status block,tests,PASS
+R2A2-025,reducer,Full 1000-trade page blocks,source+inherited query policy,PASS
+R2A2-026,bounds,Endpoint-specific declared and streamed response caps apply,source+tests,PASS
+R2A2-027,tls,Valid controlled CA and hostname succeed,controlled rustls test,PASS
+R2A2-028,tls,Wrong CA and hostname fail before HTTP,controlled rustls test,PASS
+R2A2-029,privacy,Token/raw response body hashes are not exported,source+negative,PASS
+R2A2-030,launch,External fixed-path exact digest check precedes exec,launcher+gate,PASS
+R2A2-031,launch,R2A2 executable embeds qualified source and exits fail-closed,main+release gate,PASS
+R2A2-032,regression,Inherited R1 R1A R1B 134 mutations pass,inherited gate,PASS
+R2A2-033,negative,R2A2 source-bound mutations pass 26 of 26,negative harness,PASS
+R2A2-034,boundary,Arm dispatch effect POST DELETE Redis runtime-live remain closed,authority+checker,PASS
+R2A2-035,status,Authorization remains NOT_ISSUED,authority+gate,PASS

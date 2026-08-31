@@ -1,0 +1,27 @@
+[Unit]
+Description=MOEX Stage 8B R2A7 production recovery-reader source adapter
+RefuseManualStart=yes
+Requires=stage8b-r2a8-current-manifest-issuer.service
+After=stage8b-r2a8-current-manifest-issuer.service
+
+[Service]
+Type=oneshot
+User=m8a8095
+Group=m8a8095
+ExecStart=/opt/moex-trading/stage8b-r2a7/bin/stage8b-r2a7-source-adapter --one-shot-production
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+ReadOnlyPaths=/var/lib/moex-trading/stage8b/r2a7/production /var/lib/moex-trading/stage8a1-authority
+ReadWritePaths=/var/lib/moex-trading/stage7b /var/lib/moex-trading/operational-authorities
+SystemCallArchitectures=native
+UMask=0022

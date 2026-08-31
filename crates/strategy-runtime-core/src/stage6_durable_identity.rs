@@ -481,6 +481,13 @@ impl Stage6DurableCommandSnapshotV1 {
         }
     }
 
+    pub fn created_at_utc(&self) -> DateTime<Utc> {
+        match &self.payload {
+            Stage6DurableCommandPayloadV1::Place { created_ts, .. }
+            | Stage6DurableCommandPayloadV1::Cancel { created_ts, .. } => *created_ts,
+        }
+    }
+
     pub fn place_order_shape(&self) -> Option<Stage6DurablePlaceOrderShapeV1> {
         match &self.payload {
             Stage6DurableCommandPayloadV1::Place {

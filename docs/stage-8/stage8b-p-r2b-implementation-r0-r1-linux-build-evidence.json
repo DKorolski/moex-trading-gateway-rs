@@ -1,0 +1,49 @@
+{
+  "all_hashes_identical": true,
+  "binaries": {
+    "stage8b-r2a5-package-issuer": {
+      "build_a_sha256": "4c40e0c56bc9cb1d133eb79d73b44510d8e0a083c6bb20192eddcbf7f48329c9",
+      "build_b_sha256": "4c40e0c56bc9cb1d133eb79d73b44510d8e0a083c6bb20192eddcbf7f48329c9",
+      "executable_size": 1196696,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2b-launcher": {
+      "build_a_sha256": "effb4ff73fe375665cf4416806216d82727a40f0b2040333eda927bcda5bae55",
+      "build_b_sha256": "effb4ff73fe375665cf4416806216d82727a40f0b2040333eda927bcda5bae55",
+      "executable_size": 1487512,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2b-run-package-draft-builder": {
+      "build_a_sha256": "b63f5fb798cf34335fd5482e62782cc439dab00ba0e2459e294f086603981272",
+      "build_b_sha256": "b63f5fb798cf34335fd5482e62782cc439dab00ba0e2459e294f086603981272",
+      "executable_size": 1143448,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-readonly-preflight": {
+      "build_a_sha256": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065",
+      "build_b_sha256": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065",
+      "executable_size": 5691296,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    }
+  },
+  "build_profile": "release",
+  "builder_platform": "linux/arm64",
+  "cargo_command": "cargo build --locked --release --no-default-features --target x86_64-unknown-linux-musl --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bin stage8b-r2b-run-package-draft-builder --bin stage8b-r2a5-package-issuer --bin stage8b-readonly-preflight --bin stage8b-r2b-launcher",
+  "clean_target_directories": 2,
+  "container_image": "messense/rust-musl-cross:x86_64-musl@sha256:020ec7f60e63ace4338f8cb492bb2521071d089133732d0fc6a0ecea722b87c5",
+  "controlled_custody_feature": false,
+  "cross_compiled": true,
+  "default_features": false,
+  "path_remap": "/src=/usr/src/moex-trading-project",
+  "production_helper_feature": "no-default-features",
+  "production_launcher_pins_helper_sha256": "2b205299cd7bb35325af55a6a0d54b81b043a23ffa95cdbeec852f3047ece065",
+  "result": "PASS",
+  "schema_version": 1,
+  "source_mount": "/src:ro",
+  "stage": "Stage 8B-P R2B Implementation Package R0-R1A",
+  "target": "x86_64-unknown-linux-musl"
+}

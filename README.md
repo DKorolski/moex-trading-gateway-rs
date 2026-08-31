@@ -45,17 +45,20 @@ The Stage 8B-I candidates at `a52fbca` and `21426ee` remained fail-closed but
 were not accepted. Corrective Stage 8B-I R3 was independently accepted and
 merged exactly at `0af222f`. The first Stage 8B-IT candidate `e440539` was
 rejected because same-crate construction, repeatable extraction and raw
-observation escape remained possible. Corrective Stage 8B-IT R2 is active: its
-request parts are module-private, its adapter is a private child of the permit
-module, the exact Stage 8A-2 continuation is consumed once, and the adapter
-returns only the mandatory Stage 8A-3 classified observation. It still has one
-PLACE path, one CANCEL path and one controlled transport attempt, with
-redirects, proxies, retry/resend and production endpoint construction disabled.
+observation escape remained possible. Corrective Stage 8B-IT R3 is accepted
+and merged. Controlled TLS and Stage 8B-P governance/preconditions are also
+accepted. Stage 8B-P R1B is accepted; R2A through R2A7 record the fail-closed
+qualification lineage. Corrective R2A8-R1 is independently accepted at
+`5b2079d`: it preserves full authenticated readiness semantics, enforces exact
+lifecycle-key custody and passes full controlled PLACE/CANCEL qualification.
+The active R2B artifact is design-only and `NOT_ISSUED`; it freezes the proposed
+one-shot read-only endpoint, executable, credential, sandbox, validation and
+evidence contract without reading a credential or opening network access.
 
 FINAM production POST/DELETE, Redis live consumption, broker dispatch,
 runtime-live, real strategy orders and Stage 8B execution authority remain
-closed. Controlled TLS qualification is an explicit blocking precondition for
-Stage 8B-P and is not claimed by IT R2.
+closed. R2B requires independent proposal acceptance and a later separate exact
+issuance package before any read-only FINAM evidence run.
 
 This repository is not enabled for continuous live trading.
 

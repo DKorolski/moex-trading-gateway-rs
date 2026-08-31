@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "stage": "8B-P",
+  "revision": "R2A2",
+  "status": "candidate_pending_independent_acceptance",
+  "implementation_source_ref": "55c598066e67d338f515c9c8f70015ae37f4fc63",
+  "implementation_source_sha256": "2857b81613e05ed432f1c712d038fb752b818e62a1ead6f0fc3e308619c30309",
+  "qualification_main_sha256": "92058bd209b6423d6f4ec4f17ef22a3c2dcba9c3e33d346b21bb7a1bd16eb68e",
+  "helper": {
+    "workspace": "tools/stage8b-readonly-preflight",
+    "build_profile": "release",
+    "executable_sha256": "0c6dcde920de131863fe12632b0e3092f30fedc796e4627873cea89b6aace363",
+    "exact_external_digest_check_before_exec": true,
+    "self_hash_is_authority": false,
+    "production_network_entry": false
+  },
+  "qualification": {
+    "unit_and_controlled_tests_passed": 22,
+    "unit_and_controlled_tests_total": 22,
+    "new_negative_mutations_passed": 26,
+    "new_negative_mutations_total": 26,
+    "inherited_r1_r1a_r1b_negative_mutations_passed": 134,
+    "inherited_r1_r1a_r1b_negative_mutations_total": 134,
+    "fmt": "PASS",
+    "clippy_deny_warnings": "PASS",
+    "release_build": "PASS",
+    "controlled_tls_valid_chain_hostname": "PASS",
+    "controlled_tls_wrong_ca": "REJECTED_BEFORE_HTTP",
+    "controlled_tls_wrong_hostname": "REJECTED_BEFORE_HTTP",
+    "full_gate_exit_code": 0
+  },
+  "closed_surfaces": {
+    "real_credential_used": false,
+    "real_auth_post_sent": false,
+    "real_broker_get_sent": false,
+    "operator_arm_issued": false,
+    "dispatch_attempt_recorded": false,
+    "effect_transport_entered": false,
+    "finam_order_post_delete_sent": false,
+    "redis_execution": false,
+    "runtime_live": false,
+    "authorization_status": "NOT_ISSUED"
+  }
+}

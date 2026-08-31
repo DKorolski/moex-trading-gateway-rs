@@ -1,0 +1,31 @@
+id,requirement,status
+TRB-R0-001,Accepted predecessor is exact a2586c4 authority JSON,PASS
+TRB-R0-002,Generation-1 public lineage remains byte-immutable checker hash pins,PASS
+TRB-R0-003,Generation-1 private material is declared lost supersession JSON,PASS
+TRB-R0-004,Generation-1 authorization remains NOT_ISSUED authority JSON,PASS
+TRB-R0-005,Generation-1 issued package count is zero supersession JSON,PASS
+TRB-R0-006,Generation-1 installation count is zero supersession JSON,PASS
+TRB-R0-007,Generation-1 FINAM request count is zero supersession JSON,PASS
+TRB-R0-008,Generation-2 trust manifest is public-only manifest JSON,PASS
+TRB-R0-009,Generation-2 account manifest is public-only manifest JSON,PASS
+TRB-R0-010,Authorization key generation is exactly two trust manifest,PASS
+TRB-R0-011,Helper key generation is exactly two trust manifest,PASS
+TRB-R0-012,All eleven source-key generations are exactly two trust manifest,PASS
+TRB-R0-013,Account generation is exactly two account manifest,PASS
+TRB-R0-014,Accepted v1 signature-domain key IDs are preserved checker,PASS
+TRB-R0-015,All generation-2 public keys differ from generation one checker,PASS
+TRB-R0-016,Trust-manifest SHA-256 is exact checker,PASS
+TRB-R0-017,Public-key-set SHA-256 is exact checker,PASS
+TRB-R0-018,Authorization-key SHA-256 is exact checker,PASS
+TRB-R0-019,Account-manifest SHA-256 is exact checker,PASS
+TRB-R0-020,Private ceremony is outside repository authority JSON,PASS
+TRB-R0-021,Private ceremony is absent from handoff authority JSON,PASS
+TRB-R0-022,Generator rejects temporary and source-tree paths Rust tests,PASS
+TRB-R0-023,Verifier requires exact directory and file modes Rust verifier,PASS
+TRB-R0-024,Verifier checks all thirteen private/public bindings Rust verifier,PASS
+TRB-R0-025,Verifier checks account-key binding Rust verifier,PASS
+TRB-R0-026,Encrypted offline backup remains required authority JSON,PASS
+TRB-R0-027,Generation-2 activation remains false authority JSON,PASS
+TRB-R0-028,Production binary rebuild remains false authority JSON,PASS
+TRB-R0-029,Package authorization remains NOT_ISSUED authority JSON,PASS
+TRB-R0-030,All FINAM execution and runtime-live surfaces remain closed authority JSON,PASS

@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "authority_kind": "stage8b_p_r2a2_semantic_provenance_qualification",
+  "stage": "8B-P",
+  "revision": "R2A2",
+  "status": "candidate_pending_independent_acceptance",
+  "accepted_predecessor": "b9a423c4ffd96bf4a5f69027aa4fef4dcc503830",
+  "r2a1_transport_topology_retained": {
+    "PLACE": ["POST AuthService session", "POST AuthService details", "GET account orders", "GET account trades", "GET account positions"],
+    "CANCEL": ["POST AuthService session", "POST AuthService details", "GET exact order", "GET account orders", "GET account trades", "GET account positions"],
+    "retry": "never",
+    "redirect": "none",
+    "proxy": "disabled",
+    "production_network_entry_enabled": false
+  },
+  "pre_network_local_authorities": {
+    "count": 11,
+    "provenance": "source_specific_hmac_sha256_receipts",
+    "receipt_domain": "stage8b-p-r2a2-local-authority-receipt-v1",
+    "minimum_key_bytes": 32,
+    "accepted_key_generation_id": "1",
+    "keys_are_source_specific": true,
+    "caller_selected_key_path_allowed": false,
+    "production_key_directory": "/var/lib/moex-trading/stage8b/r2a2/local-authority-keys",
+    "sources": [
+      "trusted_clock",
+      "stage7b_current_recovery_seal",
+      "stage6_exact_dispatch_ready_command",
+      "stage8a_root_config_policy_control",
+      "composite_readiness",
+      "kill_switch_run_allowed",
+      "single_finam_ownership",
+      "schedule",
+      "instrument_specification",
+      "ambiguity_orphan_unresolved_lifecycle",
+      "durable_micro_budget"
+    ],
+    "broker_derived_sources_allowed": false
+  },
+  "manifest_validation": {
+    "accepted_r1b_fixed_identities_exact": true,
+    "dynamic_receipt_claims_exact": true,
+    "canonical_run_identity_recomputed": true,
+    "run_expiry_max_ahead_ms": 60000,
+    "canonical_decimal_and_checked_notional": true,
+    "cancel_request_client_lifecycle_exact": true,
+    "account_binding": {
+      "algorithm": "HMAC-SHA256",
+      "domain": "moex-stage8b-account-binding-v1",
+      "encoding": "domain || 00 || u32be(account_utf8_len) || account_utf8",
+      "constant_time_verify": true,
+      "key_generation_exact": true,
+      "raw_account_exported": false,
+      "production_key_directory": "/var/lib/moex-trading/stage8b/r2a2/account-binding-keys"
+    },
+    "endpoint_identity_recomputed_from_accepted_r1b_formula": true,
+    "http_client_created_before_validation": false
+  },
+  "chronology": [
+    "validate authenticated local authorities",
+    "verify keyed raw-account binding and endpoint identity",
+    "AuthService session and details",
+    "derive exact token account binding",
+    "fresh BrokerTruth GETs",
+    "strict typed parse and operation-specific reduction",
+    "redacted non-authority evidence"
+  ],
+  "strict_broker_truth": {
+    "unknown_or_missing_required_shape": "BLOCK",
+    "target_instrument": "IMOEXF@RTSX",
+    "trades_page_limit": 1000,
+    "full_trades_page": "BLOCK",
+    "position_must_equal_approved_baseline": true,
+    "cancel_exact_order_must_match_list": true,
+    "cancel_exact_order_must_be_working": true,
+    "unknown_order_status": "BLOCK",
+    "raw_bodies_exported": false
+  },
+  "response_caps_bytes": {
+    "auth": 65536,
+    "exact_order": 262144,
+    "orders": 4194304,
+    "trades": 16777216,
+    "account": 4194304
+  },
+  "tls_qualification": {
+    "standalone_helper_build": true,
+    "controlled_valid_ca_and_hostname": "PASS",
+    "wrong_ca_rejected_before_http": true,
+    "wrong_hostname_rejected_before_http": true,
+    "dangerous_accept_invalid_certificate_override": false,
+    "dangerous_accept_invalid_hostname_override": false
+  },
+  "evidence_privacy": {
+    "token_raw_body_digest_exported": false,
+    "attempt_receipt_domain": "stage8b-p-r2a2-redacted-attempt-receipt-v1",
+    "broker_truth_receipt_domain": "stage8b-p-r2a2-broker-truth-semantic-receipt-v1"
+  },
+  "helper_launch": {
+    "self_hash_is_authority": false,
+    "external_exact_digest_launcher_required_before_r2b": true,
+    "r2a2_binary_network_entry": "FAIL_CLOSED"
+  },
+  "closed_surfaces": {
+    "real_finam_credential": true,
+    "real_auth_post": true,
+    "real_broker_get": true,
+    "operator_arm": true,
+    "dispatch_attempt": true,
+    "effect_transport": true,
+    "finam_order_post_delete": true,
+    "broker_effect": true,
+    "redis_execution": true,
+    "runtime_live": true,
+    "authorization_status": "NOT_ISSUED"
+  }
+}
