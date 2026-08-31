@@ -13,7 +13,10 @@ python3 -m py_compile \
   scripts/stage8b_p_r2b_generation2_composition_rebuild_r0_issue_helper.py \
   scripts/stage8b_p_r2b_generation2_composition_r0_materialize_phase6.py \
   scripts/stage8b_p_r2b_generation2_composition_r0_check.py \
-  scripts/stage8b_p_r2b_generation2_composition_r0_negative_harness.py
+  scripts/stage8b_p_r2b_generation2_composition_r0_negative_harness.py \
+  scripts/stage8b_p_r2b_generation2_composition_r0_handoff_safety_check.py \
+  scripts/stage8b_p_r2b_generation2_composition_r0_handoff_negative_harness.py \
+  scripts/make_stage8b_p_r2b_generation2_composition_r0_handoff.py
 bash -n \
   scripts/stage8b_p_r2b_generation2_composition_rebuild_r0_build_linux.sh \
   scripts/stage8b_p_r2b_generation2_composition_r0_phase6_runner.sh
