@@ -24,7 +24,7 @@ use stage8b_readonly_preflight::r2a5::{
 const HELPER: &str = "/opt/moex-trading/stage8b-r2b/bin/stage8b-readonly-preflight";
 #[cfg(any(target_os = "linux", test))]
 const ACCEPTED_SHA256: &str =
-    include_str!("../../../../docs/stage-8/stage8b-p-r2b-accepted-helper-sha256.txt");
+    include_str!("../../../../docs/stage-8/stage8b-p-r2b-generation2-accepted-helper-sha256.txt");
 #[cfg(target_os = "linux")]
 const CHILD_TIMEOUT_MS: i32 = 120_000;
 #[cfg(all(target_os = "linux", feature = "stage8b-r2b-controlled-custody"))]

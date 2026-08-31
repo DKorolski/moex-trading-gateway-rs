@@ -353,6 +353,47 @@ pub(crate) fn validate_signed_authorities(
     expected_run_nonce: &str,
     now: DateTime<Utc>,
 ) -> Result<(ValidatedManifest, ValidatedLocalAuthorities), R2a3Error> {
+    let expected_key_generations = public_keys
+        .keys()
+        .map(|source| {
+            (
+                source.clone(),
+                r2a2::LOCAL_RECEIPT_KEY_GENERATION_ID.to_owned(),
+            )
+        })
+        .collect();
+    validate_signed_authorities_for_key_generations(
+        manifest_bytes,
+        envelope_bytes,
+        public_keys,
+        &expected_key_generations,
+        expected_run_nonce,
+        now,
+    )
+}
+
+pub(crate) fn generation_one_key_generations(
+    public_keys: &BTreeMap<String, VerifyingKey>,
+) -> BTreeMap<String, String> {
+    public_keys
+        .keys()
+        .map(|source| {
+            (
+                source.clone(),
+                r2a2::LOCAL_RECEIPT_KEY_GENERATION_ID.to_owned(),
+            )
+        })
+        .collect()
+}
+
+pub(crate) fn validate_signed_authorities_for_key_generations(
+    manifest_bytes: &[u8],
+    envelope_bytes: &[u8],
+    public_keys: &BTreeMap<String, VerifyingKey>,
+    expected_key_generations: &BTreeMap<String, String>,
+    expected_run_nonce: &str,
+    now: DateTime<Utc>,
+) -> Result<(ValidatedManifest, ValidatedLocalAuthorities), R2a3Error> {
     let envelope: SignedAuthorityEnvelope = serde_json::from_slice(envelope_bytes)?;
     if envelope.schema_version != 1
         || envelope.run_nonce_sha256 != expected_run_nonce
@@ -367,7 +408,11 @@ pub(crate) fn validate_signed_authorities(
         .iter()
         .map(|signed| signed.receipt.source_name.as_str())
         .collect::<BTreeSet<_>>();
-    if required != actual || public_keys.len() != required.len() {
+    if required != actual
+        || public_keys.keys().collect::<BTreeSet<_>>()
+            != expected_key_generations.keys().collect::<BTreeSet<_>>()
+        || public_keys.len() != required.len()
+    {
         return Err(R2a3Error::Provenance);
     }
     validate_skew(&envelope)?;
@@ -390,12 +435,22 @@ pub(crate) fn validate_signed_authorities(
         let key = public_keys
             .get(&signed.receipt.source_name)
             .ok_or(R2a3Error::Provenance)?;
+        if expected_key_generations
+            .get(&signed.receipt.source_name)
+            .is_none_or(|generation| generation != &signed.receipt.key_generation_id)
+        {
+            return Err(R2a3Error::Provenance);
+        }
         let signature_bytes = decode_hex::<64>(&signed.signature_ed25519_hex)?;
         let signature = Signature::from_bytes(&signature_bytes);
         key.verify(&receipt_signing_preimage(&signed)?, &signature)
             .map_err(|_| R2a3Error::Provenance)?;
         let adapter = adapter_key(&signed.signature_ed25519_hex);
         let mut receipt = signed.receipt;
+        // R2A2 consumes a legacy generation-1 HMAC adapter. The signed source
+        // generation was already checked against the selected trust set above;
+        // normalize only the private adapter copy, after signature validation.
+        receipt.key_generation_id = r2a2::LOCAL_RECEIPT_KEY_GENERATION_ID.to_owned();
         r2a2::authenticate_verified_receipt_adapter(&mut receipt, &adapter)?;
         adapter_keys.insert(
             receipt.source_name.clone(),
@@ -428,6 +483,7 @@ pub(crate) struct R2a3PipelineInput<'a> {
     pub manifest: &'a [u8],
     pub signed_authorities: &'a [u8],
     pub public_keys: &'a BTreeMap<String, VerifyingKey>,
+    pub key_generations: &'a BTreeMap<String, String>,
     pub run_nonce_sha256: &'a str,
     pub account_id: &'a str,
     pub account_key: &'a [u8],
@@ -626,10 +682,11 @@ fn attempt(input: AttemptInput) -> R2a3AttemptEvidence {
 fn revalidate(
     input: &R2a3PipelineInput<'_>,
 ) -> Result<(ValidatedManifest, ValidatedLocalAuthorities), R2a3Error> {
-    validate_signed_authorities(
+    validate_signed_authorities_for_key_generations(
         input.manifest,
         input.signed_authorities,
         input.public_keys,
+        input.key_generations,
         input.run_nonce_sha256,
         Utc::now(),
     )
@@ -1292,6 +1349,7 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
     }
     let receipts = assemble_production_receipts(&package.run_nonce_sha256)?;
     let public_keys = load_public_keys(Path::new(PRODUCTION_PUBLIC_KEY_DIR))?;
+    let key_generations = generation_one_key_generations(&public_keys);
     let account_id = read_regular_file(Path::new(PRODUCTION_ACCOUNT_ID), 4096, true)?;
     let account_key = read_regular_file(Path::new(PRODUCTION_ACCOUNT_KEY), 4096, true)?;
     let secret = read_regular_file(Path::new(PRODUCTION_FINAM_SECRET), 4096, true)?;
@@ -1315,6 +1373,7 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
             manifest: &manifest,
             signed_authorities: &receipts,
             public_keys: &public_keys,
+            key_generations: &key_generations,
             run_nonce_sha256: &package.run_nonce_sha256,
             account_id,
             account_key: &account_key,
@@ -1740,6 +1799,7 @@ async fn controlled_qualification_evidence_for(
     const HOST: &str = "stage8b-r2a3.invalid";
     let now = Utc::now();
     let (manifest, receipts, public_keys, run_nonce) = controlled_fixture_for(now, operation)?;
+    let key_generations = generation_one_key_generations(&public_keys);
     let (root_der, tls_config) = controlled_tls_configuration(HOST)?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -1805,6 +1865,7 @@ async fn controlled_qualification_evidence_for(
             manifest: &manifest,
             signed_authorities: &receipts,
             public_keys: &public_keys,
+            key_generations: &key_generations,
             run_nonce_sha256: &run_nonce,
             account_id: CONTROLLED_ACCOUNT,
             account_key: CONTROLLED_ACCOUNT_KEY,
@@ -1852,6 +1913,7 @@ mod tests {
     ) {
         let now = Utc::now();
         let (manifest, receipts, public_keys, run_nonce) = controlled_fixture(now).unwrap();
+        let key_generations = generation_one_key_generations(&public_keys);
         let (root_der, server_config) = controlled_tls_configuration(certificate_host).unwrap();
         let client_root = if use_wrong_ca {
             controlled_tls_configuration("untrusted-r2a3.invalid")
@@ -1878,6 +1940,7 @@ mod tests {
                 manifest: &manifest,
                 signed_authorities: &receipts,
                 public_keys: &public_keys,
+                key_generations: &key_generations,
                 run_nonce_sha256: &run_nonce,
                 account_id: CONTROLLED_ACCOUNT,
                 account_key: CONTROLLED_ACCOUNT_KEY,
@@ -2030,6 +2093,51 @@ mod tests {
         assert!(
             validate_signed_authorities(&manifest, &envelope, &keys, &"f".repeat(64), now).is_err()
         );
+    }
+
+    #[test]
+    fn signed_authority_generation_is_bound_before_legacy_adapter_normalization() {
+        let now = Utc::now();
+        let (manifest, envelope, keys, nonce) = controlled_fixture(now).unwrap();
+        let mut signed: SignedAuthorityEnvelope = serde_json::from_slice(&envelope).unwrap();
+        for (index, receipt) in signed.receipts.iter_mut().enumerate() {
+            receipt.receipt.key_generation_id = "2".to_owned();
+            receipt.signature_ed25519_hex.clear();
+            *receipt = sign_authority_receipt(
+                receipt.clone(),
+                &SigningKey::from_bytes(&[index as u8 + 1; 32]),
+            )
+            .unwrap();
+        }
+        let generation_two = keys
+            .keys()
+            .map(|source| (source.clone(), "2".to_owned()))
+            .collect();
+        let envelope = serde_json::to_vec(&signed).unwrap();
+
+        validate_signed_authorities_for_key_generations(
+            &manifest,
+            &envelope,
+            &keys,
+            &generation_two,
+            &nonce,
+            now,
+        )
+        .unwrap();
+        assert!(validate_signed_authorities(&manifest, &envelope, &keys, &nonce, now).is_err());
+        let wrong_generation = keys
+            .keys()
+            .map(|source| (source.clone(), "3".to_owned()))
+            .collect();
+        assert!(validate_signed_authorities_for_key_generations(
+            &manifest,
+            &envelope,
+            &keys,
+            &wrong_generation,
+            &nonce,
+            now,
+        )
+        .is_err());
     }
 
     #[test]

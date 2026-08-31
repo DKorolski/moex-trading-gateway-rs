@@ -65,7 +65,8 @@ pub const R2B_HELPER_EXECUTABLE_FD: RawFd = 7;
 pub const CONTROLLED_HOST: &str = "stage8b-r2a5.invalid";
 const CONTROLLED_CA_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-ca.der";
 const CONTROLLED_ENDPOINT_PATH: &str = "/run/moex-trading/stage8b/r2a5/controlled-endpoint.txt";
-const AUTHORITY: &str = include_str!("../../../docs/stage-8/stage8b-p-r2a5-authority.json");
+const AUTHORITY: &str =
+    include_str!("../../../docs/stage-8/stage8b-p-r2b-generation2-production-authority.json");
 const CONTROLLED_AUTHORITY: &str =
     include_str!("../../../docs/stage-8/stage8b-p-r2a5-controlled-authority.json");
 const READ_CONTRACT_SNAPSHOT: &[u8] =
@@ -657,7 +658,7 @@ pub struct R2a5RunPackage {
     pub signature_ed25519_hex: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 struct AcceptedR2a5Authority {
     schema_version: u8,
@@ -676,6 +677,7 @@ pub(crate) struct PreparedR2a5Run {
     manifest: Zeroizing<Vec<u8>>,
     receipts: Zeroizing<Vec<u8>>,
     public_keys: BTreeMap<String, VerifyingKey>,
+    key_generations: BTreeMap<String, String>,
     account_id: Zeroizing<String>,
     account_key: Zeroizing<[u8; 32]>,
     secret: Zeroizing<String>,
@@ -686,6 +688,7 @@ struct ValidatedLocalR2a5Authority {
     manifest: Zeroizing<Vec<u8>>,
     receipts: Zeroizing<Vec<u8>>,
     public_keys: BTreeMap<String, VerifyingKey>,
+    key_generations: BTreeMap<String, String>,
     validated_manifest: r2a2::ValidatedManifest,
     account_key_relative_path: String,
     account_key_sha256: String,
@@ -748,6 +751,36 @@ pub fn public_key_set_digest(manifest: &TrustSetManifest) -> Result<String, R2a3
         PUBLIC_KEY_SET_DOMAIN,
         &parts.iter().map(String::as_str).collect::<Vec<_>>(),
     ))
+}
+
+fn validate_generation2_composition(
+    trust_bytes: &[u8],
+    account_bytes: &[u8],
+) -> Result<AcceptedR2a5Authority, R2a3Error> {
+    let accepted: AcceptedR2a5Authority = serde_json::from_str(AUTHORITY)?;
+    let trust: TrustSetManifest = serde_json::from_slice(trust_bytes)?;
+    let account: AccountKeyManifest = serde_json::from_slice(account_bytes)?;
+    if accepted.schema_version != 1
+        || accepted.stage != "8B-P"
+        || accepted.revision != "R2B-G2-R0"
+        || accepted.authorization_status != "NOT_ISSUED"
+        || sha256(trust_bytes) != accepted.trust_manifest_sha256
+        || trust.public_key_set_sha256 != accepted.public_key_set_sha256
+        || public_key_set_digest(&trust)? != accepted.public_key_set_sha256
+        || trust.authorization_key.public_key_sha256 != accepted.authorization_public_key_sha256
+        || trust.authorization_key.generation != 2
+        || trust.helper_acceptance_key.generation != 2
+        || trust.source_keys.values().any(|key| key.generation != 2)
+        || sha256(account_bytes) != accepted.account_key_manifest_sha256
+        || account.schema_version != 1
+        || account.entries.len() != 1
+        || account.entries[0].generation_id != "2"
+        || account.entries[0].relative_key_path != "generation-2.hex"
+        || sha256(SOURCE_ADAPTER_AUTHORITY) != accepted.source_adapter_authority_sha256
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    Ok(accepted)
 }
 
 pub fn source_generation_commitment(
@@ -823,12 +856,15 @@ pub fn accept_helper_from_fixed_authority(
     decode_hex::<32>(effect_build_identity_sha256)?;
     let etc_root = Path::new(PRODUCTION_ETC);
     let credentials_root = Path::new(PRODUCTION_CREDENTIALS);
-    let trust: TrustSetManifest = serde_json::from_slice(&read_owned_fd(
-        &etc_root.join("trust-manifest.json"),
-        128 * 1024,
+    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let account_bytes = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
         0,
         false,
-    )?)?;
+    )?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
     let now = Utc::now();
     validate_pinned_key(&trust.helper_acceptance_key, now)?;
     let seed = strict_single_line(
@@ -887,12 +923,15 @@ pub fn issue_run_package_from_fixed_draft() -> Result<(), R2a3Error> {
     let draft_root = Path::new(PRODUCTION_DRAFT_ROOT);
     let signed_package_root = Path::new(PRODUCTION_SIGNED_PACKAGE_ROOT);
     let credentials_root = package_signer_credentials_root();
-    let trust: TrustSetManifest = serde_json::from_slice(&read_owned_fd(
-        &etc_root.join("trust-manifest.json"),
-        128 * 1024,
+    let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let account_bytes = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
         0,
         false,
-    )?)?;
+    )?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
     let now = Utc::now();
     let accepted_helper = load_accepted_helper_authority(etc_root, &trust, now)?;
     let draft_bytes = read_owned_fd(
@@ -1033,8 +1072,14 @@ fn validate_unsigned_draft_inputs(
         return Err(R2a3Error::Authorization);
     }
     let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), trust, now)?;
-    let validated: (ValidatedManifest, _) =
-        r2a3::validate_signed_authorities(&manifest, &receipts, &public_keys, &nonce, now)?;
+    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities_for_key_generations(
+        &manifest,
+        &receipts,
+        &public_keys,
+        &source_key_generations(trust),
+        &nonce,
+        now,
+    )?;
     if validated.0.run_identity_sha256 != draft.run_identity_sha256 {
         return Err(R2a3Error::Authorization);
     }
@@ -1102,6 +1147,7 @@ fn build_run_package_draft_at(
         0,
         false,
     )?;
+    validate_generation2_composition(&trust_bytes, &account_manifest_bytes)?;
     let account_manifest: AccountKeyManifest = serde_json::from_slice(&account_manifest_bytes)?;
     let account_generation = manifest_field(&fields, "account_key_generation_id")?;
     let account_entry = account_manifest
@@ -1122,8 +1168,14 @@ fn build_run_package_draft_at(
     let receipts = load_receipts(run_root, &nonce)?;
     let envelope: SignedAuthorityEnvelope = serde_json::from_slice(&receipts)?;
     let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), &trust, now)?;
-    let validated: (ValidatedManifest, _) =
-        r2a3::validate_signed_authorities(&manifest, &receipts, &public_keys, &nonce, now)?;
+    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities_for_key_generations(
+        &manifest,
+        &receipts,
+        &public_keys,
+        &source_key_generations(&trust),
+        &nonce,
+        now,
+    )?;
     if validated.0.run_identity_sha256 != manifest_field(&fields, "run_identity_sha256")? {
         return Err(R2a3Error::Authorization);
     }
@@ -1921,6 +1973,74 @@ pub fn verify_trust_rebind_key_ceremony(
     output: &Path,
 ) -> Result<BTreeMap<String, String>, R2a3Error> {
     verify_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE, true)
+}
+
+fn create_generation2_helper_acceptance_authority_for_path(
+    output: &Path,
+    helper_executable_sha256: &str,
+    effect_build_identity_sha256: &str,
+    require_persistent_path: bool,
+) -> Result<AcceptedHelperAuthority, R2a3Error> {
+    decode_hex::<32>(helper_executable_sha256)?;
+    decode_hex::<32>(effect_build_identity_sha256)?;
+    verify_key_ceremony_for_profile(output, R2B_TRUST_REBIND_PROFILE, require_persistent_path)?;
+    let uid = unsafe { libc::geteuid() };
+    let trust_bytes = require_ceremony_file(&output.join("trust-manifest.json"), uid, 0o644)?;
+    let account_bytes =
+        require_ceremony_file(&output.join("account-key-manifest.json"), uid, 0o644)?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
+    let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
+    let seed_bytes = Zeroizing::new(require_ceremony_file(
+        &output.join("helper-acceptance.ed25519"),
+        uid,
+        0o600,
+    )?);
+    let seed_text = Zeroizing::new(strict_single_line(&seed_bytes, 65)?);
+    let seed = Zeroizing::new(decode_hex::<32>(&seed_text)?);
+    let signing = SigningKey::from_bytes(&seed);
+    if signing.verifying_key().to_bytes()
+        != decode_hex::<32>(&trust.helper_acceptance_key.public_key_ed25519_hex)?
+    {
+        return Err(R2a3Error::Authorization);
+    }
+    validate_pinned_key(&trust.helper_acceptance_key, Utc::now())?;
+    let authority = sign_helper_acceptance(
+        AcceptedHelperAuthority {
+            schema_version: 1,
+            stage: "8B-P".to_owned(),
+            revision: "R2A5".to_owned(),
+            status: "ACCEPTED".to_owned(),
+            helper_executable_sha256: helper_executable_sha256.to_owned(),
+            effect_build_identity_sha256: effect_build_identity_sha256.to_owned(),
+            valid_from_utc: trust.helper_acceptance_key.valid_from_utc,
+            valid_until_utc: trust.helper_acceptance_key.valid_until_utc,
+            acceptance_key_id: trust.helper_acceptance_key.key_id.clone(),
+            signature_ed25519_hex: String::new(),
+        },
+        &signing,
+    )?;
+    let verifying = validate_pinned_key(&trust.helper_acceptance_key, Utc::now())?;
+    let signature = Signature::from_bytes(&decode_hex::<64>(&authority.signature_ed25519_hex)?);
+    verifying
+        .verify(&helper_acceptance_preimage(&authority)?, &signature)
+        .map_err(|_| R2a3Error::Authorization)?;
+    Ok(authority)
+}
+
+/// Reissues only the public helper-acceptance authority with the retained
+/// Generation-2 helper key. It neither installs credentials nor creates an
+/// R2B run package or execution authorization.
+pub fn create_generation2_helper_acceptance_authority(
+    output: &Path,
+    helper_executable_sha256: &str,
+    effect_build_identity_sha256: &str,
+) -> Result<AcceptedHelperAuthority, R2a3Error> {
+    create_generation2_helper_acceptance_authority_for_path(
+        output,
+        helper_executable_sha256,
+        effect_build_identity_sha256,
+        true,
+    )
 }
 
 fn trust_rebind_verification_receipt_preimage(
@@ -3037,6 +3157,14 @@ fn load_source_keys(
     Ok(keys)
 }
 
+fn source_key_generations(trust: &TrustSetManifest) -> BTreeMap<String, String> {
+    trust
+        .source_keys
+        .iter()
+        .map(|(source, pinned)| (source.clone(), pinned.generation.to_string()))
+        .collect()
+}
+
 fn exact_operation(operation: Operation) -> &'static str {
     match operation {
         Operation::Place => "PLACE",
@@ -3708,6 +3836,13 @@ fn issue_from_source_at(
         return Err(R2a3Error::Provenance);
     }
     let trust_bytes = read_owned_fd(&etc_root.join("trust-manifest.json"), 128 * 1024, 0, false)?;
+    let account_bytes = read_owned_fd(
+        &etc_root.join("account-key-manifest.json"),
+        64 * 1024,
+        0,
+        false,
+    )?;
+    validate_generation2_composition(&trust_bytes, &account_bytes)?;
     let trust: TrustSetManifest = serde_json::from_slice(&trust_bytes)?;
     let pinned = trust
         .source_keys
@@ -4782,9 +4917,10 @@ fn validate_local_authority_at(
     executable_sha256: &str,
     accepted: &AcceptedR2a5Authority,
 ) -> Result<ValidatedLocalR2a5Authority, R2a3Error> {
+    let generation2_composition = accepted.revision == "R2B-G2-R0";
     if accepted.schema_version != 1
         || accepted.stage != "8B-P"
-        || accepted.revision != "R2A5"
+        || (!generation2_composition && accepted.revision != "R2A5")
         || accepted.authorization_status != "NOT_ISSUED"
     {
         return Err(R2a3Error::Authorization);
@@ -4876,10 +5012,11 @@ fn validate_local_authority_at(
         }
     }
     let public_keys = load_source_keys(&etc_root.join("authority-public-keys"), &trust, now)?;
-    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities(
+    let validated: (ValidatedManifest, _) = r2a3::validate_signed_authorities_for_key_generations(
         &manifest,
         &receipts,
         &public_keys,
+        &source_key_generations(&trust),
         &package.run_nonce_sha256,
         now,
     )?;
@@ -4893,6 +5030,13 @@ fn validate_local_authority_at(
         0,
         false,
     )?;
+    if generation2_composition {
+        let exact_generation2 =
+            validate_generation2_composition(&trust_bytes, &account_manifest_bytes)?;
+        if &exact_generation2 != accepted {
+            return Err(R2a3Error::Authorization);
+        }
+    }
     let account_manifest: AccountKeyManifest = serde_json::from_slice(&account_manifest_bytes)?;
     if account_manifest.schema_version != 1
         || sha256(&account_manifest_bytes) != package.account_key_manifest_sha256
@@ -4926,6 +5070,7 @@ fn validate_local_authority_at(
         manifest,
         receipts,
         public_keys,
+        key_generations: source_key_generations(&trust),
         validated_manifest: validated.0,
         account_key_relative_path: key_entry.relative_key_path.clone(),
         account_key_sha256: key_entry.key_sha256.clone(),
@@ -4981,6 +5126,7 @@ fn load_r2a5_credentials_at(
         manifest: validated.manifest,
         receipts: validated.receipts,
         public_keys: validated.public_keys,
+        key_generations: validated.key_generations,
         account_id,
         account_key: Zeroizing::new(account_key),
         secret,
@@ -5056,6 +5202,7 @@ pub async fn run_r2b_one_shot() -> Result<R2a3ReadonlyEvidence, R2a3Error> {
                     manifest: &prepared.manifest,
                     signed_authorities: &prepared.receipts,
                     public_keys: &prepared.public_keys,
+                    key_generations: &prepared.key_generations,
                     run_nonce_sha256: &prepared.package.run_nonce_sha256,
                     account_id: &prepared.account_id,
                     account_key: &prepared.account_key[..],
@@ -5123,6 +5270,7 @@ pub async fn run_r2b_controlled_custody_one_shot() -> Result<R2a3ReadonlyEvidenc
                     manifest: &prepared.manifest,
                     signed_authorities: &prepared.receipts,
                     public_keys: &prepared.public_keys,
+                    key_generations: &prepared.key_generations,
                     run_nonce_sha256: &prepared.package.run_nonce_sha256,
                     account_id: &prepared.account_id,
                     account_key: &prepared.account_key[..],
@@ -5207,6 +5355,7 @@ pub async fn run_controlled_fixed_layout() -> Result<R2a3ReadonlyEvidence, R2a3E
             manifest: &prepared.manifest,
             signed_authorities: &prepared.receipts,
             public_keys: &prepared.public_keys,
+            key_generations: &prepared.key_generations,
             run_nonce_sha256: &prepared.package.run_nonce_sha256,
             account_id: &prepared.account_id,
             account_key: &prepared.account_key[..],

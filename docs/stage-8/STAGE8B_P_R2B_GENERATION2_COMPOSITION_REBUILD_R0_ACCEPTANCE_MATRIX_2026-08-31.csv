@@ -1,0 +1,38 @@
+id,requirement,expected
+G2CR-R0-001,Accepted backup restore closure is exact predecessor,PASS
+G2CR-R0-002,Accepted backup archive SHA256 is pinned,PASS
+G2CR-R0-003,Backup authority and two signed receipts remain byte immutable,PASS
+G2CR-R0-004,Backup is VERIFIED and disposable restore remains deleted,PASS
+G2CR-R0-005,Generation 2 trust manifest exact SHA256 is selected,PASS
+G2CR-R0-006,Generation 2 public key set exact SHA256 is selected,PASS
+G2CR-R0-007,Generation 2 authorization public key exact SHA256 is selected,PASS
+G2CR-R0-008,Generation 2 account manifest exact SHA256 is selected,PASS
+G2CR-R0-009,Source adapter authority remains exact accepted SHA256,PASS
+G2CR-R0-010,Authorization helper and all source keys have generation 2,PASS
+G2CR-R0-011,Account manifest has exactly generation 2 and generation-2.hex,PASS
+G2CR-R0-012,Production authority schema is exact and NOT_ISSUED,PASS
+G2CR-R0-013,Source issuer validates Generation 2 composition before signing,PASS
+G2CR-R0-014,Draft builder validates Generation 2 composition before construction,PASS
+G2CR-R0-015,Package issuer validates Generation 2 composition before signing,PASS
+G2CR-R0-016,Helper issuer validates Generation 2 composition before signing,PASS
+G2CR-R0-017,Offline helper acceptance verifies retained exact ceremony,PASS
+G2CR-R0-018,Helper acceptance signature verifies under Generation 2 public key,PASS
+G2CR-R0-019,Helper acceptance binds exact rebuilt helper SHA256,PASS
+G2CR-R0-020,Helper acceptance operation exposes no private path or value,PASS
+G2CR-R0-021,Launcher embeds exact Generation 2 helper SHA256,PASS
+G2CR-R0-022,All affected production binaries are rebuilt,PASS
+G2CR-R0-023,Two fresh Linux builds are byte identical,PASS
+G2CR-R0-024,All rebuilt executables are stripped static PIE x86-64 ELF,PASS
+G2CR-R0-025,Build image Cargo.lock source ref and tree are pinned,PASS
+G2CR-R0-026,Phase 6 accepted base script SHA256 is pinned,PASS
+G2CR-R0-027,Materialized Phase 6 contains no Generation 1 residue,PASS
+G2CR-R0-028,Phase 6 uses rebuilt production source and package issuers,PASS
+G2CR-R0-029,Phase 6 transient package proves account generation 2,PASS
+G2CR-R0-030,Phase 6 runs with container network mode none,PASS
+G2CR-R0-031,Transient rehearsal package disappears with container,PASS
+G2CR-R0-032,Production Generation 2 remains inactive,PASS
+G2CR-R0-033,Production credentials remain uninstalled,PASS
+G2CR-R0-034,R2B production authorization remains NOT_ISSUED,PASS
+G2CR-R0-035,FINAM AuthService and broker HTTP remain closed,PASS
+G2CR-R0-036,Dispatch Redis runtime live and real orders remain closed,PASS
+G2CR-R0-037,Independent review is required before controlled installation,PASS
