@@ -194,7 +194,7 @@ def check_sources(root: Path, helper_sha: str) -> None:
     runner = (root / RUNNER).read_text(encoding="utf-8")
     build_script = (root / BUILD_SCRIPT).read_text(encoding="utf-8")
     require('stage8b-p-r2b-generation2-production-authority.json' in core, "production authority include missing")
-    require(core.count("validate_generation2_composition(") == 6, "composition validation call inventory drift")
+    require(core.count("validate_generation2_composition(") == 7, "composition validation call inventory drift")
     for marker in (
         "accept_helper_from_fixed_authority", "issue_run_package_from_fixed_draft",
         "build_run_package_draft_at", "issue_from_source_at",

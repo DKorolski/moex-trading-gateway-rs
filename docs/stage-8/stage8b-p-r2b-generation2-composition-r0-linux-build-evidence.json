@@ -1,0 +1,91 @@
+{
+  "all_hashes_identical": true,
+  "authorization": "NOT_ISSUED",
+  "binaries": {
+    "stage8b-r2a5-authority-issuer": {
+      "build_a_sha256": "6dc5be078029a833b2e465525498c76e8d5966fa2c8d4733cfa3dce6b5af74e0",
+      "build_b_sha256": "6dc5be078029a833b2e465525498c76e8d5966fa2c8d4733cfa3dce6b5af74e0",
+      "classification": "PRODUCTION",
+      "executable_size": 860824,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2a5-authority-producer": {
+      "build_a_sha256": "fa494d0150cb3ed0f5f05378a8e1636f3160499f9f5cc881cbbed862c96229fc",
+      "build_b_sha256": "fa494d0150cb3ed0f5f05378a8e1636f3160499f9f5cc881cbbed862c96229fc",
+      "classification": "PRODUCTION",
+      "executable_size": 832152,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2a5-helper-acceptance-issuer": {
+      "build_a_sha256": "82617f8f97cbe2b729a83bb27aae8eccbb72ab94411224384307771c07f29ba5",
+      "build_b_sha256": "82617f8f97cbe2b729a83bb27aae8eccbb72ab94411224384307771c07f29ba5",
+      "classification": "PRODUCTION",
+      "executable_size": 819864,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2a5-package-issuer": {
+      "build_a_sha256": "5aff3f7d4747113546272cb40fc444b5bfa0013116b49d20669e8e757091625c",
+      "build_b_sha256": "5aff3f7d4747113546272cb40fc444b5bfa0013116b49d20669e8e757091625c",
+      "classification": "PRODUCTION",
+      "executable_size": 1254040,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2b-generation2-helper-acceptance-issuer": {
+      "build_a_sha256": "23ab1f964d56b6739ac60a90baeffda4fd557bc132c9288d241008447f1e2cf6",
+      "build_b_sha256": "23ab1f964d56b6739ac60a90baeffda4fd557bc132c9288d241008447f1e2cf6",
+      "classification": "OFFLINE_PUBLIC_AUTHORITY_TOOL",
+      "executable_size": 922264,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2b-launcher": {
+      "build_a_sha256": "52dfbd0e6bb0d07a92a3104be50c33a60af08905b6cd075aa4bd4a4c373da17e",
+      "build_b_sha256": "52dfbd0e6bb0d07a92a3104be50c33a60af08905b6cd075aa4bd4a4c373da17e",
+      "classification": "PRODUCTION",
+      "executable_size": 1512088,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-r2b-run-package-draft-builder": {
+      "build_a_sha256": "f171fc282e56d509e30bb92ea40340e559b19dc12ac63f9513bed9a926b72207",
+      "build_b_sha256": "f171fc282e56d509e30bb92ea40340e559b19dc12ac63f9513bed9a926b72207",
+      "classification": "PRODUCTION",
+      "executable_size": 1184408,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    },
+    "stage8b-readonly-preflight": {
+      "build_a_sha256": "90508e097c8668d6fe90a15ef6014e480a9042bb36f0613351c02465d10aaca1",
+      "build_b_sha256": "90508e097c8668d6fe90a15ef6014e480a9042bb36f0613351c02465d10aaca1",
+      "classification": "PRODUCTION",
+      "executable_size": 5744544,
+      "file_identity": "ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, stripped",
+      "reproducible": true
+    }
+  },
+  "build_profile": "release",
+  "builder_platform": "linux/arm64",
+  "cargo_command": "cargo build --locked --release --no-default-features --target x86_64-unknown-linux-musl --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bin stage8b-r2a5-authority-producer --bin stage8b-r2a5-authority-issuer --bin stage8b-r2b-run-package-draft-builder --bin stage8b-r2a5-package-issuer --bin stage8b-r2a5-helper-acceptance-issuer --bin stage8b-readonly-preflight --bin stage8b-r2b-launcher --bin stage8b-r2b-generation2-helper-acceptance-issuer",
+  "clean_target_directories": 2,
+  "container_image": "messense/rust-musl-cross:x86_64-musl@sha256:020ec7f60e63ace4338f8cb492bb2521071d089133732d0fc6a0ecea722b87c5",
+  "controlled_custody_feature": false,
+  "cross_compiled": true,
+  "default_features": false,
+  "generation": 2,
+  "helper_sha256": "90508e097c8668d6fe90a15ef6014e480a9042bb36f0613351c02465d10aaca1",
+  "launcher_embeds_exact_helper_sha256": true,
+  "offline_tool_binary_count": 1,
+  "path_remap": "/src=/usr/src/moex-trading-project",
+  "production_binary_count": 7,
+  "result": "PASS",
+  "schema_version": 1,
+  "source_mount": "/src:ro",
+  "source_ref": "c7667658288577229b7cf00e9dcef519ba2fd1d7",
+  "source_tree": "c3dff5f4338ea9bae82071eaacc48511ce3e1f7e",
+  "stage": "Stage 8B-P R2B Generation-2 Composition Rebuild R0",
+  "target": "x86_64-unknown-linux-musl"
+}

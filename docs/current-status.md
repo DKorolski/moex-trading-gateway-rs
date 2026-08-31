@@ -12,22 +12,22 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
 
-- Stage 8B-P R2B Trust Rebind R0-R1 is independently accepted at
-  `d8c71154d7407358b638af9e0c690578050d1640` and merged to `main` by
-  `dd1af77efab89cc66f523bbe96821751465e12aa`. The active candidate is the
-  separate **Generation 2 Encrypted Offline Backup and Restore R0** custody
-  closure. Its operation source is
-  `b86cc6be0ff9c7748162d00137ef85ae4f97f168`: the encrypted removable-media
-  backup is hash-bound and restore-verified, the primary and disposable
-  restore copies passed all 13 signing-seed plus one account-key bindings, and
-  the disposable restore was deleted after verification. Only signed
-  public-only receipts enter source control; ciphertext, the recovery identity,
-  private values and custody paths remain outside Git and review handoff.
-  Independent acceptance is still required. Generation 2 is not selected or
-  active, affected production binaries are not rebuilt, helper acceptance is
-  not reissued, controlled installation is not performed and R2B authorization
-  remains `NOT_ISSUED`. FINAM/AuthService/broker requests, dispatch, Redis live,
-  runtime-live and real orders remain closed.
+- Stage 8B-P R2B Generation-2 Backup/Restore R0-R1 is independently accepted at
+  `3029bab714f8b75daaba3946ed858426515b4165`; its immutable review archive has
+  SHA-256 `ee7deefa31dcf6b126408452f4772081ba20999c90ef58cf52df7b873869759f`.
+  The active candidate is **Stage 8B-P R2B Generation-2 Composition Rebuild R0**.
+  Source commit `c7667658288577229b7cf00e9dcef519ba2fd1d7`
+  selects the accepted public Generation-2 authority, rebinds exact key
+  generations before legacy adapter normalization and reissues helper
+  acceptance under Generation 2. Two clean pinned Linux/amd64 musl builds are
+  byte-identical for all seven production binaries and the one offline public
+  authority tool. An isolated Phase-6 rehearsal passed with network mode
+  `none`, real credentials absent, FINAM untouched and its transient signed
+  package destroyed with the container. Generation 2 remains inactive:
+  production credentials are not installed, controlled installation is not
+  performed and R2B authorization remains `NOT_ISSUED`. FINAM, AuthService,
+  broker GET/POST/DELETE, dispatch, Redis live, runtime-live and real orders
+  remain closed pending independent review.
 
 - Stage 8B-P R2B Implementation R0-R1A is independently accepted at
   `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
