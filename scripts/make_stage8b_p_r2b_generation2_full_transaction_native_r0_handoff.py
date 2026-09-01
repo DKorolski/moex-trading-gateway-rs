@@ -96,7 +96,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Generation-2 native runner review package",
+                "stage": "Stage 8B-P R2B Generation-2 native runner R0-R2 custody review package",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "source_short_ref": short_ref,
@@ -113,6 +113,10 @@ def main() -> None:
                 "service_invocation_count": 31,
                 "contract_negative_cases": len(contract_negative.CASES),
                 "host_negative_cases": len(host_negative.CASES),
+                "live_swap_mismatch_case": True,
+                "early_cleanup_guard": True,
+                "host_swap_entries_required": 0,
+                "container_visible_swap_entries_required": 0,
                 "eligible_disposable_host_identified": True,
                 "container_created": False,
                 "native_execution": False,
@@ -121,7 +125,7 @@ def main() -> None:
                 "external_finam_network": False,
                 "broker_dispatch": False,
                 "real_orders": False,
-                "next_step": "INDEPENDENT_REVIEW_THEN_NATIVE_EXECUTION",
+                "next_step": "INDEPENDENT_REVIEW_OF_R0_R2_THEN_NATIVE_EXECUTION",
             },
             indent=2,
             sort_keys=True,

@@ -1,27 +1,28 @@
 {
   "schema_version": 1,
-  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0-R1",
-  "status": "NATIVE_RUNNER_R1_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
+  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0-R2",
+  "status": "NATIVE_RUNNER_R2_CUSTODY_MICROFIX_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
   "accepted_predecessor": {
     "source_ref": "c74382a7e3a63d3673dec220ff4e9caaba6b48ee",
     "archive_sha256": "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62",
     "verdict": "ACCEPTED"
   },
   "artifacts": {
-    "docs/stage-8/stage8b-p-r2b-generation2-full-transaction-contract.json": "4dd9a10c12dfcbf9965cbed0562f6e33bb402089303378d8a9c56d070de03bf7",
-    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_2026-09-01.md": "fa66a7b943de1e0b42ed79cf2390c885b871c7bc33735a4fb6f0cb43a144d4c1",
-    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_ACCEPTANCE_MATRIX_2026-09-01.csv": "0ca05d42cd651aaa033163ccfc48c85e12aa46f2228f5ee2aba99d02cb906d93",
-    "docs/stage-8/stage8b-p-r2b-generation2-native-host-attestation.example.json": "6900b71b21f95a1fafb0cd9da79fa4f00f65aaf0d69d21161277cd1f7cc361b2",
+    "docs/stage-8/stage8b-p-r2b-generation2-full-transaction-contract.json": "2377a0f955f951b52256afbced74b923058fd1f8ebf5fccbae37480853bc318c",
+    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_2026-09-01.md": "c23b1d5fb048604c2b835804da5f0371ada488c7d9e57ab07c8216b6cda69368",
+    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_ACCEPTANCE_MATRIX_2026-09-01.csv": "8ac6bbc7e93acbed0f69e9bab3570b052bc61fad17d693409476639a2e22bd42",
+    "docs/stage-8/stage8b-p-r2b-generation2-native-host-attestation.example.json": "b93979cfc2ddefdc2c71b3f5beb77f06cef9384bcfcf84afdd9814981e8821f0",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_terminal_oracle.py": "66fdfc2589dc67500156342fe9a14985b33337575980272249a5c791b22d7c1f",
-    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py": "1dfa22de4a7c8f0590b268cdb8f28460b9c6915464a27dd214f786494d6e3c75",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py": "2c1de400e066de56c4d42b1dc45359c23c6d29ba7af06628fbfe480797b3ba91",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_ceremony_preflight.py": "96cb0f7c07baeda3fdc402667722d907eb1a3f2c31564269dc33a2345c1ef5c7",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive.py": "40d2010dac7be38502c46377a1437935f6c9667e3ddbeebff21093bcbabb0cc9",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive_negative_harness.py": "910e976b350cb941b5a5037358e78b8294979185b9aed1ba39df77ae8db9899a",
-    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh": "13cf58e7b9571a5bc49f02f4cbfa905c74aff5cf510d48e996268416707b8e56",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh": "22929a1d903da2a50f66132469d56f1e6e38eb3062fa858735dc25b3cdaa28da",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh": "b593297071927a46ffab3fe3ced7c4b07cedf50028e497702397e3f5c5ab62e0",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_materialize_manifest.py": "116afc85452b0bc8535b03a8fa7c8bbf5a7ef31ea1ca638979eb0e03500cc43e",
-    "scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py": "3fff306b2fb9d430a6ed43b952713ee070294963639dd6638550e390d951ea6b",
-    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py": "85470882c57e4cda3e1efc0f98753766b9a6db7bb03fc14dc35e45df2bd184b1"
+    "scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py": "0813147c9f58e0065b0ea9de03424afb05359824fd6de9ebb77d25c3caeef07f",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py": "fdee15df28f8775a18fdb0a592e87db5e04207694ee83bc1a3f84d68ec0f499f",
+    "scripts/stage8b_p_r2b_generation2_native_r2_custody_runtime_harness.sh": "8faea4ea9ce1ea0ada3e93fd624265019a7c8c4dcf1238b0d9af1cde4819d1ab"
   },
   "static_rebind": {
     "phase_count": 6,
@@ -33,8 +34,8 @@
     "inherited_phase1_phase2_binary_count": 6,
     "generation2_phase3_phase6_binary_count": 6,
     "production_binaries_rebuilt": false,
-    "negative_cases": 55,
-    "host_negative_cases": 14,
+    "negative_cases": 70,
+    "host_negative_cases": 18,
     "post_package_archive_negative_cases": 5
   },
   "host_assessment": {
@@ -56,6 +57,10 @@
     "plaintext_ceremony_retained": false,
     "private_material_exported": false,
     "temporary_source_storage": "tmpfs",
+    "host_swap_entries_required": 0,
+    "container_visible_swap_entries_required": 0,
+    "cleanup_guard_installed_before_argument_parsing": true,
+    "cleanup_failure_is_fatal": true,
     "pinned_in_memory_verifier": true,
     "temporary_source_destruction_required": true
   },
@@ -87,5 +92,5 @@
     "runtime_live": false,
     "real_orders": false
   },
-  "next_allowed_step": "INDEPENDENT_REVIEW_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_DISPOSABLE_HOST"
+  "next_allowed_step": "INDEPENDENT_REVIEW_OF_R0_R2_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST"
 }

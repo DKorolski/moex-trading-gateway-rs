@@ -1,6 +1,73 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+readonly fixed_ceremony_root=/run/stage8b-g2-ceremony-source
+readonly proof_container=stage8b-g2-native-proof-r2
+extraction_root=""
+trusted_evidence_root=""
+container_creation_attempted=false
+container_removed=false
+ceremony_source_destroyed=false
+
+destroy_fixed_ceremony_source() {
+  local result=0
+  if [[ -e "$fixed_ceremony_root" || -L "$fixed_ceremony_root" ]]; then
+    rm -rf --one-file-system -- "$fixed_ceremony_root" || result=1
+  fi
+  if [[ -e "$fixed_ceremony_root" || -L "$fixed_ceremony_root" ]]; then
+    result=1
+  else
+    ceremony_source_destroyed=true
+  fi
+  if [[ "$ceremony_source_destroyed" = true && -n "$trusted_evidence_root" && -d "$trusted_evidence_root" ]]; then
+    python3 - "$trusted_evidence_root/ceremony-source-destruction-receipt.json" <<'PY' || result=1
+import json,pathlib,sys
+payload={
+  "schema_version":2,"result":"PASS","fixed_source_path":True,
+  "source_destroyed":True,"private_material_retained_on_host":False,
+  "private_path_exported":False,"generation_2_active":False,
+  "authorization":"NOT_ISSUED",
+}
+path=pathlib.Path(sys.argv[1])
+path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+PY
+  fi
+  return "$result"
+}
+
+remove_proof_container() {
+  local result=0
+  if command -v docker >/dev/null 2>&1; then
+    docker rm -f "$proof_container" >/dev/null 2>&1 || true
+    if [[ -n "$(docker ps -aq --filter "name=^/${proof_container}$" 2>/dev/null || true)" ]]; then
+      result=1
+    else
+      container_removed=true
+    fi
+  elif [[ "$container_creation_attempted" = true ]]; then
+    result=1
+  fi
+  return "$result"
+}
+
+global_custody_cleanup() {
+  local status=$?
+  trap - EXIT INT TERM
+  remove_proof_container || status=1
+  destroy_fixed_ceremony_source || status=1
+  if [[ -n "$extraction_root" && -e "$extraction_root" ]]; then
+    rm -rf --one-file-system -- "$extraction_root" || status=1
+  fi
+  exit "$status"
+}
+
+trap global_custody_cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+host_swap_entries="$(swapon --show --noheadings 2>/dev/null)"
+[[ -z "$host_swap_entries" ]]
+
 script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ "${1:-}" != "--reviewed-extraction" ]]; then
@@ -9,10 +76,9 @@ if [[ "${1:-}" != "--reviewed-extraction" ]]; then
   reviewer_acceptance_sha256="${STAGE8B_G2_REVIEWER_ACCEPTANCE_SHA256:?review acceptance SHA-256 required}"
   evidence_root="${STAGE8B_G2_EVIDENCE_ROOT:?empty evidence root required}"
   [[ -d "$evidence_root" && -z "$(find "$evidence_root" -mindepth 1 -print -quit)" ]]
+  trusted_evidence_root="$evidence_root"
   [[ "$(findmnt -n -o FSTYPE -T /run)" = tmpfs ]]
   extraction_root="$(mktemp -d /run/stage8b-g2-reviewed-extraction.XXXXXX)"
-  cleanup_extraction() { rm -rf --one-file-system "$extraction_root"; }
-  trap cleanup_extraction EXIT
   python3 "$script_root/scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive.py" \
     --archive "$review_archive" --expected-sha256 "$accepted_archive_sha256" \
     --reviewer-acceptance-sha256 "$reviewer_acceptance_sha256" \
@@ -28,52 +94,18 @@ attestation="${STAGE8B_G2_HOST_ATTESTATION:?host attestation required}"
 ceremony_root="${STAGE8B_R2B_PHASE6_CEREMONY_DIR:?temporary ceremony root required}"
 evidence_root="${STAGE8B_G2_EVIDENCE_ROOT:?evidence root required}"
 [[ "$repo_root" = /run/stage8b-g2-reviewed-extraction.* ]]
-[[ "$ceremony_root" = /run/stage8b-g2-ceremony-source ]]
+[[ "$ceremony_root" = "$fixed_ceremony_root" ]]
 [[ "${STAGE8B_G2_DESTROY_CEREMONY_SOURCE:?ceremony destruction authorization required}" = YES ]]
+[[ -d "$evidence_root" ]]
+trusted_evidence_root="$evidence_root"
 
 artifact_root="$repo_root/handoff-evidence/linux-amd64/exact-binaries"
 proof_tools="$repo_root/handoff-evidence/linux-amd64/proof-tools"
-container="stage8b-g2-native-proof-${STAGE8B_G2_RUN_LABEL:-r1}"
+container="$proof_container"
 image_tag="stage8b-r2b-r0-r1a-systemd:ubuntu24.04-amd64"
 image_id="sha256:3cc66c640df0444530a626d2acbcfeda9742039b917a747fd023b315ef2c1526"
 ceremony_container_parent=/var/lib/stage8b-g2-proof-ceremony
 ceremony_container_root="$ceremony_container_parent/ceremony"
-container_removed=false
-ceremony_source_destroyed=false
-
-destroy_ceremony_source() {
-  if [[ -d "$ceremony_root" ]]; then
-    [[ "$(findmnt -n -o FSTYPE -T "$ceremony_root")" = tmpfs ]]
-    find "$ceremony_root" -xdev -depth -mindepth 1 -delete
-    rmdir "$ceremony_root"
-  fi
-  [[ ! -e "$ceremony_root" ]]
-  ceremony_source_destroyed=true
-  python3 - "$evidence_root/ceremony-source-destruction-receipt.json" <<'PY'
-import json,pathlib,sys
-payload={
-  "schema_version":1,"result":"PASS","storage":"tmpfs","source_destroyed":True,
-  "private_material_retained_on_host":False,"private_path_exported":False,
-  "generation_2_active":False,"authorization":"NOT_ISSUED",
-}
-path=pathlib.Path(sys.argv[1])
-path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-PY
-}
-
-cleanup() {
-  status=$?
-  docker rm -f "$container" >/dev/null 2>&1 || true
-  if [[ "$(docker ps -aq --filter "name=^/${container}$" | wc -l | tr -d ' ')" = 0 ]]; then
-    container_removed=true
-  fi
-  if [[ "$ceremony_source_destroyed" != true ]]; then
-    destroy_ceremony_source || status=1
-  fi
-  return "$status"
-}
-trap cleanup EXIT
-
 [[ "$(uname -m)" = x86_64 ]]
 [[ "$(docker info --format '{{.Architecture}}')" = x86_64 || "$(docker info --format '{{.Architecture}}')" = amd64 ]]
 [[ ! -e /var/lib/stage8b-generation2-active ]]
@@ -90,6 +122,7 @@ python3 "$repo_root/scripts/stage8b_p_r2b_generation2_full_transaction_native_r0
   --ceremony-root "$ceremony_root" --output "$evidence_root/host-preflight.json"
 
 [[ "$(docker ps -aq | wc -l | tr -d ' ')" = 0 ]]
+container_creation_attempted=true
 docker create --privileged --cgroupns=host --name "$container" \
   --network none \
   --tmpfs /run:rw,nosuid,nodev,mode=755 \
@@ -111,6 +144,18 @@ for _ in $(seq 1 180); do
 done
 [[ "$(docker exec "$container" uname -m)" = x86_64 ]]
 docker exec "$container" bash -lc '! ip route show default | grep -q .; : > /etc/resolv.conf'
+container_swap_entries="$(docker exec "$container" awk 'NR > 1 && NF > 0 { count += 1 } END { print count + 0 }' /proc/swaps)"
+[[ "$container_swap_entries" = 0 ]]
+python3 - "$evidence_root/swap-custody-preflight.json" <<'PY'
+import json,pathlib,sys
+payload={
+  "schema_version":1,"result":"PASS",
+  "host_swap_enabled":False,"host_swap_entries":0,
+  "container_visible_swap_enabled":False,"container_visible_swap_entries":0,
+  "ceremony_copied_to_container":False,"authorization":"NOT_ISSUED",
+}
+pathlib.Path(sys.argv[1]).write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+PY
 
 docker exec "$container" install -d -o root -g root -m 0700 "$ceremony_container_root"
 docker exec "$container" cp -a /ceremony-source/. "$ceremony_container_root/"
@@ -159,8 +204,7 @@ docker exec "$container" test -f /evidence/uninstall-receipt.json
 docker exec "$container" rm -rf --one-file-system "$ceremony_container_root"
 docker rm -f "$container" >/dev/null
 container_removed=true
-destroy_ceremony_source
-trap - EXIT
+destroy_fixed_ceremony_source
 
 python3 - "$evidence_root" <<'PY'
 import hashlib,json,pathlib,sys
@@ -180,8 +224,11 @@ if receipt.get("result") != "PASS" or receipt.get("authorization") != "NOT_ISSUE
 destruction=json.loads((root/"ceremony-source-destruction-receipt.json").read_text())
 if destruction.get("source_destroyed") is not True:
     raise SystemExit("ceremony destruction missing")
+swap=json.loads((root/"swap-custody-preflight.json").read_text())
+if swap.get("host_swap_enabled") is not False or swap.get("container_visible_swap_enabled") is not False:
+    raise SystemExit("swap custody preflight missing")
 payload={
- "schema_version":2,"stage":"Stage 8B-P R2B Generation-2 native full transaction proof R1",
+ "schema_version":3,"stage":"Stage 8B-P R2B Generation-2 native full transaction proof R2",
  "result":"PASS","native_execution":True,"qemu_emulation":False,"run_count":2,
  "clean_second_run":True,"reset_between_runs":True,"container_destroyed":True,
  "uninstall_verified":True,"ceremony_source_destroyed":True,"generation":2,
@@ -192,10 +239,11 @@ payload={
  "uninstall_receipt_sha256":hashlib.sha256((root/"uninstall-receipt.json").read_bytes()).hexdigest(),
  "ceremony_verification_receipt_sha256":hashlib.sha256((root/"ceremony-verification-receipt.json").read_bytes()).hexdigest(),
  "ceremony_destruction_receipt_sha256":hashlib.sha256((root/"ceremony-source-destruction-receipt.json").read_bytes()).hexdigest(),
+ "swap_custody_preflight_sha256":hashlib.sha256((root/"swap-custody-preflight.json").read_bytes()).hexdigest(),
 }
 (root/"aggregate-result.json").write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n")
 PY
 
 [[ "$container_removed" = true ]]
 [[ "$(docker ps -aq | wc -l | tr -d ' ')" = 0 ]]
-echo "stage8b-generation2-full-transaction-native-r1-runner: PASS native=true runs=2 container_destroyed=true authorization=NOT_ISSUED"
+echo "stage8b-generation2-full-transaction-native-r2-runner: PASS native=true runs=2 no_swap=true container_destroyed=true authorization=NOT_ISSUED"

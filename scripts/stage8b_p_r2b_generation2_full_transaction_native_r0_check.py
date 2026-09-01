@@ -33,6 +33,7 @@ MANIFEST_MATERIALIZER = Path("scripts/stage8b_p_r2b_generation2_full_transaction
 HANDOFF_MAKER = Path("scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py")
 HANDOFF_SAFETY = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py")
 HOST_NEGATIVE = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py")
+CUSTODY_RUNTIME = Path("scripts/stage8b_p_r2b_generation2_native_r2_custody_runtime_harness.sh")
 VPS_STATIC_REHEARSAL = BASE / "stage8b-p-r2b-generation2-vps-native-static-rehearsal.json"
 LEGACY_CONTRACT = legacy.TRANSACTION
 PREFLIGHT_AUTHORITY = preflight.AUTHORITY
@@ -124,6 +125,7 @@ def contract_required_paths(root: Path) -> set[Path]:
         HANDOFF_MAKER,
         HANDOFF_SAFETY,
         HOST_NEGATIVE,
+        CUSTODY_RUNTIME,
         VPS_STATIC_REHEARSAL,
         LEGACY_CONTRACT,
         PREFLIGHT_AUTHORITY,
@@ -179,13 +181,13 @@ def check_contract(root: Path) -> None:
         },
         "Generation-2 transaction contract",
     )
-    require(contract["schema_version"] == 3, "contract version drift")
+    require(contract["schema_version"] == 4, "contract version drift")
     require(
-        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r1",
+        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r2",
         "contract identity drift",
     )
     require(
-        contract["status"] == "NATIVE_RUNNER_R1_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+        contract["status"] == "NATIVE_RUNNER_R2_CUSTODY_MICROFIX_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
         "contract execution status drift",
     )
     require(
@@ -388,6 +390,13 @@ def check_contract(root: Path) -> None:
         "reset_before_second_run_required": True,
         "post_proof_uninstall_required": True,
         "ceremony_source_storage": "tmpfs",
+        "host_swap_entries_required": 0,
+        "container_visible_swap_entries_required": 0,
+        "cleanup_installed_before_first_failure_prone_operation": True,
+        "cleanup_fixed_source_path": "/run/stage8b-g2-ceremony-source",
+        "cleanup_failure_is_fatal": True,
+        "host_attestation_max_age_seconds": 900,
+        "host_attestation_max_future_skew_seconds": 60,
         "pinned_in_memory_ceremony_verifier_required": True,
         "ceremony_source_destruction_receipt_required": True,
         "private_material_export_allowed": False,
@@ -416,14 +425,28 @@ def check_contract(root: Path) -> None:
 
     outer = (root / NATIVE_RUNNER).read_text(encoding="utf-8")
     inner = (root / CONTAINER_RUNNER).read_text(encoding="utf-8")
+    host_preflight = (root / HOST_PREFLIGHT).read_text(encoding="utf-8")
     ceremony_preflight = (root / CEREMONY_PREFLIGHT).read_text(encoding="utf-8")
     review_archive = (root / REVIEW_ARCHIVE).read_text(encoding="utf-8")
     host_negative = (root / HOST_NEGATIVE).read_text(encoding="utf-8")
+    custody_runtime = (root / CUSTODY_RUNTIME).read_text(encoding="utf-8")
     materializer = (root / MANIFEST_MATERIALIZER).read_text(encoding="utf-8")
     require(
         outer.index('python3 "$repo_root/scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py"')
         < outer.index('docker create --privileged'),
         "host preflight must precede container creation",
+    )
+    require(
+        outer.index("trap global_custody_cleanup EXIT")
+        < outer.index('host_swap_entries="$(swapon --show --noheadings')
+        < outer.index('script_root="$(cd')
+        < outer.index("STAGE8B_G2_REVIEW_ARCHIVE"),
+        "custody cleanup and no-swap guard must precede every argument/archive check",
+    )
+    require(
+        outer.index('container_swap_entries="$(docker exec')
+        < outer.index('docker exec "$container" cp -a /ceremony-source/.'),
+        "container swap check must precede ceremony copy",
     )
     for marker in (
         "--network none",
@@ -436,6 +459,14 @@ def check_contract(root: Path) -> None:
         "run-2/run-result.json",
         "container_destroyed",
         "NOT_ISSUED",
+        "readonly fixed_ceremony_root=/run/stage8b-g2-ceremony-source",
+        "readonly proof_container=stage8b-g2-native-proof-r2",
+        'rm -rf --one-file-system -- "$fixed_ceremony_root"',
+        "remove_proof_container || status=1",
+        "destroy_fixed_ceremony_source || status=1",
+        'exit "$status"',
+        "swap-custody-preflight.json",
+        'container_visible_swap_enabled":False',
     ):
         require(marker in outer, f"native outer runner marker missing: {marker}")
     for forbidden in ("--platform", "/proc/sys/fs/binfmt", "qemu-x86", "--network host"):
@@ -478,7 +509,28 @@ def check_contract(root: Path) -> None:
         and 'handoff-evidence/linux-amd64/proof-tools' in host_negative,
         "host negative harness is not handoff self-contained",
     )
+    for marker in (
+        "outer-missing-environment",
+        "nonempty-evidence-root",
+        "archive-sha-failure",
+        "archive-safety-failure",
+        "source-manifest-additional-member",
+        "reviewed-archive-positive-to-inner-fail-closed",
+        "inner-env-validation",
+        "wrong-ceremony-path-cleans-fixed-source",
+        "synthetic_marker=SYNTHETIC_STAGE8B_CUSTODY_MARKER_NOT_A_PRIVATE_KEY",
+        '[[ ! -e "$fixed_source" ]]',
+    ):
+        require(marker in custody_runtime, f"custody runtime harness marker missing: {marker}")
     require("assert " not in outer and "assert " not in inner, "security gate uses optimizable assert")
+    for marker in (
+        'live_swap = run("swapon", "--show", "--noheadings")',
+        'require(live_swap == "", "host swap is enabled")',
+        'require(attestation["swap_enabled"] is False',
+        "MAX_ATTESTATION_AGE = dt.timedelta(minutes=15)",
+        "MAX_FUTURE_SKEW = dt.timedelta(minutes=1)",
+    ):
+        require(marker in host_preflight, f"host custody preflight marker missing: {marker}")
     require(
         'fields["account_key_generation_id"] = "2"' in materializer,
         "Generation-2 manifest binding missing",
@@ -487,8 +539,8 @@ def check_contract(root: Path) -> None:
     with (root / MATRIX).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     require(
-        len(rows) == 48
-        and [row["id"] for row in rows] == [f"G2FTN-{index:03d}" for index in range(1, 49)],
+        len(rows) == 55
+        and [row["id"] for row in rows] == [f"G2FTN-{index:03d}" for index in range(1, 56)],
         "acceptance matrix inventory drift",
     )
     require(all(row["status"] == "PASS" and all(row.values()) for row in rows), "acceptance matrix incomplete")
@@ -525,7 +577,7 @@ def check_contract(root: Path) -> None:
     require(authority["schema_version"] == 1, "authority version drift")
     require(
         authority["status"]
-        == "NATIVE_RUNNER_R1_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
+        == "NATIVE_RUNNER_R2_CUSTODY_MICROFIX_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
         "authority status drift",
     )
     require(
@@ -554,6 +606,7 @@ def check_contract(root: Path) -> None:
             MANIFEST_MATERIALIZER,
             HANDOFF_MAKER,
             HANDOFF_SAFETY,
+            CUSTODY_RUNTIME,
         )
     }
     require(authority["artifacts"] == expected_artifacts, "authority artifact binding drift")
@@ -569,8 +622,8 @@ def check_contract(root: Path) -> None:
             "inherited_phase1_phase2_binary_count": 6,
             "generation2_phase3_phase6_binary_count": 6,
             "production_binaries_rebuilt": False,
-            "negative_cases": 55,
-            "host_negative_cases": 14,
+            "negative_cases": 70,
+            "host_negative_cases": 18,
             "post_package_archive_negative_cases": 5,
         },
         "authority static-rebind summary drift",
@@ -600,6 +653,10 @@ def check_contract(root: Path) -> None:
             "plaintext_ceremony_retained": False,
             "private_material_exported": False,
             "temporary_source_storage": "tmpfs",
+            "host_swap_entries_required": 0,
+            "container_visible_swap_entries_required": 0,
+            "cleanup_guard_installed_before_argument_parsing": True,
+            "cleanup_failure_is_fatal": True,
             "pinned_in_memory_verifier": True,
             "temporary_source_destruction_required": True,
         },
@@ -646,7 +703,7 @@ def check_contract(root: Path) -> None:
     )
     require(
         authority["next_allowed_step"]
-        == "INDEPENDENT_REVIEW_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_DISPOSABLE_HOST",
+        == "INDEPENDENT_REVIEW_OF_R0_R2_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST",
         "authority next-step drift",
     )
     require(

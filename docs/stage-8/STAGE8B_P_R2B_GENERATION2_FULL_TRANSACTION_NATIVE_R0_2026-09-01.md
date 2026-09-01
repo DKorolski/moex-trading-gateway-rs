@@ -1,4 +1,4 @@
-# Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Proof R0-R1
+# Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Proof R0-R2
 
 ## Status
 
@@ -125,6 +125,20 @@ The temporary host ceremony must exist only at the exact tmpfs path
 `/run/stage8b-g2-ceremony-source`. It is removed on both success and failure,
 and a public destruction receipt is mandatory. Secret bytes, secret paths, account identifiers, environment files and
 unredacted journals are forbidden in source, logs and handoff packages.
+
+## R0-R2 custody closure
+
+The code-level fixed ceremony path and fixed proof-container name are known before
+argument or environment parsing. A global EXIT/INT/TERM guard is installed before
+the first archive, evidence-root, tmpfs or argument check. It removes the exact
+ceremony source with a one-filesystem boundary, removes the proof container and
+upgrades the process result to failure if either cleanup cannot be proven.
+
+Private material may be restored only after `swapon --show --noheadings` proves an
+empty host inventory. The live host preflight repeats that check and requires a
+fresh (maximum age 15 minutes) attestation with `swap_enabled=false`. After the
+container starts and before ceremony projection, `/proc/swaps` must also contain
+zero active entries. Both results are written to a public redacted custody receipt.
 
 ## Reset and second clean run
 

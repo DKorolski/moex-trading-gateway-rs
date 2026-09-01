@@ -42,6 +42,14 @@ def mutate_text(root: Path, path: Path, old: str, new: str) -> None:
     target.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def mutate_all_text(root: Path, path: Path, old: str, new: str) -> None:
+    target = root / path
+    text = target.read_text(encoding="utf-8")
+    if old not in text:
+        raise RuntimeError(f"mutation marker drift: {path} {old!r}")
+    target.write_text(text.replace(old, new), encoding="utf-8")
+
+
 CASES: tuple[tuple[str, Mutation], ...] = (
     (
         "accepted-composition-ref",
@@ -312,6 +320,66 @@ CASES: tuple[tuple[str, Mutation], ...] = (
             "\ninstall_payload() {",
             "\n# ExecStart= proof bypass\ninstall_payload() {",
         ),
+    ),
+    (
+        "fixed-ceremony-source-path-drift",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, "/run/stage8b-g2-ceremony-source", "/tmp/stage8b-g2-ceremony-source"),
+    ),
+    (
+        "early-cleanup-trap-removed",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, "trap global_custody_cleanup EXIT", "# removed global custody trap"),
+    ),
+    (
+        "host-swap-check-removed",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'host_swap_entries="$(swapon --show --noheadings 2>/dev/null)"', 'host_swap_entries=""'),
+    ),
+    (
+        "host-swap-accepted",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, '[[ -z "$host_swap_entries" ]]', ': # swap accepted'),
+    ),
+    (
+        "fixed-source-one-filesystem-removed",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'rm -rf --one-file-system -- "$fixed_ceremony_root"', 'rm -rf -- "$fixed_ceremony_root"'),
+    ),
+    (
+        "cleanup-failure-not-fatal",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, "destroy_fixed_ceremony_source || status=1", "destroy_fixed_ceremony_source || true"),
+    ),
+    (
+        "container-cleanup-failure-not-fatal",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, "remove_proof_container || status=1", "remove_proof_container || true"),
+    ),
+    (
+        "cleanup-exit-status-not-preserved",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'exit "$status"', "exit 0"),
+    ),
+    (
+        "proof-container-name-rebindable",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, "readonly proof_container=stage8b-g2-native-proof-r2", 'proof_container="${STAGE8B_G2_RUN_LABEL}"'),
+    ),
+    (
+        "container-visible-swap-check-removed",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'container_swap_entries="$(docker exec', 'removed_container_swap_entries="$(docker exec'),
+    ),
+    (
+        "container-visible-swap-accepted",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, '[[ "$container_swap_entries" = 0 ]]', ': # container swap accepted'),
+    ),
+    (
+        "swap-custody-evidence-removed",
+        lambda r: mutate_all_text(r, checker.NATIVE_RUNNER, "swap-custody-preflight.json", "removed-swap-custody-preflight.json"),
+    ),
+    (
+        "host-swap-contract-opened",
+        lambda r: mutate_json(r, checker.CONTRACT, ("proof_requirements", "host_swap_entries_required"), 1),
+    ),
+    (
+        "container-swap-contract-opened",
+        lambda r: mutate_json(r, checker.CONTRACT, ("proof_requirements", "container_visible_swap_entries_required"), 1),
+    ),
+    (
+        "host-attestation-age-opened",
+        lambda r: mutate_json(r, checker.CONTRACT, ("proof_requirements", "host_attestation_max_age_seconds"), 86400),
     ),
 )
 

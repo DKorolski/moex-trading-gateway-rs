@@ -47,3 +47,10 @@ G2FTN-045,closure,Broker dispatch Redis live and runtime-live remain closed,clos
 G2FTN-046,closure,Real orders remain closed,closed surfaces,PASS
 G2FTN-047,next,Native execution is allowed only after fail-closed preflight,next allowed step,PASS
 G2FTN-048,next,Real read-only issuance remains a separate later package,design contract,PASS
+G2FTN-049,custody,Fixed ceremony cleanup guard is installed before argument and archive validation,native runner R2,PASS
+G2FTN-050,custody,Cleanup removes only the code-level fixed ceremony source and fails closed on deletion failure,native runner R2,PASS
+G2FTN-051,custody,Proof container cleanup is active for outer and recursive failure paths,native runner R2,PASS
+G2FTN-052,custody,Host live swap inventory is empty before reviewed archive processing,runner and host preflight,PASS
+G2FTN-053,custody,Container-visible swap inventory is empty before ceremony projection,native runner R2,PASS
+G2FTN-054,attestation,Host attestation binds swap disabled and is at most 15 minutes old,host preflight R2,PASS
+G2FTN-055,evidence,Public swap custody and ceremony destruction receipts are hash-bound to aggregate evidence,native runner R2,PASS

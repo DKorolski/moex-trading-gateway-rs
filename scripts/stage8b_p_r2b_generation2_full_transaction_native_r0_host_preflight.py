@@ -22,7 +22,7 @@ ATTESTATION_KEYS = {
     "created_at_utc", "reviewer_approval_sha256", "reviewed_archive_sha256", "container_image_id",
     "disposable_host", "native_linux_amd64", "qemu_or_binfmt_execution", "production_account_host",
     "sensitive_cotenant_present", "broker_credentials_present", "trading_workloads_present",
-    "authorized_for_destructive_container_cleanup",
+    "authorized_for_destructive_container_cleanup", "swap_enabled",
 }
 BINDING_KEYS = {
     "schema_version", "stage", "result", "source_ref", "source_tree", "archive_name", "archive_sha256",
@@ -33,6 +33,8 @@ PURPOSE = "Stage 8B-P R2B Generation-2 native controlled installation proof"
 HEX40 = re.compile(r"[0-9a-f]{40}")
 HEX64 = re.compile(r"[0-9a-f]{64}")
 EXPECTED_IMAGE_ID = "sha256:3cc66c640df0444530a626d2acbcfeda9742039b917a747fd023b315ef2c1526"
+MAX_ATTESTATION_AGE = dt.timedelta(minutes=15)
+MAX_FUTURE_SKEW = dt.timedelta(minutes=1)
 SENSITIVE_ROOTS = (
     Path("/opt/trading-hybrid"), Path("/opt/moex-trading-live"),
     Path("/var/lib/moex-trading/production"), Path("/run/credentials/moex-trading/production"),
@@ -84,6 +86,8 @@ def check(
     require(run("docker", "image", "inspect", "--format", "{{.Id}}", EXPECTED_IMAGE_ID) == EXPECTED_IMAGE_ID, "container image ID drift")
     require(run("docker", "ps", "-aq") == "", "disposable host already has containers")
     require(not any(path.exists() for path in SENSITIVE_ROOTS), "sensitive runtime root present")
+    live_swap = run("swapon", "--show", "--noheadings")
+    require(live_swap == "", "host swap is enabled")
 
     binding = load(archive_binding_path)
     require(set(binding) == BINDING_KEYS, "archive binding schema drift")
@@ -116,11 +120,15 @@ def check(
     require(attestation["reviewer_approval_sha256"] == binding["reviewer_acceptance_sha256"], "review approval binding drift")
     created = dt.datetime.fromisoformat(attestation["created_at_utc"].replace("Z", "+00:00"))
     require(created.tzinfo is not None, "attestation timestamp must be UTC")
+    now = dt.datetime.now(dt.timezone.utc)
+    require(created <= now + MAX_FUTURE_SKEW, "attestation timestamp is in the future")
+    require(now - created <= MAX_ATTESTATION_AGE, "host attestation is stale")
     require(attestation["disposable_host"] is True and attestation["native_linux_amd64"] is True, "host is not attested disposable amd64")
     require(attestation["qemu_or_binfmt_execution"] is False, "emulated execution forbidden")
     for field in ("production_account_host", "sensitive_cotenant_present", "broker_credentials_present", "trading_workloads_present"):
         require(attestation[field] is False, f"ineligible host boundary: {field}")
     require(attestation["authorized_for_destructive_container_cleanup"] is True, "destructive cleanup not authorized")
+    require(attestation["swap_enabled"] is False, "attestation permits swap")
 
     contract = load(root / contract_check.CONTRACT)
     for relative, expected in contract["unit_file_sha256"].items():
@@ -139,7 +147,7 @@ def check(
 
     return {
         "schema_version": 2,
-        "stage": "Stage 8B-P R2B Generation-2 native host preflight R1",
+        "stage": "Stage 8B-P R2B Generation-2 native host preflight R2",
         "result": "PASS",
         "source_ref": binding["source_ref"],
         "source_tree": binding["source_tree"],
@@ -154,6 +162,9 @@ def check(
         "qemu_emulation": False,
         "disposable_host": True,
         "sensitive_cotenant_present": False,
+        "host_swap_enabled": False,
+        "host_swap_entries": 0,
+        "attestation_max_age_seconds": int(MAX_ATTESTATION_AGE.total_seconds()),
         "contract_sha256": digest(root / contract_check.CONTRACT),
         "unit_hashes_verified": len(contract["unit_file_sha256"]),
         "binary_hashes_verified": len(contract["production_linux_amd64_sha256"]),

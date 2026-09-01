@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import tempfile
+import datetime as dt
 from pathlib import Path
 from typing import Callable
 
@@ -24,7 +25,7 @@ def baseline() -> dict[str, object]:
         "host_id": "synthetic-disposable-host",
         "machine_id_sha256": "2" * 64,
         "cloud_instance_id_sha256": "3" * 64,
-        "created_at_utc": "2026-09-01T00:00:00Z",
+        "created_at_utc": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
         "reviewer_approval_sha256": "4" * 64,
         "reviewed_archive_sha256": "5" * 64,
         "container_image_id": preflight.EXPECTED_IMAGE_ID,
@@ -35,6 +36,7 @@ def baseline() -> dict[str, object]:
         "sensitive_cotenant_present": False,
         "broker_credentials_present": False,
         "trading_workloads_present": False,
+        "swap_enabled": False,
         "authorized_for_destructive_container_cleanup": True,
     }
 
@@ -57,6 +59,10 @@ CASES: tuple[tuple[str, Mutation], ...] = (
     ("image-id-drift", lambda value: value.__setitem__("container_image_id", "sha256:" + "0" * 64)),
     ("archive-binding-drift", lambda value: value.__setitem__("reviewed_archive_sha256", "0" * 64)),
     ("review-approval-drift", lambda value: value.__setitem__("reviewer_approval_sha256", "0" * 64)),
+    ("swap-attestation-enabled", lambda value: value.__setitem__("swap_enabled", True)),
+    ("swap-attestation-field-removed", lambda value: value.pop("swap_enabled")),
+    ("stale-attestation", lambda value: value.__setitem__("created_at_utc", "2026-01-01T00:00:00Z")),
+    ("future-attestation", lambda value: value.__setitem__("created_at_utc", "2099-01-01T00:00:00Z")),
 )
 
 
@@ -67,7 +73,7 @@ def copy_contract(root: Path) -> None:
         shutil.copy2(contract.ROOT / relative, target)
 
 
-def invoke(root: Path, attestation: dict[str, object], source_ref: str) -> None:
+def invoke(root: Path, attestation: dict[str, object], source_ref: str, live_swap: str = "") -> None:
     attestation_path = root / "host-attestation.json"
     binding_path = root / "archive-binding.json"
     attestation_path.write_text(json.dumps(attestation) + "\n", encoding="utf-8")
@@ -119,6 +125,8 @@ def invoke(root: Path, attestation: dict[str, object], source_ref: str) -> None:
             return preflight.EXPECTED_IMAGE_ID
         if command[:2] == ("docker", "ps"):
             return ""
+        if command[:2] == ("swapon", "--show"):
+            return live_swap
         raise RuntimeError("unexpected synthetic command")
 
     preflight.run = synthetic_run
@@ -153,6 +161,16 @@ def main() -> None:
         if result is not None:
             pass
         print("PASS synthetic-positive")
+
+    with tempfile.TemporaryDirectory(prefix="stage8b-g2-native-host-live-swap-") as temporary:
+        root = Path(temporary)
+        copy_contract(root)
+        try:
+            invoke(root, baseline(), source_ref, "/swapfile file 1024 0 -2")
+        except (KeyError, OSError, RuntimeError, ValueError, json.JSONDecodeError):
+            print("PASS swap-attestation-false-but-live-swap-present")
+        else:
+            raise SystemExit("stage8b-generation2-native-host-negative: FAIL accepted=live-swap")
 
     passed = 0
     for name, mutation in CASES:

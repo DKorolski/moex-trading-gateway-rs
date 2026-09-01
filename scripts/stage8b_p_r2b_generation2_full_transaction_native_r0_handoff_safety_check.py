@@ -93,7 +93,7 @@ def check(path: str) -> dict[str, object]:
         if digest(manifest_bytes) != evidence.get("manifest_sha256"):
             raise ValueError("manifest digest mismatch")
         gate = archive.read(GATE)
-        if b"runner=implemented r1=true review=required native_execution=false authorization=NOT_ISSUED" not in gate:
+        if b"runner=implemented r2=true custody=no-swap+early-cleanup review=required native_execution=false authorization=NOT_ISSUED" not in gate:
             raise ValueError("gate marker missing")
         if digest(gate) != evidence.get("gate_sha256"):
             raise ValueError("gate digest mismatch")
