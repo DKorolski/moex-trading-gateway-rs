@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-08-31.
+Status date: 2026-09-01.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -15,19 +15,26 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 8B-P R2B Generation-2 Backup/Restore R0-R1 is independently accepted at
   `3029bab714f8b75daaba3946ed858426515b4165`; its immutable review archive has
   SHA-256 `ee7deefa31dcf6b126408452f4772081ba20999c90ef58cf52df7b873869759f`.
-  The active candidate is **Stage 8B-P R2B Generation-2 Composition Rebuild R0**.
-  Source commit `c7667658288577229b7cf00e9dcef519ba2fd1d7`
-  selects the accepted public Generation-2 authority, rebinds exact key
-  generations before legacy adapter normalization and reissues helper
-  acceptance under Generation 2. Two clean pinned Linux/amd64 musl builds are
-  byte-identical for all seven production binaries and the one offline public
-  authority tool. An isolated Phase-6 rehearsal passed with network mode
-  `none`, real credentials absent, FINAM untouched and its transient signed
-  package destroyed with the container. Generation 2 remains inactive:
-  production credentials are not installed, controlled installation is not
-  performed and R2B authorization remains `NOT_ISSUED`. FINAM, AuthService,
-  broker GET/POST/DELETE, dispatch, Redis live, runtime-live and real orders
-  remain closed pending independent review.
+  The Generation-2 R0 composition candidate at
+  `1a1933f90075591a88d4631c7c72599a1262115d` is substantively accepted, with
+  formal acceptance pending the narrow evidence correction. The active candidate is
+  **Stage 8B-P R2B Generation-2 Composition Rebuild R0-R1 Exact Phase-6 Evidence Closure**.
+  Its source commit
+  `2765314ebf04ae72d0a7da3258e22bb74d7db7ad` and tree
+  `770c44540ab7bfb646738a08949eb434dd2088c4` replace the old category-only
+  Phase-6 assertion with exact typed root-terminal evidence. The isolated
+  network-none rehearsal proved one failed request attempt: ordinal `1`,
+  `POST /v1/sessions`, `NETWORK_CONNECT_FAILURE`, no HTTP status/body and all
+  dispatch/effect/order flags false. Its evidence SHA-256 is
+  `0d74dc0d83874f255bb339bb10c3675980e87fd2582fdd2551575f39c4c0726d`.
+  The accepted build source remains
+  `c7667658288577229b7cf00e9dcef519ba2fd1d7`; production binaries rebuilt in R0-R1: false.
+  All eight accepted build-A/build-B ELF hashes, helper
+  acceptance and exact effect identity are unchanged. Generation 2 remains inactive:
+  production credentials are not installed, controlled installation
+  is not performed and R2B authorization remains `NOT_ISSUED`. FINAM,
+  AuthService external network, broker GET/POST/DELETE, dispatch, Redis live,
+  runtime-live and real orders remain closed pending independent R0-R1 review.
 
 - Stage 8B-P R2B Implementation R0-R1A is independently accepted at
   `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
