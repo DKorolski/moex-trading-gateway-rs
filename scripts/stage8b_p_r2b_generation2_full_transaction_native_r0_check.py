@@ -25,6 +25,7 @@ HOST_ATTESTATION_EXAMPLE = BASE / "stage8b-p-r2b-generation2-native-host-attesta
 TERMINAL_ORACLE = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_terminal_oracle.py")
 HOST_PREFLIGHT = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py")
 CEREMONY_PREFLIGHT = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_ceremony_preflight.py")
+VPS_STATIC_REHEARSAL = BASE / "stage8b-p-r2b-generation2-vps-native-static-rehearsal.json"
 LEGACY_CONTRACT = legacy.TRANSACTION
 PREFLIGHT_AUTHORITY = preflight.AUTHORITY
 UPSTREAM_BUILD = BASE / "stage8b-p-r2b-r4-build-evidence.json"
@@ -95,6 +96,7 @@ def contract_required_paths(root: Path) -> set[Path]:
         TERMINAL_ORACLE,
         HOST_PREFLIGHT,
         CEREMONY_PREFLIGHT,
+        VPS_STATIC_REHEARSAL,
         LEGACY_CONTRACT,
         PREFLIGHT_AUTHORITY,
         UPSTREAM_BUILD,
@@ -114,6 +116,7 @@ def check_contract(root: Path) -> None:
     generation2_build = load(root, GENERATION2_BUILD)
     generation2_authority = load(root, GENERATION2_AUTHORITY)
     authority = load(root, AUTHORITY)
+    vps_rehearsal = load(root, VPS_STATIC_REHEARSAL)
 
     exact_keys(
         contract,
@@ -466,6 +469,38 @@ def check_contract(root: Path) -> None:
         authority["next_allowed_step"]
         == "IMPLEMENT_NATIVE_ONLY_RUNNER_AND_STOP_BEFORE_CONTAINER_CREATE_WITHOUT_ELIGIBLE_HOST",
         "authority next-step drift",
+    )
+    require(
+        vps_rehearsal
+        == {
+            "schema_version": 1,
+            "stage": "Stage 8B-P R2B Generation-2 VPS native static engineering rehearsal",
+            "classification": "ENGINEERING_REHEARSAL_NOT_ACCEPTANCE_EVIDENCE",
+            "source_ref": "c211c91396fb470fe1113109c6aac5a21b756da6",
+            "host_id_sha256": "f6a56abe8959399d8885b02610828fdbfc374a8873f2cd4f99e865ab2755fa7c",
+            "kernel_architecture": "x86_64",
+            "docker_architecture": "x86_64",
+            "sensitive_trading_cotenant_present": True,
+            "formal_native_proof_host_eligible": False,
+            "separate_project_directory_used": True,
+            "generation2_build_a_build_b_artifacts_verified": 16,
+            "contract_checker_passed": True,
+            "contract_negative_cases_passed": 40,
+            "proof_container_created": False,
+            "privileged_container_created": False,
+            "private_ceremony_transferred": False,
+            "credentials_transferred": False,
+            "phase_graph_started": False,
+            "full_transaction_proof_executed": False,
+            "generation_2_active": False,
+            "authorization": "NOT_ISSUED",
+            "external_finam_network": False,
+            "broker_dispatch": False,
+            "real_orders": False,
+            "result": "PASS_STATIC_ONLY",
+            "next_allowed_step": "DISPOSABLE_NATIVE_LINUX_AMD64_HOST_OR_SEPARATELY_REVIEWED_GOVERNANCE_EXCEPTION",
+        },
+        "VPS static rehearsal drift",
     )
 
 

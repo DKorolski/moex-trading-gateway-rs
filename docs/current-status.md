@@ -39,6 +39,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   is not performed and R2B authorization remains `NOT_ISSUED`. FINAM,
   AuthService external network, broker GET/POST/DELETE, dispatch, Redis live,
   runtime-live and real orders remain closed.
+  The active x86_64 VPS has been used only for a native static engineering
+  rehearsal in a separate directory: the checker and 40/40 contract mutations
+  passed against the public G2 ELF evidence. Because sensitive trading
+  cotenants are active, no proof or privileged container was created, no
+  ceremony or credential was transferred and this result is explicitly not
+  formal native acceptance evidence.
 
 - Stage 8B-P R2B Implementation R0-R1A is independently accepted at
   `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
