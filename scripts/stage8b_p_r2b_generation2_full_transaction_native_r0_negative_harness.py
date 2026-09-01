@@ -247,6 +247,60 @@ CASES: tuple[tuple[str, Mutation], ...] = (
         ),
     ),
     (
+        "inherited-failure-replay-source",
+        lambda r: mutate_json(r, checker.CONTRACT, ("inherited_failure_replay_proof", "source_ref"), "0" * 40),
+    ),
+    (
+        "native-fault-matrix-falsely-required",
+        lambda r: mutate_json(r, checker.CONTRACT, ("proof_requirements", "native_fault_injection_required"), True),
+    ),
+    (
+        "native-stale-replay-falsely-required",
+        lambda r: mutate_json(r, checker.CONTRACT, ("proof_requirements", "native_stale_replay_attempt_required"), True),
+    ),
+    (
+        "docker-image-id-drift",
+        lambda r: mutate_json(r, checker.CONTRACT, ("container_image", "image_id"), "sha256:" + "0" * 64),
+    ),
+    (
+        "docker-image-rebuild-opened",
+        lambda r: mutate_json(r, checker.CONTRACT, ("container_image", "rebuild_under_same_tag_allowed"), True),
+    ),
+    (
+        "ceremony-verifier-binary-drift",
+        lambda r: mutate_json(r, checker.CONTRACT, ("ceremony_verifier", "linux_amd64_sha256"), "0" * 64),
+    ),
+    (
+        "phase2-manifest-unit-not-installed",
+        lambda r: mutate_text(
+            r, checker.CONTAINER_RUNNER,
+            '  install -m 0644 "$repo_root/deploy/stage8b-r2a5/stage8b-r2a8-current-manifest-issuer.service" /etc/systemd/system/\n', "",
+        ),
+    ),
+    (
+        "phase2-source-adapter-unit-not-installed",
+        lambda r: mutate_text(
+            r, checker.CONTAINER_RUNNER,
+            '  install -m 0644 "$repo_root/deploy/stage8b-r2a5/stage8b-r2a7-source-adapter.service" /etc/systemd/system/\n', "",
+        ),
+    ),
+    (
+        "root-terminal-durability-lost",
+        lambda r: mutate_text(r, checker.CONTAINER_RUNNER, "install -o root -g root -m 0400", "install -o root -g root -m 0600"),
+    ),
+    (
+        "review-archive-sha-not-recomputed",
+        lambda r: mutate_text(r, checker.REVIEW_ARCHIVE, "actual_archive_sha256 = digest(archive_path)", "actual_archive_sha256 = expected_archive_sha256"),
+    ),
+    (
+        "ceremony-private-der-tempfile",
+        lambda r: mutate_text(r, checker.CEREMONY_PREFLIGHT, '"""Metadata-only custody preflight', 'import tempfile\n"""Metadata-only custody preflight'),
+    ),
+    (
+        "host-negative-handoff-artifact-root-missing",
+        lambda r: mutate_text(r, checker.HOST_NEGATIVE, 'handoff-evidence/linux-amd64/exact-binaries', 'missing/exact-binaries'),
+    ),
+    (
         "runner-network-opened",
         lambda r: mutate_text(r, checker.NATIVE_RUNNER, "--network none", "--network host"),
     ),

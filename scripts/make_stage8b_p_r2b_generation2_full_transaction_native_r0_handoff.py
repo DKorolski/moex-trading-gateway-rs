@@ -15,6 +15,8 @@ from pathlib import Path
 import make_stage8b_design_handoff as common
 import stage8b_p_r2b_generation2_full_transaction_native_r0_check as checker
 import stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check as safety
+import stage8b_p_r2b_generation2_full_transaction_native_r0_negative_harness as contract_negative
+import stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness as host_negative
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +27,7 @@ GENERATION2_ROOT = ROOT / "reports/stage8b-p-r2b-generation2-composition-r0/linu
 PROOF_TOOL_SOURCES = {
     "stage8b-r2a5-controlled-layout": ROOT / "tmp/stage8b-g2-r0-r1-controlled.tB20fg/x86_64-unknown-linux-musl/release/stage8b-r2a5-controlled-layout",
     "stage8b-r2b-creator-chain-seeder": ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2b-creator-chain-seeder",
+    "stage8b-r2b-trust-rebind-key-ceremony-verify": ROOT / "tmp/stage8b-g2-native-r1-verifier-linux-amd64/stage8b-r2b-trust-rebind-key-ceremony-verify",
 }
 
 
@@ -105,11 +108,11 @@ def main() -> None:
                 "gate_sha256": digest(gate.stdout),
                 "production_binary_count": 12,
                 "generation2_reproducible_binary_members": 16,
-                "proof_tool_binary_count": 2,
+                "proof_tool_binary_count": 3,
                 "phase_count": 6,
                 "service_invocation_count": 31,
-                "contract_negative_cases": 43,
-                "host_negative_cases": 11,
+                "contract_negative_cases": len(contract_negative.CASES),
+                "host_negative_cases": len(host_negative.CASES),
                 "eligible_disposable_host_identified": True,
                 "container_created": False,
                 "native_execution": False,
@@ -153,20 +156,19 @@ def main() -> None:
         with zipfile.ZipFile(archive_path) as archive:
             archive.extractall(extracted)
         os.chmod(extracted / "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh", 0o755)
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_check.py",
-                "--root",
-                str(extracted),
-            ],
-            cwd=extracted,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
+        commands = (
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_check.py", "--root", str(extracted)],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_negative_harness.py"],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py"],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive_negative_harness.py", str(archive_path)],
+            [sys.executable, "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py", str(archive_path)],
         )
-        if completed.returncode != 0:
-            raise SystemExit(completed.stdout.decode(errors="replace"))
+        for command in commands:
+            completed = subprocess.run(
+                command, cwd=extracted, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False,
+            )
+            if completed.returncode != 0:
+                raise SystemExit(completed.stdout.decode(errors="replace"))
 
     archive_digest = digest(archive_path.read_bytes())
     archive_path.with_suffix(".zip.sha256").write_text(f"{archive_digest}  {archive_name}\n")

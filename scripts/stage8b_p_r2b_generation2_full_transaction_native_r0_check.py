@@ -25,17 +25,24 @@ HOST_ATTESTATION_EXAMPLE = BASE / "stage8b-p-r2b-generation2-native-host-attesta
 TERMINAL_ORACLE = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_terminal_oracle.py")
 HOST_PREFLIGHT = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py")
 CEREMONY_PREFLIGHT = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_ceremony_preflight.py")
+REVIEW_ARCHIVE = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive.py")
+REVIEW_ARCHIVE_NEGATIVE = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive_negative_harness.py")
 NATIVE_RUNNER = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh")
 CONTAINER_RUNNER = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh")
 MANIFEST_MATERIALIZER = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_materialize_manifest.py")
 HANDOFF_MAKER = Path("scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py")
 HANDOFF_SAFETY = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py")
+HOST_NEGATIVE = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py")
 VPS_STATIC_REHEARSAL = BASE / "stage8b-p-r2b-generation2-vps-native-static-rehearsal.json"
 LEGACY_CONTRACT = legacy.TRANSACTION
 PREFLIGHT_AUTHORITY = preflight.AUTHORITY
 UPSTREAM_BUILD = BASE / "stage8b-p-r2b-r4-build-evidence.json"
 GENERATION2_BUILD = composition.r0.BUILD
 GENERATION2_AUTHORITY = composition.r0.PRODUCTION_AUTHORITY
+FAILURE_REPLAY_EVIDENCE = BASE / "stage8b-p-r2b-implementation-r0-r1-linux-rehearsal-evidence.json"
+IMAGE_INVENTORY = BASE / "stage8b-p-r2b-controlled-installation-impl-r0-staging-inventory.json"
+CEREMONY_VERIFIER_SOURCE = Path("tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-trust-rebind-key-ceremony-verify.rs")
+CEREMONY_VERIFIER_BUILD = BASE / "stage8b-p-r2b-generation2-native-r1-verifier-build-evidence.json"
 
 ACCEPTED_COMPOSITION_REF = "c74382a7e3a63d3673dec220ff4e9caaba6b48ee"
 ACCEPTED_COMPOSITION_ARCHIVE = "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62"
@@ -63,7 +70,11 @@ EXPECTED_BINARIES = {
 EXPECTED_PROOF_TOOLS = {
     "stage8b-r2a5-controlled-layout": "38c179dbb6ac227d1cd430e3ec35d7e3f797f6504c8f4565c6dbb5ef869cb098",
     "stage8b-r2b-creator-chain-seeder": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a",
+    "stage8b-r2b-trust-rebind-key-ceremony-verify": "73343e668271d3ac29182922d8b44bdb0c35cf750b1d04bcfab89c885698338d",
 }
+EXPECTED_IMAGE_ID = "sha256:3cc66c640df0444530a626d2acbcfeda9742039b917a747fd023b315ef2c1526"
+FAILURE_REPLAY_EVIDENCE_SHA256 = "25e9f8efee4d774be7bf57bce40cb6cf39fe7a0efd0ca65b1407be73e415a809"
+IMAGE_INVENTORY_SHA256 = "9cdabc83dac845d8deb894bfa9bbe93a4326419dc8b3ba3cd360c091123cc058"
 UPSTREAM_NAMES = tuple(list(EXPECTED_BINARIES)[:6])
 GENERATION2_BUILD_NAMES = {
     "stage8b-r2a5-authority-producer": "stage8b-r2a5-authority-producer",
@@ -105,17 +116,24 @@ def contract_required_paths(root: Path) -> set[Path]:
         TERMINAL_ORACLE,
         HOST_PREFLIGHT,
         CEREMONY_PREFLIGHT,
+        REVIEW_ARCHIVE,
+        REVIEW_ARCHIVE_NEGATIVE,
         NATIVE_RUNNER,
         CONTAINER_RUNNER,
         MANIFEST_MATERIALIZER,
         HANDOFF_MAKER,
         HANDOFF_SAFETY,
+        HOST_NEGATIVE,
         VPS_STATIC_REHEARSAL,
         LEGACY_CONTRACT,
         PREFLIGHT_AUTHORITY,
         UPSTREAM_BUILD,
         GENERATION2_BUILD,
         GENERATION2_AUTHORITY,
+        FAILURE_REPLAY_EVIDENCE,
+        IMAGE_INVENTORY,
+        CEREMONY_VERIFIER_SOURCE,
+        CEREMONY_VERIFIER_BUILD,
         *(Path(path) for path in legacy_contract["unit_file_sha256"]),
     }
 
@@ -142,6 +160,9 @@ def check_contract(root: Path) -> None:
             "accepted_composition_r0_r1",
             "inherited_transaction",
             "inherited_preflight",
+            "inherited_failure_replay_proof",
+            "container_image",
+            "ceremony_verifier",
             "binary_lineage",
             "generation2_public_authority",
             "source_instances",
@@ -158,13 +179,13 @@ def check_contract(root: Path) -> None:
         },
         "Generation-2 transaction contract",
     )
-    require(contract["schema_version"] == 2, "contract version drift")
+    require(contract["schema_version"] == 3, "contract version drift")
     require(
-        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r0",
+        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r1",
         "contract identity drift",
     )
     require(
-        contract["status"] == "NATIVE_RUNNER_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+        contract["status"] == "NATIVE_RUNNER_R1_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
         "contract execution status drift",
     )
     require(
@@ -203,6 +224,55 @@ def check_contract(root: Path) -> None:
         ["outer_runner_evidence_parser"]
         == composition.ORACLE_ID,
         "typed preflight oracle drift",
+    )
+    require(sha256(root / FAILURE_REPLAY_EVIDENCE) == FAILURE_REPLAY_EVIDENCE_SHA256, "failure/replay evidence drift")
+    failure_replay = load(root, FAILURE_REPLAY_EVIDENCE)
+    require(
+        contract["inherited_failure_replay_proof"]
+        == {
+            "classification": "INHERITED_ACCEPTED_IMPLEMENTATION_R0_R1A",
+            "source_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
+            "archive_sha256": "2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77",
+            "evidence_path": FAILURE_REPLAY_EVIDENCE.as_posix(),
+            "evidence_sha256": FAILURE_REPLAY_EVIDENCE_SHA256,
+            "failure_edges_verified": 5,
+            "stale_replay_rejected": True,
+            "native_runner_scope": "EXACT_PRODUCTION_SUCCESS_TO_EXPECTED_FAIL_CLOSED_PLUS_CLEAN_RESET",
+        },
+        "inherited failure/replay proof drift",
+    )
+    for field in (
+        "phase1_failure_blocks_phase2", "producer_failure_blocks_issuers",
+        "issuer_failure_blocks_builder", "builder_failure_blocks_signer",
+        "signer_failure_blocks_supervisor", "second_transaction_old_output_blocked",
+    ):
+        require(failure_replay.get(field) is True, f"inherited proof missing: {field}")
+    require(sha256(root / IMAGE_INVENTORY) == IMAGE_INVENTORY_SHA256, "image inventory drift")
+    image = load(root, IMAGE_INVENTORY)["image"]
+    require(contract["container_image"] == image, "container image authority drift")
+    require(image["image_id"] == EXPECTED_IMAGE_ID and image["rebuild_under_same_tag_allowed"] is False, "container image pin drift")
+    require(
+        contract["ceremony_verifier"]
+        == {
+            "source_path": CEREMONY_VERIFIER_SOURCE.as_posix(),
+            "source_sha256": "d8b6173c65d87ad1ff0c6b202645335c2cf9fcad76a8b44b2a551a3f494af8f5",
+            "build_evidence_path": CEREMONY_VERIFIER_BUILD.as_posix(),
+            "build_evidence_sha256": "5dc3b60720943bd17b852fb9b0597fd78ff419573ae2eb6fc091765ee7e4e7f6",
+            "binary_name": "stage8b-r2b-trust-rebind-key-ceremony-verify",
+            "linux_amd64_sha256": EXPECTED_PROOF_TOOLS["stage8b-r2b-trust-rebind-key-ceremony-verify"],
+            "private_seed_temporary_files": False,
+            "private_public_derivation": "IN_MEMORY_ED25519_DALEK",
+            "exact_inventory_required": True,
+        }
+        and sha256(root / CEREMONY_VERIFIER_SOURCE)
+        == "d8b6173c65d87ad1ff0c6b202645335c2cf9fcad76a8b44b2a551a3f494af8f5",
+        "ceremony verifier binding drift",
+    )
+    require(
+        sha256(root / CEREMONY_VERIFIER_BUILD) == "5dc3b60720943bd17b852fb9b0597fd78ff419573ae2eb6fc091765ee7e4e7f6"
+        and load(root, CEREMONY_VERIFIER_BUILD)["output"]["sha256"]
+        == EXPECTED_PROOF_TOOLS["stage8b-r2b-trust-rebind-key-ceremony-verify"],
+        "ceremony verifier build evidence drift",
     )
 
     require(contract["source_instances"] == inherited["source_instances"] == legacy.SOURCES, "source order drift")
@@ -299,11 +369,17 @@ def check_contract(root: Path) -> None:
         "dns_allowed": False,
         "finam_network_allowed": False,
         "fresh_review_extraction_required": True,
+        "actual_review_archive_sha256_recomputation_required": True,
+        "source_manifest_complete_verification_required": True,
+        "reviewer_acceptance_binding_required": True,
+        "exact_container_image_id_required": True,
         "exact_binary_hash_preflight_required": True,
         "exact_unit_hash_preflight_required": True,
         "exact_phase_graph_required": True,
-        "phase_failure_propagation_required": True,
-        "stale_replay_rejection_required": True,
+        "phase_failure_propagation_proof_source": "INHERITED_ACCEPTED_IMPLEMENTATION_R0_R1A",
+        "native_fault_injection_required": False,
+        "stale_replay_proof_source": "INHERITED_ACCEPTED_IMPLEMENTATION_R0_R1A",
+        "native_stale_replay_attempt_required": False,
         "clean_second_run_required": True,
         "raw_redacted_root_terminal_required": True,
         "redacted_helper_journal_required": True,
@@ -311,6 +387,9 @@ def check_contract(root: Path) -> None:
         "timeout_stage_exact_request_required": True,
         "reset_before_second_run_required": True,
         "post_proof_uninstall_required": True,
+        "ceremony_source_storage": "tmpfs",
+        "pinned_in_memory_ceremony_verifier_required": True,
+        "ceremony_source_destruction_receipt_required": True,
         "private_material_export_allowed": False,
     }
     require(contract["proof_requirements"] == expected_proof, "native proof requirements drift")
@@ -337,6 +416,9 @@ def check_contract(root: Path) -> None:
 
     outer = (root / NATIVE_RUNNER).read_text(encoding="utf-8")
     inner = (root / CONTAINER_RUNNER).read_text(encoding="utf-8")
+    ceremony_preflight = (root / CEREMONY_PREFLIGHT).read_text(encoding="utf-8")
+    review_archive = (root / REVIEW_ARCHIVE).read_text(encoding="utf-8")
+    host_negative = (root / HOST_NEGATIVE).read_text(encoding="utf-8")
     materializer = (root / MANIFEST_MATERIALIZER).read_text(encoding="utf-8")
     require(
         outer.index('python3 "$repo_root/scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py"')
@@ -346,6 +428,10 @@ def check_contract(root: Path) -> None:
     for marker in (
         "--network none",
         "--tmpfs /run:",
+        "STAGE8B_G2_REVIEW_ARCHIVE",
+        "stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive.py",
+        EXPECTED_IMAGE_ID,
+        "ceremony-source-destruction-receipt.json",
         "run-1/run-result.json",
         "run-2/run-result.json",
         "container_destroyed",
@@ -354,6 +440,13 @@ def check_contract(root: Path) -> None:
         require(marker in outer, f"native outer runner marker missing: {marker}")
     for forbidden in ("--platform", "/proc/sys/fs/binfmt", "qemu-x86", "--network host"):
         require(forbidden not in outer.lower(), f"native outer runner forbidden marker: {forbidden}")
+    for marker in (
+        'actual_image_id="$(docker image inspect --format',
+        '[[ "$actual_image_id" = "$image_id" ]]',
+        '--tmpfs "$ceremony_container_parent:rw,nosuid,nodev,noexec,mode=0700"',
+        'stage8b-r2b-trust-rebind-key-ceremony-verify',
+    ):
+        require(marker in outer, f"native image/custody marker missing: {marker}")
     for marker in (
         "install_payload",
         "verify_installed_payload",
@@ -364,10 +457,28 @@ def check_contract(root: Path) -> None:
         "root-terminal.redacted.json",
         "helper-journal.redacted.txt",
         "native_r0_terminal_oracle.py",
+        "stage8b-r2a8-current-manifest-issuer.service",
+        "stage8b-r2a7-source-adapter.service",
+        "install -o root -g root -m 0400",
+        "_SYSTEMD_INVOCATION_ID",
     ):
         require(marker in inner, f"native inner runner marker missing: {marker}")
-    for forbidden in ("sed -i", "ExecStart=", ".service.d", "curl ", "wget "):
+    for forbidden in ("sed -i", "ExecStart=", ".service.d", "curl ", "wget ", "install -m 0600 \"$terminal_file\""):
         require(forbidden not in inner, f"production mutation/network tool forbidden: {forbidden}")
+    for unit_install in (
+        'install -m 0644 "$repo_root/deploy/stage8b-r2a5/stage8b-r2a8-current-manifest-issuer.service" /etc/systemd/system/',
+        'install -m 0644 "$repo_root/deploy/stage8b-r2a5/stage8b-r2a7-source-adapter.service" /etc/systemd/system/',
+    ):
+        require(unit_install in inner, f"exact Phase-2 unit install missing: {unit_install}")
+    require("tempfile" not in ceremony_preflight and "openssl" not in ceremony_preflight, "disk-backed ceremony derivation returned")
+    for marker in ("digest(archive_path)", "safety.check(str(archive_path))", "source_manifest_verified", "additional_members_rejected"):
+        require(marker in review_archive, f"review archive proof marker missing: {marker}")
+    require(
+        'handoff-evidence/linux-amd64/exact-binaries' in host_negative
+        and 'handoff-evidence/linux-amd64/proof-tools' in host_negative,
+        "host negative harness is not handoff self-contained",
+    )
+    require("assert " not in outer and "assert " not in inner, "security gate uses optimizable assert")
     require(
         'fields["account_key_generation_id"] = "2"' in materializer,
         "Generation-2 manifest binding missing",
@@ -414,7 +525,7 @@ def check_contract(root: Path) -> None:
     require(authority["schema_version"] == 1, "authority version drift")
     require(
         authority["status"]
-        == "NATIVE_RUNNER_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
+        == "NATIVE_RUNNER_R1_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
         "authority status drift",
     )
     require(
@@ -436,6 +547,8 @@ def check_contract(root: Path) -> None:
             TERMINAL_ORACLE,
             HOST_PREFLIGHT,
             CEREMONY_PREFLIGHT,
+            REVIEW_ARCHIVE,
+            REVIEW_ARCHIVE_NEGATIVE,
             NATIVE_RUNNER,
             CONTAINER_RUNNER,
             MANIFEST_MATERIALIZER,
@@ -452,11 +565,13 @@ def check_contract(root: Path) -> None:
             "production_unit_file_count": 18,
             "proof_trigger_file_count": 1,
             "production_binary_count": 12,
-            "proof_tool_binary_count": 2,
+            "proof_tool_binary_count": 3,
             "inherited_phase1_phase2_binary_count": 6,
             "generation2_phase3_phase6_binary_count": 6,
             "production_binaries_rebuilt": False,
-            "negative_cases": 43,
+            "negative_cases": 55,
+            "host_negative_cases": 14,
+            "post_package_archive_negative_cases": 5,
         },
         "authority static-rebind summary drift",
     )
@@ -484,6 +599,9 @@ def check_contract(root: Path) -> None:
             "account_key_bindings_verified": 1,
             "plaintext_ceremony_retained": False,
             "private_material_exported": False,
+            "temporary_source_storage": "tmpfs",
+            "pinned_in_memory_verifier": True,
+            "temporary_source_destruction_required": True,
         },
         "authority ceremony custody drift",
     )

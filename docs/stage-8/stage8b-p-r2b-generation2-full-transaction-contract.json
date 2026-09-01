@@ -1,8 +1,8 @@
 {
-  "schema_version": 2,
-  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0",
-  "contract_id": "stage8b-r2b-generation2-full-31-service-transaction-r0",
-  "status": "NATIVE_RUNNER_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+  "schema_version": 3,
+  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0-R1",
+  "contract_id": "stage8b-r2b-generation2-full-31-service-transaction-r1",
+  "status": "NATIVE_RUNNER_R1_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
   "accepted_composition_r0_r1": {
     "source_ref": "c74382a7e3a63d3673dec220ff4e9caaba6b48ee",
     "archive_sha256": "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62",
@@ -19,6 +19,45 @@
     "sha256": "bafa59e0b76eb323b6f4be02f32200c48958854e63fde9ad9aaca9cb0b1f2db1",
     "accepted_source_ref": "a2586c428cd97349956efb12409ff37aea1fbe78",
     "request_oracle": "EXACT_TYPED_ROOT_TERMINAL_EVIDENCE"
+  },
+  "inherited_failure_replay_proof": {
+    "classification": "INHERITED_ACCEPTED_IMPLEMENTATION_R0_R1A",
+    "source_ref": "6672819e357a3c2a2c1e73e5408c393da01913a1",
+    "archive_sha256": "2bfb9653b71d942cdda46f7da6bc53f4f59b01e117e5475ef936f36c66c23d77",
+    "evidence_path": "docs/stage-8/stage8b-p-r2b-implementation-r0-r1-linux-rehearsal-evidence.json",
+    "evidence_sha256": "25e9f8efee4d774be7bf57bce40cb6cf39fe7a0efd0ca65b1407be73e415a809",
+    "failure_edges_verified": 5,
+    "stale_replay_rejected": true,
+    "native_runner_scope": "EXACT_PRODUCTION_SUCCESS_TO_EXPECTED_FAIL_CLOSED_PLUS_CLEAN_RESET"
+  },
+  "container_image": {
+    "tag": "stage8b-r2b-r0-r1a-systemd:ubuntu24.04-amd64",
+    "image_id": "sha256:3cc66c640df0444530a626d2acbcfeda9742039b917a747fd023b315ef2c1526",
+    "platform": "linux/amd64",
+    "base_image": "ubuntu@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517",
+    "systemd_version": "255.4-1ubuntu8.17",
+    "package_inventory": {
+      "findutils": "4.9.0-5build1",
+      "iproute2": "6.1.0-1ubuntu6.4",
+      "libc6:amd64": "2.39-0ubuntu8.8",
+      "libsystemd0:amd64": "255.4-1ubuntu8.17",
+      "python3": "3.12.3-0ubuntu2.1",
+      "systemd": "255.4-1ubuntu8.17",
+      "util-linux": "2.39.3-9ubuntu6.5"
+    },
+    "build_recipe": "FROM pinned ubuntu; apt-get install --no-install-recommends systemd util-linux iproute2 python3 findutils; STOPSIGNAL SIGRTMIN+3; CMD /lib/systemd/systemd",
+    "rebuild_under_same_tag_allowed": false
+  },
+  "ceremony_verifier": {
+    "source_path": "tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-trust-rebind-key-ceremony-verify.rs",
+    "source_sha256": "d8b6173c65d87ad1ff0c6b202645335c2cf9fcad76a8b44b2a551a3f494af8f5",
+    "build_evidence_path": "docs/stage-8/stage8b-p-r2b-generation2-native-r1-verifier-build-evidence.json",
+    "build_evidence_sha256": "5dc3b60720943bd17b852fb9b0597fd78ff419573ae2eb6fc091765ee7e4e7f6",
+    "binary_name": "stage8b-r2b-trust-rebind-key-ceremony-verify",
+    "linux_amd64_sha256": "73343e668271d3ac29182922d8b44bdb0c35cf750b1d04bcfab89c885698338d",
+    "private_seed_temporary_files": false,
+    "private_public_derivation": "IN_MEMORY_ED25519_DALEK",
+    "exact_inventory_required": true
   },
   "binary_lineage": {
     "phase1_phase2": {
@@ -170,7 +209,8 @@
   },
   "proof_tool_linux_amd64_sha256": {
     "stage8b-r2a5-controlled-layout": "38c179dbb6ac227d1cd430e3ec35d7e3f797f6504c8f4565c6dbb5ef869cb098",
-    "stage8b-r2b-creator-chain-seeder": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a"
+    "stage8b-r2b-creator-chain-seeder": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a",
+    "stage8b-r2b-trust-rebind-key-ceremony-verify": "73343e668271d3ac29182922d8b44bdb0c35cf750b1d04bcfab89c885698338d"
   },
   "proof_requirements": {
     "disposable_linux_amd64_host_required": true,
@@ -183,11 +223,17 @@
     "dns_allowed": false,
     "finam_network_allowed": false,
     "fresh_review_extraction_required": true,
+    "actual_review_archive_sha256_recomputation_required": true,
+    "source_manifest_complete_verification_required": true,
+    "reviewer_acceptance_binding_required": true,
+    "exact_container_image_id_required": true,
     "exact_binary_hash_preflight_required": true,
     "exact_unit_hash_preflight_required": true,
     "exact_phase_graph_required": true,
-    "phase_failure_propagation_required": true,
-    "stale_replay_rejection_required": true,
+    "phase_failure_propagation_proof_source": "INHERITED_ACCEPTED_IMPLEMENTATION_R0_R1A",
+    "native_fault_injection_required": false,
+    "stale_replay_proof_source": "INHERITED_ACCEPTED_IMPLEMENTATION_R0_R1A",
+    "native_stale_replay_attempt_required": false,
     "clean_second_run_required": true,
     "raw_redacted_root_terminal_required": true,
     "redacted_helper_journal_required": true,
@@ -195,6 +241,9 @@
     "timeout_stage_exact_request_required": true,
     "reset_before_second_run_required": true,
     "post_proof_uninstall_required": true,
+    "ceremony_source_storage": "tmpfs",
+    "pinned_in_memory_ceremony_verifier_required": true,
+    "ceremony_source_destruction_receipt_required": true,
     "private_material_export_allowed": false
   },
   "closed_surfaces": {

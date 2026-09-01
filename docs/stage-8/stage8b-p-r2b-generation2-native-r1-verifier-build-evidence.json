@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Generation-2 Native Runner R0-R1 verifier build",
+  "classification": "PROOF_TOOL_ONLY_NOT_PRODUCTION_ELF",
+  "build_source_ref": "2a3ae5cc3f7ecc32962dd69c8af781b51d647bba",
+  "build_source_tree": "ee737c3e12901b5d2a023734e05209e97f4f9fa6",
+  "source_path": "tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-trust-rebind-key-ceremony-verify.rs",
+  "source_sha256": "d8b6173c65d87ad1ff0c6b202645335c2cf9fcad76a8b44b2a551a3f494af8f5",
+  "cargo_lock_sha256": "8233fd447ee0d7bc1cc1983960af771f70c8e3b4db53a57fb4ffb453d8c529b6",
+  "cargo_manifest_sha256": "3d2072ba98a7d03f54b2a0de3771974989e9ff26e3c0b1457e281c01080c4caa",
+  "build_host": {
+    "classification": "DISPOSABLE_PUBLIC_BUILD_CONTOUR_NO_PRIVATE_MATERIAL",
+    "kernel_architecture": "x86_64",
+    "qemu_emulation": false,
+    "ceremony_present": false,
+    "build_contour_removed": true
+  },
+  "build_image": {
+    "reference": "rust:1.88-bookworm",
+    "pulled_digest": "sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0"
+  },
+  "cargo_command": "cargo build --locked --release --manifest-path tools/stage8b-readonly-preflight/Cargo.toml --bin stage8b-r2b-trust-rebind-key-ceremony-verify",
+  "output": {
+    "name": "stage8b-r2b-trust-rebind-key-ceremony-verify",
+    "format": "ELF_64_X86_64_GNU_LINUX",
+    "sha256": "73343e668271d3ac29182922d8b44bdb0c35cf750b1d04bcfab89c885698338d"
+  },
+  "private_seed_temporary_files": false,
+  "production_binaries_rebuilt": false,
+  "result": "PASS"
+}

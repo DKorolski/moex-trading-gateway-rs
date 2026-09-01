@@ -26,13 +26,19 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `POST /v1/sessions`, `NETWORK_CONNECT_FAILURE`, no HTTP status/body, and all
   dispatch/effect/order flags false. Production binaries were not rebuilt.
   The active candidate is **Stage 8B-P R2B Generation-2 Full Transaction
-  Rebind / Native Controlled Installation Proof R0**. Its static contract
+  Rebind / Native Controlled Installation Proof R0-R1 correction**. The prior
+  review-only R0 package at `2a3ae5cc3f7ecc32962dd69c8af781b51d647bba`
+  was not accepted and was never executed. Its static contract
   binds the unchanged six-phase, 31-service, 18-unit graph to six inherited
   Phase-1/2 ELF and six accepted Generation-2 Phase-3/6 ELF. The native runner
-  is implemented with exact-unit/no-drop-in enforcement, two clean runs, raw
-  redacted evidence binding and exact uninstall. Static checks, 43 contract
-  mutations and 11 host-boundary mutations pass. Native execution has not
-  started and the runner requires independent review first. The developer
+  now starts from the actual reviewed ZIP, pins the privileged image ID,
+  installs 18/18 exact units, preserves root terminal mode `0400`, verifies
+  the temporary ceremony in memory and destroys its tmpfs source. Failure and
+  stale-replay properties are hash-bound to accepted Implementation R0-R1A;
+  the native runner proves the exact success-to-expected-fail-closed path and
+  clean reset. Static checks, 55 contract mutations and 14 host-boundary
+  mutations pass. Native execution has not started and the corrected runner
+  requires independent review first. The developer
   Docker daemon is ARM and the known x86_64 broker VPS remains ineligible. A
   separate clean Ubuntu 24.04 native Linux/amd64 VPS has been identified; it
   contains no trading workload or broker credentials. Generation-2 private

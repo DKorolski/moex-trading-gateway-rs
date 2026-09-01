@@ -24,7 +24,7 @@ credential_root=/run/credentials/moex-trading/stage8b/r2a5
 terminal_root=/var/lib/moex-trading/stage8b/r2b-evidence
 run_id=""
 run_root=""
-run_started_epoch=""
+supervisor_invocation_id=""
 
 production_units=(
   moex-stage8b-r2a8-upstream-current-authority-publisher.service
@@ -107,6 +107,8 @@ install_payload() {
   install -m 0644 "$repo_root"/deploy/stage8b-r2b/*.service /etc/systemd/system/
   install -m 0644 "$repo_root"/deploy/stage8b-r2b/*.target /etc/systemd/system/
   install -m 0644 "$repo_root"/deploy/stage8b-r2a5/stage8b-r2a5-{producer,issuer}@.service /etc/systemd/system/
+  install -m 0644 "$repo_root/deploy/stage8b-r2a5/stage8b-r2a8-current-manifest-issuer.service" /etc/systemd/system/
+  install -m 0644 "$repo_root/deploy/stage8b-r2a5/stage8b-r2a7-source-adapter.service" /etc/systemd/system/
   install -m 0644 "$repo_root/deploy/stage8b-r2b-proof/$trigger" "/etc/systemd/system/$trigger"
   systemctl daemon-reload
 }
@@ -133,11 +135,14 @@ destinations={
 for name,expected in contract['production_linux_amd64_sha256'].items():
     source=artifacts/name
     target=pathlib.Path(destinations[name])
-    assert hashlib.sha256(source.read_bytes()).hexdigest()==expected
-    assert hashlib.sha256(target.read_bytes()).hexdigest()==expected
+    if hashlib.sha256(source.read_bytes()).hexdigest()!=expected:
+        raise RuntimeError(f'source binary drift: {name}')
+    if hashlib.sha256(target.read_bytes()).hexdigest()!=expected:
+        raise RuntimeError(f'installed binary drift: {name}')
 for relative,expected in contract['unit_file_sha256'].items():
     target=pathlib.Path('/etc/systemd/system')/pathlib.Path(relative).name
-    assert hashlib.sha256(target.read_bytes()).hexdigest()==expected
+    if hashlib.sha256(target.read_bytes()).hexdigest()!=expected:
+        raise RuntimeError(f'installed unit drift: {relative}')
 PY
 }
 
@@ -202,9 +207,10 @@ collect_run_evidence() {
   local terminal_file helper_log derived
   terminal_file="$(find "$terminal_root" -maxdepth 1 -type f -name 'r2b-terminal-*.json' -print -quit)"
   [[ -n "$terminal_file" ]]
-  install -m 0600 "$terminal_file" "$run_root/root-terminal.redacted.json"
+  install -o root -g root -m 0400 "$terminal_file" "$run_root/root-terminal.redacted.json"
   helper_log="$run_root/helper-journal.redacted.txt"
-  journalctl -u moex-stage8b-r2b-readonly-supervisor.service --since "@$run_started_epoch" --no-pager -o cat \
+  [[ "$supervisor_invocation_id" =~ ^[0-9a-f]{32}$ ]]
+  journalctl _SYSTEMD_INVOCATION_ID="$supervisor_invocation_id" --no-pager -o cat \
     | grep -E 'stage8b-r2b-helper: (identity-verified|receipt-verified|authority-verified|credentials-loaded|terminal-sent)' \
     >"$helper_log"
   [[ -s "$helper_log" ]]
@@ -219,6 +225,7 @@ payload={
  'native_execution':True,'qemu_emulation':False,'systemd_pid1':True,
  'container_network_mode':'none','default_route':False,'dns':False,
  'phase_count':6,'service_invocation_count':31,'supervisor_exit_code':int(sys.argv[3]),
+ 'supervisor_invocation_id_bound':True,
  'request_boundary_proof':proof,'generation':2,'generation_2_active':False,
  'authorization':'NOT_ISSUED','external_finam_network':False,'broker_dispatch':False,
  'http_post_delete':False,'real_orders':False,
@@ -233,12 +240,12 @@ run_transaction() {
   [[ ! -e "$run_root" ]]
   install -d -o root -g root -m 0700 "$run_root"
   materialize_run
-  run_started_epoch="$(date +%s)"
   set +e
   systemctl start "$trigger"
   supervisor_exit=$?
   set -e
   [[ "$supervisor_exit" -ne 0 ]]
+  supervisor_invocation_id="$(systemctl show moex-stage8b-r2b-readonly-supervisor.service -p InvocationID --value)"
   collect_run_evidence "$supervisor_exit"
 }
 

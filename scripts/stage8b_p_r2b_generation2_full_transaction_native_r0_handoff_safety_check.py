@@ -63,6 +63,7 @@ def check(path: str) -> dict[str, object]:
             "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh",
             "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh",
             "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py",
+            "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive.py",
         }
         if missing := required - set(names):
             raise ValueError(f"missing members: {sorted(missing)}")
@@ -92,7 +93,7 @@ def check(path: str) -> dict[str, object]:
         if digest(manifest_bytes) != evidence.get("manifest_sha256"):
             raise ValueError("manifest digest mismatch")
         gate = archive.read(GATE)
-        if b"runner=implemented review=required native_execution=false authorization=NOT_ISSUED" not in gate:
+        if b"runner=implemented r1=true review=required native_execution=false authorization=NOT_ISSUED" not in gate:
             raise ValueError("gate marker missing")
         if digest(gate) != evidence.get("gate_sha256"):
             raise ValueError("gate digest mismatch")
@@ -143,7 +144,7 @@ def check(path: str) -> dict[str, object]:
             "archive_members": len(names),
             "tracked_members_verified": len(tracked),
             "production_binaries_verified": 12,
-            "proof_tools_verified": 2,
+            "proof_tools_verified": len(contract["proof_tool_linux_amd64_sha256"]),
             "generation2_reproducible_binary_members_verified": 16,
             "duplicates": 0,
             "symlinks": 0,

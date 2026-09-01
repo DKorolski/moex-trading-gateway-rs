@@ -19,9 +19,15 @@ Mutation = Callable[[dict[str, object]], None]
 
 def baseline() -> dict[str, object]:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "purpose": preflight.PURPOSE,
         "host_id": "synthetic-disposable-host",
+        "machine_id_sha256": "2" * 64,
+        "cloud_instance_id_sha256": "3" * 64,
+        "created_at_utc": "2026-09-01T00:00:00Z",
+        "reviewer_approval_sha256": "4" * 64,
+        "reviewed_archive_sha256": "5" * 64,
+        "container_image_id": preflight.EXPECTED_IMAGE_ID,
         "disposable_host": True,
         "native_linux_amd64": True,
         "qemu_or_binfmt_execution": False,
@@ -48,6 +54,9 @@ CASES: tuple[tuple[str, Mutation], ...] = (
     ("empty-host-id", lambda value: value.__setitem__("host_id", "")),
     ("purpose-drift", lambda value: value.__setitem__("purpose", "another proof")),
     ("schema-extra", lambda value: value.__setitem__("unexpected", False)),
+    ("image-id-drift", lambda value: value.__setitem__("container_image_id", "sha256:" + "0" * 64)),
+    ("archive-binding-drift", lambda value: value.__setitem__("reviewed_archive_sha256", "0" * 64)),
+    ("review-approval-drift", lambda value: value.__setitem__("reviewer_approval_sha256", "0" * 64)),
 )
 
 
@@ -60,27 +69,44 @@ def copy_contract(root: Path) -> None:
 
 def invoke(root: Path, attestation: dict[str, object], source_ref: str) -> None:
     attestation_path = root / "host-attestation.json"
-    handoff_path = root / "handoff-commit.txt"
+    binding_path = root / "archive-binding.json"
     attestation_path.write_text(json.dumps(attestation) + "\n", encoding="utf-8")
-    handoff_path.write_text(f"source_ref={source_ref}\n", encoding="utf-8")
-    artifact_root = root / "exact-binaries"
-    artifact_root.mkdir()
-    for name in contract.EXPECTED_BINARIES:
-        source_name = "stage8b-readonly-preflight" if name == "accepted-stage8b-readonly-preflight" else name
-        source_root = (
-            contract.ROOT / "tmp/stage8b-r2b-r4r2-production-a/release"
-            if name in contract.UPSTREAM_NAMES
-            else contract.ROOT / "reports/stage8b-p-r2b-generation2-composition-r0/linux-amd64/build-a"
-        )
-        os.link(source_root / source_name, artifact_root / name)
-    proof_tools_root = root / "proof-tools"
-    proof_tools_root.mkdir()
-    proof_tool_sources = {
-        "stage8b-r2a5-controlled-layout": contract.ROOT / "tmp/stage8b-g2-r0-r1-controlled.tB20fg/x86_64-unknown-linux-musl/release/stage8b-r2a5-controlled-layout",
-        "stage8b-r2b-creator-chain-seeder": contract.ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2b-creator-chain-seeder",
-    }
-    for name, source in proof_tool_sources.items():
-        os.link(source, proof_tools_root / name)
+    binding_path.write_text(json.dumps({
+        "schema_version":1,"stage":"synthetic","result":"PASS","source_ref":source_ref,
+        "source_tree":"6"*40,"archive_name":"synthetic.zip","archive_sha256":"5"*64,
+        "reviewer_acceptance_sha256":"4"*64,"fresh_extraction":True,
+        "source_manifest_verified":True,"additional_members_rejected":True,
+        "tracked_members_verified":1,"archive_members_verified":1,"private_material_members":0,
+        "native_execution":False,"authorization":"NOT_ISSUED",
+    }) + "\n", encoding="utf-8")
+    (root / "handoff-commit.txt").write_text(
+        f"source_ref={source_ref}\nsource_tree={'6'*40}\narchive_name=synthetic.zip\n", encoding="utf-8"
+    )
+    packaged_artifacts = contract.ROOT / "handoff-evidence/linux-amd64/exact-binaries"
+    packaged_tools = contract.ROOT / "handoff-evidence/linux-amd64/proof-tools"
+    if packaged_artifacts.is_dir() and packaged_tools.is_dir():
+        artifact_root = packaged_artifacts
+        proof_tools_root = packaged_tools
+    else:
+        artifact_root = root / "exact-binaries"
+        artifact_root.mkdir()
+        for name in contract.EXPECTED_BINARIES:
+            source_name = "stage8b-readonly-preflight" if name == "accepted-stage8b-readonly-preflight" else name
+            source_root = (
+                contract.ROOT / "tmp/stage8b-r2b-r4r2-production-a/release"
+                if name in contract.UPSTREAM_NAMES
+                else contract.ROOT / "reports/stage8b-p-r2b-generation2-composition-r0/linux-amd64/build-a"
+            )
+            os.link(source_root / source_name, artifact_root / name)
+        proof_tools_root = root / "proof-tools"
+        proof_tools_root.mkdir()
+        proof_tool_sources = {
+            "stage8b-r2a5-controlled-layout": contract.ROOT / "tmp/stage8b-g2-r0-r1-controlled.tB20fg/x86_64-unknown-linux-musl/release/stage8b-r2a5-controlled-layout",
+            "stage8b-r2b-creator-chain-seeder": contract.ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2b-creator-chain-seeder",
+            "stage8b-r2b-trust-rebind-key-ceremony-verify": contract.ROOT / "tmp/stage8b-g2-native-r1-verifier-linux-amd64/stage8b-r2b-trust-rebind-key-ceremony-verify",
+        }
+        for name, source in proof_tool_sources.items():
+            os.link(source, proof_tools_root / name)
     preflight.platform.system = lambda: "Linux"
     preflight.platform.machine = lambda: "x86_64"
 
@@ -89,24 +115,29 @@ def invoke(root: Path, attestation: dict[str, object], source_ref: str) -> None:
             return "x86_64"
         if command[:2] == ("docker", "info"):
             return "amd64"
-        if command[:3] == ("git", "-C", str(root)):
-            return source_ref
+        if command[:3] == ("docker", "image", "inspect"):
+            return preflight.EXPECTED_IMAGE_ID
+        if command[:2] == ("docker", "ps"):
+            return ""
         raise RuntimeError("unexpected synthetic command")
 
     preflight.run = synthetic_run
     preflight.ceremony_check.check = lambda _root, _ceremony: {
-        "signing_seed_bindings_verified": 13,
-        "account_key_bindings_verified": 1,
+        "ceremony_storage": "tmpfs",
+        "exact_inventory_verified": True,
+        "private_file_metadata_verified": 14,
+        "public_manifests_verified": 2,
+        "cryptographic_binding_deferred_to_pinned_in_container_verifier": True,
         "trust_manifest_sha256": "2" * 64,
         "account_key_manifest_sha256": "3" * 64,
         "private_path_exported": False,
         "private_value_exported": False,
     }
+    preflight.host_identity = lambda: ("synthetic-disposable-host", "2" * 64, "3" * 64)
     preflight.check(
         root,
         attestation_path,
-        handoff_path,
-        "1" * 64,
+        binding_path,
         artifact_root.resolve(strict=True),
         proof_tools_root.resolve(strict=True),
         root.resolve(strict=True),
