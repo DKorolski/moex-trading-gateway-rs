@@ -15,7 +15,10 @@ python3 -m py_compile \
   scripts/stage8b_p_r2b_generation2_composition_r0_r1_terminal_oracle.py \
   scripts/stage8b_p_r2b_generation2_composition_r0_r1_materialize_phase6.py \
   scripts/stage8b_p_r2b_generation2_composition_r0_r1_check.py \
-  scripts/stage8b_p_r2b_generation2_composition_r0_r1_negative_harness.py
+  scripts/stage8b_p_r2b_generation2_composition_r0_r1_negative_harness.py \
+  scripts/stage8b_p_r2b_generation2_composition_r0_r1_handoff_safety_check.py \
+  scripts/stage8b_p_r2b_generation2_composition_r0_r1_handoff_negative_harness.py \
+  scripts/make_stage8b_p_r2b_generation2_composition_r0_r1_handoff.py
 bash -n scripts/stage8b_p_r2b_generation2_composition_r0_r1_phase6_runner.sh
 
 for document in \
