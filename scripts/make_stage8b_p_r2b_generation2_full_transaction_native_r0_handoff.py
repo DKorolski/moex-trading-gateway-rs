@@ -76,7 +76,7 @@ def main() -> None:
         binaries[f"{safety.TOOL_ROOT}/{name}"] = data
     for build_name in ("build-a", "build-b"):
         for name in sorted(checker.composition.EXPECTED_BINARY_HASHES):
-            source = GENERATION2_ROOT / build_name / name
+            source = GENERATION2_ROOT.parent / build_name / name
             data = source.read_bytes()
             expected = checker.composition.EXPECTED_BINARY_HASHES[name]
             if digest(data) != expected:
