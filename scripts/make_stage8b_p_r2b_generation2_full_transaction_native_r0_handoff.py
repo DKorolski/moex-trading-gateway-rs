@@ -74,6 +74,16 @@ def main() -> None:
         if digest(data) != expected:
             raise SystemExit(f"stage8b-generation2-native-r0-handoff: FAIL proof tool drift {name}")
         binaries[f"{safety.TOOL_ROOT}/{name}"] = data
+    for build_name in ("build-a", "build-b"):
+        for name in sorted(checker.composition.EXPECTED_BINARY_HASHES):
+            source = GENERATION2_ROOT / build_name / name
+            data = source.read_bytes()
+            expected = checker.composition.EXPECTED_BINARY_HASHES[name]
+            if digest(data) != expected:
+                raise SystemExit(
+                    f"stage8b-generation2-native-r0-handoff: FAIL reproducible binary drift {build_name}/{name}"
+                )
+            binaries[f"{safety.GENERATION2_ROOT}/{build_name}/{name}"] = data
 
     short_ref = source_ref[:7]
     archive_name = f"moex-trading-project-{short_ref}.zip"
@@ -94,6 +104,7 @@ def main() -> None:
                 "manifest_sha256": digest(manifest),
                 "gate_sha256": digest(gate.stdout),
                 "production_binary_count": 12,
+                "generation2_reproducible_binary_members": 16,
                 "proof_tool_binary_count": 2,
                 "phase_count": 6,
                 "service_invocation_count": 31,
@@ -142,15 +153,12 @@ def main() -> None:
         with zipfile.ZipFile(archive_path) as archive:
             archive.extractall(extracted)
         os.chmod(extracted / "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh", 0o755)
-        artifact_root = extracted / safety.BIN_ROOT
         completed = subprocess.run(
             [
                 sys.executable,
                 "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_check.py",
                 "--root",
                 str(extracted),
-                "--artifact-root",
-                str(artifact_root),
             ],
             cwd=extracted,
             stdout=subprocess.PIPE,

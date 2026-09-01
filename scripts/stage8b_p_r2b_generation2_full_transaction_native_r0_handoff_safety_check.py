@@ -15,6 +15,7 @@ GATE = "handoff-evidence/stage8b-generation2-native-runner-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 BIN_ROOT = "handoff-evidence/linux-amd64/exact-binaries"
 TOOL_ROOT = "handoff-evidence/linux-amd64/proof-tools"
+GENERATION2_ROOT = "handoff-evidence/linux-amd64"
 GENERATED_BASE = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 FORBIDDEN_BASENAMES = {
     ".env",
@@ -112,6 +113,18 @@ def check(path: str) -> dict[str, object]:
             if mode(members[member]) != "100755":
                 raise ValueError(f"proof tool mode mismatch: {name}")
 
+        build = json.loads(
+            archive.read("docs/stage-8/stage8b-p-r2b-generation2-composition-r0-linux-build-evidence.json")
+        )
+        for name, record in build["binaries"].items():
+            for build_name, key in (("build-a", "build_a_sha256"), ("build-b", "build_b_sha256")):
+                member = f"{GENERATION2_ROOT}/{build_name}/{name}"
+                generated.add(member)
+                if member not in members or digest(archive.read(member)) != record[key]:
+                    raise ValueError(f"Generation-2 reproducible binary mismatch: {build_name}/{name}")
+                if mode(members[member]) != "100755":
+                    raise ValueError(f"Generation-2 binary mode mismatch: {build_name}/{name}")
+
         tracked: set[str] = set()
         entries = manifest.get("entries", [])
         if manifest.get("entry_count") != len(entries):
@@ -131,6 +144,7 @@ def check(path: str) -> dict[str, object]:
             "tracked_members_verified": len(tracked),
             "production_binaries_verified": 12,
             "proof_tools_verified": 2,
+            "generation2_reproducible_binary_members_verified": 16,
             "duplicates": 0,
             "symlinks": 0,
             "private_material_members": 0,

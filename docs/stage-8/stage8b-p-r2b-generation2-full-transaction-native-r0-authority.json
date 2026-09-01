@@ -18,8 +18,8 @@
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh": "909d40ff21609c9e17894aca97b10a26be928e41af4c1a1cdc29c8f770cf262a",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh": "0419199b1b3deb5bfbfde66a5256e738c8dafd8a10b978de6482e6f740b974b7",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_materialize_manifest.py": "116afc85452b0bc8535b03a8fa7c8bbf5a7ef31ea1ca638979eb0e03500cc43e",
-    "scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py": "7d006fe90cb7361c3c903faee900acb5ddf9933509c0ba26b5dbe132b312d2be",
-    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py": "77cce60f1f9110cecfef0aaf35df176cc6f73b078e0ee25cb6324def7b7a497d"
+    "scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py": "0c8c0909b60b056beda9702062b592143bd640f8f87806dc0761ca3133a767be",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py": "fd0982a3e432deef24eca3737c5dacc6faa01e214e8226399366e1f98aa3a899"
   },
   "static_rebind": {
     "phase_count": 6,
