@@ -121,4 +121,4 @@ run_archive_case source-manifest-additional-member "$working/source-manifest.zip
 run_archive_case reviewed-archive-positive-to-inner-fail-closed "$review_archive" "$expected_archive_sha256"
 run_inner_environment_cases
 
-echo "stage8b-generation2-native-r2-custody-runtime: PASS cases=7 synthetic_only=true container_created=false private_material=false"
+echo "stage8b-generation2-native-r2-custody-runtime: PASS cases=8/8 synthetic_only=true container_created=false private_material=false"

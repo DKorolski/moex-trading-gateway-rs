@@ -22,7 +22,7 @@
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_materialize_manifest.py": "116afc85452b0bc8535b03a8fa7c8bbf5a7ef31ea1ca638979eb0e03500cc43e",
     "scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py": "0813147c9f58e0065b0ea9de03424afb05359824fd6de9ebb77d25c3caeef07f",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py": "fdee15df28f8775a18fdb0a592e87db5e04207694ee83bc1a3f84d68ec0f499f",
-    "scripts/stage8b_p_r2b_generation2_native_r2_custody_runtime_harness.sh": "8faea4ea9ce1ea0ada3e93fd624265019a7c8c4dcf1238b0d9af1cde4819d1ab"
+    "scripts/stage8b_p_r2b_generation2_native_r2_custody_runtime_harness.sh": "d9056518719538161477ff4b665bcfa0a845082475ab15f353a558b957f8739c"
   },
   "static_rebind": {
     "phase_count": 6,
