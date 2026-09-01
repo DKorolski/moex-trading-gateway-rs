@@ -9,6 +9,11 @@ controlled-installation proof. It does not activate Generation 2, issue R2B,
 install production credentials, contact FINAM or authorize a production-host
 installation.
 
+The native runner is now implemented but has not been executed. Its source,
+proof-tool hashes and fail-closed pre-container boundary require independent
+review before the temporary Generation-2 ceremony may be projected into the
+disposable container.
+
 ## Additive rebind
 
 The accepted Generation-1 transaction contract remains immutable. The new
@@ -43,6 +48,11 @@ The known broker/runtime VPS is therefore not an eligible proof host. Docker
 Desktop on the ARM developer workstation may be used for syntax and
 fail-closed preflight only, never for the native-execution claim.
 
+A separate clean Ubuntu 24.04 Linux/amd64 VPS has now been identified and
+attested as the intended disposable proof host. It contains no broker
+credentials, trading workloads or production account contour. Identification
+of the host does not itself authorize container creation.
+
 Before container creation the runner must prove:
 
 - a fresh extraction of the reviewed handoff;
@@ -55,6 +65,13 @@ Before container creation the runner must prove:
   persisting private paths or values.
 
 Any missing precondition aborts before container creation.
+
+The outer runner invokes that preflight before `docker create`, then uses
+`--network none` and a tmpfs `/run`. The inner runner copies all 18 production
+unit/target files and all 12 production ELF byte-for-byte. It contains no
+production drop-in, `ExecStart` replacement or in-place unit mutation. Two
+proof-only setup executables are hash-pinned separately and are not counted as
+production services or binaries.
 
 ## Controlled transaction proof
 

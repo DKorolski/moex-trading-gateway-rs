@@ -34,6 +34,14 @@ def mutate_unit(root: Path) -> None:
         handle.write("\n# mutation\n")
 
 
+def mutate_text(root: Path, path: Path, old: str, new: str) -> None:
+    target = root / path
+    text = target.read_text(encoding="utf-8")
+    if text.count(old) != 1:
+        raise RuntimeError(f"mutation marker drift: {path} {old!r}")
+    target.write_text(text.replace(old, new), encoding="utf-8")
+
+
 CASES: tuple[tuple[str, Mutation], ...] = (
     (
         "accepted-composition-ref",
@@ -193,12 +201,12 @@ CASES: tuple[tuple[str, Mutation], ...] = (
         lambda r: mutate_json(r, checker.AUTHORITY, ("static_rebind", "negative_cases"), 38),
     ),
     (
-        "authority-host-falsely-eligible",
+        "authority-eligible-host-removed",
         lambda r: mutate_json(
             r,
             checker.AUTHORITY,
             ("host_assessment", "eligible_disposable_linux_amd64_host_identified"),
-            True,
+            False,
         ),
     ),
     (
@@ -228,6 +236,28 @@ CASES: tuple[tuple[str, Mutation], ...] = (
     (
         "authority-ceremony-exported",
         lambda r: mutate_json(r, checker.AUTHORITY, ("ceremony_custody", "private_material_exported"), True),
+    ),
+    (
+        "proof-tool-hash",
+        lambda r: mutate_json(
+            r,
+            checker.CONTRACT,
+            ("proof_tool_linux_amd64_sha256", "stage8b-r2a5-controlled-layout"),
+            "0" * 64,
+        ),
+    ),
+    (
+        "runner-network-opened",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, "--network none", "--network host"),
+    ),
+    (
+        "container-runner-execstart-substitution",
+        lambda r: mutate_text(
+            r,
+            checker.CONTAINER_RUNNER,
+            "\ninstall_payload() {",
+            "\n# ExecStart= proof bypass\ninstall_payload() {",
+        ),
     ),
 )
 

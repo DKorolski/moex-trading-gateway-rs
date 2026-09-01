@@ -60,6 +60,7 @@ def check(
     handoff_commit_path: Path,
     expected_archive_sha256: str,
     artifact_root: Path,
+    proof_tools_root: Path,
     ceremony_root: Path,
 ) -> dict[str, object]:
     # Contract validation is deliberately first and does not invoke Docker.
@@ -107,6 +108,16 @@ def check(
         == set(contract["production_linux_amd64_sha256"]),
         "binary artifact inventory drift",
     )
+    require(proof_tools_root.is_dir() and proof_tools_root.resolve(strict=True) == proof_tools_root, "proof-tool root must be canonical")
+    for name, expected in contract["proof_tool_linux_amd64_sha256"].items():
+        binary = proof_tools_root / name
+        require(binary.is_file() and not binary.is_symlink(), f"proof tool missing: {name}")
+        require(digest(binary) == expected, f"proof tool hash drift: {name}")
+    require(
+        {path.name for path in proof_tools_root.iterdir() if path.is_file()}
+        == set(contract["proof_tool_linux_amd64_sha256"]),
+        "proof-tool inventory drift",
+    )
     ceremony = ceremony_check.check(root, ceremony_root)
 
     # The caller verifies the extracted ELF inventory before invoking this
@@ -127,6 +138,7 @@ def check(
         "contract_sha256": digest(root / contract_check.CONTRACT),
         "unit_hashes_verified": len(contract["unit_file_sha256"]),
         "binary_hashes_verified": len(contract["production_linux_amd64_sha256"]),
+        "proof_tool_hashes_verified": len(contract["proof_tool_linux_amd64_sha256"]),
         **ceremony,
         "container_created": False,
         "authorization": "NOT_ISSUED",
@@ -141,6 +153,7 @@ def main() -> None:
     parser.add_argument("--handoff-commit", type=Path, required=True)
     parser.add_argument("--archive-sha256", required=True)
     parser.add_argument("--artifact-root", type=Path, required=True)
+    parser.add_argument("--proof-tools-root", type=Path, required=True)
     parser.add_argument("--ceremony-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     arguments = parser.parse_args()
@@ -153,6 +166,7 @@ def main() -> None:
             arguments.handoff_commit.resolve(strict=True),
             arguments.archive_sha256,
             arguments.artifact_root.resolve(strict=True),
+            arguments.proof_tools_root.resolve(strict=True),
             arguments.ceremony_root.resolve(strict=True),
         )
     except (KeyError, OSError, RuntimeError, subprocess.CalledProcessError, json.JSONDecodeError) as error:

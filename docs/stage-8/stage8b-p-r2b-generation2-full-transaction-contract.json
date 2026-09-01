@@ -2,7 +2,7 @@
   "schema_version": 2,
   "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0",
   "contract_id": "stage8b-r2b-generation2-full-31-service-transaction-r0",
-  "status": "REBIND_COMPLETE_NATIVE_PROOF_NOT_EXECUTED_NOT_ISSUED",
+  "status": "NATIVE_RUNNER_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
   "accepted_composition_r0_r1": {
     "source_ref": "c74382a7e3a63d3673dec220ff4e9caaba6b48ee",
     "archive_sha256": "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62",
@@ -168,6 +168,10 @@
     "stage8b-r2b-launcher": "52dfbd0e6bb0d07a92a3104be50c33a60af08905b6cd075aa4bd4a4c373da17e",
     "accepted-stage8b-readonly-preflight": "90508e097c8668d6fe90a15ef6014e480a9042bb36f0613351c02465d10aaca1"
   },
+  "proof_tool_linux_amd64_sha256": {
+    "stage8b-r2a5-controlled-layout": "38c179dbb6ac227d1cd430e3ec35d7e3f797f6504c8f4565c6dbb5ef869cb098",
+    "stage8b-r2b-creator-chain-seeder": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a"
+  },
   "proof_requirements": {
     "disposable_linux_amd64_host_required": true,
     "native_execution_required": true,
@@ -206,5 +210,5 @@
     "runtime_live": false,
     "real_orders": false
   },
-  "next_allowed_step": "NATIVE_DISPOSABLE_CONTOUR_EXECUTION_AFTER_FAIL_CLOSED_PREFLIGHT"
+  "next_allowed_step": "INDEPENDENT_REVIEW_OF_NATIVE_RUNNER_THEN_DISPOSABLE_EXECUTION"
 }

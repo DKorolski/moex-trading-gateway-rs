@@ -25,6 +25,11 @@ HOST_ATTESTATION_EXAMPLE = BASE / "stage8b-p-r2b-generation2-native-host-attesta
 TERMINAL_ORACLE = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_terminal_oracle.py")
 HOST_PREFLIGHT = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py")
 CEREMONY_PREFLIGHT = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_ceremony_preflight.py")
+NATIVE_RUNNER = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh")
+CONTAINER_RUNNER = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh")
+MANIFEST_MATERIALIZER = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_materialize_manifest.py")
+HANDOFF_MAKER = Path("scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py")
+HANDOFF_SAFETY = Path("scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py")
 VPS_STATIC_REHEARSAL = BASE / "stage8b-p-r2b-generation2-vps-native-static-rehearsal.json"
 LEGACY_CONTRACT = legacy.TRANSACTION
 PREFLIGHT_AUTHORITY = preflight.AUTHORITY
@@ -54,6 +59,10 @@ EXPECTED_BINARIES = {
     "stage8b-r2a5-package-issuer": "5aff3f7d4747113546272cb40fc444b5bfa0013116b49d20669e8e757091625c",
     "stage8b-r2b-launcher": "52dfbd0e6bb0d07a92a3104be50c33a60af08905b6cd075aa4bd4a4c373da17e",
     "accepted-stage8b-readonly-preflight": composition.HELPER_SHA256,
+}
+EXPECTED_PROOF_TOOLS = {
+    "stage8b-r2a5-controlled-layout": "38c179dbb6ac227d1cd430e3ec35d7e3f797f6504c8f4565c6dbb5ef869cb098",
+    "stage8b-r2b-creator-chain-seeder": "e910ded838b634be1b957e80d367187befb5c7563ce14b99f7d1a60a8fc4e45a",
 }
 UPSTREAM_NAMES = tuple(list(EXPECTED_BINARIES)[:6])
 GENERATION2_BUILD_NAMES = {
@@ -96,6 +105,11 @@ def contract_required_paths(root: Path) -> set[Path]:
         TERMINAL_ORACLE,
         HOST_PREFLIGHT,
         CEREMONY_PREFLIGHT,
+        NATIVE_RUNNER,
+        CONTAINER_RUNNER,
+        MANIFEST_MATERIALIZER,
+        HANDOFF_MAKER,
+        HANDOFF_SAFETY,
         VPS_STATIC_REHEARSAL,
         LEGACY_CONTRACT,
         PREFLIGHT_AUTHORITY,
@@ -137,6 +151,7 @@ def check_contract(root: Path) -> None:
             "phase_count",
             "unit_file_sha256",
             "production_linux_amd64_sha256",
+            "proof_tool_linux_amd64_sha256",
             "proof_requirements",
             "closed_surfaces",
             "next_allowed_step",
@@ -149,7 +164,7 @@ def check_contract(root: Path) -> None:
         "contract identity drift",
     )
     require(
-        contract["status"] == "REBIND_COMPLETE_NATIVE_PROOF_NOT_EXECUTED_NOT_ISSUED",
+        contract["status"] == "NATIVE_RUNNER_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
         "contract execution status drift",
     )
     require(
@@ -208,6 +223,7 @@ def check_contract(root: Path) -> None:
     require(sha256(root / GENERATION2_BUILD) == GENERATION2_BUILD_SHA256, "Generation-2 build evidence drift")
     require(contract["production_linux_amd64_sha256"] == EXPECTED_BINARIES, "binary inventory drift")
     require(len(contract["production_linux_amd64_sha256"]) == 12, "binary count drift")
+    require(contract["proof_tool_linux_amd64_sha256"] == EXPECTED_PROOF_TOOLS, "proof-tool inventory drift")
     for name in UPSTREAM_NAMES:
         require(
             inherited["production_linux_amd64_sha256"][name] == EXPECTED_BINARIES[name],
@@ -315,8 +331,46 @@ def check_contract(root: Path) -> None:
     require(all(value is False for value in contract["closed_surfaces"].values()), "closed surface opened")
     require(
         contract["next_allowed_step"]
-        == "NATIVE_DISPOSABLE_CONTOUR_EXECUTION_AFTER_FAIL_CLOSED_PREFLIGHT",
+        == "INDEPENDENT_REVIEW_OF_NATIVE_RUNNER_THEN_DISPOSABLE_EXECUTION",
         "next-step drift",
+    )
+
+    outer = (root / NATIVE_RUNNER).read_text(encoding="utf-8")
+    inner = (root / CONTAINER_RUNNER).read_text(encoding="utf-8")
+    materializer = (root / MANIFEST_MATERIALIZER).read_text(encoding="utf-8")
+    require(
+        outer.index('python3 "$repo_root/scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py"')
+        < outer.index('docker create --privileged'),
+        "host preflight must precede container creation",
+    )
+    for marker in (
+        "--network none",
+        "--tmpfs /run:",
+        "run-1/run-result.json",
+        "run-2/run-result.json",
+        "container_destroyed",
+        "NOT_ISSUED",
+    ):
+        require(marker in outer, f"native outer runner marker missing: {marker}")
+    for forbidden in ("--platform", "/proc/sys/fs/binfmt", "qemu-x86", "--network host"):
+        require(forbidden not in outer.lower(), f"native outer runner forbidden marker: {forbidden}")
+    for marker in (
+        "install_payload",
+        "verify_installed_payload",
+        "run_transaction run-1",
+        "run_transaction run-2",
+        "reset_transaction_namespace",
+        "uninstall_payload",
+        "root-terminal.redacted.json",
+        "helper-journal.redacted.txt",
+        "native_r0_terminal_oracle.py",
+    ):
+        require(marker in inner, f"native inner runner marker missing: {marker}")
+    for forbidden in ("sed -i", "ExecStart=", ".service.d", "curl ", "wget "):
+        require(forbidden not in inner, f"production mutation/network tool forbidden: {forbidden}")
+    require(
+        'fields["account_key_generation_id"] = "2"' in materializer,
+        "Generation-2 manifest binding missing",
     )
 
     with (root / MATRIX).open(newline="", encoding="utf-8") as handle:
@@ -360,7 +414,7 @@ def check_contract(root: Path) -> None:
     require(authority["schema_version"] == 1, "authority version drift")
     require(
         authority["status"]
-        == "STATIC_REBIND_PREFLIGHT_COMPLETE_NATIVE_EXECUTION_PENDING_REVIEW_REQUIRED",
+        == "NATIVE_RUNNER_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
         "authority status drift",
     )
     require(
@@ -382,6 +436,11 @@ def check_contract(root: Path) -> None:
             TERMINAL_ORACLE,
             HOST_PREFLIGHT,
             CEREMONY_PREFLIGHT,
+            NATIVE_RUNNER,
+            CONTAINER_RUNNER,
+            MANIFEST_MATERIALIZER,
+            HANDOFF_MAKER,
+            HANDOFF_SAFETY,
         )
     }
     require(authority["artifacts"] == expected_artifacts, "authority artifact binding drift")
@@ -393,10 +452,11 @@ def check_contract(root: Path) -> None:
             "production_unit_file_count": 18,
             "proof_trigger_file_count": 1,
             "production_binary_count": 12,
+            "proof_tool_binary_count": 2,
             "inherited_phase1_phase2_binary_count": 6,
             "generation2_phase3_phase6_binary_count": 6,
             "production_binaries_rebuilt": False,
-            "negative_cases": 40,
+            "negative_cases": 43,
         },
         "authority static-rebind summary drift",
     )
@@ -408,7 +468,8 @@ def check_contract(root: Path) -> None:
             "known_broker_vps_architecture": "x86_64",
             "known_broker_vps_sensitive_trading_host": True,
             "known_broker_vps_native_proof_eligible": False,
-            "eligible_disposable_linux_amd64_host_identified": False,
+            "eligible_disposable_linux_amd64_host_identified": True,
+            "eligible_host_contains_trading_workloads": False,
         },
         "authority host assessment drift",
     )
@@ -467,7 +528,7 @@ def check_contract(root: Path) -> None:
     )
     require(
         authority["next_allowed_step"]
-        == "IMPLEMENT_NATIVE_ONLY_RUNNER_AND_STOP_BEFORE_CONTAINER_CREATE_WITHOUT_ELIGIBLE_HOST",
+        == "INDEPENDENT_REVIEW_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_DISPOSABLE_HOST",
         "authority next-step drift",
     )
     require(

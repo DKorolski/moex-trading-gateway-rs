@@ -9,10 +9,15 @@ python3 -m py_compile \
   scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_negative_harness.py \
   scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_terminal_oracle.py \
   scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py \
-  scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py
+  scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py \
+  scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_materialize_manifest.py \
+  scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py \
+  scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py
+bash -n scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh
+bash -n scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh
 python3 scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_check.py
 python3 scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_negative_harness.py
 python3 scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py
 git diff --check
 
-echo "stage8b-generation2-full-transaction-native-r0-gate: PASS native_execution=false authorization=NOT_ISSUED"
+echo "stage8b-generation2-full-transaction-native-r0-gate: PASS runner=implemented review=required native_execution=false authorization=NOT_ISSUED"

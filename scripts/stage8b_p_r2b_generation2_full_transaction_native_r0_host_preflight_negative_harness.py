@@ -73,6 +73,14 @@ def invoke(root: Path, attestation: dict[str, object], source_ref: str) -> None:
             else contract.ROOT / "reports/stage8b-p-r2b-generation2-composition-r0/linux-amd64/build-a"
         )
         os.link(source_root / source_name, artifact_root / name)
+    proof_tools_root = root / "proof-tools"
+    proof_tools_root.mkdir()
+    proof_tool_sources = {
+        "stage8b-r2a5-controlled-layout": contract.ROOT / "tmp/stage8b-g2-r0-r1-controlled.tB20fg/x86_64-unknown-linux-musl/release/stage8b-r2a5-controlled-layout",
+        "stage8b-r2b-creator-chain-seeder": contract.ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2b-creator-chain-seeder",
+    }
+    for name, source in proof_tool_sources.items():
+        os.link(source, proof_tools_root / name)
     preflight.platform.system = lambda: "Linux"
     preflight.platform.machine = lambda: "x86_64"
 
@@ -100,6 +108,7 @@ def invoke(root: Path, attestation: dict[str, object], source_ref: str) -> None:
         handoff_path,
         "1" * 64,
         artifact_root.resolve(strict=True),
+        proof_tools_root.resolve(strict=True),
         root.resolve(strict=True),
     )
 

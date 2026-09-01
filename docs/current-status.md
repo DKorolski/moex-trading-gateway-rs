@@ -28,11 +28,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   The active candidate is **Stage 8B-P R2B Generation-2 Full Transaction
   Rebind / Native Controlled Installation Proof R0**. Its static contract
   binds the unchanged six-phase, 31-service, 18-unit graph to six inherited
-  Phase-1/2 ELF and six accepted Generation-2 Phase-3/6 ELF. Static checks,
-  40 contract mutations and 11 host-boundary mutations pass. Native execution has not started: the
-  developer Docker daemon is ARM, while the known x86_64 VPS is a sensitive
-  broker host and is ineligible. A separate disposable native Linux/amd64 host
-  is required before any proof container may be created. Generation-2 private
+  Phase-1/2 ELF and six accepted Generation-2 Phase-3/6 ELF. The native runner
+  is implemented with exact-unit/no-drop-in enforcement, two clean runs, raw
+  redacted evidence binding and exact uninstall. Static checks, 43 contract
+  mutations and 11 host-boundary mutations pass. Native execution has not
+  started and the runner requires independent review first. The developer
+  Docker daemon is ARM and the known x86_64 broker VPS remains ineligible. A
+  separate clean Ubuntu 24.04 native Linux/amd64 VPS has been identified; it
+  contains no trading workload or broker credentials. Generation-2 private
   material remains offline as the accepted encrypted backup; no plaintext
   ceremony is retained in the repository or handoff. Generation 2 remains
   inactive, production credentials are not installed, controlled installation
