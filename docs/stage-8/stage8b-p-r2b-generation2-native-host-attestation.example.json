@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "purpose": "Stage 8B-P R2B Generation-2 native controlled installation proof",
+  "host_id": "replace-with-disposable-host-id",
+  "disposable_host": true,
+  "native_linux_amd64": true,
+  "qemu_or_binfmt_execution": false,
+  "production_account_host": false,
+  "sensitive_cotenant_present": false,
+  "broker_credentials_present": false,
+  "trading_workloads_present": false,
+  "authorized_for_destructive_container_cleanup": true
+}

@@ -1,0 +1,121 @@
+# Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Proof R0
+
+## Status
+
+The Generation-2 Composition Rebuild R0-R1 at
+`c74382a7e3a63d3673dec220ff4e9caaba6b48ee` is accepted. This stage rebinds
+the complete 31-service transaction and prepares its native Linux/amd64
+controlled-installation proof. It does not activate Generation 2, issue R2B,
+install production credentials, contact FINAM or authorize a production-host
+installation.
+
+## Additive rebind
+
+The accepted Generation-1 transaction contract remains immutable. The new
+Generation-2 contract is additive and preserves the same six phases, 31 exact
+service invocations, 18 production unit/target files and one proof-only
+trigger.
+
+The six Phase-1/2 executables are inherited byte-for-byte from the accepted
+upstream build. The six executable roles used by Phases 3-6 are rebound to the
+accepted Generation-2 build:
+
+| Role | Generation-2 SHA-256 |
+|---|---|
+| authority producer | `fa494d0150cb3ed0f5f05378a8e1636f3160499f9f5cc881cbbed862c96229fc` |
+| authority issuer | `6dc5be078029a833b2e465525498c76e8d5966fa2c8d4733cfa3dce6b5af74e0` |
+| run-package draft builder | `f171fc282e56d509e30bb92ea40340e559b19dc12ac63f9513bed9a926b72207` |
+| package issuer | `5aff3f7d4747113546272cb40fc444b5bfa0013116b49d20669e8e757091625c` |
+| launcher | `52dfbd0e6bb0d07a92a3104be50c33a60af08905b6cd075aa4bd4a4c373da17e` |
+| read-only helper | `90508e097c8668d6fe90a15ef6014e480a9042bb36f0613351c02465d10aaca1` |
+
+No production ELF is rebuilt by this rebind stage.
+
+## Native host boundary
+
+The execution proof requires a disposable x86_64 Linux host whose native
+kernel and Docker daemon both report `x86_64`/`amd64`. QEMU, Rosetta and
+binfmt emulation are not accepted as native evidence. A host carrying broker
+credentials, a production account contour or another sensitive trading
+workload is ineligible even when the proof container uses `--network none`.
+
+The known broker/runtime VPS is therefore not an eligible proof host. Docker
+Desktop on the ARM developer workstation may be used for syntax and
+fail-closed preflight only, never for the native-execution claim.
+
+Before container creation the runner must prove:
+
+- a fresh extraction of the reviewed handoff;
+- exact source commit, source tree and archive SHA-256;
+- exact hashes for all 12 production ELF and 19 unit files;
+- native x86_64 host and daemon architecture;
+- absence of a sensitive-host marker and explicit disposable-host attestation;
+- no default route or DNS in the future container;
+- matching Generation-2 offline ceremony fingerprints without printing or
+  persisting private paths or values.
+
+Any missing precondition aborts before container creation.
+
+## Controlled transaction proof
+
+The disposable contour installs exact copies only inside the container. No
+unit is enabled and no host unit, binary, credential or state path is used.
+The proof-only trigger remains outside the 31 production invocation count.
+
+Each clean run must prove:
+
+1. Phases 1-5 complete with the exact production binaries.
+2. Phase 6 validates root admission, helper identity, receipt, Generation-2
+   authority and projected credentials.
+3. Attempt 1 is exactly `POST /v1/sessions`.
+4. The request ends as `NETWORK_CONNECT_FAILURE` or request-level `TIMEOUT`
+   under `network=none` with no HTTP status or body.
+5. `TIMEOUT` is accepted only when `timeout_stage == "request"`.
+6. All effect, dispatch, POST/DELETE and real-order flags remain false.
+7. Representative failures in every phase block downstream phases.
+8. Stale outputs cannot satisfy a new transaction.
+
+The aggregate production target is expected to fail closed at Phase 6. The
+outer proof runner succeeds only after the exact typed terminal oracle accepts
+the durable evidence.
+
+## Evidence policy
+
+Both run 1 and run 2 preserve the following reviewable public artifacts:
+
+- raw redacted root terminal envelope;
+- redacted helper journal excerpt;
+- exact typed derived request-boundary proof;
+- SHA-256 bindings from the derived proof to both raw inputs;
+- phase and failure-propagation results;
+- reset/destruction/uninstall receipts.
+
+Secret bytes, secret paths, account identifiers, environment files and
+unredacted journals are forbidden in source, logs and handoff packages.
+
+## Reset and second clean run
+
+After run 1 the runner stops and resets the graph, removes every exact
+transaction output, nonce, receipt, authority, package and credential
+projection, and proves an empty transaction namespace. Run-1 private
+materialization is destroyed. Run 2 rematerializes the same accepted public
+identities into a fresh tmpfs projection and must produce the same fail-closed
+request-boundary result.
+
+After run 2 every unit, binary, state root and credential projection is
+removed from the container. The container itself is then destroyed. Cleanup
+failure makes the proof fail.
+
+## Closed boundary
+
+- Generation 2 active: `false`;
+- R2B authorization: `NOT_ISSUED`;
+- production credentials installed: `false`;
+- external FINAM endpoint reached: `false`;
+- broker GET, POST and DELETE: `false`;
+- broker dispatch, Redis live and runtime-live: `false`;
+- real orders: `false`.
+
+Acceptance of the native proof will authorize only a separate real read-only
+R2B issuance/run package. It will not authorize order execution or 8B-XE by
+itself.

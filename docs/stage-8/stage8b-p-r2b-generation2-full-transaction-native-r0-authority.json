@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0",
+  "status": "STATIC_REBIND_PREFLIGHT_COMPLETE_NATIVE_EXECUTION_PENDING_REVIEW_REQUIRED",
+  "accepted_predecessor": {
+    "source_ref": "c74382a7e3a63d3673dec220ff4e9caaba6b48ee",
+    "archive_sha256": "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62",
+    "verdict": "ACCEPTED"
+  },
+  "artifacts": {
+    "docs/stage-8/stage8b-p-r2b-generation2-full-transaction-contract.json": "1c5f82ff986a96bb94e539dc5a17d4da4e3689d9436fed22568a9b4b9c1ca4e0",
+    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_2026-09-01.md": "de1074de743d75c61bb7484fde59c91fb2beb322ac114a54bc81c17eec2aafa9",
+    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_ACCEPTANCE_MATRIX_2026-09-01.csv": "e3da9becfebf4cffbb22a4a2741f16f859520e5b34a06717ed59872a8ba1d170",
+    "docs/stage-8/stage8b-p-r2b-generation2-native-host-attestation.example.json": "99a725fb99ed1974f9ff2c3559a56c74cbc7113c9e9895bcac189d4649679bf6",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_terminal_oracle.py": "66fdfc2589dc67500156342fe9a14985b33337575980272249a5c791b22d7c1f",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py": "840bfd37e81ce27b57806898f3b321d21f0ea3f045d003fd465ce276a95200f3",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_ceremony_preflight.py": "5b52977b38e52d092c9a3afea6e88c10758da2477fb8a75e644a84c1a9fa7049"
+  },
+  "static_rebind": {
+    "phase_count": 6,
+    "service_invocation_count": 31,
+    "production_unit_file_count": 18,
+    "proof_trigger_file_count": 1,
+    "production_binary_count": 12,
+    "inherited_phase1_phase2_binary_count": 6,
+    "generation2_phase3_phase6_binary_count": 6,
+    "production_binaries_rebuilt": false,
+    "negative_cases": 40
+  },
+  "host_assessment": {
+    "developer_docker_daemon_architecture": "aarch64",
+    "developer_workstation_native_proof_eligible": false,
+    "known_broker_vps_architecture": "x86_64",
+    "known_broker_vps_sensitive_trading_host": true,
+    "known_broker_vps_native_proof_eligible": false,
+    "eligible_disposable_linux_amd64_host_identified": false
+  },
+  "ceremony_custody": {
+    "accepted_backup_restore_ref": "3029bab714f8b75daaba3946ed858426515b4165",
+    "accepted_backup_restore_archive_sha256": "ee7deefa31dcf6b126408452f4772081ba20999c90ef58cf52df7b873869759f",
+    "encrypted_backup_file_sha256": "11970a7b173b20ceff2cee9c4347ce38df4e6d6b973271ba65c8e95b7ef7d8a2",
+    "temporary_restore_verified": true,
+    "signing_seed_bindings_verified": 13,
+    "account_key_bindings_verified": 1,
+    "plaintext_ceremony_retained": false,
+    "private_material_exported": false
+  },
+  "execution_state": {
+    "native_container_created": false,
+    "units_installed": false,
+    "binaries_installed": false,
+    "credentials_projected": false,
+    "phase_graph_started": false,
+    "run_1_completed": false,
+    "reset_completed": false,
+    "run_2_completed": false,
+    "uninstall_completed": false
+  },
+  "activation": {
+    "generation": 2,
+    "generation_2_active": false,
+    "production_credentials_installed": false,
+    "controlled_installation_completed": false,
+    "authorization": "NOT_ISSUED"
+  },
+  "closed_surfaces": {
+    "external_finam_network": false,
+    "finam_auth_service": false,
+    "broker_get": false,
+    "http_post_delete": false,
+    "broker_dispatch": false,
+    "redis_live": false,
+    "runtime_live": false,
+    "real_orders": false
+  },
+  "next_allowed_step": "IMPLEMENT_NATIVE_ONLY_RUNNER_AND_STOP_BEFORE_CONTAINER_CREATE_WITHOUT_ELIGIBLE_HOST"
+}

@@ -15,26 +15,30 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 - Stage 8B-P R2B Generation-2 Backup/Restore R0-R1 is independently accepted at
   `3029bab714f8b75daaba3946ed858426515b4165`; its immutable review archive has
   SHA-256 `ee7deefa31dcf6b126408452f4772081ba20999c90ef58cf52df7b873869759f`.
-  The Generation-2 R0 composition candidate at
-  `1a1933f90075591a88d4631c7c72599a1262115d` is substantively accepted, with
-  formal acceptance pending the narrow evidence correction. The active candidate is
-  **Stage 8B-P R2B Generation-2 Composition Rebuild R0-R1 Exact Phase-6 Evidence Closure**.
-  Its source commit
-  `2765314ebf04ae72d0a7da3258e22bb74d7db7ad` and tree
-  `770c44540ab7bfb646738a08949eb434dd2088c4` replace the old category-only
-  Phase-6 assertion with exact typed root-terminal evidence. The isolated
-  network-none rehearsal proved one failed request attempt: ordinal `1`,
-  `POST /v1/sessions`, `NETWORK_CONNECT_FAILURE`, no HTTP status/body and all
-  dispatch/effect/order flags false. Its evidence SHA-256 is
-  `0d74dc0d83874f255bb339bb10c3675980e87fd2582fdd2551575f39c4c0726d`.
-  The accepted build source remains
-  `c7667658288577229b7cf00e9dcef519ba2fd1d7`; production binaries rebuilt in R0-R1: false.
-  All eight accepted build-A/build-B ELF hashes, helper
-  acceptance and exact effect identity are unchanged. Generation 2 remains inactive:
-  production credentials are not installed, controlled installation
+  Stage 8B-P R2B Generation-2 Composition Rebuild R0-R1 Exact Phase-6 Evidence Closure is
+  independently accepted at
+  `c74382a7e3a63d3673dec220ff4e9caaba6b48ee`; its immutable review archive has
+  SHA-256 `2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62`.
+  Stage 8B-P R2B Generation-2 Composition Rebuild R0 at
+  `1a1933f90075591a88d4631c7c72599a1262115d` remains the accepted substantive
+  predecessor; production binaries rebuilt in R0-R1: false. Generation 2 remains inactive.
+  The accepted typed evidence proves exactly one failed attempt: ordinal `1`,
+  `POST /v1/sessions`, `NETWORK_CONNECT_FAILURE`, no HTTP status/body, and all
+  dispatch/effect/order flags false. Production binaries were not rebuilt.
+  The active candidate is **Stage 8B-P R2B Generation-2 Full Transaction
+  Rebind / Native Controlled Installation Proof R0**. Its static contract
+  binds the unchanged six-phase, 31-service, 18-unit graph to six inherited
+  Phase-1/2 ELF and six accepted Generation-2 Phase-3/6 ELF. Static checks,
+  40 contract mutations and 11 host-boundary mutations pass. Native execution has not started: the
+  developer Docker daemon is ARM, while the known x86_64 VPS is a sensitive
+  broker host and is ineligible. A separate disposable native Linux/amd64 host
+  is required before any proof container may be created. Generation-2 private
+  material remains offline as the accepted encrypted backup; no plaintext
+  ceremony is retained in the repository or handoff. Generation 2 remains
+  inactive, production credentials are not installed, controlled installation
   is not performed and R2B authorization remains `NOT_ISSUED`. FINAM,
   AuthService external network, broker GET/POST/DELETE, dispatch, Redis live,
-  runtime-live and real orders remain closed pending independent R0-R1 review.
+  runtime-live and real orders remain closed.
 
 - Stage 8B-P R2B Implementation R0-R1A is independently accepted at
   `6672819e357a3c2a2c1e73e5408c393da01913a1`. Controlled Installation / Full
