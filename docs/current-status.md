@@ -12,6 +12,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
 
+- The R0-R2B verifier-workdir repair at `50a2d26774ec71342a5acf281704dff09e5c7f0d`
+  is independently accepted. A fresh controlled attempt on 2026-09-02 passed
+  archive binding, native host preflight and the pinned Generation-2 ceremony
+  verifier (`13 + 1` bindings), then failed closed before run 1 when the
+  systemd aggregate trigger reported a dependency-job failure. Uninstall and
+  both custody layers passed: no unit, binary, transaction state, private
+  material or proof container remains. Generation 2 is inactive and R2B is
+  `NOT_ISSUED`. The native installation proof is deferred until a reviewed
+  failed-unit diagnostic exists; it does not block isolated FINAM paper-shadow
+  parity work. See
+  [the evidence summary](stage-8/stage8b-p-r2b-generation2-native-r2b-deferred-systemd-attempt.json),
+  [the ADR](adr/adr-stage8b-native-proof-defer-for-paper-shadow.md) and
+  [the paper resumption plan](stage-8/stage8b-paper-shadow-resumption-plan.md).
+
 - Stage 8B-P R2B Generation-2 Backup/Restore R0-R1 is independently accepted at
   `3029bab714f8b75daaba3946ed858426515b4165`; its immutable review archive has
   SHA-256 `ee7deefa31dcf6b126408452f4772081ba20999c90ef58cf52df7b873869759f`.
@@ -50,16 +64,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   started `docker exec` at `/`, while the verifier correctly rejects a ceremony below
   its current working directory. Cleanup passed, the host ceremony and container are
   absent, private material retained is false, and no transaction phase started. R0-R2B
-  adds only `docker exec --workdir /work` for the verifier and awaits independent review
-  before a fresh restore or execution.
+  adds only `docker exec --workdir /work` for the verifier and is independently accepted.
+  Its first controlled execution passed archive/host/ceremony verification and
+  stopped before run 1 at the systemd transaction graph; the exact failed unit
+  was not retained by the accepted cleanup flow. A repeat execution is deferred
+  until redacted failed-unit diagnostics are reviewed.
   Failure and stale-replay properties are hash-bound to accepted Implementation R0-R1A;
   the native runner proves the exact success-to-expected-fail-closed path and
   clean reset. Static checks cover 79 contract mutations and 18 attestation
-  mutations plus live-swap and Docker-cleanup runtime cases. The full two-run native proof
-  has not completed and the R0-R2B runner requires independent review first. The developer
-  Docker daemon is ARM and the known x86_64 broker VPS remains ineligible. A
-  separate clean Ubuntu 24.04 native Linux/amd64 VPS has been identified; it
-  contains no trading workload or broker credentials. Generation-2 private
+  mutations plus live-swap and Docker-cleanup runtime cases. The full two-run
+  native proof has not completed. The developer Docker daemon is ARM. A separate
+  clean Ubuntu 24.04 native Linux/amd64 VPS was used for the accepted
+  verifier-workdir attempt and is now retained for isolated paper-shadow work
+  under an explicit reviewer/operator decision; it contains no Generation-2
+  private material or production broker credentials. Generation-2 private
   material remains offline as the accepted encrypted backup; no plaintext
   ceremony is retained in the repository or handoff. Generation 2 remains
   inactive, production credentials are not installed, controlled installation
