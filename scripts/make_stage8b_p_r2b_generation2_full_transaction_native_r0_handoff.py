@@ -29,6 +29,9 @@ PROOF_TOOL_SOURCES = {
     "stage8b-r2b-creator-chain-seeder": ROOT / "tmp/stage8b-r2b-r4-controlled-a/release/stage8b-r2b-creator-chain-seeder",
     "stage8b-r2b-trust-rebind-key-ceremony-verify": ROOT / "tmp/stage8b-g2-native-r1-verifier-linux-amd64/stage8b-r2b-trust-rebind-key-ceremony-verify",
 }
+FAILED_ATTEMPT_SUMMARY = ROOT / "docs/stage-8/stage8b-p-r2b-generation2-native-r2a-failed-attempt.json"
+FAILED_ATTEMPT_SOURCE = ROOT / "reports/stage8b-p-r2b-generation2-native-r2a-attempt1"
+FAILED_ATTEMPT_PREFIX = "handoff-evidence/native-r2a-failed-attempt"
 
 
 def run(*args: str) -> bytes:
@@ -88,6 +91,21 @@ def main() -> None:
                 )
             binaries[f"{safety.GENERATION2_ROOT}/{build_name}/{name}"] = data
 
+    failed_attempt = json.loads(FAILED_ATTEMPT_SUMMARY.read_text(encoding="utf-8"))
+    failed_evidence: dict[str, bytes] = {}
+    for relative, expected in failed_attempt["runtime_evidence_sha256"].items():
+        source = FAILED_ATTEMPT_SOURCE / relative
+        data = source.read_bytes()
+        if digest(data) != expected:
+            raise SystemExit(
+                f"stage8b-generation2-native-r0-handoff: FAIL failed-attempt evidence drift {relative}"
+            )
+        if any(marker in data for marker in (b"AGE-SECRET-KEY-", b"issuer-private-keys")):
+            raise SystemExit(
+                f"stage8b-generation2-native-r0-handoff: FAIL private marker in failed-attempt evidence {relative}"
+            )
+        failed_evidence[f"{FAILED_ATTEMPT_PREFIX}/{relative}"] = data
+
     short_ref = source_ref[:7]
     archive_name = f"moex-trading-project-{short_ref}.zip"
     archive_path = OUTPUT / archive_name
@@ -96,7 +114,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Generation-2 native runner R0-R2A Docker cleanup verification review package",
+                "stage": "Stage 8B-P R2B Generation-2 native runner R0-R2B verifier-workdir repair review package",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "source_short_ref": short_ref,
@@ -120,6 +138,13 @@ def main() -> None:
                 "docker_cleanup_state_must_be_known": True,
                 "docker_cleanup_runtime_cases": 10,
                 "eligible_disposable_host_identified": True,
+                "predecessor_native_attempt_recorded": True,
+                "predecessor_native_attempt_container_created": True,
+                "predecessor_native_attempt_phase_graph_started": False,
+                "predecessor_native_attempt_custody_cleanup_passed": True,
+                "predecessor_native_attempt_private_material_retained": False,
+                "failed_attempt_evidence_members": len(failed_evidence),
+                "ceremony_verifier_working_directory": "/work",
                 "container_created": False,
                 "native_execution": False,
                 "generation_2_active": False,
@@ -127,7 +152,7 @@ def main() -> None:
                 "external_finam_network": False,
                 "broker_dispatch": False,
                 "real_orders": False,
-                "next_step": "INDEPENDENT_REVIEW_OF_R0_R2A_THEN_NATIVE_EXECUTION",
+                "next_step": "INDEPENDENT_REVIEW_OF_R0_R2B_THEN_FRESH_NATIVE_EXECUTION",
             },
             indent=2,
             sort_keys=True,
@@ -143,6 +168,7 @@ def main() -> None:
         safety.GATE: gate.stdout,
         safety.MANIFEST: manifest,
         **binaries,
+        **failed_evidence,
     }
 
     OUTPUT.mkdir(parents=True, exist_ok=True)

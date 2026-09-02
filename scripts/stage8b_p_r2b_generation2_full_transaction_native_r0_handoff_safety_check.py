@@ -16,6 +16,8 @@ MANIFEST = "handoff-evidence/source-tree-manifest.json"
 BIN_ROOT = "handoff-evidence/linux-amd64/exact-binaries"
 TOOL_ROOT = "handoff-evidence/linux-amd64/proof-tools"
 GENERATION2_ROOT = "handoff-evidence/linux-amd64"
+FAILED_ATTEMPT_ROOT = "handoff-evidence/native-r2a-failed-attempt"
+FAILED_ATTEMPT_SUMMARY = "docs/stage-8/stage8b-p-r2b-generation2-native-r2a-failed-attempt.json"
 GENERATED_BASE = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 FORBIDDEN_BASENAMES = {
     ".env",
@@ -64,6 +66,7 @@ def check(path: str) -> dict[str, object]:
             "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh",
             "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py",
             "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive.py",
+            FAILED_ATTEMPT_SUMMARY,
         }
         if missing := required - set(names):
             raise ValueError(f"missing members: {sorted(missing)}")
@@ -90,15 +93,38 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("review-only boundary opened")
         if evidence.get("generation_2_active") is not False or evidence.get("container_created") is not False:
             raise ValueError("execution/activation falsely claimed")
+        if (
+            evidence.get("predecessor_native_attempt_recorded") is not True
+            or evidence.get("predecessor_native_attempt_container_created") is not True
+            or evidence.get("predecessor_native_attempt_phase_graph_started") is not False
+            or evidence.get("predecessor_native_attempt_custody_cleanup_passed") is not True
+            or evidence.get("predecessor_native_attempt_private_material_retained") is not False
+            or evidence.get("ceremony_verifier_working_directory") != "/work"
+        ):
+            raise ValueError("failed predecessor attempt or workdir repair not bound")
         if digest(manifest_bytes) != evidence.get("manifest_sha256"):
             raise ValueError("manifest digest mismatch")
         gate = archive.read(GATE)
-        if b"runner=implemented r2a=true custody=no-swap+early-cleanup+docker-state-known review=required native_execution=false authorization=NOT_ISSUED" not in gate:
+        if b"runner=implemented r2b=true verifier_workdir=/work custody=no-swap+early-cleanup+docker-state-known review=required native_execution=false authorization=NOT_ISSUED" not in gate:
             raise ValueError("gate marker missing")
         if digest(gate) != evidence.get("gate_sha256"):
             raise ValueError("gate digest mismatch")
 
         generated = set(GENERATED_BASE)
+        failed_attempt = json.loads(archive.read(FAILED_ATTEMPT_SUMMARY))
+        failed_members = failed_attempt.get("runtime_evidence_sha256", {})
+        if evidence.get("failed_attempt_evidence_members") != len(failed_members) or len(failed_members) != 9:
+            raise ValueError("failed-attempt evidence count drift")
+        for relative, expected in failed_members.items():
+            member = f"{FAILED_ATTEMPT_ROOT}/{relative}"
+            generated.add(member)
+            if member not in members or digest(archive.read(member)) != expected:
+                raise ValueError(f"failed-attempt evidence mismatch: {relative}")
+            if mode(members[member]) != "100644":
+                raise ValueError(f"failed-attempt evidence mode mismatch: {relative}")
+            data = archive.read(member)
+            if b"AGE-SECRET-KEY-" in data or b"issuer-private-keys" in data:
+                raise ValueError(f"private marker in failed-attempt evidence: {relative}")
         for name, expected in contract["production_linux_amd64_sha256"].items():
             member = f"{BIN_ROOT}/{name}"
             generated.add(member)
@@ -146,6 +172,7 @@ def check(path: str) -> dict[str, object]:
             "production_binaries_verified": 12,
             "proof_tools_verified": len(contract["proof_tool_linux_amd64_sha256"]),
             "generation2_reproducible_binary_members_verified": 16,
+            "failed_attempt_evidence_members_verified": 9,
             "duplicates": 0,
             "symlinks": 0,
             "private_material_members": 0,

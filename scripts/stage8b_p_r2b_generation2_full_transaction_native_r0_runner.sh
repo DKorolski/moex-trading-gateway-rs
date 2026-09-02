@@ -236,6 +236,7 @@ PY
 )"
 verified_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 docker exec \
+  --workdir /work \
   -e STAGE8B_R2B_TRUST_REBIND_CEREMONY_DIR="$ceremony_container_root" \
   -e STAGE8B_R2B_TRUST_REBIND_SOURCE_REF="$source_ref" \
   -e STAGE8B_R2B_TRUST_REBIND_VERIFIED_AT_UTC="$verified_at" \

@@ -63,3 +63,4 @@ G2FTN-061,evidence,Cleanup receipt distinguishes host source container removal a
 G2FTN-062,evidence,Private material retained false requires host destroyed plus known removed container,native runner R2A,PASS
 G2FTN-063,evidence,Docker uncertainty records result FAIL and vps destruction required,native runner R2A,PASS
 G2FTN-064,closure,Docker cleanup uncertainty cannot produce an accepted aggregate proof,native runner R2A,PASS
+G2FTN-065,ceremony,In-container ceremony verifier runs from fixed workdir /work outside the ceremony path,native runner R2B,PASS

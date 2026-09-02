@@ -1,4 +1,4 @@
-# Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Proof R0-R2A
+# Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Proof R0-R2B
 
 ## Status
 
@@ -153,6 +153,28 @@ attempted, whether container state is known, whether the container is proven rem
 whether private material may remain, and whether VPS destruction is required.
 `private_material_retained_on_host=false` is legal only after both host-source
 destruction and a successful container-absence proof.
+
+## R0-R2B verifier working-directory repair
+
+The independently accepted R0-R2A runner was invoked once on the attested
+disposable host. Archive, host, image, ceremony metadata and no-swap preflight
+all passed. The container was created with `network none`, but the pinned
+ceremony verifier failed before unit installation with `Error: Input`.
+
+The failure was caused by Docker's empty image `WorkingDir`, which makes
+`docker exec` start at `/`. The verifier deliberately rejects a retained
+ceremony below its current working directory, so `/` is an invalid invocation
+context even though the ceremony itself is valid and stored on tmpfs. R0-R2B
+adds only the fixed `docker exec --workdir /work` argument for that verifier.
+The verifier binary, ceremony, image, transaction graph and production files
+are unchanged. A new negative mutation removes the workdir and another drifts
+the machine contract.
+
+The failed attempt completed custody cleanup successfully: the fixed host
+source and proof container are absent, private material retained is false,
+Generation 2 remains inactive and authorization remains `NOT_ISSUED`. R0-R2B
+must be independently reviewed before any fresh ceremony restore or native
+execution.
 
 ## Reset and second clean run
 

@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-01.
+Status date: 2026-09-02.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -26,7 +26,7 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `POST /v1/sessions`, `NETWORK_CONNECT_FAILURE`, no HTTP status/body, and all
   dispatch/effect/order flags false. Production binaries were not rebuilt.
   The active candidate is **Stage 8B-P R2B Generation-2 Full Transaction
-  Rebind / Native Controlled Installation Proof R0-R2A Docker-cleanup correction**. The prior
+  Rebind / Native Controlled Installation Proof R0-R2B verifier-workdir repair**. The prior
   review-only R0 package at `2a3ae5cc3f7ecc32962dd69c8af781b51d647bba`
   was not accepted and was never executed. Its static contract
   binds the unchanged six-phase, 31-service, 18-unit graph to six inherited
@@ -43,11 +43,20 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   Docker cleanup issue: daemon/query errors could be mistaken for an absent container.
   R0-R2A destroys the host source first, bounds Docker queries/removal, treats unknown
   state as failure and requires VPS destruction when container absence is not proven.
+  R0-R2A was independently accepted and invoked once on the dedicated disposable
+  VPS. Archive, host, image, ceremony metadata and both no-swap checks passed. The
+  container was created with `network none`, but the pinned ceremony verifier failed
+  before unit installation with `Error: Input`: Docker's empty image working directory
+  started `docker exec` at `/`, while the verifier correctly rejects a ceremony below
+  its current working directory. Cleanup passed, the host ceremony and container are
+  absent, private material retained is false, and no transaction phase started. R0-R2B
+  adds only `docker exec --workdir /work` for the verifier and awaits independent review
+  before a fresh restore or execution.
   Failure and stale-replay properties are hash-bound to accepted Implementation R0-R1A;
   the native runner proves the exact success-to-expected-fail-closed path and
   clean reset. Static checks cover 79 contract mutations and 18 attestation
-  mutations plus live-swap and Docker-cleanup runtime cases. Native execution has not started and the corrected runner
-  requires independent review first. The developer
+  mutations plus live-swap and Docker-cleanup runtime cases. The full two-run native proof
+  has not completed and the R0-R2B runner requires independent review first. The developer
   Docker daemon is ARM and the known x86_64 broker VPS remains ineligible. A
   separate clean Ubuntu 24.04 native Linux/amd64 VPS has been identified; it
   contains no trading workload or broker credentials. Generation-2 private

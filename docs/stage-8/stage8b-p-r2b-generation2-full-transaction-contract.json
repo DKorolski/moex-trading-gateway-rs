@@ -1,8 +1,8 @@
 {
-  "schema_version": 5,
-  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0-R2A",
-  "contract_id": "stage8b-r2b-generation2-full-31-service-transaction-r2a",
-  "status": "NATIVE_RUNNER_R2A_DOCKER_CLEANUP_VERIFICATION_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+  "schema_version": 6,
+  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0-R2B",
+  "contract_id": "stage8b-r2b-generation2-full-31-service-transaction-r2b",
+  "status": "NATIVE_RUNNER_R2B_VERIFIER_WORKDIR_REPAIR_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
   "accepted_composition_r0_r1": {
     "source_ref": "c74382a7e3a63d3673dec220ff4e9caaba6b48ee",
     "archive_sha256": "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62",
@@ -256,6 +256,7 @@
     "host_attestation_max_age_seconds": 900,
     "host_attestation_max_future_skew_seconds": 60,
     "pinned_in_memory_ceremony_verifier_required": true,
+    "ceremony_verifier_working_directory": "/work",
     "ceremony_source_destruction_receipt_required": true,
     "private_material_export_allowed": false
   },
@@ -272,5 +273,5 @@
     "runtime_live": false,
     "real_orders": false
   },
-  "next_allowed_step": "INDEPENDENT_REVIEW_OF_NATIVE_RUNNER_THEN_DISPOSABLE_EXECUTION"
+  "next_allowed_step": "INDEPENDENT_REVIEW_OF_R0_R2B_THEN_FRESH_DISPOSABLE_EXECUTION"
 }

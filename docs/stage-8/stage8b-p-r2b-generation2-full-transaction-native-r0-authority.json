@@ -1,28 +1,29 @@
 {
   "schema_version": 1,
-  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0-R2A",
-  "status": "NATIVE_RUNNER_R2A_DOCKER_CLEANUP_VERIFICATION_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
+  "stage": "Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Controlled Installation Proof R0-R2B",
+  "status": "NATIVE_RUNNER_R2B_VERIFIER_WORKDIR_REPAIR_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
   "accepted_predecessor": {
     "source_ref": "c74382a7e3a63d3673dec220ff4e9caaba6b48ee",
     "archive_sha256": "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62",
     "verdict": "ACCEPTED"
   },
   "artifacts": {
-    "docs/stage-8/stage8b-p-r2b-generation2-full-transaction-contract.json": "29e79345eb243baae21bea6ee4d1e81856b154f367fe9d21a9d7f30a0cde91f6",
-    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_2026-09-01.md": "a65ef7df1c0dad9c9e490e3e0e972163b432f112b4dbda13dece8c44b3ab5426",
-    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_ACCEPTANCE_MATRIX_2026-09-01.csv": "e7ed52306a35c0157e6fae6150613c269b25195c06fb555cc94f82ff376ee695",
+    "docs/stage-8/stage8b-p-r2b-generation2-full-transaction-contract.json": "d29cc937c8e4ba77a68d86fc7b2a1a8647a5b2274b3651ed285b2f8787fb21b0",
+    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_2026-09-01.md": "0bda73de43bea0d1707e185d4009fcd8fbb61eb0202d3f4519d199c9b63e7619",
+    "docs/stage-8/STAGE8B_P_R2B_GENERATION2_FULL_TRANSACTION_NATIVE_R0_ACCEPTANCE_MATRIX_2026-09-01.csv": "a1c856d250dbaa963a4ec49a8d1e169722d52523dfa5eb581a0f12adf1a8bc24",
     "docs/stage-8/stage8b-p-r2b-generation2-native-host-attestation.example.json": "b93979cfc2ddefdc2c71b3f5beb77f06cef9384bcfcf84afdd9814981e8821f0",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_terminal_oracle.py": "66fdfc2589dc67500156342fe9a14985b33337575980272249a5c791b22d7c1f",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight.py": "2c1de400e066de56c4d42b1dc45359c23c6d29ba7af06628fbfe480797b3ba91",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_ceremony_preflight.py": "96cb0f7c07baeda3fdc402667722d907eb1a3f2c31564269dc33a2345c1ef5c7",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive.py": "40d2010dac7be38502c46377a1437935f6c9667e3ddbeebff21093bcbabb0cc9",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r1_review_archive_negative_harness.py": "910e976b350cb941b5a5037358e78b8294979185b9aed1ba39df77ae8db9899a",
-    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh": "060bc52396faaea8c7de9d3fbbb96ee68ebb2706041e916924546b3a1e61d340",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_runner.sh": "85f17128df4f7cd83da642779e2cdb3e6830d7f7a6241169901631c793416cad",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_container_run.sh": "b593297071927a46ffab3fe3ced7c4b07cedf50028e497702397e3f5c5ab62e0",
     "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_materialize_manifest.py": "116afc85452b0bc8535b03a8fa7c8bbf5a7ef31ea1ca638979eb0e03500cc43e",
-    "scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py": "c49cebf6f8d06797e1e50c5d55287c4aa97e3044faa9a09b96361efb3c31d398",
-    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py": "e72f53e4bd7a6cd495ccfd690502d41c3c9eedcf9e067202d9fa96d915cc730d",
-    "scripts/stage8b_p_r2b_generation2_native_r2_custody_runtime_harness.sh": "78bb7b22df482748430d03e9abe9b372fb5fdeee960c1fee851a59c9a821831d"
+    "scripts/make_stage8b_p_r2b_generation2_full_transaction_native_r0_handoff.py": "1e37f62310c3a1eb4f69553c68cb9c2d22bad7573608cdb4a1c8279f0d17aa63",
+    "scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_handoff_safety_check.py": "c3ba944674aa6b125d6210350dc5775b2236276f6ff186e4e7394cd8c18dfd2e",
+    "scripts/stage8b_p_r2b_generation2_native_r2_custody_runtime_harness.sh": "78bb7b22df482748430d03e9abe9b372fb5fdeee960c1fee851a59c9a821831d",
+    "docs/stage-8/stage8b-p-r2b-generation2-native-r2a-failed-attempt.json": "badec92737405c0188d69e10b07c03a0d0fe08f34e45a543ffcb421981f84370"
   },
   "static_rebind": {
     "phase_count": 6,
@@ -34,7 +35,7 @@
     "inherited_phase1_phase2_binary_count": 6,
     "generation2_phase3_phase6_binary_count": 6,
     "production_binaries_rebuilt": false,
-    "negative_cases": 79,
+    "negative_cases": 81,
     "host_negative_cases": 18,
     "post_package_archive_negative_cases": 5
   },
@@ -67,6 +68,7 @@
     "docker_state_unknown_is_failure": true,
     "vps_destruction_required_on_cleanup_uncertainty": true,
     "pinned_in_memory_verifier": true,
+    "verifier_working_directory": "/work",
     "temporary_source_destruction_required": true
   },
   "execution_state": {
@@ -97,5 +99,5 @@
     "runtime_live": false,
     "real_orders": false
   },
-  "next_allowed_step": "INDEPENDENT_REVIEW_OF_R0_R2A_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST"
+  "next_allowed_step": "INDEPENDENT_REVIEW_OF_R0_R2B_THEN_FRESH_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST"
 }

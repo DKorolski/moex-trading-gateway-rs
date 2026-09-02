@@ -44,6 +44,7 @@ FAILURE_REPLAY_EVIDENCE = BASE / "stage8b-p-r2b-implementation-r0-r1-linux-rehea
 IMAGE_INVENTORY = BASE / "stage8b-p-r2b-controlled-installation-impl-r0-staging-inventory.json"
 CEREMONY_VERIFIER_SOURCE = Path("tools/stage8b-readonly-preflight/src/bin/stage8b-r2b-trust-rebind-key-ceremony-verify.rs")
 CEREMONY_VERIFIER_BUILD = BASE / "stage8b-p-r2b-generation2-native-r1-verifier-build-evidence.json"
+FAILED_ATTEMPT = BASE / "stage8b-p-r2b-generation2-native-r2a-failed-attempt.json"
 
 ACCEPTED_COMPOSITION_REF = "c74382a7e3a63d3673dec220ff4e9caaba6b48ee"
 ACCEPTED_COMPOSITION_ARCHIVE = "2185e1af518bbfadb7e9f426cacab00d444dcdd8ca37957c1e4f9d3901e09a62"
@@ -136,6 +137,7 @@ def contract_required_paths(root: Path) -> set[Path]:
         IMAGE_INVENTORY,
         CEREMONY_VERIFIER_SOURCE,
         CEREMONY_VERIFIER_BUILD,
+        FAILED_ATTEMPT,
         *(Path(path) for path in legacy_contract["unit_file_sha256"]),
     }
 
@@ -181,13 +183,13 @@ def check_contract(root: Path) -> None:
         },
         "Generation-2 transaction contract",
     )
-    require(contract["schema_version"] == 5, "contract version drift")
+    require(contract["schema_version"] == 6, "contract version drift")
     require(
-        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r2a",
+        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r2b",
         "contract identity drift",
     )
     require(
-        contract["status"] == "NATIVE_RUNNER_R2A_DOCKER_CLEANUP_VERIFICATION_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+        contract["status"] == "NATIVE_RUNNER_R2B_VERIFIER_WORKDIR_REPAIR_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
         "contract execution status drift",
     )
     require(
@@ -404,6 +406,7 @@ def check_contract(root: Path) -> None:
         "host_attestation_max_age_seconds": 900,
         "host_attestation_max_future_skew_seconds": 60,
         "pinned_in_memory_ceremony_verifier_required": True,
+        "ceremony_verifier_working_directory": "/work",
         "ceremony_source_destruction_receipt_required": True,
         "private_material_export_allowed": False,
     }
@@ -425,7 +428,7 @@ def check_contract(root: Path) -> None:
     require(all(value is False for value in contract["closed_surfaces"].values()), "closed surface opened")
     require(
         contract["next_allowed_step"]
-        == "INDEPENDENT_REVIEW_OF_NATIVE_RUNNER_THEN_DISPOSABLE_EXECUTION",
+        == "INDEPENDENT_REVIEW_OF_R0_R2B_THEN_FRESH_DISPOSABLE_EXECUTION",
         "next-step drift",
     )
 
@@ -500,8 +503,20 @@ def check_contract(root: Path) -> None:
         '[[ "$actual_image_id" = "$image_id" ]]',
         '--tmpfs "$ceremony_container_parent:rw,nosuid,nodev,noexec,mode=0700"',
         'stage8b-r2b-trust-rebind-key-ceremony-verify',
+        '--workdir /work',
     ):
         require(marker in outer, f"native image/custody marker missing: {marker}")
+    verifier_invocation = outer.index(
+        'docker exec \\\n  --workdir /work \\\n  -e STAGE8B_R2B_TRUST_REBIND_CEREMONY_DIR='
+    )
+    require(
+        verifier_invocation
+        < outer.index(
+            '"$container" /proof-tools/stage8b-r2b-trust-rebind-key-ceremony-verify',
+            verifier_invocation,
+        ),
+        "ceremony verifier must run from the fixed non-ancestor workdir",
+    )
     for marker in (
         "install_payload",
         "verify_installed_payload",
@@ -572,8 +587,8 @@ def check_contract(root: Path) -> None:
     with (root / MATRIX).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     require(
-        len(rows) == 64
-        and [row["id"] for row in rows] == [f"G2FTN-{index:03d}" for index in range(1, 65)],
+        len(rows) == 65
+        and [row["id"] for row in rows] == [f"G2FTN-{index:03d}" for index in range(1, 66)],
         "acceptance matrix inventory drift",
     )
     require(all(row["status"] == "PASS" and all(row.values()) for row in rows), "acceptance matrix incomplete")
@@ -610,7 +625,7 @@ def check_contract(root: Path) -> None:
     require(authority["schema_version"] == 1, "authority version drift")
     require(
         authority["status"]
-        == "NATIVE_RUNNER_R2A_DOCKER_CLEANUP_VERIFICATION_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
+        == "NATIVE_RUNNER_R2B_VERIFIER_WORKDIR_REPAIR_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
         "authority status drift",
     )
     require(
@@ -640,6 +655,7 @@ def check_contract(root: Path) -> None:
             HANDOFF_MAKER,
             HANDOFF_SAFETY,
             CUSTODY_RUNTIME,
+            FAILED_ATTEMPT,
         )
     }
     require(authority["artifacts"] == expected_artifacts, "authority artifact binding drift")
@@ -655,7 +671,7 @@ def check_contract(root: Path) -> None:
             "inherited_phase1_phase2_binary_count": 6,
             "generation2_phase3_phase6_binary_count": 6,
             "production_binaries_rebuilt": False,
-            "negative_cases": 79,
+            "negative_cases": 81,
             "host_negative_cases": 18,
             "post_package_archive_negative_cases": 5,
         },
@@ -696,6 +712,7 @@ def check_contract(root: Path) -> None:
             "docker_state_unknown_is_failure": True,
             "vps_destruction_required_on_cleanup_uncertainty": True,
             "pinned_in_memory_verifier": True,
+            "verifier_working_directory": "/work",
             "temporary_source_destruction_required": True,
         },
         "authority ceremony custody drift",
@@ -741,7 +758,7 @@ def check_contract(root: Path) -> None:
     )
     require(
         authority["next_allowed_step"]
-        == "INDEPENDENT_REVIEW_OF_R0_R2A_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST",
+        == "INDEPENDENT_REVIEW_OF_R0_R2B_THEN_FRESH_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST",
         "authority next-step drift",
     )
     require(

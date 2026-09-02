@@ -326,6 +326,14 @@ CASES: tuple[tuple[str, Mutation], ...] = (
         lambda r: mutate_text(r, checker.NATIVE_RUNNER, "/run/stage8b-g2-ceremony-source", "/tmp/stage8b-g2-ceremony-source"),
     ),
     (
+        "ceremony-verifier-workdir-removed",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, "  --workdir /work \\\n", ""),
+    ),
+    (
+        "ceremony-verifier-workdir-contract-drift",
+        lambda r: mutate_json(r, checker.CONTRACT, ("proof_requirements", "ceremony_verifier_working_directory"), "/"),
+    ),
+    (
         "early-cleanup-trap-removed",
         lambda r: mutate_text(r, checker.NATIVE_RUNNER, "trap global_custody_cleanup EXIT", "# removed global custody trap"),
     ),
