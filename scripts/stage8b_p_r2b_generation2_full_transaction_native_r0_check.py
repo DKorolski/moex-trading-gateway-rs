@@ -181,13 +181,13 @@ def check_contract(root: Path) -> None:
         },
         "Generation-2 transaction contract",
     )
-    require(contract["schema_version"] == 4, "contract version drift")
+    require(contract["schema_version"] == 5, "contract version drift")
     require(
-        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r2",
+        contract["contract_id"] == "stage8b-r2b-generation2-full-31-service-transaction-r2a",
         "contract identity drift",
     )
     require(
-        contract["status"] == "NATIVE_RUNNER_R2_CUSTODY_MICROFIX_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
+        contract["status"] == "NATIVE_RUNNER_R2A_DOCKER_CLEANUP_VERIFICATION_IMPLEMENTED_REVIEW_REQUIRED_NOT_EXECUTED_NOT_ISSUED",
         "contract execution status drift",
     )
     require(
@@ -395,6 +395,12 @@ def check_contract(root: Path) -> None:
         "cleanup_installed_before_first_failure_prone_operation": True,
         "cleanup_fixed_source_path": "/run/stage8b-g2-ceremony-source",
         "cleanup_failure_is_fatal": True,
+        "cleanup_host_source_before_docker": True,
+        "docker_cleanup_timeout_seconds": 15,
+        "docker_state_query_timeout_seconds": 10,
+        "docker_state_unknown_is_failure": True,
+        "container_absence_must_be_proven": True,
+        "vps_destruction_required_on_cleanup_uncertainty": True,
         "host_attestation_max_age_seconds": 900,
         "host_attestation_max_future_skew_seconds": 60,
         "pinned_in_memory_ceremony_verifier_required": True,
@@ -443,6 +449,13 @@ def check_contract(root: Path) -> None:
         < outer.index("STAGE8B_G2_REVIEW_ARCHIVE"),
         "custody cleanup and no-swap guard must precede every argument/archive check",
     )
+    cleanup_body = outer[outer.index("global_custody_cleanup() {"):outer.index("trap global_custody_cleanup EXIT")]
+    require(
+        cleanup_body.index("destroy_fixed_ceremony_source || status=1")
+        < cleanup_body.index("remove_proof_container || status=1")
+        < cleanup_body.index("write_custody_cleanup_receipt || status=1"),
+        "host ceremony must be destroyed before bounded Docker cleanup and receipt",
+    )
     require(
         outer.index('container_swap_entries="$(docker exec')
         < outer.index('docker exec "$container" cp -a /ceremony-source/.'),
@@ -467,10 +480,21 @@ def check_contract(root: Path) -> None:
         'exit "$status"',
         "swap-custody-preflight.json",
         'container_visible_swap_enabled":False',
+        'timeout --signal=KILL 10s docker ps -aq',
+        'timeout --signal=KILL 15s docker rm -f',
+        "container_state_known=false",
+        "vps_destruction_required=true",
+        '"container_state_known"',
+        '"vps_destruction_required"',
+        '"private_material_retained_on_host"',
     ):
         require(marker in outer, f"native outer runner marker missing: {marker}")
     for forbidden in ("--platform", "/proc/sys/fs/binfmt", "qemu-x86", "--network host"):
         require(forbidden not in outer.lower(), f"native outer runner forbidden marker: {forbidden}")
+    require(
+        'docker ps -aq --filter "name=^/${proof_container}$" 2>/dev/null || true' not in outer,
+        "Docker state-query errors are suppressed",
+    )
     for marker in (
         'actual_image_id="$(docker image inspect --format',
         '[[ "$actual_image_id" = "$image_id" ]]',
@@ -518,6 +542,15 @@ def check_contract(root: Path) -> None:
         "reviewed-archive-positive-to-inner-fail-closed",
         "inner-env-validation",
         "wrong-ceremony-path-cleans-fixed-source",
+        "docker-rm-command-error",
+        "docker-ps-command-error",
+        "docker-daemon-unavailable",
+        "docker-rm-timeout",
+        "docker-ps-timeout",
+        "container-still-present-after-rm",
+        "post-rm-container-state-unknown",
+        "docker-cleanup-does-not-block-host-source-destruction",
+        "private_material_retained_on_host",
         "synthetic_marker=SYNTHETIC_STAGE8B_CUSTODY_MARKER_NOT_A_PRIVATE_KEY",
         '[[ ! -e "$fixed_source" ]]',
     ):
@@ -539,8 +572,8 @@ def check_contract(root: Path) -> None:
     with (root / MATRIX).open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     require(
-        len(rows) == 55
-        and [row["id"] for row in rows] == [f"G2FTN-{index:03d}" for index in range(1, 56)],
+        len(rows) == 64
+        and [row["id"] for row in rows] == [f"G2FTN-{index:03d}" for index in range(1, 65)],
         "acceptance matrix inventory drift",
     )
     require(all(row["status"] == "PASS" and all(row.values()) for row in rows), "acceptance matrix incomplete")
@@ -577,7 +610,7 @@ def check_contract(root: Path) -> None:
     require(authority["schema_version"] == 1, "authority version drift")
     require(
         authority["status"]
-        == "NATIVE_RUNNER_R2_CUSTODY_MICROFIX_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
+        == "NATIVE_RUNNER_R2A_DOCKER_CLEANUP_VERIFICATION_IMPLEMENTED_REVIEW_REQUIRED_EXECUTION_NOT_STARTED",
         "authority status drift",
     )
     require(
@@ -622,7 +655,7 @@ def check_contract(root: Path) -> None:
             "inherited_phase1_phase2_binary_count": 6,
             "generation2_phase3_phase6_binary_count": 6,
             "production_binaries_rebuilt": False,
-            "negative_cases": 70,
+            "negative_cases": 79,
             "host_negative_cases": 18,
             "post_package_archive_negative_cases": 5,
         },
@@ -657,6 +690,11 @@ def check_contract(root: Path) -> None:
             "container_visible_swap_entries_required": 0,
             "cleanup_guard_installed_before_argument_parsing": True,
             "cleanup_failure_is_fatal": True,
+            "cleanup_host_source_before_docker": True,
+            "docker_cleanup_timeout_seconds": 15,
+            "docker_state_query_timeout_seconds": 10,
+            "docker_state_unknown_is_failure": True,
+            "vps_destruction_required_on_cleanup_uncertainty": True,
             "pinned_in_memory_verifier": True,
             "temporary_source_destruction_required": True,
         },
@@ -703,7 +741,7 @@ def check_contract(root: Path) -> None:
     )
     require(
         authority["next_allowed_step"]
-        == "INDEPENDENT_REVIEW_OF_R0_R2_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST",
+        == "INDEPENDENT_REVIEW_OF_R0_R2A_THEN_TWO_RUN_NATIVE_EXECUTION_ON_ATTESTED_NO_SWAP_DISPOSABLE_HOST",
         "authority next-step drift",
     )
     require(

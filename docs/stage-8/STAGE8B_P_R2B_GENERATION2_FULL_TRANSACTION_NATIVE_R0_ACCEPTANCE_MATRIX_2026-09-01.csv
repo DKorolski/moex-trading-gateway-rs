@@ -54,3 +54,12 @@ G2FTN-052,custody,Host live swap inventory is empty before reviewed archive proc
 G2FTN-053,custody,Container-visible swap inventory is empty before ceremony projection,native runner R2,PASS
 G2FTN-054,attestation,Host attestation binds swap disabled and is at most 15 minutes old,host preflight R2,PASS
 G2FTN-055,evidence,Public swap custody and ceremony destruction receipts are hash-bound to aggregate evidence,native runner R2,PASS
+G2FTN-056,custody,Host ceremony source is destroyed before any bounded Docker cleanup operation,native runner R2A,PASS
+G2FTN-057,custody,Docker state query errors and timeouts are classified as unknown rather than absent,native runner R2A,PASS
+G2FTN-058,custody,Docker removal errors and timeouts make cleanup fail and require VPS destruction,native runner R2A,PASS
+G2FTN-059,custody,Container absence is accepted only after a successful bounded exact-name query,native runner R2A,PASS
+G2FTN-060,custody,A container still present after removal makes cleanup fail,native runner R2A,PASS
+G2FTN-061,evidence,Cleanup receipt distinguishes host source container removal attempt state-known and removed,native runner R2A,PASS
+G2FTN-062,evidence,Private material retained false requires host destroyed plus known removed container,native runner R2A,PASS
+G2FTN-063,evidence,Docker uncertainty records result FAIL and vps destruction required,native runner R2A,PASS
+G2FTN-064,closure,Docker cleanup uncertainty cannot produce an accepted aggregate proof,native runner R2A,PASS

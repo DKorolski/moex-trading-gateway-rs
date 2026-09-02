@@ -7,7 +7,10 @@ extraction_root=""
 trusted_evidence_root=""
 container_creation_attempted=false
 container_removed=false
+container_state_known=false
+container_removal_attempted=false
 ceremony_source_destroyed=false
+vps_destruction_required=false
 
 destroy_fixed_ceremony_source() {
   local result=0
@@ -19,42 +22,101 @@ destroy_fixed_ceremony_source() {
   else
     ceremony_source_destroyed=true
   fi
-  if [[ "$ceremony_source_destroyed" = true && -n "$trusted_evidence_root" && -d "$trusted_evidence_root" ]]; then
-    python3 - "$trusted_evidence_root/ceremony-source-destruction-receipt.json" <<'PY' || result=1
-import json,pathlib,sys
-payload={
-  "schema_version":2,"result":"PASS","fixed_source_path":True,
-  "source_destroyed":True,"private_material_retained_on_host":False,
-  "private_path_exported":False,"generation_2_active":False,
-  "authorization":"NOT_ISSUED",
-}
-path=pathlib.Path(sys.argv[1])
-path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-PY
-  fi
   return "$result"
 }
 
 remove_proof_container() {
   local result=0
-  if command -v docker >/dev/null 2>&1; then
-    docker rm -f "$proof_container" >/dev/null 2>&1 || true
-    if [[ -n "$(docker ps -aq --filter "name=^/${proof_container}$" 2>/dev/null || true)" ]]; then
-      result=1
-    else
-      container_removed=true
-    fi
-  elif [[ "$container_creation_attempted" = true ]]; then
+  local container_ids=""
+  local removal_command_failed=false
+  container_state_known=false
+  container_removed=false
+  if ! command -v docker >/dev/null 2>&1 || ! command -v timeout >/dev/null 2>&1; then
+    vps_destruction_required=true
+    return 1
+  fi
+  if ! container_ids="$(timeout --signal=KILL 10s docker ps -aq --filter "name=^/${proof_container}$" 2>/dev/null)"; then
+    vps_destruction_required=true
+    return 1
+  fi
+  container_state_known=true
+  if [[ -z "$container_ids" ]]; then
+    container_removed=true
+    return 0
+  fi
+  container_removal_attempted=true
+  if ! timeout --signal=KILL 15s docker rm -f "$proof_container" >/dev/null 2>&1; then
+    removal_command_failed=true
     result=1
   fi
+  if ! container_ids="$(timeout --signal=KILL 10s docker ps -aq --filter "name=^/${proof_container}$" 2>/dev/null)"; then
+    container_state_known=false
+    container_removed=false
+    vps_destruction_required=true
+    return 1
+  fi
+  container_state_known=true
+  if [[ -n "$container_ids" ]]; then
+    container_removed=false
+    vps_destruction_required=true
+    result=1
+  else
+    container_removed=true
+  fi
+  if [[ "$removal_command_failed" = true ]]; then
+    vps_destruction_required=true
+  fi
   return "$result"
+}
+
+write_custody_cleanup_receipt() {
+  local result=FAIL
+  local private_retained=true
+  if [[ "$ceremony_source_destroyed" = true && "$container_state_known" = true && "$container_removed" = true && "$vps_destruction_required" = false ]]; then
+    result=PASS
+    private_retained=false
+  fi
+  if [[ -z "$trusted_evidence_root" || ! -d "$trusted_evidence_root" ]]; then
+    return 0
+  fi
+  python3 - "$trusted_evidence_root/ceremony-source-destruction-receipt.json" \
+    "$result" "$ceremony_source_destroyed" "$container_removal_attempted" \
+    "$container_removed" "$container_state_known" "$private_retained" \
+    "$vps_destruction_required" <<'PY'
+import json,pathlib,sys
+def boolean(value: str) -> bool:
+    if value not in {"true", "false"}:
+        raise SystemExit("invalid cleanup boolean")
+    return value == "true"
+payload={
+  "schema_version":3,"result":sys.argv[2],"fixed_source_path":True,
+  "host_source_destroyed":boolean(sys.argv[3]),
+  "source_destroyed":boolean(sys.argv[3]),
+  "container_removal_attempted":boolean(sys.argv[4]),
+  "container_removed":boolean(sys.argv[5]),
+  "container_state_known":boolean(sys.argv[6]),
+  "private_material_retained_on_host":boolean(sys.argv[7]),
+  "vps_destruction_required":boolean(sys.argv[8]),
+  "private_path_exported":False,"generation_2_active":False,
+  "authorization":"NOT_ISSUED",
+}
+if payload["private_material_retained_on_host"] is False and not (
+    payload["host_source_destroyed"] is True
+    and payload["container_removed"] is True
+    and payload["container_state_known"] is True
+):
+    raise SystemExit("unsafe cleanup receipt")
+path=pathlib.Path(sys.argv[1])
+path.write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+PY
 }
 
 global_custody_cleanup() {
   local status=$?
   trap - EXIT INT TERM
-  remove_proof_container || status=1
   destroy_fixed_ceremony_source || status=1
+  remove_proof_container || status=1
+  write_custody_cleanup_receipt || status=1
   if [[ -n "$extraction_root" && -e "$extraction_root" ]]; then
     rm -rf --one-file-system -- "$extraction_root" || status=1
   fi
@@ -202,9 +264,9 @@ docker exec "$container" test -f /evidence/run-1/run-result.json
 docker exec "$container" test -f /evidence/run-2/run-result.json
 docker exec "$container" test -f /evidence/uninstall-receipt.json
 docker exec "$container" rm -rf --one-file-system "$ceremony_container_root"
-docker rm -f "$container" >/dev/null
-container_removed=true
 destroy_fixed_ceremony_source
+remove_proof_container
+write_custody_cleanup_receipt
 
 python3 - "$evidence_root" <<'PY'
 import hashlib,json,pathlib,sys
@@ -222,8 +284,12 @@ receipt=json.loads((root/"uninstall-receipt.json").read_text())
 if receipt.get("result") != "PASS" or receipt.get("authorization") != "NOT_ISSUED":
     raise SystemExit("uninstall receipt drift")
 destruction=json.loads((root/"ceremony-source-destruction-receipt.json").read_text())
-if destruction.get("source_destroyed") is not True:
+if destruction.get("result") != "PASS" or destruction.get("host_source_destroyed") is not True:
     raise SystemExit("ceremony destruction missing")
+if destruction.get("container_state_known") is not True or destruction.get("container_removed") is not True:
+    raise SystemExit("container cleanup not proven")
+if destruction.get("private_material_retained_on_host") is not False or destruction.get("vps_destruction_required") is not False:
+    raise SystemExit("private custody cleanup failed")
 swap=json.loads((root/"swap-custody-preflight.json").read_text())
 if swap.get("host_swap_enabled") is not False or swap.get("container_visible_swap_enabled") is not False:
     raise SystemExit("swap custody preflight missing")

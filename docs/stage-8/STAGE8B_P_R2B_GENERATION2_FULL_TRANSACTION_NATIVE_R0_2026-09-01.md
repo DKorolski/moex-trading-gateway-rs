@@ -1,4 +1,4 @@
-# Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Proof R0-R2
+# Stage 8B-P R2B Generation-2 Full Transaction Rebind / Native Proof R0-R2A
 
 ## Status
 
@@ -139,6 +139,20 @@ empty host inventory. The live host preflight repeats that check and requires a
 fresh (maximum age 15 minutes) attestation with `swap_enabled=false`. After the
 container starts and before ceremony projection, `/proc/swaps` must also contain
 zero active entries. Both results are written to a public redacted custody receipt.
+
+## R0-R2A Docker cleanup verification
+
+Host-source destruction precedes every Docker cleanup operation, so a stalled
+daemon cannot delay deletion of the fixed host ceremony. Exact-name Docker state
+queries are bounded to 10 seconds and container removal is bounded to 15 seconds.
+Command error, timeout, unknown state or a still-present container is never treated
+as absence: the proof fails and the disposable VPS must be destroyed.
+
+The cleanup receipt separately records host-source destruction, whether removal was
+attempted, whether container state is known, whether the container is proven removed,
+whether private material may remain, and whether VPS destruction is required.
+`private_material_retained_on_host=false` is legal only after both host-source
+destruction and a successful container-absence proof.
 
 ## Reset and second clean run
 

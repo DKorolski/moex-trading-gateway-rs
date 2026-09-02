@@ -23,4 +23,4 @@ python3 scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_negative_ha
 python3 scripts/stage8b_p_r2b_generation2_full_transaction_native_r0_host_preflight_negative_harness.py
 git diff --check
 
-echo "stage8b-generation2-full-transaction-native-r0-gate: PASS runner=implemented r2=true custody=no-swap+early-cleanup review=required native_execution=false authorization=NOT_ISSUED"
+echo "stage8b-generation2-full-transaction-native-r0-gate: PASS runner=implemented r2a=true custody=no-swap+early-cleanup+docker-state-known review=required native_execution=false authorization=NOT_ISSUED"

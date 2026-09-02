@@ -98,6 +98,112 @@ run_inner_environment_cases() {
   rmdir /run/stage8b-g2-reviewed-extraction.synthetic
 }
 
+fakebin="$working/fakebin"
+install -d -m 0755 "$fakebin"
+cat >"$fakebin/docker" <<'SH'
+#!/usr/bin/env bash
+set -eu
+behavior="${FAKE_DOCKER_BEHAVIOR:?}"
+state="${FAKE_DOCKER_STATE:?}"
+command_name="${1:-}"; shift || true
+case "$command_name" in
+  info)
+    [[ "$behavior" != daemon-unavailable ]] || exit 125
+    printf 'amd64\n'
+    ;;
+  ps)
+    count=0
+    [[ ! -f "$state" ]] || count="$(cat "$state")"
+    count=$((count + 1)); printf '%s\n' "$count" >"$state"
+    case "$behavior" in
+      absent) ;;
+      ps-error|daemon-unavailable) exit 125 ;;
+      ps-timeout) sleep 20 ;;
+      post-ps-error) [[ "$count" -eq 1 ]] && printf 'synthetic-container-id\n' || exit 125 ;;
+      rm-success) if [[ "$count" -eq 1 ]]; then printf 'synthetic-container-id\n'; fi ;;
+      rm-error|rm-timeout|still-present|rm-block) printf 'synthetic-container-id\n' ;;
+      *) exit 126 ;;
+    esac
+    ;;
+  rm)
+    case "$behavior" in
+      rm-error) exit 125 ;;
+      rm-timeout) sleep 20 ;;
+      rm-block) touch "${FAKE_DOCKER_RM_ENTERED:?}"; sleep 20 ;;
+      rm-success|still-present|post-ps-error) ;;
+      *) exit 126 ;;
+    esac
+    ;;
+  *) exit 125 ;;
+esac
+SH
+chmod 0755 "$fakebin/docker"
+
+verify_cleanup_receipt() {
+  python3 - "$1" "$2" "$3" "$4" "$5" "$6" <<'PY'
+import json,pathlib,sys
+receipt=json.loads(pathlib.Path(sys.argv[1]).read_text())
+expected={
+  "result":sys.argv[2],
+  "container_state_known":sys.argv[3] == "true",
+  "container_removed":sys.argv[4] == "true",
+  "private_material_retained_on_host":sys.argv[5] == "true",
+  "vps_destruction_required":sys.argv[6] == "true",
+  "host_source_destroyed":True,
+  "authorization":"NOT_ISSUED",
+}
+for key,value in expected.items():
+    if receipt.get(key) != value:
+        raise SystemExit(f"cleanup receipt mismatch {key}: {receipt.get(key)!r} != {value!r}")
+if receipt.get("private_material_retained_on_host") is False and not (
+    receipt.get("host_source_destroyed") is True
+    and receipt.get("container_state_known") is True
+    and receipt.get("container_removed") is True
+):
+    raise SystemExit("unsafe private-retained=false")
+PY
+}
+
+run_fake_docker_cleanup_case() {
+  local name="$1" behavior="$2" receipt_result="$3" known="$4" removed="$5" retained="$6" destroy_vps="$7"
+  local evidence="$working/fake-$name-evidence" output="$working/fake-$name.log" state="$working/fake-$name.state" status=0
+  mkdir "$evidence"
+  seed_synthetic_source
+  PATH="$fakebin:$PATH" FAKE_DOCKER_BEHAVIOR="$behavior" FAKE_DOCKER_STATE="$state" \
+  STAGE8B_G2_HOST_ATTESTATION="$working/missing-attestation.json" \
+  STAGE8B_R2B_PHASE6_CEREMONY_DIR="$fixed_source" \
+  STAGE8B_G2_EVIDENCE_ROOT="$evidence" STAGE8B_G2_DESTROY_CEREMONY_SOURCE=YES \
+  bash "$runner" --reviewed-extraction \
+    /run/stage8b-g2-reviewed-extraction.synthetic "$working/archive-binding.json" >"$output" 2>&1 || status=$?
+  [[ "$status" -ne 0 ]]
+  [[ ! -e "$fixed_source" ]]
+  ! grep -Fq "$synthetic_marker" "$output"
+  verify_cleanup_receipt "$evidence/ceremony-source-destruction-receipt.json" \
+    "$receipt_result" "$known" "$removed" "$retained" "$destroy_vps"
+  echo "PASS $name"
+}
+
+run_blocking_cleanup_order_case() {
+  local evidence="$working/fake-blocking-evidence" output="$working/fake-blocking.log"
+  local state="$working/fake-blocking.state" entered="$working/fake-blocking.entered" status=0
+  mkdir "$evidence"
+  seed_synthetic_source
+  PATH="$fakebin:$PATH" FAKE_DOCKER_BEHAVIOR=rm-block FAKE_DOCKER_STATE="$state" FAKE_DOCKER_RM_ENTERED="$entered" \
+  STAGE8B_G2_HOST_ATTESTATION="$working/missing-attestation.json" \
+  STAGE8B_R2B_PHASE6_CEREMONY_DIR="$fixed_source" \
+  STAGE8B_G2_EVIDENCE_ROOT="$evidence" STAGE8B_G2_DESTROY_CEREMONY_SOURCE=YES \
+  bash "$runner" --reviewed-extraction \
+    /run/stage8b-g2-reviewed-extraction.synthetic "$working/archive-binding.json" >"$output" 2>&1 &
+  local pid=$!
+  for _ in $(seq 1 100); do [[ -e "$entered" ]] && break; sleep 0.1; done
+  [[ -e "$entered" ]]
+  [[ ! -e "$fixed_source" ]]
+  wait "$pid" || status=$?
+  [[ "$status" -ne 0 ]]
+  verify_cleanup_receipt "$evidence/ceremony-source-destruction-receipt.json" FAIL true false true true
+  echo "PASS docker-cleanup-does-not-block-host-source-destruction"
+}
+
 run_outer_missing_environment
 run_nonempty_evidence_root
 run_archive_case archive-sha-failure "$review_archive" "$(printf '0%.0s' {1..64})"
@@ -121,4 +227,16 @@ run_archive_case source-manifest-additional-member "$working/source-manifest.zip
 run_archive_case reviewed-archive-positive-to-inner-fail-closed "$review_archive" "$expected_archive_sha256"
 run_inner_environment_cases
 
-echo "stage8b-generation2-native-r2-custody-runtime: PASS cases=8/8 synthetic_only=true container_created=false private_material=false"
+printf '{}\n' >"$working/archive-binding.json"
+run_fake_docker_cleanup_case docker-absent-proven absent PASS true true false false
+run_fake_docker_cleanup_case docker-rm-success rm-success PASS true true false false
+run_fake_docker_cleanup_case docker-rm-command-error rm-error FAIL true false true true
+run_fake_docker_cleanup_case docker-ps-command-error ps-error FAIL false false true true
+run_fake_docker_cleanup_case docker-daemon-unavailable daemon-unavailable FAIL false false true true
+run_fake_docker_cleanup_case docker-rm-timeout rm-timeout FAIL true false true true
+run_fake_docker_cleanup_case docker-ps-timeout ps-timeout FAIL false false true true
+run_fake_docker_cleanup_case container-still-present-after-rm still-present FAIL true false true true
+run_fake_docker_cleanup_case post-rm-container-state-unknown post-ps-error FAIL false false true true
+run_blocking_cleanup_order_case
+
+echo "stage8b-generation2-native-r2a-custody-runtime: PASS cases=18/18 synthetic_only=true real_proof_container_created=false private_material=false"

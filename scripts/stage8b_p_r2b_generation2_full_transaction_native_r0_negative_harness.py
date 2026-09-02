@@ -381,6 +381,42 @@ CASES: tuple[tuple[str, Mutation], ...] = (
         "host-attestation-age-opened",
         lambda r: mutate_json(r, checker.CONTRACT, ("proof_requirements", "host_attestation_max_age_seconds"), 86400),
     ),
+    (
+        "docker-ps-command-error-suppressed",
+        lambda r: mutate_all_text(r, checker.NATIVE_RUNNER, '2>/dev/null)"; then', '2>/dev/null || true)"; then'),
+    ),
+    (
+        "docker-rm-command-error-suppressed",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'if ! timeout --signal=KILL 15s docker rm -f "$proof_container" >/dev/null 2>&1; then', 'if ! (timeout --signal=KILL 15s docker rm -f "$proof_container" >/dev/null 2>&1 || true); then'),
+    ),
+    (
+        "docker-rm-timeout-removed",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'timeout --signal=KILL 15s docker rm -f', 'docker rm -f'),
+    ),
+    (
+        "docker-ps-timeout-removed",
+        lambda r: mutate_all_text(r, checker.NATIVE_RUNNER, 'timeout --signal=KILL 10s docker ps -aq', 'docker ps -aq'),
+    ),
+    (
+        "container-still-present-accepted",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'if [[ -n "$container_ids" ]]; then', 'if [[ -z "$container_ids" ]]; then'),
+    ),
+    (
+        "container-state-unknown-marked-known",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'container_state_known=false\n    container_removed=false', 'container_state_known=true\n    container_removed=true'),
+    ),
+    (
+        "private-retained-false-with-container-unknown",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, '"$container_state_known" = true && "$container_removed" = true', '"$container_state_known" = false && "$container_removed" = false'),
+    ),
+    (
+        "docker-cleanup-before-host-source-destruction",
+        lambda r: mutate_text(r, checker.NATIVE_RUNNER, 'destroy_fixed_ceremony_source || status=1\n  remove_proof_container || status=1', 'remove_proof_container || status=1\n  destroy_fixed_ceremony_source || status=1'),
+    ),
+    (
+        "cleanup-uncertainty-does-not-require-vps-destruction",
+        lambda r: mutate_all_text(r, checker.NATIVE_RUNNER, 'vps_destruction_required=true', 'vps_destruction_required=false'),
+    ),
 )
 
 

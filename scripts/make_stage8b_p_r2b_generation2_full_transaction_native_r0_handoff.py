@@ -96,7 +96,7 @@ def main() -> None:
         json.dumps(
             {
                 "schema_version": 1,
-                "stage": "Stage 8B-P R2B Generation-2 native runner R0-R2 custody review package",
+                "stage": "Stage 8B-P R2B Generation-2 native runner R0-R2A Docker cleanup verification review package",
                 "source_ref": source_ref,
                 "source_tree": source_tree,
                 "source_short_ref": short_ref,
@@ -117,6 +117,8 @@ def main() -> None:
                 "early_cleanup_guard": True,
                 "host_swap_entries_required": 0,
                 "container_visible_swap_entries_required": 0,
+                "docker_cleanup_state_must_be_known": True,
+                "docker_cleanup_runtime_cases": 10,
                 "eligible_disposable_host_identified": True,
                 "container_created": False,
                 "native_execution": False,
@@ -125,7 +127,7 @@ def main() -> None:
                 "external_finam_network": False,
                 "broker_dispatch": False,
                 "real_orders": False,
-                "next_step": "INDEPENDENT_REVIEW_OF_R0_R2_THEN_NATIVE_EXECUTION",
+                "next_step": "INDEPENDENT_REVIEW_OF_R0_R2A_THEN_NATIVE_EXECUTION",
             },
             indent=2,
             sort_keys=True,
