@@ -123,6 +123,13 @@ enum Command {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Require a read-only FINAM token before starting a persistent paper market-data service.
+    #[command(name = "finam-paper-auth-preflight")]
+    PaperAuthPreflight {
+        /// Environment variable that contains the Finam secret token.
+        #[arg(long, default_value = "FINAM_SECRET_TOKEN")]
+        secret_env: String,
+    },
     /// Run a redacted read-only Finam probe. Does not place or cancel orders.
     #[command(name = "finam-readonly-check")]
     ReadonlyCheck {
@@ -735,6 +742,20 @@ async fn main() -> Result<()> {
             if let Some(output) = output {
                 write_json_payload(&output, &payload)?;
             }
+        }
+        Command::PaperAuthPreflight { secret_env } => {
+            let secret = SecretToken::new(std::env::var(&secret_env)?);
+            let client = FinamRestClient::try_new(FinamConfig::default())?;
+            let auth_manager = FinamAuthManager::new(client.clone(), secret);
+            let token = auth_manager
+                .access_token()
+                .await
+                .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+            let details = client
+                .token_details_typed(&token)
+                .await
+                .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+            print_json(finam_paper_auth_preflight_result(&details)?)?;
         }
         Command::ReadonlyCheck {
             secret_env,
@@ -10523,6 +10544,33 @@ fn print_json(value: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
+fn finam_paper_auth_preflight_result(
+    details: &broker_finam::TokenDetailsResponse,
+) -> Result<serde_json::Value> {
+    anyhow::ensure!(
+        details.readonly == Some(true),
+        "FINAM paper auth preflight requires token readonly=true"
+    );
+    anyhow::ensure!(
+        !details.md_permissions.is_empty(),
+        "FINAM paper auth preflight requires at least one market-data permission"
+    );
+
+    Ok(serde_json::json!({
+        "fixture_kind": "finam-paper-auth-preflight-redacted-v1",
+        "accepted": true,
+        "token_readonly": true,
+        "accounts_count": details.account_ids.len(),
+        "market_data_permissions_count": details.md_permissions.len(),
+        "raw_secret_exported": false,
+        "raw_jwt_exported": false,
+        "command_consumer_to_real_finam_enabled": false,
+        "order_placement_enabled": false,
+        "cancel_enabled": false,
+        "runtime_live_enabled": false
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -10564,6 +10612,58 @@ mod tests {
         assert!(!rendered.contains("filled"));
         assert!(!rendered.contains("123.45"));
         assert!(!rendered.contains("do-not-leak"));
+    }
+
+    #[test]
+    fn paper_auth_preflight_accepts_readonly_market_data_token() {
+        let details = broker_finam::TokenDetailsResponse {
+            account_ids: vec!["redacted-account".to_string()],
+            created_at: None,
+            expires_at: None,
+            md_permissions: vec![broker_finam::MarketDataPermission {
+                delay_minutes: Some(0),
+                mic: Some("RTSX".to_string()),
+                quote_level: Some("last".to_string()),
+            }],
+            readonly: Some(true),
+        };
+
+        let result = finam_paper_auth_preflight_result(&details).expect("readonly token accepted");
+        assert_eq!(result["accepted"], true);
+        assert_eq!(result["token_readonly"], true);
+        assert_eq!(result["order_placement_enabled"], false);
+    }
+
+    #[test]
+    fn paper_auth_preflight_rejects_trade_and_unknown_scope_tokens() {
+        for readonly in [Some(false), None] {
+            let details = broker_finam::TokenDetailsResponse {
+                account_ids: Vec::new(),
+                created_at: None,
+                expires_at: None,
+                md_permissions: vec![broker_finam::MarketDataPermission {
+                    delay_minutes: Some(0),
+                    mic: Some("RTSX".to_string()),
+                    quote_level: Some("last".to_string()),
+                }],
+                readonly,
+            };
+
+            assert!(finam_paper_auth_preflight_result(&details).is_err());
+        }
+    }
+
+    #[test]
+    fn paper_auth_preflight_rejects_missing_market_data_permission() {
+        let details = broker_finam::TokenDetailsResponse {
+            account_ids: Vec::new(),
+            created_at: None,
+            expires_at: None,
+            md_permissions: Vec::new(),
+            readonly: Some(true),
+        };
+
+        assert!(finam_paper_auth_preflight_result(&details).is_err());
     }
 
     #[test]

@@ -1,0 +1,31 @@
+[Unit]
+Description=MOEX FINAM read-only WebSocket paper market data
+After=network-online.target redis-server.service
+Wants=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=moex-paper
+Group=moex-paper
+Environment=RUST_LOG=info
+EnvironmentFile=/etc/moex-finam-paper/ws.env
+ExecStartPre=/opt/moex-finam-paper/bin/broker-cli finam-paper-auth-preflight
+ExecStart=/opt/moex-finam-paper/bin/broker-cli finam-ws-shadow-loop --config /etc/moex-finam-paper/ws.json --max-messages 10000 --max-duration-seconds 3600 --reconnect-delay-seconds 5
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
