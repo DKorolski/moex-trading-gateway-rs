@@ -9,9 +9,18 @@ This stand contains two processes only:
 1. read-only FINAM WebSocket M1 market data;
 2. M1-to-final-M10 paper runtime shadow projection.
 
-The WS service runs `finam-paper-auth-preflight` before every start and refuses
-tokens unless FINAM reports `readonly=true` and a non-empty market-data
-permission set. The current developer full-trade token must not be installed.
+The WS loop validates the same access-token lease that it uses for each
+subscription iteration and refuses it unless FINAM reports `readonly=true` and
+a non-empty market-data permission set. The check intentionally runs in the WS
+process: a separate `ExecStartPre` would create a second FINAM auth session
+immediately before the BARS subscription and can leave that subscription
+unconfirmed. The current developer full-trade token must not be installed.
+
+Each connection generation has a 60-second subscription-confirmation bound.
+If a desired subscription remains unconfirmed, the iteration closes as
+`subscription_confirmation_timeout` and the loop reconnects after its bounded
+delay. Once every desired subscription is confirmed, this timer is disarmed;
+the normal long-lived connection duration remains unchanged.
 
 The runtime process has no FINAM client, order transport or broker dispatch
 composition. Its `--strategy-invocation-shadow` output is a state projection,

@@ -9,7 +9,6 @@ User=moex-paper
 Group=moex-paper
 Environment=RUST_LOG=info
 EnvironmentFile=/etc/moex-finam-paper/ws.env
-ExecStartPre=/opt/moex-finam-paper/bin/broker-cli finam-paper-auth-preflight
 ExecStart=/opt/moex-finam-paper/bin/broker-cli finam-ws-shadow-loop --config /etc/moex-finam-paper/ws.json --max-messages 10000 --max-duration-seconds 3600 --reconnect-delay-seconds 5
 Restart=always
 RestartSec=5

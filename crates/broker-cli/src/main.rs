@@ -100,6 +100,7 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use uuid::Uuid;
 
 const JSON_SHAPE_MAX_DEPTH: usize = 4;
+const FINAM_WS_SUBSCRIPTION_CONFIRMATION_TIMEOUT_SECONDS: u64 = 60;
 
 #[derive(Parser)]
 #[command(version, about = "MOEX broker gateway operator CLI")]
@@ -2912,7 +2913,18 @@ async fn run_finam_ws_shadow_iteration(
 ) -> Result<FinamWsShadowIterationReport> {
     let started_at = Instant::now();
     let ws_generation_id = finam_ws_generation_id(iteration);
-    let token = runtime.auth_manager.access_token().await?;
+    let token = runtime
+        .auth_manager
+        .access_token()
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+    let token_details = runtime
+        .client
+        .token_details_typed(&token)
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_redacted_string()))?;
+    finam_paper_auth_preflight_result(&token_details)
+        .context("FINAM WS paper read-only preflight failed")?;
     let timeframe_sec = timeframe_seconds(&runtime.resolved.timeframe)?;
     let previous_watermark = finam_ws_final_bar_watermark(runtime);
     let mut metrics = FinamWsShadowMetrics::default();
@@ -2962,6 +2974,10 @@ async fn run_finam_ws_shadow_iteration(
         runtime.resolved.max_duration_seconds,
     ));
     tokio::pin!(timeout);
+    let subscription_confirmation_timeout = tokio::time::sleep(StdDuration::from_secs(
+        FINAM_WS_SUBSCRIPTION_CONFIRMATION_TIMEOUT_SECONDS,
+    ));
+    tokio::pin!(subscription_confirmation_timeout);
     let mut stop_reason = "max_messages".to_string();
 
     loop {
@@ -2971,6 +2987,15 @@ async fn run_finam_ws_shadow_iteration(
         tokio::select! {
             _ = &mut timeout => {
                 stop_reason = "max_duration".to_string();
+                break;
+            }
+            _ = &mut subscription_confirmation_timeout,
+                if !finam_ws_desired_subscriptions_confirmed(
+                    runtime.resolved.subscribe_bars,
+                    runtime.resolved.subscribe_quotes,
+                    &metrics,
+                ) => {
+                stop_reason = "subscription_confirmation_timeout".to_string();
                 break;
             }
             next = ws.next() => {
@@ -3635,14 +3660,15 @@ fn finam_ws_subscription_confirmation(
     stop_reason: &str,
 ) -> FinamWsSubscriptionConfirmation {
     let active = desired && (event_confirmed || data_confirmed);
-    let pending = desired && !active && stop_reason != "max_duration";
+    let timed_out = finam_ws_subscription_timed_out(stop_reason);
+    let pending = desired && !active && !timed_out;
     let status = if !desired {
         FinamWsSubscriptionStatus::Disabled
     } else if data_confirmed {
         FinamWsSubscriptionStatus::DataConfirmed
     } else if event_confirmed {
         FinamWsSubscriptionStatus::EventConfirmed
-    } else if stop_reason == "max_duration" {
+    } else if timed_out {
         FinamWsSubscriptionStatus::TimeoutDegraded
     } else {
         FinamWsSubscriptionStatus::Pending
@@ -3663,6 +3689,25 @@ fn finam_ws_subscription_confirmation(
         status,
         confirmation_source,
     }
+}
+
+fn finam_ws_subscription_timed_out(stop_reason: &str) -> bool {
+    matches!(
+        stop_reason,
+        "max_duration" | "subscription_confirmation_timeout"
+    )
+}
+
+fn finam_ws_desired_subscriptions_confirmed(
+    subscribe_bars: bool,
+    subscribe_quotes: bool,
+    metrics: &FinamWsShadowMetrics,
+) -> bool {
+    let bars_confirmed =
+        metrics.bars_subscription_event_confirmed || metrics.bars_subscription_data_confirmed;
+    let quotes_confirmed =
+        metrics.quotes_subscription_event_confirmed || metrics.quotes_subscription_data_confirmed;
+    (!subscribe_bars || bars_confirmed) && (!subscribe_quotes || quotes_confirmed)
 }
 
 fn finam_ws_generation_subscription_state_json(
@@ -11899,26 +11944,49 @@ mod tests {
     fn finam_ws_generation_model_marks_unconfirmed_desired_subscription_timeout_degraded() {
         let metrics = FinamWsShadowMetrics::default();
 
-        let state = finam_ws_generation_subscription_state(
-            true,
-            false,
-            &metrics,
-            "generation-2",
-            "max_duration",
-        );
+        for stop_reason in ["max_duration", "subscription_confirmation_timeout"] {
+            let state = finam_ws_generation_subscription_state(
+                true,
+                false,
+                &metrics,
+                "generation-2",
+                stop_reason,
+            );
 
-        assert_eq!(state.desired_subscriptions, vec!["BARS"]);
-        assert!(state.active_subscriptions.is_empty());
-        assert!(state.pending_subscriptions.is_empty());
-        assert_eq!(state.timeout_degraded_subscriptions, vec!["BARS"]);
-        assert_eq!(
-            state.confirmations[0].status,
-            FinamWsSubscriptionStatus::TimeoutDegraded
-        );
-        assert_eq!(
-            state.confirmations[1].status,
-            FinamWsSubscriptionStatus::Disabled
-        );
+            assert_eq!(state.desired_subscriptions, vec!["BARS"]);
+            assert!(state.active_subscriptions.is_empty());
+            assert!(state.pending_subscriptions.is_empty());
+            assert_eq!(state.timeout_degraded_subscriptions, vec!["BARS"]);
+            assert_eq!(
+                state.confirmations[0].status,
+                FinamWsSubscriptionStatus::TimeoutDegraded
+            );
+            assert_eq!(
+                state.confirmations[1].status,
+                FinamWsSubscriptionStatus::Disabled
+            );
+        }
+    }
+
+    #[test]
+    fn finam_ws_confirmation_timeout_disarms_after_all_desired_subscriptions_confirm() {
+        let mut metrics = FinamWsShadowMetrics::default();
+        assert!(!finam_ws_desired_subscriptions_confirmed(
+            true, false, &metrics
+        ));
+
+        record_finam_ws_subscription_data_confirmation(&mut metrics, Some("BARS"));
+        assert!(finam_ws_desired_subscriptions_confirmed(
+            true, false, &metrics
+        ));
+        assert!(!finam_ws_desired_subscriptions_confirmed(
+            true, true, &metrics
+        ));
+
+        record_finam_ws_subscription_event_confirmation(&mut metrics, Some("QUOTES"));
+        assert!(finam_ws_desired_subscriptions_confirmed(
+            true, true, &metrics
+        ));
     }
 
     #[test]
