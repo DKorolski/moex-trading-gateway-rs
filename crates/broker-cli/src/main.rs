@@ -2124,6 +2124,7 @@ struct FinamWsShadowMetrics {
     non_live_bar_passthrough_count: u64,
     published_market_data_count: u64,
     published_strategy_bar_count: u64,
+    live_readiness_published: bool,
     stale_ws_final_bar_suppressed_count: u64,
     ping_count: u64,
     pong_count: u64,
@@ -2334,9 +2335,17 @@ async fn run_finam_ws_shadow_loop(args: FinamWsShadowArgs) -> Result<()> {
                     }))?;
                     break;
                 }
+                runtime
+                    .auth_manager
+                    .clear_cache()
+                    .context("FINAM WS reconnect access-token cache reset failed")?;
             }
             Err(error) => {
                 failure_count += 1;
+                runtime
+                    .auth_manager
+                    .clear_cache()
+                    .context("FINAM WS failed iteration access-token cache reset failed")?;
                 publish_degraded_state(
                     &runtime.gateway,
                     ReadinessReason::MarketDataNotLive,
@@ -3416,6 +3425,10 @@ async fn handle_finam_ws_text_message(
                         metrics.published_market_data_count += 1;
                         metrics.published_strategy_bar_count += 1;
                         mark_finam_ws_final_bar_watermark(runtime, final_bar_close_ts);
+                        if let Some(readiness) = finam_ws_first_live_readiness_transition(metrics) {
+                            runtime.gateway.publish_readiness(readiness).await?;
+                            metrics.live_readiness_published = true;
+                        }
                     } else {
                         metrics.stale_ws_final_bar_suppressed_count += 1;
                     }
@@ -3439,6 +3452,19 @@ async fn handle_finam_ws_text_message(
     }
 
     Ok(())
+}
+
+fn finam_ws_first_live_readiness_transition(
+    metrics: &FinamWsShadowMetrics,
+) -> Option<BrokerReadiness> {
+    if metrics.live_readiness_published || !metrics.fresh_live_final_bar_seen {
+        return None;
+    }
+    Some(BrokerReadiness {
+        phase: ReadinessPhase::Reconciliation,
+        reasons: vec![ReadinessReason::OperatorLiveArmMissing],
+        checked_ts: Utc::now(),
+    })
 }
 
 fn record_finam_ws_generation_gate(
@@ -4441,6 +4467,7 @@ fn finam_ws_shadow_metrics_json(metrics: &FinamWsShadowMetrics) -> serde_json::V
         "non_live_bar_passthrough_count": metrics.non_live_bar_passthrough_count,
         "published_market_data_count": metrics.published_market_data_count,
         "published_strategy_bar_count": metrics.published_strategy_bar_count,
+        "live_readiness_published": metrics.live_readiness_published,
         "stale_ws_final_bar_suppressed_count": metrics.stale_ws_final_bar_suppressed_count,
         "ping_count": metrics.ping_count,
         "pong_count": metrics.pong_count,
@@ -11488,6 +11515,33 @@ mod tests {
         assert_eq!(
             with_bars.reasons,
             vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+    }
+
+    #[test]
+    fn finam_ws_first_fresh_final_publishes_one_non_live_readiness_transition() {
+        assert!(
+            finam_ws_first_live_readiness_transition(&FinamWsShadowMetrics::default()).is_none()
+        );
+
+        let readiness = finam_ws_first_live_readiness_transition(&FinamWsShadowMetrics {
+            fresh_live_final_bar_seen: true,
+            ..FinamWsShadowMetrics::default()
+        })
+        .expect("first fresh final must publish readiness");
+        assert_eq!(readiness.phase, ReadinessPhase::Reconciliation);
+        assert_eq!(
+            readiness.reasons,
+            vec![ReadinessReason::OperatorLiveArmMissing]
+        );
+
+        assert!(
+            finam_ws_first_live_readiness_transition(&FinamWsShadowMetrics {
+                fresh_live_final_bar_seen: true,
+                live_readiness_published: true,
+                ..FinamWsShadowMetrics::default()
+            })
+            .is_none()
         );
     }
 
