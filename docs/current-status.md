@@ -12,6 +12,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
 
+- An isolated paper-shadow P0 stand is installed on the retained native
+  Linux/amd64 VPS at source ref
+  `a6991e78307f2b3f4f092475a2a86cb7ccee5d19`. Redis is loopback-only with
+  protected mode and AOF/everysec enabled. The paper runtime projection is
+  active with a dedicated consumer group, zero pending entries and zero DLQ.
+  The FINAM WS service is installed but disabled and has no token: the current
+  local FINAM token reports `readonly=false` and the new fail-closed paper auth
+  preflight rejects it. A separate `readonly=true` FINAM token is required to
+  activate market data. No secret was transferred to the VPS. See the
+  [deployment evidence](stage-8/stage8b-paper-shadow-vps-deployment-evidence.json)
+  and [runbook](stage-8/stage8b-paper-shadow-vps-runbook.md).
+
 - The R0-R2B verifier-workdir repair at `50a2d26774ec71342a5acf281704dff09e5c7f0d`
   is independently accepted. A fresh controlled attempt on 2026-09-02 passed
   archive binding, native host preflight and the pinned Generation-2 ceremony

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B isolated FINAM paper-shadow resumption P0",
+  "observed_at_utc": "2026-09-02T07:35:55Z",
+  "source_ref": "a6991e78307f2b3f4f092475a2a86cb7ccee5d19",
+  "source_worktree_clean": true,
+  "host_label": "nektodk1-paper-vps",
+  "host_architecture": "x86_64",
+  "host_os": "Ubuntu 24.04.4 LTS",
+  "build": {
+    "rustc": "1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo": "1.98.0 (797e8a9bc 2026-08-05)",
+    "broker_cli_sha256": "8f5fc4abbf29ebc507b3f9c7fb751319512ff9d7a90bf49c993c27dfe97c6553",
+    "paper_auth_preflight_tests_passed": 3,
+    "msrv_1_80_manifest_parse_passed": false,
+    "msrv_observation": "Cargo.lock includes a dependency manifest requiring the stabilized edition2024 feature; the deployed build therefore used the recorded stable toolchain"
+  },
+  "redis": {
+    "version": "7.0.15",
+    "active": true,
+    "bind": "127.0.0.1 -::1",
+    "protected_mode": true,
+    "appendonly": true,
+    "appendfsync": "everysec",
+    "maxmemory_policy": "noeviction"
+  },
+  "runtime_projection": {
+    "service": "moex-finam-paper-runtime.service",
+    "enabled": true,
+    "active": true,
+    "paper_only": true,
+    "consumer_group": "finam-imoexf-paper-runtime-m1",
+    "source_stream": "finam_imoexf_paper:ws:market_data",
+    "pending_count": 0,
+    "dlq_count": 0,
+    "market_data_count": 0,
+    "oracle_seed_required": false,
+    "oracle_status": "NotConfigured",
+    "evidence_class": "UNSEEDED_TRANSPORT_AND_PROJECTION_SMOKE_ONLY"
+  },
+  "ws_market_data": {
+    "service": "moex-finam-paper-ws.service",
+    "installed": true,
+    "enabled": false,
+    "active": false,
+    "token_file_mode": "0600",
+    "token_installed": false,
+    "activation_blocker": "FINAM_READONLY_SECRET_TOKEN_REQUIRED"
+  },
+  "local_token_guard": {
+    "auth_http": 200,
+    "details_http": 200,
+    "observed_readonly": false,
+    "full_trade_token_rejected_by_paper_preflight": true,
+    "raw_secret_exported": false,
+    "raw_jwt_exported": false,
+    "token_transferred_to_vps": false
+  },
+  "closed_boundaries": {
+    "generation_2_active": false,
+    "r2b_authorization": "NOT_ISSUED",
+    "command_consumer_to_real_finam_enabled": false,
+    "order_placement_enabled": false,
+    "cancel_enabled": false,
+    "http_order_post_delete_enabled": false,
+    "broker_dispatch_enabled": false,
+    "runtime_live_enabled": false,
+    "real_orders_enabled": false
+  },
+  "next_action": "INSTALL_READONLY_FINAM_SECRET_THEN_ACTIVATE_WS_AND_COLLECT_M1_M10_RUNTIME_EVIDENCE"
+}
