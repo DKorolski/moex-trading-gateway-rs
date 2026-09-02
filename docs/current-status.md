@@ -1286,6 +1286,13 @@ Green / mostly closed:
   `live_orders_enabled=false`, `runtime_live_ready_enabled=false`,
   `command_consumer_to_real_finam_enabled=false`,
   `external_order_endpoint_enabled=false`, `stop_sltp_bracket_enabled=false`.
+- The isolated Stage 8B paper VPS now runs Redis and the unseeded P0 runtime
+  projection service. A reproducible Redis DB 15 synthetic smoke consumed ten
+  contiguous final M1 bars, formed one complete M10 runtime input, committed
+  one paper runtime-state batch, XACKed all ten source entries, left no PEL or
+  DLQ entries, preserved operational DB 0 and cleaned DB 15. No FINAM request,
+  full-trade token, broker dispatch, real order or Generation-2 private
+  material was used.
 
 Amber:
 
@@ -1299,6 +1306,15 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
+- Stage 8B P0 on the isolated VPS is operational only for transport/runtime
+  projection. Its WebSocket service remains disabled until a separate FINAM
+  token with `readonly=true` is supplied. The current local full-trade token is
+  rejected by the paper preflight and has not been copied to the VPS.
+- Stage 8B-P1 durable paper lifecycle composition is a design-review candidate.
+  The accepted Stage 7B service is a library authority, not yet a deployable
+  full strategy host. P1 must solve source-produced Stage 5G bootstrap,
+  commitment-key custody, single-owner semantic bar continuation and one
+  durable paper outcome/projection authority before operational activation.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

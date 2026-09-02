@@ -38,6 +38,21 @@
     "oracle_status": "NotConfigured",
     "evidence_class": "UNSEEDED_TRANSPORT_AND_PROJECTION_SMOKE_ONLY"
   },
+  "isolated_synthetic_projection_smoke": {
+    "performed": true,
+    "redis_database": 15,
+    "harness": "scripts/stage8b-paper-shadow-db15-smoke.sh",
+    "evidence": "docs/stage-8/stage8b-paper-shadow-db15-smoke-evidence.json",
+    "m1_entries": 10,
+    "complete_m10_runtime_inputs": 1,
+    "runtime_state_records": 1,
+    "xack_count": 10,
+    "pending_count": 0,
+    "dlq_count": 0,
+    "database_empty_after": true,
+    "operational_database_unchanged": true,
+    "verdict": "PASS"
+  },
   "ws_market_data": {
     "service": "moex-finam-paper-ws.service",
     "installed": true,
@@ -67,5 +82,8 @@
     "runtime_live_enabled": false,
     "real_orders_enabled": false
   },
-  "next_action": "INSTALL_READONLY_FINAM_SECRET_THEN_ACTIVATE_WS_AND_COLLECT_M1_M10_RUNTIME_EVIDENCE"
+  "next_actions": [
+    "OBTAIN_SEPARATE_READONLY_FINAM_SECRET_THEN_ACTIVATE_WS_AND_COLLECT_LIVE_M1_M10_RUNTIME_EVIDENCE",
+    "INDEPENDENTLY_REVIEW_STAGE8B_P1_DURABLE_PAPER_LIFECYCLE_COMPOSITION_DESIGN_BEFORE_IMPLEMENTATION_OR_DB0_ACTIVATION"
+  ]
 }

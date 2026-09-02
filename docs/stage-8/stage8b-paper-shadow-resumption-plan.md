@@ -28,9 +28,17 @@ The runtime command must use `--strategy-invocation-shadow` but remains unable
 to emit broker commands. ALOR oracle seeding is optional for transport smoke
 and required for a claimed state-parity session.
 
+P0 deployment and an isolated Redis DB 15 synthetic M1-to-M10-to-runtime-state
+smoke are complete. The smoke is reproducible with
+`scripts/stage8b-paper-shadow-db15-smoke.sh`; it does not contact FINAM and
+cleans DB 15 on exit. Live readonly FINAM market-data evidence still requires a
+separate token whose token details report `readonly=true`.
+
 ## Slice P1: deployable durable paper service
 
-Add a dedicated binary around the accepted Stage 7B service with:
+After independent acceptance of
+`stage8b-p1-durable-paper-lifecycle-composition-design.md`, add a dedicated
+single-owner composition around the accepted Stage 7B service with:
 
 - one fixed paper namespace and consumer group;
 - file-backed Stage 6/7 recovery ownership;
@@ -40,6 +48,11 @@ Add a dedicated binary around the accepted Stage 7B service with:
 - restart and PEL recovery;
 - no FINAM client or transport dependency;
 - no broker dispatch capability.
+
+The composition must also source a real Stage 5G clean-restart package and
+commitment key and define one owner for semantic continuation and paper
+order/trade/position outcomes. A thin CLI around test fixtures or P0 projection
+JSON is explicitly insufficient.
 
 This slice requires independent review before VPS activation because it opens
 a persistent Redis consumer, even though it remains paper-only.
