@@ -31,8 +31,15 @@ and required for a claimed state-parity session.
 P0 deployment and an isolated Redis DB 15 synthetic M1-to-M10-to-runtime-state
 smoke are complete. The smoke is reproducible with
 `scripts/stage8b-paper-shadow-db15-smoke.sh`; it does not contact FINAM and
-cleans DB 15 on exit. Live readonly FINAM market-data evidence still requires a
-separate token whose token details report `readonly=true`.
+cleans DB 15 on exit.
+
+Live read-only activation is also complete. A separate token whose FINAM token
+details report `readonly=true` now drives final M1 bars into the isolated
+namespace. Two complete M10 buckets produced committed paper-only runtime-state
+batches with consumer `pending=0` and `lag=0`. This proves the live transport
+and projection path only: the runtime is unseeded, so ALOR state parity and the
+durable paper order/ACK lifecycle are not claimed. See
+`stage8b-paper-shadow-readonly-live-activation-evidence.json`.
 
 ## Slice P1: deployable durable paper service
 

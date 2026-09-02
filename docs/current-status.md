@@ -12,16 +12,22 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
 
-- An isolated paper-shadow P0 stand is installed on the retained native
+- An isolated paper-shadow P0 stand is active on the retained native
   Linux/amd64 VPS at source ref
-  `a6991e78307f2b3f4f092475a2a86cb7ccee5d19`. Redis is loopback-only with
-  protected mode and AOF/everysec enabled. The paper runtime projection is
-  active with a dedicated consumer group, zero pending entries and zero DLQ.
-  The FINAM WS service is installed but disabled and has no token: the current
-  local FINAM token reports `readonly=false` and the new fail-closed paper auth
-  preflight rejects it. A separate `readonly=true` FINAM token is required to
-  activate market data. No secret was transferred to the VPS. See the
-  [deployment evidence](stage-8/stage8b-paper-shadow-vps-deployment-evidence.json)
+  `9bdc2719ae30e7e59d6db35e8a48246bb15ddd6f`. Redis is loopback-only with
+  protected mode and AOF/everysec enabled. A separate FINAM token passed the
+  in-process fail-closed preflight with `readonly=true`, 2 visible accounts and
+  68 market-data permissions; its root-owned mode-0600 secret file is not part
+  of Git or evidence. The WS and paper runtime services are enabled and active.
+  Continuous real final M1 bars produced two complete M10 runtime-state batches;
+  the consumer has `pending=0` and `lag=0`. Health is `ReadOnly`, readiness is
+  `Reconciliation / OperatorLiveArmMissing`, and every order/cancel/real-runtime
+  flag remains false. One fail-closed DLQ row records a non-contiguous source
+  bar from pre-stable-generation diagnostics; no incomplete bucket entered
+  runtime state. This is unseeded live transport/projection evidence, not ALOR
+  parity and not the Stage 7B durable paper order/ACK lifecycle. See the
+  [initial deployment evidence](stage-8/stage8b-paper-shadow-vps-deployment-evidence.json),
+  [live activation evidence](stage-8/stage8b-paper-shadow-readonly-live-activation-evidence.json)
   and [runbook](stage-8/stage8b-paper-shadow-vps-runbook.md).
 
 - The R0-R2B verifier-workdir repair at `50a2d26774ec71342a5acf281704dff09e5c7f0d`

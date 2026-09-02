@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B isolated FINAM paper-shadow resumption P0",
+  "evidence_kind": "READONLY_FINAM_LIVE_M1_TO_M10_RUNTIME_PROJECTION",
+  "verdict": "PASS",
+  "observed_at_utc": "2026-09-02T09:23:37Z",
+  "host_label": "nektodk1-paper-vps",
+  "source_ref": "9bdc2719ae30e7e59d6db35e8a48246bb15ddd6f",
+  "startup_hardening_predecessor_ref": "89e899768026b1e24afbf82cc3baedbed203bd03",
+  "deployed_broker_cli_sha256": "89db0db7ce063b7c4dbd48dcf644f3551f9fe0307ffbafb9954454f23ad5899e",
+  "authentication": {
+    "preflight_accepted": true,
+    "accounts_count": 2,
+    "market_data_permissions_count": 68,
+    "token_readonly": true,
+    "same_access_token_validated_and_used_for_ws_iteration": true,
+    "access_token_cache_cleared_before_reconnect": true,
+    "secret_file": "/etc/moex-finam-paper/ws.env",
+    "secret_file_owner": "root:root",
+    "secret_file_mode": "0600",
+    "raw_secret_exported": false,
+    "raw_jwt_exported": false
+  },
+  "services": {
+    "moex_finam_paper_ws": {
+      "enabled": true,
+      "active": true
+    },
+    "moex_finam_paper_runtime": {
+      "enabled": true,
+      "active": true
+    }
+  },
+  "websocket": {
+    "symbol": "IMOEXF@RTSX",
+    "timeframe": "TIME_FRAME_M1",
+    "source_kind": "LiveStream",
+    "final_bars_only_for_strategy": true,
+    "subscription_confirmation_timeout_seconds": 60,
+    "unconfirmed_generation_reconnect_observed_before_final_activation": true,
+    "fresh_generation_confirmed": true,
+    "continuous_live_m1_observed": true,
+    "market_data_stream_count": 51,
+    "latest_observed_bar": {
+      "open_ts": "2026-09-02T09:22:00Z",
+      "close_ts": "2026-09-02T09:23:00Z",
+      "open": "2168.5",
+      "high": "2171.5",
+      "low": "2168.5",
+      "close": "2170.5",
+      "volume": "4874.0",
+      "is_final": true
+    },
+    "latest_health": {
+      "status": "ReadOnly",
+      "command_consumer_enabled": false,
+      "order_placement_enabled": false
+    },
+    "latest_readiness": {
+      "phase": "Reconciliation",
+      "reasons": [
+        "OperatorLiveArmMissing"
+      ],
+      "immediate_after_first_fresh_final_bar": true
+    }
+  },
+  "runtime_projection": {
+    "paper_only": true,
+    "consumer_group": "finam-imoexf-paper-runtime-m1",
+    "consumer_count": 1,
+    "pending_count": 0,
+    "lag": 0,
+    "runtime_state_record_count": 2,
+    "committed_batch_count": 2,
+    "latest_runtime_state": {
+      "batch_id": "paper-batch-05ffc43d9de533d0e47d981a65652c04dd89c26f5b07311fee568700b37f71dd",
+      "last_bar_key": "2026-09-02T09:20:00+00:00/600",
+      "entry_ready": true,
+      "last_position_qty": 0.0,
+      "active_orders_count": 0,
+      "last_bar_close": 2168.0,
+      "current_day_high": 2169.5,
+      "current_day_low": 2162.0,
+      "current_day_close": 2168.0,
+      "strategy_invocation_enabled": true,
+      "projection_source": "paper_hybrid_strategy_shadow_invocation"
+    },
+    "oracle_seed_status": "NotConfigured",
+    "evidence_class": "UNSEEDED_LIVE_TRANSPORT_AND_PROJECTION_ONLY",
+    "alor_state_parity_claimed": false
+  },
+  "diagnostics": {
+    "dlq_count": 1,
+    "dlq_reason": "SourceRejected:AggregationRejected(NonContiguousSourceBar)",
+    "dlq_origin": "pre-stable-generation diagnostic gap",
+    "raw_payload_exported": false,
+    "incomplete_bucket_used_for_runtime_state": false,
+    "current_pending_count": 0,
+    "current_consumer_lag": 0
+  },
+  "closed_boundaries": {
+    "generation_2_active": false,
+    "r2b_authorization": "NOT_ISSUED",
+    "command_consumer_to_real_finam_enabled": false,
+    "order_placement_enabled": false,
+    "cancel_enabled": false,
+    "http_order_post_delete_enabled": false,
+    "broker_dispatch_enabled": false,
+    "runtime_live_enabled": false,
+    "real_orders_enabled": false
+  },
+  "scope_conclusion": {
+    "readonly_finam_live_market_data_proven": true,
+    "live_m1_to_complete_m10_projection_proven": true,
+    "runtime_state_publication_proven": true,
+    "alor_state_parity_proven": false,
+    "durable_paper_order_ack_lifecycle_deployed": false,
+    "next_review_boundary": "STAGE8B_P1_DURABLE_PAPER_LIFECYCLE_COMPOSITION_DESIGN"
+  }
+}

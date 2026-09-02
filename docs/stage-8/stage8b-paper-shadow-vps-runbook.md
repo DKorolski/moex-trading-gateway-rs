@@ -20,7 +20,12 @@ Each connection generation has a 60-second subscription-confirmation bound.
 If a desired subscription remains unconfirmed, the iteration closes as
 `subscription_confirmation_timeout` and the loop reconnects after its bounded
 delay. Once every desired subscription is confirmed, this timer is disarmed;
-the normal long-lived connection duration remains unchanged.
+the normal long-lived connection duration remains unchanged. Before a
+reconnect, the process discards only the cached access-token lease so the next
+connection generation authenticates with a fresh JWT derived from the same
+read-only secret. The first fresh final bar publishes the non-live transition
+`Reconciliation / OperatorLiveArmMissing` immediately; it never publishes a
+live-trading arm.
 
 The runtime process has no FINAM client, order transport or broker dispatch
 composition. Its `--strategy-invocation-shadow` output is a state projection,
@@ -58,11 +63,13 @@ systemctl status --no-pager moex-finam-paper-runtime.service
 redis-cli XLEN finam_imoexf_paper:ws:market_data
 redis-cli XREVRANGE finam_imoexf_paper:ws:health + - COUNT 1
 redis-cli XREVRANGE finam_imoexf_paper:ws:readiness + - COUNT 1
-redis-cli XREVRANGE finam_imoexf_paper:md:bars:10m + - COUNT 1
 redis-cli XREVRANGE finam_imoexf_paper:runtime:state:hybrid_intraday:imoexf + - COUNT 1
 redis-cli XPENDING finam_imoexf_paper:ws:market_data finam-imoexf-paper-runtime-m1
 redis-cli XLEN finam_imoexf_paper:runtime:dlq
 ```
+
+The current P0 consumer constructs complete M10 inputs in-process and persists
+their runtime-state batches; it does not publish a separate M10 Redis stream.
 
 Safety assertions remain:
 
