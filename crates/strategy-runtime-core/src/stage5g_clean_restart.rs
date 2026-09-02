@@ -502,6 +502,15 @@ fn stage5g_reconstruct_runtime_from_clean_restart(
 }
 
 impl Stage5gCleanRestartedCapability {
+    pub(crate) fn stage6d_restart_binding(&self) -> (&str, &BrokerAccountId, &InstrumentId, &str) {
+        (
+            &self.projection.binding.strategy_id,
+            &self.projection.binding.account_id,
+            &self.projection.binding.instrument_id,
+            &self.projection.binding.stage5c_config_fingerprint,
+        )
+    }
+
     pub fn config_fingerprint_sha256(&self) -> &str {
         &self.projection.binding.stage5c_config_fingerprint
     }

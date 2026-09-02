@@ -1,7 +1,9 @@
 # Stage 8B-P1 durable paper lifecycle composition design
 
-Status: Design R0 review candidate. No P1 implementation or VPS activation is
-authorized by this document.
+Status: architecture accepted with staged authorization. P1-a is implemented
+as a review candidate; P1-b/P1-c require acceptance of the semantic-commit
+addendum. No P1 Redis consumer or VPS activation is authorized by this
+document.
 
 ## Decision
 
@@ -35,7 +37,7 @@ The P0 projection is not the accepted full Hybrid strategy host:
 - `--strategy-invocation-shadow` populates the compatibility projection but
   does not emit canonical `BrokerCommand` envelopes;
 - the canonical M10 is consumed in process and is not separately persisted by
-  this command;
+  this P0 command; P1 selects a new, separately persisted canonical M10 stream;
 - it has no durable ACK/order/position lifecycle owner.
 
 These limitations are explicit. They must not be relabelled as strategy paper
@@ -107,6 +109,11 @@ The implementation may use cooperating tasks, but there is one process-level
 composition owner and one mutable Hybrid runtime authority. No API may extract
 `Stage6dDurableRuntimeRecovered`, the file journal or the writer lease for a
 second owner.
+
+The exact M10 stream, semantic batch identity, Stage 5G/6/7 commit ordering,
+M10-last XACK rule and crash matrix are frozen in
+`stage8b-p1-semantic-commit-protocol-addendum.md`. Until that addendum is
+accepted, P1-b and P1-c implementation remain on hold.
 
 ### Required narrow source change
 
@@ -251,9 +258,11 @@ Readiness is `PaperReady`, not `LiveReady`.
 
 ## Implementation sequence after design acceptance
 
-1. **P1-a — bootstrap/identity facade.** Add deployable config types,
-   source-produced first-boot package workflow and restart-only default. Prove
-   that fake seeds, missing keys and wrong identities fail before Redis.
+1. **P1-a — bootstrap/identity facade.** Implemented as a library-only review
+   candidate. It adds deployable config types, source-produced first-boot
+   package workflow and restart-only default and proves that missing roots,
+   malformed credentials and wrong identities fail before Redis. See
+   `stage8b-p1a-bootstrap-identity-facade.md`.
 2. **P1-b — single-owner semantic continuation.** Attach canonical M10 and the
    accepted Hybrid bar/timer facade without exposing a second mutable runtime.
 3. **P1-c — canonical command publication.** Publish exact Stage 7A command
@@ -266,7 +275,7 @@ Readiness is `PaperReady`, not `LiveReady`.
    Redis first, then readonly FINAM bars. Prove restart, PEL reclaim, duplicate,
    conflicting duplicate and uncertain-provider behavior.
 7. Independent review is required before P1 service activation in operational
-   Redis DB 0.
+   Redis DB 0. Existing P0 read-only DB 0 operation is unaffected.
 
 ## Review decisions required
 

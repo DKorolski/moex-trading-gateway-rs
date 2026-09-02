@@ -1015,6 +1015,23 @@ fn stage8a4_i3_uncovered_checkpoint(
 }
 
 impl Stage7bRecoveryReadyOwner {
+    pub(crate) fn stage8b_p1_source_binding_matches(
+        &self,
+        strategy_id: &str,
+        account_id: &broker_core::BrokerAccountId,
+        instrument: &broker_core::InstrumentId,
+        runtime_config_fingerprint_sha256: &str,
+    ) -> bool {
+        self.recovered.authenticated_stage5_binding().is_some_and(
+            |(restored_strategy, restored_account, restored_instrument, restored_config)| {
+                restored_strategy == strategy_id
+                    && restored_account == account_id
+                    && restored_instrument == instrument
+                    && restored_config == runtime_config_fingerprint_sha256
+            },
+        )
+    }
+
     /// Issues I4 terminal authority only when the on-disk S1 already covers
     /// the complete mixed frontier. This path never advances, repairs or
     /// writes the recovery seal.
@@ -2144,6 +2161,24 @@ impl Stage7bRestartOutcome {
             Self::Ready(owner) => owner.recovery_ready(),
             Self::Stage8a4I3Pending(_) => false,
             Self::Blocked(blocked) => blocked.recovery_ready(),
+        }
+    }
+
+    pub(crate) fn stage8b_p1_source_binding_matches(
+        &self,
+        strategy_id: &str,
+        account_id: &broker_core::BrokerAccountId,
+        instrument: &broker_core::InstrumentId,
+        runtime_config_fingerprint_sha256: &str,
+    ) -> bool {
+        match self {
+            Self::Ready(owner) => owner.stage8b_p1_source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
+            Self::Stage8a4I3Pending(_) | Self::Blocked(_) => false,
         }
     }
 }

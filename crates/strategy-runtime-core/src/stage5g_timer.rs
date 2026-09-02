@@ -34,7 +34,7 @@ use crate::stage5g_order_position::{
     Stage5gEvidenceCanonicalizationError, Stage5gMarketTerminalConvergedPaperStrategy,
     Stage5gOrderPositionError, Stage5gOrderPositionEvidence, Stage5gOrderPositionFailure,
     Stage5gOrderPositionSession, Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal,
-    Stage5gOrderPositionTransition, Stage5gReplayCheckpoint,
+    Stage5gOrderPositionTransition, Stage5gReplayCheckpoint, STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
 };
 
 pub const STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION: u16 = 1;
@@ -98,6 +98,27 @@ pub enum Stage5gTimerError {
     ContinuationBeforeInnerSettlement,
     Stage5c(Stage5cPaperLoopError),
     UnexpectedStage5cState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage5gInitialTimerReadyError {
+    NonZeroIntentBatch,
+    ObservationOnlyBatch,
+    InvalidCheckpoint,
+}
+
+#[derive(Serialize)]
+struct Stage5gInitialTimerReadyFingerprint<'a> {
+    schema_version: u16,
+    domain: &'static str,
+    strategy_id: &'a str,
+    account_id: &'a broker_core::BrokerAccountId,
+    instrument: &'a broker_core::InstrumentId,
+    bar_close_ts: i64,
+    state_fingerprint_sha256: &'a str,
+    checkpoint_ts_utc_ms: i64,
+    authoritative_callback_count: usize,
 }
 
 /// Linear paper-only continuation capability. It deliberately implements none
@@ -1073,6 +1094,269 @@ pub fn attach_stage5g_timer_session(
     )
 }
 
+/// Creates the only accepted pre-broker-truth Stage 5G continuation source.
+///
+/// The input must already have crossed the Stage 5C callback and settlement
+/// boundary.  This facade cannot manufacture a strategy, recovery receipt or
+/// intent batch and accepts only an execution-eligible zero-intent final M10
+/// result.  The checkpoint is fixed to the semantic bar close, so wall-clock
+/// reads and caller-selected replay watermarks cannot enter the source.
+pub fn attach_stage5g_initial_zero_intent_timer_ready(
+    settled: Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+) -> Result<Stage5gTimerReadyPaperStrategy, Stage5gInitialTimerReadyError> {
+    let batch = settled.intent_batch();
+    if batch.intent_count() != 0 || !batch.request_ids().is_empty() {
+        return Err(Stage5gInitialTimerReadyError::NonZeroIntentBatch);
+    }
+    if batch.observation_only() {
+        return Err(Stage5gInitialTimerReadyError::ObservationOnlyBatch);
+    }
+    let expected_checkpoint = batch
+        .bar_close_ts()
+        .checked_mul(1_000)
+        .filter(|value| *value > 0)
+        .ok_or(Stage5gInitialTimerReadyError::InvalidCheckpoint)?;
+    if checkpoint_ts_utc_ms != expected_checkpoint {
+        return Err(Stage5gInitialTimerReadyError::InvalidCheckpoint);
+    }
+
+    let fingerprint_projection = Stage5gInitialTimerReadyFingerprint {
+        schema_version: 1,
+        domain: "moex.stage5g.initial-zero-intent-timer-ready.v1",
+        strategy_id: batch.strategy_id(),
+        account_id: batch.account_id(),
+        instrument: batch.instrument(),
+        bar_close_ts: batch.bar_close_ts(),
+        state_fingerprint_sha256: batch.state_fingerprint(),
+        checkpoint_ts_utc_ms,
+        authoritative_callback_count: 1,
+    };
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage5g.initial-zero-intent-timer-ready.v1\0");
+    hasher.update(
+        serde_json::to_vec(&fingerprint_projection)
+            .expect("typed Stage 5G initial projection remains serializable"),
+    );
+    let summary = Stage5gOrderPositionSummary {
+        schema_version: STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
+        strategy_id: batch.strategy_id().to_string(),
+        request_count: 0,
+        terminal_request_count: 0,
+        order_transition_count: 0,
+        correlated_trade_count: 0,
+        position_confirmation_count: 0,
+        duplicate_evidence_count: 0,
+        last_total_sequence: None,
+        lifecycle_fingerprint_sha256: format!("{:x}", hasher.finalize()),
+        stage5c_callback_count: 1,
+        mock_feedback_only: true,
+        redis_attached: false,
+        finam_transport_attached: false,
+        broker_execution_attached: false,
+    };
+    let replay = Stage5gReplayCheckpoint {
+        schema_version: STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION,
+        package_discriminator: None,
+        current_evidence_identity: None,
+        evidence_identities: Vec::new(),
+        last_broker_truth_received_at: None,
+        last_broker_truth_received_ms: None,
+        duplicate_evidence_count: 0,
+        last_total_sequence: None,
+        last_continuation_checkpoint_ts_utc_ms: Some(checkpoint_ts_utc_ms),
+    };
+    let settlement = stage5gd_rearm_zero_intent_bar_continuation(settled, checkpoint_ts_utc_ms)
+        .map_err(|_| Stage5gInitialTimerReadyError::NonZeroIntentBatch)?;
+    Ok(Stage5gTimerReadyPaperStrategy {
+        settlement,
+        summary,
+        replay,
+        checkpoint_ts_utc_ms,
+    })
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub fn stage8b_p1_test_first_boot_material() -> (
+    Stage5gTimerReadyPaperStrategy,
+    crate::Stage5gCleanRestartExportInput,
+    crate::Stage5gLifecycleCommitmentKey,
+    crate::HybridIntradayRuntimeStrategy,
+) {
+    use crate::hybrid_intraday::{
+        BreakoutEodMode, HybridOrchestratorConfig, IntradayBreakoutConfig, MeanReversionConfig,
+        MinRangeMode,
+    };
+    use crate::hybrid_intraday_runtime::{
+        HybridIntradayProfile, HybridIntradayRuntimeConfig, HybridIntradayRuntimeStrategy,
+        MeanReversionVariant, MrGatePolicy, RiskGateMode,
+    };
+
+    let mut strategy = HybridIntradayRuntimeStrategy::new(HybridIntradayRuntimeConfig {
+        symbol: "IMOEXF".to_string(),
+        profile: HybridIntradayProfile::ImoexfPrimaryRiskgateHigh180Lb120,
+        mr_variant: MeanReversionVariant::High180,
+        mr_gate_policy: MrGatePolicy::ShadowPnlLb120Positive,
+        risk_gate_mode: RiskGateMode::NormalAppend,
+        risk_gate_seed_file: None,
+        risk_gate_ledger_key: None,
+        model_session_start_time: chrono::NaiveTime::from_hms_opt(8, 50, 0),
+        model_session_end_time: chrono::NaiveTime::from_hms_opt(10, 0, 0),
+        qty: 1.0,
+        live_order_style: crate::runtime_compat::MarketBuyAndCloseLiveOrderStyle::Market,
+        tick_size: 0.5,
+        marketable_limit_offset_ticks: 0,
+        timezone_offset_hours: -3,
+        session_close_hour: 23,
+        session_close_minute: 49,
+        weekends_off: false,
+        stop_end_buffer_sec: 60,
+        repair_deadline_sec: 180,
+        sl_escalate_timeout_sec: 30,
+        max_repair_retries: 3,
+        repair_backoff_base_sec: 5,
+        repair_backoff_max_sec: 60,
+        pending_timeout_sec: 30,
+        partial_entry_fill_timeout_ms: 3_000,
+        mr_config: MeanReversionConfig::default(),
+        breakout_config: IntradayBreakoutConfig {
+            k: 0.53,
+            stop1_range: 0.51,
+            stop2_range: 0.35,
+            big_move_threshold: 0.025,
+            min_range: 1.01,
+            min_range_mode: MinRangeMode::Absolute,
+            exclude_weekends: false,
+            wait_hours: 0.0,
+        },
+        orchestrator_config: HybridOrchestratorConfig {
+            breakout_eod_mode: BreakoutEodMode::SameDay,
+            breakout_overnight_exit_time: chrono::NaiveTime::from_hms_opt(9, 30, 0).unwrap(),
+        },
+    });
+    let bar_close_ts = Utc
+        .with_ymd_and_hms(2026, 8, 3, 12, 0, 0)
+        .single()
+        .unwrap()
+        .timestamp();
+    for (history_close, high, low) in [
+        (bar_close_ts - 86_400 - 600, 2_630.0, 2_570.0),
+        (bar_close_ts - 86_400, 2_620.0, 2_580.0),
+    ] {
+        let intents = crate::runtime_compat::Strategy::on_bar(
+            &mut strategy,
+            &crate::runtime_compat::StrategyCtx {
+                strategy_id: "hybrid_imoexf".to_string(),
+                portfolio: "ACC_TEST_0001".to_string(),
+                exchange: "MOEX".to_string(),
+                symbol: "IMOEXF".to_string(),
+                tick_size: 0.5,
+                trade_mode: crate::runtime_compat::TradeMode::Paper,
+                paper_execution_mode: crate::runtime_compat::PaperExecutionMode::LiveOnly,
+                allow_live_orders: false,
+                gateway_phase: crate::runtime_compat::GatewayPhase::LiveReady,
+                position_qty: Some(0.0),
+                event_ts_utc: history_close,
+                now_ts_utc: history_close,
+                last_bar_ts: Some(history_close),
+            },
+            &crate::runtime_compat::BarEvent {
+                symbol: "IMOEXF".to_string(),
+                close_time_utc: history_close,
+                o: 2_600.0,
+                h: high,
+                l: low,
+                close: 2_600.0,
+                v: 1.0,
+                origin: crate::runtime_compat::DataOrigin::Replay,
+            },
+        );
+        assert!(intents.is_empty());
+    }
+    let persisted_at = Utc.timestamp_opt(bar_close_ts + 30, 0).single().unwrap();
+    let (_initial_riskgate, _initial_riskgate_evidence) =
+        crate::stage5d_persistence::stage5f_test_seams::prepare_stage5g_clean_restart_test_authority(
+            &mut strategy,
+            "hybrid_imoexf",
+            persisted_at,
+        );
+    let instrument = broker_core::InstrumentId {
+        symbol: "IMOEXF".to_string(),
+        venue_symbol: Some("IMOEXF@RTSX".to_string()),
+        exchange: broker_core::Exchange::Moex,
+        market: broker_core::Market::Futures,
+    };
+    let bar = broker_core::HybridRuntimeBarEvent {
+        instrument: instrument.clone(),
+        close_time_utc: bar_close_ts,
+        open: 2_600.0,
+        high: 2_601.0,
+        low: 2_599.0,
+        close: 2_600.0,
+        volume: 1.0,
+        origin: broker_core::HybridRuntimeBarOrigin::Live,
+        is_final: true,
+        timeframe_sec: 600,
+    };
+    let lifecycle_now = Utc.timestamp_opt(bar_close_ts - 30, 0).single().unwrap();
+    let (recovered, accepted) =
+        crate::stage5c_paper_host::stage5f_test_seams::sequence_inputs_from_owned_strategy(
+            strategy,
+            "hybrid_imoexf".to_string(),
+            broker_core::BrokerAccountId::new("ACC_TEST_0001"),
+            instrument,
+            0.5,
+            rust_decimal::Decimal::ZERO,
+            lifecycle_now,
+            bar_close_ts - 600,
+            bar,
+        );
+    let semantic = crate::stage5c_paper_host::stage5g_test_apply_stage5c_semantic_bar_at(
+        recovered,
+        accepted,
+        Utc.timestamp_opt(bar_close_ts + 1, 0).single().unwrap(),
+    )
+    .expect("Stage 8B-P1 test source crosses the accepted semantic facade");
+    let settled = crate::settle_stage5c_semantic_result(semantic)
+        .expect("Stage 8B-P1 test source crosses the accepted settlement facade");
+    assert_eq!(settled.intent_batch().intent_count(), 0);
+    let ready = attach_stage5g_initial_zero_intent_timer_ready(settled, bar_close_ts * 1_000)
+        .expect("Stage 8B-P1 test source is initial TimerReady");
+    let fresh_runtime = ready
+        .stage5g_runtime_strategy()
+        .stage5g_clean_reconstruction_candidate();
+    let source = crate::Stage5gCleanRestartSource::TimerReady(ready);
+    let (riskgate, riskgate_evidence) =
+        crate::stage5g_clean_restart::stage5g_test_persistence_authority_from_source(
+            &source,
+            persisted_at,
+        );
+    let input = crate::Stage5gCleanRestartExportInput {
+        snapshot_id: "stage8b-p1-source-produced-first-boot".to_string(),
+        snapshot_revision: 1,
+        previous_revision: None,
+        write_generation: 1,
+        persisted_at_ts_utc: persisted_at,
+        source_commit_or_build_id:
+            crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
+        lifecycle_watermarks: crate::Stage5dLifecycleWatermarks {
+            persisted_event_watermark: Some("stage8b-p1-initial-m10".to_string()),
+            last_semantic_bar_ts: Some(Utc.timestamp_opt(bar_close_ts, 0).single().unwrap()),
+            last_broker_event_ts: None,
+        },
+        riskgate,
+        riskgate_evidence,
+    };
+    let key = crate::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x81; 32])
+        .expect("Stage 8B-P1 test commitment key");
+    let ready = match source {
+        crate::Stage5gCleanRestartSource::TimerReady(ready) => ready,
+        _ => unreachable!("Stage 8B-P1 helper only builds TimerReady"),
+    };
+    (ready, input, key, fresh_runtime)
+}
+
 pub fn attach_stage5g_market_terminal_timer_session(
     converged: Stage5gMarketTerminalConvergedPaperStrategy,
 ) -> Stage5gTimerSession {
@@ -1454,6 +1738,18 @@ impl Stage5gTimerReadyPaperStrategy {
     pub fn summary(&self) -> &Stage5gOrderPositionSummary {
         &self.summary
     }
+    pub fn strategy_id(&self) -> &str {
+        self.settlement.settled().intent_batch().strategy_id()
+    }
+    pub fn account_id(&self) -> &broker_core::BrokerAccountId {
+        self.settlement.settled().intent_batch().account_id()
+    }
+    pub fn instrument(&self) -> &broker_core::InstrumentId {
+        self.settlement.settled().intent_batch().instrument()
+    }
+    pub fn runtime_config_fingerprint_sha256(&self) -> String {
+        self.stage5g_runtime_strategy().stage5c_config_fingerprint()
+    }
     pub fn intent_sink_attached(&self) -> bool {
         false
     }
@@ -1692,6 +1988,19 @@ pub fn validate_stage5g_timer_checkpoint(
     }
     if payload.payload_fingerprint() != envelope.payload_sha256 {
         return Err(Stage5gTimerCheckpointError::FingerprintMismatch);
+    }
+    if payload.evidence_replay_ledger.is_empty()
+        && payload.package_discriminator.is_none()
+        && payload.current_evidence_identity.is_none()
+        && payload.last_broker_truth_received_at.is_none()
+        && payload.last_broker_truth_received_ms.is_none()
+        && payload.duplicate_evidence_count == 0
+        && payload.last_total_sequence.is_none()
+        && payload
+            .last_continuation_checkpoint_ts_utc_ms
+            .is_some_and(|checkpoint| checkpoint > 0)
+    {
+        return Ok(());
     }
     if payload.evidence_replay_ledger.is_empty() {
         return Err(Stage5gTimerCheckpointError::MissingReplayLedger);
@@ -2033,6 +2342,63 @@ mod tests {
 
     fn evidence_fingerprint(evidence: &Stage5gOrderPositionEvidence) -> String {
         canonical_evidence(evidence).fingerprint().to_string()
+    }
+
+    #[test]
+    fn initial_pre_broker_truth_checkpoint_has_one_exact_valid_shape() {
+        let payload = Stage5gTimerCheckpointPayload {
+            schema_version: STAGE5G_TIMER_CHECKPOINT_SCHEMA_VERSION,
+            package_discriminator: None,
+            current_evidence_identity: None,
+            evidence_replay_ledger: Vec::new(),
+            last_broker_truth_received_at: None,
+            last_broker_truth_received_ms: None,
+            duplicate_evidence_count: 0,
+            last_total_sequence: None,
+            last_continuation_checkpoint_ts_utc_ms: Some(1_800_000_000_000),
+        };
+        let envelope = Stage5gTimerCheckpointEnvelope {
+            payload_sha256: payload.payload_fingerprint(),
+            payload,
+        };
+        assert_eq!(validate_stage5g_timer_checkpoint(&envelope), Ok(()));
+
+        let mut impossible_duplicate = envelope.clone();
+        impossible_duplicate.payload.duplicate_evidence_count = 1;
+        impossible_duplicate.payload_sha256 = impossible_duplicate.payload.payload_fingerprint();
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&impossible_duplicate),
+            Err(Stage5gTimerCheckpointError::MissingReplayLedger)
+        );
+
+        let mut missing_checkpoint = envelope;
+        missing_checkpoint
+            .payload
+            .last_continuation_checkpoint_ts_utc_ms = None;
+        missing_checkpoint.payload_sha256 = missing_checkpoint.payload.payload_fingerprint();
+        assert_eq!(
+            validate_stage5g_timer_checkpoint(&missing_checkpoint),
+            Err(Stage5gTimerCheckpointError::MissingReplayLedger)
+        );
+    }
+
+    #[test]
+    fn initial_zero_intent_timer_ready_roundtrips_authenticated_restart() {
+        let (ready, input, key, fresh_runtime) = stage8b_p1_test_first_boot_material();
+        let bytes = crate::export_stage5g_clean_restart(
+            crate::Stage5gCleanRestartSource::TimerReady(ready),
+            input,
+            &key,
+        )
+        .expect("initial TimerReady source exports through the authenticated boundary");
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &key, fresh_runtime)
+            .expect("initial TimerReady source restores through the authenticated boundary");
+        assert_eq!(
+            restored.lifecycle_kind(),
+            crate::Stage5gCleanRestartLifecycleKind::TimerReady
+        );
+        assert_eq!(restored.summary().request_count, 0);
+        assert_eq!(restored.summary().stage5c_callback_count, 1);
     }
 
     fn target() -> InstrumentId {

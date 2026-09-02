@@ -114,11 +114,39 @@
 //! let authority: Stage7bStage8a4TerminalAuthority = unreachable!();
 //! let _ = serde_json::to_vec(&authority).unwrap();
 //! ```
+//!
+//! Stage 8B-P1 validated bootstrap config and its first-boot command are also
+//! opaque linear authorities. They cannot be cloned, serialized or constructed
+//! from public fields:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1ValidatedBootstrapConfig;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1ValidatedBootstrapConfig>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1ValidatedBootstrapConfig;
+//! let config: Stage8bP1ValidatedBootstrapConfig = unreachable!();
+//! let _ = serde_json::to_vec(&config).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1FirstBootAdminCommand;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1FirstBootAdminCommand>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1FirstBootAdminCommand;
+//! let _forged = Stage8bP1FirstBootAdminCommand {};
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
 
 mod recovery;
+mod stage8b_p1_bootstrap;
 
 pub use recovery::{
     spawn_stage7b_supervised_task, Stage7bCompositeHealthSnapshot,
@@ -142,6 +170,19 @@ pub use recovery::{
 #[doc(hidden)]
 pub use recovery::{
     stage8a4_i3_test_fail_before_covering_seal, stage8a4_i3_test_set_owner_journal_failpoint,
+};
+pub use stage8b_p1_bootstrap::{
+    authorize_stage8b_p1_first_boot, first_boot_stage8b_p1,
+    load_stage8b_p1_commitment_key_from_systemd_credential, restart_stage8b_p1,
+    stage8b_p1_imoexf_instrument_map_fingerprint_sha256, stage8b_p1_redis_namespace,
+    validate_stage8b_p1_bootstrap_config, Stage8bP1BootstrapConfig, Stage8bP1BootstrapError,
+    Stage8bP1BootstrapReceipt, Stage8bP1FirstBootAdminCommand, Stage8bP1FirstBootOutcome,
+    Stage8bP1RedisNamespace, Stage8bP1ValidatedBootstrapConfig,
+    STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION, STAGE8B_P1_BROKER_ID,
+    STAGE8B_P1_COMMITMENT_CREDENTIAL_FILE, STAGE8B_P1_EXCHANGE, STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+    STAGE8B_P1_INTERNAL_SYMBOL, STAGE8B_P1_M10_CONSUMER_GROUP, STAGE8B_P1_MARKET,
+    STAGE8B_P1_REDIS_HASH_TAG, STAGE8B_P1_STAGE7B_CONSUMER_GROUP, STAGE8B_P1_STRATEGY_ID,
+    STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
 };
 
 use std::{

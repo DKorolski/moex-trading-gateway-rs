@@ -35,8 +35,9 @@ use crate::{
     Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
 };
 use broker_core::{
-    BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId,
-    BrokerTradeSnapshot, ClientOrderId, HybridRuntimeAttribution, InstrumentId, StrategyRequestId,
+    BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot,
+    BrokerTradeId, BrokerTradeSnapshot, ClientOrderId, HybridRuntimeAttribution, InstrumentId,
+    StrategyRequestId,
 };
 use chrono::{DateTime, Utc};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
@@ -1092,6 +1093,20 @@ impl Stage6Stage8a4BatchAppendReceipt {
 }
 
 impl Stage6dDurableRuntimeRecovered {
+    /// Read-only identity recovered from the authenticated Stage 5G package.
+    /// First-boot runtimes that did not cross that package boundary have no
+    /// such binding.
+    pub fn authenticated_stage5_binding(
+        &self,
+    ) -> Option<(&str, &BrokerAccountId, &InstrumentId, &str)> {
+        match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                Some(restart.stage6d_restart_binding())
+            }
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+        }
+    }
+
     /// Selects the sole current request that is eligible for read-only
     /// reconciliation preflight after one durable dispatch attempt.  The
     /// selection is derived exclusively from the authenticated journal/replay

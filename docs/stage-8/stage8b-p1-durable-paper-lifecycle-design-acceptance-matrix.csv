@@ -1,25 +1,32 @@
 id,area,requirement,required_evidence,status
-P1D-001,authority,Stage7bRedisService remains the sole durable command lifecycle authority,dependency and ownership graph,PENDING_REVIEW
-P1D-002,authority,No second writable journal or mutable recovered runtime exists,compile-fail and source scanner plan,PENDING_REVIEW
-P1D-003,bar-continuation,Canonical M10 advances the accepted Hybrid semantic facade under one composition owner,API design and type-state test plan,PENDING_REVIEW
-P1D-004,bar-continuation,A separate independently mutable Hybrid strategy process is forbidden,negative architecture test plan,PENDING_REVIEW
-P1D-005,bootstrap,First boot requires source-produced authenticated Stage5G bytes,positive and forged-seed tests,PENDING_REVIEW
-P1D-006,bootstrap,P0 runtime-state JSON and test fixtures cannot become first-boot authority,negative tests and forbidden scanner,PENDING_REVIEW
-P1D-007,bootstrap,Restart cannot create a missing journal or seed,restart-only default and negative tests,PENDING_REVIEW
-P1D-008,identity,Durable root is derived from exact operational identity,identity mismatch and symlink tests,PENDING_REVIEW
-P1D-009,key-custody,Paper commitment key is separate from Generation-2 material,dependency and deployment evidence,PENDING_REVIEW
-P1D-010,key-custody,Commitment key is absent from argv config Redis logs Git and handoff,scanner and process inspection,PENDING_REVIEW
-P1D-011,commands,Semantic output uses canonical Stage7A BrokerCommand envelopes,fixture-backed round trip,PENDING_REVIEW
-P1D-012,identity,StrategyRequestId ClientOrderId and BrokerOrderId remain distinct,compile and lifecycle tests,PENDING_REVIEW
-P1D-013,provider,Provider runs only after durable dispatch-attempt evidence,crash matrix witness,PENDING_REVIEW
-P1D-014,provider,Paper IDs derive deterministically from durable request identity,restart reproducibility test,PENDING_REVIEW
-P1D-015,provider,Uncertain paper effect remains pending without retry or success ACK,crash and recovery test,PENDING_REVIEW
-P1D-016,projection,Order trade and position evidence derives from the same durable provider outcome,causal binding tests,PENDING_REVIEW
-P1D-017,projection,Legacy P0 ledger cannot independently settle a P1 command,negative double-settlement test,PENDING_REVIEW
-P1D-018,feedback,Pending runtime state clears only on exact matching canonical ACK,exact and mismatched ACK tests,PENDING_REVIEW
-P1D-019,replay,Duplicate and conflicting duplicate preserve accepted Stage7B behavior,real Redis restart tests,PENDING_REVIEW
-P1D-020,redis,All command ACK DLQ and settlement keys share the accepted paper hash slot,config validation and Redis test,PENDING_REVIEW
-P1D-021,readiness,PaperReady requires live task valid storage current seal fresh poll and claim healthy settlement and zero unresolved state,supervised service test,PENDING_REVIEW
-P1D-022,readiness,Service can never publish LiveReady or real-order authorization,negative tests and scanner,PENDING_REVIEW
-P1D-023,deployment,Operational Redis DB0 activation requires independent P1 acceptance,runbook and systemd gate,PENDING_REVIEW
-P1D-024,safety,FINAM POST DELETE broker dispatch runtime-live real orders and Generation-2 activation remain closed,dependency scanner and redacted evidence,PENDING_REVIEW
+P1D-001,authority,Stage7bRedisService remains the sole durable command lifecycle authority,dependency and ownership graph,DESIGN_ACCEPTED
+P1D-002,authority,No second writable journal or mutable recovered runtime exists,compile-fail and source scanner plan,DESIGN_ACCEPTED
+P1D-003,bar-continuation,Canonical M10 advances the accepted Hybrid semantic facade under one composition owner,API design and type-state test plan,ADDENDUM_REVIEW_PENDING
+P1D-004,bar-continuation,A separate independently mutable Hybrid strategy process is forbidden,negative architecture test plan,DESIGN_ACCEPTED
+P1D-005,bootstrap,First boot requires source-produced authenticated Stage5G bytes,positive and forged-seed tests,P1A_IMPLEMENTED_REVIEW_PENDING
+P1D-006,bootstrap,P0 runtime-state JSON and test fixtures cannot become first-boot authority,negative tests and forbidden scanner,P1A_IMPLEMENTED_REVIEW_PENDING
+P1D-007,bootstrap,Restart cannot create a missing journal or seed,restart-only default and negative tests,P1A_IMPLEMENTED_REVIEW_PENDING
+P1D-008,identity,Durable root is derived from exact operational identity,identity mismatch and symlink tests,P1A_IMPLEMENTED_REVIEW_PENDING
+P1D-009,key-custody,Paper commitment key is separate from Generation-2 material,dependency and deployment evidence,P1A_IMPLEMENTED_REVIEW_PENDING
+P1D-010,key-custody,Commitment key is absent from argv config Redis logs Git and handoff,scanner and process inspection,P1A_IMPLEMENTED_REVIEW_PENDING
+P1D-011,commands,Semantic output uses canonical Stage7A BrokerCommand envelopes,fixture-backed round trip,ADDENDUM_REVIEW_PENDING
+P1D-012,identity,StrategyRequestId ClientOrderId and BrokerOrderId remain distinct,compile and lifecycle tests,ADDENDUM_REVIEW_PENDING
+P1D-013,provider,Provider runs only after durable dispatch-attempt evidence,crash matrix witness,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
+P1D-014,provider,Paper IDs derive deterministically from durable request identity,restart reproducibility test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
+P1D-015,provider,Uncertain paper effect remains pending without retry or success ACK,crash and recovery test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
+P1D-016,projection,Order trade and position evidence derives from the same durable provider outcome,causal binding tests,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
+P1D-017,projection,Legacy P0 ledger cannot independently settle a P1 command,negative double-settlement test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
+P1D-018,feedback,Pending runtime state clears only on exact matching canonical ACK,exact and mismatched ACK tests,ADDENDUM_REVIEW_PENDING
+P1D-019,replay,Duplicate and conflicting duplicate preserve accepted Stage7B behavior,real Redis restart tests,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
+P1D-020,redis,All command ACK DLQ and settlement keys share the accepted paper hash slot,config validation and Redis test,P1A_NAMESPACE_IMPLEMENTED_REVIEW_PENDING
+P1D-021,readiness,PaperReady requires live task valid storage current seal fresh poll and claim healthy settlement and zero unresolved state,supervised service test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
+P1D-022,readiness,Service can never publish LiveReady or real-order authorization,negative tests and scanner,P1A_PARTIAL_IMPLEMENTATION_REVIEW_PENDING
+P1D-023,deployment,Operational Redis DB0 activation requires independent P1 acceptance,runbook and systemd gate,P1A_EXPLICITLY_CLOSED
+P1D-024,safety,FINAM POST DELETE broker dispatch runtime-live real orders and Generation-2 activation remain closed,dependency scanner and redacted evidence,P1A_VERIFIED_CLOSED_REVIEW_PENDING
+P1D-025,m10-identity,One separately persisted canonical M10 entry is one semantic transaction,semantic commit addendum and deterministic identity tests,ADDENDUM_REVIEW_PENDING
+P1D-026,m10-ordering,The P1 M10 group exists before any P1 M10 publication,provisioning state-machine tests,ADDENDUM_REVIEW_PENDING
+P1D-027,commit,Zero-intent M10 is XACKed only after authenticated Stage5G checkpoint fsync,crash matrix tests,ADDENDUM_REVIEW_PENDING
+P1D-028,commit,Intent M10 is XACKed only after Stage6 and Stage7 cross-binding ACK feedback and Stage5G checkpoint fsync,crash matrix tests,ADDENDUM_REVIEW_PENDING
+P1D-029,replay,Same M10 ID and payload is idempotent while a conflicting payload is quarantined,duplicate and collision tests,ADDENDUM_REVIEW_PENDING
+P1D-030,fill-policy,Next-bar market limit cancel partial fill fee and slippage policy is frozen before provider implementation,separate P1-d policy review,DEFERRED_BEFORE_P1D
+P1D-031,separation,Existing P0 DB0 projection may remain active but cannot own or settle the P1 namespace,namespace and negative double-settlement tests,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD

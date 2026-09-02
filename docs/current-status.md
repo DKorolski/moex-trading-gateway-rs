@@ -1299,6 +1299,12 @@ Green / mostly closed:
   DLQ entries, preserved operational DB 0 and cleaned DB 15. No FINAM request,
   full-trade token, broker dispatch, real order or Generation-2 private
   material was used.
+- The same P0 boundary subsequently passed live read-only FINAM activation:
+  every WebSocket generation revalidates `readonly=true` and market-data
+  permission, final IMOEXF M1 bars form only complete M10 buckets, and the
+  immutable review snapshot records 51 market-data rows and two committed
+  runtime batches with PEL/lag both zero. This proves transport and projection,
+  not ALOR strategy parity or a durable paper order lifecycle.
 
 Amber:
 
@@ -1312,15 +1318,17 @@ Amber:
   real ALOR hybrid BO/MR orchestrator.
 - Riskgate state can be seeded/projected, but true riskgate ledger integration
   is not complete.
-- Stage 8B P0 on the isolated VPS is operational only for transport/runtime
-  projection. Its WebSocket service remains disabled until a separate FINAM
-  token with `readonly=true` is supplied. The current local full-trade token is
-  rejected by the paper preflight and has not been copied to the VPS.
-- Stage 8B-P1 durable paper lifecycle composition is a design-review candidate.
-  The accepted Stage 7B service is a library authority, not yet a deployable
-  full strategy host. P1 must solve source-produced Stage 5G bootstrap,
-  commitment-key custody, single-owner semantic bar continuation and one
-  durable paper outcome/projection authority before operational activation.
+- Stage 8B P0 on the isolated VPS is active only for read-only FINAM
+  transport/runtime projection. A separate `readonly=true` token is installed;
+  it has no order capability and is revalidated on every WebSocket generation.
+- Stage 8B-P1 durable paper lifecycle architecture is accepted with staged
+  authorization. P1-a bootstrap/identity is an implementation review
+  candidate: it provides source-produced zero-intent Stage 5G bootstrap,
+  separate commitment-key custody, exact identity/root binding and
+  restart-only normal mode while keeping Redis and FINAM detached. P1-b/P1-c
+  remain on hold pending acceptance of the separate canonical-M10
+  semantic-commit addendum; provider, projection and operational activation
+  remain later work.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

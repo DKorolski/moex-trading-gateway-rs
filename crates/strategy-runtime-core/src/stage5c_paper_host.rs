@@ -12677,6 +12677,20 @@ mod bootstrap_notification_tests {
         assert!(!settled.intent_sink_attached());
         assert!(!settled.broker_transport_attached());
         let _ = Strategy::state(settled.strategy());
+        let checkpoint_ts_utc_ms = settled.intent_batch().bar_close_ts() * 1_000;
+        let ready =
+            crate::attach_stage5g_initial_zero_intent_timer_ready(settled, checkpoint_ts_utc_ms)
+                .expect(
+                    "source-produced zero-intent settlement enters initial Stage 5G TimerReady",
+                );
+        assert_eq!(ready.strategy_id(), "hybrid_imoexf");
+        assert_eq!(ready.account_id().as_str(), "ACC_TEST_0001");
+        assert_eq!(ready.instrument(), &target());
+        assert_eq!(ready.checkpoint_ts_utc_ms(), checkpoint_ts_utc_ms);
+        assert_eq!(ready.summary().stage5c_callback_count, 1);
+        assert_eq!(ready.summary().request_count, 0);
+        crate::validate_stage5g_timer_checkpoint(&ready.checkpoint())
+            .expect("exact initial pre-broker-truth checkpoint is valid");
     }
 
     #[test]
