@@ -33,7 +33,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "25319ef3540d999650e702a7642d814903fda039ba1893357e81ca12826a3227",
+    "aggregate_sha256": "2b59d59d4bc36d107522d76c8d6098bc04e0b11b21f657386a15b8f417d6dcaa",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -47,13 +47,13 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "cd6e4a31442c96a2f5fcd8aaa78b9f9fd419598d2f67f99b0604b5fb3f299d76",
-        "size": 97308
+        "sha256": "e1c61f2d5129d4114093522dd10ba51d9b2de382a35a1764c76b7014efba7628",
+        "size": 98385
       },
       "docs/roadmap.md": {
         "mode": "100644",
-        "sha256": "ae39cce37f61de3e1660d15e374e18ce97ea23436a9512e721c9e0e6df143987",
-        "size": 14371
+        "sha256": "e764b4c32fa4202c962ac18018bbddd95e7595916b55b02f7be2b77f1129553c",
+        "size": 15466
       },
       "docs/stage-5/stage5f-authority-rotation.json": {
         "mode": "100644",
@@ -140,8 +140,8 @@
   },
   "negative_cases": 33,
   "production_code_manifest": {
-    "aggregate_sha256": "0f40ee620c52329b51ffc374caf49fd14c6663b03c61f183207f01943dfcff2e",
-    "content_sha256": "f237bfb89e80eee0bd63fec06d81aba6c6a1a0eb555a01bd7149571f01e6cdbf",
+    "aggregate_sha256": "f2fc176ce756ce1d7024fd8a7ea73592b50fb614464bf65c116244d448de3ba5",
+    "content_sha256": "361a8d18eeb001dec04b8847079d2d3c89fbf2ba7557e1eeb0221c9a2f0d722e",
     "entries": {
       "Cargo.lock": {
         "mode": "100644",
@@ -545,8 +545,8 @@
       },
       "crates/runtime-durable-service/src/recovery.rs": {
         "mode": "100644",
-        "sha256": "bc40521fca7897ac0c3f7c98908fe942b76bc3981e1606dd60ff1f0199eacddb",
-        "size": 272722
+        "sha256": "8e36a964ccadf4942c32558302e828b1648a1a12b6c5636485ebb0b9abf08318",
+        "size": 273819
       },
       "crates/runtime-durable-service/src/recovery/redis_service.rs": {
         "mode": "100644",
@@ -570,8 +570,8 @@
       },
       "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs": {
         "mode": "100644",
-        "sha256": "895a30fee3934c5ddd5dc451106e84e5a97148df7b1df6653ef051c598380558",
-        "size": 90324
+        "sha256": "eef2d60a3f10cfe9d5f6d6d6468b781362261bcf864e5a9cdaf83e4d8adf5501",
+        "size": 91677
       },
       "crates/runtime-durable-service/tests/stage7b_redis_service_subprocess.rs": {
         "mode": "100644",
@@ -640,8 +640,8 @@
       },
       "crates/strategy-runtime-core/src/lib.rs": {
         "mode": "100644",
-        "sha256": "05a80168645f3faf91f5c5c58a173a55d2e57e4e9c261f50482aa49066318705",
-        "size": 34143
+        "sha256": "2dc2d1dfc59f96dec70202544619cb700c586857889d74b2024e96e49a90c82b",
+        "size": 34721
       },
       "crates/strategy-runtime-core/src/runtime_compat.rs": {
         "mode": "100644",
@@ -660,8 +660,8 @@
       },
       "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs": {
         "mode": "100644",
-        "sha256": "87e9f9145a7ead7513c6297da9e5cd45cb5c67ce272a43988b7b1a1729b9d21b",
-        "size": 321918
+        "sha256": "6fea3938c8eb692d4ac5495e3e74c6027de0738e7b58a03227932dbe70cfd7a3",
+        "size": 330636
       },
       "crates/strategy-runtime-core/src/stage5f_atomic_hybrid_semantics.rs": {
         "mode": "100644",
@@ -740,8 +740,13 @@
       },
       "crates/strategy-runtime-core/src/stage6d_live_core.rs": {
         "mode": "100644",
-        "sha256": "de556df3a8230f7e7a6b652ab0c95fe41baab39927c7259b1fd2b810042101d2",
-        "size": 313448
+        "sha256": "98c8515e9fa4b7443578cfec854c938d030165178d0f545f7f40bdaebad8101e",
+        "size": 326926
+      },
+      "crates/strategy-runtime-core/src/stage8b_p1d1_paper_provider.rs": {
+        "mode": "100644",
+        "sha256": "d847af36cd717271697f55eaf9674f99bb0b6cc9b384b77c24b3f675aabe2856",
+        "size": 47123
       },
       "crates/strategy-runtime-core/tests/high180_profile_binding.rs": {
         "mode": "100644",
@@ -764,7 +769,7 @@
         "size": 6212
       }
     },
-    "file_count": 124
+    "file_count": 125
   },
   "requirements": {
     "accepted_stage8a5_immutable_replay_required": true,
