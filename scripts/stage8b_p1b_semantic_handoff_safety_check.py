@@ -90,8 +90,12 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("predecessor mismatch")
 
         positive = evidence.get("positive_evidence", {})
-        if positive.get("subprocess_kill_frontiers") != "7/7 PASS":
+        if evidence.get("review_revision") != "R1":
+            raise ValueError("review revision mismatch")
+        if positive.get("subprocess_kill_frontiers") != "8/8 PASS":
             raise ValueError("crash-frontier evidence mismatch")
+        if positive.get("zero_intent_ack_only_recovery") != "PASS":
+            raise ValueError("zero-intent ACK-only evidence mismatch")
         verification = evidence.get("verification", {})
         for key in (
             "workspace_default_all_targets",

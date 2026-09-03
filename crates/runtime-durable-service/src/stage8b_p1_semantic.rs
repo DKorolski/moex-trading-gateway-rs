@@ -17,11 +17,12 @@ use sha2::{Digest, Sha256};
 use strategy_runtime_core::{
     accept_stage5c_semantic_bar, Stage5cAcceptedSemanticBar, Stage5cSemanticBarInput,
     Stage5gLifecycleCommitmentKey, Stage5gP1SemanticBindingInput,
+    Stage6Stage8bP1SemanticCommitEvidenceV1,
 };
 
 use crate::recovery::{
-    P1SemanticPrepublicationPending, Stage7bRecoveryError, Stage7bRecoveryReadyOwner,
-    Stage8bP1MultiIntentBlocked, Stage8bP1SemanticCommitOutcome,
+    P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending, Stage7bRecoveryError,
+    Stage7bRecoveryReadyOwner, Stage8bP1MultiIntentBlocked, Stage8bP1SemanticCommitOutcome,
     Stage8bP1SemanticPrepublicationOwner, Stage8bP1ZeroIntentCommitReceipt,
 };
 
@@ -392,6 +393,7 @@ pub struct Stage8bP1LocalM10Stream {
     available: VecDeque<String>,
     pending: BTreeSet<String>,
     acknowledged: BTreeSet<String>,
+    collisions: BTreeSet<String>,
 }
 
 /// Opaque, linear delivery. It intentionally implements no Clone, serde or
@@ -436,6 +438,7 @@ impl Stage8bP1LocalM10Stream {
             available: VecDeque::new(),
             pending: BTreeSet::new(),
             acknowledged: BTreeSet::new(),
+            collisions: BTreeSet::new(),
         })
     }
 
@@ -455,14 +458,14 @@ impl Stage8bP1LocalM10Stream {
             return Err(Stage8bP1LocalM10Error::GroupMissing);
         }
         if let Some(existing) = self.entries.get(m10.redis_id()) {
-            return if existing.canonical_bytes == m10.canonical_bytes
+            if existing.canonical_bytes == m10.canonical_bytes
                 && existing.semantic_id_sha256 == m10.semantic_id_sha256()
                 && existing.payload_sha256 == m10.payload_sha256()
             {
-                Ok(Stage8bP1M10PublishDisposition::IdempotentExisting)
-            } else {
-                Err(Stage8bP1LocalM10Error::TerminalCollision)
-            };
+                return Ok(Stage8bP1M10PublishDisposition::IdempotentExisting);
+            }
+            self.collisions.insert(m10.redis_id().to_string());
+            return Err(Stage8bP1LocalM10Error::TerminalCollision);
         }
         // A retained active entry is never trimmed. If all space is active,
         // publication fails closed instead of silently losing recovery input.
@@ -501,6 +504,9 @@ impl Stage8bP1LocalM10Stream {
             .entries
             .get(&redis_id)
             .ok_or(Stage8bP1LocalM10Error::ExactPendingEntryMissing)?;
+        if self.collisions.contains(&redis_id) {
+            return Err(Stage8bP1LocalM10Error::TerminalCollision);
+        }
         self.pending.insert(redis_id.clone());
         Ok(Stage8bP1PendingM10Delivery {
             redis_id,
@@ -516,6 +522,9 @@ impl Stage8bP1LocalM10Stream {
         semantic_id_sha256: &str,
         payload_sha256: &str,
     ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1LocalM10Error> {
+        if self.collisions.contains(redis_id) {
+            return Err(Stage8bP1LocalM10Error::TerminalCollision);
+        }
         if !self.pending.contains(redis_id) || self.acknowledged.contains(redis_id) {
             return Err(Stage8bP1LocalM10Error::ExactPendingEntryMissing);
         }
@@ -543,15 +552,55 @@ impl Stage8bP1LocalM10Stream {
             .entries
             .get(&delivery.redis_id)
             .ok_or(Stage8bP1LocalM10Error::ExactPendingEntryMissing)?;
-        if !self.pending.remove(&delivery.redis_id)
+        if self.collisions.contains(&delivery.redis_id)
+            || !self.pending.contains(&delivery.redis_id)
+            || self.acknowledged.contains(&delivery.redis_id)
             || entry.semantic_id_sha256 != delivery.semantic_id_sha256
             || entry.payload_sha256 != delivery.payload_sha256
             || entry.canonical_bytes != delivery.canonical_bytes
         {
             return Err(Stage8bP1LocalM10Error::DeliveryAuthorityMismatch);
         }
+        self.pending.remove(&delivery.redis_id);
         self.acknowledged.insert(delivery.redis_id);
         Ok(())
+    }
+
+    fn inspect_zero_intent_ack_source(
+        &self,
+        evidence: &Stage6Stage8bP1SemanticCommitEvidenceV1,
+    ) -> Result<(Stage8bP1PendingM10Delivery, Stage8bP1ZeroIntentSourceState), Stage8bP1LocalM10Error>
+    {
+        let redis_id = &evidence.m10_redis_id;
+        if self.collisions.contains(redis_id) {
+            return Err(Stage8bP1LocalM10Error::TerminalCollision);
+        }
+        let entry = self
+            .entries
+            .get(redis_id)
+            .ok_or(Stage8bP1LocalM10Error::ExactPendingEntryMissing)?;
+        if entry.semantic_id_sha256 != evidence.m10_semantic_id_sha256
+            || entry.payload_sha256 != evidence.m10_payload_sha256
+        {
+            return Err(Stage8bP1LocalM10Error::DeliveryAuthorityMismatch);
+        }
+        let state = match (
+            self.pending.contains(redis_id),
+            self.acknowledged.contains(redis_id),
+        ) {
+            (true, false) => Stage8bP1ZeroIntentSourceState::ExactPending,
+            (false, true) => Stage8bP1ZeroIntentSourceState::ExactAlreadyAcknowledged,
+            _ => return Err(Stage8bP1LocalM10Error::ExactPendingEntryMissing),
+        };
+        Ok((
+            Stage8bP1PendingM10Delivery {
+                redis_id: redis_id.clone(),
+                semantic_id_sha256: entry.semantic_id_sha256.clone(),
+                payload_sha256: entry.payload_sha256.clone(),
+                canonical_bytes: entry.canonical_bytes.clone(),
+            },
+            state,
+        ))
     }
 
     pub fn pending_count(&self) -> usize {
@@ -560,6 +609,60 @@ impl Stage8bP1LocalM10Stream {
 
     pub fn acknowledged_count(&self) -> usize {
         self.acknowledged.len()
+    }
+}
+
+enum Stage8bP1ZeroIntentSourceState {
+    ExactPending,
+    ExactAlreadyAcknowledged,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1ZeroIntentAckDisposition {
+    AcknowledgedPending,
+    AlreadyAcknowledged,
+}
+
+/// Exact-source resolution result for a recovered zero-intent S1.  The
+/// contained composition owner is the only continuation authority; the
+/// disposition and copied evidence are diagnostics only.
+pub struct Stage8bP1ZeroIntentAckResolved {
+    owner: Box<Stage8bP1SemanticCompositionOwner>,
+    disposition: Stage8bP1ZeroIntentAckDisposition,
+    evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    covering_seal_generation: u64,
+    covering_seal_commitment_sha256: String,
+    stage6_checkpoint_sha256: String,
+    stage5c_callback_count: usize,
+}
+
+impl Stage8bP1ZeroIntentAckResolved {
+    pub fn disposition(&self) -> Stage8bP1ZeroIntentAckDisposition {
+        self.disposition
+    }
+
+    pub fn evidence(&self) -> &Stage6Stage8bP1SemanticCommitEvidenceV1 {
+        &self.evidence
+    }
+
+    pub fn recovery_seal_generation(&self) -> u64 {
+        self.covering_seal_generation
+    }
+
+    pub fn recovery_seal_commitment_sha256(&self) -> &str {
+        &self.covering_seal_commitment_sha256
+    }
+
+    pub fn stage6_checkpoint_sha256(&self) -> &str {
+        &self.stage6_checkpoint_sha256
+    }
+
+    pub fn stage5c_callback_count(&self) -> usize {
+        self.stage5c_callback_count
+    }
+
+    pub fn into_ready_owner(self) -> Box<Stage8bP1SemanticCompositionOwner> {
+        self.owner
     }
 }
 
@@ -624,6 +727,9 @@ impl Stage8bP1SemanticCompositionOwner {
             .commit_stage8b_p1_semantic(accepted_bar, binding, commitment_key)?
         {
             Stage8bP1SemanticCommitOutcome::ZeroIntent { owner, receipt } => {
+                crate::recovery::stage8b_p1_test_crash_barrier(
+                    "after-zero-intent-s1-reread-before-m10-xack",
+                );
                 self.m10_stream.acknowledge_after_durable_commit(delivery)?;
                 Ok(Stage8bP1LocalSemanticOutcome::Ready {
                     owner: Box::new(Self {
@@ -653,6 +759,60 @@ impl Stage8bP1SemanticCompositionOwner {
             }
         }
     }
+}
+
+/// Resolves only the exact canonical M10 source named by a recovered
+/// zero-intent S1.  It invokes no Hybrid callback and performs no journal or
+/// seal mutation.  Exact pending input is acknowledged once; exact
+/// already-acknowledged input is accepted idempotently.
+pub fn resolve_stage8b_p1_zero_intent_ack_with_local_m10(
+    pending: P1SemanticZeroIntentAckPending,
+    mut m10_stream: Stage8bP1LocalM10Stream,
+) -> Result<Stage8bP1ZeroIntentAckResolved, Stage8bP1SemanticCompositionError> {
+    let evidence = pending.evidence().clone();
+    if evidence.intent_count != 0
+        || evidence.strategy_request_id.is_some()
+        || evidence.canonical_command_sha256.is_some()
+        || evidence.request_accepted_record_id.is_some()
+        || evidence.request_accepted_source_evidence_sha256.is_some()
+    {
+        return Err(Stage7bRecoveryError::SealInvalid.into());
+    }
+
+    let (delivery, source_state) = m10_stream.inspect_zero_intent_ack_source(&evidence)?;
+    let validated = delivery.parse_exact(pending.operational_identity_sha256())?;
+    if validated.redis_id() != evidence.m10_redis_id
+        || validated.semantic_id_sha256() != evidence.m10_semantic_id_sha256
+        || validated.payload_sha256() != evidence.m10_payload_sha256
+    {
+        return Err(Stage8bP1LocalM10Error::DeliveryAuthorityMismatch.into());
+    }
+
+    let disposition = match source_state {
+        Stage8bP1ZeroIntentSourceState::ExactPending => {
+            m10_stream.acknowledge_after_durable_commit(delivery)?;
+            Stage8bP1ZeroIntentAckDisposition::AcknowledgedPending
+        }
+        Stage8bP1ZeroIntentSourceState::ExactAlreadyAcknowledged => {
+            Stage8bP1ZeroIntentAckDisposition::AlreadyAcknowledged
+        }
+    };
+
+    let covering_seal_generation = pending.recovery_seal_generation();
+    let covering_seal_commitment_sha256 = pending.recovery_seal_commitment_sha256().to_string();
+    let stage6_checkpoint_sha256 = pending.stage6_checkpoint_sha256().to_string();
+    let stage5c_callback_count = pending.stage5c_callback_count();
+    let stage7 = pending.into_ready_after_exact_source_resolution();
+
+    Ok(Stage8bP1ZeroIntentAckResolved {
+        owner: Box::new(Stage8bP1SemanticCompositionOwner { stage7, m10_stream }),
+        disposition,
+        evidence,
+        covering_seal_generation,
+        covering_seal_commitment_sha256,
+        stage6_checkpoint_sha256,
+        stage5c_callback_count,
+    })
 }
 
 impl Stage8bP1LocalPrepublicationPending {
@@ -879,6 +1039,52 @@ mod tests {
         stream
     }
 
+    fn zero_intent_restart_pending(
+        parent: &Path,
+    ) -> (
+        Box<P1SemanticZeroIntentAckPending>,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        Stage8bP1LocalM10Stream,
+    ) {
+        let (owner, key, fresh) = first_boot(parent);
+        let operational_identity_sha256 =
+            owner.stage8b_p1_operational_identity_sha256().to_string();
+        let mut stream = local_stream_with_one_m10(operational_identity_sha256.clone(), 2_600);
+        let delivery = stream.read_next_pending().unwrap();
+        let binding = binding_from_delivery(&delivery, operational_identity_sha256.clone());
+        let accepted_bar = delivery
+            .parse_exact(&operational_identity_sha256)
+            .unwrap()
+            .into_stage5c_semantic_bar()
+            .unwrap();
+        let Stage8bP1SemanticCommitOutcome::ZeroIntent { owner, receipt } = owner
+            .commit_stage8b_p1_semantic(accepted_bar, binding, &key)
+            .unwrap()
+        else {
+            panic!("test source must produce a zero-intent durable S1");
+        };
+        assert_eq!(receipt.evidence.intent_count, 0);
+        assert_eq!(stream.pending_count(), 1);
+        assert_eq!(stream.acknowledged_count(), 0);
+        drop(owner);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(pending) = restart else {
+            panic!("zero-intent durable S1 must await exact source ACK resolution");
+        };
+        (pending, key, fresh, stream)
+    }
+
     fn wait_for_crash_barrier(child: &mut Child, marker: &Path) {
         let deadline = Instant::now() + Duration::from_secs(20);
         while !marker.exists() && Instant::now() < deadline {
@@ -904,9 +1110,16 @@ mod tests {
         let Stage7bRestartOutcome::Ready(owner) = restart else {
             panic!("crash child must begin from exact S0 Ready state");
         };
+        let close = if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref()
+            == Ok("after-zero-intent-s1-reread-before-m10-xack")
+        {
+            2_600
+        } else {
+            2_650
+        };
         let stream = local_stream_with_one_m10(
             owner.stage8b_p1_operational_identity_sha256().to_string(),
-            2_650,
+            close,
         );
         let _ = Stage8bP1SemanticCompositionOwner::new(*owner, stream)
             .process_next(&key)
@@ -1051,6 +1264,15 @@ mod tests {
             ),
             Err(Stage8bP1LocalM10Error::DeliveryAuthorityMismatch)
         ));
+
+        let mut forged = delivery;
+        forged.payload_sha256 = "ff".repeat(32);
+        assert_eq!(
+            stream.acknowledge_after_durable_commit(forged).unwrap_err(),
+            Stage8bP1LocalM10Error::DeliveryAuthorityMismatch
+        );
+        assert_eq!(stream.pending_count(), 1);
+        assert_eq!(stream.acknowledged_count(), 0);
     }
 
     #[test]
@@ -1073,7 +1295,8 @@ mod tests {
         assert_eq!(owner.m10_stream.pending_count(), 0);
         assert_eq!(owner.m10_stream.acknowledged_count(), 1);
         assert!(owner.stage7.recovery_ready());
-        drop(owner);
+        let Stage8bP1SemanticCompositionOwner { stage7, m10_stream } = *owner;
+        drop(stage7);
 
         let restart = restart_stage8b_p1(
             validate_stage8b_p1_bootstrap_config(bootstrap_config(
@@ -1085,8 +1308,151 @@ mod tests {
             fresh,
         )
         .unwrap();
-        assert!(matches!(restart, Stage7bRestartOutcome::Ready(_)));
-        drop(restart);
+        let Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(pending) = restart else {
+            panic!("zero-intent S1 must require exact source ACK resolution after restart");
+        };
+        let callback_count = pending.stage5c_callback_count();
+        let resolved =
+            resolve_stage8b_p1_zero_intent_ack_with_local_m10(*pending, m10_stream).unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1ZeroIntentAckDisposition::AlreadyAcknowledged
+        );
+        assert_eq!(resolved.stage5c_callback_count(), callback_count);
+        let owner = resolved.into_ready_owner();
+        assert!(owner.stage7.recovery_ready());
+        assert_eq!(owner.m10_stream.pending_count(), 0);
+        assert_eq!(owner.m10_stream.acknowledged_count(), 1);
+        drop(owner);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn subprocess_kill_after_zero_intent_s1_recovers_exact_ack_only() {
+        let phase = "after-zero-intent-s1-reread-before-m10-xack";
+        let parent = temp_directory(phase);
+        let (owner, key, fresh) = first_boot(&parent);
+        let operational_identity_sha256 =
+            owner.stage8b_p1_operational_identity_sha256().to_string();
+        drop(owner);
+
+        let marker = parent.join(format!("{phase}.marker"));
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .arg("--ignored")
+            .arg("--exact")
+            .arg("stage8b_p1_semantic::tests::p1_semantic_crash_frontier_child")
+            .arg("--nocapture")
+            .env("STAGE8B_P1_TEST_PARENT", &parent)
+            .env("STAGE8B_P1_TEST_CRASH_PHASE", phase)
+            .env("STAGE8B_P1_TEST_CRASH_MARKER", &marker)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        wait_for_crash_barrier(&mut child, &marker);
+        child.kill().unwrap();
+        assert!(!child.wait().unwrap().success());
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(pending) = restart else {
+            panic!("SIGKILL frontier must recover zero-intent ACK-pending authority");
+        };
+        assert!(!pending.recovery_ready());
+        assert!(!pending.command_publication_allowed());
+        assert!(!pending.paper_provider_invocation_allowed());
+        assert!(!pending.hybrid_callback_allowed());
+        assert_eq!(pending.evidence().intent_count, 0);
+        let generation = pending.recovery_seal_generation();
+        let seal_sha256 = pending.recovery_seal_commitment_sha256().to_string();
+        let checkpoint_sha256 = pending.stage6_checkpoint_sha256().to_string();
+        let callback_count = pending.stage5c_callback_count();
+
+        // The local stream models the exact Redis PEL that survives the killed
+        // process; no semantic callback is used to reconstruct it.
+        let mut stream = local_stream_with_one_m10(operational_identity_sha256, 2_600);
+        let _ = stream.read_next_pending().unwrap();
+        let resolved = resolve_stage8b_p1_zero_intent_ack_with_local_m10(*pending, stream).unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1ZeroIntentAckDisposition::AcknowledgedPending
+        );
+        assert_eq!(resolved.evidence().intent_count, 0);
+        assert!(resolved.evidence().strategy_request_id.is_none());
+        assert!(resolved.evidence().canonical_command_sha256.is_none());
+        assert!(resolved.evidence().request_accepted_record_id.is_none());
+        assert_eq!(resolved.recovery_seal_generation(), generation);
+        assert_eq!(resolved.recovery_seal_commitment_sha256(), seal_sha256);
+        assert_eq!(resolved.stage6_checkpoint_sha256(), checkpoint_sha256);
+        assert_eq!(resolved.stage5c_callback_count(), callback_count);
+        let owner = resolved.into_ready_owner();
+        assert!(owner.stage7.recovery_ready());
+        assert_eq!(owner.m10_stream.pending_count(), 0);
+        assert_eq!(owner.m10_stream.acknowledged_count(), 1);
+        drop(owner);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn zero_intent_ack_recovery_rejects_changed_m10() {
+        let parent = temp_directory("zero-ack-changed");
+        let (pending, _key, _fresh, original_stream) = zero_intent_restart_pending(&parent);
+        let operational_identity_sha256 = pending.operational_identity_sha256().to_string();
+        drop(original_stream);
+        let mut changed_stream = local_stream_with_one_m10(operational_identity_sha256, 2_599);
+        let _ = changed_stream.read_next_pending().unwrap();
+        assert!(matches!(
+            resolve_stage8b_p1_zero_intent_ack_with_local_m10(*pending, changed_stream),
+            Err(Stage8bP1SemanticCompositionError::LocalM10(
+                Stage8bP1LocalM10Error::DeliveryAuthorityMismatch
+            ))
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn zero_intent_ack_recovery_rejects_missing_m10() {
+        let parent = temp_directory("zero-ack-missing");
+        let (pending, _key, _fresh, original_stream) = zero_intent_restart_pending(&parent);
+        drop(original_stream);
+        let mut missing_stream =
+            Stage8bP1LocalM10Stream::new(STAGE8B_P1_LOCAL_M10_MIN_RETENTION).unwrap();
+        missing_stream.create_canonical_group_mkstream();
+        assert!(matches!(
+            resolve_stage8b_p1_zero_intent_ack_with_local_m10(*pending, missing_stream),
+            Err(Stage8bP1SemanticCompositionError::LocalM10(
+                Stage8bP1LocalM10Error::ExactPendingEntryMissing
+            ))
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn zero_intent_ack_recovery_rejects_same_id_collision_stickily() {
+        let parent = temp_directory("zero-ack-collision");
+        let (pending, _key, _fresh, mut stream) = zero_intent_restart_pending(&parent);
+        let operational_identity_sha256 = pending.operational_identity_sha256().to_string();
+        let changed_bytes = semantic_m10_bytes(operational_identity_sha256.clone(), 2_599);
+        let changed =
+            parse_stage8b_p1_canonical_m10(&changed_bytes, &operational_identity_sha256).unwrap();
+        assert_eq!(
+            stream.publish_exact(changed).unwrap_err(),
+            Stage8bP1LocalM10Error::TerminalCollision
+        );
+        assert!(matches!(
+            resolve_stage8b_p1_zero_intent_ack_with_local_m10(*pending, stream),
+            Err(Stage8bP1SemanticCompositionError::LocalM10(
+                Stage8bP1LocalM10Error::TerminalCollision
+            ))
+        ));
         fs::remove_dir_all(parent).unwrap();
     }
 

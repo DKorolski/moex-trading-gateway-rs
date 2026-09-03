@@ -52,7 +52,9 @@ def main() -> int:
     for token in (
         "Stage8bP1SemanticCompositionOwner",
         "Stage8bP1PendingM10Delivery",
+        "Stage8bP1ZeroIntentAckDisposition",
         "acknowledge_after_durable_commit",
+        "resolve_stage8b_p1_zero_intent_ack_with_local_m10",
         "resume_stage8b_p1_journal_ahead_with_local_m10",
         "STAGE8B_P1_LOCAL_M10_MIN_RETENTION",
     ):
@@ -66,12 +68,35 @@ def main() -> int:
         'stage8b_p1_test_crash_barrier("after-s1-rename-before-directory-fsync")',
         'stage8b_p1_test_crash_barrier("after-s1-directory-fsync-before-reread")',
         'stage8b_p1_test_crash_barrier("after-s1-reread-before-command-xadd")',
+        '"after-zero-intent-s1-reread-before-m10-xack"',
         "records.len() != prefix_len.saturating_add(1)",
     ):
         require(
-            token in recovery or token in core or token in live_core,
+            token in semantic or token in recovery or token in core or token in live_core,
             f"missing crash/recovery invariant {token}",
         )
+
+    for token in (
+        "P1SemanticZeroIntentAckPending",
+        "stage8b_p1_zero_intent_ack_evidence",
+        "P1SemanticZeroIntentAckPending(Box<P1SemanticZeroIntentAckPending>)",
+    ):
+        require(
+            token in recovery or token in live_core,
+            f"missing zero-intent ACK recovery invariant {token}",
+        )
+
+    require(
+        "pub(crate) fn commit_stage8b_p1_semantic" in recovery,
+        "low-level semantic commit escaped the composition crate",
+    )
+    acknowledge = semantic.index("pub(crate) fn acknowledge_after_durable_commit")
+    pending_check = semantic.index("!self.pending.contains", acknowledge)
+    pending_remove = semantic.index("self.pending.remove", acknowledge)
+    require(
+        pending_check < pending_remove,
+        "local acknowledgement mutates pending state before exact validation",
+    )
 
     require("p1_multi_intent_boundary(&semantic_batch_id_sha256" in core, "multi-intent gate absent")
     require("request_ids.len() > 1" in core, "multi-intent threshold drift")

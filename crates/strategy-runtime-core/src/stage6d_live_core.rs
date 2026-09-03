@@ -1568,6 +1568,33 @@ impl Stage6dDurableRuntimeRecovered {
         Some(stage8b_p1_commit_evidence(projection, Some(accepted)))
     }
 
+    /// Redacted evidence for a durable zero-intent P1 semantic commit whose
+    /// source acknowledgement must be resolved before semantic continuation.
+    pub fn stage8b_p1_zero_intent_ack_evidence(
+        &self,
+    ) -> Option<Stage6Stage8bP1SemanticCommitEvidenceV1> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        let projection = restart.stage8b_p1_semantic_commit()?;
+        if projection.intent_count != 0 {
+            return None;
+        }
+        Some(stage8b_p1_commit_evidence(projection, None))
+    }
+
+    /// Review evidence only; this grants no callback or continuation method.
+    pub fn stage8b_p1_stage5c_callback_count(&self) -> Option<usize> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        restart
+            .stage8b_p1_semantic_commit()
+            .map(|_| restart.summary().stage5c_callback_count)
+    }
+
     pub fn journal_is_file_backed(&self) -> bool {
         self.journal.is_file_backed()
     }

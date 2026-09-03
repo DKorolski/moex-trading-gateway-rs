@@ -813,6 +813,15 @@ pub struct P1SemanticPrepublicationPending {
     operational_identity: Stage6dOperationalIdentityConfig,
 }
 
+/// Authenticated zero-intent S1 whose exact source acknowledgement has not yet
+/// been resolved. It is deliberately not ordinary Ready and grants no Hybrid
+/// callback, command publication or provider authority.
+pub struct P1SemanticZeroIntentAckPending {
+    ready: Stage7bRecoveryReadyOwner,
+    evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    stage5c_callback_count: usize,
+}
+
 /// Authenticated S1 pre-publication authority.  P1-b exposes evidence only;
 /// command publication remains closed until P1-c.
 pub struct Stage8bP1SemanticPrepublicationOwner {
@@ -865,6 +874,70 @@ impl Stage8bP1SemanticPrepublicationOwner {
 
     pub fn m10_xack_allowed(&self) -> bool {
         false
+    }
+}
+
+impl P1SemanticZeroIntentAckPending {
+    fn source_binding_matches(
+        &self,
+        strategy_id: &str,
+        account_id: &broker_core::BrokerAccountId,
+        instrument: &broker_core::InstrumentId,
+        runtime_config_fingerprint_sha256: &str,
+    ) -> bool {
+        self.ready.stage8b_p1_source_binding_matches(
+            strategy_id,
+            account_id,
+            instrument,
+            runtime_config_fingerprint_sha256,
+        )
+    }
+
+    pub fn evidence(&self) -> &Stage6Stage8bP1SemanticCommitEvidenceV1 {
+        &self.evidence
+    }
+
+    pub fn recovery_ready(&self) -> bool {
+        false
+    }
+
+    pub fn command_publication_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn paper_provider_invocation_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn hybrid_callback_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn recovery_seal_generation(&self) -> u64 {
+        self.ready.committed_seal.seal_generation()
+    }
+
+    pub fn recovery_seal_commitment_sha256(&self) -> &str {
+        self.ready.committed_seal.seal_commitment_sha256()
+    }
+
+    pub fn stage6_checkpoint_sha256(&self) -> &str {
+        self.ready
+            .committed_seal
+            .stage6_checkpoint()
+            .checkpoint_sha256()
+    }
+
+    pub fn stage5c_callback_count(&self) -> usize {
+        self.stage5c_callback_count
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        self.ready.committed_seal.operational_identity_sha256()
+    }
+
+    pub(crate) fn into_ready_after_exact_source_resolution(self) -> Stage7bRecoveryReadyOwner {
+        self.ready
     }
 }
 
@@ -1288,7 +1361,7 @@ impl Stage7bRecoveryReadyOwner {
     /// transition and commits/rereads the covering S1 before returning any
     /// continuation state.  P1-b deliberately returns no Redis publication or
     /// provider method.
-    pub fn commit_stage8b_p1_semantic(
+    pub(crate) fn commit_stage8b_p1_semantic(
         mut self,
         accepted_bar: Stage5cAcceptedSemanticBar,
         binding: Stage5gP1SemanticBindingInput,
@@ -1903,6 +1976,18 @@ impl Stage7bRecoveryReadyOwner {
         if let Some(evidence) = ready.recovered.stage8b_p1_prepublication_evidence() {
             Ok(Stage7bRestartOutcome::P1SemanticPrepublicationReady(
                 Box::new(Stage8bP1SemanticPrepublicationOwner { ready, evidence }),
+            ))
+        } else if let Some(evidence) = ready.recovered.stage8b_p1_zero_intent_ack_evidence() {
+            let stage5c_callback_count = ready
+                .recovered
+                .stage8b_p1_stage5c_callback_count()
+                .ok_or(Stage7bRecoveryError::SealInvalid)?;
+            Ok(Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(
+                Box::new(P1SemanticZeroIntentAckPending {
+                    ready,
+                    evidence,
+                    stage5c_callback_count,
+                }),
             ))
         } else {
             Ok(Stage7bRestartOutcome::Ready(Box::new(ready)))
@@ -2569,7 +2654,7 @@ fn commit_stage8b_p1_replacement_seal(
 }
 
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
-fn stage8b_p1_test_crash_barrier(phase: &str) {
+pub(crate) fn stage8b_p1_test_crash_barrier(phase: &str) {
     if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref() != Ok(phase) {
         return;
     }
@@ -2583,7 +2668,7 @@ fn stage8b_p1_test_crash_barrier(phase: &str) {
 
 #[cfg(not(any(test, feature = "stage8b-p1-test-fixtures")))]
 #[inline(always)]
-fn stage8b_p1_test_crash_barrier(_: &str) {}
+pub(crate) fn stage8b_p1_test_crash_barrier(_: &str) {}
 
 impl Stage8a4I3RecoveryPendingOwner {
     pub fn recovery_ready(&self) -> bool {
@@ -2766,6 +2851,7 @@ pub enum Stage7bRestartOutcome {
     Stage8a4I3Pending(Box<Stage8a4I3RecoveryPendingOwner>),
     P1SemanticPrepublicationPending(Box<P1SemanticPrepublicationPending>),
     P1SemanticPrepublicationReady(Box<Stage8bP1SemanticPrepublicationOwner>),
+    P1SemanticZeroIntentAckPending(Box<P1SemanticZeroIntentAckPending>),
     Blocked(Box<Stage7bRecoveryBlocked>),
 }
 
@@ -2775,7 +2861,8 @@ impl Stage7bRestartOutcome {
             Self::Ready(owner) => owner.recovery_ready(),
             Self::Stage8a4I3Pending(_)
             | Self::P1SemanticPrepublicationPending(_)
-            | Self::P1SemanticPrepublicationReady(_) => false,
+            | Self::P1SemanticPrepublicationReady(_)
+            | Self::P1SemanticZeroIntentAckPending(_) => false,
             Self::Blocked(blocked) => blocked.recovery_ready(),
         }
     }
@@ -2808,6 +2895,12 @@ impl Stage7bRestartOutcome {
                     runtime_config_fingerprint_sha256,
                 )
             }
+            Self::P1SemanticZeroIntentAckPending(owner) => owner.source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
             Self::Stage8a4I3Pending(_) | Self::Blocked(_) => false,
         }
     }

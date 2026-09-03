@@ -142,9 +142,9 @@
 //! let _forged = Stage8bP1FirstBootAdminCommand {};
 //! ```
 //!
-//! P1-b semantic composition, journal-ahead recovery and M10 delivery
-//! authorities remain linear and opaque. They cannot be cloned, serialized,
-//! forged or split into independently reusable owners:
+//! P1-b semantic composition, journal-ahead/zero-intent ACK recovery and M10
+//! delivery authorities remain linear and opaque. They cannot be cloned,
+//! serialized, forged or split into independently reusable owners:
 //!
 //! ```compile_fail
 //! use runtime_durable_service::P1SemanticPrepublicationPending;
@@ -155,6 +155,18 @@
 //! ```compile_fail
 //! use runtime_durable_service::P1SemanticPrepublicationPending;
 //! let pending: P1SemanticPrepublicationPending = unreachable!();
+//! let _ = serde_json::to_vec(&pending).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticZeroIntentAckPending;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<P1SemanticZeroIntentAckPending>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticZeroIntentAckPending;
+//! let pending: P1SemanticZeroIntentAckPending = unreachable!();
 //! let _ = serde_json::to_vec(&pending).unwrap();
 //! ```
 //!
@@ -185,10 +197,10 @@ mod stage8b_p1_bootstrap;
 mod stage8b_p1_semantic;
 
 pub use recovery::{
-    spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, Stage7bCompositeHealthSnapshot,
-    Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bPaperReadinessReason,
-    Stage7bRecoveryBlockReason, Stage7bRecoveryBlocked, Stage7bRecoveryError,
-    Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
+    spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending,
+    Stage7bCompositeHealthSnapshot, Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase,
+    Stage7bPaperReadinessReason, Stage7bRecoveryBlockReason, Stage7bRecoveryBlocked,
+    Stage7bRecoveryError, Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
     Stage7bRedisServiceConfig, Stage7bRedisServiceError, Stage7bRestartOutcome,
     Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
     Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority,
@@ -228,12 +240,14 @@ pub use stage8b_p1_bootstrap::{
 };
 pub use stage8b_p1_semantic::{
     build_stage8b_p1_canonical_m10, parse_stage8b_p1_canonical_m10,
+    resolve_stage8b_p1_zero_intent_ack_with_local_m10,
     resume_stage8b_p1_journal_ahead_with_local_m10, Stage8bP1CanonicalM10BuildInput,
     Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1, Stage8bP1LocalM10Error,
     Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked, Stage8bP1LocalPrepublicationPending,
     Stage8bP1LocalSemanticOutcome, Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
     Stage8bP1SemanticCompositionError, Stage8bP1SemanticCompositionOwner,
-    Stage8bP1ValidatedCanonicalM10, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
+    Stage8bP1ValidatedCanonicalM10, Stage8bP1ZeroIntentAckDisposition,
+    Stage8bP1ZeroIntentAckResolved, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
     STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
     STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
 };

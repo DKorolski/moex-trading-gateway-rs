@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-02.
+Status date: 2026-09-03.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -1322,14 +1322,16 @@ Amber:
   transport/runtime projection. A separate `readonly=true` token is installed;
   it has no order capability and is revalidated on every WebSocket generation.
 - Stage 8B-P1 durable paper lifecycle architecture, P1-a bootstrap/identity and
-  the R1A semantic-commit addendum are accepted. P1-b is now an implementation
-  review candidate: canonical final M10 drives the real Hybrid semantic facade
-  under one owner, zero/one-intent state is covered by authenticated S1, and
-  the exact RequestAccepted journal-ahead crash frontier is recoverable only
-  from the same pending M10. Seven subprocess/SIGKILL boundaries and negative
-  changed/missing/ACKed-M10 and extra-suffix cases are covered. P1-c command
-  publication, provider, operational Redis activation and FINAM send remain
-  closed.
+  the R1A semantic-commit addendum are accepted. P1-b R1 is now an
+  implementation review candidate: canonical final M10 drives the real Hybrid
+  semantic facade under one owner, zero/one-intent state is covered by
+  authenticated S1, and the exact RequestAccepted journal-ahead crash frontier
+  is recoverable only from the same pending M10. A durable zero-intent S1 now
+  restarts as an opaque ACK-only pending authority, verifies exact pending or
+  already-acknowledged source state and never repeats the Hybrid callback.
+  Eight subprocess/SIGKILL boundaries plus changed/missing/ACKed/colliding-M10
+  and extra-suffix negatives are covered. P1-c command publication, provider,
+  operational Redis activation and FINAM send remain closed.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

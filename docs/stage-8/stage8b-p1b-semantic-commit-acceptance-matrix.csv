@@ -11,7 +11,8 @@ P1B-009,recovery,Exact one-record S0 journal-ahead state is typed and non-dispat
 P1B-010,recovery,Changed missing or acknowledged M10 fails before completion,journal_ahead_rejects_changed_missing_and_acked_m10 tests,IMPLEMENTED_REVIEW_CANDIDATE
 P1B-011,recovery,Dispatch or any extra suffix cannot enter the P1 exception,journal_ahead_exception_rejects_dispatch_attempt_suffix,IMPLEMENTED_REVIEW_CANDIDATE
 P1B-012,multi-intent,More than one intent returns only a non-continuable diagnostic,p1_multi_intent_boundary_returns_only_noncontinuable_diagnostic,IMPLEMENTED_REVIEW_CANDIDATE
-P1B-013,crash,All seven prepublication process-kill frontiers restore fail closed,subprocess_kill_matrix_recovers_all_seven_prepublication_frontiers,IMPLEMENTED_REVIEW_CANDIDATE
-P1B-014,opacity,Pending delivery composition and prepublication owners are non-Clone non-Serialize and unforgeable,23 compile-fail doctests,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-013,crash,All seven one-intent prepublication process-kill frontiers restore fail closed,subprocess_kill_matrix_recovers_all_seven_prepublication_frontiers,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-014,opacity,Pending delivery composition and prepublication owners are non-Clone non-Serialize and unforgeable,25 compile-fail doctests,IMPLEMENTED_REVIEW_CANDIDATE
 P1B-015,separation,P1-b opens no Redis FINAM provider dispatch or live surface,stage8b_p1b_semantic_commit_check.py,IMPLEMENTED_REVIEW_CANDIDATE
 P1B-016,publication,Operational command publication and settlement remain closed,separate P1-c review,DEFERRED_TO_P1C
+P1B-017,zero-intent-recovery,Crash or source-ack uncertainty after durable reread zero-intent S1 recovers as exact ACK-only without another Hybrid callback,zero-intent SIGKILL exact-pending already-acked changed missing and collision tests,IMPLEMENTED_REVIEW_CANDIDATE

@@ -14,6 +14,10 @@ cargo test -p runtime-durable-service \
 cargo test -p runtime-durable-service \
   stage8b_p1_semantic::tests::subprocess_kill_matrix_recovers_all_seven_prepublication_frontiers
 cargo test -p runtime-durable-service \
+  stage8b_p1_semantic::tests::subprocess_kill_after_zero_intent_s1_recovers_exact_ack_only
+cargo test -p runtime-durable-service \
+  stage8b_p1_semantic::tests::zero_intent_ack_recovery_rejects_
+cargo test -p runtime-durable-service \
   recovery::tests::stage7b_c_b040_unbound_nonfinal_file_journal_blocks_without_effect
 cargo test -p runtime-durable-service --doc
 

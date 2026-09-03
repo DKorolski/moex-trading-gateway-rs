@@ -1,6 +1,6 @@
 # Stage 8B-P1-b semantic commit implementation
 
-Status: implementation review candidate.
+Status: R1 implementation review candidate.
 
 Accepted predecessors:
 
@@ -56,7 +56,11 @@ P1-c must add and independently accept that boundary.
 ## Outcomes
 
 - `0 intent`: S1 is committed and reread, then and only then the local M10 is
-  acknowledged and the sole composition owner returns Ready.
+  acknowledged and the sole composition owner returns Ready. On restart, the
+  durable zero-intent projection first yields
+  `P1SemanticZeroIntentAckPending`, never ordinary Ready. Exact pending source
+  state is acknowledged once; exact already-acknowledged retained state is
+  accepted idempotently. Neither path invokes Hybrid again.
 - `1 intent`: deterministic `RequestAccepted` and S1 are committed; an opaque
   prepublication owner is returned with M10 retained and unacknowledged.
 - `>1 intent`: a non-continuable diagnostic is returned; no publication,
@@ -81,9 +85,28 @@ request, a malformed seal or arbitrary unbound non-final Stage 6 state fails
 closed. A blocked restart remains an explicit blocked diagnostic; it is not
 misreported as a positive source-binding mismatch.
 
+## Zero-intent ACK-only restart recovery
+
+R1 closes the durable-S1-to-source-XACK window without changing the accepted
+one-intent protocol. Restart recognizes a durable semantic projection with
+`intent_count == 0` as the opaque
+`P1SemanticZeroIntentAckPending` authority. It exposes redacted M10 and seal
+evidence but reports not-ready and grants no callback, command-publication or
+provider capability.
+
+`resolve_stage8b_p1_zero_intent_ack_with_local_m10` consumes that authority and
+requires the exact retained Redis-style ID, semantic hash, payload hash and
+canonical bytes. Exact pending state is acknowledged; exact already-acknowledged
+state is an idempotent success. Missing, changed or same-ID-colliding state
+fails closed. Resolution appends no Stage 6 record, does not replace S1 and
+does not increment the Stage 5C callback count.
+
+The low-level semantic commit method is crate-private, and the local ACK helper
+validates exact pending membership/content before removing the pending entry.
+
 ## Process crash evidence
 
-The subprocess matrix sends SIGKILL at seven frontiers:
+The subprocess matrix sends SIGKILL at eight frontiers:
 
 1. before `RequestAccepted` append;
 2. after journal fsync;
@@ -92,12 +115,15 @@ The subprocess matrix sends SIGKILL at seven frontiers:
 5. after rename and before directory fsync;
 6. after directory fsync and before reread;
 7. after S1 reread and before the still-closed command XADD boundary.
+8. after zero-intent S1 reread and before M10 XACK.
 
 The observed restart states are limited to:
 
 - original S0 `Ready` before append;
 - exact typed journal-ahead pending while S0 remains authoritative;
 - exact authenticated P1 prepublication when valid S1 is visible.
+- exact zero-intent ACK-pending when zero-intent S1 is visible but source ACK
+  must be resolved.
 
 Temporary files never grant authority.
 

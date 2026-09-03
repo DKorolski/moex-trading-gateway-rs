@@ -2,6 +2,7 @@
   "schema_version": 1,
   "stage": "Stage 8B-P1-b",
   "status": "IMPLEMENTATION_REVIEW_CANDIDATE",
+  "review_revision": "R1",
   "accepted_predecessor_ref": "073ae9f38acd06b7a5febdbfc1e75a7b460adf03",
   "scope": "canonical M10 to deterministic Hybrid semantic commit and authenticated S1",
   "positive_evidence": {
@@ -9,12 +10,16 @@
     "zero_intent_s1_then_xack": "PASS",
     "one_intent_deterministic_prepublication": "PASS",
     "journal_ahead_exact_reconstruction": "PASS",
-    "subprocess_kill_frontiers": "7/7 PASS"
+    "zero_intent_ack_only_recovery": "PASS",
+    "subprocess_kill_frontiers": "8/8 PASS"
   },
   "negative_evidence": {
     "changed_m10": "PASS_FAIL_CLOSED",
     "missing_m10": "PASS_FAIL_CLOSED",
     "acknowledged_m10": "PASS_FAIL_CLOSED",
+    "zero_intent_changed_m10": "PASS_FAIL_CLOSED",
+    "zero_intent_missing_m10": "PASS_FAIL_CLOSED",
+    "zero_intent_collision": "PASS_FAIL_CLOSED",
     "dispatch_attempt_suffix": "PASS_FAIL_CLOSED",
     "generic_unbound_nonfinal_request": "PASS_FAIL_CLOSED",
     "multi_intent": "PASS_NONCONTINUABLE",
@@ -23,8 +28,8 @@
   "verification": {
     "workspace_default_all_targets": "PASS",
     "strategy_runtime_core_lib_tests": "1216/1216 PASS",
-    "runtime_durable_service_lib_tests": "97 PASS; 3 intentional crash children ignored",
-    "runtime_durable_service_doctests": "23/23 PASS",
+    "runtime_durable_service_lib_tests": "101 PASS; 3 intentional crash children ignored",
+    "runtime_durable_service_doctests": "25/25 PASS",
     "targeted_clippy_all_targets_all_features_deny_warnings": "PASS",
     "source_scope_checker": "PASS",
     "negative_harness": "PASS",
