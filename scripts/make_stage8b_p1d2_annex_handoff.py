@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8B-P1-d2 design-annex R1 review handoff."""
+"""Create the immutable Stage 8B-P1-d2 design-annex R1A review handoff."""
 
 from __future__ import annotations
 

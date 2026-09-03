@@ -12,6 +12,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE = "4abb2fd9807adeb47f164a4025c7ac44d33679f6"
+REVIEWED_R1 = "e398cbed771e5617f07fcab6734bc1d7b172a371"
 ANNEX = ROOT / "docs/stage-8/stage8b-p1d2-projection-field-timestamp-annex.md"
 MATRIX = ROOT / "docs/stage-8/stage8b-p1d2-projection-annex-acceptance-matrix.csv"
 EVIDENCE = ROOT / "docs/stage-8/stage8b-p1d2-projection-annex-evidence.json"
@@ -68,7 +69,8 @@ def validate(
     required_annex = (
         "moex.stage8b.p1d2.market-feedback.v1",
         "4abb2fd9807adeb47f164a4025c7ac44d33679f6",
-        "Status: R1 design-only review candidate",
+        "e398cbed771e5617f07fcab6734bc1d7b172a371",
+        "Status: R1A design-only review candidate",
         "The P1-d1 Market outcome is deterministic but is not, by itself, a durably\nfinalized command-lifecycle authority.",
         "Stage8bP1d2FinalizedMarketFeedbackInput",
         "durably apply the exact Stage6dPaperOutcome",
@@ -130,11 +132,20 @@ def validate(
         "Duplicate byte-identical feedback is idempotent.",
         "The ACK event uses `seq_ack`. The subsequent truth event uses `seq_truth`.",
         "No Stage5G mutation is allowed before durable Stage7 finalization.",
+        "Stage5gCleanRestartSource::OrderPositionAwaiting",
+        "OrderPositionAwaitingCommitted",
+        "intermediate ACK-stage recovery seal S_ack",
+        "Broker truth is forbidden before `S_ack` is durably\npersisted and reread.",
+        "Allocating a new unrelated truth sequence after restart is forbidden.",
+        "A completed in-memory ACK callback before that frontier is not\ndurable evidence.",
+        "once `S_ack` is reread, reapplying ACK is a\nconflict",
+        "`S_truth` is the only final\npost-feedback seal and the only authority that permits source XACK.",
         "crash after Stage6 outcome, before RequestFinalized",
         "crash after RequestFinalized, before ACK",
-        "crash after ACK, before truth",
-        "crash after truth, before post-feedback seal",
-        "crash after post-feedback seal, before M10 XACK",
+        "crash after ACK in memory, before S_ack is committed",
+        "crash after S_ack reread, before truth",
+        "crash after truth in memory, before S_truth",
+        "crash after S_truth reread, before M10 XACK",
         "one redacted, non-authoritative feedback audit\ndigest",
         "XACK the originating M10 last.",
         "current authority remains pinned to accepted P1-d1",
@@ -153,25 +164,26 @@ def validate(
     require("no operational DB 0 activation" in annex, "DB0 boundary drifted")
 
     rows = list(csv.DictReader(matrix_text.splitlines()))
-    expected_ids = {f"P1D2A-{index:03d}" for index in range(1, 65)}
-    require(len(rows) == 64, f"acceptance row count drifted: {len(rows)}")
+    expected_ids = {f"P1D2A-{index:03d}" for index in range(1, 66)}
+    require(len(rows) == 65, f"acceptance row count drifted: {len(rows)}")
     require({row.get("id") for row in rows} == expected_ids, "acceptance IDs drifted")
     require(all(row.get("status") == "REQUIRED" for row in rows), "acceptance weakened")
 
     require(evidence.get("schema_version") == 1, "evidence schema drifted")
-    require(evidence.get("stage") == "Stage 8B-P1-d2 projection annex R1", "stage drifted")
+    require(evidence.get("stage") == "Stage 8B-P1-d2 projection annex R1A", "stage drifted")
     require(
         evidence.get("status")
-        == "R1_DURABLE_AUTHORITY_SEQUENCE_POSITION_REVIEW_CANDIDATE",
+        == "R1A_INTERMEDIATE_ACK_STAGE_RECOVERY_SEAL_REVIEW_CANDIDATE",
         "status drifted",
     )
     require(evidence.get("accepted_p1d1_closure_ref") == BASE, "lineage drifted")
+    require(evidence.get("reviewed_r1_ref") == REVIEWED_R1, "R1 review lineage drifted")
     require(
         evidence.get("canonical_contract") == "moex.stage8b.p1d2.market-feedback.v1",
         "contract domain drifted",
     )
-    require(evidence.get("acceptance_rows") == 64, "evidence row count drifted")
-    require(evidence.get("negative_cases") == 41, "negative count drifted")
+    require(evidence.get("acceptance_rows") == 65, "evidence row count drifted")
+    require(evidence.get("negative_cases") == 47, "negative count drifted")
     r1 = evidence.get("r1_closure")
     require(isinstance(r1, dict) and len(r1) == 10, "R1 closure inventory drifted")
     require(r1.get("average_price_scale") == 8, "average scale drifted")
@@ -179,7 +191,7 @@ def validate(
         r1.get("average_price_rounding") == "MidpointNearestEven",
         "average rounding drifted",
     )
-    require(r1.get("crash_scenarios") == 5, "crash matrix drifted")
+    require(r1.get("crash_scenarios") == 5, "R1 crash matrix drifted")
     require(r1.get("stage7_finalize_observed_at") == "T_receipt", "finalize clock drifted")
     require(r1.get("stage5g_ack_sequence") == "seq_ack", "ACK sequence drifted")
     require(r1.get("stage5g_truth_sequence") == "seq_ack+1", "truth sequence drifted")
@@ -190,6 +202,31 @@ def validate(
         "stage5_pre_position_cross_binding",
     ):
         require(r1.get(name) is True, f"R1 closure weakened: {name}")
+    r1a = evidence.get("r1a_closure")
+    require(isinstance(r1a, dict) and len(r1a) == 7, "R1A closure inventory drifted")
+    require(
+        r1a.get("ack_stage_recovery_source")
+        == "Stage5gCleanRestartSource::OrderPositionAwaiting",
+        "ACK-stage recovery source drifted",
+    )
+    require(
+        r1a.get("ack_stage_lifecycle_kind") == "OrderPositionAwaitingCommitted",
+        "ACK-stage lifecycle kind drifted",
+    )
+    require(r1a.get("crash_scenarios") == 6, "R1A crash matrix drifted")
+    require(
+        r1a.get("restart_truth_sequence") == "checked_add(recovered_seq_ack,1)",
+        "restart truth sequence drifted",
+    )
+    require(
+        r1a.get("source_xack_authority") == "S_truth_persisted_and_reread",
+        "source XACK authority drifted",
+    )
+    for name in (
+        "intermediate_ack_stage_seal_required",
+        "truth_only_after_ack_stage_seal",
+    ):
+        require(r1a.get(name) is True, f"R1A closure weakened: {name}")
     require(evidence.get("design_only") is True, "design-only marker opened")
     require(evidence.get("implementation_authorized") is False, "source opened early")
     require(
@@ -202,13 +239,13 @@ def validate(
 
     require(
         "Stage 8B-P1-d1 is formally closed" in status
-        and "P1-d2 projection-field/timestamp annex R1" in status
+        and "P1-d2 projection-field/timestamp annex R1A" in status
         and "design-only review candidate" in status,
         "current status is not synchronized",
     )
     require(
         "P1-d1 is formally closed" in roadmap
-        and "P1-d2 projection-field/timestamp annex R1" in roadmap
+        and "P1-d2 projection-field/timestamp annex R1A" in roadmap
         and "P1-d2 source remains closed" in roadmap,
         "roadmap is not synchronized",
     )
@@ -247,7 +284,7 @@ def main() -> None:
     except (CheckFailure, OSError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f"FAIL stage8b-p1d2-annex-scope: {error}", file=sys.stderr)
         raise SystemExit(1)
-    print("PASS stage8b-p1d2-annex-scope rows=64 r1=true design_only=true source=false db0=false")
+    print("PASS stage8b-p1d2-annex-scope rows=65 r1a=true design_only=true source=false db0=false")
 
 
 if __name__ == "__main__":

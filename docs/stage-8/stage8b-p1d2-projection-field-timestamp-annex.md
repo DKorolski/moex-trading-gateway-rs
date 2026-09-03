@@ -1,13 +1,15 @@
-# Stage 8B-P1-d2 projection-field and timestamp annex R1
+# Stage 8B-P1-d2 projection-field and timestamp annex R1A
 
-Status: R1 design-only review candidate — durable authority, sequence and
-position-arithmetic closure. This annex does not authorize P1-d2 source
-implementation, Redis DB 0 activation, ACK/XACK settlement or any
-broker/network action.
+Status: R1A design-only review candidate — intermediate ACK-stage recovery
+seal closure. This annex does not authorize P1-d2 source implementation,
+Redis DB 0 activation, ACK/XACK settlement or any broker/network action.
 
 Accepted predecessor:
 `4abb2fd9807adeb47f164a4025c7ac44d33679f6` (formal Stage 8B-P1-d1
 governance closure).
+
+Reviewed R1 candidate corrected by this R1A:
+`e398cbed771e5617f07fcab6734bc1d7b172a371`.
 
 This annex exact-freezes the first P1-d2 implementation slice: one successful
 P1-d1 Market fill is projected into broker-neutral order, trade, position,
@@ -335,9 +337,13 @@ The later implementation must preserve this order under one accepted owner:
 6. construct and validate the complete ACK/truth bundle without effects;
 7. allocate consecutive seq_ack and seq_truth from one Stage5G owner;
 8. apply the exact matching CommandAck at seq_ack;
-9. apply the event-scoped BrokerTruthSnapshot at seq_truth;
-10. persist and reread the post-feedback recovery seal;
-11. XACK the originating M10 last.
+9. attach the resulting Stage5gOrderPositionSession;
+10. export Stage5gCleanRestartSource::OrderPositionAwaiting and persist and
+    reread the intermediate ACK-stage recovery seal S_ack as
+    OrderPositionAwaitingCommitted;
+11. apply the event-scoped BrokerTruthSnapshot at seq_truth;
+12. persist and reread the final post-truth recovery seal S_truth;
+13. XACK the originating M10 last. This is allowed only after S_truth.
 ```
 
 No Stage5G mutation is allowed before durable Stage7 finalization. No
@@ -345,6 +351,21 @@ successful ACK is externally visible without the corresponding order, trade
 and resulting position becoming part of the same recoverable feedback
 transition. A crash before completion must resume from durable authority; it
 must not repeat the Hybrid callback or blindly invoke the provider.
+
+`S_ack` is internal durable recovery authority, not an externally published
+ACK. It contains and proves the exact resolved ACK/order-position continuation
+and canonical `seq_ack`. On restart after `S_ack`, the implementation derives
+the already reserved truth sequence only as:
+
+```text
+recovered_seq_truth = checked_add(recovered_seq_ack, 1)
+```
+
+Allocating a new unrelated truth sequence after restart is forbidden. The
+persisted ACK slot/restart projection must cross-bind the recovered sequence
+to the original pair. Broker truth is forbidden before `S_ack` is durably
+persisted and reread. The originating source M10 remains pending through both
+seals and cannot be XACKed until `S_truth` is durably persisted and reread.
 
 ## Required crash/replay matrix for source acceptance
 
@@ -357,18 +378,29 @@ crash after Stage6 outcome, before RequestFinalized
 crash after RequestFinalized, before ACK
   -> reconstruct exact finalized input; apply same seq_ack/seq_truth bundle
 
-crash after ACK, before truth
-  -> preserve durable ACK; apply only exact truth; no duplicate ACK transition
+crash after ACK in memory, before S_ack is committed
+  -> ACK is not durable; reconstruct pre-ACK authority and deterministically
+     replay the exact ACK at seq_ack; do not replay provider
 
-crash after truth, before post-feedback seal
-  -> accepted Stage5G lifecycle recovery; no provider re-execution
+crash after S_ack reread, before truth
+  -> restart from OrderPositionAwaitingCommitted; ACK is durable; never
+     reapply ACK; derive seq_truth from seq_ack and apply only exact truth
 
-crash after post-feedback seal, before M10 XACK
-  -> ACK-only/source resolution; no provider or Hybrid replay
+crash after truth in memory, before S_truth
+  -> restart from S_ack; replay only exact truth; no ACK/provider replay
+
+crash after S_truth reread, before M10 XACK
+  -> resolve source only; no provider, ACK, truth or Hybrid replay; XACK last
 ```
 
 All fields, timestamps, sequences, projection fingerprints and canonical
 average Decimal bytes must be identical on active and restart paths.
+
+The ACK-stage durability claim begins only after `S_ack` has been persisted
+and reread. A completed in-memory ACK callback before that frontier is not
+durable evidence. Conversely, once `S_ack` is reread, reapplying ACK is a
+conflict rather than an idempotent continuation. `S_truth` is the only final
+post-feedback seal and the only authority that permits source XACK.
 
 The source slice also emits one redacted, non-authoritative feedback audit
 digest binding the P1-d1 outcome hash, Stage 6 report and Stage 7 final-record
@@ -387,6 +419,8 @@ Annex acceptance may authorize only **P1-d2 Market feedback source**:
 - exact values frozen above;
 - deterministic Stage7 finalization at `T_receipt`;
 - consecutive `seq_ack`/`seq_truth` from one Stage5G owner;
+- intermediate `OrderPositionAwaitingCommitted` ACK-stage seal before truth;
+- truth-only continuation after that seal and final `S_truth` before XACK;
 - authenticated Stage5 pre-position binding and scale-8 nearest-even average;
 - existing Stage 5G ACK and order/position authorities;
 - pure and isolated tests first;

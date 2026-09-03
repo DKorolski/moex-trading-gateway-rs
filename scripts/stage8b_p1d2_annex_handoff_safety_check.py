@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable Stage 8B-P1-d2 design-annex handoff."""
+"""Validate an immutable Stage 8B-P1-d2 design-annex R1A handoff."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ GATE = "handoff-evidence/stage8b-p1d2-annex-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 PREDECESSOR = "4abb2fd9807adeb47f164a4025c7ac44d33679f6"
+REVIEWED_R1 = "e398cbed771e5617f07fcab6734bc1d7b172a371"
 REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p1d0-deterministic-paper-execution-policy.md",
     "docs/stage-8/stage8b-p1d1-market-provider-core.md",
@@ -93,18 +94,20 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("manifest source binding mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive name mismatch")
-        if evidence.get("stage") != "Stage 8B-P1-d2 projection annex R1":
+        if evidence.get("stage") != "Stage 8B-P1-d2 projection annex R1A":
             raise ValueError("stage mismatch")
         if (
             evidence.get("status")
-            != "R1_DURABLE_AUTHORITY_SEQUENCE_POSITION_REVIEW_CANDIDATE"
+            != "R1A_INTERMEDIATE_ACK_STAGE_RECOVERY_SEAL_REVIEW_CANDIDATE"
         ):
             raise ValueError("candidate status mismatch")
         if evidence.get("accepted_p1d1_closure_ref") != PREDECESSOR:
             raise ValueError("predecessor mismatch")
-        if evidence.get("acceptance_rows") != 64:
+        if evidence.get("reviewed_r1_ref") != REVIEWED_R1:
+            raise ValueError("R1 review lineage mismatch")
+        if evidence.get("acceptance_rows") != 65:
             raise ValueError("acceptance count mismatch")
-        if evidence.get("negative_cases") != 41:
+        if evidence.get("negative_cases") != 47:
             raise ValueError("negative count mismatch")
         if evidence.get("design_only") is not True:
             raise ValueError("design-only marker missing")
@@ -119,7 +122,7 @@ def check(path: str) -> dict[str, object]:
         gate = archive.read(GATE)
         for expected in (
             b"PASS stage8b-p1d2-annex-scope",
-            b"PASS stage8b-p1d2-annex-negative-harness 41/41",
+            b"PASS stage8b-p1d2-annex-negative-harness 47/47",
             b"PASS stage8b-p1d2-annex-gate",
         ):
             if expected not in gate:
@@ -155,7 +158,7 @@ def check(path: str) -> dict[str, object]:
             "symlinks": 0,
             "unsafe_paths": 0,
             "source_ref": source_ref,
-            "stage": "Stage 8B-P1-d2 projection annex R1",
+            "stage": "Stage 8B-P1-d2 projection annex R1A",
             "result": "PASS",
         }
 

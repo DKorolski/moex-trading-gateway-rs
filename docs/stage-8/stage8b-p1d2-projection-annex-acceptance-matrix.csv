@@ -63,3 +63,4 @@ P1D2A-061,durable-authority,No Stage5G feedback precedes durable Stage6 outcome 
 P1D2A-062,sequence,ACK and truth use two consecutive values from one Stage5G sequence domain and never reuse one value,REQUIRED
 P1D2A-063,position-binding,Prior q0 equals authenticated Stage5 pre_position_qty and absent row is only canonical first flat state,REQUIRED
 P1D2A-064,average-policy,All nonflat average prices use compile-time scale 8 MidpointNearestEven and byte-identical replay,REQUIRED
+P1D2A-065,durability,After ACK resolution and before broker truth the exact resolved ACK order-position continuation is persisted and reread through Stage5gCleanRestartSource OrderPositionAwaiting as OrderPositionAwaitingCommitted; crash before this seal replays exact ACK while crash after it resumes at truth only,REQUIRED

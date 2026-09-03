@@ -42,7 +42,7 @@ writer.writerows(removed)
 mutations = [
     ("contract-domain", "moex.stage8b.p1d2.market-feedback.v1", "moex.stage8b.p1d2.market-feedback.v2"),
     ("accepted-lineage", checker.BASE, "0" * 40),
-    ("design-only", "Status: R1 design-only review candidate", "Status: R1 implementation candidate"),
+    ("design-only", "Status: R1A design-only review candidate", "Status: R1A implementation candidate"),
     ("linear-outcome", "The P1-d1 Market outcome is deterministic but is not, by itself, a durably\nfinalized command-lifecycle authority.", "The P1-d1 Market outcome is already a durably\nfinalized command-lifecycle authority."),
     ("allow-wall-clock", "`Utc::now()` and equivalent system-clock reads are\nforbidden", "`Utc::now()` and equivalent system-clock reads are\nallowed"),
     ("source-clock", "T_source  = execution_bar.open_ts", "T_source  = execution_bar.close_ts"),
@@ -79,6 +79,12 @@ mutations = [
     ("implicit-decimal-rounding", "candidate.round_dp_with_strategy(8, MidpointNearestEven)", "candidate.round_dp(8)"),
     ("runtime-configurable-average-scale", "P1D2_AVG_PRICE_SCALE    = 8", "P1D2_AVG_PRICE_SCALE    = runtime_config.scale"),
     ("runtime-configurable-rounding-mode", "P1D2_AVG_PRICE_ROUNDING = RoundingStrategy::MidpointNearestEven", "P1D2_AVG_PRICE_ROUNDING = runtime_config.rounding"),
+    ("omit-intermediate-ack-stage-seal", "intermediate ACK-stage recovery seal S_ack", "unsealed in-memory ACK state"),
+    ("truth-before-ack-stage-seal", "Broker truth is forbidden before `S_ack` is durably\npersisted and reread.", "Broker truth may be applied before `S_ack` is persisted."),
+    ("claim-ack-durable-before-seal", "A completed in-memory ACK callback before that frontier is not\ndurable evidence.", "A completed in-memory ACK callback is durable evidence."),
+    ("reapply-ack-after-ack-stage-seal", "once `S_ack` is reread, reapplying ACK is a\nconflict", "once `S_ack` is reread, reapplying ACK is allowed"),
+    ("allocate-new-truth-sequence-after-restart", "Allocating a new unrelated truth sequence after restart is forbidden.", "Allocating a new truth sequence after restart is allowed."),
+    ("xack-before-final-truth-seal", "`S_truth` is the only final\npost-feedback seal and the only authority that permits source XACK.", "Source XACK is permitted before `S_truth`."),
 ]
 
 cases: list[tuple[str, str, str, dict[str, object], str, str]] = []
