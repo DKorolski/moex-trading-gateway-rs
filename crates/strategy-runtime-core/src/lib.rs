@@ -300,6 +300,7 @@ mod stage6_journal_backend;
 mod stage6_reconciliation_v2;
 mod stage6_replay;
 mod stage6d_live_core;
+mod stage8b_p1d1_paper_provider;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -390,6 +391,14 @@ pub use stage6d_live_core::{
     stage8a4_test_append_durable_batch_with_suffix_limit, stage8a4_test_set_journal_failpoint,
     stage8b_p1_test_append_dispatch_attempt, Stage7bTestExtraStage6History,
     Stage7bTestRestartFixture,
+};
+pub use stage8b_p1d1_paper_provider::{
+    bind_stage8b_p1d1_market_dispatch, Stage8bP1d1AwaitingExecutionBar,
+    Stage8bP1d1CanonicalExecutionBar, Stage8bP1d1ExecutionBarObservation,
+    Stage8bP1d1ExecutionEligibilityBlockReason, Stage8bP1d1ExecutionEligibilityBlocked,
+    Stage8bP1d1ExecutionEligible, Stage8bP1d1ExecutionObservation, Stage8bP1d1MarketDispatchReady,
+    Stage8bP1d1MarketOutcomeBundle, Stage8bP1d1ProviderError, STAGE8B_P1D1_EXECUTION_POLICY_DOMAIN,
+    STAGE8B_P1D1_ORDER_ID_DOMAIN, STAGE8B_P1D1_TRADE_ID_DOMAIN,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]

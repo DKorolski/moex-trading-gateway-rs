@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strategy_runtime_core::{
     Stage5gLifecycleCommitmentKey, Stage6Stage8bP1SemanticCommitEvidenceV1,
+    Stage8bP1d1ExecutionBarObservation,
 };
 use uuid::Uuid;
 
@@ -356,6 +357,8 @@ pub enum Stage8bP1RedisSemanticError {
     InvalidRedisReply,
     #[error("Stage 8B-P1 retained M10 floor was violated")]
     RetentionViolation,
+    #[error("Stage 8B-P1-d1 execution candidate conflicts with the published command")]
+    ExecutionCandidateBindingConflict,
 }
 
 struct Stage8bP1RedisBackend {
@@ -611,6 +614,41 @@ impl Stage8bP1RedisCommandPublished {
                 .ok()
                 .map(|bytes| sha256_hex(&bytes))
                 .as_deref()
+    }
+
+    /// Binds one already validated later M10 observation to the exact P1-c
+    /// command and predecessor.  The returned value is evidence only: Stage
+    /// 5E must still mint the opaque next-bar eligibility capability.
+    pub fn p1d1_execution_bar_observation(
+        &self,
+        candidate: &super::Stage8bP1ValidatedCanonicalM10,
+    ) -> Result<Stage8bP1d1ExecutionBarObservation, Stage8bP1RedisSemanticError> {
+        let strategy_request_id = self
+            .evidence
+            .strategy_request_id
+            .ok_or(Stage8bP1RedisSemanticError::ExecutionCandidateBindingConflict)?;
+        let canonical_command_sha256 = self
+            .evidence
+            .canonical_command_sha256
+            .clone()
+            .ok_or(Stage8bP1RedisSemanticError::ExecutionCandidateBindingConflict)?;
+        let command_request_id = match &self.command {
+            BrokerCommand::PlaceOrder(place) => place.request_id,
+            BrokerCommand::CancelOrder(cancel) => cancel.request_id,
+        };
+        if strategy_request_id != command_request_id
+            || !self.command_matches_durable_evidence()
+            || candidate.operational_identity_sha256()
+                != self.stage7.stage8b_p1_operational_identity_sha256()
+        {
+            return Err(Stage8bP1RedisSemanticError::ExecutionCandidateBindingConflict);
+        }
+        Ok(Stage8bP1d1ExecutionBarObservation {
+            strategy_request_id,
+            canonical_command_sha256,
+            predecessor_semantic_id_sha256: self.evidence.m10_semantic_id_sha256.clone(),
+            bar: candidate.to_stage8b_p1d1_execution_bar(),
+        })
     }
 
     pub fn paper_provider_invocation_allowed(&self) -> bool {
@@ -1843,6 +1881,25 @@ mod tests {
         assert!(!published.receipt().m10_acknowledged);
         assert!(!published.paper_provider_invocation_allowed());
         assert!(!published.m10_xack_allowed());
+        let candidate_bytes = canonical_m10(identity.clone(), 1_785_759_600_000, 2_655);
+        let candidate = parse_stage8b_p1_canonical_m10(&candidate_bytes, &identity).unwrap();
+        let observation = published
+            .p1d1_execution_bar_observation(&candidate)
+            .unwrap();
+        assert_eq!(
+            observation.predecessor_semantic_id_sha256,
+            published.evidence().m10_semantic_id_sha256
+        );
+        assert_eq!(
+            observation.canonical_command_sha256,
+            published
+                .evidence()
+                .canonical_command_sha256
+                .clone()
+                .unwrap()
+        );
+        assert_eq!(observation.bar.close_ts_utc_ms, 1_785_759_600_000);
+        assert_eq!(observation.bar.open, rust_decimal::Decimal::new(2_655, 0));
         drop(published);
 
         let namespace = stage8b_p1_redis_namespace();

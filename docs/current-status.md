@@ -1337,12 +1337,16 @@ Amber:
   remains pending. R1 separates fresh namespace initialization from
   verify-only attachment, reclaims one stale Ready PEL entry before fresh
   input, blocks ambiguous PEL and requires a continuous group frontier for
-  already-acknowledged recovery. Stage 8B-P1-d0 is the active
-  design/policy review candidate. It freezes next-eligible-bar timing,
-  market/limit/cancel behavior, zero synthetic partial fills, zero
-  fee/slippage economics and deterministic paper identifiers before provider
-  source implementation. Provider/feedback, operational Redis DB0 activation
-  and FINAM send remain closed.
+  already-acknowledged recovery. Stage 8B-P1-d0 is independently accepted at
+  `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd`. The active candidate is
+  Stage 8B-P1-d1 provider core. It adds one crate-private Stage5E schedule
+  bridge for exact later-M10 eligibility, a read-only P1-c canonical-M10
+  observation adapter and a deterministic Market fill/ID bundle that cannot
+  execute without the linear Stage6 durable dispatch receipt. Same-bar,
+  history/warmup, missing tradable interval, cross-day, stale/future schedule,
+  multiple-candidate, identity-conflict and non-None TTL cases fail closed.
+  Feedback application, ACK/XACK, operational Redis DB0 activation and FINAM
+  send remain closed pending later P1-d slices.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

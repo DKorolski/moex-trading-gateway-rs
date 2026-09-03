@@ -598,6 +598,205 @@ pub(crate) mod schedule_window_evidence {
         }
     }
 
+    // STAGE8B-P1D1-EXECUTION-ELIGIBILITY-BEGIN: opaque-next-bar-v1
+    /// Narrow bridge result retained by the P1-d1 eligibility capability.
+    /// The source projection stays owned here and cannot be reconstructed from
+    /// the redacted fingerprint or serialized Redis fields.
+    pub(crate) struct Stage8bP1d1ScheduleProjectionApproved {
+        _projection: Stage5eScheduleProjectionBridgeInput,
+        identity_fingerprint: [u8; 32],
+        expires_at: DateTime<Utc>,
+    }
+
+    impl Stage8bP1d1ScheduleProjectionApproved {
+        pub(crate) fn identity_fingerprint(&self) -> [u8; 32] {
+            self.identity_fingerprint
+        }
+
+        pub(crate) fn expires_at(&self) -> DateTime<Utc> {
+            self.expires_at
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub(crate) enum Stage8bP1d1ScheduleBridgeBlockReason {
+        InstrumentMismatch,
+        NotYetObserved,
+        Expired,
+        CandidateInFuture,
+        CrossTradingDay,
+        ExecutionBarGap,
+        Rejected,
+    }
+
+    pub(crate) struct Stage8bP1d1ScheduleProjectionBlocked {
+        reason: Stage8bP1d1ScheduleBridgeBlockReason,
+        projection: Stage5eScheduleProjectionBridgeInput,
+    }
+
+    impl Stage8bP1d1ScheduleProjectionBlocked {
+        pub(crate) fn into_parts(
+            self,
+        ) -> (
+            Stage8bP1d1ScheduleBridgeBlockReason,
+            Stage5eScheduleProjectionBridgeInput,
+        ) {
+            (self.reason, self.projection)
+        }
+    }
+
+    /// Sole Stage 5E -> P1-d1 execution-eligibility bridge.  It consumes the
+    /// accepted schedule projection and returns an opaque capability only for
+    /// the exact predecessor/candidate pair.  No calendar rows leave this
+    /// module.
+    pub(crate) fn classify_stage8b_p1d1_execution_bar(
+        projection: Stage5eScheduleProjectionBridgeInput,
+        instrument: &broker_core::InstrumentId,
+        predecessor_close_ts: i64,
+        candidate_close_ts: i64,
+        observed_at: DateTime<Utc>,
+    ) -> Result<Stage8bP1d1ScheduleProjectionApproved, Box<Stage8bP1d1ScheduleProjectionBlocked>>
+    {
+        let window = &projection.schedule_window;
+        let preflight_reason = if &window.instrument != instrument {
+            Some(Stage8bP1d1ScheduleBridgeBlockReason::InstrumentMismatch)
+        } else if observed_at < window.effective_observed_at.0 {
+            Some(Stage8bP1d1ScheduleBridgeBlockReason::NotYetObserved)
+        } else if observed_at > window.expires_at.0 {
+            Some(Stage8bP1d1ScheduleBridgeBlockReason::Expired)
+        } else if candidate_close_ts > observed_at.timestamp() {
+            Some(Stage8bP1d1ScheduleBridgeBlockReason::CandidateInFuture)
+        } else {
+            None
+        };
+        if let Some(reason) = preflight_reason {
+            return Err(Box::new(Stage8bP1d1ScheduleProjectionBlocked {
+                reason,
+                projection,
+            }));
+        }
+
+        let timeframe = std::num::NonZeroU32::new(600).expect("fixed M10 is non-zero");
+        let classification = match classify_expected_close_grid(
+            window,
+            predecessor_close_ts,
+            candidate_close_ts,
+            timeframe,
+        ) {
+            Ok(value) => value,
+            Err(reason) => {
+                let reason = match reason {
+                    Stage5eScheduleClassificationBlockReason::CrossTradingDay => {
+                        Stage8bP1d1ScheduleBridgeBlockReason::CrossTradingDay
+                    }
+                    Stage5eScheduleClassificationBlockReason::InteriorTradableOpen
+                    | Stage5eScheduleClassificationBlockReason::InteriorUnknown
+                    | Stage5eScheduleClassificationBlockReason::EndpointOrCandidateUncovered
+                    | Stage5eScheduleClassificationBlockReason::EndpointOrCandidateAmbiguous => {
+                        Stage8bP1d1ScheduleBridgeBlockReason::ExecutionBarGap
+                    }
+                    _ => Stage8bP1d1ScheduleBridgeBlockReason::Rejected,
+                };
+                return Err(Box::new(Stage8bP1d1ScheduleProjectionBlocked {
+                    reason,
+                    projection,
+                }));
+            }
+        };
+
+        let mut encoder = CanonicalEncoder::new(b"stage8b-p1d1-schedule-execution-eligibility-v1");
+        encoder.field(1, &window.fingerprint.0);
+        encode_instrument(&mut encoder, instrument);
+        encoder.field(10, &predecessor_close_ts.to_be_bytes());
+        encoder.field(11, &candidate_close_ts.to_be_bytes());
+        match classification {
+            Stage5eScheduleSequenceClassification::Contiguous => encoder.field(12, &[1]),
+            Stage5eScheduleSequenceClassification::ApprovedNonTradableBoundary(boundary) => {
+                encoder.field(12, &[2]);
+                encoder.field(13, &boundary);
+            }
+        }
+        let identity_fingerprint = encoder.finish();
+        let expires_at = window.expires_at.0;
+        Ok(Stage8bP1d1ScheduleProjectionApproved {
+            _projection: projection,
+            identity_fingerprint,
+            expires_at,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d1_test_schedule_projection(
+        instrument: broker_core::InstrumentId,
+        predecessor_close_ts: i64,
+        candidate_close_ts: i64,
+        approved_boundary: bool,
+    ) -> Stage5eScheduleProjectionBridgeInput {
+        let observed_at = DateTime::<Utc>::from_timestamp(predecessor_close_ts, 0)
+            .expect("test timestamp must be valid");
+        let trading_day = DateTime::<Utc>::from_timestamp(candidate_close_ts, 0)
+            .expect("test candidate timestamp must be valid")
+            .date_naive();
+        let sessions = if approved_boundary {
+            vec![
+                NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::TradableOpen,
+                    start: MarketBarCloseTime(predecessor_close_ts - 3_600),
+                    end: MarketBarCloseTime(predecessor_close_ts),
+                },
+                NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::BreakOrClearing,
+                    start: MarketBarCloseTime(predecessor_close_ts + 600),
+                    end: MarketBarCloseTime(candidate_close_ts - 600),
+                },
+                NormalizedScheduleSession {
+                    session_type: NormalizedSessionType::TradableOpen,
+                    start: MarketBarCloseTime(candidate_close_ts),
+                    end: MarketBarCloseTime(candidate_close_ts + 3_600),
+                },
+            ]
+        } else {
+            vec![NormalizedScheduleSession {
+                session_type: NormalizedSessionType::TradableOpen,
+                start: MarketBarCloseTime(predecessor_close_ts - 3_600),
+                end: MarketBarCloseTime(candidate_close_ts + 3_600),
+            }]
+        };
+        let fingerprint = {
+            let mut encoder = CanonicalEncoder::new(b"stage8b-p1d1-test-schedule-v1");
+            encode_instrument(&mut encoder, &instrument);
+            encoder.field(10, &predecessor_close_ts.to_be_bytes());
+            encoder.field(11, &candidate_close_ts.to_be_bytes());
+            encoder.field(12, &[u8::from(approved_boundary)]);
+            ScheduleFingerprint(encoder.finish())
+        };
+        issue_schedule_projection_bridge(Stage5eScheduleWindowEvidence {
+            instrument,
+            broker_symbol: "IMOEXF@RTSX".to_string(),
+            venue_mic: "RTSX".to_string(),
+            board: "RTSX".to_string(),
+            trading_day: TradingDay(trading_day),
+            source_contract_version: "stage8b-p1d1-test-v1".to_string(),
+            selected_session_type: NormalizedSessionType::TradableOpen,
+            open_from: MarketBarCloseTime(predecessor_close_ts - 3_600),
+            open_until: MarketBarCloseTime(candidate_close_ts + 3_600),
+            normalized_observed_at: LifecycleInstant(observed_at),
+            stage4_observed_at: LifecycleInstant(observed_at),
+            effective_observed_at: LifecycleInstant(observed_at),
+            expires_at: LifecycleInstant(
+                DateTime::<Utc>::from_timestamp(candidate_close_ts, 0)
+                    .expect("test candidate timestamp must be valid")
+                    + chrono::Duration::hours(1),
+            ),
+            fingerprint,
+            normalized_sessions: sessions,
+            normalized_sessions_fingerprint: [11; 32],
+            normalized_snapshot_identity_fingerprint: [12; 32],
+            stage4_dynamic_session_fingerprint: [13; 32],
+        })
+    }
+    // STAGE8B-P1D1-EXECUTION-ELIGIBILITY-END: opaque-next-bar-v1
+
     pub(crate) struct Stage5eBoundScheduleWindowSequenceForObservedLiveBar {
         payload: Stage5eB3bObservedLiveBarBridgePayload,
         event_key_fingerprint: [u8; 32],

@@ -2899,6 +2899,38 @@ pub struct Stage6dPaperDispatchReceipt {
     durable_frontier_sha256: String,
 }
 
+impl Stage6dPaperDispatchReceipt {
+    /// Crate-private identity view used by the P1-d1 provider gate.  The
+    /// dispatch receipt itself remains linear and opaque to downstream code.
+    pub(crate) fn stage8b_p1d1_identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn stage8b_p1d1_test_dispatch_receipt(
+    command: &BrokerCommand,
+) -> Stage6dPaperDispatchReceipt {
+    let BrokerCommand::PlaceOrder(place) = command else {
+        panic!("P1-d1 test receipt supports PLACE only");
+    };
+    let attribution = HybridRuntimeAttribution::parse_source_comment(
+        place.comment.as_deref().expect("test command attribution"),
+    )
+    .expect("test command attribution must parse");
+    let identity = Stage6DurableRequestIdentityV1::from_place(place, attribution)
+        .expect("test command identity must validate");
+    Stage6dPaperDispatchReceipt {
+        identity,
+        dispatch_record_id: Stage6JournalRecordId::derive(
+            place.request_id,
+            Stage6LifecycleSequence::new(2).expect("test sequence"),
+        ),
+        dispatch_sequence: Stage6LifecycleSequence::new(2).expect("test sequence"),
+        durable_frontier_sha256: "a".repeat(64),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Stage6dPaperExecutionReport {
     pub strategy_request_id: StrategyRequestId,

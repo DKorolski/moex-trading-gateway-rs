@@ -1,0 +1,31 @@
+id,area,requirement,status
+P1D1-001,lineage,Accepted predecessor is exact P1-d0 policy commit 0d59d54d42fc29ae7b31359c1ded8efbd3a348fd,REQUIRED
+P1D1-002,scope,P1-d1 implements Market provider core only,REQUIRED
+P1D1-003,authority,Stage5E schedule projection remains opaque and nonserializable,REQUIRED
+P1D1-004,authority,Exactly one crate-private Stage5E to P1-d1 eligibility bridge exists,REQUIRED
+P1D1-005,authority,Redis and provider code cannot parse schedule rows or mint eligibility,REQUIRED
+P1D1-006,chronology,Decision bar cannot execute its own PLACE command,REQUIRED
+P1D1-007,chronology,Contiguous later final live M10 may become eligible,REQUIRED
+P1D1-008,chronology,Approved clearing or maintenance boundary may become eligible,REQUIRED
+P1D1-009,chronology,Skipped tradable interval is ExecutionBarGap,REQUIRED
+P1D1-010,chronology,Cross-day candidate fails closed,REQUIRED
+P1D1-011,chronology,History warmup nonfinal and wrong timeframe candidates fail closed,REQUIRED
+P1D1-012,freshness,Not-yet-observed expired and future schedule observations fail closed,REQUIRED
+P1D1-013,binding,Request command predecessor operational identity and instrument bind exactly,REQUIRED
+P1D1-014,binding,Canonical candidate semantic and payload hashes bind exactly,REQUIRED
+P1D1-015,binding,Zero or multiple candidate observations mint no eligibility,REQUIRED
+P1D1-016,predispatch,AwaitingExecutionBar exposes no provider operation,REQUIRED
+P1D1-017,predispatch,ExecutionEligible exposes no provider operation,REQUIRED
+P1D1-018,predispatch,MarketDispatchReady requires linear Stage6dPaperDispatchReceipt,REQUIRED
+P1D1-019,recovery,Post-dispatch crash does not re-enter the P1 journal-ahead exception,REQUIRED
+P1D1-020,market,Market accepts only PLACE Day no-limit positive-quantity shape,REQUIRED
+P1D1-021,market,Any non-None TTL fails closed before wait authority,REQUIRED
+P1D1-022,market,Fill price equals exact Decimal execution-bar open,REQUIRED
+P1D1-023,market,Fill quantity equals complete command quantity,REQUIRED
+P1D1-024,market,Fill source timestamp equals execution-bar open timestamp,REQUIRED
+P1D1-025,identity,Order ID uses the accepted full domain-separated SHA-256 formula,REQUIRED
+P1D1-026,identity,Trade ID binds order execution-bar semantic ID and ordinal one,REQUIRED
+P1D1-027,determinism,Redis ID consumer process epoch and wall clock do not affect IDs,REQUIRED
+P1D1-028,adapter,P1-c canonical decoder copies exact M10 Decimal and identity facts read-only,REQUIRED
+P1D1-029,closure,Feedback ACK source-M10 XACK LIMIT cancel and expiry remain closed,REQUIRED
+P1D1-030,safety,Operational DB0 FINAM dispatch runtime-live and real orders remain closed,REQUIRED
