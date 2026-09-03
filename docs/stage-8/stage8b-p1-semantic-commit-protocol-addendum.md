@@ -1,9 +1,12 @@
 # Stage 8B-P1 semantic-commit protocol addendum
 
-Status: R1 review candidate, 2026-09-02.
+Status: R1A review candidate, 2026-09-03.
 
 P1-a source implementation was independently accepted at
-`6647382bca8950cb1a831cf6082a9f0eacb3bdcc`. R1 changes only the future
+`6647382bca8950cb1a831cf6082a9f0eacb3bdcc`. R1 at
+`952c68924777e8ce65841a30effc08904bfddfa0` closed the dispatch ownership,
+multi-intent, persistence-topology and M10-collision findings but exposed the
+`RequestAccepted`-to-covering-seal crash window. R1A changes only that future
 P1-b/P1-c semantic protocol. It does not change or reopen P1-a.
 
 This addendum freezes the transaction boundary required before P1-b and P1-c
@@ -146,7 +149,10 @@ P1-b may add one narrow same-owner API. That API must:
    publication descriptor sufficient to reproduce the exact command bytes;
 4. return one opaque linear publication capability;
 5. never append `DispatchAttemptRecorded`, invoke a provider, publish to Redis
-   or create another journal/runtime owner.
+   or create another journal/runtime owner;
+6. classify an exact journal-ahead `RequestAccepted` after restart as the
+   typed non-dispatchable recovery state defined below rather than ordinary
+   `Ready` or a generic dispatch capability.
 
 There is one persistence topology:
 
@@ -160,6 +166,81 @@ Stage7B recovery seal
 
 An independent Stage5G checkpoint file or second writable journal is
 forbidden.
+
+## Restart-atomic pre-publication closure
+
+The Stage6 `RequestAccepted` append/fsync and the following Stage7B recovery
+seal replace/fsync are separate physical writes. The same-owner API must make
+their combined semantic transition restart-atomic through exact recovery, not
+claim that the writes are physically atomic.
+
+Before the first write, the P1 owner deterministically freezes this transition
+binding:
+
+```text
+prior Stage7B seal generation and commitment/hash
+prior Stage6 checkpoint/frontier
+canonical M10 Redis ID plus semantic ID and payload hash
+semantic batch ID
+StrategyRequestId
+canonical BrokerCommand bytes and payload hash
+expected RequestAccepted record identity
+```
+
+The accepted record and every later covering object must bind the same tuple.
+The prior seal is `S0`; the intended pre-publication covering seal is `S1`.
+
+If the process crashes after `RequestAccepted` is fsync-backed but before S1
+is durably committed and reread, Stage7B restart may recognize only this exact
+journal-ahead shape:
+
+```text
+S0 authenticates and is current
+Stage6 journal prefix exactly equals the checkpoint embedded in S0
+journal suffix is exactly one compatible P1 RequestAccepted
+no DispatchAttemptRecorded follows it
+no provider or terminal record follows it
+the referenced canonical M10 still exists in the exact P1 stream/group
+and remains unacknowledged
+```
+
+That shape yields one opaque non-dispatchable state conceptually named
+`P1SemanticPrepublicationPending`. It is neither normal `Ready` nor provider,
+Redis-publication or M10-XACK authority. The existing global rule that an
+arbitrary unbound non-final Stage6 request blocks recovery remains unchanged.
+
+The single P1 composition owner resolves this typed state as follows:
+
+1. restore the sole Hybrid owner from S0;
+2. reclaim/read the exact same unacknowledged M10 by its canonical ID;
+3. replay exactly one deterministic Hybrid callback;
+4. require equality of the M10 identity/hash, semantic batch ID,
+   StrategyRequestId, canonical BrokerCommand bytes/hash and durable
+   `RequestAccepted` identity;
+5. export the matching authenticated Stage5G package;
+6. commit S1 embedding that package, the journal-ahead Stage6 checkpoint,
+   exact operational identity and pending publication descriptor;
+7. fsync and reread S1;
+8. only then return the opaque command-publication capability.
+
+Before step 7 succeeds, command `XADD`, provider invocation, ACK/DLQ
+publication and M10 `XACK` are forbidden. An absent/acked/trimmed M10, extra
+journal suffix, changed request or command bytes, mismatched batch/frontier,
+`DispatchAttemptRecorded`, provider evidence or invalid S0/S1 yields
+`PaperNotReady` with operator evidence and no side effect.
+
+A crash before the `RequestAccepted` append leaves S0 and its exact Stage6
+checkpoint authoritative, so ordinary deterministic M10 replay is valid. A
+crash during S1 replacement resolves on restart to exactly one of:
+
+```text
+S0 visible -> typed journal-ahead recovery above
+valid S1 visible -> authenticated pre-publication state
+neither exact state -> PaperNotReady
+```
+
+No arbitrary unbound request becomes restartable and no rollback or deletion
+of the append-only Stage6 record is permitted.
 
 ## Commit order: zero-intent M10
 
@@ -192,7 +273,7 @@ For a transition that emits exactly one intent, the only accepted order is:
    StrategyRequestId and canonical BrokerCommand bytes
 3. export the authenticated Stage5G package containing that pending request
 4. use the same Stage7B owner to append/reuse compatible RequestAccepted and
-   commit the pre-publication recovery seal; do not mint
+   enter the restart-atomic pre-publication protocol; do not mint
    DispatchAttemptRecorded
 5. fsync and reread that seal before any command publication
 6. publish the exact canonical Stage7A BrokerCommand envelope
@@ -225,7 +306,10 @@ state.
 | Crash frontier | Required restart behaviour | M10 XACK allowed |
 |---|---|---|
 | after M10 read, before Hybrid callback | redeliver the same M10 and deterministically execute one callback | no |
-| after callback, before a cross-bound seal | discard the in-memory candidate, restore the prior seal and deterministically replay; publish no command | no |
+| after callback, before any Stage6 append | discard the in-memory candidate, restore S0 and deterministically replay; publish no command | no |
+| after RequestAccepted fsync, before S1 commit/reread | return only typed P1 journal-ahead recovery; reconstruct from S0 plus the same unacknowledged M10; require exact request/command/accepted-record identity; commit and reread S1 before publication | no |
+| after S1 temp-file fsync, before rename | on restart use S0-visible typed journal-ahead recovery; never infer S1 authority from the temp file | no |
+| after S1 rename, before directory fsync/reread | revalidate the visible seal; continue only from exact valid S1 or exact S0 journal-ahead state; otherwise PaperNotReady | no |
 | after zero-intent seal fsync/reread | recognize the committed batch and skip the callback | yes, last |
 | after intent pre-publication seal, before BrokerCommand XADD | recover the pending publication descriptor and republish the exact command bytes with no new request ID | no |
 | after BrokerCommand XADD, before Stage7B consumption | leave the Redis command consumable; do not repeat the semantic transition | no |
@@ -239,6 +323,21 @@ state.
 Conflicting duplicates, missing cross-bindings, non-monotonic checkpoints and
 ambiguous provider effects remain unresolved/blocked. They are never converted
 to a successful ACK or an XACK.
+
+Future P1-b process-level acceptance must inject real process termination at
+all pre-publication boundaries: before `RequestAccepted`, immediately after
+journal fsync, before S1 temp fsync, after temp fsync/before rename and after
+rename/before directory fsync/reread. Exact-M10 recovery must preserve the
+request ID and command bytes with zero provider calls and zero command
+publication before S1. Wrong/trimmed M10, changed command bytes, extra Stage6
+suffix and an existing `DispatchAttemptRecorded` must fail closed.
+
+For initial paper operation the canonical M10 stream must not trim an entry
+while it is pending, unacknowledged or referenced by recovery material. Later
+command publication evidence must retain the command payload hash, returned
+Redis entry ID, semantic batch ID, StrategyRequestId and S1 generation/hash so
+`not published`, `confirmation lost` and `exact duplicate republished` remain
+distinguishable.
 
 ## Deferred fill policy
 
