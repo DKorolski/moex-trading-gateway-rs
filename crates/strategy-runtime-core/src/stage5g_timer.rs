@@ -1729,6 +1729,12 @@ impl Stage5gTimerReadyPaperStrategy {
         self.settlement.stage5g_restart_ready_authority()
     }
 
+    pub(crate) fn stage8b_p1_restart_stage5c_authority(
+        &self,
+    ) -> Option<crate::stage5c_paper_host::Stage5cTimerReadyRestartAuthorityV1> {
+        self.settlement.stage8b_p1_restart_ready_authority()
+    }
+
     pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
         checkpoint_envelope(&self.replay, Some(self.checkpoint_ts_utc_ms))
     }
@@ -1764,6 +1770,31 @@ impl Stage5gTimerReadyPaperStrategy {
     }
 }
 
+pub(crate) fn stage8b_p1_restore_timer_ready(
+    runtime: crate::HybridIntradayRuntimeStrategy,
+    summary: Stage5gOrderPositionSummary,
+    checkpoint: Stage5gTimerCheckpointEnvelope,
+    stage5c_authority: &crate::stage5c_paper_host::Stage5cTimerReadyRestartAuthorityV1,
+) -> Result<Stage5gTimerReadyPaperStrategy, Stage5gTimerError> {
+    validate_stage5g_timer_checkpoint(&checkpoint)
+        .map_err(|_| Stage5gTimerError::UnexpectedStage5cState)?;
+    let checkpoint_ts_utc_ms = checkpoint
+        .payload
+        .last_continuation_checkpoint_ts_utc_ms
+        .ok_or(Stage5gTimerError::UnexpectedStage5cState)?;
+    let settlement = crate::stage5c_paper_host::stage8b_p1_restore_timer_ready_settlement(
+        runtime,
+        stage5c_authority,
+    )
+    .map_err(|_| Stage5gTimerError::UnexpectedStage5cState)?;
+    Ok(Stage5gTimerReadyPaperStrategy {
+        settlement,
+        summary,
+        replay: replay_from_payload(&checkpoint.payload),
+        checkpoint_ts_utc_ms,
+    })
+}
+
 impl Stage5gTimerGeneratedIntentEscrow {
     pub fn checkpoint(&self) -> Stage5gTimerCheckpointEnvelope {
         checkpoint_envelope(&self.replay, Some(self.checkpoint_ts_utc_ms))
@@ -1776,6 +1807,24 @@ impl Stage5gTimerGeneratedIntentEscrow {
     }
     pub fn summary(&self) -> &Stage5gOrderPositionSummary {
         &self.summary
+    }
+    pub(crate) fn stage8b_p1_command_material(
+        &self,
+    ) -> Result<crate::stage5c_paper_host::Stage8bP1CommandMaterial, ()> {
+        crate::stage5c_paper_host::stage8b_p1_single_intent_command_material(&self.settled)
+    }
+    pub(crate) fn stage8b_p1_runtime_strategy(&self) -> &crate::HybridIntradayRuntimeStrategy {
+        self.settled.stage5g_runtime_strategy()
+    }
+    pub(crate) fn stage8b_p1_restart_binding(
+        &self,
+    ) -> (
+        &str,
+        &broker_core::BrokerAccountId,
+        &broker_core::InstrumentId,
+    ) {
+        let batch = self.settled.intent_batch();
+        (batch.strategy_id(), batch.account_id(), batch.instrument())
     }
     #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     pub(crate) fn source_intent_projections(

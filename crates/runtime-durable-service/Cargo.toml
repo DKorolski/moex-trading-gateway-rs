@@ -9,12 +9,14 @@ rust-version.workspace = true
 [features]
 default = []
 stage8a4-i3-test-fixtures = ["strategy-runtime-core/stage5g-artifact-fixtures"]
+stage8b-p1-test-fixtures = ["strategy-runtime-core/stage5g-artifact-fixtures"]
 
 [dependencies]
 broker-core = { path = "../broker-core" }
 chrono.workspace = true
 libc.workspace = true
 redis.workspace = true
+rust_decimal.workspace = true
 runtime-command-bridge = { path = "../runtime-command-bridge" }
 serde.workspace = true
 serde_json.workspace = true

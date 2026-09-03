@@ -141,15 +141,51 @@
 //! use runtime_durable_service::Stage8bP1FirstBootAdminCommand;
 //! let _forged = Stage8bP1FirstBootAdminCommand {};
 //! ```
+//!
+//! P1-b semantic composition, journal-ahead recovery and M10 delivery
+//! authorities remain linear and opaque. They cannot be cloned, serialized,
+//! forged or split into independently reusable owners:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticPrepublicationPending;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<P1SemanticPrepublicationPending>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::P1SemanticPrepublicationPending;
+//! let pending: P1SemanticPrepublicationPending = unreachable!();
+//! let _ = serde_json::to_vec(&pending).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::{Stage8bP1LocalM10Stream, Stage8bP1SemanticCompositionOwner};
+//! let stage7 = unreachable!();
+//! let stream: Stage8bP1LocalM10Stream = unreachable!();
+//! let owner = Stage8bP1SemanticCompositionOwner { stage7, m10_stream: stream };
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1PendingM10Delivery;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1PendingM10Delivery>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1SemanticPrepublicationOwner;
+//! let authority: Stage8bP1SemanticPrepublicationOwner = unreachable!();
+//! let _ = serde_json::to_vec(&authority).unwrap();
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
 
 mod recovery;
 mod stage8b_p1_bootstrap;
+mod stage8b_p1_semantic;
 
 pub use recovery::{
-    spawn_stage7b_supervised_task, Stage7bCompositeHealthSnapshot,
+    spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, Stage7bCompositeHealthSnapshot,
     Stage7bCompositeReadinessSnapshot, Stage7bPaperReadinessPhase, Stage7bPaperReadinessReason,
     Stage7bRecoveryBlockReason, Stage7bRecoveryBlocked, Stage7bRecoveryError,
     Stage7bRecoveryReadyOwner, Stage7bRecoverySealV1, Stage7bRedisService,
@@ -157,8 +193,9 @@ pub use recovery::{
     Stage7bServiceRunSummary, Stage7bServiceSupervisor, Stage7bServiceTaskHandle,
     Stage7bServiceTaskOutput, Stage7bStage8a1DurableRequestAuthority,
     Stage7bStage8a4DurableBatchReceipt, Stage7bStage8a4TerminalAuthority,
-    Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner,
-    STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
+    Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner, Stage8bP1MultiIntentBlocked,
+    Stage8bP1SemanticCommitOutcome, Stage8bP1SemanticPrepublicationOwner,
+    Stage8bP1ZeroIntentCommitReceipt, STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage8a4-i3-test-fixtures")]
 #[doc(hidden)]
@@ -170,6 +207,11 @@ pub use recovery::{
 #[doc(hidden)]
 pub use recovery::{
     stage8a4_i3_test_fail_before_covering_seal, stage8a4_i3_test_set_owner_journal_failpoint,
+};
+#[cfg(feature = "stage8b-p1-test-fixtures")]
+#[doc(hidden)]
+pub use recovery::{
+    stage8b_p1_test_stop_after_dispatch_attempt, stage8b_p1_test_stop_after_request_accepted,
 };
 pub use stage8b_p1_bootstrap::{
     authorize_stage8b_p1_first_boot, first_boot_stage8b_p1,
@@ -183,6 +225,17 @@ pub use stage8b_p1_bootstrap::{
     STAGE8B_P1_INTERNAL_SYMBOL, STAGE8B_P1_M10_CONSUMER_GROUP, STAGE8B_P1_MARKET,
     STAGE8B_P1_REDIS_HASH_TAG, STAGE8B_P1_STAGE7B_CONSUMER_GROUP, STAGE8B_P1_STRATEGY_ID,
     STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
+};
+pub use stage8b_p1_semantic::{
+    build_stage8b_p1_canonical_m10, parse_stage8b_p1_canonical_m10,
+    resume_stage8b_p1_journal_ahead_with_local_m10, Stage8bP1CanonicalM10BuildInput,
+    Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1, Stage8bP1LocalM10Error,
+    Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked, Stage8bP1LocalPrepublicationPending,
+    Stage8bP1LocalSemanticOutcome, Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
+    Stage8bP1SemanticCompositionError, Stage8bP1SemanticCompositionOwner,
+    Stage8bP1ValidatedCanonicalM10, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
+    STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
+    STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
 };
 
 use std::{

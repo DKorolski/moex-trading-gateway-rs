@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-b",
+  "status": "IMPLEMENTATION_REVIEW_CANDIDATE",
+  "accepted_predecessor_ref": "073ae9f38acd06b7a5febdbfc1e75a7b460adf03",
+  "scope": "canonical M10 to deterministic Hybrid semantic commit and authenticated S1",
+  "positive_evidence": {
+    "canonical_m10_roundtrip": "PASS",
+    "zero_intent_s1_then_xack": "PASS",
+    "one_intent_deterministic_prepublication": "PASS",
+    "journal_ahead_exact_reconstruction": "PASS",
+    "subprocess_kill_frontiers": "7/7 PASS"
+  },
+  "negative_evidence": {
+    "changed_m10": "PASS_FAIL_CLOSED",
+    "missing_m10": "PASS_FAIL_CLOSED",
+    "acknowledged_m10": "PASS_FAIL_CLOSED",
+    "dispatch_attempt_suffix": "PASS_FAIL_CLOSED",
+    "generic_unbound_nonfinal_request": "PASS_FAIL_CLOSED",
+    "multi_intent": "PASS_NONCONTINUABLE",
+    "opaque_authority_compile_fail": "PASS"
+  },
+  "verification": {
+    "workspace_default_all_targets": "PASS",
+    "strategy_runtime_core_lib_tests": "1216/1216 PASS",
+    "runtime_durable_service_lib_tests": "97 PASS; 3 intentional crash children ignored",
+    "runtime_durable_service_doctests": "23/23 PASS",
+    "targeted_clippy_all_targets_all_features_deny_warnings": "PASS",
+    "source_scope_checker": "PASS",
+    "negative_harness": "PASS",
+    "aggregate_gate": "PASS"
+  },
+  "non_blocking_preexisting_workspace_observations": {
+    "workspace_clippy_default": "UNCHANGED_FINAM_GATEWAY_DEAD_CODE_FINDINGS",
+    "workspace_all_features_test": "M3J16_OPT_IN_CONFLICTS_WITH_ITS_DISABLED_MARKER_TEST"
+  },
+  "closed_surfaces": {
+    "operational_redis_db0": false,
+    "redis_network_client_in_p1b": false,
+    "command_xadd": false,
+    "ack_or_dlq_publication": false,
+    "paper_provider": false,
+    "finam_transport": false,
+    "finam_post_delete": false,
+    "broker_execution": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "p1c_authorized": false
+  }
+}

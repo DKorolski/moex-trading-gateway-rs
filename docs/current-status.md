@@ -1321,14 +1321,15 @@ Amber:
 - Stage 8B P0 on the isolated VPS is active only for read-only FINAM
   transport/runtime projection. A separate `readonly=true` token is installed;
   it has no order capability and is revalidated on every WebSocket generation.
-- Stage 8B-P1 durable paper lifecycle architecture is accepted with staged
-  authorization. P1-a bootstrap/identity is an implementation review
-  candidate: it provides source-produced zero-intent Stage 5G bootstrap,
-  separate commitment-key custody, exact identity/root binding and
-  restart-only normal mode while keeping Redis and FINAM detached. P1-b/P1-c
-  remain on hold pending acceptance of the separate canonical-M10
-  semantic-commit addendum; provider, projection and operational activation
-  remain later work.
+- Stage 8B-P1 durable paper lifecycle architecture, P1-a bootstrap/identity and
+  the R1A semantic-commit addendum are accepted. P1-b is now an implementation
+  review candidate: canonical final M10 drives the real Hybrid semantic facade
+  under one owner, zero/one-intent state is covered by authenticated S1, and
+  the exact RequestAccepted journal-ahead crash frontier is recoverable only
+  from the same pending M10. Seven subprocess/SIGKILL boundaries and negative
+  changed/missing/ACKed-M10 and extra-suffix cases are covered. P1-c command
+  publication, provider, operational Redis activation and FINAM send remain
+  closed.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

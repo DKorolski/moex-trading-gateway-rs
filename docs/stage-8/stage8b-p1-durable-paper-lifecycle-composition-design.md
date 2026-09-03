@@ -1,9 +1,8 @@
 # Stage 8B-P1 durable paper lifecycle composition design
 
-Status: architecture accepted with staged authorization. P1-a is implemented
-as a review candidate; P1-b/P1-c require acceptance of the semantic-commit
-addendum. No P1 Redis consumer or VPS activation is authorized by this
-document.
+Status: architecture, P1-a and the semantic-commit R1A addendum are accepted.
+P1-b is an implementation review candidate; P1-c remains closed. No P1 Redis
+consumer or VPS activation is authorized by this document.
 
 ## Decision
 
@@ -112,8 +111,8 @@ second owner.
 
 The exact M10 stream, semantic batch identity, Stage 5G/6/7 commit ordering,
 M10-last XACK rule and crash matrix are frozen in
-`stage8b-p1-semantic-commit-protocol-addendum.md`. Until that addendum is
-accepted, P1-b and P1-c implementation remain on hold.
+`stage8b-p1-semantic-commit-protocol-addendum.md`. R1A acceptance authorizes
+P1-b source implementation only; P1-c command publication remains on hold.
 
 ### Required narrow source change
 

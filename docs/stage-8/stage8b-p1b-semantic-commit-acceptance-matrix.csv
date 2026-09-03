@@ -1,0 +1,17 @@
+id,area,requirement,evidence,status
+P1B-001,m10,Strict canonical final M10 schema and parser,canonical_roundtrip_and_stage5c_admission_are_exact,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-002,m10,Deterministic exact ID semantic hash and payload hash,canonical parser and duplicate test,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-003,m10,Group exists before publish and exact duplicates are idempotent,group_precedes_publish_and_exact_duplicate_is_idempotent,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-004,retention,Pending recovery M10 cannot be trimmed,active_entry_cannot_be_trimmed_and_delivery_is_exact_bound,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-005,ownership,One composition owner retains Stage7 and M10 authority,opaque API plus compile-fail doctests,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-006,zero-intent,S1 reread precedes the only M10 XACK,zero_intent_commits_s1_before_the_only_m10_xack,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-007,one-intent,One deterministic command stops at prepublication with M10 pending,one_intent_commits_s1_but_retains_m10_and_exposes_no_publication,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-008,binding,RequestAccepted binds S0 M10 semantic request and command identities,journal_ahead_request_accepted_reconstructs_only_from_exact_pending_m10,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-009,recovery,Exact one-record S0 journal-ahead state is typed and non-dispatchable,journal_ahead_request_accepted_reconstructs_only_from_exact_pending_m10,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-010,recovery,Changed missing or acknowledged M10 fails before completion,journal_ahead_rejects_changed_missing_and_acked_m10 tests,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-011,recovery,Dispatch or any extra suffix cannot enter the P1 exception,journal_ahead_exception_rejects_dispatch_attempt_suffix,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-012,multi-intent,More than one intent returns only a non-continuable diagnostic,p1_multi_intent_boundary_returns_only_noncontinuable_diagnostic,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-013,crash,All seven prepublication process-kill frontiers restore fail closed,subprocess_kill_matrix_recovers_all_seven_prepublication_frontiers,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-014,opacity,Pending delivery composition and prepublication owners are non-Clone non-Serialize and unforgeable,23 compile-fail doctests,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-015,separation,P1-b opens no Redis FINAM provider dispatch or live surface,stage8b_p1b_semantic_commit_check.py,IMPLEMENTED_REVIEW_CANDIDATE
+P1B-016,publication,Operational command publication and settlement remain closed,separate P1-c review,DEFERRED_TO_P1C

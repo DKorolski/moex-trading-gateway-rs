@@ -1,6 +1,7 @@
 # Stage 8B-P1 semantic-commit protocol addendum
 
-Status: R1A review candidate, 2026-09-03.
+Status: R1A independently accepted at
+`073ae9f38acd06b7a5febdbfc1e75a7b460adf03`, 2026-09-03.
 
 P1-a source implementation was independently accepted at
 `6647382bca8950cb1a831cf6082a9f0eacb3bdcc`. R1 at
@@ -348,7 +349,7 @@ order/trade IDs.
 
 ## Authorization boundary
 
-P1-b and P1-c remain on hold until this addendum is independently accepted.
-P1 DB0 publication and consumer activation remain closed until the complete P1
-service passes independent operational acceptance. Existing P0 read-only
-market-data/runtime projection in DB0 may remain active.
+The addendum is independently accepted and authorizes P1-b source
+implementation. P1-c command publication, P1 DB0 publication and consumer
+activation remain closed until their separate acceptance. Existing P0
+read-only market-data/runtime projection in DB0 may remain active.

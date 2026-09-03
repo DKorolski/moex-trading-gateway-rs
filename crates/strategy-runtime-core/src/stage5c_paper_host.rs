@@ -2966,6 +2966,13 @@ pub(crate) struct Stage5gSourceIntentProjection {
     pub expected_attribution: Option<broker_core::HybridRuntimeAttribution>,
 }
 
+pub(crate) struct Stage8bP1CommandMaterial {
+    pub(crate) command: broker_core::BrokerCommand,
+    pub(crate) instrument: broker_core::InstrumentId,
+    pub(crate) expected_attribution: broker_core::HybridRuntimeAttribution,
+    pub(crate) source: Stage5gSourceIntentProjection,
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Stage5gSourceIntentProjectionWire {
@@ -3642,6 +3649,121 @@ fn stage5g_source_intent_projections(
         })
         .collect()
 }
+
+pub(crate) fn stage8b_p1_single_intent_command_material(
+    settled: &Stage5cSettledPaperStrategy,
+) -> Result<Stage8bP1CommandMaterial, ()> {
+    if settled.batch.records.len() != 1 || settled.batch.request_ids.len() != 1 {
+        return Err(());
+    }
+    let record = &settled.batch.records[0];
+    if record.request_id != settled.batch.request_ids[0] {
+        return Err(());
+    }
+    let attribution = record.expected_attribution.clone().ok_or(())?;
+    attribution.validate_source_equivalence().map_err(|_| ())?;
+    if !attribution.belongs_to(&settled.batch.strategy_id) {
+        return Err(());
+    }
+    let created_ts = Utc
+        .timestamp_opt(record.source_event_ts, 0)
+        .single()
+        .ok_or(())?;
+    let decimal = |value: f64| {
+        if !value.is_finite() {
+            return Err(());
+        }
+        value
+            .to_string()
+            .parse::<rust_decimal::Decimal>()
+            .map_err(|_| ())
+    };
+    let order_side = |side: crate::BrokerNeutralOrderSide| match side {
+        crate::BrokerNeutralOrderSide::Buy => broker_core::OrderSide::Buy,
+        crate::BrokerNeutralOrderSide::Sell => broker_core::OrderSide::Sell,
+    };
+    let command = match record.intent.base_intent() {
+        crate::BrokerNeutralHybridIntent::Market {
+            side, qty, comment, ..
+        } => {
+            if decimal(*qty)? <= rust_decimal::Decimal::ZERO
+                || comment.as_deref() != Some(attribution.internal_comment())
+            {
+                return Err(());
+            }
+            broker_core::BrokerCommand::PlaceOrder(broker_core::PlaceOrder {
+                request_id: record.request_id,
+                created_ts,
+                ttl_ms: None,
+                account_id: settled.batch.account_id.clone(),
+                client_order_id: broker_core::ClientOrderId::from_strategy_request(
+                    record.request_id,
+                ),
+                instrument: settled.batch.instrument.clone(),
+                side: order_side(*side),
+                order_type: broker_core::OrderType::Market,
+                qty: decimal(*qty)?,
+                limit_price: None,
+                time_in_force: broker_core::TimeInForce::Day,
+                comment: comment.clone(),
+            })
+        }
+        crate::BrokerNeutralHybridIntent::Place {
+            side,
+            qty,
+            price,
+            comment,
+        } => {
+            if decimal(*qty)? <= rust_decimal::Decimal::ZERO
+                || decimal(*price)? <= rust_decimal::Decimal::ZERO
+                || comment.as_deref() != Some(attribution.internal_comment())
+            {
+                return Err(());
+            }
+            broker_core::BrokerCommand::PlaceOrder(broker_core::PlaceOrder {
+                request_id: record.request_id,
+                created_ts,
+                ttl_ms: None,
+                account_id: settled.batch.account_id.clone(),
+                client_order_id: broker_core::ClientOrderId::from_strategy_request(
+                    record.request_id,
+                ),
+                instrument: settled.batch.instrument.clone(),
+                side: order_side(*side),
+                order_type: broker_core::OrderType::Limit,
+                qty: decimal(*qty)?,
+                limit_price: Some(decimal(*price)?),
+                time_in_force: broker_core::TimeInForce::Day,
+                comment: comment.clone(),
+            })
+        }
+        crate::BrokerNeutralHybridIntent::Cancel { order_id } => {
+            broker_core::BrokerCommand::CancelOrder(broker_core::CancelOrder {
+                request_id: record.request_id,
+                created_ts,
+                ttl_ms: None,
+                account_id: settled.batch.account_id.clone(),
+                order_id: order_id.clone(),
+                client_order_id: None,
+            })
+        }
+        crate::BrokerNeutralHybridIntent::Replace { .. }
+        | crate::BrokerNeutralHybridIntent::CreateStopLimit { .. }
+        | crate::BrokerNeutralHybridIntent::DeleteStopLimit { .. }
+        | crate::BrokerNeutralHybridIntent::Classified { .. }
+        | crate::BrokerNeutralHybridIntent::Routed { .. } => return Err(()),
+    };
+    let source = stage5g_source_intent_projections(&settled.strategy, &settled.batch)
+        .into_iter()
+        .next()
+        .ok_or(())?;
+    Ok(Stage8bP1CommandMaterial {
+        command,
+        instrument: settled.batch.instrument.clone(),
+        expected_attribution: attribution,
+        source,
+    })
+}
 // STAGE5G-C-SOURCE-PROJECTION-END: source-projection-function
 
 pub struct Stage5cBrokerLifecycleResolvedPaperStrategy {
@@ -3849,11 +3971,33 @@ pub(crate) struct Stage5cRecoveryReceiptProjectionV1 {
     pub(crate) duplicate_events: u64,
 }
 
+pub(crate) const STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION: u16 = 1;
+
+/// Serialized only inside the authenticated Stage 5G package.  It carries
+/// the exact private Stage 5C admission/receipt facts needed to reconstruct a
+/// continuation capability; it is never exposed as a public constructor.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Stage5cTimerContinuationContextV1 {
+    pub(crate) schema_version: u16,
+    pub(crate) checked_ts_utc_ms: i64,
+    pub(crate) issued_ts_utc_ms: i64,
+    pub(crate) expires_at_ts_utc_ms: i64,
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) target_instrument: InstrumentId,
+    pub(crate) tick_size_bits: u64,
+    pub(crate) bootstrap_snapshot: RuntimeHostBootstrapSnapshot,
+    pub(crate) notified_ts_utc_ms: i64,
+    pub(crate) known_order_ids: Vec<BrokerOrderId>,
+    pub(crate) pending_requests: Vec<StrategyRequestId>,
+}
+
 /// Versioned, transport-free projection of the exact Stage 5C authority owned
 /// by a `ReadyForContinuation` timer settlement.  It is deliberately
 /// crate-private: Stage 5G persistence may retain and validate it, while no
 /// downstream caller can construct a raw Stage 5C continuation capability.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Stage5cTimerReadyRestartAuthorityV1 {
     pub(crate) schema_version: u16,
@@ -3863,6 +4007,8 @@ pub(crate) struct Stage5cTimerReadyRestartAuthorityV1 {
     pub(crate) settled_batch_history: Vec<Stage5cPaperIntentBatchSummary>,
     pub(crate) recovery_receipt: Stage5cRecoveryReceiptProjectionV1,
     pub(crate) recovery_receipt_identity_sha256: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) continuation_context: Option<Stage5cTimerContinuationContextV1>,
 }
 
 enum Stage5cTimerSettlementKind {
@@ -3906,6 +4052,19 @@ impl Stage5cTimerSettlement {
     pub(crate) fn stage5g_restart_ready_authority(
         &self,
     ) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+        self.stage5g_restart_ready_authority_inner(false)
+    }
+
+    pub(crate) fn stage8b_p1_restart_ready_authority(
+        &self,
+    ) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+        self.stage5g_restart_ready_authority_inner(true)
+    }
+
+    fn stage5g_restart_ready_authority_inner(
+        &self,
+        include_continuation_context: bool,
+    ) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
         let Stage5cTimerSettlementKind::ReadyForContinuation {
             settled,
             checkpoint_ts_utc_ms,
@@ -3916,6 +4075,27 @@ impl Stage5cTimerSettlement {
         let recovery_receipt = stage5c_recovery_receipt_projection(settled.recovery_receipt());
         let recovery_receipt_identity_sha256 =
             stage5c_recovery_receipt_projection_sha256(&recovery_receipt);
+        let continuation_context = include_continuation_context.then(|| {
+            let pending = settled.recovery_receipt();
+            let warmup = pending.warmup_receipt();
+            let restore = warmup.restore_receipt();
+            let bootstrap = restore.bootstrap_receipt();
+            let admission = &bootstrap.admission;
+            Stage5cTimerContinuationContextV1 {
+                schema_version: STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION,
+                checked_ts_utc_ms: admission.checked_ts.timestamp_millis(),
+                issued_ts_utc_ms: admission.issued_ts.timestamp_millis(),
+                expires_at_ts_utc_ms: admission.expires_at.timestamp_millis(),
+                strategy_id: admission.strategy_id.clone(),
+                account_id: admission.account_id.clone(),
+                target_instrument: admission.target_instrument.clone(),
+                tick_size_bits: admission.tick_size.to_bits(),
+                bootstrap_snapshot: admission.bootstrap_snapshot.clone(),
+                notified_ts_utc_ms: bootstrap.notified_ts.timestamp_millis(),
+                known_order_ids: restore.known_order_ids.clone(),
+                pending_requests: restore.pending_requests.clone(),
+            }
+        });
         Some(Stage5cTimerReadyRestartAuthorityV1 {
             schema_version: STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION,
             settlement_kind: "ready_for_continuation".to_string(),
@@ -3924,6 +4104,7 @@ impl Stage5cTimerSettlement {
             settled_batch_history: settled.settled_batch_history().to_vec(),
             recovery_receipt,
             recovery_receipt_identity_sha256,
+            continuation_context,
         })
     }
 
@@ -3993,6 +4174,127 @@ impl Stage5cTimerSettlement {
     pub fn redis_command_stream_attached(&self) -> bool {
         false
     }
+}
+
+pub(crate) fn stage8b_p1_restore_timer_ready_settlement(
+    strategy: HybridIntradayRuntimeStrategy,
+    authority: &Stage5cTimerReadyRestartAuthorityV1,
+) -> Result<Stage5cTimerSettlement, ()> {
+    let context = authority.continuation_context.as_ref().ok_or(())?;
+    if authority.schema_version != STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION
+        || authority.settlement_kind != "ready_for_continuation"
+        || authority.settled_batch.intent_count != 0
+        || !authority.settled_batch.request_ids.is_empty()
+        || authority.settled_batch.observation_only
+        || authority.settled_batch_history.is_empty()
+        || authority.settled_batch_history.last() != Some(&authority.settled_batch)
+        || context.schema_version != STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION
+        || context.strategy_id != authority.settled_batch.strategy_id
+        || context.account_id != authority.settled_batch.account_id
+        || context.target_instrument != authority.settled_batch.instrument
+        || context.bootstrap_snapshot.account_id != context.account_id
+        || context.bootstrap_snapshot.instrument != context.target_instrument
+        || context.checked_ts_utc_ms > context.issued_ts_utc_ms
+        || context.issued_ts_utc_ms > context.notified_ts_utc_ms
+        || context.notified_ts_utc_ms > authority.recovery_receipt.restored_ts_utc_ms
+        || authority.recovery_receipt.restored_ts_utc_ms
+            > authority.recovery_receipt.warmup_started_ts_utc_ms
+        || authority.recovery_receipt.warmup_started_ts_utc_ms
+            > authority.recovery_receipt.recovered_ts_utc_ms
+        || context.expires_at_ts_utc_ms < authority.recovery_receipt.recovered_ts_utc_ms
+        || !f64::from_bits(context.tick_size_bits).is_finite()
+        || f64::from_bits(context.tick_size_bits) <= 0.0
+        || !context.pending_requests.is_empty()
+        || stage5c_recovery_receipt_projection_sha256(&authority.recovery_receipt)
+            != authority.recovery_receipt_identity_sha256
+    {
+        return Err(());
+    }
+    let timestamp = |millis| Utc.timestamp_millis_opt(millis).single().ok_or(());
+    let checked_ts = timestamp(context.checked_ts_utc_ms)?;
+    let issued_ts = timestamp(context.issued_ts_utc_ms)?;
+    let expires_at = timestamp(context.expires_at_ts_utc_ms)?;
+    let notified_ts = timestamp(context.notified_ts_utc_ms)?;
+    let restored_ts = timestamp(authority.recovery_receipt.restored_ts_utc_ms)?;
+    let warmup_started_ts = timestamp(authority.recovery_receipt.warmup_started_ts_utc_ms)?;
+    let recovered_ts = timestamp(authority.recovery_receipt.recovered_ts_utc_ms)?;
+    let source_mode = match authority.recovery_receipt.source_mode_code {
+        1 => broker_core::Stage3StrategyBarSourceMode::AlorNativeBarsGetAndSubscribeTf600,
+        2 => broker_core::Stage3StrategyBarSourceMode::AlorStandDerivedM1ToM10,
+        3 => broker_core::Stage3StrategyBarSourceMode::FinamDerivedM1ToM10,
+        4 => broker_core::Stage3StrategyBarSourceMode::FinamNativeM10,
+        5 => broker_core::Stage3StrategyBarSourceMode::RawFinamM1,
+        _ => return Err(()),
+    };
+    let processed_bars =
+        usize::try_from(authority.recovery_receipt.processed_bars).map_err(|_| ())?;
+    let input_bars = usize::try_from(authority.recovery_receipt.input_bars).map_err(|_| ())?;
+    let replayed_events =
+        usize::try_from(authority.recovery_receipt.replayed_events).map_err(|_| ())?;
+    let duplicate_events =
+        usize::try_from(authority.recovery_receipt.duplicate_events).map_err(|_| ())?;
+    if processed_bars > input_bars {
+        return Err(());
+    }
+    let admission = Stage5cPaperHostAdmission {
+        schema_version: STAGE5C_PAPER_HOST_ADMISSION_SCHEMA_VERSION,
+        checked_ts,
+        issued_ts,
+        expires_at,
+        strategy_id: context.strategy_id.clone(),
+        account_id: context.account_id.clone(),
+        target_instrument: context.target_instrument.clone(),
+        tick_size: f64::from_bits(context.tick_size_bits),
+        bootstrap_snapshot: context.bootstrap_snapshot.clone(),
+        paper_only: true,
+        runtime_host_attached: false,
+        intent_sink_attached: false,
+    };
+    let bootstrap_receipt = Stage5cBootstrapNotificationReceipt {
+        admission,
+        notified_ts,
+    };
+    let restore_receipt = Stage5cRuntimeStateRestoreReceipt {
+        bootstrap_receipt,
+        restored_ts,
+        known_order_ids: context.known_order_ids.clone(),
+        pending_requests: context.pending_requests.clone(),
+    };
+    let warmup_receipt = Stage5cHistoryWarmupReceipt {
+        restore_receipt,
+        started_ts: warmup_started_ts,
+        processed_bars,
+        input_bars,
+        source_mode,
+        last_history_ts: authority.recovery_receipt.last_history_ts,
+    };
+    let recovery_receipt = Stage5cPendingRecoveryReceipt {
+        warmup_receipt,
+        recovered_ts,
+        replayed_events,
+        duplicate_events,
+    };
+    let summary = &authority.settled_batch;
+    let batch = Stage5cPaperIntentBatch {
+        strategy_id: summary.strategy_id.clone(),
+        account_id: summary.account_id.clone(),
+        instrument: summary.instrument.clone(),
+        bar_close_ts: summary.bar_close_ts,
+        state_fingerprint: summary.state_fingerprint.clone(),
+        request_ids: Vec::new(),
+        records: Vec::new(),
+        observation_only: false,
+    };
+    let settled = Stage5cSettledPaperStrategy {
+        strategy,
+        recovery_receipt,
+        batch,
+        settled_batch_history: authority.settled_batch_history.clone(),
+    };
+    Ok(Stage5cTimerSettlement::ready_for_continuation(
+        settled,
+        authority.checkpoint_ts_utc_ms,
+    ))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

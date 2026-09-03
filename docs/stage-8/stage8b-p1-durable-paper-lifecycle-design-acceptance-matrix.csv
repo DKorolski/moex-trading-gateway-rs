@@ -1,7 +1,7 @@
 id,area,requirement,required_evidence,status
 P1D-001,authority,Stage7bRedisService remains the sole durable command lifecycle authority,dependency and ownership graph,DESIGN_ACCEPTED
 P1D-002,authority,No second writable journal or mutable recovered runtime exists,compile-fail and source scanner plan,DESIGN_ACCEPTED
-P1D-003,bar-continuation,Canonical M10 advances the accepted Hybrid semantic facade under one composition owner,API design and type-state test plan,ADDENDUM_R1A_REVIEW_PENDING
+P1D-003,bar-continuation,Canonical M10 advances the accepted Hybrid semantic facade under one composition owner,API design and type-state test plan,ADDENDUM_R1A_ACCEPTED
 P1D-004,bar-continuation,A separate independently mutable Hybrid strategy process is forbidden,negative architecture test plan,DESIGN_ACCEPTED
 P1D-005,bootstrap,First boot requires source-produced authenticated Stage5G bytes,positive and forged-seed tests,P1A_ACCEPTED
 P1D-006,bootstrap,P0 runtime-state JSON and test fixtures cannot become first-boot authority,negative tests and forbidden scanner,P1A_ACCEPTED
@@ -9,34 +9,34 @@ P1D-007,bootstrap,Restart cannot create a missing journal or seed,restart-only d
 P1D-008,identity,Durable root is derived from exact operational identity,identity mismatch and symlink tests,P1A_ACCEPTED
 P1D-009,key-custody,Paper commitment key is separate from Generation-2 material,dependency and deployment evidence,P1A_ACCEPTED
 P1D-010,key-custody,Commitment key is absent from argv config Redis logs Git and handoff,scanner and process inspection,P1A_ACCEPTED
-P1D-011,commands,Semantic output uses canonical Stage7A BrokerCommand envelopes,fixture-backed round trip,ADDENDUM_R1A_REVIEW_PENDING
-P1D-012,identity,StrategyRequestId ClientOrderId and BrokerOrderId remain distinct,compile and lifecycle tests,ADDENDUM_R1A_REVIEW_PENDING
+P1D-011,commands,Semantic output uses canonical Stage7A BrokerCommand envelopes,fixture-backed round trip,ADDENDUM_R1A_ACCEPTED
+P1D-012,identity,StrategyRequestId ClientOrderId and BrokerOrderId remain distinct,compile and lifecycle tests,ADDENDUM_R1A_ACCEPTED
 P1D-013,provider,Provider runs only after Stage7B-owned durable DispatchAttemptRecorded evidence,crash matrix witness,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
 P1D-014,provider,Paper IDs derive deterministically from durable request identity,restart reproducibility test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
 P1D-015,provider,Uncertain paper effect remains pending without retry or success ACK,crash and recovery test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
 P1D-016,projection,Order trade and position evidence derives from the same durable provider outcome,causal binding tests,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
 P1D-017,projection,Legacy P0 ledger cannot independently settle a P1 command,negative double-settlement test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
-P1D-018,feedback,Pending runtime state clears only on exact matching canonical ACK,exact and mismatched ACK tests,ADDENDUM_R1A_REVIEW_PENDING
+P1D-018,feedback,Pending runtime state clears only on exact matching canonical ACK,exact and mismatched ACK tests,ADDENDUM_R1A_ACCEPTED
 P1D-019,replay,Duplicate and conflicting duplicate preserve accepted Stage7B behavior,real Redis restart tests,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
 P1D-020,redis,All command ACK DLQ and settlement keys share the accepted paper hash slot,config validation and Redis test,P1A_NAMESPACE_ACCEPTED_ACTIVATION_CLOSED
 P1D-021,readiness,PaperReady requires live task valid storage current seal fresh poll and claim healthy settlement and zero unresolved state,supervised service test,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
 P1D-022,readiness,Service can never publish LiveReady or real-order authorization,negative tests and scanner,P1A_BOUNDARY_ACCEPTED_SERVICE_IMPLEMENTATION_HOLD
 P1D-023,deployment,Operational Redis DB0 activation requires independent P1 acceptance,runbook and systemd gate,P1A_EXPLICITLY_CLOSED
 P1D-024,safety,FINAM POST DELETE broker dispatch runtime-live real orders and Generation-2 activation remain closed,dependency scanner and redacted evidence,P1A_VERIFIED_CLOSED_ACCEPTED
-P1D-025,m10-identity,One separately persisted canonical M10 entry is one semantic transaction,semantic commit addendum and deterministic identity tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-026,m10-ordering,The P1 M10 group exists before any P1 M10 publication,provisioning state-machine tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-027,commit,Zero-intent M10 is XACKed only after the Stage7B seal embeds and authenticates the new Stage5G package,crash matrix tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-028,commit,Single-intent M10 is XACKed only after terminal Stage6 and Stage7 cross-binding ACK feedback and post-feedback seal,crash matrix tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-029,replay,Same M10 ID and payload is idempotent while a conflicting or absent exact-ID payload is quarantined,XADD and XRANGE collision tests,ADDENDUM_R1A_REVIEW_PENDING
+P1D-025,m10-identity,One separately persisted canonical M10 entry is one semantic transaction,semantic commit addendum and deterministic identity tests,ADDENDUM_R1A_ACCEPTED
+P1D-026,m10-ordering,The P1 M10 group exists before any P1 M10 publication,provisioning state-machine tests,ADDENDUM_R1A_ACCEPTED
+P1D-027,commit,Zero-intent M10 is XACKed only after the Stage7B seal embeds and authenticates the new Stage5G package,crash matrix tests,ADDENDUM_R1A_ACCEPTED
+P1D-028,commit,Single-intent M10 is XACKed only after terminal Stage6 and Stage7 cross-binding ACK feedback and post-feedback seal,crash matrix tests,ADDENDUM_R1A_ACCEPTED
+P1D-029,replay,Same M10 ID and payload is idempotent while a conflicting or absent exact-ID payload is quarantined,XADD and XRANGE collision tests,ADDENDUM_R1A_ACCEPTED
 P1D-030,fill-policy,Next-bar market limit cancel partial fill fee and slippage policy is frozen before provider implementation,separate P1-d policy review,DEFERRED_BEFORE_P1D
 P1D-031,separation,Existing P0 DB0 projection may remain active but cannot own or settle the P1 namespace,namespace and negative double-settlement tests,DESIGN_ACCEPTED_IMPLEMENTATION_HOLD
-P1D-032,dispatch-ownership,DispatchAttemptRecorded is minted only by Stage7B while consuming the canonical command,source scanner and lifecycle tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-033,persistence,Stage5G restart state exists only inside a Stage7B recovery seal cross-bound to Stage6 and operational identity,crash and filesystem inventory tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-034,publication,Pre-publication transition is restart-atomic across RequestAccepted fsync and covering-seal commit through exact typed journal-ahead recovery,process crash matrix and exact reconstruction tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-035,intent-envelope,Initial P1-b supports only zero or one intent and fails closed for more than one,typed multi-intent negative tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-036,recovery,Crash after pre-publication seal republishes exact BrokerCommand bytes without a new request identity,seal-to-XADD crash tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-037,recovery,Durable ACK before Hybrid feedback replays into the exact existing pending request without provider reinvocation,ACK replay crash tests,ADDENDUM_R1A_REVIEW_PENDING
-P1D-038,m10-collision,Failed exact-ID XADD requires exact-ID XRANGE comparison and never allocates a replacement M10 ID,Redis duplicate and collision tests,ADDENDUM_R1A_REVIEW_PENDING
+P1D-032,dispatch-ownership,DispatchAttemptRecorded is minted only by Stage7B while consuming the canonical command,source scanner and lifecycle tests,ADDENDUM_R1A_ACCEPTED
+P1D-033,persistence,Stage5G restart state exists only inside a Stage7B recovery seal cross-bound to Stage6 and operational identity,crash and filesystem inventory tests,ADDENDUM_R1A_ACCEPTED
+P1D-034,publication,Pre-publication transition is restart-atomic across RequestAccepted fsync and covering-seal commit through exact typed journal-ahead recovery,process crash matrix and exact reconstruction tests,ADDENDUM_R1A_ACCEPTED
+P1D-035,intent-envelope,Initial P1-b supports only zero or one intent and fails closed for more than one,typed multi-intent negative tests,ADDENDUM_R1A_ACCEPTED
+P1D-036,recovery,Crash after pre-publication seal republishes exact BrokerCommand bytes without a new request identity,seal-to-XADD crash tests,ADDENDUM_R1A_ACCEPTED
+P1D-037,recovery,Durable ACK before Hybrid feedback replays into the exact existing pending request without provider reinvocation,ACK replay crash tests,ADDENDUM_R1A_ACCEPTED
+P1D-038,m10-collision,Failed exact-ID XADD requires exact-ID XRANGE comparison and never allocates a replacement M10 ID,Redis duplicate and collision tests,ADDENDUM_R1A_ACCEPTED
 P1D-039,operations,Failed first boot after root creation stops and quarantines the root for explicit reviewed recovery,operator runbook and destructive-reset negative tests,P2_REQUIRED_BEFORE_P1E
 P1D-040,key-recovery,Loss of the paper commitment key fails closed and an encrypted backup restore is proven,backup restore evidence,P2_REQUIRED_BEFORE_MULTISESSION_ACTIVATION
-P1D-041,recovery,A crash after durable RequestAccepted and before covering S1 is recognized only as one exact non-dispatchable P1 journal-ahead state and completed from S0 plus the same unacknowledged M10 without new identity publication provider or XACK,subprocess crashes around journal fsync seal temp fsync rename reread plus mismatched M10 request command and suffix negatives,ADDENDUM_R1A_REVIEW_PENDING
+P1D-041,recovery,A crash after durable RequestAccepted and before covering S1 is recognized only as one exact non-dispatchable P1 journal-ahead state and completed from S0 plus the same unacknowledged M10 without new identity publication provider or XACK,subprocess crashes around journal fsync seal temp fsync rename reread plus mismatched M10 request command and suffix negatives,ADDENDUM_R1A_ACCEPTED

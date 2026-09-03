@@ -292,6 +292,7 @@ mod stage5g_fresh_broker_truth;
 mod stage5g_lifecycle_freeze;
 mod stage5g_mock_ack;
 mod stage5g_order_position;
+mod stage5g_p1_semantic;
 mod stage5g_protective_completion;
 mod stage5g_timer;
 mod stage6_durable_identity;
@@ -354,8 +355,10 @@ pub use stage6d_live_core::stage8a4_test_attest_validated_entry;
 pub use stage6d_live_core::{
     admit_stage7a_paper_command, advance_stage6d_restart_package,
     apply_stage6e_accepted_fresh_truth, apply_stage8a4_validated_writer_entry,
-    authorize_stage6d_first_boot, execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
-    finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
+    apply_stage8b_p1_semantic_transition, authorize_stage6d_first_boot,
+    classify_stage8b_p1_journal_ahead_candidate, execute_stage6d_paper_outcome,
+    finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
+    first_boot_stage6d_paper,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     first_boot_stage6d_paper_with_owned_journal,
     issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
@@ -365,7 +368,9 @@ pub use stage6d_live_core::{
     stage7b_finalized_request_facts, stage8a4_completed_transition_facts,
     stage8a4_writer_entry_attestation_sha256, Stage6DurableRequestAuthorityV1,
     Stage6Stage8a4BatchAppendReceipt, Stage6Stage8a4DurableBatch, Stage6Stage8a4PendingRecovery,
-    Stage6Stage8a4ValidatedWriteEntry, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
+    Stage6Stage8a4ValidatedWriteEntry, Stage6Stage8bP1JournalAheadCandidate,
+    Stage6Stage8bP1SealSourceV1, Stage6Stage8bP1SemanticCommitEvidenceV1,
+    Stage6Stage8bP1SemanticTransition, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
     Stage6dFirstBootAuthorization, Stage6dFirstBootConfig, Stage6dFreshTruthApplicationReport,
     Stage6dFreshTruthTransition, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
     Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
@@ -375,6 +380,7 @@ pub use stage6d_live_core::{
     Stage7bFinalizedRequestFacts, Stage8a4CompletedTransitionFacts,
     STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION, STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION,
     STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION,
+    STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage5g-artifact-fixtures")]
 #[doc(hidden)]
@@ -382,7 +388,8 @@ pub use stage6d_live_core::{
     stage7b_test_authenticated_cancel_restart_fixture,
     stage7b_test_authenticated_working_restart_fixture,
     stage8a4_test_append_durable_batch_with_suffix_limit, stage8a4_test_set_journal_failpoint,
-    Stage7bTestExtraStage6History, Stage7bTestRestartFixture,
+    stage8b_p1_test_append_dispatch_attempt, Stage7bTestExtraStage6History,
+    Stage7bTestRestartFixture,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5e-b3f-doctest-facade
 #[cfg(doctest)]
@@ -562,6 +569,12 @@ pub use stage5g_order_position::{
     Stage5gOrderPositionEvidence, Stage5gOrderPositionFailure, Stage5gOrderPositionSession,
     Stage5gOrderPositionSummary, Stage5gOrderPositionTerminal, Stage5gOrderPositionTransition,
     STAGE5G_ORDER_POSITION_SCHEMA_VERSION,
+};
+pub use stage5g_p1_semantic::{
+    continue_stage5g_p1_semantic, export_stage5g_p1_one_intent, export_stage5g_p1_zero_intent,
+    Stage5gP1MultiIntentBlocked, Stage5gP1OneIntentPrepublication, Stage5gP1SemanticBindingInput,
+    Stage5gP1SemanticFailure, Stage5gP1SemanticTransition, Stage5gP1ZeroIntentCommitted,
+    STAGE5G_P1_SEMANTIC_COMMIT_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage5g-artifact-fixtures")]
 #[doc(hidden)]

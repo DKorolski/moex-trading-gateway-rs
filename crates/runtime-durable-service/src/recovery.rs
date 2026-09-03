@@ -21,22 +21,31 @@ use std::{
 };
 use strategy_runtime_core::{
     admit_stage7a_paper_command, advance_stage6d_restart_package,
-    apply_stage8a4_validated_writer_entry, execute_stage6d_paper_outcome,
+    apply_stage8a4_validated_writer_entry, apply_stage8b_p1_semantic_transition,
+    classify_stage8b_p1_journal_ahead_candidate, execute_stage6d_paper_outcome,
     finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     refresh_stage7b_durable_frontier, restart_stage6d_paper_with_owned_journal,
     restore_stage5g_clean_restart, seal_stage6d_restart_package,
     stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
     stage7b_finalized_request_facts, stage8a4_completed_transition_facts,
-    HybridIntradayRuntimeStrategy, Stage5gLifecycleCommitmentKey, Stage6DurableCommandSnapshotV1,
-    Stage6DurableRequestAuthorityV1, Stage6DurableRequestIdentityV1, Stage6JournalBackend,
-    Stage6JournalCheckpointV1, Stage6JournalRecordVersioned, Stage6MemoryJournalBackend,
-    Stage6MixedReplayEngineV2, Stage6OwnedJournalBackend, Stage6ReconciliationLifecycleV2,
-    Stage6RequestFinalDispositionV1, Stage6Stage8a4PendingRecovery,
-    Stage6Stage8a4ValidatedWriteEntry, Stage6dDurableRuntimeRecovered,
-    Stage6dFirstBootAuthorization, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
-    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
-    Stage7aPaperAdmission, Stage7aPaperCommandContext, Stage7bFinalizedRequestFacts,
+    HybridIntradayRuntimeStrategy, Stage5cAcceptedSemanticBar, Stage5gLifecycleCommitmentKey,
+    Stage5gP1SemanticBindingInput, Stage6DurableCommandSnapshotV1, Stage6DurableRequestAuthorityV1,
+    Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
+    Stage6JournalRecordVersioned, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
+    Stage6OwnedJournalBackend, Stage6ReconciliationLifecycleV2, Stage6RequestFinalDispositionV1,
+    Stage6Stage8a4PendingRecovery, Stage6Stage8a4ValidatedWriteEntry,
+    Stage6Stage8bP1JournalAheadCandidate, Stage6Stage8bP1SealSourceV1,
+    Stage6Stage8bP1SemanticCommitEvidenceV1, Stage6Stage8bP1SemanticTransition,
+    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, Stage7aPaperAdmission, Stage7aPaperCommandContext,
+    Stage7bFinalizedRequestFacts,
+};
+
+use crate::stage8b_p1_bootstrap::{
+    stage8b_p1_imoexf_instrument_map_fingerprint_sha256, STAGE8B_P1_BROKER_ID,
+    STAGE8B_P1_INTERNAL_SYMBOL, STAGE8B_P1_STRATEGY_ID, STAGE8B_P1_VENUE_SYMBOL,
 };
 #[cfg(test)]
 use strategy_runtime_core::{Stage6Sha256Digest, Stage6Stage8a4DurableBatch};
@@ -793,6 +802,245 @@ pub struct Stage8a4I3RecoveryPendingOwner {
     journal_mutation_uncertain: bool,
 }
 
+/// Exact S0 + one-RequestAccepted crash frontier.  This owner deliberately
+/// contains no recovered Ready runtime and grants no publication, provider,
+/// XACK or generic Stage 7 lifecycle API.
+pub struct P1SemanticPrepublicationPending {
+    storage: Stage7bWritableDurableAuthority,
+    committed_s0: Stage7bRecoverySealV1,
+    candidate: Stage6Stage8bP1JournalAheadCandidate,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+    operational_identity: Stage6dOperationalIdentityConfig,
+}
+
+/// Authenticated S1 pre-publication authority.  P1-b exposes evidence only;
+/// command publication remains closed until P1-c.
+pub struct Stage8bP1SemanticPrepublicationOwner {
+    ready: Stage7bRecoveryReadyOwner,
+    evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bP1ZeroIntentCommitReceipt {
+    pub evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    pub covering_seal_generation: u64,
+    pub covering_seal_commitment_sha256: String,
+}
+
+pub struct Stage8bP1MultiIntentBlocked {
+    semantic_batch_id_sha256: String,
+    intent_count: usize,
+    request_ids: Vec<StrategyRequestId>,
+}
+
+pub enum Stage8bP1SemanticCommitOutcome {
+    ZeroIntent {
+        owner: Box<Stage7bRecoveryReadyOwner>,
+        receipt: Stage8bP1ZeroIntentCommitReceipt,
+    },
+    OneIntentPrepublication(Box<Stage8bP1SemanticPrepublicationOwner>),
+    MultiIntentBlocked(Stage8bP1MultiIntentBlocked),
+}
+
+impl Stage8bP1SemanticPrepublicationOwner {
+    pub fn evidence(&self) -> &Stage6Stage8bP1SemanticCommitEvidenceV1 {
+        &self.evidence
+    }
+
+    pub fn recovery_seal_generation(&self) -> u64 {
+        self.ready.committed_seal.seal_generation()
+    }
+
+    pub fn recovery_seal_commitment_sha256(&self) -> &str {
+        self.ready.committed_seal.seal_commitment_sha256()
+    }
+
+    pub fn command_publication_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn paper_provider_invocation_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn m10_xack_allowed(&self) -> bool {
+        false
+    }
+}
+
+impl Stage8bP1MultiIntentBlocked {
+    pub fn semantic_batch_id_sha256(&self) -> &str {
+        &self.semantic_batch_id_sha256
+    }
+
+    pub fn intent_count(&self) -> usize {
+        self.intent_count
+    }
+
+    pub fn request_ids(&self) -> &[StrategyRequestId] {
+        &self.request_ids
+    }
+
+    pub fn recovery_ready(&self) -> bool {
+        false
+    }
+}
+
+impl P1SemanticPrepublicationPending {
+    fn source_binding_matches(
+        &self,
+        strategy_id: &str,
+        account_id: &broker_core::BrokerAccountId,
+        instrument: &broker_core::InstrumentId,
+        runtime_config_fingerprint_sha256: &str,
+    ) -> bool {
+        let identity = self.candidate.identity();
+        identity.account_id() == account_id
+            && identity.instrument() == instrument
+            && identity.attribution().belongs_to(strategy_id)
+            && self.fresh_runtime.stage5c_config_fingerprint() == runtime_config_fingerprint_sha256
+    }
+
+    pub fn recovery_ready(&self) -> bool {
+        false
+    }
+
+    pub fn command_publication_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn paper_provider_invocation_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn m10_xack_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn request_id(&self) -> StrategyRequestId {
+        self.candidate.identity().strategy_request_id()
+    }
+
+    pub fn request_accepted_record_id(&self) -> &str {
+        self.candidate.record_id().as_str()
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        self.committed_s0.operational_identity_sha256()
+    }
+
+    pub(crate) fn complete_with_exact_semantic_input(
+        self,
+        accepted_bar: Stage5cAcceptedSemanticBar,
+        binding: Stage5gP1SemanticBindingInput,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1SemanticPrepublicationOwner, Stage7bRecoveryError> {
+        if binding.operational_identity_sha256 != self.committed_s0.operational_identity_sha256() {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let prefix_len: usize = self
+            .committed_s0
+            .stage6_checkpoint()
+            .frontier()
+            .frame_count()
+            .try_into()
+            .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+        let mut prefix = Stage6MemoryJournalBackend::new();
+        for record in self.storage.versioned_records().iter().take(prefix_len) {
+            prefix
+                .append_versioned(record)
+                .map_err(Stage6dLiveCoreError::from)?;
+        }
+        prefix
+            .validate_checkpoint(self.committed_s0.stage6_checkpoint())
+            .map_err(Stage6dLiveCoreError::from)?;
+        let s0_source = Stage6Stage8bP1SealSourceV1 {
+            seal_generation: self.committed_s0.seal_generation(),
+            seal_commitment_sha256: self.committed_s0.seal_commitment_sha256().to_string(),
+            stage6_checkpoint_sha256: self
+                .committed_s0
+                .stage6_checkpoint()
+                .checkpoint_sha256()
+                .to_string(),
+            stage6_frontier_sha256: stage6_frontier_fingerprint_sha256(prefix.frontier())?
+                .as_str()
+                .to_string(),
+            operational_identity_sha256: self
+                .committed_s0
+                .operational_identity_sha256()
+                .to_string(),
+        };
+        let prefix_recovered = restart_stage6d_paper_with_owned_journal(
+            &self.committed_s0.stage6d_authenticated_restart_package,
+            commitment_key,
+            self.fresh_runtime,
+            Stage6OwnedJournalBackend::from_memory(prefix),
+        )?;
+        let transition = apply_stage8b_p1_semantic_transition(
+            prefix_recovered,
+            accepted_bar,
+            binding,
+            s0_source,
+            commitment_key,
+        )?;
+        let Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
+            recovered: replayed,
+            stage5g_restart_package,
+            evidence,
+            durable_request_identity,
+            durable_command_snapshot,
+            ..
+        } = transition
+        else {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        };
+        if &durable_request_identity != self.candidate.identity()
+            || &durable_command_snapshot != self.candidate.command()
+            || evidence.request_accepted_record_id.as_deref()
+                != Some(self.candidate.record_id().as_str())
+            || evidence.request_accepted_source_evidence_sha256.as_deref()
+                != Some(self.candidate.source_evidence_sha256().as_str())
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let file_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(self.storage.frontier().clone())
+                .map_err(Stage6dLiveCoreError::from)?;
+        if replayed.authenticated_checkpoint() != &file_checkpoint {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let reconstruction_runtime = replayed.stage8b_p1_reconstruction_candidate()?;
+        drop(replayed);
+
+        if stage6d_operational_identity_sha256(&self.operational_identity)?.as_str()
+            != self.committed_s0.operational_identity_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let (journal, writer_lease) = self.storage.into_recovery_parts();
+        let stage6d_package = seal_stage6d_restart_package(
+            &stage5g_restart_package,
+            file_checkpoint,
+            self.operational_identity.clone(),
+            commitment_key,
+        )?;
+        let recovered = restart_stage6d_paper_with_owned_journal(
+            &stage6d_package,
+            commitment_key,
+            reconstruction_runtime,
+            journal,
+        )?;
+        let ready = commit_stage8b_p1_replacement_seal(
+            recovered,
+            writer_lease,
+            self.committed_s0,
+            stage5g_restart_package,
+            commitment_key,
+        )?;
+        Ok(Stage8bP1SemanticPrepublicationOwner { ready, evidence })
+    }
+}
+
 /// Linear authority binding one exact Stage 6 durable request to the current
 /// authenticated Stage 7B recovery seal. It contains no journal or transport
 /// handle and cannot be manufactured without a recovery-ready owner.
@@ -1015,6 +1263,10 @@ fn stage8a4_i3_uncovered_checkpoint(
 }
 
 impl Stage7bRecoveryReadyOwner {
+    pub(crate) fn stage8b_p1_operational_identity_sha256(&self) -> &str {
+        self.committed_seal.operational_identity_sha256()
+    }
+
     pub(crate) fn stage8b_p1_source_binding_matches(
         &self,
         strategy_id: &str,
@@ -1030,6 +1282,113 @@ impl Stage7bRecoveryReadyOwner {
                     && restored_config == runtime_config_fingerprint_sha256
             },
         )
+    }
+
+    /// Consumes the sole Ready owner, executes one canonical P1 semantic
+    /// transition and commits/rereads the covering S1 before returning any
+    /// continuation state.  P1-b deliberately returns no Redis publication or
+    /// provider method.
+    pub fn commit_stage8b_p1_semantic(
+        mut self,
+        accepted_bar: Stage5cAcceptedSemanticBar,
+        binding: Stage5gP1SemanticBindingInput,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1SemanticCommitOutcome, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint()
+            || self.committed_seal.operational_identity_sha256()
+                != binding.operational_identity_sha256
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let source = Stage6Stage8bP1SealSourceV1 {
+            seal_generation: self.committed_seal.seal_generation(),
+            seal_commitment_sha256: self.committed_seal.seal_commitment_sha256().to_string(),
+            stage6_checkpoint_sha256: self
+                .committed_seal
+                .stage6_checkpoint()
+                .checkpoint_sha256()
+                .to_string(),
+            stage6_frontier_sha256: stage6_frontier_fingerprint_sha256(
+                self.committed_seal.stage6_checkpoint().frontier(),
+            )?
+            .as_str()
+            .to_string(),
+            operational_identity_sha256: self
+                .committed_seal
+                .operational_identity_sha256()
+                .to_string(),
+        };
+        let Stage7bRecoveryReadyOwner {
+            recovered,
+            writer_lease,
+            committed_seal,
+            ..
+        } = self;
+        stage8b_p1_test_crash_barrier("before-request-accepted-append");
+        match apply_stage8b_p1_semantic_transition(
+            recovered,
+            accepted_bar,
+            binding,
+            source,
+            commitment_key,
+        )? {
+            Stage6Stage8bP1SemanticTransition::ZeroIntent {
+                recovered,
+                stage5g_restart_package,
+                evidence,
+            } => {
+                let owner = commit_stage8b_p1_replacement_seal(
+                    recovered,
+                    writer_lease,
+                    committed_seal,
+                    stage5g_restart_package,
+                    commitment_key,
+                )?;
+                let receipt = Stage8bP1ZeroIntentCommitReceipt {
+                    evidence,
+                    covering_seal_generation: owner.committed_seal.seal_generation(),
+                    covering_seal_commitment_sha256: owner
+                        .committed_seal
+                        .seal_commitment_sha256()
+                        .to_string(),
+                };
+                Ok(Stage8bP1SemanticCommitOutcome::ZeroIntent {
+                    owner: Box::new(owner),
+                    receipt,
+                })
+            }
+            Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
+                recovered,
+                stage5g_restart_package,
+                evidence,
+                ..
+            } => {
+                stage8b_p1_test_crash_barrier("after-request-accepted-fsync");
+                let ready = commit_stage8b_p1_replacement_seal(
+                    *recovered,
+                    writer_lease,
+                    committed_seal,
+                    stage5g_restart_package,
+                    commitment_key,
+                )?;
+                Ok(Stage8bP1SemanticCommitOutcome::OneIntentPrepublication(
+                    Box::new(Stage8bP1SemanticPrepublicationOwner { ready, evidence }),
+                ))
+            }
+            Stage6Stage8bP1SemanticTransition::MultiIntentBlocked {
+                semantic_batch_id_sha256,
+                intent_count,
+                request_ids,
+            } => Ok(Stage8bP1SemanticCommitOutcome::MultiIntentBlocked(
+                Stage8bP1MultiIntentBlocked {
+                    semantic_batch_id_sha256,
+                    intent_count,
+                    request_ids,
+                },
+            )),
+        }
     }
 
     /// Issues I4 terminal authority only when the on-disk S1 already covers
@@ -1422,6 +1781,23 @@ impl Stage7bRecoveryReadyOwner {
         let checkpoint_validation = storage.validate_checkpoint(committed_seal.stage6_checkpoint());
         let journal_is_ahead = storage.frontier() != committed_seal.stage6_checkpoint().frontier();
         if checkpoint_validation.is_err() || journal_is_ahead {
+            if checkpoint_validation.is_ok() && stage8b_p1_operational_scope(&identity) {
+                let candidate = classify_stage8b_p1_journal_ahead_candidate(
+                    storage.versioned_records(),
+                    committed_seal.stage6_checkpoint(),
+                )?;
+                if candidate.as_ref().is_some_and(stage8b_p1_candidate_scope) {
+                    return Ok(Stage7bRestartOutcome::P1SemanticPrepublicationPending(
+                        Box::new(P1SemanticPrepublicationPending {
+                            storage,
+                            committed_s0: committed_seal,
+                            candidate: candidate.expect("candidate checked above"),
+                            fresh_runtime,
+                            operational_identity: identity,
+                        }),
+                    ));
+                }
+            }
             let uncovered_i3 = stage8a4_i3_uncovered_checkpoint(&storage, &committed_seal)?;
             if checkpoint_validation.is_err() && uncovered_i3.is_none() {
                 return Ok(Stage7bRestartOutcome::Blocked(Box::new(
@@ -1515,7 +1891,7 @@ impl Stage7bRecoveryReadyOwner {
             )));
         }
         writer_lease.validate_namespace()?;
-        Ok(Stage7bRestartOutcome::Ready(Box::new(Self {
+        let ready = Self {
             recovered,
             writer_lease,
             committed_seal,
@@ -1523,7 +1899,14 @@ impl Stage7bRecoveryReadyOwner {
             journal_mutation_uncertain: false,
             #[cfg(feature = "stage8a4-i3-test-fixtures")]
             stage8a4_test_fail_before_covering_seal: false,
-        })))
+        };
+        if let Some(evidence) = ready.recovered.stage8b_p1_prepublication_evidence() {
+            Ok(Stage7bRestartOutcome::P1SemanticPrepublicationReady(
+                Box::new(Stage8bP1SemanticPrepublicationOwner { ready, evidence }),
+            ))
+        } else {
+            Ok(Stage7bRestartOutcome::Ready(Box::new(ready)))
+        }
     }
 
     pub fn recovery_ready(&self) -> bool {
@@ -1973,6 +2356,235 @@ impl Stage7bRecoveryReadyOwner {
     }
 }
 
+/// Test-only crash frontier: durably appends the deterministic P1
+/// `RequestAccepted`, then releases the writer without committing S1.  The
+/// resulting filesystem is the exact R1A journal-ahead restart shape.
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+#[doc(hidden)]
+pub fn stage8b_p1_test_stop_after_request_accepted(
+    mut owner: Stage7bRecoveryReadyOwner,
+    accepted_bar: Stage5cAcceptedSemanticBar,
+    binding: Stage5gP1SemanticBindingInput,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
+    owner.require_lifecycle_available()?;
+    owner.revalidate_cached_committed_seal(commitment_key)?;
+    if owner.committed_seal.stage6_checkpoint() != owner.recovered.authenticated_checkpoint()
+        || owner.committed_seal.operational_identity_sha256() != binding.operational_identity_sha256
+    {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    let source = Stage6Stage8bP1SealSourceV1 {
+        seal_generation: owner.committed_seal.seal_generation(),
+        seal_commitment_sha256: owner.committed_seal.seal_commitment_sha256().to_string(),
+        stage6_checkpoint_sha256: owner
+            .committed_seal
+            .stage6_checkpoint()
+            .checkpoint_sha256()
+            .to_string(),
+        stage6_frontier_sha256: stage6_frontier_fingerprint_sha256(
+            owner.committed_seal.stage6_checkpoint().frontier(),
+        )?
+        .as_str()
+        .to_string(),
+        operational_identity_sha256: owner
+            .committed_seal
+            .operational_identity_sha256()
+            .to_string(),
+    };
+    let Stage7bRecoveryReadyOwner {
+        recovered,
+        writer_lease,
+        ..
+    } = owner;
+    let transition = apply_stage8b_p1_semantic_transition(
+        recovered,
+        accepted_bar,
+        binding,
+        source,
+        commitment_key,
+    )?;
+    let Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
+        recovered,
+        evidence,
+        ..
+    } = transition
+    else {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    };
+    // Both values are intentionally dropped here. The append has already
+    // passed the Stage 6 file-journal sync boundary, while S1 was never begun.
+    drop(recovered);
+    drop(writer_lease);
+    Ok(evidence)
+}
+
+/// Test-only negative frontier: append the ordinary Stage 7B-owned dispatch
+/// attempt after the P1 RequestAccepted while deliberately leaving S0
+/// current. Restart must reject this two-record suffix instead of widening the
+/// one-record P1 journal-ahead exception.
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+#[doc(hidden)]
+pub fn stage8b_p1_test_stop_after_dispatch_attempt(
+    mut owner: Stage7bRecoveryReadyOwner,
+    accepted_bar: Stage5cAcceptedSemanticBar,
+    binding: Stage5gP1SemanticBindingInput,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<(), Stage7bRecoveryError> {
+    owner.require_lifecycle_available()?;
+    owner.revalidate_cached_committed_seal(commitment_key)?;
+    if owner.committed_seal.stage6_checkpoint() != owner.recovered.authenticated_checkpoint()
+        || owner.committed_seal.operational_identity_sha256() != binding.operational_identity_sha256
+    {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    let source = Stage6Stage8bP1SealSourceV1 {
+        seal_generation: owner.committed_seal.seal_generation(),
+        seal_commitment_sha256: owner.committed_seal.seal_commitment_sha256().to_string(),
+        stage6_checkpoint_sha256: owner
+            .committed_seal
+            .stage6_checkpoint()
+            .checkpoint_sha256()
+            .to_string(),
+        stage6_frontier_sha256: stage6_frontier_fingerprint_sha256(
+            owner.committed_seal.stage6_checkpoint().frontier(),
+        )?
+        .as_str()
+        .to_string(),
+        operational_identity_sha256: owner
+            .committed_seal
+            .operational_identity_sha256()
+            .to_string(),
+    };
+    let Stage7bRecoveryReadyOwner {
+        recovered,
+        writer_lease,
+        ..
+    } = owner;
+    let transition = apply_stage8b_p1_semantic_transition(
+        recovered,
+        accepted_bar,
+        binding,
+        source,
+        commitment_key,
+    )?;
+    let Stage6Stage8bP1SemanticTransition::OneIntentPrepublication {
+        recovered,
+        durable_request_identity,
+        ..
+    } = transition
+    else {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    };
+    let mut recovered = *recovered;
+    strategy_runtime_core::stage8b_p1_test_append_dispatch_attempt(
+        &mut recovered,
+        &durable_request_identity,
+    )?;
+    drop(recovered);
+    drop(writer_lease);
+    Ok(())
+}
+
+fn stage8b_p1_operational_scope(identity: &Stage6dOperationalIdentityConfig) -> bool {
+    identity.broker_id == STAGE8B_P1_BROKER_ID
+        && identity.strategy_instance_id == STAGE8B_P1_STRATEGY_ID
+        && identity.instrument_map_fingerprint_sha256
+            == stage8b_p1_imoexf_instrument_map_fingerprint_sha256()
+}
+
+fn stage8b_p1_candidate_scope(candidate: &Stage6Stage8bP1JournalAheadCandidate) -> bool {
+    let identity = candidate.identity();
+    let instrument = identity.instrument();
+    instrument.symbol == STAGE8B_P1_INTERNAL_SYMBOL
+        && instrument.venue_symbol.as_deref() == Some(STAGE8B_P1_VENUE_SYMBOL)
+        && identity.attribution().belongs_to(STAGE8B_P1_STRATEGY_ID)
+}
+
+fn commit_stage8b_p1_replacement_seal(
+    recovered: Stage6dDurableRuntimeRecovered,
+    writer_lease: Stage7bKernelWriterLease,
+    current: Stage7bRecoverySealV1,
+    stage5g_restart_package: Vec<u8>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage7bRecoveryReadyOwner, Stage7bRecoveryError> {
+    let identity = recovered
+        .authenticated_operational_identity()
+        .cloned()
+        .ok_or(Stage7bRecoveryError::SealInvalid)?;
+    let checkpoint = recovered.authenticated_checkpoint().clone();
+    let stage6d_package = seal_stage6d_restart_package(
+        &stage5g_restart_package,
+        checkpoint.clone(),
+        identity.clone(),
+        commitment_key,
+    )?;
+    let next = Stage7bRecoverySealV1::new(
+        current
+            .seal_generation()
+            .checked_add(1)
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?,
+        stage6d_package,
+        checkpoint,
+        current.operational_identity_sha256().to_string(),
+        commitment_key,
+    )?;
+    writer_lease.commit_recovery_seal_with_observer(&next, |phase| match phase {
+        Stage7bSealCommitPhase::BeforeTempSync => {
+            stage8b_p1_test_crash_barrier("before-s1-temp-fsync");
+        }
+        Stage7bSealCommitPhase::AfterTempSyncBeforeRename => {
+            stage8b_p1_test_crash_barrier("after-s1-temp-fsync-before-rename");
+        }
+        Stage7bSealCommitPhase::AfterRenameBeforeDirectorySync => {
+            stage8b_p1_test_crash_barrier("after-s1-rename-before-directory-fsync");
+        }
+        Stage7bSealCommitPhase::AfterDirectorySyncBeforeReread => {
+            stage8b_p1_test_crash_barrier("after-s1-directory-fsync-before-reread");
+        }
+    })?;
+    let bytes = writer_lease
+        .read_committed_recovery_seal()?
+        .ok_or(Stage7bRecoveryError::SealInvalid)?;
+    let committed = Stage7bRecoverySealV1::decode_canonical(
+        &bytes,
+        current.operational_identity_sha256(),
+        commitment_key,
+    )?;
+    if committed != next {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    validate_recovered_binding(&recovered, &committed, &identity)?;
+    writer_lease.validate_namespace()?;
+    stage8b_p1_test_crash_barrier("after-s1-reread-before-command-xadd");
+    Ok(Stage7bRecoveryReadyOwner {
+        recovered,
+        writer_lease,
+        committed_seal: committed,
+        seal_commit_uncertain: false,
+        journal_mutation_uncertain: false,
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        stage8a4_test_fail_before_covering_seal: false,
+    })
+}
+
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+fn stage8b_p1_test_crash_barrier(phase: &str) {
+    if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref() != Ok(phase) {
+        return;
+    }
+    let marker = std::env::var_os("STAGE8B_P1_TEST_CRASH_MARKER")
+        .expect("P1 crash child requires a marker path");
+    std::fs::write(marker, phase.as_bytes()).expect("P1 crash marker must be writable");
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+#[cfg(not(any(test, feature = "stage8b-p1-test-fixtures")))]
+#[inline(always)]
+fn stage8b_p1_test_crash_barrier(_: &str) {}
+
 impl Stage8a4I3RecoveryPendingOwner {
     pub fn recovery_ready(&self) -> bool {
         false
@@ -2152,6 +2764,8 @@ impl Stage8a4I3RecoveryPendingOwner {
 pub enum Stage7bRestartOutcome {
     Ready(Box<Stage7bRecoveryReadyOwner>),
     Stage8a4I3Pending(Box<Stage8a4I3RecoveryPendingOwner>),
+    P1SemanticPrepublicationPending(Box<P1SemanticPrepublicationPending>),
+    P1SemanticPrepublicationReady(Box<Stage8bP1SemanticPrepublicationOwner>),
     Blocked(Box<Stage7bRecoveryBlocked>),
 }
 
@@ -2159,7 +2773,9 @@ impl Stage7bRestartOutcome {
     pub fn recovery_ready(&self) -> bool {
         match self {
             Self::Ready(owner) => owner.recovery_ready(),
-            Self::Stage8a4I3Pending(_) => false,
+            Self::Stage8a4I3Pending(_)
+            | Self::P1SemanticPrepublicationPending(_)
+            | Self::P1SemanticPrepublicationReady(_) => false,
             Self::Blocked(blocked) => blocked.recovery_ready(),
         }
     }
@@ -2178,6 +2794,20 @@ impl Stage7bRestartOutcome {
                 instrument,
                 runtime_config_fingerprint_sha256,
             ),
+            Self::P1SemanticPrepublicationPending(owner) => owner.source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
+            Self::P1SemanticPrepublicationReady(owner) => {
+                owner.ready.stage8b_p1_source_binding_matches(
+                    strategy_id,
+                    account_id,
+                    instrument,
+                    runtime_config_fingerprint_sha256,
+                )
+            }
             Self::Stage8a4I3Pending(_) | Self::Blocked(_) => false,
         }
     }
@@ -2248,9 +2878,10 @@ impl Stage7bKernelWriterLease {
         &self,
         seal: &Stage7bRecoverySealV1,
     ) -> Result<(), Stage7bRecoveryError> {
-        self.commit_recovery_seal_with_pre_rename_observer(seal, || {})
+        self.commit_recovery_seal_with_observer(seal, |_| {})
     }
 
+    #[cfg(test)]
     fn commit_recovery_seal_with_pre_rename_observer<F>(
         &self,
         seal: &Stage7bRecoverySealV1,
@@ -2258,6 +2889,21 @@ impl Stage7bKernelWriterLease {
     ) -> Result<(), Stage7bRecoveryError>
     where
         F: FnMut(),
+    {
+        self.commit_recovery_seal_with_observer(seal, |phase| {
+            if phase == Stage7bSealCommitPhase::AfterTempSyncBeforeRename {
+                after_temp_sync();
+            }
+        })
+    }
+
+    fn commit_recovery_seal_with_observer<F>(
+        &self,
+        seal: &Stage7bRecoverySealV1,
+        mut observer: F,
+    ) -> Result<(), Stage7bRecoveryError>
+    where
+        F: FnMut(Stage7bSealCommitPhase),
     {
         self.validate_namespace()?;
         let bytes = seal.encode_canonical()?;
@@ -2282,19 +2928,22 @@ impl Stage7bKernelWriterLease {
             }
             temp.write_all(&bytes)
                 .map_err(|error| Stage7bRecoveryError::SealWriteFailed(error.kind()))?;
+            observer(Stage7bSealCommitPhase::BeforeTempSync);
             temp.sync_all()
                 .map_err(|error| Stage7bRecoveryError::SealWriteFailed(error.kind()))?;
-            after_temp_sync();
+            observer(Stage7bSealCommitPhase::AfterTempSyncBeforeRename);
             self.validate_namespace()?;
             rename_child_at(
                 &self.root.root_directory,
                 &temp_name,
                 STAGE7B_RECOVERY_SEAL_FILE,
             )?;
+            observer(Stage7bSealCommitPhase::AfterRenameBeforeDirectorySync);
             self.root
                 .root_directory
                 .sync_all()
                 .map_err(|error| Stage7bRecoveryError::SealWriteFailed(error.kind()))?;
+            observer(Stage7bSealCommitPhase::AfterDirectorySyncBeforeReread);
             self.validate_namespace()?;
             let committed = self
                 .read_committed_recovery_seal()?
@@ -2309,6 +2958,14 @@ impl Stage7bKernelWriterLease {
         }
         result
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage7bSealCommitPhase {
+    BeforeTempSync,
+    AfterTempSyncBeforeRename,
+    AfterRenameBeforeDirectorySync,
+    AfterDirectorySyncBeforeReread,
 }
 
 fn validate_recovered_binding(
