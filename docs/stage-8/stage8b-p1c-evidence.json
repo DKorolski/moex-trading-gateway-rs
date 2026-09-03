@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-c",
+  "status": "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE",
+  "accepted_predecessor_ref": "ed6d98cb2bbc70c36e1033c6215d64dd6218cedf",
+  "scope": "real Redis canonical M10 source, PEL recovery, S1-bound command publication and ACK-only zero-intent recovery",
+  "positive_evidence": {
+    "temporary_loopback_redis_only": "PASS",
+    "real_redis_scenarios": "8/8 PASS",
+    "group_before_source_publication": "PASS",
+    "exact_m10_retention": "PASS",
+    "zero_intent_s1_before_xack": "PASS",
+    "zero_intent_already_xacked_recovery": "PASS",
+    "journal_ahead_xautoclaim": "PASS",
+    "command_response_loss_exactly_once": "PASS",
+    "s1_restart_without_hybrid_callback": "PASS"
+  },
+  "negative_evidence": {
+    "source_scope_mutations": "10/10 PASS",
+    "m10_exact_id_collision": "PASS_FAIL_CLOSED",
+    "source_xacked_before_command": "PASS_FAIL_CLOSED",
+    "missing_stage7_group": "PASS_FAIL_CLOSED",
+    "tampered_publication_marker": "PASS_FAIL_CLOSED",
+    "ambiguous_multi_entry_pel": "PASS_FAIL_CLOSED",
+    "source_xack_after_command": "NOT_EXPOSED",
+    "retained_stage7_owner_extraction": "COMPILE_FAIL",
+    "paper_provider_surface": "ABSENT"
+  },
+  "verification": {
+    "format": "PASS",
+    "source_scope_checker": "PASS",
+    "negative_harness": "10/10 PASS",
+    "real_redis_integration": "8/8 PASS",
+    "p1b_inherited_negative_harness": "PASS",
+    "strategy_runtime_core_lib": "1216/1216 PASS",
+    "runtime_durable_service_lib": "109 PASS; 3 intentional crash children ignored",
+    "runtime_durable_service_doctests": "29/29 PASS",
+    "strict_targeted_clippy": "PASS",
+    "aggregate_gate": "PASS"
+  },
+  "closed_surfaces": {
+    "operational_redis_db0": false,
+    "deployable_p1_supervisor": false,
+    "paper_provider": false,
+    "ack_order_trade_position_feedback": false,
+    "finam_transport": false,
+    "finam_post_delete": false,
+    "broker_network_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "unattended_execution": false,
+    "p1d_authorized": false
+  }
+}

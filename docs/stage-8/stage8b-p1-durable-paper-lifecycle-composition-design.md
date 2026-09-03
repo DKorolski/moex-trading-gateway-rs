@@ -1,8 +1,8 @@
 # Stage 8B-P1 durable paper lifecycle composition design
 
-Status: architecture, P1-a and the semantic-commit R1A addendum are accepted.
-P1-b is an implementation review candidate; P1-c remains closed. No P1 Redis
-consumer or VPS activation is authorized by this document.
+Status: architecture, P1-a, the semantic-commit R1A addendum and P1-b are
+accepted. P1-c is a source implementation review candidate. Operational Redis
+DB 0 and VPS activation remain unauthorized by this document.
 
 ## Decision
 
@@ -112,7 +112,8 @@ second owner.
 The exact M10 stream, semantic batch identity, Stage 5G/6/7 commit ordering,
 M10-last XACK rule and crash matrix are frozen in
 `stage8b-p1-semantic-commit-protocol-addendum.md`. R1A acceptance authorizes
-P1-b source implementation only; P1-c command publication remains on hold.
+P1-b source implementation. P1-c source implementation is now authorized by
+the independent P1-b acceptance; operational activation remains separate.
 
 ### Required narrow source change
 
@@ -257,15 +258,17 @@ Readiness is `PaperReady`, not `LiveReady`.
 
 ## Implementation sequence after design acceptance
 
-1. **P1-a — bootstrap/identity facade.** Implemented as a library-only review
-   candidate. It adds deployable config types, source-produced first-boot
+1. **P1-a — bootstrap/identity facade.** Accepted. It adds deployable config
+   types, source-produced first-boot
    package workflow and restart-only default and proves that missing roots,
    malformed credentials and wrong identities fail before Redis. See
    `stage8b-p1a-bootstrap-identity-facade.md`.
-2. **P1-b — single-owner semantic continuation.** Attach canonical M10 and the
-   accepted Hybrid bar/timer facade without exposing a second mutable runtime.
-3. **P1-c — canonical command publication.** Publish exact Stage 7A command
-   envelopes with deterministic IDs and exact ACK feedback.
+2. **P1-b — single-owner semantic continuation.** Accepted. Canonical M10
+   advances the Hybrid bar/timer facade without exposing a second runtime.
+3. **P1-c — real Redis source and canonical command publication.** Review
+   candidate. It persists exact M10, owns group/PEL recovery and publishes the
+   exact Stage 7A command envelope idempotently. ACK/order/position feedback
+   remains in P1-d.
 4. **P1-d — deterministic paper provider/projections.** Reuse Stage 7B durable
    lifecycle and derive order/trade/position evidence from its outcomes.
 5. **P1-e — deployable supervisor.** Add systemd units, credential handling,

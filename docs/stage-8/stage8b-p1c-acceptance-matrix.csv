@@ -1,0 +1,19 @@
+id,area,requirement,evidence,status
+P1C-001,scope,Accepted P1-b commit is the exact predecessor,git ancestry and handoff binding,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-002,groups,M10 and Stage7 command groups exist before source publication,real Redis group-before-publication test,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-003,m10,Canonical M10 uses exact close timestamp Redis ID and exact payload replay,real Redis exact replay/collision test,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-004,m10,P1-c never trims or deletes retained canonical M10,source checker plus retained XLEN assertions,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-005,pel,Fresh delivery uses XREADGROUP with COUNT 1,source checker and real Redis tests,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-006,recovery,Stale PEL delivery is reclaimed with bounded XAUTOCLAIM cursor,real Redis journal-ahead recovery test,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-007,recovery,S1 restart requires exactly one matching pending M10,missing early-XACK and multi-entry PEL negatives,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-008,zero-intent,S1 is durable before exact M10 XACK,accepted P1-b gate plus real Redis zero-intent test,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-009,zero-intent,Lost XACK response resolves without another Hybrid callback,already-acknowledged restart test,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-010,command,Exact durable BrokerCommand is preserved inside opaque S1 authority,crate-private bridge and command hash assertions,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-011,command,Stage7-compatible command envelope and marker are one atomic operation,Lua publication transaction and decoder validation,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-012,command,Command group source PEL payload request and S1 binding are checked before XADD,Lua order checker and missing-group/early-XACK tests,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-013,idempotence,Lost command response republishes no duplicate,real Redis response-loss test,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-014,idempotence,Tampered marker or command binding fails closed,real Redis marker negative,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-015,ownership,Redis transport pending state and retained Stage7 owner are linear and non-serializable,compile-fail doctests,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-016,separation,Paper provider FINAM broker dispatch runtime-live and real orders remain closed,source checker receipts and compile surface,IMPLEMENTED_REVIEW_CANDIDATE
+P1C-017,deployment,Operational DB0 and deployable supervisor remain closed,separate review/deployment gate,DEFERRED
+P1C-018,governance,Current-tree authority rebind waits for semantic acceptance,separate post-review governance-only commit,PENDING_AFTER_REVIEW

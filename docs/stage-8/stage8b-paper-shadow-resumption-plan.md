@@ -45,8 +45,9 @@ durable paper order/ACK lifecycle are not claimed. See
 
 The architecture in
 `stage8b-p1-durable-paper-lifecycle-composition-design.md` is accepted with
-staged authorization. P1-a is now an implementation review candidate and adds
-the strict bootstrap/identity facade without Redis attachment. The dedicated
+staged authorization. P1-a and P1-b are accepted. P1-c is a source
+implementation review candidate that adds an isolated real-Redis M10/PEL and
+idempotent command-publication boundary without operational activation. The dedicated
 single-owner composition around the accepted Stage 7B service will add:
 
 - one fixed paper namespace and consumer group;
@@ -66,8 +67,8 @@ JSON is explicitly insufficient.
 This slice requires independent review before VPS activation because it opens
 a persistent Redis consumer, even though it remains paper-only.
 
-Before P1-b/P1-c implementation, independently accept
-`stage8b-p1-semantic-commit-protocol-addendum.md`. It selects a separate P1
+The independently accepted
+`stage8b-p1-semantic-commit-protocol-addendum.md` selects a separate P1
 canonical final-M10 stream and requires an authenticated Stage 5G checkpoint
 and, for intents, complete Stage 6/7 cross-binding before M10 XACK. The XACK is
 always the last semantic commit action.

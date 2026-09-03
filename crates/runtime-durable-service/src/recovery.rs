@@ -822,11 +822,13 @@ pub struct P1SemanticZeroIntentAckPending {
     stage5c_callback_count: usize,
 }
 
-/// Authenticated S1 pre-publication authority.  P1-b exposes evidence only;
-/// command publication remains closed until P1-c.
+/// Authenticated S1 pre-publication authority. Public P1-b callers see only
+/// evidence and closed capability flags; the P1-c module can consume its
+/// crate-private exact command material into one linear Redis publication.
 pub struct Stage8bP1SemanticPrepublicationOwner {
     ready: Stage7bRecoveryReadyOwner,
     evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    command: BrokerCommand,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -874,6 +876,20 @@ impl Stage8bP1SemanticPrepublicationOwner {
 
     pub fn m10_xack_allowed(&self) -> bool {
         false
+    }
+
+    pub(crate) fn command(&self) -> &BrokerCommand {
+        &self.command
+    }
+
+    pub(crate) fn into_p1c_parts(
+        self,
+    ) -> (
+        Stage7bRecoveryReadyOwner,
+        Stage6Stage8bP1SemanticCommitEvidenceV1,
+        BrokerCommand,
+    ) {
+        (self.ready, self.evidence, self.command)
     }
 }
 
@@ -1060,9 +1076,9 @@ impl P1SemanticPrepublicationPending {
             recovered: replayed,
             stage5g_restart_package,
             evidence,
+            command,
             durable_request_identity,
             durable_command_snapshot,
-            ..
         } = transition
         else {
             return Err(Stage7bRecoveryError::SealInvalid);
@@ -1110,7 +1126,11 @@ impl P1SemanticPrepublicationPending {
             stage5g_restart_package,
             commitment_key,
         )?;
-        Ok(Stage8bP1SemanticPrepublicationOwner { ready, evidence })
+        Ok(Stage8bP1SemanticPrepublicationOwner {
+            ready,
+            evidence,
+            command,
+        })
     }
 }
 
@@ -1436,6 +1456,7 @@ impl Stage7bRecoveryReadyOwner {
                 recovered,
                 stage5g_restart_package,
                 evidence,
+                command,
                 ..
             } => {
                 stage8b_p1_test_crash_barrier("after-request-accepted-fsync");
@@ -1447,7 +1468,11 @@ impl Stage7bRecoveryReadyOwner {
                     commitment_key,
                 )?;
                 Ok(Stage8bP1SemanticCommitOutcome::OneIntentPrepublication(
-                    Box::new(Stage8bP1SemanticPrepublicationOwner { ready, evidence }),
+                    Box::new(Stage8bP1SemanticPrepublicationOwner {
+                        ready,
+                        evidence,
+                        command,
+                    }),
                 ))
             }
             Stage6Stage8bP1SemanticTransition::MultiIntentBlocked {
@@ -1973,9 +1998,13 @@ impl Stage7bRecoveryReadyOwner {
             #[cfg(feature = "stage8a4-i3-test-fixtures")]
             stage8a4_test_fail_before_covering_seal: false,
         };
-        if let Some(evidence) = ready.recovered.stage8b_p1_prepublication_evidence() {
+        if let Some((evidence, command)) = ready.recovered.stage8b_p1_prepublication_material() {
             Ok(Stage7bRestartOutcome::P1SemanticPrepublicationReady(
-                Box::new(Stage8bP1SemanticPrepublicationOwner { ready, evidence }),
+                Box::new(Stage8bP1SemanticPrepublicationOwner {
+                    ready,
+                    evidence,
+                    command,
+                }),
             ))
         } else if let Some(evidence) = ready.recovered.stage8b_p1_zero_intent_ack_evidence() {
             let stage5c_callback_count = ready

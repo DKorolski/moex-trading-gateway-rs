@@ -1552,9 +1552,9 @@ impl Stage6dDurableRuntimeRecovered {
         }
     }
 
-    pub fn stage8b_p1_prepublication_evidence(
+    pub fn stage8b_p1_prepublication_material(
         &self,
-    ) -> Option<Stage6Stage8bP1SemanticCommitEvidenceV1> {
+    ) -> Option<(Stage6Stage8bP1SemanticCommitEvidenceV1, BrokerCommand)> {
         let restart = match &self.stage5_runtime {
             Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
             Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
@@ -1565,7 +1565,11 @@ impl Stage6dDurableRuntimeRecovered {
         }
         let request_id = projection.request_id?;
         let accepted = stage7a_accepted_record(self, request_id)?;
-        Some(stage8b_p1_commit_evidence(projection, Some(accepted)))
+        let command = projection.canonical_command.as_ref()?.clone();
+        Some((
+            stage8b_p1_commit_evidence(projection, Some(accepted)),
+            command,
+        ))
     }
 
     /// Redacted evidence for a durable zero-intent P1 semantic commit whose

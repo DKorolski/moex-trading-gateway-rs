@@ -188,6 +188,34 @@
 //! let authority: Stage8bP1SemanticPrepublicationOwner = unreachable!();
 //! let _ = serde_json::to_vec(&authority).unwrap();
 //! ```
+//!
+//! P1-c adds a real-Redis source/publication boundary without exposing its
+//! connection, source XACK or retained Stage 7 owner. Its capabilities remain
+//! linear and non-serializable:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisSemanticCompositionTransport;
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<Stage8bP1RedisSemanticCompositionTransport>();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisPrepublicationPending;
+//! let pending: Stage8bP1RedisPrepublicationPending = unreachable!();
+//! let _ = serde_json::to_vec(&pending).unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisCommandPublished;
+//! let published: Stage8bP1RedisCommandPublished = unreachable!();
+//! published.xack_source_m10().unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisCommandPublished;
+//! let published: Stage8bP1RedisCommandPublished = unreachable!();
+//! let _stage7_owner = published.into_stage7_owner();
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
@@ -239,17 +267,24 @@ pub use stage8b_p1_bootstrap::{
     STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
 };
 pub use stage8b_p1_semantic::{
-    build_stage8b_p1_canonical_m10, parse_stage8b_p1_canonical_m10,
+    build_stage8b_p1_canonical_m10, connect_stage8b_p1_redis, parse_stage8b_p1_canonical_m10,
     resolve_stage8b_p1_zero_intent_ack_with_local_m10,
-    resume_stage8b_p1_journal_ahead_with_local_m10, Stage8bP1CanonicalM10BuildInput,
-    Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1, Stage8bP1LocalM10Error,
-    Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked, Stage8bP1LocalPrepublicationPending,
-    Stage8bP1LocalSemanticOutcome, Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
-    Stage8bP1SemanticCompositionError, Stage8bP1SemanticCompositionOwner,
-    Stage8bP1ValidatedCanonicalM10, Stage8bP1ZeroIntentAckDisposition,
-    Stage8bP1ZeroIntentAckResolved, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
-    STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
-    STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
+    resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_local_m10,
+    resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
+    Stage8bP1CanonicalM10BuildInput, Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1,
+    Stage8bP1LocalM10Error, Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked,
+    Stage8bP1LocalPrepublicationPending, Stage8bP1LocalSemanticOutcome,
+    Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
+    Stage8bP1RedisCommandPublicationDisposition, Stage8bP1RedisCommandPublicationReceipt,
+    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisM10PublishDisposition,
+    Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
+    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
+    Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
+    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1SemanticCompositionError,
+    Stage8bP1SemanticCompositionOwner, Stage8bP1ValidatedCanonicalM10,
+    Stage8bP1ZeroIntentAckDisposition, Stage8bP1ZeroIntentAckResolved,
+    STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN, STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE,
+    STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION, STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
 };
 
 use std::{
