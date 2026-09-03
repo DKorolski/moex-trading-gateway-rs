@@ -1345,14 +1345,18 @@ Amber:
   authority gate the exact Stage6/7 dispatch binding and deterministic Market
   outcome. Same-bar, history/warmup, missing tradable interval, cross-day,
   stale/future schedule, multiple-candidate, identity-conflict and non-None TTL
-  cases fail closed. The active P1-d2 projection-field/timestamp annex is a
+  cases fail closed. The active P1-d2 projection-field/timestamp annex R1 is a
   design-only review candidate. It freezes complete Market Filled order,
   trade, target-position, event-scoped truth and exact matching ACK fields;
   source timestamps are the execution-bar open and receipt timestamps are its
-  final M10 close. Explicit commission is positive Decimal zero/scale zero,
-  while gross amount and unrealized PnL remain unmodeled `None`. P1-d2 source,
-  feedback application, ACK/XACK, operational Redis DB0 activation and FINAM
-  send remain closed pending annex acceptance and later P1-d slices.
+  final M10 close. R1 forbids feedback before deterministic Stage6 outcome and
+  Stage7 finalization, binds the prior paper position to authenticated Stage5
+  `pre_position_qty`, assigns consecutive `seq_ack`/`seq_truth`, and freezes
+  nonflat average price at Decimal scale 8 with `MidpointNearestEven`.
+  Explicit commission is positive Decimal zero/scale zero, while gross amount
+  and unrealized PnL remain unmodeled `None`. P1-d2 source, feedback
+  application, ACK/XACK, operational Redis DB0 activation and FINAM send
+  remain closed pending R1 annex acceptance and later P1-d slices.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

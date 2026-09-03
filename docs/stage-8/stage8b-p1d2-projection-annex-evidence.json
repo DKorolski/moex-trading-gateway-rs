@@ -1,5 +1,5 @@
 {
-  "acceptance_rows": 60,
+  "acceptance_rows": 64,
   "accepted_p1d1_closure_ref": "4abb2fd9807adeb47f164a4025c7ac44d33679f6",
   "canonical_contract": "moex.stage8b.p1d2.market-feedback.v1",
   "closed_surfaces": {
@@ -17,11 +17,23 @@
   "current_tree_authority_remains_p1d1": true,
   "design_only": true,
   "implementation_authorized": false,
-  "negative_cases": 30,
+  "negative_cases": 41,
+  "r1_closure": {
+    "average_price_rounding": "MidpointNearestEven",
+    "average_price_scale": 8,
+    "crash_scenarios": 5,
+    "durable_finalized_input_required": true,
+    "feedback_audit_digest_required": true,
+    "prior_absence_only_initial_flat": true,
+    "stage5_pre_position_cross_binding": true,
+    "stage7_finalize_observed_at": "T_receipt",
+    "stage5g_ack_sequence": "seq_ack",
+    "stage5g_truth_sequence": "seq_ack+1"
+  },
   "schema_version": 1,
   "source_ref": "",
-  "stage": "Stage 8B-P1-d2 projection annex",
-  "status": "DESIGN_ONLY_REVIEW_CANDIDATE",
+  "stage": "Stage 8B-P1-d2 projection annex R1",
+  "status": "R1_DURABLE_AUTHORITY_SEQUENCE_POSITION_REVIEW_CANDIDATE",
   "verification": {
     "aggregate_gate": "PENDING",
     "format": "PENDING",

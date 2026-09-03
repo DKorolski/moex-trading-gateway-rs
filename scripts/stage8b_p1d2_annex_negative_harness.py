@@ -42,8 +42,8 @@ writer.writerows(removed)
 mutations = [
     ("contract-domain", "moex.stage8b.p1d2.market-feedback.v1", "moex.stage8b.p1d2.market-feedback.v2"),
     ("accepted-lineage", checker.BASE, "0" * 40),
-    ("design-only", "Status: design-only review candidate.", "Status: implementation candidate."),
-    ("linear-outcome", "one linear, already durable P1-d1 Market\noutcome", "one copyable P1-d1 Market\noutcome"),
+    ("design-only", "Status: R1 design-only review candidate", "Status: R1 implementation candidate"),
+    ("linear-outcome", "The P1-d1 Market outcome is deterministic but is not, by itself, a durably\nfinalized command-lifecycle authority.", "The P1-d1 Market outcome is already a durably\nfinalized command-lifecycle authority."),
     ("allow-wall-clock", "`Utc::now()` and equivalent system-clock reads are\nforbidden", "`Utc::now()` and equivalent system-clock reads are\nallowed"),
     ("source-clock", "T_source  = execution_bar.open_ts", "T_source  = execution_bar.close_ts"),
     ("receipt-clock", "T_receipt = execution_bar.close_ts", "T_receipt = observed_at"),
@@ -60,7 +60,7 @@ mutations = [
     ("gross-inferred", "`gross_amount = None` is intentionally not inferred", "`gross_amount = None` may be inferred"),
     ("signed-delta", "Buy is `+fill_qty`, Sell is `-fill_qty`", "Buy and Sell are `+fill_qty`"),
     ("weighted-average", "sign(q0) == sign(d)", "sign(q0) != sign(d)"),
-    ("flat-average", "q1 == 0                                  -> None", "q1 == 0                                  -> Some(0)"),
+    ("flat-average", "q1 == 0                                    -> None", "q1 == 0                                    -> Some(0)"),
     ("position-pnl", "`unrealized_pnl` | `None`", "`unrealized_pnl` | `Some(Decimal::ZERO)`"),
     ("drop-flat-row", "including an explicit zero row when the result is flat", "omitting the row when the result is flat"),
     ("full-account-truth", "event-scoped broker-neutral truth package", "fabricated full-account broker truth"),
@@ -68,6 +68,17 @@ mutations = [
     ("ack-status", "`status` | `CommandAckStatus::Accepted`", "`status` | `CommandAckStatus::Submitted`"),
     ("request-alias", "`ClientOrderId` does not\nreplace `StrategyRequestId`", "`ClientOrderId` may\nreplace `StrategyRequestId`"),
     ("xack-before-seal", "XACK the originating M10 last.", "XACK the originating M10 first."),
+    ("feedback-before-stage6-outcome-durable", "durably apply the exact Stage6dPaperOutcome", "defer the Stage6dPaperOutcome until after feedback"),
+    ("feedback-before-request-finalized", "Projection construction, sequence allocation and every Stage 5G ACK/truth\nmutation are forbidden before step 6.", "Projection construction and Stage 5G mutation are allowed before step 6."),
+    ("stage7-finalize-observed-at-wall-clock", "Both first execution\nand replayed finalization use exactly `T_receipt`", "Both first execution\nand replayed finalization use `Utc::now()`"),
+    ("same-total-sequence-for-ack-and-truth", "seq_truth = checked_add(seq_ack, 1)", "seq_truth = seq_ack"),
+    ("truth-sequence-not-after-ack", "required: seq_truth == seq_ack + 1", "required: seq_truth <= seq_ack"),
+    ("prior-q0-differs-from-source-pre-position", "q0 == authenticated_stage5_pre_position_qty", "q0 != authenticated_stage5_pre_position_qty"),
+    ("missing-prior-with-nonzero-source-position", "missing row is allowed only when the authenticated paper-book generation proves\nthe first/empty state and `pre_position_qty == Decimal::ZERO`", "missing row is allowed for every paper-book generation and any pre-position"),
+    ("nonzero-prior-without-average", "a present\nnonzero row requires `a0 = Some(_)`", "a present\nnonzero row permits `a0 = None`"),
+    ("implicit-decimal-rounding", "candidate.round_dp_with_strategy(8, MidpointNearestEven)", "candidate.round_dp(8)"),
+    ("runtime-configurable-average-scale", "P1D2_AVG_PRICE_SCALE    = 8", "P1D2_AVG_PRICE_SCALE    = runtime_config.scale"),
+    ("runtime-configurable-rounding-mode", "P1D2_AVG_PRICE_ROUNDING = RoundingStrategy::MidpointNearestEven", "P1D2_AVG_PRICE_ROUNDING = runtime_config.rounding"),
 ]
 
 cases: list[tuple[str, str, str, dict[str, object], str, str]] = []

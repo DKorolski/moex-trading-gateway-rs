@@ -11,4 +11,4 @@ python3 -m py_compile \
   scripts/stage8b_p1d2_annex_handoff_safety_check.py
 cargo fmt --all -- --check
 
-echo "PASS stage8b-p1d2-annex-gate rows=60 negatives=30 design_only=true source=false db0=false ack=false xack=false finam=false"
+echo "PASS stage8b-p1d2-annex-gate rows=64 negatives=41 r1=true design_only=true source=false db0=false ack=false xack=false finam=false"

@@ -93,15 +93,18 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("manifest source binding mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive name mismatch")
-        if evidence.get("stage") != "Stage 8B-P1-d2 projection annex":
+        if evidence.get("stage") != "Stage 8B-P1-d2 projection annex R1":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "DESIGN_ONLY_REVIEW_CANDIDATE":
+        if (
+            evidence.get("status")
+            != "R1_DURABLE_AUTHORITY_SEQUENCE_POSITION_REVIEW_CANDIDATE"
+        ):
             raise ValueError("candidate status mismatch")
         if evidence.get("accepted_p1d1_closure_ref") != PREDECESSOR:
             raise ValueError("predecessor mismatch")
-        if evidence.get("acceptance_rows") != 60:
+        if evidence.get("acceptance_rows") != 64:
             raise ValueError("acceptance count mismatch")
-        if evidence.get("negative_cases") != 30:
+        if evidence.get("negative_cases") != 41:
             raise ValueError("negative count mismatch")
         if evidence.get("design_only") is not True:
             raise ValueError("design-only marker missing")
@@ -116,7 +119,7 @@ def check(path: str) -> dict[str, object]:
         gate = archive.read(GATE)
         for expected in (
             b"PASS stage8b-p1d2-annex-scope",
-            b"PASS stage8b-p1d2-annex-negative-harness 30/30",
+            b"PASS stage8b-p1d2-annex-negative-harness 41/41",
             b"PASS stage8b-p1d2-annex-gate",
         ):
             if expected not in gate:
@@ -152,7 +155,7 @@ def check(path: str) -> dict[str, object]:
             "symlinks": 0,
             "unsafe_paths": 0,
             "source_ref": source_ref,
-            "stage": "Stage 8B-P1-d2 projection annex",
+            "stage": "Stage 8B-P1-d2 projection annex R1",
             "result": "PASS",
         }
 
