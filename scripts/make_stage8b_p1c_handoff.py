@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8B-P1-c source implementation handoff."""
+"""Create the immutable Stage 8B-P1-c R1 source implementation handoff."""
 
 from __future__ import annotations
 
@@ -16,8 +16,8 @@ import stage8b_p1c_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-paper-shadow-resumption"
-PREDECESSOR = "ed6d98cb2bbc70c36e1033c6215d64dd6218cedf"
-EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1c-evidence.json"
+PREDECESSOR = "a85ef845f86f99bcfd45654792cc688240457d3d"
+EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1c-r1-evidence.json"
 
 
 def run(*args: str) -> bytes:
@@ -48,7 +48,7 @@ def main() -> None:
         stderr=subprocess.STDOUT,
         check=False,
     )
-    if gate.returncode != 0 or b"PASS stage8b-p1c-gate" not in gate.stdout:
+    if gate.returncode != 0 or b"PASS stage8b-p1c-r1-gate" not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
 
     short_ref = source_ref[:7]

@@ -12,4 +12,4 @@ cargo test -p runtime-durable-service --doc
 cargo clippy -p strategy-runtime-core -p runtime-durable-service \
   --all-targets --all-features -- -D warnings
 
-echo "PASS stage8b-p1c-gate"
+echo "PASS stage8b-p1c-r1-gate"

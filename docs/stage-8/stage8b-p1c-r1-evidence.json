@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-c R1",
+  "status": "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE",
+  "accepted_p1b_predecessor_ref": "ed6d98cb2bbc70c36e1033c6215d64dd6218cedf",
+  "reviewed_p1c_predecessor_ref": "a85ef845f86f99bcfd45654792cc688240457d3d",
+  "scope": "Ready PEL claim-before-fresh acquisition and Redis consumer-group continuity",
+  "positive_evidence": {
+    "temporary_loopback_redis_only": "PASS",
+    "real_redis_scenarios": "15/15 PASS",
+    "ready_stale_a_before_fresh_b": "PASS",
+    "ready_pending_not_claimable_retry": "PASS",
+    "namespace_initialization_attach_split": "PASS",
+    "zero_intent_group_frontier_validation": "PASS",
+    "original_p1c_regression": "PASS"
+  },
+  "negative_evidence": {
+    "source_scope_mutations": "14/14 PASS",
+    "ambiguous_ready_pel": "PASS_FAIL_CLOSED",
+    "deleted_m10_group": "PASS_FAIL_CLOSED_NO_REPAIR",
+    "externally_recreated_m10_group": "PASS_FAIL_CLOSED_BAD_FRONTIER",
+    "deleted_command_group": "PASS_FAIL_CLOSED_NO_REPAIR",
+    "historical_stream_missing_group": "PASS_FAIL_CLOSED_NO_REINITIALIZATION",
+    "paper_provider_surface": "ABSENT"
+  },
+  "verification": {
+    "format": "PASS",
+    "source_scope_checker": "PASS",
+    "negative_harness": "14/14 PASS",
+    "real_redis_integration": "15/15 PASS",
+    "p1b_inherited_negative_harness": "PASS",
+    "strategy_runtime_core_lib": "1216/1216 PASS",
+    "runtime_durable_service_lib": "116 PASS; 3 intentional crash children ignored",
+    "runtime_durable_service_doctests": "29/29 PASS",
+    "strict_targeted_clippy": "PASS",
+    "aggregate_gate": "PASS"
+  },
+  "closed_surfaces": {
+    "operational_redis_db0": false,
+    "deployable_p1_supervisor": false,
+    "paper_provider": false,
+    "ack_order_trade_position_feedback": false,
+    "finam_transport": false,
+    "finam_post_delete": false,
+    "broker_network_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "unattended_execution": false,
+    "p1d_authorized": false
+  }
+}

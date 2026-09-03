@@ -28,6 +28,14 @@ def replace_once(source: str, old: str, new: str) -> str:
     return source.replace(old, new, 1)
 
 
+def replace_in_section(source: str, start: str, end: str, old: str, new: str) -> str:
+    prefix, remainder = source.split(start, 1)
+    section, suffix = remainder.split(end, 1)
+    if section.count(old) != 1:
+        raise SystemExit(f"fixture drift in {start!r}: expected one occurrence of {old!r}")
+    return prefix + start + section.replace(old, new, 1) + end + suffix
+
+
 cases = [
     ("remove-xreadgroup", replace_once(redis_source, 'redis::cmd("XREADGROUP")', 'redis::cmd("XREAD")'), semantic, recovery, live_core),
     ("remove-xautoclaim", replace_once(redis_source, 'redis::cmd("XAUTOCLAIM")', 'redis::cmd("PING")'), semantic, recovery, live_core),
@@ -39,6 +47,56 @@ cases = [
     ("public-owner-extraction", redis_source, semantic, recovery.replace("pub(crate) fn into_p1c_parts", "pub fn into_p1c_parts", 1), live_core),
     ("remove-restart-command", redis_source, semantic, recovery, live_core.replace("projection.canonical_command.as_ref()?.clone()", "return None", 1)),
     ("open-paper-provider", redis_source.replace("const COMMAND_ENVELOPE_SOURCE", "use runtime_command_bridge::Stage7aPaperOutcomeProvider;\nconst COMMAND_ENVELOPE_SOURCE", 1), semantic, recovery, live_core),
+    (
+        "remove-ready-pending-gate",
+        replace_in_section(
+            redis_source,
+            "async fn acquire_ready_delivery",
+            "async fn read_next_fresh",
+            'pending_entries("-", "+", 2)',
+            'pending_entries("-", "+", 0)',
+        ),
+        semantic,
+        recovery,
+        live_core,
+    ),
+    (
+        "allow-fresh-read-with-stale-pel",
+        replace_in_section(
+            redis_source,
+            "async fn acquire_ready_delivery",
+            "async fn read_next_fresh",
+            "self.try_reclaim_exact_id(&redis_id).await?",
+            "Some(self.read_next_fresh().await?)",
+        ),
+        semantic,
+        recovery,
+        live_core,
+    ),
+    (
+        "restore-xgroup-create-on-attach",
+        replace_in_section(
+            redis_source,
+            "pub async fn attach_stage8b_p1_redis",
+            "async fn open_backend",
+            "backend.verify_groups().await?;",
+            'let _ = redis::cmd("XGROUP");\n    backend.verify_groups().await?;',
+        ),
+        semantic,
+        recovery,
+        live_core,
+    ),
+    (
+        "allow-already-acknowledged-without-frontier",
+        replace_once(
+            redis_source,
+            "0 if redis_id_at_least(&m10_group_frontier, delivery.redis_id())? =>",
+            "0 if true =>",
+        ),
+        semantic,
+        recovery,
+        live_core,
+    ),
 ]
 
 

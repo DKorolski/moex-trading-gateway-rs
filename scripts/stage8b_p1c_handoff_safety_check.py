@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable Stage 8B-P1-c source implementation handoff."""
+"""Validate an immutable Stage 8B-P1-c R1 source implementation handoff."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import zipfile
 from pathlib import PurePosixPath
 
 
-EVIDENCE = "handoff-evidence/stage8b-p1c-evidence.json"
+EVIDENCE = "handoff-evidence/stage8b-p1c-r1-evidence.json"
 GATE = "handoff-evidence/stage8b-p1c-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
@@ -22,13 +22,17 @@ REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p1c-real-redis-command-publication.md",
     "docs/stage-8/stage8b-p1c-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1c-evidence.json",
+    "docs/stage-8/stage8b-p1c-r1-redis-restart-group-continuity.md",
+    "docs/stage-8/stage8b-p1c-r1-acceptance-matrix.csv",
+    "docs/stage-8/stage8b-p1c-r1-evidence.json",
     "scripts/stage8b_p1c_check.py",
     "scripts/stage8b_p1c_negative_harness.py",
     "scripts/stage8b_p1c_gate.sh",
     "scripts/make_stage8b_p1c_handoff.py",
     "scripts/stage8b_p1c_handoff_safety_check.py",
 }
-PREDECESSOR = "ed6d98cb2bbc70c36e1033c6215d64dd6218cedf"
+ACCEPTED_P1B_PREDECESSOR = "ed6d98cb2bbc70c36e1033c6215d64dd6218cedf"
+REVIEWED_P1C_PREDECESSOR = "a85ef845f86f99bcfd45654792cc688240457d3d"
 
 
 def sha256(data: bytes) -> str:
@@ -84,31 +88,40 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("manifest source binding mismatch")
         if marker.get("archive_name") != PurePosixPath(path).name:
             raise ValueError("archive name mismatch")
-        if evidence.get("stage") != "Stage 8B-P1-c":
+        if evidence.get("stage") != "Stage 8B-P1-c R1":
             raise ValueError("stage mismatch")
         if evidence.get("status") != "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
-        if evidence.get("accepted_predecessor_ref") != PREDECESSOR:
-            raise ValueError("predecessor mismatch")
+        if evidence.get("accepted_p1b_predecessor_ref") != ACCEPTED_P1B_PREDECESSOR:
+            raise ValueError("accepted P1-b predecessor mismatch")
+        if evidence.get("reviewed_p1c_predecessor_ref") != REVIEWED_P1C_PREDECESSOR:
+            raise ValueError("reviewed P1-c predecessor mismatch")
 
         positive = evidence.get("positive_evidence", {})
-        if positive.get("real_redis_scenarios") != "8/8 PASS":
+        if positive.get("real_redis_scenarios") != "15/15 PASS":
             raise ValueError("real Redis evidence mismatch")
-        if positive.get("command_response_loss_exactly_once") != "PASS":
-            raise ValueError("response-loss evidence mismatch")
+        for key in (
+            "ready_stale_a_before_fresh_b",
+            "ready_pending_not_claimable_retry",
+            "namespace_initialization_attach_split",
+            "zero_intent_group_frontier_validation",
+            "original_p1c_regression",
+        ):
+            if positive.get(key) != "PASS":
+                raise ValueError(f"positive evidence mismatch: {key}")
         negative = evidence.get("negative_evidence", {})
-        if negative.get("source_scope_mutations") != "10/10 PASS":
+        if negative.get("source_scope_mutations") != "14/14 PASS":
             raise ValueError("negative evidence mismatch")
         verification = evidence.get("verification", {})
         expected_verification = {
             "format": "PASS",
             "source_scope_checker": "PASS",
-            "negative_harness": "10/10 PASS",
-            "real_redis_integration": "8/8 PASS",
+            "negative_harness": "14/14 PASS",
+            "real_redis_integration": "15/15 PASS",
             "p1b_inherited_negative_harness": "PASS",
             "strategy_runtime_core_lib": "1216/1216 PASS",
             "runtime_durable_service_lib": (
-                "109 PASS; 3 intentional crash children ignored"
+                "116 PASS; 3 intentional crash children ignored"
             ),
             "runtime_durable_service_doctests": "29/29 PASS",
             "strict_targeted_clippy": "PASS",
@@ -126,9 +139,9 @@ def check(path: str) -> dict[str, object]:
 
         gate = archive.read(GATE)
         for marker_text in (
-            b"PASS stage8b-p1c-source-scope",
-            b"PASS stage8b-p1c-negative-harness 10/10",
-            b"PASS stage8b-p1c-gate",
+            b"PASS stage8b-p1c-r1-source-scope",
+            b"PASS stage8b-p1c-negative-harness 14/14",
+            b"PASS stage8b-p1c-r1-gate",
         ):
             if marker_text not in gate:
                 raise ValueError(f"gate marker missing: {marker_text!r}")
@@ -163,7 +176,7 @@ def check(path: str) -> dict[str, object]:
             "symlinks": 0,
             "unsafe_paths": 0,
             "source_ref": source_ref,
-            "stage": "Stage 8B-P1-c",
+            "stage": "Stage 8B-P1-c R1",
             "result": "PASS",
         }
 

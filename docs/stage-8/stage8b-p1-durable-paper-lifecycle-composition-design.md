@@ -1,7 +1,8 @@
 # Stage 8B-P1 durable paper lifecycle composition design
 
 Status: architecture, P1-a, the semantic-commit R1A addendum and P1-b are
-accepted. P1-c is a source implementation review candidate. Operational Redis
+accepted. P1-c R1 is a source implementation review candidate after the first
+P1-c review identified Ready-PEL and group-continuity gaps. Operational Redis
 DB 0 and VPS activation remain unauthorized by this document.
 
 ## Decision

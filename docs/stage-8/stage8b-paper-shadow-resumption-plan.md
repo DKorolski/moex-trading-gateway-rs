@@ -46,8 +46,10 @@ durable paper order/ACK lifecycle are not claimed. See
 The architecture in
 `stage8b-p1-durable-paper-lifecycle-composition-design.md` is accepted with
 staged authorization. P1-a and P1-b are accepted. P1-c is a source
-implementation review candidate that adds an isolated real-Redis M10/PEL and
-idempotent command-publication boundary without operational activation. The dedicated
+R1 source implementation review candidate that adds an isolated real-Redis
+M10/PEL and idempotent command-publication boundary without operational
+activation. R1 also makes restart attachment verify-only and requires
+claim-before-fresh Ready acquisition. The dedicated
 single-owner composition around the accepted Stage 7B service will add:
 
 - one fixed paper namespace and consumer group;

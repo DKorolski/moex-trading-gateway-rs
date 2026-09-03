@@ -31,6 +31,88 @@ const COMMAND_PUBLICATION_MARKER_SCHEMA_VERSION: u16 = 1;
 const COMMAND_PUBLICATION_MARKER_DOMAIN: &str = "moex.stage8b.p1.command-publication-marker.v1";
 const MIN_RETENTION_FLOOR: usize = super::STAGE8B_P1_LOCAL_M10_MIN_RETENTION;
 
+const NAMESPACE_INITIALIZATION_LUA: &str = r#"
+local function type_name(key)
+  local result = redis.call('TYPE', key)
+  if type(result) == 'table' then return result['ok'] end
+  return result
+end
+
+local function exact_initial_group(stream, expected)
+  local groups = redis.call('XINFO', 'GROUPS', stream)
+  if #groups ~= 1 then return false end
+  local name = nil
+  local last_delivered_id = nil
+  local pending = nil
+  local consumers = nil
+  for index = 1, #groups[1], 2 do
+    local key = groups[1][index]
+    if key == 'name' then name = groups[1][index + 1] end
+    if key == 'last-delivered-id' then last_delivered_id = groups[1][index + 1] end
+    if key == 'pending' then pending = tonumber(groups[1][index + 1]) end
+    if key == 'consumers' then consumers = tonumber(groups[1][index + 1]) end
+  end
+  return name == expected and last_delivered_id == '0-0'
+     and pending == 0 and consumers == 0
+end
+
+local m10_stream = KEYS[1]
+local command_stream = KEYS[2]
+local m10_group = ARGV[1]
+local command_group = ARGV[2]
+local m10_type = type_name(m10_stream)
+local command_type = type_name(command_stream)
+
+if m10_type == 'none' and command_type == 'none' then
+  redis.call('XGROUP', 'CREATE', m10_stream, m10_group, '0-0', 'MKSTREAM')
+  redis.call('XGROUP', 'CREATE', command_stream, command_group, '0-0', 'MKSTREAM')
+  return 'initialized'
+end
+
+if m10_type ~= 'stream' or command_type ~= 'stream'
+   or redis.call('XLEN', m10_stream) ~= 0
+   or redis.call('XLEN', command_stream) ~= 0
+   or not exact_initial_group(m10_stream, m10_group)
+   or not exact_initial_group(command_stream, command_group) then
+  return redis.error_reply('STAGE8B_P1_NAMESPACE_NOT_FRESH')
+end
+return 'idempotent_fresh'
+"#;
+
+const NAMESPACE_VERIFY_LUA: &str = r#"
+local function type_name(key)
+  local result = redis.call('TYPE', key)
+  if type(result) == 'table' then return result['ok'] end
+  return result
+end
+
+local function exact_group_frontier(stream, expected)
+  local groups = redis.call('XINFO', 'GROUPS', stream)
+  if #groups ~= 1 then return nil end
+  local name = nil
+  local last_delivered_id = nil
+  for index = 1, #groups[1], 2 do
+    local key = groups[1][index]
+    if key == 'name' then name = groups[1][index + 1] end
+    if key == 'last-delivered-id' then last_delivered_id = groups[1][index + 1] end
+  end
+  if name ~= expected or not last_delivered_id then return nil end
+  return last_delivered_id
+end
+
+local m10_stream = KEYS[1]
+local command_stream = KEYS[2]
+if type_name(m10_stream) ~= 'stream' or type_name(command_stream) ~= 'stream' then
+  return redis.error_reply('STAGE8B_P1_GROUP_MISSING')
+end
+local m10_frontier = exact_group_frontier(m10_stream, ARGV[1])
+local command_frontier = exact_group_frontier(command_stream, ARGV[2])
+if not m10_frontier or not command_frontier then
+  return redis.error_reply('STAGE8B_P1_GROUP_MISSING')
+end
+return {m10_frontier, command_frontier}
+"#;
+
 const M10_PUBLICATION_LUA: &str = r#"
 local function has_group(stream, expected)
   local groups = redis.call('XINFO', 'GROUPS', stream)
@@ -260,6 +342,10 @@ pub enum Stage8bP1RedisSemanticError {
     Semantic(#[from] Stage8bP1SemanticCompositionError),
     #[error("Stage 8B-P1 Redis group is absent or inconsistent")]
     GroupMissing,
+    #[error("Stage 8B-P1 Redis namespace is not an exact fresh initialization state")]
+    NamespaceNotFresh,
+    #[error("Stage 8B-P1 Ready source has more than one pending M10")]
+    AmbiguousReadyPendingEntries,
     #[error("Stage 8B-P1 exact M10 source is absent or not pending")]
     ExactPendingEntryMissing,
     #[error("Stage 8B-P1 exact M10 source conflicts with durable evidence")]
@@ -280,22 +366,49 @@ struct Stage8bP1RedisBackend {
     groups_verified: bool,
 }
 
-pub async fn connect_stage8b_p1_redis(
+enum Stage8bP1ReadySourceAcquisition {
+    Delivery(Stage8bP1PendingM10Delivery),
+    PendingNotClaimable(String),
+}
+
+/// One-shot namespace initialization. Group creation is allowed only when
+/// both streams are absent, or when both are still in the exact empty initial
+/// state. Historical or partially initialized namespaces fail closed.
+pub async fn initialize_stage8b_p1_redis_namespace(
     redis_url: &str,
     config: Stage8bP1RedisConfig,
 ) -> Result<Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError> {
+    let mut backend = open_backend(redis_url, config).await?;
+    backend.initialize_fresh_namespace().await?;
+    backend.verify_groups().await?;
+    Ok(Stage8bP1RedisSemanticCompositionTransport { backend })
+}
+
+/// Normal and restart attachment is verify-only. It never creates or repairs
+/// a stream or consumer group.
+pub async fn attach_stage8b_p1_redis(
+    redis_url: &str,
+    config: Stage8bP1RedisConfig,
+) -> Result<Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError> {
+    let mut backend = open_backend(redis_url, config).await?;
+    backend.verify_groups().await?;
+    Ok(Stage8bP1RedisSemanticCompositionTransport { backend })
+}
+
+async fn open_backend(
+    redis_url: &str,
+    config: Stage8bP1RedisConfig,
+) -> Result<Stage8bP1RedisBackend, Stage8bP1RedisSemanticError> {
     config.validate()?;
     let client = redis::Client::open(redis_url)?;
     let connection = ConnectionManager::new(client).await?;
-    let mut backend = Stage8bP1RedisBackend {
+    Ok(Stage8bP1RedisBackend {
         connection,
         namespace: stage8b_p1_redis_namespace(),
         config,
         claim_cursor: "0-0".to_string(),
         groups_verified: false,
-    };
-    backend.ensure_groups().await?;
-    Ok(Stage8bP1RedisSemanticCompositionTransport { backend })
+    })
 }
 
 /// Linear transport handle. It exposes no raw Redis connection, arbitrary
@@ -349,7 +462,15 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         mut self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
-        let delivery = self.transport.backend.read_next_pending().await?;
+        let delivery = match self.transport.backend.acquire_ready_delivery().await? {
+            Stage8bP1ReadySourceAcquisition::Delivery(delivery) => delivery,
+            Stage8bP1ReadySourceAcquisition::PendingNotClaimable(redis_id) => {
+                return Ok(Stage8bP1RedisSemanticOutcome::PendingNotClaimable {
+                    owner: Box::new(self),
+                    pending_m10_redis_id: redis_id,
+                });
+            }
+        };
         let operational_identity_sha256 = self
             .stage7
             .stage8b_p1_operational_identity_sha256()
@@ -399,6 +520,10 @@ pub enum Stage8bP1RedisSemanticOutcome {
         ack_disposition: Stage8bP1RedisZeroIntentAckDisposition,
     },
     Prepublication(Box<Stage8bP1RedisPrepublicationPending>),
+    PendingNotClaimable {
+        owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+        pending_m10_redis_id: String,
+    },
     MultiIntentBlocked {
         semantic_batch_id_sha256: String,
         intent_count: usize,
@@ -589,47 +714,54 @@ pub async fn resume_stage8b_p1_prepublication_with_redis(
 }
 
 impl Stage8bP1RedisBackend {
-    async fn ensure_groups(&mut self) -> Result<(), Stage8bP1RedisSemanticError> {
-        ensure_group(
-            &mut self.connection,
-            &self.namespace.canonical_m10_stream,
-            &self.namespace.m10_consumer_group,
-        )
-        .await?;
-        ensure_group(
-            &mut self.connection,
-            &self.namespace.canonical_command_stream,
-            &self.namespace.stage7b_command_consumer_group,
-        )
-        .await?;
-        self.verify_group(
-            &self.namespace.canonical_m10_stream.clone(),
-            &self.namespace.m10_consumer_group.clone(),
-        )
-        .await?;
-        self.verify_group(
-            &self.namespace.canonical_command_stream.clone(),
-            &self.namespace.stage7b_command_consumer_group.clone(),
-        )
-        .await?;
-        self.groups_verified = true;
-        Ok(())
+    async fn initialize_fresh_namespace(&mut self) -> Result<(), Stage8bP1RedisSemanticError> {
+        let result: redis::RedisResult<String> = redis::cmd("EVAL")
+            .arg(NAMESPACE_INITIALIZATION_LUA)
+            .arg(2)
+            .arg(&self.namespace.canonical_m10_stream)
+            .arg(&self.namespace.canonical_command_stream)
+            .arg(&self.namespace.m10_consumer_group)
+            .arg(&self.namespace.stage7b_command_consumer_group)
+            .query_async(&mut self.connection)
+            .await;
+        match result {
+            Ok(classification)
+                if classification == "initialized" || classification == "idempotent_fresh" =>
+            {
+                Ok(())
+            }
+            Ok(_) => Err(Stage8bP1RedisSemanticError::InvalidRedisReply),
+            Err(error) if error.to_string().contains("STAGE8B_P1_NAMESPACE_NOT_FRESH") => {
+                Err(Stage8bP1RedisSemanticError::NamespaceNotFresh)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
-    async fn verify_group(
-        &mut self,
-        stream: &str,
-        group: &str,
-    ) -> Result<(), Stage8bP1RedisSemanticError> {
-        let pending: redis::RedisResult<redis::streams::StreamPendingReply> =
-            redis::cmd("XPENDING")
-                .arg(stream)
-                .arg(group)
-                .query_async(&mut self.connection)
-                .await;
-        pending
-            .map(|_| ())
-            .map_err(|_| Stage8bP1RedisSemanticError::GroupMissing)
+    async fn verify_groups(&mut self) -> Result<(String, String), Stage8bP1RedisSemanticError> {
+        let result: redis::RedisResult<Vec<String>> = redis::cmd("EVAL")
+            .arg(NAMESPACE_VERIFY_LUA)
+            .arg(2)
+            .arg(&self.namespace.canonical_m10_stream)
+            .arg(&self.namespace.canonical_command_stream)
+            .arg(&self.namespace.m10_consumer_group)
+            .arg(&self.namespace.stage7b_command_consumer_group)
+            .query_async(&mut self.connection)
+            .await;
+        let frontiers = match result {
+            Ok(frontiers) => frontiers,
+            Err(error) if error.to_string().contains("STAGE8B_P1_GROUP_MISSING") => {
+                return Err(Stage8bP1RedisSemanticError::GroupMissing);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let [m10_frontier, command_frontier] = frontiers.as_slice() else {
+            return Err(Stage8bP1RedisSemanticError::InvalidRedisReply);
+        };
+        parse_redis_id(m10_frontier)?;
+        parse_redis_id(command_frontier)?;
+        self.groups_verified = true;
+        Ok((m10_frontier.clone(), command_frontier.clone()))
     }
 
     async fn publish_canonical_m10(
@@ -672,7 +804,29 @@ impl Stage8bP1RedisBackend {
         }
     }
 
-    async fn read_next_pending(
+    async fn acquire_ready_delivery(
+        &mut self,
+    ) -> Result<Stage8bP1ReadySourceAcquisition, Stage8bP1RedisSemanticError> {
+        let pending = self.pending_entries("-", "+", 2).await?;
+        match pending.ids.as_slice() {
+            [] => self
+                .read_next_fresh()
+                .await
+                .map(Stage8bP1ReadySourceAcquisition::Delivery),
+            [entry] => {
+                let redis_id = entry.id.clone();
+                match self.try_reclaim_exact_id(&redis_id).await? {
+                    Some(delivery) => Ok(Stage8bP1ReadySourceAcquisition::Delivery(delivery)),
+                    None => Ok(Stage8bP1ReadySourceAcquisition::PendingNotClaimable(
+                        redis_id,
+                    )),
+                }
+            }
+            _ => Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries),
+        }
+    }
+
+    async fn read_next_fresh(
         &mut self,
     ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
         if !self.groups_verified {
@@ -737,6 +891,15 @@ impl Stage8bP1RedisBackend {
         &mut self,
         expected_id: &str,
     ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
+        self.try_reclaim_exact_id(expected_id)
+            .await?
+            .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)
+    }
+
+    async fn try_reclaim_exact_id(
+        &mut self,
+        expected_id: &str,
+    ) -> Result<Option<Stage8bP1PendingM10Delivery>, Stage8bP1RedisSemanticError> {
         for _ in 0..self.config.max_claim_pages {
             let start = self.claim_cursor.clone();
             let reply: StreamAutoClaimReply = redis::cmd("XAUTOCLAIM")
@@ -752,7 +915,7 @@ impl Stage8bP1RedisBackend {
             self.claim_cursor = reply.next_stream_id;
             for entry in reply.claimed {
                 if entry.id == expected_id {
-                    return delivery_from_entry(entry);
+                    return delivery_from_entry(entry).map(Some);
                 }
             }
             if self.claim_cursor == "0-0" || self.claim_cursor == start {
@@ -760,7 +923,7 @@ impl Stage8bP1RedisBackend {
                 break;
             }
         }
-        Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)
+        Ok(None)
     }
 
     async fn exact_delivery_for_evidence(
@@ -793,6 +956,7 @@ impl Stage8bP1RedisBackend {
         &mut self,
         delivery: &Stage8bP1PendingM10Delivery,
     ) -> Result<Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisSemanticError> {
+        let (m10_group_frontier, _) = self.verify_groups().await?;
         let existing = self
             .exact_stream_entry(delivery.redis_id())
             .await?
@@ -804,7 +968,10 @@ impl Stage8bP1RedisBackend {
             .pending_entries(delivery.redis_id(), delivery.redis_id(), 2)
             .await?;
         match pending.ids.len() {
-            0 => Ok(Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged),
+            0 if redis_id_at_least(&m10_group_frontier, delivery.redis_id())? => {
+                Ok(Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged)
+            }
+            0 => Err(Stage8bP1RedisSemanticError::ExactSourceConflict),
             1 if pending.ids[0].id == delivery.redis_id() => {
                 let acknowledged: usize = redis::cmd("XACK")
                     .arg(&self.namespace.canonical_m10_stream)
@@ -818,10 +985,13 @@ impl Stage8bP1RedisBackend {
                     let after = self
                         .pending_entries(delivery.redis_id(), delivery.redis_id(), 2)
                         .await?;
-                    if after.ids.is_empty() {
+                    let (after_m10_group_frontier, _) = self.verify_groups().await?;
+                    if after.ids.is_empty()
+                        && redis_id_at_least(&after_m10_group_frontier, delivery.redis_id())?
+                    {
                         Ok(Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged)
                     } else {
-                        Err(Stage8bP1RedisSemanticError::InvalidRedisReply)
+                        Err(Stage8bP1RedisSemanticError::ExactSourceConflict)
                     }
                 }
             }
@@ -965,26 +1135,6 @@ impl Stage8bP1RedisBackend {
     }
 }
 
-async fn ensure_group(
-    connection: &mut ConnectionManager,
-    stream: &str,
-    group: &str,
-) -> Result<(), Stage8bP1RedisSemanticError> {
-    let result: redis::RedisResult<()> = redis::cmd("XGROUP")
-        .arg("CREATE")
-        .arg(stream)
-        .arg(group)
-        .arg("0-0")
-        .arg("MKSTREAM")
-        .query_async(connection)
-        .await;
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) if error.to_string().contains("BUSYGROUP") => Ok(()),
-        Err(error) => Err(error.into()),
-    }
-}
-
 fn delivery_from_entry(
     entry: StreamId,
 ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
@@ -1059,6 +1209,23 @@ fn command_created_at(command: &BrokerCommand) -> chrono::DateTime<chrono::Utc> 
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
+}
+
+fn parse_redis_id(redis_id: &str) -> Result<(u64, u64), Stage8bP1RedisSemanticError> {
+    let (milliseconds, sequence) = redis_id
+        .split_once('-')
+        .ok_or(Stage8bP1RedisSemanticError::InvalidRedisReply)?;
+    let milliseconds = milliseconds
+        .parse()
+        .map_err(|_| Stage8bP1RedisSemanticError::InvalidRedisReply)?;
+    let sequence = sequence
+        .parse()
+        .map_err(|_| Stage8bP1RedisSemanticError::InvalidRedisReply)?;
+    Ok((milliseconds, sequence))
+}
+
+fn redis_id_at_least(candidate: &str, expected: &str) -> Result<bool, Stage8bP1RedisSemanticError> {
+    Ok(parse_redis_id(candidate)? >= parse_redis_id(expected)?)
 }
 
 fn token(value: &str) -> bool {
@@ -1271,10 +1438,12 @@ mod tests {
         String,
     ) {
         let (owner, key, fresh, identity) = first_boot(parent);
-        let mut transport =
-            connect_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
-                .await
-                .unwrap();
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
         let bytes = canonical_m10(identity.clone(), 1_785_759_000_000, 2_650);
         transport
             .publish_canonical_m10(&bytes, &identity)
@@ -1293,14 +1462,24 @@ mod tests {
     #[tokio::test]
     async fn p1c_real_redis_creates_groups_before_exact_m10_and_rejects_collision() {
         let redis = RedisServer::start().await;
-        let mut transport =
-            connect_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
-                .await
-                .unwrap();
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
         let namespace = stage8b_p1_redis_namespace();
         let identity = "11".repeat(32);
         let close_ts = 1_785_759_000_000_i64;
         let bytes = canonical_m10(identity.clone(), close_ts, 2_600);
+
+        let repeated_fresh = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        drop(repeated_fresh);
 
         let mut connection = redis.connection().await;
         for (stream, group) in [
@@ -1363,14 +1542,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn p1c_initializer_rejects_historical_stream_with_missing_group() {
+        let redis = RedisServer::start().await;
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let namespace = stage8b_p1_redis_namespace();
+        let identity = "11".repeat(32);
+        let bytes = canonical_m10(identity.clone(), 1_785_759_000_000, 2_600);
+        transport
+            .publish_canonical_m10(&bytes, &identity)
+            .await
+            .unwrap();
+        drop(transport);
+
+        let mut connection = redis.connection().await;
+        let removed: usize = redis::cmd("XGROUP")
+            .arg("DESTROY")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert!(matches!(
+            initialize_stage8b_p1_redis_namespace(
+                &redis.url,
+                Stage8bP1RedisConfig::paper_default_auto(),
+            )
+            .await,
+            Err(Stage8bP1RedisSemanticError::NamespaceNotFresh)
+        ));
+        let pending: redis::RedisResult<StreamPendingReply> = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await;
+        assert!(pending.is_err());
+    }
+
+    #[tokio::test]
     async fn p1c_zero_intent_xacks_last_and_restart_is_ack_only() {
         let redis = RedisServer::start().await;
         let parent = temp_directory("zero-intent");
         let (owner, key, fresh, identity) = first_boot(&parent);
-        let mut transport =
-            connect_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
-                .await
-                .unwrap();
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
         let bytes = canonical_m10(identity.clone(), 1_785_759_000_000, 2_600);
         transport
             .publish_canonical_m10(&bytes, &identity)
@@ -1410,7 +1634,7 @@ mod tests {
         };
         let callback_count = pending.stage5c_callback_count();
         let transport =
-            connect_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
+            attach_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
                 .await
                 .unwrap();
         let resolved = resolve_stage8b_p1_zero_intent_ack_with_redis(*pending, transport)
@@ -1426,14 +1650,178 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn p1c_zero_intent_restart_rejects_deleted_m10_group_without_recreation() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("zero-intent-group-loss");
+        let (owner, key, fresh, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let bytes = canonical_m10(identity.clone(), 1_785_759_000_000, 2_600);
+        transport
+            .publish_canonical_m10(&bytes, &identity)
+            .await
+            .unwrap();
+        let outcome = Stage8bP1RedisSemanticCompositionOwner::new(owner, transport)
+            .process_next(&key)
+            .await
+            .unwrap();
+        let Stage8bP1RedisSemanticOutcome::Ready { owner, .. } = outcome else {
+            panic!("fixture must commit zero-intent S1");
+        };
+        drop(owner);
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let removed: usize = redis::cmd("XGROUP")
+            .arg("DESTROY")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        assert!(matches!(
+            restart,
+            Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(_)
+        ));
+        assert!(matches!(
+            attach_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto()).await,
+            Err(Stage8bP1RedisSemanticError::GroupMissing)
+        ));
+        let pending: redis::RedisResult<StreamPendingReply> = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await;
+        assert!(pending.is_err());
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1c_zero_intent_rejects_externally_recreated_group_frontier() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("zero-intent-recreated-group");
+        let (owner, key, fresh, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let bytes = canonical_m10(identity.clone(), 1_785_759_000_000, 2_600);
+        transport
+            .publish_canonical_m10(&bytes, &identity)
+            .await
+            .unwrap();
+        let outcome = Stage8bP1RedisSemanticCompositionOwner::new(owner, transport)
+            .process_next(&key)
+            .await
+            .unwrap();
+        let Stage8bP1RedisSemanticOutcome::Ready { owner, .. } = outcome else {
+            panic!("fixture must commit zero-intent S1");
+        };
+        drop(owner);
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let removed: usize = redis::cmd("XGROUP")
+            .arg("DESTROY")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        let _: () = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .arg("0-0")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(pending) = restart else {
+            panic!("durable zero-intent S1 must retain ACK-only authority");
+        };
+        let transport =
+            attach_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
+                .await
+                .unwrap();
+        assert!(matches!(
+            resolve_stage8b_p1_zero_intent_ack_with_redis(*pending, transport).await,
+            Err(Stage8bP1RedisSemanticError::ExactSourceConflict)
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1c_restart_attach_rejects_deleted_command_group_without_recreation() {
+        let redis = RedisServer::start().await;
+        let transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        drop(transport);
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let removed: usize = redis::cmd("XGROUP")
+            .arg("DESTROY")
+            .arg(&namespace.canonical_command_stream)
+            .arg(&namespace.stage7b_command_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(removed, 1);
+        assert!(matches!(
+            attach_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto()).await,
+            Err(Stage8bP1RedisSemanticError::GroupMissing)
+        ));
+        let pending: redis::RedisResult<StreamPendingReply> = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_command_stream)
+            .arg(&namespace.stage7b_command_consumer_group)
+            .query_async(&mut connection)
+            .await;
+        assert!(pending.is_err());
+    }
+
+    #[tokio::test]
     async fn p1c_command_response_loss_republishes_exactly_once_and_retains_m10() {
         let redis = RedisServer::start().await;
         let parent = temp_directory("command-response-loss");
         let (owner, key, fresh, identity) = first_boot(&parent);
-        let mut transport =
-            connect_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
-                .await
-                .unwrap();
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
         let bytes = canonical_m10(identity.clone(), 1_785_759_000_000, 2_650);
         transport
             .publish_canonical_m10(&bytes, &identity)
@@ -1487,7 +1875,7 @@ mod tests {
             panic!("S1 restart must retain exact prepublication command");
         };
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let transport = connect_stage8b_p1_redis(&redis.url, reclaim_config())
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
         let pending = resume_stage8b_p1_prepublication_with_redis(*durable, transport)
@@ -1615,7 +2003,7 @@ mod tests {
             panic!("S1 restart must retain exact prepublication command");
         };
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let transport = connect_stage8b_p1_redis(&redis.url, reclaim_config())
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
         let pending = resume_stage8b_p1_prepublication_with_redis(*durable, transport)
@@ -1652,7 +2040,7 @@ mod tests {
             .publish_canonical_m10(&extra, &identity)
             .await
             .unwrap();
-        let second_delivery = pending.transport.backend.read_next_pending().await.unwrap();
+        let second_delivery = pending.transport.backend.read_next_fresh().await.unwrap();
         assert_ne!(second_delivery.redis_id(), pending.pending_m10_redis_id());
         drop(pending);
 
@@ -1670,12 +2058,248 @@ mod tests {
             panic!("S1 restart must retain prepublication authority");
         };
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let transport = connect_stage8b_p1_redis(&redis.url, reclaim_config())
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
         assert!(matches!(
             resume_stage8b_p1_prepublication_with_redis(*durable, transport).await,
             Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1c_ready_restart_reclaims_stale_a_before_fresh_b() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("ready-reclaim-before-fresh");
+        let (owner, key, fresh, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let a = canonical_m10(identity.clone(), 1_785_759_000_000, 2_600);
+        let b = canonical_m10(identity.clone(), 1_785_759_600_000, 2_601);
+        transport
+            .publish_canonical_m10(&a, &identity)
+            .await
+            .unwrap();
+        transport
+            .publish_canonical_m10(&b, &identity)
+            .await
+            .unwrap();
+        let delivered_a = transport.backend.read_next_fresh().await.unwrap();
+        assert_eq!(delivered_a.redis_id(), "1785759000000-0");
+        drop(transport);
+        drop(owner);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Ready(owner) = restart else {
+            panic!("pre-semantic crash must restart as ordinary Ready");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let first = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport)
+            .process_next(&key)
+            .await
+            .unwrap();
+        let Stage8bP1RedisSemanticOutcome::Ready {
+            owner,
+            receipt,
+            ack_disposition,
+        } = first
+        else {
+            panic!("A fixture must be the zero-intent transition");
+        };
+        assert_eq!(receipt.evidence.m10_redis_id, "1785759000000-0");
+        assert_eq!(
+            ack_disposition,
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "B must still be undelivered after A");
+
+        let second = owner.process_next(&key).await.unwrap();
+        match second {
+            Stage8bP1RedisSemanticOutcome::Ready { receipt, .. } => {
+                assert_eq!(receipt.evidence.m10_redis_id, "1785759600000-0");
+            }
+            Stage8bP1RedisSemanticOutcome::Prepublication(pending) => {
+                assert_eq!(pending.pending_m10_redis_id(), "1785759600000-0");
+            }
+            Stage8bP1RedisSemanticOutcome::PendingNotClaimable { .. }
+            | Stage8bP1RedisSemanticOutcome::MultiIntentBlocked { .. } => {
+                panic!("B must be the next semantic source")
+            }
+        }
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1c_ready_with_unclaimable_stale_pel_never_reads_fresh() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("ready-unclaimable");
+        let (owner, key, fresh, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let a = canonical_m10(identity.clone(), 1_785_759_000_000, 2_600);
+        let b = canonical_m10(identity.clone(), 1_785_759_600_000, 2_601);
+        transport
+            .publish_canonical_m10(&a, &identity)
+            .await
+            .unwrap();
+        transport
+            .publish_canonical_m10(&b, &identity)
+            .await
+            .unwrap();
+        let delivered_a = transport.backend.read_next_fresh().await.unwrap();
+        drop(transport);
+        drop(owner);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Ready(owner) = restart else {
+            panic!("pre-semantic crash must restart as ordinary Ready");
+        };
+        let mut not_claimable = Stage8bP1RedisConfig::paper_default_auto();
+        not_claimable.claim_idle_ms = 60_000;
+        let transport = attach_stage8b_p1_redis(&redis.url, not_claimable)
+            .await
+            .unwrap();
+        let outcome = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport)
+            .process_next(&key)
+            .await
+            .unwrap();
+        let Stage8bP1RedisSemanticOutcome::PendingNotClaimable {
+            owner,
+            pending_m10_redis_id,
+        } = outcome
+        else {
+            panic!("young stale PEL must return retryable ownership");
+        };
+        assert_eq!(pending_m10_redis_id, delivered_a.redis_id());
+        drop(owner);
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(2)
+            .query_async::<StreamPendingCountReply>(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.ids.len(), 1);
+        assert_eq!(pending.ids[0].id, delivered_a.redis_id());
+        assert!(matches!(
+            restart_stage8b_p1(
+                validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .unwrap(),
+            Stage7bRestartOutcome::Ready(_)
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1c_ready_restart_rejects_ambiguous_pel_without_callback() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("ready-ambiguous-pel");
+        let (owner, key, fresh, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let a = canonical_m10(identity.clone(), 1_785_759_000_000, 2_600);
+        let b = canonical_m10(identity.clone(), 1_785_759_600_000, 2_601);
+        transport
+            .publish_canonical_m10(&a, &identity)
+            .await
+            .unwrap();
+        transport
+            .publish_canonical_m10(&b, &identity)
+            .await
+            .unwrap();
+        transport.backend.read_next_fresh().await.unwrap();
+        transport.backend.read_next_fresh().await.unwrap();
+        drop(transport);
+        drop(owner);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::Ready(owner) = restart else {
+            panic!("pre-semantic crash must restart as ordinary Ready");
+        };
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        assert!(matches!(
+            Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport)
+                .process_next(&key)
+                .await,
+            Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries)
+        ));
+        assert!(matches!(
+            restart_stage8b_p1(
+                validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .unwrap(),
+            Stage7bRestartOutcome::Ready(_)
         ));
         fs::remove_dir_all(parent).unwrap();
     }
@@ -1699,16 +2323,18 @@ mod tests {
         let redis = RedisServer::start().await;
         let parent = temp_directory("journal-ahead");
         let (owner, key, fresh, identity) = first_boot(&parent);
-        let mut transport =
-            connect_stage8b_p1_redis(&redis.url, Stage8bP1RedisConfig::paper_default_auto())
-                .await
-                .unwrap();
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
         let bytes = canonical_m10(identity.clone(), 1_785_759_000_000, 2_650);
         transport
             .publish_canonical_m10(&bytes, &identity)
             .await
             .unwrap();
-        let delivery = transport.backend.read_next_pending().await.unwrap();
+        let delivery = transport.backend.read_next_fresh().await.unwrap();
         let binding = binding_from_delivery(&delivery, identity.clone());
         let accepted_bar = delivery
             .parse_exact(&identity)
@@ -1738,7 +2364,7 @@ mod tests {
             panic!("uncovered RequestAccepted must remain typed pending");
         };
         tokio::time::sleep(Duration::from_millis(5)).await;
-        let transport = connect_stage8b_p1_redis(&redis.url, reclaim_config())
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
             .unwrap();
         let pending = resume_stage8b_p1_journal_ahead_with_redis(*pending, transport, &key)

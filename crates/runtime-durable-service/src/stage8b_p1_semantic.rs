@@ -35,14 +35,14 @@ use crate::stage8b_p1_bootstrap::{
 mod redis;
 
 pub use redis::{
-    connect_stage8b_p1_redis, resolve_stage8b_p1_zero_intent_ack_with_redis,
-    resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
-    Stage8bP1RedisCommandPublicationDisposition, Stage8bP1RedisCommandPublicationReceipt,
-    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisM10PublishDisposition,
-    Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
-    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
-    Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
-    Stage8bP1RedisZeroIntentAckResolved,
+    attach_stage8b_p1_redis, initialize_stage8b_p1_redis_namespace,
+    resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
+    resume_stage8b_p1_prepublication_with_redis, Stage8bP1RedisCommandPublicationDisposition,
+    Stage8bP1RedisCommandPublicationReceipt, Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig,
+    Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisPrepublicationPending,
+    Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
+    Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
+    Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
 };
 
 pub const STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION: u16 = 1;

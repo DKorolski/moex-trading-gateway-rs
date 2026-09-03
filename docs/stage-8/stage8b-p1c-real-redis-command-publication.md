@@ -1,6 +1,8 @@
 # Stage 8B-P1-c real Redis semantic source and command publication
 
-Status: source implementation review candidate.
+Status: reviewed at `a85ef845f86f99bcfd45654792cc688240457d3d`;
+superseded for restart/group-continuity closure by
+`stage8b-p1c-r1-redis-restart-group-continuity.md`.
 
 Accepted predecessor:
 `ed6d98cb2bbc70c36e1033c6215d64dd6218cedf` (P1-b closed).

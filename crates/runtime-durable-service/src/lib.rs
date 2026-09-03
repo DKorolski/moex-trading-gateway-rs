@@ -267,8 +267,8 @@ pub use stage8b_p1_bootstrap::{
     STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
 };
 pub use stage8b_p1_semantic::{
-    build_stage8b_p1_canonical_m10, connect_stage8b_p1_redis, parse_stage8b_p1_canonical_m10,
-    resolve_stage8b_p1_zero_intent_ack_with_local_m10,
+    attach_stage8b_p1_redis, build_stage8b_p1_canonical_m10, initialize_stage8b_p1_redis_namespace,
+    parse_stage8b_p1_canonical_m10, resolve_stage8b_p1_zero_intent_ack_with_local_m10,
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_local_m10,
     resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
     Stage8bP1CanonicalM10BuildInput, Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1,
