@@ -1338,21 +1338,21 @@ Amber:
   verify-only attachment, reclaims one stale Ready PEL entry before fresh
   input, blocks ambiguous PEL and requires a continuous group frontier for
   already-acknowledged recovery. Stage 8B-P1-d0 is independently accepted at
-  `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd`. The active candidate is
-  Stage 8B-P1-d1 R1 exact-binding closure. The reviewed `61f798d` source is
-  hardened so the decision predecessor is one opaque source-produced binding,
-  its close is derived from the retained M10 Redis ID, and no public
-  constructible execution-bar DTO can mint eligibility. The Stage6 dispatch
-  receipt now retains the complete accepted identity, command snapshot and
-  accepted-record digest. A P1-specific Stage7 transition consumes eligibility
-  and checks those exact facts before appending the sole
-  `DispatchAttemptRecorded`; waiting, empty and blocked observations append
-  nothing. The deterministic Market fill/ID policy is unchanged. Same-bar,
-  history/warmup, missing tradable interval, cross-day, stale/future schedule,
-  multiple-candidate, identity-conflict and non-None TTL cases fail closed.
-  The trusted cross-crate canonical candidate bridge, feedback application,
-  ACK/XACK, operational Redis DB0 activation and FINAM send remain closed
-  pending later P1-d slices.
+  `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd`. Stage 8B-P1-d1 is formally closed
+  and independently accepted at
+  `4abb2fd9807adeb47f164a4025c7ac44d33679f6`: one opaque source-produced
+  decision/predecessor authority and one nonconstructible execution-bar
+  authority gate the exact Stage6/7 dispatch binding and deterministic Market
+  outcome. Same-bar, history/warmup, missing tradable interval, cross-day,
+  stale/future schedule, multiple-candidate, identity-conflict and non-None TTL
+  cases fail closed. The active P1-d2 projection-field/timestamp annex is a
+  design-only review candidate. It freezes complete Market Filled order,
+  trade, target-position, event-scoped truth and exact matching ACK fields;
+  source timestamps are the execution-bar open and receipt timestamps are its
+  final M10 close. Explicit commission is positive Decimal zero/scale zero,
+  while gross amount and unrealized PnL remain unmodeled `None`. P1-d2 source,
+  feedback application, ACK/XACK, operational Redis DB0 activation and FINAM
+  send remain closed pending annex acceptance and later P1-d slices.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

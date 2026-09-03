@@ -1,0 +1,61 @@
+id,area,requirement,status
+P1D2A-001,lineage,Accepted predecessor is exact P1-d1 closure 4abb2fd9807adeb47f164a4025c7ac44d33679f6,REQUIRED
+P1D2A-002,scope,Annex is design-only and does not authorize P1-d2 source,REQUIRED
+P1D2A-003,scope,Market full-fill feedback is the only v1 projection shape,REQUIRED
+P1D2A-004,authority,One consumed linear P1-d1 outcome is the sole fill and identity authority,REQUIRED
+P1D2A-005,authority,Prior canonical target position is the sole position arithmetic input,REQUIRED
+P1D2A-006,validation,All identity payload chronology and prior-position conflicts fail before effects,REQUIRED
+P1D2A-007,time,T_source equals exact execution-bar open timestamp,REQUIRED
+P1D2A-008,time,T_receipt equals exact execution-bar close timestamp,REQUIRED
+P1D2A-009,time,T_receipt minus T_source is exactly 600 seconds,REQUIRED
+P1D2A-010,time,Order trade position truth and ACK clocks follow the frozen table,REQUIRED
+P1D2A-011,time,Equal ACK and truth receipt timestamps use sequence for ordering,REQUIRED
+P1D2A-012,time,Wall clock and Utc::now are forbidden from canonical replay bytes,REQUIRED
+P1D2A-013,decimal,Exact Decimal serialization is reused without float round rescale or reparse,REQUIRED
+P1D2A-014,decimal,Materialized zero is positive Decimal scale zero,REQUIRED
+P1D2A-015,order,Order account instrument side and IDs copy exact command and P1-d1 values,REQUIRED
+P1D2A-016,order,Order type is Market and time in force is Some Day,REQUIRED
+P1D2A-017,order,Order status is Filled and lifecycle is Terminal,REQUIRED
+P1D2A-018,order,Order qty and filled_qty equal exact command quantity,REQUIRED
+P1D2A-019,order,Order remaining_qty is Some Decimal zero,REQUIRED
+P1D2A-020,order,Order limit_price is None,REQUIRED
+P1D2A-021,order,Order broker asset board and expiration metadata are None,REQUIRED
+P1D2A-022,order,Order source timestamp is Some T_source and receipt is T_receipt,REQUIRED
+P1D2A-023,trade,Exactly one trade uses exact P1-d1 trade order and client IDs,REQUIRED
+P1D2A-024,trade,Trade account instrument side quantity and price are exact,REQUIRED
+P1D2A-025,trade,Trade gross_amount is None because multiplier and currency are not modeled,REQUIRED
+P1D2A-026,trade,Trade commission is Some positive Decimal zero scale zero,REQUIRED
+P1D2A-027,trade,Trade broker asset board and expiration metadata are None,REQUIRED
+P1D2A-028,trade,Trade source timestamp is T_source and receipt is T_receipt,REQUIRED
+P1D2A-029,trade,No hidden fee value or synthetic extra trade exists,REQUIRED
+P1D2A-030,position,Signed fill delta is buy positive and sell negative,REQUIRED
+P1D2A-031,position,Result quantity q1 equals exact q0 plus signed fill delta,REQUIRED
+P1D2A-032,position,Opening from flat sets average to exact fill price,REQUIRED
+P1D2A-033,position,Same-side increase uses exact weighted average,REQUIRED
+P1D2A-034,position,Opposite-side reduction retains prior average,REQUIRED
+P1D2A-035,position,Exact flatten sets average to None,REQUIRED
+P1D2A-036,position,Side flip sets residual average to exact fill price,REQUIRED
+P1D2A-037,position,Nonzero prior quantity without average fails closed,REQUIRED
+P1D2A-038,position,Overflow or nonrepresentable division fails closed without rounding,REQUIRED
+P1D2A-039,position,Exactly one target row is emitted including explicit zero flat row,REQUIRED
+P1D2A-040,position,Position unrealized_pnl is None and is not explicit zero,REQUIRED
+P1D2A-041,position,Position source timestamp is Some T_source and receipt is T_receipt,REQUIRED
+P1D2A-042,position,Flat truth uses target instrument plus exact nonzero quantity,REQUIRED
+P1D2A-043,truth,Truth is event-scoped rather than fabricated full-account truth,REQUIRED
+P1D2A-044,truth,Truth contains one order one trade and one resulting target position,REQUIRED
+P1D2A-045,truth,Truth cash is None and instruments vector is empty,REQUIRED
+P1D2A-046,truth,Truth account is exact and received timestamp is T_receipt,REQUIRED
+P1D2A-047,truth,No unrelated account rows are copied or invented,REQUIRED
+P1D2A-048,truth,Existing Stage 5G canonicalizer owns vector order dedup and fingerprinting,REQUIRED
+P1D2A-049,ack,ACK request client and broker order IDs bind exact pending request,REQUIRED
+P1D2A-050,ack,ACK status is Accepted reason is None and receipt is T_receipt,REQUIRED
+P1D2A-051,ack,ClientOrderId never replaces StrategyRequestId,REQUIRED
+P1D2A-052,idempotency,Byte-identical replay is idempotent and any changed field conflicts,REQUIRED
+P1D2A-053,ordering,ACK and truth use one owner and one monotonic total_sequence domain,REQUIRED
+P1D2A-054,durability,Post-feedback seal is persisted and reread before source M10 XACK,REQUIRED
+P1D2A-055,durability,Source M10 XACK is always last,REQUIRED
+P1D2A-056,recovery,Restart never repeats Hybrid callback or blindly invokes provider,REQUIRED
+P1D2A-057,closure,Operational Redis DB0 and source ACK XACK effects remain closed,REQUIRED
+P1D2A-058,closure,P1-d3 limit cancel expiry and partial fills remain closed,REQUIRED
+P1D2A-059,closure,FINAM broker dispatch runtime-live and real orders remain closed,REQUIRED
+P1D2A-060,governance,Current-tree authority remains pinned to accepted P1-d1 until source acceptance,REQUIRED

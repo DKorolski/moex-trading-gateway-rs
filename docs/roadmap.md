@@ -29,16 +29,18 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 Stage 8B-P1-a, P1-b and P1-c are independently accepted and closed. P1-d0 is
 independently accepted at `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd` as the
-deterministic paper-execution policy baseline. The active candidate is
-**P1-d1 provider core R1 exact-binding closure**: source-produced opaque
-decision/predecessor authority, non-constructible canonical execution
-authority, the crate-private Stage5E next-bar eligibility bridge and a
-P1-specific Stage7 transition that consumes eligibility before exactly one
-durable dispatch append. The dispatch receipt cross-binds the full accepted
-identity, command snapshot and accepted-record digest. P1-d1 does not yet open
-the trusted cross-crate candidate bridge and does not apply feedback or
-ACK/XACK. Separately reviewed P1-d2 feedback, P1-d3 working limit/cancel
-recovery and P1-d4 crash/replay closure remain ahead.
+deterministic paper-execution policy baseline. P1-d1 is formally closed and
+accepted at `4abb2fd9807adeb47f164a4025c7ac44d33679f6`: its opaque
+decision/predecessor and execution-bar authorities, crate-private Stage5E
+next-bar eligibility bridge, exact dispatch binding and deterministic Market
+outcome are now the accepted source baseline. The active candidate is the
+**P1-d2 projection-field/timestamp annex**, design-only. It exact-freezes the
+Market Filled `BrokerOrderSnapshot`, `BrokerTradeSnapshot`, resulting target
+`BrokerPositionSnapshot`, event-scoped `BrokerTruthSnapshot` and matching
+`CommandAck`, including deterministic execution-open/source and
+execution-close/receipt clocks. P1-d2 source remains closed until this annex
+is independently accepted. P1-d3 working limit/cancel recovery and P1-d4
+crash/replay closure remain ahead.
 Operational Redis DB 0 remains closed through this source work; P1-e owns the
 deployable supervisor and P1-f owns isolated operational acceptance. FINAM
 POST/DELETE, broker dispatch, real orders and runtime-live remain closed.
