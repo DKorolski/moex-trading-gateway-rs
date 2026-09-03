@@ -1322,8 +1322,9 @@ Amber:
   transport/runtime projection. A separate `readonly=true` token is installed;
   it has no order capability and is revalidated on every WebSocket generation.
 - Stage 8B-P1 durable paper lifecycle architecture, P1-a bootstrap/identity,
-  the R1A semantic-commit addendum and P1-b R1 are accepted. P1-c is now a
-  R1 source implementation review candidate: canonical final M10 is retained in
+  the R1A semantic-commit addendum and P1-b R1 are accepted. Stage 8B-P1-c is formally closed
+  and independently accepted at
+  `3d08f84a4a01d08265120def697584c3e60bcd3c`: canonical final M10 is retained in
   a real Redis stream/group/PEL and drives the real Hybrid
   semantic facade under one owner, zero/one-intent state is covered by
   authenticated S1, and the exact RequestAccepted journal-ahead crash frontier
@@ -1336,8 +1337,12 @@ Amber:
   remains pending. R1 separates fresh namespace initialization from
   verify-only attachment, reclaims one stale Ready PEL entry before fresh
   input, blocks ambiguous PEL and requires a continuous group frontier for
-  already-acknowledged recovery. Provider/feedback, operational Redis DB0
-  activation and FINAM send remain closed.
+  already-acknowledged recovery. Stage 8B-P1-d0 is the active
+  design/policy review candidate. It freezes next-eligible-bar timing,
+  market/limit/cancel behavior, zero synthetic partial fills, zero
+  fee/slippage economics and deterministic paper identifiers before provider
+  source implementation. Provider/feedback, operational Redis DB0 activation
+  and FINAM send remain closed.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

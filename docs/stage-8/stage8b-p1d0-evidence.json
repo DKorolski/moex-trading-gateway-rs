@@ -1,0 +1,24 @@
+{
+  "accepted_p1c_closure_ref": "3d08f84a4a01d08265120def697584c3e60bcd3c",
+  "acceptance_rows": 44,
+  "closed_surfaces": {
+    "broker_network_dispatch": false,
+    "finam_post_delete": false,
+    "generation2_authorization": false,
+    "operational_redis_db0": false,
+    "p1_paper_vps_activation": false,
+    "protective_execution": false,
+    "real_orders": false,
+    "runtime_live": false
+  },
+  "design_only": true,
+  "current_tree_authority_remains_p1c": true,
+  "governance_rebind_deferred_until_source_acceptance": true,
+  "implementation_authorized": false,
+  "negative_cases": 21,
+  "policy_domain": "moex.stage8b.p1d.execution-policy.v1",
+  "schema_version": 1,
+  "source_ref": "",
+  "stage": "Stage 8B-P1-d0",
+  "status": "DESIGN_POLICY_REVIEW_CANDIDATE"
+}

@@ -27,6 +27,17 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 
 ## Current active stage
 
+Stage 8B-P1-a, P1-b and P1-c are independently accepted and closed. The
+active candidate is **Stage 8B-P1-d0**: a design-only deterministic paper
+execution-policy freeze. It defines next-eligible-final-M10 timing,
+market/limit/cancel outcomes, full-fill-only v1 economics, deterministic paper
+IDs and the pre-dispatch eligibility boundary. Its acceptance opens only
+**P1-d1 provider core**, followed by separately reviewed P1-d2 feedback,
+P1-d3 working limit/cancel recovery and P1-d4 crash/replay closure.
+Operational Redis DB 0 remains closed through this source work; P1-e owns the
+deployable supervisor and P1-f owns isolated operational acceptance. FINAM
+POST/DELETE, broker dispatch, real orders and runtime-live remain closed.
+
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
 
