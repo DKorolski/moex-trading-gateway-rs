@@ -1339,14 +1339,20 @@ Amber:
   input, blocks ambiguous PEL and requires a continuous group frontier for
   already-acknowledged recovery. Stage 8B-P1-d0 is independently accepted at
   `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd`. The active candidate is
-  Stage 8B-P1-d1 provider core. It adds one crate-private Stage5E schedule
-  bridge for exact later-M10 eligibility, a read-only P1-c canonical-M10
-  observation adapter and a deterministic Market fill/ID bundle that cannot
-  execute without the linear Stage6 durable dispatch receipt. Same-bar,
+  Stage 8B-P1-d1 R1 exact-binding closure. The reviewed `61f798d` source is
+  hardened so the decision predecessor is one opaque source-produced binding,
+  its close is derived from the retained M10 Redis ID, and no public
+  constructible execution-bar DTO can mint eligibility. The Stage6 dispatch
+  receipt now retains the complete accepted identity, command snapshot and
+  accepted-record digest. A P1-specific Stage7 transition consumes eligibility
+  and checks those exact facts before appending the sole
+  `DispatchAttemptRecorded`; waiting, empty and blocked observations append
+  nothing. The deterministic Market fill/ID policy is unchanged. Same-bar,
   history/warmup, missing tradable interval, cross-day, stale/future schedule,
   multiple-candidate, identity-conflict and non-None TTL cases fail closed.
-  Feedback application, ACK/XACK, operational Redis DB0 activation and FINAM
-  send remain closed pending later P1-d slices.
+  The trusted cross-crate canonical candidate bridge, feedback application,
+  ACK/XACK, operational Redis DB0 activation and FINAM send remain closed
+  pending later P1-d slices.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

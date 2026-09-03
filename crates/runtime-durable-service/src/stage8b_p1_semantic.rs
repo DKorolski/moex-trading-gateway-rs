@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use strategy_runtime_core::{
     accept_stage5c_semantic_bar, Stage5cAcceptedSemanticBar, Stage5cSemanticBarInput,
     Stage5gLifecycleCommitmentKey, Stage5gP1SemanticBindingInput,
-    Stage6Stage8bP1SemanticCommitEvidenceV1, Stage8bP1d1CanonicalExecutionBar,
+    Stage6Stage8bP1SemanticCommitEvidenceV1,
 };
 
 use crate::recovery::{
@@ -145,28 +145,6 @@ impl Stage8bP1ValidatedCanonicalM10 {
 
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
-    }
-
-    /// Converts only already validated canonical M10 facts into the P1-d1
-    /// read-only observation DTO.  This does not mint schedule eligibility or
-    /// provider authority.
-    pub fn to_stage8b_p1d1_execution_bar(&self) -> Stage8bP1d1CanonicalExecutionBar {
-        let payload = &self.envelope.payload;
-        Stage8bP1d1CanonicalExecutionBar {
-            operational_identity_sha256: payload.operational_identity_sha256.clone(),
-            instrument: p1_instrument(),
-            semantic_id_sha256: self.envelope.m10_semantic_id_sha256.clone(),
-            payload_sha256: self.envelope.m10_payload_sha256.clone(),
-            open_ts_utc_ms: payload.open_ts_utc_ms,
-            close_ts_utc_ms: payload.close_ts_utc_ms,
-            open: payload
-                .open
-                .parse::<Decimal>()
-                .expect("validated canonical decimal remains parseable"),
-            timeframe_sec: payload.timeframe_sec,
-            is_final: payload.is_final,
-            is_live: true,
-        }
     }
 
     pub fn into_stage5c_semantic_bar(
@@ -1234,12 +1212,6 @@ mod tests {
         let first = parse_stage8b_p1_canonical_m10(&bytes, &"11".repeat(32)).unwrap();
         assert_eq!(first.redis_id(), "1785628200000-0");
         assert_eq!(first.canonical_bytes(), bytes);
-        let execution = first.to_stage8b_p1d1_execution_bar();
-        assert_eq!(execution.open, Decimal::new(21_805, 1));
-        assert_eq!(execution.open_ts_utc_ms, 1_785_627_600_000);
-        assert_eq!(execution.close_ts_utc_ms, 1_785_628_200_000);
-        assert!(execution.is_final);
-        assert!(execution.is_live);
         assert!(first.into_stage5c_semantic_bar().is_ok());
 
         let mut pretty: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

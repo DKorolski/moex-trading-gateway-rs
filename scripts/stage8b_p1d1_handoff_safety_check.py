@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable Stage 8B-P1-d1 source handoff."""
+"""Validate an immutable Stage 8B-P1-d1 R1 source handoff."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ EVIDENCE = "handoff-evidence/stage8b-p1d1-evidence.json"
 GATE = "handoff-evidence/stage8b-p1d1-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
-PREDECESSOR = "0d59d54d42fc29ae7b31359c1ded8efbd3a348fd"
+POLICY_PREDECESSOR = "0d59d54d42fc29ae7b31359c1ded8efbd3a348fd"
+REVIEWED_SOURCE = "61f798d605c5609302ad77e9b14cb6f5e9479f6a"
 REQUIRED = GENERATED | {
     "crates/strategy-runtime-core/src/stage8b_p1d1_paper_provider.rs",
     "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
@@ -87,13 +88,15 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("archive name mismatch")
         if evidence.get("stage") != "Stage 8B-P1-d1":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE":
+        if evidence.get("status") != "R1_CROSS_BINDING_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
-        if evidence.get("accepted_p1d0_predecessor_ref") != PREDECESSOR:
+        if evidence.get("accepted_p1d0_predecessor_ref") != POLICY_PREDECESSOR:
             raise ValueError("accepted predecessor mismatch")
-        if evidence.get("acceptance_rows") != 30:
+        if evidence.get("reviewed_p1d1_source_ref") != REVIEWED_SOURCE:
+            raise ValueError("reviewed source mismatch")
+        if evidence.get("acceptance_rows") != 42:
             raise ValueError("acceptance row mismatch")
-        if evidence.get("negative_cases") != 18:
+        if evidence.get("negative_cases") != 26:
             raise ValueError("negative count mismatch")
         if evidence.get("next_stage_authorized") is not False:
             raise ValueError("P1-d2 opened early")
@@ -106,7 +109,7 @@ def check(path: str) -> dict[str, object]:
         gate = archive.read(GATE)
         for expected in (
             b"PASS stage8b-p1d1-source-scope",
-            b"PASS stage8b-p1d1-negative-harness 18/18",
+            b"PASS stage8b-p1d1-negative-harness 26/26",
             b"PASS stage8b-p1d1-gate",
         ):
             if expected not in gate:

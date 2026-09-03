@@ -30,11 +30,15 @@ replace this macro-roadmap unless an explicit roadmap ADR is accepted.
 Stage 8B-P1-a, P1-b and P1-c are independently accepted and closed. P1-d0 is
 independently accepted at `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd` as the
 deterministic paper-execution policy baseline. The active candidate is
-**P1-d1 provider core**: the crate-private Stage5E next-bar eligibility bridge,
-exact canonical-M10 observation adapter and deterministic Market fill/ID
-bundle gated by the linear Stage6 dispatch receipt. P1-d1 does not apply
-feedback or ACK/XACK. Separately reviewed P1-d2 feedback, P1-d3 working
-limit/cancel recovery and P1-d4 crash/replay closure remain ahead.
+**P1-d1 provider core R1 exact-binding closure**: source-produced opaque
+decision/predecessor authority, non-constructible canonical execution
+authority, the crate-private Stage5E next-bar eligibility bridge and a
+P1-specific Stage7 transition that consumes eligibility before exactly one
+durable dispatch append. The dispatch receipt cross-binds the full accepted
+identity, command snapshot and accepted-record digest. P1-d1 does not yet open
+the trusted cross-crate candidate bridge and does not apply feedback or
+ACK/XACK. Separately reviewed P1-d2 feedback, P1-d3 working limit/cancel
+recovery and P1-d4 crash/replay closure remain ahead.
 Operational Redis DB 0 remains closed through this source work; P1-e owns the
 deployable supervisor and P1-f owns isolated operational acceptance. FINAM
 POST/DELETE, broker dispatch, real orders and runtime-live remain closed.

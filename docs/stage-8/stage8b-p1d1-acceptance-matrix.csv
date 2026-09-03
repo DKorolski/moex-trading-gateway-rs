@@ -29,3 +29,15 @@ P1D1-027,determinism,Redis ID consumer process epoch and wall clock do not affec
 P1D1-028,adapter,P1-c canonical decoder copies exact M10 Decimal and identity facts read-only,REQUIRED
 P1D1-029,closure,Feedback ACK source-M10 XACK LIMIT cancel and expiry remain closed,REQUIRED
 P1D1-030,safety,Operational DB0 FINAM dispatch runtime-live and real orders remain closed,REQUIRED
+P1D1-031,r1-authority,Command decision binding is opaque non-Clone and source-produced from authenticated P1 projection plus exact RequestAccepted,REQUIRED
+P1D1-032,r1-authority,Predecessor close is derived only from the exact retained M10 Redis ID and cannot be supplied separately,REQUIRED
+P1D1-033,r1-authority,Canonical execution authority is opaque non-Clone and has no public field constructor,REQUIRED
+P1D1-034,r1-authority,Execution eligibility minting remains crate-private until a separately reviewed canonical source bridge exists,REQUIRED
+P1D1-035,r1-authority,Public P1-c owner exposes no constructible execution observation DTO,REQUIRED
+P1D1-036,r1-dispatch,Stage6 dispatch receipt retains the complete durable request identity,REQUIRED
+P1D1-037,r1-dispatch,Stage6 dispatch receipt retains the exact accepted durable command snapshot,REQUIRED
+P1D1-038,r1-dispatch,Stage6 dispatch receipt retains the accepted-record canonical payload digest,REQUIRED
+P1D1-039,r1-dispatch,The P1-specific Stage7 transition consumes eligibility before appending DispatchAttemptRecorded,REQUIRED
+P1D1-040,r1-dispatch,Awaiting NoInput Blocked and eligible-before-transition states append no dispatch record,REQUIRED
+P1D1-041,r1-recovery,Successful combined transition appends exactly one dispatch and restart requires reconciliation without blind provider authority,REQUIRED
+P1D1-042,r1-closure,R1 opens no ACK XACK provider deployment operational DB0 FINAM or runtime-live surface,REQUIRED

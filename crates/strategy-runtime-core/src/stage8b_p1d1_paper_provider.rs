@@ -20,6 +20,33 @@
 //! let eligible: Stage8bP1d1ExecutionEligible = unreachable!();
 //! let _ = eligible.execute();
 //! ```
+//!
+//! Canonical predecessor/candidate authority is also non-constructible and
+//! the eligibility transition is not an external API:
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::Stage8bP1d1CommandDecisionBinding;
+//! let _ = Stage8bP1d1CommandDecisionBinding {
+//!     predecessor_close_ts_utc_ms: 0,
+//! };
+//! ```
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::Stage8bP1d1CanonicalExecutionAuthority;
+//! let _ = Stage8bP1d1CanonicalExecutionAuthority {
+//!     is_live: true,
+//! };
+//! ```
+//!
+//! ```compile_fail
+//! use strategy_runtime_core::{
+//!     Stage8bP1d1AwaitingExecutionBar,
+//!     Stage8bP1d1CanonicalExecutionAuthority,
+//! };
+//! let waiting: Stage8bP1d1AwaitingExecutionBar = unreachable!();
+//! let candidate: Stage8bP1d1CanonicalExecutionAuthority = unreachable!();
+//! let _ = waiting.observe_candidates(vec![candidate]);
+//! ```
 
 use broker_core::{
     BrokerCommand, BrokerOrderId, BrokerTradeId, InstrumentId, OrderType, StrategyRequestId,
@@ -33,7 +60,10 @@ use crate::stage5e_no_io_lifecycle::schedule_window_evidence::{
     classify_stage8b_p1d1_execution_bar, Stage5eScheduleProjectionBridgeInput,
     Stage8bP1d1ScheduleBridgeBlockReason, Stage8bP1d1ScheduleProjectionApproved,
 };
-use crate::{Stage6DurableActionKind, Stage6dPaperDispatchReceipt, Stage6dPaperOutcome};
+use crate::{
+    Stage6DurableCommandSnapshotV1, Stage6DurableRequestIdentityV1, Stage6Sha256Digest,
+    Stage6dPaperDispatchReceipt, Stage6dPaperOutcome,
+};
 
 pub const STAGE8B_P1D1_EXECUTION_POLICY_DOMAIN: &str = "moex.stage8b.p1d.execution-policy.v1";
 pub const STAGE8B_P1D1_ORDER_ID_DOMAIN: &str = "moex.stage8b.p1d.order-id.v1";
@@ -41,32 +71,44 @@ pub const STAGE8B_P1D1_TRADE_ID_DOMAIN: &str = "moex.stage8b.p1d.trade-id.v1";
 
 const M10_MILLIS: i64 = 600_000;
 
-/// Strict canonical-bar facts supplied by the already validated P1 M10
-/// decoder.  This DTO is evidence input only; it grants no eligibility or
-/// provider authority.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Stage8bP1d1CanonicalExecutionBar {
-    pub operational_identity_sha256: String,
-    pub instrument: InstrumentId,
-    pub semantic_id_sha256: String,
-    pub payload_sha256: String,
-    pub open_ts_utc_ms: i64,
-    pub close_ts_utc_ms: i64,
-    pub open: Decimal,
-    pub timeframe_sec: u32,
-    pub is_final: bool,
-    pub is_live: bool,
+/// Source-produced decision-bar and exact accepted-command authority.  The
+/// fields are intentionally private, the value is not Clone/serde, and its
+/// only production issuer reads one authenticated P1 semantic projection plus
+/// the matching Stage6 RequestAccepted record.
+pub struct Stage8bP1d1CommandDecisionBinding {
+    command: BrokerCommand,
+    durable_identity: Stage6DurableRequestIdentityV1,
+    durable_command_snapshot: Stage6DurableCommandSnapshotV1,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
+    operational_identity_sha256: String,
+    canonical_command_sha256: String,
+    predecessor_redis_id: String,
+    predecessor_semantic_id_sha256: String,
+    predecessor_payload_sha256: String,
+    predecessor_close_ts_utc_ms: i64,
 }
 
-/// Exact command/predecessor binding carried beside one read-only execution
-/// bar observation.  Callers may construct evidence, but cannot turn it into
-/// eligibility without the private Stage 5E schedule projection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Stage8bP1d1ExecutionBarObservation {
-    pub strategy_request_id: StrategyRequestId,
-    pub canonical_command_sha256: String,
-    pub predecessor_semantic_id_sha256: String,
-    pub bar: Stage8bP1d1CanonicalExecutionBar,
+/// Opaque exact canonical execution-bar authority.  No external constructor
+/// or public field exists.  Until a separately reviewed cross-crate source
+/// bridge is added, only this crate can mint it and invoke eligibility.
+pub struct Stage8bP1d1CanonicalExecutionAuthority {
+    strategy_request_id: StrategyRequestId,
+    canonical_command_sha256: String,
+    predecessor_redis_id: String,
+    predecessor_semantic_id_sha256: String,
+    predecessor_payload_sha256: String,
+    source_redis_id: String,
+    source_canonical_bytes_sha256: String,
+    operational_identity_sha256: String,
+    instrument: InstrumentId,
+    semantic_id_sha256: String,
+    payload_sha256: String,
+    open_ts_utc_ms: i64,
+    close_ts_utc_ms: i64,
+    open: Decimal,
+    timeframe_sec: u32,
+    is_final: bool,
+    is_live: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,11 +152,7 @@ pub enum Stage8bP1d1ProviderError {
 /// serializable.
 pub struct Stage8bP1d1AwaitingExecutionBar {
     schedule_projection: Stage5eScheduleProjectionBridgeInput,
-    command: BrokerCommand,
-    operational_identity_sha256: String,
-    canonical_command_sha256: String,
-    predecessor_semantic_id_sha256: String,
-    predecessor_close_ts_utc_ms: i64,
+    decision: Stage8bP1d1CommandDecisionBinding,
 }
 
 /// Blocked observation keeps the linear wait owner but grants no dispatch or
@@ -145,11 +183,8 @@ pub enum Stage8bP1d1ExecutionObservation {
 /// Opaque exact next-bar capability.  It exposes no constructor and is
 /// consumed when it is bound to the Stage 6 dispatch receipt.
 pub struct Stage8bP1d1ExecutionEligible {
-    command: BrokerCommand,
-    operational_identity_sha256: String,
-    canonical_command_sha256: String,
-    predecessor_semantic_id_sha256: String,
-    execution_bar: Stage8bP1d1CanonicalExecutionBar,
+    decision: Stage8bP1d1CommandDecisionBinding,
+    execution_bar: Stage8bP1d1CanonicalExecutionAuthority,
     schedule_approval: Stage8bP1d1ScheduleProjectionApproved,
 }
 
@@ -235,10 +270,86 @@ impl Stage8bP1d1MarketOutcomeBundle {
     }
 }
 
+/// Crate-internal issuer called only by the authenticated Stage6 recovered
+/// owner.  No caller may supply predecessor identity and close time as
+/// independent inputs to the wait transition.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn stage8b_p1d1_command_decision_binding_from_source(
+    command: BrokerCommand,
+    durable_identity: Stage6DurableRequestIdentityV1,
+    durable_command_snapshot: Stage6DurableCommandSnapshotV1,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
+    operational_identity_sha256: String,
+    canonical_command_sha256: String,
+    predecessor_redis_id: String,
+    predecessor_semantic_id_sha256: String,
+    predecessor_payload_sha256: String,
+) -> Result<Stage8bP1d1CommandDecisionBinding, Stage8bP1d1ProviderError> {
+    let predecessor_close_ts_utc_ms = exact_redis_close_ms(&predecessor_redis_id)
+        .ok_or(Stage8bP1d1ProviderError::CommandBindingMismatch)?;
+    let place = match &command {
+        BrokerCommand::PlaceOrder(place) if place.order_type == OrderType::Market => place,
+        _ => return Err(Stage8bP1d1ProviderError::UnsupportedCommand),
+    };
+    let exact_identity =
+        Stage6DurableRequestIdentityV1::from_place(place, durable_identity.attribution().clone())
+            .map_err(|_| Stage8bP1d1ProviderError::CommandBindingMismatch)?;
+    let exact_snapshot = Stage6DurableCommandSnapshotV1::from_place(&exact_identity, place)
+        .map_err(|_| Stage8bP1d1ProviderError::CommandBindingMismatch)?;
+    let command_bytes = serde_json::to_vec(&command)
+        .map_err(|_| Stage8bP1d1ProviderError::CommandBindingMismatch)?;
+    if exact_identity != durable_identity
+        || exact_snapshot != durable_command_snapshot
+        || sha256_hex(&command_bytes) != canonical_command_sha256
+        || !is_sha256(&operational_identity_sha256)
+        || !is_sha256(&canonical_command_sha256)
+        || !is_sha256(&predecessor_semantic_id_sha256)
+        || !is_sha256(&predecessor_payload_sha256)
+        || predecessor_close_ts_utc_ms <= 0
+        || predecessor_close_ts_utc_ms.rem_euclid(M10_MILLIS) != 0
+    {
+        return Err(Stage8bP1d1ProviderError::CommandBindingMismatch);
+    }
+    Ok(Stage8bP1d1CommandDecisionBinding {
+        command,
+        durable_identity,
+        durable_command_snapshot,
+        accepted_command_payload_sha256,
+        operational_identity_sha256,
+        canonical_command_sha256,
+        predecessor_redis_id,
+        predecessor_semantic_id_sha256,
+        predecessor_payload_sha256,
+        predecessor_close_ts_utc_ms,
+    })
+}
+
+impl Stage8bP1d1ExecutionEligible {
+    pub(crate) fn durable_identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.decision.durable_identity
+    }
+
+    pub(crate) fn durable_command_snapshot(&self) -> &Stage6DurableCommandSnapshotV1 {
+        &self.decision.durable_command_snapshot
+    }
+
+    pub(crate) fn accepted_command_payload_sha256(&self) -> &Stage6Sha256Digest {
+        &self.decision.accepted_command_payload_sha256
+    }
+
+    pub(crate) fn execution_close_ts_utc_ms(&self) -> i64 {
+        self.execution_bar.close_ts_utc_ms
+    }
+}
+
 impl Stage8bP1d1AwaitingExecutionBar {
-    pub fn observe_candidates(
+    #[allow(
+        dead_code,
+        reason = "closed until the canonical P1 cross-crate source bridge is reviewed"
+    )]
+    pub(crate) fn observe_candidates(
         self,
-        candidates: Vec<Stage8bP1d1ExecutionBarObservation>,
+        candidates: Vec<Stage8bP1d1CanonicalExecutionAuthority>,
         observed_at: DateTime<Utc>,
     ) -> Stage8bP1d1ExecutionObservation {
         if candidates.is_empty() {
@@ -248,80 +359,79 @@ impl Stage8bP1d1AwaitingExecutionBar {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::MultipleCandidates);
         }
         let candidate = candidates.into_iter().next().expect("length checked");
-        if candidate.strategy_request_id != command_request_id(&self.command) {
+        if candidate.strategy_request_id != command_request_id(&self.decision.command) {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongRequest);
         }
-        if candidate.canonical_command_sha256 != self.canonical_command_sha256 {
+        if candidate.canonical_command_sha256 != self.decision.canonical_command_sha256 {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand);
         }
-        if candidate.predecessor_semantic_id_sha256 != self.predecessor_semantic_id_sha256 {
+        if candidate.predecessor_redis_id != self.decision.predecessor_redis_id
+            || candidate.predecessor_semantic_id_sha256
+                != self.decision.predecessor_semantic_id_sha256
+            || candidate.predecessor_payload_sha256 != self.decision.predecessor_payload_sha256
+        {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongPredecessor);
         }
-        if candidate.bar.operational_identity_sha256 != self.operational_identity_sha256 {
+        if candidate.operational_identity_sha256 != self.decision.operational_identity_sha256 {
             return self
                 .block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongOperationalIdentity);
         }
-        let place = match &self.command {
+        let place = match &self.decision.command {
             BrokerCommand::PlaceOrder(place) => place,
             BrokerCommand::CancelOrder(_) => {
                 return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand)
             }
         };
-        if candidate.bar.instrument != place.instrument {
+        if candidate.instrument != place.instrument {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongInstrument);
         }
-        if !is_sha256(&candidate.bar.semantic_id_sha256)
-            || !is_sha256(&candidate.bar.payload_sha256)
-            || !is_sha256(&candidate.bar.operational_identity_sha256)
+        if !is_sha256(&candidate.semantic_id_sha256)
+            || !is_sha256(&candidate.payload_sha256)
+            || !is_sha256(&candidate.operational_identity_sha256)
+            || !is_sha256(&candidate.source_canonical_bytes_sha256)
+            || candidate.source_redis_id != format!("{}-0", candidate.close_ts_utc_ms)
         {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::NonCanonicalIdentity);
         }
-        if !candidate.bar.is_live {
+        if !candidate.is_live {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::HistoryOrWarmup);
         }
-        if !candidate.bar.is_final {
+        if !candidate.is_final {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::NonFinal);
         }
-        if candidate.bar.timeframe_sec != 600 {
+        if candidate.timeframe_sec != 600 {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidTimeframe);
         }
-        if candidate.bar.open_ts_utc_ms <= 0
-            || candidate.bar.close_ts_utc_ms <= 0
-            || candidate.bar.close_ts_utc_ms - candidate.bar.open_ts_utc_ms != M10_MILLIS
-            || candidate.bar.close_ts_utc_ms.rem_euclid(M10_MILLIS) != 0
-            || candidate.bar.open <= Decimal::ZERO
+        if candidate.open_ts_utc_ms <= 0
+            || candidate.close_ts_utc_ms <= 0
+            || candidate.close_ts_utc_ms - candidate.open_ts_utc_ms != M10_MILLIS
+            || candidate.close_ts_utc_ms.rem_euclid(M10_MILLIS) != 0
+            || candidate.open <= Decimal::ZERO
         {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology);
         }
-        if candidate.bar.close_ts_utc_ms == self.predecessor_close_ts_utc_ms {
+        if candidate.close_ts_utc_ms == self.decision.predecessor_close_ts_utc_ms {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::SameBar);
         }
-        if candidate.bar.close_ts_utc_ms < self.predecessor_close_ts_utc_ms {
+        if candidate.close_ts_utc_ms < self.decision.predecessor_close_ts_utc_ms {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology);
         }
 
         let Stage8bP1d1AwaitingExecutionBar {
             schedule_projection,
-            command,
-            operational_identity_sha256,
-            canonical_command_sha256,
-            predecessor_semantic_id_sha256,
-            predecessor_close_ts_utc_ms,
+            decision,
         } = self;
         match classify_stage8b_p1d1_execution_bar(
             schedule_projection,
-            &candidate.bar.instrument,
-            predecessor_close_ts_utc_ms.div_euclid(1_000),
-            candidate.bar.close_ts_utc_ms.div_euclid(1_000),
+            &candidate.instrument,
+            decision.predecessor_close_ts_utc_ms.div_euclid(1_000),
+            candidate.close_ts_utc_ms.div_euclid(1_000),
             observed_at,
         ) {
             Ok(schedule_approval) => {
                 Stage8bP1d1ExecutionObservation::Eligible(Box::new(Stage8bP1d1ExecutionEligible {
-                    command,
-                    operational_identity_sha256,
-                    canonical_command_sha256,
-                    predecessor_semantic_id_sha256,
-                    execution_bar: candidate.bar,
+                    decision,
+                    execution_bar: candidate,
                     schedule_approval,
                 }))
             }
@@ -333,11 +443,7 @@ impl Stage8bP1d1AwaitingExecutionBar {
                         reason,
                         awaiting: Stage8bP1d1AwaitingExecutionBar {
                             schedule_projection,
-                            command,
-                            operational_identity_sha256,
-                            canonical_command_sha256,
-                            predecessor_semantic_id_sha256,
-                            predecessor_close_ts_utc_ms,
+                            decision,
                         },
                     },
                 ))
@@ -364,13 +470,9 @@ impl Stage8bP1d1AwaitingExecutionBar {
 )]
 pub(crate) fn begin_stage8b_p1d1_market_wait(
     schedule_projection: Stage5eScheduleProjectionBridgeInput,
-    command: BrokerCommand,
-    operational_identity_sha256: String,
-    canonical_command_sha256: String,
-    predecessor_semantic_id_sha256: String,
-    predecessor_close_ts_utc_ms: i64,
+    decision: Stage8bP1d1CommandDecisionBinding,
 ) -> Result<Stage8bP1d1AwaitingExecutionBar, Stage8bP1d1ProviderError> {
-    let place = match &command {
+    let place = match &decision.command {
         BrokerCommand::PlaceOrder(place) if place.order_type == OrderType::Market => place,
         _ => return Err(Stage8bP1d1ProviderError::UnsupportedCommand),
     };
@@ -382,46 +484,46 @@ pub(crate) fn begin_stage8b_p1d1_market_wait(
     }
     if place.limit_price.is_some()
         || place.qty <= Decimal::ZERO
-        || !is_sha256(&operational_identity_sha256)
-        || !is_sha256(&canonical_command_sha256)
-        || !is_sha256(&predecessor_semantic_id_sha256)
-        || predecessor_close_ts_utc_ms <= 0
-        || predecessor_close_ts_utc_ms.rem_euclid(M10_MILLIS) != 0
+        || !is_sha256(&decision.operational_identity_sha256)
+        || !is_sha256(&decision.canonical_command_sha256)
+        || !is_sha256(&decision.predecessor_semantic_id_sha256)
+        || !is_sha256(&decision.predecessor_payload_sha256)
+        || decision.predecessor_close_ts_utc_ms <= 0
+        || decision.predecessor_close_ts_utc_ms.rem_euclid(M10_MILLIS) != 0
+        || decision.predecessor_redis_id != format!("{}-0", decision.predecessor_close_ts_utc_ms)
     {
         return Err(Stage8bP1d1ProviderError::CommandBindingMismatch);
     }
-    let bytes = serde_json::to_vec(&command)
+    let bytes = serde_json::to_vec(&decision.command)
         .map_err(|_| Stage8bP1d1ProviderError::CommandBindingMismatch)?;
-    if sha256_hex(&bytes) != canonical_command_sha256 {
+    if sha256_hex(&bytes) != decision.canonical_command_sha256 {
         return Err(Stage8bP1d1ProviderError::CommandBindingMismatch);
     }
     Ok(Stage8bP1d1AwaitingExecutionBar {
         schedule_projection,
-        command,
-        operational_identity_sha256,
-        canonical_command_sha256,
-        predecessor_semantic_id_sha256,
-        predecessor_close_ts_utc_ms,
+        decision,
     })
 }
 
-/// Consumes both exact eligibility and the fsync-backed Stage 6 dispatch
-/// receipt.  No overload accepts raw IDs or a boolean substitute.
-pub fn bind_stage8b_p1d1_market_dispatch(
+/// Internal half of the combined eligibility-gated Stage7 transition.  The
+/// sole caller appends DispatchAttemptRecorded only after it has consumed the
+/// eligibility and validated the exact accepted command snapshot.
+pub(crate) fn bind_stage8b_p1d1_market_dispatch(
     eligibility: Stage8bP1d1ExecutionEligible,
     dispatch_receipt: Stage6dPaperDispatchReceipt,
 ) -> Result<Stage8bP1d1MarketDispatchReady, Stage8bP1d1ProviderError> {
-    let place = match &eligibility.command {
+    let place = match &eligibility.decision.command {
         BrokerCommand::PlaceOrder(place) => place,
         BrokerCommand::CancelOrder(_) => {
             return Err(Stage8bP1d1ProviderError::DispatchBindingMismatch)
         }
     };
-    let identity = dispatch_receipt.stage8b_p1d1_identity();
-    if identity.action() != Stage6DurableActionKind::Place
-        || identity.strategy_request_id() != place.request_id
-        || identity.account_id() != &place.account_id
-        || identity.instrument() != &place.instrument
+    if dispatch_receipt.stage8b_p1d1_identity() != &eligibility.decision.durable_identity
+        || dispatch_receipt.stage8b_p1d1_command_snapshot()
+            != &eligibility.decision.durable_command_snapshot
+        || dispatch_receipt.stage8b_p1d1_accepted_payload_sha256()
+            != &eligibility.decision.accepted_command_payload_sha256
+        || eligibility.decision.durable_identity.strategy_request_id() != place.request_id
     {
         return Err(Stage8bP1d1ProviderError::DispatchBindingMismatch);
     }
@@ -439,14 +541,14 @@ impl Stage8bP1d1MarketDispatchReady {
             eligibility,
             dispatch_receipt,
         } = self;
-        let place = match &eligibility.command {
+        let place = match &eligibility.decision.command {
             BrokerCommand::PlaceOrder(place) => place,
             BrokerCommand::CancelOrder(_) => unreachable!("eligibility is Market PLACE only"),
         };
         let broker_order_id = derive_order_id(
-            &eligibility.operational_identity_sha256,
+            &eligibility.decision.operational_identity_sha256,
             place.request_id,
-            &eligibility.canonical_command_sha256,
+            &eligibility.decision.canonical_command_sha256,
         );
         let broker_trade_id = derive_trade_id(
             &broker_order_id,
@@ -455,7 +557,7 @@ impl Stage8bP1d1MarketDispatchReady {
         let _opaque_schedule_binding = (
             eligibility.schedule_approval.identity_fingerprint(),
             eligibility.schedule_approval.expires_at(),
-            &eligibility.predecessor_semantic_id_sha256,
+            &eligibility.decision.predecessor_semantic_id_sha256,
         );
         let stage6_outcome = Stage6dPaperOutcome::MarketFilled {
             broker_order_id: broker_order_id.clone(),
@@ -465,7 +567,7 @@ impl Stage8bP1d1MarketDispatchReady {
             dispatch_receipt,
             stage6_outcome,
             strategy_request_id: place.request_id,
-            canonical_command_sha256: eligibility.canonical_command_sha256,
+            canonical_command_sha256: eligibility.decision.canonical_command_sha256,
             execution_bar_semantic_id_sha256: eligibility.execution_bar.semantic_id_sha256,
             execution_bar_payload_sha256: eligibility.execution_bar.payload_sha256,
             fill_price: eligibility.execution_bar.open,
@@ -580,6 +682,85 @@ fn is_sha256(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+fn exact_redis_close_ms(value: &str) -> Option<i64> {
+    let (millis, sequence) = value.split_once('-')?;
+    if sequence != "0" || millis.is_empty() || (millis.len() > 1 && millis.starts_with('0')) {
+        return None;
+    }
+    let parsed = millis.parse::<i64>().ok()?;
+    (parsed > 0 && value == format!("{parsed}-0")).then_some(parsed)
+}
+
+#[cfg(test)]
+pub(crate) fn stage8b_p1d1_test_eligible(
+    command: &BrokerCommand,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
+    predecessor_close_ts_utc_ms: i64,
+    candidate_close_ts_utc_ms: i64,
+) -> Stage8bP1d1ExecutionEligible {
+    let BrokerCommand::PlaceOrder(place) = command else {
+        panic!("P1-d1 test eligibility supports PLACE only");
+    };
+    let attribution = broker_core::HybridRuntimeAttribution::parse_source_comment(
+        place.comment.as_deref().expect("test command attribution"),
+    )
+    .expect("test attribution must validate");
+    let identity = Stage6DurableRequestIdentityV1::from_place(place, attribution)
+        .expect("test identity must validate");
+    let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
+        .expect("test snapshot must validate");
+    let command_sha256 =
+        sha256_hex(&serde_json::to_vec(command).expect("test command serialization must succeed"));
+    let decision = stage8b_p1d1_command_decision_binding_from_source(
+        command.clone(),
+        identity,
+        snapshot,
+        accepted_command_payload_sha256,
+        "1".repeat(64),
+        command_sha256.clone(),
+        format!("{predecessor_close_ts_utc_ms}-0"),
+        "2".repeat(64),
+        "7".repeat(64),
+    )
+    .expect("test decision binding must validate");
+    let schedule_projection = crate::stage5e_no_io_lifecycle::schedule_window_evidence::
+        stage8b_p1d1_test_schedule_projection(
+            place.instrument.clone(),
+            predecessor_close_ts_utc_ms.div_euclid(1_000),
+            candidate_close_ts_utc_ms.div_euclid(1_000),
+            false,
+        );
+    let waiting = begin_stage8b_p1d1_market_wait(schedule_projection, decision)
+        .expect("test wait must validate");
+    let candidate = Stage8bP1d1CanonicalExecutionAuthority {
+        strategy_request_id: place.request_id,
+        canonical_command_sha256: command_sha256,
+        predecessor_redis_id: format!("{predecessor_close_ts_utc_ms}-0"),
+        predecessor_semantic_id_sha256: "2".repeat(64),
+        predecessor_payload_sha256: "7".repeat(64),
+        source_redis_id: format!("{candidate_close_ts_utc_ms}-0"),
+        source_canonical_bytes_sha256: "8".repeat(64),
+        operational_identity_sha256: "1".repeat(64),
+        instrument: place.instrument.clone(),
+        semantic_id_sha256: "3".repeat(64),
+        payload_sha256: "4".repeat(64),
+        open_ts_utc_ms: candidate_close_ts_utc_ms - M10_MILLIS,
+        close_ts_utc_ms: candidate_close_ts_utc_ms,
+        open: Decimal::new(2_175, 1),
+        timeframe_sec: 600,
+        is_final: true,
+        is_live: true,
+    };
+    match waiting.observe_candidates(
+        vec![candidate],
+        DateTime::<Utc>::from_timestamp_millis(candidate_close_ts_utc_ms)
+            .expect("test timestamp must validate"),
+    ) {
+        Stage8bP1d1ExecutionObservation::Eligible(eligible) => *eligible,
+        _ => panic!("test candidate must be eligible"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,12 +808,76 @@ mod tests {
         sha256_hex(&serde_json::to_vec(command).unwrap())
     }
 
+    fn decision(
+        command: &BrokerCommand,
+        predecessor_close_ms: i64,
+    ) -> Stage8bP1d1CommandDecisionBinding {
+        let BrokerCommand::PlaceOrder(place) = command else {
+            panic!("P1-d1 fixture supports PLACE only");
+        };
+        let attribution = HybridRuntimeAttribution::parse_source_comment(
+            place.comment.as_deref().expect("fixture attribution"),
+        )
+        .unwrap();
+        let identity = Stage6DurableRequestIdentityV1::from_place(place, attribution).unwrap();
+        let snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, place).unwrap();
+        let accepted_payload_sha256 =
+            Stage6Sha256Digest::parse(sha256_hex(&serde_json::to_vec(&snapshot).unwrap())).unwrap();
+        stage8b_p1d1_command_decision_binding_from_source(
+            command.clone(),
+            identity,
+            snapshot,
+            accepted_payload_sha256,
+            "1".repeat(64),
+            command_sha(command),
+            format!("{predecessor_close_ms}-0"),
+            "2".repeat(64),
+            "7".repeat(64),
+        )
+        .unwrap()
+    }
+
+    fn candidate_authority(
+        command: &BrokerCommand,
+        predecessor_close_ms: i64,
+        candidate_close_ms: i64,
+    ) -> Stage8bP1d1CanonicalExecutionAuthority {
+        Stage8bP1d1CanonicalExecutionAuthority {
+            strategy_request_id: command_request_id(command),
+            canonical_command_sha256: command_sha(command),
+            predecessor_redis_id: format!("{predecessor_close_ms}-0"),
+            predecessor_semantic_id_sha256: "2".repeat(64),
+            predecessor_payload_sha256: "7".repeat(64),
+            source_redis_id: format!("{candidate_close_ms}-0"),
+            source_canonical_bytes_sha256: "8".repeat(64),
+            operational_identity_sha256: "1".repeat(64),
+            instrument: instrument(),
+            semantic_id_sha256: "3".repeat(64),
+            payload_sha256: "4".repeat(64),
+            open_ts_utc_ms: candidate_close_ms - M10_MILLIS,
+            close_ts_utc_ms: candidate_close_ms,
+            open: Decimal::new(2_175, 1),
+            timeframe_sec: 600,
+            is_final: true,
+            is_live: true,
+        }
+    }
+
     fn waiting(
         predecessor_close_ms: i64,
         candidate_close_ms: i64,
         boundary: bool,
     ) -> Stage8bP1d1AwaitingExecutionBar {
         let command = command(None);
+        waiting_for(&command, predecessor_close_ms, candidate_close_ms, boundary)
+    }
+
+    fn waiting_for(
+        command: &BrokerCommand,
+        predecessor_close_ms: i64,
+        candidate_close_ms: i64,
+        boundary: bool,
+    ) -> Stage8bP1d1AwaitingExecutionBar {
         let projection = crate::stage5e_no_io_lifecycle::schedule_window_evidence::
             stage8b_p1d1_test_schedule_projection(
                 instrument(),
@@ -640,39 +885,7 @@ mod tests {
                 candidate_close_ms.div_euclid(1_000),
                 boundary,
             );
-        let hash = command_sha(&command);
-        begin_stage8b_p1d1_market_wait(
-            projection,
-            command,
-            "1".repeat(64),
-            hash,
-            "2".repeat(64),
-            predecessor_close_ms,
-        )
-        .unwrap()
-    }
-
-    fn observation(
-        command: &BrokerCommand,
-        candidate_close_ms: i64,
-    ) -> Stage8bP1d1ExecutionBarObservation {
-        Stage8bP1d1ExecutionBarObservation {
-            strategy_request_id: command_request_id(command),
-            canonical_command_sha256: command_sha(command),
-            predecessor_semantic_id_sha256: "2".repeat(64),
-            bar: Stage8bP1d1CanonicalExecutionBar {
-                operational_identity_sha256: "1".repeat(64),
-                instrument: instrument(),
-                semantic_id_sha256: "3".repeat(64),
-                payload_sha256: "4".repeat(64),
-                open_ts_utc_ms: candidate_close_ms - M10_MILLIS,
-                close_ts_utc_ms: candidate_close_ms,
-                open: Decimal::new(2_175, 1),
-                timeframe_sec: 600,
-                is_final: true,
-                is_live: true,
-            },
-        }
+        begin_stage8b_p1d1_market_wait(projection, decision(command, predecessor_close_ms)).unwrap()
     }
 
     fn observed_at(candidate_close_ms: i64) -> DateTime<Utc> {
@@ -700,10 +913,14 @@ mod tests {
         boundary: bool,
         observed_at_ms: i64,
     ) -> Stage8bP1d1ExecutionEligible {
-        let wait = waiting(predecessor_close_ms, candidate_close_ms, boundary);
-        let command = wait.command.clone();
+        let command = command(None);
+        let wait = waiting_for(&command, predecessor_close_ms, candidate_close_ms, boundary);
         match wait.observe_candidates(
-            vec![observation(&command, candidate_close_ms)],
+            vec![candidate_authority(
+                &command,
+                predecessor_close_ms,
+                candidate_close_ms,
+            )],
             observed_at(observed_at_ms),
         ) {
             Stage8bP1d1ExecutionObservation::Eligible(value) => *value,
@@ -720,9 +937,9 @@ mod tests {
             Stage8bP1d1ExecutionObservation::NoInput(wait) => *wait,
             _ => panic!("empty observation must remain pending"),
         };
-        let command = wait.command.clone();
+        let command = command(None);
         let blocked = match wait.observe_candidates(
-            vec![observation(&command, predecessor)],
+            vec![candidate_authority(&command, predecessor, predecessor)],
             observed_at(candidate),
         ) {
             Stage8bP1d1ExecutionObservation::Blocked(blocked) => blocked,
@@ -737,23 +954,36 @@ mod tests {
     #[test]
     fn p1d1_contiguous_and_clearing_boundary_are_the_only_positive_paths() {
         let predecessor = 1_788_422_400_000;
+        let command = command(None);
         assert!(matches!(
             waiting(predecessor, predecessor + M10_MILLIS, false).observe_candidates(
-                vec![observation(&command(None), predecessor + M10_MILLIS)],
+                vec![candidate_authority(
+                    &command,
+                    predecessor,
+                    predecessor + M10_MILLIS
+                )],
                 observed_at(predecessor + M10_MILLIS),
             ),
             Stage8bP1d1ExecutionObservation::Eligible(_)
         ));
         assert!(matches!(
             waiting(predecessor, predecessor + 3 * M10_MILLIS, true).observe_candidates(
-                vec![observation(&command(None), predecessor + 3 * M10_MILLIS)],
+                vec![candidate_authority(
+                    &command,
+                    predecessor,
+                    predecessor + 3 * M10_MILLIS
+                )],
                 observed_at(predecessor + 3 * M10_MILLIS),
             ),
             Stage8bP1d1ExecutionObservation::Eligible(_)
         ));
         let blocked = match waiting(predecessor, predecessor + 3 * M10_MILLIS, false)
             .observe_candidates(
-                vec![observation(&command(None), predecessor + 3 * M10_MILLIS)],
+                vec![candidate_authority(
+                    &command,
+                    predecessor,
+                    predecessor + 3 * M10_MILLIS,
+                )],
                 observed_at(predecessor + 3 * M10_MILLIS),
             ) {
             Stage8bP1d1ExecutionObservation::Blocked(value) => value,
@@ -769,10 +999,11 @@ mod tests {
     fn p1d1_wrong_binding_history_and_multiple_candidates_fail_closed() {
         let predecessor = 1_788_422_400_000;
         let candidate = predecessor + M10_MILLIS;
+        let command = command(None);
         let cases = [
             (
                 {
-                    let mut value = observation(&command(None), candidate);
+                    let mut value = candidate_authority(&command, predecessor, candidate);
                     value.strategy_request_id = StrategyRequestId::new(
                         Uuid::parse_str("87654321-4321-8765-9321-876543218765").unwrap(),
                     );
@@ -782,7 +1013,7 @@ mod tests {
             ),
             (
                 {
-                    let mut value = observation(&command(None), candidate);
+                    let mut value = candidate_authority(&command, predecessor, candidate);
                     value.canonical_command_sha256 = "5".repeat(64);
                     value
                 },
@@ -790,7 +1021,7 @@ mod tests {
             ),
             (
                 {
-                    let mut value = observation(&command(None), candidate);
+                    let mut value = candidate_authority(&command, predecessor, candidate);
                     value.predecessor_semantic_id_sha256 = "6".repeat(64);
                     value
                 },
@@ -798,16 +1029,16 @@ mod tests {
             ),
             (
                 {
-                    let mut value = observation(&command(None), candidate);
-                    value.bar.is_live = false;
+                    let mut value = candidate_authority(&command, predecessor, candidate);
+                    value.is_live = false;
                     value
                 },
                 Stage8bP1d1ExecutionEligibilityBlockReason::HistoryOrWarmup,
             ),
         ];
-        for (observation, expected) in cases {
+        for (candidate_authority, expected) in cases {
             let blocked = match waiting(predecessor, candidate, false)
-                .observe_candidates(vec![observation], observed_at(candidate))
+                .observe_candidates(vec![candidate_authority], observed_at(candidate))
             {
                 Stage8bP1d1ExecutionObservation::Blocked(value) => value,
                 _ => panic!("mutation must block"),
@@ -815,9 +1046,8 @@ mod tests {
             assert_eq!(blocked.reason(), expected);
         }
 
-        let command = command(None);
-        let first = observation(&command, candidate);
-        let second = first.clone();
+        let first = candidate_authority(&command, predecessor, candidate);
+        let second = candidate_authority(&command, predecessor, candidate);
         let blocked = match waiting(predecessor, candidate, false)
             .observe_candidates(vec![first, second], observed_at(candidate))
         {
@@ -841,16 +1071,8 @@ mod tests {
                 (predecessor + M10_MILLIS).div_euclid(1_000),
                 false,
             );
-        let hash = command_sha(&command);
         assert!(matches!(
-            begin_stage8b_p1d1_market_wait(
-                projection,
-                command,
-                "1".repeat(64),
-                hash,
-                "2".repeat(64),
-                predecessor,
-            ),
+            begin_stage8b_p1d1_market_wait(projection, decision(&command, predecessor),),
             Err(Stage8bP1d1ProviderError::TtlForbidden)
         ));
     }
@@ -862,7 +1084,7 @@ mod tests {
         let command = command(None);
 
         let not_yet = match waiting(predecessor, candidate, false).observe_candidates(
-            vec![observation(&command, candidate)],
+            vec![candidate_authority(&command, predecessor, candidate)],
             observed_at(predecessor - 1_000),
         ) {
             Stage8bP1d1ExecutionObservation::Blocked(value) => value,
@@ -874,7 +1096,7 @@ mod tests {
         );
 
         let future = match waiting(predecessor, candidate, false).observe_candidates(
-            vec![observation(&command, candidate)],
+            vec![candidate_authority(&command, predecessor, candidate)],
             observed_at(candidate - 1_000),
         ) {
             Stage8bP1d1ExecutionObservation::Blocked(value) => value,
@@ -886,7 +1108,7 @@ mod tests {
         );
 
         let expired = match waiting(predecessor, candidate, false).observe_candidates(
-            vec![observation(&command, candidate)],
+            vec![candidate_authority(&command, predecessor, candidate)],
             observed_at(candidate + 3_601_000),
         ) {
             Stage8bP1d1ExecutionObservation::Blocked(value) => value,
@@ -903,9 +1125,10 @@ mod tests {
             .unwrap()
             .timestamp_millis();
         let prior_day = midnight - M10_MILLIS;
-        let cross_day = match waiting(prior_day, midnight, false)
-            .observe_candidates(vec![observation(&command, midnight)], observed_at(midnight))
-        {
+        let cross_day = match waiting(prior_day, midnight, false).observe_candidates(
+            vec![candidate_authority(&command, prior_day, midnight)],
+            observed_at(midnight),
+        ) {
             Stage8bP1d1ExecutionObservation::Blocked(value) => value,
             _ => panic!("cross-day sequence must block"),
         };
@@ -921,10 +1144,9 @@ mod tests {
         let candidate = predecessor + M10_MILLIS;
         let first = eligible(predecessor, candidate, false);
         let second = eligible_at(predecessor, candidate, false, candidate + 30_000);
-        let first_receipt =
-            crate::stage6d_live_core::stage8b_p1d1_test_dispatch_receipt(&first.command);
-        let second_receipt =
-            crate::stage6d_live_core::stage8b_p1d1_test_dispatch_receipt(&second.command);
+        let command = command(None);
+        let first_receipt = crate::stage6d_live_core::stage8b_p1d1_test_dispatch_receipt(&command);
+        let second_receipt = crate::stage6d_live_core::stage8b_p1d1_test_dispatch_receipt(&command);
         let first = bind_stage8b_p1d1_market_dispatch(first, first_receipt)
             .unwrap()
             .execute();
@@ -941,5 +1163,61 @@ mod tests {
         assert!(!first.feedback_application_allowed());
         assert!(!first.ack_allowed());
         assert!(!first.source_m10_xack_allowed());
+    }
+
+    #[test]
+    fn p1d1_full_dispatch_snapshot_mismatches_fail_closed() {
+        let predecessor = 1_788_422_400_000;
+        let candidate_close = predecessor + M10_MILLIS;
+        let baseline = command(None);
+        let mut mutations = Vec::new();
+
+        let mut qty = baseline.clone();
+        let BrokerCommand::PlaceOrder(place) = &mut qty else {
+            unreachable!()
+        };
+        place.qty = Decimal::new(2, 0);
+        mutations.push(qty);
+
+        let mut side = baseline.clone();
+        let BrokerCommand::PlaceOrder(place) = &mut side else {
+            unreachable!()
+        };
+        place.side = OrderSide::Sell;
+        mutations.push(side);
+
+        let mut attribution = baseline.clone();
+        let BrokerCommand::PlaceOrder(place) = &mut attribution else {
+            unreachable!()
+        };
+        place.comment = Some("HYB|sid=hybrid_imoexf|c=different-cycle|o=BO|r=ENTRY".to_string());
+        mutations.push(attribution);
+
+        let mut created_ts = baseline.clone();
+        let BrokerCommand::PlaceOrder(place) = &mut created_ts else {
+            unreachable!()
+        };
+        place.created_ts += chrono::Duration::seconds(1);
+        mutations.push(created_ts);
+
+        for mutation in mutations {
+            let eligibility = eligible(predecessor, candidate_close, false);
+            let receipt = crate::stage6d_live_core::stage8b_p1d1_test_dispatch_receipt(&mutation);
+            assert!(matches!(
+                bind_stage8b_p1d1_market_dispatch(eligibility, receipt),
+                Err(Stage8bP1d1ProviderError::DispatchBindingMismatch)
+            ));
+        }
+
+        let eligibility = eligible(predecessor, candidate_close, false);
+        let receipt =
+            crate::stage6d_live_core::stage8b_p1d1_test_dispatch_receipt_with_payload_sha256(
+                &baseline,
+                Stage6Sha256Digest::parse("f".repeat(64)).unwrap(),
+            );
+        assert!(matches!(
+            bind_stage8b_p1d1_market_dispatch(eligibility, receipt),
+            Err(Stage8bP1d1ProviderError::DispatchBindingMismatch)
+        ));
     }
 }

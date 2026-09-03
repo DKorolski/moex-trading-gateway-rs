@@ -354,12 +354,12 @@ pub use stage6_replay::{
 #[doc(hidden)]
 pub use stage6d_live_core::stage8a4_test_attest_validated_entry;
 pub use stage6d_live_core::{
-    admit_stage7a_paper_command, advance_stage6d_restart_package,
-    apply_stage6e_accepted_fresh_truth, apply_stage8a4_validated_writer_entry,
-    apply_stage8b_p1_semantic_transition, authorize_stage6d_first_boot,
-    classify_stage8b_p1_journal_ahead_candidate, execute_stage6d_paper_outcome,
-    finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
-    first_boot_stage6d_paper,
+    admit_stage7a_p1d1_market_dispatch, admit_stage7a_paper_command,
+    advance_stage6d_restart_package, apply_stage6e_accepted_fresh_truth,
+    apply_stage8a4_validated_writer_entry, apply_stage8b_p1_semantic_transition,
+    authorize_stage6d_first_boot, classify_stage8b_p1_journal_ahead_candidate,
+    execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
+    finalize_stage7a_replayed_paper_request, first_boot_stage6d_paper,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     first_boot_stage6d_paper_with_owned_journal,
     issue_stage6e_paper_fresh_broker_truth_for_request, prepare_stage6d_paper_dispatch,
@@ -393,10 +393,10 @@ pub use stage6d_live_core::{
     Stage7bTestRestartFixture,
 };
 pub use stage8b_p1d1_paper_provider::{
-    bind_stage8b_p1d1_market_dispatch, Stage8bP1d1AwaitingExecutionBar,
-    Stage8bP1d1CanonicalExecutionBar, Stage8bP1d1ExecutionBarObservation,
-    Stage8bP1d1ExecutionEligibilityBlockReason, Stage8bP1d1ExecutionEligibilityBlocked,
-    Stage8bP1d1ExecutionEligible, Stage8bP1d1ExecutionObservation, Stage8bP1d1MarketDispatchReady,
+    Stage8bP1d1AwaitingExecutionBar, Stage8bP1d1CanonicalExecutionAuthority,
+    Stage8bP1d1CommandDecisionBinding, Stage8bP1d1ExecutionEligibilityBlockReason,
+    Stage8bP1d1ExecutionEligibilityBlocked, Stage8bP1d1ExecutionEligible,
+    Stage8bP1d1ExecutionObservation, Stage8bP1d1MarketDispatchReady,
     Stage8bP1d1MarketOutcomeBundle, Stage8bP1d1ProviderError, STAGE8B_P1D1_EXECUTION_POLICY_DOMAIN,
     STAGE8B_P1D1_ORDER_ID_DOMAIN, STAGE8B_P1D1_TRADE_ID_DOMAIN,
 };

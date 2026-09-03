@@ -20,10 +20,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use strategy_runtime_core::{
-    admit_stage7a_paper_command, advance_stage6d_restart_package,
-    apply_stage8a4_validated_writer_entry, apply_stage8b_p1_semantic_transition,
-    classify_stage8b_p1_journal_ahead_candidate, execute_stage6d_paper_outcome,
-    finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
+    admit_stage7a_p1d1_market_dispatch, admit_stage7a_paper_command,
+    advance_stage6d_restart_package, apply_stage8a4_validated_writer_entry,
+    apply_stage8b_p1_semantic_transition, classify_stage8b_p1_journal_ahead_candidate,
+    execute_stage6d_paper_outcome, finalize_stage7a_paper_request,
+    finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     refresh_stage7b_durable_frontier, restart_stage6d_paper_with_owned_journal,
     restore_stage5g_clean_restart, seal_stage6d_restart_package,
@@ -40,7 +41,8 @@ use strategy_runtime_core::{
     Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dLiveCoreError,
     Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
     Stage6dPaperOutcome, Stage7aPaperAdmission, Stage7aPaperCommandContext,
-    Stage7bFinalizedRequestFacts,
+    Stage7bFinalizedRequestFacts, Stage8bP1d1CommandDecisionBinding, Stage8bP1d1ExecutionEligible,
+    Stage8bP1d1MarketDispatchReady,
 };
 
 use crate::stage8b_p1_bootstrap::{
@@ -2085,6 +2087,29 @@ impl Stage7bRecoveryReadyOwner {
             command,
             context,
             observed_at,
+        )?)
+    }
+
+    /// Returns the source-produced P1 decision binding without appending a
+    /// dispatch record.  It is available only while the exact request remains
+    /// ReadyForFirstDispatch.
+    pub fn stage8b_p1d1_command_decision_binding(
+        &self,
+    ) -> Result<Stage8bP1d1CommandDecisionBinding, Stage7bRecoveryError> {
+        self.writer_lease.validate_namespace()?;
+        Ok(self.recovered.stage8b_p1d1_command_decision_binding()?)
+    }
+
+    /// Sole P1-d1 eligibility-gated dispatch transition.  No generic
+    /// admission call is performed before this method consumes eligibility.
+    pub fn admit_p1d1_eligible_market_dispatch(
+        &mut self,
+        eligibility: Stage8bP1d1ExecutionEligible,
+    ) -> Result<Stage8bP1d1MarketDispatchReady, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        Ok(admit_stage7a_p1d1_market_dispatch(
+            &mut self.recovered,
+            eligibility,
         )?)
     }
 

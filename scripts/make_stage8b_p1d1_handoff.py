@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8B-P1-d1 source review handoff."""
+"""Create the immutable Stage 8B-P1-d1 R1 source review handoff."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import stage8b_p1d1_handoff_safety_check as safety
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-paper-shadow-resumption"
-PREDECESSOR = "0d59d54d42fc29ae7b31359c1ded8efbd3a348fd"
+PREDECESSOR = "61f798d605c5609302ad77e9b14cb6f5e9479f6a"
 EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1d1-evidence.json"
 
 
@@ -63,7 +63,7 @@ def main() -> None:
             "source_short_ref": short_ref,
             "archive_name": archive_name,
             "branch": branch,
-            "negative_cases": 18,
+            "negative_cases": 26,
             "gate_sha256": sha256(gate.stdout),
             "manifest_sha256": sha256(manifest),
         }

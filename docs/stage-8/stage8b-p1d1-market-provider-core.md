@@ -1,6 +1,6 @@
 # Stage 8B-P1-d1 Market provider core
 
-Status: source implementation review candidate.
+Status: R1 exact-binding closure review candidate.
 
 Accepted policy predecessor:
 `0d59d54d42fc29ae7b31359c1ded8efbd3a348fd`.
@@ -8,40 +8,53 @@ Accepted policy predecessor:
 ## Scope
 
 P1-d1 implements only the first source slice authorized by the accepted P1-d0
-policy. It adds:
+policy. R1 closes the two cross-binding findings against reviewed source
+`61f798d605c5609302ad77e9b14cb6f5e9479f6a`. It provides:
 
 1. one crate-private Stage5E bridge which consumes the retained opaque schedule
    projection and classifies an exact predecessor/candidate M10 pair;
-2. a P1-c adapter that copies already validated canonical M10 facts into a
-   read-only execution-bar observation;
-3. linear `AwaitingExecutionBar`, `ExecutionEligible` and
+2. an opaque `CommandDecisionBinding` produced only from one authenticated P1
+   semantic projection and its exact Stage6 `RequestAccepted` record; its
+   predecessor close is derived from the retained canonical M10 Redis ID;
+3. an opaque, non-constructible canonical execution authority; arbitrary
+   public observations, prices or hash-shaped strings cannot mint eligibility;
+4. linear `AwaitingExecutionBar`, `ExecutionEligible` and
    `MarketDispatchReady` type states;
-4. a pure deterministic Market provider that fills the complete quantity at
+5. a P1-specific Stage7 transition that consumes exact eligibility, rechecks
+   full durable identity, accepted command snapshot and accepted-record digest,
+   and only then appends `DispatchAttemptRecorded`;
+6. a pure deterministic Market provider that fills the complete quantity at
    the exact eligible bar open and binds the source timestamp to that bar's
    open timestamp;
-5. full domain-separated deterministic `BrokerOrderId` and `BrokerTradeId`.
+7. full domain-separated deterministic `BrokerOrderId` and `BrokerTradeId`.
 
-The production entry seam which combines the retained Stage5E projection with
-the P1 command remains crate-private. There is no serialized schedule receipt,
-boolean eligibility flag, raw-calendar parser or public constructor for the
-eligibility capability.
+The production entry and candidate-observation seams remain crate-private until
+a separately reviewed trusted canonical-M10 cross-crate bridge is introduced.
+There is no serialized schedule receipt, boolean eligibility flag, raw-calendar
+parser, public execution observation DTO or public constructor for either
+decision/candidate authority.
 
 ## Ordering and authority
 
 The allowed type-state path is:
 
 ```text
-P1-c canonical command publication
+authenticated P1 projection + exact RequestAccepted
+        |
+        v
+opaque CommandDecisionBinding + retained Stage5E projection
         |
         v
 AwaitingExecutionBar
         |
-        | exact read-only canonical later M10
-        | + accepted Stage5E sequence projection
+        | opaque exact canonical later-M10 authority
+        | + crate-private Stage5E classifier
         v
 ExecutionEligible
         |
-        | exact linear Stage6dPaperDispatchReceipt
+        | P1-specific Stage7 combined transition
+        | validates full identity + exact accepted snapshot/digest
+        | then appends exactly one DispatchAttemptRecorded
         v
 MarketDispatchReady
         |
@@ -49,10 +62,18 @@ MarketDispatchReady
 MarketOutcomeBundle
 ```
 
-`AwaitingExecutionBar` and `ExecutionEligible` expose no provider call.
-`MarketDispatchReady` cannot be constructed from IDs or flags; it requires the
-fsync-backed dispatch receipt. Thus `DispatchAttemptRecorded` remains the sole
-effect boundary owned by Stage6/7.
+`AwaitingExecutionBar` and `ExecutionEligible` expose no provider call or
+durable writer. `ExecutionEligible` cannot be combined with a caller-obtained
+receipt. `MarketDispatchReady` is returned only by the sole Stage7 owner after
+the fsync-backed append. Thus eligibility is established before the Stage6/7
+effect boundary, and a waiting/empty/blocked observation leaves the request
+`ReadyForFirstDispatch`.
+
+The dispatch receipt retains the complete `Stage6DurableRequestIdentityV1`,
+the exact `Stage6DurableCommandSnapshotV1`, and the canonical payload digest of
+the accepted record. Quantity, side, attribution, durable client order ID,
+order shape, TIF, TTL and `created_ts` therefore cannot drift between semantic
+eligibility and durable dispatch.
 
 No input returns the same linear wait owner. A blocked observation also retains
 that owner but grants no dispatch/provider capability. Same-bar execution is
@@ -123,3 +144,7 @@ field/timestamp freeze identified by independent P1-d0 review. P1-d2 source
 must not start until that annex is accepted. P1-d3 additionally requires the
 separate command-outcome versus active-order-transition split and exact cancel
 timing freeze.
+
+R1 deliberately does not open the canonical candidate source bridge. That
+bridge is the next composition boundary and must consume retained validated M10
+authority directly; reintroducing a caller-constructible DTO is forbidden.

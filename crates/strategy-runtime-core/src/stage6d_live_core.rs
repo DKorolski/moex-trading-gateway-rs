@@ -1572,6 +1572,80 @@ impl Stage6dDurableRuntimeRecovered {
         ))
     }
 
+    /// Issues one opaque P1-d1 decision-bar binding from the authenticated P1
+    /// semantic projection and its exact RequestAccepted record.  The M10
+    /// Redis identity is the sole source of predecessor close time; callers
+    /// cannot supply or override that timestamp independently.
+    pub fn stage8b_p1d1_command_decision_binding(
+        &self,
+    ) -> Result<crate::Stage8bP1d1CommandDecisionBinding, Stage6dLiveCoreError> {
+        let projection = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+                .stage8b_p1_semantic_commit()
+                .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+        if !projection.validate() || projection.intent_count != 1 {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let request_id = projection
+            .request_id
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let command = projection
+            .canonical_command
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let identity = projection
+            .durable_request_identity
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let snapshot = projection
+            .durable_command_snapshot
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let canonical_command_sha256 = projection
+            .canonical_command_sha256
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let accepted = stage7a_accepted_record(self, request_id)
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let accepted_snapshot = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        let replayed = self
+            .replay()
+            .request(request_id)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if accepted.durable_request_identity() != &identity
+            || accepted_snapshot != &snapshot
+            || replayed.dispatch_safety_state()
+                != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+            || replayed.last_unique_record_id() != accepted.journal_record_id()
+            || self.journal_frontier().last_record_id() != Some(accepted.journal_record_id())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        crate::stage8b_p1d1_paper_provider::stage8b_p1d1_command_decision_binding_from_source(
+            command,
+            identity,
+            snapshot,
+            accepted.canonical_payload_sha256().clone(),
+            projection.operational_identity_sha256.clone(),
+            canonical_command_sha256,
+            projection.m10_redis_id.clone(),
+            projection.m10_semantic_id_sha256.clone(),
+            projection.m10_payload_sha256.clone(),
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
     /// Redacted evidence for a durable zero-intent P1 semantic commit whose
     /// source acknowledgement must be resolved before semantic continuation.
     pub fn stage8b_p1_zero_intent_ack_evidence(
@@ -2894,6 +2968,8 @@ pub enum Stage6dPaperOutcome {
 /// constructor is exposed and the type is neither Clone nor serializable.
 pub struct Stage6dPaperDispatchReceipt {
     identity: Stage6DurableRequestIdentityV1,
+    command_snapshot: Stage6DurableCommandSnapshotV1,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
     dispatch_record_id: Stage6JournalRecordId,
     dispatch_sequence: Stage6LifecycleSequence,
     durable_frontier_sha256: String,
@@ -2904,6 +2980,14 @@ impl Stage6dPaperDispatchReceipt {
     /// dispatch receipt itself remains linear and opaque to downstream code.
     pub(crate) fn stage8b_p1d1_identity(&self) -> &Stage6DurableRequestIdentityV1 {
         &self.identity
+    }
+
+    pub(crate) fn stage8b_p1d1_command_snapshot(&self) -> &Stage6DurableCommandSnapshotV1 {
+        &self.command_snapshot
+    }
+
+    pub(crate) fn stage8b_p1d1_accepted_payload_sha256(&self) -> &Stage6Sha256Digest {
+        &self.accepted_command_payload_sha256
     }
 }
 
@@ -2920,8 +3004,35 @@ pub(crate) fn stage8b_p1d1_test_dispatch_receipt(
     .expect("test command attribution must parse");
     let identity = Stage6DurableRequestIdentityV1::from_place(place, attribution)
         .expect("test command identity must validate");
+    let command_snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
+        .expect("test command snapshot must validate");
+    let accepted_command_payload_sha256 = Stage6Sha256Digest::parse(sha256_hex(
+        &serde_json::to_vec(&command_snapshot).expect("test snapshot must serialize"),
+    ))
+    .expect("test snapshot digest must validate");
+    stage8b_p1d1_test_dispatch_receipt_with_payload_sha256(command, accepted_command_payload_sha256)
+}
+
+#[cfg(test)]
+pub(crate) fn stage8b_p1d1_test_dispatch_receipt_with_payload_sha256(
+    command: &BrokerCommand,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
+) -> Stage6dPaperDispatchReceipt {
+    let BrokerCommand::PlaceOrder(place) = command else {
+        panic!("P1-d1 test receipt supports PLACE only");
+    };
+    let attribution = HybridRuntimeAttribution::parse_source_comment(
+        place.comment.as_deref().expect("test command attribution"),
+    )
+    .expect("test command attribution must parse");
+    let identity = Stage6DurableRequestIdentityV1::from_place(place, attribution)
+        .expect("test command identity must validate");
+    let command_snapshot = Stage6DurableCommandSnapshotV1::from_place(&identity, place)
+        .expect("test command snapshot must validate");
     Stage6dPaperDispatchReceipt {
         identity,
+        command_snapshot,
+        accepted_command_payload_sha256,
         dispatch_record_id: Stage6JournalRecordId::derive(
             place.request_id,
             Stage6LifecycleSequence::new(2).expect("test sequence"),
@@ -3728,6 +3839,46 @@ pub fn admit_stage7a_paper_command(
         .map(Stage7aPaperAdmission::DispatchReady)
 }
 
+/// P1-specific pre-effect transition.  It consumes exact next-bar eligibility
+/// before the sole Stage6 writer may append DispatchAttemptRecorded.  The
+/// accepted command snapshot and full durable identity are re-read from the
+/// journal and cross-bound before any mutation.
+pub fn admit_stage7a_p1d1_market_dispatch(
+    recovered: &mut Stage6dDurableRuntimeRecovered,
+    eligibility: crate::Stage8bP1d1ExecutionEligible,
+) -> Result<crate::Stage8bP1d1MarketDispatchReady, Stage6dLiveCoreError> {
+    let identity = eligibility.durable_identity();
+    let request_id = identity.strategy_request_id();
+    let accepted = stage7a_accepted_record(recovered, request_id)
+        .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?
+        .clone();
+    let accepted_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
+    let replayed = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if accepted.durable_request_identity() != identity
+        || accepted_snapshot != eligibility.durable_command_snapshot()
+        || accepted.canonical_payload_sha256() != eligibility.accepted_command_payload_sha256()
+        || replayed.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        || replayed.last_unique_record_id() != accepted.journal_record_id()
+        || recovered.journal_frontier().last_record_id() != Some(accepted.journal_record_id())
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let observed_at =
+        DateTime::<Utc>::from_timestamp_millis(eligibility.execution_close_ts_utc_ms())
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let dispatch = stage7a_dispatch_record(identity, &accepted, observed_at)?;
+    let receipt = prepare_stage6d_existing_accepted_paper_dispatch(recovered, &accepted, dispatch)?;
+    crate::stage8b_p1d1_paper_provider::bind_stage8b_p1d1_market_dispatch(eligibility, receipt)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+}
+
 /// Resolves CANCEL context only from a Stage 6-correlated paper order. The
 /// cancel DTO intentionally carries no strategy attribution, so transport
 /// configuration cannot invent a cycle/owner for an unrelated broker order.
@@ -4050,6 +4201,10 @@ fn prepare_stage6d_existing_accepted_paper_dispatch(
     accepted: &Stage6JournalRecordV1,
     dispatch_attempt: Stage6JournalRecordV1,
 ) -> Result<Stage6dPaperDispatchReceipt, Stage6dLiveCoreError> {
+    let command_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
     if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
         || dispatch_attempt.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
         || accepted.durable_request_identity() != dispatch_attempt.durable_request_identity()
@@ -4070,6 +4225,8 @@ fn prepare_stage6d_existing_accepted_paper_dispatch(
     }
     Ok(Stage6dPaperDispatchReceipt {
         identity: accepted.durable_request_identity().clone(),
+        command_snapshot,
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().clone(),
         dispatch_record_id: dispatch_attempt.journal_record_id().clone(),
         dispatch_sequence: dispatch_attempt.lifecycle_sequence(),
         durable_frontier_sha256: frontier_fingerprint(recovered.journal_frontier())?,
@@ -4086,6 +4243,10 @@ pub fn prepare_stage6d_paper_dispatch(
     if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted {
         return Err(Stage6dLiveCoreError::AcceptedRecordRequired);
     }
+    let command_snapshot = match accepted.payload() {
+        Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
+        _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+    };
     if dispatch_attempt.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded {
         return Err(Stage6dLiveCoreError::DispatchAttemptRecordRequired);
     }
@@ -4115,6 +4276,8 @@ pub fn prepare_stage6d_paper_dispatch(
 
     Ok(Stage6dPaperDispatchReceipt {
         identity: accepted.durable_request_identity().clone(),
+        command_snapshot,
+        accepted_command_payload_sha256: accepted.canonical_payload_sha256().clone(),
         dispatch_record_id: dispatch_attempt.journal_record_id().clone(),
         dispatch_sequence: dispatch_attempt.lifecycle_sequence(),
         durable_frontier_sha256: frontier_fingerprint(recovered.journal_frontier())?,
@@ -6516,6 +6679,108 @@ mod tests {
                 .dispatch_safety_state(),
             crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
         );
+    }
+
+    #[test]
+    fn stage8b_p1d1_eligibility_is_consumed_before_the_only_dispatch_append() {
+        let mut fixture = place_fixture(111, OrderType::Market);
+        fixture.command.ttl_ms = None;
+        let (accepted, _) = accepted_and_dispatch_place(&fixture);
+        let accepted_payload_sha256 = accepted.canonical_payload_sha256().clone();
+        let mut recovered = recovered();
+        recovered.journal_mut().append(&accepted).unwrap();
+        recovered.refresh_after_append().unwrap();
+
+        assert_eq!(recovered.journal_frontier().frame_count(), 1);
+        assert_eq!(
+            recovered
+                .replay()
+                .request(fixture.identity.strategy_request_id())
+                .unwrap()
+                .dispatch_safety_state(),
+            crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        );
+
+        let predecessor_close_ts_utc_ms = 1_788_422_400_000;
+        let eligibility = crate::stage8b_p1d1_paper_provider::stage8b_p1d1_test_eligible(
+            &BrokerCommand::PlaceOrder(fixture.command.clone()),
+            accepted_payload_sha256,
+            predecessor_close_ts_utc_ms,
+            predecessor_close_ts_utc_ms + 600_000,
+        );
+        let ready = admit_stage7a_p1d1_market_dispatch(&mut recovered, eligibility).unwrap();
+
+        assert_eq!(recovered.journal_frontier().frame_count(), 2);
+        assert_eq!(
+            recovered
+                .replay()
+                .request(fixture.identity.strategy_request_id())
+                .unwrap()
+                .dispatch_safety_state(),
+            crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+        );
+        let outcome = ready.execute();
+        assert_eq!(outcome.strategy_request_id(), fixture.command.request_id);
+        assert!(!outcome.ack_allowed());
+        assert!(!outcome.source_m10_xack_allowed());
+    }
+
+    #[test]
+    fn stage8b_p1d1_mismatched_eligibility_never_appends_dispatch() {
+        let mut baseline = place_fixture(112, OrderType::Market);
+        baseline.command.ttl_ms = None;
+        let (accepted, _) = accepted_and_dispatch_place(&baseline);
+        let accepted_payload_sha256 = accepted.canonical_payload_sha256().clone();
+        let mut mutations = Vec::new();
+
+        let mut qty = baseline.command.clone();
+        qty.qty = Decimal::new(2, 0);
+        mutations.push(qty);
+
+        let mut side = baseline.command.clone();
+        side.side = OrderSide::Sell;
+        mutations.push(side);
+
+        let mut attribution = baseline.command.clone();
+        attribution.comment = Some(
+            HybridRuntimeAttribution::parse_source_comment(
+                "HYB|sid=hybrid_imoexf|c=different-cycle|o=BO|r=ENTRY",
+            )
+            .unwrap()
+            .internal_comment()
+            .to_string(),
+        );
+        mutations.push(attribution);
+
+        let mut created_ts = baseline.command.clone();
+        created_ts.created_ts += chrono::Duration::seconds(1);
+        mutations.push(created_ts);
+
+        for mutation in mutations {
+            let mut recovered = recovered();
+            recovered.journal_mut().append(&accepted).unwrap();
+            recovered.refresh_after_append().unwrap();
+            let predecessor_close_ts_utc_ms = 1_788_422_400_000;
+            let eligibility = crate::stage8b_p1d1_paper_provider::stage8b_p1d1_test_eligible(
+                &BrokerCommand::PlaceOrder(mutation),
+                accepted_payload_sha256.clone(),
+                predecessor_close_ts_utc_ms,
+                predecessor_close_ts_utc_ms + 600_000,
+            );
+            assert!(matches!(
+                admit_stage7a_p1d1_market_dispatch(&mut recovered, eligibility),
+                Err(Stage6dLiveCoreError::DurableOrderingViolation)
+            ));
+            assert_eq!(recovered.journal_frontier().frame_count(), 1);
+            assert_eq!(
+                recovered
+                    .replay()
+                    .request(baseline.identity.strategy_request_id())
+                    .unwrap()
+                    .dispatch_safety_state(),
+                crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+            );
+        }
     }
 
     #[test]
