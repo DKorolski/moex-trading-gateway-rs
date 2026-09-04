@@ -52,9 +52,14 @@ M10, deterministic Stage6/7 finalization, ACK,
 replacement S_ack, event-scoped truth, replacement S_truth and source
 XACK-last, with source-produced opaque Stage5E schedule authority for initial
 execution and phase-linear restart/SIGKILL coverage without schedule
-reconstruction. The active candidate is its P1-d2 governance closure, including
-the reviewer-recommended exact pre-kill/post-restart sequence-pair proof. P1-d3 working
-limit/cancel recovery and P1-d4 crash/replay closure remain ahead.
+reconstruction. Its source hardening at
+`93941b86b613a6d1e944dbd043362584aa2c79f7` and governance closure at
+`bcd8db546104968dd0e48ab041e02acf6869d224` are independently accepted. The
+accepted closure includes an fsync-backed pre-kill sequence-pair marker and an
+exact post-restart comparison. The active candidate is the design-only P1-d3
+working LIMIT/CANCEL/Day-expiry lifecycle contract. P1-d3 production source
+and P1-d4 exhaustive crash/replay closure remain closed pending their separate
+acceptance.
 Operational Redis DB 0 remains closed through this source work; P1-e owns the
 deployable supervisor and P1-f owns isolated operational acceptance. FINAM
 POST/DELETE, broker dispatch, real orders and runtime-live remain closed.

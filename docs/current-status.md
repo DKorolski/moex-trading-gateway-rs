@@ -1369,12 +1369,18 @@ Amber:
   and no synthetic trading window is used. Recovery continues only from the
   exact durable dispatch plus retained contiguous M10 and does not reacquire
   schedule authority. Six subprocess SIGKILL frontiers plus a separate
-  sequence-pair crash boundary recover without provider/Hybrid replay. The
-  accepted P2 proof-strength recommendation is closed in the active P1-d2
-  governance-closure candidate by an fsync-backed pre-kill pair marker and an
-  exact comparison with the post-restart authenticated audit. Operational
-  Redis DB0/VPS activation, FINAM send, broker dispatch, runtime-live, real
-  orders and P1-d3 remain closed pending governance closure.
+  sequence-pair crash boundary recover without provider/Hybrid replay. P1-d2
+  source hardening at `93941b86b613a6d1e944dbd043362584aa2c79f7` and its
+  governance closure at `bcd8db546104968dd0e48ab041e02acf6869d224` are
+  independently accepted. The accepted P2 proof-strength closure uses an
+  fsync-backed pre-kill pair marker and an exact comparison with the
+  post-restart authenticated audit. The active candidate is now the design-only
+  Stage 8B-P1-d3 working LIMIT/CANCEL/Day-expiry lifecycle contract. It
+  separates terminal request settlement from the authenticated active-order
+  book, requires fill-before-cancel, schedule-owned expiry and replacement
+  seals before any source XACK. P1-d3 production source, P1-d4 exhaustive
+  crash/replay, operational Redis DB0/VPS activation, FINAM send, broker
+  dispatch, runtime-live and real orders remain closed.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+
