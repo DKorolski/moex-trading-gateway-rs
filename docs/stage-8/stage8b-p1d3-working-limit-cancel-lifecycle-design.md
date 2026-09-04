@@ -1,6 +1,6 @@
 # Stage 8B-P1-d3 working LIMIT/CANCEL/expiry lifecycle design
 
-Status: design-only review candidate. No P1-d3 production source, operational
+Status: R1 design-only review candidate. No P1-d3 production source, operational
 Redis DB 0 activation, VPS service, FINAM transport or live execution is
 authorized by this document.
 
@@ -8,11 +8,20 @@ Accepted predecessor:
 `bcd8db546104968dd0e48ab041e02acf6869d224` (Stage 8B-P1-d2 governance
 closure, CLOSED / ACCEPTED).
 
+Reviewed R0 foundation corrected by this R1:
+`74696d1eefc0453c41440f79b087cafebd0d7ab0` (HOLD / R1 REQUIRED).
+
+The complete byte-exact projection and pre-seal recovery contract is frozen in
+`stage8b-p1d3-projection-recovery-annex-r1.md`. That annex is normative and
+must be accepted together with this lifecycle design.
+
 The canonical contracts introduced by this design are:
 
 ```text
 moex.stage8b.p1d3.working-book.v1
 moex.stage8b.p1d3.book-transition.v1
+moex.stage8b.p1d3.outcome-evidence.v1
+moex.stage8b.p1d3.book-genesis.v1
 ```
 
 ## Purpose and scope
@@ -91,6 +100,20 @@ generation rotation and runtime-configurable widening are outside P1-d3.
 
 No public constructor, serde input or Redis payload may mint a working-book
 authority. Public diagnostics are redacted evidence only.
+
+Registry rows are serialized in ascending bytewise UTF-8 order of exact
+`BrokerOrderId::as_str()`. Broker order ID, original strategy request ID,
+original durable place client ID and deterministic order fingerprint are each
+unique within one generation. Maps, insertion order and locale-aware ordering
+are forbidden canonical inputs.
+
+The first previous-transition seed is the SHA-256 value frozen by the R1 annex
+under `moex.stage8b.p1d3.book-genesis.v1`; every later transition hash uses the
+annex's length-prefixed formula over the prior hash, exact outcome-evidence
+bytes and exact post-book bytes. Migration from an accepted quiescent P1-d2
+package is a one-time crate-private authenticated transition to an empty
+ordinal-zero P1-d3 book. It allocates no sequence and performs no callback,
+provider call, ACK, truth or XACK.
 
 ## Schedule authority
 
@@ -173,6 +196,16 @@ in the same trading day, the place result is terminal `Expired`, with a
 deterministic order ID and zero fill. The P1-d3 implementation may add the
 explicit `Stage6dPaperOutcome::LimitExpired { broker_order_id }` variant;
 reusing `LimitPending` for terminal expiry is forbidden.
+
+Before the consumed step/expiry capability leaves process memory, its exact
+proved fact is encoded as `Stage8bP1d3OutcomeEvidenceV1` and appended inside
+the same authenticated Stage 6 journal record as the outcome. Persisting only
+a digest is insufficient. This write-ahead fact is the sole pre-seal restart
+authority and carries the identities, bar/schedule witness, clocks, pre/post
+book commitments, exact projection inputs, sequence reservation and Stage6/7
+record bindings frozen by the R1 annex. Recovery constructors consume only
+that authenticated record; they own no provider, callback, dispatch, schedule
+or wall-clock API.
 
 ## Initial LIMIT feedback shapes
 
@@ -292,12 +325,21 @@ S_ack       request ACK committed; only its exact truth continuation exists
 S_working   initial Working truth plus active book committed
 S_eval      later untouched-bar frontier committed
 S_terminal  Filled, Canceled or Expired truth plus terminal book committed
+S_cancel_recovered  recovered cancel ACK plus unchanged terminal book committed
 ```
 
-`S_working`, `S_eval` and `S_terminal` are logical phase names; implementation
-may use one private enum inside a single schema. Each replacement is persisted,
-fsynced, reread, MAC-validated and cross-bound to the Stage 6/7 frontier before
-the next effect.
+`S_working`, `S_eval`, `S_terminal` and `S_cancel_recovered` are logical phase
+names; implementation may use one private enum inside a single schema. Each
+replacement is persisted, fsynced, reread, MAC-validated and cross-bound to the
+Stage 6/7 frontier before the next effect.
+
+`S_ack` may be used only when exact truth continuation is pending. For
+`CancelExecutionObserved` and `CancelAlreadyTerminalNonExecution`, the
+recovered ACK has no new truth continuation. Before `S_cancel_recovered` is
+persisted and reread, restart replays only the byte-identical ACK from the
+authenticated outcome record. After that seal, only exact command-source XACK
+may remain. Reapplying ACK or emitting target truth is forbidden. An in-memory
+recovered ACK never authorizes XACK.
 
 Sequence allocation rules are exact:
 
@@ -333,6 +375,15 @@ Byte-identical transition replay is idempotent. Same identity with changed
 bar bytes, limit, quantity, target, timestamps, sequence, book generation or
 prior transition hash is a hard conflict before callback, ACK, truth or XACK.
 
+Before the first replacement seal, restart reconstructs every initial
+Working/Filled/Expired and CancelCanceled/CancelExecutionObserved/
+CancelAlreadyTerminalNonExecution transition only from the full authenticated
+`Stage8bP1d3OutcomeEvidenceV1` embedded in its Stage 6 record. It never
+reacquires a consumed capability or chooses a currently valid replacement
+boundary. A changed boundary, candidate payload, target terminal state, book
+hash, clock or sequence under the same request identity hard-conflicts before
+an effect.
+
 P1-d4 remains responsible for the complete SIGKILL/frontier matrix, including
 pre-dispatch wait, outcome-before-finalization, ACK-before-seal,
 truth-before-seal, book-seal-before-callback and source-XACK response loss.
@@ -341,14 +392,17 @@ truth-before-seal, book-seal-before-callback and source-XACK response loss.
 
 1. Add broker-neutral P1-d3 book and pure LIMIT/CANCEL/expiry transition core.
 2. Extend Stage 6 paper outcome only with exact variants required above.
-3. Extend the Stage 5G replacement package with private P1-d3 book phases.
-4. Compose isolated Redis read-only candidate observation and source lifecycle
+3. Add the versioned full Stage 6 outcome-evidence record and recovery-only
+   constructors frozen by the R1 annex.
+4. Extend the Stage 5G replacement package with private P1-d3 book phases,
+   including `S_cancel_recovered`.
+5. Compose isolated Redis read-only candidate observation and source lifecycle
    under the existing P1 owner.
-5. Add pure, restart-roundtrip and isolated Redis tests required by this
+6. Add pure, golden-byte, restart-roundtrip and isolated Redis tests required by this
    design.
-6. Obtain independent source acceptance, then perform a governance-only
+7. Obtain independent source acceptance, then perform a governance-only
    current-tree authority rebind.
-7. Open P1-d4 only after that source acceptance and governance closure.
+8. Open P1-d4 only after that source acceptance and governance closure.
 
 ## Explicitly closed
 

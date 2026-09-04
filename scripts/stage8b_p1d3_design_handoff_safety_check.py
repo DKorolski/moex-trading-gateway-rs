@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable Stage 8B-P1-d3 design review handoff."""
+"""Validate an immutable Stage 8B-P1-d3 R1 design review handoff."""
 
 from __future__ import annotations
 
@@ -15,12 +15,14 @@ GATE = "handoff-evidence/stage8b-p1d3-design-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 ACCEPTED_P1D2 = "bcd8db546104968dd0e48ab041e02acf6869d224"
+REVIEWED_R0 = "74696d1eefc0453c41440f79b087cafebd0d7ab0"
 REQUIRED = GENERATED | {
     "docs/current-status.md",
     "docs/roadmap.md",
     "docs/stage-8/stage8b-p1d0-deterministic-paper-execution-policy.md",
     "docs/stage-8/stage8b-p1d1-market-provider-core.md",
     "docs/stage-8/stage8b-p1d2-market-feedback-source.md",
+    "docs/stage-8/stage8b-p1d3-projection-recovery-annex-r1.md",
     "docs/stage-8/stage8b-p1d3-working-limit-cancel-lifecycle-design.md",
     "docs/stage-8/stage8b-p1d3-working-limit-cancel-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1d3-working-limit-cancel-evidence.json",
@@ -93,13 +95,13 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("archive name mismatch")
         if evidence.get("stage") != "Stage 8B-P1-d3 working LIMIT/CANCEL/expiry lifecycle design":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "DESIGN_REVIEW_CANDIDATE":
+        if evidence.get("status") != "R1_DESIGN_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
         if evidence.get("accepted_p1d2_closure_ref") != ACCEPTED_P1D2:
             raise ValueError("accepted predecessor mismatch")
-        if evidence.get("acceptance_rows") != 60:
+        if evidence.get("acceptance_rows") != 92:
             raise ValueError("acceptance row mismatch")
-        if evidence.get("negative_cases") != 36:
+        if evidence.get("negative_cases") != 58:
             raise ValueError("negative count mismatch")
         if evidence.get("design_only") is not True:
             raise ValueError("design-only marker missing")
@@ -107,6 +109,17 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("source opened early")
         if evidence.get("current_tree_authority_remains_p1d2") is not True:
             raise ValueError("authority rebound by design")
+        r1 = evidence.get("r1_closure", {})
+        if r1.get("reviewed_r0_ref") != REVIEWED_R0:
+            raise ValueError("R0 review lineage mismatch")
+        if r1.get("recovered_cancel_terminal_phase") != "S_cancel_recovered":
+            raise ValueError("recovered-cancel phase mismatch")
+        if r1.get("exact_projection_shapes") != 8:
+            raise ValueError("projection shape inventory mismatch")
+        if r1.get("full_outcome_evidence_persisted") is not True:
+            raise ValueError("full outcome evidence missing")
+        if r1.get("p1d2_quiescent_migration") is not True:
+            raise ValueError("P1-d2 migration contract missing")
         if any(value is not False for value in evidence.get("closed_surfaces", {}).values()):
             raise ValueError("closed surface opened")
         verification = evidence.get("verification", {})
@@ -115,10 +128,10 @@ def check(path: str) -> dict[str, object]:
 
         gate = archive.read(GATE)
         for expected in (
-            b"PASS stage8b-p1d3-design-scope",
-            b"PASS stage8b-p1d3-design-negative-harness 36/36",
-            b"PASS stage8b-p1d3-design-matrix rows=60",
-            b"PASS stage8b-p1d3-design-gate",
+            b"PASS stage8b-p1d3-r1-design-scope",
+            b"PASS stage8b-p1d3-r1-design-negative-harness 58/58",
+            b"PASS stage8b-p1d3-r1-design-matrix rows=92",
+            b"PASS stage8b-p1d3-r1-design-gate",
         ):
             if expected not in gate:
                 raise ValueError(f"gate marker missing: {expected!r}")
@@ -153,7 +166,7 @@ def check(path: str) -> dict[str, object]:
             "symlinks": 0,
             "unsafe_paths": 0,
             "source_ref": source_ref,
-            "stage": "Stage 8B-P1-d3 design",
+            "stage": "Stage 8B-P1-d3 R1 design",
             "result": "PASS",
         }
 
@@ -166,7 +179,7 @@ def main() -> None:
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
         print(f"stage8b-p1d3-design-handoff-safety: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
-    print("stage8b-p1d3-design-handoff-safety: PASS " + json.dumps(result, sort_keys=True))
+    print("stage8b-p1d3-r1-design-handoff-safety: PASS " + json.dumps(result, sort_keys=True))
 
 
 if __name__ == "__main__":

@@ -19,11 +19,11 @@ from pathlib import Path
 path = Path("docs/stage-8/stage8b-p1d3-working-limit-cancel-acceptance-matrix.csv")
 with path.open(newline="", encoding="utf-8") as stream:
     rows = list(csv.DictReader(stream))
-if len(rows) != 60:
+if len(rows) != 92:
     raise SystemExit(f"matrix row count drifted: {len(rows)}")
-if [row["id"] for row in rows] != [f"P1D3D-{index:03d}" for index in range(1, 61)]:
+if [row["id"] for row in rows] != [f"P1D3D-{index:03d}" for index in range(1, 93)]:
     raise SystemExit("matrix ordering drifted")
-print("PASS stage8b-p1d3-design-matrix rows=60")
+print("PASS stage8b-p1d3-r1-design-matrix rows=92")
 PY
 
-echo "PASS stage8b-p1d3-design-gate rows=60 negatives=36 design_only=true source=false p1d4=false db0=false finam=false live=false"
+echo "PASS stage8b-p1d3-r1-design-gate rows=92 negatives=58 shapes=8 design_only=true source=false p1d4=false db0=false finam=false live=false"

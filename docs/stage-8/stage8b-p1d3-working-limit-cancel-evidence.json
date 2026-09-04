@@ -1,7 +1,9 @@
 {
-  "acceptance_rows": 60,
+  "acceptance_rows": 92,
   "accepted_p1d2_closure_ref": "bcd8db546104968dd0e48ab041e02acf6869d224",
   "canonical_book_contract": "moex.stage8b.p1d3.working-book.v1",
+  "canonical_genesis_contract": "moex.stage8b.p1d3.book-genesis.v1",
+  "canonical_outcome_evidence_contract": "moex.stage8b.p1d3.outcome-evidence.v1",
   "canonical_transition_contract": "moex.stage8b.p1d3.book-transition.v1",
   "closed_surfaces": {
     "broker_network_dispatch": false,
@@ -20,7 +22,7 @@
   "current_tree_authority_remains_p1d2": true,
   "design_only": true,
   "implementation_authorized": false,
-  "negative_cases": 36,
+  "negative_cases": 58,
   "policy": {
     "active_orders_per_operational_identity": 1,
     "cancel_fill_order": "target_evaluation_before_cancel",
@@ -31,10 +33,20 @@
     "request_settlement_distinct_from_order_terminal": true,
     "working_source_xack_authority": "S_working_persisted_and_reread"
   },
+  "r1_closure": {
+    "canonical_registry_order": "broker_order_id_utf8_bytes_ascending",
+    "exact_projection_shapes": 8,
+    "full_outcome_evidence_persisted": true,
+    "golden_byte_shapes_required": 8,
+    "p1d2_quiescent_migration": true,
+    "recovered_cancel_terminal_phase": "S_cancel_recovered",
+    "recovery_constructor_has_external_authority": false,
+    "reviewed_r0_ref": "74696d1eefc0453c41440f79b087cafebd0d7ab0"
+  },
   "schema_version": 1,
   "source_ref": "",
   "stage": "Stage 8B-P1-d3 working LIMIT/CANCEL/expiry lifecycle design",
-  "status": "DESIGN_REVIEW_CANDIDATE",
+  "status": "R1_DESIGN_REVIEW_CANDIDATE",
   "verification": {
     "aggregate_gate": "PENDING",
     "format": "PENDING",

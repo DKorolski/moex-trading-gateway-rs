@@ -1374,11 +1374,13 @@ Amber:
   governance closure at `bcd8db546104968dd0e48ab041e02acf6869d224` are
   independently accepted. The accepted P2 proof-strength closure uses an
   fsync-backed pre-kill pair marker and an exact comparison with the
-  post-restart authenticated audit. The active candidate is now the design-only
-  Stage 8B-P1-d3 working LIMIT/CANCEL/Day-expiry lifecycle contract. It
-  separates terminal request settlement from the authenticated active-order
-  book, requires fill-before-cancel, schedule-owned expiry and replacement
-  seals before any source XACK. P1-d3 production source, P1-d4 exhaustive
+  post-restart authenticated audit. P1-d3 design R0 at
+  `74696d1eefc0453c41440f79b087cafebd0d7ab0` was held with three P1 and one
+  P2 finding. The active candidate is its narrow R1 design correction. It
+  retains the request/order split, fill-before-cancel and schedule-owned
+  expiry, and adds `S_cancel_recovered`, complete byte-exact tables for eight
+  projection shapes, full Stage6-embedded pre-seal outcome evidence and
+  deterministic registry/hash/P1-d2 migration rules. P1-d3 production source, P1-d4 exhaustive
   crash/replay, operational Redis DB0/VPS activation, FINAM send, broker
   dispatch, runtime-live and real orders remain closed.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.

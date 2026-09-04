@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create the immutable Stage 8B-P1-d3 design review handoff."""
+"""Create the immutable Stage 8B-P1-d3 R1 design review handoff."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_P1D2 = "bcd8db546104968dd0e48ab041e02acf6869d224"
+REVIEWED_R0 = "74696d1eefc0453c41440f79b087cafebd0d7ab0"
 EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1d3-working-limit-cancel-evidence.json"
 
 
@@ -40,6 +41,8 @@ def main() -> None:
         raise SystemExit("stage8b-p1d3-design-handoff: FAIL no design commit")
     if run("git", "merge-base", source_ref, ACCEPTED_P1D2).decode().strip() != ACCEPTED_P1D2:
         raise SystemExit("stage8b-p1d3-design-handoff: FAIL accepted P1-d2 drift")
+    if run("git", "merge-base", source_ref, REVIEWED_R0).decode().strip() != REVIEWED_R0:
+        raise SystemExit("stage8b-p1d3-design-handoff: FAIL reviewed R0 drift")
 
     gate = subprocess.run(
         ["bash", "scripts/stage8b_p1d3_design_gate.sh"],
@@ -48,11 +51,11 @@ def main() -> None:
         stderr=subprocess.STDOUT,
         check=False,
     )
-    if gate.returncode != 0 or b"PASS stage8b-p1d3-design-gate" not in gate.stdout:
+    if gate.returncode != 0 or b"PASS stage8b-p1d3-r1-design-gate" not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
 
     short_ref = source_ref[:7]
-    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d3-design-review-package.zip"
+    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d3-r1-design-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     evidence = json.loads(EVIDENCE_TEMPLATE.read_text(encoding="utf-8"))
@@ -108,7 +111,7 @@ def main() -> None:
     )
     print(
         f"archive={archive_path}\nsha256={digest}\nsource_ref={source_ref}\n"
-        "stage8b-p1d3-design-handoff: PASS"
+        "stage8b-p1d3-r1-design-handoff: PASS"
     )
 
 

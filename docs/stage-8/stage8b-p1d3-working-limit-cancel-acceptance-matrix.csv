@@ -59,3 +59,35 @@ P1D3D-057,closure,P1-d4 owns exhaustive SIGKILL and response-loss matrix and rem
 P1D3D-058,closure,Operational Redis DB0 VPS supervisor and schedule adapter remain closed,REQUIRED
 P1D3D-059,closure,FINAM POST DELETE dispatch real orders runtime-live and Generation-2 remain closed,REQUIRED
 P1D3D-060,governance,Current-tree authority remains pinned to accepted P1-d2 until P1-d3 source acceptance,REQUIRED
+P1D3D-061,recovered-cancel,S_cancel_recovered durably seals recovered cancel ACK plus unchanged terminal book,REQUIRED
+P1D3D-062,recovered-cancel,Before S_cancel_recovered exact byte-identical recovered ACK replay is the only continuation,REQUIRED
+P1D3D-063,recovered-cancel,After S_cancel_recovered exact source XACK is the only continuation,REQUIRED
+P1D3D-064,recovered-cancel,Immediate XACK after in-memory recovered ACK and duplicate target truth are forbidden,REQUIRED
+P1D3D-065,clocks,Every new P1-d3 status uses exact candidate-close or Day-boundary transition clock,REQUIRED
+P1D3D-066,clocks,Stage7 observed_at and ACK received_ts equal exact request transition clock,REQUIRED
+P1D3D-067,ack,Place and cancel ACK fields use exact request durable client identity and canonical status reason order ID,REQUIRED
+P1D3D-068,order,Working Filled Expired and Canceled order tables exact-freeze every BrokerOrderSnapshot field,REQUIRED
+P1D3D-069,metadata,broker_asset_id board expiration_date cash and instruments remain exact None or empty as specified,REQUIRED
+P1D3D-070,decimal,Every new zero is positive scale-zero Decimal serialize bytes and qty limit fill bytes are preserved,REQUIRED
+P1D3D-071,truth,All eight shape truth memberships and vector order are exact-frozen,REQUIRED
+P1D3D-072,shape,Initial Working exact ACK order truth clocks and sequences are golden-byte tested,REQUIRED
+P1D3D-073,shape,Initial Filled exact ACK order trade position truth clocks and sequences are golden-byte tested,REQUIRED
+P1D3D-074,shape,Initial Expired exact ACK order truth boundary and sequences are golden-byte tested,REQUIRED
+P1D3D-075,shape,Later Filled exact order trade position truth clock and one truth sequence are golden-byte tested,REQUIRED
+P1D3D-076,shape,Later Expired exact order truth boundary and one truth sequence are golden-byte tested,REQUIRED
+P1D3D-077,shape,CancelCanceled exact ACK canceled order truth clocks and sequences are golden-byte tested,REQUIRED
+P1D3D-078,shape,CancelExecutionObserved exact recovered ACK uses cancel candidate clock and emits no duplicate truth,REQUIRED
+P1D3D-079,shape,CancelAlreadyTerminalNonExecution exact recovered ACK uses cancel candidate clock and emits no duplicate truth,REQUIRED
+P1D3D-080,golden,Fresh and recovery canonical bytes and SHA256 match for every one of eight shapes,REQUIRED
+P1D3D-081,recovery-evidence,Full Stage8bP1d3OutcomeEvidenceV1 bytes are stored not only their digest,REQUIRED
+P1D3D-082,recovery-evidence,Outcome evidence is atomically embedded in same authenticated Stage6 journal record as outcome or autonomous transition,REQUIRED
+P1D3D-083,recovery-evidence,Evidence binds exact request command target account instrument attribution and durable client identities,REQUIRED
+P1D3D-084,recovery-evidence,Evidence binds source and candidate Redis semantic payload identities and exact clocks,REQUIRED
+P1D3D-085,recovery-evidence,Evidence binds consumed schedule witness trading day last eligible M10 fingerprint and boundary,REQUIRED
+P1D3D-086,recovery-evidence,Evidence binds pre-book generation hash and expected post-book hash,REQUIRED
+P1D3D-087,recovery-evidence,Evidence binds outcome IDs exact Decimal bytes clocks and reserved sequences,REQUIRED
+P1D3D-088,recovery-evidence,Evidence binds Stage6 dispatch outcome frontier checkpoint and Stage7 finalization records,REQUIRED
+P1D3D-089,recovery,Recovery-only constructor owns no provider callback dispatch schedule issuer Redis selection or wall clock API,REQUIRED
+P1D3D-090,canonical-book,Registry uses bytewise broker-order-ID ordering and unique order request client and fingerprint indexes,REQUIRED
+P1D3D-091,canonical-book,Genesis and transition hashes use exact domains raw hashes u64 big-endian lengths and fixed-order bytes,REQUIRED
+P1D3D-092,migration,Quiescent accepted P1-d2 package migrates once to deterministic empty ordinal-zero P1-d3 book without effects,REQUIRED
