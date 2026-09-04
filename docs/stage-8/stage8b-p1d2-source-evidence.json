@@ -1,0 +1,44 @@
+{
+  "acceptance_rows": 44,
+  "accepted_projection_annex_ref": "0cf1cd810a6ff479b69afb914db3b2aa2259593a",
+  "canonical_contract": "moex.stage8b.p1d2.market-feedback.v1",
+  "closed_surfaces": {
+    "broker_network_dispatch": false,
+    "finam_post_delete": false,
+    "operational_redis_db0": false,
+    "p1_paper_provider_supervisor": false,
+    "p1_paper_vps_activation": false,
+    "p1d3_limit_cancel_expiry": false,
+    "real_orders": false,
+    "runtime_live": false
+  },
+  "crash_frontiers": 6,
+  "current_tree_authority_rebind_deferred": true,
+  "implementation": {
+    "audit_evidence_redacted": true,
+    "exact_successor_required": true,
+    "opaque_source_schedule_authority_required": true,
+    "pair_allocation_crash_case": true,
+    "provider_replay_after_finalization": false,
+    "replacement_s_ack": true,
+    "replacement_s_truth": true,
+    "source_xack_last": true,
+    "truth_sequence_authority": "exact_resolved_ack_slot_checked_add_1"
+  },
+  "negative_cases": 26,
+  "next_stage_authorized": false,
+  "schema_version": 1,
+  "source_ref": "",
+  "stage": "Stage 8B-P1-d2 Market feedback source",
+  "status": "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE",
+  "verification": {
+    "aggregate_gate": "PENDING",
+    "doctests": "PENDING",
+    "format": "PENDING",
+    "negative_harness": "PENDING",
+    "runtime_durable_service_lib": "PENDING",
+    "source_scope_checker": "PENDING",
+    "strategy_runtime_core_lib": "PENDING",
+    "strict_targeted_clippy": "PENDING"
+  }
+}

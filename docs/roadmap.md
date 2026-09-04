@@ -33,8 +33,9 @@ deterministic paper-execution policy baseline. P1-d1 is formally closed and
 accepted at `4abb2fd9807adeb47f164a4025c7ac44d33679f6`: its opaque
 decision/predecessor and execution-bar authorities, crate-private Stage5E
 next-bar eligibility bridge, exact dispatch binding and deterministic Market
-outcome are now the accepted source baseline. The active candidate is the
-**P1-d2 projection-field/timestamp annex R1A**, design-only. It exact-freezes the
+outcome are now the accepted source baseline. The
+**P1-d2 projection-field/timestamp annex R1A** is independently accepted at
+`0cf1cd810a6ff479b69afb914db3b2aa2259593a`. It exact-freezes the
 Market Filled `BrokerOrderSnapshot`, `BrokerTradeSnapshot`, resulting target
 `BrokerPositionSnapshot`, event-scoped `BrokerTruthSnapshot` and matching
 `CommandAck`, including deterministic execution-open/source and
@@ -45,9 +46,13 @@ pre-position binding and a compile-time scale-8 nearest-even average-price
 policy. R1A additionally requires the accepted
 `OrderPositionAwaitingCommitted` intermediate ACK-stage seal before truth,
 truth-only recovery after that seal, and a final post-truth seal before source
-XACK. P1-d2 source remains closed until this R1A annex is independently
-accepted. P1-d3 working limit/cancel recovery and P1-d4 crash/replay closure
-remain ahead.
+XACK. The active candidate is the P1-d2 Market feedback source implementation:
+exact retained successor M10, deterministic Stage6/7 finalization, ACK,
+replacement S_ack, event-scoped truth, replacement S_truth and source
+XACK-last, with source-produced opaque Stage5E schedule authority for initial
+execution and phase-linear restart/SIGKILL coverage without schedule
+reconstruction. P1-d3 working
+limit/cancel recovery and P1-d4 crash/replay closure remain ahead.
 Operational Redis DB 0 remains closed through this source work; P1-e owns the
 deployable supervisor and P1-f owns isolated operational acceptance. FINAM
 POST/DELETE, broker dispatch, real orders and runtime-live remain closed.

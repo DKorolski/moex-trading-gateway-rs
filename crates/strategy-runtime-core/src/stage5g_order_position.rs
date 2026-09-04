@@ -12,8 +12,9 @@ use broker_core::command::CommandAckStatus;
 use broker_core::{
     instrument_identity_matches, BrokerAccountId, BrokerOrderId, BrokerOrderLifecycle,
     BrokerOrderSnapshot, BrokerPositionSnapshot, BrokerTradeId, BrokerTradeSnapshot,
-    BrokerTruthSnapshot, ClientOrderId, HybridRuntimeAttribution, HybridRuntimeOrderEvent,
-    HybridRuntimePositionEvent, InstrumentId, OrderSide, OrderStatus, OrderType, StrategyRequestId,
+    BrokerTruthSnapshot, ClientOrderId, CommandAck, HybridRuntimeAttribution,
+    HybridRuntimeOrderEvent, HybridRuntimePositionEvent, InstrumentId, OrderSide, OrderStatus,
+    OrderType, StrategyRequestId,
 };
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::ToPrimitive;
@@ -30,8 +31,8 @@ use crate::stage5c_paper_host::{
     Stage5gSourceIntentProjection,
 };
 use crate::stage5g_mock_ack::{
-    Stage5gMockAckSlotSummary, Stage5gMockIntentAction, Stage5gMockPlaceKind,
-    Stage5gResolvedMockAckPaperStrategy,
+    Stage5gMockAckSlotState, Stage5gMockAckSlotSummary, Stage5gMockIntentAction,
+    Stage5gMockPlaceKind, Stage5gResolvedMockAckPaperStrategy,
 };
 
 pub const STAGE5G_ORDER_POSITION_SCHEMA_VERSION: u16 = 4;
@@ -995,6 +996,133 @@ pub(crate) fn apply_stage5g_restart_canonical_order_position_state(
             failure.reason,
         )),
     }
+}
+
+/// P1-d2 ACK-stage sequence authority.  The top-level broker-truth sequence
+/// can still be empty immediately after ACK resolution, so this deliberately
+/// reads only the exact resolved target slot and checked-adds one.
+pub(crate) fn stage8b_p1d2_truth_sequence_from_ack_state(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+) -> Option<u64> {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let slot = matching.next()?;
+    if matching.next().is_some()
+        || slot.ack.state != Stage5gMockAckSlotState::Resolved
+        || slot.ack.latest_status != Some(CommandAckStatus::Accepted)
+        || slot.ack.canonical_total_sequence.is_none()
+        || !slot.order_events.is_empty()
+        || !slot.trades.is_empty()
+        || slot.position.is_some()
+        || slot.terminal
+        || state.last_total_sequence.is_some()
+    {
+        return None;
+    }
+    slot.ack.canonical_total_sequence?.checked_add(1)
+}
+
+pub(crate) fn stage8b_p1d2_ack_state_matches(
+    state: &Stage5gOrderPositionState,
+    expected_ack: &CommandAck,
+    expected_sequence: u64,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == expected_ack.request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
+        && state.slots.len() == 1
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.latest_reason_code.is_none()
+        && slot.ack.canonical_total_sequence == Some(expected_sequence)
+        && expected_ack.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+        && slot.broker_order_id == expected_ack.broker_order_id
+        && slot.ack.latest_received_ts_utc.as_deref()
+            == Some(
+                expected_ack
+                    .received_ts
+                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
+                    .as_str(),
+            )
+        && !slot.terminal
+        && slot.order_events.is_empty()
+        && slot.trades.is_empty()
+        && slot.position.is_none()
+        && state.last_total_sequence.is_none()
+}
+
+pub(crate) fn stage8b_p1d2_truth_state_matches(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+    expected_ack_sequence: u64,
+    expected_truth_sequence: u64,
+    expected_truth: &BrokerTruthSnapshot,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
+        && state.slots.len() == 1
+        && expected_truth.orders.len() == 1
+        && expected_truth.positions.len() == 1
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.canonical_total_sequence == Some(expected_ack_sequence)
+        && expected_ack_sequence.checked_add(1) == Some(expected_truth_sequence)
+        && state.last_total_sequence == Some(expected_truth_sequence)
+        && slot.order_events.len() == 1
+        && slot.order_events.last().map(|event| &event.order) == expected_truth.orders.first()
+        && slot.trades == expected_truth.trades
+        && slot
+            .position
+            .as_ref()
+            .map(|(sequence, position)| (*sequence, position))
+            == expected_truth
+                .positions
+                .first()
+                .map(|position| (expected_truth_sequence, position))
+        && slot.market_terminal_truth.is_none()
+        && slot.terminal
+}
+
+/// Narrow P1-d2 truth-only restart bridge.  It reuses the accepted canonical
+/// Stage 5G state transition but cannot reconstruct or invoke the ACK reducer.
+pub(crate) fn apply_stage8b_p1d2_restart_truth(
+    state: Stage5gOrderPositionState,
+    evidence: Stage5gOrderPositionEvidence,
+) -> Result<Stage5gOrderPositionState, Stage5gRestartCanonicalApplicationError> {
+    let expected_sequence = stage8b_p1d2_truth_sequence_from_ack_state(&state, evidence.request_id)
+        .ok_or(Stage5gRestartCanonicalApplicationError::OrderPosition(
+            Stage5gOrderPositionError::NonMonotonicSequence,
+        ))?;
+    if evidence.total_sequence != expected_sequence {
+        return Err(Stage5gRestartCanonicalApplicationError::OrderPosition(
+            Stage5gOrderPositionError::NonMonotonicSequence,
+        ));
+    }
+    let canonical = canonicalize_stage5g_order_position_evidence(evidence).map_err(|reason| {
+        Stage5gRestartCanonicalApplicationError::OrderPosition(match reason {
+            Stage5gEvidenceCanonicalizationError::TradeIdentityConflict => {
+                Stage5gOrderPositionError::TradeIdentityConflict
+            }
+            Stage5gEvidenceCanonicalizationError::EvidenceIdentityGrammarViolation => {
+                Stage5gOrderPositionError::EvidenceIdentityGrammarViolation
+            }
+        })
+    })?;
+    apply_stage5g_restart_canonical_order_position_state(state, canonical)
 }
 
 #[cfg(test)]
@@ -3146,6 +3274,28 @@ fn block(
 }
 
 impl Stage5gOrderPositionSession {
+    /// Marks the ACK-only P1-d2 continuation frontier without inventing a
+    /// broker-truth replay entry. This is the empty-ledger checkpoint form
+    /// already recognized by the Stage5G checkpoint validator.
+    pub(crate) fn stage8b_p1d2_mark_ack_frontier(
+        mut self,
+        checkpoint_ts_utc_ms: i64,
+    ) -> Option<Self> {
+        if checkpoint_ts_utc_ms <= 0
+            || !self.state.evidence_identities.is_empty()
+            || self.state.current_evidence_identity.is_some()
+            || self.state.last_total_sequence.is_some()
+            || self.state.last_broker_truth_received_at.is_some()
+            || self.state.last_broker_truth_received_ms.is_some()
+            || self.state.duplicate_evidence_count != 0
+            || self.state.last_continuation_checkpoint_ts_utc_ms.is_some()
+        {
+            return None;
+        }
+        self.state.last_continuation_checkpoint_ts_utc_ms = Some(checkpoint_ts_utc_ms);
+        Some(self)
+    }
+
     pub(crate) fn stage5g_restart_state_binding(
         state: &Stage5gOrderPositionState,
     ) -> (&str, &broker_core::BrokerAccountId, &InstrumentId) {
@@ -3158,6 +3308,13 @@ impl Stage5gOrderPositionSession {
 
     pub(crate) fn stage5g_restart_state(&self) -> Stage5gOrderPositionState {
         self.state.clone()
+    }
+
+    pub(crate) fn stage8b_p1d2_truth_sequence_from_ack(
+        state: &Stage5gOrderPositionState,
+        request_id: StrategyRequestId,
+    ) -> Option<u64> {
+        stage8b_p1d2_truth_sequence_from_ack_state(state, request_id)
     }
 
     pub(crate) fn stage5g_restart_binding(
@@ -3627,6 +3784,90 @@ pub(crate) mod tests {
             broker_truth: truth,
             order_attribution: None,
         }
+    }
+
+    fn p1d2_ack_frontier_state(seq_ack: u64) -> Stage5gOrderPositionState {
+        let mut slot = market_slot(
+            crate::BrokerNeutralHybridIntentClass::Entry,
+            crate::BrokerNeutralOrderSide::Buy,
+            1.0,
+            0.0,
+        );
+        slot.ack.canonical_total_sequence = Some(seq_ack);
+        Stage5gOrderPositionState {
+            strategy_id: "hybrid_imoexf".to_string(),
+            account_id: BrokerAccountId::new("ACC_TEST_0001"),
+            instrument: target(),
+            slots: vec![slot],
+            evidence_identities: vec![],
+            current_evidence_identity: None,
+            last_total_sequence: None,
+            last_broker_truth_received_at: None,
+            last_broker_truth_received_ms: None,
+            duplicate_evidence_count: 0,
+            last_continuation_checkpoint_ts_utc_ms: None,
+        }
+    }
+
+    fn p1d2_full_fill_evidence(sequence: u64) -> Stage5gOrderPositionEvidence {
+        evidence(
+            sequence,
+            truth(
+                vec![market_order(OrderStatus::Filled, Decimal::ONE, 2)],
+                vec![market_trade("MARKET_TRADE_1", Decimal::ONE, 2)],
+                vec![position(Decimal::ONE, 2)],
+                2,
+            ),
+        )
+    }
+
+    #[test]
+    fn p1d2_truth_sequence_is_derived_only_from_exact_resolved_ack_slot() {
+        let request_id = slot().ack.request_id;
+        let state = p1d2_ack_frontier_state(7);
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&state, request_id),
+            Some(8)
+        );
+
+        let mut overflow = p1d2_ack_frontier_state(u64::MAX);
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&overflow, request_id),
+            None
+        );
+        overflow.slots[0].ack.canonical_total_sequence = None;
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&overflow, request_id),
+            None
+        );
+
+        let mut forged_top_level = p1d2_ack_frontier_state(7);
+        forged_top_level.last_total_sequence = Some(7);
+        assert_eq!(
+            stage8b_p1d2_truth_sequence_from_ack_state(&forged_top_level, request_id),
+            None
+        );
+    }
+
+    #[test]
+    fn p1d2_truth_restart_rejects_stale_reversed_and_new_sequences() {
+        for invalid in [6, 7, 9] {
+            assert!(matches!(
+                apply_stage8b_p1d2_restart_truth(
+                    p1d2_ack_frontier_state(7),
+                    p1d2_full_fill_evidence(invalid),
+                ),
+                Err(Stage5gRestartCanonicalApplicationError::OrderPosition(
+                    Stage5gOrderPositionError::NonMonotonicSequence
+                ))
+            ));
+        }
+        let applied = apply_stage8b_p1d2_restart_truth(
+            p1d2_ack_frontier_state(7),
+            p1d2_full_fill_evidence(8),
+        )
+        .unwrap();
+        assert_eq!(applied.last_total_sequence, Some(8));
     }
 
     fn r2cb_public_runtime_strategy(bar_close_ts: i64) -> HybridIntradayRuntimeStrategy {

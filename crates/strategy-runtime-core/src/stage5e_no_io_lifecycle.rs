@@ -725,7 +725,7 @@ pub(crate) mod schedule_window_evidence {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     pub(crate) fn stage8b_p1d1_test_schedule_projection(
         instrument: broker_core::InstrumentId,
         predecessor_close_ts: i64,

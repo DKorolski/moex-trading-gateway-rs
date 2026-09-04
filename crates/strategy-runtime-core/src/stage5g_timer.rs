@@ -1826,6 +1826,14 @@ impl Stage5gTimerGeneratedIntentEscrow {
         let batch = self.settled.intent_batch();
         (batch.strategy_id(), batch.account_id(), batch.instrument())
     }
+    pub(crate) fn stage8b_p1_restart_stage5c_authority(
+        &self,
+    ) -> Option<crate::stage5c_paper_host::Stage5cTimerReadyRestartAuthorityV1> {
+        crate::stage5c_paper_host::stage8b_p1_generated_intent_restart_authority(
+            &self.settled,
+            self.checkpoint_ts_utc_ms,
+        )
+    }
     #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
     pub(crate) fn source_intent_projections(
         &self,

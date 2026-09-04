@@ -44,7 +44,7 @@ use broker_core::{
     BrokerTradeId, BrokerTradeSnapshot, ClientOrderId, HybridRuntimeAttribution, InstrumentId,
     StrategyRequestId,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -107,6 +107,7 @@ pub enum Stage6dLiveCoreError {
     FreshTruthRequestNotCrossBound,
     FreshTruthTemporalAuthorityMismatch,
     Stage8a4WriteAuthorityInvalid,
+    Stage8bP1d2MarketFeedback,
 }
 
 /// Trusted, process-local context for Stage 7A command admission. Redis may
@@ -234,6 +235,7 @@ impl std::fmt::Display for Stage6dLiveCoreError {
             Self::Stage8a4WriteAuthorityInvalid => {
                 "Stage 8A-4 sealed durable-write authority is invalid"
             }
+            Self::Stage8bP1d2MarketFeedback => "Stage 8B-P1-d2 market-feedback transition failed",
         })
     }
 }
@@ -273,6 +275,12 @@ impl From<Stage6DurableIdentityError> for Stage6dLiveCoreError {
 impl From<Stage5gFreshBrokerTruthError> for Stage6dLiveCoreError {
     fn from(_value: Stage5gFreshBrokerTruthError) -> Self {
         Self::Stage5gFreshTruthRejected
+    }
+}
+
+impl From<crate::Stage8bP1d2MarketFeedbackError> for Stage6dLiveCoreError {
+    fn from(_value: crate::Stage8bP1d2MarketFeedbackError) -> Self {
+        Self::Stage8bP1d2MarketFeedback
     }
 }
 
@@ -567,6 +575,29 @@ pub struct Stage6Stage8bP1SemanticCommitEvidenceV1 {
     pub request_accepted_source_evidence_sha256: Option<String>,
 }
 
+/// Read-only exact source identity carried by either authenticated P1-d2
+/// replacement package. It grants no Redis or acknowledgement authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage6Stage8bP1d2SourceM10Binding {
+    redis_id: String,
+    semantic_id_sha256: String,
+    payload_sha256: String,
+}
+
+impl Stage6Stage8bP1d2SourceM10Binding {
+    pub fn redis_id(&self) -> &str {
+        &self.redis_id
+    }
+
+    pub fn semantic_id_sha256(&self) -> &str {
+        &self.semantic_id_sha256
+    }
+
+    pub fn payload_sha256(&self) -> &str {
+        &self.payload_sha256
+    }
+}
+
 /// Core result consumed by the sole Stage 7 composition owner.  No variant
 /// grants command publication or provider authority.
 pub enum Stage6Stage8bP1SemanticTransition {
@@ -590,6 +621,21 @@ pub enum Stage6Stage8bP1SemanticTransition {
     },
 }
 
+/// First P1-d2 replacement package. The caller must durably commit and reread
+/// this S_ack package before consuming the recovered owner into S_truth.
+pub struct Stage6Stage8bP1d2AckTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
+/// Second P1-d2 replacement package. Source acknowledgement remains outside
+/// this value and may happen only after this S_truth package is committed and
+/// reread by the Stage 7 owner.
+pub struct Stage6Stage8bP1d2TruthTransition {
+    pub recovered: Stage6dDurableRuntimeRecovered,
+    pub stage5g_restart_package: Vec<u8>,
+}
+
 /// Exact read-only description of the one P1 RequestAccepted suffix that may
 /// be recoverable under S0.  It is not Ready and carries no writer/provider
 /// operation.
@@ -598,6 +644,17 @@ pub struct Stage6Stage8bP1JournalAheadCandidate {
     command: Stage6DurableCommandSnapshotV1,
     record_id: Stage6JournalRecordId,
     source_evidence_sha256: Stage6Sha256Digest,
+}
+
+/// Exact Stage 6 suffix recoverable while the committed Stage 5G package is
+/// still the P1 pre-ACK authority. It proves one dispatch plus one Market
+/// order/trade outcome and an optional terminal RequestFinalized record.
+/// The value grants no dispatch or provider operation.
+pub struct Stage6Stage8bP1d2JournalAheadCandidate {
+    identity: Stage6DurableRequestIdentityV1,
+    broker_order_id: BrokerOrderId,
+    broker_trade_id: BrokerTradeId,
+    request_finalized: bool,
 }
 
 impl Stage6Stage8bP1JournalAheadCandidate {
@@ -615,6 +672,24 @@ impl Stage6Stage8bP1JournalAheadCandidate {
 
     pub fn source_evidence_sha256(&self) -> &Stage6Sha256Digest {
         &self.source_evidence_sha256
+    }
+}
+
+impl Stage6Stage8bP1d2JournalAheadCandidate {
+    pub fn identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.identity
+    }
+
+    pub fn broker_order_id(&self) -> &BrokerOrderId {
+        &self.broker_order_id
+    }
+
+    pub fn broker_trade_id(&self) -> &BrokerTradeId {
+        &self.broker_trade_id
+    }
+
+    pub fn request_finalized(&self) -> bool {
+        self.request_finalized
     }
 }
 
@@ -1646,6 +1721,87 @@ impl Stage6dDurableRuntimeRecovered {
         .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
     }
 
+    /// Recovery-only reconstruction of the same decision binding after the
+    /// request has become dispatch-forbidden. The caller must separately
+    /// prove the exact P1-d2 journal-ahead shape; this method grants neither
+    /// dispatch nor provider authority.
+    fn stage8b_p1d2_recovery_command_decision_binding(
+        &self,
+    ) -> Result<crate::Stage8bP1d1CommandDecisionBinding, Stage6dLiveCoreError> {
+        let projection = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart
+                .stage8b_p1_semantic_commit()
+                .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+                return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+            }
+        };
+        if !projection.validate() || projection.intent_count != 1 {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let request_id = projection
+            .request_id
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let command = projection
+            .canonical_command
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let identity = projection
+            .durable_request_identity
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let snapshot = projection
+            .durable_command_snapshot
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let canonical_command_sha256 = projection
+            .canonical_command_sha256
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            .clone();
+        let accepted = stage7a_accepted_record(self, request_id)
+            .ok_or(Stage6dLiveCoreError::AcceptedRecordRequired)?;
+        let accepted_snapshot = match accepted.payload() {
+            Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref(),
+            _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
+        };
+        if accepted.durable_request_identity() != &identity || accepted_snapshot != &snapshot {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        crate::stage8b_p1d1_paper_provider::stage8b_p1d1_command_decision_binding_from_source(
+            command,
+            identity,
+            snapshot,
+            accepted.canonical_payload_sha256().clone(),
+            projection.operational_identity_sha256.clone(),
+            canonical_command_sha256,
+            projection.m10_redis_id.clone(),
+            projection.m10_semantic_id_sha256.clone(),
+            projection.m10_payload_sha256.clone(),
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Converts one Redis-validated canonical successor M10 into the only
+    /// P1-d1 eligibility capability. The read-only evidence is insufficient
+    /// without this owned authenticated Stage 6 authority.
+    pub fn stage8b_p1d1_execution_eligibility(
+        &self,
+        schedule_authority: crate::Stage8bP1d1ExecutionScheduleAuthority,
+        evidence: crate::Stage8bP1d1CanonicalM10Evidence,
+    ) -> Result<crate::Stage8bP1d1ExecutionEligible, Stage6dLiveCoreError> {
+        let decision = self.stage8b_p1d1_command_decision_binding()?;
+        crate::stage8b_p1d1_paper_provider::stage8b_p1d1_eligible_from_canonical_m10(
+            decision,
+            schedule_authority,
+            evidence,
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
     /// Redacted evidence for a durable zero-intent P1 semantic commit whose
     /// source acknowledgement must be resolved before semantic continuation.
     pub fn stage8b_p1_zero_intent_ack_evidence(
@@ -1671,6 +1827,54 @@ impl Stage6dDurableRuntimeRecovered {
         restart
             .stage8b_p1_semantic_commit()
             .map(|_| restart.summary().stage5c_callback_count)
+    }
+
+    /// True only when the authenticated embedded Stage 5G package is the
+    /// P1-d2 ACK-stage replacement package.  A caller cannot infer this phase
+    /// from the outer Stage 7 seal generation alone.
+    pub fn stage8b_p1d2_ack_frontier_is_authenticated(&self) -> bool {
+        matches!(
+            &self.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(restart)
+                if restart.stage8b_p1d2_validate_ack_frontier().is_ok()
+        )
+    }
+
+    /// True only when the authenticated embedded Stage 5G package is the
+    /// P1-d2 truth-stage replacement package.  This is the sole durable phase
+    /// from which source acknowledgement may later be resumed.
+    pub fn stage8b_p1d2_truth_frontier_is_authenticated(&self) -> bool {
+        matches!(
+            &self.stage5_runtime,
+            Stage6dStage5RuntimeAuthority::Restart(restart)
+                if restart.stage8b_p1d2_validate_truth_frontier().is_ok()
+        )
+    }
+
+    pub fn stage8b_p1d2_source_m10_binding(&self) -> Option<Stage6Stage8bP1d2SourceM10Binding> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        let (redis_id, semantic_id_sha256, payload_sha256) =
+            restart.stage8b_p1d2_source_m10_binding()?;
+        Some(Stage6Stage8bP1d2SourceM10Binding {
+            redis_id: redis_id.to_string(),
+            semantic_id_sha256: semantic_id_sha256.to_string(),
+            payload_sha256: payload_sha256.to_string(),
+        })
+    }
+
+    /// Redacted audit facts are available only from an authenticated final
+    /// S_truth package. They grant no lifecycle or source-resolution action.
+    pub fn stage8b_p1d2_feedback_audit_core(
+        &self,
+    ) -> Option<crate::Stage8bP1d2FeedbackAuditCoreV1> {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return None,
+        };
+        restart.stage8b_p1d2_feedback_audit_core()
     }
 
     pub fn journal_is_file_backed(&self) -> bool {
@@ -1889,6 +2093,209 @@ pub fn apply_stage8b_p1_semantic_transition(
     }
 }
 
+/// Applies one deterministic P1-d1 Market result to the Stage 6/7 journal,
+/// finalizes it at the execution-bar receipt clock and constructs the first
+/// Stage 5G replacement package. No ACK reducer is reachable before the
+/// RequestFinalized record has been appended and reread.
+pub fn apply_stage8b_p1d2_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    outcome_bundle: crate::Stage8bP1d1MarketOutcomeBundle,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d2AckTransition, Stage6dLiveCoreError> {
+    let (dispatch_receipt, outcome, evidence) = outcome_bundle.into_p1d2_parts();
+    let receipt_ts = Utc
+        .timestamp_millis_opt(evidence.fill_received_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    let report = execute_stage6d_paper_outcome(&mut recovered, dispatch_receipt, outcome)?;
+    stage8b_p1d2_test_crash_barrier("p1d2-after-stage6-before-request-finalized");
+    let report = finalize_stage7a_paper_request(&mut recovered, report, receipt_ts)?;
+    let facts = stage7b_finalized_request_facts(&recovered, report.strategy_request_id)?;
+    if report.strategy_request_id != facts.strategy_request_id()
+        || report.durable_client_order_id != *facts.durable_client_order_id()
+        || report.account_id != *facts.durable_request_identity().account_id()
+        || report.instrument != *facts.durable_request_identity().instrument()
+        || report.attribution != *facts.durable_request_identity().attribution()
+        || report.action != facts.durable_request_identity().action()
+        || report.broker_order_id.as_ref() != facts.broker_order_id()
+        || report.broker_trade_ids != facts.broker_trade_ids()
+        || report.final_disposition != Some(facts.final_disposition())
+        || report.final_record_id != facts.final_record_id().as_str()
+        || report.final_sequence != facts.final_sequence()
+    {
+        return Err(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback);
+    }
+    stage8b_p1d2_test_crash_barrier("p1d2-after-request-finalized-before-ack");
+
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart)
+            if restart.lifecycle_kind()
+                == crate::Stage5gCleanRestartLifecycleKind::P1SemanticPrepublication =>
+        {
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d2 restart authority was checked above")
+    };
+    let (settled, p1, export_input) = restart.into_stage8b_p1d2_pre_ack_parts(receipt_ts)?;
+    let finalized =
+        crate::stage8b_p1d2_market_feedback::mint_stage8b_p1d2_finalized_market_feedback(
+            p1, &facts, evidence,
+        )?;
+    let applied = crate::stage8b_p1d2_market_feedback::apply_stage8b_p1d2_ack_stage(
+        settled,
+        finalized,
+        export_input,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d2AckTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Reconstructs the pre-S_ack transition after a crash from authenticated
+/// Stage 6/7 facts plus the exact retained successor M10. It never owns a
+/// dispatch receipt and therefore cannot invoke the P1-d1 provider or append
+/// the order/trade outcome a second time.
+pub fn apply_stage8b_p1d2_recovered_ack_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    canonical_m10: crate::Stage8bP1d1CanonicalM10Evidence,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d2AckTransition, Stage6dLiveCoreError> {
+    let receipt_ts_utc_ms = canonical_m10.close_ts_utc_ms;
+    let decision = recovered.stage8b_p1d2_recovery_command_decision_binding()?;
+    let evidence =
+        crate::stage8b_p1d1_paper_provider::reconstruct_stage8b_p1d1_market_outcome_evidence(
+            decision,
+            canonical_m10,
+        )
+        .map_err(|_| Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    let request_id = evidence.strategy_request_id;
+    let request = recovered
+        .replay()
+        .request(request_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if request.action() != Stage6DurableActionKind::Place
+        || request.dispatch_attempt_count() != 1
+        || request.dispatch_safety_state() != crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+        || request.known_broker_order_id() != Some(&evidence.broker_order_id)
+        || request.observed_broker_trade_ids() != [evidence.broker_trade_id.clone()]
+        || request.cancel_outcome().is_some()
+        || request.conflict_observed()
+        || !matches!(
+            request.final_disposition(),
+            None | Some(Stage6RequestFinalDispositionV1::Completed)
+        )
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    let receipt_ts = Utc
+        .timestamp_millis_opt(receipt_ts_utc_ms)
+        .single()
+        .ok_or(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback)?;
+    if request.final_disposition().is_none() {
+        finalize_stage7a_replayed_paper_request(&mut recovered, request_id, receipt_ts)?;
+    }
+    let facts = stage7b_finalized_request_facts(&recovered, request_id)?;
+    if facts.broker_order_id() != Some(&evidence.broker_order_id)
+        || facts.broker_trade_ids() != [evidence.broker_trade_id.clone()]
+        || facts.final_disposition() != Stage6RequestFinalDispositionV1::Completed
+    {
+        return Err(Stage6dLiveCoreError::Stage8bP1d2MarketFeedback);
+    }
+
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart)
+            if restart.lifecycle_kind()
+                == crate::Stage5gCleanRestartLifecycleKind::P1SemanticPrepublication =>
+        {
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        _ => return Err(Stage6dLiveCoreError::RestartRuntimeRequired),
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d2 recovery authority was checked above")
+    };
+    let (settled, p1, export_input) = restart.into_stage8b_p1d2_pre_ack_parts(receipt_ts)?;
+    let finalized =
+        crate::stage8b_p1d2_market_feedback::mint_stage8b_p1d2_finalized_market_feedback(
+            p1, &facts, evidence,
+        )?;
+    let applied = crate::stage8b_p1d2_market_feedback::apply_stage8b_p1d2_ack_stage(
+        settled,
+        finalized,
+        export_input,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d2AckTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+/// Consumes only a restored S_ack owner and constructs S_truth. The exact
+/// truth sequence is recovered from the resolved ACK slot in S_ack.
+pub fn apply_stage8b_p1d2_truth_transition(
+    mut recovered: Stage6dDurableRuntimeRecovered,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage6Stage8bP1d2TruthTransition, Stage6dLiveCoreError> {
+    let replacement_runtime = match &recovered.stage5_runtime {
+        Stage6dStage5RuntimeAuthority::Restart(restart) => {
+            restart.stage8b_p1d2_validate_ack_frontier()?;
+            restart.stage5g_fresh_reconstruction_candidate()
+        }
+        Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
+            return Err(Stage6dLiveCoreError::RestartRuntimeRequired)
+        }
+    };
+    let Stage6dStage5RuntimeAuthority::Restart(restart) = std::mem::replace(
+        &mut recovered.stage5_runtime,
+        Stage6dStage5RuntimeAuthority::FirstBoot(Box::new(replacement_runtime)),
+    ) else {
+        unreachable!("P1-d2 ACK authority was checked above")
+    };
+    let applied = crate::stage8b_p1d2_market_feedback::apply_stage8b_p1d2_truth_stage(
+        *restart,
+        commitment_key,
+    )?;
+    recovered.stage5_runtime = Stage6dStage5RuntimeAuthority::Restart(Box::new(applied.restored));
+    recovered.refresh_after_append()?;
+    Ok(Stage6Stage8bP1d2TruthTransition {
+        recovered,
+        stage5g_restart_package: applied.restart_package,
+    })
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+fn stage8b_p1d2_test_crash_barrier(phase: &str) {
+    if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref() != Ok(phase) {
+        return;
+    }
+    let marker = std::env::var_os("STAGE8B_P1_TEST_CRASH_MARKER")
+        .expect("P1-d2 crash child requires a marker path");
+    std::fs::write(marker, phase.as_bytes()).expect("P1-d2 crash marker must be writable");
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+#[cfg(not(any(test, feature = "stage5g-artifact-fixtures")))]
+#[inline(always)]
+fn stage8b_p1d2_test_crash_barrier(_: &str) {}
+
 fn validate_stage8b_p1_projection_source(
     projection: &Stage5gP1SemanticCommitProjectionV1,
     source: &Stage6Stage8bP1SealSourceV1,
@@ -2015,6 +2422,143 @@ pub fn classify_stage8b_p1_journal_ahead_candidate(
         command,
         record_id: accepted.journal_record_id().clone(),
         source_evidence_sha256: accepted.source_evidence_sha256().clone(),
+    }))
+}
+
+/// Classifies only the two recoverable pre-S_ack Stage 6 shapes:
+/// dispatch/order/trade, with or without the final RequestFinalized record.
+/// Any extra, reordered, mixed-version or differently bound record is not a
+/// recovery candidate.
+pub fn classify_stage8b_p1d2_journal_ahead_candidate(
+    records: &[Stage6JournalRecordVersioned],
+    s_ack_predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<Stage6Stage8bP1d2JournalAheadCandidate>, Stage6dLiveCoreError> {
+    let prefix_len: usize = s_ack_predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let suffix_len = records.len().saturating_sub(prefix_len);
+    if !matches!(suffix_len, 3 | 4) || records.len() < prefix_len {
+        return Ok(None);
+    }
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix
+        .validate_checkpoint(s_ack_predecessor_checkpoint)
+        .is_err()
+    {
+        return Ok(None);
+    }
+    let suffix = records
+        .get(prefix_len..)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let mut v1 = Vec::with_capacity(suffix.len());
+    for record in suffix {
+        let Stage6JournalRecordVersioned::V1(record) = record else {
+            return Ok(None);
+        };
+        v1.push(record);
+    }
+    let [dispatch, order, trade, rest @ ..] = v1.as_slice() else {
+        return Ok(None);
+    };
+    let identity = dispatch.durable_request_identity();
+    let accepted = prefix.records().iter().find(|record| {
+        record.event_kind() == Stage6JournalEventKind::RequestAccepted
+            && record.durable_request_identity().strategy_request_id()
+                == identity.strategy_request_id()
+    });
+    let Some(accepted) = accepted else {
+        return Ok(None);
+    };
+    let accepted_command_sha256 = accepted.canonical_payload_sha256();
+    let dispatch_matches = matches!(
+        dispatch.payload(),
+        Stage6JournalPayloadV1::DispatchAttemptRecorded {
+            attempt_ordinal: 1,
+            accepted_request_payload_sha256,
+        } if accepted_request_payload_sha256 == accepted_command_sha256
+    );
+    let broker_order_id = match order.payload() {
+        Stage6JournalPayloadV1::BrokerOrderObserved { broker_order_id } => broker_order_id,
+        _ => return Ok(None),
+    };
+    let broker_trade_id = match trade.payload() {
+        Stage6JournalPayloadV1::BrokerTradeObserved {
+            broker_trade_id,
+            broker_order_id: trade_order_id,
+        } if trade_order_id == broker_order_id => broker_trade_id,
+        _ => return Ok(None),
+    };
+    let request_finalized = match rest {
+        [] => false,
+        [finalized]
+            if matches!(
+                finalized.payload(),
+                Stage6JournalPayloadV1::RequestFinalized {
+                    disposition: Stage6RequestFinalDispositionV1::Completed,
+                }
+            ) =>
+        {
+            true
+        }
+        _ => return Ok(None),
+    };
+    let same_identity = v1
+        .iter()
+        .all(|record| record.durable_request_identity() == identity);
+    let exact_chain = v1.iter().enumerate().all(|(index, record)| {
+        let expected_sequence = accepted.lifecycle_sequence().get() + index as u64 + 1;
+        let expected_previous = if index == 0 {
+            accepted.journal_record_id()
+        } else {
+            v1[index - 1].journal_record_id()
+        };
+        record.lifecycle_sequence().get() == expected_sequence
+            && record.previous_record_id() == Some(expected_previous)
+            && record.causal_parent_id() == Some(expected_previous)
+    });
+    if !dispatch_matches
+        || !same_identity
+        || !exact_chain
+        || identity.action() != Stage6DurableActionKind::Place
+        || order.source_evidence_sha256() != trade.source_evidence_sha256()
+    {
+        return Ok(None);
+    }
+    let replay = Stage6MixedReplayEngineV2::replay(records)?;
+    let Some(request) = replay
+        .requests()
+        .iter()
+        .find(|request| request.strategy_request_id() == identity.strategy_request_id())
+    else {
+        return Ok(None);
+    };
+    if request.action() != Stage6DurableActionKind::Place
+        || request.dispatch_attempt_count() != 1
+        || request.dispatch_safety_state() != crate::Stage6DispatchSafetyStateV1::DispatchForbidden
+        || request.known_broker_order_id() != Some(broker_order_id)
+        || request.observed_broker_trade_ids() != [broker_trade_id.clone()]
+        || request.cancel_outcome().is_some()
+        || request.conflict_observed()
+        || request.final_disposition()
+            != request_finalized.then_some(Stage6RequestFinalDispositionV1::Completed)
+        || request.last_unique_record_id()
+            != v1
+                .last()
+                .expect("P1-d2 classifier has a non-empty suffix")
+                .journal_record_id()
+    {
+        return Ok(None);
+    }
+    Ok(Some(Stage6Stage8bP1d2JournalAheadCandidate {
+        identity: identity.clone(),
+        broker_order_id: broker_order_id.clone(),
+        broker_trade_id: broker_trade_id.clone(),
+        request_finalized,
     }))
 }
 
@@ -3070,9 +3614,11 @@ pub struct Stage6dPaperExecutionReport {
 /// This is evidence input to the Stage 7B seal authority, not a settlement
 /// capability and not a transport identity.
 pub struct Stage7bFinalizedRequestFacts {
+    durable_request_identity: Stage6DurableRequestIdentityV1,
     strategy_request_id: StrategyRequestId,
     durable_client_order_id: broker_core::ClientOrderId,
     broker_order_id: Option<BrokerOrderId>,
+    broker_trade_ids: Vec<BrokerTradeId>,
     canonical_command_sha256: Stage6Sha256Digest,
     final_disposition: Stage6RequestFinalDispositionV1,
     final_record_id: Stage6JournalRecordId,
@@ -3134,6 +3680,10 @@ impl Stage8a4CompletedTransitionFacts {
 }
 
 impl Stage7bFinalizedRequestFacts {
+    pub fn durable_request_identity(&self) -> &Stage6DurableRequestIdentityV1 {
+        &self.durable_request_identity
+    }
+
     pub fn strategy_request_id(&self) -> StrategyRequestId {
         self.strategy_request_id
     }
@@ -3144,6 +3694,10 @@ impl Stage7bFinalizedRequestFacts {
 
     pub fn broker_order_id(&self) -> Option<&BrokerOrderId> {
         self.broker_order_id.as_ref()
+    }
+
+    pub fn broker_trade_ids(&self) -> &[BrokerTradeId] {
+        &self.broker_trade_ids
     }
 
     pub fn canonical_command_sha256(&self) -> &Stage6Sha256Digest {
@@ -3179,9 +3733,11 @@ pub fn stage7b_finalized_request_facts(
         .final_disposition()
         .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
     Ok(Stage7bFinalizedRequestFacts {
+        durable_request_identity: accepted.durable_request_identity().clone(),
         strategy_request_id: request_id,
         durable_client_order_id: request.durable_client_order_id().clone(),
         broker_order_id: request.known_broker_order_id().cloned(),
+        broker_trade_ids: request.observed_broker_trade_ids().to_vec(),
         canonical_command_sha256: accepted.canonical_payload_sha256().clone(),
         final_disposition,
         final_record_id: request.last_unique_record_id().clone(),
@@ -4121,14 +4677,14 @@ pub fn finalize_stage7a_replayed_paper_request(
         domain: &'static str,
         observed_at: DateTime<Utc>,
         strategy_request_id: StrategyRequestId,
-        previous_record_id: &'a str,
+        final_record_id: &'a str,
         disposition: Stage6RequestFinalDispositionV1,
     }
     let evidence = serde_json::to_vec(&ReplayFinalizationEvidence {
-        domain: "moex.stage7a.paper-command-replay-finalization.v1",
+        domain: "moex.stage7a.paper-command-finalization.v1",
         observed_at,
         strategy_request_id: request_id,
-        previous_record_id: previous.as_str(),
+        final_record_id: previous.as_str(),
         disposition,
     })
     .map_err(|_| Stage6dLiveCoreError::IntegrationFingerprint)?;

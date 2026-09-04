@@ -648,6 +648,16 @@ fn stage5g_apply_duplicate_to_resolved_state(
 }
 
 impl Stage5gMockAckSession {
+    /// P1-d2's sole sequence-pair allocator. Consuming and returning the
+    /// linear ACK owner makes allocation part of the same sequence domain as
+    /// ACK reduction. A restart from the unchanged pre-ACK authority
+    /// reconstructs the same pair deterministically.
+    pub(crate) fn stage8b_p1d2_allocate_sequence_pair(self) -> Option<(Self, u64, u64)> {
+        let seq_ack = self.state.last_total_sequence.unwrap_or(0).checked_add(1)?;
+        let seq_truth = seq_ack.checked_add(1)?;
+        Some((self, seq_ack, seq_truth))
+    }
+
     pub fn summary(&self) -> Stage5gMockAckSessionSummary {
         stage5g_state_summary(&self.state)
     }

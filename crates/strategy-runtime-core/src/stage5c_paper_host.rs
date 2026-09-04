@@ -4072,40 +4072,12 @@ impl Stage5cTimerSettlement {
         else {
             return None;
         };
-        let recovery_receipt = stage5c_recovery_receipt_projection(settled.recovery_receipt());
-        let recovery_receipt_identity_sha256 =
-            stage5c_recovery_receipt_projection_sha256(&recovery_receipt);
-        let continuation_context = include_continuation_context.then(|| {
-            let pending = settled.recovery_receipt();
-            let warmup = pending.warmup_receipt();
-            let restore = warmup.restore_receipt();
-            let bootstrap = restore.bootstrap_receipt();
-            let admission = &bootstrap.admission;
-            Stage5cTimerContinuationContextV1 {
-                schema_version: STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION,
-                checked_ts_utc_ms: admission.checked_ts.timestamp_millis(),
-                issued_ts_utc_ms: admission.issued_ts.timestamp_millis(),
-                expires_at_ts_utc_ms: admission.expires_at.timestamp_millis(),
-                strategy_id: admission.strategy_id.clone(),
-                account_id: admission.account_id.clone(),
-                target_instrument: admission.target_instrument.clone(),
-                tick_size_bits: admission.tick_size.to_bits(),
-                bootstrap_snapshot: admission.bootstrap_snapshot.clone(),
-                notified_ts_utc_ms: bootstrap.notified_ts.timestamp_millis(),
-                known_order_ids: restore.known_order_ids.clone(),
-                pending_requests: restore.pending_requests.clone(),
-            }
-        });
-        Some(Stage5cTimerReadyRestartAuthorityV1 {
-            schema_version: STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION,
-            settlement_kind: "ready_for_continuation".to_string(),
-            checkpoint_ts_utc_ms: *checkpoint_ts_utc_ms,
-            settled_batch: stage5ch_batch_summary(settled.intent_batch()),
-            settled_batch_history: settled.settled_batch_history().to_vec(),
-            recovery_receipt,
-            recovery_receipt_identity_sha256,
-            continuation_context,
-        })
+        stage5c_restart_authority_from_settled(
+            settled,
+            *checkpoint_ts_utc_ms,
+            "ready_for_continuation",
+            include_continuation_context,
+        )
     }
 
     fn ready_for_continuation(
@@ -4176,16 +4148,106 @@ impl Stage5cTimerSettlement {
     }
 }
 
+fn stage5c_restart_authority_from_settled(
+    settled: &Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+    settlement_kind: &str,
+    include_continuation_context: bool,
+) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+    let recovery_receipt = stage5c_recovery_receipt_projection(settled.recovery_receipt());
+    let recovery_receipt_identity_sha256 =
+        stage5c_recovery_receipt_projection_sha256(&recovery_receipt);
+    let continuation_context = include_continuation_context.then(|| {
+        let pending = settled.recovery_receipt();
+        let warmup = pending.warmup_receipt();
+        let restore = warmup.restore_receipt();
+        let bootstrap = restore.bootstrap_receipt();
+        let admission = &bootstrap.admission;
+        Stage5cTimerContinuationContextV1 {
+            schema_version: STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION,
+            checked_ts_utc_ms: admission.checked_ts.timestamp_millis(),
+            issued_ts_utc_ms: admission.issued_ts.timestamp_millis(),
+            expires_at_ts_utc_ms: admission.expires_at.timestamp_millis(),
+            strategy_id: admission.strategy_id.clone(),
+            account_id: admission.account_id.clone(),
+            target_instrument: admission.target_instrument.clone(),
+            tick_size_bits: admission.tick_size.to_bits(),
+            bootstrap_snapshot: admission.bootstrap_snapshot.clone(),
+            notified_ts_utc_ms: bootstrap.notified_ts.timestamp_millis(),
+            known_order_ids: restore.known_order_ids.clone(),
+            pending_requests: restore.pending_requests.clone(),
+        }
+    });
+    Some(Stage5cTimerReadyRestartAuthorityV1 {
+        schema_version: STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION,
+        settlement_kind: settlement_kind.to_string(),
+        checkpoint_ts_utc_ms,
+        settled_batch: stage5ch_batch_summary(settled.intent_batch()),
+        settled_batch_history: settled.settled_batch_history().to_vec(),
+        recovery_receipt,
+        recovery_receipt_identity_sha256,
+        continuation_context,
+    })
+}
+
+pub(crate) fn stage8b_p1_generated_intent_restart_authority(
+    settled: &Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+) -> Option<Stage5cTimerReadyRestartAuthorityV1> {
+    if settled.intent_batch().intent_count() != 1
+        || settled.intent_batch().observation_only()
+        || settled.intent_batch().request_ids().len() != 1
+    {
+        return None;
+    }
+    stage5c_restart_authority_from_settled(
+        settled,
+        checkpoint_ts_utc_ms,
+        "generated_intent_batch",
+        true,
+    )
+}
+
 pub(crate) fn stage8b_p1_restore_timer_ready_settlement(
     strategy: HybridIntradayRuntimeStrategy,
     authority: &Stage5cTimerReadyRestartAuthorityV1,
 ) -> Result<Stage5cTimerSettlement, ()> {
-    let context = authority.continuation_context.as_ref().ok_or(())?;
     if authority.schema_version != STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION
         || authority.settlement_kind != "ready_for_continuation"
         || authority.settled_batch.intent_count != 0
         || !authority.settled_batch.request_ids.is_empty()
-        || authority.settled_batch.observation_only
+    {
+        return Err(());
+    }
+    let recovery_receipt = stage8b_p1_restore_recovery_receipt(authority)?;
+    let summary = &authority.settled_batch;
+    let batch = Stage5cPaperIntentBatch {
+        strategy_id: summary.strategy_id.clone(),
+        account_id: summary.account_id.clone(),
+        instrument: summary.instrument.clone(),
+        bar_close_ts: summary.bar_close_ts,
+        state_fingerprint: summary.state_fingerprint.clone(),
+        request_ids: Vec::new(),
+        records: Vec::new(),
+        observation_only: false,
+    };
+    let settled = Stage5cSettledPaperStrategy {
+        strategy,
+        recovery_receipt,
+        batch,
+        settled_batch_history: authority.settled_batch_history.clone(),
+    };
+    Ok(Stage5cTimerSettlement::ready_for_continuation(
+        settled,
+        authority.checkpoint_ts_utc_ms,
+    ))
+}
+
+fn stage8b_p1_restore_recovery_receipt(
+    authority: &Stage5cTimerReadyRestartAuthorityV1,
+) -> Result<Stage5cPendingRecoveryReceipt, ()> {
+    let context = authority.continuation_context.as_ref().ok_or(())?;
+    if authority.settled_batch.observation_only
         || authority.settled_batch_history.is_empty()
         || authority.settled_batch_history.last() != Some(&authority.settled_batch)
         || context.schema_version != STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION
@@ -4268,33 +4330,102 @@ pub(crate) fn stage8b_p1_restore_timer_ready_settlement(
         source_mode,
         last_history_ts: authority.recovery_receipt.last_history_ts,
     };
-    let recovery_receipt = Stage5cPendingRecoveryReceipt {
+    Ok(Stage5cPendingRecoveryReceipt {
         warmup_receipt,
         recovered_ts,
         replayed_events,
         duplicate_events,
-    };
+    })
+}
+
+pub(crate) fn stage8b_p1_restore_generated_intent_settled(
+    strategy: HybridIntradayRuntimeStrategy,
+    authority: &Stage5cTimerReadyRestartAuthorityV1,
+    command: &broker_core::BrokerCommand,
+    source: &Stage5gSourceIntentProjection,
+) -> Result<Stage5cSettledPaperStrategy, ()> {
     let summary = &authority.settled_batch;
+    let request_id = source.request_id;
+    if authority.schema_version != STAGE5C_TIMER_READY_RESTART_AUTHORITY_SCHEMA_VERSION
+        || authority.settlement_kind != "generated_intent_batch"
+        || summary.intent_count != 1
+        || summary.request_ids.as_slice() != [request_id]
+        || summary.min_source_event_ts != summary.max_source_event_ts
+        || summary.max_source_event_ts != summary.bar_close_ts
+        || source.base_action != Stage5gSourceBaseAction::Market
+        || source.expected_attribution.is_none()
+        || stage5c_state_fingerprint(Strategy::state(&strategy)) != summary.state_fingerprint
+        || stage5cj_position_qty(Strategy::state(&strategy)).to_bits()
+            != source.pre_position_qty.to_bits()
+    {
+        return Err(());
+    }
+    let place = match command {
+        broker_core::BrokerCommand::PlaceOrder(place)
+            if place.request_id == request_id
+                && place.account_id == summary.account_id
+                && place.instrument == summary.instrument
+                && place.order_type == broker_core::OrderType::Market
+                && place.time_in_force == broker_core::TimeInForce::Day
+                && place.limit_price.is_none()
+                && place.ttl_ms.is_none()
+                && place.created_ts.timestamp() == summary.bar_close_ts =>
+        {
+            place
+        }
+        _ => return Err(()),
+    };
+    let qty = place.qty.to_string().parse::<f64>().map_err(|_| ())?;
+    let attribution = source.expected_attribution.as_ref().ok_or(())?;
+    attribution.validate_source_equivalence().map_err(|_| ())?;
+    if !qty.is_finite()
+        || qty <= 0.0
+        || source.target_qty.map(f64::to_bits) != Some(qty.to_bits())
+        || !attribution.belongs_to(&summary.strategy_id)
+        || place.comment.as_deref() != Some(attribution.internal_comment())
+    {
+        return Err(());
+    }
+    let side = match place.side {
+        broker_core::OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
+        broker_core::OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
+    };
+    if source.side != Some(side) {
+        return Err(());
+    }
+    let intent = crate::BrokerNeutralHybridIntent::Market {
+        qty,
+        side,
+        fill_price: None,
+        comment: place.comment.clone(),
+    }
+    .with_class(source.intent_class);
+    let record = Stage5cPaperIntentRecord {
+        request_id,
+        source_event_ts: summary.bar_close_ts,
+        intent_class: source.intent_class,
+        intent,
+        expected_attribution: source.expected_attribution.clone(),
+    };
     let batch = Stage5cPaperIntentBatch {
         strategy_id: summary.strategy_id.clone(),
         account_id: summary.account_id.clone(),
         instrument: summary.instrument.clone(),
         bar_close_ts: summary.bar_close_ts,
         state_fingerprint: summary.state_fingerprint.clone(),
-        request_ids: Vec::new(),
-        records: Vec::new(),
+        request_ids: vec![request_id],
+        records: vec![record],
         observation_only: false,
     };
-    let settled = Stage5cSettledPaperStrategy {
+    if stage5ch_batch_summary(&batch) != *summary {
+        return Err(());
+    }
+    Ok(Stage5cSettledPaperStrategy {
         strategy,
-        recovery_receipt,
+        recovery_receipt: stage8b_p1_restore_recovery_receipt(authority)?,
         batch,
         settled_batch_history: authority.settled_batch_history.clone(),
-    };
-    Ok(Stage5cTimerSettlement::ready_for_continuation(
-        settled,
-        authority.checkpoint_ts_utc_ms,
-    ))
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

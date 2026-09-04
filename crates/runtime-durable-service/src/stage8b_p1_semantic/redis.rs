@@ -12,6 +12,8 @@ use crate::recovery::{
     P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending, Stage7bRecoveryError,
     Stage7bRecoveryReadyOwner, Stage8bP1SemanticCommitOutcome,
     Stage8bP1SemanticPrepublicationOwner, Stage8bP1ZeroIntentCommitReceipt,
+    Stage8bP1d2AckCommittedOwner, Stage8bP1d2FeedbackAuditEvidenceV1,
+    Stage8bP1d2PreAckPendingOwner, Stage8bP1d2TruthCommittedOwner,
 };
 use crate::stage8b_p1_bootstrap::{stage8b_p1_redis_namespace, Stage8bP1RedisNamespace};
 use broker_core::{BrokerCommand, Envelope, MessageType, StrategyRequestId, SCHEMA_VERSION};
@@ -23,7 +25,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strategy_runtime_core::{
     Stage5gLifecycleCommitmentKey, Stage6Stage8bP1SemanticCommitEvidenceV1,
-    Stage8bP1d1CommandDecisionBinding,
+    Stage8bP1d1CommandDecisionBinding, Stage8bP1d1ExecutionScheduleAuthority,
+    Stage8bP1d1MarketOutcomeBundle,
 };
 use uuid::Uuid;
 
@@ -595,6 +598,28 @@ pub struct Stage8bP1RedisCommandPublished {
     receipt: Stage8bP1RedisCommandPublicationReceipt,
 }
 
+/// Exact source M10 remains pending while the replacement S_ack is already
+/// durable and reread. ACK replay is structurally unavailable from this type.
+pub struct Stage8bP1RedisFeedbackAckCommitted {
+    durable: Stage8bP1d2AckCommittedOwner,
+    transport: Stage8bP1RedisSemanticCompositionTransport,
+    pending_m10: Stage8bP1PendingM10Delivery,
+}
+
+/// Exact source M10 remains pending while replacement S_truth is durable and
+/// reread. Its only external mutation is source resolution via XACK.
+pub struct Stage8bP1RedisFeedbackTruthCommitted {
+    durable: Stage8bP1d2TruthCommittedOwner,
+    transport: Stage8bP1RedisSemanticCompositionTransport,
+    pending_m10: Stage8bP1PendingM10Delivery,
+}
+
+pub struct Stage8bP1RedisFeedbackResolved {
+    owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+    disposition: Stage8bP1RedisZeroIntentAckDisposition,
+    audit_evidence: Stage8bP1d2FeedbackAuditEvidenceV1,
+}
+
 impl Stage8bP1RedisCommandPublished {
     pub fn evidence(&self) -> &Stage6Stage8bP1SemanticCommitEvidenceV1 {
         &self.evidence
@@ -657,6 +682,158 @@ impl Stage8bP1RedisCommandPublished {
 
     pub fn real_orders_enabled(&self) -> bool {
         false
+    }
+
+    /// Executes the sole deterministic P1-d1 Market provider path from the
+    /// first retained canonical successor M10, then durably commits S_ack.
+    /// The originating decision M10 remains pending throughout.
+    pub async fn execute_next_canonical_market(
+        mut self,
+        schedule_authority: Stage8bP1d1ExecutionScheduleAuthority,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisSemanticError> {
+        let operational_identity_sha256 = self
+            .stage7
+            .stage8b_p1_operational_identity_sha256()
+            .to_string();
+        let successor = self
+            .transport
+            .backend
+            .exact_first_successor_m10(self.pending_m10.redis_id(), &operational_identity_sha256)
+            .await?;
+        let eligibility = self.stage7.stage8b_p1d1_execution_eligibility(
+            schedule_authority,
+            successor.into_p1d1_execution_evidence()?,
+        )?;
+        let provider = self
+            .stage7
+            .admit_p1d1_eligible_market_dispatch(eligibility)?;
+        let outcome = provider.execute();
+        self.commit_market_feedback_ack(outcome, commitment_key)
+    }
+
+    /// Starts P1-d2 from the opaque deterministic P1-d1 outcome. Stage 6/7
+    /// finalization and the replacement S_ack commit both complete before the
+    /// returned capability exists; the source M10 is not acknowledged here.
+    pub fn commit_market_feedback_ack(
+        self,
+        outcome: Stage8bP1d1MarketOutcomeBundle,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisSemanticError> {
+        if outcome.strategy_request_id()
+            != self
+                .evidence
+                .strategy_request_id
+                .ok_or(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict)?
+            || outcome.canonical_command_sha256()
+                != self
+                    .evidence
+                    .canonical_command_sha256
+                    .as_deref()
+                    .ok_or(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict)?
+            || self.pending_m10.redis_id() != self.evidence.m10_redis_id
+        {
+            return Err(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict);
+        }
+        let durable = self
+            .stage7
+            .commit_stage8b_p1d2_ack(outcome, commitment_key)?;
+        Ok(Stage8bP1RedisFeedbackAckCommitted {
+            durable,
+            transport: self.transport,
+            pending_m10: self.pending_m10,
+        })
+    }
+}
+
+impl Stage8bP1RedisFeedbackAckCommitted {
+    pub fn pending_m10_redis_id(&self) -> &str {
+        self.pending_m10.redis_id()
+    }
+
+    pub fn m10_xack_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn recovery_seal_generation(&self) -> u64 {
+        self.durable.recovery_seal_generation()
+    }
+
+    pub fn recovery_seal_commitment_sha256(&self) -> &str {
+        self.durable.recovery_seal_commitment_sha256()
+    }
+
+    pub fn commit_truth(
+        self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1RedisFeedbackTruthCommitted, Stage8bP1RedisSemanticError> {
+        let durable = self.durable.commit_truth(commitment_key)?;
+        Ok(Stage8bP1RedisFeedbackTruthCommitted {
+            durable,
+            transport: self.transport,
+            pending_m10: self.pending_m10,
+        })
+    }
+}
+
+impl Stage8bP1RedisFeedbackTruthCommitted {
+    pub fn pending_m10_redis_id(&self) -> &str {
+        self.pending_m10.redis_id()
+    }
+
+    pub fn m10_xack_allowed(&self) -> bool {
+        true
+    }
+
+    pub fn recovery_seal_generation(&self) -> u64 {
+        self.durable.recovery_seal_generation()
+    }
+
+    pub fn recovery_seal_commitment_sha256(&self) -> &str {
+        self.durable.recovery_seal_commitment_sha256()
+    }
+
+    pub fn audit_evidence(
+        &self,
+    ) -> Result<Stage8bP1d2FeedbackAuditEvidenceV1, Stage8bP1RedisSemanticError> {
+        Ok(self.durable.feedback_audit_evidence()?)
+    }
+
+    pub async fn acknowledge_source(
+        mut self,
+    ) -> Result<Stage8bP1RedisFeedbackResolved, Stage8bP1RedisSemanticError> {
+        // Construct audit evidence from the authenticated/reread S_truth
+        // before the sole terminal external mutation. Failure therefore
+        // leaves the source pending.
+        let audit_evidence = self.durable.feedback_audit_evidence()?;
+        let disposition = self
+            .transport
+            .backend
+            .acknowledge_exact(&self.pending_m10)
+            .await?;
+        let stage7 = self.durable.into_ready_after_source_resolution();
+        Ok(Stage8bP1RedisFeedbackResolved {
+            owner: Box::new(Stage8bP1RedisSemanticCompositionOwner {
+                stage7,
+                transport: self.transport,
+            }),
+            disposition,
+            audit_evidence,
+        })
+    }
+}
+
+impl Stage8bP1RedisFeedbackResolved {
+    pub fn disposition(&self) -> Stage8bP1RedisZeroIntentAckDisposition {
+        self.disposition
+    }
+
+    pub fn into_ready_owner(self) -> Box<Stage8bP1RedisSemanticCompositionOwner> {
+        self.owner
+    }
+
+    pub fn audit_evidence(&self) -> &Stage8bP1d2FeedbackAuditEvidenceV1 {
+        &self.audit_evidence
     }
 }
 
@@ -733,6 +910,81 @@ pub async fn resume_stage8b_p1_prepublication_with_redis(
     let evidence = durable.evidence().clone();
     let delivery = transport.backend.reclaim_exact_evidence(&evidence).await?;
     Ok(Stage8bP1RedisPrepublicationPending {
+        durable,
+        transport,
+        pending_m10: delivery,
+    })
+}
+
+/// Reattaches only the exact pending M10 retained by authenticated S_ack.
+/// The returned owner has no ACK API and can continue with truth only.
+pub async fn resume_stage8b_p1d2_ack_with_redis(
+    durable: Stage8bP1d2AckCommittedOwner,
+    mut transport: Stage8bP1RedisSemanticCompositionTransport,
+) -> Result<Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisSemanticError> {
+    let binding = durable.source_m10_binding()?;
+    let delivery = transport
+        .backend
+        .reclaim_exact_binding(
+            binding.redis_id(),
+            binding.semantic_id_sha256(),
+            binding.payload_sha256(),
+            durable.operational_identity_sha256(),
+        )
+        .await?;
+    Ok(Stage8bP1RedisFeedbackAckCommitted {
+        durable,
+        transport,
+        pending_m10: delivery,
+    })
+}
+
+/// Resumes either pre-S_ack crash frontier from durable Stage 6/7 facts and
+/// the exact retained canonical successor M10. It never invokes the provider;
+/// the reconstructed ACK is the only allowed continuation.
+pub async fn resume_stage8b_p1d2_pre_ack_with_redis(
+    durable: Stage8bP1d2PreAckPendingOwner,
+    mut transport: Stage8bP1RedisSemanticCompositionTransport,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisSemanticError> {
+    let predecessor = durable.predecessor_m10_binding()?;
+    let pending_m10 = transport
+        .backend
+        .reclaim_exact_evidence(&predecessor)
+        .await?;
+    let successor = transport
+        .backend
+        .exact_first_successor_m10(
+            pending_m10.redis_id(),
+            durable.operational_identity_sha256(),
+        )
+        .await?;
+    let durable = durable
+        .commit_reconstructed_ack(successor.into_p1d1_execution_evidence()?, commitment_key)?;
+    Ok(Stage8bP1RedisFeedbackAckCommitted {
+        durable,
+        transport,
+        pending_m10,
+    })
+}
+
+/// Reattaches only the exact pending M10 retained by authenticated S_truth.
+/// Source XACK is the sole continuation exposed by the returned owner.
+pub async fn resume_stage8b_p1d2_truth_with_redis(
+    durable: Stage8bP1d2TruthCommittedOwner,
+    mut transport: Stage8bP1RedisSemanticCompositionTransport,
+) -> Result<Stage8bP1RedisFeedbackTruthCommitted, Stage8bP1RedisSemanticError> {
+    let binding = durable.source_m10_binding()?;
+    let delivery = transport
+        .backend
+        .exact_delivery_for_binding(
+            binding.redis_id(),
+            binding.semantic_id_sha256(),
+            binding.payload_sha256(),
+            durable.operational_identity_sha256(),
+        )
+        .await?;
+    Ok(Stage8bP1RedisFeedbackTruthCommitted {
         durable,
         transport,
         pending_m10: delivery,
@@ -911,6 +1163,57 @@ impl Stage8bP1RedisBackend {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
         Ok(delivery)
+    }
+
+    async fn reclaim_exact_binding(
+        &mut self,
+        redis_id: &str,
+        semantic_id_sha256: &str,
+        payload_sha256: &str,
+        expected_operational_identity_sha256: &str,
+    ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
+        let pending = self.pending_entries("-", "+", 2).await?;
+        if pending.ids.len() != 1 || pending.ids[0].id != redis_id {
+            return Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing);
+        }
+        let delivery = self.reclaim_exact_id(redis_id).await?;
+        let parsed = delivery.parse_exact(expected_operational_identity_sha256)?;
+        if delivery.semantic_id_sha256() != semantic_id_sha256
+            || delivery.payload_sha256() != payload_sha256
+            || parsed.redis_id() != redis_id
+        {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        Ok(delivery)
+    }
+
+    async fn exact_delivery_for_binding(
+        &mut self,
+        redis_id: &str,
+        semantic_id_sha256: &str,
+        payload_sha256: &str,
+        expected_operational_identity_sha256: &str,
+    ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
+        let payload = self
+            .exact_stream_entry(redis_id)
+            .await?
+            .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)?;
+        let validated = parse_stage8b_p1_canonical_m10(
+            payload.as_bytes(),
+            expected_operational_identity_sha256,
+        )?;
+        if validated.redis_id() != redis_id
+            || validated.semantic_id_sha256() != semantic_id_sha256
+            || validated.payload_sha256() != payload_sha256
+        {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        Ok(Stage8bP1PendingM10Delivery {
+            redis_id: redis_id.to_string(),
+            semantic_id_sha256: semantic_id_sha256.to_string(),
+            payload_sha256: payload_sha256.to_string(),
+            canonical_bytes: payload.into_bytes(),
+        })
     }
 
     async fn reclaim_exact_id(
@@ -1147,6 +1450,46 @@ impl Stage8bP1RedisBackend {
         }
     }
 
+    async fn exact_first_successor_m10(
+        &mut self,
+        predecessor_redis_id: &str,
+        expected_operational_identity_sha256: &str,
+    ) -> Result<super::Stage8bP1ValidatedCanonicalM10, Stage8bP1RedisSemanticError> {
+        let (predecessor_ms, predecessor_sequence) = parse_redis_id(predecessor_redis_id)?;
+        if predecessor_sequence != 0 {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        let expected_close_ms = predecessor_ms
+            .checked_add(600_000)
+            .ok_or(Stage8bP1RedisSemanticError::ExactSourceConflict)?;
+        let expected_id = format!("{expected_close_ms}-0");
+        let reply: StreamRangeReply = redis::cmd("XRANGE")
+            .arg(&self.namespace.canonical_m10_stream)
+            .arg(format!("({predecessor_redis_id}"))
+            .arg("+")
+            .arg("COUNT")
+            .arg(2)
+            .query_async(&mut self.connection)
+            .await?;
+        let Some(first) = reply.ids.first() else {
+            return Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing);
+        };
+        if first.id != expected_id || first.map.len() != 1 {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        let payload = first
+            .get::<String>("payload")
+            .ok_or(Stage8bP1RedisSemanticError::InvalidRedisReply)?;
+        let validated = parse_stage8b_p1_canonical_m10(
+            payload.as_bytes(),
+            expected_operational_identity_sha256,
+        )?;
+        if validated.redis_id() != expected_id {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        Ok(validated)
+    }
+
     async fn retained_m10_count(&mut self) -> Result<usize, Stage8bP1RedisSemanticError> {
         let count: usize = redis::cmd("XLEN")
             .arg(&self.namespace.canonical_m10_stream)
@@ -1280,7 +1623,8 @@ mod tests {
         os::unix::fs::DirBuilderExt,
         path::{Path, PathBuf},
         process::{Child, Command, Stdio},
-        time::Duration,
+        thread,
+        time::{Duration, Instant},
     };
 
     struct RedisServer {
@@ -1454,6 +1798,16 @@ mod tests {
         config
     }
 
+    fn p1d2_test_schedule_authority() -> strategy_runtime_core::Stage8bP1d1ExecutionScheduleAuthority
+    {
+        let predecessor_close_ts_utc_ms = 1_785_759_000_000_i64;
+        strategy_runtime_core::stage8b_p1d1_test_schedule_authority(
+            super::super::p1_instrument(),
+            predecessor_close_ts_utc_ms,
+            predecessor_close_ts_utc_ms + 600_000,
+        )
+    }
+
     async fn one_intent_pending(
         redis: &RedisServer,
         parent: &Path,
@@ -1483,6 +1837,196 @@ mod tests {
             panic!("breakout M10 must produce one prepublication command");
         };
         (*pending, key, fresh, identity)
+    }
+
+    fn wait_for_p1d2_crash_barrier(child: &mut Child, marker: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !marker.exists() && Instant::now() < deadline {
+            if let Some(status) = child.try_wait().unwrap() {
+                panic!("P1-d2 crash child exited before barrier: {status}");
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(marker.exists(), "P1-d2 crash child missed barrier");
+    }
+
+    #[derive(Clone, Copy)]
+    enum P1d2ExpectedRestart {
+        PreAck { request_finalized: bool },
+        Ack,
+        Truth,
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn p1d2_crash_frontier_child() {
+        let parent = PathBuf::from(std::env::var_os("STAGE8B_P1_TEST_PARENT").unwrap());
+        let redis_url = std::env::var("STAGE8B_P1_TEST_REDIS_URL").unwrap();
+        let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let config = validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent,
+            fresh.stage5c_config_fingerprint(),
+        ))
+        .unwrap();
+        let restart = restart_stage8b_p1(config, &key, fresh).unwrap();
+        let Stage7bRestartOutcome::Ready(owner) = restart else {
+            panic!("P1-d2 crash child must begin from the exact S0 Ready state");
+        };
+        let transport =
+            attach_stage8b_p1_redis(&redis_url, Stage8bP1RedisConfig::paper_default_auto())
+                .await
+                .unwrap();
+        let outcome = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport)
+            .process_next(&key)
+            .await
+            .unwrap();
+        let Stage8bP1RedisSemanticOutcome::Prepublication(pending) = outcome else {
+            panic!("P1-d2 crash child requires one retained Market command");
+        };
+        let published = pending.publish_exact_command().await.unwrap();
+        let ack = published
+            .execute_next_canonical_market(p1d2_test_schedule_authority(), &key)
+            .await
+            .unwrap();
+        let truth = ack.commit_truth(&key).unwrap();
+        let _ = truth.acknowledge_source().await.unwrap();
+        panic!("configured P1-d2 crash barrier was not reached");
+    }
+
+    async fn run_p1d2_crash_case(phase: &str, expected: P1d2ExpectedRestart) {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory(phase);
+        let (owner, key, fresh, identity) = first_boot(&parent);
+        drop(owner);
+
+        let predecessor_close = 1_785_759_000_000_i64;
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        for (close, price) in [
+            (predecessor_close, 2_650),
+            (predecessor_close + 600_000, 2_175),
+        ] {
+            transport
+                .publish_canonical_m10(&canonical_m10(identity.clone(), close, price), &identity)
+                .await
+                .unwrap();
+        }
+        drop(transport);
+
+        let marker = parent.join(format!("{phase}.marker"));
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .arg("--ignored")
+            .arg("--exact")
+            .arg("stage8b_p1_semantic::redis::tests::p1d2_crash_frontier_child")
+            .arg("--nocapture")
+            .env("STAGE8B_P1_TEST_PARENT", &parent)
+            .env("STAGE8B_P1_TEST_REDIS_URL", &redis.url)
+            .env("STAGE8B_P1_TEST_CRASH_PHASE", phase)
+            .env("STAGE8B_P1_TEST_CRASH_MARKER", &marker)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        wait_for_p1d2_crash_barrier(&mut child, &marker);
+        child.kill().unwrap();
+        assert!(!child.wait().unwrap().success());
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let truth = match (expected, restart) {
+            (
+                P1d2ExpectedRestart::PreAck { request_finalized },
+                Stage7bRestartOutcome::P1d2PreAckPending(pending),
+            ) => {
+                assert_eq!(pending.request_finalized(), request_finalized, "{phase}");
+                assert!(!pending.paper_provider_invocation_allowed(), "{phase}");
+                assert!(pending.ack_reconstruction_allowed(), "{phase}");
+                assert!(!pending.broker_truth_allowed(), "{phase}");
+                assert!(!pending.m10_xack_allowed(), "{phase}");
+                let ack = resume_stage8b_p1d2_pre_ack_with_redis(*pending, transport, &key)
+                    .await
+                    .unwrap();
+                assert!(!ack.m10_xack_allowed(), "{phase}");
+                ack.commit_truth(&key).unwrap()
+            }
+            (P1d2ExpectedRestart::Ack, Stage7bRestartOutcome::P1d2AckCommitted(ack)) => {
+                let ack = resume_stage8b_p1d2_ack_with_redis(*ack, transport)
+                    .await
+                    .unwrap();
+                assert!(!ack.m10_xack_allowed(), "{phase}");
+                ack.commit_truth(&key).unwrap()
+            }
+            (P1d2ExpectedRestart::Truth, Stage7bRestartOutcome::P1d2TruthCommitted(truth)) => {
+                resume_stage8b_p1d2_truth_with_redis(*truth, transport)
+                    .await
+                    .unwrap()
+            }
+            _ => panic!("{phase} recovered the wrong typed P1-d2 authority"),
+        };
+        assert!(truth.m10_xack_allowed(), "{phase}");
+        let resolved = truth.acknowledge_source().await.unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending,
+            "{phase}"
+        );
+        let audit = resolved.audit_evidence();
+        assert_eq!(audit.schema_version, 1, "{phase}");
+        assert_eq!(
+            audit.core.seq_ack.checked_add(1),
+            Some(audit.core.seq_truth),
+            "{phase}"
+        );
+        assert_eq!(audit.audit_sha256.len(), 64, "{phase}");
+        drop(resolved);
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let command_count: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "{phase}");
+        assert_eq!(command_count, 1, "{phase}");
+
+        let final_restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        assert!(
+            matches!(final_restart, Stage7bRestartOutcome::P1d2TruthCommitted(_)),
+            "{phase}"
+        );
+        fs::remove_dir_all(parent).unwrap();
     }
 
     #[tokio::test]
@@ -2409,5 +2953,275 @@ mod tests {
         assert!(!published.m10_xack_allowed());
         drop(published);
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1d2_market_feedback_commits_ack_then_truth_then_xacks_source() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1d2-market-feedback");
+        let (mut pending, key, fresh, identity) = one_intent_pending(&redis, &parent).await;
+        let predecessor_close = 1_785_759_000_000_i64;
+        let successor = canonical_m10(identity.clone(), predecessor_close + 600_000, 2_175);
+        pending
+            .transport
+            .publish_canonical_m10(&successor, &identity)
+            .await
+            .unwrap();
+        let published = pending.publish_exact_command().await.unwrap();
+        let pre_ack_generation = published.receipt().covering_seal_generation;
+        let ack = published
+            .execute_next_canonical_market(p1d2_test_schedule_authority(), &key)
+            .await
+            .unwrap();
+        assert_eq!(ack.recovery_seal_generation(), pre_ack_generation + 1);
+        assert_eq!(ack.recovery_seal_commitment_sha256().len(), 64);
+        assert_eq!(ack.pending_m10_redis_id(), "1785759000000-0");
+        assert!(!ack.m10_xack_allowed());
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending_before_truth: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_before_truth.count(), 1);
+
+        drop(ack);
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d2AckCommitted(ack) = restart else {
+            panic!("durable S_ack must restart as truth-only authority");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let ack = resume_stage8b_p1d2_ack_with_redis(*ack, transport)
+            .await
+            .unwrap();
+        let ack_generation = ack.recovery_seal_generation();
+        let truth = ack.commit_truth(&key).unwrap();
+        assert_eq!(truth.recovery_seal_generation(), ack_generation + 1);
+        assert_eq!(truth.recovery_seal_commitment_sha256().len(), 64);
+        assert_eq!(truth.pending_m10_redis_id(), "1785759000000-0");
+        assert!(truth.m10_xack_allowed());
+        let pending_before_xack: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_before_xack.count(), 1);
+
+        let audit_before_restart = truth.audit_evidence().unwrap();
+
+        drop(truth);
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d2TruthCommitted(truth) = restart else {
+            panic!("durable S_truth must restart as source-resolution-only authority");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let truth = resume_stage8b_p1d2_truth_with_redis(*truth, transport)
+            .await
+            .unwrap();
+        assert_eq!(truth.audit_evidence().unwrap(), audit_before_restart);
+        let resolved = truth.acknowledge_source().await.unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        let audit = resolved.audit_evidence();
+        assert_eq!(audit.schema_version, 1);
+        assert_eq!(
+            audit.core.seq_ack.checked_add(1),
+            Some(audit.core.seq_truth)
+        );
+        assert!(audit.post_feedback_seal_generation > 0);
+        assert_eq!(audit.post_feedback_seal_commitment_sha256.len(), 64);
+        assert_eq!(audit.audit_sha256.len(), 64);
+        assert_eq!(audit, &audit_before_restart);
+        let redacted = serde_json::to_string(audit).unwrap();
+        assert!(!redacted.contains("hmac"));
+        assert!(!redacted.contains("secret"));
+        drop(resolved);
+        let pending_after_xack: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after_xack.count(), 0);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d2TruthCommitted(truth) = restart else {
+            panic!("S_truth remains the local restart authority after source XACK");
+        };
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let truth = resume_stage8b_p1d2_truth_with_redis(*truth, transport)
+            .await
+            .unwrap();
+        let resolved = truth.acknowledge_source().await.unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged
+        );
+        drop(resolved);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1d2_missing_successor_fails_before_feedback_and_retains_source() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1d2-missing-successor");
+        let (pending, key, fresh, _) = one_intent_pending(&redis, &parent).await;
+        let published = pending.publish_exact_command().await.unwrap();
+        assert!(matches!(
+            published
+                .execute_next_canonical_market(p1d2_test_schedule_authority(), &key)
+                .await,
+            Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)
+        ));
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 1);
+        assert!(matches!(
+            restart_stage8b_p1(
+                validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .unwrap(),
+            Stage7bRestartOutcome::P1SemanticPrepublicationReady(_)
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1d2_noncontiguous_successor_fails_before_feedback_and_retains_source() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1d2-noncontiguous-successor");
+        let (mut pending, key, fresh, identity) = one_intent_pending(&redis, &parent).await;
+        pending
+            .transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), 1_785_760_200_000, 2_175),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let published = pending.publish_exact_command().await.unwrap();
+        assert!(matches!(
+            published
+                .execute_next_canonical_market(p1d2_test_schedule_authority(), &key)
+                .await,
+            Err(Stage8bP1RedisSemanticError::ExactSourceConflict)
+        ));
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 1);
+        assert!(matches!(
+            restart_stage8b_p1(
+                validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .unwrap(),
+            Stage7bRestartOutcome::P1SemanticPrepublicationReady(_)
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1d2_subprocess_kill_matrix_recovers_all_six_durable_frontiers() {
+        for (phase, expected) in [
+            (
+                "p1d2-after-stage6-before-request-finalized",
+                P1d2ExpectedRestart::PreAck {
+                    request_finalized: false,
+                },
+            ),
+            (
+                "p1d2-after-request-finalized-before-ack",
+                P1d2ExpectedRestart::PreAck {
+                    request_finalized: true,
+                },
+            ),
+            (
+                "p1d2-after-ack-before-s-ack",
+                P1d2ExpectedRestart::PreAck {
+                    request_finalized: true,
+                },
+            ),
+            ("p1d2-after-s-ack-before-truth", P1d2ExpectedRestart::Ack),
+            ("p1d2-after-truth-before-s-truth", P1d2ExpectedRestart::Ack),
+            ("p1d2-after-s-truth-before-xack", P1d2ExpectedRestart::Truth),
+        ] {
+            run_p1d2_crash_case(phase, expected).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn p1d2_sequence_pair_allocation_crash_reconstructs_exact_ack_path() {
+        run_p1d2_crash_case(
+            "p1d2-after-sequence-pair-before-ack",
+            P1d2ExpectedRestart::PreAck {
+                request_finalized: true,
+            },
+        )
+        .await;
     }
 }

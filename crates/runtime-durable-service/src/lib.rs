@@ -216,6 +216,30 @@
 //! let published: Stage8bP1RedisCommandPublished = unreachable!();
 //! let _stage7_owner = published.into_stage7_owner();
 //! ```
+//!
+//! P1-d2 feedback authority is also phase-linear. The post-ACK owner cannot
+//! replay ACK or resolve the source, while the post-truth owner cannot apply
+//! truth again:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisFeedbackAckCommitted;
+//! async fn early_xack(ack: Stage8bP1RedisFeedbackAckCommitted) {
+//!     ack.acknowledge_source().await.unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisFeedbackAckCommitted;
+//! let ack: Stage8bP1RedisFeedbackAckCommitted = unreachable!();
+//! ack.replay_ack().unwrap();
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisFeedbackTruthCommitted;
+//! fn duplicate_truth(truth: Stage8bP1RedisFeedbackTruthCommitted) {
+//!     truth.commit_truth(unreachable!()).unwrap();
+//! }
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
@@ -235,7 +259,9 @@ pub use recovery::{
     Stage7bStage8a4DurableBatchReceipt, Stage7bStage8a4TerminalAuthority,
     Stage7bTaskReadinessHandle, Stage8a4I3RecoveryPendingOwner, Stage8bP1MultiIntentBlocked,
     Stage8bP1SemanticCommitOutcome, Stage8bP1SemanticPrepublicationOwner,
-    Stage8bP1ZeroIntentCommitReceipt, STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
+    Stage8bP1ZeroIntentCommitReceipt, Stage8bP1d2AckCommittedOwner,
+    Stage8bP1d2FeedbackAuditEvidenceV1, Stage8bP1d2PreAckPendingOwner,
+    Stage8bP1d2TruthCommittedOwner, STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage8a4-i3-test-fixtures")]
 #[doc(hidden)]
@@ -271,20 +297,23 @@ pub use stage8b_p1_semantic::{
     parse_stage8b_p1_canonical_m10, resolve_stage8b_p1_zero_intent_ack_with_local_m10,
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_local_m10,
     resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
-    Stage8bP1CanonicalM10BuildInput, Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1,
-    Stage8bP1LocalM10Error, Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked,
-    Stage8bP1LocalPrepublicationPending, Stage8bP1LocalSemanticOutcome,
-    Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
+    resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
+    resume_stage8b_p1d2_truth_with_redis, Stage8bP1CanonicalM10BuildInput,
+    Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1, Stage8bP1LocalM10Error,
+    Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked, Stage8bP1LocalPrepublicationPending,
+    Stage8bP1LocalSemanticOutcome, Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
     Stage8bP1RedisCommandPublicationDisposition, Stage8bP1RedisCommandPublicationReceipt,
-    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisM10PublishDisposition,
-    Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
-    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
-    Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
-    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1SemanticCompositionError,
-    Stage8bP1SemanticCompositionOwner, Stage8bP1ValidatedCanonicalM10,
-    Stage8bP1ZeroIntentAckDisposition, Stage8bP1ZeroIntentAckResolved,
-    STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN, STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE,
-    STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION, STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
+    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisFeedbackAckCommitted,
+    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
+    Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisPrepublicationPending,
+    Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
+    Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
+    Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
+    Stage8bP1SemanticCompositionError, Stage8bP1SemanticCompositionOwner,
+    Stage8bP1ValidatedCanonicalM10, Stage8bP1ZeroIntentAckDisposition,
+    Stage8bP1ZeroIntentAckResolved, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
+    STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
+    STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
 };
 
 use std::{

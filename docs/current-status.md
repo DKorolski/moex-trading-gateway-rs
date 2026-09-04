@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-03.
+Status date: 2026-09-04.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -1345,8 +1345,9 @@ Amber:
   authority gate the exact Stage6/7 dispatch binding and deterministic Market
   outcome. Same-bar, history/warmup, missing tradable interval, cross-day,
   stale/future schedule, multiple-candidate, identity-conflict and non-None TTL
-  cases fail closed. The active P1-d2 projection-field/timestamp annex R1A is a
-  design-only review candidate. It freezes complete Market Filled order,
+  cases fail closed. The P1-d2 projection-field/timestamp annex R1A was
+  independently accepted at
+  `0cf1cd810a6ff479b69afb914db3b2aa2259593a`. It freezes complete Market Filled order,
   trade, target-position, event-scoped truth and exact matching ACK fields;
   source timestamps are the execution-bar open and receipt timestamps are its
   final M10 close. R1 forbids feedback before deterministic Stage6 outcome and
@@ -1358,9 +1359,18 @@ Amber:
   restart derives `seq_truth = seq_ack + 1` and applies truth only. Source XACK
   remains forbidden until the final post-truth seal is persisted and reread.
   Explicit commission is positive Decimal zero/scale zero, while gross amount
-  and unrealized PnL remain unmodeled `None`. P1-d2 source, feedback
-  application, ACK/XACK, operational Redis DB0 activation and FINAM send
-  remain closed pending R1A annex acceptance and later P1-d slices.
+  and unrealized PnL remain unmodeled `None`. The active review candidate is
+  the P1-d2 Market feedback source implementation. It now executes the exact
+  retained canonical successor through deterministic Stage6/7 finalization,
+  ACK, replacement S_ack, event-scoped truth, replacement S_truth and source
+  XACK-last under phase-linear owners. Initial execution additionally requires
+  an opaque source-produced Stage5E schedule authority; Redis cannot mint it
+  and no synthetic trading window is used. Recovery continues only from the
+  exact durable dispatch plus retained contiguous M10 and does not reacquire
+  schedule authority. Six subprocess SIGKILL frontiers plus a
+  separate sequence-pair crash boundary recover without provider/Hybrid
+  replay. Operational Redis DB0/VPS activation, FINAM send, broker dispatch,
+  runtime-live, real orders and P1-d3 remain closed pending source acceptance.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

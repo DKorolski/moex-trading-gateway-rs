@@ -111,6 +111,43 @@ pub struct Stage8bP1d1CanonicalExecutionAuthority {
     is_live: bool,
 }
 
+/// Read-only canonical M10 evidence supplied by the Redis composition.  It
+/// is not an execution capability; only the owned Stage 6 P1 authority may
+/// consume it into eligibility.
+pub struct Stage8bP1d1CanonicalM10Evidence {
+    pub source_redis_id: String,
+    pub source_canonical_bytes_sha256: String,
+    pub operational_identity_sha256: String,
+    pub instrument: InstrumentId,
+    pub semantic_id_sha256: String,
+    pub payload_sha256: String,
+    pub open_ts_utc_ms: i64,
+    pub close_ts_utc_ms: i64,
+    pub open: Decimal,
+}
+
+/// Opaque one-use schedule authority for the P1-d1 execution observation.
+///
+/// Canonical Redis bytes cannot construct this value.  It owns the exact
+/// Stage 5E projection produced from normalized schedule, registry and fresh
+/// Stage 4 session evidence.  A later operational source adapter may carry
+/// this value across the composition boundary without exposing calendar rows.
+pub struct Stage8bP1d1ExecutionScheduleAuthority {
+    projection: Stage5eScheduleProjectionBridgeInput,
+}
+
+/// Sole crate-internal bridge from a source-produced Stage 5E projection to
+/// the public opaque authority accepted by the cross-crate P1 composition.
+#[allow(
+    dead_code,
+    reason = "operational schedule source remains a later slice"
+)]
+pub(crate) fn stage8b_p1d1_schedule_authority_from_stage5e(
+    projection: Stage5eScheduleProjectionBridgeInput,
+) -> Stage8bP1d1ExecutionScheduleAuthority {
+    Stage8bP1d1ExecutionScheduleAuthority { projection }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage8bP1d1ExecutionEligibilityBlockReason {
     MultipleCandidates,
@@ -203,13 +240,29 @@ pub struct Stage8bP1d1MarketOutcomeBundle {
     stage6_outcome: Stage6dPaperOutcome,
     strategy_request_id: StrategyRequestId,
     canonical_command_sha256: String,
+    accepted_command_payload_sha256: Stage6Sha256Digest,
     execution_bar_semantic_id_sha256: String,
     execution_bar_payload_sha256: String,
     fill_price: Decimal,
     fill_qty: Decimal,
     fill_source_ts_utc_ms: i64,
+    fill_received_ts_utc_ms: i64,
     broker_order_id: BrokerOrderId,
     broker_trade_id: BrokerTradeId,
+}
+
+pub(crate) struct Stage8bP1d1MarketOutcomeEvidence {
+    pub(crate) strategy_request_id: StrategyRequestId,
+    pub(crate) canonical_command_sha256: String,
+    pub(crate) accepted_command_payload_sha256: Stage6Sha256Digest,
+    pub(crate) execution_bar_semantic_id_sha256: String,
+    pub(crate) execution_bar_payload_sha256: String,
+    pub(crate) fill_price: Decimal,
+    pub(crate) fill_qty: Decimal,
+    pub(crate) fill_source_ts_utc_ms: i64,
+    pub(crate) fill_received_ts_utc_ms: i64,
+    pub(crate) broker_order_id: BrokerOrderId,
+    pub(crate) broker_trade_id: BrokerTradeId,
 }
 
 impl Stage8bP1d1MarketOutcomeBundle {
@@ -241,6 +294,10 @@ impl Stage8bP1d1MarketOutcomeBundle {
         self.fill_source_ts_utc_ms
     }
 
+    pub fn fill_received_ts_utc_ms(&self) -> i64 {
+        self.fill_received_ts_utc_ms
+    }
+
     pub fn broker_order_id(&self) -> &BrokerOrderId {
         &self.broker_order_id
     }
@@ -267,6 +324,29 @@ impl Stage8bP1d1MarketOutcomeBundle {
     )]
     pub(crate) fn into_stage6_parts(self) -> (Stage6dPaperDispatchReceipt, Stage6dPaperOutcome) {
         (self.dispatch_receipt, self.stage6_outcome)
+    }
+
+    pub(crate) fn into_p1d2_parts(
+        self,
+    ) -> (
+        Stage6dPaperDispatchReceipt,
+        Stage6dPaperOutcome,
+        Stage8bP1d1MarketOutcomeEvidence,
+    ) {
+        let evidence = Stage8bP1d1MarketOutcomeEvidence {
+            strategy_request_id: self.strategy_request_id,
+            canonical_command_sha256: self.canonical_command_sha256,
+            accepted_command_payload_sha256: self.accepted_command_payload_sha256,
+            execution_bar_semantic_id_sha256: self.execution_bar_semantic_id_sha256,
+            execution_bar_payload_sha256: self.execution_bar_payload_sha256,
+            fill_price: self.fill_price,
+            fill_qty: self.fill_qty,
+            fill_source_ts_utc_ms: self.fill_source_ts_utc_ms,
+            fill_received_ts_utc_ms: self.fill_received_ts_utc_ms,
+            broker_order_id: self.broker_order_id,
+            broker_trade_id: self.broker_trade_id,
+        };
+        (self.dispatch_receipt, self.stage6_outcome, evidence)
     }
 }
 
@@ -359,62 +439,8 @@ impl Stage8bP1d1AwaitingExecutionBar {
             return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::MultipleCandidates);
         }
         let candidate = candidates.into_iter().next().expect("length checked");
-        if candidate.strategy_request_id != command_request_id(&self.decision.command) {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongRequest);
-        }
-        if candidate.canonical_command_sha256 != self.decision.canonical_command_sha256 {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand);
-        }
-        if candidate.predecessor_redis_id != self.decision.predecessor_redis_id
-            || candidate.predecessor_semantic_id_sha256
-                != self.decision.predecessor_semantic_id_sha256
-            || candidate.predecessor_payload_sha256 != self.decision.predecessor_payload_sha256
-        {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongPredecessor);
-        }
-        if candidate.operational_identity_sha256 != self.decision.operational_identity_sha256 {
-            return self
-                .block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongOperationalIdentity);
-        }
-        let place = match &self.decision.command {
-            BrokerCommand::PlaceOrder(place) => place,
-            BrokerCommand::CancelOrder(_) => {
-                return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand)
-            }
-        };
-        if candidate.instrument != place.instrument {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::WrongInstrument);
-        }
-        if !is_sha256(&candidate.semantic_id_sha256)
-            || !is_sha256(&candidate.payload_sha256)
-            || !is_sha256(&candidate.operational_identity_sha256)
-            || !is_sha256(&candidate.source_canonical_bytes_sha256)
-            || candidate.source_redis_id != format!("{}-0", candidate.close_ts_utc_ms)
-        {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::NonCanonicalIdentity);
-        }
-        if !candidate.is_live {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::HistoryOrWarmup);
-        }
-        if !candidate.is_final {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::NonFinal);
-        }
-        if candidate.timeframe_sec != 600 {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidTimeframe);
-        }
-        if candidate.open_ts_utc_ms <= 0
-            || candidate.close_ts_utc_ms <= 0
-            || candidate.close_ts_utc_ms - candidate.open_ts_utc_ms != M10_MILLIS
-            || candidate.close_ts_utc_ms.rem_euclid(M10_MILLIS) != 0
-            || candidate.open <= Decimal::ZERO
-        {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology);
-        }
-        if candidate.close_ts_utc_ms == self.decision.predecessor_close_ts_utc_ms {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::SameBar);
-        }
-        if candidate.close_ts_utc_ms < self.decision.predecessor_close_ts_utc_ms {
-            return self.block(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology);
+        if let Err(reason) = validate_execution_candidate(&self.decision, &candidate) {
+            return self.block(reason);
         }
 
         let Stage8bP1d1AwaitingExecutionBar {
@@ -462,6 +488,68 @@ impl Stage8bP1d1AwaitingExecutionBar {
     }
 }
 
+fn validate_execution_candidate(
+    decision: &Stage8bP1d1CommandDecisionBinding,
+    candidate: &Stage8bP1d1CanonicalExecutionAuthority,
+) -> Result<(), Stage8bP1d1ExecutionEligibilityBlockReason> {
+    if candidate.strategy_request_id != command_request_id(&decision.command) {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::WrongRequest);
+    }
+    if candidate.canonical_command_sha256 != decision.canonical_command_sha256 {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand);
+    }
+    if candidate.predecessor_redis_id != decision.predecessor_redis_id
+        || candidate.predecessor_semantic_id_sha256 != decision.predecessor_semantic_id_sha256
+        || candidate.predecessor_payload_sha256 != decision.predecessor_payload_sha256
+    {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::WrongPredecessor);
+    }
+    if candidate.operational_identity_sha256 != decision.operational_identity_sha256 {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::WrongOperationalIdentity);
+    }
+    let place = match &decision.command {
+        BrokerCommand::PlaceOrder(place) => place,
+        BrokerCommand::CancelOrder(_) => {
+            return Err(Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand)
+        }
+    };
+    if candidate.instrument != place.instrument {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::WrongInstrument);
+    }
+    if !is_sha256(&candidate.semantic_id_sha256)
+        || !is_sha256(&candidate.payload_sha256)
+        || !is_sha256(&candidate.operational_identity_sha256)
+        || !is_sha256(&candidate.source_canonical_bytes_sha256)
+        || candidate.source_redis_id != format!("{}-0", candidate.close_ts_utc_ms)
+    {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::NonCanonicalIdentity);
+    }
+    if !candidate.is_live {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::HistoryOrWarmup);
+    }
+    if !candidate.is_final {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::NonFinal);
+    }
+    if candidate.timeframe_sec != 600 {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidTimeframe);
+    }
+    if candidate.open_ts_utc_ms <= 0
+        || candidate.close_ts_utc_ms <= 0
+        || candidate.close_ts_utc_ms - candidate.open_ts_utc_ms != M10_MILLIS
+        || candidate.close_ts_utc_ms.rem_euclid(M10_MILLIS) != 0
+        || candidate.open <= Decimal::ZERO
+    {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology);
+    }
+    if candidate.close_ts_utc_ms == decision.predecessor_close_ts_utc_ms {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::SameBar);
+    }
+    if candidate.close_ts_utc_ms < decision.predecessor_close_ts_utc_ms {
+        return Err(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology);
+    }
+    Ok(())
+}
+
 /// The only P1-d1 entry seam.  It remains crate-private until a later stage
 /// wires the accepted P1-c owner to a source-produced schedule projection.
 #[allow(
@@ -505,6 +593,50 @@ pub(crate) fn begin_stage8b_p1d1_market_wait(
     })
 }
 
+fn canonical_execution_candidate(
+    decision: &Stage8bP1d1CommandDecisionBinding,
+    evidence: Stage8bP1d1CanonicalM10Evidence,
+) -> Stage8bP1d1CanonicalExecutionAuthority {
+    Stage8bP1d1CanonicalExecutionAuthority {
+        strategy_request_id: command_request_id(&decision.command),
+        canonical_command_sha256: decision.canonical_command_sha256.clone(),
+        predecessor_redis_id: decision.predecessor_redis_id.clone(),
+        predecessor_semantic_id_sha256: decision.predecessor_semantic_id_sha256.clone(),
+        predecessor_payload_sha256: decision.predecessor_payload_sha256.clone(),
+        source_redis_id: evidence.source_redis_id,
+        source_canonical_bytes_sha256: evidence.source_canonical_bytes_sha256,
+        operational_identity_sha256: evidence.operational_identity_sha256,
+        instrument: evidence.instrument,
+        semantic_id_sha256: evidence.semantic_id_sha256,
+        payload_sha256: evidence.payload_sha256,
+        open_ts_utc_ms: evidence.open_ts_utc_ms,
+        close_ts_utc_ms: evidence.close_ts_utc_ms,
+        open: evidence.open,
+        timeframe_sec: 600,
+        is_final: true,
+        is_live: true,
+    }
+}
+
+pub(crate) fn stage8b_p1d1_eligible_from_canonical_m10(
+    decision: Stage8bP1d1CommandDecisionBinding,
+    schedule_authority: Stage8bP1d1ExecutionScheduleAuthority,
+    evidence: Stage8bP1d1CanonicalM10Evidence,
+) -> Result<Stage8bP1d1ExecutionEligible, Stage8bP1d1ExecutionEligibilityBlockReason> {
+    let waiting = begin_stage8b_p1d1_market_wait(schedule_authority.projection, decision)
+        .map_err(|_| Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand)?;
+    let observed_at = DateTime::<Utc>::from_timestamp_millis(evidence.close_ts_utc_ms)
+        .ok_or(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology)?;
+    let candidate = canonical_execution_candidate(&waiting.decision, evidence);
+    match waiting.observe_candidates(vec![candidate], observed_at) {
+        Stage8bP1d1ExecutionObservation::Eligible(eligible) => Ok(*eligible),
+        Stage8bP1d1ExecutionObservation::Blocked(blocked) => Err(blocked.reason()),
+        Stage8bP1d1ExecutionObservation::NoInput(_) => {
+            Err(Stage8bP1d1ExecutionEligibilityBlockReason::NonCanonicalIdentity)
+        }
+    }
+}
+
 /// Internal half of the combined eligibility-gated Stage7 transition.  The
 /// sole caller appends DispatchAttemptRecorded only after it has consumed the
 /// eligibility and validated the exact accepted command snapshot.
@@ -541,18 +673,9 @@ impl Stage8bP1d1MarketDispatchReady {
             eligibility,
             dispatch_receipt,
         } = self;
-        let place = match &eligibility.decision.command {
-            BrokerCommand::PlaceOrder(place) => place,
-            BrokerCommand::CancelOrder(_) => unreachable!("eligibility is Market PLACE only"),
-        };
-        let broker_order_id = derive_order_id(
-            &eligibility.decision.operational_identity_sha256,
-            place.request_id,
-            &eligibility.decision.canonical_command_sha256,
-        );
-        let broker_trade_id = derive_trade_id(
-            &broker_order_id,
-            &eligibility.execution_bar.semantic_id_sha256,
+        let evidence = deterministic_market_outcome_evidence(
+            &eligibility.decision,
+            &eligibility.execution_bar,
         );
         let _opaque_schedule_binding = (
             eligibility.schedule_approval.identity_fingerprint(),
@@ -560,22 +683,75 @@ impl Stage8bP1d1MarketDispatchReady {
             &eligibility.decision.predecessor_semantic_id_sha256,
         );
         let stage6_outcome = Stage6dPaperOutcome::MarketFilled {
-            broker_order_id: broker_order_id.clone(),
-            broker_trade_id: broker_trade_id.clone(),
+            broker_order_id: evidence.broker_order_id.clone(),
+            broker_trade_id: evidence.broker_trade_id.clone(),
         };
         Stage8bP1d1MarketOutcomeBundle {
             dispatch_receipt,
             stage6_outcome,
-            strategy_request_id: place.request_id,
-            canonical_command_sha256: eligibility.decision.canonical_command_sha256,
-            execution_bar_semantic_id_sha256: eligibility.execution_bar.semantic_id_sha256,
-            execution_bar_payload_sha256: eligibility.execution_bar.payload_sha256,
-            fill_price: eligibility.execution_bar.open,
-            fill_qty: place.qty,
-            fill_source_ts_utc_ms: eligibility.execution_bar.open_ts_utc_ms,
-            broker_order_id,
-            broker_trade_id,
+            strategy_request_id: evidence.strategy_request_id,
+            canonical_command_sha256: evidence.canonical_command_sha256,
+            accepted_command_payload_sha256: evidence.accepted_command_payload_sha256,
+            execution_bar_semantic_id_sha256: evidence.execution_bar_semantic_id_sha256,
+            execution_bar_payload_sha256: evidence.execution_bar_payload_sha256,
+            fill_price: evidence.fill_price,
+            fill_qty: evidence.fill_qty,
+            fill_source_ts_utc_ms: evidence.fill_source_ts_utc_ms,
+            fill_received_ts_utc_ms: evidence.fill_received_ts_utc_ms,
+            broker_order_id: evidence.broker_order_id,
+            broker_trade_id: evidence.broker_trade_id,
         }
+    }
+}
+
+/// Recovery-only deterministic reconstruction. The durable P1-specific
+/// dispatch record proves that the opaque schedule authority was consumed
+/// before the original append. Recovery therefore validates the exact
+/// retained contiguous successor bytes and finalized journal IDs without
+/// inventing or reacquiring calendar evidence, and owns no provider method.
+pub(crate) fn reconstruct_stage8b_p1d1_market_outcome_evidence(
+    decision: Stage8bP1d1CommandDecisionBinding,
+    canonical_m10: Stage8bP1d1CanonicalM10Evidence,
+) -> Result<Stage8bP1d1MarketOutcomeEvidence, Stage8bP1d1ProviderError> {
+    let candidate = canonical_execution_candidate(&decision, canonical_m10);
+    validate_execution_candidate(&decision, &candidate)
+        .map_err(|_| Stage8bP1d1ProviderError::CommandBindingMismatch)?;
+    let expected_close = decision
+        .predecessor_close_ts_utc_ms
+        .checked_add(M10_MILLIS)
+        .ok_or(Stage8bP1d1ProviderError::CommandBindingMismatch)?;
+    if candidate.close_ts_utc_ms != expected_close {
+        return Err(Stage8bP1d1ProviderError::CommandBindingMismatch);
+    }
+    Ok(deterministic_market_outcome_evidence(&decision, &candidate))
+}
+
+fn deterministic_market_outcome_evidence(
+    decision: &Stage8bP1d1CommandDecisionBinding,
+    execution_bar: &Stage8bP1d1CanonicalExecutionAuthority,
+) -> Stage8bP1d1MarketOutcomeEvidence {
+    let place = match &decision.command {
+        BrokerCommand::PlaceOrder(place) => place,
+        BrokerCommand::CancelOrder(_) => unreachable!("eligibility is Market PLACE only"),
+    };
+    let broker_order_id = derive_order_id(
+        &decision.operational_identity_sha256,
+        place.request_id,
+        &decision.canonical_command_sha256,
+    );
+    let broker_trade_id = derive_trade_id(&broker_order_id, &execution_bar.semantic_id_sha256);
+    Stage8bP1d1MarketOutcomeEvidence {
+        strategy_request_id: place.request_id,
+        canonical_command_sha256: decision.canonical_command_sha256.clone(),
+        accepted_command_payload_sha256: decision.accepted_command_payload_sha256.clone(),
+        execution_bar_semantic_id_sha256: execution_bar.semantic_id_sha256.clone(),
+        execution_bar_payload_sha256: execution_bar.payload_sha256.clone(),
+        fill_price: execution_bar.open,
+        fill_qty: place.qty,
+        fill_source_ts_utc_ms: execution_bar.open_ts_utc_ms,
+        fill_received_ts_utc_ms: execution_bar.close_ts_utc_ms,
+        broker_order_id,
+        broker_trade_id,
     }
 }
 
@@ -691,8 +867,9 @@ fn exact_redis_close_ms(value: &str) -> Option<i64> {
     (parsed > 0 && value == format!("{parsed}-0")).then_some(parsed)
 }
 
-#[cfg(test)]
-pub(crate) fn stage8b_p1d1_test_eligible(
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub fn stage8b_p1d1_test_eligible(
     command: &BrokerCommand,
     accepted_command_payload_sha256: Stage6Sha256Digest,
     predecessor_close_ts_utc_ms: i64,
@@ -723,9 +900,46 @@ pub(crate) fn stage8b_p1d1_test_eligible(
         "7".repeat(64),
     )
     .expect("test decision binding must validate");
+    stage8b_p1d1_test_eligible_from_decision(decision, candidate_close_ts_utc_ms)
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub fn stage8b_p1d1_test_schedule_authority(
+    instrument: InstrumentId,
+    predecessor_close_ts_utc_ms: i64,
+    candidate_close_ts_utc_ms: i64,
+) -> Stage8bP1d1ExecutionScheduleAuthority {
+    let projection = crate::stage5e_no_io_lifecycle::schedule_window_evidence::
+        stage8b_p1d1_test_schedule_projection(
+            instrument,
+            predecessor_close_ts_utc_ms.div_euclid(1_000),
+            candidate_close_ts_utc_ms.div_euclid(1_000),
+            false,
+        );
+    stage8b_p1d1_schedule_authority_from_stage5e(projection)
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+pub fn stage8b_p1d1_test_eligible_from_decision(
+    decision: Stage8bP1d1CommandDecisionBinding,
+    candidate_close_ts_utc_ms: i64,
+) -> Stage8bP1d1ExecutionEligible {
+    let BrokerCommand::PlaceOrder(place) = &decision.command else {
+        panic!("P1-d1 test eligibility supports PLACE only");
+    };
+    let predecessor_close_ts_utc_ms = decision.predecessor_close_ts_utc_ms;
+    let command_sha256 = decision.canonical_command_sha256.clone();
+    let operational_identity_sha256 = decision.operational_identity_sha256.clone();
+    let predecessor_redis_id = decision.predecessor_redis_id.clone();
+    let predecessor_semantic_id_sha256 = decision.predecessor_semantic_id_sha256.clone();
+    let predecessor_payload_sha256 = decision.predecessor_payload_sha256.clone();
+    let instrument = place.instrument.clone();
+    let request_id = place.request_id;
     let schedule_projection = crate::stage5e_no_io_lifecycle::schedule_window_evidence::
         stage8b_p1d1_test_schedule_projection(
-            place.instrument.clone(),
+            instrument.clone(),
             predecessor_close_ts_utc_ms.div_euclid(1_000),
             candidate_close_ts_utc_ms.div_euclid(1_000),
             false,
@@ -733,15 +947,15 @@ pub(crate) fn stage8b_p1d1_test_eligible(
     let waiting = begin_stage8b_p1d1_market_wait(schedule_projection, decision)
         .expect("test wait must validate");
     let candidate = Stage8bP1d1CanonicalExecutionAuthority {
-        strategy_request_id: place.request_id,
+        strategy_request_id: request_id,
         canonical_command_sha256: command_sha256,
-        predecessor_redis_id: format!("{predecessor_close_ts_utc_ms}-0"),
-        predecessor_semantic_id_sha256: "2".repeat(64),
-        predecessor_payload_sha256: "7".repeat(64),
+        predecessor_redis_id,
+        predecessor_semantic_id_sha256,
+        predecessor_payload_sha256,
         source_redis_id: format!("{candidate_close_ts_utc_ms}-0"),
         source_canonical_bytes_sha256: "8".repeat(64),
-        operational_identity_sha256: "1".repeat(64),
-        instrument: place.instrument.clone(),
+        operational_identity_sha256,
+        instrument,
         semantic_id_sha256: "3".repeat(64),
         payload_sha256: "4".repeat(64),
         open_ts_utc_ms: candidate_close_ts_utc_ms - M10_MILLIS,

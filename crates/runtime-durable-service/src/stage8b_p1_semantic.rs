@@ -37,8 +37,11 @@ mod redis;
 pub use redis::{
     attach_stage8b_p1_redis, initialize_stage8b_p1_redis_namespace,
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
-    resume_stage8b_p1_prepublication_with_redis, Stage8bP1RedisCommandPublicationDisposition,
-    Stage8bP1RedisCommandPublicationReceipt, Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig,
+    resume_stage8b_p1_prepublication_with_redis, resume_stage8b_p1d2_ack_with_redis,
+    resume_stage8b_p1d2_pre_ack_with_redis, resume_stage8b_p1d2_truth_with_redis,
+    Stage8bP1RedisCommandPublicationDisposition, Stage8bP1RedisCommandPublicationReceipt,
+    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisFeedbackAckCommitted,
+    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
     Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisPrepublicationPending,
     Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
     Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
@@ -145,6 +148,25 @@ impl Stage8bP1ValidatedCanonicalM10 {
 
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
+    }
+
+    pub(crate) fn into_p1d1_execution_evidence(
+        self,
+    ) -> Result<strategy_runtime_core::Stage8bP1d1CanonicalM10Evidence, Stage8bP1CanonicalM10Error>
+    {
+        let source_canonical_bytes_sha256 = sha256_hex(&self.canonical_bytes);
+        let payload = self.envelope.payload;
+        Ok(strategy_runtime_core::Stage8bP1d1CanonicalM10Evidence {
+            source_redis_id: self.envelope.redis_id,
+            source_canonical_bytes_sha256,
+            operational_identity_sha256: payload.operational_identity_sha256,
+            instrument: p1_instrument(),
+            semantic_id_sha256: self.envelope.m10_semantic_id_sha256,
+            payload_sha256: self.envelope.m10_payload_sha256,
+            open_ts_utc_ms: payload.open_ts_utc_ms,
+            close_ts_utc_ms: payload.close_ts_utc_ms,
+            open: canonical_decimal(&payload.open)?,
+        })
     }
 
     pub fn into_stage5c_semantic_bar(
