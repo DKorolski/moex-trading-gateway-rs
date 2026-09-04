@@ -46,12 +46,14 @@ pre-position binding and a compile-time scale-8 nearest-even average-price
 policy. R1A additionally requires the accepted
 `OrderPositionAwaitingCommitted` intermediate ACK-stage seal before truth,
 truth-only recovery after that seal, and a final post-truth seal before source
-XACK. The active candidate is the P1-d2 Market feedback source implementation:
-exact retained successor M10, deterministic Stage6/7 finalization, ACK,
+XACK. The P1-d2 Market feedback source implementation is independently
+accepted at `b8f09b5656bedf2c5b5828047a1fbbddbf988126`: exact retained successor
+M10, deterministic Stage6/7 finalization, ACK,
 replacement S_ack, event-scoped truth, replacement S_truth and source
 XACK-last, with source-produced opaque Stage5E schedule authority for initial
 execution and phase-linear restart/SIGKILL coverage without schedule
-reconstruction. P1-d3 working
+reconstruction. The active candidate is its P1-d2 governance closure, including
+the reviewer-recommended exact pre-kill/post-restart sequence-pair proof. P1-d3 working
 limit/cancel recovery and P1-d4 crash/replay closure remain ahead.
 Operational Redis DB 0 remains closed through this source work; P1-e owns the
 deployable supervisor and P1-f owns isolated operational acceptance. FINAM

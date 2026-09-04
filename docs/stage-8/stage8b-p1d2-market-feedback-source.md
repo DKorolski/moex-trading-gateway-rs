@@ -130,10 +130,13 @@ Real subprocess SIGKILL tests cover:
 5. after truth in memory, before S_truth;
 6. after S_truth, before source XACK.
 
-A seventh narrow test stops after sequence-pair allocation and before ACK.
-Every case restarts through the expected typed authority, reaches S_truth,
-XACKs the exact source once, leaves PEL empty and keeps exactly one command
-entry. Before the terminal XACK the source remains pending.
+A seventh narrow test stops after sequence-pair allocation and before ACK. The
+child fsyncs the allocated pair into a separate test-only crash marker before
+the SIGKILL barrier; after restart the parent compares both values exactly
+with the final authenticated audit pair. Every case restarts through the
+expected typed authority, reaches S_truth, XACKs the exact source once, leaves
+PEL empty and keeps exactly one command entry. Before the terminal XACK the
+source remains pending.
 
 ## Deliberately closed
 

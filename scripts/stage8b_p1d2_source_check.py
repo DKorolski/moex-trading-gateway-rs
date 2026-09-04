@@ -130,6 +130,11 @@ def validate_content(content: dict[str, str]) -> None:
         "stage5g_restart_candidate_context" not in feedback,
         "generic restart sequence helper became P1-d2 authority",
     )
+    for token in (
+        'std::env::var_os("STAGE8B_P1_TEST_SEQUENCE_PAIR_MARKER")',
+        "sequence-pair marker must be durable before crash barrier",
+    ):
+        require(token in feedback, f"pre-kill pair evidence missing: {token}")
 
     for token in (
         "pub struct Stage8bP1d1ExecutionScheduleAuthority {",
@@ -237,6 +242,8 @@ def validate_content(content: dict[str, str]) -> None:
         "p1d2_noncontiguous_successor_fails_before_feedback_and_retains_source",
         "p1d2_subprocess_kill_matrix_recovers_all_six_durable_frontiers",
         "p1d2_sequence_pair_allocation_crash_reconstructs_exact_ack_path",
+        "pre_kill_sequence_pair",
+        "restart must recover the exact pre-kill sequence pair",
     ):
         require(token in redis_source, f"Redis/recovery evidence missing: {token}")
 
@@ -254,6 +261,7 @@ def validate_content(content: dict[str, str]) -> None:
         "replacement S_ack",
         "replacement S_truth",
         "source M10 XACK last",
+        "separate test-only crash marker",
         "narrowly generalized equivalent allowed by R1A",
         "opaque one-use `Stage8bP1d1ExecutionScheduleAuthority`",
         "No synthetic",
@@ -281,18 +289,28 @@ def validate_content(content: dict[str, str]) -> None:
     )
     require(evidence.get("accepted_projection_annex_ref") == ACCEPTED_ANNEX, "lineage drifted")
     require(evidence.get("acceptance_rows") == 44, "evidence row count drifted")
-    require(evidence.get("negative_cases") == 26, "negative count drifted")
+    require(evidence.get("negative_cases") == 27, "negative count drifted")
     require(
         evidence.get("implementation", {}).get("opaque_source_schedule_authority_required") is True,
         "source schedule authority evidence drifted",
+    )
+    require(
+        evidence.get("implementation", {}).get("pair_pre_kill_post_restart_exact_comparison")
+        is True,
+        "exact pre-kill/restart pair evidence drifted",
     )
     require(evidence.get("crash_frontiers") == 6, "crash frontier count drifted")
     require(evidence.get("next_stage_authorized") is False, "next stage opened early")
     closed = evidence.get("closed_surfaces")
     require(isinstance(closed, dict) and len(closed) == 8, "closed surfaces drifted")
     require(all(value is False for value in closed.values()), "closed surface opened")
-    require("P1-d2 Market feedback source implementation" in content["status"], "status drifted")
-    require("active candidate is the P1-d2 Market feedback source" in content["roadmap"], "roadmap drifted")
+    require(
+        "The P1-d2 Market feedback source" in content["status"]
+        and "implementation is independently accepted" in content["status"]
+        and "b8f09b5656bedf2c5b5828047a1fbbddbf988126" in content["status"],
+        "status drifted",
+    )
+    require("P1-d2 governance closure" in content["roadmap"], "roadmap drifted")
 
 
 def main() -> None:
@@ -321,7 +339,8 @@ def main() -> None:
         raise SystemExit(1)
     print(
         "PASS stage8b-p1d2-source-scope "
-        "rows=44 negatives=26 crash=6 schedule=source-authority db0=false finam=false live=false"
+        "rows=44 negatives=27 crash=6 pair_exact=true schedule=source-authority "
+        "db0=false finam=false live=false"
     )
 
 

@@ -63,7 +63,7 @@ def main() -> None:
             "source_short_ref": short_ref,
             "archive_name": archive_name,
             "branch": branch,
-            "negative_cases": 26,
+            "negative_cases": 27,
             "gate_sha256": sha256(gate.stdout),
             "manifest_sha256": sha256(manifest),
         }

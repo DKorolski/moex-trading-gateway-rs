@@ -94,7 +94,7 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("accepted predecessor mismatch")
         if evidence.get("acceptance_rows") != 44:
             raise ValueError("acceptance row mismatch")
-        if evidence.get("negative_cases") != 26:
+        if evidence.get("negative_cases") != 27:
             raise ValueError("negative count mismatch")
         if evidence.get("crash_frontiers") != 6:
             raise ValueError("crash count mismatch")
@@ -109,7 +109,7 @@ def check(path: str) -> dict[str, object]:
         gate = archive.read(GATE)
         for expected in (
             b"PASS stage8b-p1d2-source-scope",
-            b"PASS stage8b-p1d2-source-negative-harness 26/26",
+            b"PASS stage8b-p1d2-source-negative-harness 27/27",
             b"PASS stage8b-p1d2-source-gate",
         ):
             if expected not in gate:

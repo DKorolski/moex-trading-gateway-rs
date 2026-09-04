@@ -1918,6 +1918,7 @@ mod tests {
         drop(transport);
 
         let marker = parent.join(format!("{phase}.marker"));
+        let sequence_pair_marker = parent.join(format!("{phase}.sequence-pair"));
         let mut child = Command::new(std::env::current_exe().unwrap())
             .arg("--ignored")
             .arg("--exact")
@@ -1927,6 +1928,10 @@ mod tests {
             .env("STAGE8B_P1_TEST_REDIS_URL", &redis.url)
             .env("STAGE8B_P1_TEST_CRASH_PHASE", phase)
             .env("STAGE8B_P1_TEST_CRASH_MARKER", &marker)
+            .env(
+                "STAGE8B_P1_TEST_SEQUENCE_PAIR_MARKER",
+                &sequence_pair_marker,
+            )
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -1934,6 +1939,32 @@ mod tests {
         wait_for_p1d2_crash_barrier(&mut child, &marker);
         child.kill().unwrap();
         assert!(!child.wait().unwrap().success());
+        let pre_kill_sequence_pair = if phase == "p1d2-after-sequence-pair-before-ack" {
+            let marker = fs::read_to_string(&sequence_pair_marker)
+                .expect("pre-kill sequence-pair marker must exist");
+            let mut lines = marker.lines();
+            let seq_ack = lines
+                .next()
+                .and_then(|line| line.strip_prefix("seq_ack="))
+                .and_then(|value| value.parse::<u64>().ok())
+                .expect("pre-kill seq_ack marker must be canonical");
+            let seq_truth = lines
+                .next()
+                .and_then(|line| line.strip_prefix("seq_truth="))
+                .and_then(|value| value.parse::<u64>().ok())
+                .expect("pre-kill seq_truth marker must be canonical");
+            assert!(
+                lines.next().is_none(),
+                "sequence-pair marker has extra rows"
+            );
+            Some((seq_ack, seq_truth))
+        } else {
+            assert!(
+                !sequence_pair_marker.exists(),
+                "non-pair crash frontier wrote sequence authority"
+            );
+            None
+        };
 
         let restart = restart_stage8b_p1(
             validate_stage8b_p1_bootstrap_config(bootstrap_config(
@@ -1994,6 +2025,13 @@ mod tests {
             "{phase}"
         );
         assert_eq!(audit.audit_sha256.len(), 64, "{phase}");
+        if let Some(pre_kill_sequence_pair) = pre_kill_sequence_pair {
+            assert_eq!(
+                (audit.core.seq_ack, audit.core.seq_truth),
+                pre_kill_sequence_pair,
+                "restart must recover the exact pre-kill sequence pair"
+            );
+        }
         drop(resolved);
 
         let namespace = stage8b_p1_redis_namespace();

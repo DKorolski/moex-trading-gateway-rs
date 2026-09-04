@@ -54,6 +54,7 @@ def main() -> None:
         ("exact-successor-check-removed", replace("redis", "exact_first_successor_m10", "removed_successor_lookup", all_occurrences=True)),
         ("successor-interval-drift", replace("redis", ".checked_add(600_000)", ".checked_add(1)")),
         ("crash-matrix-removed", replace("redis", "p1d2_subprocess_kill_matrix_recovers_all_six_durable_frontiers", "removed_crash_matrix")),
+        ("pre-kill-pair-comparison-removed", replace("redis", "restart must recover the exact pre-kill sequence pair", "pair comparison removed")),
         ("matrix-row-removed", lambda content: content.__setitem__("matrix", "\n".join(content["matrix"].splitlines()[:-1]) + "\n")),
         ("db0-opened", replace("evidence", '"operational_redis_db0": false', '"operational_redis_db0": true')),
         ("next-stage-opened", replace("evidence", '"next_stage_authorized": false', '"next_stage_authorized": true')),
