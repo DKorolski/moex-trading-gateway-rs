@@ -61,11 +61,14 @@ exact post-restart comparison. P1-d3 design R0 at
 accepted at `df330b2424199739ceb7c261321a5e5ee381c332`; it adds a durable
 recovered-cancel terminal-request seal, exact field/clock tables for all eight
 new shapes, full Stage6-embedded pre-seal outcome evidence, and canonical
-registry/hash/quiescent migration rules. The P1-d3 source review candidate now
-implements that contract with an authenticated bounded working book, exact
+registry/hash/quiescent migration rules. The initial P1-d3 source review candidate
+at `77f6887e98ab8f2be81ca195adac12ae4a7d82ed` was held with three P1 findings.
+The active R1 correction candidate implements that contract with an authenticated bounded working book, exact
 initial/later/cancel/expiry reducers, Stage6 V3 write-ahead evidence,
 replacement S_ack/S_working/S_eval/S_terminal/S_cancel_recovered phases,
-same-bar callback ordering, checked-in eight-shape fresh/recovery goldens and
+same-bar callback ordering, checked-in eight-shape outcome and complete-projection
+fresh/recovery goldens, the shared accepted P1-d2 position reducer and fail-closed
+cancel DCID/target TCID inequality on fresh and recovered evidence, plus
 isolated Redis source-XACK-last coverage. Two subprocess/SIGKILL cases bracket
 `S_cancel_recovered`, while pending semantic state and the exact
 post-`RequestAccepted` checkpoint survive restart. Current-tree authority remains on

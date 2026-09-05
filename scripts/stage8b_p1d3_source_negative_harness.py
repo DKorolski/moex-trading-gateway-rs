@@ -36,6 +36,15 @@ def mutate_first_golden_byte(content: dict[str, str]) -> None:
     content["golden"] = json.dumps(golden)
 
 
+def mutate_first_projection_byte(content: dict[str, str]) -> None:
+    golden = json.loads(content["projection_golden"])
+    encoded = golden["shapes"][0]["fresh"]["ack"]["canonical_bytes_hex"]
+    golden["shapes"][0]["fresh"]["ack"]["canonical_bytes_hex"] = (
+        "0" if encoded[0] != "0" else "1"
+    ) + encoded[1:]
+    content["projection_golden"] = json.dumps(golden)
+
+
 def main() -> None:
     cases = [
         ("working-book-domain-drift", replace("core", "moex.stage8b.p1d3.working-book.v1", "moex.stage8b.p1d3.working-book.v2")),
@@ -68,6 +77,67 @@ def main() -> None:
         ("db0-opened", replace("evidence", '"operational_redis_db0": false', '"operational_redis_db0": true')),
         ("next-stage-opened", replace("evidence", '"next_stage_authorized": false', '"next_stage_authorized": true')),
         ("golden-byte-tampered", mutate_first_golden_byte),
+        (
+            "shared-position-reducer-removed",
+            replace(
+                "core",
+                "crate::stage8b_p1d2_market_feedback::resulting_position(",
+                "removed_p1d2_position_reducer(",
+            ),
+        ),
+        (
+            "prior-position-consistency-removed",
+            replace(
+                "p1d2",
+                "q0 == Decimal::ZERO && a0.is_some()",
+                "q0 == Decimal::ZERO && false",
+            ),
+        ),
+        (
+            "cancel-input-dcid-tcid-check-removed",
+            replace(
+                "core",
+                "input.target_place_client_id.as_ref() == Some(&input.durable_request_client_id)",
+                "false",
+            ),
+        ),
+        (
+            "cancel-evidence-dcid-tcid-check-removed",
+            replace(
+                "core",
+                "self.durable_request_client_id.as_ref() == self.target_place_client_id.as_ref()",
+                "false",
+            ),
+        ),
+        (
+            "projection-ack-removed",
+            replace("core", '"ack": ack', '"ack_removed": ack'),
+        ),
+        (
+            "projection-order-snapshot-removed",
+            replace("core", '"snapshot": row,', '"snapshot_removed": row,'),
+        ),
+        (
+            "projection-position-decimal-removed",
+            replace(
+                "core",
+                '"unrealized_pnl": optional_decimal_bytes(row.unrealized_pnl)',
+                '"unrealized_pnl": serde_json::Value::Null',
+            ),
+        ),
+        (
+            "projection-truth-order-membership-removed",
+            replace("core", '"orders": exact_order_rows(Some(truth))', '"orders": []'),
+        ),
+        (
+            "position-average-scale-eight-removed",
+            replace(
+                "p1d2",
+                "canonical.rescale(STAGE8B_P1D2_AVG_PRICE_SCALE);",
+                "canonical.rescale(0);",
+            ),
+        ),
+        ("projection-golden-byte-tampered", mutate_first_projection_byte),
     ]
     for name, mutate in cases:
         rejected(name, mutate)

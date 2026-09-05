@@ -14,7 +14,7 @@ use broker_core::{
 };
 use chrono::{DateTime, TimeZone, Utc};
 use rust_decimal::prelude::ToPrimitive;
-use rust_decimal::{Decimal, RoundingStrategy};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -2178,6 +2178,11 @@ impl Stage8bP1d3OutcomeEvidenceV1 {
     }
 
     fn validate(&self) -> Result<(), Stage8bP1d3Error> {
+        let pre_position_qty = decimal(self.pre_position_qty_decimal_bytes)?;
+        let pre_position_avg = self
+            .pre_position_avg_price_decimal_bytes
+            .map(decimal)
+            .transpose()?;
         if self.schema_version != STAGE8B_P1D3_OUTCOME_EVIDENCE_SCHEMA_VERSION
             || self.domain != STAGE8B_P1D3_OUTCOME_EVIDENCE_DOMAIN
             || self.transition_ordinal == 0
@@ -2200,12 +2205,10 @@ impl Stage8bP1d3OutcomeEvidenceV1 {
             || decimal(self.qty_decimal_bytes)? <= Decimal::ZERO
             || !is_integral(decimal(self.qty_decimal_bytes)?)
             || decimal(self.limit_price_decimal_bytes)? <= Decimal::ZERO
-            || !is_integral(decimal(self.pre_position_qty_decimal_bytes)?)
-            || self
-                .pre_position_avg_price_decimal_bytes
-                .map(decimal)
-                .transpose()?
-                .is_some_and(|value| value <= Decimal::ZERO)
+            || !is_integral(pre_position_qty)
+            || pre_position_avg.is_some_and(|value| value <= Decimal::ZERO)
+            || (pre_position_qty == Decimal::ZERO && pre_position_avg.is_some())
+            || (pre_position_qty != Decimal::ZERO && pre_position_avg.is_none())
         {
             return Err(Stage8bP1d3Error::IdentityMismatch);
         }
@@ -2250,6 +2253,17 @@ impl Stage8bP1d3OutcomeEvidenceV1 {
                     .stage7_request_finalized_fingerprint_sha256
                     .as_deref()
                     .is_some_and(is_sha256))
+        {
+            return Err(Stage8bP1d3Error::IdentityMismatch);
+        }
+        let cancel_scoped = matches!(
+            self.outcome_kind,
+            Stage8bP1d3OutcomeKind::CancelCanceled
+                | Stage8bP1d3OutcomeKind::CancelExecutionObserved
+                | Stage8bP1d3OutcomeKind::CancelAlreadyTerminalNonExecution
+        );
+        if cancel_scoped
+            && self.durable_request_client_id.as_ref() == self.target_place_client_id.as_ref()
         {
             return Err(Stage8bP1d3Error::IdentityMismatch);
         }
@@ -2832,6 +2846,7 @@ fn exact_cancel_request_identity(
         .ok_or(Stage8bP1d3Error::IdentityMismatch)?;
     if evidence.durable_request_client_id.as_ref()
         != Some(&ClientOrderId::from_strategy_request(request_id))
+        || evidence.durable_request_client_id.as_ref() == evidence.target_place_client_id.as_ref()
     {
         return Err(Stage8bP1d3Error::IdentityMismatch);
     }
@@ -4058,6 +4073,8 @@ fn validate_cancel_input(
         || input.instrument != book.instrument
         || input.attribution != cancel_attribution(&book.attribution)?
         || input.durable_request_client_id != ClientOrderId::from_strategy_request(input.request_id)
+        || input.target_place_client_id.is_none()
+        || input.target_place_client_id.as_ref() == Some(&input.durable_request_client_id)
         || input.sequence_allocation_frontier != book.total_sequence_frontier
         || !is_sha256(&input.canonical_command_sha256)
         || !is_sha256(&input.accepted_command_payload_sha256)
@@ -4443,38 +4460,11 @@ fn resulting_position(
     signed_fill: Decimal,
     fill_price: Decimal,
 ) -> Result<(Decimal, Option<Decimal>), Stage8bP1d3Error> {
-    if !is_integral(q0) || !is_integral(signed_fill) || fill_price <= Decimal::ZERO {
+    if !is_integral(q0) || !is_integral(signed_fill) {
         return Err(Stage8bP1d3Error::InvalidDecimal);
     }
-    let q1 = q0
-        .checked_add(signed_fill)
-        .ok_or(Stage8bP1d3Error::InvalidDecimal)?;
-    if q1 == Decimal::ZERO {
-        return Ok((q1, None));
-    }
-    let same_direction =
-        q0 == Decimal::ZERO || (q0.is_sign_positive() == signed_fill.is_sign_positive());
-    let average =
-        if q0 == Decimal::ZERO || !same_direction || q0.is_sign_positive() != q1.is_sign_positive()
-        {
-            fill_price
-        } else {
-            let average0 = avg0.ok_or(Stage8bP1d3Error::InvalidDecimal)?;
-            let numerator = average0
-                .checked_mul(q0.abs())
-                .and_then(|value| value.checked_add(fill_price.checked_mul(signed_fill.abs())?))
-                .ok_or(Stage8bP1d3Error::InvalidDecimal)?;
-            numerator
-                .checked_div(q1.abs())
-                .ok_or(Stage8bP1d3Error::InvalidDecimal)?
-        };
-    Ok((
-        q1,
-        Some(average.round_dp_with_strategy(
-            crate::STAGE8B_P1D2_AVG_PRICE_SCALE,
-            RoundingStrategy::MidpointNearestEven,
-        )),
-    ))
+    crate::stage8b_p1d2_market_feedback::resulting_position(q0, avg0, signed_fill, fill_price)
+        .map_err(|_| Stage8bP1d3Error::InvalidDecimal)
 }
 
 fn post_book_state_sha256(
@@ -4741,6 +4731,10 @@ mod tests {
     use super::*;
     use broker_core::{Exchange, Market, PlaceOrder};
     use uuid::Uuid;
+
+    fn d(value: i64, scale: u32) -> Decimal {
+        Decimal::new(value, scale)
+    }
 
     fn request(value: u128) -> StrategyRequestId {
         StrategyRequestId::from(Uuid::from_u128((value << 96) | value))
@@ -5177,6 +5171,195 @@ mod tests {
     }
 
     #[test]
+    fn position_projection_reuses_the_complete_p1d2_arithmetic_matrix() {
+        let cases = [
+            (
+                Decimal::ZERO,
+                None,
+                d(1, 0),
+                d(101, 0),
+                d(1, 0),
+                "101.00000000",
+            ),
+            (
+                Decimal::ZERO,
+                None,
+                d(-1, 0),
+                d(101, 0),
+                d(-1, 0),
+                "101.00000000",
+            ),
+            (
+                d(2, 0),
+                Some(d(100, 0)),
+                d(1, 0),
+                d(106, 0),
+                d(3, 0),
+                "102.00000000",
+            ),
+            (
+                d(-2, 0),
+                Some(d(100, 0)),
+                d(-1, 0),
+                d(106, 0),
+                d(-3, 0),
+                "102.00000000",
+            ),
+            (
+                d(2, 0),
+                Some(d(100, 0)),
+                d(-1, 0),
+                d(110, 0),
+                d(1, 0),
+                "100.00000000",
+            ),
+            (
+                d(-2, 0),
+                Some(d(100, 0)),
+                d(1, 0),
+                d(90, 0),
+                d(-1, 0),
+                "100.00000000",
+            ),
+            (
+                d(1, 0),
+                Some(d(100, 0)),
+                d(-2, 0),
+                d(110, 0),
+                d(-1, 0),
+                "110.00000000",
+            ),
+            (
+                d(-1, 0),
+                Some(d(100, 0)),
+                d(2, 0),
+                d(90, 0),
+                d(1, 0),
+                "90.00000000",
+            ),
+        ];
+        for (q0, avg0, delta, price, expected_qty, expected_avg) in cases {
+            let (actual_qty, actual_avg) = resulting_position(q0, avg0, delta, price).unwrap();
+            let actual_avg = actual_avg.unwrap();
+            let expected_avg = Decimal::from_str_exact(expected_avg).unwrap();
+            assert_eq!(actual_qty, expected_qty);
+            assert_eq!(actual_avg, expected_avg);
+            assert_eq!(actual_avg.scale(), crate::STAGE8B_P1D2_AVG_PRICE_SCALE);
+            assert_eq!(actual_avg.serialize(), expected_avg.serialize());
+        }
+
+        for (q0, avg0, delta) in [
+            (d(1, 0), Some(d(100, 0)), d(-1, 0)),
+            (d(-1, 0), Some(d(100, 0)), d(1, 0)),
+        ] {
+            assert_eq!(
+                resulting_position(q0, avg0, delta, d(105, 0)).unwrap(),
+                (Decimal::ZERO, None)
+            );
+        }
+        assert_eq!(
+            resulting_position(Decimal::ONE, None, Decimal::ONE, Decimal::ONE),
+            Err(Stage8bP1d3Error::InvalidDecimal)
+        );
+        assert_eq!(
+            resulting_position(
+                Decimal::ZERO,
+                Some(Decimal::ONE),
+                Decimal::ONE,
+                Decimal::ONE,
+            ),
+            Err(Stage8bP1d3Error::InvalidDecimal)
+        );
+        assert_eq!(
+            resulting_position(Decimal::MAX, Some(Decimal::ONE), Decimal::ONE, Decimal::ONE),
+            Err(Stage8bP1d3Error::InvalidDecimal)
+        );
+        assert_eq!(
+            resulting_position(
+                Decimal::MIN,
+                Some(Decimal::ONE),
+                -Decimal::ONE,
+                Decimal::ONE,
+            ),
+            Err(Stage8bP1d3Error::InvalidDecimal)
+        );
+    }
+
+    #[test]
+    fn distinct_request_ids_with_the_same_truncated_client_id_fail_closed_for_cancel() {
+        let place_request = StrategyRequestId::from(
+            Uuid::parse_str("00000000-0000-0000-0000-00000000d301").unwrap(),
+        );
+        let cancel_request = StrategyRequestId::from(
+            Uuid::parse_str("00000000-0000-0000-0000-00000000d302").unwrap(),
+        );
+        assert_ne!(place_request, cancel_request);
+        let colliding_id = ClientOrderId::from_strategy_request(place_request);
+        assert_eq!(
+            colliding_id,
+            ClientOrderId::from_strategy_request(cancel_request)
+        );
+        assert_eq!(colliding_id.as_str(), "00000000000000000000");
+
+        let mut place = input(OrderSide::Buy, Decimal::new(2_210, 1));
+        place.request_id = place_request;
+        place.durable_client_order_id = colliding_id.clone();
+        let working = build_initial_limit_transition(
+            &book(),
+            place,
+            Some(bar(
+                Decimal::new(2_230, 1),
+                Decimal::new(2_240, 1),
+                Decimal::new(2_220, 1),
+            )),
+            Some(step()),
+            None,
+        )
+        .unwrap();
+        let target = working.post_book.active_broker_order_id.clone().unwrap();
+        let mut cancel = cancel_input(&working.post_book, target);
+        cancel.request_id = cancel_request;
+        cancel.durable_request_client_id = colliding_id.clone();
+        cancel.target_place_client_id = Some(colliding_id);
+        assert!(matches!(
+            build_cancel_transition(
+                &working.post_book,
+                cancel,
+                later_bar(
+                    Decimal::new(2_230, 1),
+                    Decimal::new(2_240, 1),
+                    Decimal::new(2_220, 1),
+                ),
+                later_step(),
+            ),
+            Err(Stage8bP1d3Error::IdentityMismatch)
+        ));
+
+        let target = initial_filled();
+        let broker_order_id = target.post_book.records[0].broker_order_id.clone();
+        let Stage8bP1d3CancelTransitionPlan::Ready(valid) = build_cancel_transition(
+            &target.post_book,
+            cancel_input(&target.post_book, broker_order_id),
+            later_bar(
+                Decimal::new(2_230, 1),
+                Decimal::new(2_240, 1),
+                Decimal::new(2_220, 1),
+            ),
+            later_step(),
+        )
+        .unwrap() else {
+            panic!("terminal target must produce recovered cancel")
+        };
+        let mut forged = valid.evidence.clone();
+        forged.durable_request_client_id = forged.target_place_client_id.clone();
+        assert_eq!(forged.validate(), Err(Stage8bP1d3Error::IdentityMismatch));
+        assert_eq!(
+            forged.encode_canonical(),
+            Err(Stage8bP1d3Error::IdentityMismatch)
+        );
+    }
+
+    #[test]
     fn initial_working_projection_is_exact_and_roundtrips() {
         let plan = build_initial_limit_transition(
             &book(),
@@ -5576,6 +5759,220 @@ mod tests {
         shapes: Vec<Stage8bP1d3GoldenShape>,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    struct Stage8bP1d3ProjectionComponentGolden {
+        canonical_bytes_hex: String,
+        canonical_bytes_sha256: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+    struct Stage8bP1d3ProjectionComponentsGolden {
+        ack: Stage8bP1d3ProjectionComponentGolden,
+        orders: Stage8bP1d3ProjectionComponentGolden,
+        trades: Stage8bP1d3ProjectionComponentGolden,
+        positions: Stage8bP1d3ProjectionComponentGolden,
+        truth: Stage8bP1d3ProjectionComponentGolden,
+        complete_projection: Stage8bP1d3ProjectionComponentGolden,
+    }
+
+    #[derive(Serialize)]
+    struct Stage8bP1d3ProjectionGoldenShape {
+        shape: &'static str,
+        pre_book_sha256: String,
+        post_book_sha256: String,
+        reserved_seq_ack: Option<u64>,
+        reserved_seq_truth: Option<u64>,
+        sequence_allocation_frontier: u64,
+        fresh: Stage8bP1d3ProjectionComponentsGolden,
+        recovery: Stage8bP1d3ProjectionComponentsGolden,
+        fresh_recovery_byte_identical: bool,
+    }
+
+    #[derive(Serialize)]
+    struct Stage8bP1d3ProjectionGoldenManifest {
+        schema_version: u16,
+        domain: &'static str,
+        shape_count: usize,
+        fresh_and_recovery_each_checked_against_oracle: bool,
+        shapes: Vec<Stage8bP1d3ProjectionGoldenShape>,
+    }
+
+    fn projection_component(value: &serde_json::Value) -> Stage8bP1d3ProjectionComponentGolden {
+        let bytes = serde_json::to_vec(value).unwrap();
+        Stage8bP1d3ProjectionComponentGolden {
+            canonical_bytes_hex: hex_digest(&bytes),
+            canonical_bytes_sha256: sha256_hex(&bytes),
+        }
+    }
+
+    fn optional_decimal_bytes(value: Option<Decimal>) -> Option<[u8; 16]> {
+        value.map(|value| value.serialize())
+    }
+
+    fn exact_order_rows(truth: Option<&BrokerTruthSnapshot>) -> serde_json::Value {
+        serde_json::to_value(
+            truth
+                .map(|truth| {
+                    truth
+                        .orders
+                        .iter()
+                        .map(|row| {
+                            serde_json::json!({
+                                "snapshot": row,
+                                "decimal_bytes": {
+                                    "qty": row.qty.serialize(),
+                                    "filled_qty": row.filled_qty.serialize(),
+                                    "remaining_qty": optional_decimal_bytes(row.remaining_qty),
+                                    "limit_price": optional_decimal_bytes(row.limit_price),
+                                }
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        )
+        .unwrap()
+    }
+
+    fn exact_trade_rows(truth: Option<&BrokerTruthSnapshot>) -> serde_json::Value {
+        serde_json::to_value(
+            truth
+                .map(|truth| {
+                    truth
+                        .trades
+                        .iter()
+                        .map(|row| {
+                            serde_json::json!({
+                                "snapshot": row,
+                                "decimal_bytes": {
+                                    "qty": row.qty.serialize(),
+                                    "price": row.price.serialize(),
+                                    "gross_amount": optional_decimal_bytes(row.gross_amount),
+                                    "commission": optional_decimal_bytes(row.commission),
+                                }
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        )
+        .unwrap()
+    }
+
+    fn exact_position_rows(truth: Option<&BrokerTruthSnapshot>) -> serde_json::Value {
+        serde_json::to_value(
+            truth
+                .map(|truth| {
+                    truth
+                        .positions
+                        .iter()
+                        .map(|row| {
+                            serde_json::json!({
+                                "snapshot": row,
+                                "decimal_bytes": {
+                                    "qty": row.qty.serialize(),
+                                    "avg_price": optional_decimal_bytes(row.avg_price),
+                                    "unrealized_pnl": optional_decimal_bytes(row.unrealized_pnl),
+                                }
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default(),
+        )
+        .unwrap()
+    }
+
+    fn exact_cash(truth: &BrokerTruthSnapshot) -> serde_json::Value {
+        truth.cash.as_ref().map_or(serde_json::Value::Null, |cash| {
+            serde_json::json!({
+                "snapshot": cash,
+                "decimal_bytes": {
+                    "cash": cash.cash.iter().map(|row| serde_json::json!({
+                        "currency": row.currency,
+                        "amount": row.amount.serialize(),
+                    })).collect::<Vec<_>>(),
+                    "equity": optional_decimal_bytes(cash.equity),
+                    "free_cash": optional_decimal_bytes(cash.free_cash),
+                    "initial_margin": optional_decimal_bytes(cash.initial_margin),
+                    "maintenance_margin": optional_decimal_bytes(cash.maintenance_margin),
+                }
+            })
+        })
+    }
+
+    fn exact_instruments(truth: &BrokerTruthSnapshot) -> serde_json::Value {
+        serde_json::to_value(
+            truth
+                .instruments
+                .iter()
+                .map(|row| {
+                    serde_json::json!({
+                        "snapshot": row,
+                        "decimal_bytes": {
+                            "price_step": row.instrument.price_step.serialize(),
+                            "qty_step": row.instrument.qty_step.serialize(),
+                            "lot_size": row.instrument.lot_size.serialize(),
+                            "min_qty": row.instrument.min_qty.serialize(),
+                            "step_value": row.instrument.step_value.serialize(),
+                            "long_initial_margin": optional_decimal_bytes(row.long_initial_margin),
+                            "short_initial_margin": optional_decimal_bytes(row.short_initial_margin),
+                        }
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    fn exact_truth(truth: Option<&BrokerTruthSnapshot>) -> serde_json::Value {
+        truth.map_or(serde_json::Value::Null, |truth| {
+            serde_json::json!({
+                "account_id": truth.account_id,
+                "orders": exact_order_rows(Some(truth)),
+                "positions": exact_position_rows(Some(truth)),
+                "cash": exact_cash(truth),
+                "trades": exact_trade_rows(Some(truth)),
+                "instruments": exact_instruments(truth),
+                "received_ts": truth.received_ts,
+            })
+        })
+    }
+
+    fn complete_projection_components(
+        pre_book: &Stage8bP1d3WorkingBookProjectionV1,
+        plan: &Stage8bP1d3TransitionPlan,
+    ) -> Stage8bP1d3ProjectionComponentsGolden {
+        let ack = serde_json::to_value(&plan.ack).unwrap();
+        let orders = exact_order_rows(plan.truth.as_ref());
+        let trades = exact_trade_rows(plan.truth.as_ref());
+        let positions = exact_position_rows(plan.truth.as_ref());
+        let truth = exact_truth(plan.truth.as_ref());
+        let projection = serde_json::json!({
+            "domain": "moex.stage8b.p1d3.complete-projection.v1",
+            "outcome_kind": plan.evidence.outcome_kind.canonical_name(),
+            "outcome_evidence_sha256": plan.evidence_sha256,
+            "reserved_seq_ack": plan.evidence.reserved_seq_ack,
+            "reserved_seq_truth": plan.evidence.reserved_seq_truth,
+            "sequence_allocation_frontier": plan.evidence.sequence_allocation_frontier,
+            "pre_book_sha256": pre_book.canonical_sha256().unwrap(),
+            "post_book_sha256": plan.post_book.canonical_sha256().unwrap(),
+            "ack": ack,
+            "orders": orders,
+            "trades": trades,
+            "positions": positions,
+            "truth": truth,
+        });
+        Stage8bP1d3ProjectionComponentsGolden {
+            ack: projection_component(&projection["ack"]),
+            orders: projection_component(&projection["orders"]),
+            trades: projection_component(&projection["trades"]),
+            positions: projection_component(&projection["positions"]),
+            truth: projection_component(&projection["truth"]),
+            complete_projection: projection_component(&projection),
+        }
+    }
+
     #[test]
     fn all_eight_fresh_and_recovery_paths_match_checked_in_canonical_goldens() {
         let mut shapes = Vec::new();
@@ -5614,6 +6011,41 @@ mod tests {
         let expected = std::fs::read_to_string(&fixture_path)
             .expect("checked-in P1-d3 golden manifest must exist");
         assert_eq!(actual, expected);
+
+        let mut projection_shapes = Vec::new();
+        for (shape, pre_book, fresh) in all_eight_shape_plans() {
+            let recovery = recover(&pre_book, &fresh);
+            let fresh_projection = complete_projection_components(&pre_book, &fresh);
+            let recovery_projection = complete_projection_components(&pre_book, &recovery);
+            assert_eq!(fresh_projection, recovery_projection, "{shape}");
+            projection_shapes.push(Stage8bP1d3ProjectionGoldenShape {
+                shape,
+                pre_book_sha256: pre_book.canonical_sha256().unwrap(),
+                post_book_sha256: fresh.post_book.canonical_sha256().unwrap(),
+                reserved_seq_ack: fresh.evidence.reserved_seq_ack,
+                reserved_seq_truth: fresh.evidence.reserved_seq_truth,
+                sequence_allocation_frontier: fresh.evidence.sequence_allocation_frontier,
+                fresh: fresh_projection,
+                recovery: recovery_projection,
+                fresh_recovery_byte_identical: true,
+            });
+        }
+        let projection_manifest = Stage8bP1d3ProjectionGoldenManifest {
+            schema_version: 1,
+            domain: "moex.stage8b.p1d3.projection-golden.v1",
+            shape_count: projection_shapes.len(),
+            fresh_and_recovery_each_checked_against_oracle: true,
+            shapes: projection_shapes,
+        };
+        let projection_actual = serde_json::to_string_pretty(&projection_manifest).unwrap() + "\n";
+        let projection_fixture_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/stage8b-p1d3/projection-golden-v1.json");
+        if std::env::var_os("STAGE8B_P1D3_UPDATE_GOLDEN").is_some() {
+            std::fs::write(&projection_fixture_path, &projection_actual).unwrap();
+        }
+        let projection_expected = std::fs::read_to_string(&projection_fixture_path)
+            .expect("checked-in complete P1-d3 projection golden manifest must exist");
+        assert_eq!(projection_actual, projection_expected);
     }
 
     #[test]

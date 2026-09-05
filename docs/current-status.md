@@ -1377,13 +1377,19 @@ Amber:
   post-restart authenticated audit. P1-d3 design R0 at
   `74696d1eefc0453c41440f79b087cafebd0d7ab0` was held with three P1 and one
   P2 finding. R1 was independently accepted at
-  `df330b2424199739ceb7c261321a5e5ee381c332`. The active source review
-  candidate implements its request/order split, fill-before-cancel,
+  `df330b2424199739ceb7c261321a5e5ee381c332`. The initial source candidate at
+  `77f6887e98ab8f2be81ca195adac12ae4a7d82ed` was held with three P1 findings.
+  The active source review R1 correction candidate retains its request/order
+  split, fill-before-cancel,
   schedule-owned expiry, `S_cancel_recovered`, exact eight-shape projections,
   full Stage6-embedded outcome evidence and deterministic registry/hash/P1-d2
   migration. The P1-d3 book is carried in authenticated replacement packages;
-  all eight fresh/recovery canonical outcomes are checked in as byte/SHA-256
-  goldens, and isolated Redis proves read-only successor observation with
+  all eight fresh/recovery outcomes and complete ACK/order/trade/position/truth
+  projections are checked in as independent byte/SHA-256 goldens. Filled
+  position arithmetic now reuses the accepted P1-d2 reducer, including
+  reduction/flip/flat and scale-8 rules, while fresh and recovered cancel paths
+  reject a derived DCID equal to the target TCID. Isolated Redis proves
+  read-only successor observation with
   source XACK last. Two real subprocess/SIGKILL cases bracket
   `S_cancel_recovered`; restart also preserves the pending semantic slot and
   binds the replacement package to the exact post-`RequestAccepted` Stage 6

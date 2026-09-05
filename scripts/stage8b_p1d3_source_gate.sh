@@ -16,4 +16,4 @@ cargo test -p runtime-durable-service --doc --all-features
 cargo clippy -p strategy-runtime-core -p runtime-durable-service \
   --all-targets --all-features -- -D warnings
 
-echo "PASS stage8b-p1d3-source-gate rows=56 negatives=30 golden=8 redis=isolated sigkill=2 db0=false finam=false live=false p1d4=false"
+echo "PASS stage8b-p1d3-source-gate rows=56 negatives=40 golden=8 projection_golden=8 redis=isolated sigkill=2 db0=false finam=false live=false p1d4=false"

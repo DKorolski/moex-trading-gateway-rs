@@ -1,6 +1,6 @@
 # Stage 8B-P1-d3 working LIMIT/CANCEL/expiry source
 
-Status: source implementation review candidate.
+Status: R1 source-correction review candidate.
 
 Accepted design predecessor:
 `df330b2424199739ceb7c261321a5e5ee381c332`.
@@ -85,6 +85,22 @@ full `Stage8bP1d3OutcomeEvidenceV1` bytes embedded in one Stage 6 V3 record and
 recomputes the complete transition. It cannot select a replacement bar,
 schedule authority, provider result or caller-supplied sequence.
 
+The independent complete-projection oracle is checked in as
+`fixtures/stage8b-p1d3/projection-golden-v1.json`. For each of the eight
+shapes, fresh and recovery construction are compared separately with immutable
+canonical bytes and SHA-256 for the exact ACK or absence, order rows, trade
+rows, position rows, complete event-scoped truth and the aggregate projection.
+The projection includes exact vector membership/order, all nested Decimal
+`[u8; 16]` values, the reserved sequence pair/frontier and pre/post book
+hashes. Equality of the two constructors is therefore not used as its own
+oracle.
+
+Filled position projection delegates to the accepted broker-neutral P1-d2
+position reducer. That single reducer owns checked quantity arithmetic,
+scale-8 nearest-even average bytes, same-side weighted average,
+opposite-side reduction with the prior average retained, exact flattening,
+crossing/flip semantics and strict `q0`/`avg0` presence consistency.
+
 ## Replacement phases
 
 The runtime uses phase-specific linear owners:
@@ -114,11 +130,15 @@ reconstruction is available. After its persisted+reread seal, only truth/source
 XACK continuation is available. The source remains pending throughout both
 crashes and is acknowledged only from the truth owner.
 
-The subprocess identities also retain a checked collision regression. Legacy
-fixture UUIDs whose distinguishing bits occurred outside the encoded 12-byte
-prefix both produced `00000000000000000000`; the place/cancel UUIDs now differ
-inside that prefix and deterministically encode as `000D608000000G00G000` and
-`000D60G000000G00G000`. Both are 20-character FINAM-safe alphanumeric values,
+The subprocess identities also retain a checked collision regression. The
+global mapper still deliberately remains outside this narrow slice and can
+map distinct UUIDs whose distinguishing bits occur outside its encoded
+12-byte prefix to the same value (`00000000000000000000`). P1-d3 therefore
+fails closed before effects whenever a derived cancel DCID equals the target
+place TCID, and recovery validates the same inequality from authenticated
+outcome evidence. A regression uses two genuinely distinct colliding UUIDs;
+the ordinary subprocess place/cancel UUIDs additionally encode as distinct
+`000D608000000G00G000` and `000D60G000000G00G000`. All values are FINAM-safe,
 stable through restart and independent of wall clock.
 
 The complete exhaustive subprocess/SIGKILL frontier matrix remains P1-d4

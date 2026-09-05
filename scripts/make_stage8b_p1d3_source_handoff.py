@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_DESIGN = "df330b2424199739ceb7c261321a5e5ee381c332"
+R1_CORRECTION_PARENT = "77f6887e98ab8f2be81ca195adac12ae4a7d82ed"
 EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1d3-source-evidence.json"
 
 
@@ -39,10 +40,10 @@ def main() -> None:
     source_tree = run("git", "rev-parse", "HEAD^{tree}").decode().strip()
     if source_ref == ACCEPTED_DESIGN:
         raise SystemExit("stage8b-p1d3-source-handoff: FAIL no source commit")
-    if source_parent != ACCEPTED_DESIGN:
+    if source_parent != R1_CORRECTION_PARENT:
         raise SystemExit(
             "stage8b-p1d3-source-handoff: FAIL "
-            f"source_parent={source_parent} expected={ACCEPTED_DESIGN}"
+            f"source_parent={source_parent} expected={R1_CORRECTION_PARENT}"
         )
     if run("git", "merge-base", source_ref, ACCEPTED_DESIGN).decode().strip() != ACCEPTED_DESIGN:
         raise SystemExit("stage8b-p1d3-source-handoff: FAIL accepted design drift")
@@ -62,6 +63,9 @@ def main() -> None:
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     changed_paths = run(
+        "git", "diff", "--name-only", R1_CORRECTION_PARENT, source_ref
+    ).decode().splitlines()
+    cumulative_changed_paths = run(
         "git", "diff", "--name-only", ACCEPTED_DESIGN, source_ref
     ).decode().splitlines()
     changed_paths_bytes = ("\n".join(changed_paths) + "\n").encode()
@@ -89,6 +93,7 @@ def main() -> None:
             "source_ref": source_ref,
             "review_target": source_ref,
             "source_parent": source_parent,
+            "r1_correction_parent": R1_CORRECTION_PARENT,
             "accepted_design_parent": ACCEPTED_DESIGN,
             "source_tree": source_tree,
             "source_short_ref": short_ref,
@@ -96,11 +101,12 @@ def main() -> None:
             "branch": branch,
             "worktree_clean": True,
             "pushed_to_origin": False,
-            "negative_cases": 30,
+            "negative_cases": 40,
             "gate_sha256": sha256(gate.stdout),
             "manifest_sha256": sha256(manifest),
             "changed_paths": changed_paths,
             "changed_paths_sha256": sha256(changed_paths_bytes),
+            "cumulative_changed_paths_from_design": cumulative_changed_paths,
             "unexpected_protected_path_changes": unexpected_protected_changes,
         }
     )

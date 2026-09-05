@@ -37,6 +37,7 @@ EXPECTED_CHANGED = {
     "docs/stage-8/stage8b-p1d3-working-limit-cancel-source.md",
     "fixtures/stage8a4-i1/canonical-golden-sha256.json",
     "fixtures/stage8b-p1d3/outcome-golden-v1.json",
+    "fixtures/stage8b-p1d3/projection-golden-v1.json",
     "scripts/make_stage8b_p1d3_source_handoff.py",
     "scripts/stage8b_p1d3_source_check.py",
     "scripts/stage8b_p1d3_source_gate.sh",
@@ -85,6 +86,7 @@ def changed_files() -> set[str]:
 def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
     paths = {
         "core": "crates/strategy-runtime-core/src/stage8b_p1d3_working_limit.rs",
+        "p1d2": "crates/strategy-runtime-core/src/stage8b_p1d2_market_feedback.rs",
         "stage5c": "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
         "restart": "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
         "order_position": "crates/strategy-runtime-core/src/stage5g_order_position.rs",
@@ -97,6 +99,7 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "matrix": "docs/stage-8/stage8b-p1d3-source-acceptance-matrix.csv",
         "evidence": "docs/stage-8/stage8b-p1d3-source-evidence.json",
         "golden": "fixtures/stage8b-p1d3/outcome-golden-v1.json",
+        "projection_golden": "fixtures/stage8b-p1d3/projection-golden-v1.json",
         "status": "docs/current-status.md",
         "roadmap": "docs/roadmap.md",
     }
@@ -113,6 +116,7 @@ def section(text: str, start: str, end: str) -> str:
 
 def validate_content(content: dict[str, str]) -> None:
     core = content["core"]
+    p1d2 = content["p1d2"]
     stage6 = content["stage6"]
     service = content["service"]
     redis_source = content["redis"]
@@ -146,8 +150,37 @@ def validate_content(content: dict[str, str]) -> None:
         "Stage8bP1d3ConsumedWitnessKind::DayExpiry",
         "all_eight_fresh_and_recovery_paths_match_checked_in_canonical_goldens",
         "canonical_terminal_registry_is_independent_of_in_memory_insertion_order",
+        "position_projection_reuses_the_complete_p1d2_arithmetic_matrix",
+        "distinct_request_ids_with_the_same_truncated_client_id_fail_closed_for_cancel",
+        "crate::stage8b_p1d2_market_feedback::resulting_position(",
+        "self.durable_request_client_id.as_ref() == self.target_place_client_id.as_ref()",
+        "input.target_place_client_id.as_ref() == Some(&input.durable_request_client_id)",
+        '"ack": ack',
+        '"orders": orders',
+        '"trades": trades',
+        '"positions": positions',
+        '"truth": truth',
+        '"orders": exact_order_rows(Some(truth))',
+        '"unrealized_pnl": optional_decimal_bytes(row.unrealized_pnl)',
+        '"snapshot": row',
+        "fresh_and_recovery_each_checked_against_oracle: true",
+        'join("../../fixtures/stage8b-p1d3/projection-golden-v1.json")',
     ):
         require(token in core, f"core invariant missing: {token}")
+    for token in (
+        "pub(crate) fn resulting_position(",
+        "q0 == Decimal::ZERO && a0.is_some()",
+        "q0 != Decimal::ZERO && a0.is_none()",
+        "else if q1.is_sign_positive() == q0.is_sign_positive()",
+        "canonical.rescale(STAGE8B_P1D2_AVG_PRICE_SCALE);",
+        "canonical.scale() != STAGE8B_P1D2_AVG_PRICE_SCALE",
+        "RoundingStrategy::MidpointNearestEven",
+    ):
+        require(token in p1d2, f"canonical P1-d2 position reducer invariant missing: {token}")
+    require(
+        core.count('"snapshot": row') >= 4,
+        "complete order/trade/position/instrument snapshot projection weakened",
+    )
     for outcome in (
         "InitialWorking",
         "InitialFilled",
@@ -291,7 +324,7 @@ def validate_content(content: dict[str, str]) -> None:
         require(token in service_lib, f"compile-fail boundary missing: {token}")
 
     for token in (
-        "source implementation review candidate",
+        "R1 source-correction review candidate",
         "initial LIMIT Working/Filled/Expired",
         "CancelExecutionObserved",
         "S_cancel_recovered",
@@ -300,6 +333,8 @@ def validate_content(content: dict[str, str]) -> None:
         "operational Redis DB 0",
         "FINAM POST/DELETE",
         "P1-d4",
+        "projection-golden-v1.json",
+        "global mapper still deliberately remains outside this narrow slice",
     ):
         require(token in document, f"implementation document missing: {token}")
 
@@ -321,9 +356,18 @@ def validate_content(content: dict[str, str]) -> None:
     require(evidence.get("accepted_design_ref") == ACCEPTED_DESIGN, "design lineage drifted")
     require(evidence.get("accepted_p1d2_closure_ref") == ACCEPTED_P1D2, "P1-d2 lineage drifted")
     require(evidence.get("acceptance_rows") == 56, "evidence row count drifted")
-    require(evidence.get("negative_cases") == 30, "negative count drifted")
+    require(evidence.get("negative_cases") == 40, "negative count drifted")
     implementation = evidence.get("implementation", {})
     require(implementation.get("golden_shapes") == 8, "golden evidence count drifted")
+    require(
+        implementation.get("complete_projection_golden_shapes") == 8,
+        "complete projection golden count drifted",
+    )
+    require(
+        implementation.get("canonical_position_reducer") == "stage8b_p1d2_market_feedback::resulting_position"
+        and implementation.get("cancel_dcid_tcid_inequality_enforced") is True,
+        "P1-d3 R1 source hardening evidence weakened",
+    )
     require(implementation.get("max_order_records_per_generation") == 1024, "capacity drifted")
     require(implementation.get("full_outcome_evidence_in_stage6_v3") is True, "V3 evidence weakened")
     require(implementation.get("source_xack_last") is True, "XACK-last weakened")
@@ -374,7 +418,8 @@ def validate_content(content: dict[str, str]) -> None:
         collision.get("deterministic_across_restart") is True
         and collision.get("finam_safe_ascii_alphanumeric") is True
         and collision.get("max_length") == 20
-        and collision.get("silent_truncation_collision_absent") is True
+        and collision.get("global_mapper_truncation_collision_absent") is False
+        and collision.get("p1d3_cancel_boundary_rejects_dcid_tcid_collision") is True
         and collision.get("wall_clock_dependency") is False
         and collision.get("binding_includes_original_request_and_order_fingerprint") is True,
         "ClientOrderId contract evidence weakened",
@@ -410,6 +455,73 @@ def validate_content(content: dict[str, str]) -> None:
             shape["fresh_domain_digest_sha256"] == shape["recovery_domain_digest_sha256"],
             f"domain digest drift: {shape['shape']}",
         )
+
+    projection_golden = json.loads(content["projection_golden"])
+    require(projection_golden.get("schema_version") == 1, "projection golden schema drifted")
+    require(
+        projection_golden.get("domain") == "moex.stage8b.p1d3.projection-golden.v1",
+        "projection golden domain drifted",
+    )
+    require(projection_golden.get("shape_count") == 8, "projection golden count drifted")
+    require(
+        projection_golden.get("fresh_and_recovery_each_checked_against_oracle") is True,
+        "projection oracle independence weakened",
+    )
+    projection_shapes = projection_golden.get("shapes")
+    require(
+        isinstance(projection_shapes, list) and len(projection_shapes) == 8,
+        "projection golden shapes missing",
+    )
+    require(
+        {shape.get("shape") for shape in projection_shapes} == EXPECTED_SHAPES,
+        "projection golden shape names drifted",
+    )
+    component_names = ("ack", "orders", "trades", "positions", "truth", "complete_projection")
+    for shape in projection_shapes:
+        shape_name = shape["shape"]
+        require(len(shape.get("pre_book_sha256", "")) == 64, f"pre-book hash malformed: {shape_name}")
+        require(len(shape.get("post_book_sha256", "")) == 64, f"post-book hash malformed: {shape_name}")
+        require(
+            isinstance(shape.get("sequence_allocation_frontier"), int),
+            f"sequence frontier missing: {shape_name}",
+        )
+        require(
+            shape.get("fresh_recovery_byte_identical") is True,
+            f"projection parity weakened: {shape_name}",
+        )
+        decoded: dict[str, dict[str, object]] = {}
+        for path in ("fresh", "recovery"):
+            components = shape.get(path)
+            require(isinstance(components, dict), f"projection component set missing: {shape_name}/{path}")
+            decoded[path] = {}
+            for component_name in component_names:
+                component = components.get(component_name)
+                require(isinstance(component, dict), f"projection component missing: {shape_name}/{path}/{component_name}")
+                raw = bytes.fromhex(component["canonical_bytes_hex"])
+                require(
+                    hashlib.sha256(raw).hexdigest() == component.get("canonical_bytes_sha256"),
+                    f"projection component hash drift: {shape_name}/{path}/{component_name}",
+                )
+                decoded[path][component_name] = json.loads(raw)
+            full = decoded[path]["complete_projection"]
+            require(isinstance(full, dict), f"complete projection malformed: {shape_name}/{path}")
+            require(full.get("domain") == "moex.stage8b.p1d3.complete-projection.v1", f"complete projection domain drift: {shape_name}/{path}")
+            require(full.get("outcome_kind") == shape_name, f"outcome binding drift: {shape_name}/{path}")
+            require(full.get("pre_book_sha256") == shape["pre_book_sha256"], f"pre-book binding drift: {shape_name}/{path}")
+            require(full.get("post_book_sha256") == shape["post_book_sha256"], f"post-book binding drift: {shape_name}/{path}")
+            require(full.get("reserved_seq_ack") == shape.get("reserved_seq_ack"), f"ACK sequence drift: {shape_name}/{path}")
+            require(full.get("reserved_seq_truth") == shape.get("reserved_seq_truth"), f"truth sequence drift: {shape_name}/{path}")
+            require(full.get("sequence_allocation_frontier") == shape["sequence_allocation_frontier"], f"sequence frontier drift: {shape_name}/{path}")
+            for component_name in ("ack", "orders", "trades", "positions", "truth"):
+                require(
+                    full.get(component_name) == decoded[path][component_name],
+                    f"embedded projection mismatch: {shape_name}/{path}/{component_name}",
+                )
+        for component_name in component_names:
+            require(
+                decoded["fresh"][component_name] == decoded["recovery"][component_name],
+                f"fresh/recovery projection differs: {shape_name}/{component_name}",
+            )
 
     require(
         "R1 was independently accepted" in content["status"]
@@ -462,7 +574,7 @@ def main() -> None:
         print(f"FAIL stage8b-p1d3-source-scope: {error}", file=sys.stderr)
         raise SystemExit(1)
     print(
-        "PASS stage8b-p1d3-source-scope rows=56 negatives=30 golden=8 "
+        "PASS stage8b-p1d3-source-scope rows=56 negatives=40 golden=8 projection_golden=8 "
         "redis=isolated db0=false finam=false live=false p1d4=false"
     )
 

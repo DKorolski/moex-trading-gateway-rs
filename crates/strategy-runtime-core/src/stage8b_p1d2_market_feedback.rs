@@ -736,7 +736,7 @@ impl Stage8bP1d2TruthRestartSource {
     }
 }
 
-fn resulting_position(
+pub(crate) fn resulting_position(
     q0: Decimal,
     a0: Option<Decimal>,
     delta: Decimal,

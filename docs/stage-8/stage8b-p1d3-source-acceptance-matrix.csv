@@ -4,7 +4,7 @@ P1D3S-002,lineage,Accepted P1-d2 predecessor is bcd8db546104968dd0e48ab041e02acf
 P1D3S-003,migration,Migration is one-time authenticated quiescent and effect-free,REQUIRED
 P1D3S-004,book,Working book is embedded in the authenticated replacement package and not a sidecar,REQUIRED
 P1D3S-005,book,Registry capacity is exactly 1024 records per generation,REQUIRED
-P1D3S-006,book,Registry rejects duplicate broker order request durable client-order and order-fingerprint identities,REQUIRED
+P1D3S-006,book,Registry rejects duplicate identities and cancel fails closed when derived cancel DCID equals target place TCID on fresh or recovery input,REQUIRED
 P1D3S-007,book,Registry canonical order is bytewise UTF-8 BrokerOrderId order,REQUIRED
 P1D3S-008,book,Genesis and transition hashes are independently domain separated,REQUIRED
 P1D3S-009,book,Logically equal registries serialize identically after different insertion orders,REQUIRED
@@ -30,9 +30,9 @@ P1D3S-028,cancel,S_cancel_recovered allocates no duplicate target truth,REQUIRED
 P1D3S-029,evidence,Full Stage8bP1d3OutcomeEvidenceV1 bytes are embedded in one Stage6 V3 record,REQUIRED
 P1D3S-030,evidence,Recovery authenticates and recomputes the complete transition,REQUIRED
 P1D3S-031,evidence,Changed bar boundary target book sequence or Stage6 binding fails closed,REQUIRED
-P1D3S-032,evidence,All Decimal values use canonical 16-byte serialization,REQUIRED
-P1D3S-033,golden,All eight fresh outcome shapes have checked-in canonical bytes and SHA-256,REQUIRED
-P1D3S-034,golden,All eight recovery paths are byte-identical to their fresh paths,REQUIRED
+P1D3S-032,evidence,Every projected Decimal including scale-8 resulting average uses exact canonical 16-byte serialization,REQUIRED
+P1D3S-033,golden,All eight fresh shapes have checked-in outcome and complete ACK order trade position truth sequence and book canonical bytes with SHA-256,REQUIRED
+P1D3S-034,golden,All eight fresh and recovery constructors independently match the checked-in complete-projection oracle and each other,REQUIRED
 P1D3S-035,sequence,Initial request ACK and truth use one consecutive sequence pair,REQUIRED
 P1D3S-036,sequence,Later autonomous terminal outcome allocates one next truth sequence,REQUIRED
 P1D3S-037,sequence,Untouched evaluation allocates no total sequence,REQUIRED
