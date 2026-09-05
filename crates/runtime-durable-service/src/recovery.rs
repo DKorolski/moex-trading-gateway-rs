@@ -1439,6 +1439,18 @@ impl Stage8bP1d3TruthCommittedOwner {
         true
     }
 
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
+        (
+            self.ready.committed_seal.seal_generation(),
+            self.ready.recovered.journal_frontier().frame_count(),
+            self.ready
+                .recovered
+                .stage8b_p1_stage5c_callback_count()
+                .expect("P1-d3 test snapshot requires callback authority"),
+        )
+    }
+
     pub(crate) fn source_m10_evidence(
         &self,
     ) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
@@ -1480,6 +1492,18 @@ impl Stage8bP1d3CancelContinuationOwner {
 
     pub fn source_xack_allowed(&self) -> bool {
         false
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
+        (
+            self.ready.committed_seal.seal_generation(),
+            self.ready.recovered.journal_frontier().frame_count(),
+            self.ready
+                .recovered
+                .stage8b_p1_stage5c_callback_count()
+                .expect("P1-d3 test snapshot requires callback authority"),
+        )
     }
 
     pub(crate) fn source_m10_evidence(

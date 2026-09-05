@@ -1087,6 +1087,11 @@ impl Stage8bP1RedisCancelContinuationPending {
         false
     }
 
+    #[cfg(test)]
+    fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
+        self.durable.stage8b_p1d3_test_restart_snapshot()
+    }
+
     pub fn commit_recovered_cancel(
         self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
@@ -1115,6 +1120,11 @@ impl Stage8bP1RedisLimitTruthCommitted {
 
     pub fn recovery_seal_commitment_sha256(&self) -> &str {
         self.durable.recovery_seal_commitment_sha256()
+    }
+
+    #[cfg(test)]
+    fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
+        self.durable.stage8b_p1d3_test_restart_snapshot()
     }
 
     pub async fn acknowledge_source(
@@ -2187,8 +2197,8 @@ mod tests {
     };
     use crate::Stage7bRestartOutcome;
     use broker_core::{
-        BrokerAccountId, CancelOrder, ClientOrderId, HybridRuntimeAttribution, OrderSide,
-        OrderType, PlaceOrder, TimeInForce,
+        BrokerAccountId, ClientOrderId, HybridRuntimeAttribution, OrderSide, OrderType, PlaceOrder,
+        TimeInForce,
     };
     use chrono::{TimeZone, Utc};
     use redis::streams::StreamPendingReply;
@@ -2203,8 +2213,8 @@ mod tests {
         time::{Duration, Instant},
     };
     use strategy_runtime_core::{
-        stage8b_p1d3_test_expiry_authority, stage8b_p1d3_test_step_authority,
-        Stage5gP1SemanticBindingInput,
+        stage8b_p1d3_test_expiry_authority, stage8b_p1d3_test_materialize_host_cancel_command,
+        stage8b_p1d3_test_step_authority, Stage5gP1SemanticBindingInput,
     };
 
     struct RedisServer {
@@ -2450,12 +2460,30 @@ mod tests {
         }
     }
 
+    fn p1d3_cancel_schedule(
+        predecessor_close_ts_utc_ms: i64,
+        candidate_close_ts_utc_ms: i64,
+    ) -> Stage8bP1d3ScheduleStepAuthority {
+        let trading_day = Utc
+            .timestamp_millis_opt(candidate_close_ts_utc_ms)
+            .single()
+            .unwrap()
+            .date_naive()
+            .to_string();
+        stage8b_p1d3_test_step_authority(
+            "44".repeat(32),
+            trading_day,
+            format!("{candidate_close_ts_utc_ms}-0"),
+            format!("{predecessor_close_ts_utc_ms}-0"),
+            format!("{candidate_close_ts_utc_ms}-0"),
+        )
+    }
+
     fn p1d3_place_command(
         attribution: HybridRuntimeAttribution,
+        request_id: StrategyRequestId,
     ) -> (BrokerCommand, HybridRuntimeAttribution, ClientOrderId) {
         let comment = attribution.internal_comment().to_string();
-        let request_id =
-            StrategyRequestId::from(Uuid::from_u128(0xd301_0000_0000_4000_8000_0000_0000_0001));
         let client_order_id = ClientOrderId::from_strategy_request(request_id);
         (
             BrokerCommand::PlaceOrder(PlaceOrder {
@@ -2481,9 +2509,11 @@ mod tests {
     }
 
     fn p1d3_cancel_command(
+        strategy: &strategy_runtime_core::HybridIntradayRuntimeStrategy,
         target: broker_core::BrokerOrderId,
-        target_client_order_id: ClientOrderId,
         source_attribution: &HybridRuntimeAttribution,
+        request_id: StrategyRequestId,
+        supplied_target_client_order_id: Option<ClientOrderId>,
     ) -> (BrokerCommand, HybridRuntimeAttribution) {
         let (prefix, _) = source_attribution
             .internal_comment()
@@ -2492,27 +2522,52 @@ mod tests {
         let comment = format!("{prefix}|r=CANCEL");
         let cancel_attribution =
             HybridRuntimeAttribution::parse_source_comment(comment.clone()).unwrap();
-        (
-            BrokerCommand::CancelOrder(CancelOrder {
-                request_id: StrategyRequestId::from(Uuid::from_u128(
-                    0xd302_0000_0000_4000_8000_0000_0000_0001,
-                )),
-                created_ts: Utc
-                    .timestamp_millis_opt(P1D3_CANCEL_DECISION_CLOSE_MS)
-                    .single()
-                    .unwrap(),
-                ttl_ms: None,
-                account_id: BrokerAccountId::new("ACC_TEST_0001"),
-                order_id: target,
-                client_order_id: Some(target_client_order_id),
-            }),
-            cancel_attribution,
+        let command = stage8b_p1d3_test_materialize_host_cancel_command(
+            strategy,
+            request_id,
+            P1D3_CANCEL_DECISION_CLOSE_MS / 1_000,
+            BrokerAccountId::new("ACC_TEST_0001"),
+            super::super::p1_instrument(),
+            target,
+            cancel_attribution.clone(),
         )
+        .unwrap();
+        let BrokerCommand::CancelOrder(mut cancel) = command else {
+            unreachable!("Stage 5C host cancel materializer returned a non-CANCEL command")
+        };
+        assert!(
+            cancel.client_order_id.is_none(),
+            "actual Stage 5C host CANCEL contract must keep TCID optional"
+        );
+        cancel.client_order_id = supplied_target_client_order_id;
+        (BrokerCommand::CancelOrder(cancel), cancel_attribution)
     }
 
     async fn prepare_p1d3_terminal_cancel_source(
         redis_url: &str,
         parent: &Path,
+    ) -> (
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        Stage8bP1RedisCommandPublished,
+    ) {
+        prepare_p1d3_terminal_cancel_source_with_ids(
+            redis_url,
+            parent,
+            StrategyRequestId::from(Uuid::from_u128(0xd301_0000_0000_4000_8000_0000_0000_0001)),
+            StrategyRequestId::from(Uuid::from_u128(0xd302_0000_0000_4000_8000_0000_0000_0001)),
+            false,
+        )
+        .await
+    }
+
+    async fn prepare_p1d3_terminal_cancel_source_with_ids(
+        redis_url: &str,
+        parent: &Path,
+        place_request_id: StrategyRequestId,
+        cancel_request_id: StrategyRequestId,
+        supply_target_client_order_id: bool,
     ) -> (
         Stage5gLifecycleCommitmentKey,
         strategy_runtime_core::HybridIntradayRuntimeStrategy,
@@ -2549,7 +2604,7 @@ mod tests {
 
         let place_attribution = stage7.stage8b_p1d3_test_working_book_attribution().unwrap();
         let (place, place_attribution, place_client_order_id) =
-            p1d3_place_command(place_attribution);
+            p1d3_place_command(place_attribution, place_request_id);
         let durable = stage7
             .stage8b_p1d3_test_inject_one_intent(
                 p1d3_test_binding(&identity, P1D3_PLACE_DECISION_CLOSE_MS, 2_210),
@@ -2613,8 +2668,13 @@ mod tests {
             format!("{P1D3_CANCEL_DECISION_CLOSE_MS}-0")
         );
         let binding = binding_from_delivery(&pending_m10, identity.clone());
-        let (cancel, cancel_attribution) =
-            p1d3_cancel_command(target, place_client_order_id, &place_attribution);
+        let (cancel, cancel_attribution) = p1d3_cancel_command(
+            &fresh,
+            target,
+            &place_attribution,
+            cancel_request_id,
+            supply_target_client_order_id.then_some(place_client_order_id),
+        );
         let durable = stage7
             .stage8b_p1d3_test_inject_one_intent(binding, cancel, cancel_attribution, &key)
             .unwrap();
@@ -2630,6 +2690,138 @@ mod tests {
             published.pending_m10_redis_id(),
             format!("{P1D3_CANCEL_DECISION_CLOSE_MS}-0")
         );
+        (key, fresh, identity, published)
+    }
+
+    async fn prepare_p1d3_working_target_first_cancel_source(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        Stage8bP1RedisCommandPublished,
+    ) {
+        let (mut pending, key, fresh, identity) = one_intent_pending_at(redis_url, parent).await;
+        pending
+            .transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), 1_785_759_600_000, 2_175),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let resolved = pending
+            .publish_exact_command()
+            .await
+            .unwrap()
+            .execute_next_canonical_market(p1d2_test_schedule_authority(), &key)
+            .await
+            .unwrap()
+            .commit_truth(&key)
+            .unwrap()
+            .acknowledge_source()
+            .await
+            .unwrap();
+        let Stage8bP1RedisSemanticCompositionOwner { stage7, transport } =
+            *resolved.into_ready_owner();
+        drop(transport);
+        let stage7 = stage7
+            .migrate_stage8b_p1d3_from_resolved_p1d2(&key)
+            .unwrap();
+
+        let inherited_attribution = stage7.stage8b_p1d3_test_working_book_attribution().unwrap();
+        let (prefix, _) = inherited_attribution
+            .internal_comment()
+            .rsplit_once("|r=")
+            .unwrap();
+        let place_attribution =
+            HybridRuntimeAttribution::parse_source_comment(format!("{prefix}|r=EXIT")).unwrap();
+        let place_request_id =
+            StrategyRequestId::from(Uuid::from_u128(0xd301_0000_0000_4000_8000_0000_0000_0001));
+        let (mut place, place_attribution, _) =
+            p1d3_place_command(place_attribution, place_request_id);
+        let BrokerCommand::PlaceOrder(place_order) = &mut place else {
+            unreachable!("P1-d3 test place helper returned a non-PLACE command")
+        };
+        place_order.side = OrderSide::Sell;
+        place_order.limit_price = Some(Decimal::new(2_230, 0));
+        let durable = stage7
+            .stage8b_p1d3_test_inject_one_intent(
+                p1d3_test_binding(&identity, P1D3_PLACE_DECISION_CLOSE_MS, 2_210),
+                place,
+                place_attribution.clone(),
+                &key,
+            )
+            .unwrap();
+        let (stage7, _, _) = durable.into_p1c_parts();
+        let initial_candidate = parse_stage8b_p1_canonical_m10(
+            &canonical_m10(identity.clone(), P1D3_CANCEL_DECISION_CLOSE_MS, 2_220),
+            &identity,
+        )
+        .unwrap()
+        .into_p1d3_limit_evidence()
+        .unwrap();
+        let stage7 = stage7
+            .commit_stage8b_p1d3_initial_limit_ack(
+                Stage8bP1d3InitialObservation::Candidate {
+                    evidence: Box::new(initial_candidate),
+                    schedule: p1d3_cancel_schedule(
+                        P1D3_PLACE_DECISION_CLOSE_MS,
+                        P1D3_CANCEL_DECISION_CLOSE_MS,
+                    ),
+                },
+                &key,
+            )
+            .unwrap()
+            .commit_truth(&key)
+            .unwrap()
+            .into_ready_after_source_resolution();
+        let target = stage7
+            .stage8b_p1d3_test_latest_outcome_broker_order_id()
+            .unwrap();
+
+        let mut connection = ConnectionManager::new(redis::Client::open(redis_url).unwrap())
+            .await
+            .unwrap();
+        let _: String = redis::cmd("FLUSHALL")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        drop(connection);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            redis_url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        for (close, price) in [
+            (P1D3_CANCEL_DECISION_CLOSE_MS, 2_220),
+            // SELL LIMIT 2230 is touched by high=2231, so target truth wins.
+            (P1D3_CANCEL_CANDIDATE_CLOSE_MS, 2_230),
+        ] {
+            transport
+                .publish_canonical_m10(&canonical_m10(identity.clone(), close, price), &identity)
+                .await
+                .unwrap();
+        }
+        let pending_m10 = transport.backend.read_next_fresh().await.unwrap();
+        let binding = binding_from_delivery(&pending_m10, identity.clone());
+        let cancel_request_id =
+            StrategyRequestId::from(Uuid::from_u128(0xd302_0000_0000_4000_8000_0000_0000_0001));
+        let (cancel, cancel_attribution) =
+            p1d3_cancel_command(&fresh, target, &place_attribution, cancel_request_id, None);
+        let durable = stage7
+            .stage8b_p1d3_test_inject_one_intent(binding, cancel, cancel_attribution, &key)
+            .unwrap();
+        let published = Stage8bP1RedisPrepublicationPending {
+            durable,
+            transport,
+            pending_m10,
+        }
+        .publish_exact_command()
+        .await
+        .unwrap();
         (key, fresh, identity, published)
     }
 
@@ -4156,6 +4348,291 @@ mod tests {
             .ids
             .is_empty());
 
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1d3_actual_host_optional_tcid_completes_recovered_cancel_and_xacks_last() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1d3-host-optional-tcid");
+        let (key, _, _, published) = prepare_p1d3_terminal_cancel_source(&redis.url, &parent).await;
+        let BrokerCommand::CancelOrder(cancel) = &published.command else {
+            panic!("fixture must publish the actual Stage 5C host CANCEL")
+        };
+        assert!(cancel.client_order_id.is_none());
+
+        let outcome = published
+            .execute_next_canonical_cancel(
+                p1d3_cancel_schedule(P1D3_PLACE_DECISION_CLOSE_MS, P1D3_CANCEL_CANDIDATE_CLOSE_MS),
+                &key,
+            )
+            .await
+            .unwrap();
+        let truth = match outcome {
+            Stage8bP1RedisCancelCommitOutcome::AckCommitted(ack) => ack.commit_truth(&key).unwrap(),
+            Stage8bP1RedisCancelCommitOutcome::TruthCommitted(truth) => truth,
+            Stage8bP1RedisCancelCommitOutcome::CancelContinuationPending(pending) => {
+                pending.commit_recovered_cancel(&key).unwrap()
+            }
+        };
+        assert!(truth.m10_xack_allowed());
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending_before_xack: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_before_xack.count(), 1);
+        let resolved = truth.acknowledge_source().await.unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        drop(resolved);
+        let pending_after_xack: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after_xack.count(), 0);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1d3_colliding_cancel_dcid_fails_before_dispatch_for_optional_or_exact_tcid() {
+        let place_request_id = StrategyRequestId::from(
+            Uuid::parse_str("00000000-0000-0000-0000-00000000d301").unwrap(),
+        );
+        let cancel_request_id = StrategyRequestId::from(
+            Uuid::parse_str("00000000-0000-0000-0000-00000000d302").unwrap(),
+        );
+        assert_ne!(place_request_id, cancel_request_id);
+        assert_eq!(
+            ClientOrderId::from_strategy_request(place_request_id),
+            ClientOrderId::from_strategy_request(cancel_request_id)
+        );
+
+        for supply_target_client_order_id in [false, true] {
+            let redis = RedisServer::start().await;
+            let parent = temp_directory(if supply_target_client_order_id {
+                "p1d3-collision-exact-tcid"
+            } else {
+                "p1d3-collision-optional-tcid"
+            });
+            let (key, fresh, _, published) = prepare_p1d3_terminal_cancel_source_with_ids(
+                &redis.url,
+                &parent,
+                place_request_id,
+                cancel_request_id,
+                supply_target_client_order_id,
+            )
+            .await;
+            let BrokerCommand::CancelOrder(cancel) = &published.command else {
+                panic!("collision fixture must publish CANCEL")
+            };
+            assert_eq!(
+                cancel.client_order_id.is_some(),
+                supply_target_client_order_id
+            );
+            let accepted_frames = published
+                .stage7
+                .recovered()
+                .unwrap()
+                .journal_frontier()
+                .frame_count();
+            let accepted_seal_generation =
+                published.stage7.committed_seal().unwrap().seal_generation();
+
+            assert!(matches!(
+                published
+                    .execute_next_canonical_cancel(
+                        p1d3_cancel_schedule(
+                            P1D3_PLACE_DECISION_CLOSE_MS,
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+                        ),
+                        &key,
+                    )
+                    .await,
+                Err(Stage8bP1RedisSemanticError::Durable(
+                    Stage7bRecoveryError::Runtime(
+                        strategy_runtime_core::Stage6dLiveCoreError::DurableOrderingViolation
+                    )
+                ))
+            ));
+
+            let restart = restart_stage8b_p1(
+                validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .unwrap();
+            let ready = match restart {
+                Stage7bRestartOutcome::Ready(ready) => *ready,
+                Stage7bRestartOutcome::P1SemanticPrepublicationReady(prepublication) => {
+                    let (ready, evidence, command) = prepublication.into_p1c_parts();
+                    assert_eq!(evidence.strategy_request_id, Some(cancel_request_id));
+                    assert!(matches!(command, BrokerCommand::CancelOrder(_)));
+                    ready
+                }
+                Stage7bRestartOutcome::P1SemanticPrepublicationPending(_) => {
+                    panic!("collision restarted as uncovered RequestAccepted")
+                }
+                Stage7bRestartOutcome::P1d3SemanticPending(_) => {
+                    panic!("collision restarted as P1-d3 semantic pending")
+                }
+                Stage7bRestartOutcome::Blocked(_) => panic!("collision restart was blocked"),
+                _ => panic!("collision restarted with downstream lifecycle authority"),
+            };
+            assert_eq!(
+                ready.committed_seal().unwrap().seal_generation(),
+                accepted_seal_generation
+            );
+            let recovered = ready.recovered().unwrap();
+            assert_eq!(recovered.journal_frontier().frame_count(), accepted_frames);
+            let cancel_request = recovered.replay().request(cancel_request_id).unwrap();
+            assert_eq!(cancel_request.dispatch_attempt_count(), 0);
+            assert_eq!(
+                cancel_request.dispatch_safety_state(),
+                strategy_runtime_core::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+            );
+            assert!(cancel_request.cancel_outcome().is_none());
+            assert!(cancel_request.final_disposition().is_none());
+            assert!(!cancel_request.conflict_observed());
+
+            let namespace = stage8b_p1_redis_namespace();
+            let mut connection = redis.connection().await;
+            let source_pending: StreamPendingReply = redis::cmd("XPENDING")
+                .arg(&namespace.canonical_m10_stream)
+                .arg(&namespace.m10_consumer_group)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            let command_count: usize = redis::cmd("XLEN")
+                .arg(&namespace.canonical_command_stream)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(source_pending.count(), 1);
+            assert_eq!(command_count, 1);
+            drop(ready);
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn p1d3_optional_tcid_target_first_restart_continues_without_duplicate_effects() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1d3-optional-tcid-target-first-restart");
+        let (key, fresh, _, published) =
+            prepare_p1d3_working_target_first_cancel_source(&redis.url, &parent).await;
+        let BrokerCommand::CancelOrder(cancel) = &published.command else {
+            panic!("target-first fixture must publish CANCEL")
+        };
+        assert!(cancel.client_order_id.is_none());
+
+        let outcome = published
+            .execute_next_canonical_cancel(
+                p1d3_cancel_schedule(
+                    P1D3_CANCEL_DECISION_CLOSE_MS,
+                    P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+                ),
+                &key,
+            )
+            .await
+            .unwrap();
+        let Stage8bP1RedisCancelCommitOutcome::CancelContinuationPending(pending) = outcome else {
+            panic!("target fill must win before recovered CANCEL settlement")
+        };
+        assert!(!pending.market_or_schedule_input_allowed());
+        assert!(!pending.m10_xack_allowed());
+        let before_restart = pending.stage8b_p1d3_test_restart_snapshot();
+        drop(pending);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d3CancelContinuationPending(pending) = restart else {
+            panic!("target-first restart must expose only recovered-cancel continuation")
+        };
+        assert_eq!(
+            pending.stage8b_p1d3_test_restart_snapshot(),
+            before_restart,
+            "restart must not repeat provider, target truth, ACK or callback"
+        );
+        assert!(!pending.market_or_schedule_input_allowed());
+        assert!(!pending.source_xack_allowed());
+
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let truth = resume_stage8b_p1d3_cancel_continuation_with_redis(*pending, transport, &key)
+            .await
+            .unwrap();
+        let after_recovered_cancel = truth.stage8b_p1d3_test_restart_snapshot();
+        assert_eq!(after_recovered_cancel.0, before_restart.0 + 1);
+        assert_eq!(after_recovered_cancel.2, before_restart.2);
+        assert!(truth.m10_xack_allowed());
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending_before_xack: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let command_count: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_before_xack.count(), 1);
+        assert_eq!(command_count, 1);
+
+        let resolved = truth.acknowledge_source().await.unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        drop(resolved);
+        let pending_after_xack: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after_xack.count(), 0);
+
+        let final_restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        assert!(matches!(
+            final_restart,
+            Stage7bRestartOutcome::P1d3TruthCommitted(_)
+        ));
         fs::remove_dir_all(parent).unwrap();
     }
 

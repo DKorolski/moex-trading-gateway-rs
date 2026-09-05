@@ -3771,6 +3771,43 @@ fn stage8b_p1_single_intent_command_material_from_parts(
         source,
     })
 }
+
+/// Test-only bridge through the real Stage 5C command materializer.  P1-d3
+/// integration tests use this instead of constructing a synthetic CANCEL DTO,
+/// so the accepted host contract (`client_order_id = None`) remains covered.
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub fn stage8b_p1d3_test_materialize_host_cancel_command(
+    strategy: &HybridIntradayRuntimeStrategy,
+    request_id: StrategyRequestId,
+    source_event_ts: i64,
+    account_id: BrokerAccountId,
+    instrument: InstrumentId,
+    target_order_id: BrokerOrderId,
+    expected_attribution: broker_core::HybridRuntimeAttribution,
+) -> Option<broker_core::BrokerCommand> {
+    let batch = Stage5cPaperIntentBatch {
+        strategy_id: expected_attribution.strategy_id().to_string(),
+        account_id,
+        instrument,
+        bar_close_ts: source_event_ts,
+        state_fingerprint: stage5c_state_fingerprint(Strategy::state(strategy)),
+        request_ids: vec![request_id],
+        records: vec![Stage5cPaperIntentRecord {
+            request_id,
+            source_event_ts,
+            intent_class: crate::BrokerNeutralHybridIntentClass::CancelCleanup,
+            intent: crate::BrokerNeutralHybridIntent::Cancel {
+                order_id: target_order_id,
+            },
+            expected_attribution: Some(expected_attribution),
+        }],
+        observation_only: false,
+    };
+    stage8b_p1_single_intent_command_material_from_parts(strategy, &batch)
+        .ok()
+        .map(|material| material.command)
+}
 // STAGE5G-C-SOURCE-PROJECTION-END: source-projection-function
 
 pub struct Stage5cBrokerLifecycleResolvedPaperStrategy {

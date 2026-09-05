@@ -55,3 +55,6 @@ P1D3S-053,closure,Operational Redis DB0 VPS supervisor and schedule adapter rema
 P1D3S-054,closure,FINAM POST DELETE broker dispatch runtime-live and real orders remain closed,REQUIRED
 P1D3S-055,closure,P1-d4 exhaustive crash replay remains closed until separate authorization,REQUIRED
 P1D3S-056,governance,Current-tree authority remains pinned to accepted P1-d2 until independent source acceptance,REQUIRED
+P1D3S-057,cancel,Actual Stage5C host CANCEL with omitted optional target TCID resolves the canonical target from the authenticated BOID registry row and completes with source XACK last,REQUIRED
+P1D3S-058,cancel,Cancel DCID collision with the authenticated target TCID fails at the service boundary before DispatchAttemptRecorded for both omitted and exact supplied TCID,REQUIRED
+P1D3S-059,recovery,Omitted optional target TCID survives target-first LaterFilled seal restart recovered cancel settlement and source XACK without duplicated effects,REQUIRED

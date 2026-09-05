@@ -1,5 +1,5 @@
 {
-  "acceptance_rows": 56,
+  "acceptance_rows": 59,
   "accepted_design_ref": "df330b2424199739ceb7c261321a5e5ee381c332",
   "accepted_p1d2_closure_ref": "bcd8db546104968dd0e48ab041e02acf6869d224",
   "canonical_contracts": {
@@ -22,7 +22,9 @@
   "current_tree_authority_rebind_deferred": true,
   "implementation": {
     "cancel_dcid_tcid_inequality_enforced": true,
+    "cancel_collision_rejected_before_dispatch": true,
     "canonical_position_reducer": "stage8b_p1d2_market_feedback::resulting_position",
+    "canonical_target_client_order_id_from_authenticated_registry": true,
     "canonical_registry_order": "broker_order_id_utf8_bytes",
     "complete_projection_golden_fixture": "fixtures/stage8b-p1d3/projection-golden-v1.json",
     "complete_projection_golden_fixture_sha256": "938f5ab0a942937e6b58121c34f76e1e2c5a64c9486f53934dc90e978a2603ad",
@@ -31,13 +33,16 @@
     "fresh_recovery_byte_identical": true,
     "full_outcome_evidence_in_stage6_v3": true,
     "golden_shapes": 8,
+    "host_cancel_target_client_order_id_optional": true,
     "isolated_redis_only": true,
     "max_order_records_per_generation": 1024,
     "pending_semantic_slot_survives_order_position_restart": true,
     "request_accepted_checkpoint_rebound_before_replacement_export": true,
     "same_bar_callback_after_replacement": true,
+    "service_level_optional_tcid_tests": 3,
     "source_xack_last": true,
-    "subprocess_sigkill_cancel_recovery_frontiers": 2
+    "subprocess_sigkill_cancel_recovery_frontiers": 2,
+    "target_first_optional_tcid_restart_safe": true
   },
   "client_order_id_collision_regression": {
     "binding_includes_original_request_and_order_fingerprint": true,
@@ -184,7 +189,7 @@
       "fresh_recovery_byte_identical": true
     }
   ],
-  "negative_cases": 40,
+  "negative_cases": 43,
   "next_stage_authorized": false,
   "schema_version": 1,
   "source_ref": "",
@@ -195,8 +200,8 @@
     "doctests": "PASS (strategy-runtime-core 65/65; runtime-durable-service 36/36)",
     "format": "PASS",
     "golden_manifest": "PASS (8/8 outcome and complete projection fresh/recovery byte-identical)",
-    "negative_harness": "PASS (40/40)",
-    "runtime_durable_service_lib": "PASS (123 passed; 5 ignored child helpers)",
+    "negative_harness": "PASS (43/43)",
+    "runtime_durable_service_lib": "PASS (126 passed; 5 ignored child helpers)",
     "source_scope_checker": "PASS",
     "strategy_runtime_core_lib": "PASS (1258/1258)",
     "strict_targeted_clippy": "PASS"

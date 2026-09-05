@@ -2594,16 +2594,30 @@ pub fn stage8b_p1d3_test_inject_one_intent_transition(
         BrokerCommand::CancelOrder(cancel) => cancel.request_id,
     };
     let (intent_class, base_action, side, target_qty, pre_position_qty) = match &command {
-        BrokerCommand::PlaceOrder(place) => (
-            crate::BrokerNeutralHybridIntentClass::Entry,
-            crate::stage5c_paper_host::Stage5gSourceBaseAction::Place,
-            Some(match place.side {
-                broker_core::OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
-                broker_core::OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
-            }),
-            place.qty.to_f64(),
-            pre_position_qty,
-        ),
+        BrokerCommand::PlaceOrder(place) => {
+            let target_qty = place.qty.to_f64();
+            let closes_existing_position = target_qty.is_some_and(|qty| {
+                qty <= pre_position_qty.abs()
+                    && matches!(
+                        (pre_position_qty.is_sign_positive(), place.side),
+                        (true, broker_core::OrderSide::Sell) | (false, broker_core::OrderSide::Buy)
+                    )
+            });
+            (
+                if closes_existing_position {
+                    crate::BrokerNeutralHybridIntentClass::Exit
+                } else {
+                    crate::BrokerNeutralHybridIntentClass::Entry
+                },
+                crate::stage5c_paper_host::Stage5gSourceBaseAction::Place,
+                Some(match place.side {
+                    broker_core::OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
+                    broker_core::OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
+                }),
+                target_qty,
+                pre_position_qty,
+            )
+        }
         BrokerCommand::CancelOrder(_) => (
             crate::BrokerNeutralHybridIntentClass::CancelCleanup,
             crate::stage5c_paper_host::Stage5gSourceBaseAction::Cancel,
@@ -2681,6 +2695,18 @@ pub fn stage8b_p1d3_test_inject_one_intent_transition(
     let (runtime, state, replacement) = current
         .into_stage8b_p1d3_parts()
         .map_err(Stage6dLiveCoreError::from)?;
+    let replacement = if matches!(command, BrokerCommand::PlaceOrder(_)) {
+        replacement
+            .stage8b_p1d3_test_rebind_migrated_attribution(
+                projection
+                    .expected_attribution
+                    .clone()
+                    .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
+            )
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?
+    } else {
+        replacement
+    };
     let stage5g_restart_package = export_stage5g_clean_restart(
         crate::Stage5gCleanRestartSource::P1d3(Box::new(
             crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource::with_semantic_commit(
@@ -3421,6 +3447,20 @@ pub fn apply_stage8b_p1d3_later_limit_transition(
 /// target fill is committed as autonomous target truth and returned for an
 /// intermediate replacement seal; all other cancel outcomes are journaled
 /// and reduced immediately to S_ack or S_cancel_recovered.
+fn canonical_stage8b_p1d3_cancel_target_client_id(
+    durable_cancel_client_order_id: &ClientOrderId,
+    supplied_target_client_order_id: Option<&ClientOrderId>,
+    authenticated_target_client_order_id: &ClientOrderId,
+) -> Result<ClientOrderId, Stage6dLiveCoreError> {
+    if durable_cancel_client_order_id == authenticated_target_client_order_id
+        || supplied_target_client_order_id
+            .is_some_and(|supplied| supplied != authenticated_target_client_order_id)
+    {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    }
+    Ok(authenticated_target_client_order_id.clone())
+}
+
 pub fn apply_stage8b_p1d3_cancel_transition(
     mut recovered: Stage6dDurableRuntimeRecovered,
     candidate: crate::Stage8bP1d3CanonicalM10Evidence,
@@ -3511,6 +3551,14 @@ pub fn apply_stage8b_p1d3_cancel_transition(
         .working_book()
         .record(&cancel.order_id)
         .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    // The strategy command is allowed to omit the target TCID. Resolve the
+    // canonical value from the authenticated P1-d3 registry and reject a
+    // truncated cancel-DCID collision before DispatchAttemptRecorded exists.
+    let canonical_target_place_client_id = canonical_stage8b_p1d3_cancel_target_client_id(
+        identity.durable_client_order_id(),
+        cancel.client_order_id.as_ref(),
+        target_record.original_client_order_id(),
+    )?;
     if request_id != cancel.request_id
         || identity.strategy_request_id() != request_id
         || identity.action() != Stage6DurableActionKind::Cancel
@@ -3540,7 +3588,7 @@ pub fn apply_stage8b_p1d3_cancel_transition(
     let target_first = crate::stage8b_p1d3_working_limit::cancel_candidate_requires_target_outcome(
         replacement.working_book(),
         &cancel.order_id,
-        cancel.client_order_id.as_ref(),
+        Some(&canonical_target_place_client_id),
         decision_m10_close_ts_utc_ms,
         &candidate,
         &schedule,
@@ -3597,7 +3645,7 @@ pub fn apply_stage8b_p1d3_cancel_transition(
         accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
         accepted_stage6_identity_sha256,
         target_broker_order_id: cancel.order_id.clone(),
-        target_place_client_id: cancel.client_order_id.clone(),
+        target_place_client_id: Some(canonical_target_place_client_id),
         decision_m10_redis_id: semantic.m10_redis_id.clone(),
         decision_m10_semantic_id_sha256: semantic.m10_semantic_id_sha256.clone(),
         decision_m10_payload_sha256: semantic.m10_payload_sha256.clone(),
@@ -3765,6 +3813,15 @@ pub fn continue_stage8b_p1d3_cancel_after_target_transition(
         })
         .cloned()
         .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let target_record = replacement
+        .working_book()
+        .record(&cancel.order_id)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let canonical_target_place_client_id = canonical_stage8b_p1d3_cancel_target_client_id(
+        identity.durable_client_order_id(),
+        cancel.client_order_id.as_ref(),
+        target_record.original_client_order_id(),
+    )?;
     let authority =
         recovered.authorize_stage8a4_durable_batch_source(identity, command_snapshot)?;
     let accepted_stage6_identity_sha256 = authority
@@ -3816,7 +3873,7 @@ pub fn continue_stage8b_p1d3_cancel_after_target_transition(
         accepted_command_payload_sha256: accepted.canonical_payload_sha256().as_str().to_string(),
         accepted_stage6_identity_sha256,
         target_broker_order_id: cancel.order_id.clone(),
-        target_place_client_id: cancel.client_order_id.clone(),
+        target_place_client_id: Some(canonical_target_place_client_id),
         decision_m10_redis_id: semantic.m10_redis_id.clone(),
         decision_m10_semantic_id_sha256: semantic.m10_semantic_id_sha256.clone(),
         decision_m10_payload_sha256: semantic.m10_payload_sha256.clone(),
@@ -7517,11 +7574,10 @@ fn stage6e_semantic_cross_bind_restart(
             || replay_request.action() != expected_action
             || identity.target_broker_order_id() != expected_cancel_target
             || (expected_action == Stage6DurableActionKind::Cancel
-                && slot
-                    .target_order_client_order_id
-                    .as_ref()
-                    .is_some_and(|expected| {
-                        identity.target_order_client_order_id() != Some(expected)
+                && identity
+                    .target_order_client_order_id()
+                    .is_some_and(|supplied| {
+                        slot.target_order_client_order_id.as_ref() != Some(supplied)
                     }))
         {
             return Err(Stage6dLiveCoreError::RestartSemanticCrossBindingMismatch);

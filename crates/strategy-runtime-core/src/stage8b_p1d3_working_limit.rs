@@ -592,6 +592,25 @@ impl Stage8bP1d3ReplacementProjectionV1 {
         Ok(value)
     }
 
+    /// Test-only correction of the synthetic post-P1-d2 intent attribution.
+    /// The real host supplies this attribution directly; the fixture injector
+    /// has no callback batch from which to obtain it.
+    #[cfg(feature = "stage5g-artifact-fixtures")]
+    pub(crate) fn stage8b_p1d3_test_rebind_migrated_attribution(
+        mut self,
+        attribution: HybridRuntimeAttribution,
+    ) -> Result<Self, Stage8bP1d3Error> {
+        if self.phase != Stage8bP1d3BookPhase::Migrated
+            || !self.working_book.records.is_empty()
+            || self.working_book.active_broker_order_id.is_some()
+        {
+            return Err(Stage8bP1d3Error::InvalidTransition);
+        }
+        self.working_book.attribution = attribution;
+        self.validate()?;
+        Ok(self)
+    }
+
     pub(crate) fn for_transition(
         phase: Stage8bP1d3BookPhase,
         working_book: Stage8bP1d3WorkingBookProjectionV1,
@@ -852,6 +871,10 @@ impl Stage8bP1d3ReplacementProjectionV1 {
         let Some(identity) = semantic.durable_request_identity.as_ref() else {
             return Ok(false);
         };
+        let Some(canonical_target_client_order_id) = evidence.target_place_client_id.as_ref()
+        else {
+            return Ok(false);
+        };
         Ok(self.phase == Stage8bP1d3BookPhase::Terminal
             && evidence.outcome_kind == Stage8bP1d3OutcomeKind::LaterFilled
             && evidence.request_id.is_none()
@@ -860,7 +883,12 @@ impl Stage8bP1d3ReplacementProjectionV1 {
             && cancel.order_id == evidence.broker_order_id
             && identity.action() == crate::Stage6DurableActionKind::Cancel
             && identity.target_broker_order_id() == Some(&evidence.broker_order_id)
-            && identity.target_order_client_order_id() == evidence.target_place_client_id.as_ref()
+            && identity.durable_client_order_id() != canonical_target_client_order_id
+            && identity
+                .target_order_client_order_id()
+                .map_or(true, |supplied| {
+                    supplied == canonical_target_client_order_id
+                })
             && evidence
                 .candidate_m10_close_ts_utc_ms
                 .zip(

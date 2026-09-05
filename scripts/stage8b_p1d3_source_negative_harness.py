@@ -65,7 +65,7 @@ def main() -> None:
         ("projected-request-checkpoint-removed", replace("stage6", "projected_checkpoint_after_append", "removed_projected_checkpoint", all_occurrences=True)),
         ("request-checkpoint-rebind-removed", replace("stage6", "source.rebind_semantic_request_checkpoint(", "source.removed_semantic_request_checkpoint(", all_occurrences=True)),
         ("cancel-recovery-sigkill-proof-removed", replace("redis", "p1d3_subprocess_sigkill_brackets_s_cancel_recovered", "removed_cancel_recovery_sigkill_proof")),
-        ("cancel-request-client-id-collides", replace("redis", "0xd302_0000_0000_4000_8000_0000_0000_0001", "0xd301_0000_0000_4000_8000_0000_0000_0001")),
+        ("cancel-request-client-id-collides", replace("redis", "0xd302_0000_0000_4000_8000_0000_0000_0001", "0xd301_0000_0000_4000_8000_0000_0000_0001", all_occurrences=True)),
         ("ack-early-xack-added", replace("redis", "pub fn recovery_seal_generation(&self) -> u64 {", "pub async fn acknowledge_source(&mut self) {}\n    pub fn recovery_seal_generation(&self) -> u64 {")),
         ("cancel-early-xack-added", replace("redis", "pub fn market_or_schedule_input_allowed(&self) -> bool {", "pub async fn acknowledge_source(&mut self) {}\n    pub fn market_or_schedule_input_allowed(&self) -> bool {")),
         ("truth-repeat-added", replace("redis", "impl Stage8bP1RedisLimitTruthCommitted {", "impl Stage8bP1RedisLimitTruthCommitted {\n    pub fn commit_truth(&mut self) {}")),
@@ -107,6 +107,30 @@ def main() -> None:
                 "core",
                 "self.durable_request_client_id.as_ref() == self.target_place_client_id.as_ref()",
                 "false",
+            ),
+        ),
+        (
+            "service-predispatch-dcid-actual-tcid-check-removed",
+            replace(
+                "stage6",
+                "durable_cancel_client_order_id == authenticated_target_client_order_id",
+                "false",
+            ),
+        ),
+        (
+            "target-first-raw-option-equality-restored",
+            replace(
+                "core",
+                ".target_order_client_order_id()\n                .map_or(true, |supplied| {\n                    supplied == canonical_target_client_order_id\n                })",
+                ".target_order_client_order_id()\n                == Some(canonical_target_client_order_id)",
+            ),
+        ),
+        (
+            "canonical-target-resolution-requires-supplied-some",
+            replace(
+                "stage6",
+                "Ok(authenticated_target_client_order_id.clone())",
+                "supplied_target_client_order_id.cloned().ok_or(\n        Stage6dLiveCoreError::DurableOrderingViolation,\n    )",
             ),
         ),
         (

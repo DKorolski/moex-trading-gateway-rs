@@ -1,6 +1,6 @@
 # Stage 8B-P1-d3 working LIMIT/CANCEL/expiry source
 
-Status: R1 source-correction review candidate.
+Status: R2 optional-TCID source-correction review candidate.
 
 Accepted design predecessor:
 `df330b2424199739ceb7c261321a5e5ee381c332`.
@@ -140,6 +140,28 @@ outcome evidence. A regression uses two genuinely distinct colliding UUIDs;
 the ordinary subprocess place/cancel UUIDs additionally encode as distinct
 `000D608000000G00G000` and `000D60G000000G00G000`. All values are FINAM-safe,
 stable through restart and independent of wall clock.
+
+The external target client ID remains optional, exactly as emitted by the
+actual Stage 5C host. At the service entry point the target BOID must resolve
+to one authenticated target registry row. That row supplies the canonical
+target TCID for the internal reducer and outcome evidence. A supplied
+`Some(TCID)` must equal it; an omitted value is accepted without weakening the
+BOID, account, instrument, attribution or command bindings.
+
+Before `DispatchAttemptRecorded` can be constructed or appended, the service
+compares the derived cancel DCID with the canonical TCID from the authenticated
+target registry row. A collision fails with the journal frontier still at
+`RequestAccepted`, zero dispatch attempts, no outcome/ACK/truth/replacement
+seal and the source still pending. The same canonical resolution is applied to
+target-first restart matching: `Some(TCID)` must match exactly, while `None`
+continues from the uniquely authenticated BOID without repeating provider,
+target truth, ACK or callback effects.
+
+Three isolated-Redis service tests lock this boundary: an actual Stage 5C host
+`None` CANCEL completes and XACKs last; both omitted and exact supplied TCID
+collision forms reject before dispatch; and an omitted-TCID target-first
+`LaterFilled` transition survives restart through `S_cancel_recovered` and
+source XACK last.
 
 The complete exhaustive subprocess/SIGKILL frontier matrix remains P1-d4
 scope. It is not implied by these two required P1-d3 boundary cases.

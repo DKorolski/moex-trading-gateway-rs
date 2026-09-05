@@ -318,6 +318,9 @@ pub use runtime_compat::{
     MarketBuyAndCloseLiveOrderStyle as BrokerNeutralMarketOrderStyle,
     OrderSide as BrokerNeutralOrderSide, StopLimitCondition as BrokerNeutralStopLimitCondition,
 };
+#[cfg(feature = "stage5g-artifact-fixtures")]
+#[doc(hidden)]
+pub use stage5c_paper_host::stage8b_p1d3_test_materialize_host_cancel_command;
 pub use stage6_durable_identity::{
     Stage6CancelOutcomeV1, Stage6ConflictKindV1, Stage6DurableActionKind,
     Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,

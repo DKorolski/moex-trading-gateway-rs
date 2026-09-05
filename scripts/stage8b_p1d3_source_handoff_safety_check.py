@@ -15,11 +15,12 @@ GATE = "handoff-evidence/stage8b-p1d3-source-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 ACCEPTED_DESIGN = "df330b2424199739ceb7c261321a5e5ee381c332"
-R1_CORRECTION_PARENT = "77f6887e98ab8f2be81ca195adac12ae4a7d82ed"
+R2_CORRECTION_PARENT = "8ab277a2593ae2944983ea25a768bbf2d144f35f"
 ACCEPTED_P1D2 = "bcd8db546104968dd0e48ab041e02acf6869d224"
 BRANCH = "stage8b-paper-shadow-resumption"
 REQUIRED = GENERATED | {
     "crates/strategy-runtime-core/src/stage8b_p1d3_working_limit.rs",
+    "crates/strategy-runtime-core/src/stage5c_paper_host.rs",
     "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
     "crates/strategy-runtime-core/src/stage6d_live_core.rs",
     "crates/runtime-durable-service/src/recovery.rs",
@@ -83,10 +84,10 @@ def check(path: str) -> dict[str, object]:
         if not source_ref or evidence.get("source_ref") != source_ref:
             raise ValueError("source binding mismatch")
         source_parent = marker.get("source_parent")
-        if source_parent != R1_CORRECTION_PARENT or evidence.get("source_parent") != source_parent:
+        if source_parent != R2_CORRECTION_PARENT or evidence.get("source_parent") != source_parent:
             raise ValueError("source parent mismatch")
-        if evidence.get("r1_correction_parent") != R1_CORRECTION_PARENT:
-            raise ValueError("R1 correction parent mismatch")
+        if evidence.get("r2_correction_parent") != R2_CORRECTION_PARENT:
+            raise ValueError("R2 correction parent mismatch")
         if evidence.get("accepted_design_parent") != ACCEPTED_DESIGN:
             raise ValueError("accepted design parent mismatch")
         if evidence.get("review_target") != source_ref:
@@ -112,7 +113,7 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("accepted design mismatch")
         if evidence.get("accepted_p1d2_closure_ref") != ACCEPTED_P1D2:
             raise ValueError("accepted P1-d2 mismatch")
-        if evidence.get("acceptance_rows") != 56 or evidence.get("negative_cases") != 40:
+        if evidence.get("acceptance_rows") != 59 or evidence.get("negative_cases") != 43:
             raise ValueError("acceptance inventory mismatch")
         if evidence.get("unexpected_protected_path_changes") != []:
             raise ValueError("protected path changed")
@@ -132,8 +133,14 @@ def check(path: str) -> dict[str, object]:
         if (
             implementation.get("complete_projection_golden_shapes") != 8
             or implementation.get("cancel_dcid_tcid_inequality_enforced") is not True
+            or implementation.get("host_cancel_target_client_order_id_optional") is not True
+            or implementation.get("canonical_target_client_order_id_from_authenticated_registry")
+            is not True
+            or implementation.get("cancel_collision_rejected_before_dispatch") is not True
+            or implementation.get("target_first_optional_tcid_restart_safe") is not True
+            or implementation.get("service_level_optional_tcid_tests") != 3
         ):
-            raise ValueError("R1 source hardening evidence missing")
+            raise ValueError("R2 source hardening evidence missing")
         if evidence.get("next_stage_authorized") is not False:
             raise ValueError("next stage opened early")
         if any(value is not False for value in evidence.get("closed_surfaces", {}).values()):
@@ -148,7 +155,7 @@ def check(path: str) -> dict[str, object]:
         gate = archive.read(GATE)
         for expected in (
             b"PASS stage8b-p1d3-source-scope",
-            b"PASS stage8b-p1d3-source-negative-harness 40/40",
+            b"PASS stage8b-p1d3-source-negative-harness 43/43",
             b"PASS stage8b-p1d3-source-gate",
         ):
             if expected not in gate:

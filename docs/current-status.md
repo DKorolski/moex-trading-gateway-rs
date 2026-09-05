@@ -1379,7 +1379,7 @@ Amber:
   P2 finding. R1 was independently accepted at
   `df330b2424199739ceb7c261321a5e5ee381c332`. The initial source candidate at
   `77f6887e98ab8f2be81ca195adac12ae4a7d82ed` was held with three P1 findings.
-  The active source review R1 correction candidate retains its request/order
+  The active source R2 correction review candidate retains its request/order
   split, fill-before-cancel,
   schedule-owned expiry, `S_cancel_recovered`, exact eight-shape projections,
   full Stage6-embedded outcome evidence and deterministic registry/hash/P1-d2
@@ -1387,8 +1387,11 @@ Amber:
   all eight fresh/recovery outcomes and complete ACK/order/trade/position/truth
   projections are checked in as independent byte/SHA-256 goldens. Filled
   position arithmetic now reuses the accepted P1-d2 reducer, including
-  reduction/flip/flat and scale-8 rules, while fresh and recovered cancel paths
-  reject a derived DCID equal to the target TCID. Isolated Redis proves
+  reduction/flip/flat and scale-8 rules. The actual Stage 5C host's optional
+  target TCID is now resolved from the authenticated target BOID registry row;
+  omitted TCID succeeds, supplied TCID must match, and a derived cancel DCID
+  equal to the canonical target TCID fails before `DispatchAttemptRecorded`.
+  Target-first restart uses the same optional-aware binding. Isolated Redis proves
   read-only successor observation with
   source XACK last. Two real subprocess/SIGKILL cases bracket
   `S_cancel_recovered`; restart also preserves the pending semantic slot and

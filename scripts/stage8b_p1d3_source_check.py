@@ -117,6 +117,7 @@ def section(text: str, start: str, end: str) -> str:
 def validate_content(content: dict[str, str]) -> None:
     core = content["core"]
     p1d2 = content["p1d2"]
+    stage5c = content["stage5c"]
     stage6 = content["stage6"]
     service = content["service"]
     redis_source = content["redis"]
@@ -165,6 +166,7 @@ def validate_content(content: dict[str, str]) -> None:
         '"snapshot": row',
         "fresh_and_recovery_each_checked_against_oracle: true",
         'join("../../fixtures/stage8b-p1d3/projection-golden-v1.json")',
+        ".target_order_client_order_id()\n                .map_or(true, |supplied| {",
     ):
         require(token in core, f"core invariant missing: {token}")
     for token in (
@@ -224,8 +226,21 @@ def validate_content(content: dict[str, str]) -> None:
         "projected_checkpoint_after_append",
         "rebind_stage8b_p1d3_one_intent_request_checkpoint",
         "source.rebind_semantic_request_checkpoint(",
+        "fn canonical_stage8b_p1d3_cancel_target_client_id(",
+        "durable_cancel_client_order_id == authenticated_target_client_order_id",
+        ".is_some_and(|supplied| supplied != authenticated_target_client_order_id)",
+        "Ok(authenticated_target_client_order_id.clone())",
+        "target_place_client_id: Some(canonical_target_place_client_id)",
+        ".target_order_client_order_id()\n                    .is_some_and(|supplied| {",
     ):
         require(token in stage6, f"Stage6/restart invariant missing: {token}")
+    for token in (
+        "pub fn stage8b_p1d3_test_materialize_host_cancel_command(",
+        "BrokerNeutralHybridIntent::Cancel {",
+        "stage8b_p1_single_intent_command_material_from_parts(strategy, &batch)",
+        "client_order_id: None",
+    ):
+        require(token in stage5c, f"actual Stage5C host CANCEL proof missing: {token}")
 
     order_position_authority = section(
         content["restart"],
@@ -308,6 +323,9 @@ def validate_content(content: dict[str, str]) -> None:
         "child.kill().unwrap()",
         "0xd301_0000_0000_4000_8000_0000_0000_0001",
         "0xd302_0000_0000_4000_8000_0000_0000_0001",
+        "p1d3_actual_host_optional_tcid_completes_recovered_cancel_and_xacks_last",
+        "p1d3_colliding_cancel_dcid_fails_before_dispatch_for_optional_or_exact_tcid",
+        "p1d3_optional_tcid_target_first_restart_continues_without_duplicate_effects",
     ):
         require(token in redis_source, f"Redis composition invariant missing: {token}")
 
@@ -324,7 +342,7 @@ def validate_content(content: dict[str, str]) -> None:
         require(token in service_lib, f"compile-fail boundary missing: {token}")
 
     for token in (
-        "R1 source-correction review candidate",
+        "R2 optional-TCID source-correction review candidate",
         "initial LIMIT Working/Filled/Expired",
         "CancelExecutionObserved",
         "S_cancel_recovered",
@@ -335,13 +353,16 @@ def validate_content(content: dict[str, str]) -> None:
         "P1-d4",
         "projection-golden-v1.json",
         "global mapper still deliberately remains outside this narrow slice",
+        "authenticated target registry row",
+        "Before `DispatchAttemptRecorded`",
+        "actual Stage 5C host",
     ):
         require(token in document, f"implementation document missing: {token}")
 
     rows = list(csv.DictReader(content["matrix"].splitlines()))
-    require(len(rows) == 56, f"acceptance row count drifted: {len(rows)}")
+    require(len(rows) == 59, f"acceptance row count drifted: {len(rows)}")
     require(
-        {row.get("id") for row in rows} == {f"P1D3S-{index:03d}" for index in range(1, 57)},
+        {row.get("id") for row in rows} == {f"P1D3S-{index:03d}" for index in range(1, 60)},
         "acceptance IDs drifted",
     )
     require(all(row.get("status") == "REQUIRED" for row in rows), "acceptance weakened")
@@ -355,8 +376,8 @@ def validate_content(content: dict[str, str]) -> None:
     require(evidence.get("status") == "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE", "status drifted")
     require(evidence.get("accepted_design_ref") == ACCEPTED_DESIGN, "design lineage drifted")
     require(evidence.get("accepted_p1d2_closure_ref") == ACCEPTED_P1D2, "P1-d2 lineage drifted")
-    require(evidence.get("acceptance_rows") == 56, "evidence row count drifted")
-    require(evidence.get("negative_cases") == 40, "negative count drifted")
+    require(evidence.get("acceptance_rows") == 59, "evidence row count drifted")
+    require(evidence.get("negative_cases") == 43, "negative count drifted")
     implementation = evidence.get("implementation", {})
     require(implementation.get("golden_shapes") == 8, "golden evidence count drifted")
     require(
@@ -383,6 +404,15 @@ def validate_content(content: dict[str, str]) -> None:
     require(
         implementation.get("pending_semantic_slot_survives_order_position_restart") is True,
         "pending semantic restart slot weakened",
+    )
+    require(
+        implementation.get("host_cancel_target_client_order_id_optional") is True
+        and implementation.get("canonical_target_client_order_id_from_authenticated_registry")
+        is True
+        and implementation.get("cancel_collision_rejected_before_dispatch") is True
+        and implementation.get("target_first_optional_tcid_restart_safe") is True
+        and implementation.get("service_level_optional_tcid_tests") == 3,
+        "optional-TCID composition evidence weakened",
     )
     outcome_matrix = evidence.get("outcome_matrix")
     require(isinstance(outcome_matrix, list) and len(outcome_matrix) == 8, "outcome matrix missing")
@@ -526,7 +556,7 @@ def validate_content(content: dict[str, str]) -> None:
     require(
         "R1 was independently accepted" in content["status"]
         and ACCEPTED_DESIGN in content["status"]
-        and "The active source review" in content["status"],
+        and "The active source R2 correction review" in content["status"],
         "current status drifted",
     )
     require(
@@ -535,7 +565,7 @@ def validate_content(content: dict[str, str]) -> None:
         "current status omitted the executed restart proof",
     )
     require(
-        "P1-d3 source review candidate" in content["roadmap"]
+        "P1-d3 R2 source review candidate" in content["roadmap"]
         and "Two subprocess/SIGKILL cases bracket" in content["roadmap"]
         and "P1-d4 exhaustive crash/replay closure remains closed" in content["roadmap"],
         "roadmap drifted",
@@ -574,7 +604,7 @@ def main() -> None:
         print(f"FAIL stage8b-p1d3-source-scope: {error}", file=sys.stderr)
         raise SystemExit(1)
     print(
-        "PASS stage8b-p1d3-source-scope rows=56 negatives=40 golden=8 projection_golden=8 "
+        "PASS stage8b-p1d3-source-scope rows=59 negatives=43 golden=8 projection_golden=8 "
         "redis=isolated db0=false finam=false live=false p1d4=false"
     )
 
