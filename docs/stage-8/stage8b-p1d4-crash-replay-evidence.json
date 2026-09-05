@@ -1,0 +1,46 @@
+{
+  "acceptance_rows": 72,
+  "accepted_p1d3_closure_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_delete": false,
+    "finam_post": false,
+    "generation_2_authorization": false,
+    "operational_redis_db0": false,
+    "paper_supervisor": false,
+    "partial_fills": false,
+    "protective_orders": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "design_only": true,
+  "frontier_count": 12,
+  "implementation_authorized": false,
+  "minimum_semantic_families": 10,
+  "negative_cases": 36,
+  "required_frontiers": [
+    "F00",
+    "F01",
+    "F02",
+    "F03",
+    "F04",
+    "F05",
+    "F06",
+    "F07",
+    "F08",
+    "F09",
+    "F10",
+    "F11"
+  ],
+  "stage": "Stage 8B-P1-d4 exhaustive crash/replay closure design",
+  "status": "DESIGN_REVIEW_CANDIDATE",
+  "test_contract": {
+    "actual_child_process_kill": true,
+    "ephemeral_loopback_redis": true,
+    "fsync_backed_pre_kill_marker": true,
+    "p1d3_semantics_mutable": false,
+    "response_loss_after_real_xack": true,
+    "semantic_evidence_reproducibility_runs": 2
+  }
+}

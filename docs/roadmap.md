@@ -56,31 +56,21 @@ reconstruction. Its source hardening at
 `93941b86b613a6d1e944dbd043362584aa2c79f7` and governance closure at
 `bcd8db546104968dd0e48ab041e02acf6869d224` are independently accepted. The
 accepted closure includes an fsync-backed pre-kill sequence-pair marker and an
-exact post-restart comparison. P1-d3 design R0 at
-`74696d1eefc0453c41440f79b087cafebd0d7ab0` was held. R1 was independently
-accepted at `df330b2424199739ceb7c261321a5e5ee381c332`; it adds a durable
-recovered-cancel terminal-request seal, exact field/clock tables for all eight
-new shapes, full Stage6-embedded pre-seal outcome evidence, and canonical
-registry/hash/quiescent migration rules. The initial P1-d3 source review candidate
-at `77f6887e98ab8f2be81ca195adac12ae4a7d82ed` was held with three P1 findings.
-The active P1-d3 R2 source review candidate implements that contract with an authenticated bounded working book, exact
-initial/later/cancel/expiry reducers, Stage6 V3 write-ahead evidence,
+exact post-restart comparison. P1-d3 design R1 is accepted at
+`df330b2424199739ceb7c261321a5e5ee381c332`; source R2 is accepted at
+`889a62ed9a73c5b3074e4a462e1ecf4290c2d1bb`; and its governance closure R1 is
+independently accepted at
+`7dc7c802feca6e79d3a1a9902c181ad7b6afc506`. P1-d3 therefore supplies the
+authenticated bounded working book, deterministic initial/later LIMIT and Day
+expiry, target-first CANCEL resolution, Stage6 V3 write-ahead evidence,
 replacement S_ack/S_working/S_eval/S_terminal/S_cancel_recovered phases,
-same-bar callback ordering, checked-in eight-shape outcome and complete-projection
-fresh/recovery goldens, the shared accepted P1-d2 position reducer and fail-closed
-cancel DCID/target TCID inequality on fresh and recovered evidence, plus
-service-boundary canonical target-TCID resolution for the actual Stage 5C
-optional-`None` CANCEL shape. Colliding cancel DCIDs fail before dispatch and
-target-first restart accepts omitted TCID only through the unique authenticated
-target BOID registry row, without duplicated effects. It also retains
-isolated Redis source-XACK-last coverage. Two subprocess/SIGKILL cases bracket
-`S_cancel_recovered`, while pending semantic state and the exact
-post-`RequestAccepted` checkpoint survive restart. Current-tree authority remains on
-accepted P1-d2 until independent P1-d3 source acceptance and a governance-only
-rebind. P1-d4 exhaustive crash/replay closure remains closed.
-Operational Redis DB 0 remains closed through this source work; P1-e owns the
-deployable supervisor and P1-f owns isolated operational acceptance. FINAM
-POST/DELETE, broker dispatch, real orders and runtime-live remain closed.
+same-bar callback ordering, eight canonical projection goldens and
+source-XACK-last. The active P1-d4 design-only slice freezes the exhaustive
+subprocess/SIGKILL, restart, duplicate/conflict and XACK response-loss matrix.
+P1-d4 source implementation requires separate design acceptance. Operational
+Redis DB 0 remains closed; P1-e owns the deployable supervisor and P1-f owns
+isolated operational acceptance. FINAM POST/DELETE, broker dispatch, real
+orders and runtime-live remain closed.
 
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.

@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-04.
+Status date: 2026-09-05.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -11,6 +11,16 @@ an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Current accepted boundary
+
+- Stage 8B-P1-d3 is independently CLOSED / ACCEPTED at governance authority
+  `7dc7c802feca6e79d3a1a9902c181ad7b6afc506`. Its authenticated bounded
+  working book now covers deterministic LIMIT Working/Filled/Expired, later
+  fill/Day expiry, exact CANCEL resolution, eight canonical projection shapes
+  and source-XACK-last. Stage 8B-P1-d4 is the active design-only candidate: it
+  freezes the exhaustive subprocess/SIGKILL, restart, duplicate/conflict and
+  XACK-response-loss proof matrix without changing P1-d3 semantics. P1-d4
+  implementation, operational Redis DB0/VPS activation, FINAM dispatch,
+  runtime-live, real orders and partial fills remain closed.
 
 - An isolated paper-shadow P0 stand is active on the retained native
   Linux/amd64 VPS at source ref

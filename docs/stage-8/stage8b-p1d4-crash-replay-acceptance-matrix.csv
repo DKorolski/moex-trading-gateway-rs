@@ -1,0 +1,73 @@
+id,area,requirement,status
+P1D4D-001,lineage,Accepted predecessor is exact P1-d3 governance closure 7dc7c802feca6e79d3a1a9902c181ad7b6afc506,REQUIRED
+P1D4D-002,scope,Design is documentation checker and handoff tooling only,REQUIRED
+P1D4D-003,scope,P1-d3 lifecycle semantics remain byte and behavior stable,REQUIRED
+P1D4D-004,scope,Implementation is not authorized before independent design acceptance,REQUIRED
+P1D4D-005,isolation,Every crash case uses a fresh temporary durable root,REQUIRED
+P1D4D-006,isolation,Every Redis case uses fresh loopback-only ephemeral Redis on a random port,REQUIRED
+P1D4D-007,isolation,Operational Redis DB0 and VPS are never test targets,REQUIRED
+P1D4D-008,process,Required crash cases spawn a real child and terminate it after a reached barrier,REQUIRED
+P1D4D-009,process,In-process panic is not accepted as SIGKILL evidence,REQUIRED
+P1D4D-010,process,Pre-kill marker uses write_all and sync_all before parent kill,REQUIRED
+P1D4D-011,frontier,F00 proves pending source before schedule observation or provider execution,REQUIRED
+P1D4D-012,frontier,F01 proves Stage6 V3 outcome fsynced before RequestFinalized,REQUIRED
+P1D4D-013,frontier,F02 proves RequestFinalized durable before ACK application,REQUIRED
+P1D4D-014,frontier,F03 proves in-memory ACK before covering S_ack,REQUIRED
+P1D4D-015,frontier,F04 proves reread S_ack before truth application,REQUIRED
+P1D4D-016,frontier,F05 proves in-memory truth or book transition before covering seal,REQUIRED
+P1D4D-017,frontier,F06 proves reread S_working or S_terminal before XACK or cancel continuation,REQUIRED
+P1D4D-018,frontier,F07 proves recovered cancel ACK before S_cancel_recovered,REQUIRED
+P1D4D-019,frontier,F08 proves later-bar evaluation before S_eval or S_terminal,REQUIRED
+P1D4D-020,frontier,F09 proves reread S_eval or later S_terminal before same-bar callback,REQUIRED
+P1D4D-021,frontier,F10 proves callback committed before bar-source XACK,REQUIRED
+P1D4D-022,frontier,F11 proves Redis XACK success with lost client response,REQUIRED
+P1D4D-023,coverage,Initial LIMIT Working runs all applicable F00 through F06 and F11 boundaries,REQUIRED
+P1D4D-024,coverage,Initial LIMIT Filled runs all applicable F00 through F06 and F11 boundaries,REQUIRED
+P1D4D-025,coverage,Initial LIMIT Expired runs all applicable F00 through F06 and its no-source boundary,REQUIRED
+P1D4D-026,coverage,Later untouched Working runs F08 F09 F10 and F11,REQUIRED
+P1D4D-027,coverage,Later Filled runs F08 F09 F10 and F11,REQUIRED
+P1D4D-028,coverage,Later Day Expired runs pre-seal and post-seal recovery without invented XACK,REQUIRED
+P1D4D-029,coverage,CancelCanceled runs ACK truth seal and F11 response-loss boundaries,REQUIRED
+P1D4D-030,coverage,CancelExecutionObserved runs target-first F06 then F07 and F11,REQUIRED
+P1D4D-031,coverage,CancelAlreadyTerminalNonExecution runs F07 and F11,REQUIRED
+P1D4D-032,coverage,Target-first fill is sealed before recovered cancel ACK and never duplicated,REQUIRED
+P1D4D-033,coverage,All eight accepted P1-d3 projection shapes are compared after restart,REQUIRED
+P1D4D-034,coverage,Same already-evaluated bar remains a no-op without sequence allocation,REQUIRED
+P1D4D-035,restart,F01 through F03 recover as P1d3PreAckPending from authenticated Stage6 evidence only,REQUIRED
+P1D4D-036,restart,F04 and uncovered F05 recover as truth-only continuation from S_ack,REQUIRED
+P1D4D-037,restart,F06 recovers as P1d3TruthCommitted or exact CancelContinuationPending,REQUIRED
+P1D4D-038,restart,F07 permits only byte-identical recovered ACK replay until S_cancel_recovered,REQUIRED
+P1D4D-039,restart,F09 recovers as P1d3SemanticPending and invokes callback once,REQUIRED
+P1D4D-040,restart,F10 never replays callback and permits only source resolution,REQUIRED
+P1D4D-041,restart,F11 resolves AlreadyAcknowledged only with empty exact PEL plus authenticated group frontier,REQUIRED
+P1D4D-042,restart,Missing PEL without sufficient group frontier fails ExactSourceConflict,REQUIRED
+P1D4D-043,restart,Restart never reacquires provider or schedule authority,REQUIRED
+P1D4D-044,restart,Restart never reads wall clock or chooses another candidate bar,REQUIRED
+P1D4D-045,restart,Stage6 checkpoint and replacement package are mutually cross-validated,REQUIRED
+P1D4D-046,restart,Operational identity generation and commitment key remain exact,REQUIRED
+P1D4D-047,sequence,Pre-kill and post-restart sequence pair or single value compare literally,REQUIRED
+P1D4D-048,sequence,No restart skips reuses or reallocates a sequence,REQUIRED
+P1D4D-049,book,Book generation ordinal previous hash and current transition hash remain exact,REQUIRED
+P1D4D-050,identity,Request client order trade and target identities remain exact across restart,REQUIRED
+P1D4D-051,callback,Callback count is unchanged before F09 and increases exactly once completing F09,REQUIRED
+P1D4D-052,callback,F10 F11 and command-source recovery never replay Hybrid callback,REQUIRED
+P1D4D-053,xack,XACK is structurally unavailable before the final covering seal,REQUIRED
+P1D4D-054,xack,XACK is the last external mutation for command and bar sources,REQUIRED
+P1D4D-055,xack,F11 deliberately discards a successful isolated Redis XACK response,REQUIRED
+P1D4D-056,xack,F11 produces no second ACK truth callback transition sequence or command publication,REQUIRED
+P1D4D-057,idempotency,Byte-identical replay at every recovered disposition converges to one final audit,REQUIRED
+P1D4D-058,idempotency,One-field conflict at every recovered disposition fails before effects,REQUIRED
+P1D4D-059,conflict,Changed source Redis ID semantic hash or payload hash fails closed,REQUIRED
+P1D4D-060,conflict,Changed schedule candidate clock or outcome evidence fails closed,REQUIRED
+P1D4D-061,conflict,Changed Stage6 checkpoint replacement seal or book hash fails closed,REQUIRED
+P1D4D-062,conflict,Changed sequence request client order trade or target identity fails closed,REQUIRED
+P1D4D-063,reclaim,A new consumer may continue only after exact XAUTOCLAIM binding validation,REQUIRED
+P1D4D-064,reclaim,Changed consumer name alone does not alter exact semantic outcome,REQUIRED
+P1D4D-065,evidence,One deterministic JSON result contains every required matrix cell exactly once,REQUIRED
+P1D4D-066,evidence,Skipped ignored missing duplicate and not_applicable required cells fail the gate,REQUIRED
+P1D4D-067,evidence,Each case binds marker pre-kill post-restart and final audit digests,REQUIRED
+P1D4D-068,evidence,Two clean runs yield identical semantic evidence digest after volatile-field exclusion,REQUIRED
+P1D4D-069,gate,Implementation gate inherits P1-d3 source gates workspace tests doctests strict clippy and smokes,REQUIRED
+P1D4D-070,closure,Operational Redis DB0 VPS FINAM dispatch runtime-live and real orders remain closed,REQUIRED
+P1D4D-071,closure,Partial fills fees slippage replace protective bracket and multi-leg remain closed,REQUIRED
+P1D4D-072,governance,P1-e opens only after P1-d4 source acceptance and governance-only authority rebind,REQUIRED
