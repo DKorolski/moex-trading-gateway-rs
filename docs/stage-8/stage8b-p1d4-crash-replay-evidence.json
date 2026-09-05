@@ -1,5 +1,6 @@
 {
-  "acceptance_rows": 72,
+  "acceptance_matrix_sha256": "57f9e83c9a4d8c6b56cb39792c7e08f63e2717c261c508fdd443317b78aac4c0",
+  "acceptance_rows": 80,
   "accepted_p1d3_closure_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
   "closed_surfaces": {
     "broker_dispatch": false,
@@ -15,6 +16,14 @@
     "vps_activation": false
   },
   "design_only": true,
+  "dispatch_only_recovery_contract": {
+    "classifier": "classify_stage8b_p1d3_dispatch_only_candidate",
+    "expected_restart_disposition": "P1d3DispatchPending",
+    "normal_path_changed": false,
+    "outcome_append_count": 1,
+    "second_dispatch_allowed": false,
+    "source_delta_after_r2_acceptance": true
+  },
   "evidence_contract": {
     "canonical_json": "recursive_utf8_key_sort_no_whitespace_no_float",
     "domain": "moex.stage8b.p1d4.crash-replay.evidence.v1",
@@ -30,13 +39,23 @@
       "/cells/*/redis/port"
     ]
   },
-  "frontier_count": 20,
+  "frontier_count": 21,
   "implementation_authorized": false,
   "minimum_semantic_families": 11,
-  "negative_cases": 60,
+  "marker_contract": {
+    "domain": "moex.stage8b.p1d4.crash-marker.v1",
+    "field_count": 8,
+    "normalized_digest_domain": "moex.stage8b.p1d4.crash-marker.normalized.v1",
+    "normalized_fields": [
+      "/child_pid"
+    ],
+    "schema_version": 1
+  },
+  "negative_cases": 104,
   "reviewed_r0_ref": "b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f",
-  "scenario_frontier_matrix_rows": 80,
-  "scenario_frontier_matrix_sha256": "d1d765f1fa6db1dc948725273f58938c1d0cabd614d26076bf3ac2ddd1ad36ed",
+  "reviewed_r1_ref": "3a3f14f595b9672b23d421e7a857117fb2c578d2",
+  "scenario_frontier_matrix_rows": 92,
+  "scenario_frontier_matrix_sha256": "b54d8d26e5ebb12389946c905f37a029beb85d1005c7ef95edf6a47596bd725a",
   "required_frontiers": [
     "F00",
     "F01",
@@ -57,10 +76,11 @@
     "F16",
     "F17",
     "F18",
-    "F19"
+    "F19",
+    "F20"
   ],
   "stage": "Stage 8B-P1-d4 exhaustive crash/replay closure design",
-  "status": "DESIGN_R1_REVIEW_CANDIDATE",
+  "status": "DESIGN_R2_REVIEW_CANDIDATE",
   "test_contract": {
     "actual_child_process_kill": true,
     "child_has_no_descendants": true,
@@ -68,7 +88,8 @@
     "fsync_backed_pre_kill_marker": true,
     "kernel_observed_exit_signal": 9,
     "non_returning_barrier": true,
-    "p1d3_semantics_mutable": false,
+    "p1d3_business_semantics_mutable": false,
+    "p1d3_dispatch_only_recovery_delta_after_acceptance": true,
     "response_loss_after_real_xack": true,
     "wait_and_reap_before_restart": true
   }

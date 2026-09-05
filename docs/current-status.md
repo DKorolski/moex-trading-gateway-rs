@@ -18,10 +18,14 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   fill/Day expiry, exact CANCEL resolution, eight canonical projection shapes
   and source-XACK-last. P1-d4 design R0 at
   `b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f` was held with three P1 and one
-  P2 finding. The active R1 design-only correction now freezes an exact
-  80-cell scenario/frontier registry, phase-scoped pre-WAL deterministic
-  re-execution, kernel-observed signal-9 protocol and exact semantic-evidence
-  digest normalization without changing P1-d3 semantics. P1-d4
+  P2 finding. R1 at `3a3f14f595b9672b23d421e7a857117fb2c578d2`
+  remained HOLD with three P1 and one P2. The active R2 design-only correction
+  now freezes a derived 92-cell scenario/frontier registry, the
+  `P1d3DispatchPending` no-second-dispatch recovery owner, all previously
+  omitted truth/finalization frontiers, new exact-protocol S11 witnesses and
+  a canonical crash-marker digest. Accepted P1-d3 business outcomes and the
+  normal path remain unchanged; only the named dispatch-only recovery
+  composition may be added after independent R2 acceptance. P1-d4
   implementation, operational Redis DB0/VPS activation, FINAM dispatch,
   runtime-live, real orders and partial fills remain closed.
 

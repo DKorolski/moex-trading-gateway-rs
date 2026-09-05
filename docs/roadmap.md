@@ -67,12 +67,13 @@ replacement S_ack/S_working/S_eval/S_terminal/S_cancel_recovered phases,
 same-bar callback ordering, eight canonical projection goldens and
 source-XACK-last. P1-d4 design R0 at
 `b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f` was held with three P1 and one P2
-finding. The active P1-d4 R1 design-only correction replaces its prose-only
-coverage with an exact 80-cell scenario/frontier registry, resolves pre-WAL
-recovery through source-exact deterministic authority reissue, requires a
-kernel-observed non-returning SIGKILL protocol and freezes the exact
-semantic-evidence normalization/digest. P1-d4 source implementation requires
-separate R1 design acceptance. Operational
+finding. R1 at `3a3f14f595b9672b23d421e7a857117fb2c578d2` remained HOLD.
+The active P1-d4 R2 design-only correction freezes a derived 92-cell registry,
+adds the production-reachable dispatch-only recovery composition through the
+linear `P1d3DispatchPending` owner, covers the omitted in-memory truth and
+target-first cancel boundaries, replaces inherited completion with exact
+signal-9 witnesses and exact-freezes the marker digest. P1-d4 source
+implementation requires separate R2 design acceptance. Operational
 Redis DB 0 remains closed; P1-e owns the deployable supervisor and P1-f owns
 isolated operational acceptance. FINAM POST/DELETE, broker dispatch, real
 orders and runtime-live remain closed.
