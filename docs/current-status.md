@@ -16,9 +16,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   `7dc7c802feca6e79d3a1a9902c181ad7b6afc506`. Its authenticated bounded
   working book now covers deterministic LIMIT Working/Filled/Expired, later
   fill/Day expiry, exact CANCEL resolution, eight canonical projection shapes
-  and source-XACK-last. Stage 8B-P1-d4 is the active design-only candidate: it
-  freezes the exhaustive subprocess/SIGKILL, restart, duplicate/conflict and
-  XACK-response-loss proof matrix without changing P1-d3 semantics. P1-d4
+  and source-XACK-last. P1-d4 design R0 at
+  `b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f` was held with three P1 and one
+  P2 finding. The active R1 design-only correction now freezes an exact
+  80-cell scenario/frontier registry, phase-scoped pre-WAL deterministic
+  re-execution, kernel-observed signal-9 protocol and exact semantic-evidence
+  digest normalization without changing P1-d3 semantics. P1-d4
   implementation, operational Redis DB0/VPS activation, FINAM dispatch,
   runtime-live, real orders and partial fills remain closed.
 

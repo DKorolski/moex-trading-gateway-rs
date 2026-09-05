@@ -15,6 +15,8 @@ GATE = "handoff-evidence/stage8b-p1d4-design-gate.txt"
 MANIFEST = "handoff-evidence/source-tree-manifest.json"
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 BASE = "7dc7c802feca6e79d3a1a9902c181ad7b6afc506"
+R0 = "b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f"
+CELL_MATRIX_SHA256 = "d1d765f1fa6db1dc948725273f58938c1d0cabd614d26076bf3ac2ddd1ad36ed"
 REQUIRED = GENERATED | {
     "docs/current-status.md",
     "docs/roadmap.md",
@@ -23,7 +25,9 @@ REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p1d3-working-limit-cancel-lifecycle-design.md",
     "docs/stage-8/stage8b-p1d3-working-limit-cancel-source.md",
     "docs/stage-8/stage8b-p1d4-exhaustive-crash-replay-design.md",
+    "docs/stage-8/stage8b-p1d4-crash-replay-design-r1.md",
     "docs/stage-8/stage8b-p1d4-crash-replay-acceptance-matrix.csv",
+    "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v1.csv",
     "docs/stage-8/stage8b-p1d4-crash-replay-evidence.json",
     "scripts/stage8b_p1d4_design_check.py",
     "scripts/stage8b_p1d4_design_negative_harness.py",
@@ -85,13 +89,21 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("archive name mismatch")
         if evidence.get("stage") != "Stage 8B-P1-d4 exhaustive crash/replay closure design":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "DESIGN_REVIEW_CANDIDATE":
+        if evidence.get("status") != "DESIGN_R1_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
         if evidence.get("accepted_p1d3_closure_ref") != BASE:
             raise ValueError("accepted predecessor mismatch")
-        if evidence.get("acceptance_rows") != 72 or evidence.get("negative_cases") != 36:
+        if evidence.get("reviewed_r0_ref") != R0:
+            raise ValueError("reviewed R0 mismatch")
+        if evidence.get("acceptance_rows") != 72 or evidence.get("negative_cases") != 60:
             raise ValueError("matrix inventory mismatch")
-        if evidence.get("frontier_count") != 12:
+        if evidence.get("scenario_frontier_matrix_rows") != 80:
+            raise ValueError("cell matrix count mismatch")
+        if evidence.get("scenario_frontier_matrix_sha256") != CELL_MATRIX_SHA256:
+            raise ValueError("cell matrix binding mismatch")
+        if sha256(archive.read("docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v1.csv")) != CELL_MATRIX_SHA256:
+            raise ValueError("cell matrix content mismatch")
+        if evidence.get("frontier_count") != 20:
             raise ValueError("frontier inventory mismatch")
         if evidence.get("design_only") is not True or evidence.get("implementation_authorized") is not False:
             raise ValueError("design boundary opened")
@@ -103,10 +115,11 @@ def check(path: str) -> dict[str, object]:
 
         gate = archive.read(GATE)
         for expected in (
-            b"PASS stage8b-p1d4-design-scope",
-            b"PASS stage8b-p1d4-design-negative-harness 36/36",
+            b"PASS stage8b-p1d4-r1-design-scope",
+            b"PASS stage8b-p1d4-r1-design-negative-harness 60/60",
             b"PASS stage8b-p1d4-design-matrix rows=72",
-            b"PASS stage8b-p1d4-design-gate",
+            b"PASS stage8b-p1d4-r1-cell-matrix cells=80",
+            b"PASS stage8b-p1d4-r1-design-gate",
         ):
             if expected not in gate:
                 raise ValueError(f"gate marker missing: {expected!r}")
@@ -136,7 +149,7 @@ def check(path: str) -> dict[str, object]:
             "symlinks": 0,
             "unsafe_paths": 0,
             "source_ref": source_ref,
-            "stage": "Stage 8B-P1-d4 design",
+            "stage": "Stage 8B-P1-d4 R1 design",
             "result": "PASS",
         }
 
@@ -149,7 +162,7 @@ def main() -> None:
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
         print(f"stage8b-p1d4-design-handoff-safety: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
-    print("stage8b-p1d4-design-handoff-safety: PASS " + json.dumps(result, sort_keys=True))
+    print("stage8b-p1d4-r1-design-handoff-safety: PASS " + json.dumps(result, sort_keys=True))
 
 
 if __name__ == "__main__":

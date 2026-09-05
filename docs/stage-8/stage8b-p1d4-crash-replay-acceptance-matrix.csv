@@ -9,27 +9,27 @@ P1D4D-007,isolation,Operational Redis DB0 and VPS are never test targets,REQUIRE
 P1D4D-008,process,Required crash cases spawn a real child and terminate it after a reached barrier,REQUIRED
 P1D4D-009,process,In-process panic is not accepted as SIGKILL evidence,REQUIRED
 P1D4D-010,process,Pre-kill marker uses write_all and sync_all before parent kill,REQUIRED
-P1D4D-011,frontier,F00 proves pending source before schedule observation or provider execution,REQUIRED
-P1D4D-012,frontier,F01 proves Stage6 V3 outcome fsynced before RequestFinalized,REQUIRED
-P1D4D-013,frontier,F02 proves RequestFinalized durable before ACK application,REQUIRED
-P1D4D-014,frontier,F03 proves in-memory ACK before covering S_ack,REQUIRED
-P1D4D-015,frontier,F04 proves reread S_ack before truth application,REQUIRED
-P1D4D-016,frontier,F05 proves in-memory truth or book transition before covering seal,REQUIRED
-P1D4D-017,frontier,F06 proves reread S_working or S_terminal before XACK or cancel continuation,REQUIRED
-P1D4D-018,frontier,F07 proves recovered cancel ACK before S_cancel_recovered,REQUIRED
-P1D4D-019,frontier,F08 proves later-bar evaluation before S_eval or S_terminal,REQUIRED
-P1D4D-020,frontier,F09 proves reread S_eval or later S_terminal before same-bar callback,REQUIRED
-P1D4D-021,frontier,F10 proves callback committed before bar-source XACK,REQUIRED
-P1D4D-022,frontier,F11 proves Redis XACK success with lost client response,REQUIRED
-P1D4D-023,coverage,Initial LIMIT Working runs all applicable F00 through F06 and F11 boundaries,REQUIRED
-P1D4D-024,coverage,Initial LIMIT Filled runs all applicable F00 through F06 and F11 boundaries,REQUIRED
-P1D4D-025,coverage,Initial LIMIT Expired runs all applicable F00 through F06 and its no-source boundary,REQUIRED
-P1D4D-026,coverage,Later untouched Working runs F08 F09 F10 and F11,REQUIRED
-P1D4D-027,coverage,Later Filled runs F08 F09 F10 and F11,REQUIRED
-P1D4D-028,coverage,Later Day Expired runs pre-seal and post-seal recovery without invented XACK,REQUIRED
-P1D4D-029,coverage,CancelCanceled runs ACK truth seal and F11 response-loss boundaries,REQUIRED
-P1D4D-030,coverage,CancelExecutionObserved runs target-first F06 then F07 and F11,REQUIRED
-P1D4D-031,coverage,CancelAlreadyTerminalNonExecution runs F07 and F11,REQUIRED
+P1D4D-011,registry,Normative scenario frontier registry has exact IDs P1D4C-001 through P1D4C-080,REQUIRED
+P1D4D-012,registry,Normative registry contains exactly 11 scenario IDs and 20 frontier IDs F00 through F19,REQUIRED
+P1D4D-013,registry,Every registry row fixes all 19 required columns and contains no all-applicable or not_applicable value,REQUIRED
+P1D4D-014,frontier,Pre-WAL F01 F02 F11 F12 F17 permit only exact equivalent authority reissue for the same source,REQUIRED
+P1D4D-015,frontier,At and after F03 F13 F18 or a covering seal provider and schedule authority reissue are forbidden,REQUIRED
+P1D4D-016,frontier,F03 through F10 distinguish WAL finalization ACK truth and recovered-cancel durable boundaries,REQUIRED
+P1D4D-017,frontier,F11 through F15 distinguish later PEL evaluation seal callback and publication boundaries,REQUIRED
+P1D4D-018,frontier,F16 proves parsed Redis XACK integer reply 1 before SIGKILL and AlreadyAcknowledged recovery,REQUIRED
+P1D4D-019,frontier,F17 F18 F19 distinguish Day-expiry pre-WAL post-WAL and post-seal direct-Ready recovery,REQUIRED
+P1D4D-020,process,Every required cell uses marker then non-returning barrier then signal 9 then wait and Unix signal verification,REQUIRED
+P1D4D-021,evidence,Stage8bP1d4CrashReplayEvidenceV1 retains all semantic fields under exact volatile-pointer normalization,REQUIRED
+P1D4D-022,evidence,Semantic digest uses the exact domain length prefix and canonical JSON transform frozen by R1,REQUIRED
+P1D4D-023,coverage,Initial Working exact cells P1D4C-001 through P1D4C-010 include F00-F08 and F16,REQUIRED
+P1D4D-024,coverage,Initial Filled exact cells P1D4C-011 through P1D4C-020 include F00-F08 and F16,REQUIRED
+P1D4D-025,coverage,Initial Expired exact cells P1D4C-021 through P1D4C-030 include command-source F16 XACK response loss,REQUIRED
+P1D4D-026,coverage,Later untouched zero and one-intent exact cells P1D4C-031 through P1D4C-040 include F11 F12 F14 F15 F16,REQUIRED
+P1D4D-027,coverage,Later Filled exact cells P1D4C-041 through P1D4C-046 include F11 F02 F13 F14 F15 F16,REQUIRED
+P1D4D-028,coverage,Later Day Expired exact cells P1D4C-047 through P1D4C-049 include F17 F18 F19 and forbid XACK,REQUIRED
+P1D4D-029,coverage,CancelCanceled exact cells P1D4C-050 through P1D4C-059 include F00-F08 and F16,REQUIRED
+P1D4D-030,coverage,Recovered-cancel exact cells P1D4C-060 through P1D4C-080 include target-first F08 pre-S_cancel F09 post-S_cancel F10 and F16,REQUIRED
+P1D4D-031,coverage,Accepted P1-d3 S_cancel_recovered tests are imported only with exact accepted ref and source blob hashes,REQUIRED
 P1D4D-032,coverage,Target-first fill is sealed before recovered cancel ACK and never duplicated,REQUIRED
 P1D4D-033,coverage,All eight accepted P1-d3 projection shapes are compared after restart,REQUIRED
 P1D4D-034,coverage,Same already-evaluated bar remains a no-op without sequence allocation,REQUIRED
@@ -63,7 +63,7 @@ P1D4D-061,conflict,Changed Stage6 checkpoint replacement seal or book hash fails
 P1D4D-062,conflict,Changed sequence request client order trade or target identity fails closed,REQUIRED
 P1D4D-063,reclaim,A new consumer may continue only after exact XAUTOCLAIM binding validation,REQUIRED
 P1D4D-064,reclaim,Changed consumer name alone does not alter exact semantic outcome,REQUIRED
-P1D4D-065,evidence,One deterministic JSON result contains every required matrix cell exactly once,REQUIRED
+P1D4D-065,evidence,One deterministic JSON result contains every exact P1D4C registry cell exactly once,REQUIRED
 P1D4D-066,evidence,Skipped ignored missing duplicate and not_applicable required cells fail the gate,REQUIRED
 P1D4D-067,evidence,Each case binds marker pre-kill post-restart and final audit digests,REQUIRED
 P1D4D-068,evidence,Two clean runs yield identical semantic evidence digest after volatile-field exclusion,REQUIRED

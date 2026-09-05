@@ -15,10 +15,28 @@
     "vps_activation": false
   },
   "design_only": true,
-  "frontier_count": 12,
+  "evidence_contract": {
+    "canonical_json": "recursive_utf8_key_sort_no_whitespace_no_float",
+    "domain": "moex.stage8b.p1d4.crash-replay.evidence.v1",
+    "semantic_digest_domain": "moex.stage8b.p1d4.crash-replay.semantic-evidence.v1",
+    "semantic_digest_formula": "sha256(domain_nul||u64_be(len)||canonical_semantic_view)",
+    "semantic_reproducibility_runs": 2,
+    "volatile_json_pointers": [
+      "/run_ordinal",
+      "/cells/*/process/child_pid",
+      "/cells/*/process/wall_duration_ms",
+      "/cells/*/filesystem/scratch_root",
+      "/cells/*/filesystem/raw_marker_sha256",
+      "/cells/*/redis/port"
+    ]
+  },
+  "frontier_count": 20,
   "implementation_authorized": false,
-  "minimum_semantic_families": 10,
-  "negative_cases": 36,
+  "minimum_semantic_families": 11,
+  "negative_cases": 60,
+  "reviewed_r0_ref": "b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f",
+  "scenario_frontier_matrix_rows": 80,
+  "scenario_frontier_matrix_sha256": "d1d765f1fa6db1dc948725273f58938c1d0cabd614d26076bf3ac2ddd1ad36ed",
   "required_frontiers": [
     "F00",
     "F01",
@@ -31,16 +49,27 @@
     "F08",
     "F09",
     "F10",
-    "F11"
+    "F11",
+    "F12",
+    "F13",
+    "F14",
+    "F15",
+    "F16",
+    "F17",
+    "F18",
+    "F19"
   ],
   "stage": "Stage 8B-P1-d4 exhaustive crash/replay closure design",
-  "status": "DESIGN_REVIEW_CANDIDATE",
+  "status": "DESIGN_R1_REVIEW_CANDIDATE",
   "test_contract": {
     "actual_child_process_kill": true,
+    "child_has_no_descendants": true,
     "ephemeral_loopback_redis": true,
     "fsync_backed_pre_kill_marker": true,
+    "kernel_observed_exit_signal": 9,
+    "non_returning_barrier": true,
     "p1d3_semantics_mutable": false,
     "response_loss_after_real_xack": true,
-    "semantic_evidence_reproducibility_runs": 2
+    "wait_and_reap_before_restart": true
   }
 }

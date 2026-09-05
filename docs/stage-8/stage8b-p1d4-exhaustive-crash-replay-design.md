@@ -1,7 +1,8 @@
 # Stage 8B-P1-d4 exhaustive crash/replay closure design
 
-Status: design-only review candidate. P1-d4 production/test implementation is
-not authorized by this document.
+Status: R0 design retained but not accepted; superseded by the normative R1
+correction in `stage8b-p1d4-crash-replay-design-r1.md`. P1-d4 production/test
+implementation is not authorized until R1 is independently accepted.
 
 Accepted predecessor:
 `7dc7c802feca6e79d3a1a9902c181ad7b6afc506` (Stage 8B-P1-d3 governance

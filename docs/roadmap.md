@@ -65,9 +65,14 @@ authenticated bounded working book, deterministic initial/later LIMIT and Day
 expiry, target-first CANCEL resolution, Stage6 V3 write-ahead evidence,
 replacement S_ack/S_working/S_eval/S_terminal/S_cancel_recovered phases,
 same-bar callback ordering, eight canonical projection goldens and
-source-XACK-last. The active P1-d4 design-only slice freezes the exhaustive
-subprocess/SIGKILL, restart, duplicate/conflict and XACK response-loss matrix.
-P1-d4 source implementation requires separate design acceptance. Operational
+source-XACK-last. P1-d4 design R0 at
+`b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f` was held with three P1 and one P2
+finding. The active P1-d4 R1 design-only correction replaces its prose-only
+coverage with an exact 80-cell scenario/frontier registry, resolves pre-WAL
+recovery through source-exact deterministic authority reissue, requires a
+kernel-observed non-returning SIGKILL protocol and freezes the exact
+semantic-evidence normalization/digest. P1-d4 source implementation requires
+separate R1 design acceptance. Operational
 Redis DB 0 remains closed; P1-e owns the deployable supervisor and P1-f owns
 isolated operational acceptance. FINAM POST/DELETE, broker dispatch, real
 orders and runtime-live remain closed.

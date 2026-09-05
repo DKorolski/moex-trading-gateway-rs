@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-paper-shadow-resumption"
 BASE = "7dc7c802feca6e79d3a1a9902c181ad7b6afc506"
+R0 = "b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f"
 EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1d4-crash-replay-evidence.json"
 
 
@@ -40,6 +41,8 @@ def main() -> None:
         raise SystemExit("stage8b-p1d4-design-handoff: FAIL no design commit")
     if run("git", "merge-base", source_ref, BASE).decode().strip() != BASE:
         raise SystemExit("stage8b-p1d4-design-handoff: FAIL accepted P1-d3 drift")
+    if run("git", "merge-base", source_ref, R0).decode().strip() != R0:
+        raise SystemExit("stage8b-p1d4-design-handoff: FAIL reviewed R0 drift")
 
     gate = subprocess.run(
         ["bash", "scripts/stage8b_p1d4_design_gate.sh"],
@@ -48,11 +51,11 @@ def main() -> None:
         stderr=subprocess.STDOUT,
         check=False,
     )
-    if gate.returncode != 0 or b"PASS stage8b-p1d4-design-gate" not in gate.stdout:
+    if gate.returncode != 0 or b"PASS stage8b-p1d4-r1-design-gate" not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
 
     short_ref = source_ref[:7]
-    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d4-design-review-package.zip"
+    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d4-r1-design-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     evidence = json.loads(EVIDENCE_TEMPLATE.read_text(encoding="utf-8"))
@@ -104,7 +107,7 @@ def main() -> None:
     )
     print(
         f"archive={archive_path}\nsha256={digest}\nsource_ref={source_ref}\n"
-        "stage8b-p1d4-design-handoff: PASS"
+        "stage8b-p1d4-r1-design-handoff: PASS"
     )
 
 
