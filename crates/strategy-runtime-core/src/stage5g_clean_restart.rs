@@ -197,6 +197,7 @@ pub enum Stage5gCleanRestartSource {
     NewPackageAwaiting(Stage5gCommittedAwaitingOrderPosition),
     P1d2Ack(crate::stage8b_p1d2_market_feedback::Stage8bP1d2AckRestartSource),
     P1d2Truth(crate::stage8b_p1d2_market_feedback::Stage8bP1d2TruthRestartSource),
+    P1d3(Box<crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource>),
     ProtectiveLifecycle(crate::stage5g_protective_completion::Stage5gProtectiveRestartSource),
 }
 
@@ -271,6 +272,9 @@ pub(crate) struct Stage5gCleanRestartProjectionV1 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) p1d2_market_feedback:
         Option<crate::stage8b_p1d2_market_feedback::Stage8bP1d2MarketFeedbackProjectionV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) p1d3_replacement:
+        Option<crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) fresh_truth_application_evidence:
         Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
@@ -363,6 +367,7 @@ pub(crate) enum Stage5gValidatedReconciliationAuthority {
         summary: Stage5gOrderPositionSummary,
         checkpoint: Stage5gTimerCheckpointEnvelope,
         state: Stage5gOrderPositionState,
+        p1_semantic_commit: Option<Box<Stage5gP1SemanticCommitProjectionV1>>,
         source_lifecycle_commit_sha256: String,
     },
     ProtectiveLifecycleCommitted {
@@ -723,6 +728,148 @@ impl Stage5gCleanRestartedCapability {
     ) -> Option<crate::Stage8bP1d2FeedbackAuditCoreV1> {
         self.stage8b_p1d2_validate_truth_frontier().ok()?;
         self.projection.p1d2_market_feedback.as_ref()?.audit_core()
+    }
+
+    pub(crate) fn stage8b_p1d3_replacement(
+        &self,
+    ) -> Option<&crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1> {
+        let replacement = self.projection.p1d3_replacement.as_ref()?;
+        replacement.validate().ok()?;
+        Some(replacement)
+    }
+
+    pub(crate) fn stage8b_p1d3_position_basis(&self) -> Option<(Decimal, Option<Decimal>)> {
+        let state = self.stage5g_restart_order_position_state()?;
+        crate::Stage5gOrderPositionSession::stage8b_p1d3_position_basis(&state)
+    }
+
+    pub(crate) fn into_stage8b_p1d3_parts(
+        self,
+    ) -> Result<
+        (
+            HybridIntradayRuntimeStrategy,
+            Stage5gOrderPositionState,
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1,
+        ),
+        Stage5gCleanRestartError,
+    > {
+        let replacement = self
+            .stage8b_p1d3_replacement()
+            .cloned()
+            .ok_or(Stage5gCleanRestartError::LifecycleProofMismatch)?;
+        let Stage5gCleanRestartedCapability {
+            runtime,
+            reconciliation_authority,
+            ..
+        } = self;
+        let state = match reconciliation_authority {
+            Stage5gValidatedReconciliationAuthority::OrderPositionAwaitingCommitted {
+                state,
+                ..
+            } => state,
+            _ => return Err(Stage5gCleanRestartError::MissingOrderPositionState),
+        };
+        Ok((runtime, state, replacement))
+    }
+
+    pub(crate) fn into_stage8b_p1d3_migration_parts(
+        self,
+    ) -> Result<
+        (
+            HybridIntradayRuntimeStrategy,
+            Stage5gOrderPositionState,
+            broker_core::HybridRuntimeAttribution,
+        ),
+        Stage5gCleanRestartError,
+    > {
+        self.stage8b_p1d2_validate_truth_frontier()?;
+        if self.projection.p1d3_replacement.is_some() {
+            return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
+        }
+        let attribution = self
+            .projection
+            .p1d2_market_feedback
+            .as_ref()
+            .map(|feedback| feedback.expected_attribution().clone())
+            .ok_or(Stage5gCleanRestartError::LifecycleProofMismatch)?;
+        let Stage5gCleanRestartedCapability {
+            runtime,
+            reconciliation_authority,
+            ..
+        } = self;
+        let state = match reconciliation_authority {
+            Stage5gValidatedReconciliationAuthority::OrderPositionAwaitingCommitted {
+                state,
+                ..
+            } => state,
+            _ => return Err(Stage5gCleanRestartError::MissingOrderPositionState),
+        };
+        Ok((runtime, state, attribution))
+    }
+
+    pub(crate) fn stage8b_p1d3_migration_export_input(
+        &self,
+        transition_identity_sha256: &str,
+    ) -> Result<Stage5gCleanRestartExportInput, Stage5gCleanRestartError> {
+        self.stage8b_p1d3_export_input(
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Migrated,
+            transition_identity_sha256,
+            self.continuation_authority.persisted_at_ts_utc,
+        )
+    }
+
+    pub(crate) fn stage8b_p1d3_export_input(
+        &self,
+        phase: crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase,
+        transition_identity_sha256: &str,
+        receipt_ts: DateTime<Utc>,
+    ) -> Result<Stage5gCleanRestartExportInput, Stage5gCleanRestartError> {
+        if !is_sha256_hex(transition_identity_sha256) {
+            return Err(Stage5gCleanRestartError::PackageInstanceBindingMismatch);
+        }
+        let snapshot_revision = self
+            .continuation_authority
+            .snapshot_revision
+            .checked_add(1)
+            .ok_or(Stage5gCleanRestartError::PackageInstanceBindingMismatch)?;
+        let write_generation = self
+            .continuation_authority
+            .write_generation
+            .checked_add(1)
+            .ok_or(Stage5gCleanRestartError::PackageInstanceBindingMismatch)?;
+        let phase_name = match phase {
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Migrated => "migrated",
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Ack => "s-ack",
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working => "s-working",
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval => "s-eval",
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Terminal => "s-terminal",
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::CancelRecovered => {
+                "s-cancel-recovered"
+            }
+        };
+        let mut lifecycle_watermarks = self.continuation_authority.lifecycle_watermarks.clone();
+        lifecycle_watermarks.last_broker_event_ts = Some(
+            lifecycle_watermarks
+                .last_broker_event_ts
+                .map_or(receipt_ts, |current| current.max(receipt_ts)),
+        );
+        Ok(Stage5gCleanRestartExportInput {
+            snapshot_id: format!(
+                "stage8b-p1d3-{phase_name}-{}",
+                &transition_identity_sha256[..32]
+            ),
+            snapshot_revision,
+            previous_revision: Some(self.continuation_authority.snapshot_revision),
+            write_generation,
+            persisted_at_ts_utc: receipt_ts.max(self.continuation_authority.persisted_at_ts_utc),
+            source_commit_or_build_id: self
+                .continuation_authority
+                .source_commit_or_build_id
+                .clone(),
+            lifecycle_watermarks,
+            riskgate: self.continuation_authority.riskgate.clone(),
+            riskgate_evidence: self.continuation_authority.riskgate_evidence.clone(),
+        })
     }
 
     pub(crate) fn into_stage8b_p1d2_truth_parts(
@@ -1247,8 +1394,24 @@ impl Stage5gCleanRestartedCapability {
                 .collect(),
             Stage5gValidatedReconciliationAuthority::OrderPositionAwaitingCommitted {
                 state,
+                p1_semantic_commit,
                 ..
-            } => Stage5gOrderPositionSession::stage5g_fresh_truth_restart_slots(state),
+            } => {
+                let mut slots =
+                    Stage5gOrderPositionSession::stage5g_fresh_truth_restart_slots(state);
+                if let Some(slot) = p1_semantic_commit
+                    .as_deref()
+                    .and_then(crate::stage5g_p1_semantic::p1_prepublication_restart_slot)
+                {
+                    if !slots
+                        .iter()
+                        .any(|existing| existing.command_request_id == slot.command_request_id)
+                    {
+                        slots.push(slot);
+                    }
+                }
+                slots
+            }
             Stage5gValidatedReconciliationAuthority::ProtectiveLifecycleCommitted { .. } => {
                 Vec::new()
             }
@@ -1501,6 +1664,7 @@ fn strategy_from_source(source: &Stage5gCleanRestartSource) -> &HybridIntradayRu
         Stage5gCleanRestartSource::NewPackageAwaiting(value) => value.stage5g_runtime_strategy(),
         Stage5gCleanRestartSource::P1d2Ack(value) => value.runtime(),
         Stage5gCleanRestartSource::P1d2Truth(value) => value.runtime(),
+        Stage5gCleanRestartSource::P1d3(value) => value.runtime(),
         Stage5gCleanRestartSource::ProtectiveLifecycle(value) => value.stage5g_runtime_strategy(),
     }
 }
@@ -1520,6 +1684,7 @@ fn source_binding(source: &Stage5gCleanRestartSource) -> (&str, &BrokerAccountId
         }
         Stage5gCleanRestartSource::P1d2Ack(value) => value.binding(),
         Stage5gCleanRestartSource::P1d2Truth(value) => value.binding(),
+        Stage5gCleanRestartSource::P1d3(value) => value.binding(),
         Stage5gCleanRestartSource::ProtectiveLifecycle(value) => value.stage5g_restart_binding(),
     }
 }
@@ -1606,6 +1771,7 @@ pub(crate) fn projection_from_source(
         order_position_state,
         timer_ready_source,
         p1d2_market_feedback,
+        p1d3_replacement,
         protective_lifecycle_projection,
     ) = match source {
         Stage5gCleanRestartSource::TimerReady(value) => {
@@ -1628,6 +1794,7 @@ pub(crate) fn projection_from_source(
                 Some(timer_ready_source),
                 None,
                 None,
+                None,
             )
         }
         Stage5gCleanRestartSource::P1BootstrapReady(value) => {
@@ -1648,6 +1815,7 @@ pub(crate) fn projection_from_source(
                 checkpoint,
                 None,
                 Some(timer_ready_source),
+                None,
                 None,
                 None,
             )
@@ -1673,6 +1841,7 @@ pub(crate) fn projection_from_source(
                 Some(timer_ready_source),
                 None,
                 None,
+                None,
             )
         }
         Stage5gCleanRestartSource::P1SemanticPrepublication(value) => {
@@ -1694,6 +1863,7 @@ pub(crate) fn projection_from_source(
                 }),
                 None,
                 None,
+                None,
             )
         }
         Stage5gCleanRestartSource::OrderPositionAwaiting(value) => (
@@ -1703,6 +1873,7 @@ pub(crate) fn projection_from_source(
             value.summary(),
             value.stage5g_restart_checkpoint(),
             Some(value.stage5g_restart_state()),
+            None,
             None,
             None,
             None,
@@ -1717,6 +1888,7 @@ pub(crate) fn projection_from_source(
             None,
             None,
             None,
+            None,
         ),
         Stage5gCleanRestartSource::NewPackageAwaiting(value) => (
             Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted,
@@ -1725,6 +1897,7 @@ pub(crate) fn projection_from_source(
             value.session().summary(),
             value.checkpoint().clone(),
             Some(value.session().stage5g_restart_state()),
+            None,
             None,
             None,
             None,
@@ -1739,6 +1912,7 @@ pub(crate) fn projection_from_source(
             None,
             Some(value.feedback().clone()),
             None,
+            None,
         ),
         Stage5gCleanRestartSource::P1d2Truth(value) => (
             Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted,
@@ -1750,6 +1924,19 @@ pub(crate) fn projection_from_source(
             None,
             Some(value.feedback().clone()),
             None,
+            None,
+        ),
+        Stage5gCleanRestartSource::P1d3(value) => (
+            Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted,
+            usize::from(value.semantic_commit().is_some()),
+            false,
+            value.summary(),
+            value.checkpoint(),
+            Some(value.state()),
+            None,
+            None,
+            Some(value.projection().clone()),
+            None,
         ),
         Stage5gCleanRestartSource::ProtectiveLifecycle(value) => (
             Stage5gCleanRestartLifecycleKind::ProtectiveLifecycleCommitted,
@@ -1758,6 +1945,7 @@ pub(crate) fn projection_from_source(
             value.stage5g_restart_summary(),
             value.stage5g_restart_checkpoint(),
             value.stage5g_restart_order_position_state(),
+            None,
             None,
             None,
             Some(value.stage5g_restart_projection()),
@@ -1783,9 +1971,11 @@ pub(crate) fn projection_from_source(
             Stage5gCleanRestartSource::P1SemanticPrepublication(value) => {
                 Some(value.projection.clone())
             }
+            Stage5gCleanRestartSource::P1d3(value) => value.semantic_commit().cloned(),
             _ => None,
         },
         p1d2_market_feedback,
+        p1d3_replacement,
         fresh_truth_application_evidence: None,
         fresh_truth_application_authority_sha256: None,
         fresh_truth_application_authority_hmac_sha256: None,
@@ -1863,6 +2053,7 @@ fn projection_from_order_position_state(
         timer_ready_source: None,
         p1_semantic_commit: None,
         p1d2_market_feedback: None,
+        p1d3_replacement: None,
         fresh_truth_application_evidence: application_evidence,
         fresh_truth_application_authority_sha256: application_authority_sha256,
         fresh_truth_application_authority_hmac_sha256: application_authority_hmac_sha256,
@@ -1917,6 +2108,15 @@ pub(crate) fn validate_projection(
     if projection.p1d2_market_feedback.is_some()
         && projection.lifecycle_kind
             != Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted
+    {
+        return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
+    }
+    if projection.p1d3_replacement.is_some()
+        && (projection.lifecycle_kind
+            != Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted
+            || projection.p1d2_market_feedback.is_some()
+            || projection.fresh_truth_application_evidence.is_some()
+            || projection.protective_lifecycle_projection.is_some())
     {
         return Err(Stage5gCleanRestartError::LifecycleProofMismatch);
     }
@@ -2031,11 +2231,12 @@ pub(crate) fn validate_projection(
             Err(Stage5gCleanRestartError::MissingOrderPositionState)
         }
         (Stage5gCleanRestartLifecycleKind::OrderPositionAwaitingCommitted, Some(state)) => {
-            if projection.p1_semantic_commit.is_some() {
+            if projection.p1_semantic_commit.is_some() && projection.p1d3_replacement.is_none() {
                 return Err(Stage5gCleanRestartError::UnexpectedP1SemanticCommit);
             }
-            if projection.lifecycle_proof.authoritative_callback_count != 0
-                || projection.summary.stage5c_callback_count != 0
+            let expected_callback_count = usize::from(projection.p1_semantic_commit.is_some());
+            if projection.lifecycle_proof.authoritative_callback_count != expected_callback_count
+                || projection.summary.stage5c_callback_count != expected_callback_count
             {
                 return Err(Stage5gCleanRestartError::CallbackAuthorityMismatch);
             }
@@ -2056,6 +2257,24 @@ pub(crate) fn validate_projection(
             }
             if let Some(feedback) = projection.p1d2_market_feedback.as_ref() {
                 validate_stage8b_p1d2_market_feedback_projection(feedback, state)?;
+            }
+            if let Some(replacement) = projection.p1d3_replacement.as_ref() {
+                replacement
+                    .validate()
+                    .map_err(|_| Stage5gCleanRestartError::LifecycleProofMismatch)?;
+                let (_, account_id, instrument) =
+                    Stage5gOrderPositionSession::stage5g_restart_state_binding(state);
+                if account_id != replacement.working_book().account_id()
+                    || instrument != replacement.working_book().instrument()
+                {
+                    return Err(Stage5gCleanRestartError::BindingMismatch);
+                }
+                if let Some(p1) = projection.p1_semantic_commit.as_ref() {
+                    validate_p1_semantic_projection(projection, p1, p1.intent_count)?;
+                    if p1.intent_count > 1 {
+                        return Err(Stage5gCleanRestartError::P1SemanticCommitMismatch);
+                    }
+                }
             }
             Ok(())
         }
@@ -2473,6 +2692,11 @@ fn validated_reconciliation_authority(
                         state,
                     ),
                     state: state.clone(),
+                    p1_semantic_commit: projection
+                        .p1_semantic_commit
+                        .as_ref()
+                        .cloned()
+                        .map(Box::new),
                     source_lifecycle_commit_sha256: projection
                         .package_instance
                         .source_lifecycle_commit_sha256
@@ -2551,6 +2775,9 @@ fn lifecycle_checkpoint_sha256(
         p1d2_market_feedback:
             &'a Option<crate::stage8b_p1d2_market_feedback::Stage8bP1d2MarketFeedbackProjectionV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        p1d3_replacement:
+            &'a Option<crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_evidence:
             &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -2571,6 +2798,7 @@ fn lifecycle_checkpoint_sha256(
         timer_ready_source: &projection.timer_ready_source,
         p1_semantic_commit: &projection.p1_semantic_commit,
         p1d2_market_feedback: &projection.p1d2_market_feedback,
+        p1d3_replacement: &projection.p1d3_replacement,
         fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
         fresh_truth_application_authority_sha256: &projection
             .fresh_truth_application_authority_sha256,
@@ -2595,6 +2823,9 @@ fn lifecycle_source_authority_sha256(
         p1d2_market_feedback:
             &'a Option<crate::stage8b_p1d2_market_feedback::Stage8bP1d2MarketFeedbackProjectionV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        p1d3_replacement:
+            &'a Option<crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_evidence:
             &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -2612,6 +2843,7 @@ fn lifecycle_source_authority_sha256(
         order_position_state: &projection.order_position_state,
         p1_semantic_commit: &projection.p1_semantic_commit,
         p1d2_market_feedback: &projection.p1d2_market_feedback,
+        p1d3_replacement: &projection.p1d3_replacement,
         fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
         fresh_truth_application_authority_sha256: &projection
             .fresh_truth_application_authority_sha256,
@@ -2642,6 +2874,9 @@ fn independent_source_authority_sha256(
         p1d2_market_feedback:
             &'a Option<crate::stage8b_p1d2_market_feedback::Stage8bP1d2MarketFeedbackProjectionV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        p1d3_replacement:
+            &'a Option<crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_evidence:
             &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -2665,6 +2900,7 @@ fn independent_source_authority_sha256(
         timer_ready_source: &projection.timer_ready_source,
         p1_semantic_commit: &projection.p1_semantic_commit,
         p1d2_market_feedback: &projection.p1d2_market_feedback,
+        p1d3_replacement: &projection.p1d3_replacement,
         fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
         fresh_truth_application_authority_sha256: &projection
             .fresh_truth_application_authority_sha256,
@@ -2710,6 +2946,9 @@ fn authenticated_restart_package_commitment_sha256(
         #[serde(skip_serializing_if = "Option::is_none")]
         p1d2_market_feedback:
             &'a Option<crate::stage8b_p1d2_market_feedback::Stage8bP1d2MarketFeedbackProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        p1d3_replacement:
+            &'a Option<crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_evidence:
             &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
@@ -2757,6 +2996,7 @@ fn authenticated_restart_package_commitment_sha256(
             timer_ready_source: &projection.timer_ready_source,
             p1_semantic_commit: &projection.p1_semantic_commit,
             p1d2_market_feedback: &projection.p1d2_market_feedback,
+            p1d3_replacement: &projection.p1d3_replacement,
             fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
             fresh_truth_application_authority_sha256: &projection
                 .fresh_truth_application_authority_sha256,
@@ -2932,6 +3172,9 @@ fn lifecycle_authority_sha256(
         p1d2_market_feedback:
             &'a Option<crate::stage8b_p1d2_market_feedback::Stage8bP1d2MarketFeedbackProjectionV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
+        p1d3_replacement:
+            &'a Option<crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         fresh_truth_application_evidence:
             &'a Option<crate::stage5g_fresh_broker_truth::Stage5gFreshTruthApplicationEvidenceV1>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -2956,6 +3199,7 @@ fn lifecycle_authority_sha256(
         timer_ready_source: &projection.timer_ready_source,
         p1_semantic_commit: &projection.p1_semantic_commit,
         p1d2_market_feedback: &projection.p1d2_market_feedback,
+        p1d3_replacement: &projection.p1d3_replacement,
         fresh_truth_application_evidence: &projection.fresh_truth_application_evidence,
         fresh_truth_application_authority_sha256: &projection
             .fresh_truth_application_authority_sha256,

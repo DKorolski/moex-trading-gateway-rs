@@ -594,6 +594,10 @@ impl Stage8bP1d2MarketFeedbackProjectionV1 {
         self.phase
     }
 
+    pub(crate) fn expected_attribution(&self) -> &HybridRuntimeAttribution {
+        &self.expected_attribution
+    }
+
     pub(crate) fn request_id(&self) -> StrategyRequestId {
         self.request_id
     }

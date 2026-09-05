@@ -36,6 +36,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub const STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2: u16 = 2;
+pub const STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V3: u16 = 3;
 const MAX_MATERIAL_TRADES_V2: usize = 256;
 const MAX_SUFFIX_RECORDS_V2: usize = 32;
 
@@ -1083,13 +1084,205 @@ pub(crate) fn reconstruct_stage8a4_suffix_from_v2(
     Ok((records, cancel_original_target_shape))
 }
 
+/// Stage 8B-P1-d3 atomic outcome envelope.  The complete canonical outcome
+/// evidence is carried in this Stage 6 frame; the digest is an integrity
+/// binding, never a replacement sidecar.  Construction remains crate-private
+/// so decoded material cannot mint journal-write authority.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Stage6JournalRecordV3 {
+    schema_version: u16,
+    journal_record_id: Stage6JournalRecordId,
+    lifecycle_sequence: Stage6LifecycleSequence,
+    previous_record_id: Stage6JournalRecordId,
+    event_kind: Stage6JournalEventKindV3,
+    operational_identity_sha256: String,
+    outcome_kind: String,
+    transition_ordinal: u64,
+    outcome_evidence_bytes: Vec<u8>,
+    outcome_evidence_sha256: Stage6Sha256Digest,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Stage6JournalEventKindV3 {
+    P1d3OutcomeRecorded,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage6JournalRecordWireV3 {
+    schema_version: u16,
+    journal_record_id: Stage6JournalRecordId,
+    lifecycle_sequence: Stage6LifecycleSequence,
+    previous_record_id: Stage6JournalRecordId,
+    event_kind: Stage6JournalEventKindV3,
+    operational_identity_sha256: String,
+    outcome_kind: String,
+    transition_ordinal: u64,
+    outcome_evidence_bytes: Vec<u8>,
+    outcome_evidence_sha256: Stage6Sha256Digest,
+}
+
+impl From<Stage6JournalRecordWireV3> for Stage6JournalRecordV3 {
+    fn from(value: Stage6JournalRecordWireV3) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            journal_record_id: value.journal_record_id,
+            lifecycle_sequence: value.lifecycle_sequence,
+            previous_record_id: value.previous_record_id,
+            event_kind: value.event_kind,
+            operational_identity_sha256: value.operational_identity_sha256,
+            outcome_kind: value.outcome_kind,
+            transition_ordinal: value.transition_ordinal,
+            outcome_evidence_bytes: value.outcome_evidence_bytes,
+            outcome_evidence_sha256: value.outcome_evidence_sha256,
+        }
+    }
+}
+
+impl Stage6JournalRecordV3 {
+    pub(crate) fn from_p1d3_outcome_evidence(
+        lifecycle_sequence: Stage6LifecycleSequence,
+        previous_record_id: Stage6JournalRecordId,
+        outcome_evidence_bytes: Vec<u8>,
+    ) -> Result<Self, Stage6ReconciliationV2Error> {
+        let evidence =
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                &outcome_evidence_bytes,
+            )
+            .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?;
+        let journal_record_id =
+            Stage6JournalRecordId::parse_exact(evidence.stage6_outcome_record_id().to_string())
+                .map_err(|_| Stage6ReconciliationV2Error::RecordIdentityMismatch)?;
+        let outcome_evidence_sha256 = Stage6Sha256Digest::parse(
+            evidence
+                .digest_sha256()
+                .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?,
+        )
+        .map_err(|_| Stage6ReconciliationV2Error::PayloadDigestMismatch)?;
+        let value = Self {
+            schema_version: STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V3,
+            journal_record_id,
+            lifecycle_sequence,
+            previous_record_id,
+            event_kind: Stage6JournalEventKindV3::P1d3OutcomeRecorded,
+            operational_identity_sha256: evidence.operational_identity_sha256().to_string(),
+            outcome_kind: evidence.outcome_kind().canonical_name().to_string(),
+            transition_ordinal: evidence.transition_ordinal(),
+            outcome_evidence_bytes,
+            outcome_evidence_sha256,
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn encode_canonical(&self) -> Vec<u8> {
+        serde_json::to_vec(self).expect("fixed V3 record serializes")
+    }
+
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, Stage6ReconciliationV2Error> {
+        let wire: Stage6JournalRecordWireV3 =
+            serde_json::from_slice(bytes).map_err(|_| Stage6ReconciliationV2Error::DecodeFailed)?;
+        let value = Self::from(wire);
+        value.validate()?;
+        if value.encode_canonical() != bytes {
+            return Err(Stage6ReconciliationV2Error::NonCanonicalEncoding);
+        }
+        Ok(value)
+    }
+
+    pub fn journal_record_id(&self) -> &Stage6JournalRecordId {
+        &self.journal_record_id
+    }
+
+    pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
+        self.lifecycle_sequence
+    }
+
+    pub fn previous_record_id(&self) -> &Stage6JournalRecordId {
+        &self.previous_record_id
+    }
+
+    pub fn outcome_evidence_bytes(&self) -> &[u8] {
+        &self.outcome_evidence_bytes
+    }
+
+    pub fn outcome_evidence_sha256(&self) -> &Stage6Sha256Digest {
+        &self.outcome_evidence_sha256
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    pub(crate) fn authenticate_p1d3_outcome(
+        &self,
+        binding: crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RecoveryBinding,
+    ) -> Result<
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3AuthenticatedOutcomeEvidence,
+        crate::stage8b_p1d3_working_limit::Stage8bP1d3Error,
+    > {
+        if binding.outcome_record_id != self.journal_record_id.as_str() {
+            return Err(crate::stage8b_p1d3_working_limit::Stage8bP1d3Error::IdentityMismatch);
+        }
+        crate::stage8b_p1d3_working_limit::authenticate_stage8b_p1d3_outcome_evidence(
+            self.outcome_evidence_bytes.clone(),
+            binding,
+        )
+    }
+
+    fn transition_key(&self) -> String {
+        format!(
+            "{}\0{}\0{}",
+            self.operational_identity_sha256, self.outcome_kind, self.transition_ordinal
+        )
+    }
+
+    fn validate(&self) -> Result<(), Stage6ReconciliationV2Error> {
+        if self.schema_version != STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V3
+            || self.event_kind != Stage6JournalEventKindV3::P1d3OutcomeRecorded
+            || self.transition_ordinal == 0
+        {
+            return Err(Stage6ReconciliationV2Error::InvalidPayload);
+        }
+        let evidence =
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                &self.outcome_evidence_bytes,
+            )
+            .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?;
+        let expected_id = Stage6JournalRecordId::derive_stage8b_p1d3_outcome(
+            evidence.operational_identity_sha256(),
+            evidence.broker_order_id(),
+            evidence.transition_ordinal(),
+            evidence.outcome_kind().canonical_name(),
+        );
+        let expected_digest = Stage6Sha256Digest::parse(
+            evidence
+                .digest_sha256()
+                .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?,
+        )
+        .map_err(|_| Stage6ReconciliationV2Error::PayloadDigestMismatch)?;
+        if self.journal_record_id != expected_id
+            || self.journal_record_id.as_str() != evidence.stage6_outcome_record_id()
+            || self.operational_identity_sha256 != evidence.operational_identity_sha256()
+            || self.outcome_kind != evidence.outcome_kind().canonical_name()
+            || self.transition_ordinal != evidence.transition_ordinal()
+            || self.outcome_evidence_sha256 != expected_digest
+        {
+            return Err(Stage6ReconciliationV2Error::RecordIdentityMismatch);
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
-// R2 freezes the exact V1(Stage6JournalRecordV1) | V2(Stage6JournalRecordV2)
-// shape; this read-only replay enum is not a high-volume queue element.
+// V1/V2 remain byte-for-byte stable; P1-d3 adds one new read/replay variant.
+// This read-only replay enum is not a high-volume queue element.
 #[allow(clippy::large_enum_variant)]
 pub enum Stage6JournalRecordVersioned {
     V1(Stage6JournalRecordV1),
     V2(Stage6JournalRecordV2),
+    V3(Stage6JournalRecordV3),
 }
 
 impl Stage6JournalRecordVersioned {
@@ -1099,6 +1292,7 @@ impl Stage6JournalRecordVersioned {
                 .map(Self::V1)
                 .map_err(map_v1_error),
             2 => Stage6JournalRecordV2::decode_canonical(bytes).map(Self::V2),
+            3 => Stage6JournalRecordV3::decode_canonical(bytes).map(Self::V3),
             value => Err(Stage6ReconciliationV2Error::UnsupportedSchema(value)),
         }
     }
@@ -1106,18 +1300,21 @@ impl Stage6JournalRecordVersioned {
         match self {
             Self::V1(value) => value.encode_canonical(),
             Self::V2(value) => value.encode_canonical(),
+            Self::V3(value) => value.encode_canonical(),
         }
     }
     pub fn journal_record_id(&self) -> &Stage6JournalRecordId {
         match self {
             Self::V1(value) => value.journal_record_id(),
             Self::V2(value) => value.journal_record_id(),
+            Self::V3(value) => value.journal_record_id(),
         }
     }
     pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
         match self {
             Self::V1(value) => value.lifecycle_sequence(),
             Self::V2(value) => value.lifecycle_sequence(),
+            Self::V3(value) => value.lifecycle_sequence(),
         }
     }
 }
@@ -1226,6 +1423,7 @@ impl Stage6PendingReconciliationBatchV2 {
 pub struct Stage6MixedReplaySnapshotV2 {
     requests: Vec<Stage6RecoveredRequestV1>,
     reconciliation_batches: Vec<Stage6PendingReconciliationBatchV2>,
+    p1d3_outcome_records: Vec<Stage6JournalRecordV3>,
 }
 
 impl Stage6MixedReplaySnapshotV2 {
@@ -1234,6 +1432,10 @@ impl Stage6MixedReplaySnapshotV2 {
     }
     pub fn reconciliation_batches(&self) -> &[Stage6PendingReconciliationBatchV2] {
         &self.reconciliation_batches
+    }
+
+    pub fn p1d3_outcome_records(&self) -> &[Stage6JournalRecordV3] {
+        &self.p1d3_outcome_records
     }
 
     pub(crate) fn into_requests(self) -> Vec<Stage6RecoveredRequestV1> {
@@ -1255,7 +1457,10 @@ impl Stage6MixedReplayEngineV2 {
     ) -> Result<Stage6MixedReplaySnapshotV2, Stage6ReconciliationV2Error> {
         let mut seen = BTreeMap::<String, Vec<u8>>::new();
         let mut seen_transition_keys = BTreeMap::<String, Vec<u8>>::new();
+        let mut seen_p1d3_transition_keys = BTreeMap::<String, Vec<u8>>::new();
         let mut requests = BTreeMap::<String, MixedWorkingRequest>::new();
+        let mut p1d3_outcome_records = Vec::new();
+        let mut last_unique_record_id: Option<Stage6JournalRecordId> = None;
         for record in records {
             let key = record.journal_record_id().as_str().to_string();
             let canonical = record.encode_canonical();
@@ -1366,8 +1571,45 @@ impl Stage6MixedReplayEngineV2 {
                         last_mixed_lifecycle_sequence: v2.lifecycle_sequence(),
                     });
                 }
+                Stage6JournalRecordVersioned::V3(v3) => {
+                    if last_unique_record_id.as_ref() != Some(v3.previous_record_id()) {
+                        return Err(Stage6ReconciliationV2Error::InvalidCausalEnvelope);
+                    }
+                    let transition_key = v3.transition_key();
+                    if let Some(existing) = seen_p1d3_transition_keys.get(&transition_key) {
+                        if existing != &canonical {
+                            return Err(Stage6ReconciliationV2Error::PendingBatchConflict);
+                        }
+                    } else {
+                        seen_p1d3_transition_keys.insert(transition_key, canonical.clone());
+                    }
+                    if let Some(effect) = crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                        v3.outcome_evidence_bytes(),
+                    )
+                    .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?
+                    .stage6_request_replay_effect()
+                    .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?
+                    {
+                        let request_key = effect.request_id.to_string();
+                        let state = requests.get_mut(&request_key).ok_or(
+                            Stage6ReconciliationV2Error::Replay(
+                                Stage6ReplayError::SequenceStartInvalid,
+                            ),
+                        )?;
+                        if state.batch.is_some() {
+                            return Err(Stage6ReconciliationV2Error::PendingBatchConflict);
+                        }
+                        state.v1.apply_stage8b_p1d3_outcome(
+                            effect,
+                            v3.lifecycle_sequence(),
+                            v3.journal_record_id().clone(),
+                        )?;
+                    }
+                    p1d3_outcome_records.push(v3.clone());
+                }
             }
             seen.insert(key, canonical);
+            last_unique_record_id = Some(record.journal_record_id().clone());
         }
         let mut recovered = Vec::new();
         let mut batches = Vec::new();
@@ -1380,6 +1622,7 @@ impl Stage6MixedReplayEngineV2 {
         Ok(Stage6MixedReplaySnapshotV2 {
             requests: recovered,
             reconciliation_batches: batches,
+            p1d3_outcome_records,
         })
     }
 }
@@ -2238,7 +2481,7 @@ pub(crate) mod tests {
         ));
 
         let mut unknown: Value = serde_json::from_slice(&cases[0].1).unwrap();
-        unknown["schema_version"] = Value::from(3);
+        unknown["schema_version"] = Value::from(4);
         cases.push((
             "UnknownRecordSchemaVersionFailClosed",
             serde_json::to_vec(&unknown).unwrap(),
@@ -2456,11 +2699,11 @@ pub(crate) mod tests {
         ));
 
         let mut unknown: Value = serde_json::from_slice(&v2.encode_canonical()).unwrap();
-        unknown["schema_version"] = Value::from(3);
+        unknown["schema_version"] = Value::from(4);
         assert_eq!(
             Stage6JournalRecordVersioned::decode_canonical(&serde_json::to_vec(&unknown).unwrap())
                 .unwrap_err(),
-            Stage6ReconciliationV2Error::UnsupportedSchema(3)
+            Stage6ReconciliationV2Error::UnsupportedSchema(4)
         );
 
         let mut malformed_schema: Value = serde_json::from_slice(&v2.encode_canonical()).unwrap();

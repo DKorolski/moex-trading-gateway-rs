@@ -687,14 +687,40 @@ impl Stage6JournalRecordId {
                 .collect(),
         )
     }
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
-impl<'de> Deserialize<'de> for Stage6JournalRecordId {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = String::deserialize(deserializer)?;
+    /// Derives a P1-d3 outcome envelope identity without hashing the envelope
+    /// or its evidence bytes.  This keeps the identifier pre-reservable and
+    /// makes the Stage 6 record free of a digest self-reference.
+    pub(crate) fn derive_stage8b_p1d3_outcome(
+        operational_identity_sha256: &str,
+        broker_order_id: &BrokerOrderId,
+        transition_ordinal: u64,
+        outcome_kind: &str,
+    ) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(b"stage6-p1d3-outcome-record-v1");
+        for field in [
+            operational_identity_sha256.as_bytes(),
+            broker_order_id.as_str().as_bytes(),
+            outcome_kind.as_bytes(),
+        ] {
+            hasher.update((field.len() as u64).to_be_bytes());
+            hasher.update(field);
+        }
+        hasher.update(transition_ordinal.to_be_bytes());
+        Self(
+            hasher
+                .finalize()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        )
+    }
+
+    pub(crate) fn parse_exact(
+        value: impl Into<String>,
+    ) -> Result<Self, Stage6DurableIdentityError> {
+        let value = value.into();
         if value.len() == 64
             && value != "0".repeat(64)
             && value
@@ -703,8 +729,18 @@ impl<'de> Deserialize<'de> for Stage6JournalRecordId {
         {
             Ok(Self(value))
         } else {
-            Err(serde::de::Error::custom("invalid journal record id"))
+            Err(Stage6DurableIdentityError::RecordIdentityMismatch)
         }
+    }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for Stage6JournalRecordId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Self::parse_exact(value).map_err(serde::de::Error::custom)
     }
 }
 

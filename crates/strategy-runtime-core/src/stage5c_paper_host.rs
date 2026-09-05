@@ -3653,16 +3653,23 @@ fn stage5g_source_intent_projections(
 pub(crate) fn stage8b_p1_single_intent_command_material(
     settled: &Stage5cSettledPaperStrategy,
 ) -> Result<Stage8bP1CommandMaterial, ()> {
-    if settled.batch.records.len() != 1 || settled.batch.request_ids.len() != 1 {
+    stage8b_p1_single_intent_command_material_from_parts(&settled.strategy, &settled.batch)
+}
+
+fn stage8b_p1_single_intent_command_material_from_parts(
+    strategy: &HybridIntradayRuntimeStrategy,
+    batch: &Stage5cPaperIntentBatch,
+) -> Result<Stage8bP1CommandMaterial, ()> {
+    if batch.records.len() != 1 || batch.request_ids.len() != 1 {
         return Err(());
     }
-    let record = &settled.batch.records[0];
-    if record.request_id != settled.batch.request_ids[0] {
+    let record = &batch.records[0];
+    if record.request_id != batch.request_ids[0] {
         return Err(());
     }
     let attribution = record.expected_attribution.clone().ok_or(())?;
     attribution.validate_source_equivalence().map_err(|_| ())?;
-    if !attribution.belongs_to(&settled.batch.strategy_id) {
+    if !attribution.belongs_to(&batch.strategy_id) {
         return Err(());
     }
     let created_ts = Utc
@@ -3695,11 +3702,11 @@ pub(crate) fn stage8b_p1_single_intent_command_material(
                 request_id: record.request_id,
                 created_ts,
                 ttl_ms: None,
-                account_id: settled.batch.account_id.clone(),
+                account_id: batch.account_id.clone(),
                 client_order_id: broker_core::ClientOrderId::from_strategy_request(
                     record.request_id,
                 ),
-                instrument: settled.batch.instrument.clone(),
+                instrument: batch.instrument.clone(),
                 side: order_side(*side),
                 order_type: broker_core::OrderType::Market,
                 qty: decimal(*qty)?,
@@ -3724,11 +3731,11 @@ pub(crate) fn stage8b_p1_single_intent_command_material(
                 request_id: record.request_id,
                 created_ts,
                 ttl_ms: None,
-                account_id: settled.batch.account_id.clone(),
+                account_id: batch.account_id.clone(),
                 client_order_id: broker_core::ClientOrderId::from_strategy_request(
                     record.request_id,
                 ),
-                instrument: settled.batch.instrument.clone(),
+                instrument: batch.instrument.clone(),
                 side: order_side(*side),
                 order_type: broker_core::OrderType::Limit,
                 qty: decimal(*qty)?,
@@ -3742,7 +3749,7 @@ pub(crate) fn stage8b_p1_single_intent_command_material(
                 request_id: record.request_id,
                 created_ts,
                 ttl_ms: None,
-                account_id: settled.batch.account_id.clone(),
+                account_id: batch.account_id.clone(),
                 order_id: order_id.clone(),
                 client_order_id: None,
             })
@@ -3753,13 +3760,13 @@ pub(crate) fn stage8b_p1_single_intent_command_material(
         | crate::BrokerNeutralHybridIntent::Classified { .. }
         | crate::BrokerNeutralHybridIntent::Routed { .. } => return Err(()),
     };
-    let source = stage5g_source_intent_projections(&settled.strategy, &settled.batch)
+    let source = stage5g_source_intent_projections(strategy, batch)
         .into_iter()
         .next()
         .ok_or(())?;
     Ok(Stage8bP1CommandMaterial {
         command,
-        instrument: settled.batch.instrument.clone(),
+        instrument: batch.instrument.clone(),
         expected_attribution: attribution,
         source,
     })
@@ -4661,6 +4668,343 @@ impl Stage5cBrokerLifecycleResolvedPaperStrategy {
         &self.strategy
     }
 }
+
+// STAGE8B-P1D3-CALLBACK-BRIDGE-BEGIN: authenticated-paper-lifecycle-v1
+pub(crate) struct Stage8bP1d3BrokerTruthBridgeInput {
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) instrument: InstrumentId,
+    pub(crate) request_id: StrategyRequestId,
+    pub(crate) attribution: broker_core::HybridRuntimeAttribution,
+    pub(crate) pre_position_qty: f64,
+    pub(crate) truth: broker_core::BrokerTruthSnapshot,
+}
+
+pub(crate) struct Stage8bP1d3CallbackBridgeOutput {
+    pub(crate) strategy: HybridIntradayRuntimeStrategy,
+    pub(crate) callback_count: usize,
+    pub(crate) post_state_fingerprint_sha256: String,
+}
+
+pub(crate) struct Stage8bP1d3SemanticBarBridgeInput {
+    pub(crate) strategy_id: String,
+    pub(crate) account_id: BrokerAccountId,
+    pub(crate) instrument: InstrumentId,
+    pub(crate) tick_size: f64,
+}
+
+/// Owned result of the sole P1-d3 same-bar Hybrid callback.  The private
+/// batch is retained so the accepted Stage 5G command materializer remains
+/// the only command-construction path.
+pub(crate) struct Stage8bP1d3SemanticBarBridgeOutput {
+    pub(crate) strategy: HybridIntradayRuntimeStrategy,
+    batch: Stage5cPaperIntentBatch,
+}
+
+impl Stage8bP1d3SemanticBarBridgeOutput {
+    pub(crate) fn intent_count(&self) -> usize {
+        self.batch.intent_count()
+    }
+
+    pub(crate) fn request_ids(&self) -> &[StrategyRequestId] {
+        self.batch.request_ids()
+    }
+
+    pub(crate) fn into_single_intent_material(
+        self,
+    ) -> Result<
+        (HybridIntradayRuntimeStrategy, Stage8bP1CommandMaterial),
+        Stage8bP1d3CallbackBridgeError,
+    > {
+        let material =
+            stage8b_p1_single_intent_command_material_from_parts(&self.strategy, &self.batch)
+                .map_err(|_| Stage8bP1d3CallbackBridgeError::IntentSettlementFailed)?;
+        Ok((self.strategy, material))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage8bP1d3CallbackBridgeError {
+    InvalidAck,
+    ScopeMismatch,
+    NumericConversion,
+    CallbackValidationFailed,
+    GeneratedIntentForbidden,
+    IntentSettlementFailed,
+}
+
+/// Invokes the Hybrid bar callback exactly once after the caller has already
+/// committed and reread the P1-d3 book/truth replacement for this M10.  The
+/// exact bar close is also the strategy clock; wall time is intentionally not
+/// an input.  This bridge owns no Redis, persistence, provider, dispatch or
+/// source-XACK capability.
+pub(crate) fn resolve_stage8b_p1d3_semantic_bar_bridge(
+    mut strategy: HybridIntradayRuntimeStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    input: Stage8bP1d3SemanticBarBridgeInput,
+) -> Result<Stage8bP1d3SemanticBarBridgeOutput, Stage8bP1d3CallbackBridgeError> {
+    if input.strategy_id.trim().is_empty()
+        || input.account_id.as_str().trim().is_empty()
+        || accepted.bar.instrument != input.instrument
+        || accepted.origin != broker_core::HybridRuntimeBarOrigin::Live
+        || accepted.bar.origin != broker_core::HybridRuntimeBarOrigin::Live
+        || !accepted.bar.is_final
+        || accepted.bar.timeframe_sec != 600
+        || accepted.bar.close_time_utc <= 0
+        || !same_tick_size(accepted.tick_size, input.tick_size)
+        || strategy.stage5c_binding_matches(&input.instrument, input.tick_size) != (true, true)
+    {
+        return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
+    }
+    let bar_close_ts = accepted.bar.close_time_utc;
+    let pre_callback_cleanup_ledger =
+        stage5cj_cleanup_attribution_ledger(Strategy::state(&strategy), &input.strategy_id);
+    let context = stage5cf_semantic_context_from_binding(
+        &strategy,
+        &input.strategy_id,
+        &input.account_id,
+        &input.instrument,
+        input.tick_size,
+        bar_close_ts,
+        bar_close_ts,
+    );
+    let intents = crate::BrokerNeutralHybridStrategy::on_broker_bar(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context,
+            payload: accepted.bar,
+        },
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+    let expected_attribution_by_request =
+        stage5cj_expected_generated_attribution_by_request_from_binding(
+            &input.strategy_id,
+            &input.account_id,
+            &input.instrument,
+            bar_close_ts,
+            &intents,
+            &pre_callback_cleanup_ledger,
+        )
+        .map_err(|_| Stage8bP1d3CallbackBridgeError::IntentSettlementFailed)?;
+    let batch = stage5c_build_paper_intent_batch_from_binding(
+        &strategy,
+        &input.strategy_id,
+        &input.account_id,
+        &input.instrument,
+        input.tick_size,
+        bar_close_ts,
+        broker_core::HybridRuntimeBarOrigin::Live,
+        intents,
+        &expected_attribution_by_request,
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::IntentSettlementFailed)?;
+    Ok(Stage8bP1d3SemanticBarBridgeOutput { strategy, batch })
+}
+
+/// Applies the exact request ACK to the owned Hybrid runtime before the
+/// replacement `S_ack`/`S_cancel_recovered` package is exported.  The bridge
+/// deliberately owns no persistence, Redis, provider or source-XACK handle.
+pub(crate) fn resolve_stage8b_p1d3_ack_bridge(
+    mut strategy: HybridIntradayRuntimeStrategy,
+    ack: &broker_core::CommandAck,
+) -> Result<Stage8bP1d3CallbackBridgeOutput, Stage8bP1d3CallbackBridgeError> {
+    let status = broker_core::map_hybrid_runtime_ack_status(ack.status)
+        .ok_or(Stage8bP1d3CallbackBridgeError::InvalidAck)?;
+    let intents = crate::BrokerNeutralHybridStrategy::on_broker_ack(
+        &mut strategy,
+        broker_core::HybridRuntimeCommandAck {
+            request_id: ack.request_id,
+            status,
+            broker_order_id: ack.broker_order_id.clone(),
+            error_code: broker_core::map_hybrid_runtime_ack_error_code(
+                ack.reason.as_ref().map(|reason| reason.code),
+            ),
+            error_message: None,
+            processed_ts_utc: ack.received_ts.timestamp(),
+        },
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+    if !intents.is_empty() {
+        return Err(Stage8bP1d3CallbackBridgeError::GeneratedIntentForbidden);
+    }
+    Ok(Stage8bP1d3CallbackBridgeOutput {
+        post_state_fingerprint_sha256: stage5c_state_fingerprint(Strategy::state(&strategy)),
+        strategy,
+        callback_count: 1,
+    })
+}
+
+/// Applies one already canonicalized P1-d3 truth vector to the same runtime
+/// that will later receive the corresponding semantic M10.  Order precedes
+/// position exactly as in the accepted Stage 5C broker lifecycle.  Trades
+/// remain evidence-only because Hybrid has no trade callback.
+pub(crate) fn resolve_stage8b_p1d3_broker_truth_bridge(
+    mut strategy: HybridIntradayRuntimeStrategy,
+    input: Stage8bP1d3BrokerTruthBridgeInput,
+) -> Result<Stage8bP1d3CallbackBridgeOutput, Stage8bP1d3CallbackBridgeError> {
+    if input.truth.account_id != input.account_id
+        || input.truth.orders.len() != 1
+        || input.truth.positions.len() > 1
+        || input.truth.orders.iter().any(|order| {
+            order.account_id != input.account_id || order.instrument != input.instrument
+        })
+        || input.truth.positions.iter().any(|position| {
+            position.account_id != input.account_id || position.instrument != input.instrument
+        })
+        || input.truth.trades.iter().any(|trade| {
+            trade.account_id != input.account_id || trade.instrument != input.instrument
+        })
+        || !input.truth.instruments.is_empty()
+        || !input.pre_position_qty.is_finite()
+    {
+        return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
+    }
+    input
+        .attribution
+        .validate_source_equivalence()
+        .map_err(|_| Stage8bP1d3CallbackBridgeError::ScopeMismatch)?;
+    if !input.attribution.belongs_to(&input.strategy_id) {
+        return Err(Stage8bP1d3CallbackBridgeError::ScopeMismatch);
+    }
+
+    let mut callback_count = 0usize;
+    let order = &input.truth.orders[0];
+    let order_id = order
+        .broker_order_id
+        .clone()
+        .ok_or(Stage8bP1d3CallbackBridgeError::ScopeMismatch)?;
+    let order_qty = order
+        .qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+    let filled_qty = order
+        .filled_qty
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+    let price = order
+        .limit_price
+        .unwrap_or_default()
+        .to_f64()
+        .filter(|value| value.is_finite())
+        .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+    let order_ts = order.source_ts.unwrap_or(order.received_ts).timestamp();
+    let order_context = strategy.stage5g_protective_completion_callback_context(
+        input.strategy_id.clone(),
+        input.account_id.clone(),
+        input.instrument.clone(),
+        order_ts,
+        Some(input.pre_position_qty),
+    );
+    let order_intents = crate::BrokerNeutralHybridStrategy::on_broker_order(
+        &mut strategy,
+        broker_core::HybridRuntimeCallbackInput {
+            context: order_context,
+            payload: broker_core::HybridRuntimeOrderEvent {
+                order_id,
+                request_id: Some(input.request_id),
+                instrument: input.instrument.clone(),
+                status: stage8b_p1d3_order_status_name(&order.status),
+                side: stage8b_p1d3_order_side_name(order.side).to_string(),
+                order_type: stage8b_p1d3_order_type_name(order.order_type).to_string(),
+                qty: order_qty,
+                filled_qty,
+                price,
+                existing: true,
+                attribution: Some(input.attribution.clone()),
+                source_ts_utc: order_ts,
+            },
+        },
+    )
+    .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+    callback_count += 1;
+    if !order_intents.is_empty() {
+        return Err(Stage8bP1d3CallbackBridgeError::GeneratedIntentForbidden);
+    }
+
+    if let Some(position) = input.truth.positions.first() {
+        let qty = position
+            .qty
+            .to_f64()
+            .filter(|value| value.is_finite())
+            .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+        let avg_price = position
+            .avg_price
+            .unwrap_or_default()
+            .to_f64()
+            .filter(|value| value.is_finite())
+            .ok_or(Stage8bP1d3CallbackBridgeError::NumericConversion)?;
+        let position_ts = position
+            .source_ts
+            .unwrap_or(position.received_ts)
+            .timestamp();
+        let position_context = strategy.stage5g_protective_completion_callback_context(
+            input.strategy_id,
+            input.account_id,
+            input.instrument.clone(),
+            position_ts,
+            Some(qty),
+        );
+        let position_intents = crate::BrokerNeutralHybridStrategy::on_broker_position(
+            &mut strategy,
+            broker_core::HybridRuntimeCallbackInput {
+                context: position_context,
+                payload: broker_core::HybridRuntimePositionEvent {
+                    instrument: input.instrument,
+                    qty,
+                    existing: true,
+                    avg_price,
+                    source_ts_utc: position_ts,
+                },
+            },
+        )
+        .map_err(|_| Stage8bP1d3CallbackBridgeError::CallbackValidationFailed)?;
+        callback_count += 1;
+        if !position_intents.is_empty() {
+            return Err(Stage8bP1d3CallbackBridgeError::GeneratedIntentForbidden);
+        }
+    }
+
+    Ok(Stage8bP1d3CallbackBridgeOutput {
+        post_state_fingerprint_sha256: stage5c_state_fingerprint(Strategy::state(&strategy)),
+        strategy,
+        callback_count,
+    })
+}
+
+fn stage8b_p1d3_order_side_name(side: broker_core::OrderSide) -> &'static str {
+    match side {
+        broker_core::OrderSide::Buy => "buy",
+        broker_core::OrderSide::Sell => "sell",
+    }
+}
+
+fn stage8b_p1d3_order_type_name(order_type: broker_core::OrderType) -> &'static str {
+    match order_type {
+        broker_core::OrderType::Market => "market",
+        broker_core::OrderType::Limit => "limit",
+        broker_core::OrderType::Stop => "stop",
+        broker_core::OrderType::StopLimit => "stop_limit",
+        broker_core::OrderType::TakeProfit => "take_profit",
+        broker_core::OrderType::TakeProfitLimit => "take_profit_limit",
+    }
+}
+
+fn stage8b_p1d3_order_status_name(status: &broker_core::OrderStatus) -> String {
+    match status {
+        broker_core::OrderStatus::New => "new",
+        broker_core::OrderStatus::Working => "working",
+        broker_core::OrderStatus::PartiallyFilled => "partially_filled",
+        broker_core::OrderStatus::Filled => "filled",
+        broker_core::OrderStatus::Canceled => "canceled",
+        broker_core::OrderStatus::Rejected => "rejected",
+        broker_core::OrderStatus::Expired => "expired",
+        broker_core::OrderStatus::Unknown(value) => value,
+    }
+    .to_string()
+}
+// STAGE8B-P1D3-CALLBACK-BRIDGE-END: authenticated-paper-lifecycle-v1
 
 // STAGE5G-F-R2-BEGIN: protective-lifecycle-stage5c-bridge
 pub(crate) enum Stage5gProtectiveBrokerLifecycleExecution {
@@ -7666,18 +8010,38 @@ fn stage5cf_semantic_context(
     bar_close_ts: i64,
     now: DateTime<Utc>,
 ) -> broker_core::HybridRuntimeStrategyContext {
+    stage5cf_semantic_context_from_binding(
+        strategy,
+        admission.strategy_id(),
+        admission.account_id(),
+        admission.target_instrument(),
+        admission.tick_size(),
+        bar_close_ts,
+        now.timestamp(),
+    )
+}
+
+fn stage5cf_semantic_context_from_binding(
+    strategy: &HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    account_id: &BrokerAccountId,
+    instrument: &InstrumentId,
+    tick_size: f64,
+    bar_close_ts: i64,
+    now_ts: i64,
+) -> broker_core::HybridRuntimeStrategyContext {
     broker_core::HybridRuntimeStrategyContext {
-        strategy_id: admission.strategy_id().to_string(),
-        request_namespace_account: admission.account_id().clone(),
-        instrument: admission.target_instrument().clone(),
-        tick_size: admission.tick_size(),
+        strategy_id: strategy_id.to_string(),
+        request_namespace_account: account_id.clone(),
+        instrument: instrument.clone(),
+        tick_size,
         trade_mode: broker_core::HybridRuntimeTradeMode::Paper,
         paper_execution_mode: broker_core::HybridRuntimePaperExecutionMode::LiveOnly,
         allow_live_orders: false,
         gateway_phase: broker_core::HybridRuntimeGatewayPhase::LiveReady,
         position_qty: Some(strategy.stage5c_current_position_qty()),
         event_ts_utc: bar_close_ts,
-        strategy_now_ts_utc: now.timestamp(),
+        strategy_now_ts_utc: now_ts,
         last_bar_ts_utc: Some(bar_close_ts),
     }
 }
@@ -7974,6 +8338,34 @@ fn stage5c_build_paper_intent_batch(
         broker_core::HybridRuntimeAttribution,
     >,
 ) -> Result<Stage5cPaperIntentBatch, Stage5cIntentSettlementError> {
+    stage5c_build_paper_intent_batch_from_binding(
+        strategy,
+        admission.strategy_id(),
+        admission.account_id(),
+        admission.target_instrument(),
+        admission.tick_size(),
+        bar_close_ts,
+        origin,
+        intents,
+        expected_attribution_by_request,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stage5c_build_paper_intent_batch_from_binding(
+    strategy: &HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    account_id: &BrokerAccountId,
+    instrument: &InstrumentId,
+    tick_size: f64,
+    bar_close_ts: i64,
+    origin: broker_core::HybridRuntimeBarOrigin,
+    intents: Vec<crate::BrokerNeutralHybridIntent>,
+    expected_attribution_by_request: &HashMap<
+        StrategyRequestId,
+        broker_core::HybridRuntimeAttribution,
+    >,
+) -> Result<Stage5cPaperIntentBatch, Stage5cIntentSettlementError> {
     if intents.len() > u8::MAX as usize {
         return Err(Stage5cIntentSettlementError::TooManyIntents);
     }
@@ -7982,19 +8374,14 @@ fn stage5c_build_paper_intent_batch(
     let mut seen_request_ids = HashSet::new();
     let state = Strategy::state(strategy);
     for intent in intents {
-        validate_stage5cg_intent(
-            &intent,
-            &admission.target_instrument().symbol,
-            admission.tick_size(),
-            bar_close_ts,
-        )?;
+        validate_stage5cg_intent(&intent, &instrument.symbol, tick_size, bar_close_ts)?;
         let class = intent
             .explicit_class()
             .ok_or(Stage5cIntentSettlementError::MissingIntentClass)?;
         let request_id = stage5cg_source_request_id(
-            admission.strategy_id(),
-            admission.account_id().as_str(),
-            &admission.target_instrument().symbol,
+            strategy_id,
+            account_id.as_str(),
+            &instrument.symbol,
             bar_close_ts,
             &intent,
         )?;
@@ -8007,12 +8394,7 @@ fn stage5c_build_paper_intent_batch(
             .get(&request_id)
             .cloned()
             .or_else(|| {
-                stage5cj_expected_attribution_for_intent(
-                    state,
-                    admission.strategy_id(),
-                    class,
-                    &intent,
-                )
+                stage5cj_expected_attribution_for_intent(state, strategy_id, class, &intent)
             });
         records.push(Stage5cPaperIntentRecord {
             request_id,
@@ -8023,9 +8405,9 @@ fn stage5c_build_paper_intent_batch(
         });
     }
     Ok(Stage5cPaperIntentBatch {
-        strategy_id: admission.strategy_id().to_string(),
-        account_id: admission.account_id().clone(),
-        instrument: admission.target_instrument().clone(),
+        strategy_id: strategy_id.to_string(),
+        account_id: account_id.clone(),
+        instrument: instrument.clone(),
         bar_close_ts,
         state_fingerprint: stage5c_state_fingerprint(state),
         request_ids,
@@ -9825,13 +10207,34 @@ fn stage5cj_expected_generated_attribution_by_request_from_ledger(
     HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
     Stage5cIntentSettlementError,
 > {
+    stage5cj_expected_generated_attribution_by_request_from_binding(
+        admission.strategy_id(),
+        admission.account_id(),
+        admission.target_instrument(),
+        source_ts,
+        intents,
+        ledger,
+    )
+}
+
+fn stage5cj_expected_generated_attribution_by_request_from_binding(
+    strategy_id: &str,
+    account_id: &BrokerAccountId,
+    instrument: &InstrumentId,
+    source_ts: i64,
+    intents: &[crate::BrokerNeutralHybridIntent],
+    ledger: &Stage5cCleanupAttributionLedger,
+) -> Result<
+    HashMap<StrategyRequestId, broker_core::HybridRuntimeAttribution>,
+    Stage5cIntentSettlementError,
+> {
     let mut expected = HashMap::new();
     let mut seen_request_ids = HashSet::new();
     for intent in intents {
         let request_id = stage5cg_source_request_id(
-            admission.strategy_id(),
-            admission.account_id().as_str(),
-            &admission.target_instrument().symbol,
+            strategy_id,
+            account_id.as_str(),
+            &instrument.symbol,
             source_ts,
             intent,
         )?;

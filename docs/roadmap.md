@@ -57,12 +57,20 @@ reconstruction. Its source hardening at
 `bcd8db546104968dd0e48ab041e02acf6869d224` are independently accepted. The
 accepted closure includes an fsync-backed pre-kill sequence-pair marker and an
 exact post-restart comparison. P1-d3 design R0 at
-`74696d1eefc0453c41440f79b087cafebd0d7ab0` was held. Its active R1
-design-only correction adds a durable recovered-cancel terminal-request seal,
-exact field/clock tables for all eight new shapes, full Stage6-embedded
-pre-seal outcome evidence, and canonical registry/hash/quiescent migration
-rules. P1-d3 production source and P1-d4 exhaustive crash/replay closure remain
-closed pending their separate acceptance.
+`74696d1eefc0453c41440f79b087cafebd0d7ab0` was held. R1 was independently
+accepted at `df330b2424199739ceb7c261321a5e5ee381c332`; it adds a durable
+recovered-cancel terminal-request seal, exact field/clock tables for all eight
+new shapes, full Stage6-embedded pre-seal outcome evidence, and canonical
+registry/hash/quiescent migration rules. The P1-d3 source review candidate now
+implements that contract with an authenticated bounded working book, exact
+initial/later/cancel/expiry reducers, Stage6 V3 write-ahead evidence,
+replacement S_ack/S_working/S_eval/S_terminal/S_cancel_recovered phases,
+same-bar callback ordering, checked-in eight-shape fresh/recovery goldens and
+isolated Redis source-XACK-last coverage. Two subprocess/SIGKILL cases bracket
+`S_cancel_recovered`, while pending semantic state and the exact
+post-`RequestAccepted` checkpoint survive restart. Current-tree authority remains on
+accepted P1-d2 until independent P1-d3 source acceptance and a governance-only
+rebind. P1-d4 exhaustive crash/replay closure remains closed.
 Operational Redis DB 0 remains closed through this source work; P1-e owns the
 deployable supervisor and P1-f owns isolated operational acceptance. FINAM
 POST/DELETE, broker dispatch, real orders and runtime-live remain closed.

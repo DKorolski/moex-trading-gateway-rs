@@ -240,6 +240,38 @@
 //!     truth.commit_truth(unreachable!()).unwrap();
 //! }
 //! ```
+//!
+//! P1-d3 LIMIT/CANCEL owners preserve the same phase split. S_ack cannot
+//! acknowledge its source, S_truth cannot apply truth again, and the
+//! fill-before-cancel intermediate cannot skip its recovered-cancel seal:
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisLimitAckCommitted;
+//! async fn early_limit_xack(ack: Stage8bP1RedisLimitAckCommitted) {
+//!     ack.acknowledge_source().await.unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisLimitTruthCommitted;
+//! fn duplicate_limit_truth(truth: Stage8bP1RedisLimitTruthCommitted) {
+//!     truth.commit_truth(unreachable!()).unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1RedisCancelContinuationPending;
+//! async fn skip_recovered_cancel_seal(pending: Stage8bP1RedisCancelContinuationPending) {
+//!     pending.acknowledge_source().await.unwrap();
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! use runtime_durable_service::Stage8bP1d3SemanticPendingOwner;
+//! fn reacquire_schedule(pending: Stage8bP1d3SemanticPendingOwner) {
+//!     pending.commit_later_limit(unreachable!(), unreachable!()).unwrap();
+//! }
+//! ```
 
 #[cfg(not(unix))]
 compile_error!("runtime-durable-service requires Unix kernel file locking");
@@ -261,7 +293,9 @@ pub use recovery::{
     Stage8bP1SemanticCommitOutcome, Stage8bP1SemanticPrepublicationOwner,
     Stage8bP1ZeroIntentCommitReceipt, Stage8bP1d2AckCommittedOwner,
     Stage8bP1d2FeedbackAuditEvidenceV1, Stage8bP1d2PreAckPendingOwner,
-    Stage8bP1d2TruthCommittedOwner, STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
+    Stage8bP1d2TruthCommittedOwner, Stage8bP1d3AckCommittedOwner, Stage8bP1d3LaterCommitOutcome,
+    Stage8bP1d3PreAckPendingOwner, Stage8bP1d3SemanticPendingOwner, Stage8bP1d3TruthCommittedOwner,
+    STAGE7B_RECOVERY_SEAL_SCHEMA_VERSION,
 };
 #[cfg(feature = "stage8a4-i3-test-fixtures")]
 #[doc(hidden)]
@@ -298,22 +332,27 @@ pub use stage8b_p1_semantic::{
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_local_m10,
     resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
     resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
-    resume_stage8b_p1d2_truth_with_redis, Stage8bP1CanonicalM10BuildInput,
-    Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1, Stage8bP1LocalM10Error,
-    Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked, Stage8bP1LocalPrepublicationPending,
-    Stage8bP1LocalSemanticOutcome, Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
-    Stage8bP1RedisCommandPublicationDisposition, Stage8bP1RedisCommandPublicationReceipt,
-    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisFeedbackAckCommitted,
-    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
-    Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisPrepublicationPending,
-    Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
-    Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
-    Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
-    Stage8bP1SemanticCompositionError, Stage8bP1SemanticCompositionOwner,
-    Stage8bP1ValidatedCanonicalM10, Stage8bP1ZeroIntentAckDisposition,
-    Stage8bP1ZeroIntentAckResolved, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
-    STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
-    STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
+    resume_stage8b_p1d2_truth_with_redis, resume_stage8b_p1d3_ack_with_redis,
+    resume_stage8b_p1d3_cancel_continuation_with_redis, resume_stage8b_p1d3_pre_ack_with_redis,
+    resume_stage8b_p1d3_semantic_with_redis, resume_stage8b_p1d3_truth_with_redis,
+    Stage8bP1CanonicalM10BuildInput, Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1,
+    Stage8bP1LocalM10Error, Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked,
+    Stage8bP1LocalPrepublicationPending, Stage8bP1LocalSemanticOutcome,
+    Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery, Stage8bP1RedisCancelCommitOutcome,
+    Stage8bP1RedisCancelContinuationPending, Stage8bP1RedisCommandPublicationDisposition,
+    Stage8bP1RedisCommandPublicationReceipt, Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig,
+    Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisFeedbackResolved,
+    Stage8bP1RedisFeedbackTruthCommitted, Stage8bP1RedisLimitAckCommitted,
+    Stage8bP1RedisLimitResolved, Stage8bP1RedisLimitTruthCommitted,
+    Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisPreAckRecoveryOutcome,
+    Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
+    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
+    Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
+    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1SemanticCompositionError,
+    Stage8bP1SemanticCompositionOwner, Stage8bP1ValidatedCanonicalM10,
+    Stage8bP1ZeroIntentAckDisposition, Stage8bP1ZeroIntentAckResolved,
+    STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN, STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE,
+    STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION, STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
 };
 
 use std::{

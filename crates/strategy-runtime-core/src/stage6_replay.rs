@@ -350,6 +350,96 @@ impl WorkingRequest {
         Ok(())
     }
 
+    pub(crate) fn apply_stage8b_p1d3_outcome(
+        &mut self,
+        effect: crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RequestReplayEffect,
+        sequence: crate::Stage6LifecycleSequence,
+        record_id: Stage6JournalRecordId,
+    ) -> Result<(), Stage6ReplayError> {
+        use crate::stage8b_p1d3_working_limit::Stage8bP1d3Stage6RequestReplayEffectKind;
+
+        if self.final_disposition.is_some() {
+            return Err(Stage6ReplayError::EventAfterFinalization);
+        }
+        if effect.request_id != self.identity.strategy_request_id()
+            || effect.durable_request_client_id != *self.identity.durable_client_order_id()
+            || effect.account_id != *self.identity.account_id()
+            || effect.instrument != *self.identity.instrument()
+            || effect.accepted_command_payload_sha256 != self.accepted_payload_sha256.as_str()
+            || effect.stage6_dispatch_record_id != self.last_record_id.as_str()
+            // P1-d3 uses one globally ordered mixed journal. A cancel target
+            // may become terminal in an autonomous V3 row between the
+            // request's dispatch row and its request-scoped cancel outcome.
+            // The mixed replay loop proves exact global causality; this
+            // request-local reducer therefore requires monotonicity rather
+            // than falsely requiring adjacency across another lifecycle.
+            || sequence.get() <= self.last_sequence
+            || self.dispatch_attempt_count != 1
+            || self.dispatch_safety_state != Stage6DispatchSafetyStateV1::ReconciliationRequired
+        {
+            return Err(Stage6ReplayError::IdentityDrift);
+        }
+        let attribution_bytes = serde_json::to_vec(self.identity.attribution())
+            .map_err(|_| Stage6ReplayError::IdentityDrift)?;
+        let attribution_sha256 = format!("{:x}", Sha256::digest(attribution_bytes));
+        if effect.attribution_fingerprint_sha256 != attribution_sha256 {
+            return Err(Stage6ReplayError::IdentityDrift);
+        }
+        // The accepted Stage 6 identity is authenticated by the recovered
+        // durable owner, which also owns runtime-config and checkpoint input.
+        // Mixed replay still requires a canonical non-zero digest here so it
+        // cannot silently discard that cross-binding.
+        if Stage6Sha256Digest::parse(effect.accepted_stage6_identity_sha256).is_err() {
+            return Err(Stage6ReplayError::IdentityDrift);
+        }
+
+        match effect.kind {
+            Stage8bP1d3Stage6RequestReplayEffectKind::Place {
+                broker_order_id,
+                broker_trade_id,
+            } => {
+                if self.identity.action() != Stage6DurableActionKind::Place
+                    || self.identity.target_broker_order_id().is_some()
+                    || self.identity.target_order_client_order_id().is_some()
+                {
+                    return Err(Stage6ReplayError::InvalidActionEvent);
+                }
+                self.establish_broker_order(&broker_order_id)?;
+                if let Some(trade_id) = broker_trade_id {
+                    if self
+                        .trades
+                        .insert(trade_id.as_str().to_string(), broker_order_id)
+                        .is_some()
+                    {
+                        return Err(Stage6ReplayError::BrokerTradeConflict);
+                    }
+                }
+            }
+            Stage8bP1d3Stage6RequestReplayEffectKind::Cancel {
+                target_broker_order_id,
+                target_place_client_id,
+                outcome,
+            } => {
+                if self.identity.action() != Stage6DurableActionKind::Cancel
+                    || self.identity.target_broker_order_id() != Some(&target_broker_order_id)
+                    || self
+                        .identity
+                        .target_order_client_order_id()
+                        .is_some_and(|value| value != &target_place_client_id)
+                {
+                    return Err(Stage6ReplayError::CancelTargetConflict);
+                }
+                if self.cancel_outcome.replace(outcome).is_some() {
+                    return Err(Stage6ReplayError::CancelOutcomeConflict);
+                }
+            }
+        }
+        self.dispatch_safety_state = Stage6DispatchSafetyStateV1::DispatchForbidden;
+        self.last_sequence = sequence.get();
+        self.last_record_id = record_id;
+        Ok(())
+    }
+
     pub(crate) fn is_finalized(&self) -> bool {
         self.final_disposition.is_some()
     }

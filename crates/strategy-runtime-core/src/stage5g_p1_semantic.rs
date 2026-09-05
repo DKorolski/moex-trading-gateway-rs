@@ -133,6 +133,27 @@ pub enum Stage5gP1SemanticTransition {
     MultiIntentBlocked(Stage5gP1MultiIntentBlocked),
 }
 
+/// P1-d3 continuation keeps the authenticated working book and the newly
+/// produced semantic commit in one replacement package.  These sources are
+/// crate-private so only the Stage 6 durable owner can export them.
+pub(crate) struct Stage8bP1d3ZeroIntentCommitted {
+    source: crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource,
+    projection: Stage5gP1SemanticCommitProjectionV1,
+    export_input: Stage5gCleanRestartExportInput,
+}
+
+pub(crate) struct Stage8bP1d3OneIntentPrepublication {
+    source: crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource,
+    projection: Stage5gP1SemanticCommitProjectionV1,
+    export_input: Stage5gCleanRestartExportInput,
+}
+
+pub(crate) enum Stage8bP1d3SemanticTransition {
+    ZeroIntent(Stage8bP1d3ZeroIntentCommitted),
+    OneIntent(Stage8bP1d3OneIntentPrepublication),
+    MultiIntentBlocked(Stage5gP1MultiIntentBlocked),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Stage5gP1SemanticFailure {
     #[error("P1 semantic source binding is invalid")]
@@ -369,6 +390,265 @@ pub fn continue_stage5g_p1_semantic(
             ))
         }
     }
+}
+
+/// Continues the accepted P1 semantic path from an authenticated P1-d3
+/// replacement.  Book/truth application must already have been sealed and
+/// reread by the outer durable owner.  The Hybrid callback and canonical
+/// command materialization are shared with Stage 5C; no second strategy or
+/// command path is introduced.
+pub(crate) fn continue_stage8b_p1d3_semantic(
+    restored: Stage5gCleanRestartedCapability,
+    accepted_bar: Stage5cAcceptedSemanticBar,
+    binding: Stage5gP1SemanticBindingInput,
+    tick_size: f64,
+) -> Result<Stage8bP1d3SemanticTransition, Stage5gP1SemanticFailure> {
+    if !is_sha256(&binding.operational_identity_sha256)
+        || !is_sha256(&binding.m10_semantic_id_sha256)
+        || !is_sha256(&binding.m10_payload_sha256)
+        || parse_exact_redis_id(&binding.m10_redis_id).is_none()
+        || !tick_size.is_finite()
+        || tick_size <= 0.0
+    {
+        return Err(Stage5gP1SemanticFailure::InvalidBinding);
+    }
+    let current = restored
+        .stage8b_p1d3_replacement()
+        .ok_or(Stage5gP1SemanticFailure::PriorAuthorityNotContinuationCapable)?;
+    if current.phase() == crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Ack {
+        return Err(Stage5gP1SemanticFailure::PriorAuthorityNotContinuationCapable);
+    }
+    let prior_checkpoint_sha256 = sha256_hex(
+        &serde_json::to_vec(restored.checkpoint())
+            .map_err(|_| Stage5gP1SemanticFailure::InvalidBinding)?,
+    );
+    let semantic_batch_id_sha256 = semantic_batch_id_sha256(
+        &binding.operational_identity_sha256,
+        &binding.m10_semantic_id_sha256,
+        &binding.m10_payload_sha256,
+        &prior_checkpoint_sha256,
+    );
+    let export_input = restored
+        .stage8b_p1_next_export_input(
+            &semantic_batch_id_sha256,
+            parse_exact_redis_id(&binding.m10_redis_id).expect("validated Redis id"),
+        )
+        .map_err(|_| Stage5gP1SemanticFailure::PersistenceIdentityOverflow)?;
+    let (runtime, state, replacement) = restored
+        .into_stage8b_p1d3_parts()
+        .map_err(|_| Stage5gP1SemanticFailure::PriorAuthorityNotContinuationCapable)?;
+    let (strategy_id, account_id, instrument) =
+        crate::Stage5gOrderPositionSession::stage5g_restart_state_binding(&state);
+    let callback = crate::stage5c_paper_host::resolve_stage8b_p1d3_semantic_bar_bridge(
+        runtime,
+        accepted_bar,
+        crate::stage5c_paper_host::Stage8bP1d3SemanticBarBridgeInput {
+            strategy_id: strategy_id.to_string(),
+            account_id: account_id.clone(),
+            instrument: instrument.clone(),
+            tick_size,
+        },
+    )
+    .map_err(|_| Stage5gP1SemanticFailure::SemanticCallbackFailed)?;
+    let intent_count = callback.intent_count();
+    if let Some(blocked) =
+        p1_multi_intent_boundary(&semantic_batch_id_sha256, callback.request_ids())
+    {
+        return Ok(Stage8bP1d3SemanticTransition::MultiIntentBlocked(blocked));
+    }
+    if intent_count == 0 {
+        let projection = p1_projection(
+            binding,
+            prior_checkpoint_sha256,
+            semantic_batch_id_sha256,
+            None,
+        )?;
+        let source =
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource::with_semantic_commit(
+                callback.strategy,
+                state,
+                replacement,
+                Some(projection.clone()),
+            )
+            .map_err(|_| Stage5gP1SemanticFailure::RestartExportFailed)?;
+        return Ok(Stage8bP1d3SemanticTransition::ZeroIntent(
+            Stage8bP1d3ZeroIntentCommitted {
+                source,
+                projection,
+                export_input,
+            },
+        ));
+    }
+    if intent_count != 1 {
+        return Err(Stage5gP1SemanticFailure::SemanticCallbackFailed);
+    }
+    let (runtime, material) = callback
+        .into_single_intent_material()
+        .map_err(|_| Stage5gP1SemanticFailure::UnsupportedSingleIntent)?;
+    let projection = p1_projection(
+        binding,
+        prior_checkpoint_sha256,
+        semantic_batch_id_sha256,
+        Some(material),
+    )?;
+    let source = crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource::with_semantic_commit(
+        runtime,
+        state,
+        replacement,
+        Some(projection.clone()),
+    )
+    .map_err(|_| Stage5gP1SemanticFailure::RestartExportFailed)?;
+    Ok(Stage8bP1d3SemanticTransition::OneIntent(
+        Stage8bP1d3OneIntentPrepublication {
+            source,
+            projection,
+            export_input,
+        },
+    ))
+}
+
+fn p1_projection(
+    binding: Stage5gP1SemanticBindingInput,
+    prior_stage5g_checkpoint_sha256: String,
+    semantic_batch_id_sha256: String,
+    material: Option<crate::stage5c_paper_host::Stage8bP1CommandMaterial>,
+) -> Result<Stage5gP1SemanticCommitProjectionV1, Stage5gP1SemanticFailure> {
+    let projection = if let Some(material) = material {
+        let request_id = command_request_id(&material.command);
+        let (durable_request_identity, durable_command_snapshot) = durable_command_material(
+            &material.command,
+            material.instrument.clone(),
+            material.expected_attribution.clone(),
+        )
+        .ok_or(Stage5gP1SemanticFailure::UnsupportedSingleIntent)?;
+        if request_id != material.source.request_id {
+            return Err(Stage5gP1SemanticFailure::UnsupportedSingleIntent);
+        }
+        let canonical_command_sha256 = sha256_hex(
+            &serde_json::to_vec(&material.command)
+                .map_err(|_| Stage5gP1SemanticFailure::UnsupportedSingleIntent)?,
+        );
+        Stage5gP1SemanticCommitProjectionV1 {
+            schema_version: STAGE5G_P1_SEMANTIC_COMMIT_SCHEMA_VERSION,
+            identity_domain: P1_SEMANTIC_BATCH_DOMAIN.to_string(),
+            operational_identity_sha256: binding.operational_identity_sha256,
+            m10_redis_id: binding.m10_redis_id,
+            m10_semantic_id_sha256: binding.m10_semantic_id_sha256,
+            m10_payload_sha256: binding.m10_payload_sha256,
+            prior_stage5g_checkpoint_sha256,
+            semantic_batch_id_sha256,
+            intent_count: 1,
+            request_id: Some(request_id),
+            canonical_command: Some(material.command),
+            canonical_command_sha256: Some(canonical_command_sha256),
+            durable_request_identity: Some(durable_request_identity),
+            durable_command_snapshot: Some(durable_command_snapshot),
+            expected_attribution: Some(material.expected_attribution),
+            source_intent: Some(material.source),
+        }
+    } else {
+        Stage5gP1SemanticCommitProjectionV1 {
+            schema_version: STAGE5G_P1_SEMANTIC_COMMIT_SCHEMA_VERSION,
+            identity_domain: P1_SEMANTIC_BATCH_DOMAIN.to_string(),
+            operational_identity_sha256: binding.operational_identity_sha256,
+            m10_redis_id: binding.m10_redis_id,
+            m10_semantic_id_sha256: binding.m10_semantic_id_sha256,
+            m10_payload_sha256: binding.m10_payload_sha256,
+            prior_stage5g_checkpoint_sha256,
+            semantic_batch_id_sha256,
+            intent_count: 0,
+            request_id: None,
+            canonical_command: None,
+            canonical_command_sha256: None,
+            durable_request_identity: None,
+            durable_command_snapshot: None,
+            expected_attribution: None,
+            source_intent: None,
+        }
+    };
+    projection
+        .validate()
+        .then_some(projection)
+        .ok_or(Stage5gP1SemanticFailure::UnsupportedSingleIntent)
+}
+
+#[cfg(feature = "stage5g-artifact-fixtures")]
+pub(crate) fn stage8b_p1d3_test_one_intent_projection(
+    binding: Stage5gP1SemanticBindingInput,
+    prior_stage5g_checkpoint_sha256: String,
+    command: BrokerCommand,
+    instrument: InstrumentId,
+    expected_attribution: HybridRuntimeAttribution,
+    source: crate::stage5c_paper_host::Stage5gSourceIntentProjection,
+) -> Result<Stage5gP1SemanticCommitProjectionV1, Stage5gP1SemanticFailure> {
+    let semantic_batch_id_sha256 = semantic_batch_id_sha256(
+        &binding.operational_identity_sha256,
+        &binding.m10_semantic_id_sha256,
+        &binding.m10_payload_sha256,
+        &prior_stage5g_checkpoint_sha256,
+    );
+    p1_projection(
+        binding,
+        prior_stage5g_checkpoint_sha256,
+        semantic_batch_id_sha256,
+        Some(crate::stage5c_paper_host::Stage8bP1CommandMaterial {
+            command,
+            instrument,
+            expected_attribution,
+            source,
+        }),
+    )
+}
+
+pub(crate) fn p1d3_projection_from_zero(
+    value: &Stage8bP1d3ZeroIntentCommitted,
+) -> &Stage5gP1SemanticCommitProjectionV1 {
+    &value.projection
+}
+
+pub(crate) fn p1d3_projection_from_one(
+    value: &Stage8bP1d3OneIntentPrepublication,
+) -> &Stage5gP1SemanticCommitProjectionV1 {
+    &value.projection
+}
+
+pub(crate) fn rebind_stage8b_p1d3_one_intent_request_checkpoint(
+    mut value: Stage8bP1d3OneIntentPrepublication,
+    expected_pre_checkpoint_sha256: &str,
+    authenticated_post_checkpoint_sha256: String,
+) -> Result<Stage8bP1d3OneIntentPrepublication, Stage5gP1SemanticFailure> {
+    value.source = value
+        .source
+        .rebind_semantic_request_checkpoint(
+            expected_pre_checkpoint_sha256,
+            authenticated_post_checkpoint_sha256,
+        )
+        .map_err(|_| Stage5gP1SemanticFailure::RestartExportFailed)?;
+    Ok(value)
+}
+
+pub(crate) fn export_stage8b_p1d3_zero_intent(
+    value: Stage8bP1d3ZeroIntentCommitted,
+    key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage5gP1SemanticFailure> {
+    export_stage5g_clean_restart(
+        Stage5gCleanRestartSource::P1d3(Box::new(value.source)),
+        value.export_input,
+        key,
+    )
+    .map_err(|_| Stage5gP1SemanticFailure::RestartExportFailed)
+}
+
+pub(crate) fn export_stage8b_p1d3_one_intent(
+    value: Stage8bP1d3OneIntentPrepublication,
+    key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage5gP1SemanticFailure> {
+    export_stage5g_clean_restart(
+        Stage5gCleanRestartSource::P1d3(Box::new(value.source)),
+        value.export_input,
+        key,
+    )
+    .map_err(|_| Stage5gP1SemanticFailure::RestartExportFailed)
 }
 
 fn p1_multi_intent_boundary(
@@ -633,8 +913,8 @@ impl From<Stage5gCleanRestartError> for Stage5gP1SemanticFailure {
 mod tests {
     use super::*;
     use broker_core::{
-        Exchange, HybridRuntimeBarEvent, HybridRuntimeBarOrigin, InstrumentId, Market,
-        Stage3StrategyBarProvenance,
+        BrokerAccountId, Exchange, HybridRuntimeAttribution, HybridRuntimeBarEvent,
+        HybridRuntimeBarOrigin, InstrumentId, Market, Stage3StrategyBarProvenance,
     };
 
     fn restored_source() -> Stage5gCleanRestartedCapability {
@@ -688,6 +968,67 @@ mod tests {
         }
     }
 
+    fn restored_p1d3_source() -> (
+        Stage5gCleanRestartedCapability,
+        Stage5gLifecycleCommitmentKey,
+        crate::HybridIntradayRuntimeStrategy,
+    ) {
+        let (ready, export_input, key, fresh_runtime) =
+            crate::stage5g_timer::stage8b_p1_test_first_boot_material();
+        let runtime = ready.stage5g_runtime_strategy().clone();
+        let state = crate::stage5g_order_position::tests::stage8b_p1d3_quiescent_state_fixture(20);
+        let attribution = HybridRuntimeAttribution::parse_source_comment(
+            "HYB|sid=hybrid_imoexf|c=cycle0001|o=BO|r=ENTRY",
+        )
+        .unwrap();
+        let book = crate::stage8b_p1d3_working_limit::Stage8bP1d3WorkingBookProjectionV1::migrate_from_p1d2(
+            &"11".repeat(32),
+            "22".repeat(32),
+            1,
+            BrokerAccountId::new("ACC_TEST_0001"),
+            InstrumentId {
+                symbol: "IMOEXF".to_string(),
+                venue_symbol: Some("IMOEXF@RTSX".to_string()),
+                exchange: Exchange::Moex,
+                market: Market::Futures,
+            },
+            attribution,
+            20,
+        )
+        .unwrap();
+        let expected_book_sha256 = book.canonical_sha256().unwrap();
+        let replacement =
+            crate::stage8b_p1d3_working_limit::Stage8bP1d3ReplacementProjectionV1::migrated(
+                book,
+                "33".repeat(32),
+            )
+            .unwrap();
+        let source = crate::stage8b_p1d3_working_limit::Stage8bP1d3RestartSource::new(
+            runtime,
+            state,
+            replacement,
+        )
+        .unwrap();
+        let bytes = crate::export_stage5g_clean_restart(
+            crate::Stage5gCleanRestartSource::P1d3(Box::new(source)),
+            export_input,
+            &key,
+        )
+        .unwrap();
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &key, fresh_runtime).unwrap();
+        assert_eq!(
+            restored
+                .stage8b_p1d3_replacement()
+                .unwrap()
+                .working_book()
+                .canonical_sha256()
+                .unwrap(),
+            expected_book_sha256
+        );
+        let next_fresh_runtime = restored.stage5g_fresh_reconstruction_candidate();
+        (restored, key, next_fresh_runtime)
+    }
+
     #[test]
     fn p1_zero_intent_semantic_transition_is_restart_exportable() {
         let transition =
@@ -729,5 +1070,66 @@ mod tests {
         assert!(!blocked.command_publication_allowed());
         assert!(!blocked.m10_xack_allowed());
         assert!(p1_multi_intent_boundary(&"aa".repeat(32), &request_ids[..1]).is_none());
+    }
+
+    #[test]
+    fn p1d3_zero_intent_keeps_book_and_semantic_commit_in_one_restart_package() {
+        let (restored, key, fresh_runtime) = restored_p1d3_source();
+        let prior_book = restored
+            .stage8b_p1d3_replacement()
+            .unwrap()
+            .working_book()
+            .encode_canonical()
+            .unwrap();
+        let transition =
+            continue_stage8b_p1d3_semantic(restored, accepted_bar(2_600.0), binding(), 0.5)
+                .unwrap();
+        let Stage8bP1d3SemanticTransition::ZeroIntent(zero) = transition else {
+            panic!("unchanged M10 must remain zero-intent under P1-d3");
+        };
+        let expected = p1d3_projection_from_zero(&zero).clone();
+        let bytes = export_stage8b_p1d3_zero_intent(zero, &key).unwrap();
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &key, fresh_runtime).unwrap();
+        assert_eq!(restored.stage8b_p1_semantic_commit(), Some(&expected));
+        assert_eq!(
+            restored
+                .stage8b_p1d3_replacement()
+                .unwrap()
+                .working_book()
+                .encode_canonical()
+                .unwrap(),
+            prior_book
+        );
+    }
+
+    #[test]
+    fn p1d3_one_intent_keeps_book_and_prepublication_commit_in_one_restart_package() {
+        let (restored, key, fresh_runtime) = restored_p1d3_source();
+        let prior_book = restored
+            .stage8b_p1d3_replacement()
+            .unwrap()
+            .working_book()
+            .encode_canonical()
+            .unwrap();
+        let transition =
+            continue_stage8b_p1d3_semantic(restored, accepted_bar(2_650.0), binding(), 0.5)
+                .unwrap();
+        let Stage8bP1d3SemanticTransition::OneIntent(one) = transition else {
+            panic!("breakout M10 must produce one P1-d3 prepublication intent");
+        };
+        let expected = p1d3_projection_from_one(&one).clone();
+        let bytes = export_stage8b_p1d3_one_intent(one, &key).unwrap();
+        let restored = crate::restore_stage5g_clean_restart(&bytes, &key, fresh_runtime).unwrap();
+        assert_eq!(restored.stage8b_p1_semantic_commit(), Some(&expected));
+        assert_eq!(expected.intent_count, 1);
+        assert_eq!(
+            restored
+                .stage8b_p1d3_replacement()
+                .unwrap()
+                .working_book()
+                .encode_canonical()
+                .unwrap(),
+            prior_book
+        );
     }
 }

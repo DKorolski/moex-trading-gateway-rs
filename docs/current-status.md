@@ -1376,13 +1376,20 @@ Amber:
   fsync-backed pre-kill pair marker and an exact comparison with the
   post-restart authenticated audit. P1-d3 design R0 at
   `74696d1eefc0453c41440f79b087cafebd0d7ab0` was held with three P1 and one
-  P2 finding. The active candidate is its narrow R1 design correction. It
-  retains the request/order split, fill-before-cancel and schedule-owned
-  expiry, and adds `S_cancel_recovered`, complete byte-exact tables for eight
-  projection shapes, full Stage6-embedded pre-seal outcome evidence and
-  deterministic registry/hash/P1-d2 migration rules. P1-d3 production source, P1-d4 exhaustive
-  crash/replay, operational Redis DB0/VPS activation, FINAM send, broker
-  dispatch, runtime-live and real orders remain closed.
+  P2 finding. R1 was independently accepted at
+  `df330b2424199739ceb7c261321a5e5ee381c332`. The active source review
+  candidate implements its request/order split, fill-before-cancel,
+  schedule-owned expiry, `S_cancel_recovered`, exact eight-shape projections,
+  full Stage6-embedded outcome evidence and deterministic registry/hash/P1-d2
+  migration. The P1-d3 book is carried in authenticated replacement packages;
+  all eight fresh/recovery canonical outcomes are checked in as byte/SHA-256
+  goldens, and isolated Redis proves read-only successor observation with
+  source XACK last. Two real subprocess/SIGKILL cases bracket
+  `S_cancel_recovered`; restart also preserves the pending semantic slot and
+  binds the replacement package to the exact post-`RequestAccepted` Stage 6
+  checkpoint. Current-tree authority remains pinned to accepted P1-d2.
+  P1-d4 exhaustive crash/replay, operational Redis DB0/VPS activation, FINAM
+  send, broker dispatch, runtime-live and real orders remain closed.
 - Stage 5D final restart r2 closure is still a review candidate until accepted.
   It proves the clean-process paper/no-send restart path through a durable
   package boundary and scenario inventory, but does not authorize Stage 6+

@@ -39,13 +39,19 @@ pub use redis::{
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
     resume_stage8b_p1_prepublication_with_redis, resume_stage8b_p1d2_ack_with_redis,
     resume_stage8b_p1d2_pre_ack_with_redis, resume_stage8b_p1d2_truth_with_redis,
-    Stage8bP1RedisCommandPublicationDisposition, Stage8bP1RedisCommandPublicationReceipt,
-    Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig, Stage8bP1RedisFeedbackAckCommitted,
-    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
-    Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisPrepublicationPending,
-    Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
-    Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
-    Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
+    resume_stage8b_p1d3_ack_with_redis, resume_stage8b_p1d3_cancel_continuation_with_redis,
+    resume_stage8b_p1d3_pre_ack_with_redis, resume_stage8b_p1d3_semantic_with_redis,
+    resume_stage8b_p1d3_truth_with_redis, Stage8bP1RedisCancelCommitOutcome,
+    Stage8bP1RedisCancelContinuationPending, Stage8bP1RedisCommandPublicationDisposition,
+    Stage8bP1RedisCommandPublicationReceipt, Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig,
+    Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisFeedbackResolved,
+    Stage8bP1RedisFeedbackTruthCommitted, Stage8bP1RedisLimitAckCommitted,
+    Stage8bP1RedisLimitResolved, Stage8bP1RedisLimitTruthCommitted,
+    Stage8bP1RedisM10PublishDisposition, Stage8bP1RedisPreAckRecoveryOutcome,
+    Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
+    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
+    Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
+    Stage8bP1RedisZeroIntentAckResolved,
 };
 
 pub const STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION: u16 = 1;
@@ -166,6 +172,33 @@ impl Stage8bP1ValidatedCanonicalM10 {
             open_ts_utc_ms: payload.open_ts_utc_ms,
             close_ts_utc_ms: payload.close_ts_utc_ms,
             open: canonical_decimal(&payload.open)?,
+        })
+    }
+
+    pub(crate) fn into_p1d3_limit_evidence(
+        self,
+    ) -> Result<strategy_runtime_core::Stage8bP1d3CanonicalM10Evidence, Stage8bP1CanonicalM10Error>
+    {
+        let canonical_bytes_sha256 = sha256_hex(&self.canonical_bytes);
+        let payload = self.envelope.payload;
+        let parse = |value: &str| {
+            value
+                .parse::<Decimal>()
+                .map_err(|_| Stage8bP1CanonicalM10Error::InvalidDecimal)
+        };
+        Ok(strategy_runtime_core::Stage8bP1d3CanonicalM10Evidence {
+            redis_id: self.envelope.redis_id,
+            semantic_id_sha256: self.envelope.m10_semantic_id_sha256,
+            payload_sha256: self.envelope.m10_payload_sha256,
+            canonical_bytes_sha256,
+            operational_identity_sha256: payload.operational_identity_sha256,
+            instrument: p1_instrument(),
+            open_ts_utc_ms: payload.open_ts_utc_ms,
+            close_ts_utc_ms: payload.close_ts_utc_ms,
+            open: parse(&payload.open)?,
+            high: parse(&payload.high)?,
+            low: parse(&payload.low)?,
+            close: parse(&payload.close)?,
         })
     }
 
