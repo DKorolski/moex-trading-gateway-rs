@@ -19,6 +19,7 @@ BRANCH = "stage8b-paper-shadow-resumption"
 BASE = "7dc7c802feca6e79d3a1a9902c181ad7b6afc506"
 R0 = "b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f"
 R1 = "3a3f14f595b9672b23d421e7a857117fb2c578d2"
+R2 = "16fe6dc535fdd744be9b814ab517386d83f52eac"
 EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1d4-crash-replay-evidence.json"
 
 
@@ -46,6 +47,8 @@ def main() -> None:
         raise SystemExit("stage8b-p1d4-design-handoff: FAIL reviewed R0 drift")
     if run("git", "merge-base", source_ref, R1).decode().strip() != R1:
         raise SystemExit("stage8b-p1d4-design-handoff: FAIL reviewed R1 drift")
+    if run("git", "merge-base", source_ref, R2).decode().strip() != R2:
+        raise SystemExit("stage8b-p1d4-design-handoff: FAIL reviewed R2 drift")
 
     gate = subprocess.run(
         ["bash", "scripts/stage8b_p1d4_design_gate.sh"],
@@ -54,11 +57,11 @@ def main() -> None:
         stderr=subprocess.STDOUT,
         check=False,
     )
-    if gate.returncode != 0 or b"PASS stage8b-p1d4-r2-design-gate" not in gate.stdout:
+    if gate.returncode != 0 or b"PASS stage8b-p1d4-r3-design-gate" not in gate.stdout:
         raise SystemExit(gate.stdout.decode(errors="replace"))
 
     short_ref = source_ref[:7]
-    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d4-r2-design-review-package.zip"
+    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d4-r3-design-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     evidence = json.loads(EVIDENCE_TEMPLATE.read_text(encoding="utf-8"))
@@ -110,7 +113,7 @@ def main() -> None:
     )
     print(
         f"archive={archive_path}\nsha256={digest}\nsource_ref={source_ref}\n"
-        "stage8b-p1d4-r2-design-handoff: PASS"
+        "stage8b-p1d4-r3-design-handoff: PASS"
     )
 
 

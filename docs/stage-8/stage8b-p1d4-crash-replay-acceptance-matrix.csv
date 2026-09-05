@@ -2,7 +2,7 @@ id,area,requirement,status
 P1D4D-001,lineage,Accepted predecessor is exact P1-d3 governance closure 7dc7c802feca6e79d3a1a9902c181ad7b6afc506,REQUIRED
 P1D4D-002,scope,Design is documentation checker and handoff tooling only,REQUIRED
 P1D4D-003,scope,P1-d3 business outcomes and normal-path ordering remain stable; only the exact dispatch-only recovery composition authorized by R2 may be added after design acceptance,REQUIRED
-P1D4D-004,scope,Implementation is not authorized before independent R2 design acceptance,REQUIRED
+P1D4D-004,scope,Implementation is not authorized before independent R3 design acceptance,REQUIRED
 P1D4D-005,isolation,Every crash case uses a fresh temporary durable root,REQUIRED
 P1D4D-006,isolation,Every Redis case uses fresh loopback-only ephemeral Redis on a random port,REQUIRED
 P1D4D-007,isolation,Operational Redis DB0 and VPS are never test targets,REQUIRED
@@ -71,11 +71,19 @@ P1D4D-069,gate,Implementation gate inherits P1-d3 source gates workspace tests d
 P1D4D-070,closure,Operational Redis DB0 VPS FINAM dispatch runtime-live and real orders remain closed,REQUIRED
 P1D4D-071,closure,Partial fills fees slippage replace protective bracket and multi-leg remain closed,REQUIRED
 P1D4D-072,governance,P1-e opens only after P1-d4 source acceptance and governance-only authority rebind,REQUIRED
-P1D4D-073,dispatch,Dispatch-only classifier accepts exactly one valid DispatchAttemptRecorded suffix bound to one accepted Place or Cancel request,REQUIRED
-P1D4D-074,dispatch,P1d3DispatchPending exposes only exact no-second-dispatch reexecution and one V3 outcome append continuation,REQUIRED
+P1D4D-073,dispatch,Dispatch-only classifier accepts exactly one valid DispatchAttemptRecorded suffix only after exact P1-d3 PLACE or CANCEL command and authenticated package predicates pass,REQUIRED
+P1D4D-074,dispatch,P1d3DispatchPending exposes only no-second-dispatch scenario-aware continuation with one request V3 for simple scenarios or typed target plus recovered-cancel V3 outcomes for S09,REQUIRED
 P1D4D-075,dispatch,Dispatch-only recovery preserves accepted request dispatch record source candidate sequence reservation and projection bytes across restart,REQUIRED
 P1D4D-076,marker,Stage8bP1d4CrashMarkerV1 has the exact eight-field schema and canonical encoding frozen by R2,REQUIRED
 P1D4D-077,marker,Normalized marker replaces only child_pid with integer zero and uses the exact marker digest domain and length prefix,REQUIRED
 P1D4D-078,process,P1D4C-078 and P1D4C-079 use new P1-d4 exact-protocol hooks rather than inherited P1-d3 completion,REQUIRED
 P1D4D-079,coverage,P1D4C-088 through P1D4C-092 cover S06 F07 S07 F07 and S09 target F07 cancel F03 cancel F04,REQUIRED
-P1D4D-080,scope,Accepted R2 may authorize only the named dispatch-only recovery composition plus test evidence; all operational and live surfaces remain closed,REQUIRED
+P1D4D-080,scope,Accepted R3 may authorize only the named dispatch-only recovery composition plus test evidence; all operational and live surfaces remain closed,REQUIRED
+P1D4D-081,classifier,PLACE requires exact Limit Day no TTL positive integral quantity positive limit price and authenticated P1-d3 replacement book,REQUIRED
+P1D4D-082,classifier,CANCEL requires exact durable cancel unique BOID registry row canonical optional target TCID distinct cancel DCID and authenticated P1-d3 semantic package binding,REQUIRED
+P1D4D-083,classifier,Market non-Day LIMIT LIMIT with TTL nonpositive or fractional quantity missing positive limit and missing P1-d3 book are rejected before candidate or owner creation,REQUIRED
+P1D4D-084,classifier,P1-d3 dispatch-only classification is ordered after exact domain predicates and cannot intercept accepted P1-d1 or P1-d2 Market recovery,REQUIRED
+P1D4D-085,classifier,Source regression constructs P1-d2 Market dispatch-only suffix and proves no P1d3DispatchPending authority V3 second dispatch or changed predecessor disposition,REQUIRED
+P1D4D-086,outcomes,S01 S02 S03 S08 S10 S11 dispatch recovery appends exactly one typed request V3 and one RequestFinalized row,REQUIRED
+P1D4D-087,outcomes,S09 dispatch recovery appends one target LaterFilled V3 and one recovered CANCEL V3 with total V3 delta two and RequestFinalized delta one,REQUIRED
+P1D4D-088,outcomes,S09 intermediate audit after target S_terminal is P1d3CancelContinuationPending and full completion reaches S_cancel_recovered then source XACK last,REQUIRED

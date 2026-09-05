@@ -17,8 +17,10 @@ GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST}
 BASE = "7dc7c802feca6e79d3a1a9902c181ad7b6afc506"
 R0 = "b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f"
 R1 = "3a3f14f595b9672b23d421e7a857117fb2c578d2"
-GENERAL_MATRIX_SHA256 = "57f9e83c9a4d8c6b56cb39792c7e08f63e2717c261c508fdd443317b78aac4c0"
-CELL_MATRIX_SHA256 = "b54d8d26e5ebb12389946c905f37a029beb85d1005c7ef95edf6a47596bd725a"
+R2 = "16fe6dc535fdd744be9b814ab517386d83f52eac"
+GENERAL_MATRIX_SHA256 = "e2a376fda504a691b3dffa5160542c5f184bf59ff9f224ae4159b5bbaf8c06de"
+CELL_MATRIX_SHA256 = "8c3122af016e860e3fa54a6f4143c50b9258c2a5a4bd2d15f9847a118a8582cc"
+R3_DESIGN_SHA256 = "d4c844498b47b53a09fc916e7a110ce856725ad421e4dee1c4b641e85dc70e7a"
 REQUIRED = GENERATED | {
     "docs/current-status.md",
     "docs/roadmap.md",
@@ -29,14 +31,18 @@ REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p1d4-exhaustive-crash-replay-design.md",
     "docs/stage-8/stage8b-p1d4-crash-replay-design-r1.md",
     "docs/stage-8/stage8b-p1d4-crash-replay-design-r2.md",
+    "docs/stage-8/stage8b-p1d4-crash-replay-design-r3.md",
     "docs/stage-8/stage8b-p1d4-crash-replay-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v1.csv",
     "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v2.csv",
+    "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v3.csv",
     "docs/stage-8/stage8b-p1d4-crash-replay-evidence.json",
     "scripts/stage8b_p1d4_design_check.py",
     "scripts/stage8b_p1d4_design_negative_harness.py",
     "scripts/stage8b_p1d4_r2_design_check.py",
     "scripts/stage8b_p1d4_r2_design_negative_harness.py",
+    "scripts/stage8b_p1d4_r3_design_check.py",
+    "scripts/stage8b_p1d4_r3_design_negative_harness.py",
     "scripts/stage8b_p1d4_design_gate.sh",
     "scripts/make_stage8b_p1d4_design_handoff.py",
     "scripts/stage8b_p1d4_design_handoff_safety_check.py",
@@ -95,7 +101,7 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("archive name mismatch")
         if evidence.get("stage") != "Stage 8B-P1-d4 exhaustive crash/replay closure design":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "DESIGN_R2_REVIEW_CANDIDATE":
+        if evidence.get("status") != "DESIGN_R3_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
         if evidence.get("accepted_p1d3_closure_ref") != BASE:
             raise ValueError("accepted predecessor mismatch")
@@ -103,17 +109,23 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("reviewed R0 mismatch")
         if evidence.get("reviewed_r1_ref") != R1:
             raise ValueError("reviewed R1 mismatch")
-        if evidence.get("acceptance_rows") != 80 or evidence.get("negative_cases") != 104:
+        if evidence.get("reviewed_r2_ref") != R2:
+            raise ValueError("reviewed R2 mismatch")
+        if evidence.get("acceptance_rows") != 88 or evidence.get("negative_cases") != 128:
             raise ValueError("matrix inventory mismatch")
         if evidence.get("acceptance_matrix_sha256") != GENERAL_MATRIX_SHA256:
             raise ValueError("general matrix binding mismatch")
+        if evidence.get("design_r3_sha256") != R3_DESIGN_SHA256:
+            raise ValueError("R3 design binding mismatch")
+        if sha256(archive.read("docs/stage-8/stage8b-p1d4-crash-replay-design-r3.md")) != R3_DESIGN_SHA256:
+            raise ValueError("R3 design content mismatch")
         if sha256(archive.read("docs/stage-8/stage8b-p1d4-crash-replay-acceptance-matrix.csv")) != GENERAL_MATRIX_SHA256:
             raise ValueError("general matrix content mismatch")
         if evidence.get("scenario_frontier_matrix_rows") != 92:
             raise ValueError("cell matrix count mismatch")
         if evidence.get("scenario_frontier_matrix_sha256") != CELL_MATRIX_SHA256:
             raise ValueError("cell matrix binding mismatch")
-        if sha256(archive.read("docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v2.csv")) != CELL_MATRIX_SHA256:
+        if sha256(archive.read("docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v3.csv")) != CELL_MATRIX_SHA256:
             raise ValueError("cell matrix content mismatch")
         if evidence.get("frontier_count") != 21:
             raise ValueError("frontier inventory mismatch")
@@ -127,11 +139,11 @@ def check(path: str) -> dict[str, object]:
 
         gate = archive.read(GATE)
         for expected in (
-            b"PASS stage8b-p1d4-r2-design-scope",
-            b"PASS stage8b-p1d4-r2-design-negative-harness 104/104",
-            b"PASS stage8b-p1d4-r2-design-matrix rows=80",
-            b"PASS stage8b-p1d4-r2-cell-matrix cells=92",
-            b"PASS stage8b-p1d4-r2-design-gate",
+            b"PASS stage8b-p1d4-r3-design-scope",
+            b"PASS stage8b-p1d4-r3-design-negative-harness 128/128",
+            b"PASS stage8b-p1d4-r3-design-matrix rows=88",
+            b"PASS stage8b-p1d4-r3-cell-matrix cells=92",
+            b"PASS stage8b-p1d4-r3-design-gate",
         ):
             if expected not in gate:
                 raise ValueError(f"gate marker missing: {expected!r}")
@@ -161,7 +173,7 @@ def check(path: str) -> dict[str, object]:
             "symlinks": 0,
             "unsafe_paths": 0,
             "source_ref": source_ref,
-            "stage": "Stage 8B-P1-d4 R2 design",
+            "stage": "Stage 8B-P1-d4 R3 design",
             "result": "PASS",
         }
 
@@ -174,7 +186,7 @@ def main() -> None:
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, json.JSONDecodeError) as error:
         print(f"stage8b-p1d4-design-handoff-safety: FAIL {error}", file=sys.stderr)
         raise SystemExit(1)
-    print("stage8b-p1d4-r2-design-handoff-safety: PASS " + json.dumps(result, sort_keys=True))
+    print("stage8b-p1d4-r3-design-handoff-safety: PASS " + json.dumps(result, sort_keys=True))
 
 
 if __name__ == "__main__":

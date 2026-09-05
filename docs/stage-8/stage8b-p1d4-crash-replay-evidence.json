@@ -1,6 +1,6 @@
 {
-  "acceptance_matrix_sha256": "57f9e83c9a4d8c6b56cb39792c7e08f63e2717c261c508fdd443317b78aac4c0",
-  "acceptance_rows": 80,
+  "acceptance_matrix_sha256": "e2a376fda504a691b3dffa5160542c5f184bf59ff9f224ae4159b5bbaf8c06de",
+  "acceptance_rows": 88,
   "accepted_p1d3_closure_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
   "closed_surfaces": {
     "broker_dispatch": false,
@@ -15,14 +15,78 @@
     "runtime_live": false,
     "vps_activation": false
   },
-  "design_only": true,
+    "design_only": true,
+    "design_r3_sha256": "d4c844498b47b53a09fc916e7a110ce856725ad421e4dee1c4b641e85dc70e7a",
   "dispatch_only_recovery_contract": {
     "classifier": "classify_stage8b_p1d3_dispatch_only_candidate",
+    "classifier_domain": {
+      "cancel_required": [
+        "exact_cancel_snapshot",
+        "ttl_none",
+        "unique_target_boid",
+        "canonical_optional_target_tcid",
+        "cancel_dcid_distinct_from_target_tcid",
+        "authenticated_p1d3_semantic_package_book"
+      ],
+      "excluded_place_shapes": [
+        "market",
+        "non_day_limit",
+        "limit_with_ttl",
+        "nonpositive_or_fractional_qty",
+        "missing_or_nonpositive_limit_price",
+        "missing_authenticated_p1d3_book"
+      ],
+      "order": [
+        "p1d3_v3_journal_ahead",
+        "p1d2_journal_ahead",
+        "generic_p1_journal_ahead",
+        "p1d3_dispatch_only",
+        "blocked_fallback"
+      ],
+      "place_required": [
+        "exact_place_snapshot",
+        "order_type_limit",
+        "time_in_force_day",
+        "ttl_none",
+        "positive_integral_qty",
+        "positive_limit_price",
+        "authenticated_p1d3_semantic_package_book"
+      ]
+    },
     "expected_restart_disposition": "P1d3DispatchPending",
     "normal_path_changed": false,
-    "outcome_append_count": 1,
+    "scenario_outcome_contracts": {
+      "s09_target_first": {
+        "dispatch_after": 1,
+        "dispatch_before": 1,
+        "recovered_cancel_v3_delta": 1,
+        "request_finalized_delta": 1,
+        "required_intermediate_disposition": "P1d3CancelContinuationPending",
+        "scenarios": [
+          "S09"
+        ],
+        "target_later_filled_v3_delta": 1,
+        "total_v3_delta": 2
+      },
+      "simple_request": {
+        "dispatch_after": 1,
+        "dispatch_before": 1,
+        "request_finalized_delta": 1,
+        "request_outcome_v3_delta": 1,
+        "scenarios": [
+          "S01",
+          "S02",
+          "S03",
+          "S08",
+          "S10",
+          "S11"
+        ],
+        "target_later_filled_v3_delta": 0,
+        "total_v3_delta": 1
+      }
+    },
     "second_dispatch_allowed": false,
-    "source_delta_after_r2_acceptance": true
+    "source_delta_after_r3_acceptance": true
   },
   "evidence_contract": {
     "canonical_json": "recursive_utf8_key_sort_no_whitespace_no_float",
@@ -51,11 +115,12 @@
     ],
     "schema_version": 1
   },
-  "negative_cases": 104,
+  "negative_cases": 128,
   "reviewed_r0_ref": "b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f",
   "reviewed_r1_ref": "3a3f14f595b9672b23d421e7a857117fb2c578d2",
+  "reviewed_r2_ref": "16fe6dc535fdd744be9b814ab517386d83f52eac",
   "scenario_frontier_matrix_rows": 92,
-  "scenario_frontier_matrix_sha256": "b54d8d26e5ebb12389946c905f37a029beb85d1005c7ef95edf6a47596bd725a",
+  "scenario_frontier_matrix_sha256": "8c3122af016e860e3fa54a6f4143c50b9258c2a5a4bd2d15f9847a118a8582cc",
   "required_frontiers": [
     "F00",
     "F01",
@@ -80,7 +145,7 @@
     "F20"
   ],
   "stage": "Stage 8B-P1-d4 exhaustive crash/replay closure design",
-  "status": "DESIGN_R2_REVIEW_CANDIDATE",
+  "status": "DESIGN_R3_REVIEW_CANDIDATE",
   "test_contract": {
     "actual_child_process_kill": true,
     "child_has_no_descendants": true,
@@ -89,7 +154,7 @@
     "kernel_observed_exit_signal": 9,
     "non_returning_barrier": true,
     "p1d3_business_semantics_mutable": false,
-    "p1d3_dispatch_only_recovery_delta_after_acceptance": true,
+    "p1d3_dispatch_only_recovery_delta_after_r3_acceptance": true,
     "response_loss_after_real_xack": true,
     "wait_and_reap_before_restart": true
   }
