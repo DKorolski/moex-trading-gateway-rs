@@ -1,0 +1,33 @@
+id,category,requirement,status
+P1D4R6-001,lineage,R6 parent is exact R5 design commit b377c0275f1ce5f01cfe9b223724bf1542f985e2,REQUIRED
+P1D4R6-002,decision,R6 preserves Option A one retained M10 XACK-last and S09 Correction C1,REQUIRED
+P1D4R6-003,journal,Generated Market uses only DispatchAttemptRecorded BrokerOrderObserved BrokerTradeObserved and RequestFinalized V1,REQUIRED
+P1D4R6-004,journal,No generated Market V3 or new journal schema is authorized,REQUIRED
+P1D4R6-005,recovery,Dispatch-only restart authenticates the existing dispatch and appends no second dispatch,REQUIRED
+P1D4R6-006,recovery,Order-only restart validates the existing order and appends only the exact missing trade,REQUIRED
+P1D4R6-007,recovery,Order plus trade restart appends only exact RequestFinalized Completed,REQUIRED
+P1D4R6-008,recovery,Deterministic provider evidence is reconstructed from retained decision M10 and dispatch without schedule reacquisition,REQUIRED
+P1D4R6-009,authority,Exactly seven generated Market linear owners cover prepublication dispatch order prefinalization preack ack and truth,REQUIRED
+P1D4R6-010,authority,No generic Ready owner or ordinary P1-d2 or P1-d3-only owner may drop composition authority,REQUIRED
+P1D4R6-011,sequence,No ACK truth pair exists before RequestFinalized,REQUIRED
+P1D4R6-012,sequence,RequestFinalized before allocator is pair-not-allocated but deterministically reconstructible,REQUIRED
+P1D4R6-013,sequence,Post-allocation pre-ACK has an fsynced exact pair marker and post-restart equality proof,REQUIRED
+P1D4R6-014,sequence,The sole allocator guarantees seq_truth equals seq_ack plus one with no second semantic pair,REQUIRED
+P1D4R6-015,binding,Stage8bP1d4CommandPublicationBindingV1 contains the exact source command entry envelope groups and prepublication seal identity,REQUIRED
+P1D4R6-016,binding,Publication binding is absent before XADD and reconstructed from exact marker and original entry before S_ack,REQUIRED
+P1D4R6-017,binding,AckCommitted and TruthCommitted require the identical HMAC-covered publication binding,REQUIRED
+P1D4R6-018,binding,Publication binding is revalidated before truth and before XACK,REQUIRED
+P1D4R6-019,binding,Byte-identical duplicate command entry is not equivalent to the exact original entry ID,REQUIRED
+P1D4R6-020,binding,Binding downgrade cross-generation replay missing original entry or changed seal fails before effects,REQUIRED
+P1D4R6-021,composition,The additive composition remains a peer of Stage8bP1d3ReplacementProjectionV1 and contains no raw capability,REQUIRED
+P1D4R6-022,source,The same exact M10 remains pending through combined S_truth and XACK is last,REQUIRED
+P1D4R6-023,coverage,The inherited base registry has 92 cells and corrected generated Market registry has 13 cells,REQUIRED
+P1D4R6-024,coverage,Active proof inventory is derived as 105 cells and every cell requires duplicate and conflict variants,REQUIRED
+P1D4R6-025,coverage,Distinct dispatch-only order-only prefinalization preallocator postallocator preack ack and truth frontiers are tested,REQUIRED
+P1D4R6-026,negative,Changed entry ID envelope group stream generation commitment identity links or evidence fails closed,REQUIRED
+P1D4R6-027,negative,Second dispatch order callback XADD provider semantic outcome ACK truth or XACK fails closed,REQUIRED
+P1D4R6-028,checker,R6 checker binds exact committed R5 source hashes and source-shape assertions,REQUIRED
+P1D4R6-029,checker,R6 negative harness mutates source shape journal cells sequence cells and publication binding fields,REQUIRED
+P1D4R6-030,scope,R6 is docs evidence checker handoff only and excludes saved source WIP,REQUIRED
+P1D4R6-031,scope,Operational Redis DB0 VPS FINAM POST DELETE broker dispatch runtime-live real orders and partial fills remain closed,REQUIRED
+P1D4R6-032,governance,P1-d4 source implementation resumes only after independent acceptance of exact R6 artifact,REQUIRED

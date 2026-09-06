@@ -27,13 +27,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   exposed two contradictions in the accepted proof-cell registry. R4 at
   `ebede1d804f5eff50d6b4b9455edb08735e1be2c` corrected the S09 durable
   equivalence but was held because its S05 early-XACK design invented a second
-  command source. The active P1-d4 R5 design-only correction chooses retained-
-  source Option A: one later-bar M10 remains pending through generated-Market
-  combined `S_ack` and `S_truth`, then XACKs last. It freezes one exact additive
-  crate-private composition projection, four phase-linear owners and a 10-cell
-  generated-Market crash submatrix, making 102 active proof cells. The source
-  implementation is paused pending independent R5 acceptance; its WIP is not
-  part of the R5 design commit. P1-d4 implementation, operational Redis
+  command source. R5 at
+  `b377c0275f1ce5f01cfe9b223724bf1542f985e2` retained Option A correctly but
+  was held with three P1 design/source mismatches. The active P1-d4 R6
+  design-only correction preserves one pending later-bar M10 and XACK-last,
+  replaces the nonexistent generated-Market V3 with the exact Stage6 V1 chain,
+  freezes seven finite partial-recovery owners, corrects sequence allocation
+  timing and persists an exact command-publication binding in replacement
+  `S_ack` and `S_truth`. Its corrected 13-cell generated-Market submatrix plus
+  the inherited 92 cells derives 105 active proof cells. The source
+  implementation is paused pending independent R6 acceptance; its WIP is not
+  part of the R6 design commit. P1-d4 implementation, operational Redis
   DB0/VPS activation, FINAM dispatch, runtime-live, real orders and partial
   fills remain closed.
 

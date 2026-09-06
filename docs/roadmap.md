@@ -76,13 +76,17 @@ registry contradictions. R4 at
 `ebede1d804f5eff50d6b4b9455edb08735e1be2c` correctly unified the
 durably-equivalent S09/F04 and F09 owners, but its S05 early-XACK correction
 was held because publication does not create a second M10 source. The active
-P1-d4 R5 design-only correction preserves the accepted P1-c/P1-d2 source
-contract: the one later-bar M10 remains pending through generated-Market
-combined `S_ack` and `S_truth` and is XACKed last. R5 adds one exact
-crate-private composite projection, four phase-linear owners and a 10-cell
-generated-Market crash submatrix to the 92-cell base registry, for 102 active
-proof cells. The source
-implementation remains paused pending independent R5 acceptance. Operational
+P1-d4 R5 at `b377c0275f1ce5f01cfe9b223724bf1542f985e2` preserved the
+accepted P1-c/P1-d2 retained-source contract but was held because its generated
+Market graph assumed an atomic V3 record, placed sequence allocation too early
+and omitted exact publication identity from replacement packages. The active
+P1-d4 R6 design-only correction retains one M10 and XACK-last while binding the
+real Stage6 V1 dispatch/order/trade/finalization chain, seven finite recovery
+owners, exact post-finalization sequence allocation and a canonical
+command-publication binding carried by `S_ack` and `S_truth`. The inherited
+92-cell base plus corrected 13-cell generated-Market submatrix derives 105
+active proof cells. The source implementation remains paused pending
+independent R6 acceptance. Operational
 Redis DB0/VPS remains closed;
 P1-e owns the deployable supervisor and P1-f owns isolated operational
 acceptance. FINAM POST/DELETE, broker dispatch, real orders and runtime-live
