@@ -29,15 +29,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   equivalence but was held because its S05 early-XACK design invented a second
   command source. R5 at
   `b377c0275f1ce5f01cfe9b223724bf1542f985e2` retained Option A correctly but
-  was held with three P1 design/source mismatches. The active P1-d4 R6
-  design-only correction preserves one pending later-bar M10 and XACK-last,
-  replaces the nonexistent generated-Market V3 with the exact Stage6 V1 chain,
-  freezes seven finite partial-recovery owners, corrects sequence allocation
-  timing and persists an exact command-publication binding in replacement
-  `S_ack` and `S_truth`. Its corrected 13-cell generated-Market submatrix plus
-  the inherited 92 cells derives 105 active proof cells. The source
-  implementation is paused pending independent R6 acceptance; its WIP is not
-  part of the R6 design commit. P1-d4 implementation, operational Redis
+  was held with three P1 design/source mismatches. R6 at
+  `cb6e6ddf863f314cc96b5f8ac0a75809e8c6824a` closed its V1 chain, sequence
+  timing and post-`S_ack` binding findings, then remained HOLD with two P1 and
+  one P2 finding. The active P1-d4 R7 design-only correction precommits an exact
+  Redis command-entry reservation before XADD, exact-freezes package-aware
+  P1-d4-before-P1-d2 routing and fixes canonical binding bytes plus checked
+  package/seal generation relations. It retains seven finite recovery owners,
+  13 generated-Market cells and 105 total active proof cells. The source
+  implementation is paused pending independent R7 acceptance; its WIP is not
+  part of the R7 design commit. P1-d4 implementation, operational Redis
   DB0/VPS activation, FINAM dispatch, runtime-live, real orders and partial
   fills remain closed.
 

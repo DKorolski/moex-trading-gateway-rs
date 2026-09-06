@@ -1,0 +1,32 @@
+{
+  "baseline_ref": "cb6e6ddf863f314cc96b5f8ac0a75809e8c6824a",
+  "facts": {
+    "existing_command_publication_uses_auto_id": true,
+    "existing_p1d2_classifier_suffix_lengths": [3, 4],
+    "existing_restart_route_order": [
+      "P1d3V3",
+      "P1d2V1",
+      "GenericP1"
+    ],
+    "generated_market_journal_version": "V1",
+    "generated_market_v3_authorized": false,
+    "market_chain": [
+      "DispatchAttemptRecorded",
+      "BrokerOrderObserved",
+      "BrokerTradeObserved",
+      "RequestFinalized"
+    ],
+    "r7_source_change_requires_explicit_reserved_id": true,
+    "r7_source_change_requires_package_aware_routing": true,
+    "sequence_allocator_after_request_finalized": true
+  },
+  "source_sha256": {
+    "crates/runtime-durable-service/src/recovery.rs": "70cf38671834d81e84b55b90903d1fca26ce7f79f598e92462bd1a62ec0d5284",
+    "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs": "17edbe4c41315aef97faa8574eedd884e75ad90cb70e9aa01812bc6e197a7295",
+    "crates/strategy-runtime-core/src/stage5g_mock_ack.rs": "ef113596c8f9835669987853ea1ce4bdb976c73d507cf8014dabcff23a923ef8",
+    "crates/strategy-runtime-core/src/stage6d_live_core.rs": "619a6f7e4aff4d2d6ba2e0c86036da7df96383e3de020afbb6eaa3f907cb8478",
+    "crates/strategy-runtime-core/src/stage8b_p1d1_paper_provider.rs": "2e9630533aa0470ad73294fb0afff6e155bf0a738eba2dae51eca9d0f7387a2b",
+    "crates/strategy-runtime-core/src/stage8b_p1d2_market_feedback.rs": "376b0af099cdb95a31c48a4ab1b23272aa34dc436b19dd61898ddc078bde6480"
+  },
+  "status": "R7_SOURCE_SHAPE_PINNED"
+}

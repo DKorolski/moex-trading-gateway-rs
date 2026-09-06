@@ -79,14 +79,16 @@ was held because publication does not create a second M10 source. The active
 P1-d4 R5 at `b377c0275f1ce5f01cfe9b223724bf1542f985e2` preserved the
 accepted P1-c/P1-d2 retained-source contract but was held because its generated
 Market graph assumed an atomic V3 record, placed sequence allocation too early
-and omitted exact publication identity from replacement packages. The active
-P1-d4 R6 design-only correction retains one M10 and XACK-last while binding the
-real Stage6 V1 dispatch/order/trade/finalization chain, seven finite recovery
-owners, exact post-finalization sequence allocation and a canonical
-command-publication binding carried by `S_ack` and `S_truth`. The inherited
-92-cell base plus corrected 13-cell generated-Market submatrix derives 105
-active proof cells. The source implementation remains paused pending
-independent R6 acceptance. Operational
+and omitted exact publication identity from replacement packages. R6 at
+`cb6e6ddf863f314cc96b5f8ac0a75809e8c6824a` fixed those issues but remained
+HOLD because pre-`S_ack` exact publication identity was not independently
+authenticated and complete V1 suffixes overlapped ordinary P1-d2 routing. The
+active P1-d4 R7 design-only correction precommits the exact explicit Redis
+entry ID in the first HMAC package, routes valid composite suffixes before
+ordinary P1-d2 with invalid-composite no-fallback, and freezes fixed-order
+canonical bytes and checked W0/G0 successor relations. The retained graph still
+derives 92 plus 13 equals 105 active cells. The source implementation remains
+paused pending independent R7 acceptance. Operational
 Redis DB0/VPS remains closed;
 P1-e owns the deployable supervisor and P1-f owns isolated operational
 acceptance. FINAM POST/DELETE, broker dispatch, real orders and runtime-live
