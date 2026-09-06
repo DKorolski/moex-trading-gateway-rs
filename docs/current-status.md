@@ -24,14 +24,16 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   remained HOLD with two P1 findings: classifier domain and S09 outcome count.
   R3 at `e1ce6d3baec3974d8dfd05c2f3de00110e0605bf` was independently
   accepted and authorized source implementation. The implementation attempt
-  exposed two contradictions in the accepted proof-cell registry. The active
-  P1-d4 R4 design-only correction maps durably indistinguishable S09/F04 and
-  S09/F09 to `P1d3PreAckPending` and keeps the originating later-bar lifecycle
-  independent from its durably published P1-d2 Market command. The source
-  implementation is paused pending independent R4 acceptance; its WIP is not
-  part of the R4 design commit. The 88 requirements, 92 cells, accepted P1-d3
-  business outcomes and normal path remain unchanged. No new persistence
-  schema or owner is authorized. P1-d4 implementation, operational Redis
+  exposed two contradictions in the accepted proof-cell registry. R4 at
+  `ebede1d804f5eff50d6b4b9455edb08735e1be2c` corrected the S09 durable
+  equivalence but was held because its S05 early-XACK design invented a second
+  command source. The active P1-d4 R5 design-only correction chooses retained-
+  source Option A: one later-bar M10 remains pending through generated-Market
+  combined `S_ack` and `S_truth`, then XACKs last. It freezes one exact additive
+  crate-private composition projection, four phase-linear owners and a 10-cell
+  generated-Market crash submatrix, making 102 active proof cells. The source
+  implementation is paused pending independent R5 acceptance; its WIP is not
+  part of the R5 design commit. P1-d4 implementation, operational Redis
   DB0/VPS activation, FINAM dispatch, runtime-live, real orders and partial
   fills remain closed.
 

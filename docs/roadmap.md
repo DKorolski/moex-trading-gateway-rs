@@ -72,13 +72,18 @@ finding. R1 at `3a3f14f595b9672b23d421e7a857117fb2c578d2` remained HOLD. R2 at
 remained HOLD with two P1 findings. P1-d4 R3 at
 `e1ce6d3baec3974d8dfd05c2f3de00110e0605bf` was independently accepted and
 authorized source implementation. The implementation attempt exposed two
-registry contradictions: S09/F04 and F09 are durably indistinguishable after
-SIGKILL, and S05/F15-F16 incorrectly coupled the later-bar XACK to the full
-P1-d2 Market-command lifecycle. The active P1-d4 R4 design-only correction
-changes exactly four fields across three of the existing 92 cells, requires
-durable-equivalence classification and preserves independent source
-lifecycles. The source implementation is paused pending R4 acceptance and no
-new schema or owner is authorized. Operational Redis DB0/VPS remains closed;
+registry contradictions. R4 at
+`ebede1d804f5eff50d6b4b9455edb08735e1be2c` correctly unified the
+durably-equivalent S09/F04 and F09 owners, but its S05 early-XACK correction
+was held because publication does not create a second M10 source. The active
+P1-d4 R5 design-only correction preserves the accepted P1-c/P1-d2 source
+contract: the one later-bar M10 remains pending through generated-Market
+combined `S_ack` and `S_truth` and is XACKed last. R5 adds one exact
+crate-private composite projection, four phase-linear owners and a 10-cell
+generated-Market crash submatrix to the 92-cell base registry, for 102 active
+proof cells. The source
+implementation remains paused pending independent R5 acceptance. Operational
+Redis DB0/VPS remains closed;
 P1-e owns the deployable supervisor and P1-f owns isolated operational
 acceptance. FINAM POST/DELETE, broker dispatch, real orders and runtime-live
 remain closed.

@@ -1,0 +1,69 @@
+{
+  "acceptance_amendment_rows": 24,
+  "acceptance_amendment_sha256": "f6fcb398ce40ec96d21c87302806714429280d6737a7c8eb4e159dbb3e9437cb",
+  "accepted_p1d3_closure_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
+  "accepted_r3_design_ref": "e1ce6d3baec3974d8dfd05c2f3de00110e0605bf",
+  "active_positive_cells": 102,
+  "base_matrix_rows": 92,
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_delete": false,
+    "finam_post": false,
+    "generation_2_authorization": false,
+    "operational_redis_db0": false,
+    "paper_supervisor": false,
+    "partial_fills": false,
+    "protective_orders": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "composition_contract": {
+    "additive_projection": "Stage8bP1d4GeneratedMarketCompositionV1",
+    "new_journal_record_authorized": false,
+    "owners": [
+      "P1d4GeneratedMarketPrepublicationPending",
+      "P1d4GeneratedMarketPreAckPending",
+      "P1d4GeneratedMarketAckCommitted",
+      "P1d4GeneratedMarketTruthCommitted"
+    ],
+    "option": "A_RETAIN_SINGLE_SOURCE",
+    "outer_package_carries_p1d3_replacement": true,
+    "phases": [
+      "Prepublication",
+      "AckCommitted",
+      "TruthCommitted"
+    ],
+    "raw_stage5c_capability_embedded": false,
+    "source_absent_before_s_truth_allowed": false,
+    "source_m10_count": 1,
+    "source_retained_through": "combined_s_truth",
+    "xack_authority": "combined_s_truth_persisted_reread_cross_validated"
+  },
+  "correction_c1": {
+    "cells": [
+      "P1D4C-064",
+      "P1D4C-092"
+    ],
+    "restart_disposition": "P1d3PreAckPending",
+    "status": "INHERITED_ACCEPTED"
+  },
+  "design_only": true,
+  "design_parent_ref": "ebede1d804f5eff50d6b4b9455edb08735e1be2c",
+  "design_r5_sha256": "842e3a36ea348cb4c523adcdc3fd96e1f538599a5dd15f461bf55ae38ebf8ce9",
+  "duplicate_variants_required": 102,
+  "generated_market_matrix_rows": 10,
+  "generated_market_matrix_sha256": "87168c9089def33072cae2561b5ad1c182c8d0d538b2abd6c1170e8ea577e3bd",
+  "historical_general_acceptance_rows": 88,
+  "historical_general_acceptance_sha256": "e2a376fda504a691b3dffa5160542c5f184bf59ff9f224ae4159b5bbaf8c06de",
+  "historical_r4_matrix_sha256": "74fc128b06d188942008449f05977d8eb46630c3ccfc364659a75d77d0e5810f",
+  "implementation_authorized": false,
+  "r5_base_matrix_changed_fields": 13,
+  "scenario_frontier_matrix_v5_sha256": "f4125113d4f7f3ceafd849c1d32f1097c313e15eccbb353c8bd89a19434edac6",
+  "source_discovery_r5_sha256": "0c16ac5c2d6226e1d57a927e90c46a04ca7d44f535c9fe82a57c99b4dbd31d50",
+  "source_wip_included": false,
+  "stage": "Stage 8B-P1-d4 crash/replay design R5 correction",
+  "status": "DESIGN_R5_REVIEW_CANDIDATE",
+  "targeted_negative_cases": 32,
+  "total_contract_negative_cases": 160
+}
