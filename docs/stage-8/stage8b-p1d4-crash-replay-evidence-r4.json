@@ -1,0 +1,63 @@
+{
+  "acceptance_matrix_sha256": "e2a376fda504a691b3dffa5160542c5f184bf59ff9f224ae4159b5bbaf8c06de",
+  "acceptance_rows": 88,
+  "accepted_p1d3_closure_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
+  "accepted_r3_design_ref": "e1ce6d3baec3974d8dfd05c2f3de00110e0605bf",
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_delete": false,
+    "finam_post": false,
+    "generation_2_authorization": false,
+    "operational_redis_db0": false,
+    "paper_supervisor": false,
+    "partial_fills": false,
+    "protective_orders": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "correction_contract": {
+    "durable_equivalence": {
+      "cells": [
+        "P1D4C-064",
+        "P1D4C-092"
+      ],
+      "forbidden_restart_inputs": [
+        "crash_marker",
+        "test_environment",
+        "volatile_ack_state"
+      ],
+      "restart_disposition": "P1d3PreAckPending",
+      "sole_continuation": "exact_recovered_ack_replay_then_s_cancel_recovered"
+    },
+    "exact_changed_fields": [
+      "P1D4C-039.only_legal_continuation",
+      "P1D4C-040.expected_restart_disposition",
+      "P1D4C-040.only_legal_continuation",
+      "P1D4C-064.expected_restart_disposition"
+    ],
+    "source_independence": {
+      "bar_completion": "exact_bar_xack_after_durable_callback_and_publication",
+      "callback_replay_allowed": false,
+      "generated_command_disposition": "P1SemanticPrepublicationReady",
+      "generated_command_lifecycle": "independent_accepted_p1d2_market_lifecycle",
+      "new_combined_schema_allowed": false,
+      "second_publication_allowed": false
+    }
+  },
+  "design_only": true,
+  "design_r3_sha256": "d4c844498b47b53a09fc916e7a110ce856725ad421e4dee1c4b641e85dc70e7a",
+  "design_r4_sha256": "7e6c5a65eab957b92b61a58a4b6180c050f95305c8f35568e8e35140780b9b39",
+  "discovery_r4_sha256": "37c0ca38f0098880beabbb343725d5010da9459b2e21041c26e0196a2c1c21a6",
+  "historical_r3_matrix_sha256": "8c3122af016e860e3fa54a6f4143c50b9258c2a5a4bd2d15f9847a118a8582cc",
+  "implementation_authorized": false,
+  "inherited_negative_cases": 128,
+  "new_persistence_schema_authorized": false,
+  "scenario_frontier_matrix_rows": 92,
+  "scenario_frontier_matrix_v4_sha256": "74fc128b06d188942008449f05977d8eb46630c3ccfc364659a75d77d0e5810f",
+  "source_wip_included": false,
+  "stage": "Stage 8B-P1-d4 crash/replay design R4 correction",
+  "status": "DESIGN_R4_REVIEW_CANDIDATE",
+  "targeted_negative_cases": 18,
+  "total_negative_contract_cases": 146
+}

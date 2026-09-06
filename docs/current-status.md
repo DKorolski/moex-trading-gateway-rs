@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-05.
+Status date: 2026-09-06.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -22,15 +22,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   remained HOLD with three P1 and one P2. R2 at
   `16fe6dc535fdd744be9b814ab517386d83f52eac` closed those findings but
   remained HOLD with two P1 findings: classifier domain and S09 outcome count.
-  The active R3 design-only correction retains the derived 92-cell registry,
-  exact-freezes P1-d3 command/package predicates before minting the
-  `P1d3DispatchPending` no-second-dispatch owner and requires two typed V3
-  outcomes plus the intermediate `P1d3CancelContinuationPending` state for
-  target-first S09. Accepted P1-d3 business outcomes and the normal path remain unchanged;
-  only the named dispatch-only recovery composition may be added after
-  independent R3 acceptance. P1-d4
-  implementation, operational Redis DB0/VPS activation, FINAM dispatch,
-  runtime-live, real orders and partial fills remain closed.
+  R3 at `e1ce6d3baec3974d8dfd05c2f3de00110e0605bf` was independently
+  accepted and authorized source implementation. The implementation attempt
+  exposed two contradictions in the accepted proof-cell registry. The active
+  P1-d4 R4 design-only correction maps durably indistinguishable S09/F04 and
+  S09/F09 to `P1d3PreAckPending` and keeps the originating later-bar lifecycle
+  independent from its durably published P1-d2 Market command. The source
+  implementation is paused pending independent R4 acceptance; its WIP is not
+  part of the R4 design commit. The 88 requirements, 92 cells, accepted P1-d3
+  business outcomes and normal path remain unchanged. No new persistence
+  schema or owner is authorized. P1-d4 implementation, operational Redis
+  DB0/VPS activation, FINAM dispatch, runtime-live, real orders and partial
+  fills remain closed.
 
 - An isolated paper-shadow P0 stand is active on the retained native
   Linux/amd64 VPS at source ref

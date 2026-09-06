@@ -69,15 +69,19 @@ source-XACK-last. P1-d4 design R0 at
 `b06c78b46d2a5b7a8209d58f1c327d7cf30ae98f` was held with three P1 and one P2
 finding. R1 at `3a3f14f595b9672b23d421e7a857117fb2c578d2` remained HOLD. R2 at
 `16fe6dc535fdd744be9b814ab517386d83f52eac` closed the earlier findings but
-remained HOLD with two P1 findings. The active P1-d4 R3 design-only correction
-retains the 92-cell registry and dispatch-only recovery composition while
-exact-freezing non-interception of P1-d2 Market and scenario-aware typed
-outcomes: one request V3 for simple scenarios and target LaterFilled plus
-recovered CANCEL V3 for S09. P1-d4 source implementation requires separate R3
-design acceptance. Operational
-Redis DB 0 remains closed; P1-e owns the deployable supervisor and P1-f owns
-isolated operational acceptance. FINAM POST/DELETE, broker dispatch, real
-orders and runtime-live remain closed.
+remained HOLD with two P1 findings. P1-d4 R3 at
+`e1ce6d3baec3974d8dfd05c2f3de00110e0605bf` was independently accepted and
+authorized source implementation. The implementation attempt exposed two
+registry contradictions: S09/F04 and F09 are durably indistinguishable after
+SIGKILL, and S05/F15-F16 incorrectly coupled the later-bar XACK to the full
+P1-d2 Market-command lifecycle. The active P1-d4 R4 design-only correction
+changes exactly four fields across three of the existing 92 cells, requires
+durable-equivalence classification and preserves independent source
+lifecycles. The source implementation is paused pending R4 acceptance and no
+new schema or owner is authorized. Operational Redis DB0/VPS remains closed;
+P1-e owns the deployable supervisor and P1-f owns isolated operational
+acceptance. FINAM POST/DELETE, broker dispatch, real orders and runtime-live
+remain closed.
 
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
