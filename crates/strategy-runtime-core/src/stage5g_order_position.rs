@@ -981,6 +981,13 @@ pub(crate) enum Stage5gRestartCanonicalApplicationError {
 /// broker-neutral composition; this owner module is the only code allowed to
 /// add a resolved slot to `Stage5gOrderPositionState`.
 pub(crate) enum Stage8bP1d3AckStateKind {
+    MarketPlace {
+        side: OrderSide,
+        qty: Decimal,
+        pre_position_qty: Decimal,
+        attribution: HybridRuntimeAttribution,
+        source_event_ts_utc: i64,
+    },
     LimitPlace {
         side: OrderSide,
         qty: Decimal,
@@ -1050,6 +1057,48 @@ pub(crate) fn stage8b_p1d3_append_ack_state(
         order_events,
         terminal,
     ) = match kind {
+        Stage8bP1d3AckStateKind::MarketPlace {
+            side,
+            qty,
+            pre_position_qty,
+            attribution,
+            source_event_ts_utc,
+        } => {
+            let intent_class = match attribution.role() {
+                Some(HybridRuntimeOrderRole::Entry) => crate::BrokerNeutralHybridIntentClass::Entry,
+                Some(HybridRuntimeOrderRole::Exit) => crate::BrokerNeutralHybridIntentClass::Exit,
+                _ => return Err(fail()),
+            };
+            if ack.status != CommandAckStatus::Accepted
+                || ack.reason.is_some()
+                || qty <= Decimal::ZERO
+                || qty.fract() != Decimal::ZERO
+                || pre_position_qty.fract() != Decimal::ZERO
+                || state.slots.iter().any(|slot| {
+                    matches!(slot.ack.action, Stage5gMockIntentAction::Place { .. })
+                        && slot.broker_order_id.as_ref() == Some(&broker_order_id)
+                })
+            {
+                return Err(fail());
+            }
+            let source_side = match side {
+                OrderSide::Buy => crate::BrokerNeutralOrderSide::Buy,
+                OrderSide::Sell => crate::BrokerNeutralOrderSide::Sell,
+            };
+            (
+                intent_class,
+                Stage5gMockIntentAction::Place {
+                    place_kind: Stage5gMockPlaceKind::Market,
+                },
+                Some(source_side),
+                Some(qty.to_f64().ok_or_else(fail)?),
+                pre_position_qty.to_f64().ok_or_else(fail)?,
+                Some(attribution),
+                source_event_ts_utc,
+                Vec::new(),
+                false,
+            )
+        }
         Stage8bP1d3AckStateKind::LimitPlace {
             side,
             qty,
@@ -1343,6 +1392,104 @@ pub(crate) fn stage8b_p1d2_truth_state_matches(
     };
     matching.next().is_none()
         && state.slots.len() == 1
+        && expected_truth.orders.len() == 1
+        && expected_truth.positions.len() == 1
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.canonical_total_sequence == Some(expected_ack_sequence)
+        && expected_ack_sequence.checked_add(1) == Some(expected_truth_sequence)
+        && state.last_total_sequence == Some(expected_truth_sequence)
+        && slot.order_events.len() == 1
+        && slot.order_events.last().map(|event| &event.order) == expected_truth.orders.first()
+        && slot.trades == expected_truth.trades
+        && slot
+            .position
+            .as_ref()
+            .map(|(sequence, position)| (*sequence, position))
+            == expected_truth
+                .positions
+                .first()
+                .map(|position| (expected_truth_sequence, position))
+        && slot.market_terminal_truth.is_none()
+        && slot.terminal
+}
+
+/// P1-d4 generated-Market sequence authority. Unlike the first-boot P1-d2
+/// helper, this deliberately permits prior P1-d3 slots and derives the next
+/// truth sequence from the exact new ACK slot plus the existing global truth
+/// frontier.
+pub(crate) fn stage8b_p1d4_truth_sequence_from_ack_state(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+) -> Option<u64> {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let slot = matching.next()?;
+    let ack_sequence = slot.ack.canonical_total_sequence?;
+    if matching.next().is_some()
+        || slot.ack.state != Stage5gMockAckSlotState::Resolved
+        || slot.ack.latest_status != Some(CommandAckStatus::Accepted)
+        || !slot.order_events.is_empty()
+        || !slot.trades.is_empty()
+        || slot.position.is_some()
+        || slot.terminal
+        || state.last_total_sequence.unwrap_or(0).checked_add(1) != Some(ack_sequence)
+    {
+        return None;
+    }
+    ack_sequence.checked_add(1)
+}
+
+pub(crate) fn stage8b_p1d4_ack_state_matches(
+    state: &Stage5gOrderPositionState,
+    expected_ack: &CommandAck,
+    expected_sequence: u64,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == expected_ack.request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
+        && slot.ack.state == Stage5gMockAckSlotState::Resolved
+        && slot.ack.latest_status == Some(CommandAckStatus::Accepted)
+        && slot.ack.latest_reason_code.is_none()
+        && slot.ack.canonical_total_sequence == Some(expected_sequence)
+        && expected_ack.client_order_id.as_ref() == Some(&slot.ack.expected_client_order_id)
+        && slot.broker_order_id == expected_ack.broker_order_id
+        && slot.ack.latest_received_ts_utc.as_deref()
+            == Some(
+                expected_ack
+                    .received_ts
+                    .to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
+                    .as_str(),
+            )
+        && !slot.terminal
+        && slot.order_events.is_empty()
+        && slot.trades.is_empty()
+        && slot.position.is_none()
+        && state.last_total_sequence.unwrap_or(0).checked_add(1) == Some(expected_sequence)
+}
+
+pub(crate) fn stage8b_p1d4_truth_state_matches(
+    state: &Stage5gOrderPositionState,
+    request_id: StrategyRequestId,
+    expected_ack_sequence: u64,
+    expected_truth_sequence: u64,
+    expected_truth: &BrokerTruthSnapshot,
+) -> bool {
+    let mut matching = state
+        .slots
+        .iter()
+        .filter(|slot| slot.ack.request_id == request_id);
+    let Some(slot) = matching.next() else {
+        return false;
+    };
+    matching.next().is_none()
         && expected_truth.orders.len() == 1
         && expected_truth.positions.len() == 1
         && slot.ack.state == Stage5gMockAckSlotState::Resolved

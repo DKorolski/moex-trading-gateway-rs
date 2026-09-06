@@ -303,6 +303,7 @@ mod stage6d_live_core;
 mod stage8b_p1d1_paper_provider;
 mod stage8b_p1d2_market_feedback;
 mod stage8b_p1d3_working_limit;
+mod stage8b_p1d4_generated_market;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -377,9 +378,13 @@ pub use stage6d_live_core::{
     apply_stage8b_p1d2_truth_transition, apply_stage8b_p1d3_cancel_transition,
     apply_stage8b_p1d3_initial_limit_ack_transition,
     apply_stage8b_p1d3_initial_limit_truth_transition, apply_stage8b_p1d3_later_limit_transition,
-    apply_stage8b_p1d3_semantic_transition, authorize_stage6d_first_boot,
-    classify_stage8b_p1_journal_ahead_candidate, classify_stage8b_p1d2_journal_ahead_candidate,
+    apply_stage8b_p1d3_semantic_transition, apply_stage8b_p1d4_ack_transition,
+    apply_stage8b_p1d4_publication_reservation, apply_stage8b_p1d4_recovered_ack_transition,
+    apply_stage8b_p1d4_truth_transition, authenticate_stage8b_p1d4_restart_package_state,
+    authorize_stage6d_first_boot, classify_stage8b_p1_journal_ahead_candidate,
+    classify_stage8b_p1d2_journal_ahead_candidate, classify_stage8b_p1d3_dispatch_only_candidate,
     classify_stage8b_p1d3_journal_ahead_candidate,
+    classify_stage8b_p1d4_generated_market_journal_ahead_candidate,
     continue_stage8b_p1d3_cancel_after_target_transition, execute_stage6d_paper_outcome,
     finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper,
@@ -388,25 +393,29 @@ pub use stage6d_live_core::{
     issue_stage6e_paper_fresh_broker_truth_for_request, migrate_stage8b_p1d3_runtime_from_p1d2,
     prepare_stage6d_paper_dispatch, refresh_stage7b_durable_frontier,
     resolve_stage7a_cancel_command_context, restart_stage6d_paper,
-    restart_stage6d_paper_with_owned_journal, resume_stage8b_p1d3_initial_limit_ack_transition,
-    resume_stage8b_p1d3_journal_ahead_transition, seal_stage6d_restart_package,
-    stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
-    stage7b_finalized_request_facts, stage8a4_completed_transition_facts,
-    stage8a4_writer_entry_attestation_sha256, Stage6DurableRequestAuthorityV1,
-    Stage6Stage8a4BatchAppendReceipt, Stage6Stage8a4DurableBatch, Stage6Stage8a4PendingRecovery,
-    Stage6Stage8a4ValidatedWriteEntry, Stage6Stage8bP1JournalAheadCandidate,
-    Stage6Stage8bP1SealSourceV1, Stage6Stage8bP1SemanticCommitEvidenceV1,
-    Stage6Stage8bP1SemanticTransition, Stage6Stage8bP1d2AckTransition,
-    Stage6Stage8bP1d2JournalAheadCandidate, Stage6Stage8bP1d2SourceM10Binding,
-    Stage6Stage8bP1d2TruthTransition, Stage6Stage8bP1d3AckTransition,
-    Stage6Stage8bP1d3CancelTransition, Stage6Stage8bP1d3JournalAheadCandidate,
+    restart_stage6d_paper_with_owned_journal, resume_stage8b_p1d3_dispatch_only_cancel_transition,
+    resume_stage8b_p1d3_dispatch_only_limit_transition,
+    resume_stage8b_p1d3_initial_limit_ack_transition, resume_stage8b_p1d3_journal_ahead_transition,
+    seal_stage6d_restart_package, stage6_frontier_fingerprint_sha256,
+    stage6d_operational_identity_sha256, stage7b_finalized_request_facts,
+    stage8a4_completed_transition_facts, stage8a4_writer_entry_attestation_sha256,
+    Stage6DurableRequestAuthorityV1, Stage6Stage8a4BatchAppendReceipt, Stage6Stage8a4DurableBatch,
+    Stage6Stage8a4PendingRecovery, Stage6Stage8a4ValidatedWriteEntry,
+    Stage6Stage8bP1JournalAheadCandidate, Stage6Stage8bP1SealSourceV1,
+    Stage6Stage8bP1SemanticCommitEvidenceV1, Stage6Stage8bP1SemanticTransition,
+    Stage6Stage8bP1d2AckTransition, Stage6Stage8bP1d2JournalAheadCandidate,
+    Stage6Stage8bP1d2SourceM10Binding, Stage6Stage8bP1d2TruthTransition,
+    Stage6Stage8bP1d3AckTransition, Stage6Stage8bP1d3CancelTransition,
+    Stage6Stage8bP1d3DispatchOnlyCandidate, Stage6Stage8bP1d3JournalAheadCandidate,
     Stage6Stage8bP1d3LaterTransition, Stage6Stage8bP1d3MigrationTransition,
     Stage6Stage8bP1d3RecoveredTransition, Stage6Stage8bP1d3RestartPhase,
-    Stage6Stage8bP1d3TruthTransition, Stage6dBootMode, Stage6dDurableRuntimeRecovered,
-    Stage6dFirstBootAuthorization, Stage6dFirstBootConfig, Stage6dFreshTruthApplicationReport,
-    Stage6dFreshTruthTransition, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
-    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
-    Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
+    Stage6Stage8bP1d3TruthTransition, Stage6Stage8bP1d4AckTransition,
+    Stage6Stage8bP1d4JournalAheadCandidate, Stage6Stage8bP1d4JournalAheadKind,
+    Stage6Stage8bP1d4PrepublicationTransition, Stage6Stage8bP1d4TruthTransition, Stage6dBootMode,
+    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dFirstBootConfig,
+    Stage6dFreshTruthApplicationReport, Stage6dFreshTruthTransition, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, Stage6eAcceptedFreshBrokerTruth, Stage6eFreshBrokerTruthProviderBoundary,
     Stage6ePaperFreshBrokerTruthInput, Stage7aPaperAdmission, Stage7aPaperAdmissionDecision,
     Stage7aPaperCommandContext, Stage7aPaperHoldReason, Stage7aPaperPolicyRejection,
     Stage7bFinalizedRequestFacts, Stage8a4CompletedTransitionFacts,
@@ -420,7 +429,8 @@ pub use stage6d_live_core::{
     stage7b_test_authenticated_cancel_restart_fixture,
     stage7b_test_authenticated_working_restart_fixture,
     stage8a4_test_append_durable_batch_with_suffix_limit, stage8a4_test_set_journal_failpoint,
-    stage8b_p1_test_append_dispatch_attempt, Stage7bTestExtraStage6History,
+    stage8b_p1_test_append_dispatch_attempt, stage8b_p1d4_test_append_current_semantic_dispatch,
+    stage8b_p1d4_test_migrate_position_synced_p1d2, Stage7bTestExtraStage6History,
     Stage7bTestRestartFixture,
 };
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
@@ -698,6 +708,11 @@ pub use stage8b_p1d3_working_limit::{
     Stage8bP1d3CanonicalM10Evidence, Stage8bP1d3DayExpiryAuthority, Stage8bP1d3Error,
     Stage8bP1d3InitialObservation, Stage8bP1d3LaterObservation, Stage8bP1d3MigrationResult,
     Stage8bP1d3ScheduleStepAuthority, Stage8bP1d3SemanticSourceBinding,
+};
+pub use stage8b_p1d4_generated_market::{
+    stage8b_p1d4_immediate_redis_successor, Stage8bP1d4CommandPublicationBindingV1,
+    Stage8bP1d4CommandPublicationReservationV1, Stage8bP1d4GeneratedMarketError,
+    Stage8bP1d4GeneratedMarketPackageState,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{

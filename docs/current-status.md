@@ -32,15 +32,18 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   was held with three P1 design/source mismatches. R6 at
   `cb6e6ddf863f314cc96b5f8ac0a75809e8c6824a` closed its V1 chain, sequence
   timing and post-`S_ack` binding findings, then remained HOLD with two P1 and
-  one P2 finding. The active P1-d4 R7 design-only correction precommits an exact
-  Redis command-entry reservation before XADD, exact-freezes package-aware
-  P1-d4-before-P1-d2 routing and fixes canonical binding bytes plus checked
-  package/seal generation relations. It retains seven finite recovery owners,
-  13 generated-Market cells and 105 total active proof cells. The source
-  implementation is paused pending independent R7 acceptance; its WIP is not
-  part of the R7 design commit. P1-d4 implementation, operational Redis
-  DB0/VPS activation, FINAM dispatch, runtime-live, real orders and partial
-  fills remain closed.
+  one P2 finding. P1-d4 R7 at
+  `1a1ea05775f1d15b86fcc3495ad6863b851e9212` is independently accepted. The
+  active source review candidate implements its exact precommitted Redis
+  command-entry reservation, package-aware P1-d4-before-P1-d2 routing,
+  canonical binding bytes and independent package/seal generation chains. It
+  retains seven finite recovery owners, 13 generated-Market cells and 105
+  total active real subprocess/SIGKILL proof cells, including duplicate and
+  conflict variants. Standalone P1-d2 remains unchanged when the composite
+  discriminator is absent. P1-d4 is not closed until independent source
+  acceptance and a later governance-only authority rebind. Operational Redis
+  DB0/VPS activation, P1-e, FINAM dispatch, runtime-live, real orders and
+  partial fills remain closed.
 
 - An isolated paper-shadow P0 stand is active on the retained native
   Linux/amd64 VPS at source ref

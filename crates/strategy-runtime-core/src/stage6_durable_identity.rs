@@ -21,7 +21,7 @@
 //! ```
 
 use broker_core::{
-    BrokerAccountId, BrokerOrderId, BrokerTradeId, CancelOrder, ClientOrderId,
+    BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerTradeId, CancelOrder, ClientOrderId,
     HybridRuntimeAttribution, HybridRuntimeOrderRole, InstrumentId, OrderSide, OrderType,
     PlaceOrder, Price, Quantity, StrategyRequestId, TimeInForce,
 };
@@ -400,6 +400,24 @@ enum Stage6DurableCommandPayloadV1 {
 }
 
 impl Stage6DurableCommandSnapshotV1 {
+    /// Proves that this immutable snapshot is the exact broker-neutral
+    /// command accepted for `identity`.  Recovery callers use this instead of
+    /// reinterpreting a subset of the serialized fields.
+    pub(crate) fn matches_broker_command(
+        &self,
+        identity: &Stage6DurableRequestIdentityV1,
+        command: &BrokerCommand,
+    ) -> bool {
+        match command {
+            BrokerCommand::PlaceOrder(place) => {
+                Self::from_place(identity, place).is_ok_and(|expected| expected == *self)
+            }
+            BrokerCommand::CancelOrder(cancel) => {
+                Self::from_cancel(identity, cancel).is_ok_and(|expected| expected == *self)
+            }
+        }
+    }
+
     pub fn from_place(
         identity: &Stage6DurableRequestIdentityV1,
         command: &PlaceOrder,
@@ -1154,6 +1172,9 @@ impl Stage6JournalRecordV1 {
     }
     pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
         self.lifecycle_sequence
+    }
+    pub fn is_dispatch_attempt_recorded(&self) -> bool {
+        self.event_kind == Stage6JournalEventKind::DispatchAttemptRecorded
     }
     pub(crate) fn durable_request_identity(&self) -> &Stage6DurableRequestIdentityV1 {
         &self.durable_request_identity

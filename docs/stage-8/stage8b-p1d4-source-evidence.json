@@ -1,0 +1,58 @@
+{
+  "accepted_business_source_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
+  "accepted_design_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
+  "acceptance_rows": 20,
+  "closed_surfaces": {
+    "broker_network_dispatch": false,
+    "finam_post_delete": false,
+    "operational_redis_db0": false,
+    "p1e": false,
+    "partial_fills": false,
+    "protective_orders": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "crash_proof": {
+    "base_cells": 92,
+    "conflict_variant_per_cell": true,
+    "duplicate_variant_per_cell": true,
+    "generated_market_cells": 13,
+    "marker_fsync_before_sigkill": true,
+    "positive_sigkill_cells": 105,
+    "s09_f04_f09_durable_equivalence": "P1d3PreAckPending"
+  },
+  "implementation": {
+    "command_id_repick_allowed": false,
+    "explicit_id_xadd": true,
+    "high_u64_marker_test": 9007199254740993,
+    "independent_generation_example": {
+      "g0": 100,
+      "g1": 101,
+      "g2": 102,
+      "w0": 41,
+      "w1": 42,
+      "w2": 43
+    },
+    "lossless_marker_generation_strings": true,
+    "package_aware_routing_before_p1d2": true,
+    "publication_reservation_before_xadd": true,
+    "source_xack_last": true,
+    "tri_state_discriminator": true
+  },
+  "next_stage_authorized": false,
+  "schema_version": 1,
+  "source_ref": "",
+  "stage": "Stage 8B-P1-d4 generated-Market crash/replay source",
+  "status": "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE",
+  "verification": {
+    "aggregate_gate": "PASS rows=20 positive_sigkill=105 duplicate=105 conflict=105",
+    "base_sigkill_matrix": "PASS 92/92",
+    "doctests": "PASS strategy-runtime-core 65/65; runtime-durable-service 36/36",
+    "format": "PASS",
+    "generated_market_sigkill_matrix": "PASS 13/13",
+    "negative_harness": "PASS 43/43",
+    "source_scope_checker": "PASS rows=20 cells=105",
+    "strict_targeted_clippy": "PASS -D warnings"
+  }
+}

@@ -106,6 +106,12 @@ pub(crate) struct Stage8bP1d2FinalizedMarketFeedbackInput {
     projection: Stage8bP1d2MarketFeedbackProjectionV1,
 }
 
+impl Stage8bP1d2FinalizedMarketFeedbackInput {
+    pub(crate) fn into_projection(self) -> Stage8bP1d2MarketFeedbackProjectionV1 {
+        self.projection
+    }
+}
+
 /// ACK-stage source consumed by the clean-restart exporter.  Public type with
 /// private fields is required only because the source enum is public; no
 /// external constructor exists.
@@ -158,6 +164,34 @@ pub(crate) fn mint_stage8b_p1d2_finalized_market_feedback(
     p1: Stage5gP1SemanticCommitProjectionV1,
     facts: &Stage7bFinalizedRequestFacts,
     outcome: Stage8bP1d1MarketOutcomeEvidence,
+) -> Result<Stage8bP1d2FinalizedMarketFeedbackInput, Stage8bP1d2MarketFeedbackError> {
+    mint_finalized_market_feedback(p1, facts, outcome, Decimal::ZERO, None, true)
+}
+
+pub(crate) fn mint_stage8b_p1d4_finalized_market_feedback(
+    p1: Stage5gP1SemanticCommitProjectionV1,
+    facts: &Stage7bFinalizedRequestFacts,
+    outcome: Stage8bP1d1MarketOutcomeEvidence,
+    pre_position_qty: Decimal,
+    pre_position_avg_price: Option<Decimal>,
+) -> Result<Stage8bP1d2FinalizedMarketFeedbackInput, Stage8bP1d2MarketFeedbackError> {
+    mint_finalized_market_feedback(
+        p1,
+        facts,
+        outcome,
+        pre_position_qty,
+        pre_position_avg_price,
+        false,
+    )
+}
+
+fn mint_finalized_market_feedback(
+    p1: Stage5gP1SemanticCommitProjectionV1,
+    facts: &Stage7bFinalizedRequestFacts,
+    outcome: Stage8bP1d1MarketOutcomeEvidence,
+    pre_position_qty: Decimal,
+    pre_position_avg_price: Option<Decimal>,
+    require_first_flat_state: bool,
 ) -> Result<Stage8bP1d2FinalizedMarketFeedbackInput, Stage8bP1d2MarketFeedbackError> {
     if !p1.validate() || p1.intent_count != 1 {
         return Err(Stage8bP1d2MarketFeedbackError::FinalizedAuthorityMismatch);
@@ -239,9 +273,14 @@ pub(crate) fn mint_stage8b_p1d2_finalized_market_feedback(
 
     let q0 = stage5g_integral_lot_decimal(source.pre_position_qty)
         .ok_or(Stage8bP1d2MarketFeedbackError::InvalidDecimalAuthority)?;
-    // The first P1-d2 source slice has no prior paper-book row. Absence is
-    // authoritative only for the first/empty flat state.
-    if q0 != Decimal::ZERO {
+    // Standalone P1-d2 remains the first/empty flat-state path. P1-d4 names
+    // an independently authenticated position basis from the existing P1-d3
+    // book and must match the callback's pre-position exactly.
+    if q0.serialize() != pre_position_qty.serialize()
+        || (require_first_flat_state && q0 != Decimal::ZERO)
+        || (q0 == Decimal::ZERO && pre_position_avg_price.is_some())
+        || (q0 != Decimal::ZERO && pre_position_avg_price.is_none())
+    {
         return Err(Stage8bP1d2MarketFeedbackError::InvalidDecimalAuthority);
     }
     let signed_fill = match place.side {
@@ -250,7 +289,8 @@ pub(crate) fn mint_stage8b_p1d2_finalized_market_feedback(
             .checked_sub(place.qty)
             .ok_or(Stage8bP1d2MarketFeedbackError::AveragePriceArithmetic)?,
     };
-    let (q1, avg_price) = resulting_position(q0, None, signed_fill, outcome.fill_price)?;
+    let (q1, avg_price) =
+        resulting_position(q0, pre_position_avg_price, signed_fill, outcome.fill_price)?;
     let order = BrokerOrderSnapshot {
         account_id: place.account_id.clone(),
         broker_order_id: Some(outcome.broker_order_id.clone()),
@@ -610,6 +650,10 @@ impl Stage8bP1d2MarketFeedbackProjectionV1 {
         self.seq_truth
     }
 
+    pub(crate) fn receipt_ts_utc_ms(&self) -> i64 {
+        self.receipt_ts_utc_ms
+    }
+
     pub(crate) fn source_m10_binding(&self) -> (&str, &str, &str) {
         (
             &self.source_m10_redis_id,
@@ -639,7 +683,7 @@ impl Stage8bP1d2MarketFeedbackProjectionV1 {
 }
 
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-fn stage8b_p1d2_test_record_sequence_pair_before_crash(seq_ack: u64, seq_truth: u64) {
+pub(crate) fn stage8b_p1d2_test_record_sequence_pair_before_crash(seq_ack: u64, seq_truth: u64) {
     if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref()
         != Ok("p1d2-after-sequence-pair-before-ack")
     {
@@ -663,10 +707,10 @@ fn stage8b_p1d2_test_record_sequence_pair_before_crash(seq_ack: u64, seq_truth: 
 
 #[cfg(not(any(test, feature = "stage5g-artifact-fixtures")))]
 #[inline(always)]
-fn stage8b_p1d2_test_record_sequence_pair_before_crash(_: u64, _: u64) {}
+pub(crate) fn stage8b_p1d2_test_record_sequence_pair_before_crash(_: u64, _: u64) {}
 
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-fn stage8b_p1d2_test_crash_barrier(phase: &str) {
+pub(crate) fn stage8b_p1d2_test_crash_barrier(phase: &str) {
     if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref() != Ok(phase) {
         return;
     }
@@ -680,7 +724,7 @@ fn stage8b_p1d2_test_crash_barrier(phase: &str) {
 
 #[cfg(not(any(test, feature = "stage5g-artifact-fixtures")))]
 #[inline(always)]
-fn stage8b_p1d2_test_crash_barrier(_: &str) {}
+pub(crate) fn stage8b_p1d2_test_crash_barrier(_: &str) {}
 
 impl Stage8bP1d2AckRestartSource {
     pub(crate) fn runtime(&self) -> &HybridIntradayRuntimeStrategy {
@@ -871,7 +915,7 @@ fn stage6_report_sha256(facts: &Stage7bFinalizedRequestFacts) -> String {
     })
 }
 
-fn feedback_projection_sha256(value: &Stage8bP1d2MarketFeedbackProjectionV1) -> String {
+pub(crate) fn feedback_projection_sha256(value: &Stage8bP1d2MarketFeedbackProjectionV1) -> String {
     #[derive(Serialize)]
     struct Projection<'a> {
         domain: &'static str,

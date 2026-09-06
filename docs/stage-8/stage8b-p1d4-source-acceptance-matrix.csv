@@ -1,0 +1,21 @@
+id,requirement,source_proof,required
+P1D4-SRC-001,accepted R7 design is exact parent,source scope checker and design gate,true
+P1D4-SRC-002,exact Redis ID reserved before publication,Prepublication package reservation plus explicit-ID Lua,true
+P1D4-SRC-003,no dynamic Redis ID repick,P1D4 Lua predecessor and reserved-entry checks,true
+P1D4-SRC-004,marker and entry are byte-exact,publication and read-only revalidation scripts,true
+P1D4-SRC-005,marker preserves full u64,canonical decimal strings plus high-u64 Redis test,true
+P1D4-SRC-006,W and G chains are independent,non-adjacent W0=41 G0=100 lifecycle test,true
+P1D4-SRC-007,package discriminator is tri-state,authenticated Option Result routing,true
+P1D4-SRC-008,invalid composite cannot fall through,restart returns fail-closed Blocked,true
+P1D4-SRC-009,standalone P1-d2 remains unchanged,inherited P1-d2 restart tests and absent discriminator branch,true
+P1D4-SRC-010,zero suffix is composite Prepublication,GM00-GM02 typed owner proof,true
+P1D4-SRC-011,suffixes 1 through 4 have exact owners,GM03-GM09 restart routing,true
+P1D4-SRC-012,S_ack allows truth only,generated Market AckCommitted linear API,true
+P1D4-SRC-013,S_truth allows source XACK only,generated Market TruthCommitted linear API,true
+P1D4-SRC-014,source M10 remains pending through S_truth,GM matrix XPENDING assertions,true
+P1D4-SRC-015,XACK is last external effect,GM12 and inherited F16 proofs,true
+P1D4-SRC-016,S09 F04 and F09 are durable-equivalent,both classify P1d3PreAckPending,true
+P1D4-SRC-017,all positive crash cells execute,92 base plus 13 generated real SIGKILL tests,true
+P1D4-SRC-018,every cell has duplicate and conflict variants,two registry matrix tests,true
+P1D4-SRC-019,production source excludes live surfaces,scope checker and closed-surface evidence,true
+P1D4-SRC-020,P1-e remains unauthorized,status roadmap and evidence,true

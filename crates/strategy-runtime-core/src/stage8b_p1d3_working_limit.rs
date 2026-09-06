@@ -391,6 +391,42 @@ pub(crate) fn migrate_stage8b_p1d3_from_p1d2(
     authenticated_stage6_checkpoint_sha256: String,
     commitment_key: &crate::Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1d3MigrationResult, Stage8bP1d3Error> {
+    migrate_stage8b_p1d3_from_p1d2_inner(
+        restored_p1d2_truth,
+        operational_identity_sha256,
+        package_generation,
+        authenticated_stage6_checkpoint_sha256,
+        commitment_key,
+        false,
+    )
+}
+
+#[cfg(feature = "stage5g-artifact-fixtures")]
+pub(crate) fn stage8b_p1d4_test_migrate_from_position_synced_p1d2(
+    restored_p1d2_truth: crate::Stage5gCleanRestartedCapability,
+    operational_identity_sha256: String,
+    package_generation: u64,
+    authenticated_stage6_checkpoint_sha256: String,
+    commitment_key: &crate::Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1d3MigrationResult, Stage8bP1d3Error> {
+    migrate_stage8b_p1d3_from_p1d2_inner(
+        restored_p1d2_truth,
+        operational_identity_sha256,
+        package_generation,
+        authenticated_stage6_checkpoint_sha256,
+        commitment_key,
+        true,
+    )
+}
+
+fn migrate_stage8b_p1d3_from_p1d2_inner(
+    restored_p1d2_truth: crate::Stage5gCleanRestartedCapability,
+    operational_identity_sha256: String,
+    package_generation: u64,
+    authenticated_stage6_checkpoint_sha256: String,
+    commitment_key: &crate::Stage5gLifecycleCommitmentKey,
+    synchronize_runtime_position_fixture: bool,
+) -> Result<Stage8bP1d3MigrationResult, Stage8bP1d3Error> {
     if !is_sha256(&authenticated_stage6_checkpoint_sha256) {
         return Err(Stage8bP1d3Error::IdentityMismatch);
     }
@@ -399,12 +435,51 @@ pub(crate) fn migrate_stage8b_p1d3_from_p1d2(
     let export_input = restored_p1d2_truth
         .stage8b_p1d3_migration_export_input(&accepted_p1d2_package_commitment_sha256)
         .map_err(|_| Stage8bP1d3Error::RestartPackage)?;
-    let fresh_runtime = restored_p1d2_truth.stage5g_fresh_reconstruction_candidate();
-    let (runtime, state, attribution) = restored_p1d2_truth
+    let (mut runtime, state, attribution) = restored_p1d2_truth
         .into_stage8b_p1d3_migration_parts()
         .map_err(|_| Stage8bP1d3Error::RestartPackage)?;
     let (_, account_id, instrument) =
         crate::Stage5gOrderPositionSession::stage5g_restart_state_binding(&state);
+    if synchronize_runtime_position_fixture {
+        let (qty, avg_price) =
+            crate::Stage5gOrderPositionSession::stage8b_p1d3_position_basis(&state)
+                .ok_or(Stage8bP1d3Error::InvalidRegistry)?;
+        let qty = qty.to_f64().ok_or(Stage8bP1d3Error::InvalidDecimal)?;
+        let avg_price = avg_price
+            .and_then(|value| value.to_f64())
+            .unwrap_or_default();
+        let event_ts_utc = 1_785_759_600_i64;
+        let context = crate::runtime_compat::StrategyCtx {
+            strategy_id: "hybrid_imoexf".to_string(),
+            portfolio: account_id.as_str().to_string(),
+            exchange: "MOEX".to_string(),
+            symbol: instrument.symbol.clone(),
+            tick_size: 0.5,
+            trade_mode: crate::runtime_compat::TradeMode::Paper,
+            paper_execution_mode: crate::runtime_compat::PaperExecutionMode::LiveOnly,
+            allow_live_orders: false,
+            gateway_phase: crate::runtime_compat::GatewayPhase::LiveReady,
+            position_qty: Some(qty),
+            event_ts_utc,
+            now_ts_utc: event_ts_utc,
+            last_bar_ts: Some(event_ts_utc - 600),
+        };
+        let intents = crate::runtime_compat::Strategy::on_position(
+            &mut runtime,
+            &context,
+            &crate::runtime_compat::PositionEvent {
+                symbol: instrument.symbol.clone(),
+                qty,
+                existing: false,
+                avg_price,
+                ts_utc: event_ts_utc,
+            },
+        );
+        if !intents.is_empty() {
+            return Err(Stage8bP1d3Error::InvalidRegistry);
+        }
+    }
+    let fresh_runtime = runtime.stage5g_clean_reconstruction_candidate();
     let total_sequence_frontier =
         crate::Stage5gOrderPositionSession::stage8b_p1d3_total_sequence_frontier(&state);
     let book = Stage8bP1d3WorkingBookProjectionV1::migrate_from_p1d2(

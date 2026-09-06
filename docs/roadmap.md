@@ -82,14 +82,17 @@ Market graph assumed an atomic V3 record, placed sequence allocation too early
 and omitted exact publication identity from replacement packages. R6 at
 `cb6e6ddf863f314cc96b5f8ac0a75809e8c6824a` fixed those issues but remained
 HOLD because pre-`S_ack` exact publication identity was not independently
-authenticated and complete V1 suffixes overlapped ordinary P1-d2 routing. The
-active P1-d4 R7 design-only correction precommits the exact explicit Redis
-entry ID in the first HMAC package, routes valid composite suffixes before
-ordinary P1-d2 with invalid-composite no-fallback, and freezes fixed-order
-canonical bytes and checked W0/G0 successor relations. The retained graph still
-derives 92 plus 13 equals 105 active cells. The source implementation remains
-paused pending independent R7 acceptance. Operational
-Redis DB0/VPS remains closed;
+authenticated and complete V1 suffixes overlapped ordinary P1-d2 routing.
+P1-d4 R7 at `1a1ea05775f1d15b86fcc3495ad6863b851e9212` is independently
+accepted. Its active source review candidate implements the exact explicit
+Redis entry ID in the first HMAC package, routes valid composite suffixes
+before ordinary P1-d2 with invalid-composite no-fallback, and preserves
+fixed-order canonical bytes plus independent checked W0/G0 successor chains.
+The retained graph derives 92 plus 13 equals 105 real subprocess/SIGKILL cells
+with duplicate and conflict variants. Standalone P1-d2 remains unchanged when
+the composite discriminator is absent. P1-d4 remains a review candidate until
+independent source acceptance and a later governance-only authority rebind.
+Operational Redis DB0/VPS remains closed;
 P1-e owns the deployable supervisor and P1-f owns isolated operational
 acceptance. FINAM POST/DELETE, broker dispatch, real orders and runtime-live
 remain closed.

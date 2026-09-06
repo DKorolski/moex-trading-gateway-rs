@@ -26,13 +26,19 @@ use strategy_runtime_core::{
     apply_stage8b_p1d2_recovered_ack_transition, apply_stage8b_p1d2_truth_transition,
     apply_stage8b_p1d3_cancel_transition, apply_stage8b_p1d3_initial_limit_ack_transition,
     apply_stage8b_p1d3_initial_limit_truth_transition, apply_stage8b_p1d3_later_limit_transition,
-    classify_stage8b_p1_journal_ahead_candidate, classify_stage8b_p1d2_journal_ahead_candidate,
+    apply_stage8b_p1d4_ack_transition, apply_stage8b_p1d4_publication_reservation,
+    apply_stage8b_p1d4_recovered_ack_transition, apply_stage8b_p1d4_truth_transition,
+    authenticate_stage8b_p1d4_restart_package_state, classify_stage8b_p1_journal_ahead_candidate,
+    classify_stage8b_p1d2_journal_ahead_candidate, classify_stage8b_p1d3_dispatch_only_candidate,
     classify_stage8b_p1d3_journal_ahead_candidate,
+    classify_stage8b_p1d4_generated_market_journal_ahead_candidate,
     continue_stage8b_p1d3_cancel_after_target_transition, execute_stage6d_paper_outcome,
     finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
     migrate_stage8b_p1d3_runtime_from_p1d2, refresh_stage7b_durable_frontier,
     restart_stage6d_paper_with_owned_journal, restore_stage5g_clean_restart,
+    resume_stage8b_p1d3_dispatch_only_cancel_transition,
+    resume_stage8b_p1d3_dispatch_only_limit_transition,
     resume_stage8b_p1d3_journal_ahead_transition, seal_stage6d_restart_package,
     stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
     stage7b_finalized_request_facts, stage8a4_completed_transition_facts,
@@ -45,16 +51,19 @@ use strategy_runtime_core::{
     Stage6Stage8bP1JournalAheadCandidate, Stage6Stage8bP1SealSourceV1,
     Stage6Stage8bP1SemanticCommitEvidenceV1, Stage6Stage8bP1SemanticTransition,
     Stage6Stage8bP1d2JournalAheadCandidate, Stage6Stage8bP1d3CancelTransition,
-    Stage6Stage8bP1d3JournalAheadCandidate, Stage6Stage8bP1d3LaterTransition,
-    Stage6Stage8bP1d3RecoveredTransition, Stage6Stage8bP1d3RestartPhase,
-    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dLiveCoreError,
-    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
-    Stage6dPaperOutcome, Stage7aPaperAdmission, Stage7aPaperCommandContext,
-    Stage7bFinalizedRequestFacts, Stage8bP1d1CanonicalM10Evidence,
-    Stage8bP1d1CommandDecisionBinding, Stage8bP1d1ExecutionEligible,
-    Stage8bP1d1MarketDispatchReady, Stage8bP1d1MarketOutcomeBundle, Stage8bP1d2FeedbackAuditCoreV1,
-    Stage8bP1d3CanonicalM10Evidence, Stage8bP1d3InitialObservation, Stage8bP1d3LaterObservation,
-    Stage8bP1d3ScheduleStepAuthority, Stage8bP1d3SemanticSourceBinding,
+    Stage6Stage8bP1d3DispatchOnlyCandidate, Stage6Stage8bP1d3JournalAheadCandidate,
+    Stage6Stage8bP1d3LaterTransition, Stage6Stage8bP1d3RecoveredTransition,
+    Stage6Stage8bP1d3RestartPhase, Stage6Stage8bP1d4JournalAheadCandidate,
+    Stage6Stage8bP1d4JournalAheadKind, Stage6dDurableRuntimeRecovered,
+    Stage6dFirstBootAuthorization, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
+    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
+    Stage7aPaperAdmission, Stage7aPaperCommandContext, Stage7bFinalizedRequestFacts,
+    Stage8bP1d1CanonicalM10Evidence, Stage8bP1d1CommandDecisionBinding,
+    Stage8bP1d1ExecutionEligible, Stage8bP1d1MarketDispatchReady, Stage8bP1d1MarketOutcomeBundle,
+    Stage8bP1d2FeedbackAuditCoreV1, Stage8bP1d3CanonicalM10Evidence, Stage8bP1d3InitialObservation,
+    Stage8bP1d3LaterObservation, Stage8bP1d3ScheduleStepAuthority,
+    Stage8bP1d3SemanticSourceBinding, Stage8bP1d4CommandPublicationBindingV1,
+    Stage8bP1d4CommandPublicationReservationV1, Stage8bP1d4GeneratedMarketPackageState,
 };
 
 use crate::stage8b_p1_bootstrap::{
@@ -68,7 +77,9 @@ use strategy_runtime_core::{
     stage8b_p1d3_test_latest_outcome_broker_order_id, stage8b_p1d3_test_working_book_attribution,
 };
 #[cfg(test)]
-use strategy_runtime_core::{Stage6Sha256Digest, Stage6Stage8a4DurableBatch};
+use strategy_runtime_core::{
+    stage8b_p1d4_test_migrate_position_synced_p1d2, Stage6Sha256Digest, Stage6Stage8a4DurableBatch,
+};
 
 mod redis_service;
 pub(crate) mod redis_settlement;
@@ -851,6 +862,17 @@ pub struct Stage8bP1SemanticPrepublicationOwner {
     command: BrokerCommand,
 }
 
+/// Reservation-bearing generated-Market package and its independently
+/// committed covering seal. Only the exact Redis publication boundary may
+/// consume this owner.
+pub struct Stage8bP1d4GeneratedMarketPrepublicationOwner {
+    ready: Stage7bRecoveryReadyOwner,
+    evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    command: BrokerCommand,
+    reservation: Stage8bP1d4CommandPublicationReservationV1,
+    binding: Stage8bP1d4CommandPublicationBindingV1,
+}
+
 /// Journal-ahead P1-d2 recovery authority before S_ack. The Stage 6 outcome
 /// is already durable, while the embedded Stage 5G package is deliberately
 /// still pre-ACK. Its sole continuation reconstructs the exact ACK bundle
@@ -863,6 +885,44 @@ pub struct Stage8bP1d2PreAckPendingOwner {
     candidate: Stage6Stage8bP1d2JournalAheadCandidate,
 }
 
+struct Stage8bP1d4GeneratedMarketJournalAheadState {
+    recovered: Stage6dDurableRuntimeRecovered,
+    writer_lease: Stage7bKernelWriterLease,
+    committed_pre_ack_seal: Stage7bRecoverySealV1,
+    candidate: Stage6Stage8bP1d4JournalAheadCandidate,
+    reservation: Stage8bP1d4CommandPublicationReservationV1,
+    publication_binding: Stage8bP1d4CommandPublicationBindingV1,
+}
+
+/// GM03/GM04: the exact dispatch row is durable. Recovery may recompute the
+/// deterministic provider evidence, but cannot append a second dispatch or
+/// reacquire schedule authority.
+#[doc(hidden)]
+pub struct Stage8bP1d4GeneratedMarketDispatchPendingOwner {
+    state: Stage8bP1d4GeneratedMarketJournalAheadState,
+}
+
+/// GM05: dispatch and order rows are durable; only the exact trade,
+/// finalization and replacement ACK package remain.
+#[doc(hidden)]
+pub struct Stage8bP1d4GeneratedMarketOrderPendingOwner {
+    state: Stage8bP1d4GeneratedMarketJournalAheadState,
+}
+
+/// GM06: order and trade facts are durable; only RequestFinalized and the
+/// replacement ACK package remain.
+#[doc(hidden)]
+pub struct Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner {
+    state: Stage8bP1d4GeneratedMarketJournalAheadState,
+}
+
+/// GM07-GM09: the complete V1 chain is durable and the sole continuation is
+/// deterministic ACK reconstruction into the combined S_ack package.
+#[doc(hidden)]
+pub struct Stage8bP1d4GeneratedMarketPreAckPendingOwner {
+    state: Stage8bP1d4GeneratedMarketJournalAheadState,
+}
+
 /// Journal-ahead P1-d3 recovery authority before replacement S_ack.  It owns
 /// the exact V3 outcome already present on disk and exposes no schedule,
 /// market-data, provider, Hybrid callback selection or Redis XACK operation.
@@ -872,6 +932,18 @@ pub struct Stage8bP1d3PreAckPendingOwner {
     writer_lease: Stage7bKernelWriterLease,
     committed_pre_ack_seal: Stage7bRecoverySealV1,
     candidate: Stage6Stage8bP1d3JournalAheadCandidate,
+}
+
+/// Exact dispatch-only P1-d3 crash frontier. The predecessor replacement seal
+/// intentionally remains committed on disk while the reconstructed runtime
+/// covers the one dispatch row in memory. The only mutation APIs consume an
+/// exact Stage 5E observation and reuse that row.
+#[doc(hidden)]
+pub struct Stage8bP1d3DispatchPendingOwner {
+    recovered: Stage6dDurableRuntimeRecovered,
+    writer_lease: Stage7bKernelWriterLease,
+    committed_pre_dispatch_seal: Stage7bRecoverySealV1,
+    candidate: Stage6Stage8bP1d3DispatchOnlyCandidate,
 }
 
 /// Durable S_ack owner. It exposes no ordinary recovery API and can only
@@ -886,6 +958,22 @@ pub struct Stage8bP1d2AckCommittedOwner {
 #[doc(hidden)]
 pub struct Stage8bP1d2TruthCommittedOwner {
     ready: Stage7bRecoveryReadyOwner,
+}
+
+/// Combined generated-Market S_ack. The original publication binding remains
+/// bound to G0 while this owner is covered by independently advanced G1.
+#[doc(hidden)]
+pub struct Stage8bP1d4GeneratedMarketAckCommittedOwner {
+    ready: Stage7bRecoveryReadyOwner,
+    publication_binding: Stage8bP1d4CommandPublicationBindingV1,
+}
+
+/// Combined generated-Market S_truth. Its sole external continuation is exact
+/// source XACK after publication and package revalidation.
+#[doc(hidden)]
+pub struct Stage8bP1d4GeneratedMarketTruthCommittedOwner {
+    ready: Stage7bRecoveryReadyOwner,
+    publication_binding: Stage8bP1d4CommandPublicationBindingV1,
 }
 
 /// Durable P1-d3 S_ack. The only continuation is the exact truth already
@@ -909,7 +997,11 @@ pub struct Stage8bP1d3TruthCommittedOwner {
 /// evidence; it accepts no market, schedule or provider input.
 #[doc(hidden)]
 pub struct Stage8bP1d3CancelContinuationOwner {
-    ready: Stage7bRecoveryReadyOwner,
+    state: Stage8bP1d3CancelContinuationState,
+}
+
+enum Stage8bP1d3CancelContinuationState {
+    TargetSealed(Stage7bRecoveryReadyOwner),
 }
 
 /// A later M10 has already been evaluated and its S_eval/S_terminal package
@@ -1084,6 +1176,175 @@ impl Stage8bP1d2PreAckPendingOwner {
     }
 }
 
+impl Stage8bP1d4GeneratedMarketJournalAheadState {
+    fn source_binding_matches(
+        &self,
+        strategy_id: &str,
+        account_id: &broker_core::BrokerAccountId,
+        instrument: &broker_core::InstrumentId,
+        runtime_config_fingerprint_sha256: &str,
+    ) -> bool {
+        self.recovered.authenticated_stage5_binding().is_some_and(
+            |(actual_strategy, actual_account, actual_instrument, actual_config)| {
+                actual_strategy == strategy_id
+                    && actual_account == account_id
+                    && actual_instrument == instrument
+                    && actual_config == runtime_config_fingerprint_sha256
+            },
+        )
+    }
+
+    fn source_m10_evidence(
+        &self,
+    ) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
+        self.recovered
+            .stage8b_p1_prepublication_material()
+            .map(|(evidence, _)| evidence)
+            .ok_or(Stage7bRecoveryError::SealInvalid)
+    }
+
+    fn command_material(
+        &self,
+    ) -> Result<(Stage6Stage8bP1SemanticCommitEvidenceV1, BrokerCommand), Stage7bRecoveryError>
+    {
+        self.recovered
+            .stage8b_p1_prepublication_material()
+            .ok_or(Stage7bRecoveryError::SealInvalid)
+    }
+
+    fn operational_identity_sha256(&self) -> &str {
+        self.committed_pre_ack_seal.operational_identity_sha256()
+    }
+
+    fn commit_reconstructed_ack(
+        self,
+        canonical_m10: Stage8bP1d1CanonicalM10Evidence,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1d4GeneratedMarketAckCommittedOwner, Stage7bRecoveryError> {
+        self.writer_lease.validate_namespace()?;
+        let on_disk = self
+            .writer_lease
+            .read_committed_recovery_seal()?
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let reread = Stage7bRecoverySealV1::decode_canonical(
+            &on_disk,
+            self.committed_pre_ack_seal.operational_identity_sha256(),
+            commitment_key,
+        )?;
+        if reread != self.committed_pre_ack_seal
+            || self.publication_binding.prepublication_seal_generation()
+                != self.committed_pre_ack_seal.seal_generation()
+            || self
+                .publication_binding
+                .prepublication_seal_commitment_sha256()
+                != self.committed_pre_ack_seal.seal_commitment_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let expected_generation = self
+            .publication_binding
+            .prepublication_seal_generation()
+            .checked_add(1)
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
+        let binding = self.publication_binding.clone();
+        let transition = apply_stage8b_p1d4_recovered_ack_transition(
+            self.recovered,
+            self.candidate,
+            canonical_m10,
+            binding.clone(),
+            commitment_key,
+        )?;
+        let ready = commit_stage8b_p1_replacement_seal(
+            transition.recovered,
+            self.writer_lease,
+            self.committed_pre_ack_seal,
+            transition.stage5g_restart_package,
+            commitment_key,
+        )?;
+        if ready.committed_seal.seal_generation() != expected_generation {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Stage8bP1d4GeneratedMarketAckCommittedOwner {
+            ready,
+            publication_binding: binding,
+        })
+    }
+}
+
+macro_rules! impl_stage8b_p1d4_journal_ahead_owner {
+    ($owner:ty) => {
+        impl $owner {
+            pub fn paper_provider_invocation_allowed(&self) -> bool {
+                false
+            }
+
+            pub fn second_dispatch_allowed(&self) -> bool {
+                false
+            }
+
+            pub fn source_xack_allowed(&self) -> bool {
+                false
+            }
+
+            fn source_binding_matches(
+                &self,
+                strategy_id: &str,
+                account_id: &broker_core::BrokerAccountId,
+                instrument: &broker_core::InstrumentId,
+                runtime_config_fingerprint_sha256: &str,
+            ) -> bool {
+                self.state.source_binding_matches(
+                    strategy_id,
+                    account_id,
+                    instrument,
+                    runtime_config_fingerprint_sha256,
+                )
+            }
+
+            pub(crate) fn source_m10_evidence(
+                &self,
+            ) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
+                self.state.source_m10_evidence()
+            }
+
+            pub(crate) fn operational_identity_sha256(&self) -> &str {
+                self.state.operational_identity_sha256()
+            }
+
+            pub(crate) fn publication_binding(&self) -> &Stage8bP1d4CommandPublicationBindingV1 {
+                &self.state.publication_binding
+            }
+
+            pub(crate) fn reservation(&self) -> &Stage8bP1d4CommandPublicationReservationV1 {
+                &self.state.reservation
+            }
+
+            pub(crate) fn command_material(
+                &self,
+            ) -> Result<
+                (Stage6Stage8bP1SemanticCommitEvidenceV1, BrokerCommand),
+                Stage7bRecoveryError,
+            > {
+                self.state.command_material()
+            }
+
+            pub(crate) fn commit_reconstructed_ack(
+                self,
+                canonical_m10: Stage8bP1d1CanonicalM10Evidence,
+                commitment_key: &Stage5gLifecycleCommitmentKey,
+            ) -> Result<Stage8bP1d4GeneratedMarketAckCommittedOwner, Stage7bRecoveryError> {
+                self.state
+                    .commit_reconstructed_ack(canonical_m10, commitment_key)
+            }
+        }
+    };
+}
+
+impl_stage8b_p1d4_journal_ahead_owner!(Stage8bP1d4GeneratedMarketDispatchPendingOwner);
+impl_stage8b_p1d4_journal_ahead_owner!(Stage8bP1d4GeneratedMarketOrderPendingOwner);
+impl_stage8b_p1d4_journal_ahead_owner!(Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner);
+impl_stage8b_p1d4_journal_ahead_owner!(Stage8bP1d4GeneratedMarketPreAckPendingOwner);
+
 impl Stage8bP1d3PreAckPendingOwner {
     fn source_binding_matches(
         &self,
@@ -1212,7 +1473,9 @@ impl Stage8bP1d3PreAckPendingOwner {
             }
             Stage6Stage8bP1d3RestartPhase::CancelContinuationPending => Ok(
                 Stage8bP1d3RecoveredCommitOutcome::CancelContinuationPending(Box::new(
-                    Stage8bP1d3CancelContinuationOwner { ready },
+                    Stage8bP1d3CancelContinuationOwner {
+                        state: Stage8bP1d3CancelContinuationState::TargetSealed(ready),
+                    },
                 )),
             ),
             Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending => {
@@ -1221,6 +1484,183 @@ impl Stage8bP1d3PreAckPendingOwner {
                 ))
             }
             _ => Err(Stage7bRecoveryError::SealInvalid),
+        }
+    }
+}
+
+impl Stage8bP1d3DispatchPendingOwner {
+    fn source_binding_matches(
+        &self,
+        strategy_id: &str,
+        account_id: &broker_core::BrokerAccountId,
+        instrument: &broker_core::InstrumentId,
+        runtime_config_fingerprint_sha256: &str,
+    ) -> bool {
+        self.recovered.authenticated_stage5_binding().is_some_and(
+            |(actual_strategy, actual_account, actual_instrument, actual_config)| {
+                actual_strategy == strategy_id
+                    && actual_account == account_id
+                    && actual_instrument == instrument
+                    && actual_config == runtime_config_fingerprint_sha256
+            },
+        )
+    }
+
+    pub fn dispatch_record_id(&self) -> &str {
+        self.candidate.dispatch_record_id().as_str()
+    }
+
+    pub fn dispatch_sequence(&self) -> u64 {
+        self.candidate.dispatch_sequence()
+    }
+
+    pub fn strategy_request_id(&self) -> StrategyRequestId {
+        self.candidate.identity().strategy_request_id()
+    }
+
+    pub fn is_limit_place(&self) -> bool {
+        self.candidate.is_limit_place()
+    }
+
+    pub fn is_cancel(&self) -> bool {
+        self.candidate.is_cancel()
+    }
+
+    pub fn second_dispatch_allowed(&self) -> bool {
+        false
+    }
+
+    pub fn source_xack_allowed(&self) -> bool {
+        false
+    }
+
+    pub(crate) fn operational_identity_sha256(&self) -> &str {
+        self.committed_pre_dispatch_seal
+            .operational_identity_sha256()
+    }
+
+    pub(crate) fn source_m10_evidence(
+        &self,
+    ) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
+        self.recovered
+            .stage8b_p1_prepublication_material()
+            .map(|(evidence, _)| evidence)
+            .ok_or(Stage7bRecoveryError::SealInvalid)
+    }
+
+    fn revalidate_predecessor(
+        &self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<(), Stage7bRecoveryError> {
+        self.writer_lease.validate_namespace()?;
+        let on_disk = self
+            .writer_lease
+            .read_committed_recovery_seal()?
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let reread = Stage7bRecoverySealV1::decode_canonical(
+            &on_disk,
+            self.committed_pre_dispatch_seal
+                .operational_identity_sha256(),
+            commitment_key,
+        )?;
+        if reread != self.committed_pre_dispatch_seal {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_limit(
+        self,
+        observation: Stage8bP1d3InitialObservation,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1d3AckCommittedOwner, Stage7bRecoveryError> {
+        self.revalidate_predecessor(commitment_key)?;
+        let transition = resume_stage8b_p1d3_dispatch_only_limit_transition(
+            self.recovered,
+            self.candidate,
+            observation,
+            commitment_key,
+        )?;
+        stage8b_p1d4_test_crash_frontier("F05");
+        let ready = commit_stage8b_p1_replacement_seal(
+            transition.recovered,
+            self.writer_lease,
+            self.committed_pre_dispatch_seal,
+            transition.stage5g_restart_package,
+            commitment_key,
+        )?;
+        stage8b_p1d4_test_crash_frontier("F06");
+        Ok(Stage8bP1d3AckCommittedOwner { ready })
+    }
+
+    pub(crate) fn commit_cancel(
+        self,
+        bar: Stage8bP1d3CanonicalM10Evidence,
+        schedule: Stage8bP1d3ScheduleStepAuthority,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1d3CancelCommitOutcome, Stage7bRecoveryError> {
+        self.revalidate_predecessor(commitment_key)?;
+        let transition = resume_stage8b_p1d3_dispatch_only_cancel_transition(
+            self.recovered,
+            self.candidate,
+            bar,
+            schedule,
+            commitment_key,
+        )?;
+        match transition {
+            Stage6Stage8bP1d3CancelTransition::AckCommitted {
+                recovered,
+                stage5g_restart_package,
+            } => {
+                stage8b_p1d4_test_crash_frontier("F05");
+                let ready = commit_stage8b_p1_replacement_seal(
+                    recovered,
+                    self.writer_lease,
+                    self.committed_pre_dispatch_seal,
+                    stage5g_restart_package,
+                    commitment_key,
+                )?;
+                stage8b_p1d4_test_crash_frontier("F06");
+                Ok(Stage8bP1d3CancelCommitOutcome::AckCommitted(Box::new(
+                    Stage8bP1d3AckCommittedOwner { ready },
+                )))
+            }
+            Stage6Stage8bP1d3CancelTransition::RecoveredCommitted {
+                recovered,
+                stage5g_restart_package,
+            } => {
+                stage8b_p1d4_test_crash_frontier("F09");
+                let ready = commit_stage8b_p1_replacement_seal(
+                    recovered,
+                    self.writer_lease,
+                    self.committed_pre_dispatch_seal,
+                    stage5g_restart_package,
+                    commitment_key,
+                )?;
+                stage8b_p1d4_test_crash_frontier("F10");
+                Ok(Stage8bP1d3CancelCommitOutcome::TruthCommitted(Box::new(
+                    Stage8bP1d3TruthCommittedOwner { ready },
+                )))
+            }
+            Stage6Stage8bP1d3CancelTransition::TargetTruthCommitted {
+                recovered,
+                stage5g_restart_package,
+            } => {
+                stage8b_p1d4_test_crash_frontier("F07");
+                let ready = commit_stage8b_p1_replacement_seal(
+                    recovered,
+                    self.writer_lease,
+                    self.committed_pre_dispatch_seal,
+                    stage5g_restart_package,
+                    commitment_key,
+                )?;
+                stage8b_p1d4_test_crash_frontier("F08");
+                Ok(Stage8bP1d3CancelCommitOutcome::CancelContinuationPending(
+                    Box::new(Stage8bP1d3CancelContinuationOwner {
+                        state: Stage8bP1d3CancelContinuationState::TargetSealed(ready),
+                    }),
+                ))
+            }
         }
     }
 }
@@ -1347,6 +1787,180 @@ impl Stage8bP1d2TruthCommittedOwner {
     }
 }
 
+impl Stage8bP1d4GeneratedMarketAckCommittedOwner {
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d4_test_package_write_generation(&self) -> u64 {
+        self.ready
+            .recovered
+            .stage8b_p1d4_next_write_generation()
+            .and_then(|next| next.checked_sub(1))
+            .expect("authenticated P1-d4 package generation")
+    }
+
+    pub fn recovery_seal_generation(&self) -> u64 {
+        self.ready.committed_seal.seal_generation()
+    }
+
+    pub fn recovery_seal_commitment_sha256(&self) -> &str {
+        self.ready.committed_seal.seal_commitment_sha256()
+    }
+
+    pub(crate) fn publication_binding(&self) -> &Stage8bP1d4CommandPublicationBindingV1 {
+        &self.publication_binding
+    }
+
+    pub(crate) fn redis_resume_material(
+        &self,
+    ) -> Result<
+        (
+            Stage6Stage8bP1SemanticCommitEvidenceV1,
+            BrokerCommand,
+            Stage8bP1d4CommandPublicationReservationV1,
+        ),
+        Stage7bRecoveryError,
+    > {
+        let (evidence, command) = self
+            .ready
+            .recovered
+            .stage8b_p1_prepublication_material()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let Some(Stage8bP1d4GeneratedMarketPackageState::AckCommitted {
+            reservation,
+            binding,
+        }) = self
+            .ready
+            .recovered
+            .stage8b_p1d4_generated_market_package_state()?
+        else {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        };
+        if binding != self.publication_binding {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok((evidence, command, reservation))
+    }
+
+    pub(crate) fn commit_truth(
+        mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1d4GeneratedMarketTruthCommittedOwner, Stage7bRecoveryError> {
+        self.ready.require_lifecycle_available()?;
+        self.ready
+            .revalidate_cached_committed_seal(commitment_key)?;
+        let expected_ack = self
+            .publication_binding
+            .prepublication_seal_generation()
+            .checked_add(1)
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
+        let expected_truth = expected_ack
+            .checked_add(1)
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
+        if self.ready.committed_seal.seal_generation() != expected_ack {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let Stage7bRecoveryReadyOwner {
+            recovered,
+            writer_lease,
+            committed_seal,
+            ..
+        } = self.ready;
+        let transition = apply_stage8b_p1d4_truth_transition(recovered, commitment_key)?;
+        stage8b_p1_test_crash_barrier("p1d2-after-truth-before-s-truth");
+        let ready = commit_stage8b_p1_replacement_seal(
+            transition.recovered,
+            writer_lease,
+            committed_seal,
+            transition.stage5g_restart_package,
+            commitment_key,
+        )?;
+        if ready.committed_seal.seal_generation() != expected_truth {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        stage8b_p1d4_test_crash_frontier("GM12");
+        stage8b_p1_test_crash_barrier("p1d2-after-s-truth-before-xack");
+        Ok(Stage8bP1d4GeneratedMarketTruthCommittedOwner {
+            ready,
+            publication_binding: self.publication_binding,
+        })
+    }
+}
+
+impl Stage8bP1d4GeneratedMarketTruthCommittedOwner {
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d4_test_package_write_generation(&self) -> u64 {
+        self.ready
+            .recovered
+            .stage8b_p1d4_next_write_generation()
+            .and_then(|next| next.checked_sub(1))
+            .expect("authenticated P1-d4 package generation")
+    }
+
+    pub fn recovery_seal_generation(&self) -> u64 {
+        self.ready.committed_seal.seal_generation()
+    }
+
+    pub fn recovery_seal_commitment_sha256(&self) -> &str {
+        self.ready.committed_seal.seal_commitment_sha256()
+    }
+
+    pub(crate) fn publication_binding(&self) -> &Stage8bP1d4CommandPublicationBindingV1 {
+        &self.publication_binding
+    }
+
+    pub(crate) fn redis_resume_material(
+        &self,
+    ) -> Result<
+        (
+            Stage6Stage8bP1SemanticCommitEvidenceV1,
+            BrokerCommand,
+            Stage8bP1d4CommandPublicationReservationV1,
+        ),
+        Stage7bRecoveryError,
+    > {
+        let (evidence, command) = self
+            .ready
+            .recovered
+            .stage8b_p1_prepublication_material()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let Some(Stage8bP1d4GeneratedMarketPackageState::TruthCommitted {
+            reservation,
+            binding,
+        }) = self
+            .ready
+            .recovered
+            .stage8b_p1d4_generated_market_package_state()?
+        else {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        };
+        if binding != self.publication_binding {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok((evidence, command, reservation))
+    }
+
+    pub(crate) fn operational_identity_sha256(&self) -> &str {
+        self.ready.committed_seal.operational_identity_sha256()
+    }
+
+    pub fn feedback_audit_evidence(
+        &self,
+    ) -> Result<Stage8bP1d2FeedbackAuditEvidenceV1, Stage7bRecoveryError> {
+        let core = self
+            .ready
+            .recovered
+            .stage8b_p1d4_feedback_audit_core()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        Stage8bP1d2FeedbackAuditEvidenceV1::from_authenticated_truth(
+            core,
+            &self.ready.committed_seal,
+        )
+    }
+
+    pub(crate) fn into_ready_after_source_resolution(self) -> Stage7bRecoveryReadyOwner {
+        self.ready
+    }
+}
+
 impl Stage8bP1d3AckCommittedOwner {
     fn source_binding_matches(
         &self,
@@ -1400,6 +2014,7 @@ impl Stage8bP1d3AckCommittedOwner {
         } = self.ready;
         let transition =
             apply_stage8b_p1d3_initial_limit_truth_transition(recovered, commitment_key)?;
+        stage8b_p1d4_test_crash_frontier("F07");
         let ready = commit_stage8b_p1_replacement_seal(
             transition.recovered,
             writer_lease,
@@ -1407,6 +2022,7 @@ impl Stage8bP1d3AckCommittedOwner {
             transition.stage5g_restart_package,
             commitment_key,
         )?;
+        stage8b_p1d4_test_crash_frontier("F08");
         Ok(Stage8bP1d3TruthCommittedOwner { ready })
     }
 }
@@ -1451,6 +2067,24 @@ impl Stage8bP1d3TruthCommittedOwner {
         )
     }
 
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d4_test_request_audit(
+        &self,
+        request_id: StrategyRequestId,
+    ) -> Option<(u32, String, u64)> {
+        self.ready
+            .recovered
+            .replay()
+            .request(request_id)
+            .map(|request| {
+                (
+                    request.dispatch_attempt_count(),
+                    request.last_unique_record_id().as_str().to_string(),
+                    request.last_unique_sequence(),
+                )
+            })
+    }
+
     pub(crate) fn source_m10_evidence(
         &self,
     ) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
@@ -1478,12 +2112,15 @@ impl Stage8bP1d3CancelContinuationOwner {
         instrument: &broker_core::InstrumentId,
         runtime_config_fingerprint_sha256: &str,
     ) -> bool {
-        self.ready.stage8b_p1_source_binding_matches(
-            strategy_id,
-            account_id,
-            instrument,
-            runtime_config_fingerprint_sha256,
-        )
+        match &self.state {
+            Stage8bP1d3CancelContinuationState::TargetSealed(ready) => ready
+                .stage8b_p1_source_binding_matches(
+                    strategy_id,
+                    account_id,
+                    instrument,
+                    runtime_config_fingerprint_sha256,
+                ),
+        }
     }
 
     pub fn market_or_schedule_input_allowed(&self) -> bool {
@@ -1496,39 +2133,43 @@ impl Stage8bP1d3CancelContinuationOwner {
 
     #[cfg(test)]
     pub(crate) fn stage8b_p1d3_test_restart_snapshot(&self) -> (u64, u64, usize) {
-        (
-            self.ready.committed_seal.seal_generation(),
-            self.ready.recovered.journal_frontier().frame_count(),
-            self.ready
-                .recovered
-                .stage8b_p1_stage5c_callback_count()
-                .expect("P1-d3 test snapshot requires callback authority"),
-        )
+        match &self.state {
+            Stage8bP1d3CancelContinuationState::TargetSealed(ready) => (
+                ready.committed_seal.seal_generation(),
+                ready.recovered.journal_frontier().frame_count(),
+                ready
+                    .recovered
+                    .stage8b_p1_stage5c_callback_count()
+                    .expect("P1-d3 test snapshot requires callback authority"),
+            ),
+        }
     }
 
     pub(crate) fn source_m10_evidence(
         &self,
     ) -> Result<Stage6Stage8bP1SemanticCommitEvidenceV1, Stage7bRecoveryError> {
-        self.ready
-            .recovered
-            .stage8b_p1_prepublication_material()
-            .map(|(evidence, _)| evidence)
-            .ok_or(Stage7bRecoveryError::SealInvalid)
+        match &self.state {
+            Stage8bP1d3CancelContinuationState::TargetSealed(ready) => ready
+                .recovered
+                .stage8b_p1_prepublication_material()
+                .map(|(evidence, _)| evidence)
+                .ok_or(Stage7bRecoveryError::SealInvalid),
+        }
     }
 
     pub(crate) fn commit_recovered_cancel(
-        mut self,
+        self,
         commitment_key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage8bP1d3TruthCommittedOwner, Stage7bRecoveryError> {
-        self.ready.require_lifecycle_available()?;
-        self.ready
-            .revalidate_cached_committed_seal(commitment_key)?;
+        let Stage8bP1d3CancelContinuationState::TargetSealed(mut ready) = self.state;
+        ready.require_lifecycle_available()?;
+        ready.revalidate_cached_committed_seal(commitment_key)?;
         let Stage7bRecoveryReadyOwner {
             recovered,
             writer_lease,
             committed_seal,
             ..
-        } = self.ready;
+        } = ready;
         let transition =
             continue_stage8b_p1d3_cancel_after_target_transition(recovered, commitment_key)?;
         let Stage6Stage8bP1d3CancelTransition::RecoveredCommitted {
@@ -1538,6 +2179,7 @@ impl Stage8bP1d3CancelContinuationOwner {
         else {
             return Err(Stage7bRecoveryError::SealInvalid);
         };
+        stage8b_p1d4_test_crash_frontier("F09");
         stage8b_p1_test_crash_barrier("p1d3-after-recovered-cancel-before-s-cancel-recovered");
         let ready = commit_stage8b_p1_replacement_seal(
             recovered,
@@ -1546,6 +2188,7 @@ impl Stage8bP1d3CancelContinuationOwner {
             stage5g_restart_package,
             commitment_key,
         )?;
+        stage8b_p1d4_test_crash_frontier("F10");
         stage8b_p1_test_crash_barrier("p1d3-after-s-cancel-recovered-before-source-xack");
         Ok(Stage8bP1d3TruthCommittedOwner { ready })
     }
@@ -1635,6 +2278,96 @@ impl Stage8bP1SemanticPrepublicationOwner {
         &self.command
     }
 
+    pub(crate) fn stage8b_p1d4_generated_market_candidate(&self) -> bool {
+        self.ready
+            .recovered
+            .stage8b_p1d4_generated_market_candidate()
+    }
+
+    pub(crate) fn stage8b_p1d4_next_write_generation(&self) -> Option<u64> {
+        self.ready.recovered.stage8b_p1d4_next_write_generation()
+    }
+
+    /// Test-only proof seam: advances only the covering recovery-seal chain.
+    /// The embedded Stage 5G package is intentionally left unchanged so tests
+    /// can prove that package write generation W and seal generation G have no
+    /// fixed offset.
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d4_test_advance_recovery_seal_to(
+        mut self,
+        target_generation: u64,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Self, Stage7bRecoveryError> {
+        let write_generation_before = self
+            .ready
+            .recovered
+            .stage8b_p1d4_next_write_generation()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        if target_generation < self.ready.committed_seal.seal_generation() {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        while self.ready.committed_seal.seal_generation() < target_generation {
+            self.ready.advance_recovery_seal(commitment_key)?;
+        }
+        if self.ready.recovered.stage8b_p1d4_next_write_generation()
+            != Some(write_generation_before)
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(self)
+    }
+
+    pub(crate) fn reserve_stage8b_p1d4_generated_market_publication(
+        self,
+        reservation: Stage8bP1d4CommandPublicationReservationV1,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1d4GeneratedMarketPrepublicationOwner, Stage7bRecoveryError> {
+        let Stage8bP1SemanticPrepublicationOwner {
+            mut ready,
+            evidence,
+            command,
+        } = self;
+        ready.require_lifecycle_available()?;
+        ready.revalidate_cached_committed_seal(commitment_key)?;
+        if !ready.recovered.stage8b_p1d4_generated_market_candidate()
+            || ready.recovered.stage8b_p1d4_next_write_generation()
+                != Some(reservation.prepublication_package_generation())
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let Stage7bRecoveryReadyOwner {
+            recovered,
+            writer_lease,
+            committed_seal,
+            ..
+        } = ready;
+        let transition = apply_stage8b_p1d4_publication_reservation(
+            recovered,
+            reservation.clone(),
+            commitment_key,
+        )?;
+        let ready = commit_stage8b_p1_replacement_seal(
+            transition.recovered,
+            writer_lease,
+            committed_seal,
+            transition.stage5g_restart_package,
+            commitment_key,
+        )?;
+        let binding = Stage8bP1d4CommandPublicationBindingV1::from_reservation(
+            &reservation,
+            ready.committed_seal.seal_generation(),
+            ready.committed_seal.seal_commitment_sha256().to_string(),
+        )
+        .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+        Ok(Stage8bP1d4GeneratedMarketPrepublicationOwner {
+            ready,
+            evidence,
+            command,
+            reservation,
+            binding,
+        })
+    }
+
     pub(crate) fn into_p1c_parts(
         self,
     ) -> (
@@ -1643,6 +2376,42 @@ impl Stage8bP1SemanticPrepublicationOwner {
         BrokerCommand,
     ) {
         (self.ready, self.evidence, self.command)
+    }
+}
+
+impl Stage8bP1d4GeneratedMarketPrepublicationOwner {
+    pub(crate) fn evidence(&self) -> &Stage6Stage8bP1SemanticCommitEvidenceV1 {
+        &self.evidence
+    }
+
+    pub(crate) fn command(&self) -> &BrokerCommand {
+        &self.command
+    }
+
+    pub(crate) fn reservation(&self) -> &Stage8bP1d4CommandPublicationReservationV1 {
+        &self.reservation
+    }
+
+    pub(crate) fn binding(&self) -> &Stage8bP1d4CommandPublicationBindingV1 {
+        &self.binding
+    }
+
+    pub(crate) fn into_p1d4_publication_parts(
+        self,
+    ) -> (
+        Stage7bRecoveryReadyOwner,
+        Stage6Stage8bP1SemanticCommitEvidenceV1,
+        BrokerCommand,
+        Stage8bP1d4CommandPublicationReservationV1,
+        Stage8bP1d4CommandPublicationBindingV1,
+    ) {
+        (
+            self.ready,
+            self.evidence,
+            self.command,
+            self.reservation,
+            self.binding,
+        )
     }
 }
 
@@ -2132,6 +2901,23 @@ impl Stage7bRecoveryReadyOwner {
 
     pub(crate) fn stage8b_p1_operational_identity_sha256(&self) -> &str {
         self.committed_seal.operational_identity_sha256()
+    }
+
+    /// Test-only P1-d4 classifier fixture. It leaves the accepted replacement
+    /// seal current and appends exactly one fsynced dispatch row, matching the
+    /// crash state that production restart must classify or reject.
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d4_test_append_current_semantic_dispatch(
+        mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<(), Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        strategy_runtime_core::stage8b_p1d4_test_append_current_semantic_dispatch(
+            &mut self.recovered,
+        )?;
+        drop(self);
+        Ok(())
     }
 
     /// Test-only setup seam for crash-frontier coverage. The injected command
@@ -2860,11 +3646,61 @@ impl Stage7bRecoveryReadyOwner {
                 )))
             }
         };
+        let p1d4_package_state = match authenticate_stage8b_p1d4_restart_package_state(
+            &committed_seal.stage6d_authenticated_restart_package,
+            commitment_key,
+            fresh_runtime.clone(),
+        ) {
+            Ok(state) => state,
+            Err(_) => {
+                return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+                    Stage7bRecoveryBlocked::retained(
+                        Stage7bRecoveryBlockReason::AuthenticatedRestartRejected,
+                        storage,
+                    ),
+                )))
+            }
+        };
         let mut pending_i3_checkpoint = None;
         let checkpoint_validation = storage.validate_checkpoint(committed_seal.stage6_checkpoint());
         let journal_is_ahead = storage.frontier() != committed_seal.stage6_checkpoint().frontier();
         if checkpoint_validation.is_err() || journal_is_ahead {
             if checkpoint_validation.is_ok() && stage8b_p1_operational_scope(&identity) {
+                if let Some(package_state) = p1d4_package_state.clone() {
+                    let Stage8bP1d4GeneratedMarketPackageState::Prepublication { reservation } =
+                        package_state
+                    else {
+                        return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+                            Stage7bRecoveryBlocked::retained(
+                                Stage7bRecoveryBlockReason::CheckpointMismatch,
+                                storage,
+                            ),
+                        )));
+                    };
+                    let candidate = classify_stage8b_p1d4_generated_market_journal_ahead_candidate(
+                        storage.versioned_records(),
+                        committed_seal.stage6_checkpoint(),
+                    )?;
+                    let Some(candidate) = candidate
+                        .filter(|candidate| stage8b_p1d4_candidate_scope(candidate, &reservation))
+                    else {
+                        return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+                            Stage7bRecoveryBlocked::retained(
+                                Stage7bRecoveryBlockReason::CheckpointMismatch,
+                                storage,
+                            ),
+                        )));
+                    };
+                    return restart_stage8b_p1d4_generated_market_journal_ahead(
+                        storage,
+                        committed_seal,
+                        candidate,
+                        reservation,
+                        identity,
+                        commitment_key,
+                        fresh_runtime,
+                    );
+                }
                 let p1d3_candidate = classify_stage8b_p1d3_journal_ahead_candidate(
                     storage.versioned_records(),
                     committed_seal.stage6_checkpoint(),
@@ -2912,6 +3748,18 @@ impl Stage7bRecoveryReadyOwner {
                             operational_identity: identity,
                         }),
                     ));
+                }
+                if stage8b_p1d3_has_dispatch_only_suffix(
+                    storage.versioned_records(),
+                    committed_seal.stage6_checkpoint(),
+                )? {
+                    return restart_stage8b_p1d3_dispatch_pending(
+                        storage,
+                        committed_seal,
+                        identity,
+                        commitment_key,
+                        fresh_runtime,
+                    );
                 }
             }
             let uncovered_i3 = stage8a4_i3_uncovered_checkpoint(&storage, &committed_seal)?;
@@ -3016,8 +3864,44 @@ impl Stage7bRecoveryReadyOwner {
             #[cfg(feature = "stage8a4-i3-test-fixtures")]
             stage8a4_test_fail_before_covering_seal: false,
         };
-        match ready.recovered.stage8b_p1d3_restart_phase() {
+        if let Some(package_state) = p1d4_package_state {
+            return Ok(
+                match restart_stage8b_p1d4_generated_market_direct(ready, package_state) {
+                    Ok(outcome) => outcome,
+                    Err(_) => Stage7bRestartOutcome::Blocked(Box::new(
+                        Stage7bRecoveryBlocked::after_consumed_storage(
+                            Stage7bRecoveryBlockReason::AuthenticatedRestartRejected,
+                        ),
+                    )),
+                },
+            );
+        }
+        let stage8b_p1d3_phase = ready.recovered.stage8b_p1d3_restart_phase();
+        if stage8b_p1d3_phase == Some(Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending) {
+            if let Some((evidence, command)) = ready.recovered.stage8b_p1_prepublication_material()
+            {
+                return Ok(Stage7bRestartOutcome::P1SemanticPrepublicationReady(
+                    Box::new(Stage8bP1SemanticPrepublicationOwner {
+                        ready,
+                        evidence,
+                        command,
+                    }),
+                ));
+            }
+        }
+        match stage8b_p1d3_phase {
             Some(Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation) => {
+                if let Some((evidence, command)) =
+                    ready.recovered.stage8b_p1_prepublication_material()
+                {
+                    return Ok(Stage7bRestartOutcome::P1SemanticPrepublicationReady(
+                        Box::new(Stage8bP1SemanticPrepublicationOwner {
+                            ready,
+                            evidence,
+                            command,
+                        }),
+                    ));
+                }
                 return Ok(Stage7bRestartOutcome::Ready(Box::new(ready)));
             }
             Some(Stage6Stage8bP1d3RestartPhase::AckCommitted) => {
@@ -3032,7 +3916,9 @@ impl Stage7bRecoveryReadyOwner {
             }
             Some(Stage6Stage8bP1d3RestartPhase::CancelContinuationPending) => {
                 return Ok(Stage7bRestartOutcome::P1d3CancelContinuationPending(
-                    Box::new(Stage8bP1d3CancelContinuationOwner { ready }),
+                    Box::new(Stage8bP1d3CancelContinuationOwner {
+                        state: Stage8bP1d3CancelContinuationState::TargetSealed(ready),
+                    }),
                 ));
             }
             Some(Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending) => {
@@ -3187,6 +4073,39 @@ impl Stage7bRecoveryReadyOwner {
         )
     }
 
+    /// Fixture-only P1-d4 setup seam. It applies the already accepted P1-d2
+    /// target-position fact to the Hybrid runtime before the ordinary
+    /// quiescent P1-d3 migration. The resulting package and seal still cross
+    /// the production migration, persistence and reread boundaries.
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d4_test_migrate_position_synced_p1d2(
+        mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Self, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        if !self
+            .recovered
+            .stage8b_p1d2_truth_frontier_is_authenticated()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let Stage7bRecoveryReadyOwner {
+            recovered,
+            writer_lease,
+            committed_seal,
+            ..
+        } = self;
+        let transition = stage8b_p1d4_test_migrate_position_synced_p1d2(recovered, commitment_key)?;
+        commit_stage8b_p1_replacement_seal(
+            transition.recovered,
+            writer_lease,
+            committed_seal,
+            transition.stage5g_restart_package,
+            commitment_key,
+        )
+    }
+
     /// Consumes one exact P1-d3 schedule observation and commits+rereads the
     /// resulting S_ack. Journal dispatch, full V3 outcome evidence and Stage
     /// 7 finalization all complete before this method writes the replacement
@@ -3209,6 +4128,7 @@ impl Stage7bRecoveryReadyOwner {
             observation,
             commitment_key,
         )?;
+        stage8b_p1d4_test_crash_frontier("F05");
         let ready = commit_stage8b_p1_replacement_seal(
             transition.recovered,
             writer_lease,
@@ -3216,6 +4136,7 @@ impl Stage7bRecoveryReadyOwner {
             transition.stage5g_restart_package,
             commitment_key,
         )?;
+        stage8b_p1d4_test_crash_frontier("F06");
         Ok(Stage8bP1d3AckCommittedOwner { ready })
     }
 
@@ -3271,11 +4192,13 @@ impl Stage7bRecoveryReadyOwner {
         };
         match ready.recovered.stage8b_p1d3_restart_phase() {
             Some(Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending) => {
+                stage8b_p1d4_test_crash_frontier("F14");
                 Ok(Stage8bP1d3LaterCommitOutcome::SemanticPending(Box::new(
                     Stage8bP1d3SemanticPendingOwner { ready },
                 )))
             }
             Some(Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation) => {
+                stage8b_p1d4_test_crash_frontier("F19");
                 Ok(Stage8bP1d3LaterCommitOutcome::Ready(Box::new(ready)))
             }
             _ => Err(Stage7bRecoveryError::SealInvalid),
@@ -3305,6 +4228,7 @@ impl Stage7bRecoveryReadyOwner {
                 recovered,
                 stage5g_restart_package,
             } => {
+                stage8b_p1d4_test_crash_frontier("F05");
                 let ready = commit_stage8b_p1_replacement_seal(
                     recovered,
                     writer_lease,
@@ -3312,6 +4236,7 @@ impl Stage7bRecoveryReadyOwner {
                     stage5g_restart_package,
                     commitment_key,
                 )?;
+                stage8b_p1d4_test_crash_frontier("F06");
                 Ok(Stage8bP1d3CancelCommitOutcome::AckCommitted(Box::new(
                     Stage8bP1d3AckCommittedOwner { ready },
                 )))
@@ -3320,6 +4245,7 @@ impl Stage7bRecoveryReadyOwner {
                 recovered,
                 stage5g_restart_package,
             } => {
+                stage8b_p1d4_test_crash_frontier("F09");
                 stage8b_p1_test_crash_barrier(
                     "p1d3-after-recovered-cancel-before-s-cancel-recovered",
                 );
@@ -3330,6 +4256,7 @@ impl Stage7bRecoveryReadyOwner {
                     stage5g_restart_package,
                     commitment_key,
                 )?;
+                stage8b_p1d4_test_crash_frontier("F10");
                 stage8b_p1_test_crash_barrier("p1d3-after-s-cancel-recovered-before-source-xack");
                 Ok(Stage8bP1d3CancelCommitOutcome::TruthCommitted(Box::new(
                     Stage8bP1d3TruthCommittedOwner { ready },
@@ -3339,6 +4266,7 @@ impl Stage7bRecoveryReadyOwner {
                 recovered,
                 stage5g_restart_package,
             } => {
+                stage8b_p1d4_test_crash_frontier("F07");
                 let ready = commit_stage8b_p1_replacement_seal(
                     recovered,
                     writer_lease,
@@ -3346,8 +4274,11 @@ impl Stage7bRecoveryReadyOwner {
                     stage5g_restart_package,
                     commitment_key,
                 )?;
+                stage8b_p1d4_test_crash_frontier("F08");
                 Ok(Stage8bP1d3CancelCommitOutcome::CancelContinuationPending(
-                    Box::new(Stage8bP1d3CancelContinuationOwner { ready }),
+                    Box::new(Stage8bP1d3CancelContinuationOwner {
+                        state: Stage8bP1d3CancelContinuationState::TargetSealed(ready),
+                    }),
                 ))
             }
         }
@@ -3419,6 +4350,56 @@ impl Stage7bRecoveryReadyOwner {
         )?;
         stage8b_p1_test_crash_barrier("p1d2-after-s-ack-before-truth");
         Ok(Stage8bP1d2AckCommittedOwner { ready })
+    }
+
+    pub(crate) fn commit_stage8b_p1d4_generated_market_ack(
+        mut self,
+        outcome: Stage8bP1d1MarketOutcomeBundle,
+        publication_binding: Stage8bP1d4CommandPublicationBindingV1,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1d4GeneratedMarketAckCommittedOwner, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        if publication_binding.prepublication_seal_generation()
+            != self.committed_seal.seal_generation()
+            || publication_binding.prepublication_seal_commitment_sha256()
+                != self.committed_seal.seal_commitment_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let expected_ack_seal_generation = publication_binding
+            .prepublication_seal_generation()
+            .checked_add(1)
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
+        let Stage7bRecoveryReadyOwner {
+            recovered,
+            writer_lease,
+            committed_seal,
+            ..
+        } = self;
+        let transition = apply_stage8b_p1d4_ack_transition(
+            recovered,
+            outcome,
+            publication_binding.clone(),
+            commitment_key,
+        )?;
+        stage8b_p1_test_crash_barrier("p1d2-after-ack-before-s-ack");
+        let ready = commit_stage8b_p1_replacement_seal(
+            transition.recovered,
+            writer_lease,
+            committed_seal,
+            transition.stage5g_restart_package,
+            commitment_key,
+        )?;
+        if ready.committed_seal.seal_generation() != expected_ack_seal_generation {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        stage8b_p1d4_test_crash_frontier("GM10");
+        stage8b_p1_test_crash_barrier("p1d2-after-s-ack-before-truth");
+        Ok(Stage8bP1d4GeneratedMarketAckCommittedOwner {
+            ready,
+            publication_binding,
+        })
     }
 
     #[allow(dead_code, reason = "consumed by the closed Stage 7B-d-b seam")]
@@ -3941,11 +4922,191 @@ fn stage8b_p1d2_candidate_scope(candidate: &Stage6Stage8bP1d2JournalAheadCandida
         && identity.attribution().belongs_to(STAGE8B_P1_STRATEGY_ID)
 }
 
+fn stage8b_p1d4_candidate_scope(
+    candidate: &Stage6Stage8bP1d4JournalAheadCandidate,
+    reservation: &Stage8bP1d4CommandPublicationReservationV1,
+) -> bool {
+    let identity = candidate.identity();
+    let instrument = identity.instrument();
+    reservation.validate().is_ok()
+        && reservation.strategy_request_id() == identity.strategy_request_id()
+        && instrument.symbol == STAGE8B_P1_INTERNAL_SYMBOL
+        && instrument.venue_symbol.as_deref() == Some(STAGE8B_P1_VENUE_SYMBOL)
+        && identity.attribution().belongs_to(STAGE8B_P1_STRATEGY_ID)
+}
+
+fn restart_stage8b_p1d4_generated_market_direct(
+    ready: Stage7bRecoveryReadyOwner,
+    package_state: Stage8bP1d4GeneratedMarketPackageState,
+) -> Result<Stage7bRestartOutcome, Stage7bRecoveryError> {
+    match package_state {
+        Stage8bP1d4GeneratedMarketPackageState::Prepublication { reservation } => {
+            let (evidence, command) = ready
+                .recovered
+                .stage8b_p1_prepublication_material()
+                .ok_or(Stage7bRecoveryError::SealInvalid)?;
+            if reservation.strategy_request_id()
+                != evidence
+                    .strategy_request_id
+                    .ok_or(Stage7bRecoveryError::SealInvalid)?
+                || reservation.source_m10_redis_id() != evidence.m10_redis_id
+            {
+                return Err(Stage7bRecoveryError::SealInvalid);
+            }
+            let binding = Stage8bP1d4CommandPublicationBindingV1::from_reservation(
+                &reservation,
+                ready.committed_seal.seal_generation(),
+                ready.committed_seal.seal_commitment_sha256().to_string(),
+            )
+            .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+            Ok(
+                Stage7bRestartOutcome::P1d4GeneratedMarketPrepublicationPending(Box::new(
+                    Stage8bP1d4GeneratedMarketPrepublicationOwner {
+                        ready,
+                        evidence,
+                        command,
+                        reservation,
+                        binding,
+                    },
+                )),
+            )
+        }
+        Stage8bP1d4GeneratedMarketPackageState::AckCommitted {
+            reservation,
+            binding,
+        } => {
+            if binding.validate_against(&reservation).is_err()
+                || ready.committed_seal.seal_generation()
+                    != binding
+                        .prepublication_seal_generation()
+                        .checked_add(1)
+                        .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+            {
+                return Err(Stage7bRecoveryError::SealInvalid);
+            }
+            Ok(Stage7bRestartOutcome::P1d4GeneratedMarketAckCommitted(
+                Box::new(Stage8bP1d4GeneratedMarketAckCommittedOwner {
+                    ready,
+                    publication_binding: binding,
+                }),
+            ))
+        }
+        Stage8bP1d4GeneratedMarketPackageState::TruthCommitted {
+            reservation,
+            binding,
+        } => {
+            if binding.validate_against(&reservation).is_err()
+                || ready.committed_seal.seal_generation()
+                    != binding
+                        .prepublication_seal_generation()
+                        .checked_add(2)
+                        .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+            {
+                return Err(Stage7bRecoveryError::SealInvalid);
+            }
+            Ok(Stage7bRestartOutcome::P1d4GeneratedMarketTruthCommitted(
+                Box::new(Stage8bP1d4GeneratedMarketTruthCommittedOwner {
+                    ready,
+                    publication_binding: binding,
+                }),
+            ))
+        }
+    }
+}
+
 fn stage8b_p1d3_candidate_scope(
     candidate: &Stage6Stage8bP1d3JournalAheadCandidate,
     committed_seal: &Stage7bRecoverySealV1,
 ) -> bool {
     candidate.operational_identity_sha256() == committed_seal.operational_identity_sha256()
+}
+
+fn stage8b_p1d3_has_dispatch_only_suffix(
+    records: &[Stage6JournalRecordVersioned],
+    predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<bool, Stage7bRecoveryError> {
+    let prefix_len: usize = predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+    Ok(records.len() == prefix_len.saturating_add(1)
+        && matches!(
+            records.get(prefix_len),
+            Some(Stage6JournalRecordVersioned::V1(record))
+                if record.is_dispatch_attempt_recorded()
+        ))
+}
+
+fn restart_stage8b_p1d3_dispatch_pending(
+    storage: Stage7bWritableDurableAuthority,
+    committed_pre_dispatch_seal: Stage7bRecoverySealV1,
+    identity: Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+) -> Result<Stage7bRestartOutcome, Stage7bRecoveryError> {
+    let current_checkpoint = Stage6JournalCheckpointV1::from_frontier(storage.frontier().clone())
+        .map_err(Stage7bDurableStorageError::from)?;
+    let reconstruction_package = advance_stage6d_restart_package(
+        &committed_pre_dispatch_seal.stage6d_authenticated_restart_package,
+        committed_pre_dispatch_seal.stage6_checkpoint(),
+        current_checkpoint.clone(),
+        &identity,
+        commitment_key,
+    )?;
+    let reconstruction_seal = Stage7bRecoverySealV1::new(
+        committed_pre_dispatch_seal
+            .seal_generation()
+            .checked_add(1)
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?,
+        reconstruction_package.clone(),
+        current_checkpoint,
+        committed_pre_dispatch_seal
+            .operational_identity_sha256()
+            .to_string(),
+        commitment_key,
+    )?;
+    let (journal, writer_lease) = storage.into_recovery_parts();
+    let recovered = restart_stage6d_paper_with_owned_journal(
+        &reconstruction_package,
+        commitment_key,
+        fresh_runtime,
+        journal,
+    )?;
+    validate_recovered_binding(&recovered, &reconstruction_seal, &identity)?;
+    let candidate = classify_stage8b_p1d3_dispatch_only_candidate(
+        &recovered,
+        committed_pre_dispatch_seal.stage6_checkpoint(),
+    )?;
+    let Some(candidate) = candidate else {
+        drop(recovered);
+        drop(writer_lease);
+        return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+            Stage7bRecoveryBlocked::after_consumed_storage(
+                Stage7bRecoveryBlockReason::CheckpointMismatch,
+            ),
+        )));
+    };
+    writer_lease.validate_namespace()?;
+    let on_disk = writer_lease
+        .read_committed_recovery_seal()?
+        .ok_or(Stage7bRecoveryError::SealInvalid)?;
+    let reread = Stage7bRecoverySealV1::decode_canonical(
+        &on_disk,
+        committed_pre_dispatch_seal.operational_identity_sha256(),
+        commitment_key,
+    )?;
+    if reread != committed_pre_dispatch_seal {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    Ok(Stage7bRestartOutcome::P1d3DispatchPending(Box::new(
+        Stage8bP1d3DispatchPendingOwner {
+            recovered,
+            writer_lease,
+            committed_pre_dispatch_seal,
+            candidate,
+        },
+    )))
 }
 
 fn restart_stage8b_p1d3_pre_ack_pending(
@@ -3997,14 +5158,19 @@ fn restart_stage8b_p1d3_pre_ack_pending(
     if reread != committed_pre_ack_seal {
         return Err(Stage7bRecoveryError::SealInvalid);
     }
-    Ok(Stage7bRestartOutcome::P1d3PreAckPending(Box::new(
-        Stage8bP1d3PreAckPendingOwner {
-            recovered,
-            writer_lease,
-            committed_pre_ack_seal,
-            candidate,
-        },
-    )))
+    let pending = Stage8bP1d3PreAckPendingOwner {
+        recovered,
+        writer_lease,
+        committed_pre_ack_seal,
+        candidate,
+    };
+    // F04 and F09 are deliberately the same durable-equivalence class:
+    // the V3 outcome (and, for request-scoped paths, RequestFinalized) is
+    // journal-durable, while the replacement seal is still the predecessor.
+    // Volatile knowledge that F09 already reconstructed an ACK must not alter
+    // restart classification.  The exact recovered-cancel continuation is
+    // selected later from the authenticated candidate during replay.
+    Ok(Stage7bRestartOutcome::P1d3PreAckPending(Box::new(pending)))
 }
 
 fn restart_stage8b_p1d2_pre_ack_pending(
@@ -4071,6 +5237,102 @@ fn restart_stage8b_p1d2_pre_ack_pending(
             candidate,
         },
     )))
+}
+
+fn restart_stage8b_p1d4_generated_market_journal_ahead(
+    storage: Stage7bWritableDurableAuthority,
+    committed_pre_ack_seal: Stage7bRecoverySealV1,
+    candidate: Stage6Stage8bP1d4JournalAheadCandidate,
+    reservation: Stage8bP1d4CommandPublicationReservationV1,
+    identity: Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+) -> Result<Stage7bRestartOutcome, Stage7bRecoveryError> {
+    let current_checkpoint = Stage6JournalCheckpointV1::from_frontier(storage.frontier().clone())
+        .map_err(Stage7bDurableStorageError::from)?;
+    let reconstruction_package = advance_stage6d_restart_package(
+        &committed_pre_ack_seal.stage6d_authenticated_restart_package,
+        committed_pre_ack_seal.stage6_checkpoint(),
+        current_checkpoint.clone(),
+        &identity,
+        commitment_key,
+    )?;
+    let reconstruction_seal = Stage7bRecoverySealV1::new(
+        committed_pre_ack_seal
+            .seal_generation()
+            .checked_add(1)
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?,
+        reconstruction_package.clone(),
+        current_checkpoint,
+        committed_pre_ack_seal
+            .operational_identity_sha256()
+            .to_string(),
+        commitment_key,
+    )?;
+    let publication_binding = Stage8bP1d4CommandPublicationBindingV1::from_reservation(
+        &reservation,
+        committed_pre_ack_seal.seal_generation(),
+        committed_pre_ack_seal.seal_commitment_sha256().to_string(),
+    )
+    .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+    let kind = candidate.kind();
+    let (journal, writer_lease) = storage.into_recovery_parts();
+    let recovered = restart_stage6d_paper_with_owned_journal(
+        &reconstruction_package,
+        commitment_key,
+        fresh_runtime,
+        journal,
+    )?;
+    validate_recovered_binding(&recovered, &reconstruction_seal, &identity)?;
+    if recovered.stage8b_p1d4_generated_market_package_state()?
+        != Some(Stage8bP1d4GeneratedMarketPackageState::Prepublication {
+            reservation: reservation.clone(),
+        })
+    {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    writer_lease.validate_namespace()?;
+    let on_disk = writer_lease
+        .read_committed_recovery_seal()?
+        .ok_or(Stage7bRecoveryError::SealInvalid)?;
+    let reread = Stage7bRecoverySealV1::decode_canonical(
+        &on_disk,
+        committed_pre_ack_seal.operational_identity_sha256(),
+        commitment_key,
+    )?;
+    if reread != committed_pre_ack_seal {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    let state = Stage8bP1d4GeneratedMarketJournalAheadState {
+        recovered,
+        writer_lease,
+        committed_pre_ack_seal,
+        candidate,
+        reservation,
+        publication_binding,
+    };
+    Ok(match kind {
+        Stage6Stage8bP1d4JournalAheadKind::DispatchOnly => {
+            Stage7bRestartOutcome::P1d4GeneratedMarketDispatchPending(Box::new(
+                Stage8bP1d4GeneratedMarketDispatchPendingOwner { state },
+            ))
+        }
+        Stage6Stage8bP1d4JournalAheadKind::OrderOnly => {
+            Stage7bRestartOutcome::P1d4GeneratedMarketOrderPending(Box::new(
+                Stage8bP1d4GeneratedMarketOrderPendingOwner { state },
+            ))
+        }
+        Stage6Stage8bP1d4JournalAheadKind::PreFinalization => {
+            Stage7bRestartOutcome::P1d4GeneratedMarketPreFinalizationPending(Box::new(
+                Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner { state },
+            ))
+        }
+        Stage6Stage8bP1d4JournalAheadKind::PreAck => {
+            Stage7bRestartOutcome::P1d4GeneratedMarketPreAckPending(Box::new(
+                Stage8bP1d4GeneratedMarketPreAckPendingOwner { state },
+            ))
+        }
+    })
 }
 
 fn commit_stage8b_p1_replacement_seal(
@@ -4141,21 +5403,194 @@ fn commit_stage8b_p1_replacement_seal(
 }
 
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+pub(crate) fn stage8b_p1d4_pre_kill_audit_sha256(
+    root: &std::path::Path,
+    marker: &std::path::Path,
+    cell_id: &str,
+    scenario_id: &str,
+    frontier_id: &str,
+    phase: &str,
+) -> String {
+    fn collect(
+        root: &std::path::Path,
+        directory: &std::path::Path,
+        marker: &std::path::Path,
+        files: &mut Vec<(String, Vec<u8>)>,
+    ) {
+        let mut entries = std::fs::read_dir(directory)
+            .expect("P1-d4 audit directory must be readable")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("P1-d4 audit entries must be readable");
+        entries.sort_by_key(std::fs::DirEntry::file_name);
+        for entry in entries {
+            let path = entry.path();
+            if path == marker
+                || entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".p1d4-marker-")
+            {
+                continue;
+            }
+            let file_type = entry
+                .file_type()
+                .expect("P1-d4 audit file type must be readable");
+            assert!(!file_type.is_symlink(), "P1-d4 audit rejects symlinks");
+            if file_type.is_dir() {
+                collect(root, &path, marker, files);
+            } else if file_type.is_file() {
+                let relative = path
+                    .strip_prefix(root)
+                    .expect("P1-d4 audit path must remain under its root")
+                    .to_str()
+                    .expect("P1-d4 audit path must be UTF-8")
+                    .to_string();
+                files.push((
+                    relative,
+                    std::fs::read(&path).expect("P1-d4 audit file must be readable"),
+                ));
+            } else {
+                panic!("P1-d4 audit rejects special files");
+            }
+        }
+    }
+
+    fn frame(hasher: &mut Sha256, bytes: &[u8]) {
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(bytes);
+    }
+
+    let mut files = Vec::new();
+    collect(root, root, marker, &mut files);
+    files.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
+    let mut hasher = Sha256::new();
+    hasher.update(b"moex.stage8b.p1d4.pre-kill-audit.v1\0");
+    for value in [cell_id, scenario_id, frontier_id, phase] {
+        frame(&mut hasher, value.as_bytes());
+    }
+    for (path, bytes) in files {
+        frame(&mut hasher, path.as_bytes());
+        frame(&mut hasher, &bytes);
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
 pub(crate) fn stage8b_p1_test_crash_barrier(phase: &str) {
     if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref() != Ok(phase) {
         return;
     }
-    let marker = std::env::var_os("STAGE8B_P1_TEST_CRASH_MARKER")
-        .expect("P1 crash child requires a marker path");
-    std::fs::write(marker, phase.as_bytes()).expect("P1 crash marker must be writable");
+    let marker = std::path::PathBuf::from(
+        std::env::var_os("STAGE8B_P1_TEST_CRASH_MARKER")
+            .expect("P1 crash child requires a marker path"),
+    );
+    let parent = marker
+        .parent()
+        .expect("P1 crash marker requires a parent directory");
+    let temporary = parent.join(format!(".p1d4-marker-{}.tmp", std::process::id()));
+    let bytes = if let Ok(frontier_id) = std::env::var("STAGE8B_P1D4_FRONTIER_ID") {
+        let cell_id = std::env::var("STAGE8B_P1D4_CELL_ID")
+            .expect("P1-d4 crash child requires the exact registry cell ID");
+        let scenario_id = std::env::var("STAGE8B_P1D4_SCENARIO_ID")
+            .expect("P1-d4 crash child requires the exact registry scenario ID");
+        let audit_root = std::path::PathBuf::from(
+            std::env::var_os("STAGE8B_P1_TEST_PARENT")
+                .expect("P1-d4 crash child requires its audit root"),
+        );
+        let pre_kill_audit_sha256 = stage8b_p1d4_pre_kill_audit_sha256(
+            &audit_root,
+            &marker,
+            &cell_id,
+            &scenario_id,
+            &frontier_id,
+            phase,
+        );
+        let canonical_base_cell = cell_id.strip_prefix("P1D4C-").is_some_and(|suffix| {
+            suffix.len() == 3 && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        });
+        let canonical_generated_market_cell =
+            cell_id.strip_prefix("P1D4GM-").is_some_and(|suffix| {
+                suffix.len() == 3 && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        assert!(
+            canonical_base_cell || canonical_generated_market_cell,
+            "P1-d4 crash marker cell ID must be canonical"
+        );
+        assert!(
+            scenario_id.len() == 3
+                && scenario_id.starts_with('S')
+                && scenario_id[1..].bytes().all(|byte| byte.is_ascii_digit()),
+            "P1-d4 crash marker scenario ID must be canonical"
+        );
+        let canonical_base_frontier = frontier_id.strip_prefix('F').is_some_and(|suffix| {
+            suffix.len() == 2 && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        });
+        let canonical_generated_market_frontier =
+            frontier_id.strip_prefix("GM").is_some_and(|suffix| {
+                suffix.len() == 2 && suffix.bytes().all(|byte| byte.is_ascii_digit())
+            });
+        assert!(
+            canonical_base_frontier || canonical_generated_market_frontier,
+            "P1-d4 crash marker frontier ID must be canonical"
+        );
+        assert!(
+            phase.starts_with("p1d4-")
+                && phase
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+            "P1-d4 crash marker hook name must be canonical"
+        );
+        assert!(
+            pre_kill_audit_sha256.len() == 64
+                && pre_kill_audit_sha256
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "P1-d4 pre-kill audit digest must be lowercase hexadecimal"
+        );
+        format!(
+            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":1}}",
+            std::process::id()
+        )
+    } else {
+        format!("{{\"phase\":\"{phase}\",\"pid\":{}}}\n", std::process::id())
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .expect("P1 crash marker temporary file must be created exactly once");
+    std::io::Write::write_all(&mut file, bytes.as_bytes())
+        .expect("P1 crash marker bytes must be written completely");
+    file.sync_all()
+        .expect("P1 crash marker temporary file must be durable");
+    std::fs::rename(&temporary, &marker).expect("P1 crash marker rename must be atomic");
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .expect("P1 crash marker parent directory must be durable");
     loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
 
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+pub(crate) fn stage8b_p1d4_test_crash_frontier(frontier_id: &str) {
+    if std::env::var("STAGE8B_P1D4_ARMED").as_deref() != Ok("1")
+        || std::env::var("STAGE8B_P1D4_FRONTIER_ID").as_deref() != Ok(frontier_id)
+    {
+        return;
+    }
+    let phase = std::env::var("STAGE8B_P1_TEST_CRASH_PHASE")
+        .expect("P1-d4 frontier child requires the exact registry hook name");
+    stage8b_p1_test_crash_barrier(&phase);
+}
+
 #[cfg(not(any(test, feature = "stage8b-p1-test-fixtures")))]
 #[inline(always)]
 pub(crate) fn stage8b_p1_test_crash_barrier(_: &str) {}
+
+#[cfg(not(any(test, feature = "stage8b-p1-test-fixtures")))]
+#[inline(always)]
+pub(crate) fn stage8b_p1d4_test_crash_frontier(_: &str) {}
 
 impl Stage8a4I3RecoveryPendingOwner {
     pub fn recovery_ready(&self) -> bool {
@@ -4342,6 +5777,16 @@ pub enum Stage7bRestartOutcome {
     P1d2PreAckPending(Box<Stage8bP1d2PreAckPendingOwner>),
     P1d2AckCommitted(Box<Stage8bP1d2AckCommittedOwner>),
     P1d2TruthCommitted(Box<Stage8bP1d2TruthCommittedOwner>),
+    P1d4GeneratedMarketPrepublicationPending(Box<Stage8bP1d4GeneratedMarketPrepublicationOwner>),
+    P1d4GeneratedMarketDispatchPending(Box<Stage8bP1d4GeneratedMarketDispatchPendingOwner>),
+    P1d4GeneratedMarketOrderPending(Box<Stage8bP1d4GeneratedMarketOrderPendingOwner>),
+    P1d4GeneratedMarketPreFinalizationPending(
+        Box<Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner>,
+    ),
+    P1d4GeneratedMarketPreAckPending(Box<Stage8bP1d4GeneratedMarketPreAckPendingOwner>),
+    P1d4GeneratedMarketAckCommitted(Box<Stage8bP1d4GeneratedMarketAckCommittedOwner>),
+    P1d4GeneratedMarketTruthCommitted(Box<Stage8bP1d4GeneratedMarketTruthCommittedOwner>),
+    P1d3DispatchPending(Box<Stage8bP1d3DispatchPendingOwner>),
     P1d3PreAckPending(Box<Stage8bP1d3PreAckPendingOwner>),
     P1d3AckCommitted(Box<Stage8bP1d3AckCommittedOwner>),
     P1d3TruthCommitted(Box<Stage8bP1d3TruthCommittedOwner>),
@@ -4361,6 +5806,14 @@ impl Stage7bRestartOutcome {
             | Self::P1d2PreAckPending(_)
             | Self::P1d2AckCommitted(_)
             | Self::P1d2TruthCommitted(_)
+            | Self::P1d4GeneratedMarketPrepublicationPending(_)
+            | Self::P1d4GeneratedMarketDispatchPending(_)
+            | Self::P1d4GeneratedMarketOrderPending(_)
+            | Self::P1d4GeneratedMarketPreFinalizationPending(_)
+            | Self::P1d4GeneratedMarketPreAckPending(_)
+            | Self::P1d4GeneratedMarketAckCommitted(_)
+            | Self::P1d4GeneratedMarketTruthCommitted(_)
+            | Self::P1d3DispatchPending(_)
             | Self::P1d3PreAckPending(_)
             | Self::P1d3AckCommitted(_)
             | Self::P1d3TruthCommitted(_)
@@ -4417,6 +5870,60 @@ impl Stage7bRestartOutcome {
                 runtime_config_fingerprint_sha256,
             ),
             Self::P1d2TruthCommitted(owner) => owner.source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
+            Self::P1d4GeneratedMarketPrepublicationPending(owner) => {
+                owner.ready.stage8b_p1_source_binding_matches(
+                    strategy_id,
+                    account_id,
+                    instrument,
+                    runtime_config_fingerprint_sha256,
+                )
+            }
+            Self::P1d4GeneratedMarketDispatchPending(owner) => owner.source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
+            Self::P1d4GeneratedMarketOrderPending(owner) => owner.source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
+            Self::P1d4GeneratedMarketPreFinalizationPending(owner) => owner.source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
+            Self::P1d4GeneratedMarketPreAckPending(owner) => owner.source_binding_matches(
+                strategy_id,
+                account_id,
+                instrument,
+                runtime_config_fingerprint_sha256,
+            ),
+            Self::P1d4GeneratedMarketAckCommitted(owner) => {
+                owner.ready.stage8b_p1_source_binding_matches(
+                    strategy_id,
+                    account_id,
+                    instrument,
+                    runtime_config_fingerprint_sha256,
+                )
+            }
+            Self::P1d4GeneratedMarketTruthCommitted(owner) => {
+                owner.ready.stage8b_p1_source_binding_matches(
+                    strategy_id,
+                    account_id,
+                    instrument,
+                    runtime_config_fingerprint_sha256,
+                )
+            }
+            Self::P1d3DispatchPending(owner) => owner.source_binding_matches(
                 strategy_id,
                 account_id,
                 instrument,
