@@ -15,7 +15,7 @@ P1D4-SRC-013,S_truth allows source XACK only,generated Market TruthCommitted lin
 P1D4-SRC-014,source M10 remains pending through S_truth,GM matrix XPENDING assertions,true
 P1D4-SRC-015,XACK is last external effect,GM12 and inherited F16 proofs,true
 P1D4-SRC-016,S09 F04 and F09 are durable-equivalent,both classify P1d3PreAckPending,true
-P1D4-SRC-017,all positive crash cells reach their exact final lifecycle state,92-row allocation/package oracle plus 92-row operational oracle exact-freeze callback publication XACK source disposition and typed source-bound Redis group frontier alongside 13 generated real SIGKILL cells,true
-P1D4-SRC-018,every cell has duplicate binding-conflict and fail-closed semantic-evidence variants,two clean 105-cell runs with identical normalized digest plus twenty-three independently redigested rejected mutations including callback publication pre-kill/recovery XACK and frontier forgeries,true
+P1D4-SRC-017,all positive crash cells reach their exact final lifecycle state,92-row allocation/package oracle plus 92-row operational oracle exact-freeze callback publication XACK source disposition typed source-bound Redis group frontier exact eight-field CrashMarkerV1 and separate 12-field F16 witness alongside 13 generated real SIGKILL cells,true
+P1D4-SRC-018,every cell has duplicate binding-conflict and fail-closed semantic-evidence variants,two clean 105-cell runs with identical normalized digest plus forty-one independently redigested rejected mutations including callback publication marker PID and canonical hashes F16 witness pre-kill/recovery XACK and frontier forgeries,true
 P1D4-SRC-019,production source excludes live surfaces,scope checker and closed-surface evidence,true
 P1D4-SRC-020,P1-e remains unauthorized,status roadmap and evidence,true

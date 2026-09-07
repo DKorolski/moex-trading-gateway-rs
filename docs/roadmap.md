@@ -99,7 +99,10 @@ did not interpret base-cell allocation timing, ordered effects and package
 state exactly. R3 at `0e21a8e844347efbf48fe6e1b57586cc2b674ad7`
 closed those fields but remained HOLD because base callback, publication, XACK
 and group-frontier facts could still be forged with coordinated redigestion.
-The active R4 correction retains all registry fields,
+R4 at `b13e73b85e68ae93d3591daf230e518c24556db1` closed that gap but remained
+HOLD because it changed the accepted exact CrashMarkerV1 to V2 and did not
+independently reconstruct marker bytes, hashes and PID binding. The active R5
+correction retains all registry fields,
 drives every cell through the only legal continuation, emits complete
 process/filesystem/Redis/sequence/counter/audit evidence, requires identical
 semantic digests from two clean 105-cell runs, and exactly restores the
@@ -108,8 +111,10 @@ typed authenticated V3 allocation audits, independent truth counting,
 exact journal-record binding, frozen 92-row allocation/effect/package and
 operational callback/publication/XACK/frontier oracles, authenticated-reread
 replacement history, reproducible canonical audit and typed Redis-frontier
-hashes, a direct F16 pre-kill XACK reply captured by crash marker v2, and
-twenty-three redigested evidence mutations. Standalone
+hashes. It restores exact eight-field CrashMarkerV1, moves the direct F16
+pre-kill XACK reply into a separate exact 12-field source-bound durable witness,
+independently reconstructs both canonical forms and hashes, and runs forty-one
+redigested evidence mutations. Standalone
 P1-d2 remains unchanged when
 the composite discriminator is absent. P1-d4 remains a review candidate until
 independent source acceptance and a later governance-only authority rebind.

@@ -3000,7 +3000,12 @@ impl Stage8bP1RedisBackend {
                     .query_async(&mut self.connection)
                     .await?;
                 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
-                crate::recovery::stage8b_p1d4_test_observe_xack_reply(acknowledged);
+                crate::recovery::stage8b_p1d4_test_observe_xack_reply(
+                    acknowledged,
+                    &self.namespace.canonical_m10_stream,
+                    &self.namespace.m10_consumer_group,
+                    delivery.redis_id(),
+                );
                 if acknowledged == 1 {
                     Ok(Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending)
                 } else {
@@ -5361,6 +5366,9 @@ mod tests {
         normalized_marker_sha256: String,
         pre_kill_filesystem_sha256: String,
         pre_kill_xack_reply: String,
+        pre_kill_xack_reply_witness_v1: Option<serde_json::Value>,
+        pre_kill_xack_reply_witness_sha256: Option<String>,
+        pre_kill_xack_witness_order: String,
         sequence_pair_before_kill: Option<(u64, u64)>,
     }
 
@@ -6271,23 +6279,14 @@ mod tests {
         let marker_bytes = fs::read(marker).unwrap();
         let marker_json: serde_json::Value = serde_json::from_slice(&marker_bytes).unwrap();
         let marker_object = marker_json.as_object().unwrap();
-        assert_eq!(marker_object.len(), 9);
-        assert_eq!(marker_json["schema_version"], 2);
-        assert_eq!(marker_json["domain"], "moex.stage8b.p1d4.crash-marker.v2");
+        assert_eq!(marker_object.len(), 8);
+        assert_eq!(marker_json["schema_version"], 1);
+        assert_eq!(marker_json["domain"], "moex.stage8b.p1d4.crash-marker.v1");
         assert_eq!(marker_json["child_pid"], u64::from(child.id()));
         assert_eq!(marker_json["cell_id"], cell.cell_id());
         assert_eq!(marker_json["scenario_id"], cell.scenario_id());
         assert_eq!(marker_json["frontier_id"], cell.frontier_id());
         assert_eq!(marker_json["kill_hook_name"], cell.kill_hook_name());
-        let pre_kill_xack_reply = marker_json["pre_kill_xack_reply"].as_str().unwrap();
-        assert_eq!(
-            pre_kill_xack_reply,
-            if cell.frontier_id() == "F16" {
-                "integer:1"
-            } else {
-                "not_observed"
-            }
-        );
         let pre_kill_audit_sha256 = marker_json["pre_kill_audit_sha256"].as_str().unwrap();
         assert_eq!(
             pre_kill_audit_sha256,
@@ -6301,33 +6300,91 @@ mod tests {
             )
         );
         let expected_canonical = format!(
-            "{{\"cell_id\":\"{}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v2\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"pre_kill_xack_reply\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":2}}",
+            "{{\"cell_id\":\"{}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":1}}",
             cell.cell_id(),
             child.id(),
             cell.frontier_id(),
             cell.kill_hook_name(),
             pre_kill_audit_sha256,
-            pre_kill_xack_reply,
             cell.scenario_id(),
         );
         assert_eq!(marker_bytes, expected_canonical.as_bytes());
 
         let normalized = format!(
-            "{{\"cell_id\":\"{}\",\"child_pid\":0,\"domain\":\"moex.stage8b.p1d4.crash-marker.v2\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"pre_kill_xack_reply\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":2}}",
+            "{{\"cell_id\":\"{}\",\"child_pid\":0,\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":1}}",
             cell.cell_id(),
             cell.frontier_id(),
             cell.kill_hook_name(),
             pre_kill_audit_sha256,
-            pre_kill_xack_reply,
             cell.scenario_id(),
         );
         let mut normalized_hasher = Sha256::new();
-        normalized_hasher.update(b"moex.stage8b.p1d4.crash-marker.normalized.v2\0");
+        normalized_hasher.update(b"moex.stage8b.p1d4.crash-marker.normalized.v1\0");
         normalized_hasher.update((normalized.len() as u64).to_be_bytes());
         normalized_hasher.update(normalized.as_bytes());
         let normalized_marker_sha256 = format!("{:x}", normalized_hasher.finalize());
         assert_eq!(normalized_marker_sha256.len(), 64);
         let raw_marker_sha256 = sha256_hex(&marker_bytes);
+
+        let witness_path = marker.with_extension("xack-witness");
+        let (pre_kill_xack_reply, witness_v1, witness_sha256, witness_order) = if cell.frontier_id()
+            == "F16"
+        {
+            let witness_bytes = fs::read(&witness_path)
+                .expect("P1-d4 F16 must durably retain its XACK reply witness");
+            let witness: serde_json::Value = serde_json::from_slice(&witness_bytes).unwrap();
+            assert_eq!(witness.as_object().unwrap().len(), 12);
+            let oracle = p1d4_base_operational_evidence_oracle_cell(cell.cell_id());
+            assert_eq!(witness["schema_version"], 1);
+            assert_eq!(
+                witness["domain"],
+                "moex.stage8b.p1d4.pre-kill-xack-reply-witness.v1"
+            );
+            assert_eq!(witness["cell_id"], cell.cell_id());
+            assert_eq!(witness["child_pid"], u64::from(child.id()));
+            assert_eq!(witness["scenario_id"], cell.scenario_id());
+            assert_eq!(witness["frontier_id"], cell.frontier_id());
+            assert_eq!(witness["kill_hook_name"], cell.kill_hook_name());
+            assert_eq!(witness["pre_kill_audit_sha256"], pre_kill_audit_sha256);
+            assert_eq!(witness["source_stream"], oracle.source_stream);
+            assert_eq!(witness["source_group"], oracle.source_group);
+            assert_eq!(witness["source_m10_redis_id"], oracle.source_m10_redis_id);
+            assert_eq!(witness["xack_reply"], "integer:1");
+            let expected_witness = format!(
+                    "{{\"cell_id\":\"{}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.pre-kill-xack-reply-witness.v1\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":1,\"source_group\":\"{}\",\"source_m10_redis_id\":\"{}\",\"source_stream\":\"{}\",\"xack_reply\":\"integer:1\"}}",
+                    cell.cell_id(),
+                    child.id(),
+                    cell.frontier_id(),
+                    cell.kill_hook_name(),
+                    pre_kill_audit_sha256,
+                    cell.scenario_id(),
+                    oracle.source_group,
+                    oracle.source_m10_redis_id,
+                    oracle.source_stream,
+                );
+            assert_eq!(witness_bytes, expected_witness.as_bytes());
+            let mut witness_hasher = Sha256::new();
+            witness_hasher.update(b"moex.stage8b.p1d4.pre-kill-xack-reply-witness.digest.v1\0");
+            witness_hasher.update((witness_bytes.len() as u64).to_be_bytes());
+            witness_hasher.update(&witness_bytes);
+            (
+                "integer:1".to_string(),
+                Some(witness),
+                Some(format!("{:x}", witness_hasher.finalize())),
+                "after_integer_1_before_crash_marker".to_string(),
+            )
+        } else {
+            assert!(
+                !witness_path.exists(),
+                "P1-d4 non-F16 cell cannot retain an XACK reply witness"
+            );
+            (
+                "not_observed".to_string(),
+                None,
+                None,
+                "not_applicable".to_string(),
+            )
+        };
         child.kill().unwrap();
         let status = child.wait().unwrap();
         assert_eq!(status.code(), None);
@@ -6341,7 +6398,10 @@ mod tests {
             raw_marker_sha256,
             normalized_marker_sha256,
             pre_kill_filesystem_sha256: pre_kill_audit_sha256.to_string(),
-            pre_kill_xack_reply: pre_kill_xack_reply.to_string(),
+            pre_kill_xack_reply,
+            pre_kill_xack_reply_witness_v1: witness_v1,
+            pre_kill_xack_reply_witness_sha256: witness_sha256,
+            pre_kill_xack_witness_order: witness_order,
             sequence_pair_before_kill: None,
         }
     }
@@ -6655,6 +6715,7 @@ mod tests {
         frontier_id: &str,
     ) -> P1d4CrashProcessEvidence {
         let cell = p1d4_registry_cell(scenario_id, frontier_id);
+        let operational_oracle = p1d4_base_operational_evidence_oracle_cell(cell.cell_id);
         assert!(!cell.expected_restart_disposition.is_empty());
         let marker = parent.join(format!("{}-{}.marker", cell.cell_id, cell.kill_hook_name));
         let started_at = Instant::now();
@@ -6671,6 +6732,15 @@ mod tests {
             .env("STAGE8B_P1D4_CELL_ID", cell.cell_id)
             .env("STAGE8B_P1D4_SCENARIO_ID", cell.scenario_id)
             .env("STAGE8B_P1D4_FRONTIER_ID", cell.frontier_id)
+            .env(
+                "STAGE8B_P1D4_SOURCE_STREAM",
+                operational_oracle.source_stream,
+            )
+            .env("STAGE8B_P1D4_SOURCE_GROUP", operational_oracle.source_group)
+            .env(
+                "STAGE8B_P1D4_SOURCE_M10_REDIS_ID",
+                operational_oracle.source_m10_redis_id,
+            )
             .env("RUST_MIN_STACK", "16777216")
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
@@ -7292,6 +7362,13 @@ mod tests {
             cell["process"]["wall_duration_ms"] = serde_json::json!(0);
             cell["filesystem"]["scratch_root"] = serde_json::json!("<VOLATILE_PATH>");
             cell["filesystem"]["raw_marker_sha256"] = serde_json::json!("<VOLATILE_MARKER_SHA256>");
+            cell["filesystem"]["crash_marker_v1"]["child_pid"] = serde_json::json!(0);
+            if cell["filesystem"]["pre_kill_xack_reply_witness_v1"].is_object() {
+                cell["filesystem"]["pre_kill_xack_reply_witness_v1"]["child_pid"] =
+                    serde_json::json!(0);
+                cell["filesystem"]["pre_kill_xack_reply_witness_sha256"] =
+                    serde_json::json!("<VOLATILE_WITNESS_SHA256>");
+            }
             cell["redis"]["port"] = serde_json::json!(0);
         }
         value
@@ -7300,7 +7377,7 @@ mod tests {
     fn p1d4_semantic_digest(value: &serde_json::Value) -> String {
         let bytes = p1d4_canonical_json(p1d4_semantic_view(value.clone()));
         let mut hasher = Sha256::new();
-        hasher.update(b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v3\0");
+        hasher.update(b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v4\0");
         hasher.update((bytes.len() as u64).to_be_bytes());
         hasher.update(&bytes);
         format!("{:x}", hasher.finalize())
@@ -8149,6 +8226,18 @@ mod tests {
                 "scratch_root": parent.to_string_lossy(),
                 "raw_marker_sha256": crash.raw_marker_sha256,
                 "normalized_marker_sha256": crash.normalized_marker_sha256,
+                "crash_marker_v1": serde_json::json!({
+                    "cell_id": cell_id,
+                    "child_pid": crash.child_pid,
+                    "domain": "moex.stage8b.p1d4.crash-marker.v1",
+                    "frontier_id": frontier_id,
+                    "kill_hook_name": kill_hook_name,
+                    "pre_kill_audit_sha256": &crash.pre_kill_filesystem_sha256,
+                    "scenario_id": scenario_id,
+                    "schema_version": 1,
+                }),
+                "pre_kill_xack_reply_witness_v1": crash.pre_kill_xack_reply_witness_v1,
+                "pre_kill_xack_reply_witness_sha256": crash.pre_kill_xack_reply_witness_sha256,
                 "pre_kill_snapshot_sha256": crash.pre_kill_filesystem_sha256,
                 "post_restart_snapshot_sha256": post_restart_filesystem_sha256,
                 "final_snapshot_sha256": final_filesystem_sha256,
@@ -8172,6 +8261,7 @@ mod tests {
                 "group_frontier_v1": group_frontier_v1,
                 "group_frontier_sha256": group_frontier_sha256,
                 "pre_kill_xack_reply": crash.pre_kill_xack_reply,
+                "pre_kill_xack_witness_order": crash.pre_kill_xack_witness_order,
                 "xack_reply": continuation.xack_reply,
                 "xack_disposition": continuation.xack_disposition,
             }),
@@ -8416,8 +8506,8 @@ mod tests {
             "/../../docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv"
         ));
         p1d4_canonicalize_json(serde_json::json!({
-            "schema_version": 3,
-            "domain": "moex.stage8b.p1d4.crash-replay.evidence.v3",
+            "schema_version": 4,
+            "domain": "moex.stage8b.p1d4.crash-replay.evidence.v4",
             "accepted_predecessor_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
             "source_ref": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_REF").unwrap_or_else(|_| "WORKTREE".into()),
             "source_tree": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_TREE").unwrap_or_else(|_| "WORKTREE".into()),
@@ -10317,6 +10407,22 @@ mod tests {
         ] {
             run_p1d3_cancel_recovery_crash_case(phase, expected).await;
         }
+    }
+
+    #[tokio::test]
+    async fn p1d4_f16_persists_separate_xack_reply_witness_before_v1_marker() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1d4-f16-marker-witness");
+        let evidence =
+            spawn_p1d4_exact_frontier(&redis, &parent, "initial-working", "S01", "F16").await;
+        assert_eq!(evidence.pre_kill_xack_reply, "integer:1");
+        assert_eq!(
+            evidence.pre_kill_xack_witness_order,
+            "after_integer_1_before_crash_marker"
+        );
+        assert!(evidence.pre_kill_xack_reply_witness_v1.is_some());
+        assert!(evidence.pre_kill_xack_reply_witness_sha256.is_some());
+        fs::remove_dir_all(parent).unwrap();
     }
 
     #[tokio::test]

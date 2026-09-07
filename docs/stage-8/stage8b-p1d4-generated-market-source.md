@@ -1,6 +1,6 @@
 # Stage 8B-P1-d4 generated-Market crash/replay source
 
-Status: R4 operational-evidence correction review candidate.
+Status: R5 marker/witness evidence correction review candidate.
 
 Accepted design predecessor:
 `1a1ea05775f1d15b86fcc3495ad6863b851e9212` (R7, ACCEPTED).
@@ -8,10 +8,11 @@ Accepted design predecessor:
 Accepted business/source predecessor:
 `7dc7c802feca6e79d3a1a9902c181ad7b6afc506` (P1-d3, CLOSED / ACCEPTED).
 
-Reviewed source predecessor:
-`0e21a8e844347efbf48fe6e1b57586cc2b674ad7` (R3 HOLD with one
-base-cell operational-evidence P1 finding; its production implementation and
-reservation/routing/feedback lifecycle are retained unchanged).
+Corrected source parent:
+`b13e73b85e68ae93d3591daf230e518c24556db1` (R4 HOLD with two
+crash-marker/retained-checker P1 findings; its production implementation,
+operational oracle and reservation/routing/feedback lifecycle are retained
+unchanged).
 
 ## Scope
 
@@ -98,7 +99,7 @@ The active registries are immutable R7 inputs:
 
 Every cell is parsed from all 19 or 28 normative registry columns, runs through
 its only legal continuation to a terminal lifecycle state, and emits one
-`moex.stage8b.p1d4.crash-replay.evidence.v3` record. The record retains the
+`moex.stage8b.p1d4.crash-replay.evidence.v4` record. The record retains the
 complete source row together with process PID/SIGKILL/reap evidence, raw and
 normalized marker digests, pre-kill/post-restart/final audit digests, exact
 Redis group/PEL/XACK state, sequence labels, callback/provider/schedule and V1
@@ -174,16 +175,31 @@ digest and the complete typed runtime audit. The checker recomputes each
 SHA-256 and cross-validates its sequence, package, callback and outcome facts
 with the structured cell evidence.
 
-Twenty-three redigested evidence mutations retain the prior fourteen and add
-F14 callback erasure/replay, missing/duplicate F14 command publication,
-inverted F16 XACK disposition, incorrect F16 reply, unrelated source/group
-frontier identity, premature immediate XACK, and missing pre-kill F16 reply
-cases. The test-only crash marker v2 captures the parsed `integer:1` reply at
-the actual XACK call site before the F16 barrier; this is checked separately
-from the post-restart `integer:0/AlreadyAcknowledged` result. Every mutation refreshes
-the affected canonical payload hashes and the two-run semantic digest where
-applicable, so rejection depends on the semantic oracle rather than a stale
-digest.
+R5 restores the immutable `Stage8bP1d4CrashMarkerV1`: schema version 1,
+domain `moex.stage8b.p1d4.crash-marker.v1`, and exactly eight fields. Its raw
+canonical bytes are hashed directly. Its normalized digest uses
+`moex.stage8b.p1d4.crash-marker.normalized.v1`, a big-endian u64 length prefix,
+and a copy in which only `child_pid` is replaced with zero. The independent
+checker reconstructs both forms from retained cell evidence and verifies PID,
+cell, scenario, frontier, hook and pre-kill audit binding for every cell in
+both clean runs.
+
+F16 retains the parsed pre-kill `integer:1` reply in a separate test/evidence-only
+`Stage8bP1d4PreKillXackReplyWitnessV1`. The exact 12-field canonical witness
+binds the killed child and cell identities, pre-kill audit and exact source
+stream/group/M10. It is create-once, written and file-synced through a temporary
+file, atomically renamed, directory-synced and byte-reread after the actual
+XACK reply and before CrashMarkerV1 permits SIGKILL. It is forbidden for every
+non-F16 cell. Recovery still proves `integer:0/AlreadyAcknowledged`, PEL zero
+and no second source-XACK effect.
+
+Forty-one redigested evidence mutations retain all prior operational cases and
+add exact marker raw/normalized hash, PID/schema/domain/cell/frontier/hook/audit
+binding, normalization-scope, missing/forged F16 witness, source identity,
+witness PID/reply/order and post-restart disposition cases. Every mutation
+refreshes affected inner hashes and the two-run semantic digest where
+applicable, so rejection depends on the independent semantic checker rather
+than a stale checksum.
 
 GM08 and GM09 use a dedicated create-once, `sync_all()` sequence-pair marker
 written after allocation and before their non-returning crash hooks. Recovery

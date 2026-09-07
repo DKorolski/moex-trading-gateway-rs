@@ -1,7 +1,8 @@
 {
   "accepted_business_source_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
   "accepted_design_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
-  "reviewed_source_ref": "0e21a8e844347efbf48fe6e1b57586cc2b674ad7",
+  "reviewed_source_ref": "b13e73b85e68ae93d3591daf230e518c24556db1",
+  "corrected_source_parent": "b13e73b85e68ae93d3591daf230e518c24556db1",
   "acceptance_rows": 20,
   "closed_surfaces": {
     "broker_network_dispatch": false,
@@ -49,7 +50,15 @@
     "canonical_audit_payloads_retained_and_hashed": true,
     "replacement_commits_observed_after_authenticated_reread": true,
     "truth_bearing_outcomes_bound_to_replacement_commits": true,
-    "semantic_evidence_negative_mutations": 23,
+    "crash_marker_contract": "Stage8bP1d4CrashMarkerV1",
+    "crash_marker_exact_fields": 8,
+    "crash_marker_raw_hash_independently_reconstructed": true,
+    "crash_marker_normalized_hash_independently_reconstructed": true,
+    "f16_witness_contract": "Stage8bP1d4PreKillXackReplyWitnessV1",
+    "f16_witness_cells": 10,
+    "f16_witness_source_bound": true,
+    "f16_witness_create_once_fsync_rename_reread": true,
+    "semantic_evidence_negative_mutations": 41,
     "marker_fsync_before_sigkill": true,
     "normalized_semantic_digest_equal": true,
     "positive_sigkill_cells": 105,
@@ -66,6 +75,9 @@
       "process.wall_duration_ms",
       "filesystem.scratch_root",
       "filesystem.raw_marker_sha256",
+      "filesystem.crash_marker_v1.child_pid",
+      "filesystem.pre_kill_xack_reply_witness_v1.child_pid",
+      "filesystem.pre_kill_xack_reply_witness_sha256",
       "redis.port"
     ],
     "wrong_commitment_key_additional_defense": true
@@ -89,10 +101,10 @@
     "tri_state_discriminator": true
   },
   "next_stage_authorized": false,
-  "schema_version": 3,
+  "schema_version": 4,
   "source_ref": "",
-  "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R4 operational-evidence correction",
-  "status": "SOURCE_R4_REVIEW_CANDIDATE",
+  "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R5 marker-witness evidence correction",
+  "status": "SOURCE_R5_REVIEW_CANDIDATE",
   "verification": {
     "aggregate_gate": "PASS rows=20 positive_sigkill=105 duplicate=105 conflict=105 two_clean_runs=true",
     "base_sigkill_matrix": "PASS 92/92",
@@ -100,7 +112,7 @@
     "doctests": "PASS strategy-runtime-core 65/65; runtime-durable-service 36/36",
     "format": "PASS",
     "generated_market_sigkill_matrix": "PASS 13/13",
-    "negative_harness": "PASS source 51/51; semantic evidence 23/23",
+    "negative_harness": "PASS source 60/60; semantic evidence 41/41",
     "source_scope_checker": "PASS rows=20 cells=105",
     "strict_targeted_clippy": "PASS -D warnings"
   }

@@ -1,0 +1,20 @@
+{
+  "domain": "moex.stage8b.p1d4.marker-witness-canonical-fixtures.v1",
+  "marker": {
+    "canonical_json": "{\"cell_id\":\"P1D4C-010\",\"child_pid\":4242,\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"F16\",\"kill_hook_name\":\"p1d4-s01-f16\",\"pre_kill_audit_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"scenario_id\":\"S01\",\"schema_version\":1}",
+    "contract": "Stage8bP1d4CrashMarkerV1",
+    "field_count": 8,
+    "normalized_canonical_json": "{\"cell_id\":\"P1D4C-010\",\"child_pid\":0,\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"F16\",\"kill_hook_name\":\"p1d4-s01-f16\",\"pre_kill_audit_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"scenario_id\":\"S01\",\"schema_version\":1}",
+    "normalized_digest_domain": "moex.stage8b.p1d4.crash-marker.normalized.v1",
+    "normalized_sha256": "c91236a9be6c5aa5add75d2f886b14d62739b91eabd049662cd6e6a6fa442d72",
+    "raw_sha256": "0c8e7e7c6e37a9d6614d01adb3ea908206c5248d6d1f8aba2e213ba3d1027647"
+  },
+  "schema_version": 1,
+  "witness": {
+    "canonical_json": "{\"cell_id\":\"P1D4C-010\",\"child_pid\":4242,\"domain\":\"moex.stage8b.p1d4.pre-kill-xack-reply-witness.v1\",\"frontier_id\":\"F16\",\"kill_hook_name\":\"p1d4-s01-f16\",\"pre_kill_audit_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"scenario_id\":\"S01\",\"schema_version\":1,\"source_group\":\"finam-imoexf-p1-m10-lifecycle-v1\",\"source_m10_redis_id\":\"1785760200000-0\",\"source_stream\":\"finam_imoexf_paper:{finam-imoexf-p1}:market-data:m10\",\"xack_reply\":\"integer:1\"}",
+    "contract": "Stage8bP1d4PreKillXackReplyWitnessV1",
+    "digest_domain": "moex.stage8b.p1d4.pre-kill-xack-reply-witness.digest.v1",
+    "field_count": 12,
+    "sha256": "1e278e99ddf393fb3f42f74d6f7aa98d7d6fdb57b739206f099387a7abf7f4bb"
+  }
+}

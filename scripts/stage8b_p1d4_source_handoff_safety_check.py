@@ -23,7 +23,7 @@ CRASH_DIGEST = "handoff-evidence/stage8b-p1d4-crash-replay-semantic-digest.txt"
 CRASH_GENERATED = {CRASH_RUN_1, CRASH_RUN_2, CRASH_DIGEST}
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST} | CRASH_GENERATED
 ACCEPTED_DESIGN = "1a1ea05775f1d15b86fcc3495ad6863b851e9212"
-REVIEWED_SOURCE = "0e21a8e844347efbf48fe6e1b57586cc2b674ad7"
+REVIEWED_SOURCE = "b13e73b85e68ae93d3591daf230e518c24556db1"
 ACCEPTED_P1D3 = "7dc7c802feca6e79d3a1a9902c181ad7b6afc506"
 BRANCH = "stage8b-paper-shadow-resumption"
 REQUIRED = GENERATED | {
@@ -36,6 +36,7 @@ REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv",
     "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
     "docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv",
+    "docs/stage-8/stage8b-p1d4-marker-witness-canonical-fixtures-v1.json",
     "docs/stage-8/stage8b-p1d4-generated-market-crash-submatrix-v3.csv",
     "docs/stage-8/stage8b-p1d4-generated-market-source.md",
     "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
@@ -120,15 +121,15 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("worktree/push status mismatch")
         if manifest.get("source_ref") != source_ref:
             raise ValueError("manifest source binding mismatch")
-        if evidence.get("stage") != "Stage 8B-P1-d4 generated-Market crash/replay source R4 operational-evidence correction":
+        if evidence.get("stage") != "Stage 8B-P1-d4 generated-Market crash/replay source R5 marker-witness evidence correction":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "SOURCE_R4_REVIEW_CANDIDATE":
+        if evidence.get("status") != "SOURCE_R5_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
         if (
             evidence.get("acceptance_rows") != 20
-            or evidence.get("negative_cases") != 74
-            or evidence.get("source_negative_cases") != 51
-            or evidence.get("crash_evidence_negative_cases") != 23
+            or evidence.get("negative_cases") != 101
+            or evidence.get("source_negative_cases") != 60
+            or evidence.get("crash_evidence_negative_cases") != 41
         ):
             raise ValueError("acceptance inventory mismatch")
         if evidence.get("unexpected_protected_path_changes") != []:
@@ -158,9 +159,9 @@ def check(path: str) -> dict[str, object]:
         for expected in (
             b"PASS stage8b-p1d4-r7-design-baseline-integrity",
             b"PASS stage8b-p1d4-source-check",
-            b"PASS stage8b-p1d4-source-negative-harness 51/51",
+            b"PASS stage8b-p1d4-source-negative-harness 60/60",
             b"PASS stage8b-p1d4-crash-evidence-check cells=105 runs=2",
-            b"PASS stage8b-p1d4-crash-evidence-negative-harness 23/23",
+            b"PASS stage8b-p1d4-crash-evidence-negative-harness 41/41",
             b"PASS stage8b-p1d4-source-gate",
         ):
             if expected not in gate:
@@ -247,7 +248,7 @@ def check(path: str) -> dict[str, object]:
             "accepted_design": ACCEPTED_DESIGN,
             "source_tree": source_tree,
             "branch": BRANCH,
-            "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R4 operational-evidence correction",
+            "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R5 marker-witness evidence correction",
             "crash_evidence_cells": crash_result["cells"],
             "crash_evidence_runs": crash_result["runs"],
             "crash_evidence_semantic_digest": retained_digest,

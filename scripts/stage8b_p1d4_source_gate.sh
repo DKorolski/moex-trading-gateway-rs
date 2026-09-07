@@ -30,7 +30,7 @@ python3 -m py_compile \
 cargo fmt --all -- --check
 cargo test -p strategy-runtime-core --lib --all-features
 RUST_MIN_STACK=33554432 cargo test -p runtime-durable-service --lib --all-features
-evidence_output="$(pwd)/reports/stage8b-p1d4-r4-crash-evidence"
+evidence_output="$(pwd)/reports/stage8b-p1d4-r5-crash-evidence"
 mkdir -p "$evidence_output"
 STAGE8B_P1D4_EVIDENCE_OUTPUT="$evidence_output" \
 STAGE8B_P1D4_EVIDENCE_SOURCE_REF="$(git rev-parse HEAD)" \
@@ -46,4 +46,4 @@ cargo test -p runtime-durable-service --doc --all-features
 cargo clippy -p strategy-runtime-core -p runtime-durable-service \
   --all-targets --all-features -- -D warnings
 
-echo "PASS stage8b-p1d4-source-gate rows=20 positive_sigkill=105 duplicate=105 conflict=105 two_clean_runs=true source_negatives=51 evidence_negatives=23 db0=false finam=false live=false p1e=false"
+echo "PASS stage8b-p1d4-source-gate rows=20 positive_sigkill=105 duplicate=105 conflict=105 two_clean_runs=true source_negatives=60 evidence_negatives=41 db0=false finam=false live=false p1e=false"

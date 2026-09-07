@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -31,6 +32,7 @@ EXPECTED_CHANGED = {
     "docs/stage-8/stage8b-p1d4-generated-market-source.md",
     "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
     "docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv",
+    "docs/stage-8/stage8b-p1d4-marker-witness-canonical-fixtures-v1.json",
     "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1d4-source-evidence.json",
     "scripts/make_stage8b_p1d4_source_handoff.py",
@@ -82,6 +84,7 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "matrix": "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
         "base_oracle": "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
         "base_operational_oracle": "docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv",
+        "marker_witness_fixtures": "docs/stage-8/stage8b-p1d4-marker-witness-canonical-fixtures-v1.json",
         "evidence": "docs/stage-8/stage8b-p1d4-source-evidence.json",
         "status": "docs/current-status.md",
         "roadmap": "docs/roadmap.md",
@@ -152,12 +155,48 @@ def validate_content(content: dict[str, str]) -> None:
         "restart_stage8b_p1d4_generated_market_direct",
         "P1d3PreAckPending(Box::new(pending))",
         "F04 and F09 are deliberately the same durable-equivalence class",
+        "stage8b_p1d4_test_observe_xack_reply",
+        "moex.stage8b.p1d4.pre-kill-xack-reply-witness.v1",
+        ".p1d4-xack-witness-",
+        "create_new(true)",
+        ".open(&witness)",
+        "write_all(&mut file, bytes.as_bytes())",
+        "file.sync_all()",
+        "std::fs::rename(&temporary, &witness)",
+        "let reread = std::fs::read(&witness)",
+        "moex.stage8b.p1d4.crash-marker.v1",
     ):
         require(token in service, f"service routing invariant missing: {token}")
+    require(
+        "moex.stage8b.p1d4.crash-marker.v2" not in service,
+        "service retained unaccepted CrashMarkerV2",
+    )
     require(
         service.find("if let Some(package_state) = p1d4_package_state")
         < service.find("let stage8b_p1d3_phase"),
         "P1-d4 direct routing no longer precedes ordinary P1-d3/P1-d2 routing",
+    )
+    witness_emitter = section(
+        service,
+        "pub(crate) fn stage8b_p1d4_test_observe_xack_reply(",
+        "pub(crate) fn stage8b_p1_test_crash_barrier(",
+    )
+    witness_steps = (
+        'assert_eq!(reply, 1, "P1-d4 F16 witness requires parsed XACK reply 1")',
+        ".open(&witness)",
+        ".open(&temporary)",
+        "std::io::Write::write_all(&mut file, bytes.as_bytes())",
+        "file.sync_all()",
+        "std::fs::rename(&temporary, &witness)",
+        ".and_then(|directory| directory.sync_all())",
+        "let reread = std::fs::read(&witness)",
+    )
+    witness_positions = [witness_emitter.find(step) for step in witness_steps]
+    require(
+        all(position >= 0 for position in witness_positions)
+        and witness_positions == sorted(witness_positions)
+        and len(set(witness_positions)) == len(witness_positions),
+        "F16 witness create-once/fsync/rename/reread order drifted",
     )
 
     publication = section(
@@ -176,6 +215,17 @@ def validate_content(content: dict[str, str]) -> None:
         require(token in publication, f"publication invariant missing: {token}")
     require("XADD', command_stream, '*" not in publication, "dynamic XADD ID reopened")
     require("tonumber" not in publication, "P1-d4 publication uses lossy Lua number")
+
+    acknowledge = section(
+        redis_source,
+        "async fn acknowledge_exact(",
+        "async fn publish_exact_command(",
+    )
+    require(
+        acknowledge.find(".query_async(&mut self.connection)")
+        < acknowledge.find("stage8b_p1d4_test_observe_xack_reply"),
+        "F16 witness hook must run after the parsed Redis XACK reply",
+    )
 
     revalidate = section(
         redis_source,
@@ -233,8 +283,15 @@ def validate_content(content: dict[str, str]) -> None:
         '"group_frontier_v1"',
         '"group_frontier_sha256"',
         '"pre_kill_xack_reply"',
+        '"pre_kill_xack_reply_witness_v1"',
+        '"pre_kill_xack_reply_witness_sha256"',
+        '"pre_kill_xack_witness_order"',
         "stage8b_p1d4_test_observe_xack_reply",
-        "moex.stage8b.p1d4.crash-marker.v2",
+        "moex.stage8b.p1d4.crash-marker.v1",
+        "moex.stage8b.p1d4.crash-marker.normalized.v1",
+        "moex.stage8b.p1d4.pre-kill-xack-reply-witness.v1",
+        "moex.stage8b.p1d4.pre-kill-xack-reply-witness.digest.v1",
+        "after_integer_1_before_crash_marker",
         "p1d4_assert_package_commit_history",
         "stage8b-p1d4-base-evidence-oracle-v1.csv",
         "journal_record_index",
@@ -287,12 +344,22 @@ def validate_content(content: dict[str, str]) -> None:
         "validate_base_operational_oracle",
         "validate_group_frontier",
         'redis["pre_kill_xack_reply"] == oracle["pre_kill_xack_reply"]',
+        "validate_marker_and_witness",
+        "MARKER_NORMALIZED_DOMAIN",
+        "WITNESS_DIGEST_DOMAIN",
+        'hashlib.sha256(raw_marker).hexdigest() == filesystem["raw_marker_sha256"]',
+        'redis["xack_reply"] == "integer:0"',
         "validate_package_history",
         "validate_audit_payload",
         'cell["truth_replacement_commits"]',
         'hashlib.sha256(canonical_bytes(payload)).hexdigest()',
     ):
         require(token in crash_evidence_checker, f"crash evidence checker invariant missing: {token}")
+    require(
+        "moex.stage8b.p1d4.crash-marker.v2" not in stage6
+        and "moex.stage8b.p1d4.crash-marker.v2" not in redis_source,
+        "source retained unaccepted CrashMarkerV2",
+    )
 
     oracle_rows = list(csv.DictReader(content["base_oracle"].splitlines()))
     base_registry_rows = list(csv.DictReader(content["base_registry"].splitlines()))
@@ -368,6 +435,43 @@ def validate_content(content: dict[str, str]) -> None:
     require(not evidence["next_stage_authorized"], "P1-e opened before review")
     require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
     require("R7" in content["status"] and "R7" in content["roadmap"], "status/roadmap R7 missing")
+
+    fixtures = json.loads(content["marker_witness_fixtures"])
+    require(fixtures["schema_version"] == 1, "marker/witness fixture schema")
+    marker_fixture = fixtures["marker"]
+    marker_bytes = marker_fixture["canonical_json"].encode()
+    require(marker_fixture["contract"] == "Stage8bP1d4CrashMarkerV1", "marker contract")
+    require(marker_fixture["field_count"] == 8, "marker field count")
+    require(
+        hashlib.sha256(marker_bytes).hexdigest() == marker_fixture["raw_sha256"],
+        "marker fixture raw hash",
+    )
+    normalized_bytes = marker_fixture["normalized_canonical_json"].encode()
+    require(
+        hashlib.sha256(
+            b"moex.stage8b.p1d4.crash-marker.normalized.v1\0"
+            + len(normalized_bytes).to_bytes(8, "big")
+            + normalized_bytes
+        ).hexdigest()
+        == marker_fixture["normalized_sha256"],
+        "marker fixture normalized hash",
+    )
+    witness_fixture = fixtures["witness"]
+    witness_bytes = witness_fixture["canonical_json"].encode()
+    require(
+        witness_fixture["contract"] == "Stage8bP1d4PreKillXackReplyWitnessV1",
+        "witness contract",
+    )
+    require(witness_fixture["field_count"] == 12, "witness field count")
+    require(
+        hashlib.sha256(
+            b"moex.stage8b.p1d4.pre-kill-xack-reply-witness.digest.v1\0"
+            + len(witness_bytes).to_bytes(8, "big")
+            + witness_bytes
+        ).hexdigest()
+        == witness_fixture["sha256"],
+        "witness fixture hash",
+    )
 
 
 def main() -> None:

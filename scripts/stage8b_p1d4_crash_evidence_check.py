@@ -23,7 +23,13 @@ RUN_FILES = (
     "stage8b-p1d4-crash-replay-run-2.json",
 )
 DIGEST_FILE = "stage8b-p1d4-crash-replay-semantic-digest.txt"
-DOMAIN = b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v3\0"
+DOMAIN = b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v4\0"
+MARKER_DOMAIN = "moex.stage8b.p1d4.crash-marker.v1"
+MARKER_NORMALIZED_DOMAIN = b"moex.stage8b.p1d4.crash-marker.normalized.v1\0"
+WITNESS_DOMAIN = "moex.stage8b.p1d4.pre-kill-xack-reply-witness.v1"
+WITNESS_DIGEST_DOMAIN = (
+    b"moex.stage8b.p1d4.pre-kill-xack-reply-witness.digest.v1\0"
+)
 ROOT_FIELDS = {
     "schema_version",
     "domain",
@@ -82,6 +88,9 @@ FILESYSTEM_FIELDS = {
     "scratch_root",
     "raw_marker_sha256",
     "normalized_marker_sha256",
+    "crash_marker_v1",
+    "pre_kill_xack_reply_witness_v1",
+    "pre_kill_xack_reply_witness_sha256",
     "pre_kill_snapshot_sha256",
     "post_restart_snapshot_sha256",
     "final_snapshot_sha256",
@@ -94,6 +103,7 @@ REDIS_FIELDS = {
     "group_frontier_v1",
     "group_frontier_sha256",
     "pre_kill_xack_reply",
+    "pre_kill_xack_witness_order",
     "xack_reply",
     "xack_disposition",
 }
@@ -108,6 +118,22 @@ GROUP_FRONTIER_FIELDS = {
     "final",
 }
 GROUP_FRONTIER_POINT_FIELDS = {"last_delivered_id", "pending"}
+MARKER_FIELDS = {
+    "schema_version",
+    "domain",
+    "cell_id",
+    "child_pid",
+    "scenario_id",
+    "frontier_id",
+    "kill_hook_name",
+    "pre_kill_audit_sha256",
+}
+WITNESS_FIELDS = MARKER_FIELDS | {
+    "source_stream",
+    "source_group",
+    "source_m10_redis_id",
+    "xack_reply",
+}
 AGGREGATE = {
     "passed": True,
     "base_cells": 92,
@@ -367,6 +393,13 @@ def semantic_view(value: dict[str, Any]) -> dict[str, Any]:
         cell["process"]["wall_duration_ms"] = 0
         cell["filesystem"]["scratch_root"] = "<VOLATILE_PATH>"
         cell["filesystem"]["raw_marker_sha256"] = "<VOLATILE_MARKER_SHA256>"
+        cell["filesystem"]["crash_marker_v1"]["child_pid"] = 0
+        witness = cell["filesystem"]["pre_kill_xack_reply_witness_v1"]
+        if witness is not None:
+            witness["child_pid"] = 0
+            cell["filesystem"]["pre_kill_xack_reply_witness_sha256"] = (
+                "<VOLATILE_WITNESS_SHA256>"
+            )
         cell["redis"]["port"] = 0
     return normalized
 
@@ -387,6 +420,104 @@ def expected_pel(label: str) -> int:
     }:
         return 0
     raise EvidenceFailure(f"unknown PEL label: {label}")
+
+
+def framed_sha256(domain: bytes, payload: bytes) -> str:
+    return hashlib.sha256(domain + len(payload).to_bytes(8, "big") + payload).hexdigest()
+
+
+def validate_marker_and_witness(
+    cell_id: str,
+    scenario_id: str,
+    frontier_id: str,
+    kill_hook_name: str,
+    process: dict[str, Any],
+    filesystem: dict[str, Any],
+    redis: dict[str, Any],
+    source_frontier: dict[str, Any],
+) -> None:
+    marker = filesystem["crash_marker_v1"]
+    require(
+        isinstance(marker, dict) and set(marker) == MARKER_FIELDS,
+        f"{cell_id}: exact CrashMarkerV1 field set",
+    )
+    expected_marker = {
+        "schema_version": 1,
+        "domain": MARKER_DOMAIN,
+        "cell_id": cell_id,
+        "child_pid": process["child_pid"],
+        "scenario_id": scenario_id,
+        "frontier_id": frontier_id,
+        "kill_hook_name": kill_hook_name,
+        "pre_kill_audit_sha256": filesystem["pre_kill_snapshot_sha256"],
+    }
+    require(marker == expected_marker, f"{cell_id}: exact CrashMarkerV1 binding")
+    raw_marker = canonical_bytes(marker)
+    require(
+        hashlib.sha256(raw_marker).hexdigest() == filesystem["raw_marker_sha256"],
+        f"{cell_id}: raw CrashMarkerV1 hash",
+    )
+    normalized_marker = copy.deepcopy(marker)
+    normalized_marker["child_pid"] = 0
+    require(
+        framed_sha256(MARKER_NORMALIZED_DOMAIN, canonical_bytes(normalized_marker))
+        == filesystem["normalized_marker_sha256"],
+        f"{cell_id}: normalized CrashMarkerV1 hash",
+    )
+
+    witness = filesystem["pre_kill_xack_reply_witness_v1"]
+    witness_sha256 = filesystem["pre_kill_xack_reply_witness_sha256"]
+    if frontier_id == "F16":
+        require(
+            isinstance(witness, dict) and set(witness) == WITNESS_FIELDS,
+            f"{cell_id}: exact F16 witness field set",
+        )
+        expected_witness = {
+            "schema_version": 1,
+            "domain": WITNESS_DOMAIN,
+            "cell_id": cell_id,
+            "child_pid": process["child_pid"],
+            "scenario_id": scenario_id,
+            "frontier_id": frontier_id,
+            "kill_hook_name": kill_hook_name,
+            "pre_kill_audit_sha256": filesystem["pre_kill_snapshot_sha256"],
+            "source_stream": source_frontier["source_stream"],
+            "source_group": source_frontier["source_group"],
+            "source_m10_redis_id": source_frontier["source_m10_redis_id"],
+            "xack_reply": "integer:1",
+        }
+        require(witness == expected_witness, f"{cell_id}: exact F16 witness binding")
+        require(
+            isinstance(witness_sha256, str)
+            and SHA256.fullmatch(witness_sha256)
+            and framed_sha256(WITNESS_DIGEST_DOMAIN, canonical_bytes(witness))
+            == witness_sha256,
+            f"{cell_id}: F16 witness canonical hash",
+        )
+        require(
+            redis["pre_kill_xack_reply"] == "integer:1"
+            and redis["pre_kill_xack_witness_order"]
+            == "after_integer_1_before_crash_marker",
+            f"{cell_id}: exact F16 pre-kill protocol order",
+        )
+        require(
+            redis["xack_reply"] == "integer:0"
+            and redis["xack_disposition"] == "AlreadyAcknowledged",
+            f"{cell_id}: F16 restart must resolve AlreadyAcknowledged",
+        )
+        require(
+            source_frontier["before"]["pending"] == 0
+            and source_frontier["post_restart"]["pending"] == 0,
+            f"{cell_id}: F16 source must remain absent after parsed XACK 1",
+        )
+    else:
+        require(witness is None, f"{cell_id}: non-F16 witness is forbidden")
+        require(witness_sha256 is None, f"{cell_id}: non-F16 witness hash is forbidden")
+        require(
+            redis["pre_kill_xack_reply"] == "not_observed"
+            and redis["pre_kill_xack_witness_order"] == "not_applicable",
+            f"{cell_id}: non-F16 pre-kill witness evidence is forbidden",
+        )
 
 
 def validate_sequence_audit(cell_id: str, audit: Any) -> None:
@@ -773,6 +904,12 @@ def validate_cell(
     require(process["exit_signal"] == "signal:9", f"{cell_id}: signal must be SIGKILL")
     require(process["reaped"] is True, f"{cell_id}: child was not reaped")
     require(type(process["wall_duration_ms"]) is int and process["wall_duration_ms"] >= 0, f"{cell_id}: duration")
+    scenario_id = expected["parent_scenario_id" if generated else "scenario_id"]
+    kill_hook_name = (
+        f"p1d4-generated-market-{expected['frontier_id'].lower()}"
+        if generated
+        else expected["kill_hook_name"]
+    )
 
     filesystem = cell["filesystem"]
     require(isinstance(filesystem, dict) and set(filesystem) == FILESYSTEM_FIELDS, f"{cell_id}: filesystem schema")
@@ -796,6 +933,16 @@ def validate_cell(
     require(isinstance(redis["xack_reply"], str) and redis["xack_reply"], f"{cell_id}: XACK reply")
     require(isinstance(redis["xack_disposition"], str) and redis["xack_disposition"], f"{cell_id}: XACK disposition")
     group_frontier = validate_group_frontier(cell_id, redis)
+    validate_marker_and_witness(
+        cell_id,
+        scenario_id,
+        expected["frontier_id"],
+        kill_hook_name,
+        process,
+        filesystem,
+        redis,
+        group_frontier,
+    )
 
     for field in ("pre_kill_audit_sha256", "post_restart_audit_sha256", "final_audit_sha256"):
         require(isinstance(cell[field], str) and SHA256.fullmatch(cell[field]), f"{cell_id}: {field}")
@@ -832,7 +979,6 @@ def validate_cell(
     before_allocations = cell["sequence_audit_before"]["allocations"]
     after_allocations = cell["sequence_audit_after"]["allocations"]
     require(after_allocations[: len(before_allocations)] == before_allocations, f"{cell_id}: sequence allocation replay drift")
-    scenario_id = expected["parent_scenario_id" if generated else "scenario_id"]
     require(
         [allocation["outcome_kind"] for allocation in after_allocations]
         == FINAL_ALLOCATION_KINDS[scenario_id],
@@ -1040,8 +1186,8 @@ def validate_run(
     base_operational_oracle_rows: dict[str, dict[str, Any]],
 ) -> None:
     require(set(value) == ROOT_FIELDS, f"run {ordinal}: root field set drift")
-    require(value["schema_version"] == 3, f"run {ordinal}: schema version")
-    require(value["domain"] == "moex.stage8b.p1d4.crash-replay.evidence.v3", f"run {ordinal}: domain")
+    require(value["schema_version"] == 4, f"run {ordinal}: schema version")
+    require(value["domain"] == "moex.stage8b.p1d4.crash-replay.evidence.v4", f"run {ordinal}: domain")
     require(value["accepted_predecessor_ref"] == "1a1ea05775f1d15b86fcc3495ad6863b851e9212", f"run {ordinal}: predecessor")
     require(value["run_ordinal"] == ordinal, f"run {ordinal}: ordinal")
     require(isinstance(value["source_ref"], str) and value["source_ref"], f"run {ordinal}: source ref")

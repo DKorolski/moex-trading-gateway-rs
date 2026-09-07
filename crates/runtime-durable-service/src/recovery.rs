@@ -5519,6 +5519,7 @@ pub(crate) fn stage8b_p1d4_pre_kill_audit_sha256(
         root: &std::path::Path,
         directory: &std::path::Path,
         marker: &std::path::Path,
+        xack_witness: &std::path::Path,
         files: &mut Vec<(String, Vec<u8>)>,
     ) {
         let mut entries = std::fs::read_dir(directory)
@@ -5529,10 +5530,15 @@ pub(crate) fn stage8b_p1d4_pre_kill_audit_sha256(
         for entry in entries {
             let path = entry.path();
             if path == marker
+                || path == xack_witness
                 || entry
                     .file_name()
                     .to_string_lossy()
                     .starts_with(".p1d4-marker-")
+                || entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".p1d4-xack-witness-")
             {
                 continue;
             }
@@ -5541,7 +5547,7 @@ pub(crate) fn stage8b_p1d4_pre_kill_audit_sha256(
                 .expect("P1-d4 audit file type must be readable");
             assert!(!file_type.is_symlink(), "P1-d4 audit rejects symlinks");
             if file_type.is_dir() {
-                collect(root, &path, marker, files);
+                collect(root, &path, marker, xack_witness, files);
             } else if file_type.is_file() {
                 let relative = path
                     .strip_prefix(root)
@@ -5565,7 +5571,8 @@ pub(crate) fn stage8b_p1d4_pre_kill_audit_sha256(
     }
 
     let mut files = Vec::new();
-    collect(root, root, marker, &mut files);
+    let xack_witness = marker.with_extension("xack-witness");
+    collect(root, root, marker, &xack_witness, &mut files);
     files.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
     let mut hasher = Sha256::new();
     hasher.update(b"moex.stage8b.p1d4.pre-kill-audit.v1\0");
@@ -5580,24 +5587,95 @@ pub(crate) fn stage8b_p1d4_pre_kill_audit_sha256(
 }
 
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
-static STAGE8B_P1D4_PRE_KILL_XACK_REPLY: AtomicU64 = AtomicU64::new(0);
-
-#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
-pub(crate) fn stage8b_p1d4_test_observe_xack_reply(reply: usize) {
+pub(crate) fn stage8b_p1d4_test_observe_xack_reply(
+    reply: usize,
+    source_stream: &str,
+    source_group: &str,
+    source_m10_redis_id: &str,
+) {
     if std::env::var("STAGE8B_P1D4_ARMED").as_deref() != Ok("1")
         || std::env::var("STAGE8B_P1D4_FRONTIER_ID").as_deref() != Ok("F16")
     {
         return;
     }
-    assert!(
-        reply <= 1,
-        "P1-d4 exact single-ID XACK reply must be 0 or 1"
+    let expected_source_m10_redis_id = std::env::var("STAGE8B_P1D4_SOURCE_M10_REDIS_ID")
+        .expect("P1-d4 F16 child requires the exact source M10 Redis ID");
+    // Setup can settle an earlier source in the same child. Only the exact
+    // registry-bound source owns the F16 response-loss witness.
+    if source_m10_redis_id != expected_source_m10_redis_id {
+        return;
+    }
+    let expected_source_stream = std::env::var("STAGE8B_P1D4_SOURCE_STREAM")
+        .expect("P1-d4 F16 child requires the exact source stream");
+    let expected_source_group = std::env::var("STAGE8B_P1D4_SOURCE_GROUP")
+        .expect("P1-d4 F16 child requires the exact source group");
+    assert_eq!(source_stream, expected_source_stream);
+    assert_eq!(source_group, expected_source_group);
+    assert_eq!(reply, 1, "P1-d4 F16 witness requires parsed XACK reply 1");
+
+    let marker = std::path::PathBuf::from(
+        std::env::var_os("STAGE8B_P1_TEST_CRASH_MARKER")
+            .expect("P1-d4 F16 child requires a crash marker path"),
     );
-    let encoded = u64::try_from(reply).expect("P1-d4 XACK reply must fit u64") + 1;
-    // Setup may settle an earlier source in the same child. The F16 hook is
-    // invoked immediately after the target XACK, so the latest parsed reply
-    // is the exact reply whose response-loss frontier is being captured.
-    STAGE8B_P1D4_PRE_KILL_XACK_REPLY.store(encoded, Ordering::SeqCst);
+    let parent = marker
+        .parent()
+        .expect("P1-d4 F16 marker requires a parent directory");
+    let witness = marker.with_extension("xack-witness");
+    let temporary = parent.join(format!(".p1d4-xack-witness-{}.tmp", std::process::id()));
+    let cell_id = std::env::var("STAGE8B_P1D4_CELL_ID")
+        .expect("P1-d4 F16 child requires the exact registry cell ID");
+    let scenario_id = std::env::var("STAGE8B_P1D4_SCENARIO_ID")
+        .expect("P1-d4 F16 child requires the exact registry scenario ID");
+    let frontier_id = std::env::var("STAGE8B_P1D4_FRONTIER_ID")
+        .expect("P1-d4 F16 child requires the exact frontier ID");
+    let kill_hook_name = std::env::var("STAGE8B_P1_TEST_CRASH_PHASE")
+        .expect("P1-d4 F16 child requires the exact kill hook");
+    let audit_root = std::path::PathBuf::from(
+        std::env::var_os("STAGE8B_P1_TEST_PARENT")
+            .expect("P1-d4 F16 child requires its audit root"),
+    );
+    let pre_kill_audit_sha256 = stage8b_p1d4_pre_kill_audit_sha256(
+        &audit_root,
+        &marker,
+        &cell_id,
+        &scenario_id,
+        &frontier_id,
+        &kill_hook_name,
+    );
+    let bytes = format!(
+        "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.pre-kill-xack-reply-witness.v1\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{kill_hook_name}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":1,\"source_group\":\"{source_group}\",\"source_m10_redis_id\":\"{source_m10_redis_id}\",\"source_stream\":\"{source_stream}\",\"xack_reply\":\"integer:1\"}}",
+        std::process::id()
+    );
+    // Reserve the final path with create_new before publishing the durable
+    // bytes.  std::fs::rename may replace a destination on Unix; this empty
+    // reservation makes a second invocation fail closed instead of silently
+    // replacing an already published witness.  A crash before rename leaves
+    // no crash marker, so the parent cannot mistake the placeholder for a
+    // completed F16 protocol.
+    let reservation = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&witness)
+        .expect("P1-d4 F16 witness path must be reserved exactly once");
+    drop(reservation);
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .expect("P1-d4 F16 witness temporary file must be created exactly once");
+    std::io::Write::write_all(&mut file, bytes.as_bytes())
+        .expect("P1-d4 F16 witness bytes must be written completely");
+    file.sync_all()
+        .expect("P1-d4 F16 witness temporary file must be durable");
+    std::fs::rename(&temporary, &witness).expect("P1-d4 F16 witness rename must be atomic");
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .expect("P1-d4 F16 witness parent directory must be durable");
+    let reread = std::fs::read(&witness).expect("P1-d4 F16 witness must be reread");
+    assert_eq!(reread, bytes.as_bytes());
+    let parsed: serde_json::Value =
+        serde_json::from_slice(&reread).expect("P1-d4 F16 witness must be canonical JSON");
+    assert_eq!(parsed.as_object().map(serde_json::Map::len), Some(12));
 }
 
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
@@ -5672,22 +5750,14 @@ pub(crate) fn stage8b_p1_test_crash_barrier(phase: &str) {
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "P1-d4 pre-kill audit digest must be lowercase hexadecimal"
         );
-        let encoded_xack_reply = STAGE8B_P1D4_PRE_KILL_XACK_REPLY.load(Ordering::SeqCst);
-        let pre_kill_xack_reply = if frontier_id == "F16" {
-            assert_eq!(
-                encoded_xack_reply, 2,
-                "P1-d4 F16 marker requires an observed parsed XACK reply of 1"
-            );
-            "integer:1"
-        } else {
-            assert_eq!(
-                encoded_xack_reply, 0,
-                "P1-d4 non-F16 frontier cannot retain a pre-kill XACK reply"
-            );
-            "not_observed"
-        };
+        let xack_witness = marker.with_extension("xack-witness");
+        assert_eq!(
+            xack_witness.exists(),
+            frontier_id == "F16",
+            "P1-d4 F16 alone must retain a separate pre-kill XACK witness"
+        );
         format!(
-            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v2\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"pre_kill_xack_reply\":\"{pre_kill_xack_reply}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":2}}",
+            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":1}}",
             std::process::id()
         )
     } else {

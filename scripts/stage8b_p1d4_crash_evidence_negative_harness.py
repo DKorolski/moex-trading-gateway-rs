@@ -83,6 +83,25 @@ def refresh_group_frontier_hash(target: dict[str, Any]) -> None:
     ).hexdigest()
 
 
+def refresh_marker_hashes(target: dict[str, Any]) -> None:
+    marker = target["filesystem"]["crash_marker_v1"]
+    target["filesystem"]["raw_marker_sha256"] = hashlib.sha256(
+        check.canonical_bytes(marker)
+    ).hexdigest()
+    normalized = copy.deepcopy(marker)
+    normalized["child_pid"] = 0
+    target["filesystem"]["normalized_marker_sha256"] = check.framed_sha256(
+        check.MARKER_NORMALIZED_DOMAIN, check.canonical_bytes(normalized)
+    )
+
+
+def refresh_witness_hash(target: dict[str, Any]) -> None:
+    witness = target["filesystem"]["pre_kill_xack_reply_witness_v1"]
+    target["filesystem"]["pre_kill_xack_reply_witness_sha256"] = (
+        check.framed_sha256(check.WITNESS_DIGEST_DOMAIN, check.canonical_bytes(witness))
+    )
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(
@@ -224,6 +243,104 @@ def main() -> None:
     def premature_immediate_xack(run: dict[str, Any]) -> None:
         cell(run, "P1D4C-038")["immediate_xack_attempts"] = 1
 
+    def arbitrary_raw_marker_hash(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-001")["filesystem"]["raw_marker_sha256"] = "e" * 64
+
+    def arbitrary_normalized_marker_hash(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-001")["filesystem"]["normalized_marker_sha256"] = "f" * 64
+
+    def changed_pid_without_marker(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-001")["process"]["child_pid"] += 1000
+
+    def changed_marker_schema(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-001")
+        target["filesystem"]["crash_marker_v1"]["schema_version"] = 2
+        refresh_marker_hashes(target)
+
+    def changed_marker_domain(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-001")
+        target["filesystem"]["crash_marker_v1"]["domain"] = (
+            "moex.stage8b.p1d4.crash-marker.v2"
+        )
+        refresh_marker_hashes(target)
+
+    def changed_marker_cell(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-001")
+        target["filesystem"]["crash_marker_v1"]["cell_id"] = "P1D4C-999"
+        refresh_marker_hashes(target)
+
+    def changed_marker_frontier(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-001")
+        target["filesystem"]["crash_marker_v1"]["frontier_id"] = "F99"
+        refresh_marker_hashes(target)
+
+    def changed_marker_hook(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-001")
+        target["filesystem"]["crash_marker_v1"]["kill_hook_name"] = "p1d4-forged"
+        refresh_marker_hashes(target)
+
+    def changed_marker_audit_binding(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-001")
+        target["filesystem"]["crash_marker_v1"]["pre_kill_audit_sha256"] = "a" * 64
+        refresh_marker_hashes(target)
+
+    def normalized_extra_field(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-001")
+        normalized = copy.deepcopy(target["filesystem"]["crash_marker_v1"])
+        normalized["child_pid"] = 0
+        normalized["scenario_id"] = "S99"
+        target["filesystem"]["normalized_marker_sha256"] = check.framed_sha256(
+            check.MARKER_NORMALIZED_DOMAIN, check.canonical_bytes(normalized)
+        )
+
+    def missing_f16_witness(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-010")
+        target["filesystem"]["pre_kill_xack_reply_witness_v1"] = None
+        target["filesystem"]["pre_kill_xack_reply_witness_sha256"] = None
+
+    def arbitrary_f16_witness_hash(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-010")["filesystem"][
+            "pre_kill_xack_reply_witness_sha256"
+        ] = "d" * 64
+
+    def f16_witness_reply_zero(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-010")
+        target["filesystem"]["pre_kill_xack_reply_witness_v1"]["xack_reply"] = (
+            "integer:0"
+        )
+        refresh_witness_hash(target)
+
+    def f16_witness_other_stream(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-010")
+        target["filesystem"]["pre_kill_xack_reply_witness_v1"]["source_stream"] += (
+            ":forged"
+        )
+        refresh_witness_hash(target)
+
+    def f16_witness_other_group(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-010")
+        target["filesystem"]["pre_kill_xack_reply_witness_v1"]["source_group"] += (
+            "-forged"
+        )
+        refresh_witness_hash(target)
+
+    def f16_witness_other_source_id(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-010")
+        target["filesystem"]["pre_kill_xack_reply_witness_v1"][
+            "source_m10_redis_id"
+        ] = "1-0"
+        refresh_witness_hash(target)
+
+    def f16_witness_other_pid(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-010")
+        target["filesystem"]["pre_kill_xack_reply_witness_v1"]["child_pid"] += 1
+        refresh_witness_hash(target)
+
+    def f16_witness_before_reply(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-010")["redis"]["pre_kill_xack_witness_order"] = (
+            "before_integer_1"
+        )
+
     cases: tuple[tuple[str, Mutation], ...] = (
         ("exact-base-sequence", exact_base_sequence),
         ("pair-equality-not-adjacency-only", adjacency_only),
@@ -248,6 +365,24 @@ def main() -> None:
         ("f16-pre-kill-xack-reply-missing", f16_pre_kill_xack_reply_missing),
         ("unrelated-group-frontier", unrelated_group_frontier),
         ("premature-immediate-xack", premature_immediate_xack),
+        ("arbitrary-raw-marker-hash", arbitrary_raw_marker_hash),
+        ("arbitrary-normalized-marker-hash", arbitrary_normalized_marker_hash),
+        ("changed-pid-without-marker", changed_pid_without_marker),
+        ("changed-marker-schema", changed_marker_schema),
+        ("changed-marker-domain", changed_marker_domain),
+        ("changed-marker-cell", changed_marker_cell),
+        ("changed-marker-frontier", changed_marker_frontier),
+        ("changed-marker-hook", changed_marker_hook),
+        ("changed-marker-audit-binding", changed_marker_audit_binding),
+        ("normalized-extra-field", normalized_extra_field),
+        ("missing-f16-witness", missing_f16_witness),
+        ("arbitrary-f16-witness-hash", arbitrary_f16_witness_hash),
+        ("f16-witness-reply-zero", f16_witness_reply_zero),
+        ("f16-witness-other-stream", f16_witness_other_stream),
+        ("f16-witness-other-group", f16_witness_other_group),
+        ("f16-witness-other-source-id", f16_witness_other_source_id),
+        ("f16-witness-other-pid", f16_witness_other_pid),
+        ("f16-witness-before-reply", f16_witness_before_reply),
     )
     passed = 0
     with tempfile.TemporaryDirectory(prefix="stage8b-p1d4-evidence-negative-") as root:
