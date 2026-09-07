@@ -586,10 +586,37 @@ pub struct Stage6dDurableRuntimeRecovered {
 /// mutation, callback, provider, Redis or dispatch authority.
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 #[doc(hidden)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bP1d4SequenceAllocationAuditV1 {
+    pub outcome_kind: String,
+    pub journal_record_index: usize,
+    pub stage6_lifecycle_sequence: u64,
+    pub sequence_allocation_frontier: u64,
+    pub seq_ack: Option<u64>,
+    pub seq_truth: Option<u64>,
+}
+
+/// Authenticated package phase facts used to derive replacement-commit
+/// counts.  The generation is read from the restored package authority; it is
+/// never supplied by the matrix runner.
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bP1d4PackageAuditV1 {
+    pub write_generation: Option<u64>,
+    pub p1d3_phase: Option<String>,
+    pub generated_market_phase: Option<String>,
+}
+
+#[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Stage8bP1d4RuntimeAuditV1 {
     pub lifecycle_sequence: u64,
+    pub journal_lifecycle_sequences: Vec<u64>,
     pub sequence_pair: Option<(u64, u64)>,
+    pub sequence_allocations: Vec<Stage8bP1d4SequenceAllocationAuditV1>,
+    pub package: Stage8bP1d4PackageAuditV1,
     pub callback_count: usize,
     pub dispatch_v1_total: usize,
     pub order_v1_total: usize,
@@ -2277,6 +2304,14 @@ impl Stage6dDurableRuntimeRecovered {
         let mut trade_v1_total = 0;
         let mut request_finalized_v1_total = 0;
         let mut durable_outcomes = 0;
+        let mut durable_truths = 0;
+        let mut sequence_allocations = Vec::new();
+        let journal_lifecycle_sequences = self
+            .journal
+            .versioned_records()
+            .iter()
+            .map(|record| record.lifecycle_sequence().get())
+            .collect::<Vec<_>>();
         // Prefer the request authenticated by the currently embedded
         // semantic package.  In GM00 the reservation exists before the first
         // V1 row, so choosing the latest journal request would accidentally
@@ -2296,7 +2331,7 @@ impl Stage6dDurableRuntimeRecovered {
                 .max_by_key(|request| request.last_unique_sequence())
                 .map(Stage6RecoveredRequestV1::strategy_request_id)
         });
-        for record in self.journal.versioned_records() {
+        for (journal_record_index, record) in self.journal.versioned_records().iter().enumerate() {
             match record {
                 Stage6JournalRecordVersioned::V1(record)
                     if Some(record.durable_request_identity().strategy_request_id())
@@ -2311,7 +2346,23 @@ impl Stage6dDurableRuntimeRecovered {
                     }
                 }
                 Stage6JournalRecordVersioned::V1(_) => {}
-                Stage6JournalRecordVersioned::V3(_) => durable_outcomes += 1,
+                Stage6JournalRecordVersioned::V3(record) => {
+                    let evidence = crate::stage8b_p1d3_working_limit::Stage8bP1d3OutcomeEvidenceV1::decode_canonical(
+                        record.outcome_evidence_bytes(),
+                    )
+                    .expect("validated V3 journal rows retain canonical P1-d3 outcome evidence");
+                    let (seq_ack, seq_truth) = evidence.reserved_sequences();
+                    durable_outcomes += 1;
+                    durable_truths += usize::from(seq_truth.is_some());
+                    sequence_allocations.push(Stage8bP1d4SequenceAllocationAuditV1 {
+                        outcome_kind: evidence.outcome_kind().canonical_name().to_string(),
+                        journal_record_index,
+                        stage6_lifecycle_sequence: record.lifecycle_sequence().get(),
+                        sequence_allocation_frontier: evidence.sequence_allocation_frontier(),
+                        seq_ack,
+                        seq_truth,
+                    });
+                }
                 Stage6JournalRecordVersioned::V2(_) => {}
             }
         }
@@ -2320,11 +2371,56 @@ impl Stage6dDurableRuntimeRecovered {
                 .journal_frontier()
                 .last_lifecycle_sequence()
                 .map_or(0, Stage6LifecycleSequence::get),
+            journal_lifecycle_sequences,
             sequence_pair: match &self.stage5_runtime {
                 Stage6dStage5RuntimeAuthority::Restart(restart) => {
                     restart.stage8b_p1d4_test_sequence_pair()
                 }
                 Stage6dStage5RuntimeAuthority::FirstBoot(_) => None,
+            },
+            sequence_allocations,
+            package: match &self.stage5_runtime {
+                Stage6dStage5RuntimeAuthority::Restart(restart) => {
+                    let p1d3_phase = restart.stage8b_p1d3_replacement().map(|replacement| {
+                        match replacement.phase() {
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Migrated => "Migrated",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Ack => "Ack",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working => "Working",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval => "Eval",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Terminal => "Terminal",
+                            crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::CancelRecovered => "CancelRecovered",
+                        }
+                        .to_string()
+                    });
+                    let generated_market_phase = restart
+                        .stage8b_p1d4_generated_market_package_state()
+                        .ok()
+                        .flatten()
+                        .map(|phase| {
+                            match phase {
+                                crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication {
+                                    ..
+                                } => "Prepublication",
+                                crate::Stage8bP1d4GeneratedMarketPackageState::AckCommitted {
+                                    ..
+                                } => "AckCommitted",
+                                crate::Stage8bP1d4GeneratedMarketPackageState::TruthCommitted {
+                                    ..
+                                } => "TruthCommitted",
+                            }
+                            .to_string()
+                        });
+                    Stage8bP1d4PackageAuditV1 {
+                        write_generation: Some(restart.stage8b_p1d4_test_write_generation()),
+                        p1d3_phase,
+                        generated_market_phase,
+                    }
+                }
+                Stage6dStage5RuntimeAuthority::FirstBoot(_) => Stage8bP1d4PackageAuditV1 {
+                    write_generation: None,
+                    p1d3_phase: None,
+                    generated_market_phase: None,
+                },
             },
             callback_count: match &self.stage5_runtime {
                 Stage6dStage5RuntimeAuthority::Restart(restart) => restart
@@ -2338,10 +2434,7 @@ impl Stage6dDurableRuntimeRecovered {
             trade_v1_total,
             request_finalized_v1_total,
             durable_outcomes,
-            // Every admitted P1-d3 V3 outcome is the durable truth input for
-            // one replacement-package transition.  Counting the authenticated
-            // V3 records keeps this evidence journal-derived and replayable.
-            durable_truths: durable_outcomes,
+            durable_truths,
         }
     }
 

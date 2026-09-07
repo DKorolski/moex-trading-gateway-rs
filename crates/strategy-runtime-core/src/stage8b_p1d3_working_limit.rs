@@ -2116,6 +2116,11 @@ impl Stage8bP1d3OutcomeEvidenceV1 {
         (self.reserved_seq_ack, self.reserved_seq_truth)
     }
 
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    pub(crate) fn sequence_allocation_frontier(&self) -> u64 {
+        self.sequence_allocation_frontier
+    }
+
     pub(crate) fn operational_identity_sha256(&self) -> &str {
         &self.operational_identity_sha256
     }

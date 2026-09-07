@@ -22,6 +22,7 @@ python3 scripts/stage8b_p1d4_source_check.py
 python3 scripts/stage8b_p1d4_source_negative_harness.py
 python3 -m py_compile \
   scripts/stage8b_p1d4_crash_evidence_check.py \
+  scripts/stage8b_p1d4_crash_evidence_negative_harness.py \
   scripts/stage8b_p1d4_source_check.py \
   scripts/stage8b_p1d4_source_negative_harness.py \
   scripts/make_stage8b_p1d4_source_handoff.py \
@@ -29,7 +30,7 @@ python3 -m py_compile \
 cargo fmt --all -- --check
 cargo test -p strategy-runtime-core --lib --all-features
 RUST_MIN_STACK=33554432 cargo test -p runtime-durable-service --lib --all-features
-evidence_output="$(pwd)/reports/stage8b-p1d4-r1-crash-evidence"
+evidence_output="$(pwd)/reports/stage8b-p1d4-r2-crash-evidence"
 mkdir -p "$evidence_output"
 STAGE8B_P1D4_EVIDENCE_OUTPUT="$evidence_output" \
 STAGE8B_P1D4_EVIDENCE_SOURCE_REF="$(git rev-parse HEAD)" \
@@ -39,9 +40,10 @@ RUST_MIN_STACK=33554432 \
     stage8b_p1_semantic::redis::tests::p1d4_exhaustive_crash_replay_evidence_two_clean_runs \
     -- --ignored --exact
 python3 scripts/stage8b_p1d4_crash_evidence_check.py "$evidence_output"
+python3 scripts/stage8b_p1d4_crash_evidence_negative_harness.py "$evidence_output"
 cargo test -p strategy-runtime-core --doc --all-features
 cargo test -p runtime-durable-service --doc --all-features
 cargo clippy -p strategy-runtime-core -p runtime-durable-service \
   --all-targets --all-features -- -D warnings
 
-echo "PASS stage8b-p1d4-source-gate rows=20 positive_sigkill=105 duplicate=105 conflict=105 two_clean_runs=true source_negatives=51 db0=false finam=false live=false p1e=false"
+echo "PASS stage8b-p1d4-source-gate rows=20 positive_sigkill=105 duplicate=105 conflict=105 two_clean_runs=true source_negatives=51 evidence_negatives=7 db0=false finam=false live=false p1e=false"

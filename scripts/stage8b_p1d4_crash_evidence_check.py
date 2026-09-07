@@ -43,12 +43,21 @@ FIXED_CELL_FIELDS = {
     "final_audit_sha256",
     "sequence_before",
     "sequence_after",
+    "sequence_audit_before",
+    "sequence_audit_after",
+    "package_before",
+    "package_after",
     "callback_before",
     "callback_after",
     "provider_attempts",
     "schedule_issue_attempts",
     "durable_outcomes",
     "durable_truths",
+    "s_ack_commits",
+    "s_truth_commits",
+    "s_ack_generations",
+    "s_truth_generations",
+    "observed_effect_events",
     "command_publications",
     "restart_disposition",
     "continuation_disposition",
@@ -72,6 +81,65 @@ AGGREGATE = {
     "final_pel_zero_cells": 105,
 }
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
+SEQUENCE_AUDIT_FIELDS = {
+    "lifecycle_sequence",
+    "journal_lifecycle_sequences",
+    "durable_sequence_pair",
+    "pre_kill_sequence_pair",
+    "allocations",
+}
+SEQUENCE_ALLOCATION_FIELDS = {
+    "outcome_kind",
+    "journal_record_index",
+    "stage6_lifecycle_sequence",
+    "sequence_allocation_frontier",
+    "seq_ack",
+    "seq_truth",
+}
+PACKAGE_FIELDS = {"write_generation", "p1d3_phase", "generated_market_phase"}
+FINAL_ALLOCATION_KINDS = {
+    "S01": ["initial_working"],
+    "S02": ["initial_filled"],
+    "S03": ["initial_expired"],
+    "S04": ["initial_working"],
+    "S05": ["initial_working"],
+    "S06": ["initial_working", "later_filled"],
+    "S07": ["initial_working", "later_expired"],
+    "S08": ["initial_working", "cancel_canceled"],
+    "S09": ["initial_working", "later_filled", "cancel_execution_observed"],
+    "S10": ["initial_filled", "cancel_execution_observed"],
+    "S11": ["initial_expired", "cancel_already_terminal_non_execution"],
+}
+GENERATED_EFFECT_EVENTS = {
+    "GM00": ["generated_publication", "generated_schedule", "generated_dispatch", "generated_provider", "generated_order", "generated_trade", "generated_request_finalized", "generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM01": ["generated_publication", "generated_schedule", "generated_dispatch", "generated_provider", "generated_order", "generated_trade", "generated_request_finalized", "generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM02": ["generated_publication", "generated_schedule", "generated_dispatch", "generated_provider", "generated_order", "generated_trade", "generated_request_finalized", "generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM03": ["generated_provider", "generated_order", "generated_trade", "generated_request_finalized", "generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM04": ["generated_provider", "generated_order", "generated_trade", "generated_request_finalized", "generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM05": ["generated_trade", "generated_request_finalized", "generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM06": ["generated_request_finalized", "generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM07": ["generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM08": ["generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM09": ["generated_s_ack", "generated_s_truth", "generated_xack"],
+    "GM10": ["generated_s_truth", "generated_xack"],
+    "GM11": ["generated_s_truth", "generated_xack"],
+    "GM12": ["generated_xack"],
+}
+GENERATED_EFFECT_SCOPE_TERMINAL = {
+    "GM00": "generated_publication",
+    "GM01": "generated_schedule",
+    "GM02": "generated_dispatch",
+    "GM03": "generated_provider",
+    "GM04": "generated_order",
+    "GM05": "generated_trade",
+    "GM06": "generated_request_finalized",
+    "GM07": "generated_s_ack",
+    "GM08": "generated_s_ack",
+    "GM09": "generated_s_ack",
+    "GM10": "generated_s_truth",
+    "GM11": "generated_s_truth",
+    "GM12": "generated_xack",
+}
 
 
 class EvidenceFailure(RuntimeError):
@@ -156,6 +224,93 @@ def expected_pel(label: str) -> int:
     raise EvidenceFailure(f"unknown PEL label: {label}")
 
 
+def validate_sequence_audit(cell_id: str, audit: Any) -> None:
+    require(isinstance(audit, dict) and set(audit) == SEQUENCE_AUDIT_FIELDS, f"{cell_id}: sequence audit schema")
+    lifecycle = audit["lifecycle_sequence"]
+    journal = audit["journal_lifecycle_sequences"]
+    require(type(lifecycle) is int and lifecycle >= 0, f"{cell_id}: lifecycle sequence")
+    require(isinstance(journal, list), f"{cell_id}: journal sequence vector")
+    require(journal and journal[0] == 1, f"{cell_id}: journal sequence must start at one")
+    require(
+        all(current == 1 or current == previous + 1 for previous, current in zip(journal, journal[1:])),
+        f"{cell_id}: journal segments are not gap-free",
+    )
+    require(journal[-1] == lifecycle, f"{cell_id}: current journal frontier")
+    for pair_field in ("durable_sequence_pair", "pre_kill_sequence_pair"):
+        pair = audit[pair_field]
+        require(
+            pair is None
+            or (
+                isinstance(pair, list)
+                and len(pair) == 2
+                and all(type(value) is int and value > 0 for value in pair)
+                and pair[1] == pair[0] + 1
+            ),
+            f"{cell_id}: malformed {pair_field}",
+        )
+    allocations = audit["allocations"]
+    require(isinstance(allocations, list), f"{cell_id}: allocations")
+    prior_business_frontier = None
+    prior_record_index = None
+    for index, allocation in enumerate(allocations):
+        require(isinstance(allocation, dict) and set(allocation) == SEQUENCE_ALLOCATION_FIELDS, f"{cell_id}: allocation schema")
+        kind = allocation["outcome_kind"]
+        journal_record_index = allocation["journal_record_index"]
+        lifecycle_sequence = allocation["stage6_lifecycle_sequence"]
+        frontier = allocation["sequence_allocation_frontier"]
+        seq_ack = allocation["seq_ack"]
+        seq_truth = allocation["seq_truth"]
+        require(type(journal_record_index) is int and journal_record_index >= 0, f"{cell_id}: V3 record index")
+        require(
+            prior_record_index is None or journal_record_index > prior_record_index,
+            f"{cell_id}: V3 journal record order",
+        )
+        require(journal_record_index < len(journal), f"{cell_id}: V3 record index bounds")
+        require(
+            journal[journal_record_index] == lifecycle_sequence,
+            f"{cell_id}: V3 lifecycle not bound to journal record",
+        )
+        require(type(frontier) is int and frontier >= 0, f"{cell_id}: allocation frontier")
+        require(frontier == (2 if index == 0 else prior_business_frontier), f"{cell_id}: business sequence frontier")
+        if kind in {"initial_working", "initial_filled", "initial_expired", "cancel_canceled"}:
+            require(type(seq_ack) is int and type(seq_truth) is int, f"{cell_id}: pair types")
+            require(seq_ack == frontier + 1 and seq_truth == seq_ack + 1, f"{cell_id}: exact ACK/truth pair")
+            terminal = seq_truth
+        elif kind in {"later_filled", "later_expired"}:
+            require(seq_ack is None and type(seq_truth) is int, f"{cell_id}: autonomous truth shape")
+            require(seq_truth == frontier + 1, f"{cell_id}: exact autonomous truth")
+            terminal = seq_truth
+        elif kind in {"cancel_execution_observed", "cancel_already_terminal_non_execution"}:
+            require(type(seq_ack) is int and seq_truth is None, f"{cell_id}: recovered ACK shape")
+            require(seq_ack == frontier + 1, f"{cell_id}: exact recovered ACK")
+            terminal = seq_ack
+        else:
+            raise EvidenceFailure(f"{cell_id}: unknown allocation kind {kind}")
+        prior_record_index = journal_record_index
+        prior_business_frontier = terminal
+
+
+def sequence_label(audit: dict[str, Any], generated: bool) -> str:
+    pair = audit["pre_kill_sequence_pair"] or audit["durable_sequence_pair"]
+    if pair is not None:
+        return f"seq_ack={pair[0]};seq_truth={pair[1]}"
+    allocations = audit["allocations"]
+    if allocations and not generated:
+        allocation = allocations[-1]
+        if allocation["seq_ack"] is not None and allocation["seq_truth"] is not None:
+            return f"seq_ack={allocation['seq_ack']};seq_truth={allocation['seq_truth']}"
+        if allocation["seq_ack"] is not None:
+            return f"seq_ack={allocation['seq_ack']}"
+        return f"seq_truth={allocation['seq_truth']}"
+    return f"lifecycle_sequence={audit['lifecycle_sequence']}"
+
+
+def expected_effect(label: str, base: bool) -> int:
+    if label.startswith("+1") or (base and label == "0_before_reissue"):
+        return 1
+    return 0
+
+
 def validate_cell(
     cell: dict[str, Any],
     registry_fields: list[str],
@@ -203,10 +358,69 @@ def validate_cell(
         "schedule_issue_attempts",
         "durable_outcomes",
         "durable_truths",
+        "s_ack_commits",
+        "s_truth_commits",
         "command_publications",
         "immediate_xack_attempts",
     ):
         require(type(cell[field]) is int and cell[field] >= 0, f"{cell_id}: invalid counter {field}")
+    for field in ("s_ack_generations", "s_truth_generations"):
+        require(
+            isinstance(cell[field], list)
+            and all(type(generation) is int and generation > 0 for generation in cell[field]),
+            f"{cell_id}: invalid authenticated generation vector {field}",
+        )
+    require(cell["s_ack_commits"] == len(cell["s_ack_generations"]), f"{cell_id}: S_ack generation count")
+    require(cell["s_truth_commits"] == len(cell["s_truth_generations"]), f"{cell_id}: S_truth generation count")
+    events = cell["observed_effect_events"]
+    require(
+        isinstance(events, list) and all(isinstance(event, str) and event for event in events),
+        f"{cell_id}: observed effect event vector",
+    )
+    for field in ("package_before", "package_after"):
+        package = cell[field]
+        require(isinstance(package, dict) and set(package) == PACKAGE_FIELDS, f"{cell_id}: {field} schema")
+        require(
+            package["write_generation"] is None
+            or (type(package["write_generation"]) is int and package["write_generation"] > 0),
+            f"{cell_id}: {field} generation",
+        )
+        for phase in ("p1d3_phase", "generated_market_phase"):
+            require(package[phase] is None or isinstance(package[phase], str), f"{cell_id}: {field} {phase}")
+    validate_sequence_audit(cell_id, cell["sequence_audit_before"])
+    validate_sequence_audit(cell_id, cell["sequence_audit_after"])
+    before_allocations = cell["sequence_audit_before"]["allocations"]
+    after_allocations = cell["sequence_audit_after"]["allocations"]
+    require(after_allocations[: len(before_allocations)] == before_allocations, f"{cell_id}: sequence allocation replay drift")
+    scenario_id = expected["parent_scenario_id" if generated else "scenario_id"]
+    require(
+        [allocation["outcome_kind"] for allocation in after_allocations]
+        == FINAL_ALLOCATION_KINDS[scenario_id],
+        f"{cell_id}: final authenticated outcome sequence",
+    )
+    require(cell["sequence_before"] == sequence_label(cell["sequence_audit_before"], generated), f"{cell_id}: legacy sequence_before drift")
+    require(cell["sequence_after"] == sequence_label(cell["sequence_audit_after"], generated), f"{cell_id}: legacy sequence_after drift")
+    require(cell["durable_outcomes"] == len(after_allocations), f"{cell_id}: durable outcome count")
+    require(
+        cell["durable_truths"] == sum(allocation["seq_truth"] is not None for allocation in after_allocations),
+        f"{cell_id}: independently derived durable truth count",
+    )
+    require(
+        cell["provider_attempts"] == expected_effect(expected["provider_delta"], not generated),
+        f"{cell_id}: provider effect",
+    )
+    require(
+        cell["schedule_issue_attempts"]
+        == expected_effect(expected["schedule_authority_delta"], False),
+        f"{cell_id}: schedule effect",
+    )
+    if not generated:
+        require(
+            all(event in {"p1d3_provider", "p1d3_schedule"} for event in events),
+            f"{cell_id}: base effect family",
+        )
+        require(cell["provider_attempts"] == events.count("p1d3_provider"), f"{cell_id}: observed provider count")
+        require(cell["schedule_issue_attempts"] == events.count("p1d3_schedule"), f"{cell_id}: observed schedule count")
     for field in (
         "sequence_before",
         "sequence_after",
@@ -243,8 +457,54 @@ def validate_cell(
         require(cell["sequence_before"].startswith("seq_ack="), f"{cell_id}: pre-kill pair absent")
         require(cell["sequence_before"] == cell["sequence_after"], f"{cell_id}: pair changed")
     if generated and expected["frontier_id"] == "GM07":
-        require(not cell["sequence_before"].startswith("seq_ack="), f"{cell_id}: GM07 allocated a pair")
+        require(
+            cell["sequence_audit_before"]["pre_kill_sequence_pair"] is None
+            and cell["sequence_audit_before"]["durable_sequence_pair"] is None
+            and not cell["sequence_before"].startswith("seq_ack="),
+            f"{cell_id}: GM07 allocated a generated-Market pair",
+        )
     if generated:
+        frontier_id = expected["frontier_id"]
+        require(events == GENERATED_EFFECT_EVENTS[frontier_id], f"{cell_id}: exact operational effect event sequence")
+        terminal = GENERATED_EFFECT_SCOPE_TERMINAL[frontier_id]
+        require(terminal in events, f"{cell_id}: effect scope terminal")
+        scoped_events = events[: events.index(terminal) + 1]
+        require(cell["provider_attempts"] == scoped_events.count("generated_provider"), f"{cell_id}: scoped provider count")
+        require(cell["schedule_issue_attempts"] == scoped_events.count("generated_schedule"), f"{cell_id}: scoped schedule count")
+        require(cell["s_ack_commits"] == scoped_events.count("generated_s_ack"), f"{cell_id}: scoped S_ack count")
+        require(cell["s_truth_commits"] == scoped_events.count("generated_s_truth"), f"{cell_id}: scoped S_truth count")
+        require(
+            cell["s_ack_commits"] == (1 if expected["s_ack_delta"] == "+1_exact" else 0),
+            f"{cell_id}: S_ack effect",
+        )
+        require(
+            cell["s_truth_commits"] == (1 if expected["s_truth_delta"] == "+1_exact" else 0),
+            f"{cell_id}: S_truth effect",
+        )
+        expected_phase = {
+            "P1d4GeneratedMarketPrepublicationPending": "Prepublication",
+            "P1d4GeneratedMarketDispatchPending": "Prepublication",
+            "P1d4GeneratedMarketOrderPending": "Prepublication",
+            "P1d4GeneratedMarketPreFinalizationPending": "Prepublication",
+            "P1d4GeneratedMarketPreAckPending": "Prepublication",
+            "P1d4GeneratedMarketAckCommitted": "AckCommitted",
+            "P1d4GeneratedMarketTruthCommitted": "TruthCommitted",
+        }[expected["expected_restart_disposition"]]
+        require(cell["package_before"]["generated_market_phase"] == expected_phase, f"{cell_id}: authenticated package phase before")
+        require(cell["package_after"]["generated_market_phase"] == "TruthCommitted", f"{cell_id}: authenticated package phase after")
+        before_generation = cell["package_before"]["write_generation"]
+        after_generation = cell["package_after"]["write_generation"]
+        require(type(before_generation) is int and type(after_generation) is int, f"{cell_id}: package generations")
+        generation_advance = {"Prepublication": 2, "AckCommitted": 1, "TruthCommitted": 0}[expected_phase]
+        require(after_generation == before_generation + generation_advance, f"{cell_id}: package generation transition")
+        if cell["s_ack_generations"]:
+            require(cell["s_ack_generations"] == [before_generation + 1], f"{cell_id}: S_ack generation binding")
+        if cell["s_truth_generations"]:
+            require(
+                cell["s_truth_generations"] == [before_generation + 1]
+                and cell["s_truth_generations"][0] == after_generation,
+                f"{cell_id}: S_truth generation binding",
+            )
         require(
             cell["immediate_xack_attempts"]
             == (1 if expected["xack_delta"] == "+1_exact" else 0),

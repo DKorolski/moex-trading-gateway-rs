@@ -23,7 +23,7 @@ CRASH_DIGEST = "handoff-evidence/stage8b-p1d4-crash-replay-semantic-digest.txt"
 CRASH_GENERATED = {CRASH_RUN_1, CRASH_RUN_2, CRASH_DIGEST}
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST} | CRASH_GENERATED
 ACCEPTED_DESIGN = "1a1ea05775f1d15b86fcc3495ad6863b851e9212"
-REVIEWED_SOURCE = "250f71a5a36c796281e946eeeb557f04818daab0"
+REVIEWED_SOURCE = "0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa"
 ACCEPTED_P1D3 = "7dc7c802feca6e79d3a1a9902c181ad7b6afc506"
 BRANCH = "stage8b-paper-shadow-resumption"
 REQUIRED = GENERATED | {
@@ -40,6 +40,7 @@ REQUIRED = GENERATED | {
     "docs/stage-8/stage8b-p1d4-source-evidence.json",
     "scripts/stage8b_p1d4_source_check.py",
     "scripts/stage8b_p1d4_crash_evidence_check.py",
+    "scripts/stage8b_p1d4_crash_evidence_negative_harness.py",
     "scripts/stage8b_p1d4_source_negative_harness.py",
     "scripts/stage8b_p1d4_source_gate.sh",
     "scripts/make_stage8b_p1d4_source_handoff.py",
@@ -117,11 +118,16 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("worktree/push status mismatch")
         if manifest.get("source_ref") != source_ref:
             raise ValueError("manifest source binding mismatch")
-        if evidence.get("stage") != "Stage 8B-P1-d4 generated-Market crash/replay source R1 correction":
+        if evidence.get("stage") != "Stage 8B-P1-d4 generated-Market crash/replay source R2 evidence correction":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "SOURCE_R1_REVIEW_CANDIDATE":
+        if evidence.get("status") != "SOURCE_R2_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
-        if evidence.get("acceptance_rows") != 20 or evidence.get("negative_cases") != 51:
+        if (
+            evidence.get("acceptance_rows") != 20
+            or evidence.get("negative_cases") != 58
+            or evidence.get("source_negative_cases") != 51
+            or evidence.get("crash_evidence_negative_cases") != 7
+        ):
             raise ValueError("acceptance inventory mismatch")
         if evidence.get("unexpected_protected_path_changes") != []:
             raise ValueError("protected path changed")
@@ -152,6 +158,7 @@ def check(path: str) -> dict[str, object]:
             b"PASS stage8b-p1d4-source-check",
             b"PASS stage8b-p1d4-source-negative-harness 51/51",
             b"PASS stage8b-p1d4-crash-evidence-check cells=105 runs=2",
+            b"PASS stage8b-p1d4-crash-evidence-negative-harness 7/7",
             b"PASS stage8b-p1d4-source-gate",
         ):
             if expected not in gate:
@@ -222,7 +229,7 @@ def check(path: str) -> dict[str, object]:
             "accepted_design": ACCEPTED_DESIGN,
             "source_tree": source_tree,
             "branch": BRANCH,
-            "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R1 correction",
+            "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R2 evidence correction",
             "crash_evidence_cells": crash_result["cells"],
             "crash_evidence_runs": crash_result["runs"],
             "crash_evidence_semantic_digest": retained_digest,

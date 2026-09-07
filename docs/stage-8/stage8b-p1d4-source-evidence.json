@@ -1,7 +1,7 @@
 {
   "accepted_business_source_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
   "accepted_design_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
-  "reviewed_source_ref": "250f71a5a36c796281e946eeeb557f04818daab0",
+  "reviewed_source_ref": "0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa",
   "acceptance_rows": 20,
   "closed_surfaces": {
     "broker_network_dispatch": false,
@@ -25,6 +25,16 @@
     "generated_market_cells": 13,
     "gm07_pair_marker_absent": true,
     "gm08_gm09_exact_pre_kill_pair_restored": true,
+    "typed_exact_base_sequence_audit": true,
+    "journal_sequence_vector_gap_free": true,
+    "sequence_allocations_bound_to_exact_journal_record_index": true,
+    "durable_truths_independently_derived": true,
+    "provider_schedule_calls_observed_at_call_sites": true,
+    "full_effect_event_order_retained_and_exact": true,
+    "zero_expectations_do_not_disable_observation": true,
+    "covering_seal_generations_observed_from_authenticated_owners": true,
+    "covering_seal_generations_bound_to_package_phase_transition": true,
+    "semantic_evidence_negative_mutations": 7,
     "marker_fsync_before_sigkill": true,
     "normalized_semantic_digest_equal": true,
     "positive_sigkill_cells": 105,
@@ -66,8 +76,8 @@
   "next_stage_authorized": false,
   "schema_version": 1,
   "source_ref": "",
-  "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R1 correction",
-  "status": "SOURCE_R1_REVIEW_CANDIDATE",
+  "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R2 evidence correction",
+  "status": "SOURCE_R2_REVIEW_CANDIDATE",
   "verification": {
     "aggregate_gate": "PASS rows=20 positive_sigkill=105 duplicate=105 conflict=105 two_clean_runs=true",
     "base_sigkill_matrix": "PASS 92/92",
@@ -75,7 +85,7 @@
     "doctests": "PASS strategy-runtime-core 65/65; runtime-durable-service 36/36",
     "format": "PASS",
     "generated_market_sigkill_matrix": "PASS 13/13",
-    "negative_harness": "PASS 51/51",
+    "negative_harness": "PASS source 51/51; semantic evidence 7/7",
     "source_scope_checker": "PASS rows=20 cells=105",
     "strict_targeted_clippy": "PASS -D warnings"
   }

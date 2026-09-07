@@ -5823,10 +5823,13 @@ pub enum Stage7bRestartOutcome {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Stage8bP1d4RestartAuditV1 {
     pub lifecycle_sequence: u64,
+    pub journal_lifecycle_sequences: Vec<u64>,
     pub sequence_pair: Option<(u64, u64)>,
+    pub sequence_allocations: Vec<strategy_runtime_core::Stage8bP1d4SequenceAllocationAuditV1>,
+    pub package: strategy_runtime_core::Stage8bP1d4PackageAuditV1,
     pub callback_count: usize,
     pub dispatch_v1_total: usize,
     pub order_v1_total: usize,
@@ -5868,7 +5871,10 @@ impl Stage7bRestartOutcome {
         let audit = recovered.stage8b_p1d4_test_runtime_audit();
         Some(Stage8bP1d4RestartAuditV1 {
             lifecycle_sequence: audit.lifecycle_sequence,
+            journal_lifecycle_sequences: audit.journal_lifecycle_sequences,
             sequence_pair: audit.sequence_pair,
+            sequence_allocations: audit.sequence_allocations,
+            package: audit.package,
             callback_count: audit.callback_count,
             dispatch_v1_total: audit.dispatch_v1_total,
             order_v1_total: audit.order_v1_total,

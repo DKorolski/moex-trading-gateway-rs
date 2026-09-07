@@ -431,7 +431,8 @@ pub use stage6d_live_core::{
     stage8a4_test_append_durable_batch_with_suffix_limit, stage8a4_test_set_journal_failpoint,
     stage8b_p1_test_append_dispatch_attempt, stage8b_p1d4_test_append_current_semantic_dispatch,
     stage8b_p1d4_test_migrate_position_synced_p1d2, Stage7bTestExtraStage6History,
-    Stage7bTestRestartFixture, Stage8bP1d4RuntimeAuditV1,
+    Stage7bTestRestartFixture, Stage8bP1d4PackageAuditV1, Stage8bP1d4RuntimeAuditV1,
+    Stage8bP1d4SequenceAllocationAuditV1,
 };
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 #[doc(hidden)]

@@ -818,6 +818,11 @@ impl Stage5gCleanRestartedCapability {
         }
     }
 
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    pub(crate) fn stage8b_p1d4_test_write_generation(&self) -> u64 {
+        self.continuation_authority.write_generation
+    }
+
     pub(crate) fn stage8b_p1d4_feedback_audit_core(
         &self,
     ) -> Option<crate::Stage8bP1d2FeedbackAuditCoreV1> {

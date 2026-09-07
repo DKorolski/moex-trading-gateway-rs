@@ -1,6 +1,6 @@
 # Stage 8B-P1-d4 generated-Market crash/replay source
 
-Status: R1 source correction review candidate.
+Status: R2 source-evidence correction review candidate.
 
 Accepted design predecessor:
 `1a1ea05775f1d15b86fcc3495ad6863b851e9212` (R7, ACCEPTED).
@@ -9,7 +9,8 @@ Accepted business/source predecessor:
 `7dc7c802feca6e79d3a1a9902c181ad7b6afc506` (P1-d3, CLOSED / ACCEPTED).
 
 Reviewed source predecessor:
-`250f71a5a36c796281e946eeeb557f04818daab0` (HOLD with P1-01 and P1-02).
+`0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa` (R1 HOLD with one
+proof-exactness P1 finding; its production implementation is retained).
 
 ## Scope
 
@@ -116,6 +117,29 @@ PID-bearing marker digest and Redis port are normalized. The two
 domain-separated semantic digests must be byte-identical. Both full JSON runs
 and the retained digest are immutable handoff members and are independently
 validated by `stage8b_p1d4_crash_evidence_check.py`.
+
+R2 additionally retains a typed sequence audit for each restart and final
+state. It is reconstructed from authenticated Stage 6 V3 outcome evidence and
+contains the complete gap-free journal sequence vector, exact business
+allocation frontier, its exact journal-record index, ACK/truth sequence values
+and outcome kinds. The checker
+anchors the deterministic fixture at business frontier 2, validates every
+pair or single allocation literally, requires the pre-restart allocation list
+to remain an exact prefix, and checks the scenario-specific final outcome
+sequence. `durable_truths` is counted independently from rows that actually
+carry a truth sequence.
+
+Provider and schedule counts now come from test-only observers placed at the
+operational invocation sites. Generated-Market `S_ack` and `S_truth` counts
+come from nonzero recovery-seal generations read from the authenticated owners
+returned by the real transition calls. The retained full effect-event order is
+validated exactly, and each cell's counters are derived from its prefix through
+the actual crash-frontier continuation boundary; a zero expectation cannot
+disable observation. Package phase and generation transitions are cross-bound
+to those seal generations. No matrix branch assigns those counters. Seven
+redigested evidence mutations prove fail-closed handling of an
+exact base sequence, pair equality, truth/provider/schedule counts and both
+covering-seal counts.
 
 GM08 and GM09 use a dedicated create-once, `sync_all()` sequence-pair marker
 written after allocation and before their non-returning crash hooks. Recovery

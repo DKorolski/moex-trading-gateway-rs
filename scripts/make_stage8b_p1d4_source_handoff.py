@@ -17,9 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_DESIGN = "1a1ea05775f1d15b86fcc3495ad6863b851e9212"
-REVIEWED_SOURCE = "250f71a5a36c796281e946eeeb557f04818daab0"
+REVIEWED_SOURCE = "0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa"
 EVIDENCE_TEMPLATE = ROOT / "docs/stage-8/stage8b-p1d4-source-evidence.json"
-CRASH_EVIDENCE_ROOT = ROOT / "reports/stage8b-p1d4-r1-crash-evidence"
+CRASH_EVIDENCE_ROOT = ROOT / "reports/stage8b-p1d4-r2-crash-evidence"
 CRASH_EVIDENCE_FILES = (
     "stage8b-p1d4-crash-replay-run-1.json",
     "stage8b-p1d4-crash-replay-run-2.json",
@@ -65,7 +65,7 @@ def main() -> None:
         name: (CRASH_EVIDENCE_ROOT / name).read_bytes() for name in CRASH_EVIDENCE_FILES
     }
     semantic_digest = crash_evidence[CRASH_EVIDENCE_FILES[-1]].decode().strip()
-    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d4-source-r1-review-package.zip"
+    archive_name = f"moex-trading-project-{short_ref}-stage8b-p1d4-source-r2-review-package.zip"
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
     changed_paths = run("git", "diff", "--name-only", REVIEWED_SOURCE, source_ref).decode().splitlines()
@@ -95,7 +95,9 @@ def main() -> None:
             "branch": branch,
             "worktree_clean": True,
             "pushed_to_origin": False,
-            "negative_cases": 51,
+            "negative_cases": 58,
+            "source_negative_cases": 51,
+            "crash_evidence_negative_cases": 7,
             "crash_evidence_semantic_digest": semantic_digest,
             "crash_evidence_sha256": {
                 name: sha256(data) for name, data in sorted(crash_evidence.items())

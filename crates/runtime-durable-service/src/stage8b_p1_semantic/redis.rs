@@ -49,6 +49,175 @@ const P1D4_COMMAND_PUBLICATION_MARKER_DOMAIN: &str =
     "moex.stage8b.p1d4.command-publication-marker.v1";
 const MIN_RETENTION_FLOOR: usize = super::STAGE8B_P1_LOCAL_M10_MIN_RETENTION;
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum P1d4ObservedEffectEvent {
+    P1d3Provider,
+    P1d3Schedule,
+    GeneratedPublication,
+    GeneratedSchedule,
+    GeneratedDispatch,
+    GeneratedProvider,
+    GeneratedOrder,
+    GeneratedTrade,
+    GeneratedRequestFinalized,
+    GeneratedSAck(u64),
+    GeneratedSTruth(u64),
+    GeneratedXack,
+}
+
+#[cfg(test)]
+impl P1d4ObservedEffectEvent {
+    fn label(&self) -> &'static str {
+        match self {
+            Self::P1d3Provider => "p1d3_provider",
+            Self::P1d3Schedule => "p1d3_schedule",
+            Self::GeneratedPublication => "generated_publication",
+            Self::GeneratedSchedule => "generated_schedule",
+            Self::GeneratedDispatch => "generated_dispatch",
+            Self::GeneratedProvider => "generated_provider",
+            Self::GeneratedOrder => "generated_order",
+            Self::GeneratedTrade => "generated_trade",
+            Self::GeneratedRequestFinalized => "generated_request_finalized",
+            Self::GeneratedSAck(_) => "generated_s_ack",
+            Self::GeneratedSTruth(_) => "generated_s_truth",
+            Self::GeneratedXack => "generated_xack",
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct P1d4ObservedEffectAudit {
+    capture_p1d3: bool,
+    capture_generated_market: bool,
+    events: Vec<P1d4ObservedEffectEvent>,
+}
+
+#[cfg(test)]
+fn p1d4_effect_audit() -> &'static std::sync::Mutex<Option<P1d4ObservedEffectAudit>> {
+    static AUDIT: std::sync::OnceLock<std::sync::Mutex<Option<P1d4ObservedEffectAudit>>> =
+        std::sync::OnceLock::new();
+    AUDIT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[cfg(test)]
+fn p1d4_begin_observed_effect_audit(capture_p1d3: bool) {
+    *p1d4_effect_audit().lock().expect("P1-d4 effect audit lock") = Some(P1d4ObservedEffectAudit {
+        capture_p1d3,
+        capture_generated_market: !capture_p1d3,
+        ..P1d4ObservedEffectAudit::default()
+    });
+}
+
+#[cfg(test)]
+fn p1d4_take_observed_effect_audit() -> P1d4ObservedEffectAudit {
+    p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .take()
+        .expect("P1-d4 effect audit must be active")
+}
+
+#[cfg(test)]
+fn p1d4_observe_p1d3_provider() {
+    if let Some(audit) = p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .as_mut()
+    {
+        if audit.capture_p1d3 {
+            audit.events.push(P1d4ObservedEffectEvent::P1d3Provider);
+        }
+    }
+}
+
+#[cfg(test)]
+fn p1d4_observe_p1d3_schedule() {
+    if let Some(audit) = p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .as_mut()
+    {
+        if audit.capture_p1d3 {
+            audit.events.push(P1d4ObservedEffectEvent::P1d3Schedule);
+        }
+    }
+}
+
+#[cfg(test)]
+fn p1d4_observe_generated_market_provider() {
+    if let Some(audit) = p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .as_mut()
+    {
+        if audit.capture_generated_market {
+            audit
+                .events
+                .push(P1d4ObservedEffectEvent::GeneratedProvider);
+        }
+    }
+}
+
+#[cfg(test)]
+fn p1d4_observe_generated_market_schedule() {
+    if let Some(audit) = p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .as_mut()
+    {
+        if audit.capture_generated_market {
+            audit
+                .events
+                .push(P1d4ObservedEffectEvent::GeneratedSchedule);
+        }
+    }
+}
+
+#[cfg(test)]
+fn p1d4_observe_generated_market_s_ack(generation: u64) {
+    if let Some(audit) = p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .as_mut()
+    {
+        if audit.capture_generated_market {
+            audit
+                .events
+                .push(P1d4ObservedEffectEvent::GeneratedSAck(generation));
+        }
+    }
+}
+
+#[cfg(test)]
+fn p1d4_observe_generated_market_s_truth(generation: u64) {
+    if let Some(audit) = p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .as_mut()
+    {
+        if audit.capture_generated_market {
+            audit
+                .events
+                .push(P1d4ObservedEffectEvent::GeneratedSTruth(generation));
+        }
+    }
+}
+
+#[cfg(test)]
+fn p1d4_observe_generated_market_event(event: P1d4ObservedEffectEvent) {
+    if let Some(audit) = p1d4_effect_audit()
+        .lock()
+        .expect("P1-d4 effect audit lock")
+        .as_mut()
+    {
+        if audit.capture_generated_market {
+            audit.events.push(event);
+        }
+    }
+}
+
 const NAMESPACE_INITIALIZATION_LUA: &str = r#"
 local function type_name(key)
   local result = redis.call('TYPE', key)
@@ -741,6 +910,8 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         schedule_authority: Stage8bP1d3ScheduleStepAuthority,
         commitment_key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
+        #[cfg(test)]
+        p1d4_observe_p1d3_schedule();
         let delivery = match self.transport.backend.acquire_ready_delivery().await? {
             Stage8bP1ReadySourceAcquisition::Delivery(delivery) => delivery,
             Stage8bP1ReadySourceAcquisition::PendingNotClaimable(redis_id) => {
@@ -815,6 +986,8 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         authority: Stage8bP1d3DayExpiryAuthority,
         commitment_key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Self, Stage8bP1RedisSemanticError> {
+        #[cfg(test)]
+        p1d4_observe_p1d3_schedule();
         match self.stage7.commit_stage8b_p1d3_later_limit(
             Stage8bP1d3LaterObservation::DayExpiry { authority },
             commitment_key,
@@ -966,6 +1139,8 @@ impl Stage8bP1RedisPrepublicationPending {
             .backend
             .publish_reserved_p1d4_command(&durable, &self.pending_m10, &prepared)
             .await?;
+        #[cfg(test)]
+        p1d4_observe_generated_market_event(P1d4ObservedEffectEvent::GeneratedPublication);
         crate::recovery::stage8b_p1d4_test_crash_frontier("GM01");
         crate::recovery::stage8b_p1d4_test_crash_frontier("F15");
         let (stage7, evidence, command, reservation, binding) =
@@ -1210,6 +1385,8 @@ impl Stage8bP1RedisCommandPublished {
         schedule_authority: Stage8bP1d1ExecutionScheduleAuthority,
         commitment_key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage8bP1RedisGeneratedMarketAckCommitted, Stage8bP1RedisSemanticError> {
+        #[cfg(test)]
+        p1d4_observe_generated_market_schedule();
         let reservation = self
             .p1d4_reservation
             .take()
@@ -1246,10 +1423,14 @@ impl Stage8bP1RedisCommandPublished {
         let provider = self
             .stage7
             .admit_p1d1_eligible_market_dispatch(eligibility)?;
+        #[cfg(test)]
+        p1d4_observe_generated_market_event(P1d4ObservedEffectEvent::GeneratedDispatch);
         crate::recovery::stage8b_p1d4_test_crash_frontier("GM03");
         crate::recovery::stage8b_p1_test_crash_barrier(
             "p1d4-market-after-dispatch-before-provider-outcome",
         );
+        #[cfg(test)]
+        p1d4_observe_generated_market_provider();
         let outcome = provider.execute();
         crate::recovery::stage8b_p1d4_test_crash_frontier("GM04");
         if outcome.strategy_request_id()
@@ -1272,6 +1453,16 @@ impl Stage8bP1RedisCommandPublished {
             binding,
             commitment_key,
         )?;
+        #[cfg(test)]
+        for event in [
+            P1d4ObservedEffectEvent::GeneratedOrder,
+            P1d4ObservedEffectEvent::GeneratedTrade,
+            P1d4ObservedEffectEvent::GeneratedRequestFinalized,
+        ] {
+            p1d4_observe_generated_market_event(event);
+        }
+        #[cfg(test)]
+        p1d4_observe_generated_market_s_ack(durable.recovery_seal_generation());
         Ok(Stage8bP1RedisGeneratedMarketAckCommitted {
             durable,
             evidence: self.evidence,
@@ -1302,6 +1493,10 @@ impl Stage8bP1RedisCommandPublished {
             .exact_first_successor_m10(self.pending_m10.redis_id(), &operational_identity_sha256)
             .await?;
         crate::recovery::stage8b_p1d4_test_crash_frontier("F01");
+        #[cfg(test)]
+        p1d4_observe_p1d3_schedule();
+        #[cfg(test)]
+        p1d4_observe_p1d3_provider();
         let observation = Stage8bP1d3InitialObservation::Candidate {
             evidence: Box::new(successor.into_p1d3_limit_evidence()?),
             schedule: schedule_authority,
@@ -1335,6 +1530,10 @@ impl Stage8bP1RedisCommandPublished {
             .exact_first_successor_m10(self.pending_m10.redis_id(), &operational_identity_sha256)
             .await?;
         crate::recovery::stage8b_p1d4_test_crash_frontier("F01");
+        #[cfg(test)]
+        p1d4_observe_p1d3_schedule();
+        #[cfg(test)]
+        p1d4_observe_p1d3_provider();
         match self.stage7.commit_stage8b_p1d3_cancel(
             successor.into_p1d3_limit_evidence()?,
             schedule_authority,
@@ -1378,6 +1577,10 @@ impl Stage8bP1RedisCommandPublished {
     ) -> Result<Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisSemanticError> {
         crate::recovery::stage8b_p1d4_test_crash_frontier("F00");
         crate::recovery::stage8b_p1d4_test_crash_frontier("F01");
+        #[cfg(test)]
+        p1d4_observe_p1d3_schedule();
+        #[cfg(test)]
+        p1d4_observe_p1d3_provider();
         self.commit_initial_limit_ack(
             Stage8bP1d3InitialObservation::DayExpiry {
                 authority: expiry_authority,
@@ -1667,6 +1870,8 @@ impl Stage8bP1RedisGeneratedMarketAckCommitted {
             )
             .await?;
         let durable = self.durable.commit_truth(commitment_key)?;
+        #[cfg(test)]
+        p1d4_observe_generated_market_s_truth(durable.recovery_seal_generation());
         Ok(Stage8bP1RedisGeneratedMarketTruthCommitted {
             durable,
             evidence: self.evidence,
@@ -1722,6 +1927,8 @@ impl Stage8bP1RedisGeneratedMarketTruthCommitted {
             .backend
             .acknowledge_exact(&self.pending_m10)
             .await?;
+        #[cfg(test)]
+        p1d4_observe_generated_market_event(P1d4ObservedEffectEvent::GeneratedXack);
         crate::recovery::stage8b_p1d4_test_crash_frontier("F16");
         let stage7 = self.durable.into_ready_after_source_resolution();
         Ok(Stage8bP1RedisFeedbackResolved {
@@ -1842,6 +2049,8 @@ pub async fn resume_stage8b_p1d4_prepublication_with_redis(
         .backend
         .publish_reserved_p1d4_command(&durable, &pending_m10, &prepared)
         .await?;
+    #[cfg(test)]
+    p1d4_observe_generated_market_event(P1d4ObservedEffectEvent::GeneratedPublication);
     let (stage7, evidence, command, reservation, binding) = durable.into_p1d4_publication_parts();
     Ok(Stage8bP1RedisCommandPublished {
         stage7,
@@ -1934,6 +2143,13 @@ async fn resume_stage8b_p1d4_journal_ahead_with_redis(
     mut transport: Stage8bP1RedisSemanticCompositionTransport,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1RedisGeneratedMarketAckCommitted, Stage8bP1RedisSemanticError> {
+    #[cfg(test)]
+    let pending_kind = match &durable {
+        Stage8bP1d4JournalAheadPending::Dispatch(_) => 0,
+        Stage8bP1d4JournalAheadPending::Order(_) => 1,
+        Stage8bP1d4JournalAheadPending::PreFinalization(_) => 2,
+        Stage8bP1d4JournalAheadPending::PreAck(_) => 3,
+    };
     let source = durable.source_m10_evidence()?;
     let pending_m10 = transport.backend.reclaim_exact_evidence(&source).await?;
     let (evidence, command) = durable.command_material()?;
@@ -1957,8 +2173,34 @@ async fn resume_stage8b_p1d4_journal_ahead_with_redis(
             durable.operational_identity_sha256(),
         )
         .await?;
+    #[cfg(test)]
+    if pending_kind == 0 {
+        p1d4_observe_generated_market_provider();
+    }
     let durable = durable
         .commit_reconstructed_ack(successor.into_p1d1_execution_evidence()?, commitment_key)?;
+    #[cfg(test)]
+    {
+        let suffix = match pending_kind {
+            0 => &[
+                P1d4ObservedEffectEvent::GeneratedOrder,
+                P1d4ObservedEffectEvent::GeneratedTrade,
+                P1d4ObservedEffectEvent::GeneratedRequestFinalized,
+            ][..],
+            1 => &[
+                P1d4ObservedEffectEvent::GeneratedTrade,
+                P1d4ObservedEffectEvent::GeneratedRequestFinalized,
+            ][..],
+            2 => &[P1d4ObservedEffectEvent::GeneratedRequestFinalized][..],
+            3 => &[][..],
+            _ => unreachable!(),
+        };
+        for event in suffix {
+            p1d4_observe_generated_market_event(*event);
+        }
+    }
+    #[cfg(test)]
+    p1d4_observe_generated_market_s_ack(durable.recovery_seal_generation());
     Ok(Stage8bP1RedisGeneratedMarketAckCommitted {
         durable,
         evidence,
@@ -2250,6 +2492,10 @@ pub async fn resume_stage8b_p1d3_dispatch_limit_with_redis(
             durable.operational_identity_sha256(),
         )
         .await?;
+    #[cfg(test)]
+    p1d4_observe_p1d3_schedule();
+    #[cfg(test)]
+    p1d4_observe_p1d3_provider();
     let observation = Stage8bP1d3InitialObservation::Candidate {
         evidence: Box::new(successor.into_p1d3_limit_evidence()?),
         schedule,
@@ -2275,6 +2521,10 @@ pub async fn resume_stage8b_p1d3_dispatch_expiry_with_redis(
     }
     let source = durable.source_m10_evidence()?;
     let pending_m10 = transport.backend.reclaim_exact_evidence(&source).await?;
+    #[cfg(test)]
+    p1d4_observe_p1d3_schedule();
+    #[cfg(test)]
+    p1d4_observe_p1d3_provider();
     let durable = durable.commit_limit(
         Stage8bP1d3InitialObservation::DayExpiry { authority },
         commitment_key,
@@ -2307,6 +2557,10 @@ pub async fn resume_stage8b_p1d3_dispatch_cancel_with_redis(
             durable.operational_identity_sha256(),
         )
         .await?;
+    #[cfg(test)]
+    p1d4_observe_p1d3_schedule();
+    #[cfg(test)]
+    p1d4_observe_p1d3_provider();
     match durable.commit_cancel(
         successor.into_p1d3_limit_evidence()?,
         schedule,
@@ -5266,24 +5520,12 @@ mod tests {
         schedule_issue_attempts: u64,
         s_ack_commits: u64,
         s_truth_commits: u64,
+        s_ack_generations: Vec<u64>,
+        s_truth_generations: Vec<u64>,
         immediate_xack_attempts: u64,
     }
 
     impl P1d4ContinuationEvidence {
-        fn with_activity(
-            mut self,
-            provider_attempts: u64,
-            schedule_issue_attempts: u64,
-            s_ack_commits: u64,
-            s_truth_commits: u64,
-        ) -> Self {
-            self.provider_attempts = provider_attempts;
-            self.schedule_issue_attempts = schedule_issue_attempts;
-            self.s_ack_commits = s_ack_commits;
-            self.s_truth_commits = s_truth_commits;
-            self
-        }
-
         fn with_immediate_xack(mut self, immediate_xack_attempts: u64) -> Self {
             self.immediate_xack_attempts = immediate_xack_attempts;
             self
@@ -5311,6 +5553,8 @@ mod tests {
             schedule_issue_attempts: 0,
             s_ack_commits: 0,
             s_truth_commits: 0,
+            s_ack_generations: Vec::new(),
+            s_truth_generations: Vec::new(),
             immediate_xack_attempts: 0,
         }
     }
@@ -5334,9 +5578,7 @@ mod tests {
                 pending.commit_recovered_cancel(key).unwrap()
             }
         };
-        p1d4_finish_limit_truth(truth)
-            .await
-            .with_activity(0, 0, 1, 1)
+        p1d4_finish_limit_truth(truth).await
     }
 
     async fn p1d4_finish_generated_ack(
@@ -5377,9 +5619,7 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                p1d4_finish_generated_ack(ack, key)
-                    .await
-                    .with_activity(1, 1, 1, 1)
+                p1d4_finish_generated_ack(ack, key).await
             }
             Stage8bP1RedisSemanticOutcome::PendingNotClaimable { .. } => {
                 panic!("P1-d4 continuation left an exact source temporarily unclaimable")
@@ -5429,27 +5669,20 @@ mod tests {
                     .execute_next_canonical_limit(p1d4_initial_schedule(scenario_id), key)
                     .await
                     .unwrap();
-                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
-                    .await
-                    .with_activity(1, 1, 1, 1)
+                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
             }
             "S03" => {
                 let ack = published
                     .execute_initial_limit_expiry(p1d4_initial_expiry_authority(), key)
                     .unwrap();
-                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
-                    .await
-                    .with_activity(1, 1, 1, 1)
+                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
             }
             "S08" | "S09" | "S10" | "S11" => {
                 let outcome = published
                     .execute_next_canonical_cancel(p1d4_initial_schedule(scenario_id), key)
                     .await
                     .unwrap();
-                let mut evidence = p1d4_finish_cancel_outcome(outcome, key).await;
-                evidence.provider_attempts = 1;
-                evidence.schedule_issue_attempts = 1;
-                evidence
+                p1d4_finish_cancel_outcome(outcome, key).await
             }
             _ => panic!("{scenario_id} has no initial command continuation"),
         }
@@ -5477,6 +5710,8 @@ mod tests {
                             schedule_issue_attempts: 0,
                             s_ack_commits: 0,
                             s_truth_commits: 0,
+                            s_ack_generations: Vec::new(),
+                            s_truth_generations: Vec::new(),
                             immediate_xack_attempts: 0,
                         };
                     }
@@ -5507,9 +5742,11 @@ mod tests {
                         xack_disposition: "NoSource".into(),
                         sequence_after: None,
                         provider_attempts: 0,
-                        schedule_issue_attempts: 1,
-                        s_ack_commits: 1,
-                        s_truth_commits: 1,
+                        schedule_issue_attempts: 0,
+                        s_ack_commits: 0,
+                        s_truth_commits: 0,
+                        s_ack_generations: Vec::new(),
+                        s_truth_generations: Vec::new(),
                         immediate_xack_attempts: 0,
                     };
                 }
@@ -5536,10 +5773,7 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                    let mut evidence = p1d4_finish_semantic_outcome(outcome, key).await;
-                    evidence.provider_attempts = 0;
-                    evidence.schedule_issue_attempts += 1;
-                    return evidence;
+                    return p1d4_finish_semantic_outcome(outcome, key).await;
                 }
                 P1d4ContinuationEvidence {
                     final_disposition: "Ready".into(),
@@ -5550,6 +5784,8 @@ mod tests {
                     schedule_issue_attempts: 0,
                     s_ack_commits: 0,
                     s_truth_commits: 0,
+                    s_ack_generations: Vec::new(),
+                    s_truth_generations: Vec::new(),
                     immediate_xack_attempts: 0,
                 }
             }
@@ -5603,9 +5839,11 @@ mod tests {
                         xack_disposition: "NoSource".into(),
                         sequence_after: None,
                         provider_attempts: 0,
-                        schedule_issue_attempts: 1,
-                        s_ack_commits: 1,
-                        s_truth_commits: 1,
+                        schedule_issue_attempts: 0,
+                        s_ack_commits: 0,
+                        s_truth_commits: 0,
+                        s_ack_generations: Vec::new(),
+                        s_truth_generations: Vec::new(),
                         immediate_xack_attempts: 0,
                     };
                 }
@@ -5636,10 +5874,7 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                    let mut evidence = p1d4_finish_semantic_outcome(outcome, key).await;
-                    evidence.provider_attempts = 0;
-                    evidence.schedule_issue_attempts += 1;
-                    return evidence;
+                    return p1d4_finish_semantic_outcome(outcome, key).await;
                 }
                 p1d4_xack_evidence(resolved.disposition(), "Ready")
             }
@@ -5657,9 +5892,7 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
-                            .await
-                            .with_activity(1, 1, 1, 1)
+                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
                     }
                     "S03" => {
                         let ack = resume_stage8b_p1d3_dispatch_expiry_with_redis(
@@ -5670,9 +5903,7 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
-                            .await
-                            .with_activity(1, 1, 1, 1)
+                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
                     }
                     "S08" | "S09" | "S10" | "S11" => {
                         let outcome = resume_stage8b_p1d3_dispatch_cancel_with_redis(
@@ -5683,10 +5914,7 @@ mod tests {
                         )
                         .await
                         .unwrap();
-                        let mut evidence = p1d4_finish_cancel_outcome(outcome, key).await;
-                        evidence.provider_attempts = 1;
-                        evidence.schedule_issue_attempts = 1;
-                        evidence
+                        p1d4_finish_cancel_outcome(outcome, key).await
                     }
                     _ => panic!("{scenario_id} has no dispatch-only continuation"),
                 }
@@ -5711,8 +5939,10 @@ mod tests {
                         sequence_after: None,
                         provider_attempts: 0,
                         schedule_issue_attempts: 0,
-                        s_ack_commits: 1,
-                        s_truth_commits: 1,
+                        s_ack_commits: 0,
+                        s_truth_commits: 0,
+                        s_ack_generations: Vec::new(),
+                        s_truth_generations: Vec::new(),
                         immediate_xack_attempts: 0,
                     };
                 }
@@ -5724,14 +5954,10 @@ mod tests {
                     .unwrap()
                 {
                     Stage8bP1RedisPreAckRecoveryOutcome::AckCommitted(ack) => {
-                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
-                            .await
-                            .with_activity(0, 0, 1, 1)
+                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
                     }
                     Stage8bP1RedisPreAckRecoveryOutcome::TruthCommitted(truth) => {
-                        p1d4_finish_limit_truth(truth)
-                            .await
-                            .with_activity(0, 0, 1, 1)
+                        p1d4_finish_limit_truth(truth).await
                     }
                     Stage8bP1RedisPreAckRecoveryOutcome::Semantic(outcome) => {
                         p1d4_finish_semantic_outcome(outcome, key).await
@@ -5745,9 +5971,7 @@ mod tests {
                 let ack = resume_stage8b_p1d3_ack_with_redis(*owner, transport)
                     .await
                     .unwrap();
-                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
-                    .await
-                    .with_activity(0, 0, 0, 1)
+                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
             }
             Stage7bRestartOutcome::P1d3TruthCommitted(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -5777,10 +6001,7 @@ mod tests {
                 let outcome = resume_stage8b_p1d3_semantic_with_redis(*owner, transport, key)
                     .await
                     .unwrap();
-                let mut evidence = p1d4_finish_semantic_outcome(outcome, key).await;
-                evidence.provider_attempts = 0;
-                evidence.schedule_issue_attempts = 0;
-                evidence
+                p1d4_finish_semantic_outcome(outcome, key).await
             }
             Stage7bRestartOutcome::P1d4GeneratedMarketPrepublicationPending(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -5801,14 +6022,8 @@ mod tests {
                     )
                     .await
                     .unwrap();
-                let activity = match frontier_id {
-                    "GM00" | "F15" => (0, 0, 0, 0),
-                    "GM01" | "GM02" => (0, 1, 0, 0),
-                    other => panic!("unexpected generated prepublication frontier {other}"),
-                };
-                p1d4_finish_generated_ack(ack, key)
-                    .await
-                    .with_activity(activity.0, activity.1, activity.2, activity.3)
+                assert!(matches!(frontier_id, "GM00" | "GM01" | "GM02" | "F15"));
+                p1d4_finish_generated_ack(ack, key).await
             }
             Stage7bRestartOutcome::P1d4GeneratedMarketDispatchPending(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -5821,7 +6036,6 @@ mod tests {
                     key,
                 )
                 .await
-                .with_activity(1, 0, 0, 0)
             }
             Stage7bRestartOutcome::P1d4GeneratedMarketOrderPending(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -5834,7 +6048,6 @@ mod tests {
                     key,
                 )
                 .await
-                .with_activity(0, 0, 0, 0)
             }
             Stage7bRestartOutcome::P1d4GeneratedMarketPreFinalizationPending(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -5847,7 +6060,6 @@ mod tests {
                     key,
                 )
                 .await
-                .with_activity(0, 0, 0, 0)
             }
             Stage7bRestartOutcome::P1d4GeneratedMarketPreAckPending(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -5860,7 +6072,6 @@ mod tests {
                     key,
                 )
                 .await
-                .with_activity(0, 0, 1, 0)
             }
             Stage7bRestartOutcome::P1d4GeneratedMarketAckCommitted(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -5873,7 +6084,6 @@ mod tests {
                     key,
                 )
                 .await
-                .with_activity(0, 0, 0, 1)
             }
             Stage7bRestartOutcome::P1d4GeneratedMarketTruthCommitted(owner) => {
                 let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
@@ -6420,11 +6630,142 @@ mod tests {
     fn p1d4_sequence_label(
         audit: &crate::recovery::Stage8bP1d4RestartAuditV1,
         exact_pair: Option<(u64, u64)>,
+        generated_market: bool,
     ) -> String {
-        exact_pair.or(audit.sequence_pair).map_or_else(
-            || format!("lifecycle_sequence={}", audit.lifecycle_sequence),
-            |(seq_ack, seq_truth)| format!("seq_ack={seq_ack};seq_truth={seq_truth}"),
-        )
+        if let Some((seq_ack, seq_truth)) = exact_pair.or(audit.sequence_pair) {
+            return format!("seq_ack={seq_ack};seq_truth={seq_truth}");
+        }
+        if !generated_market {
+            if let Some(allocation) = audit.sequence_allocations.last() {
+                return match (allocation.seq_ack, allocation.seq_truth) {
+                    (Some(seq_ack), Some(seq_truth)) => {
+                        format!("seq_ack={seq_ack};seq_truth={seq_truth}")
+                    }
+                    (Some(seq_ack), None) => format!("seq_ack={seq_ack}"),
+                    (None, Some(seq_truth)) => format!("seq_truth={seq_truth}"),
+                    (None, None) => panic!("P1-d4 authenticated allocation contains no sequence"),
+                };
+            }
+        }
+        format!("lifecycle_sequence={}", audit.lifecycle_sequence)
+    }
+
+    fn p1d4_sequence_audit_value(
+        audit: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        pre_kill_pair: Option<(u64, u64)>,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "lifecycle_sequence": audit.lifecycle_sequence,
+            "journal_lifecycle_sequences": audit.journal_lifecycle_sequences,
+            "durable_sequence_pair": audit.sequence_pair,
+            "pre_kill_sequence_pair": pre_kill_pair,
+            "allocations": audit.sequence_allocations,
+        })
+    }
+
+    fn p1d4_assert_exact_sequence_allocations(
+        cell_id: &str,
+        audit: &crate::recovery::Stage8bP1d4RestartAuditV1,
+    ) {
+        assert_eq!(
+            audit.journal_lifecycle_sequences.first(),
+            Some(&1),
+            "{cell_id}: journal sequence must start at one"
+        );
+        assert!(
+            audit
+                .journal_lifecycle_sequences
+                .windows(2)
+                .all(|pair| pair[1] == 1 || pair[1] == pair[0] + 1),
+            "{cell_id}: each authenticated journal segment must be gap-free"
+        );
+        assert_eq!(
+            audit
+                .journal_lifecycle_sequences
+                .last()
+                .copied()
+                .unwrap_or(0),
+            audit.lifecycle_sequence,
+            "{cell_id}: current journal frontier must equal the final authenticated record"
+        );
+        let mut prior_record_index = None;
+        let mut prior_business_frontier = None;
+        for (index, allocation) in audit.sequence_allocations.iter().enumerate() {
+            assert!(
+                prior_record_index.is_none_or(|prior| allocation.journal_record_index > prior),
+                "{cell_id}: V3 journal record indexes must be strictly increasing"
+            );
+            assert_eq!(
+                audit
+                    .journal_lifecycle_sequences
+                    .get(allocation.journal_record_index)
+                    .copied(),
+                Some(allocation.stage6_lifecycle_sequence),
+                "{cell_id}: V3 lifecycle sequence is not bound to its authenticated journal record"
+            );
+            prior_record_index = Some(allocation.journal_record_index);
+            if index == 0 {
+                assert_eq!(
+                    allocation.sequence_allocation_frontier, 2,
+                    "{cell_id}: deterministic fixture business-sequence anchor drifted"
+                );
+            } else {
+                assert_eq!(
+                    Some(allocation.sequence_allocation_frontier),
+                    prior_business_frontier,
+                    "{cell_id}: business sequence allocation is not contiguous"
+                );
+            }
+            let terminal = match allocation.outcome_kind.as_str() {
+                "initial_working" | "initial_filled" | "initial_expired" | "cancel_canceled" => {
+                    let seq_ack = allocation.seq_ack.expect("request-scoped ACK sequence");
+                    let seq_truth = allocation.seq_truth.expect("request-scoped truth sequence");
+                    assert_eq!(
+                        seq_ack,
+                        allocation.sequence_allocation_frontier + 1,
+                        "{cell_id}"
+                    );
+                    assert_eq!(seq_truth, seq_ack + 1, "{cell_id}");
+                    seq_truth
+                }
+                "later_filled" | "later_expired" => {
+                    assert!(allocation.seq_ack.is_none(), "{cell_id}");
+                    let seq_truth = allocation.seq_truth.expect("autonomous truth sequence");
+                    assert_eq!(
+                        seq_truth,
+                        allocation.sequence_allocation_frontier + 1,
+                        "{cell_id}"
+                    );
+                    seq_truth
+                }
+                "cancel_execution_observed" | "cancel_already_terminal_non_execution" => {
+                    let seq_ack = allocation.seq_ack.expect("recovered cancel ACK sequence");
+                    assert!(allocation.seq_truth.is_none(), "{cell_id}");
+                    assert_eq!(
+                        seq_ack,
+                        allocation.sequence_allocation_frontier + 1,
+                        "{cell_id}"
+                    );
+                    seq_ack
+                }
+                other => panic!("{cell_id}: unknown authenticated outcome kind {other}"),
+            };
+            prior_business_frontier = Some(terminal);
+        }
+        assert_eq!(
+            audit.durable_outcomes,
+            audit.sequence_allocations.len(),
+            "{cell_id}"
+        );
+        assert_eq!(
+            audit.durable_truths,
+            audit
+                .sequence_allocations
+                .iter()
+                .filter(|allocation| allocation.seq_truth.is_some())
+                .count(),
+            "{cell_id}: truth count must be independently derived"
+        );
     }
 
     fn p1d4_canonicalize_json(value: serde_json::Value) -> serde_json::Value {
@@ -6441,6 +6782,49 @@ mod tests {
             }
             primitive => primitive,
         }
+    }
+
+    fn p1d4_expected_outcome_kinds(scenario_id: &str) -> &'static [&'static str] {
+        match scenario_id {
+            "S01" => &["initial_working"],
+            "S02" => &["initial_filled"],
+            "S03" => &["initial_expired"],
+            "S04" | "S05" => &["initial_working"],
+            "S06" => &["initial_working", "later_filled"],
+            "S07" => &["initial_working", "later_expired"],
+            "S08" => &["initial_working", "cancel_canceled"],
+            "S09" => &[
+                "initial_working",
+                "later_filled",
+                "cancel_execution_observed",
+            ],
+            "S10" => &["initial_filled", "cancel_execution_observed"],
+            "S11" => &["initial_expired", "cancel_already_terminal_non_execution"],
+            other => panic!("unknown P1-d4 scenario {other}"),
+        }
+    }
+
+    fn p1d4_assert_exact_scenario_allocations(
+        cell_id: &str,
+        scenario_id: &str,
+        before: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        after: &crate::recovery::Stage8bP1d4RestartAuditV1,
+    ) {
+        assert!(
+            after
+                .sequence_allocations
+                .starts_with(&before.sequence_allocations),
+            "{cell_id}: pre-restart allocation vector is not an exact final prefix"
+        );
+        assert_eq!(
+            after
+                .sequence_allocations
+                .iter()
+                .map(|allocation| allocation.outcome_kind.as_str())
+                .collect::<Vec<_>>(),
+            p1d4_expected_outcome_kinds(scenario_id),
+            "{cell_id}: final authenticated outcome vector drifted"
+        );
     }
 
     fn p1d4_canonical_json(value: serde_json::Value) -> Vec<u8> {
@@ -6513,6 +6897,9 @@ mod tests {
         after: &crate::recovery::Stage8bP1d4RestartAuditV1,
         continuation: &P1d4ContinuationEvidence,
     ) {
+        p1d4_assert_exact_sequence_allocations(cell.cell_id, before);
+        p1d4_assert_exact_sequence_allocations(cell.cell_id, after);
+        p1d4_assert_exact_scenario_allocations(cell.cell_id, cell.scenario_id, before, after);
         match cell.callback_delta {
             "+1_on_only_legal_continuation" => {
                 // F14 recovers a linear SemanticPending owner.  Consuming
@@ -6562,11 +6949,7 @@ mod tests {
             );
         }
         if cell.schedule_authority_delta.starts_with("+1") {
-            assert!(
-                continuation.schedule_issue_attempts >= 1,
-                "{}",
-                cell.cell_id
-            );
+            assert_eq!(continuation.schedule_issue_attempts, 1, "{}", cell.cell_id);
         } else if matches!(
             cell.schedule_authority_delta,
             "0_reissue_forbidden"
@@ -6643,6 +7026,21 @@ mod tests {
             ),
             other => panic!("{} unknown sequence expectation {other}", cell.cell_id),
         }
+        if matches!(
+            cell.sequence_expectation,
+            "exact_reserved_ack_truth_pair_unchanged"
+                | "exact_single_later_truth_sequence_unchanged"
+                | "exact_single_expiry_truth_sequence_unchanged"
+                | "exact_single_recovered_ack_unchanged"
+                | "generated_market_exact_reserved_ack_truth_pair_unchanged"
+                | "no_order_sequence_for_untouched_evaluation"
+        ) {
+            assert_eq!(
+                before.sequence_allocations, after.sequence_allocations,
+                "{}: authenticated sequence allocation changed during replay",
+                cell.cell_id
+            );
+        }
         assert!(!cell.inherited_or_new_test_id.is_empty());
     }
 
@@ -6680,6 +7078,14 @@ mod tests {
         crash_pair: Option<(u64, u64)>,
         source_disposition_before_continuation: &str,
     ) {
+        p1d4_assert_exact_sequence_allocations(cell.cell_id, before);
+        p1d4_assert_exact_sequence_allocations(cell.cell_id, after);
+        p1d4_assert_exact_scenario_allocations(
+            cell.cell_id,
+            cell.parent_scenario_id,
+            before,
+            after,
+        );
         assert_eq!(
             cell.publication_reservation_expectation, "mandatory_hmac_covered_exact_reservation",
             "{}",
@@ -6798,6 +7204,63 @@ mod tests {
             "{}",
             cell.cell_id
         );
+        assert_eq!(
+            continuation.s_ack_generations.len() as u64,
+            continuation.s_ack_commits,
+            "{}: S_ack count must come from authenticated generations",
+            cell.cell_id
+        );
+        assert_eq!(
+            continuation.s_truth_generations.len() as u64,
+            continuation.s_truth_commits,
+            "{}: S_truth count must come from authenticated generations",
+            cell.cell_id
+        );
+        assert!(
+            continuation
+                .s_ack_generations
+                .iter()
+                .all(|generation| *generation > 0)
+                && continuation
+                    .s_truth_generations
+                    .iter()
+                    .all(|generation| *generation > 0),
+            "{}: covering-seal generation must be authenticated and nonzero",
+            cell.cell_id
+        );
+        let before_generation = before
+            .package
+            .write_generation
+            .expect("generated-Market restart package generation");
+        let after_generation = after
+            .package
+            .write_generation
+            .expect("generated-Market final package generation");
+        let expected_generation_advance = match before.package.generated_market_phase.as_deref() {
+            Some("Prepublication") => 2,
+            Some("AckCommitted") => 1,
+            Some("TruthCommitted") => 0,
+            other => panic!("{} unexpected package phase {other:?}", cell.cell_id),
+        };
+        assert_eq!(
+            after_generation,
+            before_generation + expected_generation_advance,
+            "{}: authenticated package generation transition drifted",
+            cell.cell_id
+        );
+        assert_eq!(
+            after.package.generated_market_phase.as_deref(),
+            Some("TruthCommitted"),
+            "{}",
+            cell.cell_id
+        );
+        if let Some(generation) = continuation.s_ack_generations.first() {
+            assert_eq!(*generation, before_generation + 1, "{}", cell.cell_id);
+        }
+        if let Some(generation) = continuation.s_truth_generations.first() {
+            assert_eq!(*generation, before_generation + 1, "{}", cell.cell_id);
+            assert_eq!(*generation, after_generation, "{}", cell.cell_id);
+        }
         let expected_xack = u64::from(cell.xack_delta == "+1_exact");
         assert!(matches!(cell.xack_delta, "+1_exact" | "0"));
         assert_eq!(
@@ -6842,6 +7305,65 @@ mod tests {
         assert!(!cell.test_id.is_empty());
     }
 
+    fn p1d4_generated_expected_effect_events(frontier_id: &str) -> &'static [&'static str] {
+        match frontier_id {
+            "GM00" | "GM01" | "GM02" => &[
+                "generated_publication",
+                "generated_schedule",
+                "generated_dispatch",
+                "generated_provider",
+                "generated_order",
+                "generated_trade",
+                "generated_request_finalized",
+                "generated_s_ack",
+                "generated_s_truth",
+                "generated_xack",
+            ],
+            "GM03" | "GM04" => &[
+                "generated_provider",
+                "generated_order",
+                "generated_trade",
+                "generated_request_finalized",
+                "generated_s_ack",
+                "generated_s_truth",
+                "generated_xack",
+            ],
+            "GM05" => &[
+                "generated_trade",
+                "generated_request_finalized",
+                "generated_s_ack",
+                "generated_s_truth",
+                "generated_xack",
+            ],
+            "GM06" => &[
+                "generated_request_finalized",
+                "generated_s_ack",
+                "generated_s_truth",
+                "generated_xack",
+            ],
+            "GM07" | "GM08" | "GM09" => &["generated_s_ack", "generated_s_truth", "generated_xack"],
+            "GM10" | "GM11" => &["generated_s_truth", "generated_xack"],
+            "GM12" => &["generated_xack"],
+            other => panic!("unknown generated-Market effect frontier {other}"),
+        }
+    }
+
+    fn p1d4_generated_effect_scope_terminal(frontier_id: &str) -> &'static str {
+        match frontier_id {
+            "GM00" => "generated_publication",
+            "GM01" => "generated_schedule",
+            "GM02" => "generated_dispatch",
+            "GM03" => "generated_provider",
+            "GM04" => "generated_order",
+            "GM05" => "generated_trade",
+            "GM06" => "generated_request_finalized",
+            "GM07" | "GM08" | "GM09" => "generated_s_ack",
+            "GM10" | "GM11" => "generated_s_truth",
+            "GM12" => "generated_xack",
+            other => panic!("unknown generated-Market effect frontier {other}"),
+        }
+    }
+
     #[allow(
         clippy::too_many_arguments,
         reason = "arguments retain the exact registry and crash-process bindings"
@@ -6867,6 +7389,7 @@ mod tests {
         usize,
     ) {
         let marker = parent.join(format!("{cell_id}-{kill_hook_name}.marker"));
+        let generated_market = registry.contains_key("parent_scenario_id");
         let redis_before = p1d4_redis_audit(redis).await;
         assert!(p1d4_runtime_binding_conflict(parent, &fresh, key));
         assert!(p1d4_wrong_key_conflict(parent, &fresh));
@@ -6928,7 +7451,11 @@ mod tests {
             "post-restart",
         );
         let redis_after_restart = p1d4_redis_audit(redis).await;
-        let continuation = p1d4_finish_restart(
+        // Observe every effect from the selected continuation family.  The
+        // registry is used only below as an assertion oracle; it must never
+        // suppress collection of an unexpected provider, schedule or seal.
+        p1d4_begin_observed_effect_audit(!generated_market);
+        let mut continuation = p1d4_finish_restart(
             restart,
             redis,
             scenario_id,
@@ -6937,6 +7464,70 @@ mod tests {
             key,
         )
         .await;
+        let observed = p1d4_take_observed_effect_audit();
+        let observed_effect_events = observed
+            .events
+            .iter()
+            .map(P1d4ObservedEffectEvent::label)
+            .collect::<Vec<_>>();
+        let scoped_event_count = if generated_market {
+            assert_eq!(
+                observed_effect_events,
+                p1d4_generated_expected_effect_events(frontier_id),
+                "{cell_id}: operational effect event sequence drifted"
+            );
+            let terminal = p1d4_generated_effect_scope_terminal(frontier_id);
+            observed_effect_events
+                .iter()
+                .position(|event| *event == terminal)
+                .expect("generated-Market effect scope terminal must be observed")
+                + 1
+        } else {
+            assert!(
+                observed_effect_events
+                    .iter()
+                    .all(|event| matches!(*event, "p1d3_provider" | "p1d3_schedule")),
+                "{cell_id}: base continuation observed a generated-Market effect"
+            );
+            observed_effect_events.len()
+        };
+        let scoped_events = &observed.events[..scoped_event_count];
+        continuation.provider_attempts = scoped_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    P1d4ObservedEffectEvent::P1d3Provider
+                        | P1d4ObservedEffectEvent::GeneratedProvider
+                )
+            })
+            .count() as u64;
+        continuation.schedule_issue_attempts = scoped_events
+            .iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    P1d4ObservedEffectEvent::P1d3Schedule
+                        | P1d4ObservedEffectEvent::GeneratedSchedule
+                )
+            })
+            .count() as u64;
+        continuation.s_ack_generations = scoped_events
+            .iter()
+            .filter_map(|event| match event {
+                P1d4ObservedEffectEvent::GeneratedSAck(generation) => Some(*generation),
+                _ => None,
+            })
+            .collect();
+        continuation.s_truth_generations = scoped_events
+            .iter()
+            .filter_map(|event| match event {
+                P1d4ObservedEffectEvent::GeneratedSTruth(generation) => Some(*generation),
+                _ => None,
+            })
+            .collect();
+        continuation.s_ack_commits = continuation.s_ack_generations.len() as u64;
+        continuation.s_truth_commits = continuation.s_truth_generations.len() as u64;
         let redis_final = p1d4_redis_audit(redis).await;
         assert_eq!(
             redis_final.pel, 0,
@@ -6997,8 +7588,16 @@ mod tests {
             "{cell_id} final durable restart cannot converge to the completed continuation"
         );
 
-        let sequence_before = p1d4_sequence_label(&restart_audit, crash.sequence_pair_before_kill);
-        let sequence_after = p1d4_sequence_label(&final_runtime_audit, continuation.sequence_after);
+        let sequence_before = p1d4_sequence_label(
+            &restart_audit,
+            crash.sequence_pair_before_kill,
+            generated_market,
+        );
+        let sequence_after = p1d4_sequence_label(
+            &final_runtime_audit,
+            continuation.sequence_after,
+            generated_market,
+        );
         registry.insert("passed".into(), serde_json::json!(true));
         registry.insert(
             "process".into(),
@@ -7044,6 +7643,22 @@ mod tests {
         registry.insert("sequence_before".into(), serde_json::json!(sequence_before));
         registry.insert("sequence_after".into(), serde_json::json!(sequence_after));
         registry.insert(
+            "sequence_audit_before".into(),
+            p1d4_sequence_audit_value(&restart_audit, crash.sequence_pair_before_kill),
+        );
+        registry.insert(
+            "sequence_audit_after".into(),
+            p1d4_sequence_audit_value(&final_runtime_audit, continuation.sequence_after),
+        );
+        registry.insert(
+            "package_before".into(),
+            serde_json::to_value(&restart_audit.package).unwrap(),
+        );
+        registry.insert(
+            "package_after".into(),
+            serde_json::to_value(&final_runtime_audit.package).unwrap(),
+        );
+        registry.insert(
             "callback_before".into(),
             serde_json::json!(restart_audit.callback_count),
         );
@@ -7066,6 +7681,26 @@ mod tests {
         registry.insert(
             "durable_truths".into(),
             serde_json::json!(final_runtime_audit.durable_truths),
+        );
+        registry.insert(
+            "s_ack_commits".into(),
+            serde_json::json!(continuation.s_ack_commits),
+        );
+        registry.insert(
+            "s_truth_commits".into(),
+            serde_json::json!(continuation.s_truth_commits),
+        );
+        registry.insert(
+            "s_ack_generations".into(),
+            serde_json::json!(continuation.s_ack_generations),
+        );
+        registry.insert(
+            "s_truth_generations".into(),
+            serde_json::json!(continuation.s_truth_generations),
+        );
+        registry.insert(
+            "observed_effect_events".into(),
+            serde_json::json!(observed_effect_events),
         );
         registry.insert(
             "command_publications".into(),
