@@ -804,6 +804,20 @@ impl Stage5gCleanRestartedCapability {
             .map_err(|_| Stage5gCleanRestartError::LifecycleProofMismatch)
     }
 
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    pub(crate) fn stage8b_p1d4_test_sequence_pair(&self) -> Option<(u64, u64)> {
+        match self.stage8b_p1d4_generated_market_package_state().ok()?? {
+            crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication { .. } => None,
+            crate::Stage8bP1d4GeneratedMarketPackageState::AckCommitted { .. }
+            | crate::Stage8bP1d4GeneratedMarketPackageState::TruthCommitted { .. } => self
+                .projection
+                .p1d2_market_feedback
+                .as_ref()
+                .and_then(|feedback| feedback.audit_core())
+                .map(|audit| (audit.seq_ack, audit.seq_truth)),
+        }
+    }
+
     pub(crate) fn stage8b_p1d4_feedback_audit_core(
         &self,
     ) -> Option<crate::Stage8bP1d2FeedbackAuditCoreV1> {

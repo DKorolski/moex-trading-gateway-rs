@@ -89,7 +89,13 @@ Redis entry ID in the first HMAC package, routes valid composite suffixes
 before ordinary P1-d2 with invalid-composite no-fallback, and preserves
 fixed-order canonical bytes plus independent checked W0/G0 successor chains.
 The retained graph derives 92 plus 13 equals 105 real subprocess/SIGKILL cells
-with duplicate and conflict variants. Standalone P1-d2 remains unchanged when
+with duplicate and conflict variants. Source commit
+`250f71a5a36c796281e946eeeb557f04818daab0` was held with two P1 findings in
+its exhaustive proof. The active R1 correction retains all registry fields,
+drives every cell through the only legal continuation, emits complete
+process/filesystem/Redis/sequence/counter/audit evidence, requires identical
+semantic digests from two clean 105-cell runs, and exactly restores the
+fsynced GM08/GM09 pre-kill pair while keeping GM07 pre-allocation. Standalone P1-d2 remains unchanged when
 the composite discriminator is absent. P1-d4 remains a review candidate until
 independent source acceptance and a later governance-only authority rebind.
 Operational Redis DB0/VPS remains closed;

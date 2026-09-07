@@ -17,7 +17,6 @@ use std::{
     io::{ErrorKind, Read, Write},
     os::fd::AsRawFd,
     sync::atomic::{AtomicU64, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
 };
 use strategy_runtime_core::{
     admit_stage7a_p1d1_market_dispatch, admit_stage7a_paper_command,
@@ -587,12 +586,7 @@ impl Stage7bRecoverySealV1 {
         operational_identity_sha256: String,
         commitment_key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Self, Stage7bRecoveryError> {
-        let created_at_ts_utc_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| Stage7bRecoveryError::ClockInvalid)?
-            .as_millis()
-            .try_into()
-            .map_err(|_| Stage7bRecoveryError::ClockInvalid)?;
+        let created_at_ts_utc_ms = stage7b_recovery_seal_created_at_ts_utc_ms()?;
         let stage6d_restart_package_sha256 = sha256_hex(&stage6d_authenticated_restart_package);
         let stage6_checkpoint_bytes_sha256 = sha256_hex(&stage6_checkpoint.encode_canonical());
         let seal_commitment_sha256 = seal_commitment_sha256(
@@ -698,6 +692,26 @@ impl Stage7bRecoverySealV1 {
         Stage6JournalCheckpointV1::decode_canonical(&self.stage6_checkpoint.encode_canonical())
             .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
         Ok(())
+    }
+}
+
+fn stage7b_recovery_seal_created_at_ts_utc_ms() -> Result<i64, Stage7bRecoveryError> {
+    // P1-d4 compares complete durable roots from two clean fixture runs.  The
+    // wall clock is not part of the scenario input, so fixture builds use the
+    // same valid instant and keep every commitment derived from the seal
+    // reproducible.  Non-fixture builds retain the production wall clock.
+    #[cfg(test)]
+    {
+        Ok(1_785_753_600_000)
+    }
+    #[cfg(not(test))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| Stage7bRecoveryError::ClockInvalid)?
+            .as_millis()
+            .try_into()
+            .map_err(|_| Stage7bRecoveryError::ClockInvalid)
     }
 }
 
@@ -1027,6 +1041,11 @@ pub enum Stage8bP1d3CancelCommitOutcome {
 
 #[doc(hidden)]
 pub enum Stage8bP1d3RecoveredCommitOutcome {
+    #[allow(
+        dead_code,
+        reason = "the ready owner is consumed by the P1-d4 fixture continuation"
+    )]
+    Ready(Box<Stage7bRecoveryReadyOwner>),
     AckCommitted(Box<Stage8bP1d3AckCommittedOwner>),
     TruthCommitted(Box<Stage8bP1d3TruthCommittedOwner>),
     CancelContinuationPending(Box<Stage8bP1d3CancelContinuationOwner>),
@@ -1432,6 +1451,11 @@ impl Stage8bP1d3PreAckPendingOwner {
             commitment_key,
         )?;
         let (recovered, stage5g_restart_package, phase) = match transition {
+            Stage6Stage8bP1d3RecoveredTransition::Ready(transition) => (
+                transition.recovered,
+                transition.stage5g_restart_package,
+                Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation,
+            ),
             Stage6Stage8bP1d3RecoveredTransition::AckCommitted(transition) => (
                 transition.recovered,
                 transition.stage5g_restart_package,
@@ -1461,6 +1485,9 @@ impl Stage8bP1d3PreAckPendingOwner {
             commitment_key,
         )?;
         match phase {
+            Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation => {
+                Ok(Stage8bP1d3RecoveredCommitOutcome::Ready(Box::new(ready)))
+            }
             Stage6Stage8bP1d3RestartPhase::AckCommitted => {
                 Ok(Stage8bP1d3RecoveredCommitOutcome::AckCommitted(Box::new(
                     Stage8bP1d3AckCommittedOwner { ready },
@@ -5795,7 +5822,63 @@ pub enum Stage7bRestartOutcome {
     Blocked(Box<Stage7bRecoveryBlocked>),
 }
 
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stage8bP1d4RestartAuditV1 {
+    pub lifecycle_sequence: u64,
+    pub sequence_pair: Option<(u64, u64)>,
+    pub callback_count: usize,
+    pub dispatch_v1_total: usize,
+    pub order_v1_total: usize,
+    pub trade_v1_total: usize,
+    pub request_finalized_v1_total: usize,
+    pub durable_outcomes: usize,
+    pub durable_truths: usize,
+}
+
 impl Stage7bRestartOutcome {
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1d4_test_runtime_audit(&self) -> Option<Stage8bP1d4RestartAuditV1> {
+        let recovered = match self {
+            Self::Ready(owner) => &owner.recovered,
+            Self::P1SemanticPrepublicationReady(owner) => &owner.ready.recovered,
+            Self::P1SemanticZeroIntentAckPending(owner) => &owner.ready.recovered,
+            Self::P1d2PreAckPending(owner) => &owner.recovered,
+            Self::P1d2AckCommitted(owner) => &owner.ready.recovered,
+            Self::P1d2TruthCommitted(owner) => &owner.ready.recovered,
+            Self::P1d4GeneratedMarketPrepublicationPending(owner) => &owner.ready.recovered,
+            Self::P1d4GeneratedMarketDispatchPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketOrderPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketPreFinalizationPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketPreAckPending(owner) => &owner.state.recovered,
+            Self::P1d4GeneratedMarketAckCommitted(owner) => &owner.ready.recovered,
+            Self::P1d4GeneratedMarketTruthCommitted(owner) => &owner.ready.recovered,
+            Self::P1d3DispatchPending(owner) => &owner.recovered,
+            Self::P1d3PreAckPending(owner) => &owner.recovered,
+            Self::P1d3AckCommitted(owner) => &owner.ready.recovered,
+            Self::P1d3TruthCommitted(owner) => &owner.ready.recovered,
+            Self::P1d3CancelContinuationPending(owner) => match &owner.state {
+                Stage8bP1d3CancelContinuationState::TargetSealed(ready) => &ready.recovered,
+            },
+            Self::P1d3SemanticPending(owner) => &owner.ready.recovered,
+            Self::Stage8a4I3Pending(_)
+            | Self::P1SemanticPrepublicationPending(_)
+            | Self::Blocked(_) => return None,
+        };
+        let audit = recovered.stage8b_p1d4_test_runtime_audit();
+        Some(Stage8bP1d4RestartAuditV1 {
+            lifecycle_sequence: audit.lifecycle_sequence,
+            sequence_pair: audit.sequence_pair,
+            callback_count: audit.callback_count,
+            dispatch_v1_total: audit.dispatch_v1_total,
+            order_v1_total: audit.order_v1_total,
+            trade_v1_total: audit.trade_v1_total,
+            request_finalized_v1_total: audit.request_finalized_v1_total,
+            durable_outcomes: audit.durable_outcomes,
+            durable_truths: audit.durable_truths,
+        })
+    }
+
     pub fn recovery_ready(&self) -> bool {
         match self {
             Self::Ready(owner) => owner.recovery_ready(),

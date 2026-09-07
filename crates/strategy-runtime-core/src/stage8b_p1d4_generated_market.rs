@@ -678,7 +678,9 @@ pub(crate) fn apply_stage8b_p1d4_ack_stage(
         return Err(Stage8bP1d4GeneratedMarketError::InvalidComposition);
     }
     crate::stage8b_p1d2_market_feedback::stage8b_p1d2_test_record_sequence_pair_before_crash(
-        seq_ack, seq_truth,
+        &["p1d4-generated-market-gm08", "p1d4-generated-market-gm09"],
+        seq_ack,
+        seq_truth,
     );
     crate::stage6d_live_core::stage8b_p1d4_test_crash_frontier("GM08");
     crate::stage8b_p1d2_market_feedback::stage8b_p1d2_test_crash_barrier(

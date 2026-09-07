@@ -1,6 +1,7 @@
 {
   "accepted_business_source_ref": "7dc7c802feca6e79d3a1a9902c181ad7b6afc506",
   "accepted_design_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
+  "reviewed_source_ref": "250f71a5a36c796281e946eeeb557f04818daab0",
   "acceptance_rows": 20,
   "closed_surfaces": {
     "broker_network_dispatch": false,
@@ -14,13 +15,35 @@
     "vps_activation": false
   },
   "crash_proof": {
+    "all_normative_registry_fields_retained": true,
     "base_cells": 92,
+    "cell_relevant_runtime_binding_conflict": true,
     "conflict_variant_per_cell": true,
     "duplicate_variant_per_cell": true,
+    "final_continuation_completed_per_cell": true,
+    "final_pel_zero_cells": 105,
     "generated_market_cells": 13,
+    "gm07_pair_marker_absent": true,
+    "gm08_gm09_exact_pre_kill_pair_restored": true,
     "marker_fsync_before_sigkill": true,
+    "normalized_semantic_digest_equal": true,
     "positive_sigkill_cells": 105,
-    "s09_f04_f09_durable_equivalence": "P1d3PreAckPending"
+    "retained_artifacts": [
+      "stage8b-p1d4-crash-replay-run-1.json",
+      "stage8b-p1d4-crash-replay-run-2.json",
+      "stage8b-p1d4-crash-replay-semantic-digest.txt"
+    ],
+    "s09_f04_f09_durable_equivalence": "P1d3PreAckPending",
+    "two_clean_runs": true,
+    "volatile_normalization": [
+      "run_ordinal",
+      "process.child_pid",
+      "process.wall_duration_ms",
+      "filesystem.scratch_root",
+      "filesystem.raw_marker_sha256",
+      "redis.port"
+    ],
+    "wrong_commitment_key_additional_defense": true
   },
   "implementation": {
     "command_id_repick_allowed": false,
@@ -43,15 +66,16 @@
   "next_stage_authorized": false,
   "schema_version": 1,
   "source_ref": "",
-  "stage": "Stage 8B-P1-d4 generated-Market crash/replay source",
-  "status": "SOURCE_IMPLEMENTATION_REVIEW_CANDIDATE",
+  "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R1 correction",
+  "status": "SOURCE_R1_REVIEW_CANDIDATE",
   "verification": {
-    "aggregate_gate": "PASS rows=20 positive_sigkill=105 duplicate=105 conflict=105",
+    "aggregate_gate": "PASS rows=20 positive_sigkill=105 duplicate=105 conflict=105 two_clean_runs=true",
     "base_sigkill_matrix": "PASS 92/92",
+    "crash_evidence_checker": "PASS cells=105 runs=2",
     "doctests": "PASS strategy-runtime-core 65/65; runtime-durable-service 36/36",
     "format": "PASS",
     "generated_market_sigkill_matrix": "PASS 13/13",
-    "negative_harness": "PASS 43/43",
+    "negative_harness": "PASS 51/51",
     "source_scope_checker": "PASS rows=20 cells=105",
     "strict_targeted_clippy": "PASS -D warnings"
   }

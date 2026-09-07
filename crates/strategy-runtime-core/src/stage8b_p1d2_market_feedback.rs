@@ -446,7 +446,11 @@ pub(crate) fn apply_stage8b_p1d2_ack_stage(
     if !projection.validate() {
         return Err(Stage8bP1d2MarketFeedbackError::FinalizedAuthorityMismatch);
     }
-    stage8b_p1d2_test_record_sequence_pair_before_crash(seq_ack, seq_truth);
+    stage8b_p1d2_test_record_sequence_pair_before_crash(
+        &["p1d2-after-sequence-pair-before-ack"],
+        seq_ack,
+        seq_truth,
+    );
     stage8b_p1d2_test_crash_barrier("p1d2-after-sequence-pair-before-ack");
     let resolved = match apply_stage5g_mock_ack(
         session,
@@ -683,10 +687,15 @@ impl Stage8bP1d2MarketFeedbackProjectionV1 {
 }
 
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-pub(crate) fn stage8b_p1d2_test_record_sequence_pair_before_crash(seq_ack: u64, seq_truth: u64) {
-    if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref()
-        != Ok("p1d2-after-sequence-pair-before-ack")
-    {
+pub(crate) fn stage8b_p1d2_test_record_sequence_pair_before_crash(
+    expected_phases: &[&str],
+    seq_ack: u64,
+    seq_truth: u64,
+) {
+    let Ok(phase) = std::env::var("STAGE8B_P1_TEST_CRASH_PHASE") else {
+        return;
+    };
+    if !expected_phases.contains(&phase.as_str()) {
         return;
     }
     let marker = std::env::var_os("STAGE8B_P1_TEST_SEQUENCE_PAIR_MARKER")
@@ -707,7 +716,7 @@ pub(crate) fn stage8b_p1d2_test_record_sequence_pair_before_crash(seq_ack: u64, 
 
 #[cfg(not(any(test, feature = "stage5g-artifact-fixtures")))]
 #[inline(always)]
-pub(crate) fn stage8b_p1d2_test_record_sequence_pair_before_crash(_: u64, _: u64) {}
+pub(crate) fn stage8b_p1d2_test_record_sequence_pair_before_crash(_: &[&str], _: u64, _: u64) {}
 
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
 pub(crate) fn stage8b_p1d2_test_crash_barrier(phase: &str) {

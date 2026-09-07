@@ -1,12 +1,15 @@
 # Stage 8B-P1-d4 generated-Market crash/replay source
 
-Status: source implementation review candidate.
+Status: R1 source correction review candidate.
 
 Accepted design predecessor:
 `1a1ea05775f1d15b86fcc3495ad6863b851e9212` (R7, ACCEPTED).
 
 Accepted business/source predecessor:
 `7dc7c802feca6e79d3a1a9902c181ad7b6afc506` (P1-d3, CLOSED / ACCEPTED).
+
+Reviewed source predecessor:
+`250f71a5a36c796281e946eeeb557f04818daab0` (HOLD with P1-01 and P1-02).
 
 ## Scope
 
@@ -91,10 +94,46 @@ The active registries are immutable R7 inputs:
   `stage8b-p1d4-generated-market-crash-submatrix-v3.csv`;
 - 105 positive real subprocess/SIGKILL cells total.
 
-Every cell also runs a byte-identical duplicate restart and a one-field
-commitment-key conflict. The conflict must fail closed as an error or Blocked
-owner. Every crash child writes and fsyncs a canonical marker whose audit hash
-covers the local durable files before SIGKILL.
+Every cell is parsed from all 19 or 28 normative registry columns, runs through
+its only legal continuation to a terminal lifecycle state, and emits one
+`moex.stage8b.p1d4.crash-replay.evidence.v1` record. The record retains the
+complete source row together with process PID/SIGKILL/reap evidence, raw and
+normalized marker digests, pre-kill/post-restart/final audit digests, exact
+Redis group/PEL/XACK state, sequence labels, callback/provider/schedule and V1
+record counters, publication count, restart/final dispositions and variant
+results. Missing, extra, duplicated or unasserted cells fail closed.
+
+Every cell also runs a byte-identical duplicate restart to the same audit and a
+one-field operational-config binding conflict relevant to the cell's own
+authenticated runtime. A globally wrong commitment key remains an additional
+defense. Both conflicts must fail closed as an error or Blocked owner. Every
+crash child writes and fsyncs a canonical marker whose audit hash covers the
+local durable files before SIGKILL.
+
+The complete 105-cell collector runs twice in clean roots and independent
+loopback Redis processes. Only run ordinal, PID, duration, scratch path, raw
+PID-bearing marker digest and Redis port are normalized. The two
+domain-separated semantic digests must be byte-identical. Both full JSON runs
+and the retained digest are immutable handoff members and are independently
+validated by `stage8b_p1d4_crash_evidence_check.py`.
+
+GM08 and GM09 use a dedicated create-once, `sync_all()` sequence-pair marker
+written after allocation and before their non-returning crash hooks. Recovery
+must reproduce the exact pre-kill `(seq_ack, seq_truth)` pair in the final
+authenticated audit; adjacency alone is insufficient. GM07 proves the marker
+is absent because allocation has not occurred.
+
+The exhaustive collector also exposed and closed two narrow recovery gaps:
+
+- a day-expiry WAL can reconstruct directly to `ReadyForEvaluation`, and F19
+  must not reissue an already consumed expiry authority;
+- target-first CANCEL recovery authenticates the exact
+  `RequestAccepted -> DispatchAttemptRecorded -> autonomous LaterFilled`
+  checkpoint chain instead of comparing its pre-dispatch Stage5G checkpoint
+  directly with the post-dispatch outcome predecessor.
+
+Both paths remain input-free after their durable frontier and preserve the
+existing provider, schedule, callback and XACK restrictions.
 
 Correction C1 is implemented literally. S09/F04 and S09/F09 both restart as
 `P1d3PreAckPending`: each has the same recovered CANCEL V3 plus

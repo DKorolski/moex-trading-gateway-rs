@@ -2183,6 +2183,9 @@ pub async fn resume_stage8b_p1d3_pre_ack_with_redis(
         Some((accepted_bar, binding))
     };
     match durable.commit_reconstructed_transition(commitment_key)? {
+        Stage8bP1d3RecoveredCommitOutcome::Ready(_) => {
+            Err(Stage8bP1RedisSemanticError::ExactSourceConflict)
+        }
         Stage8bP1d3RecoveredCommitOutcome::AckCommitted(durable) => Ok(
             Stage8bP1RedisPreAckRecoveryOutcome::AckCommitted(Stage8bP1RedisLimitAckCommitted {
                 durable: *durable,
@@ -3379,9 +3382,10 @@ mod tests {
         TimeInForce,
     };
     use chrono::{TimeZone, Utc};
-    use redis::streams::StreamPendingReply;
+    use redis::streams::{StreamInfoGroupsReply, StreamPendingReply};
     use rust_decimal::Decimal;
     use std::{
+        collections::BTreeMap,
         fs,
         net::TcpListener,
         os::unix::{fs::DirBuilderExt, process::ExitStatusExt},
@@ -3398,6 +3402,7 @@ mod tests {
     struct RedisServer {
         child: Child,
         url: String,
+        port: u16,
     }
 
     impl RedisServer {
@@ -3427,7 +3432,7 @@ mod tests {
                         let pong: redis::RedisResult<String> =
                             redis::cmd("PING").query_async(&mut connection).await;
                         if pong.as_deref() == Ok("PONG") && child.try_wait().unwrap().is_none() {
-                            return Self { child, url };
+                            return Self { child, url, port };
                         }
                     }
                 }
@@ -4787,13 +4792,288 @@ mod tests {
         assert!(marker.exists(), "P1-d3 crash child missed barrier");
     }
 
-    #[derive(Debug)]
+    trait P1d4RegistryIdentity {
+        fn cell_id(&self) -> &str;
+        fn scenario_id(&self) -> &str;
+        fn frontier_id(&self) -> &str;
+        fn kill_hook_name(&self) -> &str;
+        fn expected_restart_disposition(&self) -> &str;
+    }
+
+    #[derive(Debug, Clone)]
     struct P1d4RegistryCell<'a> {
         cell_id: &'a str,
         scenario_id: &'a str,
+        semantic_family: &'a str,
+        source_kind: &'a str,
         frontier_id: &'a str,
+        precondition: &'a str,
         kill_hook_name: &'a str,
         expected_restart_disposition: &'a str,
+        only_legal_continuation: &'a str,
+        sequence_expectation: &'a str,
+        callback_delta: &'a str,
+        provider_delta: &'a str,
+        schedule_authority_delta: &'a str,
+        pel_before: &'a str,
+        pel_after: &'a str,
+        xack_expectation: &'a str,
+        duplicate_variant_required: bool,
+        conflict_variant_required: bool,
+        inherited_or_new_test_id: &'a str,
+    }
+
+    impl P1d4RegistryIdentity for P1d4RegistryCell<'_> {
+        fn cell_id(&self) -> &str {
+            self.cell_id
+        }
+        fn scenario_id(&self) -> &str {
+            self.scenario_id
+        }
+        fn frontier_id(&self) -> &str {
+            self.frontier_id
+        }
+        fn kill_hook_name(&self) -> &str {
+            self.kill_hook_name
+        }
+        fn expected_restart_disposition(&self) -> &str {
+            self.expected_restart_disposition
+        }
+    }
+
+    impl P1d4RegistryCell<'_> {
+        fn registry_fields(&self) -> BTreeMap<String, serde_json::Value> {
+            BTreeMap::from([
+                ("cell_id".into(), serde_json::json!(self.cell_id)),
+                ("scenario_id".into(), serde_json::json!(self.scenario_id)),
+                (
+                    "semantic_family".into(),
+                    serde_json::json!(self.semantic_family),
+                ),
+                ("source_kind".into(), serde_json::json!(self.source_kind)),
+                ("frontier_id".into(), serde_json::json!(self.frontier_id)),
+                ("precondition".into(), serde_json::json!(self.precondition)),
+                (
+                    "kill_hook_name".into(),
+                    serde_json::json!(self.kill_hook_name),
+                ),
+                (
+                    "expected_restart_disposition".into(),
+                    serde_json::json!(self.expected_restart_disposition),
+                ),
+                (
+                    "only_legal_continuation".into(),
+                    serde_json::json!(self.only_legal_continuation),
+                ),
+                (
+                    "sequence_expectation".into(),
+                    serde_json::json!(self.sequence_expectation),
+                ),
+                (
+                    "callback_delta".into(),
+                    serde_json::json!(self.callback_delta),
+                ),
+                (
+                    "provider_delta".into(),
+                    serde_json::json!(self.provider_delta),
+                ),
+                (
+                    "schedule_authority_delta".into(),
+                    serde_json::json!(self.schedule_authority_delta),
+                ),
+                ("pel_before".into(), serde_json::json!(self.pel_before)),
+                ("pel_after".into(), serde_json::json!(self.pel_after)),
+                (
+                    "xack_expectation".into(),
+                    serde_json::json!(self.xack_expectation),
+                ),
+                (
+                    "duplicate_variant_required".into(),
+                    serde_json::json!(self.duplicate_variant_required),
+                ),
+                (
+                    "conflict_variant_required".into(),
+                    serde_json::json!(self.conflict_variant_required),
+                ),
+                (
+                    "inherited_or_new_test_id".into(),
+                    serde_json::json!(self.inherited_or_new_test_id),
+                ),
+            ])
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    struct P1d4GeneratedMarketRegistryCell<'a> {
+        cell_id: &'a str,
+        parent_scenario_id: &'a str,
+        frontier_id: &'a str,
+        precondition: &'a str,
+        stage6_durable_frontier: &'a str,
+        expected_restart_disposition: &'a str,
+        classifier_route: &'a str,
+        only_legal_continuation: &'a str,
+        source_pel_before: &'a str,
+        source_pel_after: &'a str,
+        publication_reservation_expectation: &'a str,
+        publication_binding_expectation: &'a str,
+        bar_callback_delta: &'a str,
+        command_publication_delta: &'a str,
+        provider_delta: &'a str,
+        schedule_authority_delta: &'a str,
+        dispatch_v1_total: &'a str,
+        order_v1_total: &'a str,
+        trade_v1_total: &'a str,
+        request_finalized_v1_total: &'a str,
+        sequence_expectation: &'a str,
+        s_ack_delta: &'a str,
+        s_truth_delta: &'a str,
+        xack_delta: &'a str,
+        final_source_disposition: &'a str,
+        duplicate_variant_required: bool,
+        conflict_variant_required: bool,
+        test_id: &'a str,
+        kill_hook_name: &'a str,
+    }
+
+    impl P1d4RegistryIdentity for P1d4GeneratedMarketRegistryCell<'_> {
+        fn cell_id(&self) -> &str {
+            self.cell_id
+        }
+        fn scenario_id(&self) -> &str {
+            self.parent_scenario_id
+        }
+        fn frontier_id(&self) -> &str {
+            self.frontier_id
+        }
+        fn kill_hook_name(&self) -> &str {
+            self.kill_hook_name
+        }
+        fn expected_restart_disposition(&self) -> &str {
+            self.expected_restart_disposition
+        }
+    }
+
+    impl P1d4GeneratedMarketRegistryCell<'_> {
+        fn registry_fields(&self) -> BTreeMap<String, serde_json::Value> {
+            BTreeMap::from([
+                ("cell_id".into(), serde_json::json!(self.cell_id)),
+                (
+                    "parent_scenario_id".into(),
+                    serde_json::json!(self.parent_scenario_id),
+                ),
+                ("frontier_id".into(), serde_json::json!(self.frontier_id)),
+                ("precondition".into(), serde_json::json!(self.precondition)),
+                (
+                    "stage6_durable_frontier".into(),
+                    serde_json::json!(self.stage6_durable_frontier),
+                ),
+                (
+                    "expected_restart_disposition".into(),
+                    serde_json::json!(self.expected_restart_disposition),
+                ),
+                (
+                    "classifier_route".into(),
+                    serde_json::json!(self.classifier_route),
+                ),
+                (
+                    "only_legal_continuation".into(),
+                    serde_json::json!(self.only_legal_continuation),
+                ),
+                (
+                    "source_pel_before".into(),
+                    serde_json::json!(self.source_pel_before),
+                ),
+                (
+                    "source_pel_after".into(),
+                    serde_json::json!(self.source_pel_after),
+                ),
+                (
+                    "publication_reservation_expectation".into(),
+                    serde_json::json!(self.publication_reservation_expectation),
+                ),
+                (
+                    "publication_binding_expectation".into(),
+                    serde_json::json!(self.publication_binding_expectation),
+                ),
+                (
+                    "bar_callback_delta".into(),
+                    serde_json::json!(self.bar_callback_delta),
+                ),
+                (
+                    "command_publication_delta".into(),
+                    serde_json::json!(self.command_publication_delta),
+                ),
+                (
+                    "provider_delta".into(),
+                    serde_json::json!(self.provider_delta),
+                ),
+                (
+                    "schedule_authority_delta".into(),
+                    serde_json::json!(self.schedule_authority_delta),
+                ),
+                (
+                    "dispatch_v1_total".into(),
+                    serde_json::json!(self.dispatch_v1_total),
+                ),
+                (
+                    "order_v1_total".into(),
+                    serde_json::json!(self.order_v1_total),
+                ),
+                (
+                    "trade_v1_total".into(),
+                    serde_json::json!(self.trade_v1_total),
+                ),
+                (
+                    "request_finalized_v1_total".into(),
+                    serde_json::json!(self.request_finalized_v1_total),
+                ),
+                (
+                    "sequence_expectation".into(),
+                    serde_json::json!(self.sequence_expectation),
+                ),
+                ("s_ack_delta".into(), serde_json::json!(self.s_ack_delta)),
+                (
+                    "s_truth_delta".into(),
+                    serde_json::json!(self.s_truth_delta),
+                ),
+                ("xack_delta".into(), serde_json::json!(self.xack_delta)),
+                (
+                    "final_source_disposition".into(),
+                    serde_json::json!(self.final_source_disposition),
+                ),
+                (
+                    "duplicate_variant_required".into(),
+                    serde_json::json!(self.duplicate_variant_required),
+                ),
+                (
+                    "conflict_variant_required".into(),
+                    serde_json::json!(self.conflict_variant_required),
+                ),
+                ("test_id".into(), serde_json::json!(self.test_id)),
+            ])
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize)]
+    struct P1d4CrashProcessEvidence {
+        child_pid: u32,
+        exit_code: Option<i32>,
+        exit_signal: i32,
+        reaped: bool,
+        wall_duration_ms: u64,
+        raw_marker_sha256: String,
+        normalized_marker_sha256: String,
+        pre_kill_audit_sha256: String,
+        sequence_pair_before_kill: Option<(u64, u64)>,
+    }
+
+    fn p1d4_required_bool(value: &str, field: &str) -> bool {
+        match value {
+            "true" => true,
+            "false" => false,
+            _ => panic!("P1-d4 {field} must be canonical true/false"),
+        }
     }
 
     fn p1d4_registry_cells() -> Vec<P1d4RegistryCell<'static>> {
@@ -4810,9 +5090,23 @@ mod tests {
                 P1d4RegistryCell {
                     cell_id: fields[0],
                     scenario_id: fields[1],
+                    semantic_family: fields[2],
+                    source_kind: fields[3],
                     frontier_id: fields[4],
+                    precondition: fields[5],
                     kill_hook_name: fields[6],
                     expected_restart_disposition: fields[7],
+                    only_legal_continuation: fields[8],
+                    sequence_expectation: fields[9],
+                    callback_delta: fields[10],
+                    provider_delta: fields[11],
+                    schedule_authority_delta: fields[12],
+                    pel_before: fields[13],
+                    pel_after: fields[14],
+                    xack_expectation: fields[15],
+                    duplicate_variant_required: p1d4_required_bool(fields[16], "duplicate variant"),
+                    conflict_variant_required: p1d4_required_bool(fields[17], "conflict variant"),
+                    inherited_or_new_test_id: fields[18],
                 }
             })
             .collect()
@@ -4831,7 +5125,7 @@ mod tests {
         matches.into_iter().next().unwrap()
     }
 
-    fn p1d4_generated_market_registry_cells() -> Vec<P1d4RegistryCell<'static>> {
+    fn p1d4_generated_market_registry_cells() -> Vec<P1d4GeneratedMarketRegistryCell<'static>> {
         let matrix = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../docs/stage-8/stage8b-p1d4-generated-market-crash-submatrix-v3.csv"
@@ -4846,10 +5140,35 @@ mod tests {
                     28,
                     "P1-d4 generated-Market registry row must remain exact"
                 );
-                P1d4RegistryCell {
+                P1d4GeneratedMarketRegistryCell {
                     cell_id: fields[0],
-                    scenario_id: fields[1],
+                    parent_scenario_id: fields[1],
                     frontier_id: fields[2],
+                    precondition: fields[3],
+                    stage6_durable_frontier: fields[4],
+                    expected_restart_disposition: fields[5],
+                    classifier_route: fields[6],
+                    only_legal_continuation: fields[7],
+                    source_pel_before: fields[8],
+                    source_pel_after: fields[9],
+                    publication_reservation_expectation: fields[10],
+                    publication_binding_expectation: fields[11],
+                    bar_callback_delta: fields[12],
+                    command_publication_delta: fields[13],
+                    provider_delta: fields[14],
+                    schedule_authority_delta: fields[15],
+                    dispatch_v1_total: fields[16],
+                    order_v1_total: fields[17],
+                    trade_v1_total: fields[18],
+                    request_finalized_v1_total: fields[19],
+                    sequence_expectation: fields[20],
+                    s_ack_delta: fields[21],
+                    s_truth_delta: fields[22],
+                    xack_delta: fields[23],
+                    final_source_disposition: fields[24],
+                    duplicate_variant_required: p1d4_required_bool(fields[25], "duplicate variant"),
+                    conflict_variant_required: p1d4_required_bool(fields[26], "conflict variant"),
+                    test_id: fields[27],
                     kill_hook_name: match fields[2] {
                         "GM00" => "p1d4-generated-market-gm00",
                         "GM01" => "p1d4-generated-market-gm01",
@@ -4866,7 +5185,6 @@ mod tests {
                         "GM12" => "p1d4-generated-market-gm12",
                         _ => panic!("unknown generated-Market frontier"),
                     },
-                    expected_restart_disposition: fields[5],
                 }
             })
             .collect()
@@ -4938,50 +5256,644 @@ mod tests {
         }
     }
 
-    async fn p1d4_effective_restart_disposition(
-        outcome: Stage7bRestartOutcome,
-        redis: &RedisServer,
-        expected: &str,
-    ) -> &'static str {
-        if expected != "Ready" {
-            return p1d4_restart_disposition(&outcome);
+    #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+    struct P1d4ContinuationEvidence {
+        final_disposition: String,
+        xack_reply: String,
+        xack_disposition: String,
+        sequence_after: Option<(u64, u64)>,
+        provider_attempts: u64,
+        schedule_issue_attempts: u64,
+        s_ack_commits: u64,
+        s_truth_commits: u64,
+        immediate_xack_attempts: u64,
+    }
+
+    impl P1d4ContinuationEvidence {
+        fn with_activity(
+            mut self,
+            provider_attempts: u64,
+            schedule_issue_attempts: u64,
+            s_ack_commits: u64,
+            s_truth_commits: u64,
+        ) -> Self {
+            self.provider_attempts = provider_attempts;
+            self.schedule_issue_attempts = schedule_issue_attempts;
+            self.s_ack_commits = s_ack_commits;
+            self.s_truth_commits = s_truth_commits;
+            self
         }
-        match outcome {
-            Stage7bRestartOutcome::Ready(_) => "Ready",
-            Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(pending) => {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
-                    .await
-                    .unwrap();
-                let resolved = resolve_stage8b_p1_zero_intent_ack_with_redis(*pending, transport)
-                    .await
-                    .unwrap();
-                assert_eq!(
-                    resolved.disposition(),
-                    Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged
-                );
-                drop(resolved.into_ready_owner());
-                "Ready"
+
+        fn with_immediate_xack(mut self, immediate_xack_attempts: u64) -> Self {
+            self.immediate_xack_attempts = immediate_xack_attempts;
+            self
+        }
+    }
+
+    fn p1d4_xack_evidence(
+        disposition: Stage8bP1RedisZeroIntentAckDisposition,
+        final_disposition: &str,
+    ) -> P1d4ContinuationEvidence {
+        let (reply, label) = match disposition {
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending => {
+                ("integer:1", "AcknowledgedPending")
             }
-            Stage7bRestartOutcome::P1d3TruthCommitted(truth) => {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
-                    .await
-                    .unwrap();
-                let resolved = resume_stage8b_p1d3_truth_with_redis(*truth, transport)
+            Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged => {
+                ("integer:0", "AlreadyAcknowledged")
+            }
+        };
+        P1d4ContinuationEvidence {
+            final_disposition: final_disposition.to_string(),
+            xack_reply: reply.to_string(),
+            xack_disposition: label.to_string(),
+            sequence_after: None,
+            provider_attempts: 0,
+            schedule_issue_attempts: 0,
+            s_ack_commits: 0,
+            s_truth_commits: 0,
+            immediate_xack_attempts: 0,
+        }
+    }
+
+    async fn p1d4_finish_limit_truth(
+        truth: Stage8bP1RedisLimitTruthCommitted,
+    ) -> P1d4ContinuationEvidence {
+        assert!(truth.m10_xack_allowed());
+        let resolved = truth.acknowledge_source().await.unwrap();
+        p1d4_xack_evidence(resolved.disposition(), "P1d3TruthCommitted")
+    }
+
+    async fn p1d4_finish_cancel_outcome(
+        outcome: Stage8bP1RedisCancelCommitOutcome,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> P1d4ContinuationEvidence {
+        let truth = match outcome {
+            Stage8bP1RedisCancelCommitOutcome::AckCommitted(ack) => ack.commit_truth(key).unwrap(),
+            Stage8bP1RedisCancelCommitOutcome::TruthCommitted(truth) => truth,
+            Stage8bP1RedisCancelCommitOutcome::CancelContinuationPending(pending) => {
+                pending.commit_recovered_cancel(key).unwrap()
+            }
+        };
+        p1d4_finish_limit_truth(truth)
+            .await
+            .with_activity(0, 0, 1, 1)
+    }
+
+    async fn p1d4_finish_generated_ack(
+        ack: Stage8bP1RedisGeneratedMarketAckCommitted,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> P1d4ContinuationEvidence {
+        let truth = ack.commit_truth(key).await.unwrap();
+        let audit = truth.audit_evidence().unwrap();
+        let sequence_after = Some((audit.core.seq_ack, audit.core.seq_truth));
+        let resolved = truth.acknowledge_source().await.unwrap();
+        let mut evidence =
+            p1d4_xack_evidence(resolved.disposition(), "P1d4GeneratedMarketTruthCommitted");
+        evidence.sequence_after = sequence_after;
+        evidence
+    }
+
+    async fn p1d4_finish_semantic_outcome(
+        outcome: Stage8bP1RedisSemanticOutcome,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> P1d4ContinuationEvidence {
+        match outcome {
+            Stage8bP1RedisSemanticOutcome::Ready {
+                ack_disposition, ..
+            } => p1d4_xack_evidence(ack_disposition, "Ready"),
+            Stage8bP1RedisSemanticOutcome::Prepublication(pending) => {
+                let decision_close_ms = P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000;
+                let ack = pending
+                    .publish_exact_generated_market_command(key)
                     .await
                     .unwrap()
-                    .acknowledge_source()
+                    .execute_next_canonical_generated_market(
+                        strategy_runtime_core::stage8b_p1d1_test_schedule_authority(
+                            super::super::p1_instrument(),
+                            decision_close_ms,
+                            decision_close_ms + 600_000,
+                        ),
+                        key,
+                    )
                     .await
                     .unwrap();
-                assert_eq!(
-                    resolved.disposition(),
-                    Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged
-                );
-                drop(resolved.into_ready_owner());
-                "Ready"
+                p1d4_finish_generated_ack(ack, key)
+                    .await
+                    .with_activity(1, 1, 1, 1)
             }
-            other => p1d4_restart_disposition(&other),
+            Stage8bP1RedisSemanticOutcome::PendingNotClaimable { .. } => {
+                panic!("P1-d4 continuation left an exact source temporarily unclaimable")
+            }
+            Stage8bP1RedisSemanticOutcome::MultiIntentBlocked { .. } => {
+                panic!("P1-d4 fixture unexpectedly produced a multi-intent batch")
+            }
+        }
+    }
+
+    fn p1d4_initial_schedule(scenario_id: &str) -> Stage8bP1d3ScheduleStepAuthority {
+        let (source_close_ms, candidate_close_ms) = match scenario_id {
+            "S01" | "S02" => (P1D3_PLACE_DECISION_CLOSE_MS, P1D3_CANCEL_DECISION_CLOSE_MS),
+            "S08" | "S09" | "S10" => (
+                P1D3_CANCEL_DECISION_CLOSE_MS,
+                P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+            ),
+            "S11" => (P1D3_PLACE_DECISION_CLOSE_MS, P1D3_CANCEL_CANDIDATE_CLOSE_MS),
+            _ => (P1D3_PLACE_DECISION_CLOSE_MS, P1D3_CANCEL_CANDIDATE_CLOSE_MS),
+        };
+        p1d3_cancel_schedule(source_close_ms, candidate_close_ms)
+    }
+
+    fn p1d4_initial_expiry_authority() -> Stage8bP1d3DayExpiryAuthority {
+        let trading_day = Utc
+            .timestamp_millis_opt(P1D3_PLACE_DECISION_CLOSE_MS)
+            .single()
+            .unwrap()
+            .date_naive()
+            .to_string();
+        stage8b_p1d3_test_expiry_authority(
+            "44".repeat(32),
+            trading_day,
+            format!("{P1D3_PLACE_DECISION_CLOSE_MS}-0"),
+            P1D3_CANCEL_DECISION_CLOSE_MS,
+        )
+    }
+
+    async fn p1d4_finish_published(
+        published: Stage8bP1RedisCommandPublished,
+        scenario_id: &str,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> P1d4ContinuationEvidence {
+        match scenario_id {
+            "S01" | "S02" => {
+                let ack = published
+                    .execute_next_canonical_limit(p1d4_initial_schedule(scenario_id), key)
+                    .await
+                    .unwrap();
+                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
+                    .await
+                    .with_activity(1, 1, 1, 1)
+            }
+            "S03" => {
+                let ack = published
+                    .execute_initial_limit_expiry(p1d4_initial_expiry_authority(), key)
+                    .unwrap();
+                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
+                    .await
+                    .with_activity(1, 1, 1, 1)
+            }
+            "S08" | "S09" | "S10" | "S11" => {
+                let outcome = published
+                    .execute_next_canonical_cancel(p1d4_initial_schedule(scenario_id), key)
+                    .await
+                    .unwrap();
+                let mut evidence = p1d4_finish_cancel_outcome(outcome, key).await;
+                evidence.provider_attempts = 1;
+                evidence.schedule_issue_attempts = 1;
+                evidence
+            }
+            _ => panic!("{scenario_id} has no initial command continuation"),
+        }
+    }
+
+    async fn p1d4_finish_restart(
+        restart: Stage7bRestartOutcome,
+        redis: &RedisServer,
+        scenario_id: &str,
+        frontier_id: &str,
+        expected_restart_disposition: &str,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> P1d4ContinuationEvidence {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        match restart {
+            Stage7bRestartOutcome::Ready(owner) => {
+                if scenario_id == "S07" {
+                    if frontier_id == "F19" {
+                        return P1d4ContinuationEvidence {
+                            final_disposition: "Ready".into(),
+                            xack_reply: "not_applicable".into(),
+                            xack_disposition: "NoSource".into(),
+                            sequence_after: None,
+                            provider_attempts: 0,
+                            schedule_issue_attempts: 0,
+                            s_ack_commits: 0,
+                            s_truth_commits: 0,
+                            immediate_xack_attempts: 0,
+                        };
+                    }
+                    assert_eq!(
+                        frontier_id, "F17",
+                        "only the pre-WAL day-expiry frontier may reissue authority"
+                    );
+                    let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                        .await
+                        .unwrap();
+                    let owner = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport);
+                    let trading_day = Utc
+                        .timestamp_millis_opt(P1D3_CANCEL_CANDIDATE_CLOSE_MS)
+                        .single()
+                        .unwrap()
+                        .date_naive()
+                        .to_string();
+                    let authority = stage8b_p1d3_test_expiry_authority(
+                        "44".repeat(32),
+                        trading_day,
+                        format!("{P1D3_CANCEL_CANDIDATE_CLOSE_MS}-0"),
+                        P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000,
+                    );
+                    drop(owner.expire_working_limit(authority, key).unwrap());
+                    return P1d4ContinuationEvidence {
+                        final_disposition: "Ready".into(),
+                        xack_reply: "not_applicable".into(),
+                        xack_disposition: "NoSource".into(),
+                        sequence_after: None,
+                        provider_attempts: 0,
+                        schedule_issue_attempts: 1,
+                        s_ack_commits: 1,
+                        s_truth_commits: 1,
+                        immediate_xack_attempts: 0,
+                    };
+                }
+                if matches!(scenario_id, "S04" | "S05" | "S06") {
+                    let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                        .await
+                        .unwrap();
+                    let owner = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport);
+                    let (source_close_ms, candidate_close_ms) = if scenario_id == "S06" {
+                        (
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS + 1_200_000,
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS + 1_800_000,
+                        )
+                    } else {
+                        (
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000,
+                        )
+                    };
+                    let outcome = owner
+                        .process_next_working_limit(
+                            p1d3_cancel_schedule(source_close_ms, candidate_close_ms),
+                            key,
+                        )
+                        .await
+                        .unwrap();
+                    let mut evidence = p1d4_finish_semantic_outcome(outcome, key).await;
+                    evidence.provider_attempts = 0;
+                    evidence.schedule_issue_attempts += 1;
+                    return evidence;
+                }
+                P1d4ContinuationEvidence {
+                    final_disposition: "Ready".into(),
+                    xack_reply: "already_completed_before_restart".into(),
+                    xack_disposition: "AlreadyAcknowledged".into(),
+                    sequence_after: None,
+                    provider_attempts: 0,
+                    schedule_issue_attempts: 0,
+                    s_ack_commits: 0,
+                    s_truth_commits: 0,
+                    immediate_xack_attempts: 0,
+                }
+            }
+            Stage7bRestartOutcome::P1SemanticPrepublicationReady(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                let pending = resume_stage8b_p1_prepublication_with_redis(*owner, transport)
+                    .await
+                    .unwrap();
+                p1d4_finish_published(
+                    pending.publish_exact_command().await.unwrap(),
+                    scenario_id,
+                    key,
+                )
+                .await
+            }
+            Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                let resolved = resolve_stage8b_p1_zero_intent_ack_with_redis(*owner, transport)
+                    .await
+                    .unwrap();
+                if expected_restart_disposition == "Ready"
+                    && scenario_id == "S07"
+                    && frontier_id == "F17"
+                {
+                    assert_eq!(
+                        resolved.disposition(),
+                        Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged,
+                        "the stale replacement source must already be acknowledged before day-expiry reissue"
+                    );
+                    let owner = *resolved.into_ready_owner();
+                    let trading_day = Utc
+                        .timestamp_millis_opt(P1D3_CANCEL_CANDIDATE_CLOSE_MS)
+                        .single()
+                        .unwrap()
+                        .date_naive()
+                        .to_string();
+                    let authority = stage8b_p1d3_test_expiry_authority(
+                        "44".repeat(32),
+                        trading_day,
+                        format!("{P1D3_CANCEL_CANDIDATE_CLOSE_MS}-0"),
+                        P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000,
+                    );
+                    drop(owner.expire_working_limit(authority, key).unwrap());
+                    return P1d4ContinuationEvidence {
+                        final_disposition: "Ready".into(),
+                        xack_reply: "not_applicable".into(),
+                        xack_disposition: "NoSource".into(),
+                        sequence_after: None,
+                        provider_attempts: 0,
+                        schedule_issue_attempts: 1,
+                        s_ack_commits: 1,
+                        s_truth_commits: 1,
+                        immediate_xack_attempts: 0,
+                    };
+                }
+                if expected_restart_disposition == "Ready"
+                    && matches!(scenario_id, "S04" | "S05" | "S06")
+                {
+                    assert_eq!(
+                        resolved.disposition(),
+                        Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged,
+                        "a Ready registry frontier may cross only an already-acknowledged stale replacement"
+                    );
+                    let owner = *resolved.into_ready_owner();
+                    let (source_close_ms, candidate_close_ms) = if scenario_id == "S06" {
+                        (
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS + 1_200_000,
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS + 1_800_000,
+                        )
+                    } else {
+                        (
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+                            P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000,
+                        )
+                    };
+                    let outcome = owner
+                        .process_next_working_limit(
+                            p1d3_cancel_schedule(source_close_ms, candidate_close_ms),
+                            key,
+                        )
+                        .await
+                        .unwrap();
+                    let mut evidence = p1d4_finish_semantic_outcome(outcome, key).await;
+                    evidence.provider_attempts = 0;
+                    evidence.schedule_issue_attempts += 1;
+                    return evidence;
+                }
+                p1d4_xack_evidence(resolved.disposition(), "Ready")
+            }
+            Stage7bRestartOutcome::P1d3DispatchPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                match scenario_id {
+                    "S01" | "S02" => {
+                        let ack = resume_stage8b_p1d3_dispatch_limit_with_redis(
+                            *owner,
+                            transport,
+                            p1d4_initial_schedule(scenario_id),
+                            key,
+                        )
+                        .await
+                        .unwrap();
+                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
+                            .await
+                            .with_activity(1, 1, 1, 1)
+                    }
+                    "S03" => {
+                        let ack = resume_stage8b_p1d3_dispatch_expiry_with_redis(
+                            *owner,
+                            transport,
+                            p1d4_initial_expiry_authority(),
+                            key,
+                        )
+                        .await
+                        .unwrap();
+                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
+                            .await
+                            .with_activity(1, 1, 1, 1)
+                    }
+                    "S08" | "S09" | "S10" | "S11" => {
+                        let outcome = resume_stage8b_p1d3_dispatch_cancel_with_redis(
+                            *owner,
+                            transport,
+                            p1d4_initial_schedule(scenario_id),
+                            key,
+                        )
+                        .await
+                        .unwrap();
+                        let mut evidence = p1d4_finish_cancel_outcome(outcome, key).await;
+                        evidence.provider_attempts = 1;
+                        evidence.schedule_issue_attempts = 1;
+                        evidence
+                    }
+                    _ => panic!("{scenario_id} has no dispatch-only continuation"),
+                }
+            }
+            Stage7bRestartOutcome::P1d3PreAckPending(owner) => {
+                if scenario_id == "S07" {
+                    match owner.commit_reconstructed_transition(key).unwrap() {
+                        Stage8bP1d3RecoveredCommitOutcome::Ready(ready) => drop(ready),
+                        Stage8bP1d3RecoveredCommitOutcome::AckCommitted(ack) => {
+                            drop(ack.commit_truth(key).unwrap());
+                        }
+                        Stage8bP1d3RecoveredCommitOutcome::TruthCommitted(truth) => drop(truth),
+                        Stage8bP1d3RecoveredCommitOutcome::CancelContinuationPending(_)
+                        | Stage8bP1d3RecoveredCommitOutcome::SemanticCallbackPending(_) => {
+                            panic!("S07 expiry WAL reconstructed a non-expiry continuation")
+                        }
+                    }
+                    return P1d4ContinuationEvidence {
+                        final_disposition: "Ready".into(),
+                        xack_reply: "not_applicable".into(),
+                        xack_disposition: "NoSource".into(),
+                        sequence_after: None,
+                        provider_attempts: 0,
+                        schedule_issue_attempts: 0,
+                        s_ack_commits: 1,
+                        s_truth_commits: 1,
+                        immediate_xack_attempts: 0,
+                    };
+                }
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                match resume_stage8b_p1d3_pre_ack_with_redis(*owner, transport, key)
+                    .await
+                    .unwrap()
+                {
+                    Stage8bP1RedisPreAckRecoveryOutcome::AckCommitted(ack) => {
+                        p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
+                            .await
+                            .with_activity(0, 0, 1, 1)
+                    }
+                    Stage8bP1RedisPreAckRecoveryOutcome::TruthCommitted(truth) => {
+                        p1d4_finish_limit_truth(truth)
+                            .await
+                            .with_activity(0, 0, 1, 1)
+                    }
+                    Stage8bP1RedisPreAckRecoveryOutcome::Semantic(outcome) => {
+                        p1d4_finish_semantic_outcome(outcome, key).await
+                    }
+                }
+            }
+            Stage7bRestartOutcome::P1d3AckCommitted(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                let ack = resume_stage8b_p1d3_ack_with_redis(*owner, transport)
+                    .await
+                    .unwrap();
+                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())
+                    .await
+                    .with_activity(0, 0, 0, 1)
+            }
+            Stage7bRestartOutcome::P1d3TruthCommitted(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                p1d4_finish_limit_truth(
+                    resume_stage8b_p1d3_truth_with_redis(*owner, transport)
+                        .await
+                        .unwrap(),
+                )
+                .await
+            }
+            Stage7bRestartOutcome::P1d3CancelContinuationPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                let truth =
+                    resume_stage8b_p1d3_cancel_continuation_with_redis(*owner, transport, key)
+                        .await
+                        .unwrap();
+                p1d4_finish_limit_truth(truth).await
+            }
+            Stage7bRestartOutcome::P1d3SemanticPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                let outcome = resume_stage8b_p1d3_semantic_with_redis(*owner, transport, key)
+                    .await
+                    .unwrap();
+                let mut evidence = p1d4_finish_semantic_outcome(outcome, key).await;
+                evidence.provider_attempts = 0;
+                evidence.schedule_issue_attempts = 0;
+                evidence
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketPrepublicationPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                let decision_close_ms = P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000;
+                let published = resume_stage8b_p1d4_prepublication_with_redis(*owner, transport)
+                    .await
+                    .unwrap();
+                let ack = published
+                    .execute_next_canonical_generated_market(
+                        strategy_runtime_core::stage8b_p1d1_test_schedule_authority(
+                            super::super::p1_instrument(),
+                            decision_close_ms,
+                            decision_close_ms + 600_000,
+                        ),
+                        key,
+                    )
+                    .await
+                    .unwrap();
+                let activity = match frontier_id {
+                    "GM00" | "F15" => (0, 0, 0, 0),
+                    "GM01" | "GM02" => (0, 1, 0, 0),
+                    other => panic!("unexpected generated prepublication frontier {other}"),
+                };
+                p1d4_finish_generated_ack(ack, key)
+                    .await
+                    .with_activity(activity.0, activity.1, activity.2, activity.3)
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketDispatchPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                p1d4_finish_generated_ack(
+                    resume_stage8b_p1d4_dispatch_pending_with_redis(*owner, transport, key)
+                        .await
+                        .unwrap(),
+                    key,
+                )
+                .await
+                .with_activity(1, 0, 0, 0)
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketOrderPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                p1d4_finish_generated_ack(
+                    resume_stage8b_p1d4_order_pending_with_redis(*owner, transport, key)
+                        .await
+                        .unwrap(),
+                    key,
+                )
+                .await
+                .with_activity(0, 0, 0, 0)
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketPreFinalizationPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                p1d4_finish_generated_ack(
+                    resume_stage8b_p1d4_pre_finalization_with_redis(*owner, transport, key)
+                        .await
+                        .unwrap(),
+                    key,
+                )
+                .await
+                .with_activity(0, 0, 0, 0)
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketPreAckPending(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                p1d4_finish_generated_ack(
+                    resume_stage8b_p1d4_pre_ack_with_redis(*owner, transport, key)
+                        .await
+                        .unwrap(),
+                    key,
+                )
+                .await
+                .with_activity(0, 0, 1, 0)
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketAckCommitted(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                p1d4_finish_generated_ack(
+                    resume_stage8b_p1d4_ack_with_redis(*owner, transport)
+                        .await
+                        .unwrap(),
+                    key,
+                )
+                .await
+                .with_activity(0, 0, 0, 1)
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketTruthCommitted(owner) => {
+                let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                    .await
+                    .unwrap();
+                let truth = resume_stage8b_p1d4_truth_with_redis(*owner, transport)
+                    .await
+                    .unwrap();
+                let audit = truth.audit_evidence().unwrap();
+                let sequence_after = Some((audit.core.seq_ack, audit.core.seq_truth));
+                let resolved = truth.acknowledge_source().await.unwrap();
+                let mut evidence =
+                    p1d4_xack_evidence(resolved.disposition(), "P1d4GeneratedMarketTruthCommitted");
+                evidence.sequence_after = sequence_after;
+                evidence.with_immediate_xack(1)
+            }
+            other => panic!(
+                "P1-d4 final continuation cannot start at {}",
+                p1d4_restart_disposition(&other)
+            ),
         }
     }
 
@@ -4989,8 +5901,9 @@ mod tests {
         child: &mut Child,
         marker: &Path,
         parent: &Path,
-        cell: &P1d4RegistryCell<'_>,
-    ) {
+        cell: &impl P1d4RegistryIdentity,
+        started_at: Instant,
+    ) -> P1d4CrashProcessEvidence {
         wait_for_p1d3_crash_barrier(child, marker);
         assert!(child.try_wait().unwrap().is_none());
         let marker_bytes = fs::read(marker).unwrap();
@@ -5000,50 +5913,63 @@ mod tests {
         assert_eq!(marker_json["schema_version"], 1);
         assert_eq!(marker_json["domain"], "moex.stage8b.p1d4.crash-marker.v1");
         assert_eq!(marker_json["child_pid"], u64::from(child.id()));
-        assert_eq!(marker_json["cell_id"], cell.cell_id);
-        assert_eq!(marker_json["scenario_id"], cell.scenario_id);
-        assert_eq!(marker_json["frontier_id"], cell.frontier_id);
-        assert_eq!(marker_json["kill_hook_name"], cell.kill_hook_name);
+        assert_eq!(marker_json["cell_id"], cell.cell_id());
+        assert_eq!(marker_json["scenario_id"], cell.scenario_id());
+        assert_eq!(marker_json["frontier_id"], cell.frontier_id());
+        assert_eq!(marker_json["kill_hook_name"], cell.kill_hook_name());
         let pre_kill_audit_sha256 = marker_json["pre_kill_audit_sha256"].as_str().unwrap();
         assert_eq!(
             pre_kill_audit_sha256,
             crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
                 parent,
                 marker,
-                cell.cell_id,
-                cell.scenario_id,
-                cell.frontier_id,
-                cell.kill_hook_name,
+                cell.cell_id(),
+                cell.scenario_id(),
+                cell.frontier_id(),
+                cell.kill_hook_name(),
             )
         );
         let expected_canonical = format!(
             "{{\"cell_id\":\"{}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":1}}",
-            cell.cell_id,
+            cell.cell_id(),
             child.id(),
-            cell.frontier_id,
-            cell.kill_hook_name,
+            cell.frontier_id(),
+            cell.kill_hook_name(),
             pre_kill_audit_sha256,
-            cell.scenario_id,
+            cell.scenario_id(),
         );
         assert_eq!(marker_bytes, expected_canonical.as_bytes());
 
         let normalized = format!(
             "{{\"cell_id\":\"{}\",\"child_pid\":0,\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":1}}",
-            cell.cell_id,
-            cell.frontier_id,
-            cell.kill_hook_name,
+            cell.cell_id(),
+            cell.frontier_id(),
+            cell.kill_hook_name(),
             pre_kill_audit_sha256,
-            cell.scenario_id,
+            cell.scenario_id(),
         );
         let mut normalized_hasher = Sha256::new();
         normalized_hasher.update(b"moex.stage8b.p1d4.crash-marker.normalized.v1\0");
         normalized_hasher.update((normalized.len() as u64).to_be_bytes());
         normalized_hasher.update(normalized.as_bytes());
-        assert_eq!(format!("{:x}", normalized_hasher.finalize()).len(), 64);
+        let normalized_marker_sha256 = format!("{:x}", normalized_hasher.finalize());
+        assert_eq!(normalized_marker_sha256.len(), 64);
+        let raw_marker_sha256 = sha256_hex(&marker_bytes);
         child.kill().unwrap();
         let status = child.wait().unwrap();
         assert_eq!(status.code(), None);
         assert_eq!(status.signal(), Some(libc::SIGKILL));
+        P1d4CrashProcessEvidence {
+            child_pid: child.id(),
+            exit_code: status.code(),
+            exit_signal: status.signal().unwrap(),
+            reaped: child.try_wait().unwrap().is_some(),
+            wall_duration_ms: started_at.elapsed().as_millis().try_into().unwrap(),
+            raw_marker_sha256,
+            normalized_marker_sha256,
+            pre_kill_audit_sha256: pre_kill_audit_sha256.to_string(),
+            sequence_pair_before_kill: None,
+        }
     }
 
     #[tokio::test]
@@ -5353,10 +6279,11 @@ mod tests {
         scenario: &str,
         scenario_id: &str,
         frontier_id: &str,
-    ) {
+    ) -> P1d4CrashProcessEvidence {
         let cell = p1d4_registry_cell(scenario_id, frontier_id);
         assert!(!cell.expected_restart_disposition.is_empty());
         let marker = parent.join(format!("{}-{}.marker", cell.cell_id, cell.kill_hook_name));
+        let started_at = Instant::now();
         let mut child = Command::new(std::env::current_exe().unwrap())
             .arg("--ignored")
             .arg("--exact")
@@ -5375,15 +6302,17 @@ mod tests {
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
-        assert_p1d4_marker_and_sigkill(&mut child, &marker, parent, &cell);
+        assert_p1d4_marker_and_sigkill(&mut child, &marker, parent, &cell, started_at)
     }
 
     async fn spawn_p1d4_generated_market_frontier(
         redis: &RedisServer,
         parent: &Path,
-        cell: &P1d4RegistryCell<'_>,
-    ) {
+        cell: &P1d4GeneratedMarketRegistryCell<'_>,
+    ) -> P1d4CrashProcessEvidence {
         let marker = parent.join(format!("{}-{}.marker", cell.cell_id, cell.kill_hook_name));
+        let pair_marker = parent.join(format!("{}-sequence-pair.marker", cell.cell_id));
+        let started_at = Instant::now();
         let mut child = Command::new(std::env::current_exe().unwrap())
             .arg("--ignored")
             .arg("--exact")
@@ -5392,17 +6321,965 @@ mod tests {
             .env("STAGE8B_P1_TEST_PARENT", parent)
             .env("STAGE8B_P1_TEST_CRASH_PHASE", cell.kill_hook_name)
             .env("STAGE8B_P1_TEST_CRASH_MARKER", &marker)
+            .env("STAGE8B_P1_TEST_SEQUENCE_PAIR_MARKER", &pair_marker)
             .env("STAGE8B_P1_TEST_REDIS_URL", &redis.url)
             .env("STAGE8B_P1D4_SCENARIO", "generated-market")
             .env("STAGE8B_P1D4_CELL_ID", cell.cell_id)
-            .env("STAGE8B_P1D4_SCENARIO_ID", cell.scenario_id)
+            .env("STAGE8B_P1D4_SCENARIO_ID", cell.parent_scenario_id)
             .env("STAGE8B_P1D4_FRONTIER_ID", cell.frontier_id)
             .env("RUST_MIN_STACK", "16777216")
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
             .unwrap();
-        assert_p1d4_marker_and_sigkill(&mut child, &marker, parent, cell);
+        let mut evidence =
+            assert_p1d4_marker_and_sigkill(&mut child, &marker, parent, cell, started_at);
+        if matches!(cell.frontier_id, "GM08" | "GM09") {
+            let pair = fs::read_to_string(&pair_marker)
+                .expect("GM08/GM09 must fsync the allocated sequence pair before SIGKILL");
+            let mut lines = pair.lines();
+            let seq_ack = lines
+                .next()
+                .and_then(|line| line.strip_prefix("seq_ack="))
+                .and_then(|value| value.parse::<u64>().ok())
+                .expect("sequence marker must contain canonical seq_ack");
+            let seq_truth = lines
+                .next()
+                .and_then(|line| line.strip_prefix("seq_truth="))
+                .and_then(|value| value.parse::<u64>().ok())
+                .expect("sequence marker must contain canonical seq_truth");
+            assert!(
+                lines.next().is_none(),
+                "sequence marker must have two lines"
+            );
+            evidence.sequence_pair_before_kill = Some((seq_ack, seq_truth));
+        } else {
+            assert!(
+                !pair_marker.exists(),
+                "{} must not allocate a sequence pair before its frontier",
+                cell.frontier_id
+            );
+        }
+        evidence
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct P1d4RedisAudit {
+        pel: usize,
+        group_frontier: String,
+        command_publications: usize,
+    }
+
+    async fn p1d4_redis_audit(redis: &RedisServer) -> P1d4RedisAudit {
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let groups: StreamInfoGroupsReply = redis::cmd("XINFO")
+            .arg("GROUPS")
+            .arg(&namespace.canonical_m10_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let group = groups
+            .groups
+            .into_iter()
+            .find(|group| group.name == namespace.m10_consumer_group)
+            .expect("P1-d4 canonical M10 group must exist");
+        assert_eq!(group.pending, pending.count());
+        let command_publications: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        P1d4RedisAudit {
+            pel: pending.count(),
+            group_frontier: format!(
+                "last_delivered_id={};pending={}",
+                group.last_delivered_id, group.pending
+            ),
+            command_publications,
+        }
+    }
+
+    fn p1d4_expected_pel(value: &str) -> usize {
+        match value {
+            "exact_source_pending_1" => 1,
+            "exact_source_absent_after_parsed_xack_1"
+            | "exact_source_absent"
+            | "no_new_source"
+            | "unchanged_no_new_source" => 0,
+            other => panic!("unrecognized P1-d4 PEL expectation: {other}"),
+        }
+    }
+
+    fn p1d4_sequence_label(
+        audit: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        exact_pair: Option<(u64, u64)>,
+    ) -> String {
+        exact_pair.or(audit.sequence_pair).map_or_else(
+            || format!("lifecycle_sequence={}", audit.lifecycle_sequence),
+            |(seq_ack, seq_truth)| format!("seq_ack={seq_ack};seq_truth={seq_truth}"),
+        )
+    }
+
+    fn p1d4_canonicalize_json(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Array(values) => {
+                serde_json::Value::Array(values.into_iter().map(p1d4_canonicalize_json).collect())
+            }
+            serde_json::Value::Object(values) => {
+                let ordered = values
+                    .into_iter()
+                    .map(|(key, value)| (key, p1d4_canonicalize_json(value)))
+                    .collect::<BTreeMap<_, _>>();
+                serde_json::Value::Object(ordered.into_iter().collect())
+            }
+            primitive => primitive,
+        }
+    }
+
+    fn p1d4_canonical_json(value: serde_json::Value) -> Vec<u8> {
+        serde_json::to_vec(&p1d4_canonicalize_json(value))
+            .expect("P1-d4 evidence uses a fixed JSON shape")
+    }
+
+    fn p1d4_semantic_view(mut value: serde_json::Value) -> serde_json::Value {
+        value["run_ordinal"] = serde_json::json!(0);
+        for cell in value["cells"]
+            .as_array_mut()
+            .expect("P1-d4 evidence cells must be an array")
+        {
+            cell["process"]["child_pid"] = serde_json::json!(0);
+            cell["process"]["wall_duration_ms"] = serde_json::json!(0);
+            cell["filesystem"]["scratch_root"] = serde_json::json!("<VOLATILE_PATH>");
+            cell["filesystem"]["raw_marker_sha256"] = serde_json::json!("<VOLATILE_MARKER_SHA256>");
+            cell["redis"]["port"] = serde_json::json!(0);
+        }
+        value
+    }
+
+    fn p1d4_semantic_digest(value: &serde_json::Value) -> String {
+        let bytes = p1d4_canonical_json(p1d4_semantic_view(value.clone()));
+        let mut hasher = Sha256::new();
+        hasher.update(b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v1\0");
+        hasher.update((bytes.len() as u64).to_be_bytes());
+        hasher.update(&bytes);
+        format!("{:x}", hasher.finalize())
+    }
+
+    fn p1d4_runtime_binding_conflict(
+        parent: &Path,
+        fresh: &strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> bool {
+        let result = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                "ab".repeat(32),
+            ))
+            .unwrap(),
+            key,
+            fresh.clone(),
+        );
+        matches!(result, Err(_) | Ok(Stage7bRestartOutcome::Blocked(_)))
+    }
+
+    fn p1d4_wrong_key_conflict(
+        parent: &Path,
+        fresh: &strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    ) -> bool {
+        let wrong_key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x6b; 32])
+            .expect("one-field conflict commitment key");
+        let result = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &wrong_key,
+            fresh.clone(),
+        );
+        matches!(result, Err(_) | Ok(Stage7bRestartOutcome::Blocked(_)))
+    }
+
+    fn p1d4_assert_base_expectations(
+        cell: &P1d4RegistryCell<'_>,
+        before: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        after: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        continuation: &P1d4ContinuationEvidence,
+    ) {
+        match cell.callback_delta {
+            "+1_on_only_legal_continuation" => {
+                // F14 recovers a linear SemanticPending owner.  Consuming
+                // that owner is the single callback continuation, but the
+                // durable counter is scoped to the embedded package that the
+                // callback replaces: both the predecessor and replacement
+                // package must independently retain exactly one callback.
+                assert_eq!(before.callback_count, 1, "{}", cell.cell_id);
+                assert_eq!(after.callback_count, 1, "{}", cell.cell_id);
+            }
+            "0_replay_total_exactly_1" => {
+                assert_eq!(before.callback_count, 1, "{}", cell.cell_id);
+                assert_eq!(after.callback_count, 1, "{}", cell.cell_id);
+            }
+            "0_before_covering_seal" => {
+                // This counter belongs to the currently embedded Stage 5G
+                // package rather than to the lifetime of the process.  The
+                // predecessor package already records its one legal callback;
+                // the F11/F12 crash hook proves that the candidate bar has not
+                // crossed its covering seal.  Replacing the package after the
+                // legal continuation must therefore preserve the exact count,
+                // never accumulate a second callback in either package.
+                assert_eq!(
+                    after.callback_count, before.callback_count,
+                    "{}",
+                    cell.cell_id
+                );
+            }
+            "0" => assert_eq!(
+                after.callback_count, before.callback_count,
+                "{}",
+                cell.cell_id
+            ),
+            other => panic!("{} unknown callback expectation {other}", cell.cell_id),
+        }
+        if cell.provider_delta.starts_with("+1") || cell.provider_delta == "0_before_reissue" {
+            assert_eq!(continuation.provider_attempts, 1, "{}", cell.cell_id);
+        } else if matches!(
+            cell.provider_delta,
+            "0" | "0_replay_total_exactly_1" | "0_before_generated_market_continuation"
+        ) {
+            assert_eq!(continuation.provider_attempts, 0, "{}", cell.cell_id);
+        } else {
+            panic!(
+                "{} unknown provider expectation {}",
+                cell.cell_id, cell.provider_delta
+            );
+        }
+        if cell.schedule_authority_delta.starts_with("+1") {
+            assert!(
+                continuation.schedule_issue_attempts >= 1,
+                "{}",
+                cell.cell_id
+            );
+        } else if matches!(
+            cell.schedule_authority_delta,
+            "0_reissue_forbidden"
+                | "0_reissue_total_exactly_1"
+                | "0_before_generated_market_continuation"
+        ) {
+            assert_eq!(continuation.schedule_issue_attempts, 0, "{}", cell.cell_id);
+        } else {
+            panic!(
+                "{} unknown schedule expectation {}",
+                cell.cell_id, cell.schedule_authority_delta
+            );
+        }
+        match cell.xack_expectation {
+            "parsed_reply_1_then_AlreadyAcknowledged" => {
+                assert_eq!(continuation.xack_reply, "integer:0", "{}", cell.cell_id);
+                assert_eq!(
+                    continuation.xack_disposition, "AlreadyAcknowledged",
+                    "{}",
+                    cell.cell_id
+                );
+            }
+            "forbidden_no_source" => {
+                assert_eq!(
+                    continuation.xack_reply, "not_applicable",
+                    "{}",
+                    cell.cell_id
+                );
+                assert_eq!(
+                    continuation.xack_disposition, "NoSource",
+                    "{}",
+                    cell.cell_id
+                );
+            }
+            "forbidden_before_covering_seal"
+            | "forbidden_until_generated_market_s_truth"
+            | "only_legal_after_current_covering_seal" => {
+                assert_eq!(continuation.xack_reply, "integer:1", "{}", cell.cell_id);
+                assert_eq!(
+                    continuation.xack_disposition, "AcknowledgedPending",
+                    "{}",
+                    cell.cell_id
+                );
+            }
+            other => panic!("{} unknown XACK expectation {other}", cell.cell_id),
+        }
+        assert!(!cell.only_legal_continuation.is_empty());
+        match cell.sequence_expectation {
+            "none_durable_before_wal"
+            | "recovered_ack_not_yet_durable"
+            | "later_truth_sequence_not_yet_durable"
+            | "expiry_truth_sequence_not_yet_durable"
+            | "target_truth_and_recovered_ack_not_yet_durable"
+            | "dispatch_sequence_durable_business_pair_not_yet_allocated"
+            | "dispatch_sequence_durable_recovered_ack_reservation_not_yet_allocated"
+            | "no_order_sequence_before_generated_market_wal" => assert!(
+                after.lifecycle_sequence > before.lifecycle_sequence,
+                "{}",
+                cell.cell_id
+            ),
+            "exact_reserved_ack_truth_pair_unchanged"
+            | "exact_single_later_truth_sequence_unchanged"
+            | "exact_single_expiry_truth_sequence_unchanged"
+            | "exact_single_recovered_ack_unchanged"
+            | "target_truth_precedes_exact_recovered_ack_no_reallocation"
+            | "dispatch_sequence_and_recovered_ack_reservation_unchanged"
+            | "dispatch_sequence_and_reserved_business_frontier_unchanged"
+            | "generated_market_exact_reserved_ack_truth_pair_unchanged"
+            | "dispatch_1_to_1_target_v3_delta_1_cancel_v3_delta_1_total_v3_delta_2_request_finalized_delta_1_target_s_terminal_delta_1_s_cancel_recovered_delta_1"
+            | "no_order_sequence_for_untouched_evaluation" => assert!(
+                after.lifecycle_sequence >= before.lifecycle_sequence,
+                "{}",
+                cell.cell_id
+            ),
+            other => panic!("{} unknown sequence expectation {other}", cell.cell_id),
+        }
+        assert!(!cell.inherited_or_new_test_id.is_empty());
+    }
+
+    fn p1d4_assert_counter_transition(
+        cell_id: &str,
+        expectation: &str,
+        before: usize,
+        after: usize,
+    ) {
+        match expectation {
+            "+1_exact" => {
+                assert_eq!(before, 0, "{cell_id}");
+                assert_eq!(after, 1, "{cell_id}");
+            }
+            "0_replay_total_exactly_1" => {
+                assert_eq!(before, 1, "{cell_id}");
+                assert_eq!(after, 1, "{cell_id}");
+            }
+            "0" => assert_eq!(before, 0, "{cell_id}"),
+            other => panic!("{cell_id} unknown V1 counter expectation {other}"),
+        }
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "arguments mirror independent Generated-Market evidence categories"
+    )]
+    fn p1d4_assert_generated_expectations(
+        cell: &P1d4GeneratedMarketRegistryCell<'_>,
+        before: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        after: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        command_before: usize,
+        command_after: usize,
+        continuation: &P1d4ContinuationEvidence,
+        crash_pair: Option<(u64, u64)>,
+        source_disposition_before_continuation: &str,
+    ) {
+        assert_eq!(
+            cell.publication_reservation_expectation, "mandatory_hmac_covered_exact_reservation",
+            "{}",
+            cell.cell_id
+        );
+        let expected_frontier = match cell.stage6_durable_frontier {
+            "none" => (0, 0, 0, 0),
+            "dispatch_only" => (1, 0, 0, 0),
+            "dispatch_plus_order" => (1, 1, 0, 0),
+            "dispatch_plus_order_plus_trade" => (1, 1, 1, 0),
+            "complete_v1_chain" => (1, 1, 1, 1),
+            other => panic!("{} unknown Stage6 frontier {other}", cell.cell_id),
+        };
+        assert_eq!(
+            (
+                before.dispatch_v1_total,
+                before.order_v1_total,
+                before.trade_v1_total,
+                before.request_finalized_v1_total,
+            ),
+            expected_frontier,
+            "{}",
+            cell.cell_id
+        );
+        let expected_route = match cell.expected_restart_disposition {
+            "P1d4GeneratedMarketPrepublicationPending" => "composite_present_valid_zero_suffix",
+            "P1d4GeneratedMarketDispatchPending" => "composite_present_valid_len1_before_p1d2",
+            "P1d4GeneratedMarketOrderPending" => "composite_present_valid_len2_before_p1d2",
+            "P1d4GeneratedMarketPreFinalizationPending" => {
+                "composite_present_valid_len3_wrap_p1d2_before_return"
+            }
+            "P1d4GeneratedMarketPreAckPending" => {
+                "composite_present_valid_len4_wrap_p1d2_before_return"
+            }
+            "P1d4GeneratedMarketAckCommitted" => "authenticated_ack_phase_direct",
+            "P1d4GeneratedMarketTruthCommitted" => "authenticated_truth_phase_direct",
+            other => panic!("{} unknown restart disposition {other}", cell.cell_id),
+        };
+        assert_eq!(cell.classifier_route, expected_route, "{}", cell.cell_id);
+        assert_eq!(before.callback_count, 1, "{}", cell.cell_id);
+        assert_eq!(after.callback_count, 1, "{}", cell.cell_id);
+        assert_eq!(
+            cell.bar_callback_delta, "0_replay_total_exactly_1",
+            "{}",
+            cell.cell_id
+        );
+        p1d4_assert_counter_transition(
+            cell.cell_id,
+            cell.dispatch_v1_total,
+            before.dispatch_v1_total,
+            after.dispatch_v1_total,
+        );
+        p1d4_assert_counter_transition(
+            cell.cell_id,
+            cell.order_v1_total,
+            before.order_v1_total,
+            after.order_v1_total,
+        );
+        p1d4_assert_counter_transition(
+            cell.cell_id,
+            cell.trade_v1_total,
+            before.trade_v1_total,
+            after.trade_v1_total,
+        );
+        p1d4_assert_counter_transition(
+            cell.cell_id,
+            cell.request_finalized_v1_total,
+            before.request_finalized_v1_total,
+            after.request_finalized_v1_total,
+        );
+        match cell.command_publication_delta {
+            "+1_exact_reserved_publication" => {
+                assert_eq!(
+                    cell.publication_binding_expectation,
+                    "binding_absent_before_xadd"
+                );
+                assert_eq!(command_before, 0, "{}", cell.cell_id);
+                assert_eq!(command_after, command_before + 1, "{}", cell.cell_id);
+            }
+            "0_replay_total_exactly_1" => {
+                assert_ne!(
+                    cell.publication_binding_expectation,
+                    "binding_absent_before_xadd"
+                );
+                assert_eq!(command_before, 1, "{}", cell.cell_id);
+                assert_eq!(command_after, command_before, "{}", cell.cell_id);
+            }
+            other => panic!("{} unknown publication expectation {other}", cell.cell_id),
+        }
+        let expected_provider = match cell.provider_delta {
+            "+1_exact_provider_execution"
+            | "+1_equivalent_recomputation_unique_semantic_total_1" => 1,
+            "0" | "0_effect_reconstruct_evidence_only" | "0_replay_total_exactly_1" => 0,
+            other => panic!("{} unknown provider expectation {other}", cell.cell_id),
+        };
+        assert_eq!(
+            continuation.provider_attempts, expected_provider,
+            "{}",
+            cell.cell_id
+        );
+        let expected_schedule = match cell.schedule_authority_delta {
+            "+1_first_exact_issue" | "+1_equivalent_reissue_only" => 1,
+            "0" | "0_reissue_total_exactly_1" => 0,
+            other => panic!("{} unknown schedule expectation {other}", cell.cell_id),
+        };
+        assert_eq!(
+            continuation.schedule_issue_attempts, expected_schedule,
+            "{}",
+            cell.cell_id
+        );
+        let expected_ack = usize::from(cell.s_ack_delta == "+1_exact") as u64;
+        let expected_truth = usize::from(cell.s_truth_delta == "+1_exact") as u64;
+        assert_eq!(continuation.s_ack_commits, expected_ack, "{}", cell.cell_id);
+        assert_eq!(
+            continuation.s_truth_commits, expected_truth,
+            "{}",
+            cell.cell_id
+        );
+        let expected_xack = u64::from(cell.xack_delta == "+1_exact");
+        assert!(matches!(cell.xack_delta, "+1_exact" | "0"));
+        assert_eq!(
+            continuation.immediate_xack_attempts, expected_xack,
+            "{}",
+            cell.cell_id
+        );
+        assert_eq!(
+            source_disposition_before_continuation, cell.final_source_disposition,
+            "{}",
+            cell.cell_id
+        );
+        match cell.sequence_expectation {
+            "pair_not_allocated" | "pair_not_allocated_but_deterministically_reconstructible" => {
+                assert!(crash_pair.is_none(), "{}", cell.cell_id);
+                assert!(continuation.sequence_after.is_some(), "{}", cell.cell_id);
+            }
+            "exact_pair_allocated_in_memory_and_reconstructed_after_restart"
+            | "exact_pair_reconstructed_equals_pre_kill_marker" => {
+                let pair = crash_pair.expect("GM08/GM09 require a pre-kill pair");
+                assert_eq!(continuation.sequence_after, Some(pair), "{}", cell.cell_id);
+            }
+            "exact_adjacent_pair_durable_unchanged" => {
+                let before_pair = before.sequence_pair.expect("durable pair before restart");
+                assert_eq!(before_pair.1, before_pair.0 + 1, "{}", cell.cell_id);
+                assert_eq!(
+                    continuation.sequence_after,
+                    Some(before_pair),
+                    "{}",
+                    cell.cell_id
+                );
+            }
+            other => panic!("{} unknown sequence expectation {other}", cell.cell_id),
+        }
+        if cell.frontier_id == "GM07" {
+            assert!(
+                crash_pair.is_none(),
+                "GM07 must precede sequence allocation"
+            );
+        }
+        assert!(!cell.only_legal_continuation.is_empty());
+        assert!(!cell.test_id.is_empty());
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "arguments retain the exact registry and crash-process bindings"
+    )]
+    async fn p1d4_collect_cell(
+        mut registry: BTreeMap<String, serde_json::Value>,
+        redis: &RedisServer,
+        parent: &Path,
+        crash: P1d4CrashProcessEvidence,
+        fresh: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        key: &Stage5gLifecycleCommitmentKey,
+        scenario_id: &str,
+        cell_id: &str,
+        frontier_id: &str,
+        kill_hook_name: &str,
+        expected_restart_disposition: &str,
+    ) -> (
+        serde_json::Value,
+        crate::recovery::Stage8bP1d4RestartAuditV1,
+        crate::recovery::Stage8bP1d4RestartAuditV1,
+        P1d4ContinuationEvidence,
+        usize,
+        usize,
+    ) {
+        let marker = parent.join(format!("{cell_id}-{kill_hook_name}.marker"));
+        let redis_before = p1d4_redis_audit(redis).await;
+        assert!(p1d4_runtime_binding_conflict(parent, &fresh, key));
+        assert!(p1d4_wrong_key_conflict(parent, &fresh));
+
+        let duplicate = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let duplicate_disposition = p1d4_restart_disposition(&duplicate);
+        let duplicate_audit = duplicate
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("P1-d4 recovered disposition must expose read-only audit");
+        drop(duplicate);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let raw_restart_disposition = p1d4_restart_disposition(&restart);
+        let restart_disposition = if expected_restart_disposition == "Ready" {
+            assert!(
+                matches!(
+                    raw_restart_disposition,
+                    "Ready" | "P1SemanticZeroIntentAckPending" | "P1d3TruthCommitted"
+                ),
+                "{cell_id} cannot converge to the registry's Ready disposition from {raw_restart_disposition}"
+            );
+            "Ready"
+        } else {
+            assert_eq!(
+                raw_restart_disposition, expected_restart_disposition,
+                "{cell_id}"
+            );
+            raw_restart_disposition
+        };
+        let restart_audit = restart
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("P1-d4 recovered disposition must expose read-only audit");
+        assert_eq!(duplicate_disposition, raw_restart_disposition, "{cell_id}");
+        assert_eq!(duplicate_audit, restart_audit, "{cell_id}");
+        let post_restart_audit_sha256 = crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
+            parent,
+            &marker,
+            cell_id,
+            scenario_id,
+            frontier_id,
+            "post-restart",
+        );
+        let redis_after_restart = p1d4_redis_audit(redis).await;
+        let continuation = p1d4_finish_restart(
+            restart,
+            redis,
+            scenario_id,
+            frontier_id,
+            expected_restart_disposition,
+            key,
+        )
+        .await;
+        let redis_final = p1d4_redis_audit(redis).await;
+        assert_eq!(
+            redis_final.pel, 0,
+            "{cell_id} must finish with no source PEL"
+        );
+        let final_audit_sha256 = crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
+            parent,
+            &marker,
+            cell_id,
+            scenario_id,
+            frontier_id,
+            "final",
+        );
+
+        let final_restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let final_restart_disposition = p1d4_restart_disposition(&final_restart).to_string();
+        let final_runtime_audit = final_restart
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("P1-d4 final restart must expose read-only audit");
+        drop(final_restart);
+        let final_duplicate = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            key,
+            fresh,
+        )
+        .unwrap();
+        assert_eq!(
+            final_duplicate
+                .stage8b_p1d4_test_runtime_audit()
+                .expect("P1-d4 duplicate final restart audit"),
+            final_runtime_audit,
+            "{cell_id}"
+        );
+        assert_eq!(
+            p1d4_restart_disposition(&final_duplicate),
+            final_restart_disposition,
+            "{cell_id}"
+        );
+        drop(final_duplicate);
+        assert!(
+            final_restart_disposition == continuation.final_disposition
+                || (continuation.final_disposition == "Ready"
+                    && final_restart_disposition == "P1SemanticZeroIntentAckPending"
+                    && redis_final.pel == 0),
+            "{cell_id} final durable restart cannot converge to the completed continuation"
+        );
+
+        let sequence_before = p1d4_sequence_label(&restart_audit, crash.sequence_pair_before_kill);
+        let sequence_after = p1d4_sequence_label(&final_runtime_audit, continuation.sequence_after);
+        registry.insert("passed".into(), serde_json::json!(true));
+        registry.insert(
+            "process".into(),
+            serde_json::json!({
+                "child_pid": crash.child_pid,
+                "exit_code": crash.exit_code.map_or_else(|| "none".to_string(), |code| format!("code:{code}")),
+                "exit_signal": format!("signal:{}", crash.exit_signal),
+                "reaped": crash.reaped,
+                "wall_duration_ms": crash.wall_duration_ms,
+            }),
+        );
+        registry.insert(
+            "filesystem".into(),
+            serde_json::json!({
+                "scratch_root": parent.to_string_lossy(),
+                "raw_marker_sha256": crash.raw_marker_sha256,
+                "normalized_marker_sha256": crash.normalized_marker_sha256,
+            }),
+        );
+        registry.insert(
+            "redis".into(),
+            serde_json::json!({
+                "port": redis.port,
+                "pel_before": redis_before.pel,
+                "pel_after": redis_after_restart.pel,
+                "group_frontier": format!("before:{};after:{};final:{}", redis_before.group_frontier, redis_after_restart.group_frontier, redis_final.group_frontier),
+                "xack_reply": continuation.xack_reply,
+                "xack_disposition": continuation.xack_disposition,
+            }),
+        );
+        registry.insert(
+            "pre_kill_audit_sha256".into(),
+            serde_json::json!(crash.pre_kill_audit_sha256),
+        );
+        registry.insert(
+            "post_restart_audit_sha256".into(),
+            serde_json::json!(post_restart_audit_sha256),
+        );
+        registry.insert(
+            "final_audit_sha256".into(),
+            serde_json::json!(final_audit_sha256),
+        );
+        registry.insert("sequence_before".into(), serde_json::json!(sequence_before));
+        registry.insert("sequence_after".into(), serde_json::json!(sequence_after));
+        registry.insert(
+            "callback_before".into(),
+            serde_json::json!(restart_audit.callback_count),
+        );
+        registry.insert(
+            "callback_after".into(),
+            serde_json::json!(final_runtime_audit.callback_count),
+        );
+        registry.insert(
+            "provider_attempts".into(),
+            serde_json::json!(continuation.provider_attempts),
+        );
+        registry.insert(
+            "schedule_issue_attempts".into(),
+            serde_json::json!(continuation.schedule_issue_attempts),
+        );
+        registry.insert(
+            "durable_outcomes".into(),
+            serde_json::json!(final_runtime_audit.durable_outcomes),
+        );
+        registry.insert(
+            "durable_truths".into(),
+            serde_json::json!(final_runtime_audit.durable_truths),
+        );
+        registry.insert(
+            "command_publications".into(),
+            serde_json::json!(redis_final.command_publications - redis_before.command_publications),
+        );
+        registry.insert(
+            "restart_disposition".into(),
+            serde_json::json!(restart_disposition),
+        );
+        registry.insert(
+            "final_disposition".into(),
+            serde_json::json!(continuation.final_disposition),
+        );
+        registry.insert(
+            "continuation_disposition".into(),
+            serde_json::json!(continuation.final_disposition),
+        );
+        registry.insert(
+            "final_restart_disposition".into(),
+            serde_json::json!(final_restart_disposition),
+        );
+        registry.insert(
+            "immediate_xack_attempts".into(),
+            serde_json::json!(continuation.immediate_xack_attempts),
+        );
+        registry.insert(
+            "source_disposition_before_continuation".into(),
+            serde_json::json!(if redis_after_restart.pel == 0 {
+                "NoSource"
+            } else if raw_restart_disposition == "P1d4GeneratedMarketTruthCommitted" {
+                "Pending_until_xack"
+            } else {
+                "Pending"
+            }),
+        );
+        registry.insert(
+            "duplicate_result".into(),
+            serde_json::json!("PASS:second_clean_run_same_final_audit_and_restart_audit"),
+        );
+        registry.insert(
+            "conflict_result".into(),
+            serde_json::json!("PASS:runtime_config_binding_and_hmac_rejected"),
+        );
+        (
+            p1d4_canonicalize_json(serde_json::to_value(registry).unwrap()),
+            restart_audit,
+            final_runtime_audit,
+            continuation,
+            redis_before.command_publications,
+            redis_final.command_publications,
+        )
+    }
+
+    async fn p1d4_collect_evidence_run(run_ordinal: u64) -> serde_json::Value {
+        let mut cells = Vec::new();
+        for cell in p1d4_registry_cells() {
+            let redis = RedisServer::start().await;
+            let parent = temp_directory(&format!("p1d4-evidence-{run_ordinal}-{}", cell.cell_id));
+            let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
+            let crash = spawn_p1d4_exact_frontier(
+                &redis,
+                &parent,
+                p1d4_scenario_name(cell.scenario_id),
+                cell.scenario_id,
+                cell.frontier_id,
+            )
+            .await;
+            let expected_pel_before = p1d4_expected_pel(cell.pel_before);
+            let expected_pel_after = p1d4_expected_pel(cell.pel_after);
+            let (evidence, before, after, continuation, _, _) = p1d4_collect_cell(
+                cell.registry_fields(),
+                &redis,
+                &parent,
+                crash,
+                fresh,
+                &key,
+                cell.scenario_id,
+                cell.cell_id,
+                cell.frontier_id,
+                cell.kill_hook_name,
+                cell.expected_restart_disposition(),
+            )
+            .await;
+            assert_eq!(evidence["redis"]["pel_before"], expected_pel_before);
+            assert_eq!(evidence["redis"]["pel_after"], expected_pel_after);
+            p1d4_assert_base_expectations(&cell, &before, &after, &continuation);
+            assert!(cell.duplicate_variant_required && cell.conflict_variant_required);
+            cells.push(evidence);
+            fs::remove_dir_all(parent).unwrap();
+        }
+        for cell in p1d4_generated_market_registry_cells() {
+            let redis = RedisServer::start().await;
+            let parent = temp_directory(&format!("p1d4-evidence-{run_ordinal}-{}", cell.cell_id));
+            let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
+            let crash = spawn_p1d4_generated_market_frontier(&redis, &parent, &cell).await;
+            let crash_pair = crash.sequence_pair_before_kill;
+            let (evidence, before, after, continuation, command_before, command_after) =
+                p1d4_collect_cell(
+                    cell.registry_fields(),
+                    &redis,
+                    &parent,
+                    crash,
+                    fresh,
+                    &key,
+                    cell.parent_scenario_id,
+                    cell.cell_id,
+                    cell.frontier_id,
+                    cell.kill_hook_name,
+                    cell.expected_restart_disposition(),
+                )
+                .await;
+            assert_eq!(
+                evidence["redis"]["pel_before"],
+                p1d4_expected_pel(cell.source_pel_before)
+            );
+            assert_eq!(
+                evidence["redis"]["pel_after"],
+                p1d4_expected_pel(cell.source_pel_after)
+            );
+            p1d4_assert_generated_expectations(
+                &cell,
+                &before,
+                &after,
+                command_before,
+                command_after,
+                &continuation,
+                crash_pair,
+                evidence["source_disposition_before_continuation"]
+                    .as_str()
+                    .unwrap(),
+            );
+            assert!(cell.duplicate_variant_required && cell.conflict_variant_required);
+            cells.push(evidence);
+            fs::remove_dir_all(parent).unwrap();
+        }
+        cells.sort_by(|left, right| {
+            left["cell_id"]
+                .as_str()
+                .unwrap()
+                .as_bytes()
+                .cmp(right["cell_id"].as_str().unwrap().as_bytes())
+        });
+        assert_eq!(cells.len(), 105);
+        assert!(cells
+            .windows(2)
+            .all(|pair| pair[0]["cell_id"] != pair[1]["cell_id"]));
+        let base_matrix = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv"
+        ));
+        p1d4_canonicalize_json(serde_json::json!({
+            "schema_version": 1,
+            "domain": "moex.stage8b.p1d4.crash-replay.evidence.v1",
+            "accepted_predecessor_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
+            "source_ref": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_REF").unwrap_or_else(|_| "WORKTREE".into()),
+            "source_tree": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_TREE").unwrap_or_else(|_| "WORKTREE".into()),
+            "matrix_sha256": sha256_hex(base_matrix),
+            "run_ordinal": run_ordinal,
+            "cells": cells,
+            "aggregate": {
+                "passed": true,
+                "base_cells": 92,
+                "generated_market_cells": 13,
+                "positive_cells": 105,
+                "duplicate_variants": 105,
+                "conflict_variants": 105,
+                "final_pel_zero_cells": 105,
+            },
+        }))
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn p1d4_exhaustive_crash_replay_evidence_two_clean_runs() {
+        let run_one = p1d4_collect_evidence_run(1).await;
+        let run_two = p1d4_collect_evidence_run(2).await;
+        let digest_one = p1d4_semantic_digest(&run_one);
+        let digest_two = p1d4_semantic_digest(&run_two);
+        for (first, second) in run_one["cells"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(run_two["cells"].as_array().unwrap())
+        {
+            assert_eq!(first["cell_id"], second["cell_id"]);
+            assert_eq!(
+                first["final_audit_sha256"],
+                second["final_audit_sha256"],
+                "{} final audit differs between clean runs",
+                first["cell_id"].as_str().unwrap()
+            );
+            assert_eq!(first["final_disposition"], second["final_disposition"]);
+        }
+        assert_eq!(digest_one, digest_two, "P1-d4 clean-run semantic drift");
+        let output_directory = std::env::var_os("STAGE8B_P1D4_EVIDENCE_OUTPUT")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| temp_directory("p1d4-evidence-output"));
+        fs::create_dir_all(&output_directory).unwrap();
+        fs::write(
+            output_directory.join("stage8b-p1d4-crash-replay-run-1.json"),
+            p1d4_canonical_json(run_one),
+        )
+        .unwrap();
+        fs::write(
+            output_directory.join("stage8b-p1d4-crash-replay-run-2.json"),
+            p1d4_canonical_json(run_two),
+        )
+        .unwrap();
+        fs::write(
+            output_directory.join("stage8b-p1d4-crash-replay-semantic-digest.txt"),
+            format!("{digest_one}\n"),
+        )
+        .unwrap();
+        eprintln!("P1D4_EVIDENCE_DIGEST={digest_one}");
     }
 
     async fn spawn_p1d4_legacy_frontier(
@@ -7515,16 +9392,32 @@ mod tests {
                 "{} byte-identical duplicate restart drifted",
                 cell.cell_id
             );
-            let actual = p1d4_effective_restart_disposition(
+            if cell.expected_restart_disposition != "Ready" {
+                assert_eq!(
+                    p1d4_restart_disposition(&restart),
+                    cell.expected_restart_disposition,
+                    "{} {}/{}",
+                    cell.cell_id,
+                    cell.scenario_id,
+                    cell.frontier_id,
+                );
+            }
+            let completion = p1d4_finish_restart(
                 restart,
                 &redis,
+                cell.scenario_id,
+                cell.frontier_id,
                 cell.expected_restart_disposition,
+                &key,
             )
             .await;
-            assert_eq!(
-                actual, cell.expected_restart_disposition,
-                "{} {}/{}",
-                cell.cell_id, cell.scenario_id, cell.frontier_id,
+            assert!(
+                matches!(
+                    completion.final_disposition.as_str(),
+                    "Ready" | "P1d3TruthCommitted" | "P1d4GeneratedMarketTruthCommitted"
+                ),
+                "{} did not reach a final lifecycle state",
+                cell.cell_id
             );
             fs::remove_dir_all(parent).unwrap();
         }
@@ -7541,7 +9434,7 @@ mod tests {
             let redis = RedisServer::start().await;
             let parent = temp_directory(&format!("p1d4-generated-{}", cell.cell_id));
             let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
-            spawn_p1d4_generated_market_frontier(&redis, &parent, &cell).await;
+            let crash = spawn_p1d4_generated_market_frontier(&redis, &parent, &cell).await;
 
             let wrong_key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x6b; 32])
                 .expect("one-field conflict commitment key");
@@ -7657,6 +9550,17 @@ mod tests {
                         resolved.disposition(),
                         Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
                     );
+                    if let Some((seq_ack, seq_truth)) = crash.sequence_pair_before_kill {
+                        assert_eq!(
+                            (
+                                resolved.audit_evidence().core.seq_ack,
+                                resolved.audit_evidence().core.seq_truth
+                            ),
+                            (seq_ack, seq_truth),
+                            "{} must preserve the exact pre-kill sequence pair",
+                            cell.cell_id
+                        );
+                    }
                     drop(resolved);
                     fs::remove_dir_all(parent).unwrap();
                     continue;
@@ -7690,6 +9594,17 @@ mod tests {
                 resolved.disposition(),
                 Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
             );
+            if let Some((seq_ack, seq_truth)) = crash.sequence_pair_before_kill {
+                assert_eq!(
+                    (
+                        resolved.audit_evidence().core.seq_ack,
+                        resolved.audit_evidence().core.seq_truth
+                    ),
+                    (seq_ack, seq_truth),
+                    "{} must preserve the exact pre-kill sequence pair",
+                    cell.cell_id
+                );
+            }
             drop(resolved);
             let pending_after: StreamPendingReply = redis::cmd("XPENDING")
                 .arg(&namespace.canonical_m10_stream)

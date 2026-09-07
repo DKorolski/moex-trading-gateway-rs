@@ -32,6 +32,7 @@ EXPECTED_CHANGED = {
     "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1d4-source-evidence.json",
     "scripts/make_stage8b_p1d4_source_handoff.py",
+    "scripts/stage8b_p1d4_crash_evidence_check.py",
     "scripts/stage8b_p1d4_source_check.py",
     "scripts/stage8b_p1d4_source_gate.sh",
     "scripts/stage8b_p1d4_source_handoff_safety_check.py",
@@ -78,6 +79,7 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "evidence": "docs/stage-8/stage8b-p1d4-source-evidence.json",
         "status": "docs/current-status.md",
         "roadmap": "docs/roadmap.md",
+        "crash_evidence_checker": "scripts/stage8b_p1d4_crash_evidence_check.py",
     }
     return {key: (root / path).read_text(encoding="utf-8") for key, path in paths.items()}
 
@@ -97,6 +99,7 @@ def validate_content(content: dict[str, str]) -> None:
     service = content["service"]
     redis_source = content["redis"]
     document = content["doc"]
+    crash_evidence_checker = content["crash_evidence_checker"]
 
     for token in (
         'RESERVATION_DOMAIN: &str = "moex.stage8b.p1d4.command-publication-reservation.v1"',
@@ -196,6 +199,19 @@ def validate_content(content: dict[str, str]) -> None:
         "p1d2_sequence_pair_allocation_crash_reconstructs_exact_ack_path",
         '"/../../docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv"',
         '"/../../docs/stage-8/stage8b-p1d4-generated-market-crash-submatrix-v3.csv"',
+        "struct P1d4RegistryCell",
+        "struct P1d4GeneratedMarketRegistryCell",
+        "p1d4_exhaustive_crash_replay_evidence_two_clean_runs",
+        "p1d4_collect_evidence_run(1)",
+        "p1d4_collect_evidence_run(2)",
+        "P1D4_EVIDENCE_DIGEST",
+        '"GM08" | "GM09"',
+        "STAGE8B_P1_TEST_SEQUENCE_PAIR_MARKER",
+        "assert_eq!(continuation.sequence_after, Some(pair)",
+        'cell.frontier_id == "GM07"',
+        "immediate_xack_attempts",
+        "source_disposition_before_continuation",
+        "second_clean_run_same_final_audit",
     ):
         require(token in redis_source, f"Redis/proof invariant missing: {token}")
     for frontier in range(13):
@@ -210,6 +226,23 @@ def validate_content(content: dict[str, str]) -> None:
         "P1-e remain closed",
     ):
         require(token in document, f"source document invariant missing: {token}")
+
+    for token in (
+        "FIXED_CELL_FIELDS",
+        "duplicate JSON key",
+        "floating-point JSON value is forbidden",
+        "len(cells) == 105",
+        "registry field drift",
+        'process["exit_signal"] == "signal:9"',
+        'process["reaped"] is True',
+        "semantic_digest(run)",
+        'cell["sequence_before"] == cell["sequence_after"]',
+        'expected["frontier_id"] == "GM07"',
+        'expected["xack_delta"]',
+        'expected["final_source_disposition"]',
+        'first["final_audit_sha256"] == second["final_audit_sha256"]',
+    ):
+        require(token in crash_evidence_checker, f"crash evidence checker invariant missing: {token}")
 
     matrix_rows = list(csv.DictReader(content["matrix"].splitlines()))
     require(len(matrix_rows) == 20, "source acceptance matrix must contain 20 rows")
