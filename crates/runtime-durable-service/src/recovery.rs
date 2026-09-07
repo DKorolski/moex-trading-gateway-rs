@@ -5580,6 +5580,27 @@ pub(crate) fn stage8b_p1d4_pre_kill_audit_sha256(
 }
 
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+static STAGE8B_P1D4_PRE_KILL_XACK_REPLY: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+pub(crate) fn stage8b_p1d4_test_observe_xack_reply(reply: usize) {
+    if std::env::var("STAGE8B_P1D4_ARMED").as_deref() != Ok("1")
+        || std::env::var("STAGE8B_P1D4_FRONTIER_ID").as_deref() != Ok("F16")
+    {
+        return;
+    }
+    assert!(
+        reply <= 1,
+        "P1-d4 exact single-ID XACK reply must be 0 or 1"
+    );
+    let encoded = u64::try_from(reply).expect("P1-d4 XACK reply must fit u64") + 1;
+    // Setup may settle an earlier source in the same child. The F16 hook is
+    // invoked immediately after the target XACK, so the latest parsed reply
+    // is the exact reply whose response-loss frontier is being captured.
+    STAGE8B_P1D4_PRE_KILL_XACK_REPLY.store(encoded, Ordering::SeqCst);
+}
+
+#[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
 pub(crate) fn stage8b_p1_test_crash_barrier(phase: &str) {
     if std::env::var("STAGE8B_P1_TEST_CRASH_PHASE").as_deref() != Ok(phase) {
         return;
@@ -5651,8 +5672,22 @@ pub(crate) fn stage8b_p1_test_crash_barrier(phase: &str) {
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "P1-d4 pre-kill audit digest must be lowercase hexadecimal"
         );
+        let encoded_xack_reply = STAGE8B_P1D4_PRE_KILL_XACK_REPLY.load(Ordering::SeqCst);
+        let pre_kill_xack_reply = if frontier_id == "F16" {
+            assert_eq!(
+                encoded_xack_reply, 2,
+                "P1-d4 F16 marker requires an observed parsed XACK reply of 1"
+            );
+            "integer:1"
+        } else {
+            assert_eq!(
+                encoded_xack_reply, 0,
+                "P1-d4 non-F16 frontier cannot retain a pre-kill XACK reply"
+            );
+            "not_observed"
+        };
         format!(
-            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":1}}",
+            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v2\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"pre_kill_xack_reply\":\"{pre_kill_xack_reply}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":2}}",
             std::process::id()
         )
     } else {

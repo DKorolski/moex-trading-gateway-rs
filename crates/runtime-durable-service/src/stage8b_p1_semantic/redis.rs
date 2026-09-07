@@ -2999,6 +2999,8 @@ impl Stage8bP1RedisBackend {
                     .arg(delivery.redis_id())
                     .query_async(&mut self.connection)
                     .await?;
+                #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+                crate::recovery::stage8b_p1d4_test_observe_xack_reply(acknowledged);
                 if acknowledged == 1 {
                     Ok(Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending)
                 } else {
@@ -5094,6 +5096,28 @@ mod tests {
         truth_replacement_commits: usize,
     }
 
+    #[derive(Debug, Clone)]
+    struct P1d4BaseOperationalEvidenceOracleCell<'a> {
+        cell_id: &'a str,
+        callback_before: usize,
+        callback_after: usize,
+        command_publications: usize,
+        immediate_xack_attempts: u64,
+        pre_kill_xack_reply: &'a str,
+        xack_reply: &'a str,
+        xack_disposition: &'a str,
+        source_disposition_before_continuation: &'a str,
+        source_stream: &'a str,
+        source_group: &'a str,
+        source_m10_redis_id: &'a str,
+        before_last_delivered_id: &'a str,
+        before_pending: usize,
+        post_restart_last_delivered_id: &'a str,
+        post_restart_pending: usize,
+        final_last_delivered_id: &'a str,
+        final_pending: usize,
+    }
+
     impl P1d4RegistryIdentity for P1d4RegistryCell<'_> {
         fn cell_id(&self) -> &str {
             self.cell_id
@@ -5336,6 +5360,7 @@ mod tests {
         raw_marker_sha256: String,
         normalized_marker_sha256: String,
         pre_kill_filesystem_sha256: String,
+        pre_kill_xack_reply: String,
         sequence_pair_before_kill: Option<(u64, u64)>,
     }
 
@@ -5446,6 +5471,63 @@ mod tests {
             .filter(|cell| cell.cell_id == cell_id)
             .collect::<Vec<_>>();
         assert_eq!(matches.len(), 1, "P1-d4 base evidence oracle lookup");
+        matches.into_iter().next().unwrap()
+    }
+
+    fn p1d4_base_operational_evidence_oracle_cells(
+    ) -> Vec<P1d4BaseOperationalEvidenceOracleCell<'static>> {
+        let oracle = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv"
+        ));
+        oracle
+            .lines()
+            .skip(1)
+            .map(|line| {
+                let fields = line.split(',').collect::<Vec<_>>();
+                assert_eq!(
+                    fields.len(),
+                    18,
+                    "P1-d4 base operational evidence oracle row must remain exact"
+                );
+                P1d4BaseOperationalEvidenceOracleCell {
+                    cell_id: fields[0],
+                    callback_before: fields[1].parse().expect("base callback before"),
+                    callback_after: fields[2].parse().expect("base callback after"),
+                    command_publications: fields[3].parse().expect("base command publications"),
+                    immediate_xack_attempts: fields[4]
+                        .parse()
+                        .expect("base immediate XACK attempts"),
+                    xack_reply: fields[5],
+                    xack_disposition: fields[6],
+                    source_disposition_before_continuation: fields[7],
+                    source_stream: fields[8],
+                    source_group: fields[9],
+                    source_m10_redis_id: fields[10],
+                    before_last_delivered_id: fields[11],
+                    before_pending: fields[12].parse().expect("base before PEL"),
+                    post_restart_last_delivered_id: fields[13],
+                    post_restart_pending: fields[14].parse().expect("base post-restart PEL"),
+                    final_last_delivered_id: fields[15],
+                    final_pending: fields[16].parse().expect("base final PEL"),
+                    pre_kill_xack_reply: fields[17],
+                }
+            })
+            .collect()
+    }
+
+    fn p1d4_base_operational_evidence_oracle_cell(
+        cell_id: &str,
+    ) -> P1d4BaseOperationalEvidenceOracleCell<'static> {
+        let matches = p1d4_base_operational_evidence_oracle_cells()
+            .into_iter()
+            .filter(|cell| cell.cell_id == cell_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "P1-d4 base operational evidence oracle lookup"
+        );
         matches.into_iter().next().unwrap()
     }
 
@@ -6189,14 +6271,23 @@ mod tests {
         let marker_bytes = fs::read(marker).unwrap();
         let marker_json: serde_json::Value = serde_json::from_slice(&marker_bytes).unwrap();
         let marker_object = marker_json.as_object().unwrap();
-        assert_eq!(marker_object.len(), 8);
-        assert_eq!(marker_json["schema_version"], 1);
-        assert_eq!(marker_json["domain"], "moex.stage8b.p1d4.crash-marker.v1");
+        assert_eq!(marker_object.len(), 9);
+        assert_eq!(marker_json["schema_version"], 2);
+        assert_eq!(marker_json["domain"], "moex.stage8b.p1d4.crash-marker.v2");
         assert_eq!(marker_json["child_pid"], u64::from(child.id()));
         assert_eq!(marker_json["cell_id"], cell.cell_id());
         assert_eq!(marker_json["scenario_id"], cell.scenario_id());
         assert_eq!(marker_json["frontier_id"], cell.frontier_id());
         assert_eq!(marker_json["kill_hook_name"], cell.kill_hook_name());
+        let pre_kill_xack_reply = marker_json["pre_kill_xack_reply"].as_str().unwrap();
+        assert_eq!(
+            pre_kill_xack_reply,
+            if cell.frontier_id() == "F16" {
+                "integer:1"
+            } else {
+                "not_observed"
+            }
+        );
         let pre_kill_audit_sha256 = marker_json["pre_kill_audit_sha256"].as_str().unwrap();
         assert_eq!(
             pre_kill_audit_sha256,
@@ -6210,26 +6301,28 @@ mod tests {
             )
         );
         let expected_canonical = format!(
-            "{{\"cell_id\":\"{}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":1}}",
+            "{{\"cell_id\":\"{}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v2\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"pre_kill_xack_reply\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":2}}",
             cell.cell_id(),
             child.id(),
             cell.frontier_id(),
             cell.kill_hook_name(),
             pre_kill_audit_sha256,
+            pre_kill_xack_reply,
             cell.scenario_id(),
         );
         assert_eq!(marker_bytes, expected_canonical.as_bytes());
 
         let normalized = format!(
-            "{{\"cell_id\":\"{}\",\"child_pid\":0,\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":1}}",
+            "{{\"cell_id\":\"{}\",\"child_pid\":0,\"domain\":\"moex.stage8b.p1d4.crash-marker.v2\",\"frontier_id\":\"{}\",\"kill_hook_name\":\"{}\",\"pre_kill_audit_sha256\":\"{}\",\"pre_kill_xack_reply\":\"{}\",\"scenario_id\":\"{}\",\"schema_version\":2}}",
             cell.cell_id(),
             cell.frontier_id(),
             cell.kill_hook_name(),
             pre_kill_audit_sha256,
+            pre_kill_xack_reply,
             cell.scenario_id(),
         );
         let mut normalized_hasher = Sha256::new();
-        normalized_hasher.update(b"moex.stage8b.p1d4.crash-marker.normalized.v1\0");
+        normalized_hasher.update(b"moex.stage8b.p1d4.crash-marker.normalized.v2\0");
         normalized_hasher.update((normalized.len() as u64).to_be_bytes());
         normalized_hasher.update(normalized.as_bytes());
         let normalized_marker_sha256 = format!("{:x}", normalized_hasher.finalize());
@@ -6248,6 +6341,7 @@ mod tests {
             raw_marker_sha256,
             normalized_marker_sha256,
             pre_kill_filesystem_sha256: pre_kill_audit_sha256.to_string(),
+            pre_kill_xack_reply: pre_kill_xack_reply.to_string(),
             sequence_pair_before_kill: None,
         }
     }
@@ -6646,7 +6740,9 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Eq)]
     struct P1d4RedisAudit {
         pel: usize,
-        group_frontier: String,
+        source_stream: String,
+        source_group: String,
+        last_delivered_id: String,
         command_publications: usize,
     }
 
@@ -6678,12 +6774,43 @@ mod tests {
             .unwrap();
         P1d4RedisAudit {
             pel: pending.count(),
-            group_frontier: format!(
-                "last_delivered_id={};pending={}",
-                group.last_delivered_id, group.pending
-            ),
+            source_stream: namespace.canonical_m10_stream,
+            source_group: namespace.m10_consumer_group,
+            last_delivered_id: group.last_delivered_id,
             command_publications,
         }
+    }
+
+    fn p1d4_redis_group_frontier_v1(
+        before: &P1d4RedisAudit,
+        post_restart: &P1d4RedisAudit,
+        final_audit: &P1d4RedisAudit,
+    ) -> serde_json::Value {
+        assert_eq!(before.source_stream, post_restart.source_stream);
+        assert_eq!(before.source_stream, final_audit.source_stream);
+        assert_eq!(before.source_group, post_restart.source_group);
+        assert_eq!(before.source_group, final_audit.source_group);
+        assert_eq!(before.last_delivered_id, post_restart.last_delivered_id);
+        assert_eq!(before.last_delivered_id, final_audit.last_delivered_id);
+        p1d4_canonicalize_json(serde_json::json!({
+            "schema_version": 1,
+            "domain": "moex.stage8b.p1d4.redis-source-frontier.v1",
+            "source_stream": before.source_stream.as_str(),
+            "source_group": before.source_group.as_str(),
+            "source_m10_redis_id": before.last_delivered_id.as_str(),
+            "before": {
+                "last_delivered_id": before.last_delivered_id.as_str(),
+                "pending": before.pel,
+            },
+            "post_restart": {
+                "last_delivered_id": post_restart.last_delivered_id.as_str(),
+                "pending": post_restart.pel,
+            },
+            "final": {
+                "last_delivered_id": final_audit.last_delivered_id.as_str(),
+                "pending": final_audit.pel,
+            },
+        }))
     }
 
     fn p1d4_expected_pel(value: &str) -> usize {
@@ -7053,6 +7180,76 @@ mod tests {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn p1d4_assert_base_operational_evidence_oracle(
+        cell_id: &str,
+        callback_before: usize,
+        callback_after: usize,
+        command_publications: usize,
+        pre_kill_xack_reply: &str,
+        continuation: &P1d4ContinuationEvidence,
+        source_disposition_before_continuation: &str,
+        redis_before: &P1d4RedisAudit,
+        redis_post_restart: &P1d4RedisAudit,
+        redis_final: &P1d4RedisAudit,
+    ) {
+        let oracle = p1d4_base_operational_evidence_oracle_cell(cell_id);
+        assert_eq!(callback_before, oracle.callback_before, "{cell_id}");
+        assert_eq!(callback_after, oracle.callback_after, "{cell_id}");
+        assert_eq!(
+            command_publications, oracle.command_publications,
+            "{cell_id}: exact command publication delta"
+        );
+        assert_eq!(
+            continuation.immediate_xack_attempts, oracle.immediate_xack_attempts,
+            "{cell_id}: exact immediate XACK count"
+        );
+        assert_eq!(
+            pre_kill_xack_reply, oracle.pre_kill_xack_reply,
+            "{cell_id}: exact pre-kill XACK reply"
+        );
+        assert_eq!(continuation.xack_reply, oracle.xack_reply, "{cell_id}");
+        assert_eq!(
+            continuation.xack_disposition, oracle.xack_disposition,
+            "{cell_id}"
+        );
+        assert_eq!(
+            source_disposition_before_continuation, oracle.source_disposition_before_continuation,
+            "{cell_id}"
+        );
+        assert_eq!(
+            redis_before.source_stream, oracle.source_stream,
+            "{cell_id}"
+        );
+        assert_eq!(redis_before.source_group, oracle.source_group, "{cell_id}");
+        assert_eq!(
+            redis_before.last_delivered_id, oracle.source_m10_redis_id,
+            "{cell_id}: source M10 identity"
+        );
+        assert_eq!(
+            redis_before.last_delivered_id, oracle.before_last_delivered_id,
+            "{cell_id}"
+        );
+        assert_eq!(redis_before.pel, oracle.before_pending, "{cell_id}");
+        assert_eq!(
+            redis_post_restart.last_delivered_id, oracle.post_restart_last_delivered_id,
+            "{cell_id}"
+        );
+        assert_eq!(
+            redis_post_restart.pel, oracle.post_restart_pending,
+            "{cell_id}"
+        );
+        assert_eq!(
+            redis_final.last_delivered_id, oracle.final_last_delivered_id,
+            "{cell_id}"
+        );
+        assert_eq!(redis_final.pel, oracle.final_pending, "{cell_id}");
+        assert_eq!(redis_post_restart.source_stream, oracle.source_stream);
+        assert_eq!(redis_final.source_stream, oracle.source_stream);
+        assert_eq!(redis_post_restart.source_group, oracle.source_group);
+        assert_eq!(redis_final.source_group, oracle.source_group);
+    }
+
     fn p1d4_canonical_json(value: serde_json::Value) -> Vec<u8> {
         serde_json::to_vec(&p1d4_canonicalize_json(value))
             .expect("P1-d4 evidence uses a fixed JSON shape")
@@ -7103,7 +7300,7 @@ mod tests {
     fn p1d4_semantic_digest(value: &serde_json::Value) -> String {
         let bytes = p1d4_canonical_json(p1d4_semantic_view(value.clone()));
         let mut hasher = Sha256::new();
-        hasher.update(b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v2\0");
+        hasher.update(b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v3\0");
         hasher.update((bytes.len() as u64).to_be_bytes());
         hasher.update(&bytes);
         format!("{:x}", hasher.finalize())
@@ -7788,6 +7985,21 @@ mod tests {
             redis_final.pel, 0,
             "{cell_id} must finish with no source PEL"
         );
+        let command_publications =
+            redis_final.command_publications - redis_before.command_publications;
+        let source_disposition_before_continuation = if redis_after_restart.pel == 0 {
+            "NoSource"
+        } else if raw_restart_disposition == "P1d4GeneratedMarketTruthCommitted" {
+            "Pending_until_xack"
+        } else {
+            "Pending"
+        };
+        let group_frontier_v1 =
+            p1d4_redis_group_frontier_v1(&redis_before, &redis_after_restart, &redis_final);
+        let group_frontier_sha256 = format!(
+            "{:x}",
+            Sha256::digest(p1d4_canonical_json(group_frontier_v1.clone()))
+        );
         let final_filesystem_sha256 = crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
             parent,
             &marker,
@@ -7834,6 +8046,18 @@ mod tests {
                 &observed_effect_events,
                 &package_commit_history,
                 truth_replacement_commits,
+            );
+            p1d4_assert_base_operational_evidence_oracle(
+                cell_id,
+                restart_audit.callback_count,
+                final_runtime_audit.callback_count,
+                command_publications,
+                &crash.pre_kill_xack_reply,
+                &continuation,
+                source_disposition_before_continuation,
+                &redis_before,
+                &redis_after_restart,
+                &redis_final,
             );
         }
         drop(final_restart);
@@ -7936,7 +8160,18 @@ mod tests {
                 "port": redis.port,
                 "pel_before": redis_before.pel,
                 "pel_after": redis_after_restart.pel,
-                "group_frontier": format!("before:{};after:{};final:{}", redis_before.group_frontier, redis_after_restart.group_frontier, redis_final.group_frontier),
+                "group_frontier": format!(
+                    "before:last_delivered_id={};pending={};after:last_delivered_id={};pending={};final:last_delivered_id={};pending={}",
+                    redis_before.last_delivered_id,
+                    redis_before.pel,
+                    redis_after_restart.last_delivered_id,
+                    redis_after_restart.pel,
+                    redis_final.last_delivered_id,
+                    redis_final.pel,
+                ),
+                "group_frontier_v1": group_frontier_v1,
+                "group_frontier_sha256": group_frontier_sha256,
+                "pre_kill_xack_reply": crash.pre_kill_xack_reply,
                 "xack_reply": continuation.xack_reply,
                 "xack_disposition": continuation.xack_disposition,
             }),
@@ -8031,7 +8266,7 @@ mod tests {
         );
         registry.insert(
             "command_publications".into(),
-            serde_json::json!(redis_final.command_publications - redis_before.command_publications),
+            serde_json::json!(command_publications),
         );
         registry.insert(
             "restart_disposition".into(),
@@ -8055,13 +8290,7 @@ mod tests {
         );
         registry.insert(
             "source_disposition_before_continuation".into(),
-            serde_json::json!(if redis_after_restart.pel == 0 {
-                "NoSource"
-            } else if raw_restart_disposition == "P1d4GeneratedMarketTruthCommitted" {
-                "Pending_until_xack"
-            } else {
-                "Pending"
-            }),
+            serde_json::json!(source_disposition_before_continuation),
         );
         registry.insert(
             "duplicate_result".into(),
@@ -8182,14 +8411,19 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv"
         ));
+        let base_operational_evidence_oracle = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv"
+        ));
         p1d4_canonicalize_json(serde_json::json!({
-            "schema_version": 2,
-            "domain": "moex.stage8b.p1d4.crash-replay.evidence.v2",
+            "schema_version": 3,
+            "domain": "moex.stage8b.p1d4.crash-replay.evidence.v3",
             "accepted_predecessor_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
             "source_ref": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_REF").unwrap_or_else(|_| "WORKTREE".into()),
             "source_tree": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_TREE").unwrap_or_else(|_| "WORKTREE".into()),
             "matrix_sha256": sha256_hex(base_matrix),
             "base_evidence_oracle_sha256": sha256_hex(base_evidence_oracle),
+            "base_operational_evidence_oracle_sha256": sha256_hex(base_operational_evidence_oracle),
             "run_ordinal": run_ordinal,
             "cells": cells,
             "aggregate": {

@@ -70,6 +70,19 @@ def sync_runtime_audit(target: dict[str, Any], phase: str) -> None:
     refresh_audit_hash(target, phase)
 
 
+def refresh_group_frontier_hash(target: dict[str, Any]) -> None:
+    frontier = target["redis"]["group_frontier_v1"]
+    source_id = frontier["source_m10_redis_id"]
+    target["redis"]["group_frontier"] = (
+        f"before:last_delivered_id={source_id};pending={frontier['before']['pending']};"
+        f"after:last_delivered_id={source_id};pending={frontier['post_restart']['pending']};"
+        f"final:last_delivered_id={source_id};pending={frontier['final']['pending']}"
+    )
+    target["redis"]["group_frontier_sha256"] = hashlib.sha256(
+        check.canonical_bytes(frontier)
+    ).hexdigest()
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         raise SystemExit(
@@ -171,6 +184,46 @@ def main() -> None:
         target = cell(run, "P1D4C-001")
         target["final_audit_payload"]["runtime_audit"]["callback_count"] += 1
 
+    def f14_callback_erased(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-038")
+        target["callback_before"] = 0
+        target["callback_after"] = 0
+        for phase in ("pre-kill", "post-restart", "final"):
+            sync_runtime_audit(target, phase)
+
+    def f14_callback_replayed(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-038")
+        target["callback_after"] = 2
+        sync_runtime_audit(target, "final")
+
+    def f14_publication_missing(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-038")["command_publications"] = 0
+
+    def f14_publication_duplicated(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-038")["command_publications"] = 2
+
+    def f16_xack_disposition_inverted(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-010")
+        target["redis"]["xack_reply"] = "integer:1"
+        target["redis"]["xack_disposition"] = "AcknowledgedPending"
+
+    def f16_xack_reply_incorrect(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-010")["redis"]["xack_reply"] = "integer:9"
+
+    def f16_pre_kill_xack_reply_missing(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-010")["redis"]["pre_kill_xack_reply"] = "not_observed"
+
+    def unrelated_group_frontier(run: dict[str, Any]) -> None:
+        target = cell(run, "P1D4C-038")
+        frontier = target["redis"]["group_frontier_v1"]
+        frontier["source_m10_redis_id"] = "1-0"
+        for phase in ("before", "post_restart", "final"):
+            frontier[phase]["last_delivered_id"] = "1-0"
+        refresh_group_frontier_hash(target)
+
+    def premature_immediate_xack(run: dict[str, Any]) -> None:
+        cell(run, "P1D4C-038")["immediate_xack_attempts"] = 1
+
     cases: tuple[tuple[str, Mutation], ...] = (
         ("exact-base-sequence", exact_base_sequence),
         ("pair-equality-not-adjacency-only", adjacency_only),
@@ -186,6 +239,15 @@ def main() -> None:
         ("wrong-absolute-generation", wrong_absolute_generation),
         ("truth-without-final-package-commit", truth_without_final_package_commit),
         ("retained-audit-hash-mismatch", retained_audit_hash_mismatch),
+        ("f14-callback-erased", f14_callback_erased),
+        ("f14-callback-replayed", f14_callback_replayed),
+        ("f14-publication-missing", f14_publication_missing),
+        ("f14-publication-duplicated", f14_publication_duplicated),
+        ("f16-xack-disposition-inverted", f16_xack_disposition_inverted),
+        ("f16-xack-reply-incorrect", f16_xack_reply_incorrect),
+        ("f16-pre-kill-xack-reply-missing", f16_pre_kill_xack_reply_missing),
+        ("unrelated-group-frontier", unrelated_group_frontier),
+        ("premature-immediate-xack", premature_immediate_xack),
     )
     passed = 0
     with tempfile.TemporaryDirectory(prefix="stage8b-p1d4-evidence-negative-") as root:

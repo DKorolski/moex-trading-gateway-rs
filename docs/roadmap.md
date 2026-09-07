@@ -96,15 +96,20 @@ its exhaustive proof. R1 commit
 HOLD on one evidence-exactness P1. R2 at
 `3d2e54020f929a517bd275b775ae69c1d2974de5` remained HOLD because its checker
 did not interpret base-cell allocation timing, ordered effects and package
-state exactly. The active R3 correction retains all registry fields,
+state exactly. R3 at `0e21a8e844347efbf48fe6e1b57586cc2b674ad7`
+closed those fields but remained HOLD because base callback, publication, XACK
+and group-frontier facts could still be forged with coordinated redigestion.
+The active R4 correction retains all registry fields,
 drives every cell through the only legal continuation, emits complete
 process/filesystem/Redis/sequence/counter/audit evidence, requires identical
 semantic digests from two clean 105-cell runs, and exactly restores the
 fsynced GM08/GM09 pre-kill pair while keeping GM07 pre-allocation. It adds
 typed authenticated V3 allocation audits, independent truth counting,
-exact journal-record binding, a frozen 92-row base allocation/effect/package
-oracle, authenticated-reread replacement history, reproducible canonical
-audit payload hashes and fourteen redigested evidence mutations. Standalone
+exact journal-record binding, frozen 92-row allocation/effect/package and
+operational callback/publication/XACK/frontier oracles, authenticated-reread
+replacement history, reproducible canonical audit and typed Redis-frontier
+hashes, a direct F16 pre-kill XACK reply captured by crash marker v2, and
+twenty-three redigested evidence mutations. Standalone
 P1-d2 remains unchanged when
 the composite discriminator is absent. P1-d4 remains a review candidate until
 independent source acceptance and a later governance-only authority rebind.

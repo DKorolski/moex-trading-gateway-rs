@@ -5787,8 +5787,12 @@ fn stage8b_p1d2_test_crash_barrier(phase: &str) {
                     .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
             "P1-d4 pre-kill audit digest must be lowercase hexadecimal"
         );
+        assert_ne!(
+            frontier_id, "F16",
+            "P1-d4 F16 must be emitted only after the Redis XACK reply is observed"
+        );
         format!(
-            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v1\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":1}}",
+            "{{\"cell_id\":\"{cell_id}\",\"child_pid\":{},\"domain\":\"moex.stage8b.p1d4.crash-marker.v2\",\"frontier_id\":\"{frontier_id}\",\"kill_hook_name\":\"{phase}\",\"pre_kill_audit_sha256\":\"{pre_kill_audit_sha256}\",\"pre_kill_xack_reply\":\"not_observed\",\"scenario_id\":\"{scenario_id}\",\"schema_version\":2}}",
             std::process::id()
         )
     } else {

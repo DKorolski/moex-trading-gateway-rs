@@ -45,7 +45,10 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   with one remaining evidence-exactness P1. R2 commit
   `3d2e54020f929a517bd275b775ae69c1d2974de5` strengthened typed audit facts
   but was held because the independent checker did not interpret base-cell
-  allocation timing, effect order and package state exactly. The active R3
+  allocation timing, effect order and package state exactly. R3 commit
+  `0e21a8e844347efbf48fe6e1b57586cc2b674ad7` closed those facts but remained
+  HOLD because its retained checker did not exact-freeze base callback,
+  command-publication, XACK and source/group-frontier semantics. The active R4
   correction retains every normative registry field, completes every cell to final state,
   records process/filesystem/Redis/counter/audit evidence, compares two clean
   105-cell semantic digests, and fsyncs then exactly restores the GM08/GM09
@@ -57,9 +60,13 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   provider/schedule invocations at their call sites, and now freezes an exact
   92-row base oracle for allocation prefixes, ordered effects, package phases,
   absolute generations and truth replacement commits. Canonical per-cell audit
-  payloads make all three hashes independently reproducible, and fourteen
-  redigested semantic-evidence mutations cover the original seven plus every
-  R2 review reproduction.
+  payloads make all three hashes independently reproducible. R4 adds a second
+  92-row operational oracle and a typed/hash-bound Redis source frontier;
+  callback/publication/immediate-XACK counts, XACK reply/disposition, source
+  disposition and exact stream/group/M10 identity are now checked per cell.
+  Twenty-three redigested semantic-evidence mutations include all prior cases,
+  the eight R3 review reproductions and direct removal of the F16 pre-kill
+  `integer:1` reply retained by crash marker v2.
   P1-d4 is not closed until independent source
   acceptance and a later governance-only authority rebind. Operational Redis
   DB0/VPS activation, P1-e, FINAM dispatch, runtime-live, real orders and

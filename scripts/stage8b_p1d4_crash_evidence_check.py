@@ -16,13 +16,14 @@ from typing import Any
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE_MATRIX = ROOT / "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv"
 BASE_ORACLE = ROOT / "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv"
+BASE_OPERATIONAL_ORACLE = ROOT / "docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv"
 GENERATED_MATRIX = ROOT / "docs/stage-8/stage8b-p1d4-generated-market-crash-submatrix-v3.csv"
 RUN_FILES = (
     "stage8b-p1d4-crash-replay-run-1.json",
     "stage8b-p1d4-crash-replay-run-2.json",
 )
 DIGEST_FILE = "stage8b-p1d4-crash-replay-semantic-digest.txt"
-DOMAIN = b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v2\0"
+DOMAIN = b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v3\0"
 ROOT_FIELDS = {
     "schema_version",
     "domain",
@@ -31,6 +32,7 @@ ROOT_FIELDS = {
     "source_tree",
     "matrix_sha256",
     "base_evidence_oracle_sha256",
+    "base_operational_evidence_oracle_sha256",
     "run_ordinal",
     "cells",
     "aggregate",
@@ -84,7 +86,28 @@ FILESYSTEM_FIELDS = {
     "post_restart_snapshot_sha256",
     "final_snapshot_sha256",
 }
-REDIS_FIELDS = {"port", "pel_before", "pel_after", "group_frontier", "xack_reply", "xack_disposition"}
+REDIS_FIELDS = {
+    "port",
+    "pel_before",
+    "pel_after",
+    "group_frontier",
+    "group_frontier_v1",
+    "group_frontier_sha256",
+    "pre_kill_xack_reply",
+    "xack_reply",
+    "xack_disposition",
+}
+GROUP_FRONTIER_FIELDS = {
+    "schema_version",
+    "domain",
+    "source_stream",
+    "source_group",
+    "source_m10_redis_id",
+    "before",
+    "post_restart",
+    "final",
+}
+GROUP_FRONTIER_POINT_FIELDS = {"last_delivered_id", "pending"}
 AGGREGATE = {
     "passed": True,
     "base_cells": 92,
@@ -156,6 +179,26 @@ BASE_ORACLE_FIELDS = [
     "write_generation_advance",
     "truth_bearing_outcomes",
     "truth_replacement_commits",
+]
+BASE_OPERATIONAL_ORACLE_FIELDS = [
+    "cell_id",
+    "callback_before",
+    "callback_after",
+    "command_publications",
+    "immediate_xack_attempts",
+    "xack_reply",
+    "xack_disposition",
+    "source_disposition_before_continuation",
+    "source_stream",
+    "source_group",
+    "source_m10_redis_id",
+    "before_last_delivered_id",
+    "before_pending",
+    "post_restart_last_delivered_id",
+    "post_restart_pending",
+    "final_last_delivered_id",
+    "final_pending",
+    "pre_kill_xack_reply",
 ]
 FINAL_ALLOCATION_KINDS = {
     "S01": ["initial_working"],
@@ -268,6 +311,37 @@ def load_base_oracle(path: pathlib.Path) -> dict[str, dict[str, Any]]:
             ):
                 value = row[field]
                 require(value == str(int(value)) and int(value) >= 0, f"{cell_id}: invalid oracle {field}")
+                row[field] = int(value)
+            rows[cell_id] = row
+    return rows
+
+
+def load_base_operational_oracle(path: pathlib.Path) -> dict[str, dict[str, Any]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        require(
+            reader.fieldnames == BASE_OPERATIONAL_ORACLE_FIELDS,
+            f"{path.name}: exact header drift",
+        )
+        rows: dict[str, dict[str, Any]] = {}
+        for raw in reader:
+            cell_id = raw["cell_id"]
+            require(cell_id not in rows, f"{path.name}: duplicate cell {cell_id}")
+            row: dict[str, Any] = dict(raw)
+            for field in (
+                "callback_before",
+                "callback_after",
+                "command_publications",
+                "immediate_xack_attempts",
+                "before_pending",
+                "post_restart_pending",
+                "final_pending",
+            ):
+                value = row[field]
+                require(
+                    value == str(int(value)) and int(value) >= 0,
+                    f"{cell_id}: invalid operational oracle {field}",
+                )
                 row[field] = int(value)
             rows[cell_id] = row
     return rows
@@ -559,6 +633,118 @@ def validate_base_oracle(cell_id: str, cell: dict[str, Any], oracle: dict[str, A
     require(cell["truth_replacement_commits"] == oracle["truth_replacement_commits"], f"{cell_id}: truth replacement oracle")
 
 
+def validate_group_frontier(cell_id: str, redis: dict[str, Any]) -> dict[str, Any]:
+    frontier = redis["group_frontier_v1"]
+    require(
+        isinstance(frontier, dict) and set(frontier) == GROUP_FRONTIER_FIELDS,
+        f"{cell_id}: typed group frontier schema",
+    )
+    require(frontier["schema_version"] == 1, f"{cell_id}: group frontier version")
+    require(
+        frontier["domain"] == "moex.stage8b.p1d4.redis-source-frontier.v1",
+        f"{cell_id}: group frontier domain",
+    )
+    for field in ("source_stream", "source_group"):
+        require(
+            isinstance(frontier[field], str) and frontier[field],
+            f"{cell_id}: group frontier {field}",
+        )
+    source_id = frontier["source_m10_redis_id"]
+    require(
+        isinstance(source_id, str) and re.fullmatch(r"[0-9]+-[0-9]+", source_id),
+        f"{cell_id}: source M10 Redis identity",
+    )
+    for phase in ("before", "post_restart", "final"):
+        point = frontier[phase]
+        require(
+            isinstance(point, dict) and set(point) == GROUP_FRONTIER_POINT_FIELDS,
+            f"{cell_id}: group frontier {phase} schema",
+        )
+        require(
+            point["last_delivered_id"] == source_id,
+            f"{cell_id}: {phase} last-delivered/source identity mismatch",
+        )
+        require(
+            type(point["pending"]) is int and point["pending"] >= 0,
+            f"{cell_id}: group frontier {phase} pending",
+        )
+    require(
+        redis["pel_before"] == frontier["before"]["pending"]
+        and redis["pel_after"] == frontier["post_restart"]["pending"],
+        f"{cell_id}: PEL/group-frontier mismatch",
+    )
+    require(frontier["final"]["pending"] == 0, f"{cell_id}: final source PEL")
+    legacy = (
+        f"before:last_delivered_id={source_id};pending={frontier['before']['pending']};"
+        f"after:last_delivered_id={source_id};pending={frontier['post_restart']['pending']};"
+        f"final:last_delivered_id={source_id};pending={frontier['final']['pending']}"
+    )
+    require(redis["group_frontier"] == legacy, f"{cell_id}: legacy/typed frontier drift")
+    require(
+        isinstance(redis["group_frontier_sha256"], str)
+        and SHA256.fullmatch(redis["group_frontier_sha256"])
+        and redis["group_frontier_sha256"]
+        == hashlib.sha256(canonical_bytes(frontier)).hexdigest(),
+        f"{cell_id}: group frontier canonical hash",
+    )
+    require(
+        (redis["xack_reply"], redis["xack_disposition"])
+        in {
+            ("integer:1", "AcknowledgedPending"),
+            ("integer:0", "AlreadyAcknowledged"),
+            ("not_applicable", "NoSource"),
+        },
+        f"{cell_id}: impossible XACK reply/disposition pair",
+    )
+    require(
+        redis["pre_kill_xack_reply"] in {"integer:1", "not_observed"},
+        f"{cell_id}: pre-kill XACK reply vocabulary",
+    )
+    return frontier
+
+
+def validate_base_operational_oracle(
+    cell_id: str,
+    cell: dict[str, Any],
+    oracle: dict[str, Any],
+    frontier: dict[str, Any],
+) -> None:
+    redis = cell["redis"]
+    for field in (
+        "callback_before",
+        "callback_after",
+        "command_publications",
+        "immediate_xack_attempts",
+        "source_disposition_before_continuation",
+    ):
+        require(cell[field] == oracle[field], f"{cell_id}: exact {field} oracle")
+    require(redis["xack_reply"] == oracle["xack_reply"], f"{cell_id}: exact XACK reply oracle")
+    require(
+        redis["pre_kill_xack_reply"] == oracle["pre_kill_xack_reply"],
+        f"{cell_id}: exact pre-kill XACK reply oracle",
+    )
+    require(
+        redis["xack_disposition"] == oracle["xack_disposition"],
+        f"{cell_id}: exact XACK disposition oracle",
+    )
+    require(frontier["source_stream"] == oracle["source_stream"], f"{cell_id}: exact source stream oracle")
+    require(frontier["source_group"] == oracle["source_group"], f"{cell_id}: exact source group oracle")
+    require(
+        frontier["source_m10_redis_id"] == oracle["source_m10_redis_id"],
+        f"{cell_id}: exact source M10 identity oracle",
+    )
+    for phase, id_field, pending_field in (
+        ("before", "before_last_delivered_id", "before_pending"),
+        ("post_restart", "post_restart_last_delivered_id", "post_restart_pending"),
+        ("final", "final_last_delivered_id", "final_pending"),
+    ):
+        require(
+            frontier[phase]["last_delivered_id"] == oracle[id_field]
+            and frontier[phase]["pending"] == oracle[pending_field],
+            f"{cell_id}: exact {phase} group-frontier oracle",
+        )
+
+
 def expected_effect(label: str, base: bool) -> int:
     if label.startswith("+1") or (base and label == "0_before_reissue"):
         return 1
@@ -571,6 +757,7 @@ def validate_cell(
     expected: dict[str, Any],
     generated: bool,
     base_oracle: Any = None,
+    base_operational_oracle: Any = None,
 ) -> None:
     cell_id = expected["cell_id"]
     require(set(cell) == set(registry_fields) | FIXED_CELL_FIELDS, f"{cell_id}: cell field set drift")
@@ -606,9 +793,9 @@ def validate_cell(
     after_label = expected["source_pel_after" if generated else "pel_after"]
     require(redis["pel_before"] == expected_pel(before_label), f"{cell_id}: PEL before")
     require(redis["pel_after"] == expected_pel(after_label), f"{cell_id}: PEL after")
-    require(isinstance(redis["group_frontier"], str) and "pending=" in redis["group_frontier"], f"{cell_id}: group frontier")
     require(isinstance(redis["xack_reply"], str) and redis["xack_reply"], f"{cell_id}: XACK reply")
     require(isinstance(redis["xack_disposition"], str) and redis["xack_disposition"], f"{cell_id}: XACK disposition")
+    group_frontier = validate_group_frontier(cell_id, redis)
 
     for field in ("pre_kill_audit_sha256", "post_restart_audit_sha256", "final_audit_sha256"):
         require(isinstance(cell[field], str) and SHA256.fullmatch(cell[field]), f"{cell_id}: {field}")
@@ -727,7 +914,14 @@ def validate_cell(
     )
     if not generated:
         require(base_oracle is not None, f"{cell_id}: base oracle missing")
+        require(
+            base_operational_oracle is not None,
+            f"{cell_id}: base operational oracle missing",
+        )
         validate_base_oracle(cell_id, cell, base_oracle)
+        validate_base_operational_oracle(
+            cell_id, cell, base_operational_oracle, group_frontier
+        )
         require(
             all(event in {"p1d3_provider", "p1d3_schedule"} for event in events),
             f"{cell_id}: base effect family",
@@ -760,11 +954,11 @@ def validate_cell(
         or (
             cell["final_disposition"] == "Ready"
             and cell["final_restart_disposition"] == "P1SemanticZeroIntentAckPending"
-            and ";pending=0" in redis["group_frontier"].rsplit("final:", 1)[-1]
+            and group_frontier["final"]["pending"] == 0
         ),
         f"{cell_id}: final durable restart cannot converge",
     )
-    require(";pending=0" in redis["group_frontier"].rsplit("final:", 1)[-1], f"{cell_id}: final PEL not zero")
+    require(group_frontier["final"]["pending"] == 0, f"{cell_id}: final PEL not zero")
 
     if generated and expected["frontier_id"] in {"GM08", "GM09"}:
         require(cell["sequence_before"].startswith("seq_ack="), f"{cell_id}: pre-kill pair absent")
@@ -843,10 +1037,11 @@ def validate_run(
     generated_fields: list[str],
     generated_rows: dict[str, dict[str, Any]],
     base_oracle_rows: dict[str, dict[str, Any]],
+    base_operational_oracle_rows: dict[str, dict[str, Any]],
 ) -> None:
     require(set(value) == ROOT_FIELDS, f"run {ordinal}: root field set drift")
-    require(value["schema_version"] == 2, f"run {ordinal}: schema version")
-    require(value["domain"] == "moex.stage8b.p1d4.crash-replay.evidence.v2", f"run {ordinal}: domain")
+    require(value["schema_version"] == 3, f"run {ordinal}: schema version")
+    require(value["domain"] == "moex.stage8b.p1d4.crash-replay.evidence.v3", f"run {ordinal}: domain")
     require(value["accepted_predecessor_ref"] == "1a1ea05775f1d15b86fcc3495ad6863b851e9212", f"run {ordinal}: predecessor")
     require(value["run_ordinal"] == ordinal, f"run {ordinal}: ordinal")
     require(isinstance(value["source_ref"], str) and value["source_ref"], f"run {ordinal}: source ref")
@@ -855,6 +1050,11 @@ def validate_run(
     require(
         value["base_evidence_oracle_sha256"] == hashlib.sha256(BASE_ORACLE.read_bytes()).hexdigest(),
         f"run {ordinal}: base evidence oracle hash",
+    )
+    require(
+        value["base_operational_evidence_oracle_sha256"]
+        == hashlib.sha256(BASE_OPERATIONAL_ORACLE.read_bytes()).hexdigest(),
+        f"run {ordinal}: base operational evidence oracle hash",
     )
     require(value["aggregate"] == AGGREGATE, f"run {ordinal}: aggregate")
     cells = value["cells"]
@@ -865,7 +1065,14 @@ def validate_run(
     for cell in cells:
         cell_id = cell["cell_id"]
         if cell_id in base_rows:
-            validate_cell(cell, base_fields, base_rows[cell_id], False, base_oracle_rows[cell_id])
+            validate_cell(
+                cell,
+                base_fields,
+                base_rows[cell_id],
+                False,
+                base_oracle_rows[cell_id],
+                base_operational_oracle_rows[cell_id],
+            )
         else:
             validate_cell(cell, generated_fields, generated_rows[cell_id], True)
 
@@ -874,8 +1081,15 @@ def check(directory: pathlib.Path) -> dict[str, Any]:
     base_fields, base_rows = load_registry(BASE_MATRIX)
     generated_fields, generated_rows = load_registry(GENERATED_MATRIX)
     base_oracle_rows = load_base_oracle(BASE_ORACLE)
+    base_operational_oracle_rows = load_base_operational_oracle(
+        BASE_OPERATIONAL_ORACLE
+    )
     require(len(base_rows) == 92 and len(generated_rows) == 13, "registry cardinality drift")
     require(set(base_oracle_rows) == set(base_rows), "base evidence oracle identity drift")
+    require(
+        set(base_operational_oracle_rows) == set(base_rows),
+        "base operational evidence oracle identity drift",
+    )
     runs = [load_json(directory / name) for name in RUN_FILES]
     for ordinal, run in enumerate(runs, 1):
         validate_run(
@@ -886,6 +1100,7 @@ def check(directory: pathlib.Path) -> dict[str, Any]:
             generated_fields,
             generated_rows,
             base_oracle_rows,
+            base_operational_oracle_rows,
         )
     require(runs[0]["source_ref"] == runs[1]["source_ref"], "source ref differs across runs")
     require(runs[0]["source_tree"] == runs[1]["source_tree"], "source tree differs across runs")

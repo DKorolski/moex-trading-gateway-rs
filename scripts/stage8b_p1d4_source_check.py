@@ -30,6 +30,7 @@ EXPECTED_CHANGED = {
     "docs/roadmap.md",
     "docs/stage-8/stage8b-p1d4-generated-market-source.md",
     "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
+    "docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv",
     "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1d4-source-evidence.json",
     "scripts/make_stage8b_p1d4_source_handoff.py",
@@ -80,6 +81,7 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "base_registry": "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv",
         "matrix": "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
         "base_oracle": "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
+        "base_operational_oracle": "docs/stage-8/stage8b-p1d4-base-operational-evidence-oracle-v1.csv",
         "evidence": "docs/stage-8/stage8b-p1d4-source-evidence.json",
         "status": "docs/current-status.md",
         "roadmap": "docs/roadmap.md",
@@ -225,6 +227,14 @@ def validate_content(content: dict[str, str]) -> None:
         '"post_restart_audit_payload".into()',
         '"final_audit_payload".into()',
         "p1d4_assert_base_evidence_oracle",
+        "p1d4_assert_base_operational_evidence_oracle",
+        "p1d4_redis_group_frontier_v1",
+        "stage8b-p1d4-base-operational-evidence-oracle-v1.csv",
+        '"group_frontier_v1"',
+        '"group_frontier_sha256"',
+        '"pre_kill_xack_reply"',
+        "stage8b_p1d4_test_observe_xack_reply",
+        "moex.stage8b.p1d4.crash-marker.v2",
         "p1d4_assert_package_commit_history",
         "stage8b-p1d4-base-evidence-oracle-v1.csv",
         "journal_record_index",
@@ -272,6 +282,11 @@ def validate_content(content: dict[str, str]) -> None:
         "BASE_ORACLE",
         "load_base_oracle",
         "validate_base_oracle",
+        "BASE_OPERATIONAL_ORACLE",
+        "load_base_operational_oracle",
+        "validate_base_operational_oracle",
+        "validate_group_frontier",
+        'redis["pre_kill_xack_reply"] == oracle["pre_kill_xack_reply"]',
         "validate_package_history",
         "validate_audit_payload",
         'cell["truth_replacement_commits"]',
@@ -291,6 +306,57 @@ def validate_content(content: dict[str, str]) -> None:
         == {row["cell_id"] for row in base_registry_rows},
         "base evidence oracle identities drifted from the accepted registry",
     )
+    operational_oracle_rows = list(
+        csv.DictReader(content["base_operational_oracle"].splitlines())
+    )
+    operational_oracle_fields = [
+        "cell_id",
+        "callback_before",
+        "callback_after",
+        "command_publications",
+        "immediate_xack_attempts",
+        "xack_reply",
+        "xack_disposition",
+        "source_disposition_before_continuation",
+        "source_stream",
+        "source_group",
+        "source_m10_redis_id",
+        "before_last_delivered_id",
+        "before_pending",
+        "post_restart_last_delivered_id",
+        "post_restart_pending",
+        "final_last_delivered_id",
+        "final_pending",
+        "pre_kill_xack_reply",
+    ]
+    require(
+        list(operational_oracle_rows[0]) == operational_oracle_fields,
+        "base operational evidence oracle schema drifted",
+    )
+    require(
+        len(operational_oracle_rows) == 92,
+        "base operational evidence oracle must contain 92 rows",
+    )
+    require(
+        len({row["cell_id"] for row in operational_oracle_rows}) == 92,
+        "base operational evidence oracle cell identities must be unique",
+    )
+    require(
+        {row["cell_id"] for row in operational_oracle_rows}
+        == {row["cell_id"] for row in base_registry_rows},
+        "base operational evidence oracle identities drifted from accepted registry",
+    )
+    registry_by_cell = {row["cell_id"]: row for row in base_registry_rows}
+    for row in operational_oracle_rows:
+        expected = (
+            "integer:1"
+            if registry_by_cell[row["cell_id"]]["frontier_id"] == "F16"
+            else "not_observed"
+        )
+        require(
+            row["pre_kill_xack_reply"] == expected,
+            f"{row['cell_id']}: pre-kill XACK oracle drifted from accepted frontier",
+        )
 
     matrix_rows = list(csv.DictReader(content["matrix"].splitlines()))
     require(len(matrix_rows) == 20, "source acceptance matrix must contain 20 rows")

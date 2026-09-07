@@ -1,6 +1,6 @@
 # Stage 8B-P1-d4 generated-Market crash/replay source
 
-Status: R3 source-evidence correction review candidate.
+Status: R4 operational-evidence correction review candidate.
 
 Accepted design predecessor:
 `1a1ea05775f1d15b86fcc3495ad6863b851e9212` (R7, ACCEPTED).
@@ -9,9 +9,9 @@ Accepted business/source predecessor:
 `7dc7c802feca6e79d3a1a9902c181ad7b6afc506` (P1-d3, CLOSED / ACCEPTED).
 
 Reviewed source predecessor:
-`3d2e54020f929a517bd275b775ae69c1d2974de5` (R2 HOLD with one
-base-cell evidence-exactness P1 finding; its production implementation is
-retained unchanged).
+`0e21a8e844347efbf48fe6e1b57586cc2b674ad7` (R3 HOLD with one
+base-cell operational-evidence P1 finding; its production implementation and
+reservation/routing/feedback lifecycle are retained unchanged).
 
 ## Scope
 
@@ -98,7 +98,7 @@ The active registries are immutable R7 inputs:
 
 Every cell is parsed from all 19 or 28 normative registry columns, runs through
 its only legal continuation to a terminal lifecycle state, and emits one
-`moex.stage8b.p1d4.crash-replay.evidence.v2` record. The record retains the
+`moex.stage8b.p1d4.crash-replay.evidence.v3` record. The record retains the
 complete source row together with process PID/SIGKILL/reap evidence, raw and
 normalized marker digests, pre-kill/post-restart/final audit digests, exact
 Redis group/PEL/XACK state, sequence labels, callback/provider/schedule and V1
@@ -138,6 +138,22 @@ truth replacement count. The Rust collector and independent Python checker
 both consume this oracle; neither derives expected facts from the evidence it
 is validating.
 
+R4 adds a second versioned 92-row operational oracle. Each base cell now has
+exact callback counts before/after continuation, exact command-publication and
+immediate-XACK counts, exact XACK reply/disposition, exact source disposition,
+and an exact source stream/group/M10 Redis identity with before,
+post-restart and final group-frontier values. In particular S05/F14 requires
+one retained callback and exactly one generated command publication; F16
+distinguishes parsed pre-kill XACK `1` from recovery reply
+`0/AlreadyAcknowledged`.
+
+The legacy frontier label is supplemented by a typed
+`moex.stage8b.p1d4.redis-source-frontier.v1` object. Its source ID must equal
+all three `last_delivered_id` values, its PEL counts must agree with the cell,
+and its canonical SHA-256 is recomputed by the independent checker. The Rust
+collector consumes the same static oracle and asserts these relations at the
+actual Redis observation sites.
+
 Provider and schedule counts now come from test-only observers placed at the
 operational invocation sites. Generated-Market `S_ack` and `S_truth` counts
 come from nonzero recovery-seal generations read from the authenticated owners
@@ -158,11 +174,16 @@ digest and the complete typed runtime audit. The checker recomputes each
 SHA-256 and cross-validates its sequence, package, callback and outcome facts
 with the structured cell evidence.
 
-Fourteen redigested evidence mutations retain the prior seven cases and add
-valid F00 allocation-before-WAL, missing F03 allocation, reversed base effect
-order, wrong final package phase, wrong absolute package generation,
-truth-bearing V3 without a final truth replacement, and canonical audit/hash
-mismatch cases.
+Twenty-three redigested evidence mutations retain the prior fourteen and add
+F14 callback erasure/replay, missing/duplicate F14 command publication,
+inverted F16 XACK disposition, incorrect F16 reply, unrelated source/group
+frontier identity, premature immediate XACK, and missing pre-kill F16 reply
+cases. The test-only crash marker v2 captures the parsed `integer:1` reply at
+the actual XACK call site before the F16 barrier; this is checked separately
+from the post-restart `integer:0/AlreadyAcknowledged` result. Every mutation refreshes
+the affected canonical payload hashes and the two-run semantic digest where
+applicable, so rejection depends on the semantic oracle rather than a stale
+digest.
 
 GM08 and GM09 use a dedicated create-once, `sync_all()` sequence-pair marker
 written after allocation and before their non-returning crash hooks. Recovery
