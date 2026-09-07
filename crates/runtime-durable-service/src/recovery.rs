@@ -5417,6 +5417,8 @@ fn commit_stage8b_p1_replacement_seal(
     }
     validate_recovered_binding(&recovered, &committed, &identity)?;
     writer_lease.validate_namespace()?;
+    #[cfg(test)]
+    stage8b_p1d4_observe_package_commit(&recovered, committed.seal_generation());
     stage8b_p1_test_crash_barrier("after-s1-reread-before-command-xadd");
     Ok(Stage7bRecoveryReadyOwner {
         recovered,
@@ -5427,6 +5429,81 @@ fn commit_stage8b_p1_replacement_seal(
         #[cfg(feature = "stage8a4-i3-test-fixtures")]
         stage8a4_test_fail_before_covering_seal: false,
     })
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct Stage8bP1d4ObservedPackageCommitV1 {
+    pub write_generation: u64,
+    pub covering_seal_generation: u64,
+    pub p1d3_phase: Option<String>,
+    pub generated_market_phase: Option<String>,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct Stage8bP1d4PackageCommitAudit {
+    owner: std::thread::ThreadId,
+    commits: Vec<Stage8bP1d4ObservedPackageCommitV1>,
+}
+
+#[cfg(test)]
+fn stage8b_p1d4_package_commit_audit(
+) -> &'static std::sync::Mutex<Option<Stage8bP1d4PackageCommitAudit>> {
+    static AUDIT: std::sync::OnceLock<std::sync::Mutex<Option<Stage8bP1d4PackageCommitAudit>>> =
+        std::sync::OnceLock::new();
+    AUDIT.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+#[cfg(test)]
+pub(crate) fn stage8b_p1d4_begin_package_commit_audit() {
+    *stage8b_p1d4_package_commit_audit()
+        .lock()
+        .expect("P1-d4 package-commit audit lock") = Some(Stage8bP1d4PackageCommitAudit {
+        owner: std::thread::current().id(),
+        commits: Vec::new(),
+    });
+}
+
+#[cfg(test)]
+pub(crate) fn stage8b_p1d4_take_package_commit_audit() -> Vec<Stage8bP1d4ObservedPackageCommitV1> {
+    let audit = stage8b_p1d4_package_commit_audit()
+        .lock()
+        .expect("P1-d4 package-commit audit lock")
+        .take()
+        .expect("P1-d4 package-commit audit must be active");
+    assert_eq!(
+        audit.owner,
+        std::thread::current().id(),
+        "P1-d4 package-commit audit changed execution thread"
+    );
+    audit.commits
+}
+
+#[cfg(test)]
+fn stage8b_p1d4_observe_package_commit(
+    recovered: &Stage6dDurableRuntimeRecovered,
+    committed_generation: u64,
+) {
+    let mut audit = stage8b_p1d4_package_commit_audit()
+        .lock()
+        .expect("P1-d4 package-commit audit lock");
+    let Some(audit) = audit.as_mut() else {
+        return;
+    };
+    if audit.owner != std::thread::current().id() {
+        return;
+    }
+    let package = recovered.stage8b_p1d4_test_runtime_audit().package;
+    let write_generation = package
+        .write_generation
+        .expect("P1-d4 committed replacement has a write generation");
+    audit.commits.push(Stage8bP1d4ObservedPackageCommitV1 {
+        write_generation,
+        covering_seal_generation: committed_generation,
+        p1d3_phase: package.p1d3_phase,
+        generated_market_phase: package.generated_market_phase,
+    });
 }
 
 #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
@@ -5823,7 +5900,7 @@ pub enum Stage7bRestartOutcome {
 }
 
 #[cfg(test)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct Stage8bP1d4RestartAuditV1 {
     pub lifecycle_sequence: u64,
     pub journal_lifecycle_sequences: Vec<u64>,
@@ -5836,7 +5913,7 @@ pub(crate) struct Stage8bP1d4RestartAuditV1 {
     pub trade_v1_total: usize,
     pub request_finalized_v1_total: usize,
     pub durable_outcomes: usize,
-    pub durable_truths: usize,
+    pub truth_bearing_outcomes: usize,
 }
 
 impl Stage7bRestartOutcome {
@@ -5881,7 +5958,7 @@ impl Stage7bRestartOutcome {
             trade_v1_total: audit.trade_v1_total,
             request_finalized_v1_total: audit.request_finalized_v1_total,
             durable_outcomes: audit.durable_outcomes,
-            durable_truths: audit.durable_truths,
+            truth_bearing_outcomes: audit.truth_bearing_outcomes,
         })
     }
 

@@ -5077,6 +5077,23 @@ mod tests {
         inherited_or_new_test_id: &'a str,
     }
 
+    #[derive(Debug, Clone)]
+    struct P1d4BaseEvidenceOracleCell<'a> {
+        cell_id: &'a str,
+        pre_kill_allocation_kinds: &'a str,
+        final_allocation_kinds: &'a str,
+        ordered_effect_events: &'a str,
+        package_before_p1d3_phase: &'a str,
+        package_before_generated_market_phase: &'a str,
+        package_before_write_generation: u64,
+        package_after_p1d3_phase: &'a str,
+        package_after_generated_market_phase: &'a str,
+        package_after_write_generation: u64,
+        write_generation_advance: u64,
+        truth_bearing_outcomes: usize,
+        truth_replacement_commits: usize,
+    }
+
     impl P1d4RegistryIdentity for P1d4RegistryCell<'_> {
         fn cell_id(&self) -> &str {
             self.cell_id
@@ -5318,7 +5335,7 @@ mod tests {
         wall_duration_ms: u64,
         raw_marker_sha256: String,
         normalized_marker_sha256: String,
-        pre_kill_audit_sha256: String,
+        pre_kill_filesystem_sha256: String,
         sequence_pair_before_kill: Option<(u64, u64)>,
     }
 
@@ -5376,6 +5393,59 @@ mod tests {
             1,
             "P1-d4 scenario/frontier lookup must be unique: {scenario_id}/{frontier_id}"
         );
+        matches.into_iter().next().unwrap()
+    }
+
+    fn p1d4_base_evidence_oracle_cells() -> Vec<P1d4BaseEvidenceOracleCell<'static>> {
+        let oracle = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv"
+        ));
+        oracle
+            .lines()
+            .skip(1)
+            .map(|line| {
+                let fields = line.split(',').collect::<Vec<_>>();
+                assert_eq!(
+                    fields.len(),
+                    13,
+                    "P1-d4 base evidence oracle row must remain exact"
+                );
+                P1d4BaseEvidenceOracleCell {
+                    cell_id: fields[0],
+                    pre_kill_allocation_kinds: fields[1],
+                    final_allocation_kinds: fields[2],
+                    ordered_effect_events: fields[3],
+                    package_before_p1d3_phase: fields[4],
+                    package_before_generated_market_phase: fields[5],
+                    package_before_write_generation: fields[6]
+                        .parse()
+                        .expect("base oracle before generation"),
+                    package_after_p1d3_phase: fields[7],
+                    package_after_generated_market_phase: fields[8],
+                    package_after_write_generation: fields[9]
+                        .parse()
+                        .expect("base oracle after generation"),
+                    write_generation_advance: fields[10]
+                        .parse()
+                        .expect("base oracle generation advance"),
+                    truth_bearing_outcomes: fields[11]
+                        .parse()
+                        .expect("base oracle truth-bearing outcomes"),
+                    truth_replacement_commits: fields[12]
+                        .parse()
+                        .expect("base oracle truth replacement commits"),
+                }
+            })
+            .collect()
+    }
+
+    fn p1d4_base_evidence_oracle_cell(cell_id: &str) -> P1d4BaseEvidenceOracleCell<'static> {
+        let matches = p1d4_base_evidence_oracle_cells()
+            .into_iter()
+            .filter(|cell| cell.cell_id == cell_id)
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "P1-d4 base evidence oracle lookup");
         matches.into_iter().next().unwrap()
     }
 
@@ -6177,7 +6247,7 @@ mod tests {
             wall_duration_ms: started_at.elapsed().as_millis().try_into().unwrap(),
             raw_marker_sha256,
             normalized_marker_sha256,
-            pre_kill_audit_sha256: pre_kill_audit_sha256.to_string(),
+            pre_kill_filesystem_sha256: pre_kill_audit_sha256.to_string(),
             sequence_pair_before_kill: None,
         }
     }
@@ -6758,7 +6828,7 @@ mod tests {
             "{cell_id}"
         );
         assert_eq!(
-            audit.durable_truths,
+            audit.truth_bearing_outcomes,
             audit
                 .sequence_allocations
                 .iter()
@@ -6827,9 +6897,192 @@ mod tests {
         );
     }
 
+    fn p1d4_oracle_values(value: &str) -> Vec<&str> {
+        if value == "none" {
+            Vec::new()
+        } else {
+            value.split('|').collect()
+        }
+    }
+
+    fn p1d4_phase_label(value: Option<&str>) -> &str {
+        value.unwrap_or("none")
+    }
+
+    fn p1d4_assert_package_commit_history(
+        cell_id: &str,
+        before: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        after: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        history: &[crate::recovery::Stage8bP1d4ObservedPackageCommitV1],
+    ) -> usize {
+        let before_generation = before
+            .package
+            .write_generation
+            .expect("P1-d4 package before generation");
+        let after_generation = after
+            .package
+            .write_generation
+            .expect("P1-d4 package after generation");
+        let advance = after_generation
+            .checked_sub(before_generation)
+            .expect("P1-d4 package generation cannot move backwards");
+        assert_eq!(
+            history.len() as u64,
+            advance,
+            "{cell_id}: every replacement generation must be observed"
+        );
+        let mut prior_p1d3_phase = before.package.p1d3_phase.as_deref();
+        let mut prior_generated_phase = before.package.generated_market_phase.as_deref();
+        let mut prior_covering_seal_generation = None;
+        let mut truth_replacement_commits = 0usize;
+        for (index, commit) in history.iter().enumerate() {
+            assert_eq!(
+                commit.write_generation,
+                before_generation + index as u64 + 1,
+                "{cell_id}: package commit history generation gap"
+            );
+            assert!(
+                prior_covering_seal_generation
+                    .is_none_or(|prior| commit.covering_seal_generation == prior + 1),
+                "{cell_id}: covering-seal history generation gap"
+            );
+            prior_covering_seal_generation = Some(commit.covering_seal_generation);
+            let p1d3_truth_transition =
+                matches!(commit.p1d3_phase.as_deref(), Some("Working" | "Terminal"))
+                    && commit.p1d3_phase.as_deref() != prior_p1d3_phase;
+            let generated_truth_transition = commit.generated_market_phase.as_deref()
+                == Some("TruthCommitted")
+                && prior_generated_phase != Some("TruthCommitted");
+            truth_replacement_commits +=
+                usize::from(p1d3_truth_transition || generated_truth_transition);
+            prior_p1d3_phase = commit.p1d3_phase.as_deref();
+            prior_generated_phase = commit.generated_market_phase.as_deref();
+        }
+        if let Some(last) = history.last() {
+            assert_eq!(last.write_generation, after_generation, "{cell_id}");
+            assert_eq!(last.p1d3_phase, after.package.p1d3_phase, "{cell_id}");
+            assert_eq!(
+                last.generated_market_phase, after.package.generated_market_phase,
+                "{cell_id}"
+            );
+        } else {
+            assert_eq!(before.package, after.package, "{cell_id}");
+        }
+        truth_replacement_commits
+    }
+
+    fn p1d4_assert_base_evidence_oracle(
+        cell_id: &str,
+        before: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        after: &crate::recovery::Stage8bP1d4RestartAuditV1,
+        observed_effect_events: &[&str],
+        package_commit_history: &[crate::recovery::Stage8bP1d4ObservedPackageCommitV1],
+        truth_replacement_commits: usize,
+    ) {
+        let oracle = p1d4_base_evidence_oracle_cell(cell_id);
+        assert_eq!(
+            before
+                .sequence_allocations
+                .iter()
+                .map(|allocation| allocation.outcome_kind.as_str())
+                .collect::<Vec<_>>(),
+            p1d4_oracle_values(oracle.pre_kill_allocation_kinds),
+            "{cell_id}: exact pre-kill allocation prefix"
+        );
+        assert_eq!(
+            after
+                .sequence_allocations
+                .iter()
+                .map(|allocation| allocation.outcome_kind.as_str())
+                .collect::<Vec<_>>(),
+            p1d4_oracle_values(oracle.final_allocation_kinds),
+            "{cell_id}: exact final allocation vector"
+        );
+        assert_eq!(
+            observed_effect_events,
+            p1d4_oracle_values(oracle.ordered_effect_events),
+            "{cell_id}: exact ordered base effect vector"
+        );
+        assert_eq!(
+            p1d4_phase_label(before.package.p1d3_phase.as_deref()),
+            oracle.package_before_p1d3_phase,
+            "{cell_id}"
+        );
+        assert_eq!(
+            p1d4_phase_label(before.package.generated_market_phase.as_deref()),
+            oracle.package_before_generated_market_phase,
+            "{cell_id}"
+        );
+        assert_eq!(
+            before.package.write_generation,
+            Some(oracle.package_before_write_generation),
+            "{cell_id}"
+        );
+        assert_eq!(
+            p1d4_phase_label(after.package.p1d3_phase.as_deref()),
+            oracle.package_after_p1d3_phase,
+            "{cell_id}"
+        );
+        assert_eq!(
+            p1d4_phase_label(after.package.generated_market_phase.as_deref()),
+            oracle.package_after_generated_market_phase,
+            "{cell_id}"
+        );
+        assert_eq!(
+            after.package.write_generation,
+            Some(oracle.package_after_write_generation),
+            "{cell_id}"
+        );
+        assert_eq!(
+            oracle.package_after_write_generation - oracle.package_before_write_generation,
+            oracle.write_generation_advance,
+            "{cell_id}: frozen oracle generation arithmetic"
+        );
+        assert_eq!(
+            package_commit_history.len(),
+            oracle.write_generation_advance as usize,
+            "{cell_id}: exact package commit count"
+        );
+        assert_eq!(
+            after.truth_bearing_outcomes, oracle.truth_bearing_outcomes,
+            "{cell_id}: exact truth-bearing V3 count"
+        );
+        assert_eq!(
+            truth_replacement_commits, oracle.truth_replacement_commits,
+            "{cell_id}: exact persisted/reread truth replacement count"
+        );
+    }
+
     fn p1d4_canonical_json(value: serde_json::Value) -> Vec<u8> {
         serde_json::to_vec(&p1d4_canonicalize_json(value))
             .expect("P1-d4 evidence uses a fixed JSON shape")
+    }
+
+    fn p1d4_canonical_audit_payload(
+        cell_id: &str,
+        scenario_id: &str,
+        frontier_id: &str,
+        phase: &str,
+        disposition: &str,
+        filesystem_snapshot_sha256: &str,
+        audit: &crate::recovery::Stage8bP1d4RestartAuditV1,
+    ) -> serde_json::Value {
+        p1d4_canonicalize_json(serde_json::json!({
+            "schema_version": 1,
+            "domain": "moex.stage8b.p1d4.structured-runtime-audit.v1",
+            "cell_id": cell_id,
+            "scenario_id": scenario_id,
+            "frontier_id": frontier_id,
+            "phase": phase,
+            "disposition": disposition,
+            "filesystem_snapshot_sha256": filesystem_snapshot_sha256,
+            "runtime_audit": audit,
+        }))
+    }
+
+    fn p1d4_canonical_audit_sha256(payload: &serde_json::Value) -> String {
+        let bytes = p1d4_canonical_json(payload.clone());
+        format!("{:x}", Sha256::digest(bytes))
     }
 
     fn p1d4_semantic_view(mut value: serde_json::Value) -> serde_json::Value {
@@ -6850,7 +7103,7 @@ mod tests {
     fn p1d4_semantic_digest(value: &serde_json::Value) -> String {
         let bytes = p1d4_canonical_json(p1d4_semantic_view(value.clone()));
         let mut hasher = Sha256::new();
-        hasher.update(b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v1\0");
+        hasher.update(b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v2\0");
         hasher.update((bytes.len() as u64).to_be_bytes());
         hasher.update(&bytes);
         format!("{:x}", hasher.finalize())
@@ -7442,7 +7695,7 @@ mod tests {
             .expect("P1-d4 recovered disposition must expose read-only audit");
         assert_eq!(duplicate_disposition, raw_restart_disposition, "{cell_id}");
         assert_eq!(duplicate_audit, restart_audit, "{cell_id}");
-        let post_restart_audit_sha256 = crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
+        let post_restart_filesystem_sha256 = crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
             parent,
             &marker,
             cell_id,
@@ -7455,6 +7708,7 @@ mod tests {
         // registry is used only below as an assertion oracle; it must never
         // suppress collection of an unexpected provider, schedule or seal.
         p1d4_begin_observed_effect_audit(!generated_market);
+        crate::recovery::stage8b_p1d4_begin_package_commit_audit();
         let mut continuation = p1d4_finish_restart(
             restart,
             redis,
@@ -7465,6 +7719,7 @@ mod tests {
         )
         .await;
         let observed = p1d4_take_observed_effect_audit();
+        let package_commit_history = crate::recovery::stage8b_p1d4_take_package_commit_audit();
         let observed_effect_events = observed
             .events
             .iter()
@@ -7533,7 +7788,7 @@ mod tests {
             redis_final.pel, 0,
             "{cell_id} must finish with no source PEL"
         );
-        let final_audit_sha256 = crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
+        let final_filesystem_sha256 = crate::recovery::stage8b_p1d4_pre_kill_audit_sha256(
             parent,
             &marker,
             cell_id,
@@ -7556,6 +7811,31 @@ mod tests {
         let final_runtime_audit = final_restart
             .stage8b_p1d4_test_runtime_audit()
             .expect("P1-d4 final restart must expose read-only audit");
+        let truth_replacement_commits = p1d4_assert_package_commit_history(
+            cell_id,
+            &restart_audit,
+            &final_runtime_audit,
+            &package_commit_history,
+        );
+        if generated_market {
+            assert_eq!(
+                truth_replacement_commits,
+                usize::from(
+                    restart_audit.package.generated_market_phase.as_deref()
+                        != Some("TruthCommitted")
+                ),
+                "{cell_id}: generated truth replacement history"
+            );
+        } else {
+            p1d4_assert_base_evidence_oracle(
+                cell_id,
+                &restart_audit,
+                &final_runtime_audit,
+                &observed_effect_events,
+                &package_commit_history,
+                truth_replacement_commits,
+            );
+        }
         drop(final_restart);
         let final_duplicate = restart_stage8b_p1(
             validate_stage8b_p1_bootstrap_config(bootstrap_config(
@@ -7598,6 +7878,36 @@ mod tests {
             continuation.sequence_after,
             generated_market,
         );
+        let pre_kill_audit_payload = p1d4_canonical_audit_payload(
+            cell_id,
+            scenario_id,
+            frontier_id,
+            "pre-kill",
+            raw_restart_disposition,
+            &crash.pre_kill_filesystem_sha256,
+            &restart_audit,
+        );
+        let post_restart_audit_payload = p1d4_canonical_audit_payload(
+            cell_id,
+            scenario_id,
+            frontier_id,
+            "post-restart",
+            raw_restart_disposition,
+            &post_restart_filesystem_sha256,
+            &restart_audit,
+        );
+        let final_audit_payload = p1d4_canonical_audit_payload(
+            cell_id,
+            scenario_id,
+            frontier_id,
+            "final",
+            &final_restart_disposition,
+            &final_filesystem_sha256,
+            &final_runtime_audit,
+        );
+        let pre_kill_audit_sha256 = p1d4_canonical_audit_sha256(&pre_kill_audit_payload);
+        let post_restart_audit_sha256 = p1d4_canonical_audit_sha256(&post_restart_audit_payload);
+        let final_audit_sha256 = p1d4_canonical_audit_sha256(&final_audit_payload);
         registry.insert("passed".into(), serde_json::json!(true));
         registry.insert(
             "process".into(),
@@ -7615,6 +7925,9 @@ mod tests {
                 "scratch_root": parent.to_string_lossy(),
                 "raw_marker_sha256": crash.raw_marker_sha256,
                 "normalized_marker_sha256": crash.normalized_marker_sha256,
+                "pre_kill_snapshot_sha256": crash.pre_kill_filesystem_sha256,
+                "post_restart_snapshot_sha256": post_restart_filesystem_sha256,
+                "final_snapshot_sha256": final_filesystem_sha256,
             }),
         );
         registry.insert(
@@ -7630,7 +7943,7 @@ mod tests {
         );
         registry.insert(
             "pre_kill_audit_sha256".into(),
-            serde_json::json!(crash.pre_kill_audit_sha256),
+            serde_json::json!(pre_kill_audit_sha256),
         );
         registry.insert(
             "post_restart_audit_sha256".into(),
@@ -7640,6 +7953,12 @@ mod tests {
             "final_audit_sha256".into(),
             serde_json::json!(final_audit_sha256),
         );
+        registry.insert("pre_kill_audit_payload".into(), pre_kill_audit_payload);
+        registry.insert(
+            "post_restart_audit_payload".into(),
+            post_restart_audit_payload,
+        );
+        registry.insert("final_audit_payload".into(), final_audit_payload);
         registry.insert("sequence_before".into(), serde_json::json!(sequence_before));
         registry.insert("sequence_after".into(), serde_json::json!(sequence_after));
         registry.insert(
@@ -7679,8 +7998,16 @@ mod tests {
             serde_json::json!(final_runtime_audit.durable_outcomes),
         );
         registry.insert(
-            "durable_truths".into(),
-            serde_json::json!(final_runtime_audit.durable_truths),
+            "truth_bearing_outcomes".into(),
+            serde_json::json!(final_runtime_audit.truth_bearing_outcomes),
+        );
+        registry.insert(
+            "package_commit_history".into(),
+            serde_json::to_value(&package_commit_history).unwrap(),
+        );
+        registry.insert(
+            "truth_replacement_commits".into(),
+            serde_json::json!(truth_replacement_commits),
         );
         registry.insert(
             "s_ack_commits".into(),
@@ -7851,13 +8178,18 @@ mod tests {
             env!("CARGO_MANIFEST_DIR"),
             "/../../docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv"
         ));
+        let base_evidence_oracle = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv"
+        ));
         p1d4_canonicalize_json(serde_json::json!({
-            "schema_version": 1,
-            "domain": "moex.stage8b.p1d4.crash-replay.evidence.v1",
+            "schema_version": 2,
+            "domain": "moex.stage8b.p1d4.crash-replay.evidence.v2",
             "accepted_predecessor_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
             "source_ref": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_REF").unwrap_or_else(|_| "WORKTREE".into()),
             "source_tree": std::env::var("STAGE8B_P1D4_EVIDENCE_SOURCE_TREE").unwrap_or_else(|_| "WORKTREE".into()),
             "matrix_sha256": sha256_hex(base_matrix),
+            "base_evidence_oracle_sha256": sha256_hex(base_evidence_oracle),
             "run_ordinal": run_ordinal,
             "cells": cells,
             "aggregate": {

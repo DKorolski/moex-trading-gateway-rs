@@ -93,15 +93,19 @@ with duplicate and conflict variants. Source commit
 `250f71a5a36c796281e946eeeb557f04818daab0` was held with two P1 findings in
 its exhaustive proof. R1 commit
 `0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa` closed those findings but remained
-HOLD on one evidence-exactness P1. The active R2 correction retains all registry fields,
+HOLD on one evidence-exactness P1. R2 at
+`3d2e54020f929a517bd275b775ae69c1d2974de5` remained HOLD because its checker
+did not interpret base-cell allocation timing, ordered effects and package
+state exactly. The active R3 correction retains all registry fields,
 drives every cell through the only legal continuation, emits complete
 process/filesystem/Redis/sequence/counter/audit evidence, requires identical
 semantic digests from two clean 105-cell runs, and exactly restores the
 fsynced GM08/GM09 pre-kill pair while keeping GM07 pre-allocation. It adds
 typed authenticated V3 allocation audits, independent truth counting,
-exact journal-record binding, full ordered call-site effect observation,
-crash-frontier-scoped counters, generation-backed covering-seal counts and
-seven redigested evidence mutations. Standalone P1-d2 remains unchanged when
+exact journal-record binding, a frozen 92-row base allocation/effect/package
+oracle, authenticated-reread replacement history, reproducible canonical
+audit payload hashes and fourteen redigested evidence mutations. Standalone
+P1-d2 remains unchanged when
 the composite discriminator is absent. P1-d4 remains a review candidate until
 independent source acceptance and a later governance-only authority rebind.
 Operational Redis DB0/VPS remains closed;

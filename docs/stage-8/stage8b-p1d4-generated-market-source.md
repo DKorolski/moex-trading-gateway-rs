@@ -1,6 +1,6 @@
 # Stage 8B-P1-d4 generated-Market crash/replay source
 
-Status: R2 source-evidence correction review candidate.
+Status: R3 source-evidence correction review candidate.
 
 Accepted design predecessor:
 `1a1ea05775f1d15b86fcc3495ad6863b851e9212` (R7, ACCEPTED).
@@ -9,8 +9,9 @@ Accepted business/source predecessor:
 `7dc7c802feca6e79d3a1a9902c181ad7b6afc506` (P1-d3, CLOSED / ACCEPTED).
 
 Reviewed source predecessor:
-`0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa` (R1 HOLD with one
-proof-exactness P1 finding; its production implementation is retained).
+`3d2e54020f929a517bd275b775ae69c1d2974de5` (R2 HOLD with one
+base-cell evidence-exactness P1 finding; its production implementation is
+retained unchanged).
 
 ## Scope
 
@@ -97,7 +98,7 @@ The active registries are immutable R7 inputs:
 
 Every cell is parsed from all 19 or 28 normative registry columns, runs through
 its only legal continuation to a terminal lifecycle state, and emits one
-`moex.stage8b.p1d4.crash-replay.evidence.v1` record. The record retains the
+`moex.stage8b.p1d4.crash-replay.evidence.v2` record. The record retains the
 complete source row together with process PID/SIGKILL/reap evidence, raw and
 normalized marker digests, pre-kill/post-restart/final audit digests, exact
 Redis group/PEL/XACK state, sequence labels, callback/provider/schedule and V1
@@ -118,7 +119,7 @@ domain-separated semantic digests must be byte-identical. Both full JSON runs
 and the retained digest are immutable handoff members and are independently
 validated by `stage8b_p1d4_crash_evidence_check.py`.
 
-R2 additionally retains a typed sequence audit for each restart and final
+R2 additionally retained a typed sequence audit for each restart and final
 state. It is reconstructed from authenticated Stage 6 V3 outcome evidence and
 contains the complete gap-free journal sequence vector, exact business
 allocation frontier, its exact journal-record index, ACK/truth sequence values
@@ -126,8 +127,16 @@ and outcome kinds. The checker
 anchors the deterministic fixture at business frontier 2, validates every
 pair or single allocation literally, requires the pre-restart allocation list
 to remain an exact prefix, and checks the scenario-specific final outcome
-sequence. `durable_truths` is counted independently from rows that actually
-carry a truth sequence.
+sequence. `truth_bearing_outcomes` is counted independently from rows that
+actually carry a truth sequence.
+
+R3 freezes a separate versioned 92-row base evidence oracle. For every base
+cell it defines the exact pre-kill allocation prefix, final allocation vector,
+ordered effect vector, package phase before and after continuation, absolute
+write generations, generation advance, truth-bearing V3 count and successful
+truth replacement count. The Rust collector and independent Python checker
+both consume this oracle; neither derives expected facts from the evidence it
+is validating.
 
 Provider and schedule counts now come from test-only observers placed at the
 operational invocation sites. Generated-Market `S_ack` and `S_truth` counts
@@ -136,10 +145,24 @@ returned by the real transition calls. The retained full effect-event order is
 validated exactly, and each cell's counters are derived from its prefix through
 the actual crash-frontier continuation boundary; a zero expectation cannot
 disable observation. Package phase and generation transitions are cross-bound
-to those seal generations. No matrix branch assigns those counters. Seven
-redigested evidence mutations prove fail-closed handling of an
-exact base sequence, pair equality, truth/provider/schedule counts and both
-covering-seal counts.
+to those seal generations. R3 additionally observes every successful
+replacement only after persist, reread and authentication, retains the
+complete generation/phase history, and independently derives the
+committed-truth count from that history. A truth-bearing V3 row is therefore
+insufficient unless the frozen base oracle also requires the corresponding
+persisted/reread truth package. No matrix branch assigns those counters.
+
+The three per-cell audit hashes are no longer opaque. Their canonical payloads
+bind cell/scenario/frontier, phase, restart disposition, filesystem snapshot
+digest and the complete typed runtime audit. The checker recomputes each
+SHA-256 and cross-validates its sequence, package, callback and outcome facts
+with the structured cell evidence.
+
+Fourteen redigested evidence mutations retain the prior seven cases and add
+valid F00 allocation-before-WAL, missing F03 allocation, reversed base effect
+order, wrong final package phase, wrong absolute package generation,
+truth-bearing V3 without a final truth replacement, and canonical audit/hash
+mismatch cases.
 
 GM08 and GM09 use a dedicated create-once, `sync_all()` sequence-pair marker
 written after allocation and before their non-returning crash hooks. Recovery

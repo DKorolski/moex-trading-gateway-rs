@@ -15,13 +15,14 @@ from typing import Any
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BASE_MATRIX = ROOT / "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv"
+BASE_ORACLE = ROOT / "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv"
 GENERATED_MATRIX = ROOT / "docs/stage-8/stage8b-p1d4-generated-market-crash-submatrix-v3.csv"
 RUN_FILES = (
     "stage8b-p1d4-crash-replay-run-1.json",
     "stage8b-p1d4-crash-replay-run-2.json",
 )
 DIGEST_FILE = "stage8b-p1d4-crash-replay-semantic-digest.txt"
-DOMAIN = b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v1\0"
+DOMAIN = b"moex.stage8b.p1d4.crash-replay.semantic-evidence.v2\0"
 ROOT_FIELDS = {
     "schema_version",
     "domain",
@@ -29,6 +30,7 @@ ROOT_FIELDS = {
     "source_ref",
     "source_tree",
     "matrix_sha256",
+    "base_evidence_oracle_sha256",
     "run_ordinal",
     "cells",
     "aggregate",
@@ -41,6 +43,9 @@ FIXED_CELL_FIELDS = {
     "pre_kill_audit_sha256",
     "post_restart_audit_sha256",
     "final_audit_sha256",
+    "pre_kill_audit_payload",
+    "post_restart_audit_payload",
+    "final_audit_payload",
     "sequence_before",
     "sequence_after",
     "sequence_audit_before",
@@ -52,7 +57,9 @@ FIXED_CELL_FIELDS = {
     "provider_attempts",
     "schedule_issue_attempts",
     "durable_outcomes",
-    "durable_truths",
+    "truth_bearing_outcomes",
+    "package_commit_history",
+    "truth_replacement_commits",
     "s_ack_commits",
     "s_truth_commits",
     "s_ack_generations",
@@ -69,7 +76,14 @@ FIXED_CELL_FIELDS = {
     "conflict_result",
 }
 PROCESS_FIELDS = {"child_pid", "exit_code", "exit_signal", "reaped", "wall_duration_ms"}
-FILESYSTEM_FIELDS = {"scratch_root", "raw_marker_sha256", "normalized_marker_sha256"}
+FILESYSTEM_FIELDS = {
+    "scratch_root",
+    "raw_marker_sha256",
+    "normalized_marker_sha256",
+    "pre_kill_snapshot_sha256",
+    "post_restart_snapshot_sha256",
+    "final_snapshot_sha256",
+}
 REDIS_FIELDS = {"port", "pel_before", "pel_after", "group_frontier", "xack_reply", "xack_disposition"}
 AGGREGATE = {
     "passed": True,
@@ -97,6 +111,52 @@ SEQUENCE_ALLOCATION_FIELDS = {
     "seq_truth",
 }
 PACKAGE_FIELDS = {"write_generation", "p1d3_phase", "generated_market_phase"}
+PACKAGE_COMMIT_FIELDS = {
+    "write_generation",
+    "covering_seal_generation",
+    "p1d3_phase",
+    "generated_market_phase",
+}
+AUDIT_PAYLOAD_FIELDS = {
+    "schema_version",
+    "domain",
+    "cell_id",
+    "scenario_id",
+    "frontier_id",
+    "phase",
+    "disposition",
+    "filesystem_snapshot_sha256",
+    "runtime_audit",
+}
+RUNTIME_AUDIT_FIELDS = {
+    "lifecycle_sequence",
+    "journal_lifecycle_sequences",
+    "sequence_pair",
+    "sequence_allocations",
+    "package",
+    "callback_count",
+    "dispatch_v1_total",
+    "order_v1_total",
+    "trade_v1_total",
+    "request_finalized_v1_total",
+    "durable_outcomes",
+    "truth_bearing_outcomes",
+}
+BASE_ORACLE_FIELDS = [
+    "cell_id",
+    "pre_kill_allocation_kinds",
+    "final_allocation_kinds",
+    "ordered_effect_events",
+    "package_before_p1d3_phase",
+    "package_before_generated_market_phase",
+    "package_before_write_generation",
+    "package_after_p1d3_phase",
+    "package_after_generated_market_phase",
+    "package_after_write_generation",
+    "write_generation_advance",
+    "truth_bearing_outcomes",
+    "truth_replacement_commits",
+]
 FINAL_ALLOCATION_KINDS = {
     "S01": ["initial_working"],
     "S02": ["initial_filled"],
@@ -190,8 +250,39 @@ def load_registry(path: pathlib.Path) -> tuple[list[str], dict[str, dict[str, An
     return fields, rows
 
 
+def load_base_oracle(path: pathlib.Path) -> dict[str, dict[str, Any]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        require(reader.fieldnames == BASE_ORACLE_FIELDS, f"{path.name}: exact header drift")
+        rows: dict[str, dict[str, Any]] = {}
+        for raw in reader:
+            cell_id = raw["cell_id"]
+            require(cell_id not in rows, f"{path.name}: duplicate cell {cell_id}")
+            row: dict[str, Any] = dict(raw)
+            for field in (
+                "package_before_write_generation",
+                "package_after_write_generation",
+                "write_generation_advance",
+                "truth_bearing_outcomes",
+                "truth_replacement_commits",
+            ):
+                value = row[field]
+                require(value == str(int(value)) and int(value) >= 0, f"{cell_id}: invalid oracle {field}")
+                row[field] = int(value)
+            rows[cell_id] = row
+    return rows
+
+
 def canonical_bytes(value: Any) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def oracle_vector(value: str) -> list[str]:
+    return [] if value == "none" else value.split("|")
+
+
+def oracle_phase(value: str) -> Any:
+    return None if value == "none" else value
 
 
 def semantic_view(value: dict[str, Any]) -> dict[str, Any]:
@@ -305,6 +396,169 @@ def sequence_label(audit: dict[str, Any], generated: bool) -> str:
     return f"lifecycle_sequence={audit['lifecycle_sequence']}"
 
 
+def validate_package(cell_id: str, label: str, package: Any) -> None:
+    require(isinstance(package, dict) and set(package) == PACKAGE_FIELDS, f"{cell_id}: {label} schema")
+    require(
+        package["write_generation"] is None
+        or (type(package["write_generation"]) is int and package["write_generation"] > 0),
+        f"{cell_id}: {label} generation",
+    )
+    for phase in ("p1d3_phase", "generated_market_phase"):
+        require(package[phase] is None or isinstance(package[phase], str), f"{cell_id}: {label} {phase}")
+
+
+def validate_runtime_audit(
+    cell_id: str,
+    label: str,
+    audit: Any,
+    sequence_audit: dict[str, Any],
+    package: dict[str, Any],
+    callback_count: int,
+    durable_outcomes: int,
+    truth_bearing_outcomes: int,
+) -> None:
+    require(isinstance(audit, dict) and set(audit) == RUNTIME_AUDIT_FIELDS, f"{cell_id}: {label} runtime audit schema")
+    for field in (
+        "lifecycle_sequence",
+        "callback_count",
+        "dispatch_v1_total",
+        "order_v1_total",
+        "trade_v1_total",
+        "request_finalized_v1_total",
+        "durable_outcomes",
+        "truth_bearing_outcomes",
+    ):
+        require(type(audit[field]) is int and audit[field] >= 0, f"{cell_id}: {label} {field}")
+    require(audit["lifecycle_sequence"] == sequence_audit["lifecycle_sequence"], f"{cell_id}: {label} lifecycle binding")
+    require(
+        audit["journal_lifecycle_sequences"] == sequence_audit["journal_lifecycle_sequences"],
+        f"{cell_id}: {label} journal binding",
+    )
+    require(audit["sequence_pair"] == sequence_audit["durable_sequence_pair"], f"{cell_id}: {label} pair binding")
+    require(audit["sequence_allocations"] == sequence_audit["allocations"], f"{cell_id}: {label} allocation binding")
+    require(audit["package"] == package, f"{cell_id}: {label} package binding")
+    require(audit["callback_count"] == callback_count, f"{cell_id}: {label} callback binding")
+    require(audit["durable_outcomes"] == durable_outcomes, f"{cell_id}: {label} durable outcome binding")
+    require(
+        audit["truth_bearing_outcomes"] == truth_bearing_outcomes,
+        f"{cell_id}: {label} truth-bearing outcome binding",
+    )
+
+
+def validate_audit_payload(
+    cell_id: str,
+    scenario_id: str,
+    frontier_id: str,
+    label: str,
+    payload: Any,
+    retained_sha256: str,
+    filesystem_snapshot_sha256: str,
+    sequence_audit: dict[str, Any],
+    package: dict[str, Any],
+    callback_count: int,
+    durable_outcomes: int,
+    truth_bearing_outcomes: int,
+) -> str:
+    require(isinstance(payload, dict) and set(payload) == AUDIT_PAYLOAD_FIELDS, f"{cell_id}: {label} audit payload schema")
+    require(payload["schema_version"] == 1, f"{cell_id}: {label} audit payload version")
+    require(payload["domain"] == "moex.stage8b.p1d4.structured-runtime-audit.v1", f"{cell_id}: {label} audit domain")
+    require(payload["cell_id"] == cell_id, f"{cell_id}: {label} audit cell binding")
+    require(payload["scenario_id"] == scenario_id, f"{cell_id}: {label} audit scenario binding")
+    require(payload["frontier_id"] == frontier_id, f"{cell_id}: {label} audit frontier binding")
+    require(payload["phase"] == label, f"{cell_id}: {label} audit phase binding")
+    require(payload["filesystem_snapshot_sha256"] == filesystem_snapshot_sha256, f"{cell_id}: {label} filesystem binding")
+    require(isinstance(payload["disposition"], str) and payload["disposition"], f"{cell_id}: {label} disposition")
+    require(hashlib.sha256(canonical_bytes(payload)).hexdigest() == retained_sha256, f"{cell_id}: {label} audit hash")
+    validate_runtime_audit(
+        cell_id,
+        label,
+        payload["runtime_audit"],
+        sequence_audit,
+        package,
+        callback_count,
+        durable_outcomes,
+        truth_bearing_outcomes,
+    )
+    return payload["disposition"]
+
+
+def truth_replacement_count(before: dict[str, Any], history: list[dict[str, Any]]) -> int:
+    prior_p1d3 = before["p1d3_phase"]
+    prior_generated = before["generated_market_phase"]
+    count = 0
+    for commit in history:
+        p1d3_transition = commit["p1d3_phase"] in {"Working", "Terminal"} and commit["p1d3_phase"] != prior_p1d3
+        generated_transition = commit["generated_market_phase"] == "TruthCommitted" and prior_generated != "TruthCommitted"
+        count += int(p1d3_transition or generated_transition)
+        prior_p1d3 = commit["p1d3_phase"]
+        prior_generated = commit["generated_market_phase"]
+    return count
+
+
+def validate_package_history(cell_id: str, cell: dict[str, Any]) -> None:
+    history = cell["package_commit_history"]
+    require(isinstance(history, list), f"{cell_id}: package commit history")
+    before = cell["package_before"]
+    after = cell["package_after"]
+    before_generation = before["write_generation"]
+    after_generation = after["write_generation"]
+    require(type(before_generation) is int and type(after_generation) is int, f"{cell_id}: package generations")
+    require(after_generation >= before_generation, f"{cell_id}: package generation reversal")
+    require(len(history) == after_generation - before_generation, f"{cell_id}: package commit count")
+    for index, commit in enumerate(history, 1):
+        require(isinstance(commit, dict) and set(commit) == PACKAGE_COMMIT_FIELDS, f"{cell_id}: package commit schema")
+        require(type(commit["write_generation"]) is int and commit["write_generation"] > 0, f"{cell_id}: package commit write generation")
+        require(type(commit["covering_seal_generation"]) is int and commit["covering_seal_generation"] > 0, f"{cell_id}: package commit seal generation")
+        for phase in ("p1d3_phase", "generated_market_phase"):
+            require(commit[phase] is None or isinstance(commit[phase], str), f"{cell_id}: package commit {phase}")
+        require(commit["write_generation"] == before_generation + index, f"{cell_id}: package commit generation gap")
+        if index > 1:
+            require(
+                commit["covering_seal_generation"]
+                == history[index - 2]["covering_seal_generation"] + 1,
+                f"{cell_id}: covering-seal generation gap",
+            )
+    if history:
+        require(
+            history[-1]["write_generation"] == after["write_generation"]
+            and history[-1]["p1d3_phase"] == after["p1d3_phase"]
+            and history[-1]["generated_market_phase"] == after["generated_market_phase"],
+            f"{cell_id}: final package commit binding",
+        )
+    else:
+        require(before == after, f"{cell_id}: package changed without observed commit")
+    require(type(cell["truth_replacement_commits"]) is int and cell["truth_replacement_commits"] >= 0, f"{cell_id}: truth replacement count")
+    require(
+        cell["truth_replacement_commits"] == truth_replacement_count(before, history),
+        f"{cell_id}: truth replacement derivation",
+    )
+
+
+def validate_base_oracle(cell_id: str, cell: dict[str, Any], oracle: dict[str, Any]) -> None:
+    before = cell["package_before"]
+    after = cell["package_after"]
+    require(
+        [allocation["outcome_kind"] for allocation in cell["sequence_audit_before"]["allocations"]]
+        == oracle_vector(oracle["pre_kill_allocation_kinds"]),
+        f"{cell_id}: exact pre-kill allocation oracle",
+    )
+    require(
+        [allocation["outcome_kind"] for allocation in cell["sequence_audit_after"]["allocations"]]
+        == oracle_vector(oracle["final_allocation_kinds"]),
+        f"{cell_id}: exact final allocation oracle",
+    )
+    require(cell["observed_effect_events"] == oracle_vector(oracle["ordered_effect_events"]), f"{cell_id}: exact effect order oracle")
+    require(before["p1d3_phase"] == oracle_phase(oracle["package_before_p1d3_phase"]), f"{cell_id}: package-before P1-d3 oracle")
+    require(before["generated_market_phase"] == oracle_phase(oracle["package_before_generated_market_phase"]), f"{cell_id}: package-before generated oracle")
+    require(before["write_generation"] == oracle["package_before_write_generation"], f"{cell_id}: package-before generation oracle")
+    require(after["p1d3_phase"] == oracle_phase(oracle["package_after_p1d3_phase"]), f"{cell_id}: package-after P1-d3 oracle")
+    require(after["generated_market_phase"] == oracle_phase(oracle["package_after_generated_market_phase"]), f"{cell_id}: package-after generated oracle")
+    require(after["write_generation"] == oracle["package_after_write_generation"], f"{cell_id}: package-after generation oracle")
+    require(after["write_generation"] - before["write_generation"] == oracle["write_generation_advance"], f"{cell_id}: generation-advance oracle")
+    require(cell["truth_bearing_outcomes"] == oracle["truth_bearing_outcomes"], f"{cell_id}: truth-bearing V3 oracle")
+    require(cell["truth_replacement_commits"] == oracle["truth_replacement_commits"], f"{cell_id}: truth replacement oracle")
+
+
 def expected_effect(label: str, base: bool) -> int:
     if label.startswith("+1") or (base and label == "0_before_reissue"):
         return 1
@@ -316,6 +570,7 @@ def validate_cell(
     registry_fields: list[str],
     expected: dict[str, Any],
     generated: bool,
+    base_oracle: Any = None,
 ) -> None:
     cell_id = expected["cell_id"]
     require(set(cell) == set(registry_fields) | FIXED_CELL_FIELDS, f"{cell_id}: cell field set drift")
@@ -335,7 +590,13 @@ def validate_cell(
     filesystem = cell["filesystem"]
     require(isinstance(filesystem, dict) and set(filesystem) == FILESYSTEM_FIELDS, f"{cell_id}: filesystem schema")
     require(isinstance(filesystem["scratch_root"], str) and filesystem["scratch_root"], f"{cell_id}: scratch root")
-    for field in ("raw_marker_sha256", "normalized_marker_sha256"):
+    for field in (
+        "raw_marker_sha256",
+        "normalized_marker_sha256",
+        "pre_kill_snapshot_sha256",
+        "post_restart_snapshot_sha256",
+        "final_snapshot_sha256",
+    ):
         require(isinstance(filesystem[field], str) and SHA256.fullmatch(filesystem[field]), f"{cell_id}: {field}")
 
     redis = cell["redis"]
@@ -357,7 +618,7 @@ def validate_cell(
         "provider_attempts",
         "schedule_issue_attempts",
         "durable_outcomes",
-        "durable_truths",
+        "truth_bearing_outcomes",
         "s_ack_commits",
         "s_truth_commits",
         "command_publications",
@@ -378,15 +639,7 @@ def validate_cell(
         f"{cell_id}: observed effect event vector",
     )
     for field in ("package_before", "package_after"):
-        package = cell[field]
-        require(isinstance(package, dict) and set(package) == PACKAGE_FIELDS, f"{cell_id}: {field} schema")
-        require(
-            package["write_generation"] is None
-            or (type(package["write_generation"]) is int and package["write_generation"] > 0),
-            f"{cell_id}: {field} generation",
-        )
-        for phase in ("p1d3_phase", "generated_market_phase"):
-            require(package[phase] is None or isinstance(package[phase], str), f"{cell_id}: {field} {phase}")
+        validate_package(cell_id, field, cell[field])
     validate_sequence_audit(cell_id, cell["sequence_audit_before"])
     validate_sequence_audit(cell_id, cell["sequence_audit_after"])
     before_allocations = cell["sequence_audit_before"]["allocations"]
@@ -402,9 +655,67 @@ def validate_cell(
     require(cell["sequence_after"] == sequence_label(cell["sequence_audit_after"], generated), f"{cell_id}: legacy sequence_after drift")
     require(cell["durable_outcomes"] == len(after_allocations), f"{cell_id}: durable outcome count")
     require(
-        cell["durable_truths"] == sum(allocation["seq_truth"] is not None for allocation in after_allocations),
+        cell["truth_bearing_outcomes"] == sum(allocation["seq_truth"] is not None for allocation in after_allocations),
         f"{cell_id}: independently derived durable truth count",
     )
+    validate_package_history(cell_id, cell)
+    before_truths = sum(allocation["seq_truth"] is not None for allocation in before_allocations)
+    pre_disposition = validate_audit_payload(
+        cell_id,
+        scenario_id,
+        expected["frontier_id"],
+        "pre-kill",
+        cell["pre_kill_audit_payload"],
+        cell["pre_kill_audit_sha256"],
+        filesystem["pre_kill_snapshot_sha256"],
+        cell["sequence_audit_before"],
+        cell["package_before"],
+        cell["callback_before"],
+        len(before_allocations),
+        before_truths,
+    )
+    post_disposition = validate_audit_payload(
+        cell_id,
+        scenario_id,
+        expected["frontier_id"],
+        "post-restart",
+        cell["post_restart_audit_payload"],
+        cell["post_restart_audit_sha256"],
+        filesystem["post_restart_snapshot_sha256"],
+        cell["sequence_audit_before"],
+        cell["package_before"],
+        cell["callback_before"],
+        len(before_allocations),
+        before_truths,
+    )
+    final_audit_disposition = validate_audit_payload(
+        cell_id,
+        scenario_id,
+        expected["frontier_id"],
+        "final",
+        cell["final_audit_payload"],
+        cell["final_audit_sha256"],
+        filesystem["final_snapshot_sha256"],
+        cell["sequence_audit_after"],
+        cell["package_after"],
+        cell["callback_after"],
+        cell["durable_outcomes"],
+        cell["truth_bearing_outcomes"],
+    )
+    require(
+        cell["pre_kill_audit_payload"]["runtime_audit"]
+        == cell["post_restart_audit_payload"]["runtime_audit"],
+        f"{cell_id}: pre-kill/post-restart runtime audit drift",
+    )
+    require(pre_disposition == post_disposition, f"{cell_id}: pre-kill/post-restart disposition drift")
+    if cell["restart_disposition"] == "Ready":
+        require(
+            pre_disposition in {"Ready", "P1SemanticZeroIntentAckPending", "P1d3TruthCommitted"},
+            f"{cell_id}: normalized Ready audit disposition",
+        )
+    else:
+        require(pre_disposition == cell["restart_disposition"], f"{cell_id}: audit restart disposition")
+    require(final_audit_disposition == cell["final_restart_disposition"], f"{cell_id}: final audit disposition")
     require(
         cell["provider_attempts"] == expected_effect(expected["provider_delta"], not generated),
         f"{cell_id}: provider effect",
@@ -415,6 +726,8 @@ def validate_cell(
         f"{cell_id}: schedule effect",
     )
     if not generated:
+        require(base_oracle is not None, f"{cell_id}: base oracle missing")
+        validate_base_oracle(cell_id, cell, base_oracle)
         require(
             all(event in {"p1d3_provider", "p1d3_schedule"} for event in events),
             f"{cell_id}: base effect family",
@@ -497,6 +810,11 @@ def validate_cell(
         require(type(before_generation) is int and type(after_generation) is int, f"{cell_id}: package generations")
         generation_advance = {"Prepublication": 2, "AckCommitted": 1, "TruthCommitted": 0}[expected_phase]
         require(after_generation == before_generation + generation_advance, f"{cell_id}: package generation transition")
+        require(
+            cell["truth_replacement_commits"]
+            == (0 if expected_phase == "TruthCommitted" else 1),
+            f"{cell_id}: generated truth replacement binding",
+        )
         if cell["s_ack_generations"]:
             require(cell["s_ack_generations"] == [before_generation + 1], f"{cell_id}: S_ack generation binding")
         if cell["s_truth_generations"]:
@@ -524,15 +842,20 @@ def validate_run(
     base_rows: dict[str, dict[str, Any]],
     generated_fields: list[str],
     generated_rows: dict[str, dict[str, Any]],
+    base_oracle_rows: dict[str, dict[str, Any]],
 ) -> None:
     require(set(value) == ROOT_FIELDS, f"run {ordinal}: root field set drift")
-    require(value["schema_version"] == 1, f"run {ordinal}: schema version")
-    require(value["domain"] == "moex.stage8b.p1d4.crash-replay.evidence.v1", f"run {ordinal}: domain")
+    require(value["schema_version"] == 2, f"run {ordinal}: schema version")
+    require(value["domain"] == "moex.stage8b.p1d4.crash-replay.evidence.v2", f"run {ordinal}: domain")
     require(value["accepted_predecessor_ref"] == "1a1ea05775f1d15b86fcc3495ad6863b851e9212", f"run {ordinal}: predecessor")
     require(value["run_ordinal"] == ordinal, f"run {ordinal}: ordinal")
     require(isinstance(value["source_ref"], str) and value["source_ref"], f"run {ordinal}: source ref")
     require(isinstance(value["source_tree"], str) and value["source_tree"], f"run {ordinal}: source tree")
     require(value["matrix_sha256"] == hashlib.sha256(BASE_MATRIX.read_bytes()).hexdigest(), f"run {ordinal}: matrix hash")
+    require(
+        value["base_evidence_oracle_sha256"] == hashlib.sha256(BASE_ORACLE.read_bytes()).hexdigest(),
+        f"run {ordinal}: base evidence oracle hash",
+    )
     require(value["aggregate"] == AGGREGATE, f"run {ordinal}: aggregate")
     cells = value["cells"]
     require(isinstance(cells, list) and len(cells) == 105, f"run {ordinal}: cell count")
@@ -542,7 +865,7 @@ def validate_run(
     for cell in cells:
         cell_id = cell["cell_id"]
         if cell_id in base_rows:
-            validate_cell(cell, base_fields, base_rows[cell_id], False)
+            validate_cell(cell, base_fields, base_rows[cell_id], False, base_oracle_rows[cell_id])
         else:
             validate_cell(cell, generated_fields, generated_rows[cell_id], True)
 
@@ -550,10 +873,20 @@ def validate_run(
 def check(directory: pathlib.Path) -> dict[str, Any]:
     base_fields, base_rows = load_registry(BASE_MATRIX)
     generated_fields, generated_rows = load_registry(GENERATED_MATRIX)
+    base_oracle_rows = load_base_oracle(BASE_ORACLE)
     require(len(base_rows) == 92 and len(generated_rows) == 13, "registry cardinality drift")
+    require(set(base_oracle_rows) == set(base_rows), "base evidence oracle identity drift")
     runs = [load_json(directory / name) for name in RUN_FILES]
     for ordinal, run in enumerate(runs, 1):
-        validate_run(run, ordinal, base_fields, base_rows, generated_fields, generated_rows)
+        validate_run(
+            run,
+            ordinal,
+            base_fields,
+            base_rows,
+            generated_fields,
+            generated_rows,
+            base_oracle_rows,
+        )
     require(runs[0]["source_ref"] == runs[1]["source_ref"], "source ref differs across runs")
     require(runs[0]["source_tree"] == runs[1]["source_tree"], "source tree differs across runs")
     digests = [semantic_digest(run) for run in runs]

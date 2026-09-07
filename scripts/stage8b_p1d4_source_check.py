@@ -29,6 +29,7 @@ EXPECTED_CHANGED = {
     "docs/current-status.md",
     "docs/roadmap.md",
     "docs/stage-8/stage8b-p1d4-generated-market-source.md",
+    "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
     "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
     "docs/stage-8/stage8b-p1d4-source-evidence.json",
     "scripts/make_stage8b_p1d4_source_handoff.py",
@@ -76,7 +77,9 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "service": "crates/runtime-durable-service/src/recovery.rs",
         "redis": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
         "doc": "docs/stage-8/stage8b-p1d4-generated-market-source.md",
+        "base_registry": "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv",
         "matrix": "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
+        "base_oracle": "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
         "evidence": "docs/stage-8/stage8b-p1d4-source-evidence.json",
         "status": "docs/current-status.md",
         "roadmap": "docs/roadmap.md",
@@ -216,6 +219,14 @@ def validate_content(content: dict[str, str]) -> None:
         "p1d4_generated_expected_effect_events",
         "p1d4_generated_effect_scope_terminal",
         '"observed_effect_events".into()',
+        '"package_commit_history".into()',
+        '"truth_replacement_commits".into()',
+        '"pre_kill_audit_payload".into()',
+        '"post_restart_audit_payload".into()',
+        '"final_audit_payload".into()',
+        "p1d4_assert_base_evidence_oracle",
+        "p1d4_assert_package_commit_history",
+        "stage8b-p1d4-base-evidence-oracle-v1.csv",
         "journal_record_index",
         "second_clean_run_same_final_audit",
     ):
@@ -248,7 +259,7 @@ def validate_content(content: dict[str, str]) -> None:
         "GENERATED_EFFECT_SCOPE_TERMINAL",
         'cell["observed_effect_events"]',
         'cell["package_after"]["write_generation"]',
-        'cell["durable_truths"] == sum',
+        'cell["truth_bearing_outcomes"] == sum',
         'cell["provider_attempts"] == expected_effect',
         'cell["schedule_issue_attempts"]',
         'cell["s_ack_commits"]',
@@ -258,8 +269,28 @@ def validate_content(content: dict[str, str]) -> None:
         'expected["xack_delta"]',
         'expected["final_source_disposition"]',
         'first["final_audit_sha256"] == second["final_audit_sha256"]',
+        "BASE_ORACLE",
+        "load_base_oracle",
+        "validate_base_oracle",
+        "validate_package_history",
+        "validate_audit_payload",
+        'cell["truth_replacement_commits"]',
+        'hashlib.sha256(canonical_bytes(payload)).hexdigest()',
     ):
         require(token in crash_evidence_checker, f"crash evidence checker invariant missing: {token}")
+
+    oracle_rows = list(csv.DictReader(content["base_oracle"].splitlines()))
+    base_registry_rows = list(csv.DictReader(content["base_registry"].splitlines()))
+    require(len(oracle_rows) == 92, "base evidence oracle must contain 92 rows")
+    require(
+        len({row["cell_id"] for row in oracle_rows}) == 92,
+        "base evidence oracle cell identities must be unique",
+    )
+    require(
+        {row["cell_id"] for row in oracle_rows}
+        == {row["cell_id"] for row in base_registry_rows},
+        "base evidence oracle identities drifted from the accepted registry",
+    )
 
     matrix_rows = list(csv.DictReader(content["matrix"].splitlines()))
     require(len(matrix_rows) == 20, "source acceptance matrix must contain 20 rows")

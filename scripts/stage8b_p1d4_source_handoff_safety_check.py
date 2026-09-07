@@ -23,7 +23,7 @@ CRASH_DIGEST = "handoff-evidence/stage8b-p1d4-crash-replay-semantic-digest.txt"
 CRASH_GENERATED = {CRASH_RUN_1, CRASH_RUN_2, CRASH_DIGEST}
 GENERATED = {"handoff-commit.txt", EVIDENCE, GATE, MANIFEST} | CRASH_GENERATED
 ACCEPTED_DESIGN = "1a1ea05775f1d15b86fcc3495ad6863b851e9212"
-REVIEWED_SOURCE = "0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa"
+REVIEWED_SOURCE = "3d2e54020f929a517bd275b775ae69c1d2974de5"
 ACCEPTED_P1D3 = "7dc7c802feca6e79d3a1a9902c181ad7b6afc506"
 BRANCH = "stage8b-paper-shadow-resumption"
 REQUIRED = GENERATED | {
@@ -34,6 +34,7 @@ REQUIRED = GENERATED | {
     "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
     "docs/stage-8/stage8b-p1d4-crash-replay-design-r7.md",
     "docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv",
+    "docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv",
     "docs/stage-8/stage8b-p1d4-generated-market-crash-submatrix-v3.csv",
     "docs/stage-8/stage8b-p1d4-generated-market-source.md",
     "docs/stage-8/stage8b-p1d4-source-acceptance-matrix.csv",
@@ -118,15 +119,15 @@ def check(path: str) -> dict[str, object]:
             raise ValueError("worktree/push status mismatch")
         if manifest.get("source_ref") != source_ref:
             raise ValueError("manifest source binding mismatch")
-        if evidence.get("stage") != "Stage 8B-P1-d4 generated-Market crash/replay source R2 evidence correction":
+        if evidence.get("stage") != "Stage 8B-P1-d4 generated-Market crash/replay source R3 evidence correction":
             raise ValueError("stage mismatch")
-        if evidence.get("status") != "SOURCE_R2_REVIEW_CANDIDATE":
+        if evidence.get("status") != "SOURCE_R3_REVIEW_CANDIDATE":
             raise ValueError("candidate status mismatch")
         if (
             evidence.get("acceptance_rows") != 20
-            or evidence.get("negative_cases") != 58
+            or evidence.get("negative_cases") != 65
             or evidence.get("source_negative_cases") != 51
-            or evidence.get("crash_evidence_negative_cases") != 7
+            or evidence.get("crash_evidence_negative_cases") != 14
         ):
             raise ValueError("acceptance inventory mismatch")
         if evidence.get("unexpected_protected_path_changes") != []:
@@ -158,7 +159,7 @@ def check(path: str) -> dict[str, object]:
             b"PASS stage8b-p1d4-source-check",
             b"PASS stage8b-p1d4-source-negative-harness 51/51",
             b"PASS stage8b-p1d4-crash-evidence-check cells=105 runs=2",
-            b"PASS stage8b-p1d4-crash-evidence-negative-harness 7/7",
+            b"PASS stage8b-p1d4-crash-evidence-negative-harness 14/14",
             b"PASS stage8b-p1d4-source-gate",
         ):
             if expected not in gate:
@@ -181,9 +182,13 @@ def check(path: str) -> dict[str, object]:
         with tempfile.TemporaryDirectory(prefix="stage8b-p1d4-handoff-") as directory:
             root = Path(directory)
             base_matrix = root / "base.csv"
+            base_oracle = root / "base-oracle.csv"
             generated_matrix = root / "generated.csv"
             base_matrix.write_bytes(
                 archive.read("docs/stage-8/stage8b-p1d4-scenario-frontier-matrix-v5.csv")
+            )
+            base_oracle.write_bytes(
+                archive.read("docs/stage-8/stage8b-p1d4-base-evidence-oracle-v1.csv")
             )
             generated_matrix.write_bytes(
                 archive.read(
@@ -193,13 +198,16 @@ def check(path: str) -> dict[str, object]:
             for name in CRASH_GENERATED:
                 (root / PurePosixPath(name).name).write_bytes(archive.read(name))
             previous_base = crash_evidence_check.BASE_MATRIX
+            previous_oracle = crash_evidence_check.BASE_ORACLE
             previous_generated = crash_evidence_check.GENERATED_MATRIX
             try:
                 crash_evidence_check.BASE_MATRIX = base_matrix
+                crash_evidence_check.BASE_ORACLE = base_oracle
                 crash_evidence_check.GENERATED_MATRIX = generated_matrix
                 crash_result = crash_evidence_check.check(root)
             finally:
                 crash_evidence_check.BASE_MATRIX = previous_base
+                crash_evidence_check.BASE_ORACLE = previous_oracle
                 crash_evidence_check.GENERATED_MATRIX = previous_generated
         if crash_result.get("semantic_digest") != retained_digest:
             raise ValueError("independent crash evidence mismatch")
@@ -229,7 +237,7 @@ def check(path: str) -> dict[str, object]:
             "accepted_design": ACCEPTED_DESIGN,
             "source_tree": source_tree,
             "branch": BRANCH,
-            "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R2 evidence correction",
+            "stage": "Stage 8B-P1-d4 generated-Market crash/replay source R3 evidence correction",
             "crash_evidence_cells": crash_result["cells"],
             "crash_evidence_runs": crash_result["runs"],
             "crash_evidence_semantic_digest": retained_digest,

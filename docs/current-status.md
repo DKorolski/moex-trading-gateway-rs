@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-06.
+Status date: 2026-09-07.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -42,8 +42,11 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   conflict variants. Source commit `250f71a5a36c796281e946eeeb557f04818daab0`
   was held with two proof-strength P1 findings. R1 commit
   `0a30516dc359f8c9a7ba331ee1d2b10d0d4b50fa` closed both findings but was held
-  with one remaining evidence-exactness P1. The active R2 correction
-  retains every normative registry field, completes every cell to final state,
+  with one remaining evidence-exactness P1. R2 commit
+  `3d2e54020f929a517bd275b775ae69c1d2974de5` strengthened typed audit facts
+  but was held because the independent checker did not interpret base-cell
+  allocation timing, effect order and package state exactly. The active R3
+  correction retains every normative registry field, completes every cell to final state,
   records process/filesystem/Redis/counter/audit evidence, compares two clean
   105-cell semantic digests, and fsyncs then exactly restores the GM08/GM09
   pre-kill sequence pair while proving GM07 has no pair. The collector also
@@ -51,11 +54,12 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
   opening any new external input. Standalone P1-d2 remains unchanged when the composite
   discriminator is absent. R2 also retains exact authenticated V3 sequence
   allocations, independently derives durable truth facts, observes
-  provider/schedule invocations at their call sites, retains the complete
-  ordered effect trace through terminal drain, scopes each cell at its actual
-  crash-frontier boundary, and binds generated covering-seal counts to exact
-  package phase/generation transitions with seven redigested semantic-evidence
-  mutations.
+  provider/schedule invocations at their call sites, and now freezes an exact
+  92-row base oracle for allocation prefixes, ordered effects, package phases,
+  absolute generations and truth replacement commits. Canonical per-cell audit
+  payloads make all three hashes independently reproducible, and fourteen
+  redigested semantic-evidence mutations cover the original seven plus every
+  R2 review reproduction.
   P1-d4 is not closed until independent source
   acceptance and a later governance-only authority rebind. Operational Redis
   DB0/VPS activation, P1-e, FINAM dispatch, runtime-live, real orders and

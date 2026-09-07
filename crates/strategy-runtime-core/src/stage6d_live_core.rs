@@ -623,7 +623,7 @@ pub struct Stage8bP1d4RuntimeAuditV1 {
     pub trade_v1_total: usize,
     pub request_finalized_v1_total: usize,
     pub durable_outcomes: usize,
-    pub durable_truths: usize,
+    pub truth_bearing_outcomes: usize,
 }
 
 /// Immutable Stage 7 seal facts captured before a P1 semantic callback.  The
@@ -2304,7 +2304,7 @@ impl Stage6dDurableRuntimeRecovered {
         let mut trade_v1_total = 0;
         let mut request_finalized_v1_total = 0;
         let mut durable_outcomes = 0;
-        let mut durable_truths = 0;
+        let mut truth_bearing_outcomes = 0;
         let mut sequence_allocations = Vec::new();
         let journal_lifecycle_sequences = self
             .journal
@@ -2353,7 +2353,7 @@ impl Stage6dDurableRuntimeRecovered {
                     .expect("validated V3 journal rows retain canonical P1-d3 outcome evidence");
                     let (seq_ack, seq_truth) = evidence.reserved_sequences();
                     durable_outcomes += 1;
-                    durable_truths += usize::from(seq_truth.is_some());
+                    truth_bearing_outcomes += usize::from(seq_truth.is_some());
                     sequence_allocations.push(Stage8bP1d4SequenceAllocationAuditV1 {
                         outcome_kind: evidence.outcome_kind().canonical_name().to_string(),
                         journal_record_index,
@@ -2434,7 +2434,7 @@ impl Stage6dDurableRuntimeRecovered {
             trade_v1_total,
             request_finalized_v1_total,
             durable_outcomes,
-            durable_truths,
+            truth_bearing_outcomes,
         }
     }
 
