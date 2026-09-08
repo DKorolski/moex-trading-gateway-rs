@@ -1,0 +1,89 @@
+id,area,requirement,status
+P1ER1-001,lineage,Accepted predecessor is exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER1-002,lineage,R0 7a186cd is HOLD and R1 is the sole normative correction,REQUIRED
+P1ER1-003,scope,R1 remains design checker and evidence only with zero Rust Cargo workflow unit or config change,REQUIRED
+P1ER1-004,scope,Acceptance can open P1-e source implementation only,REQUIRED
+P1ER1-005,binary,Dedicated stage8b-p1-paper-supervisor belongs to runtime-durable-service,REQUIRED
+P1ER1-006,binary,It is not broker-cli and has no broker-finam finam-gateway HTTP or FINAM token dependency,REQUIRED
+P1ER1-007,mode,validate-config has no Redis or durable write effect,REQUIRED
+P1ER1-008,mode,bootstrap requires the exact one-shot confirmation,REQUIRED
+P1ER1-009,mode,run is restart-only and cannot create or reseed a root,REQUIRED
+P1ER1-010,credential,Only stage8b-p1-lifecycle.key from CREDENTIALS_DIRECTORY is accepted,REQUIRED
+P1ER1-011,credential,No secret or caller-selected credential path is accepted in argv config or ordinary environment,REQUIRED
+P1ER1-012,credential,Existing 32-byte nofollow single-link ownership and mode validation remains authoritative,REQUIRED
+P1ER1-013,profile,Stage8bP1RuntimeProfileV1 canonical SHA-256 is exact,REQUIRED
+P1ER1-014,profile,Every HybridIntradayRuntimeConfig field is explicitly frozen including inactive High180 compatibility fields,REQUIRED
+P1ER1-015,profile,Decimal values are exact strings and no default merge override or inheritance is allowed,REQUIRED
+P1ER1-016,profile,One narrow production constructor maps every field explicitly,REQUIRED
+P1ER1-017,profile,Actual stage5c runtime fingerprint is recomputed and matched before root or Redis effect,REQUIRED
+P1ER1-018,profile,Profile ID canonical hash and actual runtime fingerprint are all config-bound,REQUIRED
+P1ER1-019,first_boot,Source bundle path is fixed and no argv or environment path override exists,REQUIRED
+P1ER1-020,first_boot,Source bundle is regular single-link root-owned mode at most 0640 and config SHA-bound,REQUIRED
+P1ER1-021,first_boot,Source bundle schema rejects unknown fields and binds operational runtime and instrument identities,REQUIRED
+P1ER1-022,first_boot,Source contains broker bar and raw riskgate session observations only and cannot contain runtime state derived ledger fields or Stage5G package,REQUIRED
+P1ER1-023,first_boot,Broker truth is complete fresh target-flat and account-wide active-order-free,REQUIRED
+P1ER1-024,first_boot,History is final aligned ordered gap-proven FinamDerivedM1ToM10 from at least 121 Moscow sessions,REQUIRED
+P1ER1-025,first_boot,History callbacks use HistorySim and cannot publish operational commands,REQUIRED
+P1ER1-026,first_boot,Production riskgate history oracle rebuilds at least 120 finalized session outcomes from the exact bars and byte-matches source observations and hashes,REQUIRED
+P1ER1-027,first_boot,External materialized state ledger and derived row fields are forbidden while source algorithms and Stage5D validation derive exact authority,REQUIRED
+P1ER1-028,first_boot,Candidate is exact first Replay M10 after history and produces one callback zero intents zero requests,REQUIRED
+P1ER1-029,first_boot,Nonzero-intent candidate blocks before root creation,REQUIRED
+P1ER1-030,first_boot,Lifecycle clocks and export metadata are derived only by Stage8bP1FirstBootSourcePlanV1,REQUIRED
+P1ER1-031,first_boot,Stage5G export and restore into a second exact runtime precede root creation,REQUIRED
+P1ER1-032,first_boot,Release default-feature bootstrap then run succeeds from empty canonical parent,REQUIRED
+P1ER1-033,first_boot,Wrong profile source account instrument chronology warmup riskgate observation or state override leaves parent root-free,REQUIRED
+P1ER1-034,first_boot,Release graph and strings reject stage8b_p1_test_first_boot_material and artifact fixture features,REQUIRED
+P1ER1-035,bootstrap_unit,Separate one-shot bootstrap unit has exact ExecStart confirmation and systemd credential,REQUIRED
+P1ER1-036,bootstrap_unit,Bootstrap unit has AF_UNIX plus PrivateNetwork and no Redis access,REQUIRED
+P1ER1-037,bootstrap_unit,Ordinary unit cannot invoke bootstrap and bootstrap unit is disabled after success,REQUIRED
+P1ER1-038,startup,Redis contact remains forbidden before authenticated local durable restart,REQUIRED
+P1ER1-039,startup,S05 verifies manifest before claim read or telemetry,REQUIRED
+P1ER1-040,startup,S06 completes bounded claim scan before fresh read,REQUIRED
+P1ER1-041,startup,S06R completes exact recovered lifecycle before fresh poll or PaperReady,REQUIRED
+P1ER1-042,restart,Restart matrix has exactly every current Stage7bRestartOutcome variant with no wildcard fallback,REQUIRED
+P1ER1-043,restart,Ready has no continuation and Blocked plus Stage8a4I3Pending terminate before Redis,REQUIRED
+P1ER1-044,restart,P1 semantic P1d2 P1d3 and generated-Market variants use only their named resume functions,REQUIRED
+P1ER1-045,restart,P1d3 dispatch LIMIT and CANCEL may reissue only exact equivalent schedule authority,REQUIRED
+P1ER1-046,restart,P1d3 dispatch expiry may reissue only exact equivalent day-expiry authority,REQUIRED
+P1ER1-047,restart,Generated-Market prepublication may reissue only its exact schedule authority,REQUIRED
+P1ER1-048,restart,Every post-evidence path forbids provider schedule and callback reacquisition,REQUIRED
+P1ER1-049,restart,XACK is legal only at the exact matrix terminal boundary,REQUIRED
+P1ER1-050,restart,Each restart variant declares readiness and shutdown disposition,REQUIRED
+P1ER1-051,redis,Redis URL grammar permits only the two exact loopback DB15 literals,REQUIRED
+P1ER1-052,redis,Userinfo password query fragment alias omitted port DB0 percent encoding and normalization are rejected,REQUIRED
+P1ER1-053,redis,Deployment manifest binds schema domain operational identity runtime and instrument fingerprints and generations,REQUIRED
+P1ER1-054,redis,Manifest binds exact DB key type group inventory settlement prefix and namespace digest,REQUIRED
+P1ER1-055,redis,P1-f provisions and P1-e only verifies the exact canonical manifest hash,REQUIRED
+P1ER1-056,redis,Run never initializes repairs renames or creates streams groups or manifest,REQUIRED
+P1ER1-057,redis,Missing or wrong key type extra group or identity generation drift fails before lifecycle work,REQUIRED
+P1ER1-058,redis,Health and readiness streams are preprovisioned and missing streams fail closed,REQUIRED
+P1ER1-059,redis,Telemetry uses XADD NOMKSTREAM MAXLEN equals 4096 only,REQUIRED
+P1ER1-060,redis,Alternate same-shaped Redis database cannot pass deployment manifest verification,REQUIRED
+P1ER1-061,ownership,One owner task exclusively owns mutable lifecycle key and XACK authority,REQUIRED
+P1ER1-062,ownership,Telemetry signal and coordinator cannot clone reconstruct or extract owner authority,REQUIRED
+P1ER1-063,events,Supervisor event matrix has exactly 24 unique event-owner-phase rows,REQUIRED
+P1ER1-064,events,Every event row fixes effect exit readiness PEL disposition and restart authority,REQUIRED
+P1ER1-065,events,Lost owner forbids drain and exits 70 with P1-d4 restart as sole continuation,REQUIRED
+P1ER1-066,events,Available owner may execute only phase-authorized bounded drain,REQUIRED
+P1ER1-067,events,Unexpected typed owner return remains nonzero even after safe drain,REQUIRED
+P1ER1-068,events,Telemetry and signal task failures cannot acquire owner and use closed nonzero codes,REQUIRED
+P1ER1-069,events,Grace expiry performs no new semantic effect and exits 72 to systemd policy,REQUIRED
+P1ER1-070,signals,First SIGTERM or SIGINT latches shutdown before new acquisition,REQUIRED
+P1ER1-071,signals,Shutdown latch is checked before and after XREADGROUP delivery,REQUIRED
+P1ER1-072,signals,Post-latch delivery remains pending exactly once with no parse provider schedule or callback,REQUIRED
+P1ER1-073,signals,Second signal cannot bypass durability XACK or grace policy,REQUIRED
+P1ER1-074,systemd,Ordinary unit uses Restart on-failure RestartSec 5 and start-limit 300 by 5,REQUIRED
+P1ER1-075,systemd,Shutdown uses SIGTERM control-group TimeoutStopSec 100 and final SIGKILL,REQUIRED
+P1ER1-076,pel,Startup claim uses 12 attempts at most 60 seconds and 250ms exponential backoff capped 5 seconds,REQUIRED
+P1ER1-077,pel,Unclaimable pending entry keeps Degraded and forbids fresh XREADGROUP greater-than,REQUIRED
+P1ER1-078,pel,Startup claim budget exhaustion exits 67 without reading fresh work,REQUIRED
+P1ER1-079,pel,Consumer name binds deployment generation and random boot ID,REQUIRED
+P1ER1-080,pel,At most 16 stale consumers are examined per boot,REQUIRED
+P1ER1-081,pel,DELCONSUMER is legal only for idle at least 24h and Redis-reported zero pending,REQUIRED
+P1ER1-082,pel,Nonzero pending ownership moves only through accepted XAUTOCLAIM,REQUIRED
+P1ER1-083,telemetry,Health readiness field order and closed status phase reason and failure enums are exact,REQUIRED
+P1ER1-084,telemetry,Raw account Redis URL path credential token payload and raw error text are impossible,REQUIRED
+P1ER1-085,telemetry,Redaction uses exact domain-separated account and request SHA-256 transforms,REQUIRED
+P1ER1-086,reproducibility,Only observation timestamp boot ID and consumer name are normalized inside snapshots,REQUIRED
+P1ER1-087,reproducibility,Durable identity generation seal ordering phase failure PEL and blocked fields are never normalized,REQUIRED
+P1ER1-088,closed,P1-f DB0 VPS FINAM dispatch runtime-live real orders partial fills and protective execution remain closed,REQUIRED

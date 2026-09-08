@@ -1,8 +1,9 @@
 # Stage 8B-P1-e deployable paper supervisor design
 
-Status: R0 design-only review candidate. Production implementation and every
-operational activation remain unauthorized until this exact design is
-independently accepted.
+Status: R0 design candidate is HOLD and superseded by
+`stage8b-p1e-deployable-supervisor-design-r1.md`. Production implementation
+and every operational activation remain unauthorized until the exact R1
+design is independently accepted.
 
 Accepted predecessor: `c2a9e1246dfdd59f3a6297268de907dedcb19903`
 (Stage 8B-P1-d4 governance closure R1, CLOSED / ACCEPTED).

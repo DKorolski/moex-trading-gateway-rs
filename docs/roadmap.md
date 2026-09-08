@@ -124,13 +124,14 @@ acceptance. FINAM POST/DELETE, broker dispatch, real orders and runtime-live
 remain closed.
 
 Stage 8B-P1-d4 is independently closed at
-`c2a9e1246dfdd59f3a6297268de907dedcb19903`. The active P1-e R0 design-only
-candidate freezes a dedicated paper supervisor binary, restart-only daemon,
-separate explicit bootstrap, systemd credential custody, redacted fixed-stream
-telemetry and graceful shutdown at authenticated P1-d4 restart boundaries.
-Acceptance may open only P1-e source implementation. Service installation,
-isolated operational acceptance and every DB0/FINAM/live surface remain owned
-by later gates.
+`c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design is HOLD at
+`7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b`; P1-e R1 design correction is the active candidate.
+It preserves the dedicated paper supervisor and adds exact production runtime
+profile/first-boot source contracts, exhaustive restart and supervisor-event
+matrices, deployment-bound verify-only Redis attachment, non-creating
+telemetry, bounded PEL hygiene and exact systemd restart policy. Only independent R1 design acceptance may open P1-e source implementation. Service
+installation, P1-f isolated operational acceptance and every DB0/FINAM/live
+surface remain owned by later gates.
 
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.

@@ -1482,19 +1482,18 @@ Red / not yet implemented:
 
 ## Required gates before runtime-driven live
 
-### Stage 8B-P1-e design candidate (2026-09-08)
+### Stage 8B-P1-e R1 design correction candidate (2026-09-08)
 
 Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
-`c2a9e1246dfdd59f3a6297268de907dedcb19903`. The active next candidate is the
-design-only P1-e deployable supervisor contract. It selects a dedicated
-`runtime-durable-service` binary, restart-only ordinary startup, separate
-explicit first boot, systemd credential custody, fixed redacted
-health/readiness streams and signal handling that stops fresh acquisition and
-reaches only an accepted authenticated restart boundary. P1-e design changes
-no production Rust or deployment unit and authorizes no operational start.
-P1-f retains ownership of isolated Redis/VPS acceptance. Operational DB0,
-FINAM transport/POST/DELETE, broker dispatch, runtime-live and real orders
-remain closed.
+`c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at `7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b` is HOLD after independent review;
+the active candidate is P1-e R1 design correction. R1 keeps the dedicated
+`runtime-durable-service` supervisor but exact-freezes a production runtime
+profile and source-produced first boot, all 22 restart outcomes, a 24-row
+owner/event state machine, Redis deployment identity with `NOMKSTREAM`
+telemetry, bounded PEL hygiene and systemd restart limits. P1-e source implementation remains unauthorized
+until independent R1 acceptance. P1-f retains ownership of isolated Redis/VPS
+acceptance. Operational DB0, FINAM transport/POST/DELETE, broker dispatch,
+runtime-live and real orders remain closed.
 
 1. ALOR runtime compatibility contract v1 accepted.
 2. Runtime source adaptation vs binary-compatible adapter ADR accepted.
