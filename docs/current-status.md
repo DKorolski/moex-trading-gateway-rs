@@ -1482,6 +1482,20 @@ Red / not yet implemented:
 
 ## Required gates before runtime-driven live
 
+### Stage 8B-P1-e design candidate (2026-09-08)
+
+Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
+`c2a9e1246dfdd59f3a6297268de907dedcb19903`. The active next candidate is the
+design-only P1-e deployable supervisor contract. It selects a dedicated
+`runtime-durable-service` binary, restart-only ordinary startup, separate
+explicit first boot, systemd credential custody, fixed redacted
+health/readiness streams and signal handling that stops fresh acquisition and
+reaches only an accepted authenticated restart boundary. P1-e design changes
+no production Rust or deployment unit and authorizes no operational start.
+P1-f retains ownership of isolated Redis/VPS acceptance. Operational DB0,
+FINAM transport/POST/DELETE, broker dispatch, runtime-live and real orders
+remain closed.
+
 1. ALOR runtime compatibility contract v1 accepted.
 2. Runtime source adaptation vs binary-compatible adapter ADR accepted.
    Current accepted decision: runtime source migration to broker-neutral

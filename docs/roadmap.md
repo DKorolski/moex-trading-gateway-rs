@@ -123,6 +123,15 @@ P1-e owns the deployable supervisor and P1-f owns isolated operational
 acceptance. FINAM POST/DELETE, broker dispatch, real orders and runtime-live
 remain closed.
 
+Stage 8B-P1-d4 is independently closed at
+`c2a9e1246dfdd59f3a6297268de907dedcb19903`. The active P1-e R0 design-only
+candidate freezes a dedicated paper supervisor binary, restart-only daemon,
+separate explicit bootstrap, systemd credential custody, redacted fixed-stream
+telemetry and graceful shutdown at authenticated P1-d4 restart boundaries.
+Acceptance may open only P1-e source implementation. Service installation,
+isolated operational acceptance and every DB0/FINAM/live surface remain owned
+by later gates.
+
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
 
