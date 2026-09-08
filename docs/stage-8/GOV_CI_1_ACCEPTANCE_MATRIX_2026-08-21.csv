@@ -31,3 +31,4 @@ GOV-CI-029,No-Redis and isolated Redis smokes remain mandatory,canonical CI and 
 GOV-CI-030,Handoff verifies every tracked byte and mode,source manifest and self-contained safety checker
 GOV-CI-031,Canonical CI action uses are immutable full-SHA pins,semantic workflow checker and negatives N28-N31
 GOV-CI-032,Canonical CI Rust toolchain is exact release 1.95.0,semantic workflow checker and negatives N32-N33
+GOV-CI-033,Canonical workspace tests use the accepted P1-d4 Rust stack contract,exact Rust-job environment binding and negatives N34-N35

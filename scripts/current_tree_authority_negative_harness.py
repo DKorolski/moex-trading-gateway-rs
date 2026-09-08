@@ -134,6 +134,8 @@ def main() -> None:
         ("workflow-rust-action-pin-drift", lambda r: replace(r / workflow, "dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c", "dtolnay/rust-toolchain@0000000000000000000000000000000000000000")),
         ("workflow-rust-version-stable", lambda r: replace(r / workflow, "toolchain: 1.95.0", "toolchain: stable")),
         ("workflow-rust-version-drift", lambda r: replace(r / workflow, "toolchain: 1.95.0", "toolchain: 1.94.0")),
+        ("workflow-rust-min-stack-removed", lambda r: replace(r / workflow, '      RUST_MIN_STACK: "33554432"\n', "")),
+        ("workflow-rust-min-stack-drift", lambda r: replace(r / workflow, '      RUST_MIN_STACK: "33554432"', '      RUST_MIN_STACK: "16777216"')),
         ("gate-checker-commented", lambda r: replace(r / gate, "python3 scripts/current_tree_authority_check.py", "# python3 scripts/current_tree_authority_check.py")),
         ("gate-negative-commented", lambda r: replace(r / gate, "python3 scripts/current_tree_authority_negative_harness.py", "# python3 scripts/current_tree_authority_negative_harness.py")),
         ("gate-replay-echo-noop", lambda r: replace(r / gate, '  bash "$replay_root/repo/scripts/stage8a5_gate.sh"', '  echo \'bash "$replay_root/repo/scripts/stage8a5_gate.sh"\'')),

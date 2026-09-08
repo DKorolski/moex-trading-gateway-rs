@@ -32,6 +32,7 @@ ACCEPTED_STAGE8A5_GATE_SHA256 = (
 CHECKOUT_ACTION_SHA = "11d5960a326750d5838078e36cf38b85af677262"
 RUST_TOOLCHAIN_ACTION_SHA = "4360b52568e2003a75bf9bc1d59f33a8e3fc893c"
 RUST_TOOLCHAIN_VERSION = "1.95.0"
+RUST_MIN_STACK_BYTES = "33554432"
 ALLOWED_WORKFLOWS = {CURRENT_WORKFLOW.as_posix(), HISTORICAL_WORKFLOW.as_posix()}
 HISTORICAL_CURRENT_TREE_MARKERS = (
     "bash scripts/forbidden_surface_scan.sh",
@@ -217,6 +218,15 @@ def check(root: Path) -> None:
     )
     current_workflow = (root / CURRENT_WORKFLOW).read_text(encoding="utf-8")
     historical_workflow = (root / HISTORICAL_WORKFLOW).read_text(encoding="utf-8")
+    rust_job = re.search(r"(?ms)^  rust:\s*\n(?P<body>.*?)(?=^  redis-smoke:\s*$)", current_workflow)
+    require(rust_job is not None, "canonical CI Rust job missing")
+    rust_job_body = rust_job.group("body")
+    stack_binding = f'      RUST_MIN_STACK: "{RUST_MIN_STACK_BYTES}"'
+    require(
+        rust_job_body.count(stack_binding) == 1
+        and current_workflow.count("RUST_MIN_STACK:") == 1,
+        "canonical CI Rust stack contract drift",
+    )
     current_triggers = workflow_trigger_block(current_workflow)
     historical_triggers = workflow_trigger_block(historical_workflow)
     require("pull_request:" in current_triggers, "canonical CI pull_request trigger missing")
@@ -296,6 +306,7 @@ def check(root: Path) -> None:
         "GOV-CI-1A", "GOV-CI-1B", ACCEPTED_PREDECESSOR, ACCEPTED_STAGE8A5_REF,
         "Stage 8B-D R2", "FINAM POST/DELETE", "runtime-live", CHECKOUT_ACTION_SHA,
         RUST_TOOLCHAIN_ACTION_SHA, RUST_TOOLCHAIN_VERSION,
+        RUST_MIN_STACK_BYTES,
     ):
         require(marker in contract, f"governance contract marker missing: {marker}")
 

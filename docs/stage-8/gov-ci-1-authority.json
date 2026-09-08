@@ -1,5 +1,5 @@
 {
-  "acceptance_rows": 32,
+  "acceptance_rows": 33,
   "accepted_predecessor": "1dea519cbf2affc3d99866fdae66bbddbafefa24",
   "accepted_stage8a5_replay": {
     "current_i4_negative_cases": 28,
@@ -33,12 +33,12 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "bbff13347d722ffde8b3fcefaea62902dfa247752e58f7a14bb2088f70ef7d0e",
+    "aggregate_sha256": "f02c815032b23d66a146ef0cfe219d47be8cb479b9f6f2b7f3e1cdecfe9ccf13",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
-        "sha256": "9df53c83ac9d22a8df7b711791c4e6e21351d6bd74af6f241c12c9e236a09b88",
-        "size": 2616
+        "sha256": "6fe2447678c3046fa02241002d7e00e4f3187a465d2f9dd8af832ff09f3bdd1f",
+        "size": 2804
       },
       ".github/workflows/stage5f-base-authority.yml": {
         "mode": "100644",
@@ -77,28 +77,28 @@
       },
       "docs/stage-8/GOV_CI_1_ACCEPTANCE_MATRIX_2026-08-21.csv": {
         "mode": "100644",
-        "sha256": "cce5ef8d446433182da07399e19a97395266d606627699b7e20d40c7297d43c6",
-        "size": 2816
+        "sha256": "72b7ce076afa687e898622037da2243d9a6aaa8667db4e9689e1d10b2a870d68",
+        "size": 2953
       },
       "docs/stage-8/GOV_CI_1_CURRENT_TREE_AUTHORITY_2026-08-21.md": {
         "mode": "100644",
-        "sha256": "c83dce73d3487dfcc5dbf3de92ec17d814e6395539a51cdd841d9eef4a6ab8f5",
-        "size": 3240
+        "sha256": "3d035fc21c93437a7c70378138d07af4a9ccc0886498c5e2a0b9d74cb7360f42",
+        "size": 3516
       },
       "docs/stage-8/GOV_CI_1_NEGATIVE_INVENTORY_2026-08-21.md": {
         "mode": "100644",
-        "sha256": "7dc07b60a9a32b166c1a8b250c0b2008272c71236907f7691f87cea69624f816",
-        "size": 2443
+        "sha256": "35ec275c2ae04383ac502d288d0e20376b9042640dda57cad294b6a5dec4da0e",
+        "size": 2591
       },
       "scripts/current_tree_authority_check.py": {
         "mode": "100755",
-        "sha256": "1b706c4829f27f1b50533941ed631ad04250baa1bdab75e972c5cbfff3d8d257",
-        "size": 14065
+        "sha256": "3426e6efa3412140e61fa6c3b857a8628b2413f2894b4c65b1762ed1ef23caea",
+        "size": 14588
       },
       "scripts/current_tree_authority_negative_harness.py": {
         "mode": "100755",
-        "sha256": "95042985bbb05993240a08ab8f8883eddcccc768ce3d643287eaa318d571082b",
-        "size": 10233
+        "sha256": "edb0e73cb202ff36143f86d804531c50f172c504cbc9d2bd865ac19afe8fb4b7",
+        "size": 10501
       },
       "scripts/current_tree_ci_gate.sh": {
         "mode": "100755",
@@ -138,7 +138,7 @@
     },
     "file_count": 20
   },
-  "negative_cases": 33,
+  "negative_cases": 35,
   "production_code_manifest": {
     "aggregate_sha256": "d5e12a9a675716e86e3ba223b79402a982cb8de84c4223ec5b77bfac30a3fa75",
     "content_sha256": "747bb7e60dcafe710f0a6f874be7e368a8a425dcf8cfe3a07a131bef11f78add",

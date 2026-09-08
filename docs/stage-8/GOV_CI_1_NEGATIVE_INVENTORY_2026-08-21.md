@@ -33,3 +33,5 @@
 31. GOV-CI-N31 — change the immutable Rust action SHA.
 32. GOV-CI-N32 — replace the exact Rust release with `stable`.
 33. GOV-CI-N33 — change the exact Rust release.
+34. GOV-CI-N34 — remove the canonical Rust-job `RUST_MIN_STACK` binding.
+35. GOV-CI-N35 — change the canonical Rust-job `RUST_MIN_STACK` value.
