@@ -1482,16 +1482,18 @@ Red / not yet implemented:
 
 ## Required gates before runtime-driven live
 
-### Stage 8B-P1-e R1 design correction candidate (2026-09-08)
+### Stage 8B-P1-e R2 design correction candidate (2026-09-08)
 
 Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
-`c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at `7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b` is HOLD after independent review;
-the active candidate is P1-e R1 design correction. R1 keeps the dedicated
-`runtime-durable-service` supervisor but exact-freezes a production runtime
-profile and source-produced first boot, all 22 restart outcomes, a 24-row
-owner/event state machine, Redis deployment identity with `NOMKSTREAM`
-telemetry, bounded PEL hygiene and systemd restart limits. P1-e source implementation remains unauthorized
-until independent R1 acceptance. P1-f retains ownership of isolated Redis/VPS
+`c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at
+`7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b` remains superseded. P1-e R1 design at `693fab351f099b5f16ebb73d4956918b34d8ea1e` is HOLD after independent review;
+the active candidate is P1-e R2 design correction. R2 preserves the dedicated
+`runtime-durable-service` supervisor and adds an authenticated first-boot
+transaction/recovery ceremony, HMAC-covered durable source provenance, an
+exact 22-row outer plus 54-row local/PEL/timer continuation contract, and a
+hash-bound Redis runtime policy with finite systemd/stale-consumer behavior.
+P1-e source implementation remains unauthorized until independent R2
+acceptance. P1-f retains ownership of isolated Redis/VPS
 acceptance. Operational DB0, FINAM transport/POST/DELETE, broker dispatch,
 runtime-live and real orders remain closed.
 

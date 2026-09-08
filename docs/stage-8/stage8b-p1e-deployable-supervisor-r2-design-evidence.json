@@ -1,0 +1,87 @@
+{
+  "stage": "Stage 8B-P1-e R2 deployable paper supervisor design correction",
+  "status": "R2_DESIGN_REVIEW_CANDIDATE",
+  "accepted_p1d4_closure_ref": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "r1_ref": "693fab351f099b5f16ebb73d4956918b34d8ea1e",
+  "r1_review_sha256": "eb451af76c9b4030705d900ae0b96fabf62452dde47810e4b007cd4410d58cca",
+  "r1_verdict": "HOLD_SUPERSEDED_BY_R2",
+  "design_only": true,
+  "implementation_authorized": false,
+  "operational_activation_authorized": false,
+  "inherited_r1_acceptance_rows": 88,
+  "r2_acceptance_rows": 48,
+  "total_required_acceptance_rows": 136,
+  "restart_outer_rows": 22,
+  "operational_continuation_rows": 54,
+  "supervisor_event_rows_inherited": 24,
+  "inherited_r1_negative_cases": 64,
+  "r2_negative_cases": 40,
+  "total_negative_cases": 104,
+  "canonical_contracts": {
+    "first_boot_transaction_v1_sha256": "d3f5f8a3aabacf4b5640deae0ce6d87fcf9bc10947367f45676fc9587e474f59",
+    "redis_runtime_policy_v1_sha256": "a3657dfbd10743f93478c1727e118b996c3ad9db5e71986e4378912ab3fdc6f7",
+    "restart_outer_matrix_v2_file_sha256": "79936494cc20c460f7a4249ca759fc43da3cca0a31c51d1ad39c26d3a03b79df",
+    "operational_continuation_matrix_v2_file_sha256": "8160c7a072d2aa10ea1d75677d7a20efd65b76f7098901ee812028e606444739"
+  },
+  "first_boot_transaction": {
+    "classification_count": 9,
+    "sigkill_windows": 3,
+    "ordinary_bootstrap_over_existing_state": false,
+    "recursive_delete_allowed": false,
+    "response_loss_action": "authenticated_adoption_after_fresh_final_path_restart",
+    "second_authority_allowed": false
+  },
+  "durable_provenance": {
+    "type": "Stage8bP1FirstBootProvenanceV1",
+    "hmac_covered": true,
+    "required_field_count": 11,
+    "validated_before_redis": true
+  },
+  "redis_runtime_policy": {
+    "read_count": 1,
+    "claim_count": 2,
+    "claim_idle_ms": 30000,
+    "max_claim_pages": 1,
+    "retention_floor": 4096,
+    "operation_timeout_ms": 2000,
+    "fresh_poll_timeout_ms": 1000,
+    "maximum_pel_count": 1,
+    "startup_attempts": 12,
+    "startup_deadline_ms": 60000,
+    "threshold_completion_upper_bound_ms": 43000,
+    "ordinary_override_allowed": false
+  },
+  "systemd_hygiene": {
+    "restart_prevent_exit_status": [64, 66],
+    "start_limit_interval_sec": 600,
+    "start_limit_burst": 5,
+    "stale_inventory_maximum": 64,
+    "stale_examined_per_boot": 16,
+    "stale_delete_requires_zero_pending": true,
+    "stale_order": "pending-count-ascending-then-idle-ms-descending-then-consumer-name-bytewise-ascending"
+  },
+  "closed_surfaces": {
+    "p1e_source_implementation": false,
+    "p1f_activation": false,
+    "operational_redis_db0": false,
+    "vps_activation": false,
+    "non_loopback_redis": false,
+    "finam_transport": false,
+    "finam_post": false,
+    "finam_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "partial_fills": false,
+    "protective_orders": false
+  },
+  "deferred_p2": {
+    "required_bound": "0 < child_pid <= u32::MAX",
+    "blocks_p1e_design": false,
+    "requires_separate_source_hardening_authority": true
+  },
+  "transition": {
+    "next_after_r2_acceptance": "Stage 8B-P1-e source implementation",
+    "next_after_source_acceptance": "Stage 8B-P1-f isolated operational acceptance"
+  }
+}

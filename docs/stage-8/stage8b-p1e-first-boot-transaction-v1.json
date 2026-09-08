@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.first-boot-transaction.v1",
+  "transaction_id_derivation": "sha256:moex.stage8b.p1e.first-boot.transaction-id.v1\\0<operational_identity_sha256>\\0<source_bundle_sha256>\\0<source_bundle_generation>\\0<bootstrap_attempt_generation>",
+  "fixed_paths": {
+    "canonical_parent": "/var/lib/moex-finam-p1-paper",
+    "canonical_root": "identity-derived-under-canonical-parent",
+    "transaction_marker": "/var/lib/moex-finam-p1-paper/.stage8b-p1-first-boot-transaction-v1.json",
+    "transaction_marker_temp": "/var/lib/moex-finam-p1-paper/.stage8b-p1-first-boot-transaction-v1.tmp",
+    "accepted_receipt": "/var/lib/moex-finam-p1-paper/.stage8b-p1-first-boot-receipt-v1.json",
+    "quarantine_parent": "/var/lib/moex-finam-p1-paper/.stage8b-p1-first-boot-quarantine"
+  },
+  "marker_authentication": {
+    "hmac_domain": "moex.stage8b.p1e.first-boot-transaction.hmac.v1",
+    "key": "stage8b-p1-lifecycle.key",
+    "canonical_encoding": "sorted-key-compact-utf8-json-without-hmac-field",
+    "required_bindings": [
+      "transaction_id_sha256",
+      "bootstrap_attempt_generation",
+      "operational_identity_sha256",
+      "runtime_profile_sha256",
+      "runtime_config_fingerprint_sha256",
+      "source_bundle_sha256",
+      "source_bundle_generation",
+      "source_plan_sha256",
+      "history_bars_sha256",
+      "riskgate_session_observations_sha256",
+      "candidate_semantic_id_sha256",
+      "canonical_root_basename",
+      "phase"
+    ]
+  },
+  "marker_update_protocol": [
+    "create-exclusive-temp-mode-0600-no-follow",
+    "write-all",
+    "sync-all-temp",
+    "rename-temp-over-marker",
+    "fsync-canonical-parent",
+    "nofollow-reread-and-byte-verify"
+  ],
+  "bootstrap_entry_rule": "ordinary-bootstrap-is-allowed-only-for-NoRoot-with-no-marker-no-temp-and-no-receipt-and-attempt-generation-greater-than-authenticated-quarantine-history",
+  "next_attempt_rule": "bootstrap-attempt-generation-must-exceed-every-authenticated-quarantined-transaction-for-this-operational-identity",
+  "phases": [
+    "prepared",
+    "root_published",
+    "journal_durable",
+    "seal_committed",
+    "adopted",
+    "quarantined"
+  ],
+  "classifications": [
+    {
+      "classification": "NoRoot",
+      "filesystem_precondition": "canonical-root-absent-marker-absent-temp-absent-receipt-absent",
+      "sole_legal_action": "ordinary-bootstrap-create-new-transaction",
+      "run_allowed": false
+    },
+    {
+      "classification": "UnpublishedMarkerTemp",
+      "filesystem_precondition": "canonical-root-absent-marker-absent-exact-fixed-temp-present-receipt-absent",
+      "sole_legal_action": "bootstrap-recover-unlink-exact-nofollow-single-link-root-owned-mode-0600-temp-then-fsync-parent",
+      "run_allowed": false
+    },
+    {
+      "classification": "PreparedWithoutRoot",
+      "filesystem_precondition": "valid-prepared-marker-canonical-root-absent-receipt-absent",
+      "sole_legal_action": "bootstrap-recover-resume-same-authenticated-transaction",
+      "run_allowed": false
+    },
+    {
+      "classification": "RootWithoutJournal",
+      "filesystem_precondition": "valid-marker-exact-nofollow-root-shape-journal-absent-seal-absent-receipt-absent",
+      "sole_legal_action": "bootstrap-recover-quarantine-incomplete-root",
+      "run_allowed": false
+    },
+    {
+      "classification": "JournalWithoutSeal",
+      "filesystem_precondition": "valid-marker-exact-source-bound-journal-prefix-seal-absent-receipt-absent",
+      "sole_legal_action": "bootstrap-recover-quarantine-incomplete-root",
+      "run_allowed": false
+    },
+    {
+      "classification": "CommittedRootResponseLost",
+      "filesystem_precondition": "valid-marker-committed-seal-and-provenance-authenticate-receipt-absent",
+      "sole_legal_action": "bootstrap-recover-adopt-committed-root-after-fresh-authenticated-restart",
+      "run_allowed": false
+    },
+    {
+      "classification": "QuarantinedIncompleteRoot",
+      "filesystem_precondition": "canonical-root-absent-valid-marker-exact-transaction-quarantine-present-no-receipt-no-committed-seal",
+      "sole_legal_action": "bootstrap-recover-fsync-quarantine-and-move-marker-into-exact-quarantine-directory",
+      "run_allowed": false
+    },
+    {
+      "classification": "AdoptedCommittedRoot",
+      "filesystem_precondition": "valid-receipt-valid-committed-root-fresh-authenticated-restart-matches-provenance-marker-phase-seal-committed-or-adopted",
+      "sole_legal_action": "ordinary-run-restart-only",
+      "run_allowed": true
+    },
+    {
+      "classification": "CorruptOrIdentityMismatch",
+      "filesystem_precondition": "any-marker-root-journal-seal-provenance-or-receipt-mismatch",
+      "sole_legal_action": "fail-closed-preserve-evidence-require-separate-generation-recovery",
+      "run_allowed": false
+    }
+  ],
+  "quarantine_protocol": {
+    "recursive_delete_allowed": false,
+    "automatic_delete_allowed": false,
+    "preconditions": [
+      "valid-transaction-hmac-and-all-bindings",
+      "root-is-direct-child-of-canonical-parent",
+      "root-is-directory-not-symlink-same-filesystem",
+      "fd-anchored-nofollow-walk-matches-closed-allowed-shape",
+      "no-committed-seal",
+      "no-valid-accepted-receipt"
+    ],
+    "operation": "renameat2-noreplace-root-to-quarantine-parent-transaction-id-then-fsync-both-parents-then-move-marker-into-quarantine-and-fsync",
+    "postcondition": "canonical-root-and-active-marker-absent-quarantine-retained-as-nonauthoritative-evidence"
+  },
+  "adoption_protocol": {
+    "preconditions": [
+      "valid-transaction-hmac-and-all-bindings",
+      "committed-seal-hmac-valid",
+      "first-boot-provenance-hmac-valid-and-exactly-matches-config",
+      "fresh-restart-from-final-canonical-path-returns-exact-TimerReady-owner",
+      "no-redis-contact",
+      "no-second-first-boot"
+    ],
+    "operation": "atomically-write-fsync-rename-parent-fsync-reread-accepted-receipt-as-commit-point-then-best-effort-marker-phase-adopted",
+    "postcondition": "valid-receipt-is-the-adoption-commit-point-and-ordinary-run-may-restart-existing-authority-even-after-marker-update-response-loss"
+  },
+  "first_boot_provenance": {
+    "type": "Stage8bP1FirstBootProvenanceV1",
+    "storage": "hmac-covered-field-of-initial-durable-package-and-first-committed-seal",
+    "required_fields": [
+      "schema_version",
+      "domain",
+      "operational_identity_sha256",
+      "runtime_profile_sha256",
+      "runtime_config_fingerprint_sha256",
+      "source_bundle_sha256",
+      "source_bundle_generation",
+      "source_plan_sha256",
+      "history_bars_sha256",
+      "riskgate_session_observations_sha256",
+      "candidate_semantic_id_sha256"
+    ],
+    "run_validation": "compare-every-field-to-fixed-config-before-any-redis-contact"
+  },
+  "required_sigkill_hooks": [
+    "after-root-parent-fsync-before-journal-create",
+    "after-journal-fsync-before-initial-seal-commit",
+    "after-seal-persist-reread-before-bootstrap-success-report"
+  ],
+  "closed_actions": [
+    "unverified-rm-rf",
+    "automatic-cleanup",
+    "adopt-without-fresh-restart",
+    "ordinary-bootstrap-over-existing-marker-or-root",
+    "ordinary-run-before-adopted-receipt",
+    "second-authority-creation",
+    "redis-contact-during-recovery-ceremony"
+  ]
+}
