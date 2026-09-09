@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.latch-race-test-matrix.v1",
+  "common_pre_set_latch_assertions": {
+    "decision": "RetainForRestart",
+    "parse_total": 0,
+    "successor_lookup_total": 0,
+    "callback_total": 0,
+    "provider_total": 0,
+    "schedule_total": 0,
+    "publication_or_revalidation_total": 0,
+    "XACK_total": 0,
+    "second_acquisition_total": 0
+  },
+  "common_clear_latch_assertions": {
+    "decision": "Continue",
+    "permit_total": 1,
+    "permit_consumption_total": 1,
+    "route_mismatch": "fail-closed-and-consume",
+    "post_linearization_signal": "bounded-next-covering-boundary-then-latch-recheck"
+  },
+  "routes": [
+    {"id":"LR01","class":"reclaim","owner":"P1SemanticPrepublicationPending","phase":"p1_semantic_journal_ahead","operation_variants":["default"]},
+    {"id":"LR02","class":"reclaim","owner":"P1SemanticPrepublicationReady","phase":"p1_semantic_prepublication","operation_variants":["default"]},
+    {"id":"LR03","class":"reclaim","owner":"P1d2PreAckPending","phase":"p1d2_pre_ack","operation_variants":["default"]},
+    {"id":"LR04","class":"reclaim","owner":"P1d2AckCommitted","phase":"p1d2_s_ack","operation_variants":["default"]},
+    {"id":"LR05","class":"reclaim","owner":"P1d4GeneratedMarketPrepublicationPending","phase":"p1d4_generated_reserved","operation_variants":["default"]},
+    {"id":"LR06","class":"reclaim","owner":"P1d4GeneratedMarketDispatchPending","phase":"p1d4_generated_dispatch","operation_variants":["default"]},
+    {"id":"LR07","class":"reclaim","owner":"P1d4GeneratedMarketOrderPending","phase":"p1d4_generated_order","operation_variants":["default"]},
+    {"id":"LR08","class":"reclaim","owner":"P1d4GeneratedMarketPreFinalizationPending","phase":"p1d4_generated_pre_finalization","operation_variants":["default"]},
+    {"id":"LR09","class":"reclaim","owner":"P1d4GeneratedMarketPreAckPending","phase":"p1d4_generated_pre_ack","operation_variants":["default"]},
+    {"id":"LR10","class":"reclaim","owner":"P1d4GeneratedMarketAckCommitted","phase":"p1d4_generated_s_ack","operation_variants":["default"]},
+    {"id":"LR11","class":"reclaim","owner":"P1d3DispatchPending","phase":"p1d3_dispatch","operation_variants":["limit","expiry","cancel"]},
+    {"id":"LR12","class":"reclaim","owner":"P1d3PreAckPending","phase":"p1d3_pre_ack","operation_variants":["command-source","candidate-source"]},
+    {"id":"LR13","class":"reclaim","owner":"P1d3AckCommitted","phase":"p1d3_s_ack","operation_variants":["default"]},
+    {"id":"LR14","class":"reclaim","owner":"P1d3CancelContinuationPending","phase":"p1d3_s_terminal_cancel_continuation","operation_variants":["default"]},
+    {"id":"LR15","class":"reclaim","owner":"P1d3SemanticPending","phase":"p1d3_s_eval_or_s_terminal","operation_variants":["s_eval","s_terminal"]},
+    {"id":"LT01","class":"terminal","owner":"P1SemanticZeroIntentAckPending","phase":"p1_semantic_zero_intent_terminal","operation_variants":["pending","already-acknowledged"]},
+    {"id":"LT02","class":"terminal","owner":"P1d2TruthCommitted","phase":"p1d2_s_truth","operation_variants":["pending","already-acknowledged"]},
+    {"id":"LT03","class":"terminal","owner":"P1d4GeneratedMarketTruthCommitted","phase":"p1d4_generated_s_truth","operation_variants":["pending","already-acknowledged"]},
+    {"id":"LT04","class":"terminal","owner":"P1d3TruthCommitted","phase":"p1d3_s_truth","operation_variants":["pending","already-acknowledged"]},
+    {"id":"LT05","class":"terminal","owner":"P1d3TruthCommitted","phase":"p1d3_s_cancel_recovered","operation_variants":["pending","already-acknowledged","due-day-timer"]}
+  ],
+  "required_api_and_compile_fail_tests": [
+    "acquired-owner-not-Clone",
+    "acquired-owner-not-Copy",
+    "acquired-owner-not-Serialize-or-Deserialize",
+    "acquired-owner-fields-not-constructible",
+    "payload-transport-backend-durable-owner-not-extractable",
+    "continuation-permit-not-Clone-Copy-serde-or-reconstructible",
+    "legacy-owner-plus-transport-wrapper-call-does-not-compile",
+    "second-acquisition-from-permit-does-not-compile"
+  ],
+  "required_source_body_negatives": [
+    "direct-terminal-lookup-to-XACK",
+    "reclaim-to-parse-before-latch",
+    "reclaim-to-provider-before-latch",
+    "reclaim-to-schedule-before-latch",
+    "reclaim-to-callback-before-latch",
+    "p1d4-revalidation-before-latch",
+    "external-select-cancels-acquisition-owner",
+    "external-select-cancels-continuation-permit",
+    "second-source-acquisition-after-owner",
+    "old-wrapper-owner-plus-transport-bypass"
+  ],
+  "route_counts": {"reclaim":15,"terminal":5,"total":20}
+}

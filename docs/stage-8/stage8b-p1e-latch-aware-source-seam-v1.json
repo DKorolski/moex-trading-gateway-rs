@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.latch-aware-source-seam.v1",
+  "selected_option": "A-typed-linear-post-acquisition-owner",
+  "current_source_baseline": {
+    "path": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+    "sha256": "a870fbbb6ec9fc60b7df9c35a2aca7a5daf81f695b019352d7f20c9b51439d16",
+    "state": "monolithic-pre-seam",
+    "modified_in_r7_design": false
+  },
+  "i0_authorization_after_independent_r7_acceptance": {
+    "authorized": true,
+    "allowed_production_files": [
+      "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+      "crates/runtime-durable-service/src/stage8b_p1_semantic.rs",
+      "crates/runtime-durable-service/src/lib.rs"
+    ],
+    "cargo_change_allowed": false,
+    "workflow_change_allowed": false,
+    "supervisor_binary_allowed": false,
+    "deployment_or_activation_allowed": false
+  },
+  "opaque_protocol_types": {
+    "acquired_owner": "Stage8bP1ePostAcquisitionOwnerV1",
+    "continue_permit": "Stage8bP1eContinuationPermitV1",
+    "retained_receipt": "Stage8bP1eRetainedSourceReceiptV1",
+    "decision": "Stage8bP1ePostAcquisitionDecisionV1",
+    "acquired_owner_owns": [
+      "exact-durable-phase-owner",
+      "Stage8bP1RedisSemanticCompositionTransport",
+      "Stage8bP1PendingM10Delivery",
+      "authenticated-logical-route",
+      "acquisition-kind"
+    ],
+    "private_fields": true,
+    "private_inner_route_enum": true,
+    "clone": false,
+    "copy": false,
+    "serialize": false,
+    "deserialize": false,
+    "reconstruct": false,
+    "split": false,
+    "payload_or_transport_getter": false
+  },
+  "latch_protocol": {
+    "decision_function": "decide_stage8b_p1e_post_acquisition_latch",
+    "input_consumed": "Stage8bP1ePostAcquisitionOwnerV1",
+    "latch": "monotonic-supervisor-shutdown-latch",
+    "set_result": "RetainForRestart(Stage8bP1eRetainedSourceReceiptV1)",
+    "clear_result": "Continue(Stage8bP1eContinuationPermitV1)",
+    "retain_receipt_contains_payload_or_authority": false,
+    "continuation_permit_route_bound": true,
+    "continuation_permit_single_use": true,
+    "acquisition_future_select_cancellation_allowed": false,
+    "continuation_future_select_cancellation_allowed": false,
+    "post_clear_linearization": "bounded-drain-to-exact-next-authenticated-covering-boundary-then-recheck-latch"
+  },
+  "acquisition_body_forbidden_after_delivery": [
+    "parse_exact",
+    "exact_first_successor_m10",
+    "complete_stage8b",
+    "commit_",
+    "provider",
+    "schedule",
+    "revalidate_p1d4_publication",
+    "acknowledge_exact",
+    "XACK"
+  ],
+  "continuation_body_forbidden_acquisition": [
+    "reclaim_single_pending",
+    "reclaim_exact_evidence",
+    "reclaim_exact_binding",
+    "exact_delivery_for_evidence",
+    "exact_delivery_for_binding",
+    "XREADGROUP",
+    "XAUTOCLAIM",
+    "XPENDING"
+  ],
+  "legacy_wrapper_rule": "all-current-owner-plus-transport-signatures-replaced-by-route-bound-continuation-permit-signatures",
+  "zero_intent_order": [
+    "exact_delivery_for_evidence",
+    "Stage8bP1ePostAcquisitionOwnerV1",
+    "decide_stage8b_p1e_post_acquisition_latch",
+    "Stage8bP1eContinuationPermitV1",
+    "acknowledge_exact"
+  ],
+  "reclaim_required_routes": [
+    {"owner":"P1SemanticPrepublicationPending","phase":"p1_semantic_journal_ahead","acquire":["acquire_stage8b_p1_journal_ahead_with_redis"],"continue":["resume_stage8b_p1_journal_ahead_with_redis"]},
+    {"owner":"P1SemanticPrepublicationReady","phase":"p1_semantic_prepublication","acquire":["acquire_stage8b_p1_prepublication_with_redis"],"continue":["resume_stage8b_p1_prepublication_with_redis"]},
+    {"owner":"P1d2PreAckPending","phase":"p1d2_pre_ack","acquire":["acquire_stage8b_p1d2_pre_ack_with_redis"],"continue":["resume_stage8b_p1d2_pre_ack_with_redis"]},
+    {"owner":"P1d2AckCommitted","phase":"p1d2_s_ack","acquire":["acquire_stage8b_p1d2_ack_with_redis"],"continue":["resume_stage8b_p1d2_ack_with_redis"]},
+    {"owner":"P1d4GeneratedMarketPrepublicationPending","phase":"p1d4_generated_reserved","acquire":["acquire_stage8b_p1d4_prepublication_with_redis"],"continue":["resume_stage8b_p1d4_prepublication_with_redis"]},
+    {"owner":"P1d4GeneratedMarketDispatchPending","phase":"p1d4_generated_dispatch","acquire":["acquire_stage8b_p1d4_dispatch_pending_with_redis"],"continue":["resume_stage8b_p1d4_dispatch_pending_with_redis"]},
+    {"owner":"P1d4GeneratedMarketOrderPending","phase":"p1d4_generated_order","acquire":["acquire_stage8b_p1d4_order_pending_with_redis"],"continue":["resume_stage8b_p1d4_order_pending_with_redis"]},
+    {"owner":"P1d4GeneratedMarketPreFinalizationPending","phase":"p1d4_generated_pre_finalization","acquire":["acquire_stage8b_p1d4_pre_finalization_with_redis"],"continue":["resume_stage8b_p1d4_pre_finalization_with_redis"]},
+    {"owner":"P1d4GeneratedMarketPreAckPending","phase":"p1d4_generated_pre_ack","acquire":["acquire_stage8b_p1d4_pre_ack_with_redis"],"continue":["resume_stage8b_p1d4_pre_ack_with_redis"]},
+    {"owner":"P1d4GeneratedMarketAckCommitted","phase":"p1d4_generated_s_ack","acquire":["acquire_stage8b_p1d4_ack_with_redis"],"continue":["resume_stage8b_p1d4_ack_with_redis"]},
+    {"owner":"P1d3DispatchPending","phase":"p1d3_dispatch","acquire":["acquire_stage8b_p1d3_dispatch_limit_with_redis","acquire_stage8b_p1d3_dispatch_expiry_with_redis","acquire_stage8b_p1d3_dispatch_cancel_with_redis"],"continue":["resume_stage8b_p1d3_dispatch_limit_with_redis","resume_stage8b_p1d3_dispatch_expiry_with_redis","resume_stage8b_p1d3_dispatch_cancel_with_redis"]},
+    {"owner":"P1d3PreAckPending","phase":"p1d3_pre_ack","acquire":["acquire_stage8b_p1d3_pre_ack_with_redis"],"continue":["resume_stage8b_p1d3_pre_ack_with_redis"]},
+    {"owner":"P1d3AckCommitted","phase":"p1d3_s_ack","acquire":["acquire_stage8b_p1d3_ack_with_redis"],"continue":["resume_stage8b_p1d3_ack_with_redis"]},
+    {"owner":"P1d3CancelContinuationPending","phase":"p1d3_s_terminal_cancel_continuation","acquire":["acquire_stage8b_p1d3_cancel_continuation_with_redis"],"continue":["resume_stage8b_p1d3_cancel_continuation_with_redis"]},
+    {"owner":"P1d3SemanticPending","phase":"p1d3_s_eval_or_s_terminal","acquire":["acquire_stage8b_p1d3_semantic_with_redis"],"continue":["resume_stage8b_p1d3_semantic_with_redis"]}
+  ],
+  "terminal_routes": [
+    {"owner":"P1SemanticZeroIntentAckPending","phase":"p1_semantic_zero_intent_terminal","acquire":["acquire_stage8b_p1_zero_intent_ack_with_redis"],"continue":["resolve_stage8b_p1_zero_intent_ack_with_redis"],"lookup":"exact_delivery_for_evidence"},
+    {"owner":"P1d2TruthCommitted","phase":"p1d2_s_truth","acquire":["acquire_stage8b_p1d2_truth_with_redis"],"continue":["resume_stage8b_p1d2_truth_with_redis"],"lookup":"exact_delivery_for_binding"},
+    {"owner":"P1d4GeneratedMarketTruthCommitted","phase":"p1d4_generated_s_truth","acquire":["acquire_stage8b_p1d4_truth_with_redis"],"continue":["resume_stage8b_p1d4_truth_with_redis"],"lookup":"exact_delivery_for_evidence","post_latch":"revalidate_p1d4_publication"},
+    {"owner":"P1d3TruthCommitted","phase":"p1d3_s_truth","acquire":["acquire_stage8b_p1d3_truth_with_redis"],"continue":["resume_stage8b_p1d3_truth_with_redis"],"lookup":"exact_delivery_for_binding"},
+    {"owner":"P1d3TruthCommitted","phase":"p1d3_s_cancel_recovered","acquire":["acquire_stage8b_p1d3_truth_with_redis"],"continue":["resume_stage8b_p1d3_truth_with_redis"],"lookup":"exact_delivery_for_binding"}
+  ],
+  "route_counts": {
+    "reclaim_logical": 15,
+    "terminal_logical": 5,
+    "physical_acquire_entrypoints": 21,
+    "physical_continuation_entrypoints": 21
+  },
+  "future_i0_source_checker_must_prove": [
+    "exact-route-inventory-and-function-body-order",
+    "zero-intent-lookup-owner-latch-permit-XACK-order",
+    "no-acquisition-in-continuation",
+    "no-post-acquisition-effect-in-acquire",
+    "no-legacy-owner-plus-transport-wrapper-signature",
+    "no-select-race-around-linear-futures",
+    "compile-fail-clone-copy-serde-construction-split-route-extraction",
+    "all-20-logical-route-latch-race-tests"
+  ]
+}

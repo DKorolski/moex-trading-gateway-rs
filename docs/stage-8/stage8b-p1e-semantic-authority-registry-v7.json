@@ -1,0 +1,34 @@
+{
+  "schema_version": 7,
+  "domain": "moex.stage8b.p1e.semantic-authority-registry.v7",
+  "base_registry": {
+    "path": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v6.json",
+    "sha256": "b99be2ea5fee2c999489057f0b802ec35acbce371a7faa371f0240f4ccfadd51",
+    "active_key_count": 26
+  },
+  "conflict_rule": "compose-V6-minus-three-exact-authorities-plus-R7-replacements-and-two-new-authorities",
+  "superseded_active_authorities": {
+    "redis.ReclaimRequiredContinuation": "fifteen-exact-owner-phase-routes-existing-wrapper-sole-reclaim-claim-idle-applies",
+    "redis.TerminalSourceResolution": "five-logical-owner-phase-routes-exact-stream-entry-plus-PEL-frontier-XACK-or-AlreadyAcknowledged-zero-XAUTOCLAIM",
+    "shutdown.PostDeliveryLatch": "after-Ready-delivery-or-reclaim-required-reclaim-or-terminal-exact-lookup-before-parse-continuation-callback-provider-schedule-XACK"
+  },
+  "replacement_active_authorities": {
+    "redis.ReclaimRequiredContinuation": "fifteen-route-exact-acquire-functions-return-linear-owner-before-permit-only-continuation-and-no-second-acquisition",
+    "redis.TerminalSourceResolution": "five-logical-exact-lookup-routes-return-linear-pre-resolution-owner-before-permit-only-XACK-or-AlreadyAcknowledged",
+    "shutdown.PostDeliveryLatch": "consuming-linear-owner-decision-Continue-or-RetainForRestart-with-post-clear-bounded-drain-linearization"
+  },
+  "required_new_keys": ["redis.PostAcquisitionLinearOwner","shutdown.ContinuationLinearization"],
+  "new_active_authorities": {
+    "redis.PostAcquisitionLinearOwner": "opaque-private-nonclone-noncopy-nonserde-owner-of-durable-phase-transport-delivery-route-and-acquisition-kind",
+    "shutdown.ContinuationLinearization": "no-select-cancellation-before-or-after-permit-and-next-covering-boundary-recheck-after-post-decision-signal"
+  },
+  "composed_expectation": {"retained_base_keys":23,"replacement_keys":3,"new_keys":2,"total_active_keys":28,"active_conflicts":0},
+  "contract_bindings": {
+    "latch_aware_source_seam_v1_sha256": "21ebf6db74efcfe1c1c91df9d9d1fdc07893f8d3ae9d9b8e62a9b743dc7821f1",
+    "supervisor_event_matrix_v2_sha256": "e1500c932cf1f7364ea108e46675d62777ac56bcf769713613a2a691946bfb2a",
+    "latch_race_test_matrix_v1_sha256": "a632c1cc6a4491b3b89734dd880e5a04c03efc37ca2e249a61ba1ca1b79b4351",
+    "acquisition_model_v3_sha256": "0ec7af4bc587cba4afd473fffe20387bc5e75b78abb28d3d1b9479b750285315",
+    "operational_overlay_v6_sha256": "4005983efc51f5e9db079ccd560e882b59f9088e7ec840ee33a6765721b8a9a6",
+    "first_boot_transaction_v5_sha256": "3e275cdb21e3a3a9d41e5ffdfe360c76853a702de37dfdeb7fb08b9a587088be"
+  }
+}

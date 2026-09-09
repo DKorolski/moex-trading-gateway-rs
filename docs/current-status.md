@@ -1482,7 +1482,7 @@ Red / not yet implemented:
 
 ## Required gates before runtime-driven live
 
-### Stage 8B-P1-e R6 design correction candidate (2026-09-09)
+### Stage 8B-P1-e R7 latch-aware source-seam design candidate (2026-09-09)
 
 Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
 `c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at
@@ -1491,21 +1491,24 @@ P1-e R2 design at `3aaed81da4f1a558b4d31f4d3a169ddceca61e6f` is HOLD.
 P1-e R3 at `913424b73c5a83df2131a1f9a2901b78035bfc4c` is HOLD. P1-e R4 at
 `98523fd009712883f73f9b5a15cb545c8e9f13ac` is also HOLD after independent
 review. Its direct-child P1-e R5 at
-`3232c2447fc8d6aec038ca518efa11dc4d7e959e` is HOLD after independent review;
-the active candidate is P1-e R6. R6 retains the accepted R5 network split,
-mandatory adopted-marker authority and exact cancel-recovered phase/no-replay
-rules. It corrects the acquisition contract to distinguish fifteen
-reclaim-required semantic continuations from five terminal no-claim source
-resolution routes. Terminal routes use exact stream-entry plus PEL/frontier
-verification, never XAUTOCLAIM and never depend on `claim_idle_ms`. Operational
-V6 composes 51 cells from 40 unchanged V5 rows and 11 replacements; the active
-acceptance merge has 242 rows and semantic registry V6 composes 26 execution
-keys. First-boot V5 also rejects any stale receipt temp before adopted-marker
-mutation. P1-e source implementation remains unauthorized until independent R6 acceptance. P1-f retains ownership
-of isolated Redis/VPS acceptance. Operational DB0, FINAM POST/DELETE, broker
-dispatch, runtime-live and real orders remain closed. The nonblocking
-`0 < child_pid <= u32::MAX` hardening remains deferred to an authorized source
-slice.
+`3232c2447fc8d6aec038ca518efa11dc4d7e959e` and P1-e R6 at
+`c0d7ee4c10e4d060fd15ea31f4593adcb793642b` are HOLD after independent
+review; the active candidate is P1-e R7. R7 retains the R6 fifteen
+reclaim-required versus five terminal no-claim partition, 51-cell operational
+overlay and stale-receipt-temp conflict. It selects the typed latch-aware
+source seam: exact reclaim/lookup returns one opaque linear owner, then a
+consuming latch decision returns either a route-bound continuation permit or a
+non-authoritative RetainForRestart receipt. Zero-intent lookup is separated
+from XACK, P1-d4 revalidation moves after the permit, old owner-plus-transport
+wrapper signatures cannot remain a bypass, and acquisition/continuation
+futures cannot be cancelled by an external `select!`. Active V7 has 265 rows,
+semantic registry V7 has 28 keys, and deterministic latch-race acceptance
+covers all 15+5 logical routes. R7 remains design-only. Independent acceptance
+authorizes only the exact three-file I0 latch-seam implementation; the
+deployable supervisor source implementation remains unauthorized. P1-f,
+installation, operational DB0/VPS, FINAM POST/DELETE, broker dispatch,
+runtime-live and real orders remain closed. The
+nonblocking `0 < child_pid <= u32::MAX` hardening remains deferred.
 
 1. ALOR runtime compatibility contract v1 accepted.
 2. Runtime source adaptation vs binary-compatible adapter ADR accepted.

@@ -130,18 +130,22 @@ Stage 8B-P1-d4 is independently closed at
 `3aaed81da4f1a558b4d31f4d3a169ddceca61e6f`; P1-e R3 is HOLD at
 `913424b73c5a83df2131a1f9a2901b78035bfc4c`; P1-e R4 is HOLD at
 `98523fd009712883f73f9b5a15cb545c8e9f13ac`; P1-e R5 is HOLD at
-`3232c2447fc8d6aec038ca518efa11dc4d7e959e`; P1-e R6 design correction is
-the active candidate. It retains the accepted R5 network, adopted-marker and
-cancel-recovered phase/no-replay corrections, then splits non-Ready acquisition
-into fifteen reclaim-required semantic routes and five terminal no-claim source
-resolution routes. Terminal resolution uses exact stream-entry and PEL/group
-frontier verification with zero XAUTOCLAIM and no `claim_idle_ms` dependency.
-Operational V6 composes 51 cells, the active acceptance merge has 242 rows and
-semantic registry V6 composes 26 execution keys. The post-receipt classifier
-also rejects a stale receipt temp before marker mutation. P1-e source implementation remains unauthorized until independent R6 design acceptance. Service installation, P1-f isolated
-operational acceptance and every DB0/FINAM/live surface remain owned by later
-gates. The inherited `0 < child_pid <= u32::MAX` bound stays deferred to source
-hardening.
+`3232c2447fc8d6aec038ca518efa11dc4d7e959e`; P1-e R6 at
+`c0d7ee4c10e4d060fd15ea31f4593adcb793642b` is also HOLD. P1-e R7 is the
+active design candidate. It retains the accepted R6 fifteen reclaim versus
+five terminal no-claim partition, 51-cell operational overlay and first-boot
+stale-temp correction, then authorizes option A's typed latch-aware seam. The
+sole reclaim/exact lookup returns an opaque linear owner; a consuming latch
+decision creates either one route-bound continuation permit or
+RetainForRestart. Direct zero-intent lookup-to-XACK, pre-latch parse/provider/
+schedule/callback/revalidation, legacy owner-plus-transport wrapper bypasses,
+second acquisition and external `select!` cancellation are forbidden. Active
+V7 has 265 rows and semantic registry V7 has 28 keys. Independent R7
+acceptance unlocks only the exact three-file I0 source-seam implementation.
+The deployable supervisor source implementation remains unauthorized. Service
+installation, P1-f isolated operational acceptance and every DB0/FINAM/live
+surface remain owned by later gates. The inherited
+`0 < child_pid <= u32::MAX` bound stays deferred.
 
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.
