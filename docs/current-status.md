@@ -1609,3 +1609,15 @@ Durable apply/journal,
 ACK/readiness publication,
 `ProvenNoMatch`, retry/resend, FINAM POST/DELETE, Redis live consumption, broker
 dispatch, runtime-live, real orders, Stage 8A-5 and Stage 8B remain closed.
+## Stage 8B-P1-e R9 boundary/regression correction candidate (2026-09-09)
+
+R8 `fcac93e47e6dbb2f5c96c0fa28ce1c99cd603b3e` is HOLD after independent
+review. P1-e R9 is the active narrow design/checker candidate. It distinguishes
+route-bound Redis reattachment checkpoints from new durable seals, limits E05
+to normal-loop pre-shutdown S_ack, binds 30 route cells to 46 exact branch
+fixtures, composes both pending and AlreadyAcknowledged due-timer paths, and
+defines a reusable current-source I0 regression entrypoint without weakening
+or modifying the historical P1-d4 gate. Production Rust is unchanged. I0,
+supervisor, installation, operational DB0/VPS, FINAM POST/DELETE, broker
+dispatch, runtime-live and real orders remain closed pending independent R9
+acceptance.

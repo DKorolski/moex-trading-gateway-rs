@@ -1,0 +1,39 @@
+{
+  "schema_version": 9,
+  "domain": "moex.stage8b.p1e.active-acceptance-contract.v9",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "direct_parent": "fcac93e47e6dbb2f5c96c0fa28ce1c99cd603b3e",
+  "base_active_contract": {
+    "path": "docs/stage-8/stage8b-p1e-active-acceptance-contract-v8.json",
+    "sha256": "9cb22a2289740ccd8f641be61e4414d994a68e2c67d006ebb7af8d07102be11b",
+    "active_rows": 279
+  },
+  "r9_source": {
+    "path": "docs/stage-8/stage8b-p1e-deployable-supervisor-r9-acceptance-matrix.csv",
+    "sha256": "05f32352e9f7a005668da941da31325f3c0ae8609dde7ef080c2752dae286bc4",
+    "row_count": 24,
+    "superseded_rows": []
+  },
+  "superseded_base_rows": ["P1ER8-018", "P1ER8-019", "P1ER8-020", "P1ER8-025", "P1ER8-026"],
+  "supersession_map": [
+    {
+      "semantic_key": "route-boundary-and-outcome-proof",
+      "superseded": ["P1ER8-018", "P1ER8-019", "P1ER8-020"],
+      "replacement": ["P1ER9-008", "P1ER9-009", "P1ER9-010", "P1ER9-011", "P1ER9-012", "P1ER9-013", "P1ER9-014", "P1ER9-015", "P1ER9-016", "P1ER9-017", "P1ER9-018", "P1ER9-019", "P1ER9-020"]
+    },
+    {
+      "semantic_key": "semantic-negative-and-current-source-regression-proof",
+      "superseded": ["P1ER8-025", "P1ER8-026"],
+      "replacement": ["P1ER9-021", "P1ER9-022", "P1ER9-023"]
+    }
+  ],
+  "semantic_authority_registry": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v9.json",
+  "active_contract_expectation": {
+    "base_v8_active_rows": 279,
+    "base_rows_superseded_by_r9": 5,
+    "r9_active_rows": 24,
+    "total_active_rows": 298,
+    "all_status_required": true
+  },
+  "merge_rule": "exact-active-V8-minus-five-listed-rows-plus-all-R9-rows"
+}

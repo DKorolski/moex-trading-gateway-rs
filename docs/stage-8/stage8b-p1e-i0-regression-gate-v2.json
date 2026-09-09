@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.i0-regression-gate.v2",
+  "base_contract": {"path":"docs/stage-8/stage8b-p1e-i0-regression-gate-v1.json","sha256":"ef3780bc52695d3c2e9bfb3ecbb854faf6717c071aa449ab0f637220fd467062"},
+  "entrypoint": "bash scripts/stage8b_p1e_i0_regression_gate.sh ACCEPTED_R9_COMMIT",
+  "accepted_r9_ref_contract": {
+    "argument_required": true,
+    "must_be_full_commit": true,
+    "must_resolve_to_commit": true,
+    "must_be_ancestor_of_i0_head": true,
+    "evidence_must_bind_i0_head_and_tree": true
+  },
+  "current_i0_scope": {
+    "production_allowlist": [
+      "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+      "crates/runtime-durable-service/src/stage8b_p1_semantic.rs",
+      "crates/runtime-durable-service/src/lib.rs"
+    ],
+    "helper_prefix_allowlist": ["docs/stage-8/stage8b-p1e-i0-", "scripts/stage8b_p1e_i0_", "reports/stage8b-p1e-i0-"],
+    "explicit_shared_files": ["docs/current-status.md", "docs/roadmap.md"],
+    "cargo_allowed": false,
+    "workflow_allowed": false,
+    "config_or_unit_allowed": false,
+    "deployment_allowed": false
+  },
+  "historical_p1d4": {
+    "historical_gate": "scripts/stage8b_p1d4_source_gate.sh",
+    "historical_gate_unchanged": true,
+    "historical_gate_invoked_directly_by_i0": false,
+    "accepted_design_ref": "1a1ea05775f1d15b86fcc3495ad6863b851e9212",
+    "immutable_design_artifacts_verified": true,
+    "reusable_content_validator": "stage8b_p1d4_source_check.validate_content(stage8b_p1d4_source_check.load_content())",
+    "source_negative_harness": "scripts/stage8b_p1d4_source_negative_harness.py",
+    "retained_evidence_checker": "scripts/stage8b_p1d4_crash_evidence_check.py",
+    "evidence_negative_harness": "scripts/stage8b_p1d4_crash_evidence_negative_harness.py",
+    "positive_sigkill_cells": 105,
+    "clean_runs": 2
+  },
+  "cross_slice_test_filters": [
+    "p1d2_market_feedback_commits_ack_then_truth_then_xacks_source",
+    "p1d2_subprocess_kill_matrix_recovers_all_six_durable_frontiers",
+    "p1d3_read_only_successor_observation_retains_original_source_until_xack",
+    "p1d3_actual_host_optional_tcid_completes_recovered_cancel_and_xacks_last",
+    "p1d3_optional_tcid_target_first_restart_continues_without_duplicate_effects",
+    "p1d3_subprocess_sigkill_brackets_s_cancel_recovered"
+  ],
+  "mandatory_commands": [
+    "python3 scripts/stage8b_p1e_i0_scope_check.py ACCEPTED_R9_COMMIT",
+    "python3 scripts/stage8b_p1e_i0_p1d4_regression_check.py",
+    "python3 scripts/stage8b_p1d4_source_negative_harness.py",
+    "cargo fmt --all -- --check",
+    "cargo test -p strategy-runtime-core --lib --all-features",
+    "cargo test -p runtime-durable-service --lib --all-features",
+    "P1-d4 105-cell SIGKILL evidence exactly twice on current I0 source",
+    "P1-d4 retained-evidence checker and evidence negative harness",
+    "six exact P1-d2/P1-d3 test filters",
+    "cargo test doctests for both crates",
+    "cargo clippy for both crates all-targets all-features -D warnings"
+  ],
+  "closed_surfaces": ["operational-DB0", "VPS-activation", "FINAM-POST-DELETE", "broker-dispatch", "runtime-live", "real-orders"]
+}

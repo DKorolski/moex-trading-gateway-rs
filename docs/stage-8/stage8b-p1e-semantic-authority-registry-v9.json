@@ -1,0 +1,42 @@
+{
+  "schema_version": 9,
+  "domain": "moex.stage8b.p1e.semantic-authority-registry.v9",
+  "base_registry": {
+    "path": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v8.json",
+    "sha256": "508c13ae53af171bbcb7037c9e3353808003d90774c18e8ae21f1a3f7612e46f",
+    "active_key_count": 31
+  },
+  "conflict_rule": "compose-V8-minus-two-exact-authorities-plus-R9-replacements-and-three-new-authorities",
+  "superseded_active_authorities": {
+    "shutdown.ContinuationLinearization": "no-select-cancellation-and-thirty-row-exact-next-covering-boundary-before-cause-preserving-latch-recheck",
+    "test.RouteVariantBoundaryCoverage": "thirty-exact-route-variant-rows-each-bind-next-boundary-returned-owner-PEL-XACK-timer-and-latch-recheck"
+  },
+  "replacement_active_authorities": {
+    "shutdown.ContinuationLinearization": "in-flight-permit-completes-only-its-route-boundary;four-reattachments-stop-without-new-seal;normal-loop-E05-never-overrides-E25",
+    "test.RouteVariantBoundaryCoverage": "thirty-route-cells-bind-forty-six-authenticated-outcome-fixtures-with-exact-effect-counters-owner-source-and-stop-point"
+  },
+  "required_new_keys": [
+    "timer.SourceTimerLatchPrecedence",
+    "regression.I0CurrentSourceEntryPoint",
+    "test.RouteOutcomeNormalizedOracle"
+  ],
+  "new_active_authorities": {
+    "timer.SourceTimerLatchPrecedence": "pending-or-already-source-resolution-then-latch-check-then-timer-reclassification-then-latch-check-with-timer-execution-later",
+    "regression.I0CurrentSourceEntryPoint": "accepted-R9-relative-three-file-scope-plus-reusable-P1d4-content-105x2-negatives-P1d2-P1d3-doctests-clippy-on-I0-head",
+    "test.RouteOutcomeNormalizedOracle": "integrity-hash-tests-are-separated-from-redigested-semantic-mutations-rejected-by-independent-normalized-model"
+  },
+  "composed_expectation": {
+    "retained_base_keys": 29,
+    "replacement_keys": 2,
+    "new_keys": 3,
+    "total_active_keys": 34,
+    "active_conflicts": 0
+  },
+  "contract_bindings": {
+    "latch_route_transition_matrix_v2_sha256": "cf181a83a233469536c68f8b35141a27556aadc686d12570c851409673a7892d",
+    "route_outcome_fixture_matrix_v1_sha256": "541b002b34e96a4042a20b534be9b6c504a516a9458dfcabd3dab7f8388dce04",
+    "source_timer_precedence_v4_sha256": "097e1ae6a5164280e8694c7aee27513851d509955bdb0aa1dd9e8c5a12cc6b16",
+    "supervisor_event_matrix_v4_sha256": "c881ad39ad941b0aad20beb19540d10065b4165c8a9e78c82c94891bc0baab16",
+    "i0_regression_gate_v2_sha256": "4d01fe160dac5fcd58a1239193e98913265f92aa56f1f6538f7b47a31dd88189"
+  }
+}

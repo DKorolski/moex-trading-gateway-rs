@@ -1,0 +1,25 @@
+id,area,semantic_key,requirement,status
+P1ER9-001,lineage,lineage.accepted_predecessor,Accepted immutable predecessor remains exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER9-002,lineage,lineage.active_design,R8 fcac93e47e6dbb2f5c96c0fa28ce1c99cd603b3e is HOLD and superseded only by this direct-child R9 candidate,REQUIRED
+P1ER9-003,lineage,lineage.review_binding,R8 independent review is bundled and exact SHA-256 bound,REQUIRED
+P1ER9-004,scope,scope.design_only,R9 changes design contracts reusable regression tooling checker evidence status and handoff only with zero production Rust Cargo workflow unit config Redis or FINAM change,REQUIRED
+P1ER9-005,scope,scope.source_authority,R9 acceptance may authorize only the exact three-file I0 seam and does not authorize supervisor implementation activation or execution,REQUIRED
+P1ER9-006,contract,contract.active_merge,Active V9 composes active V8 minus five exact superseded rows plus all twenty-four R9 rows,REQUIRED
+P1ER9-007,contract,contract.semantic_registry,Semantic registry V9 composes thirty-four conflict-free keys from V8 with two replacements and three additions,REQUIRED
+P1ER9-008,shutdown,shutdown.ReattachmentCheckpoint,LR02 LR04 LR10 and LR13 return an authenticated route-bound Redis reattachment checkpoint that is safe to retain but is not a new durable seal,REQUIRED
+P1ER9-009,shutdown,shutdown.PrepublicationReattachment,LR02 stops at attached prepublication with source pending and zero publication when latch is set,REQUIRED
+P1ER9-010,shutdown,shutdown.P1d2AckReattachment,LR04 stops at attached P1-d2 S_ack with source pending zero S_truth and zero XACK when latch is set,REQUIRED
+P1ER9-011,shutdown,shutdown.P1d4AckReattachment,LR10 stops at attached P1-d4 S_ack with source pending zero S_truth and zero XACK when latch is set,REQUIRED
+P1ER9-012,shutdown,shutdown.P1d3AckReattachment,LR13 stops at attached P1-d3 S_ack with source pending zero S_truth and zero XACK when latch is set,REQUIRED
+P1ER9-013,shutdown,shutdown.E05NormalLoopScope,E05 applies only when the normal owner loop held committed S_ack before the shutdown request and never inside LR04 LR10 or LR13 continuation,REQUIRED
+P1ER9-014,shutdown,shutdown.E25RoutePrecedence,E25 completes only the exact selected V2 route boundary then rechecks the latch and forbids implicit fallthrough,REQUIRED
+P1ER9-015,test,test.ReattachmentSignalMoments,Every reattachment route proves both signal-before-permit and signal-after-permit outcomes with no unlisted S_truth publication or XACK,REQUIRED
+P1ER9-016,timer,timer.SourceVariants,Due timer composition accepts both exact pending source with one XACK and AlreadyAcknowledged source with continuous frontier and zero XACK,REQUIRED
+P1ER9-017,timer,timer.LatchBetweenSourceAndReclassification,After source resolution the latch is rechecked and a set latch retains the original authenticated timer with zero timer mutation,REQUIRED
+P1ER9-018,timer,timer.ReclassificationBeforeExecution,If clear the original timer is reclassified and the latch is rechecked again while timer execution remains a separate later owner-loop step,REQUIRED
+P1ER9-019,test,test.RouteOutcomeFixtures,Thirty route cells bind exactly forty-six unique authenticated branch fixtures and proof case count is derived from those fixtures,REQUIRED
+P1ER9-020,test,test.ExactEffectCounters,Every fixture freezes durable commit callback publication revalidation XACK timer reclassification and timer execution totals plus owner source disposition and stop point,REQUIRED
+P1ER9-021,regression,regression.I0ReusableEntryPoint,I0 uses stage8b_p1e_i0_regression_gate.sh against the accepted R9 full commit and never invokes the historical P1-d4 scope gate directly,REQUIRED
+P1ER9-022,regression,regression.P1d4CurrentSourceSuite,I0 preserves immutable P1-d4 design artifacts and runs its reusable content validator negatives 105 by two evidence checks plus exact P1-d2 and P1-d3 tests on current I0 source,REQUIRED
+P1ER9-023,test,test.IntegritySemanticSeparation,R9 negative coverage separates immutable digest failures from redigested semantic mutations checked by an independent normalized transition model,REQUIRED
+P1ER9-024,closed,closed.operational,P1-e supervisor P1-f installation DB0 VPS FINAM dispatch runtime-live real orders partial fills and protective orders remain closed,REQUIRED

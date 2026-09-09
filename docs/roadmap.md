@@ -356,3 +356,12 @@ acceptance opens reconciliation planning only. Stage 8A-4 is split into an
 independently reviewed design freeze followed by a separately reviewed pure
 implementation and durable-composition closure. The design candidate changes
 no production Rust and opens neither Stage 8A-5 nor any execution surface.
+## Stage 8B-P1-e R9 active correction (2026-09-09)
+
+P1-e R8 is HOLD. R9 is the active design-only correction before I0. Acceptance
+must establish unique reattachment/E05/E25 stopping semantics, both due-timer
+source branches, 46 exact route-outcome fixtures and an executable reusable I0
+regression gate over current source. Only independent R9 acceptance may open
+the exact three-file I0 source seam. Supervisor implementation, P1-f,
+operational Redis DB0/VPS, FINAM send, broker dispatch, runtime-live and real
+orders remain later separately reviewed gates.
