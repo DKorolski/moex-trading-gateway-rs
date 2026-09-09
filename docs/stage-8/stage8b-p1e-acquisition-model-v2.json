@@ -1,0 +1,121 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.acquisition-model.v2",
+  "selected_model": "B-observation-only-S06-for-non-Ready-existing-resume-wrapper-owns-sole-reclaim",
+  "s06_non_ready": {
+    "allowed_redis_operations": [
+      "XPENDING-summary",
+      "XPENDING-exact-details",
+      "XINFO-GROUPS-observation",
+      "XINFO-CONSUMERS-observation"
+    ],
+    "forbidden_redis_operations": [
+      "XAUTOCLAIM",
+      "XREADGROUP",
+      "XACK"
+    ],
+    "output": "Stage8bP1eObservedPendingSourceV1-or-closed-classifier-error",
+    "observation_contains_payload": false,
+    "observation_grants_processing_authority": false
+  },
+  "non_ready_source_owners": [
+    "P1SemanticPrepublicationPending",
+    "P1SemanticPrepublicationReady",
+    "P1SemanticZeroIntentAckPending",
+    "P1d2PreAckPending",
+    "P1d2AckCommitted",
+    "P1d2TruthCommitted",
+    "P1d4GeneratedMarketPrepublicationPending",
+    "P1d4GeneratedMarketDispatchPending",
+    "P1d4GeneratedMarketOrderPending",
+    "P1d4GeneratedMarketPreFinalizationPending",
+    "P1d4GeneratedMarketPreAckPending",
+    "P1d4GeneratedMarketAckCommitted",
+    "P1d4GeneratedMarketTruthCommitted",
+    "P1d3DispatchPending",
+    "P1d3PreAckPending",
+    "P1d3AckCommitted",
+    "P1d3TruthCommitted",
+    "P1d3CancelContinuationPending",
+    "P1d3SemanticPending"
+  ],
+  "non_ready_continuation_rule": {
+    "entry": "consume-local-restart-owner-plus-S06-observation",
+    "sole_reclaim_owner": "the-exact-existing-resume-star-with-redis-wrapper-named-by-the-outer-matrix-owns-sole-reclaim",
+    "maximum_successful_reclaims": 1,
+    "required_binding": "reclaimed-delivery-must-byte-match-S06-observed-stream-group-entry-and-source-identity",
+    "post_reclaim_latch_check": "immediately-after-reclaim-before-parse-resume-provider-schedule-callback-or-XACK",
+    "already_acknowledged_case": "verify-exact-continuous-group-frontier-with-zero-reclaim-and-zero-XACK",
+    "pending_not_claimable": "return-Degraded-without-fresh-read-or-semantic-effect"
+  },
+  "ready_paths": {
+    "existing_pel": "S06-performs-one-exact-XAUTOCLAIM-and-constructs-linear-owner",
+    "fresh_source": "S08-performs-one-XREADGROUP-and-constructs-linear-owner",
+    "linear_type": "Stage8bP1eClaimedM10DeliveryV2"
+  },
+  "pre_transition_forbidden": [
+    "strategy-callback-preview",
+    "callback-result-classification",
+    "provider-or-schedule-preview",
+    "second-source-acquisition"
+  ],
+  "linear_delivery_v2": {
+    "clone_allowed": false,
+    "copy_allowed": false,
+    "serialization_allowed": false,
+    "reconstruction_allowed": false,
+    "fields": [
+      {"name": "source_stream", "type": "exact-canonical-stream-name"},
+      {"name": "consumer_group", "type": "exact-canonical-group-name"},
+      {"name": "redis_entry_id", "type": "exact-ms-sequence-id"},
+      {"name": "canonical_m10_payload_bytes", "type": "owned-Vec-u8-exact-Redis-field-bytes"},
+      {"name": "payload_sha256", "type": "lowercase-hex-sha256-of-canonical-payload-bytes"},
+      {"name": "semantic_m10_identity", "type": "instrument-timeframe-open-close-source-kind"},
+      {"name": "semantic_id_sha256", "type": "lowercase-hex-sha256"},
+      {"name": "operational_identity_sha256", "type": "lowercase-hex-sha256"},
+      {"name": "acquisition_disposition", "type": "S06ExactAutoClaim-or-S08FreshReadGroupDelivery"},
+      {"name": "consumer_identity", "type": "exact-deployment-generation-and-boot-id-name"},
+      {"name": "delivery_generation", "type": "positive-u64-monotonic-per-supervisor-process"}
+    ],
+    "payload_hash_validation": "recompute-before-parse-and-fail-with-source-pending-on-mismatch"
+  },
+  "ready_non_acquiring_consumers": {
+    "process_claimed_ready_source": {
+      "input": "Stage8bP1eClaimedM10DeliveryV2",
+      "allowed_acquisition_operations": [],
+      "callback_limit": 1
+    },
+    "process_claimed_working_limit": {
+      "input": "Stage8bP1eClaimedM10DeliveryV2",
+      "allowed_acquisition_operations": [],
+      "callback_limit": 1
+    },
+    "retain_after_shutdown_latch": {
+      "accepted_dispositions": ["S06ExactAutoClaim", "S08FreshReadGroupDelivery"],
+      "parse_allowed": false,
+      "callback_allowed": false,
+      "provider_allowed": false,
+      "schedule_allowed": false,
+      "xack_allowed": false,
+      "result": "same-source-remains-pending-with-restart-safe-local-authority"
+    }
+  },
+  "shutdown_latch": {
+    "checks": [
+      "before-any-observation-claim-or-read",
+      "immediately-after-successful-reclaim-or-delivery-before-parse"
+    ],
+    "applies_to": [
+      "Ready-S06-XAUTOCLAIM",
+      "Ready-S08-XREADGROUP",
+      "every-non-Ready-existing-resume-wrapper-sole-reclaim"
+    ]
+  },
+  "instrumentation_bounds": {
+    "successful_source_acquisition_total": 1,
+    "callback_total": 1,
+    "provider_total": 1,
+    "source_xack_total": 1,
+    "meaning": "upper-bounds-per-source-and-zero-is-valid-for-retained-blocked-or-already-acknowledged-paths"
+  }
+}
