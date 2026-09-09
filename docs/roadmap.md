@@ -128,16 +128,18 @@ Stage 8B-P1-d4 is independently closed at
 `7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b`. P1-e R1 design is HOLD at
 `693fab351f099b5f16ebb73d4956918b34d8ea1e`; P1-e R2 design is HOLD at
 `3aaed81da4f1a558b4d31f4d3a169ddceca61e6f`; P1-e R3 is HOLD at
-`913424b73c5a83df2131a1f9a2901b78035bfc4c`; P1-e R4 design correction is
-the active candidate. It preserves the dedicated paper supervisor and
-package-V2 provenance direction, then exact-freezes one 182-row active merge,
-one executable systemd identity/ownership contract, four marker-temp crash
-frontiers, Redis acquisition Model B, byte-exact first-boot digests, and
-`SOURCE_FIRST_TIMER_DEFERRED` with exit 67 for every unlisted tuple. P1-e
-source implementation remains unauthorized until independent R4 design
-acceptance. Service installation, P1-f isolated operational acceptance and
-every DB0/FINAM/live surface remain owned by later gates. The inherited
-`0 < child_pid <= u32::MAX` bound stays deferred to source hardening.
+`913424b73c5a83df2131a1f9a2901b78035bfc4c`; P1-e R4 is HOLD at
+`98523fd009712883f73f9b5a15cb545c8e9f13ac`; P1-e R5 design correction is
+the active candidate. It retains all accepted R4 corrections and adds the
+three missing execution contracts: main TCP-loopback DB15 versus isolated
+bootstrap/recovery networking, mandatory adopted-marker completion before
+ordinary run, and exact `P1d3TruthCommitted + p1d3_s_cancel_recovered`
+routing for claimable/already-acknowledged/not-yet-claimable/source-plus-timer
+states. The sole active merge has 217 rows and the semantic registry binds 22
+execution-level keys. P1-e source implementation remains unauthorized until independent R5 design acceptance. Service installation, P1-f isolated
+operational acceptance and every DB0/FINAM/live surface remain owned by later
+gates. The inherited `0 < child_pid <= u32::MAX` bound stays deferred to source
+hardening.
 
 Stage 8A-2 R1 is independently accepted and closed at
 `16180ac4f8eab761b3b055c1f5515f62cd94bfb9`.

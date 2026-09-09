@@ -1,0 +1,43 @@
+id,area,semantic_key,requirement,status
+P1ER5-001,lineage,lineage.accepted_predecessor,Accepted immutable predecessor remains exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER5-002,lineage,lineage.active_design,R4 98523fd009712883f73f9b5a15cb545c8e9f13ac is HOLD and superseded only by this direct-child R5 candidate,REQUIRED
+P1ER5-003,scope,scope.design_only,R5 changes design matrices checker evidence status and handoff only with zero production Rust Cargo workflow active unit deployed config Redis or FINAM change,REQUIRED
+P1ER5-004,scope,scope.source_authority,P1-e source implementation remains unauthorized until independent acceptance of this exact R5 package,REQUIRED
+P1ER5-005,contract,contract.active_merge,Stage8bP1eAcceptanceContractV5 activates exact non-superseded R1 through R4 rows plus all R5 rows,REQUIRED
+P1ER5-006,contract,contract.semantic_registry,SemanticAuthorityRegistryV5 binds 22 execution-level cross-version keys and rejects unequal active values,REQUIRED
+P1ER5-007,systemd,systemd.MainAddressFamilies,Main run unit permits exactly AF_UNIX AF_INET and AF_INET6,REQUIRED
+P1ER5-008,systemd,systemd.MainPrivateNetwork,Main run unit has PrivateNetwork false so host loopback Redis is reachable,REQUIRED
+P1ER5-009,systemd,systemd.MainRedisEndpointPolicy,Systemd allows only IPv4 and IPv6 loopback while application preflight permits exact port 6379 DB15 manifest URLs only,REQUIRED
+P1ER5-010,systemd,systemd.BootstrapNetworkIsolation,Bootstrap permits AF_UNIX only uses PrivateNetwork true and cannot contact Redis,REQUIRED
+P1ER5-011,systemd,systemd.RecoveryNetworkIsolation,Bootstrap recovery permits AF_UNIX only uses PrivateNetwork true and cannot contact Redis,REQUIRED
+P1ER5-012,systemd,systemd.NetworkContractSplit,Common identity filesystem and credential hardening excludes mode-specific address families and PrivateNetwork values,REQUIRED
+P1ER5-013,systemd,systemd.RedisManifestBinding,Main Redis URL allowlist byte-equals the two TCP loopback DB15 URLs in redis deployment manifest V1,REQUIRED
+P1ER5-014,systemd,systemd.NonLoopbackRejected,Any non-loopback address wrong port wrong DB address family or namespace drift fails before connect,REQUIRED
+P1ER5-015,systemd,systemd.NetworkTests,Tests prove both exact main loopback attachments and bootstrap recovery non-connectivity,REQUIRED
+P1ER5-016,first_boot,firstboot.SelectedAdoptionModel,Marker completion is mandatory after receipt and before ordinary run,REQUIRED
+P1ER5-017,first_boot,firstboot.PostReceiptState,ReceiptCommittedMarkerUpdatePending uniquely matches valid receipt seal_committed marker and absent marker temp and can only start adopted marker update,REQUIRED
+P1ER5-018,first_boot,firstboot.AdoptedTempState,SealCommittedToAdoptedMarkerTempPending uniquely matches valid receipt old seal_committed marker and valid adopted temp and can only finish rename fsync reread,REQUIRED
+P1ER5-019,first_boot,firstboot.AdoptedRunState,AdoptedCommittedRoot requires canonical adopted marker valid receipt and absent marker and receipt temps,REQUIRED
+P1ER5-020,first_boot,firstboot.ReceiptNotRunAuthority,Receipt rename and parent fsync is a durable prerequisite but never independently authorizes ordinary run,REQUIRED
+P1ER5-021,first_boot,firstboot.AdoptedMarkerCommitPoint,Ordinary run commit point is adopted marker rename parent fsync reread and authentication,REQUIRED
+P1ER5-022,first_boot,firstboot.ClassificationDisjointnessOrPrecedence,All base and temp predicates are pairwise disjoint and evaluation requires exactly one match with no precedence,REQUIRED
+P1ER5-023,first_boot,firstboot.ZeroOrMultipleMatches,Zero or multiple specific matches become CorruptOrIdentityMismatch exit 66 with evidence preserved,REQUIRED
+P1ER5-024,first_boot,firstboot.NoRepeatedAdoption,Post-receipt and adopted-temp recovery cannot recreate receipt rerun restart or issue a second transaction,REQUIRED
+P1ER5-025,first_boot,firstboot.ClassifierTests,Fixtures cover post-receipt pre-temp temp-fsynced and fully adopted states plus pairwise overlap mutations,REQUIRED
+P1ER5-026,restart,restart.P1d3TruthCommittedPhaseSet,P1d3TruthCommitted admits exactly p1d3_s_truth and p1d3_s_cancel_recovered authenticated phases,REQUIRED
+P1ER5-027,restart,restart.CancelRecoveredBoundary,Cancel-recovered starts only at accepted post-S_cancel_recovered pre-source-XACK boundary,REQUIRED
+P1ER5-028,restart,restart.CancelRecoveredOnlyContinuation,Cancel-recovered invokes resume_stage8b_p1d3_truth_with_redis only for source XACK or continuous-frontier proof,REQUIRED
+P1ER5-029,restart,restart.CancelRecoveredNoReplay,Truth replay ACK replay equivalent authority reissue and new callback are forbidden for cancel-recovered,REQUIRED
+P1ER5-030,restart,restart.CancelRecoveredClaimable,Claimable cancel-recovered source resolves through one wrapper-owned reclaim and exact XACK last,REQUIRED
+P1ER5-031,restart,restart.CancelRecoveredAlreadyAcked,Already acknowledged cancel-recovered source proves continuous frontier with zero second XACK,REQUIRED
+P1ER5-032,restart,restart.CancelRecoveredNotClaimable,Not-yet-claimable cancel-recovered source remains Degraded without fresh read or semantic effect,REQUIRED
+P1ER5-033,restart,restart.CancelRecoveredDueTimer,Simultaneous due Day timer is deferred until cancel-recovered source resolution then reclassified against returned owner,REQUIRED
+P1ER5-034,restart,restart.CancelRecoveredPaperReady,PaperReady is forbidden until exact source XACK or continuous-frontier resolution,REQUIRED
+P1ER5-035,restart,restart.MatrixInventory,Outer matrix V3 has 23 rows and operational matrix V5 has 56 exact cells including four cancel-recovered cells,REQUIRED
+P1ER5-036,checker,checker.NetworkMutations,Redigested negatives reject main namespace address allowlist port DB non-loopback and bootstrap recovery connectivity drift,REQUIRED
+P1ER5-037,checker,checker.ClassificationMutations,Redigested negatives reject receipt-wins overlap missing post-receipt state temp overlap and ordinary run before adopted marker,REQUIRED
+P1ER5-038,checker,checker.CancelRecoveredMutations,Redigested negatives reject missing nonsense or generic cancel-recovered phase and any truth ACK callback or premature PaperReady path,REQUIRED
+P1ER5-039,checker,checker.CrossContractCompatibility,Checker compares main network to Redis manifest classification disjointness dimensions and both matrix phase sets,REQUIRED
+P1ER5-040,preserved,preserved.R4Corrections,Unified identity service-owned custody four marker temp states Model B linear payload source-first arbitration and exact digest fixtures remain unchanged,REQUIRED
+P1ER5-041,closed,closed.operational,P1-f DB0 VPS non-loopback Redis FINAM dispatch runtime-live real orders partial fills and protective orders remain closed,REQUIRED
+P1ER5-042,deferred,deferred.child_pid,The nonblocking bound 0 less-than child_pid less-than-or-equal u32 MAX remains deferred to separately authorized source hardening,REQUIRED

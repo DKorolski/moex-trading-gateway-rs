@@ -1482,25 +1482,27 @@ Red / not yet implemented:
 
 ## Required gates before runtime-driven live
 
-### Stage 8B-P1-e R4 design correction candidate (2026-09-09)
+### Stage 8B-P1-e R5 design correction candidate (2026-09-09)
 
 Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
 `c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at
 `7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b` remains superseded. P1-e R1 design at `693fab351f099b5f16ebb73d4956918b34d8ea1e` is HOLD after independent review;
 P1-e R2 design at `3aaed81da4f1a558b4d31f4d3a169ddceca61e6f` is HOLD.
-P1-e R3 at `913424b73c5a83df2131a1f9a2901b78035bfc4c` is also HOLD after
-independent review; the active candidate is its direct-child P1-e R4. R4
-publishes the sole 182-row active acceptance merge, one canonical
-`moex-p1-paper` deployment identity and executable ownership model, all four
-marker-update temp response-loss states, Redis acquisition Model B, and an
-orthogonal `SOURCE_FIRST_TIMER_DEFERRED` classifier with explicit exit 67 for
-unlisted tuples. Receipt/transaction digests have byte-exact golden fixtures
-and the semantic checker covers 14 real cross-version keys. P1-e source
-implementation remains unauthorized until independent R4 acceptance. P1-f
-retains ownership of isolated Redis/VPS acceptance. Operational DB0, FINAM
-transport/POST/DELETE, broker dispatch, runtime-live and real orders remain
-closed. The nonblocking `0 < child_pid <= u32::MAX` hardening remains deferred
-to an authorized source slice.
+P1-e R3 at `913424b73c5a83df2131a1f9a2901b78035bfc4c` is HOLD. P1-e R4 at
+`98523fd009712883f73f9b5a15cb545c8e9f13ac` is also HOLD after independent
+review; the active candidate is its direct-child P1-e R5. R5 preserves the
+unified `moex-p1-paper` identity/custody, four marker-temp response-loss states,
+Redis acquisition Model B, linear payload, source-first arbitration and exact
+digest fixtures. It adds a mode-specific network split so main can reach only
+loopback Redis DB15 while bootstrap/recovery remain network-isolated; makes
+adopted-marker completion mandatory before ordinary run; and exact-binds
+`P1d3TruthCommitted + p1d3_s_cancel_recovered` through four operational cells.
+The active merge has 217 rows, outer/operational matrices have 23/56 rows, and
+the semantic registry has 22 execution keys. P1-e source implementation remains unauthorized until independent R5 acceptance. P1-f retains ownership
+of isolated Redis/VPS acceptance. Operational DB0, FINAM POST/DELETE, broker
+dispatch, runtime-live and real orders remain closed. The nonblocking
+`0 < child_pid <= u32::MAX` hardening remains deferred to an authorized source
+slice.
 
 1. ALOR runtime compatibility contract v1 accepted.
 2. Runtime source adaptation vs binary-compatible adapter ADR accepted.

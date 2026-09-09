@@ -1,0 +1,42 @@
+{
+  "stage": "Stage 8B-P1-e R5 deployable paper supervisor design correction",
+  "status": "R5_DESIGN_REVIEW_CANDIDATE",
+  "parent": "98523fd009712883f73f9b5a15cb545c8e9f13ac",
+  "accepted_predecessor": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "r4_review_sha256": "0432058a685317fd8aa3b262a790cb35c146ec5d0edb3ba1995e8dc1b84fcffc",
+  "design_only": true,
+  "source_implementation_authorized": false,
+  "active_rows": 217,
+  "restart_outer_rows": 23,
+  "operational_rows": 56,
+  "cancel_recovered_operational_rows": 4,
+  "semantic_authority_keys": 22,
+  "first_boot_base_classifications": 11,
+  "marker_update_temp_classifications": 4,
+  "negative_cases": 44,
+  "contract_sha256": {
+    "design": "017254356e7a4fc9dfb480ff8ed9d58253b4461de96f354eef8b7330e9100697",
+    "acceptance": "e89b1b700123259c2c0dd3573f6771b2758b024a6828ac57f8811f8e80990476",
+    "active": "d15835c2e33d67d4210bbef0eb88fd81fc29fd5a29b29cfc53a0e7cfa5e89a3a",
+    "semantic": "9793e5e854538b3699eeca9dbab63b4d6de9b1e0960481792c9be51b74e7f7dc",
+    "identity": "428415fdedd3fd24ac128ee2ca703a6572e57644cad0cb40b30a9c96ea62a038",
+    "transaction": "f797754c8484b6dbaa7a271a8a52f05a2b7dd7a7043f6a4264bd54f6031830ec",
+    "outer": "21951676db2f7a81733a14c265b400add04ebc1d3b3aed51fada481678d5f64c",
+    "operational": "6e8a9b0bd1625788f6f5c1d961118bb07e5b41bd60eafa7c628ebc560c3488d1",
+    "precedence": "fc6292b844a0e2fa8f207d5ef3a41767cd5a17b8da564dbbd0d75a96e40c5133"
+  },
+  "closed_surfaces": {
+    "p1e_source_implementation": false,
+    "p1f_isolated_operational_acceptance": false,
+    "operational_redis_db0_vps": false,
+    "non_loopback_redis": false,
+    "finam_transport_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "partial_fills": false,
+    "protective_bracket_multi_leg_orders": false
+  },
+  "next_after_independent_acceptance": "Stage 8B-P1-e source implementation against active V5 contract",
+  "deferred_hardening": "0 < child_pid <= u32::MAX"
+}

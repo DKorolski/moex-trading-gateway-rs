@@ -1,0 +1,306 @@
+{
+  "schema_version": 5,
+  "domain": "moex.stage8b.p1e.semantic-authority-registry.v5",
+  "conflict_rule": "for-each-key-all-active-authorities-must-have-one-byte-identical-value",
+  "required_keys": [
+    "systemd.User",
+    "systemd.Group",
+    "systemd.BinaryPath",
+    "systemd.ConfigPath",
+    "systemd.CredentialPath",
+    "filesystem.DurableParentOwner",
+    "filesystem.MarkerOwner",
+    "filesystem.ReceiptOwner",
+    "firstboot.MarkerUpdateProtocol",
+    "redis.NonReadyAcquisitionOwner",
+    "redis.ReadyLinearDeliveryOwner",
+    "shutdown.PostDeliveryLatch",
+    "ordering.SourceBeforeTimer",
+    "classifier.UnlistedTupleDisposition",
+    "systemd.MainAddressFamilies",
+    "systemd.MainPrivateNetwork",
+    "systemd.MainRedisEndpointPolicy",
+    "systemd.BootstrapNetworkIsolation",
+    "systemd.RecoveryNetworkIsolation",
+    "firstboot.ClassificationDisjointnessOrPrecedence",
+    "restart.P1d3TruthCommittedPhaseSet",
+    "restart.CancelRecoveredOnlyContinuation"
+  ],
+  "authorities": [
+    {
+      "key": "systemd.User",
+      "value": "moex-p1-paper",
+      "source": "r1:P1ER1-064+r4:P1ER4-010",
+      "active": true
+    },
+    {
+      "key": "systemd.User",
+      "value": "moex-finam-paper",
+      "source": "r3:first-boot-transaction-v2",
+      "active": false,
+      "superseded_by": "P1ER4-010"
+    },
+    {
+      "key": "systemd.Group",
+      "value": "moex-p1-paper",
+      "source": "r1:P1ER1-064+r4:P1ER4-011",
+      "active": true
+    },
+    {
+      "key": "systemd.Group",
+      "value": "moex-finam-paper",
+      "source": "r3:first-boot-transaction-v2",
+      "active": false,
+      "superseded_by": "P1ER4-011"
+    },
+    {
+      "key": "systemd.BinaryPath",
+      "value": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+      "source": "r1:P1ER1-064+r4:P1ER4-012",
+      "active": true
+    },
+    {
+      "key": "systemd.BinaryPath",
+      "value": "/usr/local/bin/stage8b-p1-paper-supervisor",
+      "source": "r3:first-boot-transaction-v2",
+      "active": false,
+      "superseded_by": "P1ER4-012"
+    },
+    {
+      "key": "systemd.ConfigPath",
+      "value": "/etc/moex-finam-p1-paper/supervisor.json",
+      "source": "r1:P1ER1-065+r4:P1ER4-013",
+      "active": true
+    },
+    {
+      "key": "systemd.ConfigPath",
+      "value": "/etc/moex/stage8b-p1-paper-supervisor.json",
+      "source": "r3:first-boot-transaction-v2",
+      "active": false,
+      "superseded_by": "P1ER4-013"
+    },
+    {
+      "key": "systemd.CredentialPath",
+      "value": "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
+      "source": "r1:P1ER1-067+r4:P1ER4-014",
+      "active": true
+    },
+    {
+      "key": "systemd.CredentialPath",
+      "value": "/etc/moex/credentials/stage8b-p1-lifecycle.key",
+      "source": "r3:first-boot-transaction-v2",
+      "active": false,
+      "superseded_by": "P1ER4-014"
+    },
+    {
+      "key": "filesystem.DurableParentOwner",
+      "value": "root:moex-p1-paper:0750-parent-plus-moex-p1-paper:moex-p1-paper:0700-state",
+      "source": "r4:P1ER4-019+P1ER4-020",
+      "active": true
+    },
+    {
+      "key": "filesystem.MarkerOwner",
+      "value": "moex-p1-paper:moex-p1-paper:0600",
+      "source": "r4:P1ER4-021",
+      "active": true
+    },
+    {
+      "key": "filesystem.MarkerOwner",
+      "value": "root:root:0600",
+      "source": "r3:first-boot-transaction-v2",
+      "active": false,
+      "superseded_by": "P1ER4-021"
+    },
+    {
+      "key": "filesystem.ReceiptOwner",
+      "value": "moex-p1-paper:moex-p1-paper:0600",
+      "source": "r4:P1ER4-022",
+      "active": true
+    },
+    {
+      "key": "filesystem.ReceiptOwner",
+      "value": "root:root:0600",
+      "source": "r3:first-boot-receipt-v1",
+      "active": false,
+      "superseded_by": "P1ER4-022"
+    },
+    {
+      "key": "firstboot.MarkerUpdateProtocol",
+      "value": "four-phase-aware-authenticated-temp-pending-completions-no-effect-replay",
+      "source": "r4:P1ER4-026..032",
+      "active": true
+    },
+    {
+      "key": "firstboot.MarkerUpdateProtocol",
+      "value": "initial-temp-only-ten-class-registry",
+      "source": "r3:first-boot-transaction-v2",
+      "active": false,
+      "superseded_by": "P1ER4-026"
+    },
+    {
+      "key": "redis.NonReadyAcquisitionOwner",
+      "value": "S06-observation-only-existing-resume-wrapper-sole-reclaim",
+      "source": "r4:P1ER4-033+034",
+      "active": true
+    },
+    {
+      "key": "redis.NonReadyAcquisitionOwner",
+      "value": "S06-XAUTOCLAIM-before-existing-resume-wrapper",
+      "source": "r3:source-acquisition-seam-v1",
+      "active": false,
+      "superseded_by": "P1ER4-033"
+    },
+    {
+      "key": "redis.ReadyLinearDeliveryOwner",
+      "value": "Stage8bP1eClaimedM10DeliveryV2-with-owned-canonical-payload",
+      "source": "r4:P1ER4-035+036",
+      "active": true
+    },
+    {
+      "key": "redis.ReadyLinearDeliveryOwner",
+      "value": "Stage8bP1eClaimedM10DeliveryV1-without-payload",
+      "source": "r3:source-acquisition-seam-v1",
+      "active": false,
+      "superseded_by": "P1ER4-035"
+    },
+    {
+      "key": "shutdown.PostDeliveryLatch",
+      "value": "all-Ready-and-non-Ready-sole-acquisition-paths-before-parse-callback-provider-schedule-XACK",
+      "source": "r4:P1ER4-038",
+      "active": true
+    },
+    {
+      "key": "shutdown.PostDeliveryLatch",
+      "value": "Ready-linear-owner-paths-only",
+      "source": "r3:source-acquisition-seam-v1",
+      "active": false,
+      "superseded_by": "P1ER4-038"
+    },
+    {
+      "key": "ordering.SourceBeforeTimer",
+      "value": "SOURCE_FIRST_TIMER_DEFERRED-reclassify-against-returned-owner",
+      "source": "r4:P1ER4-041..045",
+      "active": true
+    },
+    {
+      "key": "ordering.SourceBeforeTimer",
+      "value": "matrix-row-order-without-orthogonal-non-Ready-rule",
+      "source": "r3:operational-pretransition-matrix-v3",
+      "active": false,
+      "superseded_by": "P1ER4-041"
+    },
+    {
+      "key": "classifier.UnlistedTupleDisposition",
+      "value": "exit-67-before-transition-no-Ready-no-fresh-poll",
+      "source": "r4:P1ER4-046",
+      "active": true
+    },
+    {
+      "key": "classifier.UnlistedTupleDisposition",
+      "value": "not-exact-frozen",
+      "source": "r3:operational-pretransition-matrix-v3",
+      "active": false,
+      "superseded_by": "P1ER4-046"
+    },
+    {
+      "key": "systemd.MainAddressFamilies",
+      "value": "AF_UNIX+AF_INET+AF_INET6",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "systemd.MainPrivateNetwork",
+      "value": "false-host-network-namespace",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "systemd.MainRedisEndpointPolicy",
+      "value": "systemd-loopback-addresses-only-plus-app-exact-port-6379-DB15-URL",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "systemd.BootstrapNetworkIsolation",
+      "value": "AF_UNIX+PrivateNetwork=true+Redis-contact=false",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "systemd.RecoveryNetworkIsolation",
+      "value": "AF_UNIX+PrivateNetwork=true+Redis-contact=false",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "firstboot.ClassificationDisjointnessOrPrecedence",
+      "value": "pairwise-disjoint-exactly-one-match-no-precedence-mandatory-adopted-marker",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "restart.P1d3TruthCommittedPhaseSet",
+      "value": "p1d3_s_truth|p1d3_s_cancel_recovered",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "restart.CancelRecoveredOnlyContinuation",
+      "value": "resume_stage8b_p1d3_truth_with_redis-only-XACK-or-frontier-no-truth-no-ACK-replay",
+      "source": "r5:execution-contract-correction",
+      "active": true
+    },
+    {
+      "key": "systemd.MainAddressFamilies",
+      "value": "AF_UNIX",
+      "source": "r4:shared-unit-contract",
+      "active": false,
+      "superseded_by": "R5-network-split"
+    },
+    {
+      "key": "systemd.MainPrivateNetwork",
+      "value": "true-private-namespace",
+      "source": "r4:shared-unit-contract",
+      "active": false,
+      "superseded_by": "R5-network-split"
+    },
+    {
+      "key": "firstboot.ClassificationDisjointnessOrPrecedence",
+      "value": "valid-receipt-overlaps-adopted-marker-temp",
+      "source": "r4:first-boot-transaction-v3",
+      "active": false,
+      "superseded_by": "R5-mandatory-marker-model"
+    },
+    {
+      "key": "restart.P1d3TruthCommittedPhaseSet",
+      "value": "p1d3_s_truth-only",
+      "source": "r4:outer-v2-and-operational-v4",
+      "active": false,
+      "superseded_by": "R5-cancel-recovered-routing"
+    }
+  ],
+  "expected_active_values": {
+    "systemd.User": "moex-p1-paper",
+    "systemd.Group": "moex-p1-paper",
+    "systemd.BinaryPath": "/usr/local/libexec/moex/stage8b-p1-paper-supervisor",
+    "systemd.ConfigPath": "/etc/moex-finam-p1-paper/supervisor.json",
+    "systemd.CredentialPath": "/etc/moex-finam-p1-paper/credentials/stage8b-p1-lifecycle.key",
+    "filesystem.DurableParentOwner": "root:moex-p1-paper:0750-parent-plus-moex-p1-paper:moex-p1-paper:0700-state",
+    "filesystem.MarkerOwner": "moex-p1-paper:moex-p1-paper:0600",
+    "filesystem.ReceiptOwner": "moex-p1-paper:moex-p1-paper:0600",
+    "firstboot.MarkerUpdateProtocol": "four-phase-aware-authenticated-temp-pending-completions-no-effect-replay",
+    "redis.NonReadyAcquisitionOwner": "S06-observation-only-existing-resume-wrapper-sole-reclaim",
+    "redis.ReadyLinearDeliveryOwner": "Stage8bP1eClaimedM10DeliveryV2-with-owned-canonical-payload",
+    "shutdown.PostDeliveryLatch": "all-Ready-and-non-Ready-sole-acquisition-paths-before-parse-callback-provider-schedule-XACK",
+    "ordering.SourceBeforeTimer": "SOURCE_FIRST_TIMER_DEFERRED-reclassify-against-returned-owner",
+    "classifier.UnlistedTupleDisposition": "exit-67-before-transition-no-Ready-no-fresh-poll",
+    "systemd.MainAddressFamilies": "AF_UNIX+AF_INET+AF_INET6",
+    "systemd.MainPrivateNetwork": "false-host-network-namespace",
+    "systemd.MainRedisEndpointPolicy": "systemd-loopback-addresses-only-plus-app-exact-port-6379-DB15-URL",
+    "systemd.BootstrapNetworkIsolation": "AF_UNIX+PrivateNetwork=true+Redis-contact=false",
+    "systemd.RecoveryNetworkIsolation": "AF_UNIX+PrivateNetwork=true+Redis-contact=false",
+    "firstboot.ClassificationDisjointnessOrPrecedence": "pairwise-disjoint-exactly-one-match-no-precedence-mandatory-adopted-marker",
+    "restart.P1d3TruthCommittedPhaseSet": "p1d3_s_truth|p1d3_s_cancel_recovered",
+    "restart.CancelRecoveredOnlyContinuation": "resume_stage8b_p1d3_truth_with_redis-only-XACK-or-frontier-no-truth-no-ACK-replay"
+  }
+}
