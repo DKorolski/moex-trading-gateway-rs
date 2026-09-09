@@ -1,0 +1,77 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.route-outcome-counter-contract.v2",
+  "base_fixture_matrix": {
+    "path": "docs/stage-8/stage8b-p1e-route-outcome-fixture-matrix-v1.json",
+    "sha256": "541b002b34e96a4042a20b534be9b6c504a516a9458dfcabd3dab7f8388dce04",
+    "fixture_count": 46
+  },
+  "composition_rule": "retain-all-V1-fixtures;rename-durable-counter;replace-all-effect-profiles;apply-exact-fixture-amendments",
+  "measurement_window": {
+    "start": "after-route-bound-continuation-permit-is-consumed",
+    "end": "returned-outcome-boundary-inclusive",
+    "replacement_seal_commit_total": "number-of-successful-commit_stage8b_p1_replacement_seal-calls-that-fsync-reread-and-return-one-new-S1-in-this-window",
+    "journal_transaction_not_separately_counted": true,
+    "logical_continuation_not_counted_as_commit": true,
+    "preexisting_authenticated_seal_not_counted": true,
+    "read_only_revalidation_not_counted_as_seal": true
+  },
+  "counter_fields": [
+    "replacement_seal_commit_total",
+    "callback_total",
+    "publication_total",
+    "publication_revalidation_total",
+    "xack_total",
+    "timer_reclassification_total",
+    "timer_execution_total"
+  ],
+  "effective_profiles": {
+    "ATTACH": [0,0,0,0,0,0,0],
+    "P1D4_ATTACH": [0,0,0,1,0,0,0],
+    "COMMIT": [1,0,0,0,0,0,0],
+    "RECONSTRUCTED_CANCEL_RECOVERED": [2,0,0,0,0,0,0],
+    "P1D4_COMMIT": [1,0,0,1,0,0,0],
+    "PUBLICATION": [0,0,1,0,0,0,0],
+    "SEMANTIC_READY": [1,1,0,0,1,0,0],
+    "SEMANTIC_PREPUBLICATION": [1,1,0,0,0,0,0],
+    "SEMANTIC_BLOCKED": [0,1,0,0,0,0,0],
+    "RECONSTRUCTED_SEMANTIC_READY": [2,1,0,0,1,0,0],
+    "RECONSTRUCTED_SEMANTIC_PREPUBLICATION": [2,1,0,0,0,0,0],
+    "RECONSTRUCTED_SEMANTIC_BLOCKED": [1,1,0,0,0,0,0],
+    "TERMINAL_PENDING": [0,0,0,0,1,0,0],
+    "TERMINAL_ALREADY": [0,0,0,0,0,0,0],
+    "P1D4_TERMINAL_PENDING": [0,0,0,1,1,0,0],
+    "P1D4_TERMINAL_ALREADY": [0,0,0,1,0,0,0],
+    "DUE_PENDING_RECLASSIFY": [0,0,0,0,1,1,0],
+    "DUE_ALREADY_RECLASSIFY": [0,0,0,0,0,1,0],
+    "DUE_PENDING_STALE": [0,0,0,0,1,1,0],
+    "DUE_ALREADY_STALE": [0,0,0,0,0,1,0]
+  },
+  "fixture_profile_amendments": {
+    "FX10": "P1D4_ATTACH",
+    "FX20": "RECONSTRUCTED_SEMANTIC_READY",
+    "FX21": "RECONSTRUCTED_SEMANTIC_PREPUBLICATION",
+    "FX22": "RECONSTRUCTED_SEMANTIC_BLOCKED",
+    "FX26": "SEMANTIC_PREPUBLICATION",
+    "FX27": "SEMANTIC_BLOCKED",
+    "FX29": "SEMANTIC_PREPUBLICATION",
+    "FX30": "SEMANTIC_BLOCKED",
+    "FX43": "RECONSTRUCTED_CANCEL_RECOVERED",
+    "FX44": "RECONSTRUCTED_CANCEL_RECOVERED"
+  },
+  "fixture_stop_point_amendments": {
+    "FX22": "existing-reconstructed-covering-seal;no-new-semantic-seal;multi-intent-blocked",
+    "FX27": "authenticated-S_eval-restart-authority-retained;no-new-semantic-seal;multi-intent-blocked",
+    "FX30": "authenticated-S_terminal-restart-authority-retained;no-new-semantic-seal;multi-intent-blocked"
+  },
+  "p1d4_reattachment_rule": {
+    "fixture": "FX10",
+    "permit_before_revalidation": true,
+    "publication_revalidation_total": 1,
+    "replacement_seal_commit_total": 0,
+    "double_revalidation_forbidden": true,
+    "revalidation_omission_forbidden": true,
+    "revalidation_before_latch_decision_forbidden": true
+  },
+  "effective_fixture_count": 46
+}

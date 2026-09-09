@@ -1,0 +1,25 @@
+id,area,semantic_key,requirement,status
+P1ER10-001,lineage,lineage.direct_parent,R10 is the direct child correction of R9 commit 4051a7b4d2c810100aaf983bddede62dbd03d96f,REQUIRED
+P1ER10-002,lineage,lineage.accepted_predecessor,Accepted immutable production predecessor remains exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER10-003,lineage,lineage.review_binding,R9 independent review is bundled and exact SHA-256 bound,REQUIRED
+P1ER10-004,scope,scope.design_checker_only,R10 changes design contracts checkers acceptance tooling status and handoff only,REQUIRED
+P1ER10-005,scope,scope.production_unchanged,Production Rust Cargo workflows config deployment Redis FINAM and live surfaces remain byte unchanged,REQUIRED
+P1ER10-006,contract,contract.active_merge,Active V10 composes active V9 minus five exact superseded rows plus all twenty-four R10 rows,REQUIRED
+P1ER10-007,contract,contract.semantic_registry,Semantic registry V10 composes thirty-six conflict-free active authorities,REQUIRED
+P1ER10-008,counter,test.MeasurementWindow,Counters start after route permit consumption and end inclusive at the returned outcome boundary,REQUIRED
+P1ER10-009,counter,test.ReplacementSealCounter,replacement_seal_commit_total counts only successful replacement-seal commits and excludes journal transactions logical continuations preexisting seals and read-only revalidation,REQUIRED
+P1ER10-010,counter,test.P1d4Attach,FX10 performs exactly one post-permit publication revalidation and zero replacement seals callbacks publications XACK or timer effects,REQUIRED
+P1ER10-011,counter,test.LR12SemanticZeroOne,LR12 reconstructed semantic zero or one intent performs one reconstructed seal plus one semantic seal,REQUIRED
+P1ER10-012,counter,test.LR12SemanticMulti,LR12 reconstructed semantic multi intent performs one reconstructed seal and no semantic seal,REQUIRED
+P1ER10-013,counter,test.LR15SemanticZeroOne,LR15 semantic zero or one intent performs exactly one semantic replacement seal,REQUIRED
+P1ER10-014,counter,test.LR15SemanticMulti,LR15 semantic multi intent performs zero replacement seals and retains preexisting authenticated restart authority,REQUIRED
+P1ER10-015,counter,test.LR12CancelRecovered,LR12 reconstructed cancel recovery performs one reconstructed seal plus one recovered-cancel seal,REQUIRED
+P1ER10-016,source,test.SourceEffectOracle,Accepted redis and recovery source hashes plus exact function sections prove revalidation and seal calls,REQUIRED
+P1ER10-017,source,test.MergedRouteFixtureSource,Composed V1 fixtures V2 counter amendments and source-effect bindings agree for all forty-six fixtures,REQUIRED
+P1ER10-018,regression,regression.CleanImmutableSource,I0 acceptance starts and ends on one clean immutable committed HEAD and tree including untracked cleanliness,REQUIRED
+P1ER10-019,evidence,evidence.RetainedPassFail,Fresh external retained output is mandatory and atomically preserves both PASS and FAIL runs,REQUIRED
+P1ER10-020,evidence,evidence.ManifestBinding,Retained result artifact manifest digest source manifest and log bind the exact tested ref and tree,REQUIRED
+P1ER10-021,regression,regression.AcceptedScriptBindings,I0 gate scope retained-evidence and P1-d4 helper scripts are SHA-256 pinned and not mutable I0 helpers,REQUIRED
+P1ER10-022,regression,regression.FullExactNames,All six targeted tests use full module-qualified names and are listed before execution,REQUIRED
+P1ER10-023,regression,regression.ZeroTestRejection,Each targeted run requires exactly one selected and one passed test while missing or renamed tests fail closed,REQUIRED
+P1ER10-024,closed,closed.operational,I0 supervisor installation DB0 VPS FINAM dispatch runtime-live and real-order surfaces remain closed,REQUIRED

@@ -365,3 +365,14 @@ regression gate over current source. Only independent R9 acceptance may open
 the exact three-file I0 source seam. Supervisor implementation, P1-f,
 operational Redis DB0/VPS, FINAM send, broker dispatch, runtime-live and real
 orders remain later separately reviewed gates.
+
+## Stage 8B-P1-e R10 active correction (2026-09-09)
+
+R9 is HOLD. R10 is the active design/checker correction before I0. Acceptance
+must prove source-exact route outcome counters, one post-permit FX10 publication
+revalidation, LR12/LR15 replacement-seal totals, clean immutable I0 provenance,
+retained PASS/FAIL evidence and execution-aware full-name exact tests. Only
+independent R10 acceptance may open the existing three-file I0 source seam.
+Supervisor implementation, P1-f, installation, operational Redis DB0/VPS,
+FINAM send, broker dispatch, runtime-live and real orders remain later
+separately reviewed gates.

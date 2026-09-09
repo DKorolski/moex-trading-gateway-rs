@@ -17,8 +17,6 @@ PRODUCTION_ALLOWLIST = {
 }
 HELPER_PREFIXES = (
     "docs/stage-8/stage8b-p1e-i0-",
-    "scripts/stage8b_p1e_i0_",
-    "reports/stage8b-p1e-i0-",
 )
 SHARED_FILES = {"docs/current-status.md", "docs/roadmap.md"}
 
@@ -48,9 +46,7 @@ def validate_ref(value: str) -> str:
 
 
 def changed_files(base: str) -> set[str]:
-    tracked = run("git", "diff", "--name-only", base, "--").splitlines()
-    untracked = run("git", "ls-files", "--others", "--exclude-standard").splitlines()
-    return {path for path in tracked + untracked if path}
+    return {path for path in run("git", "diff", "--name-only", base, "HEAD", "--").splitlines() if path}
 
 
 def allowed_helper(path: str) -> bool:
@@ -59,6 +55,11 @@ def allowed_helper(path: str) -> bool:
 
 def validate(base: str) -> tuple[set[str], set[str]]:
     validate_ref(base)
+    require(run("git", "rev-parse", "HEAD") != base, "I0 HEAD must be a new immutable commit")
+    require(
+        not run("git", "status", "--porcelain", "--untracked-files=all"),
+        "acceptance source must be a clean immutable worktree including untracked files",
+    )
     changed = changed_files(base)
     production = {path for path in changed if path.startswith("crates/")}
     require(production <= PRODUCTION_ALLOWLIST, f"I0 production allowlist escaped: {sorted(production - PRODUCTION_ALLOWLIST)}")
@@ -81,7 +82,8 @@ def main() -> None:
     print(
         "PASS stage8b-p1e-i0-scope-check "
         f"changed={len(changed)} production={len(production)} "
-        "production_allowlist=3 cargo=false workflow=false config=false deployment=false"
+        "production_allowlist=3 clean=true immutable_head=true "
+        "cargo=false workflow=false config=false deployment=false"
     )
 
 

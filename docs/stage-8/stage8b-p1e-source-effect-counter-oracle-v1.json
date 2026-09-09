@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.source-effect-counter-oracle.v1",
+  "accepted_source": {
+    "redis_path": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+    "redis_sha256": "a870fbbb6ec9fc60b7df9c35a2aca7a5daf81f695b019352d7f20c9b51439d16",
+    "recovery_path": "crates/runtime-durable-service/src/recovery.rs",
+    "recovery_sha256": "603fecb619e9535431c0c09c4f9b7093371612643960c26ad854c34660e98146"
+  },
+  "counter_source": "commit_stage8b_p1_replacement_seal",
+  "source_paths": {
+    "LR10_P1D4_ACK_REATTACH": {
+      "entrypoint": "resume_stage8b_p1d4_ack_with_redis",
+      "ordered_effects": ["permit-consumed", "revalidate_p1d4_publication-exactly-once", "return-S_ack-attachment"],
+      "replacement_seal_commit_total": 0,
+      "publication_revalidation_total": 1
+    },
+    "LR12_RECONSTRUCTED": {
+      "entrypoint": "resume_stage8b_p1d3_pre_ack_with_redis",
+      "ordered_effects": ["permit-consumed", "commit_reconstructed_transition-one-replacement-seal", "branch"],
+      "base_replacement_seal_commit_total": 1
+    },
+    "LR12_CANCEL_RECOVERED": {
+      "ordered_effects": ["commit_reconstructed_transition-one-replacement-seal", "commit_recovered_cancel-one-replacement-seal", "return-S_cancel_recovered"],
+      "replacement_seal_commit_total": 2
+    },
+    "LR12_SEMANTIC_ZERO_OR_ONE": {
+      "ordered_effects": ["commit_reconstructed_transition-one-replacement-seal", "commit_stage8b_p1d3_semantic-one-replacement-seal"],
+      "replacement_seal_commit_total": 2,
+      "callback_total": 1
+    },
+    "LR12_SEMANTIC_MULTI": {
+      "ordered_effects": ["commit_reconstructed_transition-one-replacement-seal", "commit_stage8b_p1d3_semantic-multi-intent-no-replacement-seal"],
+      "replacement_seal_commit_total": 1,
+      "callback_total": 1
+    },
+    "LR15_SEMANTIC_ZERO_OR_ONE": {
+      "entrypoint": "resume_stage8b_p1d3_semantic_with_redis",
+      "ordered_effects": ["permit-consumed", "commit_stage8b_p1d3_semantic-one-replacement-seal"],
+      "replacement_seal_commit_total": 1,
+      "callback_total": 1
+    },
+    "LR15_SEMANTIC_MULTI": {
+      "entrypoint": "resume_stage8b_p1d3_semantic_with_redis",
+      "ordered_effects": ["permit-consumed", "commit_stage8b_p1d3_semantic-multi-intent-no-replacement-seal"],
+      "replacement_seal_commit_total": 0,
+      "callback_total": 1,
+      "restart_authority": "preexisting-authenticated-S_eval-or-S_terminal"
+    }
+  },
+  "fixture_effect_bindings": {
+    "FX10": "LR10_P1D4_ACK_REATTACH",
+    "FX20": "LR12_SEMANTIC_ZERO_OR_ONE",
+    "FX21": "LR12_SEMANTIC_ZERO_OR_ONE",
+    "FX22": "LR12_SEMANTIC_MULTI",
+    "FX26": "LR15_SEMANTIC_ZERO_OR_ONE",
+    "FX27": "LR15_SEMANTIC_MULTI",
+    "FX29": "LR15_SEMANTIC_ZERO_OR_ONE",
+    "FX30": "LR15_SEMANTIC_MULTI",
+    "FX43": "LR12_CANCEL_RECOVERED",
+    "FX44": "LR12_CANCEL_RECOVERED"
+  },
+  "source_scan_obligations": [
+    "LR10-section-has-exactly-one-revalidate_p1d4_publication-and-zero-commit_stage8b_p1_replacement_seal",
+    "LR12-section-calls-commit_reconstructed_transition-before-complete_stage8b_p1d3_semantic",
+    "commit_reconstructed_transition-has-one-common-commit_stage8b_p1_replacement_seal",
+    "commit_recovered_cancel-has-one-commit_stage8b_p1_replacement_seal",
+    "commit_stage8b_p1d3_semantic-zero-and-one-each-have-one-seal-while-multi-has-zero"
+  ]
+}

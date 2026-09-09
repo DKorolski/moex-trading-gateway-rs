@@ -1621,3 +1621,17 @@ or modifying the historical P1-d4 gate. Production Rust is unchanged. I0,
 supervisor, installation, operational DB0/VPS, FINAM POST/DELETE, broker
 dispatch, runtime-live and real orders remain closed pending independent R9
 acceptance.
+
+## Stage 8B-P1-e R10 outcome/source and I0 evidence correction (2026-09-09)
+
+R9 `4051a7b4d2c810100aaf983bddede62dbd03d96f` is HOLD after independent
+review. P1-e R10 is the active narrow design/checker candidate. It keeps all
+accepted R9 route, shutdown and timer semantics, replaces the ambiguous durable
+counter with source-derived `replacement_seal_commit_total`, corrects FX10 and
+the LR12/LR15 composite fixture totals, and binds those totals to unchanged
+accepted Redis/recovery source. The future I0 gate now requires one clean
+immutable tested commit, mandatory retained PASS/FAIL evidence outside the
+repository, and six fully qualified exact tests with one-selected/one-passed
+enforcement. Production Rust is unchanged. I0, supervisor, installation,
+operational DB0/VPS, FINAM POST/DELETE, broker dispatch, runtime-live and real
+orders remain closed pending independent R10 acceptance.
