@@ -131,17 +131,19 @@ Stage 8B-P1-d4 is independently closed at
 `913424b73c5a83df2131a1f9a2901b78035bfc4c`; P1-e R4 is HOLD at
 `98523fd009712883f73f9b5a15cb545c8e9f13ac`; P1-e R5 is HOLD at
 `3232c2447fc8d6aec038ca518efa11dc4d7e959e`; P1-e R6 at
-`c0d7ee4c10e4d060fd15ea31f4593adcb793642b` is also HOLD. P1-e R7 is the
-active design candidate. It retains the accepted R6 fifteen reclaim versus
-five terminal no-claim partition, 51-cell operational overlay and first-boot
-stale-temp correction, then authorizes option A's typed latch-aware seam. The
-sole reclaim/exact lookup returns an opaque linear owner; a consuming latch
-decision creates either one route-bound continuation permit or
-RetainForRestart. Direct zero-intent lookup-to-XACK, pre-latch parse/provider/
-schedule/callback/revalidation, legacy owner-plus-transport wrapper bypasses,
-second acquisition and external `select!` cancellation are forbidden. Active
-V7 has 265 rows and semantic registry V7 has 28 keys. Independent R7
-acceptance unlocks only the exact three-file I0 source-seam implementation.
+`c0d7ee4c10e4d060fd15ea31f4593adcb793642b` is also HOLD. P1-e R7 at
+`7ebdcef45c1c55f4783bd6b2b1502ea78d4d97d7` is HOLD after independent review;
+P1-e R8 is the active design candidate. It retains Option A and the accepted
+R6 fifteen reclaim versus five terminal no-claim partition, then exact-freezes
+all 30 material route variants. A permit-bound terminal resolution may perform
+one accepted XINFO/XRANGE/XPENDING verification and optional exact XACK; this
+is observation, not a second delivery acquisition. XAUTOCLAIM, XREADGROUP,
+every reclaim/exact-delivery entry point and second owner remain forbidden.
+The P1-d4 read-only revalidation Lua is mandatory after the permit. A typed
+shutdown intent preserves the initiating exit class through E18/E25, and I0
+must rerun the full 105-cell P1-d4 SIGKILL matrix twice. Active V8 has 279 rows
+and semantic registry V8 has 31 keys. Independent R8 acceptance unlocks only
+the exact three-file I0 source-seam implementation.
 The deployable supervisor source implementation remains unauthorized. Service
 installation, P1-f isolated operational acceptance and every DB0/FINAM/live
 surface remain owned by later gates. The inherited

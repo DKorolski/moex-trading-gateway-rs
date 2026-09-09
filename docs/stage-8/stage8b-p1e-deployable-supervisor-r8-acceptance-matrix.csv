@@ -1,0 +1,28 @@
+id,area,semantic_key,requirement,status
+P1ER8-001,lineage,lineage.accepted_predecessor,Accepted immutable predecessor remains exact P1-d4 closure c2a9e1246dfdd59f3a6297268de907dedcb19903,REQUIRED
+P1ER8-002,lineage,lineage.active_design,R7 7ebdcef45c1c55f4783bd6b2b1502ea78d4d97d7 is HOLD and superseded only by this direct-child R8 candidate,REQUIRED
+P1ER8-003,lineage,lineage.review_binding,R7 independent review is bundled and exact SHA-256 bound,REQUIRED
+P1ER8-004,scope,scope.design_only,R8 changes design contracts checker evidence status and handoff only with zero production Rust Cargo workflow unit config Redis or FINAM change,REQUIRED
+P1ER8-005,scope,scope.source_authority,Independent R8 acceptance authorizes only exact three-file I0 source seam and not supervisor implementation or activation,REQUIRED
+P1ER8-006,contract,contract.active_merge,Active V8 composes active V7 minus thirteen exact superseded rows plus all 27 R8 rows,REQUIRED
+P1ER8-007,contract,contract.semantic_registry,Semantic registry V8 composes 31 conflict-free keys from V7 with two replacements and three additions,REQUIRED
+P1ER8-008,seam,seam.selected_model,Option A typed linear owner and single-use route-bound continuation permit remain unchanged,REQUIRED
+P1ER8-009,seam,seam.source_baseline,Current Redis source remains byte exact at accepted monolithic pre-seam SHA,REQUIRED
+P1ER8-010,seam,seam.allowed_source_delta,I0 may modify only redis.rs stage8b_p1_semantic.rs and lib.rs with zero Cargo workflow unit config or deployment change,REQUIRED
+P1ER8-011,redis,redis.AcquisitionClassSplit,Fifteen reclaim and five terminal logical routes remain exact while proof coverage expands to nineteen plus eleven material variants,REQUIRED
+P1ER8-012,redis,redis.NoSecondDeliveryAcquisition,After owner construction XAUTOCLAIM XREADGROUP all reclaim APIs all exact_delivery APIs second owner and ownership transfer are forbidden,REQUIRED
+P1ER8-013,redis,redis.TerminalObservationAllowance,One permit-bound terminal resolution may use accepted XINFO XRANGE XPENDING and optional exact XACK observations without becoming a second acquisition,REQUIRED
+P1ER8-014,redis,redis.TerminalPendingProtocol,Exact one PEL member plus byte exact source permits exactly one XACK and reply one yields AcknowledgedPending,REQUIRED
+P1ER8-015,redis,redis.TerminalAlreadyAcknowledgedProtocol,Zero PEL member requires continuous group frontier and returns AlreadyAcknowledged with zero XACK while discontinuity fails closed,REQUIRED
+P1ER8-016,redis,redis.TerminalResponseLossProtocol,XACK reply zero requires postcheck XPENDING and XINFO and only continuous frontier may return AlreadyAcknowledged,REQUIRED
+P1ER8-017,redis,redis.P1d4PostPermitRevalidation,Accepted P1-d4 read-only revalidation Lua runs after permit before terminal resolution and may not run before latch or be omitted,REQUIRED
+P1ER8-018,test,test.RouteTransitionMatrix,Hash-bound transition matrix has exactly thirty unique material rows nineteen reclaim and eleven terminal with all required boundary fields,REQUIRED
+P1ER8-019,test,test.RouteRaceProtocol,Every matrix row tests preset latch clear latch immediate post-permit signal route mismatch exact counters final owner and source disposition,REQUIRED
+P1ER8-020,shutdown,shutdown.ExactNextBoundary,Post-permit signal never cancels continuation and drains exactly to the matrix row next authenticated covering boundary then rechecks latch,REQUIRED
+P1ER8-021,shutdown,shutdown.CauseCarryingIntent,Stage8bP1eShutdownIntentV1 freezes first cause final exit class grace deadline and first request sequence,REQUIRED
+P1ER8-022,shutdown,shutdown.ExitPrecedence,External signal maps zero owner failure seventy telemetry failure seventy-one signal task failure seventy-three and grace expiry overrides return code with seventy-two,REQUIRED
+P1ER8-023,shutdown,shutdown.E18E25CausePreservation,E18 and E25 are intermediate transitions preserving initiating cause and final exit class while second signal is diagnostic only,REQUIRED
+P1ER8-024,test,test.ShutdownCrossProduct,Nine cause-location cases cover external telemetry and signal-task causes across acquisition latch and post-permit locations,REQUIRED
+P1ER8-025,test,test.TargetedNegatives,Redigested negatives reject all missing variants changed boundaries current-boundary stop illegal XACK terminal classification drift revalidation drift and exit downgrade,REQUIRED
+P1ER8-026,regression,regression.P1d4FullGate,I0 acceptance must rerun full P1-d4 source gate including 105 SIGKILL cells twice retained evidence and both negative harnesses plus P1-d2 and P1-d3 regressions,REQUIRED
+P1ER8-027,closed,closed.operational,P1-e supervisor P1-f installation DB0 VPS FINAM dispatch runtime-live real orders partial fills and protective orders remain closed and child PID bound remains deferred,REQUIRED

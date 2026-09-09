@@ -1,0 +1,97 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.latch-aware-source-seam.v2",
+  "selected_option": "A-typed-linear-post-acquisition-owner",
+  "supersedes": {
+    "path": "docs/stage-8/stage8b-p1e-latch-aware-source-seam-v1.json",
+    "reason": "replace-absolute-post-owner-Redis-read-ban-with-no-second-delivery-acquisition"
+  },
+  "current_source_baseline": {
+    "path": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+    "sha256": "a870fbbb6ec9fc60b7df9c35a2aca7a5daf81f695b019352d7f20c9b51439d16",
+    "state": "monolithic-pre-seam",
+    "modified_in_r8_design": false
+  },
+  "i0_authorization_after_independent_r8_acceptance": {
+    "authorized": true,
+    "allowed_production_files": [
+      "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+      "crates/runtime-durable-service/src/stage8b_p1_semantic.rs",
+      "crates/runtime-durable-service/src/lib.rs"
+    ],
+    "cargo_change_allowed": false,
+    "workflow_change_allowed": false,
+    "supervisor_binary_allowed": false,
+    "deployment_or_activation_allowed": false,
+    "full_p1d4_regression_gate_required": true
+  },
+  "opaque_protocol_types": {
+    "acquired_owner": "Stage8bP1ePostAcquisitionOwnerV1",
+    "continue_permit": "Stage8bP1eContinuationPermitV1",
+    "retained_receipt": "Stage8bP1eRetainedSourceReceiptV1",
+    "decision": "Stage8bP1ePostAcquisitionDecisionV1",
+    "acquired_owner_owns": ["exact-durable-phase-owner", "Stage8bP1RedisSemanticCompositionTransport", "Stage8bP1PendingM10Delivery", "authenticated-logical-route", "acquisition-kind"],
+    "private_fields": true,
+    "private_inner_route_enum": true,
+    "clone": false,
+    "copy": false,
+    "serialize": false,
+    "deserialize": false,
+    "reconstruct": false,
+    "split": false,
+    "payload_or_transport_getter": false
+  },
+  "latch_protocol": {
+    "decision_function": "decide_stage8b_p1e_post_acquisition_latch",
+    "input_consumed": "Stage8bP1ePostAcquisitionOwnerV1",
+    "latch": "monotonic-cause-carrying-Stage8bP1eShutdownIntentV1",
+    "set_result": "RetainForRestart(Stage8bP1eRetainedSourceReceiptV1)",
+    "clear_result": "Continue(Stage8bP1eContinuationPermitV1)",
+    "retain_receipt_contains_payload_or_authority": false,
+    "continuation_permit_route_bound": true,
+    "continuation_permit_single_use": true,
+    "acquisition_future_select_cancellation_allowed": false,
+    "continuation_future_select_cancellation_allowed": false,
+    "post_clear_linearization": "bounded-drain-to-row-exact-next-authenticated-covering-boundary-then-recheck-latch"
+  },
+  "acquisition_body_forbidden_after_delivery": ["parse_exact", "exact_first_successor_m10", "complete_stage8b", "commit_", "provider", "schedule", "revalidate_p1d4_publication", "acknowledge_exact", "XACK"],
+  "continuation_body_forbidden_delivery_acquisition": ["reclaim_single_pending", "reclaim_exact_evidence", "reclaim_exact_binding", "exact_delivery_for_evidence", "exact_delivery_for_binding", "XREADGROUP", "XAUTOCLAIM", "construct-second-Stage8bP1ePostAcquisitionOwnerV1", "claim-or-ownership-transfer"],
+  "post_permit_terminal_resolution_observations": {
+    "allowed_once_per_terminal_permit": ["XINFO-GROUPS", "XRANGE-exact-source", "XPENDING-exact-source", "optional-exact-XACK", "XACK-zero-postcheck-XPENDING-and-XINFO"],
+    "classification": {
+      "pending": "exact-one-PEL-member-then-XACK-1-gives-AcknowledgedPending",
+      "already_acknowledged": "zero-PEL-member-plus-group-frontier-at-least-source-id-gives-AlreadyAcknowledged-with-zero-XACK",
+      "xack_zero_response_loss": "post-XACK-zero-PEL-plus-continuous-frontier-gives-AlreadyAcknowledged-else-fail-closed",
+      "conflict": "missing-or-byte-different-source-duplicate-PEL-or-discontinuous-frontier-fails-closed"
+    },
+    "not_a_delivery_acquisition": true,
+    "second_delivery_owner_forbidden": true
+  },
+  "p1d4_terminal_revalidation": {
+    "required_after_permit_before_terminal_resolution": true,
+    "script": "P1D4_COMMAND_PUBLICATION_REVALIDATE_LUA",
+    "read_only_operations": ["XINFO-GROUPS-command-stream", "XRANGE-exact-source", "XPENDING-exact-source", "GET-publication-marker", "XRANGE-exact-command"],
+    "pending_requirement": "optional-in-S_truth",
+    "before_latch_forbidden": true,
+    "omission_forbidden": true
+  },
+  "legacy_wrapper_rule": "all-current-owner-plus-transport-signatures-replaced-by-route-bound-continuation-permit-signatures",
+  "route_transition_matrix": "docs/stage-8/stage8b-p1e-latch-route-transition-matrix-v1.json",
+  "shutdown_intent_contract": "docs/stage-8/stage8b-p1e-shutdown-intent-v1.json",
+  "i0_regression_gate": "docs/stage-8/stage8b-p1e-i0-regression-gate-v1.json",
+  "route_counts": {"reclaim_logical": 15, "terminal_logical": 5, "reclaim_variants": 19, "terminal_variants": 11, "total_variants": 30, "physical_acquire_entrypoints": 21, "physical_continuation_entrypoints": 21},
+  "future_i0_source_checker_must_prove": [
+    "exact-route-inventory-and-function-body-order",
+    "zero-intent-lookup-owner-latch-permit-terminal-verification-XACK-order",
+    "no-second-delivery-acquisition-in-continuation",
+    "terminal-resolution-observations-only-after-route-permit",
+    "p1d4-revalidation-only-after-route-permit-and-never-omitted",
+    "no-post-acquisition-effect-in-acquire",
+    "no-legacy-owner-plus-transport-wrapper-signature",
+    "no-select-race-around-linear-futures",
+    "compile-fail-clone-copy-serde-construction-split-route-extraction",
+    "all-30-route-variant-boundary-latch-race-tests",
+    "cause-preserving-E18-E25-tests",
+    "full-accepted-P1d4-regression-gate"
+  ]
+}

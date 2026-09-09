@@ -1482,7 +1482,7 @@ Red / not yet implemented:
 
 ## Required gates before runtime-driven live
 
-### Stage 8B-P1-e R7 latch-aware source-seam design candidate (2026-09-09)
+### Stage 8B-P1-e R8 executable latch-seam design candidate (2026-09-09)
 
 Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
 `c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at
@@ -1493,18 +1493,20 @@ P1-e R3 at `913424b73c5a83df2131a1f9a2901b78035bfc4c` is HOLD. P1-e R4 at
 review. Its direct-child P1-e R5 at
 `3232c2447fc8d6aec038ca518efa11dc4d7e959e` and P1-e R6 at
 `c0d7ee4c10e4d060fd15ea31f4593adcb793642b` are HOLD after independent
-review; the active candidate is P1-e R7. R7 retains the R6 fifteen
-reclaim-required versus five terminal no-claim partition, 51-cell operational
-overlay and stale-receipt-temp conflict. It selects the typed latch-aware
-source seam: exact reclaim/lookup returns one opaque linear owner, then a
-consuming latch decision returns either a route-bound continuation permit or a
-non-authoritative RetainForRestart receipt. Zero-intent lookup is separated
-from XACK, P1-d4 revalidation moves after the permit, old owner-plus-transport
-wrapper signatures cannot remain a bypass, and acquisition/continuation
-futures cannot be cancelled by an external `select!`. Active V7 has 265 rows,
-semantic registry V7 has 28 keys, and deterministic latch-race acceptance
-covers all 15+5 logical routes. R7 remains design-only. Independent acceptance
-authorizes only the exact three-file I0 latch-seam implementation; the
+review. P1-e R7 at
+`7ebdcef45c1c55f4783bd6b2b1502ea78d4d97d7` is HOLD after independent review;
+the active candidate is P1-e R8. R8 retains the typed linear Option A seam and
+the 15+5 logical route partition while replacing the contradictory absolute
+post-owner Redis-read ban with a no-second-delivery-acquisition rule. One
+terminal permit may perform accepted XINFO/XRANGE/XPENDING verification and an
+optional exact XACK; P1-d4 read-only publication revalidation is mandatory
+after the permit. All 30 material route variants now bind their exact next
+covering boundary, returned owner/disposition, PEL/XACK/timer state and latch
+recheck. `Stage8bP1eShutdownIntentV1` preserves the initiating cause and exit
+class through E18/E25. Active V8 has 279 rows and semantic registry V8 has 31
+keys. R8 remains design-only. Independent acceptance authorizes only the exact
+three-file I0 latch-seam implementation, whose acceptance must rerun the full
+105-cell P1-d4 SIGKILL matrix twice plus P1-d2/P1-d3 regressions; the
 deployable supervisor source implementation remains unauthorized. P1-f,
 installation, operational DB0/VPS, FINAM POST/DELETE, broker dispatch,
 runtime-live and real orders remain closed. The
