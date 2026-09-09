@@ -1,0 +1,173 @@
+{
+  "schema_version": 6,
+  "domain": "moex.stage8b.p1e.operational-pretransition-overlay.v6",
+  "base_matrix": {
+    "path": "docs/stage-8/stage8b-p1e-operational-pretransition-matrix-v5.csv",
+    "sha256": "6e8a9b0bd1625788f6f5c1d961118bb07e5b41bd60eafa7c628ebc560c3488d1",
+    "row_count": 56
+  },
+  "excluded_base_rows": [
+    "OC13", "OC16", "OC23", "OC27",
+    "OC32", "OC33", "OC34", "OC35",
+    "OC38", "OC41", "OC48", "OC52",
+    "OC55", "OC56", "OC57", "OC58"
+  ],
+  "replacement_defaults": {
+    "equivalent_authority_reissue": "forbidden",
+    "s06_acquisition_model": "non-ready-S06-observation-terminal-wrapper-exact-lookup-no-reclaim",
+    "XAUTOCLAIM_total": 0,
+    "claim_idle_ms_dependency": false,
+    "fresh_poll_legality": "forbidden-until-terminal-source-resolution",
+    "truth_replay_legality": "forbidden",
+    "ack_replay_legality": "forbidden",
+    "new_callback_legality": "forbidden",
+    "unlisted_disposition": "exit-67-before-transition"
+  },
+  "replacement_rows": [
+    {
+      "id": "R6OC01",
+      "local_restart_variant": "P1SemanticZeroIntentAckPending",
+      "authenticated_package_phase": "p1_semantic_zero_intent_terminal",
+      "redis_source_state": "one_exact_pending_source_any_idle_age",
+      "timer_state": "none",
+      "starting_boundary": "zero_intent_terminal_committed",
+      "first_legal_transition": "resolve_stage8b_p1_zero_intent_ack_with_redis",
+      "next_owner": "Stage8bP1RedisSemanticCompositionOwner",
+      "source_disposition": "one_exact_XACK",
+      "paper_ready_legality": "after-exact-source-resolution-only"
+    },
+    {
+      "id": "R6OC02",
+      "local_restart_variant": "P1SemanticZeroIntentAckPending",
+      "authenticated_package_phase": "p1_semantic_zero_intent_terminal",
+      "redis_source_state": "source_already_acknowledged_with_continuous_frontier",
+      "timer_state": "none",
+      "starting_boundary": "zero_intent_terminal_committed",
+      "first_legal_transition": "resolve_stage8b_p1_zero_intent_ack_with_redis",
+      "next_owner": "Stage8bP1RedisSemanticCompositionOwner",
+      "source_disposition": "AlreadyAcknowledged-zero-XACK",
+      "paper_ready_legality": "after-continuous-frontier-proof-only"
+    },
+    {
+      "id": "R6OC03",
+      "local_restart_variant": "P1d2TruthCommitted",
+      "authenticated_package_phase": "p1d2_s_truth",
+      "redis_source_state": "one_exact_pending_source_any_idle_age",
+      "timer_state": "none",
+      "starting_boundary": "s_truth_committed",
+      "first_legal_transition": "resume_stage8b_p1d2_truth_with_redis",
+      "next_owner": "Stage8bP1RedisFeedbackTruthCommitted",
+      "source_disposition": "one_exact_XACK",
+      "paper_ready_legality": "after-exact-source-resolution-only"
+    },
+    {
+      "id": "R6OC04",
+      "local_restart_variant": "P1d2TruthCommitted",
+      "authenticated_package_phase": "p1d2_s_truth",
+      "redis_source_state": "source_already_acknowledged_with_continuous_frontier",
+      "timer_state": "none",
+      "starting_boundary": "s_truth_committed",
+      "first_legal_transition": "resume_stage8b_p1d2_truth_with_redis",
+      "next_owner": "Stage8bP1RedisFeedbackTruthCommitted",
+      "source_disposition": "AlreadyAcknowledged-zero-XACK",
+      "paper_ready_legality": "after-continuous-frontier-proof-only"
+    },
+    {
+      "id": "R6OC05",
+      "local_restart_variant": "P1d4GeneratedMarketTruthCommitted",
+      "authenticated_package_phase": "p1d4_generated_s_truth",
+      "redis_source_state": "one_exact_pending_source_any_idle_age",
+      "timer_state": "none",
+      "starting_boundary": "generated_s_truth_committed",
+      "first_legal_transition": "resume_stage8b_p1d4_truth_with_redis",
+      "next_owner": "Stage8bP1RedisGeneratedMarketTruthCommitted",
+      "source_disposition": "one_exact_XACK",
+      "paper_ready_legality": "after-publication-revalidation-and-exact-source-resolution-only"
+    },
+    {
+      "id": "R6OC06",
+      "local_restart_variant": "P1d4GeneratedMarketTruthCommitted",
+      "authenticated_package_phase": "p1d4_generated_s_truth",
+      "redis_source_state": "source_already_acknowledged_with_continuous_frontier",
+      "timer_state": "none",
+      "starting_boundary": "generated_s_truth_committed",
+      "first_legal_transition": "resume_stage8b_p1d4_truth_with_redis",
+      "next_owner": "Stage8bP1RedisGeneratedMarketTruthCommitted",
+      "source_disposition": "AlreadyAcknowledged-zero-XACK",
+      "paper_ready_legality": "after-publication-revalidation-and-continuous-frontier-proof-only"
+    },
+    {
+      "id": "R6OC07",
+      "local_restart_variant": "P1d3TruthCommitted",
+      "authenticated_package_phase": "p1d3_s_truth",
+      "redis_source_state": "one_exact_pending_source_any_idle_age",
+      "timer_state": "none",
+      "starting_boundary": "s_truth_committed",
+      "first_legal_transition": "resume_stage8b_p1d3_truth_with_redis",
+      "next_owner": "Stage8bP1RedisLimitTruthCommitted",
+      "source_disposition": "one_exact_XACK",
+      "paper_ready_legality": "after-exact-source-resolution-only"
+    },
+    {
+      "id": "R6OC08",
+      "local_restart_variant": "P1d3TruthCommitted",
+      "authenticated_package_phase": "p1d3_s_truth",
+      "redis_source_state": "source_already_acknowledged_with_continuous_frontier",
+      "timer_state": "none",
+      "starting_boundary": "s_truth_committed",
+      "first_legal_transition": "resume_stage8b_p1d3_truth_with_redis",
+      "next_owner": "Stage8bP1RedisLimitTruthCommitted",
+      "source_disposition": "AlreadyAcknowledged-zero-XACK",
+      "paper_ready_legality": "after-continuous-frontier-proof-only"
+    },
+    {
+      "id": "R6OC09",
+      "local_restart_variant": "P1d3TruthCommitted",
+      "authenticated_package_phase": "p1d3_s_cancel_recovered",
+      "redis_source_state": "one_exact_pending_source_any_idle_age",
+      "timer_state": "none",
+      "starting_boundary": "s_cancel_recovered_committed",
+      "first_legal_transition": "resume_stage8b_p1d3_truth_with_redis",
+      "next_owner": "Stage8bP1RedisLimitTruthCommitted",
+      "source_disposition": "one_exact_XACK",
+      "paper_ready_legality": "after-exact-source-resolution-only"
+    },
+    {
+      "id": "R6OC10",
+      "local_restart_variant": "P1d3TruthCommitted",
+      "authenticated_package_phase": "p1d3_s_cancel_recovered",
+      "redis_source_state": "source_already_acknowledged_with_continuous_frontier",
+      "timer_state": "none",
+      "starting_boundary": "s_cancel_recovered_committed",
+      "first_legal_transition": "resume_stage8b_p1d3_truth_with_redis",
+      "next_owner": "Stage8bP1RedisLimitTruthCommitted",
+      "source_disposition": "AlreadyAcknowledged-zero-XACK",
+      "paper_ready_legality": "after-continuous-frontier-proof-only"
+    },
+    {
+      "id": "R6OC11",
+      "local_restart_variant": "P1d3TruthCommitted",
+      "authenticated_package_phase": "p1d3_s_cancel_recovered",
+      "redis_source_state": "one_exact_pending_source_any_idle_age",
+      "timer_state": "exact_day_expiry_due",
+      "starting_boundary": "s_cancel_recovered_committed",
+      "first_legal_transition": "resume_stage8b_p1d3_truth_with_redis",
+      "next_owner": "Stage8bP1RedisLimitTruthCommitted-then-timer-reclassified-owner",
+      "source_disposition": "one_exact_XACK-before-timer-reclassification",
+      "paper_ready_legality": "only-after-source-resolution-and-returned-owner-timer-reclassification",
+      "timer_derivation": "SOURCE_FIRST_TIMER_DEFERRED",
+      "post_transition_outcomes": ["SourceResolvedThenTimerReclassified", "StaleTimerDiscarded"]
+    }
+  ],
+  "composed_contract": {
+    "retained_base_rows": 40,
+    "replacement_rows": 11,
+    "total_rows": 51,
+    "unique_ids": true,
+    "terminal_not_yet_claimable_rows": 0,
+    "terminal_claimable_rows": 0,
+    "terminal_pending_rows": 5,
+    "terminal_already_acknowledged_rows": 5,
+    "terminal_due_timer_rows": 1
+  }
+}

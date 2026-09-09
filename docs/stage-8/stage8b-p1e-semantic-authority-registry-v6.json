@@ -1,0 +1,43 @@
+{
+  "schema_version": 6,
+  "domain": "moex.stage8b.p1e.semantic-authority-registry.v6",
+  "base_registry": {
+    "path": "docs/stage-8/stage8b-p1e-semantic-authority-registry-v5.json",
+    "sha256": "9793e5e854538b3699eeca9dbab63b4d6de9b1e0960481792c9be51b74e7f7dc",
+    "active_key_count": 22
+  },
+  "conflict_rule": "compose-base-minus-exact-superseded-authorities-plus-R6-authorities-and-require-one-byte-identical-active-value-per-key",
+  "superseded_active_authorities": {
+    "redis.NonReadyAcquisitionOwner": "S06-observation-only-existing-resume-wrapper-sole-reclaim",
+    "shutdown.PostDeliveryLatch": "all-Ready-and-non-Ready-sole-acquisition-paths-before-parse-callback-provider-schedule-XACK"
+  },
+  "replacement_active_authorities": {
+    "redis.NonReadyAcquisitionOwner": "partitioned-reclaim-required-XAUTOCLAIM-vs-terminal-exact-resolution-no-claim",
+    "shutdown.PostDeliveryLatch": "after-Ready-delivery-or-reclaim-required-reclaim-or-terminal-exact-lookup-before-parse-continuation-callback-provider-schedule-XACK"
+  },
+  "required_new_keys": [
+    "redis.ReclaimRequiredContinuation",
+    "redis.TerminalSourceResolution",
+    "redis.TerminalClaimIdleDependency",
+    "firstboot.PostReceiptStaleTempDisposition"
+  ],
+  "new_active_authorities": {
+    "redis.ReclaimRequiredContinuation": "fifteen-exact-owner-phase-routes-existing-wrapper-sole-reclaim-claim-idle-applies",
+    "redis.TerminalSourceResolution": "five-logical-owner-phase-routes-exact-stream-entry-plus-PEL-frontier-XACK-or-AlreadyAcknowledged-zero-XAUTOCLAIM",
+    "redis.TerminalClaimIdleDependency": "forbidden-idle-age-does-not-change-terminal-resolution",
+    "firstboot.PostReceiptStaleTempDisposition": "valid-final-receipt-plus-any-receipt-temp-is-conflict-before-marker-mutation"
+  },
+  "composed_expectation": {
+    "retained_base_keys": 20,
+    "replacement_keys": 2,
+    "new_keys": 4,
+    "total_active_keys": 26,
+    "active_conflicts": 0
+  },
+  "contract_bindings": {
+    "acquisition_model_v3_sha256": "0ec7af4bc587cba4afd473fffe20387bc5e75b78abb28d3d1b9479b750285315",
+    "operational_overlay_v6_sha256": "4005983efc51f5e9db079ccd560e882b59f9088e7ec840ee33a6765721b8a9a6",
+    "first_boot_transaction_v5_sha256": "3e275cdb21e3a3a9d41e5ffdfe360c76853a702de37dfdeb7fb08b9a587088be",
+    "source_timer_precedence_v3_sha256": "5083a6a12ba8e31c817966647aa5110aa8559b0f2260a0784282a2b82c67e7ff"
+  }
+}

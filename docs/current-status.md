@@ -1482,7 +1482,7 @@ Red / not yet implemented:
 
 ## Required gates before runtime-driven live
 
-### Stage 8B-P1-e R5 design correction candidate (2026-09-09)
+### Stage 8B-P1-e R6 design correction candidate (2026-09-09)
 
 Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
 `c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design at
@@ -1490,15 +1490,18 @@ Stage 8B-P1-d4 is independently CLOSED / ACCEPTED at
 P1-e R2 design at `3aaed81da4f1a558b4d31f4d3a169ddceca61e6f` is HOLD.
 P1-e R3 at `913424b73c5a83df2131a1f9a2901b78035bfc4c` is HOLD. P1-e R4 at
 `98523fd009712883f73f9b5a15cb545c8e9f13ac` is also HOLD after independent
-review; the active candidate is its direct-child P1-e R5. R5 preserves the
-unified `moex-p1-paper` identity/custody, four marker-temp response-loss states,
-Redis acquisition Model B, linear payload, source-first arbitration and exact
-digest fixtures. It adds a mode-specific network split so main can reach only
-loopback Redis DB15 while bootstrap/recovery remain network-isolated; makes
-adopted-marker completion mandatory before ordinary run; and exact-binds
-`P1d3TruthCommitted + p1d3_s_cancel_recovered` through four operational cells.
-The active merge has 217 rows, outer/operational matrices have 23/56 rows, and
-the semantic registry has 22 execution keys. P1-e source implementation remains unauthorized until independent R5 acceptance. P1-f retains ownership
+review. Its direct-child P1-e R5 at
+`3232c2447fc8d6aec038ca518efa11dc4d7e959e` is HOLD after independent review;
+the active candidate is P1-e R6. R6 retains the accepted R5 network split,
+mandatory adopted-marker authority and exact cancel-recovered phase/no-replay
+rules. It corrects the acquisition contract to distinguish fifteen
+reclaim-required semantic continuations from five terminal no-claim source
+resolution routes. Terminal routes use exact stream-entry plus PEL/frontier
+verification, never XAUTOCLAIM and never depend on `claim_idle_ms`. Operational
+V6 composes 51 cells from 40 unchanged V5 rows and 11 replacements; the active
+acceptance merge has 242 rows and semantic registry V6 composes 26 execution
+keys. First-boot V5 also rejects any stale receipt temp before adopted-marker
+mutation. P1-e source implementation remains unauthorized until independent R6 acceptance. P1-f retains ownership
 of isolated Redis/VPS acceptance. Operational DB0, FINAM POST/DELETE, broker
 dispatch, runtime-live and real orders remain closed. The nonblocking
 `0 < child_pid <= u32::MAX` hardening remains deferred to an authorized source

@@ -1,0 +1,93 @@
+{
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1e.acquisition-model.v3",
+  "selected_model": "split-non-ready-reclaim-required-semantic-continuation-vs-terminal-no-claim-source-resolution",
+  "accepted_source_oracle": {
+    "path": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+    "sha256": "a870fbbb6ec9fc60b7df9c35a2aca7a5daf81f695b019352d7f20c9b51439d16",
+    "modification_authorized": false
+  },
+  "s06_non_ready_observation": {
+    "allowed_redis_operations": [
+      "XPENDING-summary",
+      "XPENDING-exact-details",
+      "XINFO-GROUPS-observation",
+      "XINFO-CONSUMERS-observation"
+    ],
+    "forbidden_redis_operations": ["XAUTOCLAIM", "XREADGROUP", "XACK"],
+    "observation_contains_payload": false,
+    "observation_grants_processing_authority": false,
+    "classification_output": "exact-owner-phase-plus-PEL-group-state-or-closed-classifier-error"
+  },
+  "reclaim_required_semantic_continuations": [
+    {"owner": "P1SemanticPrepublicationPending", "phase": "p1_semantic_journal_ahead", "wrapper": "resume_stage8b_p1_journal_ahead_with_redis"},
+    {"owner": "P1SemanticPrepublicationReady", "phase": "p1_semantic_prepublication", "wrapper": "resume_stage8b_p1_prepublication_with_redis"},
+    {"owner": "P1d2PreAckPending", "phase": "p1d2_pre_ack", "wrapper": "resume_stage8b_p1d2_pre_ack_with_redis"},
+    {"owner": "P1d2AckCommitted", "phase": "p1d2_s_ack", "wrapper": "resume_stage8b_p1d2_ack_with_redis"},
+    {"owner": "P1d4GeneratedMarketPrepublicationPending", "phase": "p1d4_generated_reserved", "wrapper": "resume_stage8b_p1d4_prepublication_with_redis"},
+    {"owner": "P1d4GeneratedMarketDispatchPending", "phase": "p1d4_generated_dispatch", "wrapper": "resume_stage8b_p1d4_dispatch_pending_with_redis"},
+    {"owner": "P1d4GeneratedMarketOrderPending", "phase": "p1d4_generated_order", "wrapper": "resume_stage8b_p1d4_order_pending_with_redis"},
+    {"owner": "P1d4GeneratedMarketPreFinalizationPending", "phase": "p1d4_generated_pre_finalization", "wrapper": "resume_stage8b_p1d4_pre_finalization_with_redis"},
+    {"owner": "P1d4GeneratedMarketPreAckPending", "phase": "p1d4_generated_pre_ack", "wrapper": "resume_stage8b_p1d4_pre_ack_with_redis"},
+    {"owner": "P1d4GeneratedMarketAckCommitted", "phase": "p1d4_generated_s_ack", "wrapper": "resume_stage8b_p1d4_ack_with_redis"},
+    {"owner": "P1d3DispatchPending", "phase": "p1d3_dispatch", "wrapper": "resume_stage8b_p1d3_dispatch_limit_with_redis|resume_stage8b_p1d3_dispatch_expiry_with_redis|resume_stage8b_p1d3_dispatch_cancel_with_redis"},
+    {"owner": "P1d3PreAckPending", "phase": "p1d3_pre_ack", "wrapper": "resume_stage8b_p1d3_pre_ack_with_redis"},
+    {"owner": "P1d3AckCommitted", "phase": "p1d3_s_ack", "wrapper": "resume_stage8b_p1d3_ack_with_redis"},
+    {"owner": "P1d3CancelContinuationPending", "phase": "p1d3_s_terminal_cancel_continuation", "wrapper": "resume_stage8b_p1d3_cancel_continuation_with_redis"},
+    {"owner": "P1d3SemanticPending", "phase": "p1d3_s_eval_or_s_terminal", "wrapper": "resume_stage8b_p1d3_semantic_with_redis"}
+  ],
+  "reclaim_required_rule": {
+    "sole_reclaim_owner": "exact-existing-resume-wrapper",
+    "maximum_successful_reclaims": 1,
+    "claim_idle_ms_applies": true,
+    "pending_not_claimable": "Degraded-without-fresh-read-or-semantic-effect",
+    "post_reclaim_latch": "before-parse-continuation-provider-schedule-callback-or-XACK",
+    "second_acquisition": "forbidden"
+  },
+  "terminal_source_resolution_continuations": [
+    {"owner": "P1SemanticZeroIntentAckPending", "phase": "p1_semantic_zero_intent_terminal", "function": "resolve_stage8b_p1_zero_intent_ack_with_redis", "lookup": "exact_delivery_for_evidence"},
+    {"owner": "P1d2TruthCommitted", "phase": "p1d2_s_truth", "function": "resume_stage8b_p1d2_truth_with_redis", "lookup": "exact_delivery_for_binding"},
+    {"owner": "P1d4GeneratedMarketTruthCommitted", "phase": "p1d4_generated_s_truth", "function": "resume_stage8b_p1d4_truth_with_redis", "lookup": "exact_delivery_for_evidence", "additional_validation": "revalidate_p1d4_publication"},
+    {"owner": "P1d3TruthCommitted", "phase": "p1d3_s_truth", "function": "resume_stage8b_p1d3_truth_with_redis", "lookup": "exact_delivery_for_binding"},
+    {"owner": "P1d3TruthCommitted", "phase": "p1d3_s_cancel_recovered", "function": "resume_stage8b_p1d3_truth_with_redis", "lookup": "exact_delivery_for_binding"}
+  ],
+  "terminal_resolution_rule": {
+    "input": "authenticated-terminal-owner-plus-exact-immutable-stream-entry-and-source-binding",
+    "XAUTOCLAIM_total": 0,
+    "ownership_transfer_total": 0,
+    "claim_idle_ms_dependency": false,
+    "post_lookup_latch": "before-XACK-or-AlreadyAcknowledged-return",
+    "exact_pending": "acknowledge_exact-produces-one-XACK",
+    "already_acknowledged": "absent-from-PEL-plus-continuous-group-frontier-produces-AlreadyAcknowledged-with-zero-XACK",
+    "conflict": "changed-or-missing-entry-binding-or-discontinuous-frontier-fails-closed-with-zero-XACK",
+    "truth_replay": "forbidden",
+    "ACK_replay": "forbidden",
+    "new_callback": "forbidden"
+  },
+  "owner_partition": {
+    "reclaim_required_count": 15,
+    "terminal_logical_count": 5,
+    "intersection": [],
+    "unlisted_non_ready_owner": "exit-67-before-transition"
+  },
+  "idle_boundary_tests": [
+    "idle-age-zero",
+    "idle-age-claim_idle_ms-minus-one",
+    "idle-age-equal-claim_idle_ms",
+    "idle-age-claim_idle_ms-plus-one"
+  ],
+  "instrumentation": {
+    "terminal_exact_lookup_total": "exactly-one",
+    "terminal_XAUTOCLAIM_total": "zero",
+    "terminal_XACK_total": "zero-or-one-by-disposition",
+    "terminal_AlreadyAcknowledged_total": "zero-or-one-by-disposition",
+    "reclaim_required_successful_reclaim_total": "zero-or-one",
+    "callback_total": "zero-or-one-by-authorized-path",
+    "provider_total": "zero-or-one-by-authorized-path"
+  },
+  "ready_paths_retained_from_v2": {
+    "existing_pel": "S06-one-exact-XAUTOCLAIM-to-Stage8bP1eClaimedM10DeliveryV2",
+    "fresh_source": "S08-one-XREADGROUP-to-Stage8bP1eClaimedM10DeliveryV2",
+    "linear_owner_and_owned_payload": "unchanged"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "schema_version": 5,
+  "domain": "moex.stage8b.p1e.first-boot-transaction.v5",
+  "base_contract": {
+    "path": "docs/stage-8/stage8b-p1e-first-boot-transaction-v4.json",
+    "sha256": "f797754c8484b6dbaa7a271a8a52f05a2b7dd7a7043f6a4264bd54f6031830ec"
+  },
+  "predicate_replacements": {
+    "ReceiptCommittedMarkerUpdatePending": {
+      "old_precondition": "valid-final-receipt-v2-package-v2-seal-provenance-ready-owner-binding-canonical-marker-phase-seal_committed-and-adopted-marker-temp-absent",
+      "new_precondition": "valid-final-receipt-v2-package-v2-seal-provenance-ready-owner-binding-canonical-marker-phase-seal_committed-and-adopted-marker-temp-absent-and-receipt-temp-absent",
+      "required_action": "start-seal-committed-to-adopted",
+      "run_allowed": false
+    },
+    "SealCommittedToAdoptedMarkerTempPending": {
+      "old_exclusive_precondition": "valid-final-receipt-present-plus-valid-adopted-marker-temp-present-excludes-ReceiptCommittedMarkerUpdatePending-and-AdoptedCommittedRoot",
+      "new_exclusive_precondition": "valid-final-receipt-present-plus-receipt-temp-absent-plus-valid-adopted-marker-temp-present-excludes-ReceiptCommittedMarkerUpdatePending-and-AdoptedCommittedRoot",
+      "required_action": "complete-seal-committed-to-adopted",
+      "run_allowed": false
+    }
+  },
+  "stale_receipt_temp_rule": {
+    "precondition": "valid-final-receipt-plus-any-receipt-temp-plus-canonical-marker-phase-seal_committed",
+    "classification": "CorruptOrIdentityMismatch",
+    "exit_code": 66,
+    "marker_mutation_allowed": false,
+    "receipt_mutation_allowed": false,
+    "ordinary_run_allowed": false,
+    "evidence": "preserve"
+  },
+  "composed_inventory": {
+    "base_classifications": 11,
+    "marker_update_temp_classifications": 4,
+    "classification_model": "pairwise-disjoint-exactly-one-match-no-precedence-mandatory-adopted-marker",
+    "all_unmodified_v4_fields_retained": true
+  },
+  "required_tests": [
+    "valid-final-receipt-plus-stale-receipt-temp-plus-seal_committed-marker-fails-before-marker-mutation",
+    "valid-final-receipt-plus-no-receipt-temp-plus-seal_committed-marker-enters-ReceiptCommittedMarkerUpdatePending",
+    "valid-final-receipt-plus-no-receipt-temp-plus-valid-adopted-marker-temp-enters-SealCommittedToAdoptedMarkerTempPending",
+    "valid-final-receipt-plus-receipt-temp-plus-valid-adopted-marker-temp-fails-before-marker-mutation"
+  ]
+}

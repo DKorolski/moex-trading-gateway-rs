@@ -129,14 +129,16 @@ Stage 8B-P1-d4 is independently closed at
 `693fab351f099b5f16ebb73d4956918b34d8ea1e`; P1-e R2 design is HOLD at
 `3aaed81da4f1a558b4d31f4d3a169ddceca61e6f`; P1-e R3 is HOLD at
 `913424b73c5a83df2131a1f9a2901b78035bfc4c`; P1-e R4 is HOLD at
-`98523fd009712883f73f9b5a15cb545c8e9f13ac`; P1-e R5 design correction is
-the active candidate. It retains all accepted R4 corrections and adds the
-three missing execution contracts: main TCP-loopback DB15 versus isolated
-bootstrap/recovery networking, mandatory adopted-marker completion before
-ordinary run, and exact `P1d3TruthCommitted + p1d3_s_cancel_recovered`
-routing for claimable/already-acknowledged/not-yet-claimable/source-plus-timer
-states. The sole active merge has 217 rows and the semantic registry binds 22
-execution-level keys. P1-e source implementation remains unauthorized until independent R5 design acceptance. Service installation, P1-f isolated
+`98523fd009712883f73f9b5a15cb545c8e9f13ac`; P1-e R5 is HOLD at
+`3232c2447fc8d6aec038ca518efa11dc4d7e959e`; P1-e R6 design correction is
+the active candidate. It retains the accepted R5 network, adopted-marker and
+cancel-recovered phase/no-replay corrections, then splits non-Ready acquisition
+into fifteen reclaim-required semantic routes and five terminal no-claim source
+resolution routes. Terminal resolution uses exact stream-entry and PEL/group
+frontier verification with zero XAUTOCLAIM and no `claim_idle_ms` dependency.
+Operational V6 composes 51 cells, the active acceptance merge has 242 rows and
+semantic registry V6 composes 26 execution keys. The post-receipt classifier
+also rejects a stale receipt temp before marker mutation. P1-e source implementation remains unauthorized until independent R6 design acceptance. Service installation, P1-f isolated
 operational acceptance and every DB0/FINAM/live surface remain owned by later
 gates. The inherited `0 < child_pid <= u32::MAX` bound stays deferred to source
 hardening.
