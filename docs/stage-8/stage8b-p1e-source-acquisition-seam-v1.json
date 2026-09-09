@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.source-acquisition-seam.v1",
+  "linear_type": "Stage8bP1eClaimedM10DeliveryV1",
+  "clone_allowed": false,
+  "copy_allowed": false,
+  "serialization_allowed": false,
+  "reconstruction_allowed": false,
+  "fields": [
+    "redis_id",
+    "semantic_id_sha256",
+    "payload_sha256",
+    "operational_identity_sha256",
+    "consumer_name",
+    "acquisition_kind",
+    "acquisition_nonce"
+  ],
+  "acquisition_kinds": [
+    "S06ExactAutoClaim",
+    "S08FreshReadGroupDelivery"
+  ],
+  "pre_transition_observations": [
+    "authenticated_local_restart_variant",
+    "authenticated_package_phase",
+    "pel_count",
+    "exact_source_binding",
+    "pending_idle_age_relation_to_threshold",
+    "claim_cursor_terminality",
+    "due_timer_binding",
+    "shutdown_latch"
+  ],
+  "forbidden_pre_transition_observations": [
+    "strategy_callback_result",
+    "zero_intent",
+    "one_intent",
+    "later_filled",
+    "preview_runtime_state",
+    "speculative_runtime_clone"
+  ],
+  "constructors": {
+    "s06": "bounded-policy-performs-the-one-XAUTOCLAIM-and-moves-returned-delivery-into-linear-owner",
+    "s08": "one-XREADGROUP-result-is-moved-directly-into-linear-owner"
+  },
+  "consumers": {
+    "process_claimed_working_limit": {
+      "accepted_acquisition_kinds": ["S06ExactAutoClaim", "S08FreshReadGroupDelivery"],
+      "redis_acquisition_calls_allowed": [],
+      "post_transition_outcomes": [
+        "ZeroIntentTerminal",
+        "OneIntentPrepublication",
+        "LaterFilledTerminal",
+        "PendingOrBlockedFailure"
+      ]
+    },
+    "process_claimed_ready_source": {
+      "accepted_acquisition_kinds": ["S06ExactAutoClaim", "S08FreshReadGroupDelivery"],
+      "redis_acquisition_calls_allowed": [],
+      "post_transition_outcomes": [
+        "ZeroIntentTerminal",
+        "OneIntentPrepublication",
+        "MultiIntentBlocked"
+      ]
+    },
+    "retain_after_shutdown_latch": {
+      "accepted_acquisition_kinds": ["S08FreshReadGroupDelivery"],
+      "redis_acquisition_calls_allowed": [],
+      "parse_allowed": false,
+      "callback_allowed": false,
+      "provider_allowed": false,
+      "schedule_allowed": false,
+      "xack_allowed": false,
+      "result": "same-entry-remains-pending-exactly-once"
+    }
+  },
+  "globally_forbidden_after_owner_construction": [
+    "XPENDING",
+    "XAUTOCLAIM",
+    "XREADGROUP"
+  ],
+  "callback_rule": "exactly-one-real-callback-after-pre-transition-classification-and-never-a-preview-callback",
+  "instrumentation_acceptance": "acquisition-operation-total-equals-one-from-S06-or-S08-entry-through-returned-terminal-or-retained-boundary"
+}

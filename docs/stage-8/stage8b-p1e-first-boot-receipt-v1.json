@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.first-boot-receipt.v1",
+  "rust_type": "Stage8bP1FirstBootReceiptV1",
+  "canonical_encoding": "sorted-key-compact-utf8-json-without-receipt_hmac_sha256",
+  "hmac_domain": "moex.stage8b.p1e.first-boot-receipt.hmac.v1",
+  "hmac_key": "stage8b-p1-lifecycle.key",
+  "deny_unknown_fields": true,
+  "deny_duplicate_fields": true,
+  "fields_in_canonical_order": [
+    "schema_version",
+    "domain",
+    "transaction_id_sha256",
+    "bootstrap_attempt_generation",
+    "operational_identity_sha256",
+    "canonical_root_basename",
+    "canonical_root_identity_sha256",
+    "restart_package_schema_version",
+    "restart_package_canonical_sha256",
+    "first_boot_provenance_canonical_sha256",
+    "seal_generation",
+    "seal_commitment_sha256",
+    "stage6_checkpoint_sha256",
+    "adoption_predicate_version",
+    "adoption_ready_owner_sha256",
+    "receipt_hmac_sha256"
+  ],
+  "field_contracts": {
+    "schema_version": "exact-u16-1",
+    "domain": "exact-domain-string",
+    "transaction_id_sha256": "lowercase-hex-sha256-from-authenticated-marker",
+    "bootstrap_attempt_generation": "exact-positive-u64-from-authenticated-marker",
+    "operational_identity_sha256": "lowercase-hex-sha256-equal-marker-package-and-config",
+    "canonical_root_basename": "exact-direct-child-basename-from-authenticated-marker",
+    "canonical_root_identity_sha256": "sha256-domain-separated-root-device-inode-and-basename",
+    "restart_package_schema_version": "exact-u16-2",
+    "restart_package_canonical_sha256": "sha256-of-reread-authenticated-v2-package-bytes",
+    "first_boot_provenance_canonical_sha256": "sha256-of-byte-identical-v1-provenance-canonical-bytes",
+    "seal_generation": "exact-positive-u64-from-reread-committed-seal",
+    "seal_commitment_sha256": "exact-lowercase-hex-sha256-from-reread-committed-seal",
+    "stage6_checkpoint_sha256": "exact-lowercase-hex-sha256-from-ready-owner-committed-seal",
+    "adoption_predicate_version": "exact-u16-1",
+    "adoption_ready_owner_sha256": "domain-separated-sha256-of-exact-adoption-predicate-fields",
+    "receipt_hmac_sha256": "lowercase-hex-hmac-sha256-over-canonical-fields-excluding-this-field"
+  },
+  "persistence": {
+    "final_path": "/var/lib/moex-finam-p1-paper/.stage8b-p1-first-boot-receipt-v1.json",
+    "fixed_temp_path": "/var/lib/moex-finam-p1-paper/.stage8b-p1-first-boot-receipt-v1.tmp",
+    "protocol": [
+      "create-exclusive-temp-mode-0600-nofollow-single-link-root-owned",
+      "write-all-canonical-bytes",
+      "sync-all-temp",
+      "renameat2-noreplace-temp-to-final",
+      "fsync-canonical-parent",
+      "nofollow-reread-authenticate-and-byte-verify"
+    ],
+    "commit_point": "final-rename-plus-parent-fsync",
+    "existing_exact_receipt": "idempotent-success-after-nofollow-reread-and-full-cross-validation",
+    "existing_nonexact_receipt": "fail-closed-before-run-and-redis"
+  },
+  "replay_rejection": [
+    "cross-transaction",
+    "cross-attempt-generation",
+    "cross-root-identity",
+    "cross-operational-identity",
+    "cross-package",
+    "cross-seal-generation-or-commitment",
+    "cross-provenance",
+    "unknown-or-downgraded-package-schema"
+  ]
+}

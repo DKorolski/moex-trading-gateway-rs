@@ -126,11 +126,12 @@ remain closed.
 Stage 8B-P1-d4 is independently closed at
 `c2a9e1246dfdd59f3a6297268de907dedcb19903`. P1-e R0 design is superseded at
 `7a186cd2ac78a57eff1ad8f24aa52b9dab82b68b`. P1-e R1 design is HOLD at
-`693fab351f099b5f16ebb73d4956918b34d8ea1e`; P1-e R2 design correction is the active candidate.
-It preserves the dedicated paper supervisor and R1 profile/source/telemetry
-contracts, then adds authenticated interrupted-bootstrap recovery, durable
-source provenance, exact 22-row outer plus 54-row operational continuation
-dispatch, and a deadline-compatible Redis claim/restart policy. Only independent R2 design acceptance may open P1-e source implementation. Service
+`693fab351f099b5f16ebb73d4956918b34d8ea1e`; P1-e R2 design is HOLD at
+`3aaed81da4f1a558b4d31f4d3a169ddceca61e6f`; P1-e R3 design correction is the active candidate.
+It preserves the dedicated paper supervisor and accepted R2 direction, then
+fixes one active acceptance merge, an exact systemd recovery and receipt
+boundary, package-V2 provenance propagation, and a 52-row observable
+pre-transition dispatch with one linear M10 acquisition. Only independent R3 design acceptance may open P1-e source implementation. Service
 installation, P1-f isolated operational acceptance and every DB0/FINAM/live
 surface remain owned by later gates.
 

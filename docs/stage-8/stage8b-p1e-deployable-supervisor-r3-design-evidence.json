@@ -1,0 +1,89 @@
+{
+  "stage": "Stage 8B-P1-e R3 deployable paper supervisor design correction",
+  "status": "R3_DESIGN_REVIEW_CANDIDATE",
+  "accepted_p1d4_closure_ref": "c2a9e1246dfdd59f3a6297268de907dedcb19903",
+  "r2_ref": "3aaed81da4f1a558b4d31f4d3a169ddceca61e6f",
+  "r2_review_sha256": "ea5828a52e2098da1fc2f4eeb52c37e40f9328e634f42840e64dc703e2b15b26",
+  "r2_verdict": "HOLD_SUPERSEDED_BY_R3",
+  "design_only": true,
+  "implementation_authorized": false,
+  "operational_activation_authorized": false,
+  "inherited_r1_rows": 88,
+  "inherited_r2_rows": 48,
+  "r3_rows": 43,
+  "active_r1_rows": 83,
+  "active_r2_rows": 34,
+  "active_r3_rows": 43,
+  "total_active_rows": 160,
+  "superseded_rows": 19,
+  "restart_outer_rows_inherited": 22,
+  "operational_pretransition_rows": 52,
+  "supervisor_event_rows_inherited": 24,
+  "inherited_r1_negative_cases": 64,
+  "inherited_r2_negative_cases": 40,
+  "r3_negative_cases": 36,
+  "canonical_contracts": {
+    "active_acceptance_contract_v3_sha256": "6447082e81e0adee7aed5c3336231e44ee040b5d0ab47e454a47b0de0725cd90",
+    "r3_acceptance_matrix_file_sha256": "7da8c390d6474e32b0b680892cce335eb528d0d633fcc1e6f7ddedf0d1c7b342",
+    "first_boot_transaction_v2_sha256": "8008789da8020e0e6470177706031eeac19a64050de091bc94dcfa3328646f51",
+    "first_boot_receipt_v1_sha256": "0241146a81f0e8fdd51e78c1584e3b2ffe03337b07e976dd05417b16c990464f",
+    "authenticated_restart_package_v2_sha256": "114a2c746ade4ee024b5bf0f81441d712549172fe0ab7bc2724949ca73725b1a",
+    "source_acquisition_seam_v1_sha256": "05aaee3c1e27f0b9765c4e4755077a3722a1949c6fa5753234a2690ad4ef2ce0",
+    "operational_pretransition_matrix_v3_file_sha256": "e24860e874d264ab0dec35ddf3e91e169204b24076347beed34d4134c0d70ce0"
+  },
+  "review_closure": {
+    "p1_01_active_contract_merge": "COVERED",
+    "p1_02_recovery_and_receipt_boundary": "COVERED",
+    "p1_03_durable_provenance_lifetime": "COVERED",
+    "p1_04_observable_classifier_and_linear_acquisition": "COVERED"
+  },
+  "first_boot": {
+    "transaction_schema_version": 2,
+    "classification_count": 10,
+    "recovery_unit": "stage8b-p1-paper-bootstrap-recover@.service",
+    "receipt_schema_version": 1,
+    "receipt_hmac_covered": true,
+    "sigkill_windows": 5,
+    "direct_recovery_allowed": false,
+    "second_authority_allowed": false
+  },
+  "provenance": {
+    "restart_package_schema_version": 2,
+    "v1_run_allowed": false,
+    "hmac_covered": true,
+    "byte_identical_replacement_propagation": true,
+    "validated_before_redis": true
+  },
+  "acquisition": {
+    "linear_type": "Stage8bP1eClaimedM10DeliveryV1",
+    "clone_allowed": false,
+    "pre_transition_callback_result_allowed": false,
+    "post_acquisition_redis_reacquire_allowed": false,
+    "maximum_acquisitions_per_delivery": 1,
+    "maximum_callbacks_per_delivery": 1
+  },
+  "closed_surfaces": {
+    "p1e_source_implementation": false,
+    "p1f_activation": false,
+    "operational_redis_db0": false,
+    "vps_activation": false,
+    "non_loopback_redis": false,
+    "finam_transport": false,
+    "finam_post": false,
+    "finam_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "partial_fills": false,
+    "protective_orders": false
+  },
+  "deferred_p2": {
+    "required_bound": "0 < child_pid <= u32::MAX",
+    "blocks_p1e_design": false,
+    "requires_separate_source_hardening_authority": true
+  },
+  "transition": {
+    "next_after_r3_acceptance": "Stage 8B-P1-e source implementation against active V3 contract",
+    "next_after_source_acceptance": "Stage 8B-P1-f isolated operational acceptance"
+  }
+}
