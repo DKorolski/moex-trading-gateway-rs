@@ -35,11 +35,24 @@ use crate::stage8b_p1_bootstrap::{
 mod redis;
 
 pub use redis::{
-    attach_stage8b_p1_redis, initialize_stage8b_p1_redis_namespace,
-    resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
-    resume_stage8b_p1_prepublication_with_redis, resume_stage8b_p1d2_ack_with_redis,
-    resume_stage8b_p1d2_pre_ack_with_redis, resume_stage8b_p1d2_truth_with_redis,
-    resume_stage8b_p1d3_ack_with_redis, resume_stage8b_p1d3_cancel_continuation_with_redis,
+    acquire_stage8b_p1_journal_ahead_with_redis, acquire_stage8b_p1_prepublication_with_redis,
+    acquire_stage8b_p1_zero_intent_ack_with_redis, acquire_stage8b_p1d2_ack_with_redis,
+    acquire_stage8b_p1d2_pre_ack_with_redis, acquire_stage8b_p1d2_truth_with_redis,
+    acquire_stage8b_p1d3_ack_with_redis, acquire_stage8b_p1d3_cancel_continuation_with_redis,
+    acquire_stage8b_p1d3_dispatch_cancel_with_redis,
+    acquire_stage8b_p1d3_dispatch_expiry_with_redis,
+    acquire_stage8b_p1d3_dispatch_limit_with_redis, acquire_stage8b_p1d3_pre_ack_with_redis,
+    acquire_stage8b_p1d3_semantic_with_redis, acquire_stage8b_p1d3_truth_with_redis,
+    acquire_stage8b_p1d4_ack_with_redis, acquire_stage8b_p1d4_dispatch_pending_with_redis,
+    acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
+    acquire_stage8b_p1d4_pre_finalization_with_redis,
+    acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
+    attach_stage8b_p1_redis, decide_stage8b_p1e_post_acquisition_latch,
+    initialize_stage8b_p1_redis_namespace, resolve_stage8b_p1_zero_intent_ack_with_redis,
+    resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
+    resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
+    resume_stage8b_p1d2_truth_with_redis, resume_stage8b_p1d3_ack_with_redis,
+    resume_stage8b_p1d3_cancel_continuation_with_redis,
     resume_stage8b_p1d3_dispatch_cancel_with_redis, resume_stage8b_p1d3_dispatch_expiry_with_redis,
     resume_stage8b_p1d3_dispatch_limit_with_redis, resume_stage8b_p1d3_pre_ack_with_redis,
     resume_stage8b_p1d3_semantic_with_redis, resume_stage8b_p1d3_truth_with_redis,
@@ -57,7 +70,10 @@ pub use redis::{
     Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
     Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
     Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
-    Stage8bP1RedisZeroIntentAckResolved,
+    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1eContinuationPermitV1,
+    Stage8bP1ePostAcquisitionDecisionV1, Stage8bP1ePostAcquisitionOwnerV1,
+    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1,
+    Stage8bP1eShutdownLatchV1,
 };
 
 pub const STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION: u16 = 1;
