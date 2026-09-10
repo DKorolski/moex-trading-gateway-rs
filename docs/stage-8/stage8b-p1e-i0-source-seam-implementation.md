@@ -31,17 +31,25 @@ routes, including material P1-d3 dispatch and P1-d4 journal-ahead variants.
 The former owner-plus-transport continuation signatures are removed.
 
 Acquisition functions perform the one accepted route-exact reclaim or
-terminal observation and construct the opaque owner. They do not parse a bar,
-invoke the strategy callback/provider/schedule, publish a command, commit the
-next replacement seal, revalidate publication or XACK. Continuation functions
-do not perform a second delivery acquisition.
+terminal observation and construct the opaque owner. They do not invoke
+`Stage8bP1PendingM10Delivery::parse_exact`, a strategy
+callback/provider/schedule, publish a command, commit the next replacement
+seal, revalidate publication or XACK. `reclaim_exact_binding` retains the
+Redis-id, semantic-id and payload-hash checks during acquisition but returns
+the still opaque delivery. LR04, LR12 candidate-source and LR15 perform the
+identity-aware canonical parse only after consuming their continuation
+permit. Continuation functions do not perform a second delivery acquisition.
 
 ## Latch and terminal semantics
 
 `Stage8bP1eShutdownLatchV1` is monotonic: the first request fixes cause, exit
 class, grace deadline and request sequence. Later requests cannot replace it.
-The accepted 3 cause by 3 arrival-location cross-product is covered by the I0
-unit test; owner failure remains its distinct exit-70 supervisor cause.
+The accepted 3 cause by 3 arrival-location cross-product is covered against a
+real temporary Redis source and LR02 acquisition/permit continuation. The
+three locations are separate operations: latch set before acquisition
+completion is observed, latch set after acquisition before decision, and
+latch set immediately after a clear-latch permit decision. Owner failure
+remains its distinct exit-70 supervisor cause.
 
 When the latch is set, the decision consumes the acquired owner and returns a
 diagnostic-only receipt. No continuation permit or source payload escapes, and
@@ -57,24 +65,59 @@ post-permit and precedes its terminal XACK.
 
 ## Evidence mapping
 
-The I0 tests bind their inventory to the accepted route/outcome fixture JSON
-and its R10 counter amendments:
+Inventory and executable evidence are deliberately separate:
 
-- 30 material route cells;
-- 46 authenticated outcome fixtures;
-- exact seven-counter effect profile for every fixture;
-- FX10 post-permit P1-d4 revalidation;
-- reconstructed semantic and recovered-cancel replacement-seal counts;
-- preset-latch retention and route-mismatch zero-effect behavior;
-- monotonic cause-preserving shutdown intent;
-- compile-fail rejection of Clone, Copy, serde and the old continuation API.
+- `p1e_i0_inventory_pins_30_route_cells_and_46_effect_profiles` checks that
+  the accepted 30-cell/46-fixture specification and seven-counter profiles do
+  not drift. It is not counted as execution of those outcomes.
+- The inherited P1-d4 105-cell SIGKILL drivers now perform an additional
+  authenticated duplicate restart. Every source-bearing restart is acquired,
+  passed through a real preset latch and retained with an observed all-zero
+  effect vector. A separate byte-identical restart then receives one permit;
+  the shared test adapter raises a real signal immediately after permit and
+  still drains the linear future to the existing route-exact boundary.
+- The same drivers continue to measure actual durable package generations,
+  callbacks, provider/schedule operations, command publications, PEL/XACK
+  dispositions, final owners and exact sequence allocations. Every shared
+  Redis continuation adapter additionally brackets the real post-permit call
+  with the seven-field I0 effect audit and asserts its outcome-specific
+  observed vector. Dynamic P1-d3 pre-ACK and semantic outcomes are matched by
+  the returned authenticated variant, including recovered-cancel, zero-, one-
+  and multi-intent boundaries. Thus the fixture inventory is cross-checked
+  against authenticated execution rather than used as a substitute for it.
+- `p1e_i0_generated_market_fx05_through_fx10_observe_real_effects` directly
+  executes FX05..FX10 from accepted GM00/03/05/06/07/10 crash frontiers. It
+  measures actual replacement-seal, publication and revalidation calls and
+  confirms that each non-terminal boundary retains one source PEL entry.
+- LR04/FX04, LR12 candidate/FX20 and LR15/FX25 targeted tests prove acquisition
+  parse count zero, post-permit parse count one, immediate signal retention,
+  actual commit/callback/XACK counters and returned boundary.
+- FX41/FX42/FX45/FX46 execute pending versus already-acknowledged source,
+  retained versus stale timer classification, and both required signal
+  checkpoints. Source resolution precedes reclassification and timer
+  execution remains zero in the same step.
+- The LR02 3x3 test proves monotonic first-cause retention, exact source PEL,
+  zero publication, boundary behavior and grace-expiry exit 72. The mismatch
+  test consumes the wrong permit without exposing or mutating its authority.
+- Separate compile-fail doctests reject `Serialize` and `DeserializeOwned` for
+  both opaque types, in addition to Clone, Copy and the removed continuation
+  API.
 
-The pre-existing runtime-durable-service tests now enter resume paths through
-acquire, clear-latch decision and consumed permit. The accepted P1-d4 105-cell
-SIGKILL suite remains the executable end-to-end effect proof and must run
-twice on the clean committed I0 tree through the pinned R10 gate. The retained
-gate output binds its source ref/tree, full logs, exact-test results, crash
-evidence and artifact digest.
+The accepted P1-d4 105-cell SIGKILL suite remains the executable end-to-end
+effect proof and must run twice on the clean committed I0 tree through the
+pinned R10 gate. The retained gate output binds its source ref/tree, full
+logs, exact-test results, crash evidence and artifact digest.
+
+## I0 source-correction closure
+
+This revision closes the two findings against source candidate `0b80fb1`:
+
+1. executable latch/effect/timer proofs supplement the retained inventory;
+2. `parse_exact` is removed from the acquisition helper and is audited as a
+   strictly post-permit operation for LR04, LR12 candidate-source and LR15.
+
+No accepted R10 contract, P1-d4 durable format or operational surface is
+weakened by the correction.
 
 ## Deliberately closed
 

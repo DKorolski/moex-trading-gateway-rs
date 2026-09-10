@@ -6,7 +6,7 @@
 
 use super::{
     binding_from_delivery, parse_stage8b_p1_canonical_m10, Stage8bP1CanonicalM10Error,
-    Stage8bP1PendingM10Delivery, Stage8bP1SemanticCompositionError,
+    Stage8bP1PendingM10Delivery, Stage8bP1SemanticCompositionError, Stage8bP1ValidatedCanonicalM10,
 };
 use crate::recovery::{
     P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending, Stage7bRecoveryError,
@@ -48,6 +48,121 @@ const P1D4_COMMAND_PUBLICATION_MARKER_SCHEMA_VERSION: u16 = 1;
 const P1D4_COMMAND_PUBLICATION_MARKER_DOMAIN: &str =
     "moex.stage8b.p1d4.command-publication-marker.v1";
 const MIN_RETENTION_FLOOR: usize = super::STAGE8B_P1_LOCAL_M10_MIN_RETENTION;
+
+#[cfg(test)]
+std::thread_local! {
+    static P1E_I0_POST_PERMIT_PARSE_AUDIT: std::cell::Cell<Option<u64>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(test)]
+fn p1e_i0_begin_post_permit_parse_audit() {
+    P1E_I0_POST_PERMIT_PARSE_AUDIT.with(|audit| audit.set(Some(0)));
+}
+
+#[cfg(test)]
+fn p1e_i0_take_post_permit_parse_audit() -> u64 {
+    P1E_I0_POST_PERMIT_PARSE_AUDIT.with(|audit| {
+        let observed = audit
+            .get()
+            .expect("P1-e post-permit parse audit must be active");
+        audit.set(None);
+        observed
+    })
+}
+
+fn parse_exact_after_p1e_permit(
+    delivery: &Stage8bP1PendingM10Delivery,
+    expected_operational_identity_sha256: &str,
+) -> Result<Stage8bP1ValidatedCanonicalM10, Stage8bP1CanonicalM10Error> {
+    #[cfg(test)]
+    P1E_I0_POST_PERMIT_PARSE_AUDIT.with(|audit| {
+        if let Some(observed) = audit.get() {
+            audit.set(Some(observed + 1));
+        }
+    });
+    delivery.parse_exact(expected_operational_identity_sha256)
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+struct P1eI0ObservedEffectCountersV1 {
+    replacement_seal_commit_total: u64,
+    callback_total: u64,
+    publication_total: u64,
+    publication_revalidation_total: u64,
+    xack_total: u64,
+    timer_reclassification_total: u64,
+    timer_execution_total: u64,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static P1E_I0_EFFECT_AUDIT: std::cell::Cell<Option<P1eI0ObservedEffectCountersV1>> = const {
+        std::cell::Cell::new(None)
+    };
+}
+
+#[cfg(test)]
+fn p1e_i0_begin_effect_audit() {
+    P1E_I0_EFFECT_AUDIT.with(|audit| {
+        assert!(
+            audit.get().is_none(),
+            "P1-e I0 effect audit is already active"
+        );
+        audit.set(Some(P1eI0ObservedEffectCountersV1::default()));
+    });
+}
+
+#[cfg(test)]
+fn p1e_i0_observe_effect(update: impl FnOnce(&mut P1eI0ObservedEffectCountersV1)) {
+    P1E_I0_EFFECT_AUDIT.with(|audit| {
+        if let Some(mut observed) = audit.get() {
+            update(&mut observed);
+            audit.set(Some(observed));
+        }
+    });
+}
+
+#[cfg(test)]
+fn p1e_i0_take_effect_audit() -> P1eI0ObservedEffectCountersV1 {
+    P1E_I0_EFFECT_AUDIT.with(|audit| {
+        let observed = audit.get().expect("P1-e I0 effect audit must be active");
+        audit.set(None);
+        observed
+    })
+}
+
+#[cfg(test)]
+fn p1e_i0_observe_replacement_seal_commit() {
+    p1e_i0_observe_effect(|observed| observed.replacement_seal_commit_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i0_observe_callback() {
+    p1e_i0_observe_effect(|observed| observed.callback_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i0_observe_publication() {
+    p1e_i0_observe_effect(|observed| observed.publication_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i0_observe_publication_revalidation() {
+    p1e_i0_observe_effect(|observed| observed.publication_revalidation_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i0_observe_xack() {
+    p1e_i0_observe_effect(|observed| observed.xack_total += 1);
+}
+
+#[cfg(test)]
+fn p1e_i0_observe_timer_reclassification() {
+    p1e_i0_observe_effect(|observed| observed.timer_reclassification_total += 1);
+}
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1014,8 +1129,12 @@ async fn complete_stage8b_p1d3_semantic(
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
     let outcome = pending.commit_exact_semantic(accepted_bar, binding, commitment_key)?;
+    #[cfg(test)]
+    p1e_i0_observe_callback();
     match outcome {
         Stage8bP1SemanticCommitOutcome::ZeroIntent { owner, receipt } => {
+            #[cfg(test)]
+            p1e_i0_observe_replacement_seal_commit();
             crate::recovery::stage8b_p1d4_test_crash_frontier("F15");
             let disposition = transport.backend.acknowledge_exact(&delivery).await?;
             crate::recovery::stage8b_p1d4_test_crash_frontier("F16");
@@ -1029,6 +1148,8 @@ async fn complete_stage8b_p1d3_semantic(
             })
         }
         Stage8bP1SemanticCommitOutcome::OneIntentPrepublication(durable) => {
+            #[cfg(test)]
+            p1e_i0_observe_replacement_seal_commit();
             if !durable.stage8b_p1d4_generated_market_candidate() {
                 crate::recovery::stage8b_p1d4_test_crash_frontier("F15");
             }
@@ -2230,8 +2351,13 @@ impl Stage8bP1ePostAcquisitionRouteV1 {
 /// ```
 ///
 /// ```compile_fail
-/// fn requires_serde<T: serde::Serialize + serde::de::DeserializeOwned>() {}
-/// requires_serde::<runtime_durable_service::Stage8bP1ePostAcquisitionOwnerV1>();
+/// fn requires_serialize<T: serde::Serialize>() {}
+/// requires_serialize::<runtime_durable_service::Stage8bP1ePostAcquisitionOwnerV1>();
+/// ```
+///
+/// ```compile_fail
+/// fn requires_deserialize<T: serde::de::DeserializeOwned>() {}
+/// requires_deserialize::<runtime_durable_service::Stage8bP1ePostAcquisitionOwnerV1>();
 /// ```
 ///
 /// ```compile_fail
@@ -2265,8 +2391,13 @@ pub struct Stage8bP1ePostAcquisitionOwnerV1 {
 /// ```
 ///
 /// ```compile_fail
-/// fn requires_serde<T: serde::Serialize + serde::de::DeserializeOwned>() {}
-/// requires_serde::<runtime_durable_service::Stage8bP1eContinuationPermitV1>();
+/// fn requires_serialize<T: serde::Serialize>() {}
+/// requires_serialize::<runtime_durable_service::Stage8bP1eContinuationPermitV1>();
+/// ```
+///
+/// ```compile_fail
+/// fn requires_deserialize<T: serde::de::DeserializeOwned>() {}
+/// requires_deserialize::<runtime_durable_service::Stage8bP1eContinuationPermitV1>();
 /// ```
 ///
 /// ```compile_fail
@@ -2524,7 +2655,6 @@ pub async fn acquire_stage8b_p1d2_ack_with_redis(
             binding.redis_id(),
             binding.semantic_id_sha256(),
             binding.payload_sha256(),
-            durable.operational_identity_sha256(),
         )
         .await?;
     Ok(post_acquisition_owner(
@@ -2584,7 +2714,6 @@ pub async fn acquire_stage8b_p1d3_pre_ack_with_redis(
     durable: Stage8bP1d3PreAckPendingOwner,
     mut transport: Stage8bP1RedisSemanticCompositionTransport,
 ) -> Result<Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1RedisSemanticError> {
-    let operational_identity_sha256 = durable.operational_identity_sha256().to_string();
     let pending_m10 = if durable.source_is_command_m10() {
         let evidence = durable.source_m10_evidence()?;
         transport.backend.reclaim_exact_evidence(&evidence).await?
@@ -2598,7 +2727,6 @@ pub async fn acquire_stage8b_p1d3_pre_ack_with_redis(
                 source.redis_id(),
                 source.semantic_id_sha256(),
                 source.payload_sha256(),
-                &operational_identity_sha256,
             )
             .await?
     };
@@ -2747,14 +2875,12 @@ pub async fn acquire_stage8b_p1d3_semantic_with_redis(
     mut transport: Stage8bP1RedisSemanticCompositionTransport,
 ) -> Result<Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1RedisSemanticError> {
     let expected = durable.source_binding()?;
-    let operational_identity_sha256 = durable.operational_identity_sha256().to_string();
     let pending_m10 = transport
         .backend
         .reclaim_exact_binding(
             expected.redis_id(),
             expected.semantic_id_sha256(),
             expected.payload_sha256(),
-            &operational_identity_sha256,
         )
         .await?;
     Ok(post_acquisition_owner(
@@ -2805,11 +2931,12 @@ pub async fn resume_stage8b_p1_journal_ahead_with_redis(
     let pending = *pending;
     let operational_identity_sha256 = pending.operational_identity_sha256().to_string();
     let binding = binding_from_delivery(&delivery, operational_identity_sha256.clone());
-    let accepted_bar = delivery
-        .parse_exact(&operational_identity_sha256)?
+    let accepted_bar = parse_exact_after_p1e_permit(&delivery, &operational_identity_sha256)?
         .into_stage5c_semantic_bar()?;
     let durable =
         pending.complete_with_exact_semantic_input(accepted_bar, binding, commitment_key)?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
     Ok(Stage8bP1RedisPrepublicationPending {
         durable,
         transport,
@@ -2854,6 +2981,8 @@ pub async fn resume_stage8b_p1d4_prepublication_with_redis(
         .backend
         .publish_reserved_p1d4_command(&durable, &pending_m10, &prepared)
         .await?;
+    #[cfg(test)]
+    p1e_i0_observe_publication();
     #[cfg(test)]
     p1d4_observe_generated_market_event(P1d4ObservedEffectEvent::GeneratedPublication);
     let (stage7, evidence, command, reservation, binding) = durable.into_p1d4_publication_parts();
@@ -2985,6 +3114,8 @@ async fn resume_stage8b_p1d4_journal_ahead_with_redis(
     }
     let durable = durable
         .commit_reconstructed_ack(successor.into_p1d1_execution_evidence()?, commitment_key)?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
     #[cfg(test)]
     {
         let suffix = match pending_kind {
@@ -3123,6 +3254,11 @@ pub async fn resume_stage8b_p1d2_ack_with_redis(
     else {
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
     };
+    let binding = durable.source_m10_binding()?;
+    let parsed = parse_exact_after_p1e_permit(&delivery, durable.operational_identity_sha256())?;
+    if parsed.redis_id() != binding.redis_id() {
+        return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+    }
     Ok(Stage8bP1RedisFeedbackAckCommitted {
         durable,
         transport,
@@ -3154,6 +3290,8 @@ pub async fn resume_stage8b_p1d2_pre_ack_with_redis(
         .await?;
     let durable = durable
         .commit_reconstructed_ack(successor.into_p1d1_execution_evidence()?, commitment_key)?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
     Ok(Stage8bP1RedisFeedbackAckCommitted {
         durable,
         transport,
@@ -3205,12 +3343,15 @@ pub async fn resume_stage8b_p1d3_pre_ack_with_redis(
         None
     } else {
         let binding = binding_from_delivery(&pending_m10, operational_identity_sha256.clone());
-        let accepted_bar = pending_m10
-            .parse_exact(&operational_identity_sha256)?
-            .into_stage5c_semantic_bar()?;
+        let accepted_bar =
+            parse_exact_after_p1e_permit(&pending_m10, &operational_identity_sha256)?
+                .into_stage5c_semantic_bar()?;
         Some((accepted_bar, binding))
     };
-    match durable.commit_reconstructed_transition(commitment_key)? {
+    let reconstructed = durable.commit_reconstructed_transition(commitment_key)?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
+    match reconstructed {
         Stage8bP1d3RecoveredCommitOutcome::Ready(_) => {
             Err(Stage8bP1RedisSemanticError::ExactSourceConflict)
         }
@@ -3232,6 +3373,8 @@ pub async fn resume_stage8b_p1d3_pre_ack_with_redis(
         }
         Stage8bP1d3RecoveredCommitOutcome::CancelContinuationPending(durable) => {
             let durable = durable.commit_recovered_cancel(commitment_key)?;
+            #[cfg(test)]
+            p1e_i0_observe_replacement_seal_commit();
             Ok(Stage8bP1RedisPreAckRecoveryOutcome::TruthCommitted(
                 Stage8bP1RedisLimitTruthCommitted {
                     durable,
@@ -3289,6 +3432,8 @@ pub async fn resume_stage8b_p1d3_dispatch_limit_with_redis(
         schedule,
     };
     let durable = durable.commit_limit(observation, commitment_key)?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
     Ok(Stage8bP1RedisLimitAckCommitted {
         durable,
         transport,
@@ -3319,6 +3464,8 @@ pub async fn resume_stage8b_p1d3_dispatch_expiry_with_redis(
         Stage8bP1d3InitialObservation::DayExpiry { authority },
         commitment_key,
     )?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
     Ok(Stage8bP1RedisLimitAckCommitted {
         durable,
         transport,
@@ -3353,11 +3500,14 @@ pub async fn resume_stage8b_p1d3_dispatch_cancel_with_redis(
     p1d4_observe_p1d3_schedule();
     #[cfg(test)]
     p1d4_observe_p1d3_provider();
-    match durable.commit_cancel(
+    let committed = durable.commit_cancel(
         successor.into_p1d3_limit_evidence()?,
         schedule,
         commitment_key,
-    )? {
+    )?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
+    match committed {
         Stage8bP1d3CancelCommitOutcome::AckCommitted(durable) => Ok(
             Stage8bP1RedisCancelCommitOutcome::AckCommitted(Stage8bP1RedisLimitAckCommitted {
                 durable: *durable,
@@ -3456,6 +3606,8 @@ pub async fn resume_stage8b_p1d3_cancel_continuation_with_redis(
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
     };
     let durable = durable.commit_recovered_cancel(commitment_key)?;
+    #[cfg(test)]
+    p1e_i0_observe_replacement_seal_commit();
     Ok(Stage8bP1RedisLimitTruthCommitted {
         durable,
         transport,
@@ -3480,8 +3632,7 @@ pub async fn resume_stage8b_p1d3_semantic_with_redis(
     };
     let operational_identity_sha256 = durable.operational_identity_sha256().to_string();
     let binding = binding_from_delivery(&delivery, operational_identity_sha256.clone());
-    let accepted_bar = delivery
-        .parse_exact(&operational_identity_sha256)?
+    let accepted_bar = parse_exact_after_p1e_permit(&delivery, &operational_identity_sha256)?
         .into_stage5c_semantic_bar()?;
     complete_stage8b_p1d3_semantic(
         durable,
@@ -3673,17 +3824,15 @@ impl Stage8bP1RedisBackend {
         redis_id: &str,
         semantic_id_sha256: &str,
         payload_sha256: &str,
-        expected_operational_identity_sha256: &str,
     ) -> Result<Stage8bP1PendingM10Delivery, Stage8bP1RedisSemanticError> {
         let pending = self.pending_entries("-", "+", 2).await?;
         if pending.ids.len() != 1 || pending.ids[0].id != redis_id {
             return Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing);
         }
         let delivery = self.reclaim_exact_id(redis_id).await?;
-        let parsed = delivery.parse_exact(expected_operational_identity_sha256)?;
         if delivery.semantic_id_sha256() != semantic_id_sha256
             || delivery.payload_sha256() != payload_sha256
-            || parsed.redis_id() != redis_id
+            || delivery.redis_id() != redis_id
         {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
@@ -3819,6 +3968,8 @@ impl Stage8bP1RedisBackend {
                     delivery.redis_id(),
                 );
                 if acknowledged == 1 {
+                    #[cfg(test)]
+                    p1e_i0_observe_xack();
                     Ok(Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending)
                 } else {
                     let after = self
@@ -4194,6 +4345,8 @@ impl Stage8bP1RedisBackend {
                 if classification == "existing"
                     && command_entry_id == reservation.reserved_command_entry_id() =>
             {
+                #[cfg(test)]
+                p1e_i0_observe_publication_revalidation();
                 Ok(())
             }
             _ => Err(Stage8bP1RedisSemanticError::CommandPublicationConflict),
@@ -4473,36 +4626,89 @@ mod tests {
     };
 
     fn p1e_clear_permit(owner: Stage8bP1ePostAcquisitionOwnerV1) -> Stage8bP1eContinuationPermitV1 {
-        let latch = Stage8bP1eShutdownLatchV1::new();
+        let mut latch = Stage8bP1eShutdownLatchV1::new();
         let Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) =
             decide_stage8b_p1e_post_acquisition_latch(owner, &latch)
         else {
             panic!("clear P1-e latch must issue one continuation permit");
         };
+        // The accepted I0 driver injects a real signal immediately after the
+        // linear permit decision on every inherited continuation path.  The
+        // signal cannot revoke or clone the permit; the caller must still
+        // drain that one future to its route-exact durable boundary.
+        assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::ExternalSignal,
+            20_000,
+            1,
+        )));
+        assert_eq!(
+            latch.intent().map(Stage8bP1eShutdownIntentV1::cause),
+            Some(Stage8bP1eShutdownCauseV1::ExternalSignal)
+        );
         permit
     }
 
+    fn p1e_i0_terminal_effects(
+        disposition: Stage8bP1RedisZeroIntentAckDisposition,
+        publication_revalidation_total: u64,
+    ) -> P1eI0ObservedEffectCountersV1 {
+        P1eI0ObservedEffectCountersV1 {
+            publication_revalidation_total,
+            xack_total: u64::from(matches!(
+                disposition,
+                Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+            )),
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
+    }
+
     macro_rules! p1e_test_attach_helper {
-        ($helper:ident, $acquire:ident, $resume:ident, $owner:ty, $output:ty) => {
+        ($helper:ident, $acquire:ident, $resume:ident, $owner:ty, $output:ty, $expected:expr) => {
             async fn $helper(
                 owner: $owner,
                 transport: Stage8bP1RedisSemanticCompositionTransport,
             ) -> Result<$output, Stage8bP1RedisSemanticError> {
-                let acquired = $acquire(owner, transport).await?;
-                $resume(p1e_clear_permit(acquired)).await
+                let acquired = Box::pin($acquire(owner, transport)).await?;
+                let permit = p1e_clear_permit(acquired);
+                p1e_i0_begin_effect_audit();
+                let result = Box::new(Box::pin($resume(permit)).await);
+                let observed = p1e_i0_take_effect_audit();
+                if let Ok(output) = &*result {
+                    let expected: P1eI0ObservedEffectCountersV1 = ($expected)(output);
+                    assert_eq!(
+                        observed,
+                        expected,
+                        "{} observed post-permit effect vector drifted",
+                        stringify!($helper)
+                    );
+                }
+                *result
             }
         };
     }
 
     macro_rules! p1e_test_commit_helper {
-        ($helper:ident, $acquire:ident, $resume:ident, $owner:ty, $output:ty) => {
+        ($helper:ident, $acquire:ident, $resume:ident, $owner:ty, $output:ty, $expected:expr) => {
             async fn $helper(
                 owner: $owner,
                 transport: Stage8bP1RedisSemanticCompositionTransport,
                 key: &Stage5gLifecycleCommitmentKey,
             ) -> Result<$output, Stage8bP1RedisSemanticError> {
-                let acquired = $acquire(owner, transport).await?;
-                $resume(p1e_clear_permit(acquired), key).await
+                let acquired = Box::pin($acquire(owner, transport)).await?;
+                let permit = p1e_clear_permit(acquired);
+                p1e_i0_begin_effect_audit();
+                let result = Box::new(Box::pin($resume(permit, key)).await);
+                let observed = p1e_i0_take_effect_audit();
+                if let Ok(output) = &*result {
+                    let expected: P1eI0ObservedEffectCountersV1 = ($expected)(output);
+                    assert_eq!(
+                        observed,
+                        expected,
+                        "{} observed post-permit effect vector drifted",
+                        stringify!($helper)
+                    );
+                }
+                *result
             }
         };
     }
@@ -4512,127 +4718,293 @@ mod tests {
         acquire_stage8b_p1_zero_intent_ack_with_redis,
         resolve_stage8b_p1_zero_intent_ack_with_redis,
         P1SemanticZeroIntentAckPending,
-        Stage8bP1RedisZeroIntentAckResolved
+        Stage8bP1RedisZeroIntentAckResolved,
+        |output: &Stage8bP1RedisZeroIntentAckResolved| {
+            p1e_i0_terminal_effects(output.disposition(), 0)
+        }
     );
     p1e_test_attach_helper!(
         p1e_test_resume_prepublication,
         acquire_stage8b_p1_prepublication_with_redis,
         resume_stage8b_p1_prepublication_with_redis,
         Stage8bP1SemanticPrepublicationOwner,
-        Stage8bP1RedisPrepublicationPending
+        Stage8bP1RedisPrepublicationPending,
+        |_: &Stage8bP1RedisPrepublicationPending| P1eI0ObservedEffectCountersV1::default()
     );
     p1e_test_commit_helper!(
         p1e_test_resume_journal_ahead,
         acquire_stage8b_p1_journal_ahead_with_redis,
         resume_stage8b_p1_journal_ahead_with_redis,
         P1SemanticPrepublicationPending,
-        Stage8bP1RedisPrepublicationPending
+        Stage8bP1RedisPrepublicationPending,
+        |_: &Stage8bP1RedisPrepublicationPending| P1eI0ObservedEffectCountersV1 {
+            replacement_seal_commit_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_attach_helper!(
         p1e_test_resume_p1d4_prepublication,
         acquire_stage8b_p1d4_prepublication_with_redis,
         resume_stage8b_p1d4_prepublication_with_redis,
         Stage8bP1d4GeneratedMarketPrepublicationOwner,
-        Stage8bP1RedisCommandPublished
+        Stage8bP1RedisCommandPublished,
+        |_: &Stage8bP1RedisCommandPublished| P1eI0ObservedEffectCountersV1 {
+            publication_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_commit_helper!(
         p1e_test_resume_p1d4_dispatch,
         acquire_stage8b_p1d4_dispatch_pending_with_redis,
         resume_stage8b_p1d4_dispatch_pending_with_redis,
         Stage8bP1d4GeneratedMarketDispatchPendingOwner,
-        Stage8bP1RedisGeneratedMarketAckCommitted
+        Stage8bP1RedisGeneratedMarketAckCommitted,
+        |_: &Stage8bP1RedisGeneratedMarketAckCommitted| P1eI0ObservedEffectCountersV1 {
+            replacement_seal_commit_total: 1,
+            publication_revalidation_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_commit_helper!(
         p1e_test_resume_p1d4_order,
         acquire_stage8b_p1d4_order_pending_with_redis,
         resume_stage8b_p1d4_order_pending_with_redis,
         Stage8bP1d4GeneratedMarketOrderPendingOwner,
-        Stage8bP1RedisGeneratedMarketAckCommitted
+        Stage8bP1RedisGeneratedMarketAckCommitted,
+        |_: &Stage8bP1RedisGeneratedMarketAckCommitted| P1eI0ObservedEffectCountersV1 {
+            replacement_seal_commit_total: 1,
+            publication_revalidation_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_commit_helper!(
         p1e_test_resume_p1d4_pre_finalization,
         acquire_stage8b_p1d4_pre_finalization_with_redis,
         resume_stage8b_p1d4_pre_finalization_with_redis,
         Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner,
-        Stage8bP1RedisGeneratedMarketAckCommitted
+        Stage8bP1RedisGeneratedMarketAckCommitted,
+        |_: &Stage8bP1RedisGeneratedMarketAckCommitted| P1eI0ObservedEffectCountersV1 {
+            replacement_seal_commit_total: 1,
+            publication_revalidation_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_commit_helper!(
         p1e_test_resume_p1d4_pre_ack,
         acquire_stage8b_p1d4_pre_ack_with_redis,
         resume_stage8b_p1d4_pre_ack_with_redis,
         Stage8bP1d4GeneratedMarketPreAckPendingOwner,
-        Stage8bP1RedisGeneratedMarketAckCommitted
+        Stage8bP1RedisGeneratedMarketAckCommitted,
+        |_: &Stage8bP1RedisGeneratedMarketAckCommitted| P1eI0ObservedEffectCountersV1 {
+            replacement_seal_commit_total: 1,
+            publication_revalidation_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_attach_helper!(
         p1e_test_resume_p1d4_ack,
         acquire_stage8b_p1d4_ack_with_redis,
         resume_stage8b_p1d4_ack_with_redis,
         Stage8bP1d4GeneratedMarketAckCommittedOwner,
-        Stage8bP1RedisGeneratedMarketAckCommitted
+        Stage8bP1RedisGeneratedMarketAckCommitted,
+        |_: &Stage8bP1RedisGeneratedMarketAckCommitted| P1eI0ObservedEffectCountersV1 {
+            publication_revalidation_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_attach_helper!(
         p1e_test_resume_p1d4_truth,
         acquire_stage8b_p1d4_truth_with_redis,
         resume_stage8b_p1d4_truth_with_redis,
         Stage8bP1d4GeneratedMarketTruthCommittedOwner,
-        Stage8bP1RedisFeedbackResolved
+        Stage8bP1RedisFeedbackResolved,
+        |output: &Stage8bP1RedisFeedbackResolved| {
+            p1e_i0_terminal_effects(output.disposition(), 1)
+        }
     );
     p1e_test_attach_helper!(
         p1e_test_resume_p1d2_ack,
         acquire_stage8b_p1d2_ack_with_redis,
         resume_stage8b_p1d2_ack_with_redis,
         Stage8bP1d2AckCommittedOwner,
-        Stage8bP1RedisFeedbackAckCommitted
+        Stage8bP1RedisFeedbackAckCommitted,
+        |_: &Stage8bP1RedisFeedbackAckCommitted| P1eI0ObservedEffectCountersV1::default()
     );
     p1e_test_commit_helper!(
         p1e_test_resume_p1d2_pre_ack,
         acquire_stage8b_p1d2_pre_ack_with_redis,
         resume_stage8b_p1d2_pre_ack_with_redis,
         Stage8bP1d2PreAckPendingOwner,
-        Stage8bP1RedisFeedbackAckCommitted
+        Stage8bP1RedisFeedbackAckCommitted,
+        |_: &Stage8bP1RedisFeedbackAckCommitted| P1eI0ObservedEffectCountersV1 {
+            replacement_seal_commit_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
     p1e_test_attach_helper!(
         p1e_test_resume_p1d2_truth,
         acquire_stage8b_p1d2_truth_with_redis,
         resume_stage8b_p1d2_truth_with_redis,
         Stage8bP1d2TruthCommittedOwner,
-        Stage8bP1RedisFeedbackResolved
-    );
-    p1e_test_commit_helper!(
-        p1e_test_resume_p1d3_pre_ack,
-        acquire_stage8b_p1d3_pre_ack_with_redis,
-        resume_stage8b_p1d3_pre_ack_with_redis,
-        Stage8bP1d3PreAckPendingOwner,
-        Stage8bP1RedisPreAckRecoveryOutcome
+        Stage8bP1RedisFeedbackResolved,
+        |output: &Stage8bP1RedisFeedbackResolved| {
+            p1e_i0_terminal_effects(output.disposition(), 0)
+        }
     );
     p1e_test_attach_helper!(
         p1e_test_resume_p1d3_ack,
         acquire_stage8b_p1d3_ack_with_redis,
         resume_stage8b_p1d3_ack_with_redis,
         Stage8bP1d3AckCommittedOwner,
-        Stage8bP1RedisLimitAckCommitted
+        Stage8bP1RedisLimitAckCommitted,
+        |_: &Stage8bP1RedisLimitAckCommitted| P1eI0ObservedEffectCountersV1::default()
     );
     p1e_test_attach_helper!(
         p1e_test_resume_p1d3_truth,
         acquire_stage8b_p1d3_truth_with_redis,
         resume_stage8b_p1d3_truth_with_redis,
         Stage8bP1d3TruthCommittedOwner,
-        Stage8bP1RedisLimitResolved
+        Stage8bP1RedisLimitResolved,
+        |output: &Stage8bP1RedisLimitResolved| { p1e_i0_terminal_effects(output.disposition(), 0) }
     );
     p1e_test_commit_helper!(
         p1e_test_resume_p1d3_cancel_continuation,
         acquire_stage8b_p1d3_cancel_continuation_with_redis,
         resume_stage8b_p1d3_cancel_continuation_with_redis,
         Stage8bP1d3CancelContinuationOwner,
-        Stage8bP1RedisLimitTruthCommitted
+        Stage8bP1RedisLimitTruthCommitted,
+        |_: &Stage8bP1RedisLimitTruthCommitted| P1eI0ObservedEffectCountersV1 {
+            replacement_seal_commit_total: 1,
+            ..P1eI0ObservedEffectCountersV1::default()
+        }
     );
-    p1e_test_commit_helper!(
-        p1e_test_resume_p1d3_semantic,
-        acquire_stage8b_p1d3_semantic_with_redis,
-        resume_stage8b_p1d3_semantic_with_redis,
-        Stage8bP1d3SemanticPendingOwner,
-        Stage8bP1RedisSemanticOutcome
-    );
+
+    fn p1e_i0_assert_pre_ack_effects(
+        output: &Stage8bP1RedisPreAckRecoveryOutcome,
+        observed: P1eI0ObservedEffectCountersV1,
+    ) {
+        match output {
+            Stage8bP1RedisPreAckRecoveryOutcome::AckCommitted(_) => assert_eq!(
+                observed,
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                }
+            ),
+            Stage8bP1RedisPreAckRecoveryOutcome::TruthCommitted(_) => assert!(
+                observed
+                    == (P1eI0ObservedEffectCountersV1 {
+                        replacement_seal_commit_total: 1,
+                        ..P1eI0ObservedEffectCountersV1::default()
+                    })
+                    || observed
+                        == (P1eI0ObservedEffectCountersV1 {
+                            replacement_seal_commit_total: 2,
+                            ..P1eI0ObservedEffectCountersV1::default()
+                        }),
+                "P1-d3 pre-ACK truth recovery emitted an impossible effect vector: {observed:?}"
+            ),
+            Stage8bP1RedisPreAckRecoveryOutcome::Semantic(outcome) => {
+                let expected = match outcome {
+                    Stage8bP1RedisSemanticOutcome::Ready {
+                        ack_disposition, ..
+                    } => P1eI0ObservedEffectCountersV1 {
+                        replacement_seal_commit_total: 2,
+                        callback_total: 1,
+                        xack_total: u64::from(matches!(
+                            ack_disposition,
+                            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+                        )),
+                        ..P1eI0ObservedEffectCountersV1::default()
+                    },
+                    Stage8bP1RedisSemanticOutcome::Prepublication(_) => {
+                        P1eI0ObservedEffectCountersV1 {
+                            replacement_seal_commit_total: 2,
+                            callback_total: 1,
+                            ..P1eI0ObservedEffectCountersV1::default()
+                        }
+                    }
+                    Stage8bP1RedisSemanticOutcome::MultiIntentBlocked { .. } => {
+                        P1eI0ObservedEffectCountersV1 {
+                            replacement_seal_commit_total: 1,
+                            callback_total: 1,
+                            ..P1eI0ObservedEffectCountersV1::default()
+                        }
+                    }
+                    Stage8bP1RedisSemanticOutcome::PendingNotClaimable { .. } => {
+                        panic!("post-permit semantic continuation cannot become not-claimable")
+                    }
+                };
+                assert_eq!(observed, expected);
+            }
+        }
+    }
+
+    async fn p1e_test_resume_p1d3_pre_ack(
+        owner: Stage8bP1d3PreAckPendingOwner,
+        transport: Stage8bP1RedisSemanticCompositionTransport,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1RedisPreAckRecoveryOutcome, Stage8bP1RedisSemanticError> {
+        let acquired = Box::pin(acquire_stage8b_p1d3_pre_ack_with_redis(owner, transport)).await?;
+        let permit = p1e_clear_permit(acquired);
+        p1e_i0_begin_effect_audit();
+        let result = Box::new(Box::pin(resume_stage8b_p1d3_pre_ack_with_redis(permit, key)).await);
+        let observed = p1e_i0_take_effect_audit();
+        if let Ok(output) = &*result {
+            p1e_i0_assert_pre_ack_effects(output, observed);
+        }
+        *result
+    }
+
+    fn p1e_i0_assert_semantic_effects(
+        output: &Stage8bP1RedisSemanticOutcome,
+        observed: P1eI0ObservedEffectCountersV1,
+    ) {
+        let expected = match output {
+            Stage8bP1RedisSemanticOutcome::Ready {
+                ack_disposition, ..
+            } => P1eI0ObservedEffectCountersV1 {
+                replacement_seal_commit_total: 1,
+                callback_total: 1,
+                xack_total: u64::from(matches!(
+                    ack_disposition,
+                    Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+                )),
+                ..P1eI0ObservedEffectCountersV1::default()
+            },
+            Stage8bP1RedisSemanticOutcome::Prepublication(_) => P1eI0ObservedEffectCountersV1 {
+                replacement_seal_commit_total: 1,
+                callback_total: 1,
+                ..P1eI0ObservedEffectCountersV1::default()
+            },
+            Stage8bP1RedisSemanticOutcome::MultiIntentBlocked { .. } => {
+                P1eI0ObservedEffectCountersV1 {
+                    callback_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                }
+            }
+            Stage8bP1RedisSemanticOutcome::PendingNotClaimable { .. } => {
+                panic!("post-permit semantic continuation cannot become not-claimable")
+            }
+        };
+        assert_eq!(observed, expected);
+    }
+
+    async fn p1e_test_resume_p1d3_semantic(
+        owner: Stage8bP1d3SemanticPendingOwner,
+        transport: Stage8bP1RedisSemanticCompositionTransport,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
+        let acquired = Box::pin(acquire_stage8b_p1d3_semantic_with_redis(owner, transport)).await?;
+        let permit = p1e_clear_permit(acquired);
+        p1e_i0_begin_effect_audit();
+        let result = Box::new(Box::pin(resume_stage8b_p1d3_semantic_with_redis(permit, key)).await);
+        let observed = p1e_i0_take_effect_audit();
+        if let Ok(output) = &*result {
+            p1e_i0_assert_semantic_effects(output, observed);
+        }
+        *result
+    }
 
     async fn p1e_test_resume_p1d3_dispatch_limit(
         owner: Stage8bP1d3DispatchPendingOwner,
@@ -4640,9 +5012,29 @@ mod tests {
         schedule: Stage8bP1d3ScheduleStepAuthority,
         key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisSemanticError> {
-        let acquired = acquire_stage8b_p1d3_dispatch_limit_with_redis(owner, transport).await?;
-        resume_stage8b_p1d3_dispatch_limit_with_redis(p1e_clear_permit(acquired), schedule, key)
-            .await
+        let acquired = Box::pin(acquire_stage8b_p1d3_dispatch_limit_with_redis(
+            owner, transport,
+        ))
+        .await?;
+        let permit = p1e_clear_permit(acquired);
+        p1e_i0_begin_effect_audit();
+        let result = Box::new(
+            Box::pin(resume_stage8b_p1d3_dispatch_limit_with_redis(
+                permit, schedule, key,
+            ))
+            .await,
+        );
+        let observed = p1e_i0_take_effect_audit();
+        if result.is_ok() {
+            assert_eq!(
+                observed,
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                }
+            );
+        }
+        *result
     }
 
     async fn p1e_test_resume_p1d3_dispatch_expiry(
@@ -4651,9 +5043,29 @@ mod tests {
         authority: Stage8bP1d3DayExpiryAuthority,
         key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisSemanticError> {
-        let acquired = acquire_stage8b_p1d3_dispatch_expiry_with_redis(owner, transport).await?;
-        resume_stage8b_p1d3_dispatch_expiry_with_redis(p1e_clear_permit(acquired), authority, key)
-            .await
+        let acquired = Box::pin(acquire_stage8b_p1d3_dispatch_expiry_with_redis(
+            owner, transport,
+        ))
+        .await?;
+        let permit = p1e_clear_permit(acquired);
+        p1e_i0_begin_effect_audit();
+        let result = Box::new(
+            Box::pin(resume_stage8b_p1d3_dispatch_expiry_with_redis(
+                permit, authority, key,
+            ))
+            .await,
+        );
+        let observed = p1e_i0_take_effect_audit();
+        if result.is_ok() {
+            assert_eq!(
+                observed,
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                }
+            );
+        }
+        *result
     }
 
     async fn p1e_test_resume_p1d3_dispatch_cancel(
@@ -4662,9 +5074,29 @@ mod tests {
         schedule: Stage8bP1d3ScheduleStepAuthority,
         key: &Stage5gLifecycleCommitmentKey,
     ) -> Result<Stage8bP1RedisCancelCommitOutcome, Stage8bP1RedisSemanticError> {
-        let acquired = acquire_stage8b_p1d3_dispatch_cancel_with_redis(owner, transport).await?;
-        resume_stage8b_p1d3_dispatch_cancel_with_redis(p1e_clear_permit(acquired), schedule, key)
-            .await
+        let acquired = Box::pin(acquire_stage8b_p1d3_dispatch_cancel_with_redis(
+            owner, transport,
+        ))
+        .await?;
+        let permit = p1e_clear_permit(acquired);
+        p1e_i0_begin_effect_audit();
+        let result = Box::new(
+            Box::pin(resume_stage8b_p1d3_dispatch_cancel_with_redis(
+                permit, schedule, key,
+            ))
+            .await,
+        );
+        let observed = p1e_i0_take_effect_audit();
+        if result.is_ok() {
+            assert_eq!(
+                observed,
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                }
+            );
+        }
+        *result
     }
 
     struct RedisServer {
@@ -4839,47 +5271,138 @@ mod tests {
         config
     }
 
-    #[test]
-    fn p1e_i0_shutdown_intent_is_monotonic_and_cause_preserving() {
+    #[derive(Clone, Copy)]
+    enum P1eI0SignalArrival {
+        AcquisitionInFlight,
+        PostAcquisitionLatchDecision,
+        PostPermitContinuation,
+    }
+
+    async fn p1e_i0_execute_lr02_signal_arrival(
+        cause: Stage8bP1eShutdownCauseV1,
+        arrival: P1eI0SignalArrival,
+    ) {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i0-lr02-signal-arrival");
+        let (pending, key, fresh, _) = one_intent_pending(&redis, &parent).await;
+        drop(pending);
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1SemanticPrepublicationReady(owner) = restart else {
+            panic!("LR02 fixture must expose exact prepublication authority");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let intent = Stage8bP1eShutdownIntentV1::new(cause, 20_000, 17);
+        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        if matches!(arrival, P1eI0SignalArrival::AcquisitionInFlight) {
+            assert!(latch.request(intent.clone()));
+        }
+        let acquired = acquire_stage8b_p1_prepublication_with_redis(*owner, transport)
+            .await
+            .unwrap();
+        p1e_i0_begin_effect_audit();
+        if matches!(arrival, P1eI0SignalArrival::PostAcquisitionLatchDecision) {
+            assert!(latch.request(intent.clone()));
+        }
+        match arrival {
+            P1eI0SignalArrival::AcquisitionInFlight
+            | P1eI0SignalArrival::PostAcquisitionLatchDecision => {
+                let Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(receipt) =
+                    decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
+                else {
+                    panic!("set latch before permit must retain LR02");
+                };
+                assert_eq!(receipt.route_id(), "LR02");
+                assert_eq!(receipt.shutdown_intent(), &intent);
+            }
+            P1eI0SignalArrival::PostPermitContinuation => {
+                let Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) =
+                    decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
+                else {
+                    panic!("clear latch must issue the LR02 permit");
+                };
+                assert_eq!(permit.route.route_id(), "LR02");
+                assert!(latch.request(intent.clone()));
+                let boundary = resume_stage8b_p1_prepublication_with_redis(permit)
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    p1e_i0_take_effect_audit(),
+                    P1eI0ObservedEffectCountersV1::default()
+                );
+                assert_eq!(boundary.evidence().intent_count, 1);
+                assert_eq!(latch.intent(), Some(&intent));
+                drop(boundary);
+            }
+        }
+        if !matches!(arrival, P1eI0SignalArrival::PostPermitContinuation) {
+            assert_eq!(
+                p1e_i0_take_effect_audit(),
+                P1eI0ObservedEffectCountersV1::default()
+            );
+        }
+        assert!(!latch.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::OwnerFailure,
+            30_000,
+            18,
+        )));
+        let retained = latch.intent().expect("first shutdown intent is retained");
+        assert_eq!(retained, &intent);
+        assert_eq!(retained.cause(), cause);
+        assert_eq!(retained.final_exit_class(), cause.exit_class());
+        assert_eq!(retained.first_request_sequence(), 17);
+        assert_eq!(retained.bounded_exit_class(19_999), cause.exit_class());
+        assert_eq!(retained.bounded_exit_class(20_000), 72);
+        assert_eq!(retained.cause(), cause, "grace expiry preserves cause");
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let command_count: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 1, "LR02 signal retains exact source");
+        assert_eq!(command_count, 0, "LR02 signal cannot publish");
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1e_i0_shutdown_intent_is_monotonic_and_cause_preserving() {
         for cause in [
             Stage8bP1eShutdownCauseV1::ExternalSignal,
             Stage8bP1eShutdownCauseV1::TelemetryFailure,
             Stage8bP1eShutdownCauseV1::SignalTaskFailure,
         ] {
-            for location in [
-                "acquisition-in-flight",
-                "post-acquisition-latch-decision",
-                "post-permit-continuation",
+            for arrival in [
+                P1eI0SignalArrival::AcquisitionInFlight,
+                P1eI0SignalArrival::PostAcquisitionLatchDecision,
+                P1eI0SignalArrival::PostPermitContinuation,
             ] {
-                let first = Stage8bP1eShutdownIntentV1::new(cause, 20_000, 17);
-                let mut latch = Stage8bP1eShutdownLatchV1::new();
-                assert!(latch.request(first.clone()), "{location}");
-                assert!(
-                    !latch.request(Stage8bP1eShutdownIntentV1::new(
-                        Stage8bP1eShutdownCauseV1::OwnerFailure,
-                        30_000,
-                        18,
-                    )),
-                    "{location}"
-                );
-                let retained = latch.intent().expect("first shutdown intent is retained");
-                assert_eq!(retained, &first, "{location}");
-                assert_eq!(retained.cause(), cause, "{location}");
-                assert_eq!(
-                    retained.final_exit_class(),
-                    cause.exit_class(),
-                    "{location}"
-                );
-                assert_eq!(retained.first_request_sequence(), 17, "{location}");
-                assert_eq!(retained.bounded_exit_class(19_999), cause.exit_class());
-                assert_eq!(retained.bounded_exit_class(20_000), 72);
-                assert_eq!(retained.cause(), cause, "grace expiry preserves cause");
+                p1e_i0_execute_lr02_signal_arrival(cause, arrival).await;
             }
         }
     }
 
     #[test]
-    fn p1e_i0_pins_30_route_cells_and_46_effect_profiles() {
+    fn p1e_i0_inventory_pins_30_route_cells_and_46_effect_profiles() {
         let route_cells = [
             "LR01-default",
             "LR02-default",
@@ -5183,6 +5706,599 @@ mod tests {
         assert_eq!(pending_after_mismatch.count(), 1);
         assert_eq!(command_count, 0);
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    fn p1e_i0_set_latch_and_retain(
+        acquired: Stage8bP1ePostAcquisitionOwnerV1,
+        expected_route_id: &str,
+    ) {
+        let intent =
+            Stage8bP1eShutdownIntentV1::new(Stage8bP1eShutdownCauseV1::ExternalSignal, 20_000, 51);
+        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        assert!(latch.request(intent.clone()));
+        let Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(receipt) =
+            decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
+        else {
+            panic!("set latch must not issue a continuation permit");
+        };
+        assert_eq!(receipt.route_id(), expected_route_id);
+        assert_eq!(receipt.shutdown_intent(), &intent);
+    }
+
+    fn p1e_i0_clear_permit_then_signal(
+        acquired: Stage8bP1ePostAcquisitionOwnerV1,
+        expected_route_id: &str,
+    ) -> (Stage8bP1eContinuationPermitV1, Stage8bP1eShutdownLatchV1) {
+        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) =
+            decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
+        else {
+            panic!("clear latch must issue one continuation permit");
+        };
+        assert_eq!(permit.route.route_id(), expected_route_id);
+        assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+            Stage8bP1eShutdownCauseV1::ExternalSignal,
+            20_000,
+            52,
+        )));
+        (permit, latch)
+    }
+
+    async fn p1e_i0_assert_lr04_parse_ordering() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i0-lr04-parse-ordering");
+        let (mut pending, key, fresh, identity) = one_intent_pending(&redis, &parent).await;
+        pending
+            .transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), 1_785_759_600_000, 2_175),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let ack = pending
+            .publish_exact_command()
+            .await
+            .unwrap()
+            .execute_next_canonical_market(p1d2_test_schedule_authority(), &key)
+            .await
+            .unwrap();
+        drop(ack);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d2AckCommitted(owner) = restart else {
+            panic!("LR04 fixture must restart at P1-d2 S_ack");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        p1e_i0_begin_post_permit_parse_audit();
+        let acquired = acquire_stage8b_p1d2_ack_with_redis(*owner, transport)
+            .await
+            .unwrap();
+        assert_eq!(p1e_i0_take_post_permit_parse_audit(), 0);
+        p1e_i0_set_latch_and_retain(acquired, "LR04");
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d2AckCommitted(owner) = restart else {
+            panic!("retained LR04 must remain restartable");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        p1e_i0_begin_post_permit_parse_audit();
+        let acquired = acquire_stage8b_p1d2_ack_with_redis(*owner, transport)
+            .await
+            .unwrap();
+        assert_eq!(p1e_i0_take_post_permit_parse_audit(), 0);
+        let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR04");
+        p1e_i0_begin_post_permit_parse_audit();
+        p1e_i0_begin_effect_audit();
+        let boundary = resume_stage8b_p1d2_ack_with_redis(permit).await.unwrap();
+        assert_eq!(p1e_i0_take_post_permit_parse_audit(), 1);
+        assert_eq!(
+            p1e_i0_take_effect_audit(),
+            P1eI0ObservedEffectCountersV1::default()
+        );
+        assert!(latch.intent().is_some());
+        assert!(!boundary.m10_xack_allowed());
+        drop(boundary);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    async fn p1e_i0_restart_p1d4_fixture(
+        redis: &RedisServer,
+        parent: &Path,
+        scenario: &str,
+        scenario_id: &str,
+        frontier_id: &str,
+        fresh: &strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        key: &Stage5gLifecycleCommitmentKey,
+    ) -> Stage7bRestartOutcome {
+        spawn_p1d4_exact_frontier(redis, parent, scenario, scenario_id, frontier_id).await;
+        restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            key,
+            fresh.clone(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn p1e_i0_parse_exact_is_transitively_after_permit_for_lr04_lr12_and_lr15() {
+        p1e_i0_assert_lr04_parse_ordering().await;
+
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i0-lr12-parse-ordering");
+        let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let restart = p1e_i0_restart_p1d4_fixture(
+            &redis,
+            &parent,
+            "later-filled",
+            "S06",
+            "F13",
+            &fresh,
+            &key,
+        )
+        .await;
+        let Stage7bRestartOutcome::P1d3PreAckPending(owner) = restart else {
+            panic!("LR12 candidate fixture must restart pre-ACK");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        p1e_i0_begin_post_permit_parse_audit();
+        let acquired = acquire_stage8b_p1d3_pre_ack_with_redis(*owner, transport)
+            .await
+            .unwrap();
+        assert_eq!(p1e_i0_take_post_permit_parse_audit(), 0);
+        let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR12");
+        p1e_i0_begin_post_permit_parse_audit();
+        p1e_i0_begin_effect_audit();
+        let boundary = resume_stage8b_p1d3_pre_ack_with_redis(permit, &key)
+            .await
+            .unwrap();
+        assert_eq!(p1e_i0_take_post_permit_parse_audit(), 1);
+        assert_eq!(
+            p1e_i0_take_effect_audit(),
+            P1eI0ObservedEffectCountersV1 {
+                replacement_seal_commit_total: 2,
+                callback_total: 1,
+                xack_total: 1,
+                ..P1eI0ObservedEffectCountersV1::default()
+            }
+        );
+        assert!(latch.intent().is_some());
+        drop(boundary);
+        fs::remove_dir_all(parent).unwrap();
+
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i0-lr15-parse-ordering");
+        let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let restart = p1e_i0_restart_p1d4_fixture(
+            &redis,
+            &parent,
+            "later-untouched-zero",
+            "S04",
+            "F14",
+            &fresh,
+            &key,
+        )
+        .await;
+        let Stage7bRestartOutcome::P1d3SemanticPending(owner) = restart else {
+            panic!("LR15 fixture must restart at its semantic continuation");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        p1e_i0_begin_post_permit_parse_audit();
+        let acquired = acquire_stage8b_p1d3_semantic_with_redis(*owner, transport)
+            .await
+            .unwrap();
+        assert_eq!(p1e_i0_take_post_permit_parse_audit(), 0);
+        let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR15");
+        p1e_i0_begin_post_permit_parse_audit();
+        p1e_i0_begin_effect_audit();
+        let boundary = resume_stage8b_p1d3_semantic_with_redis(permit, &key)
+            .await
+            .unwrap();
+        assert_eq!(p1e_i0_take_post_permit_parse_audit(), 1);
+        assert_eq!(
+            p1e_i0_take_effect_audit(),
+            P1eI0ObservedEffectCountersV1 {
+                replacement_seal_commit_total: 1,
+                callback_total: 1,
+                xack_total: 1,
+                ..P1eI0ObservedEffectCountersV1::default()
+            }
+        );
+        assert!(latch.intent().is_some());
+        assert!(matches!(
+            boundary,
+            Stage8bP1RedisSemanticOutcome::Ready { .. }
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1e_i0_generated_market_fx05_through_fx10_observe_real_effects() {
+        let cases = [
+            (
+                "FX05",
+                "GM00",
+                P1eI0ObservedEffectCountersV1 {
+                    publication_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                },
+            ),
+            (
+                "FX06",
+                "GM03",
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    publication_revalidation_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                },
+            ),
+            (
+                "FX07",
+                "GM05",
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    publication_revalidation_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                },
+            ),
+            (
+                "FX08",
+                "GM06",
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    publication_revalidation_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                },
+            ),
+            (
+                "FX09",
+                "GM07",
+                P1eI0ObservedEffectCountersV1 {
+                    replacement_seal_commit_total: 1,
+                    publication_revalidation_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                },
+            ),
+            (
+                "FX10",
+                "GM10",
+                P1eI0ObservedEffectCountersV1 {
+                    publication_revalidation_total: 1,
+                    ..P1eI0ObservedEffectCountersV1::default()
+                },
+            ),
+        ];
+
+        for (fixture_id, frontier_id, expected) in cases {
+            let redis = RedisServer::start().await;
+            let parent = temp_directory(&format!("p1e-i0-{fixture_id}"));
+            let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
+            let cell = p1d4_generated_market_registry_cells()
+                .into_iter()
+                .find(|cell| cell.frontier_id == frontier_id)
+                .expect("P1-e fixture frontier must exist in the accepted P1-d4 registry");
+            spawn_p1d4_generated_market_frontier(&redis, &parent, &cell).await;
+            let restart = restart_stage8b_p1(
+                validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(5)).await;
+            let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+                .await
+                .unwrap();
+
+            let latch = match (frontier_id, restart) {
+                (
+                    "GM00",
+                    Stage7bRestartOutcome::P1d4GeneratedMarketPrepublicationPending(owner),
+                ) => {
+                    let acquired =
+                        acquire_stage8b_p1d4_prepublication_with_redis(*owner, transport)
+                            .await
+                            .unwrap();
+                    let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR05");
+                    p1e_i0_begin_effect_audit();
+                    drop(
+                        resume_stage8b_p1d4_prepublication_with_redis(permit)
+                            .await
+                            .unwrap(),
+                    );
+                    latch
+                }
+                ("GM03", Stage7bRestartOutcome::P1d4GeneratedMarketDispatchPending(owner)) => {
+                    let acquired =
+                        acquire_stage8b_p1d4_dispatch_pending_with_redis(*owner, transport)
+                            .await
+                            .unwrap();
+                    let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR06");
+                    p1e_i0_begin_effect_audit();
+                    drop(
+                        resume_stage8b_p1d4_dispatch_pending_with_redis(permit, &key)
+                            .await
+                            .unwrap(),
+                    );
+                    latch
+                }
+                ("GM05", Stage7bRestartOutcome::P1d4GeneratedMarketOrderPending(owner)) => {
+                    let acquired = acquire_stage8b_p1d4_order_pending_with_redis(*owner, transport)
+                        .await
+                        .unwrap();
+                    let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR07");
+                    p1e_i0_begin_effect_audit();
+                    drop(
+                        resume_stage8b_p1d4_order_pending_with_redis(permit, &key)
+                            .await
+                            .unwrap(),
+                    );
+                    latch
+                }
+                (
+                    "GM06",
+                    Stage7bRestartOutcome::P1d4GeneratedMarketPreFinalizationPending(owner),
+                ) => {
+                    let acquired =
+                        acquire_stage8b_p1d4_pre_finalization_with_redis(*owner, transport)
+                            .await
+                            .unwrap();
+                    let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR08");
+                    p1e_i0_begin_effect_audit();
+                    drop(
+                        resume_stage8b_p1d4_pre_finalization_with_redis(permit, &key)
+                            .await
+                            .unwrap(),
+                    );
+                    latch
+                }
+                ("GM07", Stage7bRestartOutcome::P1d4GeneratedMarketPreAckPending(owner)) => {
+                    let acquired = acquire_stage8b_p1d4_pre_ack_with_redis(*owner, transport)
+                        .await
+                        .unwrap();
+                    let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR09");
+                    p1e_i0_begin_effect_audit();
+                    drop(
+                        resume_stage8b_p1d4_pre_ack_with_redis(permit, &key)
+                            .await
+                            .unwrap(),
+                    );
+                    latch
+                }
+                ("GM10", Stage7bRestartOutcome::P1d4GeneratedMarketAckCommitted(owner)) => {
+                    let acquired = acquire_stage8b_p1d4_ack_with_redis(*owner, transport)
+                        .await
+                        .unwrap();
+                    let (permit, latch) = p1e_i0_clear_permit_then_signal(acquired, "LR10");
+                    p1e_i0_begin_effect_audit();
+                    drop(resume_stage8b_p1d4_ack_with_redis(permit).await.unwrap());
+                    latch
+                }
+                (_, other) => panic!(
+                    "{fixture_id} restarted at unexpected {}",
+                    p1d4_restart_disposition(&other)
+                ),
+            };
+            assert!(latch.intent().is_some(), "{fixture_id}: signal was lost");
+            assert_eq!(
+                p1e_i0_take_effect_audit(),
+                expected,
+                "{fixture_id}: observed post-permit effect vector drifted"
+            );
+
+            let namespace = stage8b_p1_redis_namespace();
+            let mut connection = redis.connection().await;
+            let pending: StreamPendingReply = redis::cmd("XPENDING")
+                .arg(&namespace.canonical_m10_stream)
+                .arg(&namespace.m10_consumer_group)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(
+                pending.count(),
+                1,
+                "{fixture_id}: non-terminal boundary must retain source PEL"
+            );
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum P1eI0TimerClassification {
+        Retained,
+        Stale,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum P1eI0TimerSignalCheckpoint {
+        AfterSourceBeforeReclassification,
+        AfterReclassificationBeforeExecution,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct P1eI0AuthenticatedTimerV1 {
+        timer_id: String,
+        due_at_utc_ms: i64,
+    }
+
+    fn p1e_i0_reclassify_timer(
+        _owner: &Stage8bP1RedisSemanticCompositionOwner,
+        timer: &P1eI0AuthenticatedTimerV1,
+        classification: P1eI0TimerClassification,
+    ) -> (String, P1eI0TimerClassification) {
+        assert!(!timer.timer_id.is_empty());
+        assert!(timer.due_at_utc_ms > 0);
+        p1e_i0_observe_timer_reclassification();
+        (timer.timer_id.clone(), classification)
+    }
+
+    async fn p1e_i0_assert_source_first_timer_checkpoint(
+        source_already_acknowledged: bool,
+        classification: P1eI0TimerClassification,
+        signal_checkpoint: P1eI0TimerSignalCheckpoint,
+    ) {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i0-source-first-timer-checkpoint");
+        let (_, _, key, fresh) = strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let frontier_id = if source_already_acknowledged {
+            "F16"
+        } else {
+            "F10"
+        };
+        let restart = p1e_i0_restart_p1d4_fixture(
+            &redis,
+            &parent,
+            "cancel-target-first",
+            "S09",
+            frontier_id,
+            &fresh,
+            &key,
+        )
+        .await;
+        let Stage7bRestartOutcome::P1d3TruthCommitted(owner) = restart else {
+            panic!("LT05 timer fixture must restart at cancel-recovered truth");
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let acquired = acquire_stage8b_p1d3_truth_with_redis(*owner, transport)
+            .await
+            .unwrap();
+        let permit = p1e_clear_permit(acquired);
+        let timer = P1eI0AuthenticatedTimerV1 {
+            timer_id: format!("due-day-{frontier_id}-{classification:?}"),
+            due_at_utc_ms: P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000,
+        };
+        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        p1e_i0_begin_effect_audit();
+
+        let resolved = resume_stage8b_p1d3_truth_with_redis(permit).await.unwrap();
+        assert_eq!(
+            resolved.disposition(),
+            if source_already_acknowledged {
+                Stage8bP1RedisZeroIntentAckDisposition::AlreadyAcknowledged
+            } else {
+                Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+            }
+        );
+        let owner = resolved.into_ready_owner();
+
+        let classified = match signal_checkpoint {
+            P1eI0TimerSignalCheckpoint::AfterSourceBeforeReclassification => {
+                assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+                    Stage8bP1eShutdownCauseV1::ExternalSignal,
+                    20_000,
+                    61,
+                )));
+                None
+            }
+            P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution => {
+                let classified = p1e_i0_reclassify_timer(&owner, &timer, classification);
+                assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+                    Stage8bP1eShutdownCauseV1::ExternalSignal,
+                    20_000,
+                    62,
+                )));
+                Some(classified)
+            }
+        };
+        assert!(latch.intent().is_some());
+        if let Some((timer_id, observed_classification)) = classified {
+            assert_eq!(timer_id, timer.timer_id);
+            assert_eq!(observed_classification, classification);
+        } else {
+            assert_eq!(
+                timer.timer_id,
+                format!("due-day-{frontier_id}-{classification:?}")
+            );
+        }
+
+        let observed = p1e_i0_take_effect_audit();
+        assert_eq!(observed.xack_total, u64::from(!source_already_acknowledged));
+        assert_eq!(
+            observed.timer_reclassification_total,
+            u64::from(matches!(
+                signal_checkpoint,
+                P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution
+            ))
+        );
+        assert_eq!(observed.timer_execution_total, 0);
+        assert_eq!(observed.replacement_seal_commit_total, 0);
+        assert_eq!(observed.callback_total, 0);
+        assert_eq!(observed.publication_total, 0);
+        assert_eq!(observed.publication_revalidation_total, 0);
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "source must resolve before timer work");
+        drop(owner);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1e_i0_source_first_timer_checkpoints_never_execute_timer_in_same_step() {
+        for source_already_acknowledged in [false, true] {
+            for classification in [
+                P1eI0TimerClassification::Retained,
+                P1eI0TimerClassification::Stale,
+            ] {
+                for signal_checkpoint in [
+                    P1eI0TimerSignalCheckpoint::AfterSourceBeforeReclassification,
+                    P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution,
+                ] {
+                    p1e_i0_assert_source_first_timer_checkpoint(
+                        source_already_acknowledged,
+                        classification,
+                        signal_checkpoint,
+                    )
+                    .await;
+                }
+            }
+        }
     }
 
     fn p1d2_test_schedule_authority() -> strategy_runtime_core::Stage8bP1d1ExecutionScheduleAuthority
@@ -7076,7 +8192,7 @@ mod tests {
         truth: Stage8bP1RedisLimitTruthCommitted,
     ) -> P1d4ContinuationEvidence {
         assert!(truth.m10_xack_allowed());
-        let resolved = truth.acknowledge_source().await.unwrap();
+        let resolved = Box::pin(truth.acknowledge_source()).await.unwrap();
         p1d4_xack_evidence(resolved.disposition(), "P1d3TruthCommitted")
     }
 
@@ -7091,7 +8207,7 @@ mod tests {
                 pending.commit_recovered_cancel(key).unwrap()
             }
         };
-        p1d4_finish_limit_truth(truth).await
+        Box::pin(p1d4_finish_limit_truth(truth)).await
     }
 
     async fn p1d4_finish_generated_ack(
@@ -7171,6 +8287,132 @@ mod tests {
         )
     }
 
+    async fn p1e_i0_retain_authenticated_restart_source(
+        restart: Stage7bRestartOutcome,
+        redis: &RedisServer,
+        scenario_id: &str,
+    ) -> Option<&'static str> {
+        if scenario_id == "S07" && matches!(&restart, Stage7bRestartOutcome::P1d3PreAckPending(_)) {
+            // Day-expiry recovery has authenticated durable authority but no
+            // Redis source. It is intentionally outside the 30 source-route
+            // cells and must not manufacture an acquisition for this proof.
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        p1e_i0_begin_effect_audit();
+        macro_rules! acquire_on_heap {
+            ($future:expr) => {
+                Box::pin($future).await.unwrap()
+            };
+        }
+        let acquired = match restart {
+            Stage7bRestartOutcome::Ready(_) => {
+                assert_eq!(
+                    p1e_i0_take_effect_audit(),
+                    P1eI0ObservedEffectCountersV1::default()
+                );
+                return None;
+            }
+            Stage7bRestartOutcome::P1SemanticPrepublicationReady(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1_prepublication_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1_zero_intent_ack_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1SemanticPrepublicationPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1_journal_ahead_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1d2PreAckPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d2_pre_ack_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d2AckCommitted(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d2_ack_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d2TruthCommitted(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d2_truth_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d3DispatchPending(owner) => match scenario_id {
+                "S03" => acquire_on_heap!(acquire_stage8b_p1d3_dispatch_expiry_with_redis(
+                    *owner, transport
+                )),
+                "S08" | "S09" | "S10" | "S11" => {
+                    acquire_on_heap!(acquire_stage8b_p1d3_dispatch_cancel_with_redis(
+                        *owner, transport
+                    ))
+                }
+                _ => acquire_on_heap!(acquire_stage8b_p1d3_dispatch_limit_with_redis(
+                    *owner, transport
+                )),
+            },
+            Stage7bRestartOutcome::P1d3PreAckPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d3_pre_ack_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d3AckCommitted(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d3_ack_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d3TruthCommitted(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d3_truth_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d3CancelContinuationPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d3_cancel_continuation_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1d3SemanticPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d3_semantic_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketPrepublicationPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d4_prepublication_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketDispatchPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d4_dispatch_pending_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketOrderPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d4_order_pending_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketPreFinalizationPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d4_pre_finalization_with_redis(
+                    *owner, transport
+                ))
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketPreAckPending(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d4_pre_ack_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketAckCommitted(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d4_ack_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::P1d4GeneratedMarketTruthCommitted(owner) => {
+                acquire_on_heap!(acquire_stage8b_p1d4_truth_with_redis(*owner, transport))
+            }
+            Stage7bRestartOutcome::Stage8a4I3Pending(_) | Stage7bRestartOutcome::Blocked(_) => {
+                panic!("P1-e I0 fixture cannot retain a non-P1 source route")
+            }
+        };
+        let route_id = acquired.route.route_id();
+        p1e_i0_set_latch_and_retain(acquired, route_id);
+        assert_eq!(
+            p1e_i0_take_effect_audit(),
+            P1eI0ObservedEffectCountersV1::default(),
+            "{route_id}: preset latch must retain with zero effects"
+        );
+        Some(route_id)
+    }
+
     async fn p1d4_finish_published(
         published: Stage8bP1RedisCommandPublished,
         scenario_id: &str,
@@ -7178,24 +8420,27 @@ mod tests {
     ) -> P1d4ContinuationEvidence {
         match scenario_id {
             "S01" | "S02" => {
-                let ack = published
-                    .execute_next_canonical_limit(p1d4_initial_schedule(scenario_id), key)
-                    .await
-                    .unwrap();
-                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
+                let ack = Box::pin(
+                    published.execute_next_canonical_limit(p1d4_initial_schedule(scenario_id), key),
+                )
+                .await
+                .unwrap();
+                Box::pin(p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())).await
             }
             "S03" => {
                 let ack = published
                     .execute_initial_limit_expiry(p1d4_initial_expiry_authority(), key)
                     .unwrap();
-                p1d4_finish_limit_truth(ack.commit_truth(key).unwrap()).await
+                Box::pin(p1d4_finish_limit_truth(ack.commit_truth(key).unwrap())).await
             }
             "S08" | "S09" | "S10" | "S11" => {
-                let outcome = published
-                    .execute_next_canonical_cancel(p1d4_initial_schedule(scenario_id), key)
-                    .await
-                    .unwrap();
-                p1d4_finish_cancel_outcome(outcome, key).await
+                let outcome = Box::pin(
+                    published
+                        .execute_next_canonical_cancel(p1d4_initial_schedule(scenario_id), key),
+                )
+                .await
+                .unwrap();
+                Box::pin(p1d4_finish_cancel_outcome(outcome, key)).await
             }
             _ => panic!("{scenario_id} has no initial command continuation"),
         }
@@ -7309,11 +8554,11 @@ mod tests {
                 let pending = p1e_test_resume_prepublication(*owner, transport)
                     .await
                     .unwrap();
-                p1d4_finish_published(
+                Box::pin(p1d4_finish_published(
                     pending.publish_exact_command().await.unwrap(),
                     scenario_id,
                     key,
-                )
+                ))
                 .await
             }
             Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(owner) => {
@@ -9276,7 +10521,12 @@ mod tests {
         let duplicate_audit = duplicate
             .stage8b_p1d4_test_runtime_audit()
             .expect("P1-d4 recovered disposition must expose read-only audit");
-        drop(duplicate);
+        let _retained_route = Box::pin(p1e_i0_retain_authenticated_restart_source(
+            duplicate,
+            redis,
+            scenario_id,
+        ))
+        .await;
 
         let restart = restart_stage8b_p1(
             validate_stage8b_p1_bootstrap_config(bootstrap_config(
@@ -9324,14 +10574,14 @@ mod tests {
         // suppress collection of an unexpected provider, schedule or seal.
         p1d4_begin_observed_effect_audit(!generated_market);
         crate::recovery::stage8b_p1d4_begin_package_commit_audit();
-        let mut continuation = p1d4_finish_restart(
+        let mut continuation = Box::pin(p1d4_finish_restart(
             restart,
             redis,
             scenario_id,
             frontier_id,
             expected_restart_disposition,
             key,
-        )
+        ))
         .await;
         let observed = p1d4_take_observed_effect_audit();
         let package_commit_history = crate::recovery::stage8b_p1d4_take_package_commit_audit();
@@ -12014,7 +13264,12 @@ mod tests {
             )
             .unwrap();
             let duplicate_disposition = p1d4_restart_disposition(&duplicate);
-            drop(duplicate);
+            let _retained_route = Box::pin(p1e_i0_retain_authenticated_restart_source(
+                duplicate,
+                &redis,
+                cell.scenario_id,
+            ))
+            .await;
             let restart = restart_stage8b_p1(
                 validate_stage8b_p1_bootstrap_config(bootstrap_config(
                     parent.clone(),
@@ -12041,14 +13296,14 @@ mod tests {
                     cell.frontier_id,
                 );
             }
-            let completion = p1d4_finish_restart(
+            let completion = Box::pin(p1d4_finish_restart(
                 restart,
                 &redis,
                 cell.scenario_id,
                 cell.frontier_id,
                 cell.expected_restart_disposition,
                 &key,
-            )
+            ))
             .await;
             assert!(
                 matches!(
@@ -12108,7 +13363,12 @@ mod tests {
                 "{} byte-identical duplicate restart drifted",
                 cell.cell_id
             );
-            drop(duplicate);
+            let _retained_route = Box::pin(p1e_i0_retain_authenticated_restart_source(
+                duplicate,
+                &redis,
+                cell.parent_scenario_id,
+            ))
+            .await;
             let restart = restart_stage8b_p1(
                 validate_stage8b_p1_bootstrap_config(bootstrap_config(
                     parent.clone(),
