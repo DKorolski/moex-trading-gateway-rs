@@ -1678,6 +1678,27 @@ impl Stage6dDurableRuntimeRecovered {
         )
     }
 
+    /// Reports whether the authenticated replacement currently carries a
+    /// Working/Eval LIMIT book that must consume the next M10 through the
+    /// P1-d3 later-order transition.  It exposes no book fields and mints no
+    /// schedule or lifecycle authority.
+    pub fn stage8b_p1d3_requires_later_limit_evaluation(&self) -> bool {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return false;
+        };
+        restart
+            .stage8b_p1d3_replacement()
+            .is_some_and(|replacement| {
+                replacement.authenticated_stage6_checkpoint_sha256()
+                    == self.authenticated_checkpoint.checkpoint_sha256()
+                    && matches!(
+                        replacement.phase(),
+                        crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Working
+                            | crate::stage8b_p1d3_working_limit::Stage8bP1d3BookPhase::Eval
+                    )
+            })
+    }
+
     /// Identifies the exact target-sealed predecessor of a recovered CANCEL
     /// journal-ahead suffix. Unlike `stage8b_p1d3_restart_phase`, this narrow
     /// classifier deliberately examines the predecessor package before the

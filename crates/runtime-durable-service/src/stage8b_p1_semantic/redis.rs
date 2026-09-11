@@ -6,7 +6,8 @@
 
 use super::{
     binding_from_delivery, parse_stage8b_p1_canonical_m10, Stage8bP1CanonicalM10Error,
-    Stage8bP1PendingM10Delivery, Stage8bP1SemanticCompositionError, Stage8bP1ValidatedCanonicalM10,
+    Stage8bP1M10SemanticIdentityV1, Stage8bP1PendingM10Delivery, Stage8bP1SemanticCompositionError,
+    Stage8bP1ValidatedCanonicalM10,
 };
 use crate::recovery::{
     P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending, Stage7bRecoveryError,
@@ -927,12 +928,27 @@ struct Stage8bP1RedisBackend {
     namespace: Stage8bP1RedisNamespace,
     config: Stage8bP1RedisConfig,
     claim_cursor: String,
+    delivery_generation: u64,
     groups_verified: bool,
 }
 
 enum Stage8bP1ReadySourceAcquisition {
-    Delivery(Stage8bP1PendingM10Delivery),
+    Delivery(Box<Stage8bP1PendingM10Delivery>),
     PendingNotClaimable(String),
+}
+
+enum Stage8bP1eReadyPendingAcquisitionV1 {
+    Delivery {
+        delivery: Box<Stage8bP1PendingM10Delivery>,
+        acquisition_kind: Stage8bP1eAcquisitionKindV1,
+    },
+    NoPending,
+    PendingNotClaimable(String),
+}
+
+enum Stage8bP1eReadyFreshAcquisitionV1 {
+    Delivery(Box<Stage8bP1PendingM10Delivery>),
+    EmptyFreshPoll,
 }
 
 /// One-shot namespace initialization. Group creation is allowed only when
@@ -971,6 +987,7 @@ async fn open_backend(
         namespace: stage8b_p1_redis_namespace(),
         config,
         claim_cursor: "0-0".to_string(),
+        delivery_generation: 0,
         groups_verified: false,
     })
 }
@@ -1035,13 +1052,20 @@ impl Stage8bP1RedisSemanticCompositionOwner {
                 });
             }
         };
+        self.process_claimed_ready(*delivery, commitment_key).await
+    }
+
+    async fn process_claimed_ready(
+        mut self,
+        delivery: Stage8bP1PendingM10Delivery,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
         let operational_identity_sha256 = self
             .stage7
             .stage8b_p1_operational_identity_sha256()
             .to_string();
         let binding = binding_from_delivery(&delivery, operational_identity_sha256.clone());
-        let accepted_bar = delivery
-            .parse_exact(&operational_identity_sha256)?
+        let accepted_bar = parse_exact_after_p1e_permit(&delivery, &operational_identity_sha256)?
             .into_stage5c_semantic_bar()?;
         match self
             .stage7
@@ -1095,6 +1119,16 @@ impl Stage8bP1RedisSemanticCompositionOwner {
                 });
             }
         };
+        self.process_claimed_working_limit(*delivery, schedule_authority, commitment_key)
+            .await
+    }
+
+    async fn process_claimed_working_limit(
+        self,
+        delivery: Stage8bP1PendingM10Delivery,
+        schedule_authority: Stage8bP1d3ScheduleStepAuthority,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
         crate::recovery::stage8b_p1d4_test_crash_frontier("F11");
         let operational_identity_sha256 = self
             .stage7
@@ -2256,6 +2290,8 @@ impl Stage8bP1eShutdownLatchV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage8bP1eAcquisitionKindV1 {
     ReclaimedPending,
+    ReclaimedReady,
+    FreshReady,
     ObservedTerminal,
 }
 
@@ -2267,6 +2303,12 @@ enum Stage8bP1d4JournalAheadPending {
 }
 
 enum Stage8bP1ePostAcquisitionRouteV1 {
+    ReadySource {
+        claimed: Stage8bP1eClaimedM10DeliveryV2,
+    },
+    ReadyWorkingLimit {
+        claimed: Stage8bP1eClaimedM10DeliveryV2,
+    },
     ZeroIntentAck {
         pending: P1SemanticZeroIntentAckPending,
         transport: Stage8bP1RedisSemanticCompositionTransport,
@@ -2362,6 +2404,7 @@ enum Stage8bP1ePostAcquisitionRouteV1 {
 impl Stage8bP1ePostAcquisitionRouteV1 {
     fn route_id(&self) -> &'static str {
         match self {
+            Self::ReadySource { .. } | Self::ReadyWorkingLimit { .. } => "S08",
             Self::JournalAhead { .. } => "LR01",
             Self::Prepublication { .. } => "LR02",
             Self::P1d2PreAck { .. } => "LR03",
@@ -2433,6 +2476,123 @@ impl Stage8bP1ePostAcquisitionRouteV1 {
 pub struct Stage8bP1ePostAcquisitionOwnerV1 {
     route: Box<Stage8bP1ePostAcquisitionRouteV1>,
     acquisition_kind: Stage8bP1eAcquisitionKindV1,
+}
+
+/// Linear Ready delivery constructed only by the S06 exact reclaim or the
+/// S08 bounded fresh read.  It owns the canonical bytes and the authenticated
+/// Ready owner, exposes no constructor or payload accessor, and deliberately
+/// implements neither Clone nor serde.
+///
+/// ```compile_fail
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<runtime_durable_service::Stage8bP1eClaimedM10DeliveryV2>();
+/// ```
+///
+/// ```compile_fail
+/// fn requires_serialize<T: serde::Serialize>() {}
+/// requires_serialize::<runtime_durable_service::Stage8bP1eClaimedM10DeliveryV2>();
+/// ```
+pub struct Stage8bP1eClaimedM10DeliveryV2 {
+    owner: Stage8bP1RedisSemanticCompositionOwner,
+    pending_m10: Stage8bP1PendingM10Delivery,
+    source_stream: String,
+    consumer_group: String,
+    redis_entry_id: String,
+    semantic_id_sha256: String,
+    payload_sha256: String,
+    semantic_m10_identity: Stage8bP1M10SemanticIdentityV1,
+    operational_identity_sha256: String,
+    acquisition_kind: Stage8bP1eAcquisitionKindV1,
+    consumer_identity: String,
+    delivery_generation: u64,
+}
+
+impl Stage8bP1eClaimedM10DeliveryV2 {
+    fn new(
+        owner: Stage8bP1RedisSemanticCompositionOwner,
+        pending_m10: Stage8bP1PendingM10Delivery,
+        acquisition_kind: Stage8bP1eAcquisitionKindV1,
+        delivery_generation: u64,
+    ) -> Result<Self, Stage8bP1RedisSemanticError> {
+        if delivery_generation == 0 {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        Ok(Self {
+            source_stream: owner
+                .transport
+                .backend
+                .namespace
+                .canonical_m10_stream
+                .clone(),
+            consumer_group: owner.transport.backend.namespace.m10_consumer_group.clone(),
+            redis_entry_id: pending_m10.redis_id().to_string(),
+            semantic_id_sha256: pending_m10.semantic_id_sha256().to_string(),
+            payload_sha256: pending_m10.payload_sha256().to_string(),
+            semantic_m10_identity: pending_m10.semantic_m10_identity.clone(),
+            operational_identity_sha256: owner
+                .stage7
+                .stage8b_p1_operational_identity_sha256()
+                .to_string(),
+            consumer_identity: owner.transport.backend.config.consumer_name.clone(),
+            owner,
+            pending_m10,
+            acquisition_kind,
+            delivery_generation,
+        })
+    }
+
+    fn into_parts(
+        self,
+    ) -> Result<
+        (
+            Stage8bP1RedisSemanticCompositionOwner,
+            Stage8bP1PendingM10Delivery,
+        ),
+        Stage8bP1RedisSemanticError,
+    > {
+        if self.delivery_generation == 0
+            || !matches!(
+                self.acquisition_kind,
+                Stage8bP1eAcquisitionKindV1::ReclaimedReady
+                    | Stage8bP1eAcquisitionKindV1::FreshReady
+            )
+            || self.source_stream != self.owner.transport.backend.namespace.canonical_m10_stream
+            || self.consumer_group != self.owner.transport.backend.namespace.m10_consumer_group
+            || self.consumer_identity != self.owner.transport.backend.config.consumer_name
+            || self.operational_identity_sha256
+                != self.owner.stage7.stage8b_p1_operational_identity_sha256()
+            || self.redis_entry_id != self.pending_m10.redis_id()
+            || self.semantic_id_sha256 != self.pending_m10.semantic_id_sha256()
+            || self.payload_sha256 != self.pending_m10.payload_sha256()
+            || self.semantic_m10_identity != self.pending_m10.semantic_m10_identity
+        {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+        }
+        Ok((self.owner, self.pending_m10))
+    }
+}
+
+/// Authenticated Ready continuation selected before the strategy sees the
+/// acquired M10.  This is diagnostic routing only: it grants no source,
+/// schedule or callback authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eReadySourceRouteV1 {
+    Semantic,
+    WorkingLimit,
+}
+
+impl Stage8bP1ePostAcquisitionOwnerV1 {
+    pub fn ready_source_route(&self) -> Option<Stage8bP1eReadySourceRouteV1> {
+        match self.route.as_ref() {
+            Stage8bP1ePostAcquisitionRouteV1::ReadySource { .. } => {
+                Some(Stage8bP1eReadySourceRouteV1::Semantic)
+            }
+            Stage8bP1ePostAcquisitionRouteV1::ReadyWorkingLimit { .. } => {
+                Some(Stage8bP1eReadySourceRouteV1::WorkingLimit)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Opaque route-bound, single-use capability. Every continuation consumes it.
@@ -2510,6 +2670,112 @@ pub enum Stage8bP1ePostAcquisitionDecisionV1 {
     Continue(Stage8bP1eContinuationPermitV1),
 }
 
+/// Result of startup S06 pending-source inspection. This operation cannot read
+/// a fresh M10 entry. A pending source below the claim threshold returns the
+/// owner without parsing or invoking the strategy.
+pub enum Stage8bP1eReadyPendingAcquisitionOutcomeV1 {
+    Acquired(Stage8bP1ePostAcquisitionOwnerV1),
+    NoPending(Box<Stage8bP1RedisSemanticCompositionOwner>),
+    PendingNotClaimable {
+        owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+        pending_m10_redis_id: String,
+    },
+}
+
+/// Result of the steady-state S08 bounded fresh read. The startup pending scan
+/// is deliberately unavailable through this function.
+pub enum Stage8bP1eReadyFreshAcquisitionOutcomeV1 {
+    Acquired(Stage8bP1ePostAcquisitionOwnerV1),
+    EmptyFreshPoll(Box<Stage8bP1RedisSemanticCompositionOwner>),
+}
+
+/// Performs startup S06. It may reclaim the sole pending source, but cannot
+/// consume a fresh source entry.
+pub async fn acquire_stage8b_p1e_ready_pending_with_redis(
+    mut owner: Stage8bP1RedisSemanticCompositionOwner,
+) -> Result<Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1RedisSemanticError> {
+    match owner
+        .transport
+        .backend
+        .acquire_ready_pending_for_supervisor()
+        .await?
+    {
+        Stage8bP1eReadyPendingAcquisitionV1::Delivery {
+            delivery,
+            acquisition_kind,
+        } => Ok(Stage8bP1eReadyPendingAcquisitionOutcomeV1::Acquired(
+            ready_post_acquisition_owner(owner, *delivery, acquisition_kind)?,
+        )),
+        Stage8bP1eReadyPendingAcquisitionV1::NoPending => Ok(
+            Stage8bP1eReadyPendingAcquisitionOutcomeV1::NoPending(Box::new(owner)),
+        ),
+        Stage8bP1eReadyPendingAcquisitionV1::PendingNotClaimable(pending_m10_redis_id) => Ok(
+            Stage8bP1eReadyPendingAcquisitionOutcomeV1::PendingNotClaimable {
+                owner: Box::new(owner),
+                pending_m10_redis_id,
+            },
+        ),
+    }
+}
+
+/// Performs the bounded steady-state S08 read. The returned acquired owner
+/// must pass through `decide_stage8b_p1e_post_acquisition_latch` before any
+/// parse, callback or XACK is possible.
+pub async fn poll_stage8b_p1e_ready_fresh_with_redis(
+    mut owner: Stage8bP1RedisSemanticCompositionOwner,
+) -> Result<Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1RedisSemanticError> {
+    match owner
+        .transport
+        .backend
+        .acquire_ready_fresh_for_supervisor()
+        .await?
+    {
+        Stage8bP1eReadyFreshAcquisitionV1::Delivery(delivery) => Ok(
+            Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(ready_post_acquisition_owner(
+                owner,
+                *delivery,
+                Stage8bP1eAcquisitionKindV1::FreshReady,
+            )?),
+        ),
+        Stage8bP1eReadyFreshAcquisitionV1::EmptyFreshPoll => Ok(
+            Stage8bP1eReadyFreshAcquisitionOutcomeV1::EmptyFreshPoll(Box::new(owner)),
+        ),
+    }
+}
+
+/// Consumes the S06/S08 route-bound permit and processes the already acquired
+/// bytes. No Redis acquisition is performed by this continuation.
+pub async fn resume_stage8b_p1e_ready_source_with_redis(
+    permit: Stage8bP1eContinuationPermitV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
+    let Stage8bP1ePostAcquisitionRouteV1::ReadySource { claimed } = consume_permit(permit) else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
+    };
+    let (owner, pending_m10) = claimed.into_parts()?;
+    owner
+        .process_claimed_ready(pending_m10, commitment_key)
+        .await
+}
+
+/// Consumes the already-acquired Ready/working-LIMIT source with the exact
+/// source-produced schedule step.  This continuation performs no XPENDING,
+/// XAUTOCLAIM or XREADGROUP operation.
+pub async fn resume_stage8b_p1e_ready_working_limit_source_with_redis(
+    permit: Stage8bP1eContinuationPermitV1,
+    schedule_authority: Stage8bP1d3ScheduleStepAuthority,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1RedisSemanticOutcome, Stage8bP1RedisSemanticError> {
+    let Stage8bP1ePostAcquisitionRouteV1::ReadyWorkingLimit { claimed } = consume_permit(permit)
+    else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
+    };
+    let (owner, pending_m10) = claimed.into_parts()?;
+    owner
+        .process_claimed_working_limit(pending_m10, schedule_authority, commitment_key)
+        .await
+}
+
 /// The only conversion from acquired ownership to either shutdown retention
 /// or continuation authority. Both branches consume the acquired owner.
 pub fn decide_stage8b_p1e_post_acquisition_latch(
@@ -2540,6 +2806,27 @@ fn post_acquisition_owner(
         route: Box::new(route),
         acquisition_kind,
     }
+}
+
+fn ready_post_acquisition_owner(
+    mut owner: Stage8bP1RedisSemanticCompositionOwner,
+    pending_m10: Stage8bP1PendingM10Delivery,
+    acquisition_kind: Stage8bP1eAcquisitionKindV1,
+) -> Result<Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1RedisSemanticError> {
+    let working_limit = owner.stage7.stage8b_p1e_ready_source_is_working_limit()?;
+    let delivery_generation = owner.transport.backend.next_delivery_generation()?;
+    let claimed = Stage8bP1eClaimedM10DeliveryV2::new(
+        owner,
+        pending_m10,
+        acquisition_kind,
+        delivery_generation,
+    )?;
+    let route = if working_limit {
+        Stage8bP1ePostAcquisitionRouteV1::ReadyWorkingLimit { claimed }
+    } else {
+        Stage8bP1ePostAcquisitionRouteV1::ReadySource { claimed }
+    };
+    Ok(post_acquisition_owner(route, acquisition_kind))
 }
 
 fn consume_permit(permit: Stage8bP1eContinuationPermitV1) -> Stage8bP1ePostAcquisitionRouteV1 {
@@ -3705,6 +3992,14 @@ pub async fn resume_stage8b_p1d3_semantic_with_redis(
 }
 
 impl Stage8bP1RedisBackend {
+    fn next_delivery_generation(&mut self) -> Result<u64, Stage8bP1RedisSemanticError> {
+        self.delivery_generation = self
+            .delivery_generation
+            .checked_add(1)
+            .ok_or(Stage8bP1RedisSemanticError::ExactSourceConflict)?;
+        Ok(self.delivery_generation)
+    }
+
     async fn initialize_fresh_namespace(&mut self) -> Result<(), Stage8bP1RedisSemanticError> {
         let result: redis::RedisResult<String> = redis::cmd("EVAL")
             .arg(NAMESPACE_INITIALIZATION_LUA)
@@ -3803,11 +4098,13 @@ impl Stage8bP1RedisBackend {
             [] => self
                 .read_next_fresh()
                 .await
-                .map(Stage8bP1ReadySourceAcquisition::Delivery),
+                .map(|delivery| Stage8bP1ReadySourceAcquisition::Delivery(Box::new(delivery))),
             [entry] => {
                 let redis_id = entry.id.clone();
                 match self.try_reclaim_exact_id(&redis_id).await? {
-                    Some(delivery) => Ok(Stage8bP1ReadySourceAcquisition::Delivery(delivery)),
+                    Some(delivery) => Ok(Stage8bP1ReadySourceAcquisition::Delivery(Box::new(
+                        delivery,
+                    ))),
                     None => Ok(Stage8bP1ReadySourceAcquisition::PendingNotClaimable(
                         redis_id,
                     )),
@@ -3815,6 +4112,71 @@ impl Stage8bP1RedisBackend {
             }
             _ => Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries),
         }
+    }
+
+    async fn acquire_ready_pending_for_supervisor(
+        &mut self,
+    ) -> Result<Stage8bP1eReadyPendingAcquisitionV1, Stage8bP1RedisSemanticError> {
+        let pending = self.pending_entries("-", "+", 2).await?;
+        match pending.ids.as_slice() {
+            [] => Ok(Stage8bP1eReadyPendingAcquisitionV1::NoPending),
+            [entry] => {
+                let redis_id = entry.id.clone();
+                match self.try_reclaim_exact_id(&redis_id).await? {
+                    Some(delivery) => Ok(Stage8bP1eReadyPendingAcquisitionV1::Delivery {
+                        delivery: Box::new(delivery),
+                        acquisition_kind: Stage8bP1eAcquisitionKindV1::ReclaimedReady,
+                    }),
+                    None => Ok(Stage8bP1eReadyPendingAcquisitionV1::PendingNotClaimable(
+                        redis_id,
+                    )),
+                }
+            }
+            _ => Err(Stage8bP1RedisSemanticError::AmbiguousReadyPendingEntries),
+        }
+    }
+
+    async fn acquire_ready_fresh_for_supervisor(
+        &mut self,
+    ) -> Result<Stage8bP1eReadyFreshAcquisitionV1, Stage8bP1RedisSemanticError> {
+        match self.read_next_fresh_bounded().await? {
+            Some(delivery) => Ok(Stage8bP1eReadyFreshAcquisitionV1::Delivery(Box::new(
+                delivery,
+            ))),
+            None => Ok(Stage8bP1eReadyFreshAcquisitionV1::EmptyFreshPoll),
+        }
+    }
+
+    async fn read_next_fresh_bounded(
+        &mut self,
+    ) -> Result<Option<Stage8bP1PendingM10Delivery>, Stage8bP1RedisSemanticError> {
+        if !self.groups_verified {
+            return Err(Stage8bP1RedisSemanticError::GroupMissing);
+        }
+        let reply: Option<StreamReadReply> = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(&self.namespace.m10_consumer_group)
+            .arg(&self.config.consumer_name)
+            .arg("COUNT")
+            .arg(self.config.read_count)
+            .arg("BLOCK")
+            .arg(1_000_u64)
+            .arg("STREAMS")
+            .arg(&self.namespace.canonical_m10_stream)
+            .arg(">")
+            .query_async(&mut self.connection)
+            .await?;
+        let Some(reply) = reply else {
+            return Ok(None);
+        };
+        let mut entries = reply.keys.into_iter().flat_map(|key| key.ids);
+        let Some(entry) = entries.next() else {
+            return Ok(None);
+        };
+        if entries.next().is_some() {
+            return Err(Stage8bP1RedisSemanticError::InvalidRedisReply);
+        }
+        delivery_from_entry(entry).map(Some)
     }
 
     async fn read_next_fresh(
@@ -3919,11 +4281,13 @@ impl Stage8bP1RedisBackend {
         {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
+        let semantic_m10_identity = validated.semantic_m10_identity();
         Ok(Stage8bP1PendingM10Delivery {
             redis_id: redis_id.to_string(),
             semantic_id_sha256: semantic_id_sha256.to_string(),
             payload_sha256: payload_sha256.to_string(),
             canonical_bytes: payload.into_bytes(),
+            semantic_m10_identity,
         })
     }
 
@@ -3984,11 +4348,13 @@ impl Stage8bP1RedisBackend {
         {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
+        let semantic_m10_identity = validated.semantic_m10_identity();
         Ok(Stage8bP1PendingM10Delivery {
             redis_id: evidence.m10_redis_id.clone(),
             semantic_id_sha256: evidence.m10_semantic_id_sha256.clone(),
             payload_sha256: evidence.m10_payload_sha256.clone(),
             canonical_bytes: payload.into_bytes(),
+            semantic_m10_identity,
         })
     }
 
@@ -4540,11 +4906,13 @@ fn delivery_from_entry(
     if validated.redis_id() != entry.id {
         return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
     }
+    let semantic_m10_identity = validated.semantic_m10_identity();
     Ok(Stage8bP1PendingM10Delivery {
         redis_id: entry.id,
         semantic_id_sha256: validated.semantic_id_sha256().to_string(),
         payload_sha256: validated.payload_sha256().to_string(),
         canonical_bytes: payload.into_bytes(),
+        semantic_m10_identity,
     })
 }
 
@@ -7024,6 +7392,131 @@ mod tests {
             panic!("P1-d4 S05 fixture must generate one Market exit")
         };
         (key, fresh, identity, *pending, decision_close_ms)
+    }
+
+    #[tokio::test]
+    async fn p1e_i1_ready_delivery_routes_working_limit_without_second_acquisition() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i1-ready-working-limit-route");
+        let (key, _, identity, mut owner) =
+            prepare_p1d4_later_working_owner(&redis.url, &parent, false, false, None).await;
+        let candidate_close_ms = P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000;
+        owner
+            .transport_mut()
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), candidate_close_ms, 2_220),
+                &identity,
+            )
+            .await
+            .unwrap();
+
+        let Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) =
+            poll_stage8b_p1e_ready_fresh_with_redis(owner)
+                .await
+                .unwrap()
+        else {
+            panic!("one fresh working-LIMIT source must be acquired");
+        };
+        assert_eq!(
+            acquired.ready_source_route(),
+            Some(Stage8bP1eReadySourceRouteV1::WorkingLimit)
+        );
+        let Stage8bP1ePostAcquisitionRouteV1::ReadyWorkingLimit { claimed } =
+            acquired.route.as_ref()
+        else {
+            unreachable!("working-LIMIT route was asserted above")
+        };
+        assert_eq!(
+            claimed.semantic_m10_identity.broker_id,
+            STAGE8B_P1_BROKER_ID
+        );
+        assert_eq!(
+            claimed.semantic_m10_identity.internal_symbol,
+            STAGE8B_P1_INTERNAL_SYMBOL
+        );
+        assert_eq!(
+            claimed.semantic_m10_identity.venue_symbol,
+            STAGE8B_P1_VENUE_SYMBOL
+        );
+        assert_eq!(claimed.semantic_m10_identity.exchange, STAGE8B_P1_EXCHANGE);
+        assert_eq!(claimed.semantic_m10_identity.market, STAGE8B_P1_MARKET);
+        assert_eq!(claimed.semantic_m10_identity.timeframe_sec, 600);
+        assert_eq!(
+            claimed.semantic_m10_identity.open_ts_utc_ms,
+            candidate_close_ms - 600_000
+        );
+        assert_eq!(
+            claimed.semantic_m10_identity.close_ts_utc_ms,
+            candidate_close_ms
+        );
+        assert_eq!(
+            claimed.semantic_m10_identity.source_kind,
+            "finam_derived_m1_to_m10_complete"
+        );
+        let permit = p1e_clear_permit(acquired);
+        let outcome = resume_stage8b_p1e_ready_working_limit_source_with_redis(
+            permit,
+            p1d3_cancel_schedule(P1D3_CANCEL_CANDIDATE_CLOSE_MS, candidate_close_ms),
+            &key,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            Stage8bP1RedisSemanticOutcome::Ready { .. }
+        ));
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "claimed continuation must XACK once");
+        drop(connection);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1e_i1_ready_delivery_routes_ordinary_semantic_without_schedule() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i1-ready-ordinary-route");
+        let (stage7, key, _, identity) = first_boot(&parent);
+        let mut transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), 1_785_759_000_000, 2_600),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let owner = Stage8bP1RedisSemanticCompositionOwner::new(stage7, transport);
+        let Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) =
+            poll_stage8b_p1e_ready_fresh_with_redis(owner)
+                .await
+                .unwrap()
+        else {
+            panic!("one fresh ordinary Ready source must be acquired");
+        };
+        assert_eq!(
+            acquired.ready_source_route(),
+            Some(Stage8bP1eReadySourceRouteV1::Semantic)
+        );
+        let permit = p1e_clear_permit(acquired);
+        assert!(matches!(
+            resume_stage8b_p1e_ready_source_with_redis(permit, &key)
+                .await
+                .unwrap(),
+            Stage8bP1RedisSemanticOutcome::Ready { .. }
+        ));
+        fs::remove_dir_all(parent).unwrap();
     }
 
     #[tokio::test]
@@ -11514,6 +12007,7 @@ mod tests {
             .env("STAGE8B_P1_TEST_CRASH_MARKER", &marker)
             .env("STAGE8B_P1_TEST_REDIS_URL", &redis.url)
             .env("STAGE8B_P1D4_SCENARIO", scenario)
+            .env("RUST_MIN_STACK", "16777216")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()

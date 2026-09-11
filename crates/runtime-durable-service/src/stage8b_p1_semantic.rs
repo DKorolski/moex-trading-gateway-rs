@@ -47,8 +47,9 @@ pub use redis::{
     acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
     acquire_stage8b_p1d4_pre_finalization_with_redis,
     acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
-    attach_stage8b_p1_redis, decide_stage8b_p1e_post_acquisition_latch,
-    initialize_stage8b_p1_redis_namespace, resolve_stage8b_p1_zero_intent_ack_with_redis,
+    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1_redis,
+    decide_stage8b_p1e_post_acquisition_latch, initialize_stage8b_p1_redis_namespace,
+    poll_stage8b_p1e_ready_fresh_with_redis, resolve_stage8b_p1_zero_intent_ack_with_redis,
     resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
     resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
     resume_stage8b_p1d2_truth_with_redis, resume_stage8b_p1d3_ack_with_redis,
@@ -59,7 +60,8 @@ pub use redis::{
     resume_stage8b_p1d4_ack_with_redis, resume_stage8b_p1d4_dispatch_pending_with_redis,
     resume_stage8b_p1d4_order_pending_with_redis, resume_stage8b_p1d4_pre_ack_with_redis,
     resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
-    resume_stage8b_p1d4_truth_with_redis, Stage8bP1RedisCancelCommitOutcome,
+    resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_ready_source_with_redis,
+    resume_stage8b_p1e_ready_working_limit_source_with_redis, Stage8bP1RedisCancelCommitOutcome,
     Stage8bP1RedisCancelContinuationPending, Stage8bP1RedisCommandPublicationDisposition,
     Stage8bP1RedisCommandPublicationReceipt, Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig,
     Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisFeedbackResolved,
@@ -70,8 +72,10 @@ pub use redis::{
     Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
     Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
     Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
-    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1eContinuationPermitV1,
-    Stage8bP1ePostAcquisitionDecisionV1, Stage8bP1ePostAcquisitionOwnerV1,
+    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1eClaimedM10DeliveryV2,
+    Stage8bP1eContinuationPermitV1, Stage8bP1ePostAcquisitionDecisionV1,
+    Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
+    Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eReadySourceRouteV1,
     Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1,
     Stage8bP1eShutdownLatchV1,
 };
@@ -176,6 +180,20 @@ impl Stage8bP1ValidatedCanonicalM10 {
 
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
+    }
+
+    fn semantic_m10_identity(&self) -> Stage8bP1M10SemanticIdentityV1 {
+        Stage8bP1M10SemanticIdentityV1 {
+            broker_id: self.envelope.payload.broker_id.clone(),
+            internal_symbol: self.envelope.payload.internal_symbol.clone(),
+            venue_symbol: self.envelope.payload.venue_symbol.clone(),
+            exchange: self.envelope.payload.exchange.clone(),
+            market: self.envelope.payload.market.clone(),
+            timeframe_sec: self.envelope.payload.timeframe_sec,
+            open_ts_utc_ms: self.envelope.payload.open_ts_utc_ms,
+            close_ts_utc_ms: self.envelope.payload.close_ts_utc_ms,
+            source_kind: "finam_derived_m1_to_m10_complete".to_string(),
+        }
     }
 
     pub(crate) fn into_p1d1_execution_evidence(
@@ -472,6 +490,20 @@ struct Stage8bP1LocalM10Entry {
     canonical_bytes: Vec<u8>,
     semantic_id_sha256: String,
     payload_sha256: String,
+    semantic_m10_identity: Stage8bP1M10SemanticIdentityV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stage8bP1M10SemanticIdentityV1 {
+    broker_id: String,
+    internal_symbol: String,
+    venue_symbol: String,
+    exchange: String,
+    market: String,
+    timeframe_sec: u32,
+    open_ts_utc_ms: i64,
+    close_ts_utc_ms: i64,
+    source_kind: String,
 }
 
 /// Local-only executable model. No method opens a network connection or
@@ -493,6 +525,7 @@ pub struct Stage8bP1PendingM10Delivery {
     semantic_id_sha256: String,
     payload_sha256: String,
     canonical_bytes: Vec<u8>,
+    pub(crate) semantic_m10_identity: Stage8bP1M10SemanticIdentityV1,
 }
 
 impl Stage8bP1PendingM10Delivery {
@@ -571,12 +604,14 @@ impl Stage8bP1LocalM10Stream {
             self.acknowledged.remove(&removable);
         }
         let redis_id = m10.redis_id().to_string();
+        let semantic_m10_identity = m10.semantic_m10_identity();
         self.entries.insert(
             redis_id.clone(),
             Stage8bP1LocalM10Entry {
                 canonical_bytes: m10.canonical_bytes,
                 semantic_id_sha256: m10.envelope.m10_semantic_id_sha256,
                 payload_sha256: m10.envelope.m10_payload_sha256,
+                semantic_m10_identity,
             },
         );
         self.available.push_back(redis_id);
@@ -603,6 +638,7 @@ impl Stage8bP1LocalM10Stream {
             semantic_id_sha256: entry.semantic_id_sha256.clone(),
             payload_sha256: entry.payload_sha256.clone(),
             canonical_bytes: entry.canonical_bytes.clone(),
+            semantic_m10_identity: entry.semantic_m10_identity.clone(),
         })
     }
 
@@ -631,6 +667,7 @@ impl Stage8bP1LocalM10Stream {
             semantic_id_sha256: entry.semantic_id_sha256.clone(),
             payload_sha256: entry.payload_sha256.clone(),
             canonical_bytes: entry.canonical_bytes.clone(),
+            semantic_m10_identity: entry.semantic_m10_identity.clone(),
         })
     }
 
@@ -648,6 +685,7 @@ impl Stage8bP1LocalM10Stream {
             || entry.semantic_id_sha256 != delivery.semantic_id_sha256
             || entry.payload_sha256 != delivery.payload_sha256
             || entry.canonical_bytes != delivery.canonical_bytes
+            || entry.semantic_m10_identity != delivery.semantic_m10_identity
         {
             return Err(Stage8bP1LocalM10Error::DeliveryAuthorityMismatch);
         }
@@ -688,6 +726,7 @@ impl Stage8bP1LocalM10Stream {
                 semantic_id_sha256: entry.semantic_id_sha256.clone(),
                 payload_sha256: entry.payload_sha256.clone(),
                 canonical_bytes: entry.canonical_bytes.clone(),
+                semantic_m10_identity: entry.semantic_m10_identity.clone(),
             },
             state,
         ))

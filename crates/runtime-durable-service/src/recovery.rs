@@ -2905,6 +2905,34 @@ fn stage8a4_i3_uncovered_checkpoint(
 }
 
 impl Stage7bRecoveryReadyOwner {
+    /// Classifies the only two semantic continuations that a recovered Ready
+    /// owner may take after one M10 has already been acquired by the P1-e
+    /// supervisor.  The answer comes solely from the authenticated restart
+    /// package; the Redis payload and callback result cannot influence it.
+    pub(crate) fn stage8b_p1e_ready_source_is_working_limit(
+        &self,
+    ) -> Result<bool, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        if self
+            .recovered
+            .stage8b_p1d3_requires_later_limit_evaluation()
+        {
+            return Ok(true);
+        }
+        match self.recovered.stage8b_p1d3_restart_phase() {
+            Some(Stage6Stage8bP1d3RestartPhase::ReadyForEvaluation) => {
+                Err(Stage7bRecoveryError::SealInvalid)
+            }
+            Some(Stage6Stage8bP1d3RestartPhase::SemanticCallbackCommitted) | None => Ok(false),
+            Some(
+                Stage6Stage8bP1d3RestartPhase::AckCommitted
+                | Stage6Stage8bP1d3RestartPhase::TruthCommitted
+                | Stage6Stage8bP1d3RestartPhase::CancelContinuationPending
+                | Stage6Stage8bP1d3RestartPhase::SemanticCallbackPending,
+            ) => Err(Stage7bRecoveryError::SealInvalid),
+        }
+    }
+
     pub(crate) fn recovered_stage8b_p1d3_pending_semantic_source(
         &self,
     ) -> Option<Stage8bP1d3SemanticSourceBinding> {

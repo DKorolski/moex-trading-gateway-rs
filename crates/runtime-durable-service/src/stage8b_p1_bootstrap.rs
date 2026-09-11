@@ -76,6 +76,26 @@ pub struct Stage8bP1ValidatedBootstrapConfig {
     expected_root_name: String,
 }
 
+impl Stage8bP1ValidatedBootstrapConfig {
+    /// Non-secret deployment generation used to derive one fresh Redis
+    /// consumer identity per supervisor process.
+    pub const fn deployment_generation(&self) -> u64 {
+        self.operational_identity.deployment_generation
+    }
+
+    /// Redacted operational identity suitable for health/readiness binding.
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    /// Exact generation of the pre-provisioned Stage 7 command group.  The
+    /// deployable supervisor uses it only to authenticate the Redis
+    /// deployment manifest; it grants no command-consumer authority.
+    pub const fn command_consumer_generation(&self) -> u64 {
+        self.operational_identity.command_consumer_generation
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Stage8bP1RedisNamespace {
     pub hash_tag: String,

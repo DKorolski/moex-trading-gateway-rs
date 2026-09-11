@@ -279,6 +279,7 @@ compile_error!("runtime-durable-service requires Unix kernel file locking");
 mod recovery;
 mod stage8b_p1_bootstrap;
 mod stage8b_p1_semantic;
+mod stage8b_p1_supervisor;
 
 pub use recovery::{
     spawn_stage7b_supervised_task, P1SemanticPrepublicationPending, P1SemanticZeroIntentAckPending,
@@ -344,9 +345,10 @@ pub use stage8b_p1_semantic::{
     acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
     acquire_stage8b_p1d4_pre_finalization_with_redis,
     acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
-    attach_stage8b_p1_redis, build_stage8b_p1_canonical_m10,
-    decide_stage8b_p1e_post_acquisition_latch, initialize_stage8b_p1_redis_namespace,
-    parse_stage8b_p1_canonical_m10, resolve_stage8b_p1_zero_intent_ack_with_local_m10,
+    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1_redis,
+    build_stage8b_p1_canonical_m10, decide_stage8b_p1e_post_acquisition_latch,
+    initialize_stage8b_p1_redis_namespace, parse_stage8b_p1_canonical_m10,
+    poll_stage8b_p1e_ready_fresh_with_redis, resolve_stage8b_p1_zero_intent_ack_with_local_m10,
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_local_m10,
     resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
     resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
@@ -358,7 +360,8 @@ pub use stage8b_p1_semantic::{
     resume_stage8b_p1d4_ack_with_redis, resume_stage8b_p1d4_dispatch_pending_with_redis,
     resume_stage8b_p1d4_order_pending_with_redis, resume_stage8b_p1d4_pre_ack_with_redis,
     resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
-    resume_stage8b_p1d4_truth_with_redis, Stage8bP1CanonicalM10BuildInput,
+    resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_ready_source_with_redis,
+    resume_stage8b_p1e_ready_working_limit_source_with_redis, Stage8bP1CanonicalM10BuildInput,
     Stage8bP1CanonicalM10Error, Stage8bP1CanonicalM10SourceM1, Stage8bP1LocalM10Error,
     Stage8bP1LocalM10Stream, Stage8bP1LocalMultiIntentBlocked, Stage8bP1LocalPrepublicationPending,
     Stage8bP1LocalSemanticOutcome, Stage8bP1M10PublishDisposition, Stage8bP1PendingM10Delivery,
@@ -375,12 +378,38 @@ pub use stage8b_p1_semantic::{
     Stage8bP1RedisZeroIntentAckDisposition, Stage8bP1RedisZeroIntentAckResolved,
     Stage8bP1SemanticCompositionError, Stage8bP1SemanticCompositionOwner,
     Stage8bP1ValidatedCanonicalM10, Stage8bP1ZeroIntentAckDisposition,
-    Stage8bP1ZeroIntentAckResolved, Stage8bP1eContinuationPermitV1,
+    Stage8bP1ZeroIntentAckResolved, Stage8bP1eClaimedM10DeliveryV2, Stage8bP1eContinuationPermitV1,
     Stage8bP1ePostAcquisitionDecisionV1, Stage8bP1ePostAcquisitionOwnerV1,
-    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1,
-    Stage8bP1eShutdownLatchV1, STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN,
-    STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE, STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION,
-    STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
+    Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1eReadySourceRouteV1, Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eShutdownCauseV1,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    STAGE8B_P1_CANONICAL_M10_IDENTITY_DOMAIN, STAGE8B_P1_CANONICAL_M10_MESSAGE_TYPE,
+    STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION, STAGE8B_P1_LOCAL_M10_MIN_RETENTION,
+};
+pub use stage8b_p1_supervisor::{
+    attach_stage8b_p1e_verified_redis, parse_stage8b_p1e_supervisor_config_v1,
+    stage8b_p1e_classify_restart_v1, stage8b_p1e_coordinate_event_v1, stage8b_p1e_readiness_v1,
+    stage8b_p1e_redact_account_id, stage8b_p1e_redact_request_id,
+    stage8b_p1e_telemetry_envelope_v1, validate_stage8b_p1e_supervisor_config_v1,
+    Stage8bP1RuntimeProfileV1, Stage8bP1eConsumerHygieneReportV1, Stage8bP1eCoordinatorDecisionV1,
+    Stage8bP1eFailureClassV1, Stage8bP1eHealthPayloadV1, Stage8bP1eHealthStatusV1,
+    Stage8bP1eReadinessInputsV1, Stage8bP1eReadinessPayloadV1, Stage8bP1eReadinessPhaseV1,
+    Stage8bP1eReadinessReasonV1, Stage8bP1eRedisAttachPlanV1, Stage8bP1eRedisControlError,
+    Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRunSettingsV1,
+    Stage8bP1eShutdownPhaseV1, Stage8bP1eSupervisorConfigError, Stage8bP1eSupervisorConfigV1,
+    Stage8bP1eSupervisorEventV1, Stage8bP1eTelemetryEnvelopeV1,
+    Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
+    STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY, STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH,
+    STAGE8B_P1E_HEALTH_INTERVAL_MAX_MS, STAGE8B_P1E_HEALTH_INTERVAL_MIN_MS,
+    STAGE8B_P1E_NAMESPACE_DIGEST_SHA256, STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS,
+    STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID, STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256,
+    STAGE8B_P1E_REDIS_URL_IPV4, STAGE8B_P1E_REDIS_URL_IPV6, STAGE8B_P1E_RUNTIME_PROFILE_ID,
+    STAGE8B_P1E_RUNTIME_PROFILE_SHA256, STAGE8B_P1E_SHUTDOWN_GRACE_MAX_MS,
+    STAGE8B_P1E_SHUTDOWN_GRACE_MIN_MS, STAGE8B_P1E_STALE_CONSUMER_EXAMINE_MAX,
+    STAGE8B_P1E_STALE_CONSUMER_IDLE_MS, STAGE8B_P1E_STALE_CONSUMER_INVENTORY_MAX,
+    STAGE8B_P1E_SUPERVISOR_CONFIG_PATH, STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION,
+    STAGE8B_P1E_SYSTEMD_STOP_TIMEOUT_MS, STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256,
+    STAGE8B_P1E_TELEMETRY_RETENTION,
 };
 
 use std::{
