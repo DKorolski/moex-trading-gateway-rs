@@ -1,0 +1,91 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.redis-runtime-policy.v2",
+  "policy_id": "imoexf-hybrid-paper-db15-runtime-v2",
+  "supersedes": {
+    "path": "docs/stage-8/stage8b-p1e-redis-runtime-policy-v1.json",
+    "canonical_json_sha256": "a3657dfbd10743f93478c1727e118b996c3ad9db5e71986e4378912ab3fdc6f7",
+    "reason": "make the final pending-and-idle eligibility check atomic with stale consumer deletion"
+  },
+  "config_source": "compile-time-reviewed-contract-only",
+  "ordinary_environment_override_allowed": false,
+  "unchecked_default_merge_allowed": false,
+  "read_count": 1,
+  "claim_count": 2,
+  "claim_idle_ms": 30000,
+  "max_claim_pages": 1,
+  "retention_floor": 4096,
+  "redis_operation_timeout_ms": 2000,
+  "fresh_poll_timeout_ms": 1000,
+  "startup_claim": {
+    "attempts": 12,
+    "total_deadline_ms": 60000,
+    "initial_backoff_ms": 250,
+    "backoff_multiplier": 2,
+    "maximum_backoff_ms": 5000,
+    "maximum_commands_after_threshold": 4,
+    "compatibility_formula": "claim_idle_ms + maximum_backoff_ms + maximum_commands_after_threshold * redis_operation_timeout_ms <= total_deadline_ms",
+    "claim_cursor_initial": "0-0",
+    "claim_cursor_terminal": "0-0",
+    "nonterminal_cursor_after_max_pages": "exit-67-no-fresh-read",
+    "pending_below_threshold": "degraded-retry-no-fresh-read",
+    "pending_at_or_above_threshold": "xautoclaim-exact-source",
+    "maximum_accepted_pel_count": 1,
+    "pel_count_exceeded": "exit-67-ambiguous-no-xack-no-fresh-read"
+  },
+  "fresh_read": {
+    "command": "XREADGROUP GROUP <fixed-group> <fixed-consumer> COUNT 1 BLOCK 1000 STREAMS <fixed-m10-stream> >",
+    "allowed_only_after": "manifest-verified-claim-scan-terminal-composite-continuation-quiescent-shutdown-latch-clear",
+    "maximum_successful_polls_before_readiness_decision": 1,
+    "delivery_disposition": "process-same-delivery-to-authenticated-retained-or-terminal-boundary-before-paper-ready",
+    "second_fresh_read_before_first_delivery_resolution": false
+  },
+  "claim_algorithm": [
+    "XPENDING-summary-with-operation-timeout",
+    "reject-count-greater-than-one",
+    "XPENDING-range-minus-plus-count-two-to-bind-exact-id-owner-idle",
+    "if-idle-below-threshold-wait-exact-backoff-with-global-deadline",
+    "XAUTOCLAIM-start-zero-zero-count-two-only-at-or-above-threshold",
+    "reject-zero-or-more-than-one-or-wrong-binding-result",
+    "require-terminal-zero-zero-cursor-after-one-page",
+    "dispatch-composite-continuation-before-any-fresh-read"
+  ],
+  "stale_consumer_hygiene": {
+    "inventory_command": "XINFO CONSUMERS <fixed-m10-stream> <fixed-group>",
+    "maximum_inventory": 64,
+    "inventory_exceeded": "exit-67-no-delete-no-fresh-read",
+    "examined_per_boot": 16,
+    "deterministic_order": "pending-count-ascending-then-idle-ms-descending-then-consumer-name-bytewise-ascending",
+    "delete_minimum_idle_ms": 86400000,
+    "discovery_snapshot_is_authoritative_for_delete": false,
+    "delete_requires_pending_count": 0,
+    "nonzero_pending_delete_allowed": false,
+    "atomic_delete": {
+      "command": "EVAL <pinned-script> 1 <fixed-m10-stream> <fixed-group> <target-consumer> 86400000",
+      "script_path": "docs/stage-8/stage8b-p1e-atomic-stale-consumer-delete-v1.lua",
+      "script_sha256": "cfabc24e0563c490e9950e250fdb146f992403394d48953a1b5eb2a2ffd09b6b",
+      "server_side_sequence": "XINFO-CONSUMERS-exact-target-recheck-pending-zero-and-idle-threshold-then-XGROUP-DELCONSUMER-without-interleaving",
+      "target_absent_or_ineligible_return": 0,
+      "deleted_zero_pending_return": 1,
+      "removed_pending_nonzero": "redis-error-and-never-a-successful-delete",
+      "fallback_when_atomic_guarantee_unavailable": "retain-consumer"
+    },
+    "progress_over_restarts": "successfully-deleted-zero-pending-consumers-disappear-so-next-deterministic-prefix-advances",
+    "consumer_name": "p1e-<deployment-generation>-<random-128-bit-lowercase-hex-boot-id>"
+  },
+  "systemd_restart": {
+    "restart": "on-failure",
+    "restart_sec": 5,
+    "restart_prevent_exit_status": [64, 66],
+    "start_limit_interval_sec": 600,
+    "start_limit_burst": 5,
+    "start_limit_action": "none-unit-remains-failed-until-explicit-operator-reset",
+    "timeout_stop_sec": 100,
+    "kill_signal": "SIGTERM",
+    "kill_mode": "control-group",
+    "final_kill_signal": "SIGKILL",
+    "send_sigkill": true
+  },
+  "validation_order": "validate-policy-and-deadline-compatibility-before-redis-contact",
+  "failure_exit_code": 67
+}

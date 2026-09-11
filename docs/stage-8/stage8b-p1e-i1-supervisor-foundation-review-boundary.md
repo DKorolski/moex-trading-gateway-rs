@@ -1,7 +1,8 @@
 # Stage 8B-P1-e I1 supervisor foundation review boundary
 
-Status: implementation review boundary; **not** I1 acceptance and **not** an
-operational activation package.
+Status: implementation review boundary with the I1 foundation R1 review
+corrections; **not** I1 acceptance and **not** an operational activation
+package.
 
 Accepted predecessors:
 
@@ -17,7 +18,8 @@ The source now contains the non-operational foundation required by I1:
 - exact embedded IMOEXF Hybrid high180 paper runtime construction;
 - fixed loopback Redis DB15 URLs and a fresh generation/boot-bound consumer;
 - verify-only deployment-manifest, key-type and group validation;
-- bounded stale zero-PENDING consumer cleanup;
+- bounded stale zero-PENDING consumer cleanup whose final exact-consumer
+  pending/idle recheck and `DELCONSUMER` run in one pinned Redis-atomic script;
 - fixed `NOMKSTREAM MAXLEN = 4096` health/readiness publication;
 - exhaustive classification of all 22 durable restart outcomes;
 - cause-preserving shutdown/exit, readiness and redacted telemetry contracts;
@@ -37,6 +39,31 @@ book still contains the active working LIMIT.
 
 No binary, service unit, provisioning action or VPS/DB0 activation is added
 at this boundary.
+
+## I1 foundation R1 review corrections
+
+The two local P1 findings against the original foundation are closed in the
+source candidate as follows:
+
+1. `Stage8bP1eCoordinatorV1` owns the accepted first-wins shutdown latch.
+   Error exit classes 70/71/73, the first request sequence and grace deadline
+   survive an authenticated boundary. An ordinary boundary or stray grace
+   event without an initiating shutdown keeps the owner loop running. Grace
+   expiry after an initiating request returns 72 while retaining its cause for
+   diagnostics.
+2. Consumer discovery remains bounded to inventory 64 and deterministic
+   prefix 16, but is no longer deletion authority. The pinned Lua contract
+   re-reads the exact consumer and performs the zero-pending/idle-threshold
+   check together with `DELCONSUMER` in one Redis atomic operation. Missing,
+   newly active, insufficiently idle or nonzero-pending consumers are retained.
+   A real-Redis test assigns an exact PEL delivery between discovery and the
+   atomic operation and proves that both the consumer and delivery survive.
+
+The cleanup amendment is additive. Runtime policy v1 remains historical;
+deployable foundation config now pins
+`stage8b-p1e-redis-runtime-policy-v2.json` and the external Lua artifact by
+exact SHA-256. No cleanup fallback may delete a consumer when the server-side
+atomic guarantee is unavailable.
 
 ## Fail-closed source gap
 

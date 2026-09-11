@@ -27,7 +27,8 @@ use crate::{
     stage8b_p1_redis_namespace, validate_stage8b_p1_bootstrap_config, Stage7bRestartOutcome,
     Stage8bP1BootstrapConfig, Stage8bP1BootstrapError, Stage8bP1RedisConfig,
     Stage8bP1RedisNamespace, Stage8bP1RedisSemanticCompositionTransport,
-    Stage8bP1ValidatedBootstrapConfig,
+    Stage8bP1ValidatedBootstrapConfig, Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1,
+    Stage8bP1eShutdownLatchV1,
 };
 
 use redis::{
@@ -39,9 +40,9 @@ pub const STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION: u16 = 1;
 pub const STAGE8B_P1E_RUNTIME_PROFILE_ID: &str = "imoexf-hybrid-high180-paper-v1";
 pub const STAGE8B_P1E_RUNTIME_PROFILE_SHA256: &str =
     "dd5a211e708db0d40175d19ed1eeb51db26497d344a553b41d7afbfdddde0ef6";
-pub const STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID: &str = "imoexf-hybrid-paper-db15-runtime-v1";
+pub const STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID: &str = "imoexf-hybrid-paper-db15-runtime-v2";
 pub const STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256: &str =
-    "a3657dfbd10743f93478c1727e118b996c3ad9db5e71986e4378912ab3fdc6f7";
+    "c39decbea8af3f305da1e930f1220a54c46e060d972fbb9bbc0c599e8c40ab1f";
 pub const STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256: &str =
     "d2161a02e982a0e5e95b13596d6632a4368b8d74787c3376d5ffa0d11ef120f5";
 pub const STAGE8B_P1E_REDIS_URL_IPV4: &str = "redis://127.0.0.1:6379/15";
@@ -66,6 +67,15 @@ pub const STAGE8B_P1E_NAMESPACE_DIGEST_SHA256: &str =
 
 const RUNTIME_PROFILE_BYTES: &[u8] =
     include_bytes!("../../../docs/stage-8/stage8b-p1e-runtime-profile-v1.json");
+#[cfg(test)]
+const REDIS_RUNTIME_POLICY_BYTES: &[u8] =
+    include_bytes!("../../../docs/stage-8/stage8b-p1e-redis-runtime-policy-v2.json");
+
+/// The discovery snapshot only bounds and orders work. Eligibility is checked
+/// again in this Redis-atomic script immediately before DELCONSUMER, so a
+/// delivery assigned after discovery can never be deleted with its consumer.
+const ATOMIC_STALE_CONSUMER_DELETE_SCRIPT_V1: &str =
+    include_str!("../../../docs/stage-8/stage8b-p1e-atomic-stale-consumer-delete-v1.lua");
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Stage8bP1eSupervisorConfigError {
@@ -317,6 +327,24 @@ impl Stage8bP1eRedisControlV1 {
         &mut self,
         current_consumer: &str,
     ) -> Result<Stage8bP1eConsumerHygieneReportV1, Stage8bP1eRedisControlError> {
+        self.clean_stale_zero_pending_consumers_inner(
+            current_consumer,
+            STAGE8B_P1E_STALE_CONSUMER_IDLE_MS,
+            || async { Ok(()) },
+        )
+        .await
+    }
+
+    async fn clean_stale_zero_pending_consumers_inner<AfterDiscovery, AfterDiscoveryFuture>(
+        &mut self,
+        current_consumer: &str,
+        minimum_idle_ms: usize,
+        after_discovery: AfterDiscovery,
+    ) -> Result<Stage8bP1eConsumerHygieneReportV1, Stage8bP1eRedisControlError>
+    where
+        AfterDiscovery: FnOnce() -> AfterDiscoveryFuture,
+        AfterDiscoveryFuture: Future<Output = Result<(), Stage8bP1eRedisControlError>>,
+    {
         let mut consumers: StreamInfoConsumersReply = redis_operation(
             redis::cmd("XINFO")
                 .arg("CONSUMERS")
@@ -342,24 +370,28 @@ impl Stage8bP1eRedisControlV1 {
             .take(STAGE8B_P1E_STALE_CONSUMER_EXAMINE_MAX)
             .collect();
         let examined_count = candidates.len();
+        after_discovery().await?;
         let mut deleted_count = 0;
         for consumer in candidates {
-            if consumer.pending != 0 || consumer.idle < STAGE8B_P1E_STALE_CONSUMER_IDLE_MS {
+            if consumer.pending != 0 || consumer.idle < minimum_idle_ms {
                 continue;
             }
-            let removed_pending: usize = redis_operation(
-                redis::cmd("XGROUP")
-                    .arg("DELCONSUMER")
+            let deleted: i64 = redis_operation(
+                redis::cmd("EVAL")
+                    .arg(ATOMIC_STALE_CONSUMER_DELETE_SCRIPT_V1)
+                    .arg(1)
                     .arg(&self.namespace.canonical_m10_stream)
                     .arg(&self.namespace.m10_consumer_group)
                     .arg(&consumer.name)
+                    .arg(minimum_idle_ms)
                     .query_async(&mut self.connection),
             )
             .await?;
-            if removed_pending != 0 {
+            if deleted != 0 && deleted != 1 {
                 return Err(Stage8bP1eRedisControlError::ConsumerInventoryInvalid);
             }
-            deleted_count += 1;
+            deleted_count += usize::try_from(deleted)
+                .map_err(|_| Stage8bP1eRedisControlError::ConsumerInventoryInvalid)?;
         }
         Ok(Stage8bP1eConsumerHygieneReportV1 {
             inventory_count,
@@ -1101,69 +1133,195 @@ pub enum Stage8bP1eSupervisorEventV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Stage8bP1eCoordinatorDecisionV1 {
-    pub exit_code: u8,
-    pub readiness_phase: Stage8bP1eReadinessPhaseV1,
+    pub action: Stage8bP1eCoordinatorActionV1,
+    pub exit_code: Option<u8>,
+    pub readiness_phase: Option<Stage8bP1eReadinessPhaseV1>,
     pub request_shutdown: bool,
     pub owner_may_bounded_drain: bool,
+    pub retained_shutdown_cause: Option<Stage8bP1eShutdownCauseV1>,
+    pub first_request_sequence: Option<u64>,
+    pub grace_deadline_utc_ms: Option<i64>,
 }
 
-pub const fn stage8b_p1e_coordinate_event_v1(
-    event: Stage8bP1eSupervisorEventV1,
-    owner_available: bool,
-) -> Stage8bP1eCoordinatorDecisionV1 {
-    match event {
-        Stage8bP1eSupervisorEventV1::ExternalSignal => Stage8bP1eCoordinatorDecisionV1 {
-            exit_code: 0,
-            readiness_phase: Stage8bP1eReadinessPhaseV1::Draining,
-            request_shutdown: true,
-            owner_may_bounded_drain: owner_available,
-        },
-        Stage8bP1eSupervisorEventV1::OwnerPanicked
-        | Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner => {
-            Stage8bP1eCoordinatorDecisionV1 {
-                exit_code: 70,
-                readiness_phase: Stage8bP1eReadinessPhaseV1::Degraded,
-                request_shutdown: true,
-                owner_may_bounded_drain: false,
-            }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eCoordinatorActionV1 {
+    ContinueOwnerLoop,
+    DrainToAuthenticatedBoundary,
+    CompleteUsingRetainedIntent,
+}
+
+/// Stateful process coordinator. The first shutdown request owns the cause,
+/// deadline and request sequence until process completion. A normal durable
+/// checkpoint is therefore not itself a process-completion event.
+pub struct Stage8bP1eCoordinatorV1 {
+    shutdown_latch: Stage8bP1eShutdownLatchV1,
+}
+
+impl Default for Stage8bP1eCoordinatorV1 {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Stage8bP1eCoordinatorV1 {
+    pub const fn new() -> Self {
+        Self {
+            shutdown_latch: Stage8bP1eShutdownLatchV1::new(),
         }
-        Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly => Stage8bP1eCoordinatorDecisionV1 {
-            exit_code: 70,
-            readiness_phase: Stage8bP1eReadinessPhaseV1::Draining,
-            request_shutdown: true,
-            owner_may_bounded_drain: owner_available,
-        },
-        Stage8bP1eSupervisorEventV1::TelemetryFailed => Stage8bP1eCoordinatorDecisionV1 {
-            exit_code: 71,
-            readiness_phase: Stage8bP1eReadinessPhaseV1::Degraded,
-            request_shutdown: true,
-            owner_may_bounded_drain: owner_available,
-        },
-        Stage8bP1eSupervisorEventV1::SignalTaskFailed => Stage8bP1eCoordinatorDecisionV1 {
-            exit_code: 73,
-            readiness_phase: Stage8bP1eReadinessPhaseV1::Degraded,
-            request_shutdown: true,
-            owner_may_bounded_drain: owner_available,
-        },
-        Stage8bP1eSupervisorEventV1::RedisLifecycleFailed => Stage8bP1eCoordinatorDecisionV1 {
-            exit_code: 67,
-            readiness_phase: Stage8bP1eReadinessPhaseV1::Degraded,
-            request_shutdown: true,
-            owner_may_bounded_drain: false,
-        },
-        Stage8bP1eSupervisorEventV1::GraceExpired => Stage8bP1eCoordinatorDecisionV1 {
-            exit_code: 72,
-            readiness_phase: Stage8bP1eReadinessPhaseV1::Degraded,
-            request_shutdown: true,
-            owner_may_bounded_drain: false,
-        },
-        Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached => {
-            Stage8bP1eCoordinatorDecisionV1 {
-                exit_code: 0,
-                readiness_phase: Stage8bP1eReadinessPhaseV1::Stopped,
-                request_shutdown: false,
-                owner_may_bounded_drain: false,
+    }
+
+    pub fn shutdown_intent(&self) -> Option<&Stage8bP1eShutdownIntentV1> {
+        self.shutdown_latch.intent()
+    }
+
+    pub fn coordinate(
+        &mut self,
+        event: Stage8bP1eSupervisorEventV1,
+        owner_available: bool,
+        now_utc_ms: i64,
+        grace_deadline_utc_ms: i64,
+        request_sequence: u64,
+    ) -> Stage8bP1eCoordinatorDecisionV1 {
+        match event {
+            Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached => {
+                return self.authenticated_boundary_decision(now_utc_ms);
             }
+            Stage8bP1eSupervisorEventV1::GraceExpired => {
+                return self.grace_expired_decision();
+            }
+            Stage8bP1eSupervisorEventV1::RedisLifecycleFailed => {
+                return Stage8bP1eCoordinatorDecisionV1 {
+                    action: Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
+                    exit_code: Some(67),
+                    readiness_phase: Some(Stage8bP1eReadinessPhaseV1::Degraded),
+                    request_shutdown: true,
+                    owner_may_bounded_drain: false,
+                    retained_shutdown_cause: self
+                        .shutdown_latch
+                        .intent()
+                        .map(|intent| intent.cause()),
+                    first_request_sequence: self
+                        .shutdown_latch
+                        .intent()
+                        .map(|intent| intent.first_request_sequence()),
+                    grace_deadline_utc_ms: self
+                        .shutdown_latch
+                        .intent()
+                        .map(|intent| intent.grace_deadline_utc_ms()),
+                };
+            }
+            _ => {}
+        }
+
+        let cause = match event {
+            Stage8bP1eSupervisorEventV1::ExternalSignal => {
+                Stage8bP1eShutdownCauseV1::ExternalSignal
+            }
+            Stage8bP1eSupervisorEventV1::OwnerPanicked
+            | Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner
+            | Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly => {
+                Stage8bP1eShutdownCauseV1::OwnerFailure
+            }
+            Stage8bP1eSupervisorEventV1::TelemetryFailed => {
+                Stage8bP1eShutdownCauseV1::TelemetryFailure
+            }
+            Stage8bP1eSupervisorEventV1::SignalTaskFailed => {
+                Stage8bP1eShutdownCauseV1::SignalTaskFailure
+            }
+            Stage8bP1eSupervisorEventV1::RedisLifecycleFailed
+            | Stage8bP1eSupervisorEventV1::GraceExpired
+            | Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached => unreachable!(
+                "terminal and boundary events are handled before shutdown intent issuance"
+            ),
+        };
+        self.shutdown_latch.request(Stage8bP1eShutdownIntentV1::new(
+            cause,
+            grace_deadline_utc_ms,
+            request_sequence,
+        ));
+
+        let owner_may_bounded_drain = owner_available
+            && !matches!(
+                event,
+                Stage8bP1eSupervisorEventV1::OwnerPanicked
+                    | Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner
+            );
+        if owner_may_bounded_drain {
+            self.retained_decision(
+                Stage8bP1eCoordinatorActionV1::DrainToAuthenticatedBoundary,
+                None,
+                Some(Stage8bP1eReadinessPhaseV1::Draining),
+                true,
+            )
+        } else {
+            let exit_code = self
+                .shutdown_latch
+                .intent()
+                .map(|intent| intent.bounded_exit_class(now_utc_ms));
+            self.retained_decision(
+                Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
+                exit_code,
+                Some(Stage8bP1eReadinessPhaseV1::Degraded),
+                false,
+            )
+        }
+    }
+
+    fn authenticated_boundary_decision(&self, now_utc_ms: i64) -> Stage8bP1eCoordinatorDecisionV1 {
+        match self.shutdown_latch.intent() {
+            Some(intent) => self.retained_decision(
+                Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
+                Some(intent.bounded_exit_class(now_utc_ms)),
+                Some(Stage8bP1eReadinessPhaseV1::Stopped),
+                false,
+            ),
+            None => Self::continue_owner_loop_decision(),
+        }
+    }
+
+    fn grace_expired_decision(&self) -> Stage8bP1eCoordinatorDecisionV1 {
+        if self.shutdown_latch.intent().is_some() {
+            self.retained_decision(
+                Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
+                Some(72),
+                Some(Stage8bP1eReadinessPhaseV1::Degraded),
+                false,
+            )
+        } else {
+            Self::continue_owner_loop_decision()
+        }
+    }
+
+    const fn continue_owner_loop_decision() -> Stage8bP1eCoordinatorDecisionV1 {
+        Stage8bP1eCoordinatorDecisionV1 {
+            action: Stage8bP1eCoordinatorActionV1::ContinueOwnerLoop,
+            exit_code: None,
+            readiness_phase: None,
+            request_shutdown: false,
+            owner_may_bounded_drain: false,
+            retained_shutdown_cause: None,
+            first_request_sequence: None,
+            grace_deadline_utc_ms: None,
+        }
+    }
+
+    fn retained_decision(
+        &self,
+        action: Stage8bP1eCoordinatorActionV1,
+        exit_code: Option<u8>,
+        readiness_phase: Option<Stage8bP1eReadinessPhaseV1>,
+        owner_may_bounded_drain: bool,
+    ) -> Stage8bP1eCoordinatorDecisionV1 {
+        let intent = self.shutdown_latch.intent();
+        Stage8bP1eCoordinatorDecisionV1 {
+            action,
+            exit_code,
+            readiness_phase,
+            request_shutdown: intent.is_some(),
+            owner_may_bounded_drain,
+            retained_shutdown_cause: intent.map(|value| value.cause()),
+            first_request_sequence: intent.map(|value| value.first_request_sequence()),
+            grace_deadline_utc_ms: intent.map(|value| value.grace_deadline_utc_ms()),
         }
     }
 }
@@ -1489,7 +1647,13 @@ fn is_sha256_hex(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
+    use std::{
+        fs,
+        net::TcpListener,
+        os::unix::fs::PermissionsExt,
+        path::PathBuf,
+        process::{Child, Command, Stdio},
+    };
 
     use super::*;
     use crate::{
@@ -1497,6 +1661,107 @@ mod tests {
         STAGE8B_P1_EXCHANGE, STAGE8B_P1_INTERNAL_SYMBOL, STAGE8B_P1_MARKET, STAGE8B_P1_STRATEGY_ID,
         STAGE8B_P1_TICK_SIZE, STAGE8B_P1_VENUE_SYMBOL,
     };
+
+    struct RedisServer {
+        child: Child,
+        url: String,
+    }
+
+    impl RedisServer {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+            let mut child = Command::new("redis-server")
+                .args([
+                    "--bind",
+                    "127.0.0.1",
+                    "--port",
+                    &port.to_string(),
+                    "--save",
+                    "",
+                    "--appendonly",
+                    "no",
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("redis-server is required for the P1-e cleanup proof");
+            let url = format!("redis://127.0.0.1:{port}/");
+            for _ in 0..100 {
+                if let Ok(client) = redis::Client::open(url.as_str()) {
+                    if let Ok(mut connection) = ConnectionManager::new(client).await {
+                        let pong: redis::RedisResult<String> =
+                            redis::cmd("PING").query_async(&mut connection).await;
+                        if pong.as_deref() == Ok("PONG") && child.try_wait().unwrap().is_none() {
+                            return Self { child, url };
+                        }
+                    }
+                }
+                tokio::time::sleep(StdDuration::from_millis(10)).await;
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("temporary Redis did not start");
+        }
+
+        async fn connection(&self) -> ConnectionManager {
+            ConnectionManager::new(redis::Client::open(self.url.as_str()).unwrap())
+                .await
+                .unwrap()
+        }
+    }
+
+    impl Drop for RedisServer {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    async fn create_m10_group(
+        connection: &mut ConnectionManager,
+        namespace: &Stage8bP1RedisNamespace,
+    ) {
+        let _: String = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .arg("0-0")
+            .arg("MKSTREAM")
+            .query_async(connection)
+            .await
+            .unwrap();
+    }
+
+    async fn create_consumer(
+        connection: &mut ConnectionManager,
+        namespace: &Stage8bP1RedisNamespace,
+        consumer: &str,
+    ) {
+        let created: i64 = redis::cmd("XGROUP")
+            .arg("CREATECONSUMER")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .arg(consumer)
+            .query_async(connection)
+            .await
+            .unwrap();
+        assert_eq!(created, 1);
+    }
+
+    async fn consumer_inventory(
+        connection: &mut ConnectionManager,
+        namespace: &Stage8bP1RedisNamespace,
+    ) -> StreamInfoConsumersReply {
+        redis::cmd("XINFO")
+            .arg("CONSUMERS")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(connection)
+            .await
+            .unwrap()
+    }
 
     fn supervisor_config(parent: PathBuf) -> Stage8bP1eSupervisorConfigV1 {
         let (_, fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
@@ -1551,6 +1816,14 @@ mod tests {
         assert_eq!(
             sha256_hex(&canonical_json_bytes(RUNTIME_PROFILE_BYTES).unwrap()),
             STAGE8B_P1E_RUNTIME_PROFILE_SHA256
+        );
+        assert_eq!(
+            sha256_hex(&canonical_json_bytes(REDIS_RUNTIME_POLICY_BYTES).unwrap()),
+            STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256
+        );
+        assert_eq!(
+            sha256_hex(ATOMIC_STALE_CONSUMER_DELETE_SCRIPT_V1.as_bytes()),
+            "cfabc24e0563c490e9950e250fdb146f992403394d48953a1b5eb2a2ffd09b6b"
         );
     }
 
@@ -1797,21 +2070,310 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn cleanup_atomically_retains_consumer_that_gains_pending_after_discovery() {
+        let redis = RedisServer::start().await;
+        let namespace = stage8b_p1_redis_namespace();
+        let mut setup = redis.connection().await;
+        create_m10_group(&mut setup, &namespace).await;
+        create_consumer(&mut setup, &namespace, "stale-race").await;
+        let source_id: String = redis::cmd("XADD")
+            .arg(&namespace.canonical_m10_stream)
+            .arg("*")
+            .arg("payload")
+            .arg("race-source")
+            .query_async(&mut setup)
+            .await
+            .unwrap();
+
+        let race_url = redis.url.clone();
+        let race_stream = namespace.canonical_m10_stream.clone();
+        let race_group = namespace.m10_consumer_group.clone();
+        let mut control = Stage8bP1eRedisControlV1 {
+            connection: redis.connection().await,
+            namespace: namespace.clone(),
+        };
+        let report = control
+            .clean_stale_zero_pending_consumers_inner("current", 0, move || async move {
+                let mut connection = ConnectionManager::new(
+                    redis::Client::open(race_url.as_str())
+                        .map_err(|_| Stage8bP1eRedisControlError::Redis)?,
+                )
+                .await
+                .map_err(|_| Stage8bP1eRedisControlError::Redis)?;
+                let reply: redis::streams::StreamReadReply = redis::cmd("XREADGROUP")
+                    .arg("GROUP")
+                    .arg(&race_group)
+                    .arg("stale-race")
+                    .arg("COUNT")
+                    .arg(1)
+                    .arg("STREAMS")
+                    .arg(&race_stream)
+                    .arg(">")
+                    .query_async(&mut connection)
+                    .await
+                    .map_err(|_| Stage8bP1eRedisControlError::Redis)?;
+                if reply.keys.len() != 1 {
+                    return Err(Stage8bP1eRedisControlError::Redis);
+                }
+                Ok(())
+            })
+            .await
+            .unwrap();
+        assert_eq!(report.deleted_count, 0);
+
+        let mut verify = redis.connection().await;
+        let inventory = consumer_inventory(&mut verify, &namespace).await;
+        let retained = inventory
+            .consumers
+            .iter()
+            .find(|consumer| consumer.name == "stale-race")
+            .unwrap();
+        assert_eq!(retained.pending, 1);
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut verify)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 1);
+        let StreamPendingReply::Data(pending) = pending else {
+            panic!("race source must remain in the exact PEL");
+        };
+        assert_eq!(pending.start_id, source_id);
+        assert_eq!(pending.end_id, source_id);
+        assert_eq!(pending.consumers.len(), 1);
+        assert_eq!(pending.consumers[0].name, "stale-race");
+        assert_eq!(pending.consumers[0].pending, 1);
+    }
+
+    #[tokio::test]
+    async fn cleanup_deletes_only_rechecked_zero_pending_idle_consumers() {
+        let redis = RedisServer::start().await;
+        let namespace = stage8b_p1_redis_namespace();
+        let mut setup = redis.connection().await;
+        create_m10_group(&mut setup, &namespace).await;
+        create_consumer(&mut setup, &namespace, "current").await;
+        create_consumer(&mut setup, &namespace, "eligible").await;
+        create_consumer(&mut setup, &namespace, "too-young").await;
+
+        let mut control = Stage8bP1eRedisControlV1 {
+            connection: redis.connection().await,
+            namespace: namespace.clone(),
+        };
+        let retained = control
+            .clean_stale_zero_pending_consumers_inner("current", usize::MAX, || async { Ok(()) })
+            .await
+            .unwrap();
+        assert_eq!(retained.deleted_count, 0);
+
+        let deleted = control
+            .clean_stale_zero_pending_consumers_inner("current", 0, || async { Ok(()) })
+            .await
+            .unwrap();
+        assert_eq!(deleted.deleted_count, 2);
+        let inventory = consumer_inventory(&mut control.connection, &namespace).await;
+        assert_eq!(inventory.consumers.len(), 1);
+        assert_eq!(inventory.consumers[0].name, "current");
+    }
+
+    #[tokio::test]
+    async fn cleanup_rejects_unbounded_inventory_without_deletion() {
+        let redis = RedisServer::start().await;
+        let namespace = stage8b_p1_redis_namespace();
+        let mut setup = redis.connection().await;
+        create_m10_group(&mut setup, &namespace).await;
+        for index in 0..=STAGE8B_P1E_STALE_CONSUMER_INVENTORY_MAX {
+            create_consumer(&mut setup, &namespace, &format!("inventory-{index:03}")).await;
+        }
+        let mut control = Stage8bP1eRedisControlV1 {
+            connection: redis.connection().await,
+            namespace: namespace.clone(),
+        };
+        assert_eq!(
+            control
+                .clean_stale_zero_pending_consumers_inner("current", 0, || async { Ok(()) })
+                .await,
+            Err(Stage8bP1eRedisControlError::ConsumerInventoryInvalid)
+        );
+        let inventory = consumer_inventory(&mut control.connection, &namespace).await;
+        assert_eq!(
+            inventory.consumers.len(),
+            STAGE8B_P1E_STALE_CONSUMER_INVENTORY_MAX + 1
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_uses_a_deterministic_bounded_prefix_of_sixteen() {
+        let redis = RedisServer::start().await;
+        let namespace = stage8b_p1_redis_namespace();
+        let mut setup = redis.connection().await;
+        create_m10_group(&mut setup, &namespace).await;
+        for index in 0..18 {
+            create_consumer(&mut setup, &namespace, &format!("bounded-{index:02}")).await;
+        }
+        let mut control = Stage8bP1eRedisControlV1 {
+            connection: redis.connection().await,
+            namespace: namespace.clone(),
+        };
+        let first = control
+            .clean_stale_zero_pending_consumers_inner("current", 0, || async { Ok(()) })
+            .await
+            .unwrap();
+        assert_eq!(first.inventory_count, 18);
+        assert_eq!(first.examined_count, STAGE8B_P1E_STALE_CONSUMER_EXAMINE_MAX);
+        assert_eq!(first.deleted_count, STAGE8B_P1E_STALE_CONSUMER_EXAMINE_MAX);
+
+        let second = control
+            .clean_stale_zero_pending_consumers_inner("current", 0, || async { Ok(()) })
+            .await
+            .unwrap();
+        assert_eq!(second.inventory_count, 2);
+        assert_eq!(second.examined_count, 2);
+        assert_eq!(second.deleted_count, 2);
+    }
+
     #[test]
-    fn coordinator_uses_closed_exit_classes_and_never_fabricates_lost_owner() {
-        let lost =
-            stage8b_p1e_coordinate_event_v1(Stage8bP1eSupervisorEventV1::OwnerPanicked, false);
-        assert_eq!(lost.exit_code, 70);
-        assert!(!lost.owner_may_bounded_drain);
+    fn coordinator_preserves_error_cause_through_authenticated_boundary() {
+        for (event, cause, exit_code) in [
+            (
+                Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly,
+                Stage8bP1eShutdownCauseV1::OwnerFailure,
+                70,
+            ),
+            (
+                Stage8bP1eSupervisorEventV1::TelemetryFailed,
+                Stage8bP1eShutdownCauseV1::TelemetryFailure,
+                71,
+            ),
+            (
+                Stage8bP1eSupervisorEventV1::SignalTaskFailed,
+                Stage8bP1eShutdownCauseV1::SignalTaskFailure,
+                73,
+            ),
+        ] {
+            let mut coordinator = Stage8bP1eCoordinatorV1::new();
+            let draining = coordinator.coordinate(event, true, 1_000, 2_000, 41);
+            assert_eq!(
+                draining.action,
+                Stage8bP1eCoordinatorActionV1::DrainToAuthenticatedBoundary
+            );
+            assert_eq!(draining.exit_code, None);
+            assert_eq!(draining.retained_shutdown_cause, Some(cause));
 
-        let telemetry =
-            stage8b_p1e_coordinate_event_v1(Stage8bP1eSupervisorEventV1::TelemetryFailed, true);
-        assert_eq!(telemetry.exit_code, 71);
-        assert!(telemetry.owner_may_bounded_drain);
+            let completed = coordinator.coordinate(
+                Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached,
+                true,
+                1_500,
+                9_999,
+                99,
+            );
+            assert_eq!(
+                completed.action,
+                Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent
+            );
+            assert_eq!(completed.exit_code, Some(exit_code));
+            assert_eq!(completed.retained_shutdown_cause, Some(cause));
+            assert_eq!(completed.first_request_sequence, Some(41));
+            assert_eq!(completed.grace_deadline_utc_ms, Some(2_000));
+        }
+    }
 
-        let grace =
-            stage8b_p1e_coordinate_event_v1(Stage8bP1eSupervisorEventV1::GraceExpired, true);
-        assert_eq!(grace.exit_code, 72);
-        assert!(!grace.owner_may_bounded_drain);
+    #[test]
+    fn coordinator_preserves_external_signal_and_first_request() {
+        let mut coordinator = Stage8bP1eCoordinatorV1::new();
+        let signal = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::ExternalSignal,
+            true,
+            1_000,
+            2_000,
+            17,
+        );
+        assert_eq!(signal.exit_code, None);
+        assert_eq!(
+            signal.retained_shutdown_cause,
+            Some(Stage8bP1eShutdownCauseV1::ExternalSignal)
+        );
+
+        let repeated = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::TelemetryFailed,
+            true,
+            1_100,
+            8_000,
+            18,
+        );
+        assert_eq!(
+            repeated.retained_shutdown_cause,
+            Some(Stage8bP1eShutdownCauseV1::ExternalSignal)
+        );
+        assert_eq!(repeated.first_request_sequence, Some(17));
+        assert_eq!(repeated.grace_deadline_utc_ms, Some(2_000));
+
+        let completed = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached,
+            true,
+            1_500,
+            9_000,
+            19,
+        );
+        assert_eq!(completed.exit_code, Some(0));
+        assert_eq!(completed.first_request_sequence, Some(17));
+    }
+
+    #[test]
+    fn coordinator_grace_expiry_keeps_initiating_diagnostics() {
+        let mut coordinator = Stage8bP1eCoordinatorV1::new();
+        coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::TelemetryFailed,
+            true,
+            1_000,
+            2_000,
+            23,
+        );
+        let expired = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::GraceExpired,
+            true,
+            2_000,
+            7_000,
+            24,
+        );
+        assert_eq!(expired.exit_code, Some(72));
+        assert_eq!(
+            expired.retained_shutdown_cause,
+            Some(Stage8bP1eShutdownCauseV1::TelemetryFailure)
+        );
+        assert_eq!(expired.first_request_sequence, Some(23));
+        assert_eq!(expired.grace_deadline_utc_ms, Some(2_000));
+    }
+
+    #[test]
+    fn authenticated_boundary_without_shutdown_keeps_owner_running() {
+        let mut coordinator = Stage8bP1eCoordinatorV1::new();
+        let decision = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached,
+            true,
+            1_000,
+            2_000,
+            1,
+        );
+        assert_eq!(
+            decision.action,
+            Stage8bP1eCoordinatorActionV1::ContinueOwnerLoop
+        );
+        assert_eq!(decision.exit_code, None);
+        assert!(!decision.request_shutdown);
+
+        let stray_grace = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::GraceExpired,
+            true,
+            2_000,
+            2_000,
+            2,
+        );
+        assert_eq!(
+            stray_grace.action,
+            Stage8bP1eCoordinatorActionV1::ContinueOwnerLoop
+        );
+        assert_eq!(stray_grace.exit_code, None);
     }
 }
