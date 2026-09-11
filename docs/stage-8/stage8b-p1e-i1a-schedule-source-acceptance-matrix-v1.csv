@@ -1,0 +1,82 @@
+id,area,case,precondition,expected_owner,expected_effects,expected_readiness,status
+I1A-P01,positive,market-exact-successor,Fresh signed Open schedule and exact predecessor/candidate M10,Returned authenticated owner,One transition-bound market authority and durable schedule binding,PaperReady,REQUIRED
+I1A-P02,positive,working-limit-later-m10,Authenticated surviving Working Eval LIMIT and untouched later M10,Returned working-book owner,One transition-bound working-limit schedule step after durable binding,PaperReady,REQUIRED
+I1A-P03,positive,cancel-step,Authenticated active LIMIT and exact cancel transition,Returned working-book owner,One transition-bound cancel schedule step after durable binding,PaperReady,REQUIRED
+I1A-P04,positive,day-expiry,Authenticated working order and proven last eligible M10,Returned working-book owner,One day-expiry authority bound to boundary and last eligible M10,PaperReady,REQUIRED
+I1A-P05,positive,approved-nontradable-gap,Known explicit nontradable interval covers every affected M10 endpoint,Returned current owner,Existing Stage5E classifier approves gap without invented eligibility,PaperReady,REQUIRED
+I1A-P06,positive,restart-same-incomplete-transition,Exact authenticated historical binding exists for incomplete transition,Restored exact owner,Equivalent authority reissued with no second callback provider or committed seal,PaperReady,REQUIRED
+I1A-P07,positive,snapshot-multiple-transitions,One source remains fresh for distinct exact transitions,Returned owner per transition,Separate single-use authority and durable binding per transition,PaperReady,REQUIRED
+I1A-P08,positive,idempotent-stream-duplicate,Same generation sequence and exact bytes repeat,Unchanged current owner,Same observation accepted once and no duplicate business effect,PaperReady,REQUIRED
+I1A-A01,authentication,missing-signature,Envelope has no signature,Retained exact owner,No authority callback provider timer or M10 XACK,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-A02,authentication,wrong-signature,Signature does not verify under pinned schedule key,Retained exact owner,No authority callback provider timer or M10 XACK,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-A03,authentication,wrong-key-id,Envelope key id differs from schedule-ed25519-v1,Retained exact owner,No authority or fallback to older row,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-A04,authentication,wrong-key-generation,Envelope key generation differs from 2,Retained exact owner,No authority or Generation-2 execution activation,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-A05,authentication,expired-trust-key,Trusted clock is outside pinned key validity,Retained exact owner,No authority and no key substitution,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-A06,authentication,redis-checksum-only,Payload hash matches but signature is absent or invalid,Retained exact owner,Redis transport is not treated as trust anchor,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-A07,authentication,noncanonical-envelope,Decode succeeds but canonical re-encoding differs,Retained exact owner,Reject before authority issuance,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-A08,authentication,duplicate-or-unknown-field,Recursive duplicate or unknown JSON field exists,Retained exact owner,Strict decode rejects source,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-F01,freshness,source-missing,Pre-provisioned stream has no candidate,Retained exact owner,Bounded retry with exact M10 PEL retained,Degraded:ScheduleSourceMissing,REQUIRED
+I1A-F02,freshness,envelope-expired,Envelope publication age exceeds 5000 ms,Retained exact owner,No authority and no older fallback,Degraded:ScheduleSourceStale,REQUIRED
+I1A-F03,freshness,envelope-future,Envelope exceeds trusted future skew 250 ms,Retained exact owner,No authority and no clock adjustment,Degraded:ScheduleSourceFuture,REQUIRED
+I1A-F04,freshness,normalized-expired,Normalized source is older than 86400000 ms or explicit expiry passed,Retained exact owner,No authority despite fresh wrapper,Degraded:ScheduleSourceStale,REQUIRED
+I1A-F05,freshness,stage4-expired,Stage4 evidence expiry passed while normalized source is fresh,Retained exact owner,No authority despite fresh normalized schedule,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-F06,freshness,normalized-expired-stage4-fresh,Normalized source expired while Stage4 evidence remains fresh,Retained exact owner,No authority because proofs are independent,Degraded:ScheduleSourceStale,REQUIRED
+I1A-F07,freshness,cross-source-skew,Normalized and Stage4 observations differ by more than 5000 ms,Retained exact owner,No authority and no timestamp rewriting,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-F08,freshness,republished-old-source,New envelope wraps unchanged expired source observation,Retained exact owner,Republishing does not refresh source,Degraded:ScheduleSourceStale,REQUIRED
+I1A-S01,sequence,same-sequence-different-bytes,Equal generation and sequence carry different canonical bytes,Retained exact owner,Terminal conflict and no older fallback,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-S02,sequence,sequence-rollback,Candidate sequence is below durable high-water mark,Retained exact owner,No authority and high-water unchanged,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-S03,sequence,reordered-source,Candidate order conflicts with generation sequence order,Retained exact owner,No authority and no convenient row search,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-S04,sequence,unexplained-gap,Sequence gap violates pinned source progression contract,Retained exact owner,No authority until separately reconciled,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-S05,sequence,generation-change,Source generation changes without reviewed trust/config amendment,Retained exact owner,No implicit generation adoption,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-S06,sequence,invalid-newest-valid-older,Newest row is invalid and older row is valid,Retained exact owner,Fail closed without fallback to older row,Degraded:ScheduleSourceUntrusted,REQUIRED
+I1A-I01,identity,operational-identity-mismatch,Envelope operational identity differs from supervisor plan,Retained exact owner,No authority or M10 XACK,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-I02,identity,runtime-config-mismatch,Runtime configuration fingerprint differs,Retained exact owner,No authority or config fallback,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-I03,identity,instrument-map-mismatch,Instrument map fingerprint differs,Retained exact owner,No authority or symbol remap,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-I04,identity,registry-mismatch,Registry identity or version differs from accepted registry,Retained exact owner,No authority,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-I05,identity,instrument-mismatch,Symbol broker symbol venue board market or tick differs,Retained exact owner,No authority,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-I06,identity,trading-day-mismatch,Source day differs from exact transition day,Retained exact owner,No cross-day authority,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-I07,identity,timeframe-mismatch,Transition is not exact 600-second M10,Retained exact owner,No authority,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-N01,normalized,unknown-session-type,Schedule contains session outside exact known inventory,Retained exact owner,Existing Stage5E classifier not invoked with untrusted rows,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-N02,normalized,overlapping-sessions,Two intervals overlap or have ambiguous endpoint,Retained exact owner,No inferred precedence or authority,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-N03,normalized,unsorted-sessions,Session order differs from canonical start end type order,Retained exact owner,Reject noncanonical schedule,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-N04,normalized,empty-sessions,Normalized session inventory is empty,Retained exact owner,No default-open behavior,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-N05,normalized,no-tradable-open,No explicit tradable_open interval exists,Retained exact owner,No blanket session eligibility,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-N06,normalized,uncovered-gap,Missing grid endpoints are not covered by explicit nontradable interval,Retained exact owner,Gap rejected by existing Stage5E classifier,Degraded:ScheduleSourceConflict,REQUIRED
+I1A-E01,stage4,report-hash-mismatch,Canonical Stage4 report bytes do not match report hash,Retained exact owner,No authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-E02,stage4,report-not-accepted,Stage4 report or any required section is not Accepted,Retained exact owner,No authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-E03,stage4,safety-open-or-live-authorized,Stage4 safety is not closed or live authorization is present,Retained exact owner,No authority and closed surfaces remain closed,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-E04,stage4,manual-or-reasons,Manual intervention is required or reason chain is nonempty,Retained exact owner,No authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-E05,stage4,schedule-not-open,Stage4 signed schedule state is not Open,Retained exact owner,No authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-E06,stage4,missing-schedule-freshness,Stage4 schedule section is absent stale optional or blocked,Retained exact owner,No authority,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-E07,stage4,expiry-copy-mismatch,Explicit Stage4 expiry differs from recomputed required-source expiry,Retained exact owner,No copied-summary acceptance,Degraded:ScheduleStage4EvidenceBlocked,REQUIRED
+I1A-B01,binding,wrong-predecessor,Authority request names another predecessor M10 exact identity,Retained exact owner,No authority and no source substitution,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-B02,binding,wrong-candidate,Authority request names another candidate M10 exact identity,Retained exact owner,No authority and no second M10 read,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-B03,binding,wrong-request-command,Request id or canonical command hash differs,Retained exact owner,No market authority,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-B04,binding,wrong-working-book,Active broker order or working transition hash differs,Retained exact owner,No working or cancel authority,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-B05,binding,day-before-last-evaluated,Last eligible M10 has not been authenticated and evaluated,Retained exact owner,No day-expiry authority or timer effect,Degraded:ScheduleSourceIdentityMismatch,REQUIRED
+I1A-B06,binding,double-use-authority,Consumed authority is presented for a second effect,Retained returned owner from first effect,Compile or runtime linearity rejects second effect,PaperReady,REQUIRED
+I1A-R01,replay,crash-after-schedule-read,Source read but no durable schedule record committed,Recovered exact prior owner,Reacquire fresh source with no authority or callback duplication,Degraded:ScheduleSourceMissing,REQUIRED
+I1A-R02,replay,crash-after-binding-before-issuance,Covering seal and binding durable but authority not issued,Restored exact owner,Reissue from exact historical envelope with no callback duplication,PaperReady,REQUIRED
+I1A-R03,replay,crash-after-issuance-before-transition,Authority was volatile and durable transition is incomplete,Restored exact owner,Reissue equivalent authority from exact durable binding,PaperReady,REQUIRED
+I1A-R04,replay,crash-after-durable-transition-before-m10-xack,Transition and schedule binding committed but source M10 remains pending,Restored replacement owner,Continue accepted lifecycle and XACK only through Stage7 XACK-last,PaperReady,REQUIRED
+I1A-R05,replay,bound-envelope-outside-retention,Exact historical stream row was trimmed after binding,Restored exact owner,Use exact authenticated durable envelope only for same incomplete transition,PaperReady,REQUIRED
+I1A-R06,replay,new-schedule-during-incomplete,Newer fresh schedule arrives after exact transition was bound,Restored exact owner,Do not substitute newest schedule for bound historical transition,PaperReady,REQUIRED
+I1A-R07,replay,historical-binding-new-transition,Completed historical binding is offered for different new transition,Retained current owner,Reject and require current fresh source,Degraded:ScheduleSourceStale,REQUIRED
+I1A-R08,replay,restart-sequence-pair,Crash occurs across schedule binding and replacement seal,Restored exact owner,Sequence pair and exact envelope hash remain unchanged,PaperReady,REQUIRED
+I1A-T01,timer,due-timer-and-fresh-m10,A due timer and one fresh M10 are simultaneously available,Returned post-M10 owner,Process source first then reclassify timer,PaperReady,REQUIRED
+I1A-T02,timer,timer-book-mismatch,Due timer no longer matches returned working book,Returned post-M10 owner,Drop or defer timer with no stale effect,PaperReady,REQUIRED
+I1A-T03,timer,signal-before-schedule-acquisition,Shutdown latch is set before schedule lookup,Retained exact owner,No schedule acquisition authority timer or M10 XACK,Stopped,REQUIRED
+I1A-T04,timer,signal-after-schedule-acquisition,Signal arrives after verified source before timer execution,Retained exact owner and binding state,No timer effect and no source M10 XACK,Stopped,REQUIRED
+I1A-T05,timer,signal-between-timer-checkpoints,Signal arrives between post-acquisition and pre-effect checks,Retained exact owner and binding state,Second latch check suppresses timer effect,Stopped,REQUIRED
+I1A-T06,timer,schedule-missing-for-expiry,Day timer is due but schedule source is unavailable,Retained working-book owner,No invented expiry and no second fresh M10 read,Degraded:ScheduleSourceMissing,REQUIRED
+I1A-C01,compile,default-feature-facade,Future facade is built with default deployable features,Not applicable,Facade compiles without artifact-fixtures,Not applicable,REQUIRED
+I1A-C02,compile,private-constructor,External code tries direct authority constructor,Not applicable,Compile-fail proves constructor inaccessible,Not applicable,REQUIRED
+I1A-C03,compile,clone-copy-serde,External code tries Clone Copy serde or raw-parts bypass,Not applicable,Compile-fail proves opaque linear authority,Not applicable,REQUIRED
+I1A-C04,compile,supervisor-publisher,Supervisor code tries XADD repair trim delete or XACK schedule stream,Not applicable,Static and negative gate reject build contract,Not applicable,REQUIRED
+I1A-C05,compile,artifact-fixture-deploy,Deployable binary enables artifact-fixtures,Not applicable,Gate rejects configuration,Not applicable,REQUIRED
+I1A-X01,closed,redis-db0-vps,Implementation attempts operational Redis DB0 or VPS activation,Not applicable,Gate fails and surface remains closed,Not authorized,REQUIRED
+I1A-X02,closed,redis-db15-activation,Implementation attempts operational schedule stream activation,Not applicable,Gate fails pending separate operational acceptance,Not authorized,REQUIRED
+I1A-X03,closed,private-key-install,Implementation installs schedule private key,Not applicable,Gate fails and private material stays external,Not authorized,REQUIRED
+I1A-X04,closed,finam-write,Implementation reaches FINAM POST or DELETE,Not applicable,Gate fails and no broker write occurs,Not authorized,REQUIRED
+I1A-X05,closed,broker-dispatch,Implementation reaches broker command dispatch,Not applicable,Gate fails and no command is sent,Not authorized,REQUIRED
+I1A-X06,closed,runtime-live-real-orders,Implementation enables runtime-live or real orders,Not applicable,Gate fails and paper-only boundary remains closed,Not authorized,REQUIRED

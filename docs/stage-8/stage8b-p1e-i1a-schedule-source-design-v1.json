@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1a.schedule-source-design.v1",
+  "stage": "Stage 8B-P1-e I1A",
+  "status": "DESIGN_REVIEW_CANDIDATE_IMPLEMENTATION_NOT_AUTHORIZED",
+  "accepted_predecessors": {
+    "p1e_i0": "afda87a98ae3b0d0f4506292a162310f4b9068c0",
+    "p1e_r10": "d34e000c39f439ae981f9573c8b203a3dc8e3e85",
+    "p1d4_governance_closure": "c2a9e1246dfdd59f3a6297268de907dedcb19903"
+  },
+  "foundation_source_candidate": "a0b07f6ef16ac8e43004204f1e52184bc615fa97",
+  "selected_architecture": "separate-pre-provisioned-authenticated-broker-neutral-schedule-stream-db15",
+  "artifacts": {
+    "design": "docs/stage-8/stage8b-p1e-i1a-schedule-source-design-v1.md",
+    "policy": "docs/stage-8/stage8b-p1e-i1a-schedule-source-policy-v1.json",
+    "schema": "docs/stage-8/stage8b-p1e-i1a-schedule-envelope-v1.schema.json",
+    "acceptance_matrix": "docs/stage-8/stage8b-p1e-i1a-schedule-source-acceptance-matrix-v1.csv",
+    "implementation_scope": "docs/stage-8/stage8b-p1e-i1a-implementation-scope-v1.json"
+  },
+  "source_ownership": {
+    "producer": "finam-gateway::Stage8bP1eReadonlySchedulePublisherV1",
+    "producer_is_supervisor": false,
+    "producer_is_strategy_runtime": false,
+    "source_is_broker_neutral_after_mapping": true,
+    "source_inputs": [
+      "FINAM GET-only AssetScheduleResponse",
+      "accepted redacted Stage4BootstrapEvidenceReport",
+      "exact broker-neutral instrument registry projection"
+    ],
+    "controlled_fixture_producer_allowed_before_operational_acceptance": true,
+    "operational_producer_required_before_paper_activation": true
+  },
+  "trust_decision": {
+    "redis_transport_is_untrusted": true,
+    "selected_public_trust": "generation-2 schedule issuer only",
+    "selection_does_not_activate_generation_2_execution": true,
+    "selection_requires_separate_operational_private_key_installation_acceptance": true,
+    "private_key_in_git_handoff_or_supervisor": false,
+    "invalid_signature_has_no-fallback": true
+  },
+  "stage5e_facade": {
+    "module_owner": "strategy-runtime-core::stage5e_no_io_lifecycle::schedule_window_evidence",
+    "default_feature_required": true,
+    "artifact_fixture_feature_allowed": false,
+    "input": "Stage8bP1eVerifiedScheduleEnvelopeV1",
+    "validation_order": [
+      "strict envelope decode and canonical-byte equality",
+      "payload and report hash verification",
+      "Ed25519 trust/key/generation/signature verification",
+      "source generation sequence replay and freshness validation",
+      "instrument and operational identity binding",
+      "Stage4 accepted report chain and schedule-state validation",
+      "normalized schedule and registry validation",
+      "existing Stage5E trusted schedule projection mapping",
+      "transition-exact authority issuance"
+    ],
+    "returns_raw_schedule_rows_or_accepted_flags": false,
+    "bypasses_existing_stage5e_classifier": false
+  },
+  "authority_operations": [
+    {
+      "kind": "market_execution",
+      "issuer": "issue_stage8b_p1e_market_schedule_authority_v1",
+      "output": "Stage8bP1d1ExecutionScheduleAuthority",
+      "binding": [
+        "operational_identity_sha256",
+        "strategy_request_id",
+        "canonical_command_sha256",
+        "predecessor_m10_redis_id",
+        "predecessor_m10_semantic_id_sha256",
+        "predecessor_m10_payload_sha256",
+        "candidate_m10_redis_id",
+        "candidate_m10_semantic_id_sha256",
+        "candidate_m10_payload_sha256",
+        "instrument",
+        "timeframe_sec_600",
+        "trading_day",
+        "schedule_fingerprint_sha256",
+        "transition_binding_sha256"
+      ]
+    },
+    {
+      "kind": "working_limit_or_cancel_step",
+      "issuer": "issue_stage8b_p1e_working_limit_schedule_step_v1",
+      "output": "Stage8bP1d3ScheduleStepAuthority",
+      "binding": [
+        "operational_identity_sha256",
+        "active_broker_order_id",
+        "working_book_transition_sha256",
+        "request_or_autonomous_transition_identity",
+        "predecessor_m10_exact_identity",
+        "candidate_m10_exact_identity",
+        "instrument",
+        "timeframe_sec_600",
+        "trading_day",
+        "last_eligible_m10_redis_id",
+        "schedule_fingerprint_sha256",
+        "transition_binding_sha256"
+      ]
+    },
+    {
+      "kind": "day_expiry",
+      "issuer": "issue_stage8b_p1e_day_expiry_authority_v1",
+      "output": "Stage8bP1d3DayExpiryAuthority",
+      "binding": [
+        "operational_identity_sha256",
+        "active_broker_order_id",
+        "working_book_transition_sha256",
+        "instrument",
+        "trading_day",
+        "last_eligible_m10_exact_identity",
+        "boundary_ts_utc_ms",
+        "schedule_fingerprint_sha256",
+        "transition_binding_sha256"
+      ]
+    }
+  ],
+  "durable_transition_rule": {
+    "record": "Stage8bP1eScheduleEvidenceBoundV1",
+    "must_exist_before_first_authority_issuance": true,
+    "commit_protocol": "append-stage6-journal-covering-seal-fsync-reread-cross-validate",
+    "exact_signed_envelope_bytes_retained": true,
+    "same_incomplete_transition_reissue_allowed": true,
+    "newest_snapshot_substitution_for_incomplete_transition_allowed": false,
+    "historical_binding_reuse_for_new_transition_allowed": false,
+    "source_m10_xack_effect": "none"
+  },
+  "timer_order": [
+    "classify due timer without executing",
+    "shutdown-latch checkpoint",
+    "complete S06 pending/reclaim scan",
+    "perform at most one S08 fresh M10 poll",
+    "if M10 exists process its exact route to an authenticated boundary",
+    "reclassify timer against returned owner/book",
+    "obtain or reissue exact day schedule binding",
+    "shutdown-latch checkpoint after schedule acquisition",
+    "shutdown-latch checkpoint immediately before timer execution",
+    "execute timer as a separate effect"
+  ],
+  "missing_source_behavior": {
+    "readiness_phase": "Degraded",
+    "reason_inventory": [
+      "ScheduleSourceMissing",
+      "ScheduleSourceStale",
+      "ScheduleSourceFuture",
+      "ScheduleSourceUntrusted",
+      "ScheduleSourceConflict",
+      "ScheduleSourceIdentityMismatch",
+      "ScheduleStage4EvidenceBlocked"
+    ],
+    "retain_linear_owner": true,
+    "retain_exact_m10_pel": true,
+    "default_session_eligibility": false,
+    "m10_xack": false,
+    "second_fresh_m10_read": false
+  },
+  "implementation_authorization": {
+    "production_facade": false,
+    "schedule_publisher": false,
+    "manifest_config_amendment": false,
+    "durable_schedule_binding_record": false,
+    "owner_loop": false,
+    "requires_independent_i1a_design_acceptance": true
+  },
+  "closed_surfaces": {
+    "redis_db0_vps_activation": false,
+    "redis_db15_operational_schedule_activation": false,
+    "finam_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false
+  }
+}

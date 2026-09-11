@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1a.implementation-scope.v1",
+  "status": "PROSPECTIVE_ALLOWLIST_REQUIRES_DESIGN_ACCEPTANCE",
+  "new_rust_paths": [
+    "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs",
+    "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs"
+  ],
+  "modifiable_rust_paths": [
+    "crates/runtime-durable-service/Cargo.toml",
+    "crates/runtime-durable-service/src/lib.rs",
+    "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs",
+    "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
+    "crates/runtime-durable-service/src/recovery.rs",
+    "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
+    "crates/strategy-runtime-core/src/stage8b_p1d1_paper_provider.rs",
+    "crates/strategy-runtime-core/src/stage8b_p1d3_working_limit.rs",
+    "crates/strategy-runtime-core/src/lib.rs",
+    "crates/finam-gateway/src/lib.rs"
+  ],
+  "modifiable_non_rust_paths": [
+    "Cargo.lock",
+    "docs/stage-8/stage8b-p1e-redis-deployment-manifest-v2.json",
+    "docs/stage-8/stage8b-p1e-redis-runtime-policy-v3.json",
+    "docs/stage-8/stage8b-p1e-supervisor-config-schema-v2.json",
+    "docs/stage-8/stage8b-p1e-i1a-schedule-source-implementation.md",
+    "docs/stage-8/stage8b-p1e-i1a-schedule-source-implementation-evidence.json",
+    "tests/fixtures/stage8b/p1e/i1a/**",
+    "scripts/stage8b_p1e_i1a_*"
+  ],
+  "accepted_semantics_that_may_not_change": [
+    "Stage5C callback and settlement semantics",
+    "Stage6 journal and seal transition semantics except one additive typed schedule-binding record",
+    "Stage7 RequestFinalized and XACK-last semantics",
+    "P1-d2 market feedback lifecycle",
+    "P1-d3 limit cancel expiry lifecycle",
+    "P1-d4 generated-market crash replay semantics",
+    "I0 latch-aware source seam",
+    "canonical M10 wire schema"
+  ],
+  "forbidden_implementation_shortcuts": [
+    "public-or-raw authority constructor",
+    "artifact-fixture feature in deployable binary",
+    "schedule inferred from M10 timestamp alone",
+    "blanket session eligible",
+    "Redis checksum treated as publisher authentication",
+    "schedule stream consumer group or XACK",
+    "newest schedule substituted for an incomplete bound transition",
+    "FINAM POST or DELETE",
+    "broker command dispatch",
+    "runtime-live or real orders"
+  ]
+}

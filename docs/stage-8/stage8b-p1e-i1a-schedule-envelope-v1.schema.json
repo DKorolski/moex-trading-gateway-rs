@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moex-trading.invalid/schema/stage8b-p1e-i1a-schedule-envelope-v1.json",
+  "title": "Stage8bP1eSignedScheduleEnvelopeV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "domain",
+    "producer_id",
+    "producer_contract_version",
+    "key_id",
+    "key_generation",
+    "source_generation",
+    "source_sequence",
+    "published_at_utc",
+    "operational_identity_sha256",
+    "runtime_config_fingerprint_sha256",
+    "instrument_map_fingerprint_sha256",
+    "payload_sha256",
+    "payload",
+    "signature_ed25519_hex"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "domain": {"const": "moex.stage8b.p1e.schedule-envelope.v1"},
+    "producer_id": {"const": "finam-readonly-schedule-normalizer-v1"},
+    "producer_contract_version": {"const": "finam-rest-schedule-to-broker-neutral-v1"},
+    "key_id": {"const": "schedule-ed25519-v1"},
+    "key_generation": {"const": 2},
+    "source_generation": {"const": "1"},
+    "source_sequence": {"$ref": "#/$defs/nonzeroDecimalString"},
+    "published_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+    "operational_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "runtime_config_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "instrument_map_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "payload_sha256": {"$ref": "#/$defs/sha256"},
+    "payload": {"$ref": "#/$defs/payload"},
+    "signature_ed25519_hex": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nonzeroDecimalString": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+    "utcTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "domain",
+        "instrument",
+        "registry",
+        "trading_day",
+        "timezone",
+        "normalized_schedule",
+        "stage4_evidence"
+      ],
+      "properties": {
+        "schema_version": {"const": 1},
+        "domain": {"const": "moex.stage8b.p1e.schedule-payload.v1"},
+        "instrument": {"$ref": "#/$defs/instrument"},
+        "registry": {"$ref": "#/$defs/registry"},
+        "trading_day": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "timezone": {"const": "Europe/Moscow"},
+        "normalized_schedule": {"$ref": "#/$defs/normalizedSchedule"},
+        "stage4_evidence": {"$ref": "#/$defs/stage4Evidence"}
+      }
+    },
+    "instrument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symbol",
+        "broker_symbol",
+        "exchange",
+        "market",
+        "venue_mic",
+        "board",
+        "tick_size"
+      ],
+      "properties": {
+        "symbol": {"const": "IMOEXF"},
+        "broker_symbol": {"const": "IMOEXF@RTSX"},
+        "exchange": {"const": "moex"},
+        "market": {"const": "futures"},
+        "venue_mic": {"const": "RTSX"},
+        "board": {"const": "FUT"},
+        "tick_size": {"const": "0.5"}
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_version", "registry_identity_sha256"],
+      "properties": {
+        "registry_version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._-]{1,128}$"
+        },
+        "registry_identity_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "normalizedSchedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_observed_at_utc",
+        "source_expires_at_utc",
+        "raw_response_sha256",
+        "normalized_payload_sha256",
+        "sessions"
+      ],
+      "properties": {
+        "source_observed_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "source_expires_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "raw_response_sha256": {"$ref": "#/$defs/sha256"},
+        "normalized_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "sessions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {"$ref": "#/$defs/session"}
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_type", "start_utc", "end_utc"],
+      "properties": {
+        "session_type": {
+          "enum": ["tradable_open", "break_or_clearing", "maintenance"]
+        },
+        "start_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "end_utc": {"$ref": "#/$defs/utcTimestamp"}
+      }
+    },
+    "stage4Evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schedule_state",
+        "source_observed_at_utc",
+        "source_expires_at_utc",
+        "report_canonical_json_hex",
+        "report_sha256"
+      ],
+      "properties": {
+        "schedule_state": {"const": "open"},
+        "source_observed_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "source_expires_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "report_canonical_json_hex": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 262144,
+          "pattern": "^(?:[0-9a-f]{2})+$"
+        },
+        "report_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
