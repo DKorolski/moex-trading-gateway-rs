@@ -165,6 +165,63 @@ fn p1e_i0_observe_timer_reclassification() {
 }
 
 #[cfg(test)]
+fn p1e_i0_observe_timer_execution() {
+    p1e_i0_observe_effect(|observed| observed.timer_execution_total += 1);
+}
+
+#[cfg(test)]
+struct P1eI0AcquisitionBarrierV1 {
+    entered: tokio::sync::oneshot::Sender<()>,
+    release: tokio::sync::oneshot::Receiver<()>,
+    entered_total: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static P1E_I0_ACQUISITION_BARRIER: std::cell::RefCell<Option<P1eI0AcquisitionBarrierV1>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn p1e_i0_arm_acquisition_barrier() -> (
+    tokio::sync::oneshot::Receiver<()>,
+    tokio::sync::oneshot::Sender<()>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let (entered_sender, entered_receiver) = tokio::sync::oneshot::channel();
+    let (release_sender, release_receiver) = tokio::sync::oneshot::channel();
+    let entered_total = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    P1E_I0_ACQUISITION_BARRIER.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        assert!(slot.is_none(), "P1-e acquisition barrier is already armed");
+        *slot = Some(P1eI0AcquisitionBarrierV1 {
+            entered: entered_sender,
+            release: release_receiver,
+            entered_total: entered_total.clone(),
+        });
+    });
+    (entered_receiver, release_sender, entered_total)
+}
+
+#[cfg(test)]
+async fn p1e_i0_pause_acquisition_if_armed() {
+    let barrier = P1E_I0_ACQUISITION_BARRIER.with(|slot| slot.borrow_mut().take());
+    if let Some(barrier) = barrier {
+        barrier
+            .entered_total
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        barrier
+            .entered
+            .send(())
+            .expect("P1-e acquisition-entry witness must be observed");
+        barrier
+            .release
+            .await
+            .expect("P1-e acquisition barrier must be released");
+    }
+}
+
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum P1d4ObservedEffectEvent {
     P1d3Provider,
@@ -2529,6 +2586,8 @@ pub async fn acquire_stage8b_p1_prepublication_with_redis(
     durable: Stage8bP1SemanticPrepublicationOwner,
     mut transport: Stage8bP1RedisSemanticCompositionTransport,
 ) -> Result<Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1RedisSemanticError> {
+    #[cfg(test)]
+    p1e_i0_pause_acquisition_if_armed().await;
     let evidence = durable.evidence().clone();
     let pending_m10 = transport.backend.reclaim_exact_evidence(&evidence).await?;
     Ok(post_acquisition_owner(
@@ -5273,6 +5332,7 @@ mod tests {
 
     #[derive(Clone, Copy)]
     enum P1eI0SignalArrival {
+        PresetLatchBeforeAcquisition,
         AcquisitionInFlight,
         PostAcquisitionLatchDecision,
         PostPermitContinuation,
@@ -5285,6 +5345,7 @@ mod tests {
         let redis = RedisServer::start().await;
         let parent = temp_directory("p1e-i0-lr02-signal-arrival");
         let (pending, key, fresh, _) = one_intent_pending(&redis, &parent).await;
+        let exact_source_redis_id = pending.pending_m10_redis_id().to_string();
         drop(pending);
         let restart = restart_stage8b_p1(
             validate_stage8b_p1_bootstrap_config(bootstrap_config(
@@ -5305,18 +5366,50 @@ mod tests {
             .unwrap();
         let intent = Stage8bP1eShutdownIntentV1::new(cause, 20_000, 17);
         let mut latch = Stage8bP1eShutdownLatchV1::new();
-        if matches!(arrival, P1eI0SignalArrival::AcquisitionInFlight) {
+        if matches!(arrival, P1eI0SignalArrival::PresetLatchBeforeAcquisition) {
             assert!(latch.request(intent.clone()));
         }
-        let acquired = acquire_stage8b_p1_prepublication_with_redis(*owner, transport)
-            .await
-            .unwrap();
+        let barrier = matches!(arrival, P1eI0SignalArrival::AcquisitionInFlight)
+            .then(p1e_i0_arm_acquisition_barrier);
+        let acquisition = acquire_stage8b_p1_prepublication_with_redis(*owner, transport);
+        tokio::pin!(acquisition);
+        let acquisition_entered_total = if let Some((entered, release, entered_total)) = barrier {
+            tokio::select! {
+                _ = &mut acquisition => {
+                    panic!("LR02 acquisition completed before its in-flight barrier")
+                }
+                entered = entered => {
+                    entered.expect("LR02 acquisition must publish its in-flight witness");
+                }
+            }
+            assert_eq!(
+                entered_total.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "the one LR02 acquisition future must be entered exactly once"
+            );
+            assert!(latch.request(intent.clone()));
+            release
+                .send(())
+                .expect("the same LR02 acquisition future must still own the barrier");
+            Some(entered_total)
+        } else {
+            None
+        };
+        let acquired = acquisition.await.unwrap();
+        if let Some(entered_total) = acquisition_entered_total {
+            assert_eq!(
+                entered_total.load(std::sync::atomic::Ordering::SeqCst),
+                1,
+                "LR02 must drain the same future without reacquisition"
+            );
+        }
         p1e_i0_begin_effect_audit();
         if matches!(arrival, P1eI0SignalArrival::PostAcquisitionLatchDecision) {
             assert!(latch.request(intent.clone()));
         }
         match arrival {
-            P1eI0SignalArrival::AcquisitionInFlight
+            P1eI0SignalArrival::PresetLatchBeforeAcquisition
+            | P1eI0SignalArrival::AcquisitionInFlight
             | P1eI0SignalArrival::PostAcquisitionLatchDecision => {
                 let Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(receipt) =
                     decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
@@ -5374,12 +5467,23 @@ mod tests {
             .query_async(&mut connection)
             .await
             .unwrap();
+        let pending_entries: StreamPendingCountReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .arg("-")
+            .arg("+")
+            .arg(2)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
         let command_count: usize = redis::cmd("XLEN")
             .arg(&namespace.canonical_command_stream)
             .query_async(&mut connection)
             .await
             .unwrap();
         assert_eq!(pending.count(), 1, "LR02 signal retains exact source");
+        assert_eq!(pending_entries.ids.len(), 1);
+        assert_eq!(pending_entries.ids[0].id, exact_source_redis_id);
         assert_eq!(command_count, 0, "LR02 signal cannot publish");
         fs::remove_dir_all(parent).unwrap();
     }
@@ -5392,6 +5496,7 @@ mod tests {
             Stage8bP1eShutdownCauseV1::SignalTaskFailure,
         ] {
             for arrival in [
+                P1eI0SignalArrival::PresetLatchBeforeAcquisition,
                 P1eI0SignalArrival::AcquisitionInFlight,
                 P1eI0SignalArrival::PostAcquisitionLatchDecision,
                 P1eI0SignalArrival::PostPermitContinuation,
@@ -6147,6 +6252,12 @@ mod tests {
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum P1eI0TimerFixtureRelation {
+        SameAuthenticatedOwner,
+        ForeignAuthenticatedOwner,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum P1eI0TimerSignalCheckpoint {
         AfterSourceBeforeReclassification,
         AfterReclassificationBeforeExecution,
@@ -6156,23 +6267,176 @@ mod tests {
     struct P1eI0AuthenticatedTimerV1 {
         timer_id: String,
         due_at_utc_ms: i64,
+        owner_operational_identity_sha256: String,
+        source_seal_generation: u64,
+        source_seal_commitment_sha256: String,
+        evidence_commitment_sha256: String,
+    }
+
+    struct P1eI0ClassifiedTimerV1 {
+        owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+        timer: P1eI0AuthenticatedTimerV1,
+        classification: P1eI0TimerClassification,
+    }
+
+    enum P1eI0AfterSourceTimerDecisionV1 {
+        RetainForRestart {
+            owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+            timer: P1eI0AuthenticatedTimerV1,
+        },
+        Reclassify {
+            owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+            timer: P1eI0AuthenticatedTimerV1,
+        },
+    }
+
+    enum P1eI0AfterReclassificationDecisionV1 {
+        RetainForRestart(P1eI0ClassifiedTimerV1),
+        ExecuteOnNextOwnerLoop(P1eI0ClassifiedTimerV1),
+    }
+
+    fn p1e_i0_timer_evidence_commitment(
+        timer_id: &str,
+        due_at_utc_ms: i64,
+        owner_operational_identity_sha256: &str,
+        source_seal_generation: u64,
+        source_seal_commitment_sha256: &str,
+    ) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(b"moex.stage8b.p1e.i0.authenticated-timer.v1\0");
+        for field in [
+            timer_id.as_bytes(),
+            owner_operational_identity_sha256.as_bytes(),
+            source_seal_commitment_sha256.as_bytes(),
+        ] {
+            hasher.update((field.len() as u64).to_be_bytes());
+            hasher.update(field);
+        }
+        hasher.update(due_at_utc_ms.to_be_bytes());
+        hasher.update(source_seal_generation.to_be_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    fn p1e_i0_authenticated_timer(
+        source_owner: &Stage8bP1d3TruthCommittedOwner,
+        frontier_id: &str,
+        relation: P1eI0TimerFixtureRelation,
+    ) -> P1eI0AuthenticatedTimerV1 {
+        let exact_owner = source_owner.operational_identity_sha256();
+        let owner_operational_identity_sha256 = match relation {
+            P1eI0TimerFixtureRelation::SameAuthenticatedOwner => exact_owner.to_string(),
+            P1eI0TimerFixtureRelation::ForeignAuthenticatedOwner => {
+                sha256_hex(format!("foreign-owner-for-{frontier_id}-{exact_owner}").as_bytes())
+            }
+        };
+        let timer_id = format!("due-day-{frontier_id}-{relation:?}");
+        let due_at_utc_ms = P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000;
+        let source_seal_generation = source_owner.recovery_seal_generation();
+        let source_seal_commitment_sha256 =
+            source_owner.recovery_seal_commitment_sha256().to_string();
+        let evidence_commitment_sha256 = p1e_i0_timer_evidence_commitment(
+            &timer_id,
+            due_at_utc_ms,
+            &owner_operational_identity_sha256,
+            source_seal_generation,
+            &source_seal_commitment_sha256,
+        );
+        P1eI0AuthenticatedTimerV1 {
+            timer_id,
+            due_at_utc_ms,
+            owner_operational_identity_sha256,
+            source_seal_generation,
+            source_seal_commitment_sha256,
+            evidence_commitment_sha256,
+        }
+    }
+
+    fn p1e_i0_after_source_timer_latch_decision(
+        owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+        timer: P1eI0AuthenticatedTimerV1,
+        latch: &Stage8bP1eShutdownLatchV1,
+    ) -> P1eI0AfterSourceTimerDecisionV1 {
+        if latch.intent().is_some() {
+            P1eI0AfterSourceTimerDecisionV1::RetainForRestart { owner, timer }
+        } else {
+            P1eI0AfterSourceTimerDecisionV1::Reclassify { owner, timer }
+        }
     }
 
     fn p1e_i0_reclassify_timer(
-        _owner: &Stage8bP1RedisSemanticCompositionOwner,
-        timer: &P1eI0AuthenticatedTimerV1,
-        classification: P1eI0TimerClassification,
-    ) -> (String, P1eI0TimerClassification) {
+        owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+        timer: P1eI0AuthenticatedTimerV1,
+        observed_at_utc_ms: i64,
+    ) -> P1eI0ClassifiedTimerV1 {
         assert!(!timer.timer_id.is_empty());
         assert!(timer.due_at_utc_ms > 0);
+        assert!(timer.source_seal_generation > 0);
+        assert_eq!(timer.source_seal_commitment_sha256.len(), 64);
+        assert_eq!(
+            timer.evidence_commitment_sha256,
+            p1e_i0_timer_evidence_commitment(
+                &timer.timer_id,
+                timer.due_at_utc_ms,
+                &timer.owner_operational_identity_sha256,
+                timer.source_seal_generation,
+                &timer.source_seal_commitment_sha256,
+            ),
+            "timer evidence must remain authenticated before reclassification"
+        );
+        let returned_owner_identity = owner.stage7.stage8b_p1_operational_identity_sha256();
+        let classification = if timer.due_at_utc_ms <= observed_at_utc_ms
+            && timer.owner_operational_identity_sha256 == returned_owner_identity
+        {
+            P1eI0TimerClassification::Retained
+        } else {
+            P1eI0TimerClassification::Stale
+        };
         p1e_i0_observe_timer_reclassification();
-        (timer.timer_id.clone(), classification)
+        P1eI0ClassifiedTimerV1 {
+            owner,
+            timer,
+            classification,
+        }
+    }
+
+    fn p1e_i0_after_reclassification_latch_decision(
+        classified: P1eI0ClassifiedTimerV1,
+        latch: &Stage8bP1eShutdownLatchV1,
+    ) -> P1eI0AfterReclassificationDecisionV1 {
+        if latch.intent().is_some() {
+            P1eI0AfterReclassificationDecisionV1::RetainForRestart(classified)
+        } else {
+            P1eI0AfterReclassificationDecisionV1::ExecuteOnNextOwnerLoop(classified)
+        }
+    }
+
+    fn p1e_i0_execute_timer_on_next_owner_loop(
+        classified: P1eI0ClassifiedTimerV1,
+    ) -> (
+        Box<Stage8bP1RedisSemanticCompositionOwner>,
+        P1eI0AuthenticatedTimerV1,
+        P1eI0TimerClassification,
+        bool,
+    ) {
+        let executed = matches!(
+            classified.classification,
+            P1eI0TimerClassification::Retained
+        );
+        if executed {
+            p1e_i0_observe_timer_execution();
+        }
+        (
+            classified.owner,
+            classified.timer,
+            classified.classification,
+            executed,
+        )
     }
 
     async fn p1e_i0_assert_source_first_timer_checkpoint(
         source_already_acknowledged: bool,
-        classification: P1eI0TimerClassification,
-        signal_checkpoint: P1eI0TimerSignalCheckpoint,
+        relation: P1eI0TimerFixtureRelation,
+        signal_checkpoint: Option<P1eI0TimerSignalCheckpoint>,
     ) {
         let redis = RedisServer::start().await;
         let parent = temp_directory("p1e-i0-source-first-timer-checkpoint");
@@ -6195,6 +6459,8 @@ mod tests {
         let Stage7bRestartOutcome::P1d3TruthCommitted(owner) = restart else {
             panic!("LT05 timer fixture must restart at cancel-recovered truth");
         };
+        let timer = p1e_i0_authenticated_timer(&owner, frontier_id, relation);
+        let original_timer = timer.clone();
         tokio::time::sleep(Duration::from_millis(5)).await;
         let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
             .await
@@ -6203,10 +6469,6 @@ mod tests {
             .await
             .unwrap();
         let permit = p1e_clear_permit(acquired);
-        let timer = P1eI0AuthenticatedTimerV1 {
-            timer_id: format!("due-day-{frontier_id}-{classification:?}"),
-            due_at_utc_ms: P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000,
-        };
         let mut latch = Stage8bP1eShutdownLatchV1::new();
         p1e_i0_begin_effect_audit();
 
@@ -6220,34 +6482,88 @@ mod tests {
             }
         );
         let owner = resolved.into_ready_owner();
-
-        let classified = match signal_checkpoint {
-            P1eI0TimerSignalCheckpoint::AfterSourceBeforeReclassification => {
-                assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
-                    Stage8bP1eShutdownCauseV1::ExternalSignal,
-                    20_000,
-                    61,
-                )));
-                None
+        let expected_classification = match relation {
+            P1eI0TimerFixtureRelation::SameAuthenticatedOwner => P1eI0TimerClassification::Retained,
+            P1eI0TimerFixtureRelation::ForeignAuthenticatedOwner => P1eI0TimerClassification::Stale,
+        };
+        if matches!(
+            signal_checkpoint,
+            Some(P1eI0TimerSignalCheckpoint::AfterSourceBeforeReclassification)
+        ) {
+            assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+                Stage8bP1eShutdownCauseV1::ExternalSignal,
+                20_000,
+                61,
+            )));
+        }
+        let after_source = p1e_i0_after_source_timer_latch_decision(owner, timer, &latch);
+        let (owner, timer, observed_classification, executed) = match after_source {
+            P1eI0AfterSourceTimerDecisionV1::RetainForRestart { owner, timer } => {
+                assert_eq!(
+                    signal_checkpoint,
+                    Some(P1eI0TimerSignalCheckpoint::AfterSourceBeforeReclassification)
+                );
+                assert_eq!(timer, original_timer, "first latch retains original timer");
+                (owner, timer, None, false)
             }
-            P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution => {
-                let classified = p1e_i0_reclassify_timer(&owner, &timer, classification);
-                assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
-                    Stage8bP1eShutdownCauseV1::ExternalSignal,
-                    20_000,
-                    62,
-                )));
-                Some(classified)
+            P1eI0AfterSourceTimerDecisionV1::Reclassify { owner, timer } => {
+                let classified =
+                    p1e_i0_reclassify_timer(owner, timer, P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000);
+                assert_eq!(classified.timer, original_timer);
+                assert_eq!(classified.classification, expected_classification);
+                if matches!(
+                    signal_checkpoint,
+                    Some(P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution)
+                ) {
+                    assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
+                        Stage8bP1eShutdownCauseV1::ExternalSignal,
+                        20_000,
+                        62,
+                    )));
+                }
+                match p1e_i0_after_reclassification_latch_decision(classified, &latch) {
+                    P1eI0AfterReclassificationDecisionV1::RetainForRestart(classified) => {
+                        assert_eq!(
+                            signal_checkpoint,
+                            Some(P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution)
+                        );
+                        (
+                            classified.owner,
+                            classified.timer,
+                            Some(classified.classification),
+                            false,
+                        )
+                    }
+                    P1eI0AfterReclassificationDecisionV1::ExecuteOnNextOwnerLoop(classified) => {
+                        assert!(signal_checkpoint.is_none());
+                        let (owner, timer, classification, executed) =
+                            p1e_i0_execute_timer_on_next_owner_loop(classified);
+                        (owner, timer, Some(classification), executed)
+                    }
+                }
             }
         };
-        assert!(latch.intent().is_some());
-        if let Some((timer_id, observed_classification)) = classified {
-            assert_eq!(timer_id, timer.timer_id);
-            assert_eq!(observed_classification, classification);
+        assert_eq!(timer, original_timer);
+        match relation {
+            P1eI0TimerFixtureRelation::SameAuthenticatedOwner => assert_eq!(
+                owner.stage7.stage8b_p1_operational_identity_sha256(),
+                timer.owner_operational_identity_sha256
+            ),
+            P1eI0TimerFixtureRelation::ForeignAuthenticatedOwner => assert_ne!(
+                owner.stage7.stage8b_p1_operational_identity_sha256(),
+                timer.owner_operational_identity_sha256,
+                "stale timer must be authentically bound to a different owner"
+            ),
+        }
+        if signal_checkpoint.is_some() {
+            assert!(latch.intent().is_some());
+            assert!(!executed);
         } else {
+            assert!(latch.intent().is_none());
+            assert_eq!(observed_classification, Some(expected_classification));
             assert_eq!(
-                timer.timer_id,
-                format!("due-day-{frontier_id}-{classification:?}")
+                executed,
+                matches!(expected_classification, P1eI0TimerClassification::Retained)
             );
         }
 
@@ -6257,10 +6573,10 @@ mod tests {
             observed.timer_reclassification_total,
             u64::from(matches!(
                 signal_checkpoint,
-                P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution
+                Some(P1eI0TimerSignalCheckpoint::AfterReclassificationBeforeExecution) | None
             ))
         );
-        assert_eq!(observed.timer_execution_total, 0);
+        assert_eq!(observed.timer_execution_total, u64::from(executed));
         assert_eq!(observed.replacement_seal_commit_total, 0);
         assert_eq!(observed.callback_total, 0);
         assert_eq!(observed.publication_total, 0);
@@ -6282,9 +6598,9 @@ mod tests {
     #[tokio::test]
     async fn p1e_i0_source_first_timer_checkpoints_never_execute_timer_in_same_step() {
         for source_already_acknowledged in [false, true] {
-            for classification in [
-                P1eI0TimerClassification::Retained,
-                P1eI0TimerClassification::Stale,
+            for relation in [
+                P1eI0TimerFixtureRelation::SameAuthenticatedOwner,
+                P1eI0TimerFixtureRelation::ForeignAuthenticatedOwner,
             ] {
                 for signal_checkpoint in [
                     P1eI0TimerSignalCheckpoint::AfterSourceBeforeReclassification,
@@ -6292,11 +6608,28 @@ mod tests {
                 ] {
                     p1e_i0_assert_source_first_timer_checkpoint(
                         source_already_acknowledged,
-                        classification,
-                        signal_checkpoint,
+                        relation,
+                        Some(signal_checkpoint),
                     )
                     .await;
                 }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn p1e_i0_timer_execution_probe_has_a_clear_latch_next_step_positive_control() {
+        for source_already_acknowledged in [false, true] {
+            for relation in [
+                P1eI0TimerFixtureRelation::SameAuthenticatedOwner,
+                P1eI0TimerFixtureRelation::ForeignAuthenticatedOwner,
+            ] {
+                p1e_i0_assert_source_first_timer_checkpoint(
+                    source_already_acknowledged,
+                    relation,
+                    None,
+                )
+                .await;
             }
         }
     }

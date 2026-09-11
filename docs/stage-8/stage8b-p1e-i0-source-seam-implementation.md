@@ -45,11 +45,15 @@ permit. Continuation functions do not perform a second delivery acquisition.
 `Stage8bP1eShutdownLatchV1` is monotonic: the first request fixes cause, exit
 class, grace deadline and request sequence. Later requests cannot replace it.
 The accepted 3 cause by 3 arrival-location cross-product is covered against a
-real temporary Redis source and LR02 acquisition/permit continuation. The
-three locations are separate operations: latch set before acquisition
-completion is observed, latch set after acquisition before decision, and
-latch set immediately after a clear-latch permit decision. Owner failure
-remains its distinct exit-70 supervisor cause.
+real temporary Redis source and LR02 acquisition/permit continuation. For the
+acquisition-in-flight location, a test-only one-shot barrier is entered from
+inside the polled production acquisition function. The test observes that the
+future has entered and cannot yet complete, sets the latch, releases the
+barrier, and drains that same future; an entry counter proves that no second
+acquisition occurred. The other two locations are after acquisition before
+decision and immediately after a clear-latch permit decision. The earlier
+preset-latch case remains as a separate fourth control. Owner failure remains
+its distinct exit-70 supervisor cause.
 
 When the latch is set, the decision consumes the acquired owner and returns a
 diagnostic-only receipt. No continuation permit or source payload escapes, and
@@ -92,13 +96,23 @@ Inventory and executable evidence are deliberately separate:
 - LR04/FX04, LR12 candidate/FX20 and LR15/FX25 targeted tests prove acquisition
   parse count zero, post-permit parse count one, immediate signal retention,
   actual commit/callback/XACK counters and returned boundary.
-- FX41/FX42/FX45/FX46 execute pending versus already-acknowledged source,
-  retained versus stale timer classification, and both required signal
-  checkpoints. Source resolution precedes reclassification and timer
-  execution remains zero in the same step.
-- The LR02 3x3 test proves monotonic first-cause retention, exact source PEL,
-  zero publication, boundary behavior and grace-expiry exit 72. The mismatch
-  test consumes the wrong permit without exposing or mutating its authority.
+- FX41/FX42/FX45/FX46 execute pending versus already-acknowledged source and
+  both required signal checkpoints through latch-driven control flow. The
+  original timer is constructed before source acquisition from the
+  authenticated P1-d3 owner identity and recovery-seal provenance, with a
+  deterministic evidence commitment and an exact due time. Reclassification
+  consumes the returned authenticated owner and computes Retained only for a
+  due timer bound to that owner; a due timer bound to a foreign authenticated
+  identity computes Stale. Expected outcomes are assertions, not classifier
+  inputs. A separate clear-latch next-owner-loop control increments the real
+  execution probe for Retained and leaves it zero for Stale, so both stop
+  checkpoints prove that execution was actively blocked rather than absent by
+  construction.
+- The LR02 3x3 in-flight/post-boundary test proves monotonic first-cause
+  retention, exact source PEL, zero publication, boundary behavior and
+  grace-expiry exit 72. The same test retains the preset-latch control as an
+  additional case. The mismatch test consumes the wrong permit without
+  exposing or mutating its authority.
 - Separate compile-fail doctests reject `Serialize` and `DeserializeOwned` for
   both opaque types, in addition to Clone, Copy and the removed continuation
   API.
@@ -110,11 +124,18 @@ logs, exact-test results, crash evidence and artifact digest.
 
 ## I0 source-correction closure
 
-This revision closes the two findings against source candidate `0b80fb1`:
+This correction candidate preserves the fixes in `1dbd4ac` and closes its two
+remaining executable-evidence gaps:
 
-1. executable latch/effect/timer proofs supplement the retained inventory;
-2. `parse_exact` is removed from the acquisition helper and is audited as a
-   strictly post-permit operation for LR04, LR12 candidate-source and LR15.
+1. LR02 acquisition-in-flight is synchronized inside one polled and incomplete
+   acquisition future, while the preset-latch control remains distinct;
+2. timer classification is owner/due-state derived, both latch checkpoints
+   drive control flow, and a separate clear-latch next-step execution probe
+   supplies the positive control.
+
+The review-confirmed P1-02 correction in `1dbd4ac`—moving `parse_exact` out of
+acquisition and auditing it as a strictly post-permit operation for LR04,
+LR12 candidate-source and LR15—remains unchanged.
 
 No accepted R10 contract, P1-d4 durable format or operational surface is
 weakened by the correction.
