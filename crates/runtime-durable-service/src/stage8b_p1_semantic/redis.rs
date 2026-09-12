@@ -8933,6 +8933,7 @@ mod tests {
                 "P1d3CancelContinuationPending"
             }
             Stage7bRestartOutcome::P1d3SemanticPending(_) => "P1d3SemanticPending",
+            Stage7bRestartOutcome::P1eScheduleBindingCommitted(_) => "P1eScheduleBindingCommitted",
             Stage7bRestartOutcome::P1SemanticPrepublicationPending(_) => {
                 "P1SemanticPrepublicationPending"
             }
@@ -9225,7 +9226,9 @@ mod tests {
             Stage7bRestartOutcome::P1d4GeneratedMarketTruthCommitted(owner) => {
                 acquire_on_heap!(acquire_stage8b_p1d4_truth_with_redis(*owner, transport))
             }
-            Stage7bRestartOutcome::Stage8a4I3Pending(_) | Stage7bRestartOutcome::Blocked(_) => {
+            Stage7bRestartOutcome::P1eScheduleBindingCommitted(_)
+            | Stage7bRestartOutcome::Stage8a4I3Pending(_)
+            | Stage7bRestartOutcome::Blocked(_) => {
                 panic!("P1-e I0 fixture cannot retain a non-P1 source route")
             }
         };

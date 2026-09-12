@@ -870,11 +870,12 @@ pub enum Stage8bP1eRestartKindV1 {
     P1d3TruthCommitted,
     P1d3CancelContinuationPending,
     P1d3SemanticPending,
+    P1eScheduleBindingCommitted,
     Blocked,
 }
 
 impl Stage8bP1eRestartKindV1 {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Ready,
         Self::Stage8a4I3Pending,
         Self::P1SemanticPrepublicationPending,
@@ -896,6 +897,7 @@ impl Stage8bP1eRestartKindV1 {
         Self::P1d3TruthCommitted,
         Self::P1d3CancelContinuationPending,
         Self::P1d3SemanticPending,
+        Self::P1eScheduleBindingCommitted,
         Self::Blocked,
     ];
 
@@ -955,6 +957,9 @@ pub const fn stage8b_p1e_classify_restart_v1(
         }
         Stage7bRestartOutcome::P1d3SemanticPending(_) => {
             Stage8bP1eRestartKindV1::P1d3SemanticPending
+        }
+        Stage7bRestartOutcome::P1eScheduleBindingCommitted(_) => {
+            Stage8bP1eRestartKindV1::P1eScheduleBindingCommitted
         }
         Stage7bRestartOutcome::Blocked(_) => Stage8bP1eRestartKindV1::Blocked,
     }
@@ -1971,13 +1976,17 @@ mod tests {
 
     #[test]
     fn restart_classifier_inventory_matches_the_accepted_matrix() {
-        let expected: BTreeSet<String> =
+        let mut expected: BTreeSet<String> =
             include_str!("../../../docs/stage-8/stage8b-p1e-restart-continuation-matrix-v3.csv")
                 .lines()
                 .skip(1)
                 .filter_map(|line| line.split(',').next())
                 .map(str::to_string)
                 .collect();
+        // I1A adds exactly one V4-owned restart kind. Keep the source-slice
+        // delta local to the allowed supervisor path; the accepted V3 matrix
+        // remains an immutable compatibility baseline.
+        expected.insert("P1eScheduleBindingCommitted".to_string());
         let actual: BTreeSet<String> = Stage8bP1eRestartKindV1::ALL
             .iter()
             .map(|kind| {
@@ -1990,7 +1999,7 @@ mod tests {
             .collect();
 
         assert_eq!(actual, expected);
-        assert_eq!(Stage8bP1eRestartKindV1::ALL.len(), 22);
+        assert_eq!(Stage8bP1eRestartKindV1::ALL.len(), 23);
         assert!(!Stage8bP1eRestartKindV1::Stage8a4I3Pending.permits_redis_attach());
         assert!(!Stage8bP1eRestartKindV1::Blocked.permits_redis_attach());
         assert!(Stage8bP1eRestartKindV1::Ready.permits_redis_attach());

@@ -1896,6 +1896,63 @@ pub(crate) mod schedule_window_evidence {
         Stage5eScheduleProjectionBridgeInput { schedule_window }
     }
 
+    /// Private bridge used by the authenticated P1-e facade after it has
+    /// validated the signed semantic envelope.  Primitive rows never leave
+    /// the parent module and this function is not exported from the crate.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn stage8b_p1e_verified_source_projection(
+        instrument: broker_core::InstrumentId,
+        trading_day: NaiveDate,
+        sessions: Vec<(u8, i64, i64)>,
+        selected_index: usize,
+        normalized_observed_at: DateTime<Utc>,
+        stage4_observed_at: DateTime<Utc>,
+        expires_at: DateTime<Utc>,
+        schedule_fingerprint: [u8; 32],
+        stage4_fingerprint: [u8; 32],
+    ) -> Option<Stage5eScheduleProjectionBridgeInput> {
+        let sessions = sessions
+            .into_iter()
+            .map(|(kind, start, end)| {
+                let session_type = match kind {
+                    1 => NormalizedSessionType::TradableOpen,
+                    2 => NormalizedSessionType::BreakOrClearing,
+                    3 => NormalizedSessionType::Maintenance,
+                    _ => return None,
+                };
+                Some(NormalizedScheduleSession {
+                    session_type,
+                    start: MarketBarCloseTime(start),
+                    end: MarketBarCloseTime(end),
+                })
+            })
+            .collect::<Option<Vec<_>>>()?;
+        let selected = sessions.get(selected_index)?.clone();
+        let effective_observed_at = normalized_observed_at.max(stage4_observed_at);
+        Some(issue_schedule_projection_bridge(
+            Stage5eScheduleWindowEvidence {
+                instrument,
+                broker_symbol: "IMOEXF@RTSX".to_string(),
+                venue_mic: "RTSX".to_string(),
+                board: "FUT".to_string(),
+                trading_day: TradingDay(trading_day),
+                source_contract_version: "finam-rest-schedule-to-broker-neutral-v3".to_string(),
+                selected_session_type: selected.session_type,
+                open_from: selected.start,
+                open_until: selected.end,
+                normalized_observed_at: LifecycleInstant(normalized_observed_at),
+                stage4_observed_at: LifecycleInstant(stage4_observed_at),
+                effective_observed_at: LifecycleInstant(effective_observed_at),
+                expires_at: LifecycleInstant(expires_at),
+                fingerprint: ScheduleFingerprint(schedule_fingerprint),
+                normalized_sessions: sessions,
+                normalized_sessions_fingerprint: schedule_fingerprint,
+                normalized_snapshot_identity_fingerprint: schedule_fingerprint,
+                stage4_dynamic_session_fingerprint: stage4_fingerprint,
+            },
+        ))
+    }
+
     /// Sole constructor for the linear classifier capability.
     pub(crate) fn into_stage5e_schedule_candidate_classifier(
         projection: Stage5eScheduleProjectionBridgeInput,
@@ -7413,6 +7470,2996 @@ pub(crate) mod callback_authority {
     }
 }
 // STAGE5E-B3D-CALLBACK-AUTHORITY-END: private-no-io-issue-v1
+
+// STAGE8B-P1E-I1A-SCHEDULE-SOURCE-BEGIN: signed-semantic-facade-v1
+/// Signed broker-neutral schedule verification and route-authority facade.
+///
+/// This module is deliberately pure: it has no Redis, FINAM, journal, clock
+/// acquisition or process-control dependency.  The caller supplies exact
+/// canonical bytes and one already trusted instant.  Only a fully verified
+/// envelope can mint the opaque P1-d1/P1-d3 schedule authorities.
+pub mod p1e_schedule_source {
+    use chrono::{DateTime, FixedOffset, NaiveDate, SecondsFormat, Utc};
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    use serde::{Deserialize, Serialize};
+    use sha2::{Digest, Sha256};
+
+    use super::schedule_window_evidence::Stage5eScheduleProjectionBridgeInput;
+
+    pub const STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX: &str =
+        "432a274889bc2b3a4492b3a1510f7356e1c2878337263e28472335f8600e4d99";
+    pub const STAGE8B_P1E_SCHEDULE_KEY_VALID_FROM_UTC: &str = "2026-08-30T00:00:00Z";
+    pub const STAGE8B_P1E_SCHEDULE_KEY_VALID_UNTIL_UTC: &str = "2027-08-30T00:00:00Z";
+    pub const STAGE8B_P1E_SCHEDULE_STREAM: &str =
+        "finam_imoexf_paper:{finam-imoexf-p1}:market-schedule";
+
+    const ENVELOPE_DOMAIN: &str = "moex.stage8b.p1e.schedule-envelope.v3";
+    const PRODUCER_ID: &str = "finam-readonly-schedule-normalizer-v3";
+    const PRODUCER_CONTRACT: &str = "finam-rest-schedule-to-broker-neutral-v3";
+    const SEMANTIC_DOMAIN: &str = "moex.stage8b.p1e.schedule-semantic-identity.v1";
+    const SEMANTIC_HASH_DOMAIN: &[u8] = b"moex.stage8b.p1e.schedule-semantic-identity.sha256.v1";
+    const SIGNATURE_DOMAIN: &[u8] = b"moex.stage8b.p1e.schedule-envelope.signature.v3";
+    const PAYLOAD_DOMAIN: &str = "moex.stage8b.p1e.schedule-payload.v2";
+    const KEY_ID: &str = "schedule-ed25519-v1";
+    const SOURCE_GENERATION: &str = "1";
+    const TIMEZONE: &str = "Europe/Moscow";
+    const M10_SECONDS: u32 = 600;
+    const TRANSPORT_MAX_AGE_MS: i64 = 5_000;
+    const NORMALIZED_MAX_AGE_MS: i64 = 86_400_000;
+    const CROSS_SOURCE_MAX_SKEW_MS: i64 = 5_000;
+    const FUTURE_SKEW_MS: i64 = 250;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eScheduleInstrumentV1 {
+        pub board: String,
+        pub broker_symbol: String,
+        pub exchange: String,
+        pub market: String,
+        pub symbol: String,
+        pub tick_size: String,
+        pub venue_mic: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eScheduleRegistryV1 {
+        pub registry_identity_sha256: String,
+        pub registry_version: String,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Stage8bP1eScheduleSessionTypeV1 {
+        TradableOpen,
+        BreakOrClearing,
+        Maintenance,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eScheduleSessionV1 {
+        pub end_utc: String,
+        pub session_type: Stage8bP1eScheduleSessionTypeV1,
+        pub start_utc: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eDayBoundaryProofV1 {
+        pub boundary_ts_utc: String,
+        pub last_eligible_m10_close_ts_utc: String,
+        pub last_eligible_m10_open_ts_utc: String,
+        pub trading_day: String,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Stage8bP1eScheduleEvidenceKindV1 {
+        Tradability,
+        DayBoundary,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Stage8bP1eScheduleStateV1 {
+        Open,
+        Closed,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eStage4SemanticStateV1 {
+        pub boundary_proof: Option<Stage8bP1eDayBoundaryProofV1>,
+        pub evidence_kind: Stage8bP1eScheduleEvidenceKindV1,
+        pub schedule_state: Stage8bP1eScheduleStateV1,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eScheduleSemanticIdentityV1 {
+        pub domain: String,
+        pub instrument: Stage8bP1eScheduleInstrumentV1,
+        pub registry: Stage8bP1eScheduleRegistryV1,
+        pub schema_version: u16,
+        pub sessions: Vec<Stage8bP1eScheduleSessionV1>,
+        pub stage4_semantic_state: Stage8bP1eStage4SemanticStateV1,
+        pub timeframe_sec: u32,
+        pub timezone: String,
+        pub trading_day: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eNormalizedScheduleV2 {
+        pub normalized_payload_sha256: String,
+        pub raw_response_sha256: String,
+        pub sessions: Vec<Stage8bP1eScheduleSessionV1>,
+        pub source_expires_at_utc: String,
+        pub source_observed_at_utc: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eStage4EvidenceV2 {
+        pub boundary_proof: Option<Stage8bP1eDayBoundaryProofV1>,
+        pub evidence_kind: Stage8bP1eScheduleEvidenceKindV1,
+        pub report_canonical_json_hex: String,
+        pub report_sha256: String,
+        pub schedule_state: Stage8bP1eScheduleStateV1,
+        pub source_expires_at_utc: String,
+        pub source_observed_at_utc: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eSchedulePayloadV2 {
+        pub domain: String,
+        pub instrument: Stage8bP1eScheduleInstrumentV1,
+        pub normalized_schedule: Stage8bP1eNormalizedScheduleV2,
+        pub registry: Stage8bP1eScheduleRegistryV1,
+        pub schema_version: u16,
+        pub stage4_evidence: Stage8bP1eStage4EvidenceV2,
+        pub timezone: String,
+        pub trading_day: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eScheduleEnvelopeV3 {
+        pub domain: String,
+        pub instrument_map_fingerprint_sha256: String,
+        pub key_generation: u16,
+        pub key_id: String,
+        pub operational_identity_sha256: String,
+        pub payload: Stage8bP1eSchedulePayloadV2,
+        pub payload_sha256: String,
+        pub producer_contract_version: String,
+        pub producer_id: String,
+        pub publication_sequence: String,
+        pub published_at_utc: String,
+        pub runtime_config_fingerprint_sha256: String,
+        pub schedule_semantic_sha256: String,
+        pub schema_version: u16,
+        pub semantic_identity: Stage8bP1eScheduleSemanticIdentityV1,
+        pub semantic_identity_contract_version: u16,
+        pub semantic_revision: String,
+        pub signature_ed25519_hex: String,
+        pub source_generation: String,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eScheduleHighWaterV1 {
+        envelope_sha256: String,
+        publication_sequence: u64,
+        published_at_utc: DateTime<Utc>,
+        schedule_semantic_sha256: String,
+        semantic_revision: u64,
+        source_generation: u64,
+    }
+
+    impl Stage8bP1eScheduleHighWaterV1 {
+        pub fn envelope_sha256(&self) -> &str {
+            &self.envelope_sha256
+        }
+
+        pub fn publication_sequence(&self) -> u64 {
+            self.publication_sequence
+        }
+
+        pub fn published_at_utc(&self) -> DateTime<Utc> {
+            self.published_at_utc
+        }
+
+        pub fn schedule_semantic_sha256(&self) -> &str {
+            &self.schedule_semantic_sha256
+        }
+
+        pub fn semantic_revision(&self) -> u64 {
+            self.semantic_revision
+        }
+
+        pub fn source_generation(&self) -> u64 {
+            self.source_generation
+        }
+    }
+
+    /// Authenticated transport/progression metadata for one retained schedule
+    /// row. It carries no freshness decision and cannot mint route authority;
+    /// the bounded Redis reader uses it only for conflict detection around the
+    /// separately verified newest snapshot.
+    pub struct Stage8bP1eAuthenticatedScheduleObservationV1 {
+        high_water: Stage8bP1eScheduleHighWaterV1,
+    }
+
+    impl Stage8bP1eAuthenticatedScheduleObservationV1 {
+        pub fn high_water(&self) -> &Stage8bP1eScheduleHighWaterV1 {
+            &self.high_water
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Stage8bP1eScheduleVerificationContextV1 {
+        pub expected_instrument_map_fingerprint_sha256: String,
+        pub expected_operational_identity_sha256: String,
+        pub expected_registry_identity_sha256: String,
+        pub expected_registry_version: String,
+        pub expected_runtime_config_fingerprint_sha256: String,
+        pub high_water: Option<Stage8bP1eScheduleHighWaterV1>,
+        pub trusted_now: DateTime<Utc>,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Stage8bP1eScheduleProgressionV1 {
+        Bootstrap,
+        Idempotent,
+        MonotonicSnapshot,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+    pub enum Stage8bP1eScheduleSourceError {
+        #[error("schedule envelope is not strict canonical JSON v3")]
+        NonCanonicalEnvelope,
+        #[error("schedule envelope trust or signature is invalid")]
+        Untrusted,
+        #[error("schedule envelope identity does not match the pinned runtime")]
+        IdentityMismatch,
+        #[error("schedule payload is malformed or internally inconsistent")]
+        PayloadConflict,
+        #[error("schedule evidence is stale")]
+        Stale,
+        #[error("schedule evidence is from the future")]
+        Future,
+        #[error("schedule source progression rolled back")]
+        Rollback,
+        #[error("schedule source progression conflicts with durable high-water")]
+        ProgressionConflict,
+        #[error("Stage 4 schedule evidence is blocked or internally inconsistent")]
+        Stage4EvidenceBlocked,
+        #[error("schedule evidence does not authorize the requested route")]
+        RouteDenied,
+        #[error("schedule transition binding is not exact")]
+        TransitionMismatch,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Stage8bP1eScheduleTransitionKindV1 {
+        MarketExecution,
+        WorkingLimitEvaluation,
+        CancelStep,
+        DayExpiry,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum Stage8bP1eScheduleAuthorityKindV1 {
+        Market,
+        ScheduleStep,
+        DayExpiry,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct Stage8bP1eRequestOrOrderBindingV1 {
+        pub strategy_request_id: Option<String>,
+        pub canonical_command_sha256: Option<String>,
+        pub active_broker_order_id: Option<String>,
+        pub working_book_transition_sha256: Option<String>,
+    }
+
+    enum Stage8bP1ePreparedScheduleRouteV1 {
+        Market(Box<Stage5eScheduleProjectionBridgeInput>),
+        ScheduleStep {
+            cancel_only: bool,
+            last_eligible_m10_redis_id: String,
+        },
+        DayExpiry {
+            boundary_ts_utc_ms: i64,
+        },
+    }
+
+    /// Opaque non-authorizing transition candidate. It is safe to hold before
+    /// durable work because it cannot invoke Stage 5C/P1-d1/P1-d3. The only
+    /// promotion path is the Stage 6D V4 append + covering-seal boundary.
+    ///
+    /// ```compile_fail
+    /// fn assert_clone<T: Clone>() {}
+    /// assert_clone::<strategy_runtime_core::Stage8bP1eScheduleBindingCandidateV1>();
+    /// ```
+    ///
+    /// ```compile_fail
+    /// fn assert_serialize<T: serde::Serialize>() {}
+    /// assert_serialize::<strategy_runtime_core::Stage8bP1eScheduleBindingCandidateV1>();
+    /// ```
+    pub struct Stage8bP1eScheduleBindingCandidateV1 {
+        authority_kind: Stage8bP1eScheduleAuthorityKindV1,
+        envelope_sha256: String,
+        exact_envelope_bytes: Vec<u8>,
+        operational_identity_sha256: String,
+        predecessor_m10: Stage8bP1eM10IdentityV1,
+        candidate_or_last_eligible_m10: Stage8bP1eM10IdentityV1,
+        publication_sequence: u64,
+        redis_stream_id: String,
+        request_or_order_binding: Stage8bP1eRequestOrOrderBindingV1,
+        route: Stage8bP1ePreparedScheduleRouteV1,
+        schedule_semantic_sha256: String,
+        semantic_revision: u64,
+        source_generation: u64,
+        trading_day: String,
+        transition_kind: Stage8bP1eScheduleTransitionKindV1,
+        valid_until: DateTime<Utc>,
+    }
+
+    /// Opaque linear proof that the exact V4 binding is covered by the
+    /// authenticated Stage 6 recovery seal and has been reread. It deliberately
+    /// implements neither Clone/Copy nor serde traits.
+    ///
+    /// ```compile_fail
+    /// fn assert_clone<T: Clone>() {}
+    /// assert_clone::<strategy_runtime_core::Stage8bP1eCommittedScheduleBindingV1>();
+    /// ```
+    ///
+    /// ```compile_fail
+    /// fn assert_deserialize<T: serde::de::DeserializeOwned>() {}
+    /// assert_deserialize::<strategy_runtime_core::Stage8bP1eCommittedScheduleBindingV1>();
+    /// ```
+    pub struct Stage8bP1eCommittedScheduleBindingV1 {
+        candidate: Stage8bP1eScheduleBindingCandidateV1,
+    }
+
+    impl Stage8bP1eCommittedScheduleBindingV1 {
+        pub fn issue_market_authority(
+            self,
+        ) -> Result<crate::Stage8bP1d1ExecutionScheduleAuthority, Stage8bP1eScheduleSourceError>
+        {
+            let Stage8bP1ePreparedScheduleRouteV1::Market(projection) = self.candidate.route else {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            };
+            Ok(
+                crate::stage8b_p1d1_paper_provider::stage8b_p1d1_schedule_authority_from_stage5e(
+                    *projection,
+                ),
+            )
+        }
+
+        pub fn issue_schedule_step_authority(
+            self,
+        ) -> Result<crate::Stage8bP1d3ScheduleStepAuthority, Stage8bP1eScheduleSourceError>
+        {
+            let Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                cancel_only,
+                last_eligible_m10_redis_id,
+            } = self.candidate.route
+            else {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            };
+            if cancel_only
+                != (self.candidate.transition_kind
+                    == Stage8bP1eScheduleTransitionKindV1::CancelStep)
+            {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            }
+            crate::stage8b_p1d3_working_limit::stage8b_p1d3_schedule_step_authority_from_stage5e(
+                self.candidate.schedule_semantic_sha256,
+                self.candidate.trading_day,
+                last_eligible_m10_redis_id,
+                self.candidate.predecessor_m10.redis_id,
+                self.candidate.candidate_or_last_eligible_m10.redis_id,
+            )
+            .map_err(|_| Stage8bP1eScheduleSourceError::TransitionMismatch)
+        }
+
+        pub fn issue_day_expiry_authority(
+            self,
+        ) -> Result<crate::Stage8bP1d3DayExpiryAuthority, Stage8bP1eScheduleSourceError> {
+            let Stage8bP1ePreparedScheduleRouteV1::DayExpiry { boundary_ts_utc_ms } =
+                self.candidate.route
+            else {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            };
+            crate::stage8b_p1d3_working_limit::stage8b_p1d3_day_expiry_authority_from_stage5e(
+                self.candidate.schedule_semantic_sha256,
+                self.candidate.trading_day,
+                self.candidate.candidate_or_last_eligible_m10.redis_id,
+                boundary_ts_utc_ms,
+            )
+            .map_err(|_| Stage8bP1eScheduleSourceError::TransitionMismatch)
+        }
+    }
+
+    pub struct Stage8bP1eAcceptedScheduleSourceV1 {
+        envelope: Stage8bP1eScheduleEnvelopeV3,
+        envelope_sha256: String,
+        exact_envelope_bytes: Vec<u8>,
+        high_water: Stage8bP1eScheduleHighWaterV1,
+        progression: Stage8bP1eScheduleProgressionV1,
+        stage4_observed_at: DateTime<Utc>,
+        valid_until: DateTime<Utc>,
+    }
+
+    impl Stage8bP1eAcceptedScheduleSourceV1 {
+        pub fn envelope_sha256(&self) -> &str {
+            &self.envelope_sha256
+        }
+
+        pub fn exact_envelope_bytes(&self) -> &[u8] {
+            &self.exact_envelope_bytes
+        }
+
+        pub fn high_water(&self) -> &Stage8bP1eScheduleHighWaterV1 {
+            &self.high_water
+        }
+
+        pub fn progression(&self) -> Stage8bP1eScheduleProgressionV1 {
+            self.progression
+        }
+
+        pub fn trading_day(&self) -> &str {
+            &self.envelope.payload.trading_day
+        }
+
+        pub fn valid_until(&self) -> DateTime<Utc> {
+            self.valid_until
+        }
+
+        pub fn prepare_market_binding(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            candidate: &Stage8bP1eM10IdentityV1,
+            strategy_request_id: impl Into<String>,
+            canonical_command_sha256: impl Into<String>,
+            redis_stream_id: impl Into<String>,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            self.require_open_route()?;
+            let projection = self.open_projection(predecessor, candidate)?;
+            self.prepare_binding(
+                Stage8bP1eScheduleTransitionKindV1::MarketExecution,
+                Stage8bP1eScheduleAuthorityKindV1::Market,
+                predecessor,
+                candidate,
+                Stage8bP1eRequestOrOrderBindingV1 {
+                    strategy_request_id: Some(strategy_request_id.into()),
+                    canonical_command_sha256: Some(canonical_command_sha256.into()),
+                    active_broker_order_id: None,
+                    working_book_transition_sha256: None,
+                },
+                redis_stream_id.into(),
+                Stage8bP1ePreparedScheduleRouteV1::Market(Box::new(projection)),
+            )
+        }
+
+        pub fn prepare_working_limit_binding(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            candidate: &Stage8bP1eM10IdentityV1,
+            active_broker_order_id: impl Into<String>,
+            working_book_transition_sha256: impl Into<String>,
+            redis_stream_id: impl Into<String>,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            self.require_open_route()?;
+            validate_m10_pair(predecessor, candidate, &self.envelope.payload.trading_day)?;
+            self.prepare_binding(
+                Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation,
+                Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
+                predecessor,
+                candidate,
+                Stage8bP1eRequestOrOrderBindingV1 {
+                    strategy_request_id: None,
+                    canonical_command_sha256: None,
+                    active_broker_order_id: Some(active_broker_order_id.into()),
+                    working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+                },
+                redis_stream_id.into(),
+                Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                    cancel_only: false,
+                    last_eligible_m10_redis_id: self.last_eligible_m10_redis_id()?,
+                },
+            )
+        }
+
+        pub fn prepare_cancel_binding(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            candidate: &Stage8bP1eM10IdentityV1,
+            active_broker_order_id: impl Into<String>,
+            working_book_transition_sha256: impl Into<String>,
+            redis_stream_id: impl Into<String>,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            validate_m10_pair(predecessor, candidate, &self.envelope.payload.trading_day)?;
+            self.prepare_binding(
+                Stage8bP1eScheduleTransitionKindV1::CancelStep,
+                Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
+                predecessor,
+                candidate,
+                Stage8bP1eRequestOrOrderBindingV1 {
+                    strategy_request_id: None,
+                    canonical_command_sha256: None,
+                    active_broker_order_id: Some(active_broker_order_id.into()),
+                    working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+                },
+                redis_stream_id.into(),
+                Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                    cancel_only: true,
+                    last_eligible_m10_redis_id: self.last_eligible_m10_redis_id()?,
+                },
+            )
+        }
+
+        pub fn prepare_day_expiry_binding(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            last_evaluated_m10: &Stage8bP1eM10IdentityV1,
+            trusted_now: DateTime<Utc>,
+            active_broker_order_id: impl Into<String>,
+            working_book_transition_sha256: impl Into<String>,
+            redis_stream_id: impl Into<String>,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            let state = &self.envelope.payload.stage4_evidence;
+            if state.evidence_kind != Stage8bP1eScheduleEvidenceKindV1::DayBoundary
+                || state.schedule_state != Stage8bP1eScheduleStateV1::Closed
+            {
+                return Err(Stage8bP1eScheduleSourceError::RouteDenied);
+            }
+            let proof = state
+                .boundary_proof
+                .as_ref()
+                .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+            let boundary = parse_exact_timestamp(&proof.boundary_ts_utc)?;
+            let last_open = parse_exact_timestamp(&proof.last_eligible_m10_open_ts_utc)?;
+            let last_close = parse_exact_timestamp(&proof.last_eligible_m10_close_ts_utc)?;
+            if trusted_now < boundary
+                || trusted_now > self.valid_until
+                || proof.trading_day != self.envelope.payload.trading_day
+                || last_evaluated_m10.open_ts_utc_ms != last_open.timestamp_millis()
+                || last_evaluated_m10.close_ts_utc_ms != last_close.timestamp_millis()
+                || last_evaluated_m10.redis_id != format!("{}-0", last_close.timestamp_millis())
+                || self.last_eligible_m10_redis_id()? != last_evaluated_m10.redis_id
+            {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            }
+            validate_m10_pair(
+                predecessor,
+                last_evaluated_m10,
+                &self.envelope.payload.trading_day,
+            )?;
+            self.prepare_binding(
+                Stage8bP1eScheduleTransitionKindV1::DayExpiry,
+                Stage8bP1eScheduleAuthorityKindV1::DayExpiry,
+                predecessor,
+                last_evaluated_m10,
+                Stage8bP1eRequestOrOrderBindingV1 {
+                    strategy_request_id: None,
+                    canonical_command_sha256: None,
+                    active_broker_order_id: Some(active_broker_order_id.into()),
+                    working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+                },
+                redis_stream_id.into(),
+                Stage8bP1ePreparedScheduleRouteV1::DayExpiry {
+                    boundary_ts_utc_ms: boundary.timestamp_millis(),
+                },
+            )
+        }
+
+        #[allow(clippy::too_many_arguments)]
+        fn prepare_binding(
+            &self,
+            transition_kind: Stage8bP1eScheduleTransitionKindV1,
+            authority_kind: Stage8bP1eScheduleAuthorityKindV1,
+            predecessor_m10: &Stage8bP1eM10IdentityV1,
+            candidate_or_last_eligible_m10: &Stage8bP1eM10IdentityV1,
+            request_or_order_binding: Stage8bP1eRequestOrOrderBindingV1,
+            redis_stream_id: String,
+            route: Stage8bP1ePreparedScheduleRouteV1,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            if !valid_redis_stream_id(&redis_stream_id)
+                || !valid_request_or_order_binding(transition_kind, &request_or_order_binding)
+            {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            }
+            Ok(Stage8bP1eScheduleBindingCandidateV1 {
+                authority_kind,
+                envelope_sha256: self.envelope_sha256.clone(),
+                exact_envelope_bytes: self.exact_envelope_bytes.clone(),
+                operational_identity_sha256: self.envelope.operational_identity_sha256.clone(),
+                predecessor_m10: predecessor_m10.clone(),
+                candidate_or_last_eligible_m10: candidate_or_last_eligible_m10.clone(),
+                publication_sequence: self.high_water.publication_sequence,
+                redis_stream_id,
+                request_or_order_binding,
+                route,
+                schedule_semantic_sha256: self.high_water.schedule_semantic_sha256.clone(),
+                semantic_revision: self.high_water.semantic_revision,
+                source_generation: self.high_water.source_generation,
+                trading_day: self.envelope.payload.trading_day.clone(),
+                transition_kind,
+                valid_until: self.valid_until,
+            })
+        }
+
+        fn require_open_route(&self) -> Result<(), Stage8bP1eScheduleSourceError> {
+            let evidence = &self.envelope.payload.stage4_evidence;
+            if evidence.evidence_kind == Stage8bP1eScheduleEvidenceKindV1::Tradability
+                && evidence.schedule_state == Stage8bP1eScheduleStateV1::Open
+                && evidence.boundary_proof.is_none()
+            {
+                Ok(())
+            } else {
+                Err(Stage8bP1eScheduleSourceError::RouteDenied)
+            }
+        }
+
+        fn open_projection(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            candidate: &Stage8bP1eM10IdentityV1,
+        ) -> Result<Stage5eScheduleProjectionBridgeInput, Stage8bP1eScheduleSourceError> {
+            validate_m10_pair(predecessor, candidate, &self.envelope.payload.trading_day)?;
+            let sessions = self.normalized_sessions()?;
+            let selected_index = sessions
+                .iter()
+                .position(|(kind, start, end)| {
+                    *kind == 1
+                        && candidate.close_ts_utc_ms.div_euclid(1_000) >= *start
+                        && candidate.close_ts_utc_ms.div_euclid(1_000) <= *end
+                })
+                .ok_or(Stage8bP1eScheduleSourceError::RouteDenied)?;
+            let fingerprint = decode_lower_hex::<32>(&self.envelope.schedule_semantic_sha256)
+                .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?;
+            let identity = instrument_id();
+            super::schedule_window_evidence::stage8b_p1e_verified_source_projection(
+                identity,
+                parse_exact_day(&self.envelope.payload.trading_day)?,
+                sessions,
+                selected_index,
+                parse_exact_timestamp(
+                    &self
+                        .envelope
+                        .payload
+                        .normalized_schedule
+                        .source_observed_at_utc,
+                )?,
+                self.stage4_observed_at,
+                self.valid_until,
+                fingerprint,
+                decode_lower_hex::<32>(&self.envelope.payload.stage4_evidence.report_sha256)
+                    .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?,
+            )
+            .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)
+        }
+
+        fn normalized_sessions(
+            &self,
+        ) -> Result<Vec<(u8, i64, i64)>, Stage8bP1eScheduleSourceError> {
+            self.envelope
+                .payload
+                .normalized_schedule
+                .sessions
+                .iter()
+                .map(|session| {
+                    Ok((
+                        match session.session_type {
+                            Stage8bP1eScheduleSessionTypeV1::TradableOpen => 1,
+                            Stage8bP1eScheduleSessionTypeV1::BreakOrClearing => 2,
+                            Stage8bP1eScheduleSessionTypeV1::Maintenance => 3,
+                        },
+                        parse_exact_timestamp(&session.start_utc)?.timestamp(),
+                        parse_exact_timestamp(&session.end_utc)?.timestamp(),
+                    ))
+                })
+                .collect()
+        }
+
+        fn last_eligible_m10_redis_id(&self) -> Result<String, Stage8bP1eScheduleSourceError> {
+            let close = self
+                .envelope
+                .payload
+                .normalized_schedule
+                .sessions
+                .iter()
+                .filter(|session| {
+                    session.session_type == Stage8bP1eScheduleSessionTypeV1::TradableOpen
+                })
+                .map(|session| parse_exact_timestamp(&session.end_utc))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+            Ok(format!("{}-0", close.timestamp_millis()))
+        }
+    }
+
+    impl Stage8bP1eScheduleBindingCandidateV1 {
+        pub(crate) fn authority_kind(&self) -> Stage8bP1eScheduleAuthorityKindV1 {
+            self.authority_kind
+        }
+
+        pub(crate) fn envelope_sha256(&self) -> &str {
+            &self.envelope_sha256
+        }
+
+        pub(crate) fn exact_envelope_bytes(&self) -> &[u8] {
+            &self.exact_envelope_bytes
+        }
+
+        pub(crate) fn operational_identity_sha256(&self) -> &str {
+            &self.operational_identity_sha256
+        }
+
+        pub(crate) fn predecessor_m10(&self) -> &Stage8bP1eM10IdentityV1 {
+            &self.predecessor_m10
+        }
+
+        pub(crate) fn candidate_or_last_eligible_m10(&self) -> &Stage8bP1eM10IdentityV1 {
+            &self.candidate_or_last_eligible_m10
+        }
+
+        pub(crate) fn publication_sequence(&self) -> u64 {
+            self.publication_sequence
+        }
+
+        pub(crate) fn redis_stream_id(&self) -> &str {
+            &self.redis_stream_id
+        }
+
+        pub(crate) fn request_or_order_binding(&self) -> &Stage8bP1eRequestOrOrderBindingV1 {
+            &self.request_or_order_binding
+        }
+
+        pub(crate) fn schedule_semantic_sha256(&self) -> &str {
+            &self.schedule_semantic_sha256
+        }
+
+        pub(crate) fn semantic_revision(&self) -> u64 {
+            self.semantic_revision
+        }
+
+        pub(crate) fn source_generation(&self) -> u64 {
+            self.source_generation
+        }
+
+        pub(crate) fn trading_day(&self) -> &str {
+            &self.trading_day
+        }
+
+        pub(crate) fn transition_kind(&self) -> Stage8bP1eScheduleTransitionKindV1 {
+            self.transition_kind
+        }
+
+        pub(crate) fn valid_until(&self) -> DateTime<Utc> {
+            self.valid_until
+        }
+
+        pub(crate) fn into_committed_after_v4_reread(
+            self,
+            record: &crate::Stage6JournalRecordV4,
+        ) -> Result<Stage8bP1eCommittedScheduleBindingV1, Stage8bP1eScheduleSourceError> {
+            if !record.matches_stage8b_p1e_candidate(&self) {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            }
+            Ok(Stage8bP1eCommittedScheduleBindingV1 { candidate: self })
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Stage8bP1eM10IdentityV1 {
+        pub close_ts_utc_ms: i64,
+        pub open_ts_utc_ms: i64,
+        pub payload_sha256: String,
+        pub redis_id: String,
+        pub semantic_id_sha256: String,
+    }
+
+    impl Stage8bP1eM10IdentityV1 {
+        pub(crate) fn open_ts_utc(&self) -> Option<String> {
+            DateTime::<Utc>::from_timestamp_millis(self.open_ts_utc_ms)
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Micros, true))
+        }
+
+        pub(crate) fn close_ts_utc(&self) -> Option<String> {
+            DateTime::<Utc>::from_timestamp_millis(self.close_ts_utc_ms)
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Micros, true))
+        }
+    }
+
+    /// Fixture-only non-authorizing candidate used to exercise the real V4
+    /// journal/seal machinery without embedding a production private key in a
+    /// test binary. Deployable builds cannot name this constructor.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_working_limit_binding_candidate(
+        operational_identity_sha256: impl Into<String>,
+    ) -> Stage8bP1eScheduleBindingCandidateV1 {
+        let exact_envelope_bytes = br#"{"fixture":"stage8b-p1e-i1a-v4"}"#.to_vec();
+        let predecessor_m10 = Stage8bP1eM10IdentityV1 {
+            close_ts_utc_ms: 1_789_387_200_000,
+            open_ts_utc_ms: 1_789_386_600_000,
+            payload_sha256: "7".repeat(64),
+            redis_id: "1789387200000-0".to_string(),
+            semantic_id_sha256: "8".repeat(64),
+        };
+        let candidate_or_last_eligible_m10 = Stage8bP1eM10IdentityV1 {
+            close_ts_utc_ms: 1_789_387_800_000,
+            open_ts_utc_ms: 1_789_387_200_000,
+            payload_sha256: "9".repeat(64),
+            redis_id: "1789387800000-0".to_string(),
+            semantic_id_sha256: "a".repeat(64),
+        };
+        Stage8bP1eScheduleBindingCandidateV1 {
+            authority_kind: Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
+            envelope_sha256: sha256_hex(&exact_envelope_bytes),
+            exact_envelope_bytes,
+            operational_identity_sha256: operational_identity_sha256.into(),
+            predecessor_m10,
+            candidate_or_last_eligible_m10,
+            publication_sequence: 1,
+            redis_stream_id: "1789387800001-0".to_string(),
+            request_or_order_binding: Stage8bP1eRequestOrOrderBindingV1 {
+                strategy_request_id: None,
+                canonical_command_sha256: None,
+                active_broker_order_id: Some("FINAM-ORDER-I1A-1".to_string()),
+                working_book_transition_sha256: Some("b".repeat(64)),
+            },
+            route: Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                cancel_only: false,
+                last_eligible_m10_redis_id: "1789401600000-0".to_string(),
+            },
+            schedule_semantic_sha256: "c".repeat(64),
+            semantic_revision: 1,
+            source_generation: 1,
+            trading_day: "2026-09-14".to_string(),
+            transition_kind: Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation,
+            valid_until: DateTime::parse_from_rfc3339("2026-09-14T23:00:00.000000Z")
+                .expect("fixture valid-until")
+                .with_timezone(&Utc),
+        }
+    }
+
+    /// Fixture-only exact-binding constructor used to prove that an
+    /// authenticated P1-d3 replacement rejects foreign order, book and M10
+    /// evidence. Like the simpler fixture above it is non-authorizing until
+    /// the production V4 append/seal/reread path accepts it.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_working_limit_binding_candidate_for(
+        operational_identity_sha256: impl Into<String>,
+        active_broker_order_id: impl Into<String>,
+        working_book_transition_sha256: impl Into<String>,
+        trading_day: impl Into<String>,
+        predecessor_m10: Stage8bP1eM10IdentityV1,
+    ) -> Stage8bP1eScheduleBindingCandidateV1 {
+        let mut candidate =
+            stage8b_p1e_test_working_limit_binding_candidate(operational_identity_sha256);
+        candidate.request_or_order_binding = Stage8bP1eRequestOrOrderBindingV1 {
+            strategy_request_id: None,
+            canonical_command_sha256: None,
+            active_broker_order_id: Some(active_broker_order_id.into()),
+            working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+        };
+        candidate.trading_day = trading_day.into();
+        candidate.predecessor_m10 = predecessor_m10;
+        candidate
+    }
+
+    /// Fixture-only Market companion used to prove that V4 participates in
+    /// the exact request-local causal chain before DispatchAttemptRecorded.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_market_binding_candidate(
+        operational_identity_sha256: impl Into<String>,
+        strategy_request_id: impl Into<String>,
+        canonical_command_sha256: impl Into<String>,
+    ) -> Stage8bP1eScheduleBindingCandidateV1 {
+        let mut candidate =
+            stage8b_p1e_test_working_limit_binding_candidate(operational_identity_sha256);
+        candidate.authority_kind = Stage8bP1eScheduleAuthorityKindV1::Market;
+        candidate.transition_kind = Stage8bP1eScheduleTransitionKindV1::MarketExecution;
+        candidate.request_or_order_binding = Stage8bP1eRequestOrOrderBindingV1 {
+            strategy_request_id: Some(strategy_request_id.into()),
+            canonical_command_sha256: Some(canonical_command_sha256.into()),
+            active_broker_order_id: None,
+            working_book_transition_sha256: None,
+        };
+        candidate.route = Stage8bP1ePreparedScheduleRouteV1::Market(Box::new(
+            super::schedule_window_evidence::stage8b_p1d1_test_schedule_projection(
+                instrument_id(),
+                candidate.predecessor_m10.close_ts_utc_ms.div_euclid(1_000),
+                candidate
+                    .candidate_or_last_eligible_m10
+                    .close_ts_utc_ms
+                    .div_euclid(1_000),
+                false,
+            ),
+        ));
+        candidate
+    }
+
+    /// Fixture-only Market candidate with an explicit predecessor, used to
+    /// prove that authenticated command identity cannot be rebound to another
+    /// otherwise valid M10 chain.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_market_binding_candidate_for(
+        operational_identity_sha256: impl Into<String>,
+        strategy_request_id: impl Into<String>,
+        canonical_command_sha256: impl Into<String>,
+        predecessor_m10: Stage8bP1eM10IdentityV1,
+    ) -> Stage8bP1eScheduleBindingCandidateV1 {
+        let mut candidate = stage8b_p1e_test_market_binding_candidate(
+            operational_identity_sha256,
+            strategy_request_id,
+            canonical_command_sha256,
+        );
+        candidate.predecessor_m10 = predecessor_m10;
+        candidate
+    }
+
+    pub fn stage8b_p1e_canonical_json<T: Serialize>(
+        value: &T,
+    ) -> Result<Vec<u8>, Stage8bP1eScheduleSourceError> {
+        let value = serde_json::to_value(value)
+            .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        serde_json::to_vec(&value).map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)
+    }
+
+    pub fn stage8b_p1e_schedule_semantic_sha256(
+        identity: &Stage8bP1eScheduleSemanticIdentityV1,
+    ) -> Result<String, Stage8bP1eScheduleSourceError> {
+        let bytes = stage8b_p1e_canonical_json(identity)?;
+        Ok(domain_sha256(SEMANTIC_HASH_DOMAIN, &bytes))
+    }
+
+    pub fn stage8b_p1e_schedule_payload_sha256(
+        payload: &Stage8bP1eSchedulePayloadV2,
+    ) -> Result<String, Stage8bP1eScheduleSourceError> {
+        Ok(sha256_hex(&stage8b_p1e_canonical_json(payload)?))
+    }
+
+    pub fn stage8b_p1e_schedule_unsigned_signature_sha256(
+        envelope: &Stage8bP1eScheduleEnvelopeV3,
+    ) -> Result<String, Stage8bP1eScheduleSourceError> {
+        let mut value = serde_json::to_value(envelope)
+            .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        value
+            .as_object_mut()
+            .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?
+            .remove("signature_ed25519_hex");
+        let bytes = serde_json::to_vec(&value)
+            .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        Ok(domain_sha256(SIGNATURE_DOMAIN, &bytes))
+    }
+
+    pub fn verify_stage8b_p1e_schedule_envelope_v3(
+        exact_envelope_bytes: &[u8],
+        context: &Stage8bP1eScheduleVerificationContextV1,
+    ) -> Result<Stage8bP1eAcceptedScheduleSourceV1, Stage8bP1eScheduleSourceError> {
+        verify_stage8b_p1e_schedule_envelope_with_key(
+            exact_envelope_bytes,
+            context,
+            STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_FROM_UTC)?,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_UNTIL_UTC)?,
+        )
+    }
+
+    /// Authenticates a retained row for bounded conflict detection without
+    /// treating that historical row as fresh route evidence.
+    pub fn authenticate_stage8b_p1e_schedule_observation_v3(
+        exact_envelope_bytes: &[u8],
+        context: &Stage8bP1eScheduleVerificationContextV1,
+    ) -> Result<Stage8bP1eAuthenticatedScheduleObservationV1, Stage8bP1eScheduleSourceError> {
+        authenticate_stage8b_p1e_schedule_observation_with_key(
+            exact_envelope_bytes,
+            context,
+            STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_FROM_UTC)?,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_UNTIL_UTC)?,
+        )
+    }
+
+    /// Fixture-only verification seam for exercising producer persistence and
+    /// restart logic without embedding the production schedule private key.
+    /// The returned observation is non-authorizing; deployable builds without
+    /// the artifact-fixture feature cannot name this function.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_authenticate_schedule_observation_with_key(
+        exact_envelope_bytes: &[u8],
+        context: &Stage8bP1eScheduleVerificationContextV1,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eAuthenticatedScheduleObservationV1, Stage8bP1eScheduleSourceError> {
+        authenticate_stage8b_p1e_schedule_observation_with_key(
+            exact_envelope_bytes,
+            context,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+    }
+
+    /// Fixture-only counterpart of the production verifier. It exists solely
+    /// so cross-crate source/transport tests can use an ephemeral test key;
+    /// the capability is absent unless artifact fixtures are enabled.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_verify_schedule_envelope_with_key(
+        exact_envelope_bytes: &[u8],
+        context: &Stage8bP1eScheduleVerificationContextV1,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eAcceptedScheduleSourceV1, Stage8bP1eScheduleSourceError> {
+        verify_stage8b_p1e_schedule_envelope_with_key(
+            exact_envelope_bytes,
+            context,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+    }
+
+    /// Reconstructs only the exact historical non-authorizing transition that
+    /// is already present in an authenticated V4 journal tail. Freshness is
+    /// evaluated at the recorded binding instant, never at restart time; the
+    /// exact record is compared again before the candidate is returned.
+    pub fn recover_stage8b_p1e_schedule_binding_candidate_v4(
+        record: &crate::Stage6JournalRecordV4,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+    ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+        recover_stage8b_p1e_schedule_binding_candidate_v4_with_key(
+            record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_FROM_UTC)?,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_UNTIL_UTC)?,
+        )
+    }
+
+    /// Fixture-only counterpart of historical V4 recovery. It executes the
+    /// exact production reconstruction and cross-validation path with an
+    /// explicitly supplied test trust anchor; deployable builds cannot name
+    /// this function and no unsigned recovery path exists.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_recover_schedule_binding_candidate_v4_with_key(
+        record: &crate::Stage6JournalRecordV4,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+        recover_stage8b_p1e_schedule_binding_candidate_v4_with_key(
+            record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+    }
+
+    fn recover_stage8b_p1e_schedule_binding_candidate_v4_with_key(
+        record: &crate::Stage6JournalRecordV4,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+        let exact = record
+            .exact_envelope_bytes()
+            .map_err(|_| Stage8bP1eScheduleSourceError::TransitionMismatch)?;
+        let envelope: Stage8bP1eScheduleEnvelopeV3 = serde_json::from_slice(&exact)
+            .map_err(|_| Stage8bP1eScheduleSourceError::NonCanonicalEnvelope)?;
+        let high_water = high_water_from_envelope(&envelope, sha256_hex(&exact))?;
+        let bound_at = record.bound_at_utc();
+        let accepted = verify_stage8b_p1e_schedule_envelope_with_key(
+            &exact,
+            &Stage8bP1eScheduleVerificationContextV1 {
+                expected_instrument_map_fingerprint_sha256:
+                    expected_instrument_map_fingerprint_sha256.into(),
+                expected_operational_identity_sha256: record
+                    .operational_identity_sha256()
+                    .to_string(),
+                expected_registry_identity_sha256: envelope
+                    .payload
+                    .registry
+                    .registry_identity_sha256
+                    .clone(),
+                expected_registry_version: envelope.payload.registry.registry_version.clone(),
+                expected_runtime_config_fingerprint_sha256:
+                    expected_runtime_config_fingerprint_sha256.into(),
+                high_water: Some(high_water),
+                trusted_now: bound_at,
+            },
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )?;
+        let predecessor = record.predecessor_m10();
+        let candidate_m10 = record.candidate_or_last_eligible_m10();
+        let binding = record.request_or_order_binding();
+        let candidate = match record.transition_kind() {
+            Stage8bP1eScheduleTransitionKindV1::MarketExecution => accepted
+                .prepare_market_binding(
+                    &predecessor,
+                    &candidate_m10,
+                    binding
+                        .strategy_request_id
+                        .clone()
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    binding
+                        .canonical_command_sha256
+                        .clone()
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    record.redis_stream_id().to_string(),
+                )?,
+            Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation => accepted
+                .prepare_working_limit_binding(
+                    &predecessor,
+                    &candidate_m10,
+                    binding
+                        .active_broker_order_id
+                        .clone()
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    binding
+                        .working_book_transition_sha256
+                        .clone()
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    record.redis_stream_id().to_string(),
+                )?,
+            Stage8bP1eScheduleTransitionKindV1::CancelStep => accepted.prepare_cancel_binding(
+                &predecessor,
+                &candidate_m10,
+                binding
+                    .active_broker_order_id
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                binding
+                    .working_book_transition_sha256
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                record.redis_stream_id().to_string(),
+            )?,
+            Stage8bP1eScheduleTransitionKindV1::DayExpiry => accepted.prepare_day_expiry_binding(
+                &predecessor,
+                &candidate_m10,
+                bound_at,
+                binding
+                    .active_broker_order_id
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                binding
+                    .working_book_transition_sha256
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                record.redis_stream_id().to_string(),
+            )?,
+        };
+        if !record.matches_stage8b_p1e_candidate(&candidate) {
+            return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+        }
+        Ok(candidate)
+    }
+
+    fn verify_stage8b_p1e_schedule_envelope_with_key(
+        exact_envelope_bytes: &[u8],
+        context: &Stage8bP1eScheduleVerificationContextV1,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eAcceptedScheduleSourceV1, Stage8bP1eScheduleSourceError> {
+        let envelope: Stage8bP1eScheduleEnvelopeV3 =
+            serde_json::from_slice(exact_envelope_bytes)
+                .map_err(|_| Stage8bP1eScheduleSourceError::NonCanonicalEnvelope)?;
+        if stage8b_p1e_canonical_json(&envelope)? != exact_envelope_bytes {
+            return Err(Stage8bP1eScheduleSourceError::NonCanonicalEnvelope);
+        }
+        validate_envelope_constants(&envelope)?;
+        validate_embedded_hashes(&envelope)?;
+        if context.trusted_now < key_valid_from || context.trusted_now > key_valid_until {
+            return Err(Stage8bP1eScheduleSourceError::Untrusted);
+        }
+        let signature_digest = stage8b_p1e_schedule_unsigned_signature_sha256(&envelope)?;
+        verify_signature(
+            public_key_hex,
+            &envelope.signature_ed25519_hex,
+            &decode_lower_hex::<32>(&signature_digest)
+                .map_err(|_| Stage8bP1eScheduleSourceError::Untrusted)?,
+        )?;
+        if envelope.source_generation != SOURCE_GENERATION {
+            return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
+        }
+
+        let published_at = parse_exact_timestamp(&envelope.published_at_utc)?;
+        if published_at > context.trusted_now + chrono::Duration::milliseconds(FUTURE_SKEW_MS) {
+            return Err(Stage8bP1eScheduleSourceError::Future);
+        }
+        if context
+            .trusted_now
+            .signed_duration_since(published_at)
+            .num_milliseconds()
+            > TRANSPORT_MAX_AGE_MS
+        {
+            return Err(Stage8bP1eScheduleSourceError::Stale);
+        }
+        let normalized_observed =
+            parse_exact_timestamp(&envelope.payload.normalized_schedule.source_observed_at_utc)?;
+        let normalized_expires =
+            parse_exact_timestamp(&envelope.payload.normalized_schedule.source_expires_at_utc)?;
+        let stage4_observed =
+            parse_exact_timestamp(&envelope.payload.stage4_evidence.source_observed_at_utc)?;
+        let stage4_expires =
+            parse_exact_timestamp(&envelope.payload.stage4_evidence.source_expires_at_utc)?;
+        if normalized_observed
+            > context.trusted_now + chrono::Duration::milliseconds(FUTURE_SKEW_MS)
+            || stage4_observed
+                > context.trusted_now + chrono::Duration::milliseconds(FUTURE_SKEW_MS)
+        {
+            return Err(Stage8bP1eScheduleSourceError::Future);
+        }
+        if normalized_observed > normalized_expires
+            || context.trusted_now > normalized_expires
+            || context
+                .trusted_now
+                .signed_duration_since(normalized_observed)
+                .num_milliseconds()
+                > NORMALIZED_MAX_AGE_MS
+        {
+            return Err(Stage8bP1eScheduleSourceError::Stale);
+        }
+        if stage4_observed > stage4_expires || context.trusted_now > stage4_expires {
+            return Err(Stage8bP1eScheduleSourceError::Stage4EvidenceBlocked);
+        }
+        if (normalized_observed - stage4_observed)
+            .num_milliseconds()
+            .abs()
+            > CROSS_SOURCE_MAX_SKEW_MS
+        {
+            return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
+        }
+        let envelope_sha256 = sha256_hex(exact_envelope_bytes);
+        let candidate = high_water_from_envelope(&envelope, envelope_sha256.clone())?;
+        let progression = validate_progression(context.high_water.as_ref(), &candidate)?;
+        if envelope.operational_identity_sha256 != context.expected_operational_identity_sha256
+            || envelope.runtime_config_fingerprint_sha256
+                != context.expected_runtime_config_fingerprint_sha256
+            || envelope.instrument_map_fingerprint_sha256
+                != context.expected_instrument_map_fingerprint_sha256
+            || envelope.payload.registry.registry_identity_sha256
+                != context.expected_registry_identity_sha256
+            || envelope.payload.registry.registry_version != context.expected_registry_version
+        {
+            return Err(Stage8bP1eScheduleSourceError::IdentityMismatch);
+        }
+        let report_observed = validate_stage4_report(&envelope, stage4_expires)
+            .map_err(|_| Stage8bP1eScheduleSourceError::Stage4EvidenceBlocked)?;
+        if report_observed != stage4_observed {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        validate_payload_semantics(&envelope)?;
+        Ok(Stage8bP1eAcceptedScheduleSourceV1 {
+            envelope,
+            envelope_sha256,
+            exact_envelope_bytes: exact_envelope_bytes.to_vec(),
+            high_water: candidate,
+            progression,
+            stage4_observed_at: stage4_observed,
+            valid_until: normalized_expires
+                .min(stage4_expires)
+                .min(published_at + chrono::Duration::milliseconds(TRANSPORT_MAX_AGE_MS))
+                .min(key_valid_until),
+        })
+    }
+
+    fn authenticate_stage8b_p1e_schedule_observation_with_key(
+        exact_envelope_bytes: &[u8],
+        context: &Stage8bP1eScheduleVerificationContextV1,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eAuthenticatedScheduleObservationV1, Stage8bP1eScheduleSourceError> {
+        let envelope: Stage8bP1eScheduleEnvelopeV3 =
+            serde_json::from_slice(exact_envelope_bytes)
+                .map_err(|_| Stage8bP1eScheduleSourceError::NonCanonicalEnvelope)?;
+        if stage8b_p1e_canonical_json(&envelope)? != exact_envelope_bytes {
+            return Err(Stage8bP1eScheduleSourceError::NonCanonicalEnvelope);
+        }
+        validate_envelope_constants(&envelope)?;
+        validate_embedded_hashes(&envelope)?;
+        if context.trusted_now < key_valid_from || context.trusted_now > key_valid_until {
+            return Err(Stage8bP1eScheduleSourceError::Untrusted);
+        }
+        let signature_digest = stage8b_p1e_schedule_unsigned_signature_sha256(&envelope)?;
+        verify_signature(
+            public_key_hex,
+            &envelope.signature_ed25519_hex,
+            &decode_lower_hex::<32>(&signature_digest)
+                .map_err(|_| Stage8bP1eScheduleSourceError::Untrusted)?,
+        )?;
+        if envelope.source_generation != SOURCE_GENERATION {
+            return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
+        }
+        if envelope.operational_identity_sha256 != context.expected_operational_identity_sha256
+            || envelope.runtime_config_fingerprint_sha256
+                != context.expected_runtime_config_fingerprint_sha256
+            || envelope.instrument_map_fingerprint_sha256
+                != context.expected_instrument_map_fingerprint_sha256
+            || envelope.payload.registry.registry_identity_sha256
+                != context.expected_registry_identity_sha256
+            || envelope.payload.registry.registry_version != context.expected_registry_version
+        {
+            return Err(Stage8bP1eScheduleSourceError::IdentityMismatch);
+        }
+        let published_at = parse_exact_timestamp(&envelope.published_at_utc)?;
+        if published_at > context.trusted_now + chrono::Duration::milliseconds(FUTURE_SKEW_MS) {
+            return Err(Stage8bP1eScheduleSourceError::Future);
+        }
+        let normalized_observed =
+            parse_exact_timestamp(&envelope.payload.normalized_schedule.source_observed_at_utc)?;
+        let normalized_expires =
+            parse_exact_timestamp(&envelope.payload.normalized_schedule.source_expires_at_utc)?;
+        let stage4_observed =
+            parse_exact_timestamp(&envelope.payload.stage4_evidence.source_observed_at_utc)?;
+        let stage4_expires =
+            parse_exact_timestamp(&envelope.payload.stage4_evidence.source_expires_at_utc)?;
+        if normalized_observed > normalized_expires
+            || stage4_observed > stage4_expires
+            || (normalized_observed - stage4_observed)
+                .num_milliseconds()
+                .abs()
+                > CROSS_SOURCE_MAX_SKEW_MS
+        {
+            return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
+        }
+        let report_observed = validate_stage4_report(&envelope, stage4_expires)
+            .map_err(|_| Stage8bP1eScheduleSourceError::Stage4EvidenceBlocked)?;
+        if report_observed != stage4_observed {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        validate_payload_semantics(&envelope)?;
+        Ok(Stage8bP1eAuthenticatedScheduleObservationV1 {
+            high_water: high_water_from_envelope(&envelope, sha256_hex(exact_envelope_bytes))?,
+        })
+    }
+
+    fn validate_envelope_constants(
+        envelope: &Stage8bP1eScheduleEnvelopeV3,
+    ) -> Result<(), Stage8bP1eScheduleSourceError> {
+        if envelope.schema_version != 3
+            || envelope.domain != ENVELOPE_DOMAIN
+            || envelope.producer_id != PRODUCER_ID
+            || envelope.producer_contract_version != PRODUCER_CONTRACT
+            || envelope.semantic_identity_contract_version != 1
+            || envelope.key_id != KEY_ID
+            || envelope.key_generation != 2
+            || !valid_nonzero_decimal(&envelope.source_generation)
+            || !valid_nonzero_decimal(&envelope.publication_sequence)
+            || !valid_nonzero_decimal(&envelope.semantic_revision)
+            || !valid_sha256(&envelope.schedule_semantic_sha256)
+            || !valid_sha256(&envelope.operational_identity_sha256)
+            || !valid_sha256(&envelope.runtime_config_fingerprint_sha256)
+            || !valid_sha256(&envelope.instrument_map_fingerprint_sha256)
+            || !valid_sha256(&envelope.payload_sha256)
+            || !valid_lower_hex(&envelope.signature_ed25519_hex, 128)
+        {
+            return Err(Stage8bP1eScheduleSourceError::Untrusted);
+        }
+        Ok(())
+    }
+
+    fn validate_embedded_hashes(
+        envelope: &Stage8bP1eScheduleEnvelopeV3,
+    ) -> Result<(), Stage8bP1eScheduleSourceError> {
+        let payload = &envelope.payload;
+        if !valid_sha256(&payload.normalized_schedule.normalized_payload_sha256)
+            || !valid_sha256(&payload.stage4_evidence.report_sha256)
+            || !valid_lower_hex(
+                &payload.stage4_evidence.report_canonical_json_hex,
+                payload.stage4_evidence.report_canonical_json_hex.len(),
+            )
+            || payload.stage4_evidence.report_canonical_json_hex.is_empty()
+            || payload.stage4_evidence.report_canonical_json_hex.len() > 262_144
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        let report_bytes = decode_hex_vec(&payload.stage4_evidence.report_canonical_json_hex)?;
+        let normalized_hash = sha256_hex(&stage8b_p1e_canonical_json(
+            &payload.normalized_schedule.sessions,
+        )?);
+        if sha256_hex(&report_bytes) != payload.stage4_evidence.report_sha256
+            || normalized_hash != payload.normalized_schedule.normalized_payload_sha256
+            || stage8b_p1e_schedule_payload_sha256(payload)? != envelope.payload_sha256
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        Ok(())
+    }
+
+    fn validate_payload_semantics(
+        envelope: &Stage8bP1eScheduleEnvelopeV3,
+    ) -> Result<(), Stage8bP1eScheduleSourceError> {
+        let payload = &envelope.payload;
+        if payload.instrument != expected_instrument() {
+            return Err(Stage8bP1eScheduleSourceError::IdentityMismatch);
+        }
+        if payload.schema_version != 2
+            || payload.domain != PAYLOAD_DOMAIN
+            || payload.timezone != TIMEZONE
+            || payload.registry.registry_version.is_empty()
+            || payload.registry.registry_version.len() > 128
+            || !payload
+                .registry
+                .registry_version
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
+            || !valid_sha256(&payload.registry.registry_identity_sha256)
+            || parse_exact_day(&payload.trading_day).is_err()
+            || payload.normalized_schedule.sessions.is_empty()
+            || payload.normalized_schedule.sessions.len() > 128
+            || !valid_sha256(&payload.normalized_schedule.raw_response_sha256)
+            || !valid_sha256(&payload.normalized_schedule.normalized_payload_sha256)
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        validate_sessions(&payload.normalized_schedule.sessions, &payload.trading_day)?;
+        validate_stage4_semantic_state(
+            payload.stage4_evidence.evidence_kind,
+            payload.stage4_evidence.schedule_state,
+            payload.stage4_evidence.boundary_proof.as_ref(),
+            &payload.normalized_schedule.sessions,
+            &payload.trading_day,
+        )?;
+        let expected_identity = Stage8bP1eScheduleSemanticIdentityV1 {
+            domain: SEMANTIC_DOMAIN.to_string(),
+            instrument: payload.instrument.clone(),
+            registry: payload.registry.clone(),
+            schema_version: 1,
+            sessions: payload.normalized_schedule.sessions.clone(),
+            stage4_semantic_state: Stage8bP1eStage4SemanticStateV1 {
+                boundary_proof: payload.stage4_evidence.boundary_proof.clone(),
+                evidence_kind: payload.stage4_evidence.evidence_kind,
+                schedule_state: payload.stage4_evidence.schedule_state,
+            },
+            timeframe_sec: M10_SECONDS,
+            timezone: payload.timezone.clone(),
+            trading_day: payload.trading_day.clone(),
+        };
+        if envelope.semantic_identity != expected_identity
+            || stage8b_p1e_schedule_semantic_sha256(&expected_identity)?
+                != envelope.schedule_semantic_sha256
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        Ok(())
+    }
+
+    fn validate_sessions(
+        sessions: &[Stage8bP1eScheduleSessionV1],
+        trading_day: &str,
+    ) -> Result<(), Stage8bP1eScheduleSourceError> {
+        let day = parse_exact_day(trading_day)?;
+        let moscow = FixedOffset::east_opt(3 * 60 * 60)
+            .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        let mut prior_key = None;
+        let mut prior_end = None;
+        let mut open_count = 0;
+        for session in sessions {
+            let start = parse_exact_timestamp(&session.start_utc)?;
+            let end = parse_exact_timestamp(&session.end_utc)?;
+            if start >= end
+                || start.with_timezone(&moscow).date_naive() != day
+                || end.with_timezone(&moscow).date_naive() != day
+            {
+                return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+            }
+            let type_rank = match session.session_type {
+                Stage8bP1eScheduleSessionTypeV1::TradableOpen => {
+                    open_count += 1;
+                    1_u8
+                }
+                Stage8bP1eScheduleSessionTypeV1::BreakOrClearing => 2,
+                Stage8bP1eScheduleSessionTypeV1::Maintenance => 3,
+            };
+            let key = (start, end, type_rank);
+            if prior_key.is_some_and(|prior| prior >= key)
+                || prior_end.is_some_and(|previous: DateTime<Utc>| start <= previous)
+            {
+                return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+            }
+            prior_key = Some(key);
+            prior_end = Some(end);
+        }
+        if open_count == 0 {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        Ok(())
+    }
+
+    fn validate_stage4_semantic_state(
+        kind: Stage8bP1eScheduleEvidenceKindV1,
+        state: Stage8bP1eScheduleStateV1,
+        proof: Option<&Stage8bP1eDayBoundaryProofV1>,
+        sessions: &[Stage8bP1eScheduleSessionV1],
+        trading_day: &str,
+    ) -> Result<(), Stage8bP1eScheduleSourceError> {
+        match (kind, state, proof) {
+            (
+                Stage8bP1eScheduleEvidenceKindV1::Tradability,
+                Stage8bP1eScheduleStateV1::Open,
+                None,
+            ) => Ok(()),
+            (
+                Stage8bP1eScheduleEvidenceKindV1::DayBoundary,
+                Stage8bP1eScheduleStateV1::Closed,
+                Some(proof),
+            ) => {
+                let open = parse_exact_timestamp(&proof.last_eligible_m10_open_ts_utc)?;
+                let close = parse_exact_timestamp(&proof.last_eligible_m10_close_ts_utc)?;
+                let boundary = parse_exact_timestamp(&proof.boundary_ts_utc)?;
+                let last_tradable_close = sessions
+                    .iter()
+                    .filter(|session| {
+                        session.session_type == Stage8bP1eScheduleSessionTypeV1::TradableOpen
+                    })
+                    .map(|session| parse_exact_timestamp(&session.end_utc))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .max()
+                    .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+                if proof.trading_day == trading_day
+                    && close - open == chrono::Duration::seconds(i64::from(M10_SECONDS))
+                    && boundary == close
+                    && boundary == last_tradable_close
+                    && boundary
+                        .timestamp_millis()
+                        .rem_euclid(i64::from(M10_SECONDS) * 1_000)
+                        == 0
+                {
+                    Ok(())
+                } else {
+                    Err(Stage8bP1eScheduleSourceError::PayloadConflict)
+                }
+            }
+            _ => Err(Stage8bP1eScheduleSourceError::PayloadConflict),
+        }
+    }
+
+    fn validate_stage4_report(
+        envelope: &Stage8bP1eScheduleEnvelopeV3,
+        declared_expiry: DateTime<Utc>,
+    ) -> Result<DateTime<Utc>, Stage8bP1eScheduleSourceError> {
+        let evidence = &envelope.payload.stage4_evidence;
+        if !valid_sha256(&evidence.report_sha256)
+            || !valid_lower_hex(
+                &evidence.report_canonical_json_hex,
+                evidence.report_canonical_json_hex.len(),
+            )
+            || evidence.report_canonical_json_hex.is_empty()
+            || evidence.report_canonical_json_hex.len() > 262_144
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        let bytes = decode_hex_vec(&evidence.report_canonical_json_hex)?;
+        if sha256_hex(&bytes) != evidence.report_sha256 {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        let report: broker_core::Stage4BootstrapEvidenceReport = serde_json::from_slice(&bytes)
+            .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        if stage8b_p1e_canonical_json(&report)? != bytes
+            || report.schema_version != broker_core::STAGE4_BOOTSTRAP_EVIDENCE_REPORT_SCHEMA_VERSION
+            || report.status != broker_core::Stage4BootstrapEvidenceReportStatus::Accepted
+            || report.target_instrument != instrument_id()
+            || report.broker_truth_source_status
+                != broker_core::Stage4BrokerTruthSourceStatus::Present
+            || report.stage4c_status
+                != broker_core::Stage4BrokerTruthBootstrapStatus::BootstrapReady
+            || report.stage4e_status
+                != broker_core::Stage4RuntimeBootstrapApplicationStatus::Applied
+            || report.stage4f_status != broker_core::Stage4DirtyStartPolicyStatus::Accepted
+            || report.stage4g_status != broker_core::Stage4RuntimeLifecycleOrderingStatus::Accepted
+            || report.stage4h_status
+                != broker_core::Stage4RuntimeBootstrapIntegrationStatus::Accepted
+            || !report.stage4c_blocker_kinds.is_empty()
+            || !report.stage4e_blocker_kinds.is_empty()
+            || !report.stage4f_blocker_kinds.is_empty()
+            || !report.stage4g_blocker_kinds.is_empty()
+            || !report.stage4g_lifecycle_issues.is_empty()
+            || !report.stage4h_blocker_kinds.is_empty()
+            || report.reason_chain.len() != report.blocker_count
+            || report.blocker_count != 0
+            || report.manual_intervention_required
+            || !report.no_live_authorization
+            || !report.redaction.report_redacted
+            || report.redaction.raw_payloads_exported
+            || report.redaction.secrets_exported
+            || report.redaction.account_sensitive_dumps_exported
+            || report.redaction.broker_account_id_exported
+            || report.redaction.raw_order_comments_exported
+            || report.safety_boundary != broker_core::Stage4BrokerTruthSafetyBoundary::closed()
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        let mut section_inventory = std::collections::HashSet::new();
+        if report.source_sections.is_empty()
+            || report
+                .source_sections
+                .iter()
+                .any(|section| !section_inventory.insert(section.section))
+            || report
+                .source_sections
+                .iter()
+                .filter(|section| {
+                    section.section == broker_core::Stage4BrokerTruthFreshnessSection::Schedule
+                })
+                .count()
+                != 1
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        let schedule = report
+            .source_sections
+            .iter()
+            .find(|section| {
+                section.section == broker_core::Stage4BrokerTruthFreshnessSection::Schedule
+            })
+            .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        let age_ms = schedule
+            .age_ms
+            .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        if schedule.source_status != broker_core::Stage4BrokerTruthSourceStatus::Present
+            || schedule.freshness_status != broker_core::Stage4BrokerTruthFreshnessStatus::Fresh
+            || !schedule.required_for_bootstrap
+            || schedule.blocks_bootstrap
+            || age_ms < 0
+            || !matches!(u64::try_from(age_ms), Ok(age) if age <= schedule.max_age_ms)
+        {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        let observed = report.checked_ts - chrono::Duration::milliseconds(age_ms);
+        let mut recomputed_expiry = None;
+        for section in report
+            .source_sections
+            .iter()
+            .filter(|section| section.required_for_bootstrap)
+        {
+            let age_ms = section
+                .age_ms
+                .ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+            if section.source_status != broker_core::Stage4BrokerTruthSourceStatus::Present
+                || section.freshness_status != broker_core::Stage4BrokerTruthFreshnessStatus::Fresh
+                || section.blocks_bootstrap
+                || age_ms < 0
+                || !matches!(u64::try_from(age_ms), Ok(age) if age <= section.max_age_ms)
+            {
+                return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+            }
+            let remaining = section.max_age_ms - u64::try_from(age_ms).unwrap_or_default();
+            let expiry = report.checked_ts
+                + chrono::Duration::milliseconds(
+                    i64::try_from(remaining)
+                        .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?,
+                );
+            recomputed_expiry = Some(
+                recomputed_expiry
+                    .map(|current: DateTime<Utc>| current.min(expiry))
+                    .unwrap_or(expiry),
+            );
+        }
+        let recomputed_expiry =
+            recomputed_expiry.ok_or(Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        if recomputed_expiry != declared_expiry {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        Ok(observed)
+    }
+
+    fn validate_progression(
+        prior: Option<&Stage8bP1eScheduleHighWaterV1>,
+        candidate: &Stage8bP1eScheduleHighWaterV1,
+    ) -> Result<Stage8bP1eScheduleProgressionV1, Stage8bP1eScheduleSourceError> {
+        let Some(prior) = prior else {
+            if candidate.semantic_revision != 1 {
+                return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
+            }
+            return Ok(Stage8bP1eScheduleProgressionV1::Bootstrap);
+        };
+        if candidate.source_generation != prior.source_generation {
+            return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
+        }
+        if candidate.publication_sequence < prior.publication_sequence
+            || candidate.published_at_utc < prior.published_at_utc
+            || candidate.semantic_revision < prior.semantic_revision
+        {
+            return Err(Stage8bP1eScheduleSourceError::Rollback);
+        }
+        if candidate.publication_sequence == prior.publication_sequence {
+            return if candidate == prior {
+                Ok(Stage8bP1eScheduleProgressionV1::Idempotent)
+            } else {
+                Err(Stage8bP1eScheduleSourceError::ProgressionConflict)
+            };
+        }
+        if candidate.published_at_utc <= prior.published_at_utc
+            || (candidate.semantic_revision == prior.semantic_revision
+                && candidate.schedule_semantic_sha256 != prior.schedule_semantic_sha256)
+            || (candidate.semantic_revision > prior.semantic_revision
+                && candidate.schedule_semantic_sha256 == prior.schedule_semantic_sha256)
+        {
+            return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
+        }
+        Ok(Stage8bP1eScheduleProgressionV1::MonotonicSnapshot)
+    }
+
+    fn high_water_from_envelope(
+        envelope: &Stage8bP1eScheduleEnvelopeV3,
+        envelope_sha256: String,
+    ) -> Result<Stage8bP1eScheduleHighWaterV1, Stage8bP1eScheduleSourceError> {
+        Ok(Stage8bP1eScheduleHighWaterV1 {
+            envelope_sha256,
+            publication_sequence: envelope
+                .publication_sequence
+                .parse()
+                .map_err(|_| Stage8bP1eScheduleSourceError::ProgressionConflict)?,
+            published_at_utc: parse_exact_timestamp(&envelope.published_at_utc)?,
+            schedule_semantic_sha256: envelope.schedule_semantic_sha256.clone(),
+            semantic_revision: envelope
+                .semantic_revision
+                .parse()
+                .map_err(|_| Stage8bP1eScheduleSourceError::ProgressionConflict)?,
+            source_generation: envelope
+                .source_generation
+                .parse()
+                .map_err(|_| Stage8bP1eScheduleSourceError::ProgressionConflict)?,
+        })
+    }
+
+    fn validate_m10_pair(
+        predecessor: &Stage8bP1eM10IdentityV1,
+        candidate: &Stage8bP1eM10IdentityV1,
+        trading_day: &str,
+    ) -> Result<(), Stage8bP1eScheduleSourceError> {
+        let day = parse_exact_day(trading_day)?;
+        for item in [predecessor, candidate] {
+            let close = DateTime::<Utc>::from_timestamp_millis(item.close_ts_utc_ms)
+                .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?;
+            if item.redis_id != format!("{}-0", item.close_ts_utc_ms)
+                || !valid_sha256(&item.semantic_id_sha256)
+                || !valid_sha256(&item.payload_sha256)
+                || item.close_ts_utc_ms - item.open_ts_utc_ms != i64::from(M10_SECONDS) * 1_000
+                || item
+                    .close_ts_utc_ms
+                    .rem_euclid(i64::from(M10_SECONDS) * 1_000)
+                    != 0
+                || close.date_naive() != day
+            {
+                return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            }
+        }
+        if candidate.close_ts_utc_ms <= predecessor.close_ts_utc_ms {
+            return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+        }
+        Ok(())
+    }
+
+    fn expected_instrument() -> Stage8bP1eScheduleInstrumentV1 {
+        Stage8bP1eScheduleInstrumentV1 {
+            board: "FUT".to_string(),
+            broker_symbol: "IMOEXF@RTSX".to_string(),
+            exchange: "moex".to_string(),
+            market: "futures".to_string(),
+            symbol: "IMOEXF".to_string(),
+            tick_size: "0.5".to_string(),
+            venue_mic: "RTSX".to_string(),
+        }
+    }
+
+    fn instrument_id() -> broker_core::InstrumentId {
+        broker_core::InstrumentId {
+            symbol: "IMOEXF".to_string(),
+            venue_symbol: Some("IMOEXF@RTSX".to_string()),
+            exchange: broker_core::Exchange::Moex,
+            market: broker_core::Market::Futures,
+        }
+    }
+
+    fn parse_exact_day(value: &str) -> Result<NaiveDate, Stage8bP1eScheduleSourceError> {
+        let parsed = NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        if parsed.format("%Y-%m-%d").to_string() != value {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        Ok(parsed)
+    }
+
+    fn parse_exact_timestamp(value: &str) -> Result<DateTime<Utc>, Stage8bP1eScheduleSourceError> {
+        let parsed = DateTime::parse_from_rfc3339(value)
+            .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?
+            .with_timezone(&Utc);
+        if parsed.to_rfc3339_opts(SecondsFormat::Micros, true) != value {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        Ok(parsed)
+    }
+
+    fn parse_trust_timestamp(value: &str) -> Result<DateTime<Utc>, Stage8bP1eScheduleSourceError> {
+        DateTime::parse_from_rfc3339(value)
+            .map(|value| value.with_timezone(&Utc))
+            .map_err(|_| Stage8bP1eScheduleSourceError::Untrusted)
+    }
+
+    fn verify_signature(
+        public_key_hex: &str,
+        signature_hex: &str,
+        message: &[u8],
+    ) -> Result<(), Stage8bP1eScheduleSourceError> {
+        let key = VerifyingKey::from_bytes(
+            &decode_lower_hex::<32>(public_key_hex)
+                .map_err(|_| Stage8bP1eScheduleSourceError::Untrusted)?,
+        )
+        .map_err(|_| Stage8bP1eScheduleSourceError::Untrusted)?;
+        let signature = Signature::from_bytes(
+            &decode_lower_hex::<64>(signature_hex)
+                .map_err(|_| Stage8bP1eScheduleSourceError::Untrusted)?,
+        );
+        key.verify(message, &signature)
+            .map_err(|_| Stage8bP1eScheduleSourceError::Untrusted)
+    }
+
+    fn valid_nonzero_decimal(value: &str) -> bool {
+        !value.is_empty()
+            && value.len() <= 20
+            && value.as_bytes()[0] != b'0'
+            && value.bytes().all(|byte| byte.is_ascii_digit())
+            && value.parse::<u64>().is_ok()
+    }
+
+    fn valid_redis_stream_id(value: &str) -> bool {
+        let Some((milliseconds, sequence)) = value.split_once('-') else {
+            return false;
+        };
+        valid_nonzero_decimal(milliseconds)
+            && !sequence.is_empty()
+            && sequence.len() <= 20
+            && !sequence.contains('-')
+            && (sequence.len() == 1 || sequence.as_bytes()[0] != b'0')
+            && sequence.bytes().all(|byte| byte.is_ascii_digit())
+            && sequence.parse::<u64>().is_ok()
+    }
+
+    fn valid_request_or_order_binding(
+        transition_kind: Stage8bP1eScheduleTransitionKindV1,
+        binding: &Stage8bP1eRequestOrOrderBindingV1,
+    ) -> bool {
+        match transition_kind {
+            Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+                binding
+                    .strategy_request_id
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                    && binding
+                        .canonical_command_sha256
+                        .as_deref()
+                        .is_some_and(valid_sha256)
+                    && binding.active_broker_order_id.is_none()
+                    && binding.working_book_transition_sha256.is_none()
+            }
+            Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+            | Stage8bP1eScheduleTransitionKindV1::CancelStep
+            | Stage8bP1eScheduleTransitionKindV1::DayExpiry => {
+                binding.strategy_request_id.is_none()
+                    && binding.canonical_command_sha256.is_none()
+                    && binding
+                        .active_broker_order_id
+                        .as_deref()
+                        .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                    && binding
+                        .working_book_transition_sha256
+                        .as_deref()
+                        .is_some_and(valid_sha256)
+            }
+        }
+    }
+
+    fn valid_sha256(value: &str) -> bool {
+        valid_lower_hex(value, 64) && value != "0".repeat(64)
+    }
+
+    fn valid_lower_hex(value: &str, exact_len: usize) -> bool {
+        value.len() == exact_len
+            && value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    }
+
+    fn decode_lower_hex<const N: usize>(
+        value: &str,
+    ) -> Result<[u8; N], Stage8bP1eScheduleSourceError> {
+        if !valid_lower_hex(value, N * 2) {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        let mut decoded = [0_u8; N];
+        for (index, byte) in decoded.iter_mut().enumerate() {
+            *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+                .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)?;
+        }
+        Ok(decoded)
+    }
+
+    fn decode_hex_vec(value: &str) -> Result<Vec<u8>, Stage8bP1eScheduleSourceError> {
+        if value.is_empty() || value.len() % 2 != 0 || !valid_lower_hex(value, value.len()) {
+            return Err(Stage8bP1eScheduleSourceError::PayloadConflict);
+        }
+        (0..value.len())
+            .step_by(2)
+            .map(|index| {
+                u8::from_str_radix(&value[index..index + 2], 16)
+                    .map_err(|_| Stage8bP1eScheduleSourceError::PayloadConflict)
+            })
+            .collect()
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        format!("{:x}", Sha256::digest(bytes))
+    }
+
+    fn domain_sha256(domain: &[u8], bytes: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(domain);
+        hasher.update(b"\0");
+        hasher.update(bytes);
+        format!("{:x}", hasher.finalize())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use broker_core::{
+            BrokerAccountId, BrokerInstrumentSpec, BrokerKind, BrokerMarketSessionState,
+            BrokerSymbol, BrokerTruthSnapshot, Exchange, InstrumentMapEntry, InternalSymbol,
+            Market, Money, Stage4AdoptionDisposition, Stage4BootstrapEvidenceSourceStatusSection,
+            Stage4BrokerTruthBootstrapInput, Stage4BrokerTruthFreshnessInput,
+            Stage4BrokerTruthSafetyBoundary, Stage4BrokerTruthSourceStatus,
+        };
+        use ed25519_dalek::{Signer, SigningKey};
+        use rust_decimal::Decimal;
+
+        fn timestamp(value: &str) -> DateTime<Utc> {
+            DateTime::parse_from_rfc3339(value)
+                .unwrap()
+                .with_timezone(&Utc)
+        }
+
+        fn timestamp_text(value: DateTime<Utc>) -> String {
+            value.to_rfc3339_opts(SecondsFormat::Micros, true)
+        }
+
+        fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
+            bytes
+                .as_ref()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect()
+        }
+
+        fn accepted_report(
+            now: DateTime<Utc>,
+            schedule_state: BrokerMarketSessionState,
+        ) -> broker_core::Stage4AcceptedPaperHostEvidence {
+            let target = instrument_id();
+            let truth = BrokerTruthSnapshot {
+                account_id: BrokerAccountId::new("ACC_TEST_0001"),
+                orders: Vec::new(),
+                positions: Vec::new(),
+                cash: None,
+                trades: Vec::new(),
+                instruments: vec![BrokerInstrumentSpec {
+                    instrument: InstrumentMapEntry {
+                        internal_symbol: InternalSymbol("IMOEXF".to_string()),
+                        broker: BrokerKind::Finam,
+                        broker_symbol: BrokerSymbol("IMOEXF@RTSX".to_string()),
+                        exchange: Exchange::Moex,
+                        market: Market::Futures,
+                        price_step: Decimal::new(5, 1),
+                        qty_step: Decimal::ONE,
+                        lot_size: Decimal::ONE,
+                        min_qty: Decimal::ONE,
+                        step_value: Decimal::new(5, 0),
+                        currency: "RUB".to_string(),
+                        schedule_id: "RTSX".to_string(),
+                        expiration_date: None,
+                        is_tradable: true,
+                    },
+                    broker_asset_id: Some("ASSET_TEST_1".to_string()),
+                    board: Some("RTSX".to_string()),
+                    long_initial_margin: Some(Money::new(5_000, 0)),
+                    short_initial_margin: Some(Money::new(5_000, 0)),
+                }],
+                received_ts: now,
+            };
+            let validated = broker_core::stage4_bootstrap::validate_stage4_broker_truth_bootstrap(
+                Stage4BrokerTruthBootstrapInput {
+                    broker_truth: &truth,
+                    broker_truth_source_status: Stage4BrokerTruthSourceStatus::Present,
+                    target_instrument: target,
+                    restored_runtime_state: None,
+                    freshness:
+                        Stage4BrokerTruthFreshnessInput::synthetic_all_sections_fresh_for_tests(
+                            now, 60_000,
+                        ),
+                    schedule_state,
+                    adoption: Stage4AdoptionDisposition::default(),
+                    external_issues: Vec::new(),
+                    safety_boundary: Stage4BrokerTruthSafetyBoundary::closed(),
+                    checked_ts: now,
+                },
+            );
+            let source_sections = validated
+                .freshness
+                .sections
+                .iter()
+                .map(|section| Stage4BootstrapEvidenceSourceStatusSection {
+                    section: section.section,
+                    source_status: Stage4BrokerTruthSourceStatus::Present,
+                    required_for_bootstrap: section.required_for_bootstrap,
+                })
+                .collect::<Vec<_>>();
+            broker_core::stage4_bootstrap::build_stage4_accepted_paper_host_evidence(
+                &validated,
+                &source_sections,
+            )
+            .unwrap()
+        }
+
+        fn open_envelope(now: DateTime<Utc>) -> Stage8bP1eScheduleEnvelopeV3 {
+            let stage4 = accepted_report(now, BrokerMarketSessionState::Open);
+            let report_bytes = stage8b_p1e_canonical_json(stage4.report()).unwrap();
+            let sessions = vec![Stage8bP1eScheduleSessionV1 {
+                end_utc: "2026-09-14T12:10:00.000000Z".to_string(),
+                session_type: Stage8bP1eScheduleSessionTypeV1::TradableOpen,
+                start_utc: "2026-09-14T06:00:00.000000Z".to_string(),
+            }];
+            let normalized = Stage8bP1eNormalizedScheduleV2 {
+                normalized_payload_sha256: sha256_hex(
+                    &stage8b_p1e_canonical_json(&sessions).unwrap(),
+                ),
+                raw_response_sha256: "1".repeat(64),
+                sessions: sessions.clone(),
+                source_expires_at_utc: timestamp_text(now + chrono::Duration::seconds(60)),
+                source_observed_at_utc: timestamp_text(now),
+            };
+            let registry = Stage8bP1eScheduleRegistryV1 {
+                registry_identity_sha256: "2".repeat(64),
+                registry_version: "imoexf-v1".to_string(),
+            };
+            let stage4_semantic_state = Stage8bP1eStage4SemanticStateV1 {
+                boundary_proof: None,
+                evidence_kind: Stage8bP1eScheduleEvidenceKindV1::Tradability,
+                schedule_state: Stage8bP1eScheduleStateV1::Open,
+            };
+            let payload = Stage8bP1eSchedulePayloadV2 {
+                domain: PAYLOAD_DOMAIN.to_string(),
+                instrument: expected_instrument(),
+                normalized_schedule: normalized,
+                registry: registry.clone(),
+                schema_version: 2,
+                stage4_evidence: Stage8bP1eStage4EvidenceV2 {
+                    boundary_proof: None,
+                    evidence_kind: Stage8bP1eScheduleEvidenceKindV1::Tradability,
+                    report_canonical_json_hex: hex_encode(&report_bytes),
+                    report_sha256: sha256_hex(&report_bytes),
+                    schedule_state: Stage8bP1eScheduleStateV1::Open,
+                    source_expires_at_utc: timestamp_text(stage4.required_source_expires_at()),
+                    source_observed_at_utc: timestamp_text(now),
+                },
+                timezone: TIMEZONE.to_string(),
+                trading_day: "2026-09-14".to_string(),
+            };
+            let semantic_identity = Stage8bP1eScheduleSemanticIdentityV1 {
+                domain: SEMANTIC_DOMAIN.to_string(),
+                instrument: payload.instrument.clone(),
+                registry,
+                schema_version: 1,
+                sessions,
+                stage4_semantic_state,
+                timeframe_sec: M10_SECONDS,
+                timezone: TIMEZONE.to_string(),
+                trading_day: payload.trading_day.clone(),
+            };
+            Stage8bP1eScheduleEnvelopeV3 {
+                domain: ENVELOPE_DOMAIN.to_string(),
+                instrument_map_fingerprint_sha256: "3".repeat(64),
+                key_generation: 2,
+                key_id: KEY_ID.to_string(),
+                operational_identity_sha256: "4".repeat(64),
+                payload_sha256: stage8b_p1e_schedule_payload_sha256(&payload).unwrap(),
+                payload,
+                producer_contract_version: PRODUCER_CONTRACT.to_string(),
+                producer_id: PRODUCER_ID.to_string(),
+                publication_sequence: "1".to_string(),
+                published_at_utc: timestamp_text(now),
+                runtime_config_fingerprint_sha256: "5".repeat(64),
+                schedule_semantic_sha256: stage8b_p1e_schedule_semantic_sha256(&semantic_identity)
+                    .unwrap(),
+                schema_version: 3,
+                semantic_identity,
+                semantic_identity_contract_version: 1,
+                semantic_revision: "1".to_string(),
+                signature_ed25519_hex: String::new(),
+                source_generation: SOURCE_GENERATION.to_string(),
+            }
+        }
+
+        fn sign(envelope: &mut Stage8bP1eScheduleEnvelopeV3, key: &SigningKey) {
+            envelope.signature_ed25519_hex.clear();
+            let digest = stage8b_p1e_schedule_unsigned_signature_sha256(envelope).unwrap();
+            envelope.signature_ed25519_hex = hex_encode(
+                key.sign(&decode_lower_hex::<32>(&digest).unwrap())
+                    .to_bytes(),
+            );
+        }
+
+        fn refresh_derived_fields(envelope: &mut Stage8bP1eScheduleEnvelopeV3) {
+            envelope
+                .payload
+                .normalized_schedule
+                .normalized_payload_sha256 = sha256_hex(
+                &stage8b_p1e_canonical_json(&envelope.payload.normalized_schedule.sessions)
+                    .unwrap(),
+            );
+            envelope.semantic_identity = Stage8bP1eScheduleSemanticIdentityV1 {
+                domain: SEMANTIC_DOMAIN.to_string(),
+                instrument: envelope.payload.instrument.clone(),
+                registry: envelope.payload.registry.clone(),
+                schema_version: 1,
+                sessions: envelope.payload.normalized_schedule.sessions.clone(),
+                stage4_semantic_state: Stage8bP1eStage4SemanticStateV1 {
+                    boundary_proof: envelope.payload.stage4_evidence.boundary_proof.clone(),
+                    evidence_kind: envelope.payload.stage4_evidence.evidence_kind,
+                    schedule_state: envelope.payload.stage4_evidence.schedule_state,
+                },
+                timeframe_sec: M10_SECONDS,
+                timezone: envelope.payload.timezone.clone(),
+                trading_day: envelope.payload.trading_day.clone(),
+            };
+            envelope.schedule_semantic_sha256 =
+                stage8b_p1e_schedule_semantic_sha256(&envelope.semantic_identity).unwrap();
+            envelope.payload_sha256 =
+                stage8b_p1e_schedule_payload_sha256(&envelope.payload).unwrap();
+        }
+
+        fn mutate_stage4_report(
+            envelope: &mut Stage8bP1eScheduleEnvelopeV3,
+            mutate: impl FnOnce(&mut broker_core::Stage4BootstrapEvidenceReport),
+        ) {
+            let report_bytes =
+                decode_hex_vec(&envelope.payload.stage4_evidence.report_canonical_json_hex)
+                    .unwrap();
+            let mut report: broker_core::Stage4BootstrapEvidenceReport =
+                serde_json::from_slice(&report_bytes).unwrap();
+            mutate(&mut report);
+            let report_bytes = stage8b_p1e_canonical_json(&report).unwrap();
+            envelope.payload.stage4_evidence.report_canonical_json_hex = hex_encode(&report_bytes);
+            envelope.payload.stage4_evidence.report_sha256 = sha256_hex(&report_bytes);
+            refresh_derived_fields(envelope);
+        }
+
+        fn sign_and_expect_rejection(
+            mut envelope: Stage8bP1eScheduleEnvelopeV3,
+            verification_context: Stage8bP1eScheduleVerificationContextV1,
+            key: &SigningKey,
+            expected: Stage8bP1eScheduleSourceError,
+        ) {
+            sign(&mut envelope, key);
+            assert_eq!(
+                verify_with_fixture_key(&envelope, &verification_context, key)
+                    .err()
+                    .expect("negative source case must fail closed"),
+                expected
+            );
+        }
+
+        fn close_envelope(
+            mut envelope: Stage8bP1eScheduleEnvelopeV3,
+        ) -> Stage8bP1eScheduleEnvelopeV3 {
+            let last = envelope
+                .payload
+                .normalized_schedule
+                .sessions
+                .iter()
+                .filter(|session| {
+                    session.session_type == Stage8bP1eScheduleSessionTypeV1::TradableOpen
+                })
+                .max_by_key(|session| &session.end_utc)
+                .unwrap();
+            let close = parse_exact_timestamp(&last.end_utc).unwrap();
+            let proof = Stage8bP1eDayBoundaryProofV1 {
+                boundary_ts_utc: timestamp_text(close),
+                last_eligible_m10_close_ts_utc: timestamp_text(close),
+                last_eligible_m10_open_ts_utc: timestamp_text(
+                    close - chrono::Duration::seconds(i64::from(M10_SECONDS)),
+                ),
+                trading_day: envelope.payload.trading_day.clone(),
+            };
+            envelope.payload.stage4_evidence.evidence_kind =
+                Stage8bP1eScheduleEvidenceKindV1::DayBoundary;
+            envelope.payload.stage4_evidence.schedule_state = Stage8bP1eScheduleStateV1::Closed;
+            envelope.payload.stage4_evidence.boundary_proof = Some(proof);
+            refresh_derived_fields(&mut envelope);
+            envelope
+        }
+
+        fn context(
+            now: DateTime<Utc>,
+            high_water: Option<Stage8bP1eScheduleHighWaterV1>,
+        ) -> Stage8bP1eScheduleVerificationContextV1 {
+            Stage8bP1eScheduleVerificationContextV1 {
+                expected_instrument_map_fingerprint_sha256: "3".repeat(64),
+                expected_operational_identity_sha256: "4".repeat(64),
+                expected_registry_identity_sha256: "2".repeat(64),
+                expected_registry_version: "imoexf-v1".to_string(),
+                expected_runtime_config_fingerprint_sha256: "5".repeat(64),
+                high_water,
+                trusted_now: now,
+            }
+        }
+
+        fn verify_with_fixture_key(
+            envelope: &Stage8bP1eScheduleEnvelopeV3,
+            context: &Stage8bP1eScheduleVerificationContextV1,
+            key: &SigningKey,
+        ) -> Result<Stage8bP1eAcceptedScheduleSourceV1, Stage8bP1eScheduleSourceError> {
+            verify_stage8b_p1e_schedule_envelope_with_key(
+                &stage8b_p1e_canonical_json(envelope).unwrap(),
+                context,
+                &hex_encode(key.verifying_key().to_bytes()),
+                timestamp("2026-01-01T00:00:00.000000Z"),
+                timestamp("2027-01-01T00:00:00.000000Z"),
+            )
+        }
+
+        fn m10(open: &str, close: &str) -> Stage8bP1eM10IdentityV1 {
+            let open = timestamp(open).timestamp_millis();
+            let close = timestamp(close).timestamp_millis();
+            Stage8bP1eM10IdentityV1 {
+                close_ts_utc_ms: close,
+                open_ts_utc_ms: open,
+                payload_sha256: "7".repeat(64),
+                redis_id: format!("{close}-0"),
+                semantic_id_sha256: "8".repeat(64),
+            }
+        }
+
+        #[test]
+        fn signed_open_envelope_verifies_and_issues_route_bound_authorities() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x51; 32]);
+            let mut envelope = open_envelope(now);
+            sign(&mut envelope, &key);
+            let accepted = verify_with_fixture_key(&envelope, &context(now, None), &key).unwrap();
+            assert_eq!(
+                accepted.progression(),
+                Stage8bP1eScheduleProgressionV1::Bootstrap
+            );
+            assert_eq!(accepted.high_water().semantic_revision(), 1);
+            let predecessor = m10("2026-09-14T11:50:00.000000Z", "2026-09-14T12:00:00.000000Z");
+            let candidate = m10("2026-09-14T12:00:00.000000Z", "2026-09-14T12:10:00.000000Z");
+            let _market = accepted
+                .prepare_market_binding(
+                    &predecessor,
+                    &candidate,
+                    "request-market-1",
+                    "a".repeat(64),
+                    "1789000000000-0",
+                )
+                .unwrap();
+            let _working = accepted
+                .prepare_working_limit_binding(
+                    &predecessor,
+                    &candidate,
+                    "broker-order-1",
+                    "b".repeat(64),
+                    "1789000000000-0",
+                )
+                .unwrap();
+        }
+
+        #[test]
+        fn inclusive_session_endpoints_reject_adjacency_and_overlap() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x58; 32]);
+            let mut adjacent = open_envelope(now);
+            adjacent.payload.normalized_schedule.sessions = vec![
+                Stage8bP1eScheduleSessionV1 {
+                    end_utc: "2026-09-14T12:00:00.000000Z".to_string(),
+                    session_type: Stage8bP1eScheduleSessionTypeV1::TradableOpen,
+                    start_utc: "2026-09-14T06:00:00.000000Z".to_string(),
+                },
+                Stage8bP1eScheduleSessionV1 {
+                    end_utc: "2026-09-14T12:10:00.000000Z".to_string(),
+                    session_type: Stage8bP1eScheduleSessionTypeV1::BreakOrClearing,
+                    start_utc: "2026-09-14T12:00:00.000000Z".to_string(),
+                },
+            ];
+            refresh_derived_fields(&mut adjacent);
+            sign(&mut adjacent, &key);
+            assert_eq!(
+                verify_with_fixture_key(&adjacent, &context(now, None), &key)
+                    .err()
+                    .expect("inclusive adjacent endpoints must be rejected as ambiguous"),
+                Stage8bP1eScheduleSourceError::PayloadConflict
+            );
+
+            let mut overlapping = adjacent;
+            overlapping.payload.normalized_schedule.sessions[1].start_utc =
+                "2026-09-14T11:59:59.000000Z".to_string();
+            refresh_derived_fields(&mut overlapping);
+            sign(&mut overlapping, &key);
+            assert_eq!(
+                verify_with_fixture_key(&overlapping, &context(now, None), &key)
+                    .err()
+                    .expect("overlapping schedule intervals must be rejected"),
+                Stage8bP1eScheduleSourceError::PayloadConflict
+            );
+        }
+
+        #[test]
+        fn raw_prehash_signature_and_strict_canonical_bytes_are_enforced() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x52; 32]);
+            let mut envelope = open_envelope(now);
+            sign(&mut envelope, &key);
+            let canonical = stage8b_p1e_canonical_json(&envelope).unwrap();
+            assert!(verify_stage8b_p1e_schedule_envelope_with_key(
+                &canonical,
+                &context(now, None),
+                &hex_encode(key.verifying_key().to_bytes()),
+                timestamp("2026-01-01T00:00:00.000000Z"),
+                timestamp("2027-01-01T00:00:00.000000Z"),
+            )
+            .is_ok());
+            let mut padded = canonical.clone();
+            padded.push(b'\n');
+            assert_eq!(
+                verify_stage8b_p1e_schedule_envelope_with_key(
+                    &padded,
+                    &context(now, None),
+                    &hex_encode(key.verifying_key().to_bytes()),
+                    timestamp("2026-01-01T00:00:00.000000Z"),
+                    timestamp("2027-01-01T00:00:00.000000Z"),
+                )
+                .err()
+                .expect("non-canonical envelope must be rejected"),
+                Stage8bP1eScheduleSourceError::NonCanonicalEnvelope
+            );
+            envelope.signature_ed25519_hex.replace_range(0..2, "00");
+            assert_eq!(
+                verify_with_fixture_key(&envelope, &context(now, None), &key)
+                    .err()
+                    .expect("invalid signature must be rejected"),
+                Stage8bP1eScheduleSourceError::Untrusted
+            );
+        }
+
+        #[test]
+        fn authentication_freshness_identity_and_stage4_negative_matrix_fails_closed() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x5a; 32]);
+
+            let mut wrong_key_id = open_envelope(now);
+            wrong_key_id.key_id = "another-key".to_string();
+            sign_and_expect_rejection(
+                wrong_key_id,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Untrusted,
+            );
+
+            let mut wrong_key_generation = open_envelope(now);
+            wrong_key_generation.key_generation = 3;
+            sign_and_expect_rejection(
+                wrong_key_generation,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Untrusted,
+            );
+
+            let mut wrong_source_generation = open_envelope(now);
+            wrong_source_generation.source_generation = "2".to_string();
+            sign_and_expect_rejection(
+                wrong_source_generation,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::ProgressionConflict,
+            );
+
+            let mut expired_key_envelope = open_envelope(now);
+            sign(&mut expired_key_envelope, &key);
+            assert_eq!(
+                verify_stage8b_p1e_schedule_envelope_with_key(
+                    &stage8b_p1e_canonical_json(&expired_key_envelope).unwrap(),
+                    &context(now, None),
+                    &hex_encode(key.verifying_key().to_bytes()),
+                    timestamp("2026-01-01T00:00:00.000000Z"),
+                    now - chrono::Duration::microseconds(1),
+                )
+                .err()
+                .expect("expired trust key must fail closed"),
+                Stage8bP1eScheduleSourceError::Untrusted
+            );
+
+            sign_and_expect_rejection(
+                open_envelope(now),
+                context(now + chrono::Duration::milliseconds(5_001), None),
+                &key,
+                Stage8bP1eScheduleSourceError::Stale,
+            );
+
+            let mut future = open_envelope(now);
+            future.published_at_utc =
+                timestamp_text(now + chrono::Duration::milliseconds(FUTURE_SKEW_MS + 1));
+            sign_and_expect_rejection(
+                future,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Future,
+            );
+
+            let mut normalized_expired = open_envelope(now);
+            normalized_expired
+                .payload
+                .normalized_schedule
+                .source_observed_at_utc = timestamp_text(now - chrono::Duration::seconds(2));
+            normalized_expired
+                .payload
+                .normalized_schedule
+                .source_expires_at_utc = timestamp_text(now - chrono::Duration::seconds(1));
+            refresh_derived_fields(&mut normalized_expired);
+            sign_and_expect_rejection(
+                normalized_expired,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Stale,
+            );
+
+            let mut stage4_expired = open_envelope(now);
+            stage4_expired.payload.stage4_evidence.source_expires_at_utc =
+                timestamp_text(now - chrono::Duration::microseconds(1));
+            refresh_derived_fields(&mut stage4_expired);
+            sign_and_expect_rejection(
+                stage4_expired,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Stage4EvidenceBlocked,
+            );
+
+            let mut cross_source_skew = open_envelope(now);
+            cross_source_skew
+                .payload
+                .normalized_schedule
+                .source_observed_at_utc =
+                timestamp_text(now - chrono::Duration::milliseconds(CROSS_SOURCE_MAX_SKEW_MS + 1));
+            refresh_derived_fields(&mut cross_source_skew);
+            sign_and_expect_rejection(
+                cross_source_skew,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::ProgressionConflict,
+            );
+
+            for (name, mut mismatched_context) in [
+                ("operational", context(now, None)),
+                ("runtime-config", context(now, None)),
+                ("instrument-map", context(now, None)),
+                ("registry-identity", context(now, None)),
+                ("registry-version", context(now, None)),
+            ] {
+                match name {
+                    "operational" => {
+                        mismatched_context.expected_operational_identity_sha256 = "9".repeat(64)
+                    }
+                    "runtime-config" => {
+                        mismatched_context.expected_runtime_config_fingerprint_sha256 =
+                            "9".repeat(64)
+                    }
+                    "instrument-map" => {
+                        mismatched_context.expected_instrument_map_fingerprint_sha256 =
+                            "9".repeat(64)
+                    }
+                    "registry-identity" => {
+                        mismatched_context.expected_registry_identity_sha256 = "9".repeat(64)
+                    }
+                    "registry-version" => {
+                        mismatched_context.expected_registry_version = "other-v1".to_string()
+                    }
+                    _ => unreachable!(),
+                }
+                sign_and_expect_rejection(
+                    open_envelope(now),
+                    mismatched_context,
+                    &key,
+                    Stage8bP1eScheduleSourceError::IdentityMismatch,
+                );
+            }
+
+            let mut wrong_instrument = open_envelope(now);
+            wrong_instrument.payload.instrument.symbol = "RTS-9.26".to_string();
+            refresh_derived_fields(&mut wrong_instrument);
+            sign_and_expect_rejection(
+                wrong_instrument,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::IdentityMismatch,
+            );
+
+            let mut empty_sessions = open_envelope(now);
+            empty_sessions.payload.normalized_schedule.sessions.clear();
+            refresh_derived_fields(&mut empty_sessions);
+            sign_and_expect_rejection(
+                empty_sessions,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::PayloadConflict,
+            );
+
+            let mut no_open = open_envelope(now);
+            no_open.payload.normalized_schedule.sessions[0].session_type =
+                Stage8bP1eScheduleSessionTypeV1::Maintenance;
+            refresh_derived_fields(&mut no_open);
+            sign_and_expect_rejection(
+                no_open,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::PayloadConflict,
+            );
+
+            let mut unsorted = open_envelope(now);
+            unsorted.payload.normalized_schedule.sessions = vec![
+                Stage8bP1eScheduleSessionV1 {
+                    end_utc: "2026-09-14T12:30:00.000000Z".to_string(),
+                    session_type: Stage8bP1eScheduleSessionTypeV1::BreakOrClearing,
+                    start_utc: "2026-09-14T12:20:00.000000Z".to_string(),
+                },
+                Stage8bP1eScheduleSessionV1 {
+                    end_utc: "2026-09-14T12:10:00.000000Z".to_string(),
+                    session_type: Stage8bP1eScheduleSessionTypeV1::TradableOpen,
+                    start_utc: "2026-09-14T06:00:00.000000Z".to_string(),
+                },
+            ];
+            refresh_derived_fields(&mut unsorted);
+            sign_and_expect_rejection(
+                unsorted,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::PayloadConflict,
+            );
+
+            let mut blocked_report = open_envelope(now);
+            mutate_stage4_report(&mut blocked_report, |report| {
+                report.status = broker_core::Stage4BootstrapEvidenceReportStatus::Blocked;
+            });
+            sign_and_expect_rejection(
+                blocked_report,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Stage4EvidenceBlocked,
+            );
+
+            let mut open_safety = open_envelope(now);
+            mutate_stage4_report(&mut open_safety, |report| {
+                report.safety_boundary.runtime_live_enabled = true;
+            });
+            sign_and_expect_rejection(
+                open_safety,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Stage4EvidenceBlocked,
+            );
+
+            let mut stale_schedule_section = open_envelope(now);
+            mutate_stage4_report(&mut stale_schedule_section, |report| {
+                let schedule = report
+                    .source_sections
+                    .iter_mut()
+                    .find(|section| {
+                        section.section == broker_core::Stage4BrokerTruthFreshnessSection::Schedule
+                    })
+                    .unwrap();
+                schedule.freshness_status = broker_core::Stage4BrokerTruthFreshnessStatus::Stale;
+                schedule.blocks_bootstrap = true;
+            });
+            sign_and_expect_rejection(
+                stale_schedule_section,
+                context(now, None),
+                &key,
+                Stage8bP1eScheduleSourceError::Stage4EvidenceBlocked,
+            );
+        }
+
+        #[test]
+        fn heartbeat_and_open_to_closed_follow_one_semantic_revision_domain() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x53; 32]);
+            let mut open = open_envelope(now);
+            sign(&mut open, &key);
+            let accepted_open = verify_with_fixture_key(&open, &context(now, None), &key).unwrap();
+
+            let mut heartbeat = open.clone();
+            heartbeat.publication_sequence = "2".to_string();
+            heartbeat.published_at_utc = timestamp_text(now + chrono::Duration::seconds(1));
+            sign(&mut heartbeat, &key);
+            let accepted_heartbeat = verify_with_fixture_key(
+                &heartbeat,
+                &context(
+                    now + chrono::Duration::seconds(1),
+                    Some(accepted_open.high_water().clone()),
+                ),
+                &key,
+            )
+            .unwrap();
+            assert_eq!(accepted_heartbeat.high_water().semantic_revision(), 1);
+
+            let mut closed = close_envelope(open.clone());
+            closed.publication_sequence = "2".to_string();
+            closed.semantic_revision = "2".to_string();
+            closed.published_at_utc = timestamp_text(now + chrono::Duration::seconds(1));
+            sign(&mut closed, &key);
+            let accepted_closed = verify_with_fixture_key(
+                &closed,
+                &context(
+                    now + chrono::Duration::seconds(1),
+                    Some(accepted_open.high_water().clone()),
+                ),
+                &key,
+            )
+            .unwrap();
+            assert_ne!(
+                accepted_closed.high_water().schedule_semantic_sha256(),
+                accepted_open.high_water().schedule_semantic_sha256()
+            );
+            assert_eq!(accepted_closed.high_water().semantic_revision(), 2);
+            let last = m10("2026-09-14T12:00:00.000000Z", "2026-09-14T12:10:00.000000Z");
+            let predecessor = m10("2026-09-14T11:50:00.000000Z", "2026-09-14T12:00:00.000000Z");
+            let _expiry = accepted_closed
+                .prepare_day_expiry_binding(
+                    &predecessor,
+                    &last,
+                    now + chrono::Duration::seconds(1),
+                    "broker-order-1",
+                    "c".repeat(64),
+                    "1789000000001-0",
+                )
+                .unwrap();
+            assert_eq!(
+                accepted_closed
+                    .prepare_market_binding(
+                        &predecessor,
+                        &last,
+                        "request-market-2",
+                        "d".repeat(64),
+                        "1789000000001-0",
+                    )
+                    .err()
+                    .expect("closed schedule must deny market authority"),
+                Stage8bP1eScheduleSourceError::RouteDenied
+            );
+            assert_eq!(
+                accepted_closed
+                    .prepare_working_limit_binding(
+                        &predecessor,
+                        &last,
+                        "broker-order-1",
+                        "e".repeat(64),
+                        "1789000000001-0",
+                    )
+                    .err()
+                    .expect("closed schedule must deny working evaluation"),
+                Stage8bP1eScheduleSourceError::RouteDenied
+            );
+            assert!(accepted_closed
+                .prepare_cancel_binding(
+                    &predecessor,
+                    &last,
+                    "broker-order-1",
+                    "f".repeat(64),
+                    "1789000000001-0",
+                )
+                .is_ok());
+            let wrong_last = m10("2026-09-14T11:50:00.000000Z", "2026-09-14T12:00:00.000000Z");
+            assert_eq!(
+                accepted_closed
+                    .prepare_day_expiry_binding(
+                        &predecessor,
+                        &wrong_last,
+                        now + chrono::Duration::seconds(1),
+                        "broker-order-1",
+                        "c".repeat(64),
+                        "1789000000001-0",
+                    )
+                    .err()
+                    .expect("day expiry must bind the exact final M10"),
+                Stage8bP1eScheduleSourceError::TransitionMismatch
+            );
+        }
+
+        #[test]
+        fn closed_boundary_proof_is_exactly_the_last_tradable_m10_grid_boundary() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x59; 32]);
+            let mut closed = close_envelope(open_envelope(now));
+            let proof = closed
+                .payload
+                .stage4_evidence
+                .boundary_proof
+                .as_mut()
+                .unwrap();
+            proof.boundary_ts_utc = "2026-09-14T12:00:00.000000Z".to_string();
+            proof.last_eligible_m10_close_ts_utc = "2026-09-14T12:00:00.000000Z".to_string();
+            proof.last_eligible_m10_open_ts_utc = "2026-09-14T11:50:00.000000Z".to_string();
+            refresh_derived_fields(&mut closed);
+            sign(&mut closed, &key);
+            assert_eq!(
+                verify_with_fixture_key(&closed, &context(now, None), &key)
+                    .err()
+                    .expect("boundary proof detached from the last tradable session must fail"),
+                Stage8bP1eScheduleSourceError::PayloadConflict
+            );
+
+            let mut off_grid = close_envelope(open_envelope(now));
+            off_grid.payload.normalized_schedule.sessions[0].end_utc =
+                "2026-09-14T12:09:59.000000Z".to_string();
+            let proof = off_grid
+                .payload
+                .stage4_evidence
+                .boundary_proof
+                .as_mut()
+                .unwrap();
+            proof.boundary_ts_utc = "2026-09-14T12:09:59.000000Z".to_string();
+            proof.last_eligible_m10_close_ts_utc = "2026-09-14T12:09:59.000000Z".to_string();
+            proof.last_eligible_m10_open_ts_utc = "2026-09-14T11:59:59.000000Z".to_string();
+            refresh_derived_fields(&mut off_grid);
+            sign(&mut off_grid, &key);
+            assert_eq!(
+                verify_with_fixture_key(&off_grid, &context(now, None), &key)
+                    .err()
+                    .expect("off-grid day boundary must fail"),
+                Stage8bP1eScheduleSourceError::PayloadConflict
+            );
+        }
+
+        #[test]
+        fn unchanged_semantics_cannot_claim_a_higher_revision() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x54; 32]);
+            let mut first = open_envelope(now);
+            sign(&mut first, &key);
+            let accepted = verify_with_fixture_key(&first, &context(now, None), &key).unwrap();
+            let mut forged = first;
+            forged.publication_sequence = "2".to_string();
+            forged.semantic_revision = "2".to_string();
+            forged.published_at_utc = timestamp_text(now + chrono::Duration::seconds(1));
+            sign(&mut forged, &key);
+            assert_eq!(
+                verify_with_fixture_key(
+                    &forged,
+                    &context(
+                        now + chrono::Duration::seconds(1),
+                        Some(accepted.high_water().clone()),
+                    ),
+                    &key,
+                )
+                .err()
+                .expect("unchanged semantics with a higher revision must be rejected"),
+                Stage8bP1eScheduleSourceError::ProgressionConflict
+            );
+        }
+
+        #[test]
+        fn changed_semantics_require_a_higher_revision_and_sequences_never_rollback() {
+            let now = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x55; 32]);
+            let mut first = open_envelope(now);
+            sign(&mut first, &key);
+            let accepted = verify_with_fixture_key(&first, &context(now, None), &key).unwrap();
+
+            let mut conflicting = close_envelope(first.clone());
+            conflicting.publication_sequence = "2".to_string();
+            conflicting.published_at_utc = timestamp_text(now + chrono::Duration::seconds(1));
+            sign(&mut conflicting, &key);
+            assert_eq!(
+                verify_with_fixture_key(
+                    &conflicting,
+                    &context(
+                        now + chrono::Duration::seconds(1),
+                        Some(accepted.high_water().clone()),
+                    ),
+                    &key,
+                )
+                .err()
+                .expect("different semantic hash at one revision must conflict"),
+                Stage8bP1eScheduleSourceError::ProgressionConflict
+            );
+
+            let mut future_high_water = accepted.high_water().clone();
+            future_high_water.publication_sequence = 2;
+            future_high_water.published_at_utc = now + chrono::Duration::seconds(1);
+            assert_eq!(
+                verify_with_fixture_key(
+                    &first,
+                    &context(now + chrono::Duration::seconds(1), Some(future_high_water)),
+                    &key,
+                )
+                .err()
+                .expect("sequence rollback must be rejected"),
+                Stage8bP1eScheduleSourceError::Rollback
+            );
+        }
+
+        #[test]
+        fn signed_trading_day_transition_is_monotonic_and_payload_projection_is_exact() {
+            let first_now = timestamp("2026-09-14T12:10:00.000000Z");
+            let next_now = timestamp("2026-09-15T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x56; 32]);
+            let mut first = open_envelope(first_now);
+            sign(&mut first, &key);
+            let accepted =
+                verify_with_fixture_key(&first, &context(first_now, None), &key).unwrap();
+
+            let mut next = open_envelope(next_now);
+            next.payload.trading_day = "2026-09-15".to_string();
+            next.payload.normalized_schedule.sessions[0].start_utc =
+                "2026-09-15T06:00:00.000000Z".to_string();
+            next.payload.normalized_schedule.sessions[0].end_utc =
+                "2026-09-15T12:10:00.000000Z".to_string();
+            next.publication_sequence = "2".to_string();
+            next.semantic_revision = "2".to_string();
+            refresh_derived_fields(&mut next);
+            sign(&mut next, &key);
+            let transitioned = verify_with_fixture_key(
+                &next,
+                &context(next_now, Some(accepted.high_water().clone())),
+                &key,
+            )
+            .unwrap();
+            assert_eq!(transitioned.trading_day(), "2026-09-15");
+            assert_eq!(
+                transitioned.progression(),
+                Stage8bP1eScheduleProgressionV1::MonotonicSnapshot
+            );
+
+            let mut projection_mismatch = next;
+            projection_mismatch.semantic_identity.trading_day = "2026-09-14".to_string();
+            projection_mismatch.schedule_semantic_sha256 =
+                stage8b_p1e_schedule_semantic_sha256(&projection_mismatch.semantic_identity)
+                    .unwrap();
+            sign(&mut projection_mismatch, &key);
+            assert_eq!(
+                verify_with_fixture_key(
+                    &projection_mismatch,
+                    &context(next_now, Some(accepted.high_water().clone())),
+                    &key,
+                )
+                .err()
+                .expect("semantic projection must match independently validated payload"),
+                Stage8bP1eScheduleSourceError::PayloadConflict
+            );
+        }
+
+        #[test]
+        fn accepted_r2_semantic_fixture_hashes_match_the_production_hasher() {
+            let fixture: serde_json::Value = serde_json::from_str(include_str!(
+                "../../../docs/stage-8/stage8b-p1e-i1a-r2-semantic-fixtures-v1.json"
+            ))
+            .unwrap();
+            let identities = fixture
+                .get("identities")
+                .and_then(serde_json::Value::as_object)
+                .unwrap();
+            for (name, expected) in [
+                (
+                    "open_day_1",
+                    "558559b06cefb3aad19268246eb17b670cd5255eb08822613105602c84ac940a",
+                ),
+                (
+                    "closed_day_1",
+                    "8b3b9dcb2418887c41cd3b091cfe46e3e0d528f7fb0481ae5fdeb0ed67844534",
+                ),
+                (
+                    "open_day_2",
+                    "b8ed30e198ed338d8375c798264366350140a049d35a7859d7d866ed2b281f96",
+                ),
+            ] {
+                let identity: Stage8bP1eScheduleSemanticIdentityV1 =
+                    serde_json::from_value(identities.get(name).unwrap().clone()).unwrap();
+                assert_eq!(
+                    stage8b_p1e_schedule_semantic_sha256(&identity).unwrap(),
+                    expected,
+                    "accepted semantic fixture {name} drifted"
+                );
+            }
+        }
+
+        #[test]
+        fn signed_v4_recovery_reconstructs_only_the_exact_historical_binding() {
+            let bound_at = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x57; 32]);
+            let mut envelope = open_envelope(bound_at);
+            sign(&mut envelope, &key);
+            let accepted = verify_with_fixture_key(&envelope, &context(bound_at, None), &key)
+                .expect("fixture envelope must authenticate before binding");
+            let predecessor = m10("2026-09-14T11:50:00.000000Z", "2026-09-14T12:00:00.000000Z");
+            let candidate_m10 = m10("2026-09-14T12:00:00.000000Z", "2026-09-14T12:10:00.000000Z");
+            let candidate = accepted
+                .prepare_working_limit_binding(
+                    &predecessor,
+                    &candidate_m10,
+                    "FINAM-ORDER-I1A-RECOVERY",
+                    "a".repeat(64),
+                    "1789387800001-0",
+                )
+                .unwrap();
+            let record = crate::Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+                &candidate,
+                crate::Stage6LifecycleSequence::new(9).unwrap(),
+                crate::Stage6JournalRecordId::parse_exact("b".repeat(64)).unwrap(),
+                4,
+                bound_at,
+            )
+            .unwrap();
+            let recovered = recover_stage8b_p1e_schedule_binding_candidate_v4_with_key(
+                &record,
+                "5".repeat(64),
+                "3".repeat(64),
+                &hex_encode(key.verifying_key().to_bytes()),
+                timestamp("2026-01-01T00:00:00.000000Z"),
+                timestamp("2027-01-01T00:00:00.000000Z"),
+            )
+            .expect("exact signed V4 binding must recover at its historical bound instant");
+            assert!(record.matches_stage8b_p1e_candidate(&recovered));
+
+            assert_eq!(
+                recover_stage8b_p1e_schedule_binding_candidate_v4_with_key(
+                    &record,
+                    "6".repeat(64),
+                    "3".repeat(64),
+                    &hex_encode(key.verifying_key().to_bytes()),
+                    timestamp("2026-01-01T00:00:00.000000Z"),
+                    timestamp("2027-01-01T00:00:00.000000Z"),
+                )
+                .err()
+                .expect("runtime config drift must block historical recovery"),
+                Stage8bP1eScheduleSourceError::IdentityMismatch
+            );
+        }
+    }
+}
+// STAGE8B-P1E-I1A-SCHEDULE-SOURCE-END: signed-semantic-facade-v1
 
 #[cfg(test)]
 mod tests {

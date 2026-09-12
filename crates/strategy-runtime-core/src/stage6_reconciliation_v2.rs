@@ -32,11 +32,13 @@ use broker_core::{
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::de::{IgnoredAny, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
+use sha2::Digest;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub const STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V2: u16 = 2;
 pub const STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V3: u16 = 3;
+pub const STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V4: u16 = 4;
 const MAX_MATERIAL_TRADES_V2: usize = 256;
 const MAX_SUFFIX_RECORDS_V2: usize = 32;
 
@@ -1275,14 +1277,644 @@ impl Stage6JournalRecordV3 {
     }
 }
 
+/// Canonical M10 identity embedded in a Stage 6 V4 schedule binding. The
+/// timestamp strings intentionally follow the reviewed wire schema rather
+/// than inheriting any process-local chrono representation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage6ScheduleM10IdentityV4 {
+    redis_id: String,
+    semantic_id_sha256: String,
+    payload_sha256: String,
+    open_ts_utc: String,
+    close_ts_utc: String,
+}
+
+impl Stage6ScheduleM10IdentityV4 {
+    fn from_candidate(
+        value: &crate::Stage8bP1eM10IdentityV1,
+    ) -> Result<Self, Stage6ReconciliationV2Error> {
+        Ok(Self {
+            redis_id: value.redis_id.clone(),
+            semantic_id_sha256: value.semantic_id_sha256.clone(),
+            payload_sha256: value.payload_sha256.clone(),
+            open_ts_utc: value
+                .open_ts_utc()
+                .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?,
+            close_ts_utc: value
+                .close_ts_utc()
+                .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?,
+        })
+    }
+}
+
+/// Stage 8B-P1-e I1A durable binding. It consumes one global Stage 6 sequence
+/// but is not a business terminal boundary and has no source-XACK semantics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage6JournalRecordV4 {
+    schema_version: u16,
+    record_kind: String,
+    journal_record_id: Stage6JournalRecordId,
+    previous_record_id: Stage6JournalRecordId,
+    causal_parent_id: Stage6JournalRecordId,
+    lifecycle_sequence: String,
+    prior_covering_seal_generation: String,
+    expected_covering_seal_generation: String,
+    operational_identity_sha256: String,
+    transition_kind: crate::Stage8bP1eScheduleTransitionKindV1,
+    transition_binding_sha256: String,
+    authority_kind: crate::Stage8bP1eScheduleAuthorityKindV1,
+    trading_day: String,
+    instrument: String,
+    timeframe_sec: u32,
+    predecessor_m10: Stage6ScheduleM10IdentityV4,
+    candidate_or_last_eligible_m10: Stage6ScheduleM10IdentityV4,
+    request_or_order_binding: crate::Stage8bP1eRequestOrOrderBindingV1,
+    redis_stream_id: String,
+    source_generation: String,
+    publication_sequence: String,
+    semantic_revision: String,
+    schedule_semantic_sha256: String,
+    exact_envelope_hex: String,
+    envelope_sha256: String,
+    bound_at_utc: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage6JournalRecordWireV4 {
+    schema_version: u16,
+    record_kind: String,
+    journal_record_id: Stage6JournalRecordId,
+    previous_record_id: Stage6JournalRecordId,
+    causal_parent_id: Stage6JournalRecordId,
+    lifecycle_sequence: String,
+    prior_covering_seal_generation: String,
+    expected_covering_seal_generation: String,
+    operational_identity_sha256: String,
+    transition_kind: crate::Stage8bP1eScheduleTransitionKindV1,
+    transition_binding_sha256: String,
+    authority_kind: crate::Stage8bP1eScheduleAuthorityKindV1,
+    trading_day: String,
+    instrument: String,
+    timeframe_sec: u32,
+    predecessor_m10: Stage6ScheduleM10IdentityV4,
+    candidate_or_last_eligible_m10: Stage6ScheduleM10IdentityV4,
+    request_or_order_binding: crate::Stage8bP1eRequestOrOrderBindingV1,
+    redis_stream_id: String,
+    source_generation: String,
+    publication_sequence: String,
+    semantic_revision: String,
+    schedule_semantic_sha256: String,
+    exact_envelope_hex: String,
+    envelope_sha256: String,
+    bound_at_utc: String,
+}
+
+impl From<Stage6JournalRecordWireV4> for Stage6JournalRecordV4 {
+    fn from(value: Stage6JournalRecordWireV4) -> Self {
+        Self {
+            schema_version: value.schema_version,
+            record_kind: value.record_kind,
+            journal_record_id: value.journal_record_id,
+            previous_record_id: value.previous_record_id,
+            causal_parent_id: value.causal_parent_id,
+            lifecycle_sequence: value.lifecycle_sequence,
+            prior_covering_seal_generation: value.prior_covering_seal_generation,
+            expected_covering_seal_generation: value.expected_covering_seal_generation,
+            operational_identity_sha256: value.operational_identity_sha256,
+            transition_kind: value.transition_kind,
+            transition_binding_sha256: value.transition_binding_sha256,
+            authority_kind: value.authority_kind,
+            trading_day: value.trading_day,
+            instrument: value.instrument,
+            timeframe_sec: value.timeframe_sec,
+            predecessor_m10: value.predecessor_m10,
+            candidate_or_last_eligible_m10: value.candidate_or_last_eligible_m10,
+            request_or_order_binding: value.request_or_order_binding,
+            redis_stream_id: value.redis_stream_id,
+            source_generation: value.source_generation,
+            publication_sequence: value.publication_sequence,
+            semantic_revision: value.semantic_revision,
+            schedule_semantic_sha256: value.schedule_semantic_sha256,
+            exact_envelope_hex: value.exact_envelope_hex,
+            envelope_sha256: value.envelope_sha256,
+            bound_at_utc: value.bound_at_utc,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct Stage6JournalRecordBodyV4<'a> {
+    schema_version: u16,
+    record_kind: &'a str,
+    previous_record_id: &'a Stage6JournalRecordId,
+    causal_parent_id: &'a Stage6JournalRecordId,
+    lifecycle_sequence: &'a str,
+    prior_covering_seal_generation: &'a str,
+    expected_covering_seal_generation: &'a str,
+    operational_identity_sha256: &'a str,
+    transition_kind: crate::Stage8bP1eScheduleTransitionKindV1,
+    transition_binding_sha256: &'a str,
+    authority_kind: crate::Stage8bP1eScheduleAuthorityKindV1,
+    trading_day: &'a str,
+    instrument: &'a str,
+    timeframe_sec: u32,
+    predecessor_m10: &'a Stage6ScheduleM10IdentityV4,
+    candidate_or_last_eligible_m10: &'a Stage6ScheduleM10IdentityV4,
+    request_or_order_binding: &'a crate::Stage8bP1eRequestOrOrderBindingV1,
+    redis_stream_id: &'a str,
+    source_generation: &'a str,
+    publication_sequence: &'a str,
+    semantic_revision: &'a str,
+    schedule_semantic_sha256: &'a str,
+    exact_envelope_hex: &'a str,
+    envelope_sha256: &'a str,
+    bound_at_utc: &'a str,
+}
+
+#[derive(Serialize)]
+struct Stage6ScheduleTransitionBindingV4<'a> {
+    operational_identity_sha256: &'a str,
+    transition_kind: crate::Stage8bP1eScheduleTransitionKindV1,
+    authority_kind: crate::Stage8bP1eScheduleAuthorityKindV1,
+    trading_day: &'a str,
+    instrument: &'a str,
+    timeframe_sec: u32,
+    predecessor_m10: &'a Stage6ScheduleM10IdentityV4,
+    candidate_or_last_eligible_m10: &'a Stage6ScheduleM10IdentityV4,
+    request_or_order_binding: &'a crate::Stage8bP1eRequestOrOrderBindingV1,
+    redis_stream_id: &'a str,
+    source_generation: &'a str,
+    publication_sequence: &'a str,
+    semantic_revision: &'a str,
+    schedule_semantic_sha256: &'a str,
+    envelope_sha256: &'a str,
+}
+
+impl Stage6JournalRecordV4 {
+    pub(crate) fn from_stage8b_p1e_candidate(
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+        lifecycle_sequence: Stage6LifecycleSequence,
+        previous_record_id: Stage6JournalRecordId,
+        prior_covering_seal_generation: u64,
+        bound_at_utc: DateTime<Utc>,
+    ) -> Result<Self, Stage6ReconciliationV2Error> {
+        let expected_covering_seal_generation = prior_covering_seal_generation
+            .checked_add(1)
+            .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?;
+        let predecessor_m10 =
+            Stage6ScheduleM10IdentityV4::from_candidate(candidate.predecessor_m10())?;
+        let candidate_or_last_eligible_m10 = Stage6ScheduleM10IdentityV4::from_candidate(
+            candidate.candidate_or_last_eligible_m10(),
+        )?;
+        let exact_envelope_hex = encode_lower_hex(candidate.exact_envelope_bytes());
+        let mut value = Self {
+            schema_version: STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V4,
+            record_kind: "schedule_evidence_bound".to_string(),
+            journal_record_id: Stage6JournalRecordId::parse_exact("1".repeat(64))
+                .map_err(|_| Stage6ReconciliationV2Error::RecordIdentityMismatch)?,
+            previous_record_id: previous_record_id.clone(),
+            causal_parent_id: previous_record_id,
+            lifecycle_sequence: lifecycle_sequence.get().to_string(),
+            prior_covering_seal_generation: prior_covering_seal_generation.to_string(),
+            expected_covering_seal_generation: expected_covering_seal_generation.to_string(),
+            operational_identity_sha256: candidate.operational_identity_sha256().to_string(),
+            transition_kind: candidate.transition_kind(),
+            transition_binding_sha256: "1".repeat(64),
+            authority_kind: candidate.authority_kind(),
+            trading_day: candidate.trading_day().to_string(),
+            instrument: "IMOEXF@RTSX".to_string(),
+            timeframe_sec: 600,
+            predecessor_m10,
+            candidate_or_last_eligible_m10,
+            request_or_order_binding: candidate.request_or_order_binding().clone(),
+            redis_stream_id: candidate.redis_stream_id().to_string(),
+            source_generation: candidate.source_generation().to_string(),
+            publication_sequence: candidate.publication_sequence().to_string(),
+            semantic_revision: candidate.semantic_revision().to_string(),
+            schedule_semantic_sha256: candidate.schedule_semantic_sha256().to_string(),
+            exact_envelope_hex,
+            envelope_sha256: candidate.envelope_sha256().to_string(),
+            bound_at_utc: bound_at_utc.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+        };
+        value.transition_binding_sha256 = value.derive_transition_binding_sha256()?;
+        value.journal_record_id = value.derive_record_id()?;
+        value.validate()?;
+        if bound_at_utc > candidate.valid_until() || !value.matches_stage8b_p1e_candidate(candidate)
+        {
+            return Err(Stage6ReconciliationV2Error::InvalidPayload);
+        }
+        Ok(value)
+    }
+
+    pub fn encode_canonical(&self) -> Vec<u8> {
+        canonical_json(self).expect("validated V4 record serializes")
+    }
+
+    pub fn decode_canonical(bytes: &[u8]) -> Result<Self, Stage6ReconciliationV2Error> {
+        let wire: Stage6JournalRecordWireV4 =
+            serde_json::from_slice(bytes).map_err(|_| Stage6ReconciliationV2Error::DecodeFailed)?;
+        let value = Self::from(wire);
+        value.validate()?;
+        if value.encode_canonical() != bytes {
+            return Err(Stage6ReconciliationV2Error::NonCanonicalEncoding);
+        }
+        Ok(value)
+    }
+
+    pub fn journal_record_id(&self) -> &Stage6JournalRecordId {
+        &self.journal_record_id
+    }
+
+    pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
+        Stage6LifecycleSequence::new(
+            self.lifecycle_sequence
+                .parse()
+                .expect("validated V4 lifecycle sequence"),
+        )
+        .expect("validated nonzero V4 lifecycle sequence")
+    }
+
+    pub fn previous_record_id(&self) -> &Stage6JournalRecordId {
+        &self.previous_record_id
+    }
+
+    pub fn prior_covering_seal_generation(&self) -> u64 {
+        self.prior_covering_seal_generation
+            .parse()
+            .expect("validated V4 prior covering seal generation")
+    }
+
+    pub fn expected_covering_seal_generation(&self) -> u64 {
+        self.expected_covering_seal_generation
+            .parse()
+            .expect("validated V4 covering seal generation")
+    }
+
+    pub fn envelope_sha256(&self) -> &str {
+        &self.envelope_sha256
+    }
+
+    pub fn transition_binding_sha256(&self) -> &str {
+        &self.transition_binding_sha256
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    pub(crate) fn transition_kind(&self) -> crate::Stage8bP1eScheduleTransitionKindV1 {
+        self.transition_kind
+    }
+
+    pub(crate) fn request_or_order_binding(&self) -> &crate::Stage8bP1eRequestOrOrderBindingV1 {
+        &self.request_or_order_binding
+    }
+
+    pub(crate) fn redis_stream_id(&self) -> &str {
+        &self.redis_stream_id
+    }
+
+    pub(crate) fn exact_envelope_bytes(&self) -> Result<Vec<u8>, Stage6ReconciliationV2Error> {
+        decode_lower_hex_v4(&self.exact_envelope_hex)
+    }
+
+    pub(crate) fn predecessor_m10(&self) -> crate::Stage8bP1eM10IdentityV1 {
+        self.predecessor_m10.to_p1e_identity()
+    }
+
+    pub(crate) fn candidate_or_last_eligible_m10(&self) -> crate::Stage8bP1eM10IdentityV1 {
+        self.candidate_or_last_eligible_m10.to_p1e_identity()
+    }
+
+    pub(crate) fn bound_at_utc(&self) -> DateTime<Utc> {
+        parse_exact_timestamp_v4(&self.bound_at_utc).expect("validated V4 bound timestamp")
+    }
+
+    pub(crate) fn matches_stage8b_p1e_candidate(
+        &self,
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+    ) -> bool {
+        let Ok(predecessor) =
+            Stage6ScheduleM10IdentityV4::from_candidate(candidate.predecessor_m10())
+        else {
+            return false;
+        };
+        let Ok(current) =
+            Stage6ScheduleM10IdentityV4::from_candidate(candidate.candidate_or_last_eligible_m10())
+        else {
+            return false;
+        };
+        self.operational_identity_sha256 == candidate.operational_identity_sha256()
+            && self.transition_kind == candidate.transition_kind()
+            && self.authority_kind == candidate.authority_kind()
+            && self.trading_day == candidate.trading_day()
+            && self.predecessor_m10 == predecessor
+            && self.candidate_or_last_eligible_m10 == current
+            && self.request_or_order_binding == *candidate.request_or_order_binding()
+            && self.redis_stream_id == candidate.redis_stream_id()
+            && self.source_generation == candidate.source_generation().to_string()
+            && self.publication_sequence == candidate.publication_sequence().to_string()
+            && self.semantic_revision == candidate.semantic_revision().to_string()
+            && self.schedule_semantic_sha256 == candidate.schedule_semantic_sha256()
+            && self.exact_envelope_hex == encode_lower_hex(candidate.exact_envelope_bytes())
+            && self.envelope_sha256 == candidate.envelope_sha256()
+    }
+
+    fn transition_key(&self) -> &str {
+        &self.transition_binding_sha256
+    }
+
+    fn body(&self) -> Stage6JournalRecordBodyV4<'_> {
+        Stage6JournalRecordBodyV4 {
+            schema_version: self.schema_version,
+            record_kind: &self.record_kind,
+            previous_record_id: &self.previous_record_id,
+            causal_parent_id: &self.causal_parent_id,
+            lifecycle_sequence: &self.lifecycle_sequence,
+            prior_covering_seal_generation: &self.prior_covering_seal_generation,
+            expected_covering_seal_generation: &self.expected_covering_seal_generation,
+            operational_identity_sha256: &self.operational_identity_sha256,
+            transition_kind: self.transition_kind,
+            transition_binding_sha256: &self.transition_binding_sha256,
+            authority_kind: self.authority_kind,
+            trading_day: &self.trading_day,
+            instrument: &self.instrument,
+            timeframe_sec: self.timeframe_sec,
+            predecessor_m10: &self.predecessor_m10,
+            candidate_or_last_eligible_m10: &self.candidate_or_last_eligible_m10,
+            request_or_order_binding: &self.request_or_order_binding,
+            redis_stream_id: &self.redis_stream_id,
+            source_generation: &self.source_generation,
+            publication_sequence: &self.publication_sequence,
+            semantic_revision: &self.semantic_revision,
+            schedule_semantic_sha256: &self.schedule_semantic_sha256,
+            exact_envelope_hex: &self.exact_envelope_hex,
+            envelope_sha256: &self.envelope_sha256,
+            bound_at_utc: &self.bound_at_utc,
+        }
+    }
+
+    fn transition_binding(&self) -> Stage6ScheduleTransitionBindingV4<'_> {
+        Stage6ScheduleTransitionBindingV4 {
+            operational_identity_sha256: &self.operational_identity_sha256,
+            transition_kind: self.transition_kind,
+            authority_kind: self.authority_kind,
+            trading_day: &self.trading_day,
+            instrument: &self.instrument,
+            timeframe_sec: self.timeframe_sec,
+            predecessor_m10: &self.predecessor_m10,
+            candidate_or_last_eligible_m10: &self.candidate_or_last_eligible_m10,
+            request_or_order_binding: &self.request_or_order_binding,
+            redis_stream_id: &self.redis_stream_id,
+            source_generation: &self.source_generation,
+            publication_sequence: &self.publication_sequence,
+            semantic_revision: &self.semantic_revision,
+            schedule_semantic_sha256: &self.schedule_semantic_sha256,
+            envelope_sha256: &self.envelope_sha256,
+        }
+    }
+
+    fn derive_record_id(&self) -> Result<Stage6JournalRecordId, Stage6ReconciliationV2Error> {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"moex.stage6.schedule-evidence-bound.record-id.v1");
+        hasher.update(b"\0");
+        hasher.update(canonical_json(&self.body())?);
+        Stage6JournalRecordId::parse_exact(format!("{:x}", hasher.finalize()))
+            .map_err(|_| Stage6ReconciliationV2Error::RecordIdentityMismatch)
+    }
+
+    fn derive_transition_binding_sha256(&self) -> Result<String, Stage6ReconciliationV2Error> {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(b"moex.stage8b.p1e.schedule-transition-binding.sha256.v1");
+        hasher.update(b"\0");
+        hasher.update(canonical_json(&self.transition_binding())?);
+        Ok(format!("{:x}", hasher.finalize()))
+    }
+
+    fn validate(&self) -> Result<(), Stage6ReconciliationV2Error> {
+        let sequence = parse_nonzero_decimal(&self.lifecycle_sequence)?;
+        let prior_generation = parse_decimal(&self.prior_covering_seal_generation)?;
+        let expected_generation = parse_nonzero_decimal(&self.expected_covering_seal_generation)?;
+        let source_generation = parse_nonzero_decimal(&self.source_generation)?;
+        let publication_sequence = parse_nonzero_decimal(&self.publication_sequence)?;
+        let semantic_revision = parse_nonzero_decimal(&self.semantic_revision)?;
+        if self.schema_version != STAGE6_DURABLE_RECORD_SCHEMA_VERSION_V4
+            || self.record_kind != "schedule_evidence_bound"
+            || self.previous_record_id != self.causal_parent_id
+            || expected_generation
+                != prior_generation
+                    .checked_add(1)
+                    .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?
+            || sequence == 0
+            || source_generation == 0
+            || publication_sequence == 0
+            || semantic_revision == 0
+            || self.instrument != "IMOEXF@RTSX"
+            || self.timeframe_sec != 600
+            || !valid_sha256_text(&self.operational_identity_sha256)
+            || !valid_sha256_text(&self.transition_binding_sha256)
+            || !valid_sha256_text(&self.schedule_semantic_sha256)
+            || !valid_sha256_text(&self.envelope_sha256)
+            || !valid_redis_id(&self.redis_stream_id)
+            || !valid_exact_timestamp(&self.bound_at_utc)
+            || self.exact_envelope_hex.is_empty()
+            || self.exact_envelope_hex.len() > 524_288
+            || self.exact_envelope_hex.len() % 2 != 0
+            || !self.exact_envelope_hex.bytes().all(is_lower_hex)
+            || self.derive_transition_binding_sha256()? != self.transition_binding_sha256
+            || self.derive_record_id()? != self.journal_record_id
+        {
+            return Err(Stage6ReconciliationV2Error::InvalidPayload);
+        }
+        validate_v4_m10(&self.predecessor_m10, &self.trading_day)?;
+        validate_v4_m10(&self.candidate_or_last_eligible_m10, &self.trading_day)?;
+        let predecessor_close = parse_exact_timestamp_v4(&self.predecessor_m10.close_ts_utc)?;
+        let candidate_close =
+            parse_exact_timestamp_v4(&self.candidate_or_last_eligible_m10.close_ts_utc)?;
+        if candidate_close <= predecessor_close
+            || sha256_hex_v4(&decode_lower_hex_v4(&self.exact_envelope_hex)?)
+                != self.envelope_sha256
+            || !valid_v4_route_binding(
+                self.transition_kind,
+                self.authority_kind,
+                &self.request_or_order_binding,
+            )
+        {
+            return Err(Stage6ReconciliationV2Error::InvalidPayload);
+        }
+        Ok(())
+    }
+}
+
+impl Stage6ScheduleM10IdentityV4 {
+    fn to_p1e_identity(&self) -> crate::Stage8bP1eM10IdentityV1 {
+        crate::Stage8bP1eM10IdentityV1 {
+            close_ts_utc_ms: parse_exact_timestamp_v4(&self.close_ts_utc)
+                .expect("validated V4 close timestamp")
+                .timestamp_millis(),
+            open_ts_utc_ms: parse_exact_timestamp_v4(&self.open_ts_utc)
+                .expect("validated V4 open timestamp")
+                .timestamp_millis(),
+            payload_sha256: self.payload_sha256.clone(),
+            redis_id: self.redis_id.clone(),
+            semantic_id_sha256: self.semantic_id_sha256.clone(),
+        }
+    }
+}
+
+fn canonical_json<T: Serialize>(value: &T) -> Result<Vec<u8>, Stage6ReconciliationV2Error> {
+    let value =
+        serde_json::to_value(value).map_err(|_| Stage6ReconciliationV2Error::DecodeFailed)?;
+    serde_json::to_vec(&value).map_err(|_| Stage6ReconciliationV2Error::DecodeFailed)
+}
+
+fn parse_decimal(value: &str) -> Result<u64, Stage6ReconciliationV2Error> {
+    if value == "0" {
+        return Ok(0);
+    }
+    parse_nonzero_decimal(value)
+}
+
+fn parse_nonzero_decimal(value: &str) -> Result<u64, Stage6ReconciliationV2Error> {
+    if value.is_empty()
+        || value.len() > 20
+        || value.as_bytes()[0] == b'0'
+        || !value.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(Stage6ReconciliationV2Error::InvalidPayload);
+    }
+    value
+        .parse()
+        .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)
+}
+
+fn valid_sha256_text(value: &str) -> bool {
+    value.len() == 64 && value != "0".repeat(64) && value.bytes().all(is_lower_hex)
+}
+
+fn is_lower_hex(byte: u8) -> bool {
+    byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+}
+
+fn valid_redis_id(value: &str) -> bool {
+    let Some((milliseconds, sequence)) = value.split_once('-') else {
+        return false;
+    };
+    !sequence.contains('-')
+        && parse_nonzero_decimal(milliseconds).is_ok()
+        && (sequence == "0" || parse_nonzero_decimal(sequence).is_ok())
+}
+
+fn parse_exact_timestamp_v4(value: &str) -> Result<DateTime<Utc>, Stage6ReconciliationV2Error> {
+    let parsed = DateTime::parse_from_rfc3339(value)
+        .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?
+        .with_timezone(&Utc);
+    if parsed.to_rfc3339_opts(chrono::SecondsFormat::Micros, true) != value {
+        return Err(Stage6ReconciliationV2Error::InvalidPayload);
+    }
+    Ok(parsed)
+}
+
+fn valid_exact_timestamp(value: &str) -> bool {
+    parse_exact_timestamp_v4(value).is_ok()
+}
+
+fn validate_v4_m10(
+    value: &Stage6ScheduleM10IdentityV4,
+    trading_day: &str,
+) -> Result<(), Stage6ReconciliationV2Error> {
+    let open = parse_exact_timestamp_v4(&value.open_ts_utc)?;
+    let close = parse_exact_timestamp_v4(&value.close_ts_utc)?;
+    let day = NaiveDate::parse_from_str(trading_day, "%Y-%m-%d")
+        .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)?;
+    if close - open != chrono::Duration::seconds(600)
+        || close.date_naive() != day
+        || value.redis_id != format!("{}-0", close.timestamp_millis())
+        || !valid_sha256_text(&value.semantic_id_sha256)
+        || !valid_sha256_text(&value.payload_sha256)
+    {
+        return Err(Stage6ReconciliationV2Error::InvalidPayload);
+    }
+    Ok(())
+}
+
+fn valid_v4_route_binding(
+    transition_kind: crate::Stage8bP1eScheduleTransitionKindV1,
+    authority_kind: crate::Stage8bP1eScheduleAuthorityKindV1,
+    binding: &crate::Stage8bP1eRequestOrOrderBindingV1,
+) -> bool {
+    match (transition_kind, authority_kind) {
+        (
+            crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution,
+            crate::Stage8bP1eScheduleAuthorityKindV1::Market,
+        ) => {
+            binding
+                .strategy_request_id
+                .as_deref()
+                .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                && binding
+                    .canonical_command_sha256
+                    .as_deref()
+                    .is_some_and(valid_sha256_text)
+                && binding.active_broker_order_id.is_none()
+                && binding.working_book_transition_sha256.is_none()
+        }
+        (
+            crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+            | crate::Stage8bP1eScheduleTransitionKindV1::CancelStep,
+            crate::Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
+        )
+        | (
+            crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry,
+            crate::Stage8bP1eScheduleAuthorityKindV1::DayExpiry,
+        ) => {
+            binding.strategy_request_id.is_none()
+                && binding.canonical_command_sha256.is_none()
+                && binding
+                    .active_broker_order_id
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                && binding
+                    .working_book_transition_sha256
+                    .as_deref()
+                    .is_some_and(valid_sha256_text)
+        }
+        _ => false,
+    }
+}
+
+fn encode_lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn decode_lower_hex_v4(value: &str) -> Result<Vec<u8>, Stage6ReconciliationV2Error> {
+    if value.is_empty() || value.len() % 2 != 0 || !value.bytes().all(is_lower_hex) {
+        return Err(Stage6ReconciliationV2Error::InvalidPayload);
+    }
+    (0..value.len())
+        .step_by(2)
+        .map(|index| {
+            u8::from_str_radix(&value[index..index + 2], 16)
+                .map_err(|_| Stage6ReconciliationV2Error::InvalidPayload)
+        })
+        .collect()
+}
+
+fn sha256_hex_v4(bytes: &[u8]) -> String {
+    format!("{:x}", sha2::Sha256::digest(bytes))
+}
+
 #[derive(Debug, Clone, PartialEq)]
-// V1/V2 remain byte-for-byte stable; P1-d3 adds one new read/replay variant.
+// V1/V2/V3 remain byte-for-byte stable; P1-e adds one new read/replay variant.
 // This read-only replay enum is not a high-volume queue element.
 #[allow(clippy::large_enum_variant)]
 pub enum Stage6JournalRecordVersioned {
     V1(Stage6JournalRecordV1),
     V2(Stage6JournalRecordV2),
     V3(Stage6JournalRecordV3),
+    V4(Stage6JournalRecordV4),
 }
 
 impl Stage6JournalRecordVersioned {
@@ -1293,6 +1925,7 @@ impl Stage6JournalRecordVersioned {
                 .map_err(map_v1_error),
             2 => Stage6JournalRecordV2::decode_canonical(bytes).map(Self::V2),
             3 => Stage6JournalRecordV3::decode_canonical(bytes).map(Self::V3),
+            4 => Stage6JournalRecordV4::decode_canonical(bytes).map(Self::V4),
             value => Err(Stage6ReconciliationV2Error::UnsupportedSchema(value)),
         }
     }
@@ -1301,6 +1934,7 @@ impl Stage6JournalRecordVersioned {
             Self::V1(value) => value.encode_canonical(),
             Self::V2(value) => value.encode_canonical(),
             Self::V3(value) => value.encode_canonical(),
+            Self::V4(value) => value.encode_canonical(),
         }
     }
     pub fn journal_record_id(&self) -> &Stage6JournalRecordId {
@@ -1308,6 +1942,7 @@ impl Stage6JournalRecordVersioned {
             Self::V1(value) => value.journal_record_id(),
             Self::V2(value) => value.journal_record_id(),
             Self::V3(value) => value.journal_record_id(),
+            Self::V4(value) => value.journal_record_id(),
         }
     }
     pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
@@ -1315,6 +1950,7 @@ impl Stage6JournalRecordVersioned {
             Self::V1(value) => value.lifecycle_sequence(),
             Self::V2(value) => value.lifecycle_sequence(),
             Self::V3(value) => value.lifecycle_sequence(),
+            Self::V4(value) => value.lifecycle_sequence(),
         }
     }
 }
@@ -1424,6 +2060,7 @@ pub struct Stage6MixedReplaySnapshotV2 {
     requests: Vec<Stage6RecoveredRequestV1>,
     reconciliation_batches: Vec<Stage6PendingReconciliationBatchV2>,
     p1d3_outcome_records: Vec<Stage6JournalRecordV3>,
+    schedule_binding_records: Vec<Stage6JournalRecordV4>,
 }
 
 impl Stage6MixedReplaySnapshotV2 {
@@ -1436,6 +2073,10 @@ impl Stage6MixedReplaySnapshotV2 {
 
     pub fn p1d3_outcome_records(&self) -> &[Stage6JournalRecordV3] {
         &self.p1d3_outcome_records
+    }
+
+    pub fn schedule_binding_records(&self) -> &[Stage6JournalRecordV4] {
+        &self.schedule_binding_records
     }
 
     pub(crate) fn into_requests(self) -> Vec<Stage6RecoveredRequestV1> {
@@ -1458,9 +2099,14 @@ impl Stage6MixedReplayEngineV2 {
         let mut seen = BTreeMap::<String, Vec<u8>>::new();
         let mut seen_transition_keys = BTreeMap::<String, Vec<u8>>::new();
         let mut seen_p1d3_transition_keys = BTreeMap::<String, Vec<u8>>::new();
+        let mut seen_schedule_transition_keys = BTreeMap::<String, Vec<u8>>::new();
         let mut requests = BTreeMap::<String, MixedWorkingRequest>::new();
         let mut p1d3_outcome_records = Vec::new();
+        let mut schedule_binding_records = Vec::new();
         let mut last_unique_record_id: Option<Stage6JournalRecordId> = None;
+        let mut last_unique_lifecycle_sequence: Option<Stage6LifecycleSequence> = None;
+        let mut last_unique_request_accepted_identity: Option<Stage6DurableRequestIdentityV1> =
+            None;
         for record in records {
             let key = record.journal_record_id().as_str().to_string();
             let canonical = record.encode_canonical();
@@ -1607,9 +2253,66 @@ impl Stage6MixedReplayEngineV2 {
                     }
                     p1d3_outcome_records.push(v3.clone());
                 }
+                Stage6JournalRecordVersioned::V4(v4) => {
+                    if last_unique_record_id.as_ref() != Some(v4.previous_record_id())
+                        || last_unique_lifecycle_sequence
+                            .and_then(|sequence| sequence.get().checked_add(1))
+                            != Some(v4.lifecycle_sequence().get())
+                    {
+                        return Err(Stage6ReconciliationV2Error::InvalidCausalEnvelope);
+                    }
+                    let transition_key = v4.transition_key().to_string();
+                    if let Some(existing) = seen_schedule_transition_keys.get(&transition_key) {
+                        if existing != &canonical {
+                            return Err(Stage6ReconciliationV2Error::PendingBatchConflict);
+                        }
+                    } else {
+                        seen_schedule_transition_keys.insert(transition_key, canonical.clone());
+                    }
+                    if v4.transition_kind()
+                        == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+                    {
+                        let binding = v4.request_or_order_binding();
+                        let request_id = binding
+                            .strategy_request_id
+                            .as_ref()
+                            .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?;
+                        let state = requests.get_mut(request_id).ok_or(
+                            Stage6ReconciliationV2Error::Replay(
+                                Stage6ReplayError::SequenceStartInvalid,
+                            ),
+                        )?;
+                        if state.batch.is_some() {
+                            return Err(Stage6ReconciliationV2Error::PendingBatchConflict);
+                        }
+                        let identity = last_unique_request_accepted_identity
+                            .as_ref()
+                            .filter(|identity| {
+                                identity.action() == Stage6DurableActionKind::Place
+                                    && identity.strategy_request_id().to_string() == *request_id
+                            })
+                            .ok_or(Stage6ReconciliationV2Error::InvalidCausalEnvelope)?;
+                        state.v1.advance_causal_only(
+                            identity,
+                            v4.lifecycle_sequence(),
+                            Some(v4.previous_record_id()),
+                            v4.journal_record_id().clone(),
+                        )?;
+                    }
+                    schedule_binding_records.push(v4.clone());
+                }
             }
+            last_unique_request_accepted_identity = match record {
+                Stage6JournalRecordVersioned::V1(v1)
+                    if v1.event_kind() == Stage6JournalEventKind::RequestAccepted =>
+                {
+                    Some(v1.durable_request_identity().clone())
+                }
+                _ => None,
+            };
             seen.insert(key, canonical);
             last_unique_record_id = Some(record.journal_record_id().clone());
+            last_unique_lifecycle_sequence = Some(record.lifecycle_sequence());
         }
         let mut recovered = Vec::new();
         let mut batches = Vec::new();
@@ -1623,6 +2326,7 @@ impl Stage6MixedReplayEngineV2 {
             requests: recovered,
             reconciliation_batches: batches,
             p1d3_outcome_records,
+            schedule_binding_records,
         })
     }
 }
@@ -2699,11 +3403,11 @@ pub(crate) mod tests {
         ));
 
         let mut unknown: Value = serde_json::from_slice(&v2.encode_canonical()).unwrap();
-        unknown["schema_version"] = Value::from(4);
+        unknown["schema_version"] = Value::from(5);
         assert_eq!(
             Stage6JournalRecordVersioned::decode_canonical(&serde_json::to_vec(&unknown).unwrap())
                 .unwrap_err(),
-            Stage6ReconciliationV2Error::UnsupportedSchema(4)
+            Stage6ReconciliationV2Error::UnsupportedSchema(5)
         );
 
         let mut malformed_schema: Value = serde_json::from_slice(&v2.encode_canonical()).unwrap();
@@ -2735,6 +3439,129 @@ pub(crate) mod tests {
             .unwrap_err(),
             Stage6ReconciliationV2Error::DecodeFailed
         );
+    }
+
+    #[test]
+    fn v4_schedule_binding_roundtrips_and_fails_closed_on_wire_drift() {
+        let candidate = crate::stage8b_p1e_test_working_limit_binding_candidate("d".repeat(64));
+        let record = Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+            &candidate,
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Stage6JournalRecordId::parse_exact("e".repeat(64)).unwrap(),
+            7,
+            DateTime::parse_from_rfc3339("2026-09-14T12:30:00.000000Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+        .unwrap();
+        let canonical = record.encode_canonical();
+        assert_eq!(
+            Stage6JournalRecordV4::decode_canonical(&canonical).unwrap(),
+            record
+        );
+        assert!(matches!(
+            Stage6JournalRecordVersioned::decode_canonical(&canonical).unwrap(),
+            Stage6JournalRecordVersioned::V4(_)
+        ));
+
+        let mut wrong_kind: Value = serde_json::from_slice(&canonical).unwrap();
+        wrong_kind["record_kind"] = Value::from("request_accepted");
+        assert!(Stage6JournalRecordVersioned::decode_canonical(
+            &serde_json::to_vec(&wrong_kind).unwrap()
+        )
+        .is_err());
+
+        let mut malformed_suffix: Value = serde_json::from_slice(&canonical).unwrap();
+        malformed_suffix["candidate_or_last_eligible_m10"]["redis_id"] =
+            Value::from("1789387800000");
+        assert!(Stage6JournalRecordVersioned::decode_canonical(
+            &serde_json::to_vec(&malformed_suffix).unwrap()
+        )
+        .is_err());
+
+        for noncanonical_redis_id in [
+            "01789387800000-0",
+            "1789387800000-00",
+            "1789387800000-18446744073709551616",
+        ] {
+            let mut malformed_id: Value = serde_json::from_slice(&canonical).unwrap();
+            malformed_id["redis_stream_id"] = Value::from(noncanonical_redis_id);
+            assert!(Stage6JournalRecordVersioned::decode_canonical(
+                &serde_json::to_vec(&malformed_id).unwrap()
+            )
+            .is_err());
+        }
+
+        let mut unknown: Value = serde_json::from_slice(&canonical).unwrap();
+        unknown["schema_version"] = Value::from(99);
+        assert_eq!(
+            Stage6JournalRecordVersioned::decode_canonical(&serde_json::to_vec(&unknown).unwrap())
+                .unwrap_err(),
+            Stage6ReconciliationV2Error::UnsupportedSchema(99)
+        );
+    }
+
+    #[test]
+    fn market_v4_is_the_exact_request_predecessor_of_dispatch() {
+        let (identity, accepted, _) = place_fixture();
+        let accepted_payload_sha256 = accepted.canonical_payload_sha256().clone();
+        let candidate = crate::stage8b_p1e_test_market_binding_candidate(
+            "d".repeat(64),
+            identity.strategy_request_id().to_string(),
+            "f".repeat(64),
+        );
+        let binding = Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+            &candidate,
+            Stage6LifecycleSequence::new(2).unwrap(),
+            accepted.journal_record_id().clone(),
+            7,
+            DateTime::parse_from_rfc3339("2026-09-14T12:30:00.000000Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+        .unwrap();
+        let dispatch = Stage6JournalRecordV1::dispatch_attempt_recorded(
+            identity.clone(),
+            1,
+            accepted_payload_sha256.clone(),
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(binding.journal_record_id().clone()),
+            digest('2'),
+        )
+        .unwrap();
+        let replay = Stage6MixedReplayEngineV2::replay(&[
+            Stage6JournalRecordVersioned::V1(accepted),
+            Stage6JournalRecordVersioned::V4(binding.clone()),
+            Stage6JournalRecordVersioned::V1(dispatch.clone()),
+        ])
+        .unwrap();
+        let request = &replay.requests()[0];
+        assert_eq!(request.last_unique_sequence(), 3);
+        assert_eq!(
+            request.last_unique_record_id(),
+            dispatch.journal_record_id()
+        );
+        assert_eq!(request.dispatch_attempt_count(), 1);
+        assert_eq!(
+            request.dispatch_safety_state(),
+            crate::Stage6DispatchSafetyStateV1::ReconciliationRequired
+        );
+
+        let wrong_predecessor = Stage6JournalRecordV1::dispatch_attempt_recorded(
+            identity,
+            1,
+            accepted_payload_sha256,
+            Stage6LifecycleSequence::new(3).unwrap(),
+            Some(binding.previous_record_id().clone()),
+            digest('2'),
+        )
+        .unwrap();
+        assert!(Stage6MixedReplayEngineV2::replay(&[
+            Stage6JournalRecordVersioned::V1(place_fixture().1),
+            Stage6JournalRecordVersioned::V4(binding),
+            Stage6JournalRecordVersioned::V1(wrong_predecessor),
+        ])
+        .is_err());
     }
 
     #[test]

@@ -1,0 +1,34 @@
+{
+  "acceptance_rows": 81,
+  "accepted_design_ref": "aa24e840ed8b7d18c80be6f1fdd8f50facf5b6d4",
+  "closed_surfaces": {
+    "broker_dispatch": false,
+    "finam_post_delete": false,
+    "generation_2_execution_activation": false,
+    "operational_redis_db0": false,
+    "operational_redis_db15": false,
+    "private_key_installation": false,
+    "real_orders": false,
+    "runtime_live": false,
+    "vps_activation": false
+  },
+  "compatibility": {
+    "old_package_frontier_unchanged": true,
+    "v1_wire_and_replay_unchanged": true,
+    "v2_wire_and_replay_unchanged": true,
+    "v3_wire_and_replay_unchanged": true,
+    "v4_record_kind": "schedule_evidence_bound"
+  },
+  "next_stage_authorized": false,
+  "r2_overlay_rows": 8,
+  "schema_version": 1,
+  "stage": "Stage 8B-P1-e I1A source implementation",
+  "status": "SOURCE_REVIEW_CANDIDATE",
+  "verification_contract": {
+    "design_gate": "required",
+    "full_rust_tests": "required",
+    "inherited_p1d4_sigkill": "105x2-required",
+    "source_negative_harness": "required",
+    "strict_clippy": "required"
+  }
+}

@@ -417,8 +417,49 @@ impl Stage8bP1d1ExecutionEligible {
         &self.decision.accepted_command_payload_sha256
     }
 
+    pub(crate) fn canonical_command_sha256(&self) -> &str {
+        &self.decision.canonical_command_sha256
+    }
+
     pub(crate) fn execution_close_ts_utc_ms(&self) -> i64 {
         self.execution_bar.close_ts_utc_ms
+    }
+}
+
+impl Stage8bP1d1CommandDecisionBinding {
+    pub(crate) fn strategy_request_id(&self) -> StrategyRequestId {
+        self.durable_identity.strategy_request_id()
+    }
+
+    pub(crate) fn matches_stage8b_p1e_market_candidate(
+        &self,
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+    ) -> bool {
+        let binding = candidate.request_or_order_binding();
+        let predecessor = candidate.predecessor_m10();
+        let successor = candidate.candidate_or_last_eligible_m10();
+        let expected_request_id = self.durable_identity.strategy_request_id().to_string();
+        candidate.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            && candidate.operational_identity_sha256() == self.operational_identity_sha256
+            && binding.strategy_request_id.as_deref() == Some(expected_request_id.as_str())
+            && binding.canonical_command_sha256.as_deref()
+                == Some(self.canonical_command_sha256.as_str())
+            && predecessor.redis_id == self.predecessor_redis_id
+            && predecessor.semantic_id_sha256 == self.predecessor_semantic_id_sha256
+            && predecessor.payload_sha256 == self.predecessor_payload_sha256
+            && predecessor.close_ts_utc_ms == self.predecessor_close_ts_utc_ms
+            && predecessor.open_ts_utc_ms
+                == self.predecessor_close_ts_utc_ms.saturating_sub(M10_MILLIS)
+            && successor.open_ts_utc_ms == self.predecessor_close_ts_utc_ms
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_candidate_parts(&self) -> (String, String) {
+        (
+            self.durable_identity.strategy_request_id().to_string(),
+            self.canonical_command_sha256.clone(),
+        )
     }
 }
 
@@ -1140,6 +1181,55 @@ mod tests {
             Stage8bP1d1ExecutionObservation::Eligible(value) => *value,
             _ => panic!("fixture must be eligible"),
         }
+    }
+
+    #[test]
+    fn p1e_market_binding_matches_exact_request_command_and_predecessor_m10() {
+        let predecessor_close_ms = 1_789_387_200_000;
+        let command = command(None);
+        let decision = decision(&command, predecessor_close_ms);
+        let predecessor = crate::Stage8bP1eM10IdentityV1 {
+            close_ts_utc_ms: predecessor_close_ms,
+            open_ts_utc_ms: predecessor_close_ms - M10_MILLIS,
+            payload_sha256: "7".repeat(64),
+            redis_id: format!("{predecessor_close_ms}-0"),
+            semantic_id_sha256: "2".repeat(64),
+        };
+        let request_id = command_request_id(&command).to_string();
+        let command_sha256 = command_sha(&command);
+        let exact = crate::stage8b_p1e_test_market_binding_candidate_for(
+            "1".repeat(64),
+            request_id.clone(),
+            command_sha256.clone(),
+            predecessor.clone(),
+        );
+        assert!(decision.matches_stage8b_p1e_market_candidate(&exact));
+
+        let wrong_request = crate::stage8b_p1e_test_market_binding_candidate_for(
+            "1".repeat(64),
+            "00000000-0000-0000-0000-000000000001",
+            command_sha256.clone(),
+            predecessor.clone(),
+        );
+        assert!(!decision.matches_stage8b_p1e_market_candidate(&wrong_request));
+
+        let wrong_command = crate::stage8b_p1e_test_market_binding_candidate_for(
+            "1".repeat(64),
+            request_id.clone(),
+            "f".repeat(64),
+            predecessor.clone(),
+        );
+        assert!(!decision.matches_stage8b_p1e_market_candidate(&wrong_command));
+
+        let mut wrong_predecessor = predecessor;
+        wrong_predecessor.semantic_id_sha256 = "e".repeat(64);
+        let wrong_predecessor = crate::stage8b_p1e_test_market_binding_candidate_for(
+            "1".repeat(64),
+            request_id,
+            command_sha256,
+            wrong_predecessor,
+        );
+        assert!(!decision.matches_stage8b_p1e_market_candidate(&wrong_predecessor));
     }
 
     #[test]

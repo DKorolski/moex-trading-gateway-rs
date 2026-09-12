@@ -31,6 +31,7 @@ use strategy_runtime_core::{
     classify_stage8b_p1d2_journal_ahead_candidate, classify_stage8b_p1d3_dispatch_only_candidate,
     classify_stage8b_p1d3_journal_ahead_candidate,
     classify_stage8b_p1d4_generated_market_journal_ahead_candidate,
+    classify_stage8b_p1e_schedule_journal_ahead_candidate,
     continue_stage8b_p1d3_cancel_after_target_transition, execute_stage6d_paper_outcome,
     finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
@@ -53,16 +54,19 @@ use strategy_runtime_core::{
     Stage6Stage8bP1d3DispatchOnlyCandidate, Stage6Stage8bP1d3JournalAheadCandidate,
     Stage6Stage8bP1d3LaterTransition, Stage6Stage8bP1d3RecoveredTransition,
     Stage6Stage8bP1d3RestartPhase, Stage6Stage8bP1d4JournalAheadCandidate,
-    Stage6Stage8bP1d4JournalAheadKind, Stage6dDurableRuntimeRecovered,
-    Stage6dFirstBootAuthorization, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
-    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
-    Stage7aPaperAdmission, Stage7aPaperCommandContext, Stage7bFinalizedRequestFacts,
-    Stage8bP1d1CanonicalM10Evidence, Stage8bP1d1CommandDecisionBinding,
-    Stage8bP1d1ExecutionEligible, Stage8bP1d1MarketDispatchReady, Stage8bP1d1MarketOutcomeBundle,
-    Stage8bP1d2FeedbackAuditCoreV1, Stage8bP1d3CanonicalM10Evidence, Stage8bP1d3InitialObservation,
+    Stage6Stage8bP1d4JournalAheadKind, Stage6Stage8bP1eScheduleBindingPending,
+    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dLiveCoreError,
+    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
+    Stage6dPaperOutcome, Stage7aPaperAdmission, Stage7aPaperCommandContext,
+    Stage7bFinalizedRequestFacts, Stage8bP1d1CanonicalM10Evidence,
+    Stage8bP1d1CommandDecisionBinding, Stage8bP1d1ExecutionEligible,
+    Stage8bP1d1ExecutionScheduleAuthority, Stage8bP1d1MarketDispatchReady,
+    Stage8bP1d1MarketOutcomeBundle, Stage8bP1d2FeedbackAuditCoreV1,
+    Stage8bP1d3CanonicalM10Evidence, Stage8bP1d3DayExpiryAuthority, Stage8bP1d3InitialObservation,
     Stage8bP1d3LaterObservation, Stage8bP1d3ScheduleStepAuthority,
     Stage8bP1d3SemanticSourceBinding, Stage8bP1d4CommandPublicationBindingV1,
     Stage8bP1d4CommandPublicationReservationV1, Stage8bP1d4GeneratedMarketPackageState,
+    Stage8bP1eCommittedScheduleBindingV1, Stage8bP1eScheduleBindingCandidateV1,
 };
 
 use crate::stage8b_p1_bootstrap::{
@@ -831,6 +835,132 @@ pub struct Stage7bRecoveryReadyOwner {
     journal_mutation_uncertain: bool,
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     stage8a4_test_fail_before_covering_seal: bool,
+}
+
+/// Linear post-V4 owner. Construction is possible only through the existing
+/// journal append/fsync and recovery-seal commit/reread chain.
+pub struct Stage8bP1eScheduleBindingCommittedOwner {
+    ready: Stage7bRecoveryReadyOwner,
+    binding: Stage8bP1eCommittedScheduleBindingV1,
+    receipt: Stage8bP1eScheduleBindingCommitReceipt,
+}
+
+enum Stage8bP1eScheduleRecoveryTrust {
+    Production,
+    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    Fixture {
+        public_key_hex: String,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    },
+}
+
+fn recover_stage8b_p1e_schedule_binding_with_trust(
+    recovered: Stage6dDurableRuntimeRecovered,
+    runtime_config_fingerprint_sha256: String,
+    instrument_map_fingerprint_sha256: String,
+    trust: &Stage8bP1eScheduleRecoveryTrust,
+) -> Result<
+    (
+        Stage6dDurableRuntimeRecovered,
+        Stage8bP1eCommittedScheduleBindingV1,
+    ),
+    Stage6dLiveCoreError,
+> {
+    match trust {
+        Stage8bP1eScheduleRecoveryTrust::Production => recovered
+            .recover_stage8b_p1e_current_schedule_binding(
+                runtime_config_fingerprint_sha256,
+                instrument_map_fingerprint_sha256,
+            ),
+        #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+        Stage8bP1eScheduleRecoveryTrust::Fixture {
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        } => recovered.stage8b_p1e_test_recover_current_schedule_binding_with_key(
+            runtime_config_fingerprint_sha256,
+            instrument_map_fingerprint_sha256,
+            public_key_hex,
+            *key_valid_from,
+            *key_valid_until,
+        ),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stage8bP1eScheduleBindingCommitReceipt {
+    journal_record_id: String,
+    lifecycle_sequence: u64,
+    covering_seal_generation: u64,
+    covering_seal_commitment_sha256: String,
+    post_append_checkpoint_sha256: String,
+}
+
+impl Stage8bP1eScheduleBindingCommitReceipt {
+    pub fn journal_record_id(&self) -> &str {
+        &self.journal_record_id
+    }
+
+    pub fn lifecycle_sequence(&self) -> u64 {
+        self.lifecycle_sequence
+    }
+
+    pub fn covering_seal_generation(&self) -> u64 {
+        self.covering_seal_generation
+    }
+
+    pub fn covering_seal_commitment_sha256(&self) -> &str {
+        &self.covering_seal_commitment_sha256
+    }
+
+    pub fn post_append_checkpoint_sha256(&self) -> &str {
+        &self.post_append_checkpoint_sha256
+    }
+}
+
+impl Stage8bP1eScheduleBindingCommittedOwner {
+    pub fn receipt(&self) -> &Stage8bP1eScheduleBindingCommitReceipt {
+        &self.receipt
+    }
+
+    pub(crate) fn into_market_authority(
+        self,
+    ) -> Result<
+        (
+            Stage7bRecoveryReadyOwner,
+            Stage8bP1d1ExecutionScheduleAuthority,
+        ),
+        Stage7bRecoveryError,
+    > {
+        let authority = self
+            .binding
+            .issue_market_authority()
+            .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+        Ok((self.ready, authority))
+    }
+
+    pub(crate) fn into_schedule_step_authority(
+        self,
+    ) -> Result<(Stage7bRecoveryReadyOwner, Stage8bP1d3ScheduleStepAuthority), Stage7bRecoveryError>
+    {
+        let authority = self
+            .binding
+            .issue_schedule_step_authority()
+            .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+        Ok((self.ready, authority))
+    }
+
+    pub(crate) fn into_day_expiry_authority(
+        self,
+    ) -> Result<(Stage7bRecoveryReadyOwner, Stage8bP1d3DayExpiryAuthority), Stage7bRecoveryError>
+    {
+        let authority = self
+            .binding
+            .issue_day_expiry_authority()
+            .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+        Ok((self.ready, authority))
+    }
 }
 
 /// Linear owner for one structurally valid but incomplete Stage 8A-4 batch.
@@ -3667,7 +3797,49 @@ impl Stage7bRecoveryReadyOwner {
         commitment_key: &Stage5gLifecycleCommitmentKey,
         fresh_runtime: HybridIntradayRuntimeStrategy,
     ) -> Result<Stage7bRestartOutcome, Stage7bRecoveryError> {
+        Self::restart_with_schedule_trust(
+            root,
+            identity,
+            commitment_key,
+            fresh_runtime,
+            Stage8bP1eScheduleRecoveryTrust::Production,
+        )
+    }
+
+    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    pub(crate) fn stage8b_p1e_test_restart_with_schedule_key(
+        root: Stage7bDurableRootAuthority,
+        identity: Stage6dOperationalIdentityConfig,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        fresh_runtime: HybridIntradayRuntimeStrategy,
+        public_key_hex: String,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage7bRestartOutcome, Stage7bRecoveryError> {
+        Self::restart_with_schedule_trust(
+            root,
+            identity,
+            commitment_key,
+            fresh_runtime,
+            Stage8bP1eScheduleRecoveryTrust::Fixture {
+                public_key_hex,
+                key_valid_from,
+                key_valid_until,
+            },
+        )
+    }
+
+    fn restart_with_schedule_trust(
+        root: Stage7bDurableRootAuthority,
+        identity: Stage6dOperationalIdentityConfig,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        fresh_runtime: HybridIntradayRuntimeStrategy,
+        schedule_trust: Stage8bP1eScheduleRecoveryTrust,
+    ) -> Result<Stage7bRestartOutcome, Stage7bRecoveryError> {
         root.validate_bound_identity(&identity)?;
+        let p1e_runtime_config_fingerprint_sha256 = fresh_runtime.stage5c_config_fingerprint();
+        let p1e_instrument_map_fingerprint_sha256 =
+            identity.instrument_map_fingerprint_sha256.clone();
         let journal_exists = root.regular_child_exists(STAGE7B_JOURNAL_FILE)?;
         let seal_exists = root.regular_child_exists(STAGE7B_RECOVERY_SEAL_FILE)?;
         if seal_exists && !journal_exists {
@@ -3787,6 +3959,31 @@ impl Stage7bRecoveryReadyOwner {
                         identity,
                         commitment_key,
                         fresh_runtime,
+                    );
+                }
+                let schedule_candidate = classify_stage8b_p1e_schedule_journal_ahead_candidate(
+                    storage.versioned_records(),
+                    committed_seal.stage6_checkpoint(),
+                )?;
+                if let Some(schedule_candidate) = schedule_candidate {
+                    if schedule_candidate.prior_covering_seal_generation()
+                        != committed_seal.seal_generation()
+                    {
+                        return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+                            Stage7bRecoveryBlocked::retained(
+                                Stage7bRecoveryBlockReason::CheckpointMismatch,
+                                storage,
+                            ),
+                        )));
+                    }
+                    return restart_stage8b_p1e_schedule_journal_ahead(
+                        storage,
+                        committed_seal,
+                        schedule_candidate,
+                        identity,
+                        commitment_key,
+                        fresh_runtime,
+                        &schedule_trust,
                     );
                 }
                 let candidate = classify_stage8b_p1_journal_ahead_candidate(
@@ -3919,6 +4116,54 @@ impl Stage7bRecoveryReadyOwner {
             #[cfg(feature = "stage8a4-i3-test-fixtures")]
             stage8a4_test_fail_before_covering_seal: false,
         };
+        if let Some(record) = ready
+            .recovered
+            .current_stage8b_p1e_schedule_binding_record()?
+            .cloned()
+        {
+            if record.expected_covering_seal_generation() != ready.committed_seal.seal_generation()
+                || record.prior_covering_seal_generation().checked_add(1)
+                    != Some(ready.committed_seal.seal_generation())
+            {
+                return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+                    Stage7bRecoveryBlocked::after_consumed_storage(
+                        Stage7bRecoveryBlockReason::CheckpointMismatch,
+                    ),
+                )));
+            }
+            let Stage7bRecoveryReadyOwner {
+                recovered,
+                writer_lease,
+                committed_seal,
+                seal_commit_uncertain,
+                journal_mutation_uncertain,
+                #[cfg(feature = "stage8a4-i3-test-fixtures")]
+                stage8a4_test_fail_before_covering_seal,
+            } = ready;
+            let (recovered, binding) = recover_stage8b_p1e_schedule_binding_with_trust(
+                recovered,
+                p1e_runtime_config_fingerprint_sha256,
+                p1e_instrument_map_fingerprint_sha256,
+                &schedule_trust,
+            )?;
+            let ready = Stage7bRecoveryReadyOwner {
+                recovered,
+                writer_lease,
+                committed_seal,
+                seal_commit_uncertain,
+                journal_mutation_uncertain,
+                #[cfg(feature = "stage8a4-i3-test-fixtures")]
+                stage8a4_test_fail_before_covering_seal,
+            };
+            let receipt = stage8b_p1e_schedule_binding_receipt(&ready, &record);
+            return Ok(Stage7bRestartOutcome::P1eScheduleBindingCommitted(
+                Box::new(Stage8bP1eScheduleBindingCommittedOwner {
+                    ready,
+                    binding,
+                    receipt,
+                }),
+            ));
+        }
         if let Some(package_state) = p1d4_package_state {
             return Ok(
                 match restart_stage8b_p1d4_generated_market_direct(ready, package_state) {
@@ -4067,6 +4312,75 @@ impl Stage7bRecoveryReadyOwner {
     pub fn committed_seal(&self) -> Result<&Stage7bRecoverySealV1, Stage7bRecoveryError> {
         self.writer_lease.validate_namespace()?;
         Ok(&self.committed_seal)
+    }
+
+    /// Non-cancellable Stage 8B-P1-e binding boundary. The method consumes
+    /// the owner so an append/seal failure cannot fall back into ordinary
+    /// lifecycle work in the same process.
+    pub(crate) fn commit_stage8b_p1e_schedule_binding(
+        mut self,
+        candidate: Stage8bP1eScheduleBindingCandidateV1,
+        bound_at_utc: DateTime<Utc>,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage8bP1eScheduleBindingCommittedOwner, Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint() {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let prior_generation = self.committed_seal.seal_generation();
+        let pending: Stage6Stage8bP1eScheduleBindingPending = self
+            .recovered
+            .append_stage8b_p1e_schedule_binding(candidate, prior_generation, bound_at_utc)?;
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        if self.stage8a4_test_fail_before_covering_seal {
+            self.journal_mutation_uncertain = true;
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+            ));
+        }
+        if pending.prior_covering_seal_generation() != prior_generation
+            || pending.expected_covering_seal_generation()
+                != prior_generation
+                    .checked_add(1)
+                    .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+        {
+            self.journal_mutation_uncertain = true;
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+
+        // From the append onward this is one bounded non-cancellable durable
+        // operation. The existing seal writer performs write/fsync/rename,
+        // directory fsync and an authenticated reread.
+        self.advance_recovery_seal(commitment_key)?;
+        if self.committed_seal.seal_generation() != pending.expected_covering_seal_generation()
+            || self.committed_seal.stage6_checkpoint() != pending.post_append_checkpoint()
+        {
+            self.seal_commit_uncertain = true;
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let receipt = Stage8bP1eScheduleBindingCommitReceipt {
+            journal_record_id: pending.journal_record_id().as_str().to_string(),
+            lifecycle_sequence: pending.lifecycle_sequence().get(),
+            covering_seal_generation: self.committed_seal.seal_generation(),
+            covering_seal_commitment_sha256: self
+                .committed_seal
+                .seal_commitment_sha256()
+                .to_string(),
+            post_append_checkpoint_sha256: pending
+                .post_append_checkpoint()
+                .checkpoint_sha256()
+                .to_string(),
+        };
+        let binding = self.recovered.complete_stage8b_p1e_schedule_binding(
+            pending,
+            self.committed_seal.seal_generation(),
+        )?;
+        Ok(Stage8bP1eScheduleBindingCommittedOwner {
+            ready: self,
+            binding,
+            receipt,
+        })
     }
 
     /// Delegates command admission to the sole Stage 6 authority while the
@@ -4967,6 +5281,120 @@ fn stage8b_p1_candidate_scope(candidate: &Stage6Stage8bP1JournalAheadCandidate) 
     instrument.symbol == STAGE8B_P1_INTERNAL_SYMBOL
         && instrument.venue_symbol.as_deref() == Some(STAGE8B_P1_VENUE_SYMBOL)
         && identity.attribution().belongs_to(STAGE8B_P1_STRATEGY_ID)
+}
+
+fn stage8b_p1e_schedule_binding_receipt(
+    ready: &Stage7bRecoveryReadyOwner,
+    record: &strategy_runtime_core::Stage6JournalRecordV4,
+) -> Stage8bP1eScheduleBindingCommitReceipt {
+    Stage8bP1eScheduleBindingCommitReceipt {
+        journal_record_id: record.journal_record_id().as_str().to_string(),
+        lifecycle_sequence: record.lifecycle_sequence().get(),
+        covering_seal_generation: ready.committed_seal.seal_generation(),
+        covering_seal_commitment_sha256: ready.committed_seal.seal_commitment_sha256().to_string(),
+        post_append_checkpoint_sha256: ready
+            .committed_seal
+            .stage6_checkpoint()
+            .checkpoint_sha256()
+            .to_string(),
+    }
+}
+
+fn restart_stage8b_p1e_schedule_journal_ahead(
+    storage: Stage7bWritableDurableAuthority,
+    committed_pre_binding_seal: Stage7bRecoverySealV1,
+    record: strategy_runtime_core::Stage6JournalRecordV4,
+    identity: Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+    schedule_trust: &Stage8bP1eScheduleRecoveryTrust,
+) -> Result<Stage7bRestartOutcome, Stage7bRecoveryError> {
+    let expected_identity = stage6d_operational_identity_sha256(&identity)?;
+    if record.operational_identity_sha256() != expected_identity.as_str()
+        || record.prior_covering_seal_generation() != committed_pre_binding_seal.seal_generation()
+        || record.expected_covering_seal_generation()
+            != committed_pre_binding_seal
+                .seal_generation()
+                .checked_add(1)
+                .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+    {
+        return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+            Stage7bRecoveryBlocked::retained(
+                Stage7bRecoveryBlockReason::CheckpointMismatch,
+                storage,
+            ),
+        )));
+    }
+    let runtime_config_fingerprint_sha256 = fresh_runtime.stage5c_config_fingerprint();
+    let instrument_map_fingerprint_sha256 = identity.instrument_map_fingerprint_sha256.clone();
+    let checkpoint = Stage6JournalCheckpointV1::from_frontier(storage.frontier().clone())
+        .map_err(Stage7bDurableStorageError::from)?;
+    let package = advance_stage6d_restart_package(
+        &committed_pre_binding_seal.stage6d_authenticated_restart_package,
+        committed_pre_binding_seal.stage6_checkpoint(),
+        checkpoint.clone(),
+        &identity,
+        commitment_key,
+    )?;
+    let covering_seal = Stage7bRecoverySealV1::new(
+        record.expected_covering_seal_generation(),
+        package.clone(),
+        checkpoint,
+        committed_pre_binding_seal
+            .operational_identity_sha256()
+            .to_string(),
+        commitment_key,
+    )?;
+    let (journal, writer_lease) = storage.into_recovery_parts();
+    let recovered =
+        restart_stage6d_paper_with_owned_journal(&package, commitment_key, fresh_runtime, journal)?;
+    validate_recovered_binding(&recovered, &covering_seal, &identity)?;
+    let on_disk_predecessor = writer_lease
+        .read_committed_recovery_seal()?
+        .ok_or(Stage7bRecoveryError::SealInvalid)?;
+    if Stage7bRecoverySealV1::decode_canonical(
+        &on_disk_predecessor,
+        expected_identity.as_str(),
+        commitment_key,
+    )? != committed_pre_binding_seal
+    {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    let (recovered, binding) = recover_stage8b_p1e_schedule_binding_with_trust(
+        recovered,
+        runtime_config_fingerprint_sha256,
+        instrument_map_fingerprint_sha256,
+        schedule_trust,
+    )?;
+    // Verify the exact retained signed transition before replacing S0. A
+    // malformed or untrusted V4 frame must never become covered merely because
+    // its journal append reached disk.
+    writer_lease.commit_recovery_seal(&covering_seal)?;
+    let reread = writer_lease
+        .read_committed_recovery_seal()?
+        .ok_or(Stage7bRecoveryError::SealInvalid)?;
+    if Stage7bRecoverySealV1::decode_canonical(&reread, expected_identity.as_str(), commitment_key)?
+        != covering_seal
+    {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
+    let ready = Stage7bRecoveryReadyOwner {
+        recovered,
+        writer_lease,
+        committed_seal: covering_seal,
+        seal_commit_uncertain: false,
+        journal_mutation_uncertain: false,
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        stage8a4_test_fail_before_covering_seal: false,
+    };
+    let receipt = stage8b_p1e_schedule_binding_receipt(&ready, &record);
+    Ok(Stage7bRestartOutcome::P1eScheduleBindingCommitted(
+        Box::new(Stage8bP1eScheduleBindingCommittedOwner {
+            ready,
+            binding,
+            receipt,
+        }),
+    ))
 }
 
 fn stage8b_p1d2_candidate_scope(candidate: &Stage6Stage8bP1d2JournalAheadCandidate) -> bool {
@@ -6029,6 +6457,7 @@ pub enum Stage7bRestartOutcome {
     P1d3TruthCommitted(Box<Stage8bP1d3TruthCommittedOwner>),
     P1d3CancelContinuationPending(Box<Stage8bP1d3CancelContinuationOwner>),
     P1d3SemanticPending(Box<Stage8bP1d3SemanticPendingOwner>),
+    P1eScheduleBindingCommitted(Box<Stage8bP1eScheduleBindingCommittedOwner>),
     Blocked(Box<Stage7bRecoveryBlocked>),
 }
 
@@ -6074,6 +6503,7 @@ impl Stage7bRestartOutcome {
                 Stage8bP1d3CancelContinuationState::TargetSealed(ready) => &ready.recovered,
             },
             Self::P1d3SemanticPending(owner) => &owner.ready.recovered,
+            Self::P1eScheduleBindingCommitted(owner) => &owner.ready.recovered,
             Self::Stage8a4I3Pending(_)
             | Self::P1SemanticPrepublicationPending(_)
             | Self::Blocked(_) => return None,
@@ -6117,7 +6547,8 @@ impl Stage7bRestartOutcome {
             | Self::P1d3AckCommitted(_)
             | Self::P1d3TruthCommitted(_)
             | Self::P1d3CancelContinuationPending(_)
-            | Self::P1d3SemanticPending(_) => false,
+            | Self::P1d3SemanticPending(_)
+            | Self::P1eScheduleBindingCommitted(_) => false,
             Self::Blocked(blocked) => blocked.recovery_ready(),
         }
     }
@@ -6258,6 +6689,14 @@ impl Stage7bRestartOutcome {
                 instrument,
                 runtime_config_fingerprint_sha256,
             ),
+            Self::P1eScheduleBindingCommitted(owner) => {
+                owner.ready.stage8b_p1_source_binding_matches(
+                    strategy_id,
+                    account_id,
+                    instrument,
+                    runtime_config_fingerprint_sha256,
+                )
+            }
             Self::Stage8a4I3Pending(_) | Self::Blocked(_) => false,
         }
     }

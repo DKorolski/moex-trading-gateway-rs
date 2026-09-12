@@ -34,13 +34,13 @@ use crate::{
     Stage6DurableCommandSnapshotV1, Stage6DurableIdentityError, Stage6DurablePlaceOrderShapeV1,
     Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
     Stage6JournalEventKind, Stage6JournalFrontierV1, Stage6JournalRecordId, Stage6JournalRecordV1,
-    Stage6JournalRecordV2, Stage6JournalRecordV3, Stage6JournalRecordVersioned,
-    Stage6JournalStorageError, Stage6LifecycleSequence, Stage6MemoryJournalBackend,
-    Stage6MixedReplayEngineV2, Stage6OwnedJournalBackend, Stage6ReconciliationBatchCompletionV2,
-    Stage6ReconciliationDispositionV1, Stage6ReconciliationLifecycleV2,
-    Stage6ReconciliationTransitionKindV2, Stage6ReconciliationV2Error, Stage6RecoveredRequestV1,
-    Stage6ReplayEngineV1, Stage6ReplayError, Stage6ReplaySnapshotV1,
-    Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
+    Stage6JournalRecordV2, Stage6JournalRecordV3, Stage6JournalRecordV4,
+    Stage6JournalRecordVersioned, Stage6JournalStorageError, Stage6LifecycleSequence,
+    Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2, Stage6OwnedJournalBackend,
+    Stage6ReconciliationBatchCompletionV2, Stage6ReconciliationDispositionV1,
+    Stage6ReconciliationLifecycleV2, Stage6ReconciliationTransitionKindV2,
+    Stage6ReconciliationV2Error, Stage6RecoveredRequestV1, Stage6ReplayEngineV1, Stage6ReplayError,
+    Stage6ReplaySnapshotV1, Stage6RequestFinalDispositionV1, Stage6Sha256Digest,
 };
 use broker_core::{
     BrokerAccountId, BrokerCommand, BrokerOrderId, BrokerOrderSnapshot, BrokerPositionSnapshot,
@@ -579,6 +579,39 @@ pub struct Stage6dDurableRuntimeRecovered {
     authenticated_operational_identity: Option<Stage6dOperationalIdentityConfig>,
     semantic_cross_binding: Option<Stage6eSemanticCrossBinding>,
     restore_epoch: Option<Stage6RestoreEpoch>,
+}
+
+/// Linear proof that one exact schedule binding V4 was appended and reread by
+/// the existing Stage 6 journal backend. It grants no schedule authority until
+/// the Stage 7B owner commits and rereads the expected covering seal.
+pub struct Stage6Stage8bP1eScheduleBindingPending {
+    candidate: crate::Stage8bP1eScheduleBindingCandidateV1,
+    record: Stage6JournalRecordV4,
+    post_append_checkpoint: Stage6JournalCheckpointV1,
+    prior_covering_seal_generation: u64,
+    expected_covering_seal_generation: u64,
+}
+
+impl Stage6Stage8bP1eScheduleBindingPending {
+    pub fn journal_record_id(&self) -> &Stage6JournalRecordId {
+        self.record.journal_record_id()
+    }
+
+    pub fn lifecycle_sequence(&self) -> Stage6LifecycleSequence {
+        self.record.lifecycle_sequence()
+    }
+
+    pub fn post_append_checkpoint(&self) -> &Stage6JournalCheckpointV1 {
+        &self.post_append_checkpoint
+    }
+
+    pub fn prior_covering_seal_generation(&self) -> u64 {
+        self.prior_covering_seal_generation
+    }
+
+    pub fn expected_covering_seal_generation(&self) -> u64 {
+        self.expected_covering_seal_generation
+    }
 }
 
 /// Read-only, test-fixture-only counters used by the Stage 8B-P1-d4
@@ -1580,6 +1613,289 @@ impl Stage6Stage8a4BatchAppendReceipt {
 }
 
 impl Stage6dDurableRuntimeRecovered {
+    fn stage8b_p1e_candidate_matches_runtime(
+        &self,
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+        expected_stage5_checkpoint_sha256: &str,
+        is_recovery: bool,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        match candidate.transition_kind() {
+            crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+                let decision = self.stage8b_p1d1_command_decision_binding()?;
+                let decision_request_id = decision.strategy_request_id().to_string();
+                if !decision.matches_stage8b_p1e_market_candidate(candidate) {
+                    return Ok(false);
+                }
+                if is_recovery {
+                    return Ok(true);
+                }
+                Ok(matches!(
+                    self.journal.versioned_records().last(),
+                    Some(Stage6JournalRecordVersioned::V1(record))
+                        if record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                            && record
+                                .durable_request_identity()
+                                .strategy_request_id()
+                                .to_string()
+                                == decision_request_id
+                ))
+            }
+            crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+            | crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
+            | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry => {
+                let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+                    return Ok(false);
+                };
+                let Some(replacement) = restart.stage8b_p1d3_replacement() else {
+                    return Ok(false);
+                };
+                Ok(replacement.authenticated_stage6_checkpoint_sha256()
+                    == expected_stage5_checkpoint_sha256
+                    && replacement.matches_stage8b_p1e_schedule_candidate(candidate)?)
+            }
+        }
+    }
+
+    fn stage8b_p1e_pre_binding_checkpoint(
+        &self,
+        record: &crate::Stage6JournalRecordV4,
+    ) -> Result<Stage6JournalCheckpointV1, Stage6dLiveCoreError> {
+        let records = self.journal.versioned_records();
+        if !matches!(
+            records.last(),
+            Some(Stage6JournalRecordVersioned::V4(tail))
+                if tail.encode_canonical() == record.encode_canonical()
+        ) {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let mut prefix = Stage6MemoryJournalBackend::new();
+        for historical in records.iter().take(records.len().saturating_sub(1)) {
+            prefix.append_versioned(historical)?;
+        }
+        if prefix.frontier().last_record_id() != Some(record.previous_record_id())
+            || prefix
+                .frontier()
+                .last_lifecycle_sequence()
+                .and_then(|sequence| sequence.get().checked_add(1))
+                != Some(record.lifecycle_sequence().get())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        Ok(Stage6JournalCheckpointV1::from_frontier(
+            prefix.frontier().clone(),
+        )?)
+    }
+
+    /// Appends and rereads the exact V4 schedule binding using the existing
+    /// durable journal. The returned value is deliberately non-authorizing:
+    /// the covering recovery seal still has to be committed and reread.
+    pub fn append_stage8b_p1e_schedule_binding(
+        &mut self,
+        candidate: crate::Stage8bP1eScheduleBindingCandidateV1,
+        prior_covering_seal_generation: u64,
+        bound_at_utc: DateTime<Utc>,
+    ) -> Result<Stage6Stage8bP1eScheduleBindingPending, Stage6dLiveCoreError> {
+        if self.authenticated_checkpoint.frontier() != self.journal_frontier()
+            || self
+                .authenticated_operational_identity()
+                .map(stage6d_operational_identity_sha256)
+                .transpose()?
+                .as_ref()
+                .map(Stage6Sha256Digest::as_str)
+                != Some(candidate.operational_identity_sha256())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        if !self.stage8b_p1e_candidate_matches_runtime(
+            &candidate,
+            self.authenticated_checkpoint().checkpoint_sha256(),
+            false,
+        )? {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let previous_record_id = self
+            .journal_frontier()
+            .last_record_id()
+            .cloned()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let lifecycle_sequence = self
+            .journal_frontier()
+            .last_lifecycle_sequence()
+            .and_then(|sequence| sequence.get().checked_add(1))
+            .and_then(|sequence| Stage6LifecycleSequence::new(sequence).ok())
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let record = Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+            &candidate,
+            lifecycle_sequence,
+            previous_record_id,
+            prior_covering_seal_generation,
+            bound_at_utc,
+        )?;
+        let receipt = self
+            .journal_mut()
+            .append_versioned(&Stage6JournalRecordVersioned::V4(record.clone()))?;
+        if receipt.record_id() != record.journal_record_id()
+            || receipt.lifecycle_sequence() != record.lifecycle_sequence()
+        {
+            return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+        }
+        self.refresh_after_append()?;
+        let post_append_checkpoint = self.authenticated_checkpoint().clone();
+        if post_append_checkpoint.frontier() != receipt.durable_frontier()
+            || self.journal_frontier().last_record_id() != Some(record.journal_record_id())
+            || self.journal_frontier().last_lifecycle_sequence()
+                != Some(record.lifecycle_sequence())
+            || self
+                .journal
+                .versioned_records()
+                .last()
+                .map(Stage6JournalRecordVersioned::encode_canonical)
+                != Some(record.encode_canonical())
+        {
+            return Err(Stage6dLiveCoreError::JournalMutationMayHaveOccurred);
+        }
+        Ok(Stage6Stage8bP1eScheduleBindingPending {
+            candidate,
+            expected_covering_seal_generation: record.expected_covering_seal_generation(),
+            record,
+            post_append_checkpoint,
+            prior_covering_seal_generation,
+        })
+    }
+
+    /// Converts a non-authorizing append proof into an opaque committed
+    /// binding only after the caller has supplied the generation of the
+    /// covering seal it has itself committed and reread.
+    pub fn complete_stage8b_p1e_schedule_binding(
+        &self,
+        pending: Stage6Stage8bP1eScheduleBindingPending,
+        covering_seal_generation: u64,
+    ) -> Result<crate::Stage8bP1eCommittedScheduleBindingV1, Stage6dLiveCoreError> {
+        if covering_seal_generation != pending.expected_covering_seal_generation
+            || pending.expected_covering_seal_generation
+                != pending
+                    .prior_covering_seal_generation
+                    .checked_add(1)
+                    .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+            || self.authenticated_checkpoint() != &pending.post_append_checkpoint
+            || self.journal_frontier().last_record_id() != Some(pending.record.journal_record_id())
+            || self.journal_frontier().last_lifecycle_sequence()
+                != Some(pending.record.lifecycle_sequence())
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let reread = mixed
+            .schedule_binding_records()
+            .last()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        if reread.encode_canonical() != pending.record.encode_canonical() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        pending
+            .candidate
+            .into_committed_after_v4_reread(reread)
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Returns the current V4 only when it is the exact authenticated journal
+    /// tail. This is read-only recovery evidence and grants no route authority.
+    pub fn current_stage8b_p1e_schedule_binding_record(
+        &self,
+    ) -> Result<Option<&crate::Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let Some(record) = mixed.schedule_binding_records().last() else {
+            return Ok(None);
+        };
+        if self.journal_frontier().last_record_id() != Some(record.journal_record_id())
+            || self.journal_frontier().last_lifecycle_sequence()
+                != Some(record.lifecycle_sequence())
+        {
+            return Ok(None);
+        }
+        self.journal
+            .versioned_records()
+            .last()
+            .and_then(|record| match record {
+                Stage6JournalRecordVersioned::V4(record) => Some(record),
+                _ => None,
+            })
+            .map(Some)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Reconstructs route authority only from the exact authenticated V4 tail.
+    /// The runtime is consumed and returned beside the binding so callers
+    /// cannot retain an independently reusable recovered authority.
+    pub fn recover_stage8b_p1e_current_schedule_binding(
+        self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+    ) -> Result<(Self, crate::Stage8bP1eCommittedScheduleBindingV1), Stage6dLiveCoreError> {
+        let record = self
+            .current_stage8b_p1e_schedule_binding_record()?
+            .cloned()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let candidate = crate::recover_stage8b_p1e_schedule_binding_candidate_v4(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let predecessor_checkpoint = self.stage8b_p1e_pre_binding_checkpoint(&record)?;
+        if !self.stage8b_p1e_candidate_matches_runtime(
+            &candidate,
+            predecessor_checkpoint.checkpoint_sha256(),
+            true,
+        )? {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let binding = candidate
+            .into_committed_after_v4_reread(&record)
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        Ok((self, binding))
+    }
+
+    /// Fixture-only restart seam that preserves the complete production V4
+    /// reconstruction and runtime cross-validation path while replacing only
+    /// the pinned verification key with an explicit test trust anchor.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_recover_current_schedule_binding_with_key(
+        self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<(Self, crate::Stage8bP1eCommittedScheduleBindingV1), Stage6dLiveCoreError> {
+        let record = self
+            .current_stage8b_p1e_schedule_binding_record()?
+            .cloned()
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let candidate = crate::stage8b_p1e_test_recover_schedule_binding_candidate_v4_with_key(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let predecessor_checkpoint = self.stage8b_p1e_pre_binding_checkpoint(&record)?;
+        if !self.stage8b_p1e_candidate_matches_runtime(
+            &candidate,
+            predecessor_checkpoint.checkpoint_sha256(),
+            true,
+        )? {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let binding = candidate
+            .into_committed_after_v4_reread(&record)
+            .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+        Ok((self, binding))
+    }
+
     pub fn stage8b_p1d4_generated_market_candidate(&self) -> bool {
         matches!(
             &self.stage5_runtime,
@@ -2182,12 +2498,21 @@ impl Stage6dDurableRuntimeRecovered {
             .replay()
             .request(request_id)
             .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+        let direct_accepted_frontier = replayed.last_unique_record_id()
+            == accepted.journal_record_id()
+            && self.journal_frontier().last_record_id() == Some(accepted.journal_record_id());
+        let bound_market_frontier =
+            stage8b_p1e_market_binding_tail(self, request_id, &canonical_command_sha256)
+                .is_some_and(|record| {
+                    replayed.last_unique_record_id() == record.journal_record_id()
+                        && replayed.last_unique_sequence() == record.lifecycle_sequence().get()
+                });
         if accepted.durable_request_identity() != &identity
             || accepted_snapshot != &snapshot
             || replayed.dispatch_safety_state()
                 != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
-            || replayed.last_unique_record_id() != accepted.journal_record_id()
-            || self.journal_frontier().last_record_id() != Some(accepted.journal_record_id())
+            || replayed.dispatch_attempt_count() != 0
+            || (!direct_accepted_frontier && !bound_market_frontier)
         {
             return Err(Stage6dLiveCoreError::DurableOrderingViolation);
         }
@@ -2384,7 +2709,7 @@ impl Stage6dDurableRuntimeRecovered {
                         seq_truth,
                     });
                 }
-                Stage6JournalRecordVersioned::V2(_) => {}
+                Stage6JournalRecordVersioned::V2(_) | Stage6JournalRecordVersioned::V4(_) => {}
             }
         }
         Stage8bP1d4RuntimeAuditV1 {
@@ -6000,6 +6325,59 @@ pub fn classify_stage8b_p1_journal_ahead_candidate(
     }))
 }
 
+/// Classifies exactly one uncovered Stage 8B-P1-e V4 schedule binding. No
+/// other suffix is recoverable through this path: mixed versions, additional
+/// records, causal drift and sequence drift fail closed.
+pub fn classify_stage8b_p1e_schedule_journal_ahead_candidate(
+    records: &[Stage6JournalRecordVersioned],
+    predecessor_checkpoint: &Stage6JournalCheckpointV1,
+) -> Result<Option<crate::Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+    let prefix_len: usize = predecessor_checkpoint
+        .frontier()
+        .frame_count()
+        .try_into()
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)?;
+    if records.len() != prefix_len.saturating_add(1) {
+        return Ok(None);
+    }
+    let mut prefix = Stage6MemoryJournalBackend::new();
+    for record in records.iter().take(prefix_len) {
+        prefix.append_versioned(record)?;
+    }
+    if prefix.validate_checkpoint(predecessor_checkpoint).is_err() {
+        return Ok(None);
+    }
+    let Some(previous_record_id) = prefix.frontier().last_record_id() else {
+        return Ok(None);
+    };
+    let Some(previous_sequence) = prefix.frontier().last_lifecycle_sequence() else {
+        return Ok(None);
+    };
+    let Stage6JournalRecordVersioned::V4(candidate) = &records[prefix_len] else {
+        return Ok(None);
+    };
+    if candidate.previous_record_id() != previous_record_id
+        || candidate.lifecycle_sequence().get()
+            != previous_sequence
+                .get()
+                .checked_add(1)
+                .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?
+    {
+        return Ok(None);
+    }
+    let replay = Stage6MixedReplayEngineV2::replay(records)?;
+    if replay.schedule_binding_records().len() != 1
+        || replay
+            .schedule_binding_records()
+            .last()
+            .map(crate::Stage6JournalRecordV4::encode_canonical)
+            != Some(candidate.encode_canonical())
+    {
+        return Ok(None);
+    }
+    Ok(Some(candidate.clone()))
+}
+
 /// Classifies only the two recoverable pre-S_ack Stage 6 shapes:
 /// dispatch/order/trade, with or without the final RequestFinalized record.
 /// Any extra, reordered, mixed-version or differently bound record is not a
@@ -8866,20 +9244,48 @@ pub fn admit_stage7a_p1d1_market_dispatch(
         .replay()
         .request(request_id)
         .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
+    let market_binding = stage8b_p1e_market_binding_tail(
+        recovered,
+        request_id,
+        eligibility.canonical_command_sha256(),
+    );
+    let (predecessor_sequence, predecessor_record_id) = if let Some(record) = market_binding {
+        (
+            record.lifecycle_sequence(),
+            record.journal_record_id().clone(),
+        )
+    } else if replayed.last_unique_record_id() == accepted.journal_record_id()
+        && replayed.last_unique_sequence() == accepted.lifecycle_sequence().get()
+        && recovered.journal_frontier().last_record_id() == Some(accepted.journal_record_id())
+    {
+        (
+            accepted.lifecycle_sequence(),
+            accepted.journal_record_id().clone(),
+        )
+    } else {
+        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+    };
     if accepted.durable_request_identity() != identity
         || accepted_snapshot != eligibility.durable_command_snapshot()
         || accepted.canonical_payload_sha256() != eligibility.accepted_command_payload_sha256()
         || replayed.dispatch_safety_state()
             != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
-        || replayed.last_unique_record_id() != accepted.journal_record_id()
-        || recovered.journal_frontier().last_record_id() != Some(accepted.journal_record_id())
+        || replayed.dispatch_attempt_count() != 0
+        || replayed.last_unique_record_id() != &predecessor_record_id
+        || replayed.last_unique_sequence() != predecessor_sequence.get()
     {
         return Err(Stage6dLiveCoreError::DurableOrderingViolation);
     }
     let observed_at =
         DateTime::<Utc>::from_timestamp_millis(eligibility.execution_close_ts_utc_ms())
             .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
-    let dispatch = stage7a_dispatch_record(identity, &accepted, observed_at)?;
+    let dispatch = stage7a_dispatch_record_after(
+        identity,
+        &accepted,
+        predecessor_sequence,
+        &predecessor_record_id,
+        observed_at,
+    )?;
     let receipt = prepare_stage6d_existing_accepted_paper_dispatch(recovered, &accepted, dispatch)?;
     crate::stage8b_p1d1_paper_provider::bind_stage8b_p1d1_market_dispatch(eligibility, receipt)
         .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
@@ -8998,6 +9404,30 @@ fn stage7a_accepted_record(
         record.event_kind() == Stage6JournalEventKind::RequestAccepted
             && record.durable_request_identity().strategy_request_id() == request_id
     })
+}
+
+fn stage8b_p1e_market_binding_tail<'a>(
+    recovered: &'a Stage6dDurableRuntimeRecovered,
+    request_id: StrategyRequestId,
+    canonical_command_sha256: &str,
+) -> Option<&'a Stage6JournalRecordV4> {
+    let accepted = stage7a_accepted_record(recovered, request_id)?;
+    let Stage6JournalRecordVersioned::V4(record) = recovered.journal.versioned_records().last()?
+    else {
+        return None;
+    };
+    let binding = record.request_or_order_binding();
+    let request_id_text = request_id.to_string();
+    (record.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+        && record.previous_record_id() == accepted.journal_record_id()
+        && record.lifecycle_sequence().get()
+            == accepted.lifecycle_sequence().get().checked_add(1)?
+        && binding.strategy_request_id.as_deref() == Some(request_id_text.as_str())
+        && binding.canonical_command_sha256.as_deref() == Some(canonical_command_sha256)
+        && recovered.journal_frontier().last_record_id() == Some(record.journal_record_id())
+        && recovered.journal_frontier().last_lifecycle_sequence()
+            == Some(record.lifecycle_sequence()))
+    .then_some(record)
 }
 
 fn stage7a_has_other_unresolved_lifecycle(
@@ -9198,6 +9628,22 @@ fn stage7a_dispatch_record(
     accepted: &Stage6JournalRecordV1,
     observed_at: DateTime<Utc>,
 ) -> Result<Stage6JournalRecordV1, Stage6dLiveCoreError> {
+    stage7a_dispatch_record_after(
+        identity,
+        accepted,
+        accepted.lifecycle_sequence(),
+        accepted.journal_record_id(),
+        observed_at,
+    )
+}
+
+fn stage7a_dispatch_record_after(
+    identity: &Stage6DurableRequestIdentityV1,
+    accepted: &Stage6JournalRecordV1,
+    predecessor_sequence: Stage6LifecycleSequence,
+    predecessor_record_id: &Stage6JournalRecordId,
+    observed_at: DateTime<Utc>,
+) -> Result<Stage6JournalRecordV1, Stage6dLiveCoreError> {
     let command = match accepted.payload() {
         Stage6JournalPayloadV1::RequestAccepted { command } => command,
         _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
@@ -9217,8 +9663,8 @@ fn stage7a_dispatch_record(
         identity.clone(),
         1,
         accepted.canonical_payload_sha256().clone(),
-        Stage6LifecycleSequence::new(accepted.lifecycle_sequence().get().saturating_add(1))?,
-        Some(accepted.journal_record_id().clone()),
+        Stage6LifecycleSequence::new(predecessor_sequence.get().saturating_add(1))?,
+        Some(predecessor_record_id.clone()),
         evidence,
     )?)
 }
@@ -9232,10 +9678,21 @@ fn prepare_stage6d_existing_accepted_paper_dispatch(
         Stage6JournalPayloadV1::RequestAccepted { command } => command.as_ref().clone(),
         _ => return Err(Stage6dLiveCoreError::AcceptedRecordRequired),
     };
+    let pre_dispatch = recovered
+        .replay()
+        .request(accepted.durable_request_identity().strategy_request_id())
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
     if accepted.event_kind() != Stage6JournalEventKind::RequestAccepted
         || dispatch_attempt.event_kind() != Stage6JournalEventKind::DispatchAttemptRecorded
         || accepted.durable_request_identity() != dispatch_attempt.durable_request_identity()
-        || dispatch_attempt.previous_record_id() != Some(accepted.journal_record_id())
+        || pre_dispatch.dispatch_attempt_count() != 0
+        || pre_dispatch.dispatch_safety_state()
+            != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
+        || dispatch_attempt.previous_record_id() != Some(pre_dispatch.last_unique_record_id())
+        || dispatch_attempt.lifecycle_sequence().get()
+            != pre_dispatch.last_unique_sequence().saturating_add(1)
+        || recovered.journal_frontier().last_record_id()
+            != Some(pre_dispatch.last_unique_record_id())
     {
         return Err(Stage6dLiveCoreError::DurableOrderingViolation);
     }
@@ -10231,6 +10688,66 @@ mod tests {
         assert_eq!(
             authority.authenticated_checkpoint_sha256(),
             owner.authenticated_checkpoint().checkpoint_sha256()
+        );
+    }
+
+    #[test]
+    fn p1e_v4_journal_ahead_classifier_accepts_only_one_exact_successor() {
+        let fixture = place_fixture(90_001, OrderType::Limit);
+        let snapshot =
+            Stage6DurableCommandSnapshotV1::from_place(&fixture.identity, &fixture.command)
+                .unwrap();
+        let accepted = Stage6JournalRecordV1::request_accepted(
+            fixture.identity,
+            snapshot,
+            Stage6LifecycleSequence::new(1).unwrap(),
+            None,
+            None,
+            digest('1'),
+        )
+        .unwrap();
+        let mut predecessor = Stage6MemoryJournalBackend::new();
+        predecessor
+            .append_versioned(&Stage6JournalRecordVersioned::V1(accepted.clone()))
+            .unwrap();
+        let checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(predecessor.frontier().clone()).unwrap();
+        let candidate = crate::stage8b_p1e_test_working_limit_binding_candidate("d".repeat(64));
+        let binding = Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+            &candidate,
+            Stage6LifecycleSequence::new(2).unwrap(),
+            accepted.journal_record_id().clone(),
+            7,
+            Utc.with_ymd_and_hms(2026, 9, 14, 12, 30, 0).unwrap(),
+        )
+        .unwrap();
+        let exact = vec![
+            Stage6JournalRecordVersioned::V1(accepted.clone()),
+            Stage6JournalRecordVersioned::V4(binding.clone()),
+        ];
+        assert_eq!(
+            classify_stage8b_p1e_schedule_journal_ahead_candidate(&exact, &checkpoint)
+                .unwrap()
+                .unwrap()
+                .encode_canonical(),
+            binding.encode_canonical()
+        );
+
+        let mut extra = exact.clone();
+        extra.push(Stage6JournalRecordVersioned::V4(binding));
+        assert!(
+            classify_stage8b_p1e_schedule_journal_ahead_candidate(&extra, &checkpoint)
+                .unwrap()
+                .is_none()
+        );
+        let wrong_checkpoint = Stage6JournalCheckpointV1::from_frontier(
+            Stage6MemoryJournalBackend::new().frontier().clone(),
+        )
+        .unwrap();
+        assert!(
+            classify_stage8b_p1e_schedule_journal_ahead_candidate(&exact, &wrong_checkpoint,)
+                .unwrap()
+                .is_none()
         );
     }
 

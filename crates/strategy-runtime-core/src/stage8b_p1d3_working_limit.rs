@@ -169,6 +169,60 @@ pub struct Stage8bP1d3DayExpiryAuthority {
     boundary_ts_utc_ms: i64,
 }
 
+/// Crate-private production bridge from a fully verified Stage 5E schedule
+/// projection.  Keeping construction here preserves the opacity and
+/// one-use semantics of the public authority type.
+pub(crate) fn stage8b_p1d3_schedule_step_authority_from_stage5e(
+    schedule_fingerprint_sha256: String,
+    trading_day_identity: String,
+    last_eligible_m10_redis_id: String,
+    predecessor_redis_id: String,
+    candidate_redis_id: String,
+) -> Result<Stage8bP1d3ScheduleStepAuthority, Stage8bP1d3Error> {
+    let predecessor_ms = exact_m10_redis_id_ms(&predecessor_redis_id)?;
+    let candidate_ms = exact_m10_redis_id_ms(&candidate_redis_id)?;
+    let last_eligible_ms = exact_m10_redis_id_ms(&last_eligible_m10_redis_id)?;
+    if !is_sha256(&schedule_fingerprint_sha256)
+        || candidate_ms <= predecessor_ms
+        || candidate_ms > last_eligible_ms
+        || trading_day(candidate_ms)? != trading_day_identity
+    {
+        return Err(Stage8bP1d3Error::IdentityMismatch);
+    }
+    Ok(Stage8bP1d3ScheduleStepAuthority {
+        schedule_fingerprint_sha256,
+        trading_day_identity,
+        last_eligible_m10_redis_id,
+        predecessor_redis_id,
+        candidate_redis_id,
+    })
+}
+
+/// Crate-private production bridge for a proved end-of-day transition.
+/// The exact last M10 identity and boundary are revalidated before issuing
+/// the linear capability.
+pub(crate) fn stage8b_p1d3_day_expiry_authority_from_stage5e(
+    schedule_fingerprint_sha256: String,
+    trading_day_identity: String,
+    last_eligible_m10_redis_id: String,
+    boundary_ts_utc_ms: i64,
+) -> Result<Stage8bP1d3DayExpiryAuthority, Stage8bP1d3Error> {
+    let last_eligible_ms = exact_m10_redis_id_ms(&last_eligible_m10_redis_id)?;
+    if !is_sha256(&schedule_fingerprint_sha256)
+        || boundary_ts_utc_ms < last_eligible_ms
+        || exact_timestamp(boundary_ts_utc_ms).is_err()
+        || trading_day(last_eligible_ms)? != trading_day_identity
+    {
+        return Err(Stage8bP1d3Error::IdentityMismatch);
+    }
+    Ok(Stage8bP1d3DayExpiryAuthority {
+        schedule_fingerprint_sha256,
+        trading_day_identity,
+        last_eligible_m10_redis_id,
+        boundary_ts_utc_ms,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Stage8bP1d3OrderRecordV1 {
@@ -846,6 +900,67 @@ impl Stage8bP1d3ReplacementProjectionV1 {
 
     pub(crate) fn working_book(&self) -> &Stage8bP1d3WorkingBookProjectionV1 {
         &self.working_book
+    }
+
+    /// Cross-validates the P1-e V4 order/book binding against the exact
+    /// authenticated P1-d3 replacement.  Primitive values supplied by a
+    /// schedule adapter are evidence to compare, never authority on their
+    /// own.
+    pub(crate) fn matches_stage8b_p1e_schedule_candidate(
+        &self,
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+    ) -> Result<bool, Stage8bP1d3Error> {
+        self.validate()?;
+        if !matches!(
+            self.phase,
+            Stage8bP1d3BookPhase::Working | Stage8bP1d3BookPhase::Eval
+        ) || !matches!(
+            candidate.transition_kind(),
+            crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+                | crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
+                | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry
+        ) || candidate.operational_identity_sha256()
+            != self.working_book.operational_identity_sha256
+        {
+            return Ok(false);
+        }
+        let Some(active) = self.working_book.active_record() else {
+            return Ok(false);
+        };
+        let binding = candidate.request_or_order_binding();
+        if binding.active_broker_order_id.as_deref() != Some(active.broker_order_id.as_str())
+            || binding.working_book_transition_sha256.as_deref()
+                != Some(self.working_book.latest_transition_sha256.as_str())
+            || active.trading_day_identity != candidate.trading_day()
+        {
+            return Ok(false);
+        }
+
+        let expected_predecessor = candidate.predecessor_m10();
+        let exact_current_m10 = active.last_evaluated_m10_redis_id.as_deref()
+            == Some(expected_predecessor.redis_id.as_str())
+            && active.last_evaluated_m10_semantic_id_sha256.as_deref()
+                == Some(expected_predecessor.semantic_id_sha256.as_str())
+            && active.last_evaluated_m10_payload_sha256.as_deref()
+                == Some(expected_predecessor.payload_sha256.as_str())
+            && active.last_evaluated_close_ts_utc_ms == Some(expected_predecessor.close_ts_utc_ms)
+            && expected_predecessor.open_ts_utc_ms
+                == expected_predecessor.close_ts_utc_ms.saturating_sub(600_000);
+        if candidate.transition_kind() != crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry {
+            return Ok(exact_current_m10);
+        }
+
+        let last_eligible = candidate.candidate_or_last_eligible_m10();
+        Ok(
+            active.last_evaluated_m10_redis_id.as_deref() == Some(last_eligible.redis_id.as_str())
+                && active.last_evaluated_m10_semantic_id_sha256.as_deref()
+                    == Some(last_eligible.semantic_id_sha256.as_str())
+                && active.last_evaluated_m10_payload_sha256.as_deref()
+                    == Some(last_eligible.payload_sha256.as_str())
+                && active.last_evaluated_close_ts_utc_ms == Some(last_eligible.close_ts_utc_ms)
+                && last_eligible.open_ts_utc_ms
+                    == last_eligible.close_ts_utc_ms.saturating_sub(600_000),
+        )
     }
 
     pub(crate) fn authenticated_stage6_checkpoint_sha256(&self) -> &str {
@@ -4249,13 +4364,12 @@ fn validate_expiry(
     expiry: &Stage8bP1d3DayExpiryAuthority,
 ) -> Result<(), Stage8bP1d3Error> {
     if !is_sha256(&expiry.schedule_fingerprint_sha256)
-        || expiry.schedule_fingerprint_sha256 != record.schedule_fingerprint_sha256
         || expiry.trading_day_identity != record.trading_day_identity
         || record.last_evaluated_m10_redis_id.as_deref()
             != Some(expiry.last_eligible_m10_redis_id.as_str())
         || record
             .last_evaluated_close_ts_utc_ms
-            .map_or(true, |last| expiry.boundary_ts_utc_ms <= last)
+            .map_or(true, |last| expiry.boundary_ts_utc_ms < last)
         || exact_timestamp(expiry.boundary_ts_utc_ms).is_err()
     {
         return Err(Stage8bP1d3Error::InvalidChronology);
@@ -4270,7 +4384,7 @@ fn validate_initial_expiry(
     if !is_sha256(&expiry.schedule_fingerprint_sha256)
         || expiry.last_eligible_m10_redis_id != input.decision_m10_redis_id
         || expiry.trading_day_identity != trading_day(input.decision_m10_close_ts_utc_ms)?
-        || expiry.boundary_ts_utc_ms <= input.decision_m10_close_ts_utc_ms
+        || expiry.boundary_ts_utc_ms < input.decision_m10_close_ts_utc_ms
         || exact_timestamp(expiry.boundary_ts_utc_ms).is_err()
     {
         return Err(Stage8bP1d3Error::InvalidChronology);
@@ -4724,6 +4838,24 @@ fn allocate_pair(frontier: u64) -> Result<(u64, u64), Stage8bP1d3Error> {
 
 fn trading_day(timestamp_ms: i64) -> Result<String, Stage8bP1d3Error> {
     Ok(exact_timestamp(timestamp_ms)?.date_naive().to_string())
+}
+
+fn exact_m10_redis_id_ms(value: &str) -> Result<i64, Stage8bP1d3Error> {
+    let (milliseconds, sequence) = value
+        .split_once('-')
+        .ok_or(Stage8bP1d3Error::IdentityMismatch)?;
+    let timestamp_ms = milliseconds
+        .parse::<i64>()
+        .map_err(|_| Stage8bP1d3Error::IdentityMismatch)?;
+    if sequence != "0"
+        || timestamp_ms <= 0
+        || timestamp_ms.rem_euclid(600_000) != 0
+        || format!("{timestamp_ms}-0") != value
+        || exact_timestamp(timestamp_ms).is_err()
+    {
+        return Err(Stage8bP1d3Error::IdentityMismatch);
+    }
+    Ok(timestamp_ms)
 }
 
 fn exact_timestamp(value: i64) -> Result<DateTime<Utc>, Stage8bP1d3Error> {
@@ -6453,6 +6585,72 @@ mod tests {
                 .restored
                 .reconstructed_runtime_state_fingerprint_sha256()
         );
+    }
+
+    #[test]
+    fn p1e_schedule_binding_requires_exact_working_order_book_and_m10() {
+        let (truth, _) = commit_request_plan(&initial_working());
+        let replacement = truth.restored.stage8b_p1d3_replacement().unwrap();
+        let book = replacement.working_book();
+        let active = book.active_record().unwrap();
+        let predecessor = crate::Stage8bP1eM10IdentityV1 {
+            close_ts_utc_ms: active.last_evaluated_close_ts_utc_ms.unwrap(),
+            open_ts_utc_ms: active
+                .last_evaluated_close_ts_utc_ms
+                .unwrap()
+                .saturating_sub(600_000),
+            payload_sha256: active.last_evaluated_m10_payload_sha256.clone().unwrap(),
+            redis_id: active.last_evaluated_m10_redis_id.clone().unwrap(),
+            semantic_id_sha256: active
+                .last_evaluated_m10_semantic_id_sha256
+                .clone()
+                .unwrap(),
+        };
+        let exact = crate::stage8b_p1e_test_working_limit_binding_candidate_for(
+            book.operational_identity_sha256.clone(),
+            active.broker_order_id.as_str(),
+            book.latest_transition_sha256.clone(),
+            active.trading_day_identity.clone(),
+            predecessor.clone(),
+        );
+        assert!(replacement
+            .matches_stage8b_p1e_schedule_candidate(&exact)
+            .unwrap());
+
+        let foreign_order = crate::stage8b_p1e_test_working_limit_binding_candidate_for(
+            book.operational_identity_sha256.clone(),
+            "FINAM-FOREIGN-ORDER",
+            book.latest_transition_sha256.clone(),
+            active.trading_day_identity.clone(),
+            predecessor.clone(),
+        );
+        assert!(!replacement
+            .matches_stage8b_p1e_schedule_candidate(&foreign_order)
+            .unwrap());
+
+        let foreign_book = crate::stage8b_p1e_test_working_limit_binding_candidate_for(
+            book.operational_identity_sha256.clone(),
+            active.broker_order_id.as_str(),
+            "e".repeat(64),
+            active.trading_day_identity.clone(),
+            predecessor.clone(),
+        );
+        assert!(!replacement
+            .matches_stage8b_p1e_schedule_candidate(&foreign_book)
+            .unwrap());
+
+        let mut foreign_m10 = predecessor;
+        foreign_m10.semantic_id_sha256 = "f".repeat(64);
+        let foreign_m10 = crate::stage8b_p1e_test_working_limit_binding_candidate_for(
+            book.operational_identity_sha256.clone(),
+            active.broker_order_id.as_str(),
+            book.latest_transition_sha256.clone(),
+            active.trading_day_identity.clone(),
+            foreign_m10,
+        );
+        assert!(!replacement
+            .matches_stage8b_p1e_schedule_candidate(&foreign_m10)
+            .unwrap());
     }
 
     #[test]
