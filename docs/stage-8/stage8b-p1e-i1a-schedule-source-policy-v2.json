@@ -1,0 +1,204 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.i1a.schedule-source-policy.v2",
+  "policy_id": "imoexf-hybrid-paper-schedule-source-v2",
+  "supersedes": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-schedule-source-policy-v1.json",
+    "raw_sha256": "1f4c2563b398f0e9f2d8dfc3c9e1236ee37dafe55c267f78c0858c61a1354437",
+    "reason": "D01-D04-and-no-create-review-correction"
+  },
+  "architecture": "pre-provisioned-signed-broker-neutral-snapshot-stream",
+  "producer": {
+    "owner": "finam-gateway::Stage8bP1eReadonlySchedulePublisherV1",
+    "producer_id": "finam-readonly-schedule-normalizer-v2",
+    "source_contract_version": "finam-rest-schedule-to-broker-neutral-v2",
+    "source_generation": 1,
+    "required_input": "FINAM GET-only AssetScheduleResponse plus accepted broker-neutral Stage4 report",
+    "publisher_interval_target_ms": 1000,
+    "publisher_interval_max_ms": 5000,
+    "manual_or_supervisor_publication_allowed": false,
+    "finam_post_delete_allowed": false,
+    "broker_dispatch_allowed": false
+  },
+  "trust": {
+    "algorithm": "ed25519-sha256-prehash-v1",
+    "trust_manifest_path": "docs/stage-8/stage8b-p-r2b-trust-rebind-generation-2-trust-manifest.json",
+    "trust_manifest_sha256": "dfe61ddb944df042cdf9514f56c14131e4a45bc732435ff89658ceaceb92d4ee",
+    "source_name": "schedule",
+    "key_id": "schedule-ed25519-v1",
+    "key_generation": 2,
+    "public_key_ed25519_hex": "432a274889bc2b3a4492b3a1510f7356e1c2878337263e28472335f8600e4d99",
+    "public_key_sha256": "feff4cf8ddce79666c0dd71f0f3e634a396f2b0f479a2d5b12da230330c543b3",
+    "key_valid_from_utc": "2026-08-30T00:00:00Z",
+    "key_valid_until_utc": "2027-08-30T00:00:00Z",
+    "signature_domain": "moex.stage8b.p1e.schedule-envelope.signature.v2",
+    "signature_preimage": "sha256(signature_domain || 0x00 || canonical_unsigned_envelope_bytes)",
+    "redis_is_trust_anchor": false,
+    "generation_2_execution_activated_by_this_policy": false,
+    "operational_private_key_installation_authorized": false
+  },
+  "transport": {
+    "redis_url": "redis://127.0.0.1:6379/15",
+    "stream_key": "finam_imoexf_paper:{finam-imoexf-p1}:market-schedule",
+    "key_type": "stream",
+    "consumer_group": null,
+    "entry_fields": ["payload"],
+    "payload_encoding": "strict-canonical-json-utf8",
+    "publisher_command": "XADD <stream> NOMKSTREAM MAXLEN = 4096 * payload <canonical-signed-envelope>",
+    "publisher_command_requires_nomkstream": true,
+    "publisher_preflight_type_is_not_write_fence": true,
+    "missing_stream_result": "fail-no-create-no-retry-without-nomkstream",
+    "supervisor_lookup": "XREVRANGE <stream> + - COUNT 64",
+    "lookup_count": 64,
+    "retention_exact_maxlen": 4096,
+    "supervisor_may_create_repair_trim_xadd_xdel_xack": false,
+    "publisher_may_create_stream": false,
+    "provisioning_owner": "stage8b-p1f-administrative-boundary",
+    "invalid_or_untrusted_newest_entry": "fail-closed-no-older-fallback",
+    "lookup_window_purpose": "newest-candidate-plus-bounded-conflict-detection-not-continuity-proof",
+    "historical_replay_after_retention": "exact-envelope-bytes-from-authenticated-durable-transition-only"
+  },
+  "canonical_encoding": {
+    "format": "strict-canonical-json-subset-v1",
+    "utf8_only": true,
+    "duplicate_keys_rejected_recursively": true,
+    "unknown_fields_rejected_recursively": true,
+    "object_keys": "lexicographic-utf8-byte-order",
+    "arrays": "contract-order",
+    "floating_point_numbers_allowed": false,
+    "sequences_and_revisions": "nonzero-decimal-strings-without-leading-zero",
+    "timestamps": "RFC3339-microseconds-UTC-Z",
+    "digests_and_signatures": "lowercase-hex",
+    "canonical_roundtrip_must_equal_input_bytes": true
+  },
+  "progression": {
+    "semantics": "authenticated-monotonic-snapshot-not-event-log",
+    "durable_high_water_fields": [
+      "source_generation",
+      "publication_sequence",
+      "published_at_utc",
+      "semantic_revision",
+      "schedule_semantic_sha256",
+      "envelope_sha256"
+    ],
+    "initial_bootstrap": "accept-newest-fresh-valid-signed-candidate-with-no-high-water",
+    "positive_sequence_jump": "allowed-with-same-generation-strictly-newer-published-at-nondecreasing-semantic-revision-and-valid-signature",
+    "ordinary_m10_cadence": "does-not-require-observing-each-one-second-publication",
+    "idle_weekend_or_retention_loss": "accept-newest-fresh-valid-signed-candidate-under-the-same-monotonic-jump-rule",
+    "same_sequence_same_bytes": "idempotent",
+    "same_sequence_different_bytes": "terminal-conflict",
+    "sequence_rollback": "blocked",
+    "published_at_rollback": "blocked",
+    "semantic_revision_rollback": "blocked",
+    "same_semantic_revision_different_semantic_hash": "terminal-conflict",
+    "generation_change": "requires-new-reviewed-config-and-trust-amendment",
+    "invalid_newest_fallback": false,
+    "unbounded_paging_or_catchup": false,
+    "durable_commit_each_publication": false
+  },
+  "freshness": {
+    "trusted_clock_max_future_skew_ms": 250,
+    "transport_envelope_max_age_ms": 5000,
+    "normalized_schedule_max_age_ms": 86400000,
+    "stage4_current_state_max_age_ms": 5000,
+    "cross_source_max_skew_ms": 5000,
+    "freshness_is_minimum_of": [
+      "envelope_published_at_plus_5000ms",
+      "normalized_source_expires_at",
+      "recomputed_stage4_required_source_expiry",
+      "trust_key_valid_until"
+    ],
+    "reserialization_may_refresh_observation": false
+  },
+  "route_evidence": {
+    "market_execution": {
+      "required_kind": "tradability",
+      "required_stage4_state": "open",
+      "closed_state_authorizes": false
+    },
+    "working_limit_evaluation": {
+      "required_kind": "tradability",
+      "required_stage4_state": "open",
+      "closed_state_authorizes": false
+    },
+    "cancel_step": {
+      "accepted_kinds": ["tradability", "day_boundary"],
+      "accepted_stage4_states": ["open", "closed"],
+      "reason": "cancel-is-order-lifecycle-risk-reduction-not-trading-eligibility"
+    },
+    "day_expiry": {
+      "required_kind": "day_boundary",
+      "required_stage4_state": "closed",
+      "requires_boundary_reached": true,
+      "requires_exact_authenticated_working_book": true,
+      "requires_last_eligible_m10_evaluated": true,
+      "closed_state_authorizes_market_or_working": false
+    }
+  },
+  "normalized_schedule": {
+    "instrument_symbol": "IMOEXF",
+    "broker_symbol": "IMOEXF@RTSX",
+    "exchange": "moex",
+    "market": "futures",
+    "venue_mic": "RTSX",
+    "board": "FUT",
+    "timezone": "Europe/Moscow",
+    "timeframe_sec": 600,
+    "known_session_types": ["tradable_open", "break_or_clearing", "maintenance"],
+    "unknown_session_type_allowed": false,
+    "empty_sessions_allowed": false,
+    "tradable_open_required": true,
+    "interval_semantics": "inclusive-grid-endpoints",
+    "interval_order": "start-then-end-then-session-type",
+    "overlap_or_ambiguous_endpoint_allowed": false,
+    "approved_gap_requires_explicit_nontradable_grid_coverage": true
+  },
+  "durable_binding": {
+    "record_schema": "docs/stage-8/stage8b-p1e-i1a-schedule-binding-record-v1.schema.json",
+    "record_type": "Stage6JournalRecordV4::ScheduleEvidenceBound",
+    "phase_matrix": "docs/stage-8/stage8b-p1e-i1a-schedule-binding-phase-matrix-v1.csv",
+    "journal_sequence": "exact-prior-lifecycle-sequence-plus-one",
+    "covering_seal_generation": "exact-prior-covering-seal-generation-plus-one",
+    "authority_before_covering_seal_and-reread": false,
+    "binding_seal_is_business_terminal_boundary": false,
+    "source_m10_xack_effect": "none",
+    "historical_reissue": "same-incomplete-transition-only",
+    "new_transition_requires_fresh_source": true
+  },
+  "binding_counter_effects": {
+    "stage6_lifecycle_sequence_increment": 1,
+    "stage6_covering_seal_generation_increment": 1,
+    "schedule_high_water_update": "exact-v4-binding-record-covered-and-reread",
+    "next_business_record_sequence": "bound-lifecycle-sequence-plus-one",
+    "ack_truth_local_adjacency": "seq_truth-equals-seq_ack-plus-one-unchanged",
+    "m10_pel_membership_change": false,
+    "m10_xack_count_increment": 0,
+    "strategy_callback_count_increment": 0,
+    "paper_provider_count_increment": 0,
+    "business_outcome_count_increment": 0,
+    "schedule_stream_pel_or_xack_change": false
+  },
+  "timer_precedence": {
+    "policy": "SOURCE_FIRST_THREE_OWNER_LOOP_STEPS",
+    "step_1": "source-resolution-then-latch-A-then-reclassify-then-latch-B-return-boundary",
+    "step_2": "latch-C-read-verify-latch-D-noncancellable-journal-seal-reread-latch-E-return-boundary",
+    "step_3": "latch-F-then-timer-execution",
+    "latch_after_source_before_reclassification": true,
+    "latch_after_reclassification_before_schedule_work": true,
+    "latch_after_volatile_schedule_before-binding": true,
+    "latch_after_committed_binding": true,
+    "latch_immediately_before_timer_execution": true,
+    "timer_execution_same_step_as_reclassification_or_binding": false,
+    "missing_or_expired_schedule_may_invent_day_expiry": false
+  },
+  "closed_surfaces": {
+    "redis_db0_vps_activation": false,
+    "redis_db15_schedule_activation": false,
+    "schedule_private_key_installation": false,
+    "finam_post_delete": false,
+    "broker_dispatch": false,
+    "runtime_live": false,
+    "real_orders": false,
+    "generation_2_execution_activation": false
+  }
+}

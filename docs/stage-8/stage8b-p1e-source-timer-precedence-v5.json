@@ -1,0 +1,39 @@
+{
+  "schema_version": 5,
+  "domain": "moex.stage8b.p1e.source-timer-precedence.v5",
+  "base_contract": {
+    "path": "docs/stage-8/stage8b-p1e-source-timer-precedence-v4.json",
+    "raw_sha256": "097e1ae6a5164280e8694c7aee27513851d509955bdb0aa1dd9e8c5a12cc6b16"
+  },
+  "rule": "SOURCE_FIRST_LATCH_A_RECLASSIFY_LATCH_B_RETURN_THEN_SCHEDULE_LATCH_C_D_BIND_LATCH_E_RETURN_THEN_LATCH_F_EXECUTE",
+  "owner_loop_steps": [
+    {
+      "step": 1,
+      "actions": ["resolve-exact-source", "latch-A-immediately-after-source", "reclassify-original-timer-if-clear", "latch-B-after-reclassification", "return-authenticated-timer-classification-boundary"],
+      "new_schedule_binding_seal_allowed": false,
+      "timer_execution_allowed": false
+    },
+    {
+      "step": 2,
+      "actions": ["latch-C-before-schedule-read", "read-and-verify-schedule", "latch-D-after-volatile-verification-before-bind", "noncancellable-v4-journal-seal-reread", "latch-E-after-binding", "return-authenticated-schedule-binding-boundary"],
+      "new_schedule_binding_seal_allowed": "exactly-one-only-after-latch-D-clear",
+      "timer_execution_allowed": false
+    },
+    {
+      "step": 3,
+      "actions": ["latch-F-immediately-before-timer-effect", "execute-reclassified-timer-if-clear"],
+      "new_schedule_binding_seal_allowed": false,
+      "timer_execution_allowed": "at-most-one"
+    }
+  ],
+  "signal_frontiers": {
+    "after_source_before_reclassification": "retain-original-timer-zero-mutation-zero-binding-seal-zero-execution",
+    "after_reclassification_before_schedule_work": "retain-reclassified-owner-zero-binding-seal-zero-execution",
+    "after_schedule_read_before_binding": "retain-reclassified-owner-zero-binding-seal-zero-execution",
+    "during_noncancellable_binding": "finish-or-recover-exact-binding-then-stop-zero-execution",
+    "after_binding_before_execution": "retain-bound-owner-zero-second-seal-zero-execution"
+  },
+  "missing_schedule": "degraded-retain-reclassified-owner-zero-binding-seal-zero-execution",
+  "timer_before_source": false,
+  "same_step_reclassification_binding_execution": false
+}

@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moex-trading.invalid/schema/stage8b-p1e-i1a-schedule-binding-record-v1.json",
+  "title": "Stage6JournalRecordV4ScheduleEvidenceBound",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_kind",
+    "journal_record_id",
+    "previous_record_id",
+    "causal_parent_id",
+    "lifecycle_sequence",
+    "prior_covering_seal_generation",
+    "expected_covering_seal_generation",
+    "operational_identity_sha256",
+    "transition_kind",
+    "transition_binding_sha256",
+    "authority_kind",
+    "trading_day",
+    "instrument",
+    "timeframe_sec",
+    "predecessor_m10",
+    "candidate_or_last_eligible_m10",
+    "request_or_order_binding",
+    "redis_stream_id",
+    "source_generation",
+    "publication_sequence",
+    "semantic_revision",
+    "schedule_semantic_sha256",
+    "exact_envelope_hex",
+    "envelope_sha256",
+    "bound_at_utc"
+  ],
+  "properties": {
+    "schema_version": {"const": 4},
+    "record_kind": {"const": "schedule_evidence_bound"},
+    "journal_record_id": {"$ref": "#/$defs/sha256"},
+    "previous_record_id": {"$ref": "#/$defs/sha256"},
+    "causal_parent_id": {"$ref": "#/$defs/sha256"},
+    "lifecycle_sequence": {"$ref": "#/$defs/nonzeroDecimal"},
+    "prior_covering_seal_generation": {"$ref": "#/$defs/decimal"},
+    "expected_covering_seal_generation": {"$ref": "#/$defs/nonzeroDecimal"},
+    "operational_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "transition_kind": {"enum": ["market_execution", "working_limit_evaluation", "cancel_step", "day_expiry"]},
+    "transition_binding_sha256": {"$ref": "#/$defs/sha256"},
+    "authority_kind": {"enum": ["market", "schedule_step", "day_expiry"]},
+    "trading_day": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "instrument": {"const": "IMOEXF@RTSX"},
+    "timeframe_sec": {"const": 600},
+    "predecessor_m10": {"$ref": "#/$defs/m10Identity"},
+    "candidate_or_last_eligible_m10": {"$ref": "#/$defs/m10Identity"},
+    "request_or_order_binding": {"$ref": "#/$defs/requestOrOrderBinding"},
+    "redis_stream_id": {"type": "string", "pattern": "^[1-9][0-9]*-[0-9]+$"},
+    "source_generation": {"$ref": "#/$defs/nonzeroDecimal"},
+    "publication_sequence": {"$ref": "#/$defs/nonzeroDecimal"},
+    "semantic_revision": {"$ref": "#/$defs/nonzeroDecimal"},
+    "schedule_semantic_sha256": {"$ref": "#/$defs/sha256"},
+    "exact_envelope_hex": {"type": "string", "minLength": 2, "maxLength": 524288, "pattern": "^(?:[0-9a-f]{2})+$"},
+    "envelope_sha256": {"$ref": "#/$defs/sha256"},
+    "bound_at_utc": {"$ref": "#/$defs/timestamp"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decimal": {"type": "string", "pattern": "^(?:0|[1-9][0-9]{0,19})$"},
+    "nonzeroDecimal": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"},
+    "m10Identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["redis_id", "semantic_id_sha256", "payload_sha256", "open_ts_utc", "close_ts_utc"],
+      "properties": {
+        "redis_id": {"type": "string", "pattern": "^[1-9][0-9]*-[0-9]+$"},
+        "semantic_id_sha256": {"$ref": "#/$defs/sha256"},
+        "payload_sha256": {"$ref": "#/$defs/sha256"},
+        "open_ts_utc": {"$ref": "#/$defs/timestamp"},
+        "close_ts_utc": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "requestOrOrderBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy_request_id", "canonical_command_sha256", "active_broker_order_id", "working_book_transition_sha256"],
+      "properties": {
+        "strategy_request_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "canonical_command_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "active_broker_order_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 256},
+        "working_book_transition_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+      }
+    }
+  },
+  "x_semantic_constraints": [
+    "lifecycle_sequence equals prior journal lifecycle sequence plus one",
+    "expected_covering_seal_generation equals prior_covering_seal_generation plus one",
+    "journal_record_id is domain-separated SHA256 of canonical record body excluding journal_record_id",
+    "market requires request id and command hash and forbids active order fields",
+    "working cancel and day require active order and book hash",
+    "day candidate identity is the exact evaluated last eligible M10",
+    "exact_envelope_hex SHA256 equals envelope_sha256",
+    "transition_binding_sha256 covers every transition and schedule identity field"
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1a.source-progression.v1",
+  "model": "authenticated-monotonic-snapshot",
+  "high_water": ["generation", "publication_sequence", "published_at_ms", "semantic_revision", "semantic_hash", "envelope_hash"],
+  "rules": [
+    {"id": "PR01", "condition": "no_high_water_and_candidate_valid_fresh_signed", "decision": "accept-bootstrap"},
+    {"id": "PR02", "condition": "same_generation_and_sequence_and_envelope_hash", "decision": "idempotent"},
+    {"id": "PR03", "condition": "same_generation_and_sequence_and_different_envelope_hash", "decision": "terminal-conflict"},
+    {"id": "PR04", "condition": "candidate_sequence_below_high_water", "decision": "blocked-rollback"},
+    {"id": "PR05", "condition": "candidate_sequence_above_high_water_and_published_at_strictly_newer_and_semantic_revision_nondecreasing", "decision": "accept-monotonic-jump"},
+    {"id": "PR06", "condition": "same_semantic_revision_and_different_semantic_hash", "decision": "terminal-conflict"},
+    {"id": "PR07", "condition": "semantic_revision_below_high_water", "decision": "blocked-rollback"},
+    {"id": "PR08", "condition": "generation_changed", "decision": "blocked-unreviewed-generation"},
+    {"id": "PR09", "condition": "newest_invalid_with_older_valid", "decision": "blocked-no-fallback"}
+  ],
+  "cadence_examples": {
+    "one_second_to_ten_minute": "N-to-N-plus-approximately-600-is-ordinary-allowed-jump",
+    "idle_day_or_weekend": "any-positive-jump-is-allowed-if-newest-is-current-valid-signed-and-monotonic",
+    "retention_loss": "absence-of-high-water-row-in-last-64-or-4096-does-not-block-snapshot-jump",
+    "continuity_non_requirement": "intermediate-publications-are-not-business-events-and-need-not-be-observed"
+  },
+  "forbidden_repairs": ["older-valid-fallback", "unbounded-paging", "commit-every-second", "reset-high-water", "accept-rollback"]
+}

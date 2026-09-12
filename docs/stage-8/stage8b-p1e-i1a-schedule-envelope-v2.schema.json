@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moex-trading.invalid/schema/stage8b-p1e-i1a-schedule-envelope-v2.json",
+  "title": "Stage8bP1eSignedScheduleEnvelopeV2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "domain",
+    "producer_id",
+    "producer_contract_version",
+    "key_id",
+    "key_generation",
+    "source_generation",
+    "publication_sequence",
+    "semantic_revision",
+    "schedule_semantic_sha256",
+    "published_at_utc",
+    "operational_identity_sha256",
+    "runtime_config_fingerprint_sha256",
+    "instrument_map_fingerprint_sha256",
+    "payload_sha256",
+    "payload",
+    "signature_ed25519_hex"
+  ],
+  "properties": {
+    "schema_version": {"const": 2},
+    "domain": {"const": "moex.stage8b.p1e.schedule-envelope.v2"},
+    "producer_id": {"const": "finam-readonly-schedule-normalizer-v2"},
+    "producer_contract_version": {"const": "finam-rest-schedule-to-broker-neutral-v2"},
+    "key_id": {"const": "schedule-ed25519-v1"},
+    "key_generation": {"const": 2},
+    "source_generation": {"const": "1"},
+    "publication_sequence": {"$ref": "#/$defs/nonzeroDecimalString"},
+    "semantic_revision": {"$ref": "#/$defs/nonzeroDecimalString"},
+    "schedule_semantic_sha256": {"$ref": "#/$defs/sha256"},
+    "published_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+    "operational_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "runtime_config_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "instrument_map_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "payload_sha256": {"$ref": "#/$defs/sha256"},
+    "payload": {"$ref": "#/$defs/payload"},
+    "signature_ed25519_hex": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nonzeroDecimalString": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+    "utcTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "domain",
+        "instrument",
+        "registry",
+        "trading_day",
+        "timezone",
+        "normalized_schedule",
+        "stage4_evidence"
+      ],
+      "properties": {
+        "schema_version": {"const": 2},
+        "domain": {"const": "moex.stage8b.p1e.schedule-payload.v2"},
+        "instrument": {"$ref": "#/$defs/instrument"},
+        "registry": {"$ref": "#/$defs/registry"},
+        "trading_day": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "timezone": {"const": "Europe/Moscow"},
+        "normalized_schedule": {"$ref": "#/$defs/normalizedSchedule"},
+        "stage4_evidence": {"$ref": "#/$defs/stage4Evidence"}
+      }
+    },
+    "instrument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "broker_symbol", "exchange", "market", "venue_mic", "board", "tick_size"],
+      "properties": {
+        "symbol": {"const": "IMOEXF"},
+        "broker_symbol": {"const": "IMOEXF@RTSX"},
+        "exchange": {"const": "moex"},
+        "market": {"const": "futures"},
+        "venue_mic": {"const": "RTSX"},
+        "board": {"const": "FUT"},
+        "tick_size": {"const": "0.5"}
+      }
+    },
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry_version", "registry_identity_sha256"],
+      "properties": {
+        "registry_version": {"type": "string", "pattern": "^[A-Za-z0-9._-]{1,128}$"},
+        "registry_identity_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "normalizedSchedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_observed_at_utc", "source_expires_at_utc", "raw_response_sha256", "normalized_payload_sha256", "sessions"],
+      "properties": {
+        "source_observed_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "source_expires_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "raw_response_sha256": {"$ref": "#/$defs/sha256"},
+        "normalized_payload_sha256": {"$ref": "#/$defs/sha256"},
+        "sessions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {"$ref": "#/$defs/session"}
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_type", "start_utc", "end_utc"],
+      "properties": {
+        "session_type": {"enum": ["tradable_open", "break_or_clearing", "maintenance"]},
+        "start_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "end_utc": {"$ref": "#/$defs/utcTimestamp"}
+      }
+    },
+    "stage4Evidence": {
+      "oneOf": [
+        {"$ref": "#/$defs/tradabilityEvidence"},
+        {"$ref": "#/$defs/dayBoundaryEvidence"}
+      ]
+    },
+    "stage4EvidenceCommon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "evidence_kind",
+        "schedule_state",
+        "source_observed_at_utc",
+        "source_expires_at_utc",
+        "report_canonical_json_hex",
+        "report_sha256",
+        "boundary_proof"
+      ],
+      "properties": {
+        "evidence_kind": {"enum": ["tradability", "day_boundary"]},
+        "schedule_state": {"enum": ["open", "closed"]},
+        "source_observed_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "source_expires_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "report_canonical_json_hex": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 262144,
+          "pattern": "^(?:[0-9a-f]{2})+$"
+        },
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "boundary_proof": {"type": ["object", "null"]}
+      }
+    },
+    "tradabilityEvidence": {
+      "allOf": [
+        {"$ref": "#/$defs/stage4EvidenceCommon"},
+        {
+          "properties": {
+            "evidence_kind": {"const": "tradability"},
+            "schedule_state": {"const": "open"},
+            "boundary_proof": {"const": null}
+          }
+        }
+      ]
+    },
+    "dayBoundaryEvidence": {
+      "allOf": [
+        {"$ref": "#/$defs/stage4EvidenceCommon"},
+        {
+          "properties": {
+            "evidence_kind": {"const": "day_boundary"},
+            "schedule_state": {"const": "closed"},
+            "boundary_proof": {"$ref": "#/$defs/boundaryProof"}
+          }
+        }
+      ]
+    },
+    "boundaryProof": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trading_day", "boundary_ts_utc", "last_eligible_m10_open_ts_utc", "last_eligible_m10_close_ts_utc"],
+      "properties": {
+        "trading_day": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "boundary_ts_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "last_eligible_m10_open_ts_utc": {"$ref": "#/$defs/utcTimestamp"},
+        "last_eligible_m10_close_ts_utc": {"$ref": "#/$defs/utcTimestamp"}
+      }
+    }
+  },
+  "x_supersedes": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-schedule-envelope-v1.schema.json",
+    "raw_sha256": "582cd322136683c8dc9042da218fa92bcb8ed6a5100aee3de61e7f9974fb0d56"
+  },
+  "x_semantic_constraints": [
+    "publication_sequence is transport progression and may jump monotonically",
+    "semantic_revision changes only when normalized schedule semantics change",
+    "schedule_semantic_sha256 covers normalized schedule registry trading day and evidence kind/state",
+    "Stage4 report bytes are decoded and independently revalidated",
+    "day-boundary timestamps are cross-validated against normalized sessions and runtime exact M10 identity",
+    "closed evidence cannot issue market or working-evaluation authority"
+  ]
+}
