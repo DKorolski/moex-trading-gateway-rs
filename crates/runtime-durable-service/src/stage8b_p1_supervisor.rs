@@ -1135,6 +1135,7 @@ pub enum Stage8bP1eSupervisorEventV1 {
 pub struct Stage8bP1eCoordinatorDecisionV1 {
     pub action: Stage8bP1eCoordinatorActionV1,
     pub exit_code: Option<u8>,
+    pub terminal_failure: Option<Stage8bP1eTerminalFailureV1>,
     pub readiness_phase: Option<Stage8bP1eReadinessPhaseV1>,
     pub request_shutdown: bool,
     pub owner_may_bounded_drain: bool,
@@ -1148,6 +1149,15 @@ pub enum Stage8bP1eCoordinatorActionV1 {
     ContinueOwnerLoop,
     DrainToAuthenticatedBoundary,
     CompleteUsingRetainedIntent,
+}
+
+/// A fatal completion outcome is deliberately separate from the initiating
+/// first-wins shutdown intent. This keeps the original diagnostic cause while
+/// preventing a later owner loss from inheriting an earlier successful exit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eTerminalFailureV1 {
+    OwnerLost,
+    RedisLifecycle,
 }
 
 /// Stateful process coordinator. The first shutdown request owns the cause,
@@ -1193,6 +1203,7 @@ impl Stage8bP1eCoordinatorV1 {
                 return Stage8bP1eCoordinatorDecisionV1 {
                     action: Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
                     exit_code: Some(67),
+                    terminal_failure: Some(Stage8bP1eTerminalFailureV1::RedisLifecycle),
                     readiness_phase: Some(Stage8bP1eReadinessPhaseV1::Degraded),
                     request_shutdown: true,
                     owner_may_bounded_drain: false,
@@ -1210,6 +1221,21 @@ impl Stage8bP1eCoordinatorV1 {
                         .map(|intent| intent.grace_deadline_utc_ms()),
                 };
             }
+            Stage8bP1eSupervisorEventV1::OwnerPanicked
+            | Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner => {
+                self.shutdown_latch.request(Stage8bP1eShutdownIntentV1::new(
+                    Stage8bP1eShutdownCauseV1::OwnerFailure,
+                    grace_deadline_utc_ms,
+                    request_sequence,
+                ));
+                return self.retained_decision(
+                    Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
+                    Some(70),
+                    Some(Stage8bP1eTerminalFailureV1::OwnerLost),
+                    Some(Stage8bP1eReadinessPhaseV1::Degraded),
+                    false,
+                );
+            }
             _ => {}
         }
 
@@ -1217,9 +1243,7 @@ impl Stage8bP1eCoordinatorV1 {
             Stage8bP1eSupervisorEventV1::ExternalSignal => {
                 Stage8bP1eShutdownCauseV1::ExternalSignal
             }
-            Stage8bP1eSupervisorEventV1::OwnerPanicked
-            | Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner
-            | Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly => {
+            Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly => {
                 Stage8bP1eShutdownCauseV1::OwnerFailure
             }
             Stage8bP1eSupervisorEventV1::TelemetryFailed => {
@@ -1229,6 +1253,8 @@ impl Stage8bP1eCoordinatorV1 {
                 Stage8bP1eShutdownCauseV1::SignalTaskFailure
             }
             Stage8bP1eSupervisorEventV1::RedisLifecycleFailed
+            | Stage8bP1eSupervisorEventV1::OwnerPanicked
+            | Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner
             | Stage8bP1eSupervisorEventV1::GraceExpired
             | Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached => unreachable!(
                 "terminal and boundary events are handled before shutdown intent issuance"
@@ -1240,15 +1266,11 @@ impl Stage8bP1eCoordinatorV1 {
             request_sequence,
         ));
 
-        let owner_may_bounded_drain = owner_available
-            && !matches!(
-                event,
-                Stage8bP1eSupervisorEventV1::OwnerPanicked
-                    | Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner
-            );
+        let owner_may_bounded_drain = owner_available;
         if owner_may_bounded_drain {
             self.retained_decision(
                 Stage8bP1eCoordinatorActionV1::DrainToAuthenticatedBoundary,
+                None,
                 None,
                 Some(Stage8bP1eReadinessPhaseV1::Draining),
                 true,
@@ -1261,6 +1283,7 @@ impl Stage8bP1eCoordinatorV1 {
             self.retained_decision(
                 Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
                 exit_code,
+                None,
                 Some(Stage8bP1eReadinessPhaseV1::Degraded),
                 false,
             )
@@ -1272,6 +1295,7 @@ impl Stage8bP1eCoordinatorV1 {
             Some(intent) => self.retained_decision(
                 Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
                 Some(intent.bounded_exit_class(now_utc_ms)),
+                None,
                 Some(Stage8bP1eReadinessPhaseV1::Stopped),
                 false,
             ),
@@ -1284,6 +1308,7 @@ impl Stage8bP1eCoordinatorV1 {
             self.retained_decision(
                 Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent,
                 Some(72),
+                None,
                 Some(Stage8bP1eReadinessPhaseV1::Degraded),
                 false,
             )
@@ -1296,6 +1321,7 @@ impl Stage8bP1eCoordinatorV1 {
         Stage8bP1eCoordinatorDecisionV1 {
             action: Stage8bP1eCoordinatorActionV1::ContinueOwnerLoop,
             exit_code: None,
+            terminal_failure: None,
             readiness_phase: None,
             request_shutdown: false,
             owner_may_bounded_drain: false,
@@ -1309,6 +1335,7 @@ impl Stage8bP1eCoordinatorV1 {
         &self,
         action: Stage8bP1eCoordinatorActionV1,
         exit_code: Option<u8>,
+        terminal_failure: Option<Stage8bP1eTerminalFailureV1>,
         readiness_phase: Option<Stage8bP1eReadinessPhaseV1>,
         owner_may_bounded_drain: bool,
     ) -> Stage8bP1eCoordinatorDecisionV1 {
@@ -1316,6 +1343,7 @@ impl Stage8bP1eCoordinatorV1 {
         Stage8bP1eCoordinatorDecisionV1 {
             action,
             exit_code,
+            terminal_failure,
             readiness_phase,
             request_shutdown: intent.is_some(),
             owner_may_bounded_drain,
@@ -2317,7 +2345,151 @@ mod tests {
             19,
         );
         assert_eq!(completed.exit_code, Some(0));
+        assert_eq!(completed.terminal_failure, None);
         assert_eq!(completed.first_request_sequence, Some(17));
+    }
+
+    #[test]
+    fn coordinator_external_signal_then_owner_panic_is_fatal_without_losing_diagnostics() {
+        let mut coordinator = Stage8bP1eCoordinatorV1::new();
+        coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::ExternalSignal,
+            true,
+            1_000,
+            2_000,
+            17,
+        );
+        let fatal = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::OwnerPanicked,
+            false,
+            1_100,
+            8_000,
+            18,
+        );
+        assert_eq!(
+            fatal.action,
+            Stage8bP1eCoordinatorActionV1::CompleteUsingRetainedIntent
+        );
+        assert_eq!(fatal.exit_code, Some(70));
+        assert_eq!(
+            fatal.terminal_failure,
+            Some(Stage8bP1eTerminalFailureV1::OwnerLost)
+        );
+        assert!(!fatal.owner_may_bounded_drain);
+        assert_eq!(
+            fatal.retained_shutdown_cause,
+            Some(Stage8bP1eShutdownCauseV1::ExternalSignal)
+        );
+        assert_eq!(fatal.first_request_sequence, Some(17));
+        assert_eq!(fatal.grace_deadline_utc_ms, Some(2_000));
+    }
+
+    #[test]
+    fn coordinator_external_signal_then_ownerless_return_is_fatal() {
+        let mut coordinator = Stage8bP1eCoordinatorV1::new();
+        coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::ExternalSignal,
+            true,
+            1_000,
+            2_000,
+            21,
+        );
+        let fatal = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner,
+            false,
+            1_100,
+            8_000,
+            22,
+        );
+        assert_eq!(fatal.exit_code, Some(70));
+        assert_eq!(
+            fatal.terminal_failure,
+            Some(Stage8bP1eTerminalFailureV1::OwnerLost)
+        );
+        assert_eq!(
+            fatal.retained_shutdown_cause,
+            Some(Stage8bP1eShutdownCauseV1::ExternalSignal)
+        );
+        assert_eq!(fatal.first_request_sequence, Some(21));
+        assert_eq!(fatal.grace_deadline_utc_ms, Some(2_000));
+    }
+
+    #[test]
+    fn coordinator_telemetry_failure_then_owner_panic_retains_initiating_diagnostics() {
+        let mut coordinator = Stage8bP1eCoordinatorV1::new();
+        coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::TelemetryFailed,
+            true,
+            1_000,
+            2_000,
+            31,
+        );
+        let fatal = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::OwnerPanicked,
+            false,
+            1_100,
+            8_000,
+            32,
+        );
+        assert_eq!(fatal.exit_code, Some(70));
+        assert_eq!(
+            fatal.terminal_failure,
+            Some(Stage8bP1eTerminalFailureV1::OwnerLost)
+        );
+        assert_eq!(
+            fatal.retained_shutdown_cause,
+            Some(Stage8bP1eShutdownCauseV1::TelemetryFailure)
+        );
+        assert_eq!(fatal.first_request_sequence, Some(31));
+        assert_eq!(fatal.grace_deadline_utc_ms, Some(2_000));
+    }
+
+    #[test]
+    fn coordinator_owner_loss_without_prior_shutdown_records_owner_diagnostics() {
+        for event in [
+            Stage8bP1eSupervisorEventV1::OwnerPanicked,
+            Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner,
+        ] {
+            let mut coordinator = Stage8bP1eCoordinatorV1::new();
+            let fatal = coordinator.coordinate(event, false, 1_000, 2_000, 41);
+            assert_eq!(fatal.exit_code, Some(70));
+            assert_eq!(
+                fatal.terminal_failure,
+                Some(Stage8bP1eTerminalFailureV1::OwnerLost)
+            );
+            assert_eq!(
+                fatal.retained_shutdown_cause,
+                Some(Stage8bP1eShutdownCauseV1::OwnerFailure)
+            );
+            assert_eq!(fatal.first_request_sequence, Some(41));
+            assert_eq!(fatal.grace_deadline_utc_ms, Some(2_000));
+        }
+    }
+
+    #[test]
+    fn coordinator_observed_owner_loss_precedes_unprocessed_elapsed_grace() {
+        let mut coordinator = Stage8bP1eCoordinatorV1::new();
+        coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::ExternalSignal,
+            true,
+            1_000,
+            2_000,
+            51,
+        );
+        let fatal = coordinator.coordinate(
+            Stage8bP1eSupervisorEventV1::OwnerPanicked,
+            false,
+            2_100,
+            9_000,
+            52,
+        );
+        assert_eq!(fatal.exit_code, Some(70));
+        assert_eq!(
+            fatal.terminal_failure,
+            Some(Stage8bP1eTerminalFailureV1::OwnerLost)
+        );
+        assert_eq!(fatal.first_request_sequence, Some(51));
+        assert_eq!(fatal.grace_deadline_utc_ms, Some(2_000));
     }
 
     #[test]
