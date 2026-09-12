@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "domain": "moex.stage8b.p1e.i1a.source-progression.v2",
+  "base_contract": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-source-progression-v1.json",
+    "raw_sha256": "db1127314b3ca8d5ca54def78c05050e3cf297be19ec07080693bb2e06648a89"
+  },
+  "model": "authenticated-monotonic-snapshot-with-exact-semantic-identity",
+  "semantic_identity_contract": "docs/stage-8/stage8b-p1e-i1a-semantic-identity-contract-v1.json",
+  "producer_rules": [
+    {"id": "SPR01", "condition": "first-publication-in-source-generation", "decision": "semantic-revision-1"},
+    {"id": "SPR02", "condition": "semantic-hash-equals-immediately-prior-published-hash", "decision": "retain-prior-semantic-revision"},
+    {"id": "SPR03", "condition": "semantic-hash-differs-from-immediately-prior-published-hash", "decision": "prior-semantic-revision-plus-one"},
+    {"id": "SPR04", "condition": "publisher-restart-without-exact-persistent-high-water", "decision": "blocked-no-publication"}
+  ],
+  "consumer_rules": [
+    {"id": "SCR01", "condition": "candidate-revision-below-high-water", "decision": "blocked-semantic-rollback"},
+    {"id": "SCR02", "condition": "candidate-revision-equals-high-water-and-hash-equals", "decision": "continue-transport-validation"},
+    {"id": "SCR03", "condition": "candidate-revision-equals-high-water-and-hash-differs", "decision": "terminal-semantic-conflict"},
+    {"id": "SCR04", "condition": "candidate-revision-above-high-water", "decision": "continue-transport-validation-without-intermediate-revision-requirement"}
+  ],
+  "required_transitions": {
+    "open_to_closed_same_sessions": "different-hash-next-revision-accepted-then-day-route",
+    "unchanged_heartbeat": "same-hash-same-revision-positive-publication-sequence-accepted",
+    "trading_day_change_same_sessions": "different-hash-next-revision-accepted",
+    "forged_same_revision_changed_hash": "terminal-semantic-conflict"
+  }
+}

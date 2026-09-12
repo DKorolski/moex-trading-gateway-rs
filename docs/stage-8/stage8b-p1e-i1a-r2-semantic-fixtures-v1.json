@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "domain": "moex.stage8b.p1e.i1a.r2.semantic-fixtures.v1",
+  "base_model": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-r1-model-fixtures-v1.json",
+    "raw_sha256": "614eea3f489f16bf597475cde3df389c47bf2084f20f61da5aa4fb71e9bca632"
+  },
+  "identities": {
+    "open_day_1": {
+      "schema_version": 1,
+      "domain": "moex.stage8b.p1e.schedule-semantic-identity.v1",
+      "instrument": {"symbol": "IMOEXF", "broker_symbol": "IMOEXF@RTSX", "exchange": "moex", "market": "futures", "venue_mic": "RTSX", "board": "FUT", "tick_size": "0.5"},
+      "registry": {"registry_version": "imoexf-v1", "registry_identity_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "trading_day": "2026-09-14",
+      "timezone": "Europe/Moscow",
+      "timeframe_sec": 600,
+      "sessions": [
+        {"session_type": "tradable_open", "start_utc": "2026-09-14T06:00:00.000000Z", "end_utc": "2026-09-14T15:50:00.000000Z"},
+        {"session_type": "maintenance", "start_utc": "2026-09-14T15:50:00.000000Z", "end_utc": "2026-09-14T20:59:59.000000Z"}
+      ],
+      "stage4_semantic_state": {"evidence_kind": "tradability", "schedule_state": "open", "boundary_proof": null}
+    },
+    "closed_day_1": {
+      "schema_version": 1,
+      "domain": "moex.stage8b.p1e.schedule-semantic-identity.v1",
+      "instrument": {"symbol": "IMOEXF", "broker_symbol": "IMOEXF@RTSX", "exchange": "moex", "market": "futures", "venue_mic": "RTSX", "board": "FUT", "tick_size": "0.5"},
+      "registry": {"registry_version": "imoexf-v1", "registry_identity_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "trading_day": "2026-09-14",
+      "timezone": "Europe/Moscow",
+      "timeframe_sec": 600,
+      "sessions": [
+        {"session_type": "tradable_open", "start_utc": "2026-09-14T06:00:00.000000Z", "end_utc": "2026-09-14T15:50:00.000000Z"},
+        {"session_type": "maintenance", "start_utc": "2026-09-14T15:50:00.000000Z", "end_utc": "2026-09-14T20:59:59.000000Z"}
+      ],
+      "stage4_semantic_state": {
+        "evidence_kind": "day_boundary",
+        "schedule_state": "closed",
+        "boundary_proof": {
+          "trading_day": "2026-09-14",
+          "boundary_ts_utc": "2026-09-14T15:50:00.000000Z",
+          "last_eligible_m10_open_ts_utc": "2026-09-14T15:40:00.000000Z",
+          "last_eligible_m10_close_ts_utc": "2026-09-14T15:50:00.000000Z"
+        }
+      }
+    },
+    "open_day_2": {
+      "schema_version": 1,
+      "domain": "moex.stage8b.p1e.schedule-semantic-identity.v1",
+      "instrument": {"symbol": "IMOEXF", "broker_symbol": "IMOEXF@RTSX", "exchange": "moex", "market": "futures", "venue_mic": "RTSX", "board": "FUT", "tick_size": "0.5"},
+      "registry": {"registry_version": "imoexf-v1", "registry_identity_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "trading_day": "2026-09-15",
+      "timezone": "Europe/Moscow",
+      "timeframe_sec": 600,
+      "sessions": [
+        {"session_type": "tradable_open", "start_utc": "2026-09-15T06:00:00.000000Z", "end_utc": "2026-09-15T15:50:00.000000Z"},
+        {"session_type": "maintenance", "start_utc": "2026-09-15T15:50:00.000000Z", "end_utc": "2026-09-15T20:59:59.000000Z"}
+      ],
+      "stage4_semantic_state": {"evidence_kind": "tradability", "schedule_state": "open", "boundary_proof": null}
+    }
+  },
+  "cases": [
+    {"id": "SI-open-to-closed", "prior_identity": "open_day_1", "candidate_identity": "closed_day_1", "prior_revision": 7, "candidate_revision": "derive", "prior_sequence": 100, "candidate_sequence": 101, "prior_published_at_ms": 100000, "candidate_published_at_ms": 101000, "route": "day_expiry", "expected_hash_relation": "different", "expected_revision": 8, "expected_progression": "accept-monotonic-jump", "expected_route": "issue-day-expiry"},
+    {"id": "SI-heartbeat", "prior_identity": "open_day_1", "candidate_identity": "open_day_1", "prior_revision": 7, "candidate_revision": "derive", "prior_sequence": 100, "candidate_sequence": 101, "prior_published_at_ms": 100000, "candidate_published_at_ms": 101000, "transport_changes": ["source_observed_at_utc", "source_expires_at_utc", "report_sha256", "signature_ed25519_hex", "envelope_sha256"], "route": "market_execution", "expected_hash_relation": "same", "expected_revision": 7, "expected_progression": "accept-monotonic-jump", "expected_route": "issue-market"},
+    {"id": "SI-trading-day-change", "prior_identity": "open_day_1", "candidate_identity": "open_day_2", "prior_revision": 7, "candidate_revision": "derive", "prior_sequence": 100, "candidate_sequence": 5000, "prior_published_at_ms": 100000, "candidate_published_at_ms": 5000000, "route": "market_execution", "expected_hash_relation": "different", "expected_revision": 8, "expected_progression": "accept-monotonic-jump", "expected_route": "issue-market"},
+    {"id": "SI-forged-same-revision", "prior_identity": "open_day_1", "candidate_identity": "closed_day_1", "prior_revision": 7, "candidate_revision": 7, "prior_sequence": 100, "candidate_sequence": 101, "prior_published_at_ms": 100000, "candidate_published_at_ms": 101000, "route": "day_expiry", "expected_hash_relation": "different", "expected_revision": 7, "expected_progression": "terminal-semantic-conflict", "expected_route": "not-evaluated"},
+    {"id": "SI-revision-rollback", "prior_identity": "closed_day_1", "candidate_identity": "open_day_1", "prior_revision": 8, "candidate_revision": 7, "prior_sequence": 101, "candidate_sequence": 102, "prior_published_at_ms": 101000, "candidate_published_at_ms": 102000, "route": "market_execution", "expected_hash_relation": "different", "expected_revision": 7, "expected_progression": "blocked-semantic-rollback", "expected_route": "not-evaluated"},
+    {"id": "SI-freshness-excluded", "prior_identity": "open_day_1", "candidate_identity": "open_day_1", "prior_revision": 7, "candidate_revision": "derive", "prior_sequence": 100, "candidate_sequence": 700, "prior_published_at_ms": 100000, "candidate_published_at_ms": 700000, "transport_changes": ["published_at_utc", "normalized_source_observed_at_utc", "stage4_source_expires_at_utc", "payload_sha256"], "route": "working_limit_evaluation", "expected_hash_relation": "same", "expected_revision": 7, "expected_progression": "accept-monotonic-jump", "expected_route": "issue-working"},
+    {"id": "SI-publisher-restart-state-missing", "prior_identity": null, "candidate_identity": "open_day_1", "persistent_high_water_available": false, "route": "market_execution", "expected_hash_relation": "not-evaluated", "expected_revision": "not-issued", "expected_progression": "blocked-no-publication", "expected_route": "not-evaluated"},
+    {"id": "SI-closed-denies-market", "prior_identity": "open_day_1", "candidate_identity": "closed_day_1", "prior_revision": 7, "candidate_revision": "derive", "prior_sequence": 100, "candidate_sequence": 101, "prior_published_at_ms": 100000, "candidate_published_at_ms": 101000, "route": "market_execution", "expected_hash_relation": "different", "expected_revision": 8, "expected_progression": "accept-monotonic-jump", "expected_route": "blocked-route-evidence"}
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://moex-trading.invalid/schema/stage8b-p1e-i1a-schedule-envelope-v3.json",
+  "title": "Stage8bP1eSignedScheduleEnvelopeV3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "domain",
+    "producer_id",
+    "producer_contract_version",
+    "semantic_identity_contract_version",
+    "key_id",
+    "key_generation",
+    "source_generation",
+    "publication_sequence",
+    "semantic_revision",
+    "schedule_semantic_sha256",
+    "semantic_identity",
+    "published_at_utc",
+    "operational_identity_sha256",
+    "runtime_config_fingerprint_sha256",
+    "instrument_map_fingerprint_sha256",
+    "payload_sha256",
+    "payload",
+    "signature_ed25519_hex"
+  ],
+  "properties": {
+    "schema_version": {"const": 3},
+    "domain": {"const": "moex.stage8b.p1e.schedule-envelope.v3"},
+    "producer_id": {"const": "finam-readonly-schedule-normalizer-v3"},
+    "producer_contract_version": {"const": "finam-rest-schedule-to-broker-neutral-v3"},
+    "semantic_identity_contract_version": {"const": 1},
+    "key_id": {"const": "schedule-ed25519-v1"},
+    "key_generation": {"const": 2},
+    "source_generation": {"const": "1"},
+    "publication_sequence": {"$ref": "#/$defs/nonzeroDecimalString"},
+    "semantic_revision": {"$ref": "#/$defs/nonzeroDecimalString"},
+    "schedule_semantic_sha256": {"$ref": "#/$defs/sha256"},
+    "semantic_identity": {"$ref": "stage8b-p1e-i1a-semantic-identity-v1.schema.json"},
+    "published_at_utc": {"$ref": "#/$defs/utcTimestamp"},
+    "operational_identity_sha256": {"$ref": "#/$defs/sha256"},
+    "runtime_config_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "instrument_map_fingerprint_sha256": {"$ref": "#/$defs/sha256"},
+    "payload_sha256": {"$ref": "#/$defs/sha256"},
+    "payload": {"$ref": "stage8b-p1e-i1a-schedule-envelope-v2.schema.json#/$defs/payload"},
+    "signature_ed25519_hex": {"type": "string", "pattern": "^[0-9a-f]{128}$"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "nonzeroDecimalString": {"type": "string", "pattern": "^[1-9][0-9]{0,19}$"},
+    "utcTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    }
+  },
+  "x_supersedes": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-schedule-envelope-v2.schema.json",
+    "raw_sha256": "0f8cd1ad6203308d4f5a24cb59ed0163d4c54b62e89e0191fc2cd295784c026c",
+    "reason": "make-semantic-projection-and-revision-domain-unambiguous"
+  },
+  "x_semantic_constraints": [
+    "semantic_identity is the exact projection defined by semantic identity contract v1",
+    "semantic_identity must cross-validate field-for-field against payload before signature acceptance",
+    "schedule_semantic_sha256 equals SHA256 of the domain-separated canonical semantic_identity bytes",
+    "semantic_revision follows the same-hash-retain different-hash-plus-one producer rule",
+    "transport freshness and signature fields are excluded from semantic identity",
+    "Open-to-Closed and trading-day transitions change semantic identity and revision even when sessions are unchanged",
+    "heartbeat publication may advance transport sequence and freshness while retaining semantic hash and revision"
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "schema_version": 3,
+  "domain": "moex.stage8b.p1e.i1a.schedule-source-policy.v3",
+  "composition": "base-v2-plus-mandatory-semantic-identity-correction",
+  "base_policy": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-schedule-source-policy-v2.json",
+    "raw_sha256": "9571d40f0968b7bc458afe01f21cde18074849727c21bd261690ccdef9507754"
+  },
+  "wire_envelope": {
+    "path": "docs/stage-8/stage8b-p1e-i1a-schedule-envelope-v3.schema.json",
+    "producer_id": "finam-readonly-schedule-normalizer-v3",
+    "producer_contract_version": "finam-rest-schedule-to-broker-neutral-v3",
+    "signature_domain": "moex.stage8b.p1e.schedule-envelope.signature.v3"
+  },
+  "semantic_identity": {
+    "schema": "docs/stage-8/stage8b-p1e-i1a-semantic-identity-v1.schema.json",
+    "contract": "docs/stage-8/stage8b-p1e-i1a-semantic-identity-contract-v1.json",
+    "envelope_projection_field": "semantic_identity",
+    "envelope_hash_field": "schedule_semantic_sha256",
+    "projection_must_cross_validate_payload": true,
+    "hash_must_cross_validate_projection": true,
+    "base_v2_normalized_schedule_only_revision_wording_superseded": true
+  },
+  "producer_revision": {
+    "persistent_state": [
+      "source_generation",
+      "publication_sequence",
+      "semantic_revision",
+      "schedule_semantic_sha256"
+    ],
+    "first_publication_revision": "1",
+    "same_semantic_hash": "same-semantic-revision",
+    "different_semantic_hash": "exact-prior-semantic-revision-plus-one",
+    "open_to_closed_same_sessions": "hash-changes-revision-plus-one",
+    "trading_day_change_same_sessions": "hash-changes-revision-plus-one",
+    "freshness_only_heartbeat": "publication-sequence-advances-hash-and-revision-unchanged",
+    "restart_without_exact_persistent_state": "fail-closed-no-publication"
+  },
+  "consumer_progression": {
+    "same_revision_same_hash": "allowed-subject-to-transport-progression",
+    "same_revision_different_hash": "terminal-conflict",
+    "higher_revision": "allowed-subject-to-transport-progression",
+    "lower_revision": "blocked-rollback",
+    "intermediate_revision_observation_required": false
+  },
+  "route_link": {
+    "open_to_closed": "accepted-monotonic-snapshot-then-day-boundary-route-validation",
+    "closed_never_authorizes_market_or_working": true,
+    "day_authority_requires_existing-exact-book-m10-boundary-predicates": true
+  },
+  "unchanged_from_base_v2": [
+    "pre-provisioned-NOMKSTREAM-transport",
+    "generation-2-public-verification-only",
+    "freshness-and-invalid-newest-no-fallback",
+    "route-specific-Open-and-Closed-evidence",
+    "Stage6-V4-binding-and-counter-effects",
+    "three-step-source-first-latch-precedence",
+    "all-closed-operational-surfaces"
+  ],
+  "production_implementation_authorized": false
+}
