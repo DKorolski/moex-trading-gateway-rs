@@ -56,11 +56,15 @@ use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION: u16 = 1;
+pub const STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2: u16 = 2;
+pub const STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION: u16 = 1;
 pub const STAGE6D_INTEGRATION_FINGERPRINT_SCHEMA_VERSION: u16 = 3;
 pub const STAGE6E_ACCEPTED_FRESH_TRUTH_SCHEMA_VERSION: u16 = 2;
 pub const STAGE8B_P1_REQUEST_ACCEPTED_BINDING_SCHEMA_VERSION: u16 = 1;
 
 const STAGE6D_RESTART_COMMITMENT_DOMAIN: &str = "moex.stage6d.authenticated-restart-frontier.v1";
+const STAGE6D_RESTART_COMMITMENT_V2_DOMAIN: &str = "moex.stage6d.restart-commitment.v2";
+const STAGE8B_P1E_FIRST_BOOT_PROVENANCE_DOMAIN: &str = "moex.stage8b.p1e.first-boot-provenance.v1";
 const STAGE6D_INTEGRATION_FINGERPRINT_DOMAIN: &str = "moex.stage6e-r1.durable-runtime-recovered.v3";
 const STAGE6E_SEMANTIC_CROSS_BINDING_DOMAIN: &str =
     "moex.stage6e.stage5-stage6-semantic-cross-binding.v1";
@@ -388,6 +392,166 @@ struct Stage6dAuthenticatedRestartPackageV1 {
     restart_commitment_hmac_sha256: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Stage8bP1eFirstBootProvenanceV1 {
+    schema_version: u16,
+    domain: String,
+    operational_identity_sha256: String,
+    runtime_profile_sha256: String,
+    runtime_config_fingerprint_sha256: String,
+    source_bundle_sha256: String,
+    source_bundle_generation: u64,
+    source_plan_sha256: String,
+    history_bars_sha256: String,
+    riskgate_session_observations_sha256: String,
+    candidate_semantic_id_sha256: String,
+}
+
+impl Stage8bP1eFirstBootProvenanceV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        operational_identity_sha256: String,
+        runtime_profile_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        source_bundle_sha256: String,
+        source_bundle_generation: u64,
+        source_plan_sha256: String,
+        history_bars_sha256: String,
+        riskgate_session_observations_sha256: String,
+        candidate_semantic_id_sha256: String,
+    ) -> Result<Self, Stage6dLiveCoreError> {
+        let value = Self {
+            schema_version: STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION,
+            domain: STAGE8B_P1E_FIRST_BOOT_PROVENANCE_DOMAIN.to_string(),
+            operational_identity_sha256,
+            runtime_profile_sha256,
+            runtime_config_fingerprint_sha256,
+            source_bundle_sha256,
+            source_bundle_generation,
+            source_plan_sha256,
+            history_bars_sha256,
+            riskgate_session_observations_sha256,
+            candidate_semantic_id_sha256,
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn encode_canonical(&self) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+        self.validate()?;
+        serde_json::to_vec(self).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)
+    }
+
+    pub fn canonical_sha256(&self) -> Result<String, Stage6dLiveCoreError> {
+        Ok(sha256_hex(&self.encode_canonical()?))
+    }
+
+    pub fn operational_identity_sha256(&self) -> &str {
+        &self.operational_identity_sha256
+    }
+
+    pub fn source_bundle_sha256(&self) -> &str {
+        &self.source_bundle_sha256
+    }
+
+    pub const fn source_bundle_generation(&self) -> u64 {
+        self.source_bundle_generation
+    }
+
+    pub fn runtime_profile_sha256(&self) -> &str {
+        &self.runtime_profile_sha256
+    }
+
+    pub fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
+    }
+
+    pub fn source_plan_sha256(&self) -> &str {
+        &self.source_plan_sha256
+    }
+
+    pub fn history_bars_sha256(&self) -> &str {
+        &self.history_bars_sha256
+    }
+
+    pub fn riskgate_session_observations_sha256(&self) -> &str {
+        &self.riskgate_session_observations_sha256
+    }
+
+    pub fn candidate_semantic_id_sha256(&self) -> &str {
+        &self.candidate_semantic_id_sha256
+    }
+
+    fn validate(&self) -> Result<(), Stage6dLiveCoreError> {
+        let digests = [
+            &self.operational_identity_sha256,
+            &self.runtime_profile_sha256,
+            &self.runtime_config_fingerprint_sha256,
+            &self.source_bundle_sha256,
+            &self.source_plan_sha256,
+            &self.history_bars_sha256,
+            &self.riskgate_session_observations_sha256,
+            &self.candidate_semantic_id_sha256,
+        ];
+        if self.schema_version != STAGE8B_P1E_FIRST_BOOT_PROVENANCE_SCHEMA_VERSION
+            || self.domain != STAGE8B_P1E_FIRST_BOOT_PROVENANCE_DOMAIN
+            || self.source_bundle_generation == 0
+            || digests
+                .into_iter()
+                .any(|value| Stage6Sha256Digest::parse(value.clone()).is_err())
+        {
+            return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Stage6dAuthenticatedRestartPackageV2 {
+    schema_version: u16,
+    stage5g_restart_package: Vec<u8>,
+    stage5g_restart_package_sha256: String,
+    stage6_checkpoint: Stage6JournalCheckpointV1,
+    stage6_checkpoint_bytes_sha256: String,
+    operational_identity: Stage6dOperationalIdentityConfig,
+    operational_identity_sha256: String,
+    first_boot_provenance_v1: Stage8bP1eFirstBootProvenanceV1,
+    first_boot_provenance_canonical_sha256: String,
+    restart_commitment_sha256: String,
+    restart_commitment_hmac_sha256: String,
+}
+
+#[derive(Serialize)]
+struct Stage6dRestartCommitmentV2<'a> {
+    schema_version: u16,
+    domain: &'static str,
+    stage5g_restart_package_sha256: &'a str,
+    stage6_checkpoint_bytes_sha256: &'a str,
+    operational_identity_sha256: &'a str,
+    first_boot_provenance_canonical_sha256: &'a str,
+}
+
+struct Stage6dDecodedAuthenticatedRestartPackage {
+    schema_version: u16,
+    stage5g_restart_package: Vec<u8>,
+    stage6_checkpoint: Stage6JournalCheckpointV1,
+    operational_identity: Stage6dOperationalIdentityConfig,
+    first_boot_provenance_v1: Option<Stage8bP1eFirstBootProvenanceV1>,
+    canonical_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stage8bP1eAuthenticatedRestartPackageV2Audit {
+    pub schema_version: u16,
+    pub canonical_sha256: String,
+    pub first_boot_provenance_canonical_sha256: String,
+    pub first_boot_provenance: Stage8bP1eFirstBootProvenanceV1,
+    pub operational_identity_sha256: String,
+    pub stage6_checkpoint_sha256: String,
+}
+
 #[derive(Serialize)]
 struct Stage6dRestartCommitmentV1<'a> {
     schema_version: u16,
@@ -457,6 +621,80 @@ pub fn seal_stage6d_restart_package(
     serde_json::to_vec(&package).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)
 }
 
+/// Builds the provenance-bearing package required by Stage 8B-P1-e.  The
+/// provenance is validated against the exact operational identity and remains
+/// immutable across every later Stage 7 seal advance.
+pub fn seal_stage6d_restart_package_v2(
+    stage5g_restart_package: &[u8],
+    stage6_checkpoint: Stage6JournalCheckpointV1,
+    operational_identity: Stage6dOperationalIdentityConfig,
+    first_boot_provenance_v1: Stage8bP1eFirstBootProvenanceV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+    if stage5g_restart_package.is_empty() {
+        return Err(Stage6dLiveCoreError::RestartPackageDecode);
+    }
+    first_boot_provenance_v1.validate()?;
+    let checkpoint_bytes = stage6_checkpoint.encode_canonical();
+    Stage6JournalCheckpointV1::decode_canonical(&checkpoint_bytes)?;
+    let stage5g_restart_package_sha256 = sha256_hex(stage5g_restart_package);
+    let stage6_checkpoint_bytes_sha256 = sha256_hex(&checkpoint_bytes);
+    let operational_identity_sha256 = stage6d_operational_identity_sha256(&operational_identity)?
+        .as_str()
+        .to_string();
+    if first_boot_provenance_v1.operational_identity_sha256() != operational_identity_sha256 {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    let first_boot_provenance_canonical_sha256 = first_boot_provenance_v1.canonical_sha256()?;
+    let restart_commitment_sha256 = restart_commitment_v2_sha256(
+        &stage5g_restart_package_sha256,
+        &stage6_checkpoint_bytes_sha256,
+        &operational_identity_sha256,
+        &first_boot_provenance_canonical_sha256,
+    )?;
+    let restart_commitment_hmac_sha256 =
+        commitment_key.stage6d_v2_hmac_sha256(&restart_commitment_sha256);
+    let package = Stage6dAuthenticatedRestartPackageV2 {
+        schema_version: STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2,
+        stage5g_restart_package: stage5g_restart_package.to_vec(),
+        stage5g_restart_package_sha256,
+        stage6_checkpoint,
+        stage6_checkpoint_bytes_sha256,
+        operational_identity,
+        operational_identity_sha256,
+        first_boot_provenance_v1,
+        first_boot_provenance_canonical_sha256,
+        restart_commitment_sha256,
+        restart_commitment_hmac_sha256,
+    };
+    serde_json::to_vec(&package).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)
+}
+
+pub fn inspect_stage8b_p1e_authenticated_restart_package_v2(
+    bytes: &[u8],
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eAuthenticatedRestartPackageV2Audit, Stage6dLiveCoreError> {
+    let package = decode_and_authenticate_restart_package(bytes, commitment_key)?;
+    if package.schema_version != STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2 {
+        return Err(Stage6dLiveCoreError::UnsupportedRestartPackageSchema);
+    }
+    let provenance = package
+        .first_boot_provenance_v1
+        .ok_or(Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    Ok(Stage8bP1eAuthenticatedRestartPackageV2Audit {
+        schema_version: package.schema_version,
+        canonical_sha256: package.canonical_sha256,
+        first_boot_provenance_canonical_sha256: provenance.canonical_sha256()?,
+        first_boot_provenance: provenance,
+        operational_identity_sha256: stage6d_operational_identity_sha256(
+            &package.operational_identity,
+        )?
+        .as_str()
+        .to_string(),
+        stage6_checkpoint_sha256: package.stage6_checkpoint.checkpoint_sha256().to_string(),
+    })
+}
+
 /// Authenticates the currently committed Stage 6 restart package and advances
 /// only its journal checkpoint while preserving the exact embedded Stage 5G
 /// authority and operational identity. This is the Stage 7B seal-advance seam;
@@ -475,10 +713,86 @@ pub fn advance_stage6d_restart_package(
     {
         return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
     }
-    seal_stage6d_restart_package(
-        &current.stage5g_restart_package,
+    match current.first_boot_provenance_v1 {
+        Some(provenance) => seal_stage6d_restart_package_v2(
+            &current.stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            provenance,
+            commitment_key,
+        ),
+        None => seal_stage6d_restart_package(
+            &current.stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            commitment_key,
+        ),
+    }
+}
+
+/// Replaces the embedded Stage 5G authority while preserving the authenticated
+/// envelope schema and, for V2, the exact first-boot provenance. This remains
+/// compatible with accepted pre-P1-e V1 packages; it never upgrades or
+/// downgrades an existing package implicitly.
+pub fn replace_stage5g_in_stage6d_restart_package(
+    authenticated_restart_package: &[u8],
+    expected_current_checkpoint: &Stage6JournalCheckpointV1,
+    replacement_stage5g_restart_package: &[u8],
+    next_checkpoint: Stage6JournalCheckpointV1,
+    expected_operational_identity: &Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+    let current =
+        decode_and_authenticate_restart_package(authenticated_restart_package, commitment_key)?;
+    if &current.stage6_checkpoint != expected_current_checkpoint
+        || &current.operational_identity != expected_operational_identity
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    match current.first_boot_provenance_v1 {
+        Some(provenance) => seal_stage6d_restart_package_v2(
+            replacement_stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            provenance,
+            commitment_key,
+        ),
+        None => seal_stage6d_restart_package(
+            replacement_stage5g_restart_package,
+            next_checkpoint,
+            current.operational_identity,
+            commitment_key,
+        ),
+    }
+}
+
+/// Strict P1-e replacement seam. The current package must already be V2 and
+/// carry valid first-boot provenance; a legacy V1 package cannot be upgraded
+/// through this API.
+pub fn replace_stage5g_in_stage6d_restart_package_v2(
+    authenticated_restart_package: &[u8],
+    expected_current_checkpoint: &Stage6JournalCheckpointV1,
+    replacement_stage5g_restart_package: &[u8],
+    next_checkpoint: Stage6JournalCheckpointV1,
+    expected_operational_identity: &Stage6dOperationalIdentityConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Vec<u8>, Stage6dLiveCoreError> {
+    let current =
+        decode_and_authenticate_restart_package(authenticated_restart_package, commitment_key)?;
+    if current.schema_version != STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2
+        || &current.stage6_checkpoint != expected_current_checkpoint
+        || &current.operational_identity != expected_operational_identity
+    {
+        return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+    }
+    let provenance = current
+        .first_boot_provenance_v1
+        .ok_or(Stage6dLiveCoreError::RestartPackageBindingMismatch)?;
+    seal_stage6d_restart_package_v2(
+        replacement_stage5g_restart_package,
         next_checkpoint,
         current.operational_identity,
+        provenance,
         commitment_key,
     )
 }
@@ -2817,6 +3131,21 @@ impl Stage6dDurableRuntimeRecovered {
         restart
             .stage8b_p1_semantic_commit()
             .map(|_| restart.summary().stage5c_callback_count)
+    }
+
+    /// Exact no-effect predicate used only by the Stage 8B-P1-e first-boot
+    /// adoption protocol. It is derived from authenticated Stage 5G state and
+    /// the replayed Stage 6 journal, never from a receipt or marker claim.
+    pub fn stage8b_p1e_initial_adoption_ready(&self) -> bool {
+        let restart = match &self.stage5_runtime {
+            Stage6dStage5RuntimeAuthority::Restart(restart) => restart,
+            Stage6dStage5RuntimeAuthority::FirstBoot(_) => return false,
+        };
+        let summary = restart.summary();
+        restart.lifecycle_kind() == crate::Stage5gCleanRestartLifecycleKind::TimerReady
+            && summary.stage5c_callback_count == 1
+            && self.replay.requests().is_empty()
+            && self.journal.frontier().frame_count() == 0
     }
 
     /// Produces only immutable counters from the already authenticated
@@ -10816,44 +11145,128 @@ pub fn stage6_frontier_fingerprint_sha256(
 fn decode_and_authenticate_restart_package(
     bytes: &[u8],
     commitment_key: &Stage5gLifecycleCommitmentKey,
-) -> Result<Stage6dAuthenticatedRestartPackageV1, Stage6dLiveCoreError> {
-    let package: Stage6dAuthenticatedRestartPackageV1 =
+) -> Result<Stage6dDecodedAuthenticatedRestartPackage, Stage6dLiveCoreError> {
+    let value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
-    if package.schema_version != STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION {
-        return Err(Stage6dLiveCoreError::UnsupportedRestartPackageSchema);
+    let schema_version = value
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or(Stage6dLiveCoreError::RestartPackageDecode)?;
+    match schema_version {
+        STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION => {
+            let package: Stage6dAuthenticatedRestartPackageV1 = serde_json::from_slice(bytes)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            let canonical = serde_json::to_vec(&package)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            if canonical != bytes {
+                return Err(Stage6dLiveCoreError::RestartPackageNonCanonical);
+            }
+            validate_restart_package_components(
+                &package.stage5g_restart_package,
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity,
+                &package.operational_identity_sha256,
+            )?;
+            let commitment = restart_commitment_sha256(
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity_sha256,
+            )?;
+            if commitment != package.restart_commitment_sha256 {
+                return Err(Stage6dLiveCoreError::RestartCommitmentMismatch);
+            }
+            if !commitment_key
+                .stage6d_verify_hmac_sha256(&commitment, &package.restart_commitment_hmac_sha256)
+            {
+                return Err(Stage6dLiveCoreError::RestartAuthenticationFailed);
+            }
+            Ok(Stage6dDecodedAuthenticatedRestartPackage {
+                schema_version,
+                stage5g_restart_package: package.stage5g_restart_package,
+                stage6_checkpoint: package.stage6_checkpoint,
+                operational_identity: package.operational_identity,
+                first_boot_provenance_v1: None,
+                canonical_sha256: sha256_hex(bytes),
+            })
+        }
+        STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2 => {
+            let package: Stage6dAuthenticatedRestartPackageV2 = serde_json::from_slice(bytes)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            let canonical = serde_json::to_vec(&package)
+                .map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
+            if canonical != bytes {
+                return Err(Stage6dLiveCoreError::RestartPackageNonCanonical);
+            }
+            validate_restart_package_components(
+                &package.stage5g_restart_package,
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity,
+                &package.operational_identity_sha256,
+            )?;
+            package.first_boot_provenance_v1.validate()?;
+            let provenance_sha256 = package.first_boot_provenance_v1.canonical_sha256()?;
+            if provenance_sha256 != package.first_boot_provenance_canonical_sha256
+                || package
+                    .first_boot_provenance_v1
+                    .operational_identity_sha256()
+                    != package.operational_identity_sha256
+            {
+                return Err(Stage6dLiveCoreError::RestartPackageBindingMismatch);
+            }
+            let commitment = restart_commitment_v2_sha256(
+                &package.stage5g_restart_package_sha256,
+                &package.stage6_checkpoint_bytes_sha256,
+                &package.operational_identity_sha256,
+                &package.first_boot_provenance_canonical_sha256,
+            )?;
+            if commitment != package.restart_commitment_sha256 {
+                return Err(Stage6dLiveCoreError::RestartCommitmentMismatch);
+            }
+            if !commitment_key
+                .stage6d_v2_verify_hmac_sha256(&commitment, &package.restart_commitment_hmac_sha256)
+            {
+                return Err(Stage6dLiveCoreError::RestartAuthenticationFailed);
+            }
+            Ok(Stage6dDecodedAuthenticatedRestartPackage {
+                schema_version,
+                stage5g_restart_package: package.stage5g_restart_package,
+                stage6_checkpoint: package.stage6_checkpoint,
+                operational_identity: package.operational_identity,
+                first_boot_provenance_v1: Some(package.first_boot_provenance_v1),
+                canonical_sha256: sha256_hex(bytes),
+            })
+        }
+        _ => Err(Stage6dLiveCoreError::UnsupportedRestartPackageSchema),
     }
-    let canonical =
-        serde_json::to_vec(&package).map_err(|_| Stage6dLiveCoreError::RestartPackageDecode)?;
-    if canonical != bytes {
-        return Err(Stage6dLiveCoreError::RestartPackageNonCanonical);
-    }
-    if sha256_hex(&package.stage5g_restart_package) != package.stage5g_restart_package_sha256 {
+}
+
+fn validate_restart_package_components(
+    stage5g_restart_package: &[u8],
+    stage5g_restart_package_sha256: &str,
+    stage6_checkpoint: &Stage6JournalCheckpointV1,
+    stage6_checkpoint_bytes_sha256: &str,
+    operational_identity: &Stage6dOperationalIdentityConfig,
+    operational_identity_sha256: &str,
+) -> Result<(), Stage6dLiveCoreError> {
+    if sha256_hex(stage5g_restart_package) != stage5g_restart_package_sha256 {
         return Err(Stage6dLiveCoreError::Stage5gPackageDigestMismatch);
     }
-    let checkpoint_bytes = package.stage6_checkpoint.encode_canonical();
-    if sha256_hex(&checkpoint_bytes) != package.stage6_checkpoint_bytes_sha256 {
+    let checkpoint_bytes = stage6_checkpoint.encode_canonical();
+    if sha256_hex(&checkpoint_bytes) != stage6_checkpoint_bytes_sha256 {
         return Err(Stage6dLiveCoreError::CheckpointDigestMismatch);
     }
-    validate_operational_identity_config(&package.operational_identity)?;
-    let operational_identity_bytes = serde_json::to_vec(&package.operational_identity)
+    validate_operational_identity_config(operational_identity)?;
+    let operational_identity_bytes = serde_json::to_vec(operational_identity)
         .map_err(|_| Stage6dLiveCoreError::OperationalIdentityInvalid)?;
-    if sha256_hex(&operational_identity_bytes) != package.operational_identity_sha256 {
+    if sha256_hex(&operational_identity_bytes) != operational_identity_sha256 {
         return Err(Stage6dLiveCoreError::OperationalIdentityInvalid);
     }
-    let commitment = restart_commitment_sha256(
-        &package.stage5g_restart_package_sha256,
-        &package.stage6_checkpoint_bytes_sha256,
-        &package.operational_identity_sha256,
-    )?;
-    if commitment != package.restart_commitment_sha256 {
-        return Err(Stage6dLiveCoreError::RestartCommitmentMismatch);
-    }
-    if !commitment_key
-        .stage6d_verify_hmac_sha256(&commitment, &package.restart_commitment_hmac_sha256)
-    {
-        return Err(Stage6dLiveCoreError::RestartAuthenticationFailed);
-    }
-    Ok(package)
+    Ok(())
 }
 
 fn restart_commitment_sha256(
@@ -10873,6 +11286,34 @@ fn restart_commitment_sha256(
         stage5g_restart_package_sha256,
         stage6_checkpoint_bytes_sha256,
         operational_identity_sha256,
+    };
+    let bytes =
+        serde_json::to_vec(&input).map_err(|_| Stage6dLiveCoreError::RestartCommitmentMismatch)?;
+    Ok(sha256_hex(&bytes))
+}
+
+fn restart_commitment_v2_sha256(
+    stage5g_restart_package_sha256: &str,
+    stage6_checkpoint_bytes_sha256: &str,
+    operational_identity_sha256: &str,
+    first_boot_provenance_canonical_sha256: &str,
+) -> Result<String, Stage6dLiveCoreError> {
+    for value in [
+        stage5g_restart_package_sha256,
+        stage6_checkpoint_bytes_sha256,
+        operational_identity_sha256,
+        first_boot_provenance_canonical_sha256,
+    ] {
+        Stage6Sha256Digest::parse(value.to_string())
+            .map_err(|_| Stage6dLiveCoreError::RestartCommitmentMismatch)?;
+    }
+    let input = Stage6dRestartCommitmentV2 {
+        schema_version: STAGE6D_AUTHENTICATED_RESTART_SCHEMA_VERSION_V2,
+        domain: STAGE6D_RESTART_COMMITMENT_V2_DOMAIN,
+        stage5g_restart_package_sha256,
+        stage6_checkpoint_bytes_sha256,
+        operational_identity_sha256,
+        first_boot_provenance_canonical_sha256,
     };
     let bytes =
         serde_json::to_vec(&input).map_err(|_| Stage6dLiveCoreError::RestartCommitmentMismatch)?;
@@ -12411,6 +12852,180 @@ mod tests {
             decoded.stage5g_restart_package,
             b"authenticated-stage5g-bytes"
         );
+    }
+
+    #[test]
+    fn stage8b_p1e_v2_advance_preserves_exact_first_boot_provenance() {
+        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x68; 32]).unwrap();
+        let operational_identity = operational_config();
+        let operational_identity_sha256 =
+            stage6d_operational_identity_sha256(&operational_identity)
+                .unwrap()
+                .as_str()
+                .to_string();
+        let provenance = Stage8bP1eFirstBootProvenanceV1::new(
+            operational_identity_sha256,
+            "1".repeat(64),
+            "2".repeat(64),
+            "3".repeat(64),
+            7,
+            "4".repeat(64),
+            "5".repeat(64),
+            "6".repeat(64),
+            "7".repeat(64),
+        )
+        .unwrap();
+        let provenance_bytes = provenance.encode_canonical().unwrap();
+        let mut journal = Stage6MemoryJournalBackend::new();
+        let current_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone()).unwrap();
+        let package = seal_stage6d_restart_package_v2(
+            b"authenticated-stage5g-bytes",
+            current_checkpoint.clone(),
+            operational_identity.clone(),
+            provenance,
+            &key,
+        )
+        .unwrap();
+
+        let fixture = place_fixture(90_002, OrderType::Market);
+        let (accepted, _) = accepted_and_dispatch_place(&fixture);
+        journal
+            .append_versioned(&Stage6JournalRecordVersioned::V1(accepted))
+            .unwrap();
+        let next_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone()).unwrap();
+        let advanced = advance_stage6d_restart_package(
+            &package,
+            &current_checkpoint,
+            next_checkpoint.clone(),
+            &operational_identity,
+            &key,
+        )
+        .unwrap();
+
+        let before = inspect_stage8b_p1e_authenticated_restart_package_v2(&package, &key).unwrap();
+        let after = inspect_stage8b_p1e_authenticated_restart_package_v2(&advanced, &key).unwrap();
+        assert_eq!(
+            after.first_boot_provenance.encode_canonical().unwrap(),
+            provenance_bytes
+        );
+        assert_eq!(
+            after.first_boot_provenance_canonical_sha256,
+            before.first_boot_provenance_canonical_sha256
+        );
+        assert_eq!(
+            after.stage6_checkpoint_sha256,
+            next_checkpoint.checkpoint_sha256()
+        );
+        assert_ne!(
+            after.stage6_checkpoint_sha256,
+            before.stage6_checkpoint_sha256
+        );
+
+        let replacement = replace_stage5g_in_stage6d_restart_package_v2(
+            &advanced,
+            &next_checkpoint,
+            b"replacement-authenticated-stage5g-bytes",
+            next_checkpoint.clone(),
+            &operational_identity,
+            &key,
+        )
+        .unwrap();
+        let decoded = decode_and_authenticate_restart_package(&replacement, &key).unwrap();
+        let replacement_audit =
+            inspect_stage8b_p1e_authenticated_restart_package_v2(&replacement, &key).unwrap();
+        assert_eq!(
+            decoded.stage5g_restart_package,
+            b"replacement-authenticated-stage5g-bytes"
+        );
+        assert_eq!(
+            replacement_audit
+                .first_boot_provenance
+                .encode_canonical()
+                .unwrap(),
+            provenance_bytes
+        );
+        assert_eq!(
+            replacement_audit.first_boot_provenance_canonical_sha256,
+            before.first_boot_provenance_canonical_sha256
+        );
+    }
+
+    #[test]
+    fn stage8b_p1e_v2_missing_or_changed_provenance_fails_closed() {
+        let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x69; 32]).unwrap();
+        let operational_identity = operational_config();
+        let operational_identity_sha256 =
+            stage6d_operational_identity_sha256(&operational_identity)
+                .unwrap()
+                .as_str()
+                .to_string();
+        let provenance = Stage8bP1eFirstBootProvenanceV1::new(
+            operational_identity_sha256,
+            "1".repeat(64),
+            "2".repeat(64),
+            "3".repeat(64),
+            7,
+            "4".repeat(64),
+            "5".repeat(64),
+            "6".repeat(64),
+            "7".repeat(64),
+        )
+        .unwrap();
+        let journal = Stage6MemoryJournalBackend::new();
+        let checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone()).unwrap();
+        let package = seal_stage6d_restart_package_v2(
+            b"authenticated-stage5g-bytes",
+            checkpoint,
+            operational_identity,
+            provenance,
+            &key,
+        )
+        .unwrap();
+
+        let mut missing: serde_json::Value = serde_json::from_slice(&package).unwrap();
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("first_boot_provenance_v1");
+        assert!(inspect_stage8b_p1e_authenticated_restart_package_v2(
+            &serde_json::to_vec(&missing).unwrap(),
+            &key,
+        )
+        .is_err());
+
+        let mut changed: serde_json::Value = serde_json::from_slice(&package).unwrap();
+        changed["first_boot_provenance_v1"]["source_bundle_sha256"] =
+            serde_json::Value::String("8".repeat(64));
+        assert!(inspect_stage8b_p1e_authenticated_restart_package_v2(
+            &serde_json::to_vec(&changed).unwrap(),
+            &key,
+        )
+        .is_err());
+
+        let legacy_journal = Stage6MemoryJournalBackend::new();
+        let legacy_checkpoint =
+            Stage6JournalCheckpointV1::from_frontier(legacy_journal.frontier().clone()).unwrap();
+        let legacy = seal_stage6d_restart_package(
+            b"legacy-stage5g-bytes",
+            legacy_checkpoint.clone(),
+            operational_config(),
+            &key,
+        )
+        .unwrap();
+        assert!(matches!(
+            replace_stage5g_in_stage6d_restart_package_v2(
+                &legacy,
+                &legacy_checkpoint,
+                b"replacement-stage5g-bytes",
+                legacy_checkpoint.clone(),
+                &operational_config(),
+                &key,
+            ),
+            Err(Stage6dLiveCoreError::RestartPackageBindingMismatch)
+        ));
     }
 
     #[test]

@@ -39,6 +39,8 @@ pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_GROUP: &str = "moex-p1-paper";
 pub const STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS: usize = 121;
 pub const STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS: usize = 120;
 pub const STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS: i64 = 300;
+pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256: &str =
+    "2a507577075b8b5315a462ffeee221dd0a7f8a8f61d42516fbdb9346cc3464ca";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum Stage8bP1eFirstBootSourceError {
@@ -93,6 +95,7 @@ pub struct Stage8bP1ePreparedFirstBootV1 {
     source: strategy_runtime_core::Stage5gTimerReadyPaperStrategy,
     export_input: strategy_runtime_core::Stage5gCleanRestartExportInput,
     fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    provenance: strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1,
 }
 
 impl Stage8bP1ePreparedFirstBootV1 {
@@ -103,12 +106,14 @@ impl Stage8bP1ePreparedFirstBootV1 {
         strategy_runtime_core::Stage5gTimerReadyPaperStrategy,
         strategy_runtime_core::Stage5gCleanRestartExportInput,
         strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1,
     ) {
         (
             self.bootstrap,
             self.source,
             self.export_input,
             self.fresh_runtime,
+            self.provenance,
         )
     }
 }
@@ -151,6 +156,18 @@ pub fn build_stage8b_p1_first_boot_source_v1(
     if fresh_fingerprint != bootstrap.runtime_config_fingerprint_sha256() {
         return Err(Stage8bP1eFirstBootBuildError::RuntimeProfile);
     }
+    let provenance = strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1::new(
+        operational_identity_sha256.clone(),
+        STAGE8B_P1E_RUNTIME_PROFILE_SHA256.to_string(),
+        bootstrap.runtime_config_fingerprint_sha256().to_string(),
+        source.source_bundle_sha256.clone(),
+        source.source_bundle_generation,
+        STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256.to_string(),
+        source.history_bars_sha256.clone(),
+        source.riskgate_session_observations_sha256.clone(),
+        source.candidate_semantic_id_sha256.clone(),
+    )
+    .map_err(|_| Stage8bP1eFirstBootBuildError::Composition)?;
     let history_bars = source.history_bars.iter().map(core_bar_input).collect();
     let riskgate_observations = source
         .riskgate_observations
@@ -186,6 +203,7 @@ pub fn build_stage8b_p1_first_boot_source_v1(
         source,
         export_input,
         fresh_runtime,
+        provenance,
     })
 }
 
@@ -1334,6 +1352,59 @@ mod tests {
         }
     }
 
+    fn prepared_transaction(
+        parent: &Path,
+    ) -> (
+        Stage8bP1ePreparedFirstBootV1,
+        crate::Stage8bP1FirstBootAdminCommand,
+        strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+        String,
+    ) {
+        let (_, runtime_fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.to_path_buf(),
+            runtime_fingerprint.clone(),
+        ))
+        .unwrap();
+        let operational = validated.operational_identity_sha256().to_string();
+        let (bytes, now, _, account) = fixture_for_binding(&operational, "ACC_TEST_0001");
+        let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
+        let provenance = strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1::new(
+            operational.clone(),
+            STAGE8B_P1E_RUNTIME_PROFILE_SHA256.to_string(),
+            runtime_fingerprint.clone(),
+            source.source_bundle_sha256.clone(),
+            source.source_bundle_generation,
+            STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256.to_string(),
+            source.history_bars_sha256.clone(),
+            source.riskgate_session_observations_sha256.clone(),
+            source.candidate_semantic_id_sha256.clone(),
+        )
+        .unwrap();
+        let composition = build_composition(source, operational, account).unwrap();
+        let (source, export_input, fresh_runtime) = composition.into_parts();
+        let admin = crate::authorize_stage8b_p1_first_boot(
+            &validated,
+            crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+        )
+        .unwrap();
+        let key =
+            strategy_runtime_core::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x8b; 32])
+                .unwrap();
+        (
+            Stage8bP1ePreparedFirstBootV1 {
+                bootstrap: validated,
+                source,
+                export_input,
+                fresh_runtime,
+                provenance,
+            },
+            admin,
+            key,
+            runtime_fingerprint,
+        )
+    }
+
     fn parse_fixture(
         bytes: &[u8],
         now: DateTime<Utc>,
@@ -1417,6 +1488,18 @@ mod tests {
         let (bytes, now, _, account) = fixture_for_binding(&operational, "ACC_TEST_0001");
         let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
         let candidate_semantic_id = source.candidate_semantic_id_sha256.clone();
+        let provenance = strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1::new(
+            operational.clone(),
+            STAGE8B_P1E_RUNTIME_PROFILE_SHA256.to_string(),
+            runtime_fingerprint.clone(),
+            source.source_bundle_sha256.clone(),
+            source.source_bundle_generation,
+            STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256.to_string(),
+            source.history_bars_sha256.clone(),
+            source.riskgate_session_observations_sha256.clone(),
+            source.candidate_semantic_id_sha256.clone(),
+        )
+        .unwrap();
         let composition = build_composition(source, operational, account).unwrap();
         let (source, export_input, fresh_runtime) = composition.into_parts();
         assert_eq!(
@@ -1424,6 +1507,7 @@ mod tests {
             Some(candidate_semantic_id)
         );
         let restart_runtime = fresh_runtime.clone();
+        let durable_root_name = validated.expected_root_name().to_string();
         let admin = crate::authorize_stage8b_p1_first_boot(
             &validated,
             crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
@@ -1432,21 +1516,38 @@ mod tests {
         let key =
             strategy_runtime_core::Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x8b; 32])
                 .unwrap();
-        let outcome = crate::first_boot_stage8b_p1(
-            validated,
+        let outcome = crate::first_boot_stage8b_p1e_transaction_v5(
+            Stage8bP1ePreparedFirstBootV1 {
+                bootstrap: validated,
+                source,
+                export_input,
+                fresh_runtime,
+                provenance,
+            },
             admin,
-            source,
-            export_input,
+            1,
             &key,
-            fresh_runtime,
         )
         .expect("F15 validation precedes the sole F17 durable-root creation");
         assert!(outcome.owner().recovery_ready());
-        assert_eq!(outcome.receipt().boot_mode, "first_boot");
-        assert!(!outcome.receipt().redis_consumer_attached);
-        assert!(!outcome.receipt().finam_transport_attached);
-        let durable_root_name = outcome.receipt().durable_root_name.clone();
+        assert_eq!(outcome.receipt().schema_version, 2);
+        assert_eq!(outcome.receipt().restart_package_schema_version, 2);
         drop(outcome);
+
+        let inspection = crate::classify_stage8b_p1e_first_boot_v5(
+            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                runtime_fingerprint.clone(),
+            ))
+            .unwrap(),
+            &key,
+            restart_runtime.clone(),
+        );
+        assert_eq!(
+            inspection.classification,
+            crate::Stage8bP1eFirstBootClassificationV5::AdoptedCommittedRoot
+        );
+        assert!(inspection.ordinary_run_allowed);
 
         let restart = crate::restart_stage8b_p1(
             crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
@@ -1461,6 +1562,12 @@ mod tests {
         assert!(restart.recovery_ready());
         drop(restart);
         assert!(parent.join(&durable_root_name).is_dir());
+        assert!(parent
+            .join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)
+            .is_file());
+        assert!(parent
+            .join(crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE)
+            .is_file());
         assert_eq!(
             fs::read_dir(&parent)
                 .unwrap()
@@ -1470,6 +1577,218 @@ mod tests {
             1
         );
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn every_v5_crash_hook_has_one_exact_fail_closed_classification() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+
+        let cases = [
+            (
+                "after-prepared-marker-temp-sync-before-rename",
+                Classification::UnpublishedMarkerTemp,
+            ),
+            (
+                "after-root-published-marker-temp-sync-before-rename",
+                Classification::PreparedToRootPublishedMarkerTempPending,
+            ),
+            (
+                "after-root-parent-fsync-before-journal-create",
+                Classification::RootWithoutJournal,
+            ),
+            (
+                "after-journal-durable-marker-temp-sync-before-rename",
+                Classification::RootPublishedToJournalDurableMarkerTempPending,
+            ),
+            (
+                "after-journal-fsync-before-initial-seal-commit",
+                Classification::JournalWithoutSeal,
+            ),
+            (
+                "after-seal-committed-marker-temp-sync-before-rename",
+                Classification::JournalDurableToSealCommittedMarkerTempPending,
+            ),
+            (
+                "after-seal-persist-reread-before-bootstrap-success-report",
+                Classification::CommittedRootResponseLost,
+            ),
+            (
+                "after-receipt-temp-sync-before-final-rename",
+                Classification::CommittedRootReceiptTemp,
+            ),
+            (
+                "after-receipt-rename-parent-fsync-before-adopted-marker-temp-create",
+                Classification::ReceiptCommittedMarkerUpdatePending,
+            ),
+            (
+                "after-adopted-marker-temp-sync-before-rename",
+                Classification::SealCommittedToAdoptedMarkerTempPending,
+            ),
+        ];
+
+        for (hook, expected) in cases {
+            let parent = temp_directory(hook);
+            let (prepared, admin, key, runtime_fingerprint) = prepared_transaction(&parent);
+            let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::stage8b_p1e_first_boot_transaction::test_first_boot_stage8b_p1e_transaction_v5_with_observer(
+                    prepared,
+                    admin,
+                    1,
+                    &key,
+                    |observed| {
+                        assert_ne!(observed, "unexpected-hook");
+                        if observed == hook {
+                            panic!("simulated-sigkill-at-{hook}");
+                        }
+                    },
+                )
+                .unwrap();
+            }));
+            assert!(interrupted.is_err(), "hook {hook} was not reached");
+            let (fresh_runtime, fresh_fingerprint) =
+                Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            assert_eq!(fresh_fingerprint, runtime_fingerprint);
+            let inspection = crate::classify_stage8b_p1e_first_boot_v5(
+                crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    runtime_fingerprint.clone(),
+                ))
+                .unwrap(),
+                &key,
+                fresh_runtime,
+            );
+            assert_eq!(inspection.classification, expected, "hook {hook}");
+            assert!(!inspection.ordinary_run_allowed, "hook {hook}");
+
+            let recovery_action = match expected {
+                Classification::CommittedRootResponseLost => {
+                    Some(crate::Stage8bP1eAdoptionRecoveryActionV5::AdoptCommittedRoot)
+                }
+                Classification::CommittedRootReceiptTemp => {
+                    Some(crate::Stage8bP1eAdoptionRecoveryActionV5::RemoveReceiptTempAndAdopt)
+                }
+                Classification::ReceiptCommittedMarkerUpdatePending => {
+                    Some(crate::Stage8bP1eAdoptionRecoveryActionV5::StartSealCommittedToAdopted)
+                }
+                Classification::SealCommittedToAdoptedMarkerTempPending => {
+                    Some(crate::Stage8bP1eAdoptionRecoveryActionV5::CompleteSealCommittedToAdopted)
+                }
+                _ => None,
+            };
+            if let Some(action) = recovery_action {
+                if expected == Classification::CommittedRootResponseLost {
+                    let marker_before =
+                        fs::read(parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)).unwrap();
+                    let (fresh_runtime, fresh_fingerprint) =
+                        Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+                    assert_eq!(fresh_fingerprint, runtime_fingerprint);
+                    assert_eq!(
+                        crate::recover_stage8b_p1e_first_boot_adoption_v5(
+                            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                                parent.clone(),
+                                runtime_fingerprint.clone(),
+                            ))
+                            .unwrap(),
+                            &key,
+                            fresh_runtime,
+                            &"00".repeat(32),
+                            action,
+                        )
+                        .err(),
+                        Some(crate::Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)
+                    );
+                    assert_eq!(
+                        fs::read(parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)).unwrap(),
+                        marker_before
+                    );
+                    assert!(!parent
+                        .join(crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE)
+                        .exists());
+                }
+
+                if matches!(
+                    expected,
+                    Classification::ReceiptCommittedMarkerUpdatePending
+                        | Classification::SealCommittedToAdoptedMarkerTempPending
+                ) {
+                    let marker_before =
+                        fs::read(parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)).unwrap();
+                    let final_receipt = parent.join(crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE);
+                    let stale_temp = parent.join(crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE);
+                    fs::copy(&final_receipt, &stale_temp).unwrap();
+                    fs::set_permissions(&stale_temp, fs::Permissions::from_mode(0o600)).unwrap();
+                    let (fresh_runtime, fresh_fingerprint) =
+                        Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+                    assert_eq!(fresh_fingerprint, runtime_fingerprint);
+                    let stale = crate::classify_stage8b_p1e_first_boot_v5(
+                        crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                            parent.clone(),
+                            runtime_fingerprint.clone(),
+                        ))
+                        .unwrap(),
+                        &key,
+                        fresh_runtime,
+                    );
+                    assert_eq!(
+                        stale.classification,
+                        Classification::CorruptOrIdentityMismatch,
+                        "stale receipt temp at {hook}"
+                    );
+                    assert_eq!(
+                        fs::read(parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)).unwrap(),
+                        marker_before
+                    );
+                    fs::remove_file(stale_temp).unwrap();
+                }
+
+                let transaction_id = inspection
+                    .transaction_id_sha256
+                    .as_deref()
+                    .expect("post-seal classification binds one transaction");
+                let (fresh_runtime, fresh_fingerprint) =
+                    Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+                assert_eq!(fresh_fingerprint, runtime_fingerprint);
+                let outcome = crate::recover_stage8b_p1e_first_boot_adoption_v5(
+                    crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                        parent.clone(),
+                        runtime_fingerprint.clone(),
+                    ))
+                    .unwrap(),
+                    &key,
+                    fresh_runtime,
+                    transaction_id,
+                    action,
+                )
+                .expect("the exact response-loss selector completes adoption");
+                assert!(outcome.owner().recovery_ready());
+                assert!(outcome
+                    .owner()
+                    .recovered()
+                    .unwrap()
+                    .stage8b_p1e_initial_adoption_ready());
+                drop(outcome);
+
+                let (fresh_runtime, fresh_fingerprint) =
+                    Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+                assert_eq!(fresh_fingerprint, runtime_fingerprint);
+                let adopted = crate::classify_stage8b_p1e_first_boot_v5(
+                    crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                        parent.clone(),
+                        runtime_fingerprint.clone(),
+                    ))
+                    .unwrap(),
+                    &key,
+                    fresh_runtime,
+                );
+                assert_eq!(
+                    adopted.classification,
+                    Classification::AdoptedCommittedRoot,
+                    "recovery after {hook}"
+                );
+                assert!(adopted.ordinary_run_allowed);
+            }
+            fs::remove_dir_all(parent).unwrap();
+        }
     }
 
     #[test]

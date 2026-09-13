@@ -35,38 +35,40 @@ use strategy_runtime_core::{
     continue_stage8b_p1d3_cancel_after_target_transition, execute_stage6d_paper_outcome,
     finalize_stage7a_paper_request, finalize_stage7a_replayed_paper_request,
     first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal,
-    migrate_stage8b_p1d3_runtime_from_p1d2, refresh_stage7b_durable_frontier,
+    inspect_stage8b_p1e_authenticated_restart_package_v2, migrate_stage8b_p1d3_runtime_from_p1d2,
+    refresh_stage7b_durable_frontier, replace_stage5g_in_stage6d_restart_package,
     restart_stage6d_paper_with_owned_journal, restore_stage5g_clean_restart,
     resume_stage8b_p1d3_dispatch_only_cancel_transition,
     resume_stage8b_p1d3_dispatch_only_limit_transition,
     resume_stage8b_p1d3_journal_ahead_transition, seal_stage6d_restart_package,
-    stage6_frontier_fingerprint_sha256, stage6d_operational_identity_sha256,
-    stage7b_finalized_request_facts, stage8a4_completed_transition_facts,
-    HybridIntradayRuntimeStrategy, Stage5cAcceptedSemanticBar, Stage5gLifecycleCommitmentKey,
-    Stage5gP1SemanticBindingInput, Stage6DurableCommandSnapshotV1, Stage6DurableRequestAuthorityV1,
-    Stage6DurableRequestIdentityV1, Stage6JournalBackend, Stage6JournalCheckpointV1,
-    Stage6JournalRecordVersioned, Stage6MemoryJournalBackend, Stage6MixedReplayEngineV2,
-    Stage6OwnedJournalBackend, Stage6ReconciliationLifecycleV2, Stage6RequestFinalDispositionV1,
-    Stage6Stage8a4PendingRecovery, Stage6Stage8a4ValidatedWriteEntry,
-    Stage6Stage8bP1JournalAheadCandidate, Stage6Stage8bP1SealSourceV1,
-    Stage6Stage8bP1SemanticCommitEvidenceV1, Stage6Stage8bP1SemanticTransition,
-    Stage6Stage8bP1d2JournalAheadCandidate, Stage6Stage8bP1d3CancelTransition,
-    Stage6Stage8bP1d3DispatchOnlyCandidate, Stage6Stage8bP1d3JournalAheadCandidate,
-    Stage6Stage8bP1d3LaterTransition, Stage6Stage8bP1d3RecoveredTransition,
-    Stage6Stage8bP1d3RestartPhase, Stage6Stage8bP1d4JournalAheadCandidate,
-    Stage6Stage8bP1d4JournalAheadKind, Stage6Stage8bP1eScheduleBindingPending,
-    Stage6dDurableRuntimeRecovered, Stage6dFirstBootAuthorization, Stage6dLiveCoreError,
-    Stage6dOperationalIdentityConfig, Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport,
-    Stage6dPaperOutcome, Stage7aPaperAdmission, Stage7aPaperCommandContext,
-    Stage7bFinalizedRequestFacts, Stage8bP1d1CanonicalM10Evidence,
-    Stage8bP1d1CommandDecisionBinding, Stage8bP1d1ExecutionEligible,
-    Stage8bP1d1ExecutionScheduleAuthority, Stage8bP1d1MarketDispatchReady,
-    Stage8bP1d1MarketOutcomeBundle, Stage8bP1d2FeedbackAuditCoreV1,
+    seal_stage6d_restart_package_v2, stage6_frontier_fingerprint_sha256,
+    stage6d_operational_identity_sha256, stage7b_finalized_request_facts,
+    stage8a4_completed_transition_facts, HybridIntradayRuntimeStrategy, Stage5cAcceptedSemanticBar,
+    Stage5gLifecycleCommitmentKey, Stage5gP1SemanticBindingInput, Stage6DurableCommandSnapshotV1,
+    Stage6DurableRequestAuthorityV1, Stage6DurableRequestIdentityV1, Stage6JournalBackend,
+    Stage6JournalCheckpointV1, Stage6JournalRecordVersioned, Stage6MemoryJournalBackend,
+    Stage6MixedReplayEngineV2, Stage6OwnedJournalBackend, Stage6ReconciliationLifecycleV2,
+    Stage6RequestFinalDispositionV1, Stage6Stage8a4PendingRecovery,
+    Stage6Stage8a4ValidatedWriteEntry, Stage6Stage8bP1JournalAheadCandidate,
+    Stage6Stage8bP1SealSourceV1, Stage6Stage8bP1SemanticCommitEvidenceV1,
+    Stage6Stage8bP1SemanticTransition, Stage6Stage8bP1d2JournalAheadCandidate,
+    Stage6Stage8bP1d3CancelTransition, Stage6Stage8bP1d3DispatchOnlyCandidate,
+    Stage6Stage8bP1d3JournalAheadCandidate, Stage6Stage8bP1d3LaterTransition,
+    Stage6Stage8bP1d3RecoveredTransition, Stage6Stage8bP1d3RestartPhase,
+    Stage6Stage8bP1d4JournalAheadCandidate, Stage6Stage8bP1d4JournalAheadKind,
+    Stage6Stage8bP1eScheduleBindingPending, Stage6dDurableRuntimeRecovered,
+    Stage6dFirstBootAuthorization, Stage6dLiveCoreError, Stage6dOperationalIdentityConfig,
+    Stage6dPaperDispatchReceipt, Stage6dPaperExecutionReport, Stage6dPaperOutcome,
+    Stage7aPaperAdmission, Stage7aPaperCommandContext, Stage7bFinalizedRequestFacts,
+    Stage8bP1d1CanonicalM10Evidence, Stage8bP1d1CommandDecisionBinding,
+    Stage8bP1d1ExecutionEligible, Stage8bP1d1ExecutionScheduleAuthority,
+    Stage8bP1d1MarketDispatchReady, Stage8bP1d1MarketOutcomeBundle, Stage8bP1d2FeedbackAuditCoreV1,
     Stage8bP1d3CanonicalM10Evidence, Stage8bP1d3DayExpiryAuthority, Stage8bP1d3InitialObservation,
     Stage8bP1d3LaterObservation, Stage8bP1d3ScheduleStepAuthority,
     Stage8bP1d3SemanticSourceBinding, Stage8bP1d4CommandPublicationBindingV1,
     Stage8bP1d4CommandPublicationReservationV1, Stage8bP1d4GeneratedMarketPackageState,
-    Stage8bP1eCommittedScheduleBindingV1, Stage8bP1eScheduleBindingCandidateV1,
+    Stage8bP1eAuthenticatedRestartPackageV2Audit, Stage8bP1eCommittedScheduleBindingV1,
+    Stage8bP1eFirstBootProvenanceV1, Stage8bP1eScheduleBindingCandidateV1,
 };
 
 use crate::stage8b_p1_bootstrap::{
@@ -630,6 +632,10 @@ impl Stage7bRecoverySealV1 {
         &self.stage6d_restart_package_sha256
     }
 
+    pub(crate) fn stage6d_authenticated_restart_package(&self) -> &[u8] {
+        &self.stage6d_authenticated_restart_package
+    }
+
     pub fn stage6_checkpoint(&self) -> &Stage6JournalCheckpointV1 {
         &self.stage6_checkpoint
     }
@@ -835,6 +841,57 @@ pub struct Stage7bRecoveryReadyOwner {
     journal_mutation_uncertain: bool,
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     stage8a4_test_fail_before_covering_seal: bool,
+}
+
+/// Crate-private linear first-boot authority stopped at the exact
+/// journal-durable / initial-seal-absent frontier. Stage 8B-P1-e uses this
+/// boundary to persist and reread its authenticated transaction marker before
+/// committing the initial recovery seal.
+pub(crate) struct Stage7bP1eJournalDurableFirstBoot {
+    recovered: Stage6dDurableRuntimeRecovered,
+    writer_lease: Stage7bKernelWriterLease,
+    initial_seal: Stage7bRecoverySealV1,
+    identity: Stage6dOperationalIdentityConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Stage7bP1eAdoptionMaterial {
+    pub package: Stage8bP1eAuthenticatedRestartPackageV2Audit,
+    pub seal_generation: u64,
+    pub seal_commitment_sha256: String,
+    pub stage6_checkpoint_sha256: String,
+}
+
+impl Stage7bP1eJournalDurableFirstBoot {
+    pub(crate) fn commit_initial_seal(
+        self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage7bRecoveryReadyOwner, Stage7bRecoveryError> {
+        validate_recovered_binding(&self.recovered, &self.initial_seal, &self.identity)?;
+        self.writer_lease.commit_recovery_seal(&self.initial_seal)?;
+        self.writer_lease.validate_namespace()?;
+        let bytes = self
+            .writer_lease
+            .read_committed_recovery_seal()?
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let reread = Stage7bRecoverySealV1::decode_canonical(
+            &bytes,
+            self.initial_seal.operational_identity_sha256(),
+            commitment_key,
+        )?;
+        if reread != self.initial_seal {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Stage7bRecoveryReadyOwner {
+            recovered: self.recovered,
+            writer_lease: self.writer_lease,
+            committed_seal: reread,
+            seal_commit_uncertain: false,
+            journal_mutation_uncertain: false,
+            #[cfg(feature = "stage8a4-i3-test-fixtures")]
+            stage8a4_test_fail_before_covering_seal: false,
+        })
+    }
 }
 
 /// Linear post-V4 owner. Construction is possible only through the existing
@@ -3747,6 +3804,68 @@ impl Stage7bRecoveryReadyOwner {
         self.append_stage8a4_validated_entry_and_cover(commitment_key, authority)
     }
 
+    pub(crate) fn begin_stage8b_p1e_first_boot(
+        root: Stage7bDurableRootAuthority,
+        identity: Stage6dOperationalIdentityConfig,
+        authorization: Stage6dFirstBootAuthorization,
+        stage5g_seed: &[u8],
+        first_boot_provenance: Stage8bP1eFirstBootProvenanceV1,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        fresh_runtime: HybridIntradayRuntimeStrategy,
+    ) -> Result<Stage7bP1eJournalDurableFirstBoot, Stage7bRecoveryError> {
+        root.validate_bound_identity(&identity)?;
+        if root.regular_child_exists(STAGE7B_RECOVERY_SEAL_FILE)? {
+            return Err(Stage7bRecoveryError::SealAlreadyExists);
+        }
+        if stage5g_seed.is_empty() {
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::RestartPackageDecode,
+            ));
+        }
+        if !authorization
+            .authorizes_runtime_config_fingerprint(&fresh_runtime.stage5c_config_fingerprint())
+        {
+            return Err(Stage7bRecoveryError::RuntimeConfigMismatch);
+        }
+        let validated_stage5g_seed =
+            restore_stage5g_clean_restart(stage5g_seed, commitment_key, fresh_runtime).map_err(
+                |error| Stage7bRecoveryError::Runtime(Stage6dLiveCoreError::Stage5gRestart(error)),
+            )?;
+        let empty_journal = Stage6OwnedJournalBackend::memory();
+        let checkpoint = Stage6JournalCheckpointV1::from_frontier(empty_journal.frontier().clone())
+            .map_err(Stage7bDurableStorageError::from)?;
+        let stage6d_package = seal_stage6d_restart_package_v2(
+            stage5g_seed,
+            checkpoint.clone(),
+            identity.clone(),
+            first_boot_provenance,
+            commitment_key,
+        )?;
+        let identity_sha256 = stage6d_operational_identity_sha256(&identity)?;
+        let initial_seal = Stage7bRecoverySealV1::new(
+            1,
+            stage6d_package,
+            checkpoint,
+            identity_sha256.as_str().to_string(),
+            commitment_key,
+        )?;
+        let storage = Stage7bWritableDurableAuthority::create_new(root, &identity, &authorization)?;
+        let (journal, writer_lease) = storage.into_recovery_parts();
+        let recovered = first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal(
+            authorization,
+            validated_stage5g_seed,
+            journal,
+            identity.clone(),
+        )?;
+        validate_recovered_binding(&recovered, &initial_seal, &identity)?;
+        Ok(Stage7bP1eJournalDurableFirstBoot {
+            recovered,
+            writer_lease,
+            initial_seal,
+            identity,
+        })
+    }
+
     pub fn first_boot(
         root: Stage7bDurableRootAuthority,
         identity: Stage6dOperationalIdentityConfig,
@@ -4338,6 +4457,36 @@ impl Stage7bRecoveryReadyOwner {
     pub fn committed_seal(&self) -> Result<&Stage7bRecoverySealV1, Stage7bRecoveryError> {
         self.writer_lease.validate_namespace()?;
         Ok(&self.committed_seal)
+    }
+
+    pub(crate) fn stage8b_p1e_adoption_material(
+        &mut self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<Stage7bP1eAdoptionMaterial, Stage7bRecoveryError> {
+        self.revalidate_cached_committed_seal(commitment_key)?;
+        if !self.recovery_ready() || !self.recovered.stage8b_p1e_initial_adoption_ready() {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let package = inspect_stage8b_p1e_authenticated_restart_package_v2(
+            self.committed_seal.stage6d_authenticated_restart_package(),
+            commitment_key,
+        )?;
+        if package.operational_identity_sha256 != self.committed_seal.operational_identity_sha256()
+            || package.stage6_checkpoint_sha256
+                != self.committed_seal.stage6_checkpoint().checkpoint_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Stage7bP1eAdoptionMaterial {
+            package,
+            seal_generation: self.committed_seal.seal_generation(),
+            seal_commitment_sha256: self.committed_seal.seal_commitment_sha256().to_string(),
+            stage6_checkpoint_sha256: self
+                .committed_seal
+                .stage6_checkpoint()
+                .checkpoint_sha256()
+                .to_string(),
+        })
     }
 
     /// Non-cancellable Stage 8B-P1-e binding boundary. The method consumes
@@ -5884,10 +6033,12 @@ fn commit_stage8b_p1_replacement_seal(
         .cloned()
         .ok_or(Stage7bRecoveryError::SealInvalid)?;
     let checkpoint = recovered.authenticated_checkpoint().clone();
-    let stage6d_package = seal_stage6d_restart_package(
+    let stage6d_package = replace_stage5g_in_stage6d_restart_package(
+        current.stage6d_authenticated_restart_package(),
+        current.stage6_checkpoint(),
         &stage5g_restart_package,
         checkpoint.clone(),
-        identity.clone(),
+        &identity,
         commitment_key,
     )?;
     let next = Stage7bRecoverySealV1::new(

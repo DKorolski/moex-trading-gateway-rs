@@ -102,6 +102,18 @@ impl Stage8bP1ValidatedBootstrapConfig {
     pub const fn command_consumer_generation(&self) -> u64 {
         self.operational_identity.command_consumer_generation
     }
+
+    pub(crate) fn operational_identity(&self) -> &Stage6dOperationalIdentityConfig {
+        &self.operational_identity
+    }
+
+    pub(crate) fn durable_parent(&self) -> &Path {
+        &self.durable_parent
+    }
+
+    pub(crate) fn expected_root_name(&self) -> &str {
+        &self.expected_root_name
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -129,6 +141,13 @@ pub struct Stage8bP1RedisNamespace {
 pub struct Stage8bP1FirstBootAdminCommand {
     operational_identity_sha256: String,
     runtime_config_fingerprint_sha256: String,
+}
+
+impl Stage8bP1FirstBootAdminCommand {
+    pub(crate) fn matches(&self, config: &Stage8bP1ValidatedBootstrapConfig) -> bool {
+        self.operational_identity_sha256 == config.operational_identity_sha256
+            && self.runtime_config_fingerprint_sha256 == config.runtime_config_fingerprint_sha256
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -494,7 +513,7 @@ pub fn restart_stage8b_p1(
     Ok(outcome)
 }
 
-fn validate_initial_source(
+pub(crate) fn validate_initial_source(
     config: &Stage8bP1ValidatedBootstrapConfig,
     source: &Stage5gTimerReadyPaperStrategy,
     fresh_runtime: &HybridIntradayRuntimeStrategy,

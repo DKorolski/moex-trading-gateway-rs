@@ -1672,3 +1672,20 @@ deployable owner loop, signal/panic/exit handling, the complete route/restart
 process matrix, systemd/install material and aggregate I1 acceptance remain to
 be implemented separately. Operational Redis DB0/DB15, VPS activation, FINAM
 POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 transaction V5 source candidate (2026-09-14)
+
+The first-boot governance correction at
+`21eaf01916f2da5eaacb191b4d7339a8101070ad` is independently accepted and is
+the immutable predecessor of the active source slice. The candidate implements
+transaction V5, authenticated receipt V2 and exact first-boot provenance in a
+Stage 6 restart package V2. Ten filesystem crash hooks have deterministic
+classifications; the four post-seal response-loss frontiers can resume to the
+same adopted authority. Stage 6 advance and Stage 5G replacement preserve the
+V2 provenance instead of silently resealing as V1.
+
+This remains a source-review candidate, not complete deployable I1. Pre-seal
+administrative recovery, the owner loop and the process signal/panic/restart
+matrix are subsequent review slices. Operational Redis DB0/DB15, VPS
+activation, operational credentials, FINAM POST/DELETE, broker dispatch,
+runtime-live and real orders remain closed.

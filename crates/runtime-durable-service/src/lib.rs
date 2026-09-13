@@ -281,6 +281,7 @@ mod stage8b_p1_bootstrap;
 mod stage8b_p1_semantic;
 mod stage8b_p1_supervisor;
 mod stage8b_p1e_first_boot_source;
+mod stage8b_p1e_first_boot_transaction;
 mod stage8b_p1e_schedule_source;
 
 pub use recovery::{
@@ -422,7 +423,21 @@ pub use stage8b_p1e_first_boot_source::{
     Stage8bP1eValidatedFirstBootSourceV1, STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS,
     STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS, STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN,
     STAGE8B_P1E_FIRST_BOOT_SOURCE_GROUP, STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
-    STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION, STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256, STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION,
+    STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS,
+};
+pub use stage8b_p1e_first_boot_transaction::{
+    classify_stage8b_p1e_first_boot_v5, first_boot_stage8b_p1e_transaction_v5,
+    recover_stage8b_p1e_first_boot_adoption_v5, Stage8bP1FirstBootReceiptV2,
+    Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1eFirstBootClassificationV5,
+    Stage8bP1eFirstBootInspectionV5, Stage8bP1eFirstBootTransactionError,
+    Stage8bP1eFirstBootTransactionMarkerV4, Stage8bP1eFirstBootTransactionOutcomeV5,
+    Stage8bP1eFirstBootTransactionPhaseV4, STAGE8B_P1E_ADOPTION_PREDICATE_VERSION,
+    STAGE8B_P1E_DEPLOYMENT_IDENTITY_V2_SHA256, STAGE8B_P1E_FIRST_BOOT_QUARANTINE_DIRECTORY,
+    STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE, STAGE8B_P1E_FIRST_BOOT_RECEIPT_SCHEMA_VERSION,
+    STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE, STAGE8B_P1E_TRANSACTION_MARKER_FILE,
+    STAGE8B_P1E_TRANSACTION_MARKER_SCHEMA_VERSION, STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE,
+    STAGE8B_P1E_TRANSACTION_V5_CONTRACT_VERSION,
 };
 pub use stage8b_p1e_schedule_source::{
     bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,

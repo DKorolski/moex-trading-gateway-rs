@@ -68,6 +68,58 @@ impl Stage5gLifecycleCommitmentKey {
         tag.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
+    /// Domain-separated authentication for the Stage 8B-P1-e provenance-
+    /// bearing Stage 6 restart envelope. The lifecycle credential remains
+    /// opaque; callers can authenticate only the already digested envelope
+    /// commitment.
+    pub fn stage6d_v2_hmac_sha256(&self, commitment_sha256: &str) -> String {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage6d.authenticated-restart-frontier.v2\0");
+        mac.update(commitment_sha256.as_bytes());
+        let tag = mac.finalize().into_bytes();
+        tag.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    pub fn stage6d_v2_verify_hmac_sha256(
+        &self,
+        commitment_sha256: &str,
+        expected_hmac_sha256: &str,
+    ) -> bool {
+        let Some(tag) = decode_sha256_hex(expected_hmac_sha256) else {
+            return false;
+        };
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(b"moex.stage6d.authenticated-restart-frontier.v2\0");
+        mac.update(commitment_sha256.as_bytes());
+        mac.verify_slice(&tag).is_ok()
+    }
+
+    /// Authenticates an exact already-framed Stage 8B-P1-e transaction or
+    /// receipt preimage without exposing the credential bytes.
+    pub fn stage8b_p1e_framed_hmac_sha256(&self, preimage: &[u8]) -> String {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(preimage);
+        let tag = mac.finalize().into_bytes();
+        tag.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    pub fn stage8b_p1e_verify_framed_hmac_sha256(
+        &self,
+        preimage: &[u8],
+        expected_hmac_sha256: &str,
+    ) -> bool {
+        let Some(tag) = decode_sha256_hex(expected_hmac_sha256) else {
+            return false;
+        };
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.0).expect("fixed-size Stage 5G HMAC key is valid");
+        mac.update(preimage);
+        mac.verify_slice(&tag).is_ok()
+    }
+
     pub(crate) fn stage6d_verify_hmac_sha256(
         &self,
         commitment_sha256: &str,
