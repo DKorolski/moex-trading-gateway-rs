@@ -17,6 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 Mutation = Callable[[Path], None]
 
 
+class HarnessError(RuntimeError):
+    """Raised when a harness control or mutation does not behave as required."""
+
+
 def edit_json(root: Path, relative: Path, edit: Callable[[dict], None]) -> None:
     path = root / relative
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -41,6 +45,9 @@ def copy_fixture(destination: Path) -> None:
         checker.PLAN_V1_PATH,
         checker.CONTRACT_PATH,
         checker.SOURCE_GATE_PATH,
+        checker.GOVERNANCE_CHECKER_PATH,
+        checker.GOVERNANCE_NEGATIVE_PATH,
+        checker.GOVERNANCE_GATE_PATH,
         checker.STATUS_PATH,
         checker.SOURCE_PATH,
         checker.SUPERVISOR_PATH,
@@ -51,16 +58,18 @@ def copy_fixture(destination: Path) -> None:
         shutil.copy2(ROOT / relative, target)
 
 
-def mutations() -> list[tuple[str, Mutation]]:
+def mutations() -> list[tuple[str, str, Mutation]]:
     return [
         (
             "active-plan-domain",
+            "immutable_hash",
             lambda root: edit_json(
                 root, checker.PLAN_PATH, lambda value: value.__setitem__("domain", "forged")
             ),
         ),
         (
             "accepted-source-ref",
+            "contract_violation",
             lambda root: edit_json(
                 root,
                 checker.CLOSURE_PATH,
@@ -69,6 +78,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "active-schema-hash",
+            "contract_violation",
             lambda root: edit_json(
                 root,
                 checker.CLOSURE_PATH,
@@ -79,6 +89,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "historical-plan-hash",
+            "contract_violation",
             lambda root: edit_json(
                 root,
                 checker.CLOSURE_PATH,
@@ -89,6 +100,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "legacy-v1-reopened",
+            "immutable_hash",
             lambda root: edit_json(
                 root,
                 checker.PLAN_PATH,
@@ -99,6 +111,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "history-count-only",
+            "immutable_hash",
             lambda root: edit_json(
                 root,
                 checker.PLAN_PATH,
@@ -109,6 +122,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "candidate-builder-bypass",
+            "immutable_hash",
             lambda root: edit_json(
                 root,
                 checker.PLAN_PATH,
@@ -119,6 +133,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "candidate-m1-cardinality",
+            "immutable_hash",
             lambda root: edit_json(
                 root,
                 checker.PLAN_PATH,
@@ -127,6 +142,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "review-hash-rebind",
+            "contract_violation",
             lambda root: edit_json(
                 root,
                 checker.CLOSURE_PATH,
@@ -137,6 +153,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "transaction-v5-premature-acceptance",
+            "contract_violation",
             lambda root: edit_json(
                 root,
                 checker.CLOSURE_PATH,
@@ -147,6 +164,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "deployable-owner-loop-opened",
+            "contract_violation",
             lambda root: edit_json(
                 root,
                 checker.CLOSURE_PATH,
@@ -157,6 +175,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "finam-write-opened",
+            "contract_violation",
             lambda root: edit_json(
                 root,
                 checker.CLOSURE_PATH,
@@ -167,6 +186,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "source-wire-version-downgrade",
+            "contract_violation",
             lambda root: replace_text(
                 root,
                 checker.SOURCE_PATH,
@@ -176,6 +196,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "supervisor-path-override",
+            "contract_violation",
             lambda root: replace_text(
                 root,
                 checker.SUPERVISOR_PATH,
@@ -185,6 +206,7 @@ def mutations() -> list[tuple[str, Mutation]]:
         ),
         (
             "status-premature-completion",
+            "contract_violation",
             lambda root: replace_text(
                 root,
                 checker.STATUS_PATH,
@@ -195,24 +217,105 @@ def mutations() -> list[tuple[str, Mutation]]:
     ]
 
 
-def main() -> int:
+def make_fixture() -> tempfile.TemporaryDirectory[str]:
+    return tempfile.TemporaryDirectory(prefix="stage8b-p1e-i1-governance-")
+
+
+def require_positive_control() -> None:
+    with make_fixture() as temporary:
+        root = Path(temporary)
+        copy_fixture(root)
+        try:
+            checker.check(root, repository_root=ROOT)
+        except checker.GovernanceCheckError as error:
+            raise HarnessError(
+                f"positive control failed code={error.code}: {error}"
+            ) from error
+    print("PASS positive-control-same-check-path")
+
+
+def mutation_rejection_code(root: Path, mutate: Mutation) -> str | None:
+    mutate(root)
+    try:
+        checker.check(root, repository_root=ROOT)
+    except checker.GovernanceCheckError as error:
+        return error.code
+    return None
+
+
+def require_noop_control() -> None:
+    try:
+        run_mutation_cases(
+            [("noop-control", "contract_violation", lambda _: None)],
+            emit_pass=False,
+        )
+    except HarnessError as error:
+        if str(error) != "noop-control: mutation was accepted":
+            raise HarnessError(
+                f"no-op control failed for an unrelated reason: {error}"
+            ) from error
+    else:
+        raise HarnessError("no-op mutation was incorrectly counted as rejected")
+    print("PASS no-op-mutation-is-not-counted")
+
+
+def require_missing_git_is_infrastructure() -> None:
+    with make_fixture() as temporary:
+        root = Path(temporary)
+        copy_fixture(root)
+        try:
+            checker.check(root)
+        except checker.GovernanceCheckError as error:
+            if error.code != "infrastructure":
+                raise HarnessError(
+                    "missing Git authority returned unexpected "
+                    f"code={error.code}: {error}"
+                ) from error
+        else:
+            raise HarnessError("fixture without Git authority unexpectedly passed")
+    print("PASS missing-git-authority-is-infrastructure")
+
+
+def run_mutation_cases(
+    cases: list[tuple[str, str, Mutation]], *, emit_pass: bool = True
+) -> int:
     passed = 0
-    cases = mutations()
-    for name, mutate in cases:
-        with tempfile.TemporaryDirectory(prefix="stage8b-p1e-i1-governance-") as temporary:
+    for name, expected_code, mutate in cases:
+        with make_fixture() as temporary:
             root = Path(temporary)
             copy_fixture(root)
-            mutate(root)
-            try:
-                checker.check(root)
-            except checker.GovernanceCheckError:
-                passed += 1
-                print(f"PASS {name}")
-            else:
-                print(f"FAIL {name}: mutation was accepted", file=sys.stderr)
-                return 1
-    print(f"PASS stage8b-p1e-i1-first-boot-governance-negative-harness {passed}/{len(cases)}")
-    return 0
+            code = mutation_rejection_code(root, mutate)
+            if code is None:
+                raise HarnessError(f"{name}: mutation was accepted")
+            if code != expected_code:
+                raise HarnessError(
+                    f"{name}: expected code={expected_code}, got code={code}"
+                )
+            passed += 1
+            if emit_pass:
+                print(f"PASS {name} code={code}")
+    return passed
+
+
+def main() -> int:
+    try:
+        require_positive_control()
+        require_noop_control()
+        require_missing_git_is_infrastructure()
+
+        cases = mutations()
+        passed = run_mutation_cases(cases)
+        print(
+            "PASS stage8b-p1e-i1-first-boot-governance-negative-harness "
+            f"semantic_cases={passed}/{len(cases)} controls=3/3"
+        )
+        return 0
+    except (HarnessError, RuntimeError, ValueError) as error:
+        print(
+            f"FAIL stage8b-p1e-i1-first-boot-governance-negative-harness: {error}",
+            file=sys.stderr,
+        )
+        return 1
 
 
 if __name__ == "__main__":

@@ -1650,7 +1650,13 @@ F00 filesystem tests. The correction at `4d7ee64` received `SOURCE ACCEPT` on
 binds wire schema/domain v2, while the design-pinned v1 facade and fixed-path
 names remain compatibility names and the v1 wire artifacts remain historical
 review evidence only. The separate governance closure is the current review
-candidate; complete deployable I1 is not yet accepted.
+candidate; complete deployable I1 is not yet accepted. The first closure at
+`3d43c89` received HOLD solely because its mutation harness could count a
+missing-Git infrastructure error as a semantic rejection. The active narrow
+correction requires a same-path positive fixture, rejects no-op mutations,
+classifies missing Git authority as infrastructure and matches every semantic
+mutation to its expected failure category. It does not change accepted
+Rust/Cargo source semantics.
 
 The corrected boundary authenticates a fixed observation-only source,
 reconstructs the fixed Hybrid IMOEXF profile, admits fresh flat Stage 4 truth,

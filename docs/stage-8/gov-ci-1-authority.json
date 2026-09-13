@@ -33,7 +33,7 @@
     "stage8b_s_authorized": false
   },
   "governance_control_plane_manifest": {
-    "aggregate_sha256": "23c4bfbfff8365014d45d9c7deece4fdb579891766c824fb9dbd57324a7451b8",
+    "aggregate_sha256": "73341ba755a31b7cad09697eb9636e1d135ee799ca7fe3eaa5edf1c24e1be8fc",
     "entries": {
       ".github/workflows/ci.yml": {
         "mode": "100644",
@@ -47,8 +47,8 @@
       },
       "docs/current-status.md": {
         "mode": "100644",
-        "sha256": "98878bb157a66b7db08e10c08b5500e7476c6e1524a9018d2b89a6d7f6646828",
-        "size": 111981
+        "sha256": "bf5eb72d9c4051239de3f6ff890ee9f482d0dbec8a672cdb3db133d7b978dd51",
+        "size": 112405
       },
       "docs/roadmap.md": {
         "mode": "100644",

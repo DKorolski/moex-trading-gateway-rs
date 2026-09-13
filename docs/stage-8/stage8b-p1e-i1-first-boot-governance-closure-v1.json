@@ -2,7 +2,7 @@
   "schema_version": 1,
   "domain": "moex.stage8b.p1e.i1.first-boot-governance-closure.v1",
   "stage": "Stage 8B-P1-e I1 F00-F17 first-boot source correction",
-  "status": "GOVERNANCE_CLOSURE_REVIEW_CANDIDATE",
+  "status": "GOVERNANCE_HARNESS_CORRECTION_REVIEW_CANDIDATE",
   "accepted_source": {
     "source_ref": "4d7ee64730ffba72d21f9b51a2c65e7d1b8a2721",
     "source_tree": "9f79fd31c393a1e5b555202e086de290a5819c3f",
@@ -47,6 +47,35 @@
     "name": "transaction V5 / receipt V2 / provenance binding",
     "crash_and_adoption_tests_required": true,
     "deployable_owner_loop_authorized": false
+  },
+  "governance_harness_correction": {
+    "held_closure_ref": "3d43c89a481abc61c3f7541d0807c52a813fb39f",
+    "held_closure_tree": "7002fe68715ebe8e1b9bb31e5c6188b61e4e7976",
+    "review_file": "FINAM_I1_FIRST_BOOT_GOVERNANCE_REVIEW_3d43c89_2026-09-13.md",
+    "review_sha256": "6ebcd63203cd828cc713938cf77238affebfcbb531dde44c560266d9019966ce",
+    "review_verdict": "HOLD",
+    "artifacts": {
+      "checker": {
+        "path": "scripts/stage8b_p1e_i1_first_boot_governance_check.py",
+        "sha256": "605038ba91243061ed4073c11be130fe856418133cc1913adef24cfa11931760"
+      },
+      "negative_harness": {
+        "path": "scripts/stage8b_p1e_i1_first_boot_governance_negative_harness.py",
+        "sha256": "93df4dea217ae341bbf962a3fa14422cc8aa76291e12a0042f25e2196387f407"
+      },
+      "aggregate_gate": {
+        "path": "scripts/stage8b_p1e_i1_first_boot_governance_gate.sh",
+        "sha256": "0ed1a986a34f35c3f3014162ef36495239de27aef18b266dd8583a6ad1b3b6f1"
+      }
+    },
+    "required_controls": {
+      "positive_fixture_same_check_path": true,
+      "noop_mutation_fails_harness": true,
+      "missing_git_authority_is_infrastructure": true,
+      "semantic_mutation_expected_code_required": true
+    },
+    "semantic_mutation_cases": 15,
+    "rust_or_cargo_changed": false
   },
   "closed_surfaces": {
     "operational_redis_db0_db15": false,

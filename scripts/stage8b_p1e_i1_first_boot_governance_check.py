@@ -15,8 +15,13 @@ ACCEPTED_SOURCE_REF = "4d7ee64730ffba72d21f9b51a2c65e7d1b8a2721"
 ACCEPTED_SOURCE_TREE = "9f79fd31c393a1e5b555202e086de290a5819c3f"
 PARENT_HOLD_REF = "21fda88fefdcae9ca555697e32c677f8623ba6de"
 ACCEPTED_PREDECESSOR = "8360c4701b6abbe75ced988cf8dd2d74487e1846"
+HELD_CLOSURE_REF = "3d43c89a481abc61c3f7541d0807c52a813fb39f"
+HELD_CLOSURE_TREE = "7002fe68715ebe8e1b9bb31e5c6188b61e4e7976"
 ACCEPTANCE_REVIEW_SHA256 = (
     "d1baa8fe5ca0e6acc37948deceb120bde9906e32aeb14adf75cf7981e80737b1"
+)
+HOLD_REVIEW_SHA256 = (
+    "6ebcd63203cd828cc713938cf77238affebfcbb531dde44c560266d9019966ce"
 )
 SOURCE_PLAN_V2_SHA256 = (
     "2a507577075b8b5315a462ffeee221dd0a7f8a8f61d42516fbdb9346cc3464ca"
@@ -52,6 +57,15 @@ CONTRACT_PATH = Path(
     "docs/stage-8/stage8b-p1e-i1-first-boot-correction-contract-v2.md"
 )
 SOURCE_GATE_PATH = Path("scripts/stage8b_p1e_i1_first_boot_correction_gate.sh")
+GOVERNANCE_CHECKER_PATH = Path(
+    "scripts/stage8b_p1e_i1_first_boot_governance_check.py"
+)
+GOVERNANCE_NEGATIVE_PATH = Path(
+    "scripts/stage8b_p1e_i1_first_boot_governance_negative_harness.py"
+)
+GOVERNANCE_GATE_PATH = Path(
+    "scripts/stage8b_p1e_i1_first_boot_governance_gate.sh"
+)
 STATUS_PATH = Path("docs/current-status.md")
 SOURCE_PATH = Path(
     "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs"
@@ -77,10 +91,14 @@ CLOSED_SURFACES = {
 class GovernanceCheckError(RuntimeError):
     """Raised when the governance closure contract is not satisfied."""
 
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
-def require(condition: bool, message: str) -> None:
+
+def require(condition: bool, message: str, code: str = "contract_violation") -> None:
     if not condition:
-        raise GovernanceCheckError(message)
+        raise GovernanceCheckError(code, message)
 
 
 def sha256_file(path: Path) -> str:
@@ -91,15 +109,19 @@ def load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise GovernanceCheckError(f"cannot load {path}: {error}") from error
+        raise GovernanceCheckError("content_error", f"cannot load {path}: {error}") from error
     require(isinstance(value, dict), f"{path} must contain a JSON object")
     return value
 
 
 def require_hash(root: Path, path: Path, expected: str) -> None:
     absolute = root / path
-    require(absolute.is_file(), f"missing required file: {path}")
-    require(sha256_file(absolute) == expected, f"immutable hash drift: {path}")
+    require(absolute.is_file(), f"missing required file: {path}", "content_error")
+    require(
+        sha256_file(absolute) == expected,
+        f"immutable hash drift: {path}",
+        "immutable_hash",
+    )
 
 
 def require_closed_surfaces(value: Any, owner: str) -> None:
@@ -111,7 +133,7 @@ def require_closed_surfaces(value: Any, owner: str) -> None:
     )
 
 
-def check(root: Path) -> None:
+def check_content(root: Path) -> None:
     root = root.resolve()
 
     for path in (
@@ -122,11 +144,18 @@ def check(root: Path) -> None:
         PLAN_V1_PATH,
         CONTRACT_PATH,
         SOURCE_GATE_PATH,
+        GOVERNANCE_CHECKER_PATH,
+        GOVERNANCE_NEGATIVE_PATH,
+        GOVERNANCE_GATE_PATH,
         STATUS_PATH,
         SOURCE_PATH,
         SUPERVISOR_PATH,
     ):
-        require((root / path).is_file(), f"missing required file: {path}")
+        require(
+            (root / path).is_file(),
+            f"missing required file: {path}",
+            "content_error",
+        )
 
     require_hash(root, PLAN_PATH, SOURCE_PLAN_V2_SHA256)
     require_hash(root, SCHEMA_V2_PATH, WIRE_SCHEMA_V2_SHA256)
@@ -236,8 +265,9 @@ def check(root: Path) -> None:
         "closure domain drift",
     )
     require(
-        closure.get("status") == "GOVERNANCE_CLOSURE_REVIEW_CANDIDATE",
-        "closure must remain a review candidate",
+        closure.get("status")
+        == "GOVERNANCE_HARNESS_CORRECTION_REVIEW_CANDIDATE",
+        "closure must remain a harness-correction review candidate",
     )
 
     accepted = closure.get("accepted_source")
@@ -325,6 +355,64 @@ def check(root: Path) -> None:
     )
     require_closed_surfaces(closure.get("closed_surfaces"), "closure")
 
+    correction = closure.get("governance_harness_correction")
+    require(
+        isinstance(correction, dict),
+        "governance_harness_correction must be an object",
+    )
+    require(
+        correction.get("held_closure_ref") == HELD_CLOSURE_REF,
+        "held closure ref drift",
+    )
+    require(
+        correction.get("held_closure_tree") == HELD_CLOSURE_TREE,
+        "held closure tree drift",
+    )
+    require(correction.get("review_verdict") == "HOLD", "HOLD verdict drift")
+    require(
+        correction.get("review_sha256") == HOLD_REVIEW_SHA256,
+        "HOLD review hash drift",
+    )
+    required_artifacts = {
+        "checker": GOVERNANCE_CHECKER_PATH,
+        "negative_harness": GOVERNANCE_NEGATIVE_PATH,
+        "aggregate_gate": GOVERNANCE_GATE_PATH,
+    }
+    artifacts = correction.get("artifacts")
+    require(isinstance(artifacts, dict), "correction artifacts must be an object")
+    require(
+        set(artifacts) == set(required_artifacts),
+        "correction artifact inventory drift",
+    )
+    for name, expected_path in required_artifacts.items():
+        entry = artifacts.get(name)
+        require(isinstance(entry, dict), f"correction artifact {name} must be an object")
+        require(entry.get("path") == expected_path.as_posix(), f"{name} path drift")
+        require(
+            entry.get("sha256") == sha256_file(root / expected_path),
+            f"{name} hash drift",
+        )
+    controls = correction.get("required_controls")
+    require(isinstance(controls, dict), "required_controls must be an object")
+    require(
+        controls
+        == {
+            "missing_git_authority_is_infrastructure": True,
+            "noop_mutation_fails_harness": True,
+            "positive_fixture_same_check_path": True,
+            "semantic_mutation_expected_code_required": True,
+        },
+        "governance harness controls drift",
+    )
+    require(
+        correction.get("semantic_mutation_cases") == 15,
+        "semantic mutation case count drift",
+    )
+    require(
+        correction.get("rust_or_cargo_changed") is False,
+        "governance correction claims a Rust/Cargo change",
+    )
+
     source_text = (root / SOURCE_PATH).read_text(encoding="utf-8")
     for token in (
         "STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION: u16 = 2",
@@ -351,17 +439,33 @@ def check(root: Path) -> None:
     ):
         require(token in status_text, f"current status marker missing: {token}")
 
+def check_repository(repository_root: Path) -> None:
+    repository_root = repository_root.resolve()
     try:
         tree = subprocess.run(
             ["git", "rev-parse", f"{ACCEPTED_SOURCE_REF}^{{tree}}"],
-            cwd=root,
+            cwd=repository_root,
             check=True,
             capture_output=True,
             text=True,
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError) as error:
-        raise GovernanceCheckError("accepted source commit is not locally verifiable") from error
-    require(tree == ACCEPTED_SOURCE_TREE, "accepted source Git tree does not match closure")
+        raise GovernanceCheckError(
+            "infrastructure",
+            "accepted source commit is not locally verifiable",
+        ) from error
+    require(
+        tree == ACCEPTED_SOURCE_TREE,
+        "accepted source Git tree does not match closure",
+        "provenance",
+    )
+
+
+def check(root: Path, repository_root: Path | None = None) -> None:
+    """Check content and Git provenance, optionally using a trusted checkout."""
+
+    check_content(root)
+    check_repository(root if repository_root is None else repository_root)
 
 
 def main() -> int:
@@ -369,7 +473,11 @@ def main() -> int:
     try:
         check(root)
     except GovernanceCheckError as error:
-        print(f"FAIL stage8b-p1e-i1-first-boot-governance-check: {error}", file=sys.stderr)
+        print(
+            "FAIL stage8b-p1e-i1-first-boot-governance-check "
+            f"code={error.code}: {error}",
+            file=sys.stderr,
+        )
         return 1
     print(
         "PASS stage8b-p1e-i1-first-boot-governance-check "
