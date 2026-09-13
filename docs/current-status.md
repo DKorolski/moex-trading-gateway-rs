@@ -1645,11 +1645,12 @@ recovery without opening deployable I1 or operational activation.
 
 The initial I1 F00-F17 first-boot checkpoint at `21fda88` received HOLD for an
 unbound candidate semantic ID, date-count-only History completeness and missing
-F00 filesystem tests. The active correction upgrades the authenticated wire
-source to schema/domain v2 while preserving the design-pinned v1 facade name.
-It recomputes the candidate through the accepted canonical P1 M10 identity,
-requires exact config-bound session-window coverage, and exercises the fixed
-loader against regular/link/mode/identity/size/change/FIFO cases.
+F00 filesystem tests. The correction at `4d7ee64` received `SOURCE ACCEPT` on
+2026-09-13: P1-FB01, P1-FB02 and P2-FB03 are closed. Active source-plan v2 now
+binds wire schema/domain v2, while the design-pinned v1 facade and fixed-path
+names remain compatibility names and the v1 wire artifacts remain historical
+review evidence only. The separate governance closure is the current review
+candidate; complete deployable I1 is not yet accepted.
 
 The corrected boundary authenticates a fixed observation-only source,
 reconstructs the fixed Hybrid IMOEXF profile, admits fresh flat Stage 4 truth,
