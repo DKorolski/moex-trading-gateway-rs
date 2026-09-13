@@ -11,6 +11,7 @@ import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ACCEPTED_DESIGN = "aa24e840ed8b7d18c80be6f1fdd8f50facf5b6d4"
+REVIEWED_SOURCE = "9d7eb32cbee0e64acdc831881cb6e69ef27ce29b"
 EXPECTED_CHANGED = {
     "crates/finam-gateway/src/lib.rs",
     "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs",
@@ -53,6 +54,8 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "core": "crates/strategy-runtime-core/src/stage5e_no_io_lifecycle.rs",
         "journal": "crates/strategy-runtime-core/src/stage6_reconciliation_v2.rs",
         "live": "crates/strategy-runtime-core/src/stage6d_live_core.rs",
+        "p1d1": "crates/strategy-runtime-core/src/stage8b_p1d1_paper_provider.rs",
+        "p1d3": "crates/strategy-runtime-core/src/stage8b_p1d3_working_limit.rs",
         "service": "crates/runtime-durable-service/src/recovery.rs",
         "reader": "crates/runtime-durable-service/src/stage8b_p1e_schedule_source.rs",
         "redis": "crates/runtime-durable-service/src/stage8b_p1_semantic/redis.rs",
@@ -99,6 +102,8 @@ def validate_content(content: dict[str, str]) -> None:
     core = content["core"]
     journal = content["journal"]
     live = content["live"]
+    p1d1 = content["p1d1"]
+    p1d3 = content["p1d3"]
     service = content["service"]
     reader = content["reader"]
     redis_source = content["redis"]
@@ -125,6 +130,8 @@ def validate_content(content: dict[str, str]) -> None:
         "signed_trading_day_transition_is_monotonic_and_payload_projection_is_exact",
         "accepted_r2_semantic_fixture_hashes_match_the_production_hasher",
         "signed_v4_recovery_reconstructs_only_the_exact_historical_binding",
+        "consumer_accepts_late_join_and_same_hash_revision_jump",
+        "let Some(prior) = prior else {\n            return Ok(Stage8bP1eScheduleProgressionV1::Bootstrap);",
     ):
         require(token in core, f"core source invariant missing: {token}")
     require(
@@ -151,8 +158,33 @@ def validate_content(content: dict[str, str]) -> None:
         ".append_versioned(&Stage6JournalRecordVersioned::V4(record.clone()))",
         "self.refresh_after_append()?",
         "p1e_v4_journal_ahead_classifier_accepts_only_one_exact_successor",
+        "fn stage8b_p1e_current_v4_for_replacement",
+        "stage8b_p1e_replacement_is_current_or_v4_bound",
+        "apply_stage8b_p1d3_evaluation_stage_after_schedule_binding",
+        "apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding",
     ):
         require(token in live, f"journal-ahead invariant missing: {token}")
+
+    for token in (
+        "v4_proof:\n        Option<crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1>",
+        "fn bound_at_utc(&self) -> Option<DateTime<Utc>>",
+        "p1e_market_binding_matches_exact_request_command_and_predecessor_m10",
+    ):
+        require(token in p1d1, f"market V4 continuation invariant missing: {token}")
+
+    for token in (
+        "enum Stage8bP1d3ScheduleStepRoute",
+        "Stage8bP1d3ScheduleStepRoute::Working",
+        "Stage8bP1d3ScheduleStepRoute::Cancel",
+        "if step.route == Stage8bP1d3ScheduleStepRoute::Cancel",
+        "pub(crate) fn matches_stage8b_p1e_schedule_v4_record",
+        "apply_stage8b_p1d3_evaluation_stage_after_schedule_binding",
+        "apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding",
+        "fn ordered_autonomous_receipt_timestamp",
+        "schedule_route_restriction_reaches_the_effect_boundary",
+        "all_eight_fresh_and_recovery_paths_match_checked_in_canonical_goldens",
+    ):
+        require(token in p1d3, f"P1-d3 V4/route invariant missing: {token}")
 
     binding_commit = section(
         service,
@@ -211,7 +243,18 @@ def validate_content(content: dict[str, str]) -> None:
         "latches_e_and_f_retain_the_exact_committed_binding_without_a_second_seal",
         "clear_latches_issue_one_route_bound_authority_after_one_binding_seal",
         "v4_binding_uses_existing_append_cover_reread_chain",
-        "v4_journal_ahead_restart_commits_exactly_one_covering_seal",
+        "pub enum Stage8bP1eScheduleBindingCommitV1",
+        "pub fn resume_stage8b_p1e_committed_schedule_binding",
+        "signed_reader_accepts_late_join_retention_and_a_b_a_snapshot_progression",
+        "signed_reader_rejects_revision_rollback_and_sequence_or_hash_conflicts",
+        "signal_after_latch_d_and_binding_is_observed_by_mandatory_latch_e",
+        "signed_v4_market_reaches_existing_effect_and_restart_once",
+        "signed_v4_working_untouched_reaches_existing_effect_once",
+        "signed_v4_working_fill_survives_binding_and_effect_restarts_without_duplication",
+        "signed_v4_day_expiry_reaches_existing_effect_and_restart_once",
+        "signed_closed_cancel_authority_cannot_enter_working_evaluation",
+        "signed_closed_cancel_authority_reaches_cancel_effect_once",
+        "v4_journal_ahead_restart_commits_one_seal_and_reaches_market_effect_once",
     ):
         require(token in reader, f"binding/latch invariant missing: {token}")
 
@@ -278,20 +321,26 @@ def validate_content(content: dict[str, str]) -> None:
         "105 x 2",
         "Redis DB15/DB0 activation",
         "FINAM POST/DELETE",
+        "consumer snapshot progression",
+        "signed snapshot -> V4 -> seal/reread -> route authority -> existing effect",
+        "mandatory checkpoint E",
     ):
         require(token in document, f"implementation document invariant missing: {token}")
 
     evidence = json.loads(content["evidence"])
     require(evidence["stage"] == "Stage 8B-P1-e I1A source implementation", "evidence stage drift")
-    require(evidence["status"] == "SOURCE_REVIEW_CANDIDATE", "evidence status drift")
+    require(evidence["status"] == "SOURCE_CORRECTION_REVIEW_CANDIDATE", "evidence status drift")
     require(evidence["accepted_design_ref"] == ACCEPTED_DESIGN, "evidence design ref drift")
+    require(evidence["reviewed_source_ref"] == REVIEWED_SOURCE, "evidence reviewed source ref drift")
     require(evidence["acceptance_rows"] == 81 and evidence["r2_overlay_rows"] == 8, "evidence inventory drift")
+    require(evidence["source_negative_cases"] == 82, "evidence source negative inventory drift")
     require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
     require(evidence["next_stage_authorized"] is False, "next source/deployment stage opened early")
 
 
 def validate_repository() -> None:
     require(git("rev-parse", "HEAD") != ACCEPTED_DESIGN, "source implementation must be a new commit")
+    require(git("rev-parse", "HEAD^") == REVIEWED_SOURCE, "source correction parent drifted")
     require(
         not git("status", "--porcelain", "--untracked-files=all"),
         "source acceptance requires a clean immutable worktree",
@@ -350,7 +399,8 @@ def main() -> None:
     print(
         "PASS stage8b-p1e-i1a-source-check "
         "acceptance=81 r2_overlay=8 v1_v2_v3=unchanged v4=schedule_evidence_bound "
-        "reader=newest-only publisher=signed-durable latches=A-F db0=false db15=false finam_write=false live=false"
+        "reader=newest-only consumer=snapshot-semantics effects=market-working-cancel-expiry "
+        "publisher=signed-durable latches=A-F db0=false db15=false finam_write=false live=false"
     )
 
 

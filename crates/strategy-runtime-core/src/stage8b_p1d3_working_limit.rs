@@ -158,6 +158,16 @@ pub struct Stage8bP1d3ScheduleStepAuthority {
     last_eligible_m10_redis_id: String,
     predecessor_redis_id: String,
     candidate_redis_id: String,
+    route: Stage8bP1d3ScheduleStepRoute,
+    v4_proof:
+        Option<crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stage8bP1d3ScheduleStepRoute {
+    Legacy,
+    Working,
+    Cancel,
 }
 
 /// One-use boundary authority issued only after Stage 5E proves that the
@@ -167,6 +177,51 @@ pub struct Stage8bP1d3DayExpiryAuthority {
     trading_day_identity: String,
     last_eligible_m10_redis_id: String,
     boundary_ts_utc_ms: i64,
+    v4_proof:
+        Option<crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1>,
+}
+
+impl Stage8bP1d3ScheduleStepAuthority {
+    pub(crate) fn matches_stage8b_p1e_v4_record(
+        &self,
+        record: &crate::Stage6JournalRecordV4,
+        candidate: &Stage8bP1d3CanonicalM10Evidence,
+    ) -> bool {
+        let expected_kind = match self.route {
+            Stage8bP1d3ScheduleStepRoute::Working => {
+                crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+            }
+            Stage8bP1d3ScheduleStepRoute::Cancel => {
+                crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
+            }
+            Stage8bP1d3ScheduleStepRoute::Legacy => return false,
+        };
+        self.v4_proof.as_ref().is_some_and(|proof| {
+            proof.transition_kind() == expected_kind
+                && proof.matches_record(record)
+                && record.schedule_semantic_sha256() == self.schedule_fingerprint_sha256
+                && record.trading_day() == self.trading_day_identity
+                && record.predecessor_m10().redis_id == self.predecessor_redis_id
+                && record.candidate_or_last_eligible_m10().redis_id == self.candidate_redis_id
+                && self.candidate_redis_id == candidate.redis_id
+        })
+    }
+}
+
+impl Stage8bP1d3DayExpiryAuthority {
+    pub(crate) fn matches_stage8b_p1e_v4_record(
+        &self,
+        record: &crate::Stage6JournalRecordV4,
+    ) -> bool {
+        self.v4_proof.as_ref().is_some_and(|proof| {
+            proof.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry
+                && proof.matches_record(record)
+                && record.schedule_semantic_sha256() == self.schedule_fingerprint_sha256
+                && record.trading_day() == self.trading_day_identity
+                && record.candidate_or_last_eligible_m10().redis_id
+                    == self.last_eligible_m10_redis_id
+        })
+    }
 }
 
 /// Crate-private production bridge from a fully verified Stage 5E schedule
@@ -178,6 +233,8 @@ pub(crate) fn stage8b_p1d3_schedule_step_authority_from_stage5e(
     last_eligible_m10_redis_id: String,
     predecessor_redis_id: String,
     candidate_redis_id: String,
+    cancel_only: bool,
+    v4_proof: crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1,
 ) -> Result<Stage8bP1d3ScheduleStepAuthority, Stage8bP1d3Error> {
     let predecessor_ms = exact_m10_redis_id_ms(&predecessor_redis_id)?;
     let candidate_ms = exact_m10_redis_id_ms(&candidate_redis_id)?;
@@ -195,6 +252,12 @@ pub(crate) fn stage8b_p1d3_schedule_step_authority_from_stage5e(
         last_eligible_m10_redis_id,
         predecessor_redis_id,
         candidate_redis_id,
+        route: if cancel_only {
+            Stage8bP1d3ScheduleStepRoute::Cancel
+        } else {
+            Stage8bP1d3ScheduleStepRoute::Working
+        },
+        v4_proof: Some(v4_proof),
     })
 }
 
@@ -206,6 +269,7 @@ pub(crate) fn stage8b_p1d3_day_expiry_authority_from_stage5e(
     trading_day_identity: String,
     last_eligible_m10_redis_id: String,
     boundary_ts_utc_ms: i64,
+    v4_proof: crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1,
 ) -> Result<Stage8bP1d3DayExpiryAuthority, Stage8bP1d3Error> {
     let last_eligible_ms = exact_m10_redis_id_ms(&last_eligible_m10_redis_id)?;
     if !is_sha256(&schedule_fingerprint_sha256)
@@ -220,6 +284,7 @@ pub(crate) fn stage8b_p1d3_day_expiry_authority_from_stage5e(
         trading_day_identity,
         last_eligible_m10_redis_id,
         boundary_ts_utc_ms,
+        v4_proof: Some(v4_proof),
     })
 }
 
@@ -411,6 +476,18 @@ impl Stage8bP1d3LaterObservation {
         match self {
             Self::Candidate { evidence, .. } => evidence.close_ts_utc_ms,
             Self::DayExpiry { authority } => authority.boundary_ts_utc_ms,
+        }
+    }
+
+    pub(crate) fn matches_stage8b_p1e_v4_record(
+        &self,
+        record: &crate::Stage6JournalRecordV4,
+    ) -> bool {
+        match self {
+            Self::Candidate { evidence, schedule } => {
+                schedule.matches_stage8b_p1e_v4_record(record, evidence)
+            }
+            Self::DayExpiry { authority } => authority.matches_stage8b_p1e_v4_record(record),
         }
     }
 }
@@ -638,6 +715,7 @@ pub(crate) struct Stage8bP1d3CancelInput {
     pub pre_position_avg_price: Option<Decimal>,
     pub sequence_allocation_frontier: u64,
     pub stage6_dispatch_record_id: String,
+    pub stage6_dispatch_lifecycle_sequence: u64,
     pub stage6_predecessor_frontier_sha256: String,
     pub target_stage6_reserved_checkpoint_sha256: Option<String>,
     pub stage6_reserved_checkpoint_sha256: String,
@@ -963,8 +1041,84 @@ impl Stage8bP1d3ReplacementProjectionV1 {
         )
     }
 
+    /// Repeats the candidate cross-binding against the exact authenticated
+    /// V4 tail during continuation. This permits one post-binding Stage 6
+    /// checkpoint without treating an arbitrary stale replacement as current.
+    pub(crate) fn matches_stage8b_p1e_schedule_v4_record(
+        &self,
+        record: &crate::Stage6JournalRecordV4,
+    ) -> Result<bool, Stage8bP1d3Error> {
+        self.validate()?;
+        if !matches!(
+            self.phase,
+            Stage8bP1d3BookPhase::Working | Stage8bP1d3BookPhase::Eval
+        ) || !matches!(
+            record.transition_kind(),
+            crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+                | crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
+                | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry
+        ) || record.operational_identity_sha256()
+            != self.working_book.operational_identity_sha256
+        {
+            return Ok(false);
+        }
+        let Some(active) = self.working_book.active_record() else {
+            return Ok(false);
+        };
+        let binding = record.request_or_order_binding();
+        if binding.active_broker_order_id.as_deref() != Some(active.broker_order_id.as_str())
+            || binding.working_book_transition_sha256.as_deref()
+                != Some(self.working_book.latest_transition_sha256.as_str())
+            || active.trading_day_identity != record.trading_day()
+        {
+            return Ok(false);
+        }
+        let predecessor = record.predecessor_m10();
+        let exact_current_m10 = active.last_evaluated_m10_redis_id.as_deref()
+            == Some(predecessor.redis_id.as_str())
+            && active.last_evaluated_m10_semantic_id_sha256.as_deref()
+                == Some(predecessor.semantic_id_sha256.as_str())
+            && active.last_evaluated_m10_payload_sha256.as_deref()
+                == Some(predecessor.payload_sha256.as_str())
+            && active.last_evaluated_close_ts_utc_ms == Some(predecessor.close_ts_utc_ms)
+            && predecessor.open_ts_utc_ms == predecessor.close_ts_utc_ms.saturating_sub(600_000);
+        if record.transition_kind() != crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry {
+            return Ok(exact_current_m10);
+        }
+        let last_eligible = record.candidate_or_last_eligible_m10();
+        Ok(
+            active.last_evaluated_m10_redis_id.as_deref() == Some(last_eligible.redis_id.as_str())
+                && active.last_evaluated_m10_semantic_id_sha256.as_deref()
+                    == Some(last_eligible.semantic_id_sha256.as_str())
+                && active.last_evaluated_m10_payload_sha256.as_deref()
+                    == Some(last_eligible.payload_sha256.as_str())
+                && active.last_evaluated_close_ts_utc_ms == Some(last_eligible.close_ts_utc_ms)
+                && last_eligible.open_ts_utc_ms
+                    == last_eligible.close_ts_utc_ms.saturating_sub(600_000),
+        )
+    }
+
     pub(crate) fn authenticated_stage6_checkpoint_sha256(&self) -> &str {
         &self.authenticated_stage6_checkpoint_sha256
+    }
+
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    pub(crate) fn stage8b_p1e_test_working_binding_parts(
+        &self,
+    ) -> Option<(BrokerOrderId, String, crate::Stage8bP1eM10IdentityV1)> {
+        let active = self.working_book.active_record()?;
+        let close_ts_utc_ms = active.last_evaluated_close_ts_utc_ms?;
+        Some((
+            active.broker_order_id.clone(),
+            self.working_book.latest_transition_sha256.clone(),
+            crate::Stage8bP1eM10IdentityV1 {
+                close_ts_utc_ms,
+                open_ts_utc_ms: close_ts_utc_ms.checked_sub(600_000)?,
+                payload_sha256: active.last_evaluated_m10_payload_sha256.clone()?,
+                redis_id: active.last_evaluated_m10_redis_id.clone()?,
+                semantic_id_sha256: active.last_evaluated_m10_semantic_id_sha256.clone()?,
+            },
+        ))
     }
 
     pub(crate) fn rebind_semantic_request_checkpoint(
@@ -1482,6 +1636,24 @@ pub(crate) fn apply_stage8b_p1d3_autonomous_truth_stage(
         outcome_record,
         binding,
         false,
+        None,
+        commitment_key,
+    )
+}
+
+pub(crate) fn apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding(
+    restored_working: crate::Stage5gCleanRestartedCapability,
+    outcome_record: &crate::Stage6JournalRecordV3,
+    binding: Stage8bP1d3Stage6RecoveryBinding,
+    authenticated_schedule_checkpoint_sha256: String,
+    commitment_key: &crate::Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1d3ReplacementStageResult, Stage8bP1d3Error> {
+    apply_stage8b_p1d3_autonomous_truth_stage_inner(
+        restored_working,
+        outcome_record,
+        binding,
+        false,
+        Some(authenticated_schedule_checkpoint_sha256),
         commitment_key,
     )
 }
@@ -1501,6 +1673,7 @@ pub(crate) fn apply_stage8b_p1d3_cancel_target_truth_stage(
         outcome_record,
         binding,
         true,
+        None,
         commitment_key,
     )
 }
@@ -1510,8 +1683,14 @@ fn apply_stage8b_p1d3_autonomous_truth_stage_inner(
     outcome_record: &crate::Stage6JournalRecordV3,
     binding: Stage8bP1d3Stage6RecoveryBinding,
     allow_cancel_dispatch_predecessor: bool,
+    authenticated_schedule_checkpoint_sha256: Option<String>,
     commitment_key: &crate::Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1d3ReplacementStageResult, Stage8bP1d3Error> {
+    let after_schedule_binding = match authenticated_schedule_checkpoint_sha256.as_deref() {
+        Some(checkpoint) if is_sha256(checkpoint) => true,
+        Some(_) => return Err(Stage8bP1d3Error::IdentityMismatch),
+        None => false,
+    };
     let authenticated_post_checkpoint_sha256 = binding.authenticated_post_checkpoint_sha256.clone();
     let authenticated = outcome_record.authenticate_p1d3_outcome(binding)?;
     if !matches!(
@@ -1544,9 +1723,20 @@ fn apply_stage8b_p1d3_autonomous_truth_stage_inner(
     ) {
         return Err(Stage8bP1d3Error::InvalidTransition);
     }
-    let plan = recover_stage8b_p1d3_outcome_transition(current.working_book(), authenticated)?;
+    let plan = recover_stage8b_p1d3_outcome_transition_inner(
+        current.working_book(),
+        authenticated,
+        after_schedule_binding,
+    )?;
     let exact_predecessor = plan.evidence.stage6_predecessor_frontier_sha256
         == current.authenticated_stage6_checkpoint_sha256;
+    let exact_schedule_predecessor = authenticated_schedule_checkpoint_sha256
+        .as_ref()
+        .filter(|checkpoint| is_sha256(checkpoint))
+        .is_some_and(|checkpoint| {
+            plan.evidence.stage6_predecessor_frontier_sha256 == *checkpoint
+                && checkpoint != &current.authenticated_stage6_checkpoint_sha256
+        });
     let exact_cancel_target = allow_cancel_dispatch_predecessor
         && plan.evidence.outcome_kind == Stage8bP1d3OutcomeKind::LaterFilled
         && semantic_commit.as_ref().is_some_and(|semantic| {
@@ -1556,7 +1746,7 @@ fn apply_stage8b_p1d3_autonomous_truth_stage_inner(
                     if cancel.order_id == plan.evidence.broker_order_id
             )
         });
-    if !exact_predecessor && !exact_cancel_target {
+    if !exact_predecessor && !exact_schedule_predecessor && !exact_cancel_target {
         return Err(Stage8bP1d3Error::IdentityMismatch);
     }
     let truth = plan
@@ -1631,6 +1821,33 @@ pub(crate) fn apply_stage8b_p1d3_evaluation_stage(
     evaluation: Stage8bP1d3LaterEvaluationPlan,
     commitment_key: &crate::Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1d3EvaluationStageResult, Stage8bP1d3Error> {
+    apply_stage8b_p1d3_evaluation_stage_inner(restored_working, evaluation, None, commitment_key)
+}
+
+pub(crate) fn apply_stage8b_p1d3_evaluation_stage_after_schedule_binding(
+    restored_working: crate::Stage5gCleanRestartedCapability,
+    evaluation: Stage8bP1d3LaterEvaluationPlan,
+    expected_pre_binding_checkpoint_sha256: String,
+    authenticated_schedule_checkpoint_sha256: String,
+    commitment_key: &crate::Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1d3EvaluationStageResult, Stage8bP1d3Error> {
+    apply_stage8b_p1d3_evaluation_stage_inner(
+        restored_working,
+        evaluation,
+        Some((
+            expected_pre_binding_checkpoint_sha256,
+            authenticated_schedule_checkpoint_sha256,
+        )),
+        commitment_key,
+    )
+}
+
+fn apply_stage8b_p1d3_evaluation_stage_inner(
+    restored_working: crate::Stage5gCleanRestartedCapability,
+    evaluation: Stage8bP1d3LaterEvaluationPlan,
+    schedule_checkpoint_rebind: Option<(String, String)>,
+    commitment_key: &crate::Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1d3EvaluationStageResult, Stage8bP1d3Error> {
     let current = restored_working
         .stage8b_p1d3_replacement()
         .cloned()
@@ -1641,6 +1858,18 @@ pub(crate) fn apply_stage8b_p1d3_evaluation_stage(
     ) {
         return Err(Stage8bP1d3Error::InvalidTransition);
     }
+    let replacement_checkpoint_sha256 = match schedule_checkpoint_rebind {
+        Some((expected_pre, authenticated_post)) => {
+            if current.authenticated_stage6_checkpoint_sha256 != expected_pre
+                || expected_pre == authenticated_post
+                || !is_sha256(&authenticated_post)
+            {
+                return Err(Stage8bP1d3Error::IdentityMismatch);
+            }
+            authenticated_post
+        }
+        None => current.authenticated_stage6_checkpoint_sha256.clone(),
+    };
     match evaluation {
         Stage8bP1d3LaterEvaluationPlan::AlreadyEvaluated { book } => {
             if book.encode_canonical()? != current.working_book.encode_canonical()? {
@@ -1679,7 +1908,7 @@ pub(crate) fn apply_stage8b_p1d3_evaluation_stage(
                 *evidence,
                 current.previous_outcome_evidence_sha256().to_string(),
                 current.latest_stage6_reservation_sha256,
-                current.authenticated_stage6_checkpoint_sha256,
+                replacement_checkpoint_sha256,
             )?;
             let committed = export_stage8b_p1d3_replacement(
                 runtime,
@@ -1749,7 +1978,7 @@ pub(crate) fn cancel_candidate_requires_target_outcome(
         .last_evaluated_m10_redis_id
         .as_deref()
         .unwrap_or(record.decision_m10_redis_id.as_str());
-    validate_step(step, predecessor, candidate)?;
+    validate_cancel_step(step, predecessor, candidate)?;
     if record.lifecycle != BrokerOrderLifecycle::Active {
         return Ok(false);
     }
@@ -1818,7 +2047,10 @@ impl Stage8bP1d3DeferredCancelAfterTarget {
             self.target_outcome_evidence_sha256,
             self.input.stage6_predecessor_frontier_sha256.clone(),
             self.input.stage6_reserved_checkpoint_sha256.clone(),
-            4,
+            self.input
+                .stage6_dispatch_lifecycle_sequence
+                .checked_add(2)
+                .ok_or(Stage8bP1d3Error::InvalidSequence)?,
         )
     }
 }
@@ -2664,6 +2896,14 @@ pub(crate) fn recover_stage8b_p1d3_outcome_transition(
     pre_book: &Stage8bP1d3WorkingBookProjectionV1,
     authenticated: Stage8bP1d3AuthenticatedOutcomeEvidence,
 ) -> Result<Stage8bP1d3TransitionPlan, Stage8bP1d3Error> {
+    recover_stage8b_p1d3_outcome_transition_inner(pre_book, authenticated, false)
+}
+
+fn recover_stage8b_p1d3_outcome_transition_inner(
+    pre_book: &Stage8bP1d3WorkingBookProjectionV1,
+    authenticated: Stage8bP1d3AuthenticatedOutcomeEvidence,
+    after_schedule_binding: bool,
+) -> Result<Stage8bP1d3TransitionPlan, Stage8bP1d3Error> {
     pre_book.validate()?;
     let Stage8bP1d3AuthenticatedOutcomeEvidence {
         evidence,
@@ -2867,6 +3107,11 @@ pub(crate) fn recover_stage8b_p1d3_outcome_transition(
                 } else {
                     (OrderStatus::Expired, Decimal::ZERO, qty)
                 };
+            let receipt_timestamp = ordered_autonomous_receipt_timestamp(
+                timestamp,
+                evidence.outcome_kind,
+                after_schedule_binding,
+            )?;
             let order = exact_order_snapshot(
                 &record.account_id,
                 &record.broker_order_id,
@@ -2879,7 +3124,7 @@ pub(crate) fn recover_stage8b_p1d3_outcome_transition(
                 BrokerOrderLifecycle::Terminal,
                 filled,
                 remaining,
-                timestamp,
+                receipt_timestamp,
             );
             record.status = status;
             record.lifecycle = BrokerOrderLifecycle::Terminal;
@@ -2908,7 +3153,7 @@ pub(crate) fn recover_stage8b_p1d3_outcome_transition(
                 fill,
                 pre_position_qty,
                 pre_position_avg,
-                timestamp,
+                receipt_timestamp,
             )?);
             phase = Stage8bP1d3BookPhase::Terminal;
             post_book.insert_or_replace(record)?;
@@ -3170,7 +3415,7 @@ pub(crate) fn build_later_limit_transition(
                 .last_evaluated_m10_redis_id
                 .as_deref()
                 .ok_or(Stage8bP1d3Error::InvalidChronology)?;
-            validate_step(&step, predecessor, &candidate)?;
+            validate_working_step(&step, predecessor, &candidate)?;
             let (decision, fill) = decide_limit(record.side, record.limit_price()?, &candidate)?;
             match decision {
                 Stage8bP1d3LimitDecision::Working => build_untouched_evaluation(
@@ -3324,6 +3569,11 @@ fn build_autonomous_outcome(
         .checked_add(1)
         .ok_or(Stage8bP1d3Error::InvalidSequence)?;
     let timestamp = exact_timestamp(transition_ts)?;
+    let receipt_timestamp = ordered_autonomous_receipt_timestamp(
+        timestamp,
+        kind,
+        expiry.is_some_and(|authority| authority.v4_proof.is_some()),
+    )?;
     let trade_id = fill_price.map(|_| {
         derive_trade_id(
             &record.broker_order_id,
@@ -3345,7 +3595,7 @@ fn build_autonomous_outcome(
         BrokerOrderLifecycle::Terminal,
         filled,
         remaining,
-        timestamp,
+        receipt_timestamp,
     );
     let truth = exact_truth_from_record(
         &record,
@@ -3354,7 +3604,7 @@ fn build_autonomous_outcome(
         fill_price,
         input.pre_position_qty,
         input.pre_position_avg_price,
-        timestamp,
+        receipt_timestamp,
     )?;
     record.status = status;
     record.lifecycle = BrokerOrderLifecycle::Terminal;
@@ -3454,7 +3704,7 @@ pub(crate) fn build_cancel_transition(
         .last_evaluated_m10_redis_id
         .as_deref()
         .unwrap_or(record.decision_m10_redis_id.as_str());
-    validate_step(&step, predecessor, &candidate)?;
+    validate_cancel_step(&step, predecessor, &candidate)?;
 
     if record.lifecycle == BrokerOrderLifecycle::Active {
         let (decision, fill) = decide_limit(record.side, record.limit_price()?, &candidate)?;
@@ -3516,7 +3766,10 @@ pub(crate) fn build_cancel_transition(
             input.previous_outcome_evidence_sha256.clone(),
             input.stage6_predecessor_frontier_sha256.clone(),
             input.stage6_reserved_checkpoint_sha256.clone(),
-            3,
+            input
+                .stage6_dispatch_lifecycle_sequence
+                .checked_add(1)
+                .ok_or(Stage8bP1d3Error::InvalidSequence)?,
         )?;
         return Ok(Stage8bP1d3CancelTransitionPlan::Ready(Box::new(cancel)));
     }
@@ -3542,7 +3795,10 @@ pub(crate) fn build_cancel_transition(
         input.previous_outcome_evidence_sha256.clone(),
         input.stage6_predecessor_frontier_sha256.clone(),
         input.stage6_reserved_checkpoint_sha256.clone(),
-        3,
+        input
+            .stage6_dispatch_lifecycle_sequence
+            .checked_add(1)
+            .ok_or(Stage8bP1d3Error::InvalidSequence)?,
     )?;
     Ok(Stage8bP1d3CancelTransitionPlan::Ready(Box::new(cancel)))
 }
@@ -3620,6 +3876,8 @@ pub(crate) fn build_cancel_after_target_transition(
         last_eligible_m10_redis_id: target_evidence.last_eligible_m10_redis_id.clone(),
         predecessor_redis_id: candidate.redis_id.clone(),
         candidate_redis_id: candidate.redis_id.clone(),
+        route: Stage8bP1d3ScheduleStepRoute::Legacy,
+        v4_proof: None,
     };
     validate_cancel_input(pre_book, &input)?;
     let record = pre_book
@@ -3640,7 +3898,10 @@ pub(crate) fn build_cancel_after_target_transition(
         input.previous_outcome_evidence_sha256.clone(),
         input.stage6_predecessor_frontier_sha256.clone(),
         input.stage6_reserved_checkpoint_sha256.clone(),
-        4,
+        input
+            .stage6_dispatch_lifecycle_sequence
+            .checked_add(2)
+            .ok_or(Stage8bP1d3Error::InvalidSequence)?,
     )
 }
 
@@ -3913,7 +4174,7 @@ pub(crate) fn preflight_initial_limit_transition(
     match observation {
         Stage8bP1d3InitialObservation::Candidate { evidence, schedule } => {
             validate_scoped_bar(pre_book, evidence)?;
-            validate_step(schedule, &input.decision_m10_redis_id, evidence)?;
+            validate_working_step(schedule, &input.decision_m10_redis_id, evidence)?;
             if evidence.close_ts_utc_ms <= input.decision_m10_close_ts_utc_ms {
                 return Err(Stage8bP1d3Error::InvalidChronology);
             }
@@ -3970,7 +4231,7 @@ pub(crate) fn build_initial_limit_transition(
         match (candidate.as_ref(), step.as_ref(), expiry.as_ref()) {
             (Some(bar), Some(step), None) => {
                 validate_scoped_bar(pre_book, bar)?;
-                validate_step(step, &input.decision_m10_redis_id, bar)?;
+                validate_working_step(step, &input.decision_m10_redis_id, bar)?;
                 if bar.close_ts_utc_ms <= input.decision_m10_close_ts_utc_ms {
                     return Err(Stage8bP1d3Error::InvalidChronology);
                 }
@@ -4310,6 +4571,7 @@ fn validate_cancel_input(
             != Some(600_000)
         || !is_integral(input.pre_position_qty)
         || !is_sha256(&input.stage6_dispatch_record_id)
+        || input.stage6_dispatch_lifecycle_sequence == 0
         || !is_sha256(&input.stage6_predecessor_frontier_sha256)
         || input
             .target_stage6_reserved_checkpoint_sha256
@@ -4500,7 +4762,7 @@ fn validate_bar(bar: &Stage8bP1d3CanonicalM10Evidence) -> Result<(), Stage8bP1d3
     Ok(())
 }
 
-fn validate_step(
+fn validate_step_identity(
     step: &Stage8bP1d3ScheduleStepAuthority,
     expected_predecessor: &str,
     candidate: &Stage8bP1d3CanonicalM10Evidence,
@@ -4514,6 +4776,28 @@ fn validate_step(
         return Err(Stage8bP1d3Error::IdentityMismatch);
     }
     Ok(())
+}
+
+fn validate_working_step(
+    step: &Stage8bP1d3ScheduleStepAuthority,
+    expected_predecessor: &str,
+    candidate: &Stage8bP1d3CanonicalM10Evidence,
+) -> Result<(), Stage8bP1d3Error> {
+    if step.route == Stage8bP1d3ScheduleStepRoute::Cancel {
+        return Err(Stage8bP1d3Error::InvalidTransition);
+    }
+    validate_step_identity(step, expected_predecessor, candidate)
+}
+
+fn validate_cancel_step(
+    step: &Stage8bP1d3ScheduleStepAuthority,
+    expected_predecessor: &str,
+    candidate: &Stage8bP1d3CanonicalM10Evidence,
+) -> Result<(), Stage8bP1d3Error> {
+    if step.route == Stage8bP1d3ScheduleStepRoute::Working {
+        return Err(Stage8bP1d3Error::InvalidTransition);
+    }
+    validate_step_identity(step, expected_predecessor, candidate)
 }
 
 #[allow(clippy::too_many_arguments)] // Exact broker snapshot construction keeps every canonical field visible.
@@ -4864,6 +5148,20 @@ fn exact_timestamp(value: i64) -> Result<DateTime<Utc>, Stage8bP1d3Error> {
         .ok_or(Stage8bP1d3Error::InvalidChronology)
 }
 
+fn ordered_autonomous_receipt_timestamp(
+    source_timestamp: DateTime<Utc>,
+    outcome_kind: Stage8bP1d3OutcomeKind,
+    after_schedule_binding: bool,
+) -> Result<DateTime<Utc>, Stage8bP1d3Error> {
+    if after_schedule_binding && outcome_kind == Stage8bP1d3OutcomeKind::LaterExpired {
+        source_timestamp
+            .checked_add_signed(chrono::Duration::nanoseconds(1))
+            .ok_or(Stage8bP1d3Error::InvalidChronology)
+    } else {
+        Ok(source_timestamp)
+    }
+}
+
 fn is_integral(value: Decimal) -> bool {
     value.fract() == Decimal::ZERO
 }
@@ -4944,6 +5242,8 @@ pub fn stage8b_p1d3_test_step_authority(
         last_eligible_m10_redis_id,
         predecessor_redis_id,
         candidate_redis_id,
+        route: Stage8bP1d3ScheduleStepRoute::Legacy,
+        v4_proof: None,
     }
 }
 
@@ -4963,6 +5263,7 @@ pub fn stage8b_p1d3_test_expiry_authority(
         trading_day_identity,
         last_eligible_m10_redis_id,
         boundary_ts_utc_ms,
+        v4_proof: None,
     }
 }
 
@@ -5105,6 +5406,18 @@ mod tests {
         )
     }
 
+    fn routed_later_step(route: Stage8bP1d3ScheduleStepRoute) -> Stage8bP1d3ScheduleStepAuthority {
+        Stage8bP1d3ScheduleStepAuthority {
+            schedule_fingerprint_sha256: "1".repeat(64),
+            trading_day_identity: "2026-07-25".to_string(),
+            last_eligible_m10_redis_id: "1785000600000-0".to_string(),
+            predecessor_redis_id: "1785000000000-0".to_string(),
+            candidate_redis_id: "1785000600000-0".to_string(),
+            route,
+            v4_proof: None,
+        }
+    }
+
     fn autonomous_input(book: &Stage8bP1d3WorkingBookProjectionV1) -> Stage8bP1d3AutonomousInput {
         Stage8bP1d3AutonomousInput {
             operational_identity_sha256: "2".repeat(64),
@@ -5148,6 +5461,7 @@ mod tests {
             pre_position_avg_price: None,
             sequence_allocation_frontier: book.total_sequence_frontier,
             stage6_dispatch_record_id: "25".repeat(32),
+            stage6_dispatch_lifecycle_sequence: 2,
             stage6_predecessor_frontier_sha256: "e".repeat(64),
             target_stage6_reserved_checkpoint_sha256: None,
             stage6_reserved_checkpoint_sha256: "28".repeat(32),
@@ -5355,6 +5669,39 @@ mod tests {
                 *cancel_nonexecution,
             ),
         ]
+    }
+
+    #[test]
+    fn schedule_route_restriction_reaches_the_effect_boundary() {
+        let working = initial_working();
+        let candidate = later_bar(
+            Decimal::new(2_200, 1),
+            Decimal::new(2_220, 1),
+            Decimal::new(2_190, 1),
+        );
+        assert_eq!(
+            build_later_limit_transition(
+                &working.post_book,
+                autonomous_input(&working.post_book),
+                Some(candidate.clone()),
+                Some(routed_later_step(Stage8bP1d3ScheduleStepRoute::Cancel)),
+                None,
+            )
+            .expect_err("a cancel-only grant must fail before working evaluation"),
+            Stage8bP1d3Error::InvalidTransition
+        );
+
+        let target = working.post_book.active_broker_order_id.clone().unwrap();
+        let cancel_error = match build_cancel_transition(
+            &working.post_book,
+            cancel_input(&working.post_book, target),
+            candidate,
+            routed_later_step(Stage8bP1d3ScheduleStepRoute::Working),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a working grant must fail before cancel evaluation"),
+        };
+        assert_eq!(cancel_error, Stage8bP1d3Error::InvalidTransition);
     }
 
     #[test]

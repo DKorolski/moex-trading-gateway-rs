@@ -415,12 +415,15 @@ pub use stage8b_p1_supervisor::{
     STAGE8B_P1E_TELEMETRY_RETENTION,
 };
 pub use stage8b_p1e_schedule_source::{
+    bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,
+    bind_stage8b_p1e_market_schedule, bind_stage8b_p1e_working_limit_schedule,
     commit_stage8b_p1e_cancel_schedule, commit_stage8b_p1e_day_expiry_schedule,
     commit_stage8b_p1e_market_schedule, commit_stage8b_p1e_working_limit_schedule,
     continue_stage8b_p1e_day_expiry_schedule, continue_stage8b_p1e_market_schedule,
-    continue_stage8b_p1e_schedule_step, Stage8bP1eGuardedScheduleReadV1,
-    Stage8bP1eNewestScheduleReadV1, Stage8bP1ePostBindingPermitV1, Stage8bP1eRedisScheduleReader,
-    Stage8bP1eScheduleAuthorityDecisionV1, Stage8bP1eScheduleBindingDecisionV1,
+    continue_stage8b_p1e_schedule_step, resume_stage8b_p1e_committed_schedule_binding,
+    Stage8bP1eGuardedScheduleReadV1, Stage8bP1eNewestScheduleReadV1, Stage8bP1ePostBindingPermitV1,
+    Stage8bP1eRedisScheduleReader, Stage8bP1eScheduleAuthorityDecisionV1,
+    Stage8bP1eScheduleBindingCommitV1, Stage8bP1eScheduleBindingDecisionV1,
     Stage8bP1eScheduleLatchCheckpointV1, Stage8bP1eScheduleReadError,
     Stage8bP1eScheduleStopReceiptV1, Stage8bP1eVerifiedScheduleSnapshotV1,
 };

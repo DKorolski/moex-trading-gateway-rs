@@ -1568,6 +1568,14 @@ impl Stage6JournalRecordV4 {
         self.transition_kind
     }
 
+    pub(crate) fn trading_day(&self) -> &str {
+        &self.trading_day
+    }
+
+    pub(crate) fn schedule_semantic_sha256(&self) -> &str {
+        &self.schedule_semantic_sha256
+    }
+
     pub(crate) fn request_or_order_binding(&self) -> &crate::Stage8bP1eRequestOrOrderBindingV1 {
         &self.request_or_order_binding
     }
@@ -2269,35 +2277,73 @@ impl Stage6MixedReplayEngineV2 {
                     } else {
                         seen_schedule_transition_keys.insert(transition_key, canonical.clone());
                     }
-                    if v4.transition_kind()
-                        == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
-                    {
-                        let binding = v4.request_or_order_binding();
-                        let request_id = binding
-                            .strategy_request_id
-                            .as_ref()
-                            .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?;
-                        let state = requests.get_mut(request_id).ok_or(
-                            Stage6ReconciliationV2Error::Replay(
-                                Stage6ReplayError::SequenceStartInvalid,
-                            ),
-                        )?;
-                        if state.batch.is_some() {
-                            return Err(Stage6ReconciliationV2Error::PendingBatchConflict);
+                    match v4.transition_kind() {
+                        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+                            let binding = v4.request_or_order_binding();
+                            let request_id = binding
+                                .strategy_request_id
+                                .as_ref()
+                                .ok_or(Stage6ReconciliationV2Error::InvalidPayload)?;
+                            let state = requests.get_mut(request_id).ok_or(
+                                Stage6ReconciliationV2Error::Replay(
+                                    Stage6ReplayError::SequenceStartInvalid,
+                                ),
+                            )?;
+                            if state.batch.is_some() {
+                                return Err(Stage6ReconciliationV2Error::PendingBatchConflict);
+                            }
+                            let identity = last_unique_request_accepted_identity
+                                .as_ref()
+                                .filter(|identity| {
+                                    identity.action() == Stage6DurableActionKind::Place
+                                        && identity.strategy_request_id().to_string() == *request_id
+                                })
+                                .ok_or(Stage6ReconciliationV2Error::InvalidCausalEnvelope)?;
+                            state.v1.advance_causal_only(
+                                identity,
+                                v4.lifecycle_sequence(),
+                                Some(v4.previous_record_id()),
+                                v4.journal_record_id().clone(),
+                            )?;
                         }
-                        let identity = last_unique_request_accepted_identity
-                            .as_ref()
-                            .filter(|identity| {
-                                identity.action() == Stage6DurableActionKind::Place
-                                    && identity.strategy_request_id().to_string() == *request_id
-                            })
-                            .ok_or(Stage6ReconciliationV2Error::InvalidCausalEnvelope)?;
-                        state.v1.advance_causal_only(
-                            identity,
-                            v4.lifecycle_sequence(),
-                            Some(v4.previous_record_id()),
-                            v4.journal_record_id().clone(),
-                        )?;
+                        crate::Stage8bP1eScheduleTransitionKindV1::CancelStep => {
+                            // A cancel V4 is appended immediately after its accepted
+                            // cancel request.  It binds the active broker order rather
+                            // than repeating the strategy request id, so advance only
+                            // the exact preceding Cancel lifecycle whose target matches
+                            // that authenticated order binding.  Other schedule routes
+                            // remain global-only records.
+                            let binding = v4.request_or_order_binding();
+                            let identity = last_unique_request_accepted_identity
+                                .as_ref()
+                                .filter(|identity| {
+                                    identity.action() == Stage6DurableActionKind::Cancel
+                                        && identity.target_broker_order_id().is_some_and(
+                                            |order_id| {
+                                                binding.active_broker_order_id.as_deref()
+                                                    == Some(order_id.as_str())
+                                            },
+                                        )
+                                })
+                                .ok_or(Stage6ReconciliationV2Error::InvalidCausalEnvelope)?;
+                            let request_key = identity.strategy_request_id().to_string();
+                            let state = requests.get_mut(&request_key).ok_or(
+                                Stage6ReconciliationV2Error::Replay(
+                                    Stage6ReplayError::SequenceStartInvalid,
+                                ),
+                            )?;
+                            if state.batch.is_some() {
+                                return Err(Stage6ReconciliationV2Error::PendingBatchConflict);
+                            }
+                            state.v1.advance_causal_only(
+                                identity,
+                                v4.lifecycle_sequence(),
+                                Some(v4.previous_record_id()),
+                                v4.journal_record_id().clone(),
+                            )?;
+                        }
+                        crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+                        | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry => {}
                     }
                     schedule_binding_records.push(v4.clone());
                 }

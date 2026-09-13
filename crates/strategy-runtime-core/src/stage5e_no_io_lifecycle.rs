@@ -7827,6 +7827,36 @@ pub mod p1e_schedule_source {
     /// ```
     pub struct Stage8bP1eCommittedScheduleBindingV1 {
         candidate: Stage8bP1eScheduleBindingCandidateV1,
+        v4_proof: Stage8bP1eV4BindingProofV1,
+    }
+
+    /// Provenance carried from the exact reread V4 record into the one-use
+    /// route authority. Primitive schedule fields cannot substitute for this
+    /// pre/post-checkpoint binding.
+    #[derive(Debug, PartialEq, Eq)]
+    pub(crate) struct Stage8bP1eV4BindingProofV1 {
+        journal_record_id: String,
+        previous_record_id: String,
+        transition_binding_sha256: String,
+        transition_kind: Stage8bP1eScheduleTransitionKindV1,
+        bound_at_utc: DateTime<Utc>,
+    }
+
+    impl Stage8bP1eV4BindingProofV1 {
+        pub(crate) fn matches_record(&self, record: &crate::Stage6JournalRecordV4) -> bool {
+            self.journal_record_id == record.journal_record_id().as_str()
+                && self.previous_record_id == record.previous_record_id().as_str()
+                && self.transition_binding_sha256 == record.transition_binding_sha256()
+                && self.transition_kind == record.transition_kind()
+        }
+
+        pub(crate) fn transition_kind(&self) -> Stage8bP1eScheduleTransitionKindV1 {
+            self.transition_kind
+        }
+
+        pub(crate) fn bound_at_utc(&self) -> DateTime<Utc> {
+            self.bound_at_utc
+        }
     }
 
     impl Stage8bP1eCommittedScheduleBindingV1 {
@@ -7840,6 +7870,7 @@ pub mod p1e_schedule_source {
             Ok(
                 crate::stage8b_p1d1_paper_provider::stage8b_p1d1_schedule_authority_from_stage5e(
                     *projection,
+                    self.v4_proof,
                 ),
             )
         }
@@ -7867,6 +7898,8 @@ pub mod p1e_schedule_source {
                 last_eligible_m10_redis_id,
                 self.candidate.predecessor_m10.redis_id,
                 self.candidate.candidate_or_last_eligible_m10.redis_id,
+                cancel_only,
+                self.v4_proof,
             )
             .map_err(|_| Stage8bP1eScheduleSourceError::TransitionMismatch)
         }
@@ -7884,6 +7917,7 @@ pub mod p1e_schedule_source {
                 self.candidate.trading_day,
                 self.candidate.candidate_or_last_eligible_m10.redis_id,
                 boundary_ts_utc_ms,
+                self.v4_proof,
             )
             .map_err(|_| Stage8bP1eScheduleSourceError::TransitionMismatch)
         }
@@ -8258,7 +8292,16 @@ pub mod p1e_schedule_source {
             if !record.matches_stage8b_p1e_candidate(&self) {
                 return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
             }
-            Ok(Stage8bP1eCommittedScheduleBindingV1 { candidate: self })
+            Ok(Stage8bP1eCommittedScheduleBindingV1 {
+                candidate: self,
+                v4_proof: Stage8bP1eV4BindingProofV1 {
+                    journal_record_id: record.journal_record_id().as_str().to_string(),
+                    previous_record_id: record.previous_record_id().as_str().to_string(),
+                    transition_binding_sha256: record.transition_binding_sha256().to_string(),
+                    transition_kind: record.transition_kind(),
+                    bound_at_utc: record.bound_at_utc(),
+                },
+            })
         }
     }
 
@@ -9185,9 +9228,6 @@ pub mod p1e_schedule_source {
         candidate: &Stage8bP1eScheduleHighWaterV1,
     ) -> Result<Stage8bP1eScheduleProgressionV1, Stage8bP1eScheduleSourceError> {
         let Some(prior) = prior else {
-            if candidate.semantic_revision != 1 {
-                return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
-            }
             return Ok(Stage8bP1eScheduleProgressionV1::Bootstrap);
         };
         if candidate.source_generation != prior.source_generation {
@@ -9209,8 +9249,6 @@ pub mod p1e_schedule_source {
         if candidate.published_at_utc <= prior.published_at_utc
             || (candidate.semantic_revision == prior.semantic_revision
                 && candidate.schedule_semantic_sha256 != prior.schedule_semantic_sha256)
-            || (candidate.semantic_revision > prior.semantic_revision
-                && candidate.schedule_semantic_sha256 == prior.schedule_semantic_sha256)
         {
             return Err(Stage8bP1eScheduleSourceError::ProgressionConflict);
         }
@@ -10254,29 +10292,42 @@ pub mod p1e_schedule_source {
         }
 
         #[test]
-        fn unchanged_semantics_cannot_claim_a_higher_revision() {
+        fn consumer_accepts_late_join_and_same_hash_revision_jump() {
             let now = timestamp("2026-09-14T12:10:00.000000Z");
             let key = SigningKey::from_bytes(&[0x54; 32]);
             let mut first = open_envelope(now);
+            first.publication_sequence = "7".to_string();
+            first.semantic_revision = "7".to_string();
+            first.published_at_utc = timestamp_text(now - chrono::Duration::seconds(2));
             sign(&mut first, &key);
-            let accepted = verify_with_fixture_key(&first, &context(now, None), &key).unwrap();
-            let mut forged = first;
-            forged.publication_sequence = "2".to_string();
-            forged.semantic_revision = "2".to_string();
-            forged.published_at_utc = timestamp_text(now + chrono::Duration::seconds(1));
-            sign(&mut forged, &key);
+            let accepted = verify_with_fixture_key(&first, &context(now, None), &key)
+                .expect("a new consumer may join after revision-one retention");
             assert_eq!(
-                verify_with_fixture_key(
-                    &forged,
-                    &context(
-                        now + chrono::Duration::seconds(1),
-                        Some(accepted.high_water().clone()),
-                    ),
-                    &key,
-                )
-                .err()
-                .expect("unchanged semantics with a higher revision must be rejected"),
-                Stage8bP1eScheduleSourceError::ProgressionConflict
+                accepted.progression(),
+                Stage8bP1eScheduleProgressionV1::Bootstrap
+            );
+
+            let mut latest = first;
+            latest.publication_sequence = "9".to_string();
+            latest.semantic_revision = "9".to_string();
+            latest.published_at_utc = timestamp_text(now);
+            sign(&mut latest, &key);
+            let progressed = verify_with_fixture_key(
+                &latest,
+                &context(now, Some(accepted.high_water().clone())),
+                &key,
+            )
+            .expect("consumer snapshots may omit an A-to-B-to-A intermediate publication");
+            assert_eq!(
+                progressed.progression(),
+                Stage8bP1eScheduleProgressionV1::MonotonicSnapshot
+            );
+
+            let late_join = verify_with_fixture_key(&latest, &context(now, None), &key)
+                .expect("late join must accept the newest retained signed snapshot");
+            assert_eq!(
+                late_join.progression(),
+                Stage8bP1eScheduleProgressionV1::Bootstrap
             );
         }
 

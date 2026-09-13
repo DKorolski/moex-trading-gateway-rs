@@ -134,6 +134,8 @@ pub struct Stage8bP1d1CanonicalM10Evidence {
 /// this value across the composition boundary without exposing calendar rows.
 pub struct Stage8bP1d1ExecutionScheduleAuthority {
     projection: Stage5eScheduleProjectionBridgeInput,
+    v4_proof:
+        Option<crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1>,
 }
 
 /// Sole crate-internal bridge from a source-produced Stage 5E projection to
@@ -144,8 +146,32 @@ pub struct Stage8bP1d1ExecutionScheduleAuthority {
 )]
 pub(crate) fn stage8b_p1d1_schedule_authority_from_stage5e(
     projection: Stage5eScheduleProjectionBridgeInput,
+    v4_proof: crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1,
 ) -> Stage8bP1d1ExecutionScheduleAuthority {
-    Stage8bP1d1ExecutionScheduleAuthority { projection }
+    Stage8bP1d1ExecutionScheduleAuthority {
+        projection,
+        v4_proof: Some(v4_proof),
+    }
+}
+
+impl Stage8bP1d1ExecutionScheduleAuthority {
+    pub(crate) fn matches_stage8b_p1e_v4_record(
+        &self,
+        record: &crate::Stage6JournalRecordV4,
+    ) -> bool {
+        self.v4_proof.as_ref().is_some_and(|proof| {
+            proof.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+                && proof.matches_record(record)
+        })
+    }
+
+    pub(crate) fn has_stage8b_p1e_v4_proof(&self) -> bool {
+        self.v4_proof.is_some()
+    }
+
+    fn bound_at_utc(&self) -> Option<DateTime<Utc>> {
+        self.v4_proof.as_ref().map(|proof| proof.bound_at_utc())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,6 +457,10 @@ impl Stage8bP1d1CommandDecisionBinding {
         self.durable_identity.strategy_request_id()
     }
 
+    pub(crate) fn canonical_command_sha256(&self) -> &str {
+        &self.canonical_command_sha256
+    }
+
     pub(crate) fn matches_stage8b_p1e_market_candidate(
         &self,
         candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
@@ -664,10 +694,12 @@ pub(crate) fn stage8b_p1d1_eligible_from_canonical_m10(
     schedule_authority: Stage8bP1d1ExecutionScheduleAuthority,
     evidence: Stage8bP1d1CanonicalM10Evidence,
 ) -> Result<Stage8bP1d1ExecutionEligible, Stage8bP1d1ExecutionEligibilityBlockReason> {
+    let observed_at = schedule_authority
+        .bound_at_utc()
+        .or_else(|| DateTime::<Utc>::from_timestamp_millis(evidence.close_ts_utc_ms))
+        .ok_or(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology)?;
     let waiting = begin_stage8b_p1d1_market_wait(schedule_authority.projection, decision)
         .map_err(|_| Stage8bP1d1ExecutionEligibilityBlockReason::WrongCommand)?;
-    let observed_at = DateTime::<Utc>::from_timestamp_millis(evidence.close_ts_utc_ms)
-        .ok_or(Stage8bP1d1ExecutionEligibilityBlockReason::InvalidChronology)?;
     let candidate = canonical_execution_candidate(&waiting.decision, evidence);
     match waiting.observe_candidates(vec![candidate], observed_at) {
         Stage8bP1d1ExecutionObservation::Eligible(eligible) => Ok(*eligible),
@@ -958,7 +990,10 @@ pub fn stage8b_p1d1_test_schedule_authority(
             candidate_close_ts_utc_ms.div_euclid(1_000),
             false,
         );
-    stage8b_p1d1_schedule_authority_from_stage5e(projection)
+    Stage8bP1d1ExecutionScheduleAuthority {
+        projection,
+        v4_proof: None,
+    }
 }
 
 #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]

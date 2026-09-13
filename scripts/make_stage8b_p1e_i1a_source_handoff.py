@@ -42,7 +42,7 @@ def main() -> None:
     source_ref = git("rev-parse", "HEAD").decode().strip()
     source_parent = git("rev-parse", "HEAD^").decode().strip()
     source_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
-    if source_parent != source_check.ACCEPTED_DESIGN:
+    if source_parent != source_check.REVIEWED_SOURCE:
         raise SystemExit(f"stage8b-p1e-i1a-source-handoff: FAIL source_parent={source_parent}")
 
     with tempfile.TemporaryDirectory(prefix="stage8b-p1e-i1a-source-") as temporary:
@@ -85,12 +85,13 @@ def main() -> None:
             {
                 "source_ref": source_ref,
                 "source_parent": source_parent,
+                "reviewed_source_ref": source_check.REVIEWED_SOURCE,
                 "source_tree": source_tree,
                 "branch": branch,
                 "archive_name": archive_name,
                 "worktree_clean": True,
                 "pushed_to_origin": False,
-                "source_negative_cases": 60,
+                "source_negative_cases": 82,
                 "p1d4_sigkill_cells": 105,
                 "p1d4_sigkill_runs": 2,
                 "changed_paths": changed_paths,
@@ -108,6 +109,7 @@ def main() -> None:
             f"source_tree={source_tree}\n"
             f"branch={branch}\n"
             f"accepted_design_ref={source_check.ACCEPTED_DESIGN}\n"
+            f"reviewed_source_ref={source_check.REVIEWED_SOURCE}\n"
             f"archive_name={archive_name}\n"
         ).encode()
         additions = {

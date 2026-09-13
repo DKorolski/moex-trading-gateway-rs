@@ -2373,6 +2373,11 @@ impl Stage8bP1d3SemanticPendingOwner {
         true
     }
 
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1e_test_checkpoint_snapshot(&self) -> (u64, u64, Option<usize>) {
+        self.ready.stage8b_p1e_test_checkpoint_snapshot()
+    }
+
     pub(crate) fn commit_exact_semantic(
         self,
         accepted_bar: Stage5cAcceptedSemanticBar,
@@ -3189,6 +3194,27 @@ impl Stage7bRecoveryReadyOwner {
         self.writer_lease.validate_namespace()?;
         stage8b_p1d3_test_latest_outcome_broker_order_id(&self.recovered)
             .ok_or(Stage7bRecoveryError::SealInvalid)
+    }
+
+    #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
+    #[allow(dead_code)]
+    pub(crate) fn stage8b_p1e_test_working_binding_parts(
+        &self,
+    ) -> Option<(
+        BrokerOrderId,
+        String,
+        strategy_runtime_core::Stage8bP1eM10IdentityV1,
+    )> {
+        self.recovered.stage8b_p1e_test_working_binding_parts()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stage8b_p1e_test_checkpoint_snapshot(&self) -> (u64, u64, Option<usize>) {
+        (
+            self.committed_seal.seal_generation(),
+            self.recovered.journal_frontier().frame_count(),
+            self.recovered.stage8b_p1_stage5c_callback_count(),
+        )
     }
 
     #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]

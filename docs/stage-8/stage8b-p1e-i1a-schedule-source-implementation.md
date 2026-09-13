@@ -1,9 +1,12 @@
 # Stage 8B-P1-e I1A schedule-source implementation
 
-Status: `SOURCE_REVIEW_CANDIDATE`.
+Status: `SOURCE_CORRECTION_REVIEW_CANDIDATE`.
 
 Accepted design predecessor:
 `aa24e840ed8b7d18c80be6f1fdd8f50facf5b6d4`.
+
+Reviewed source corrected by this candidate:
+`9d7eb32cbee0e64acdc831881cb6e69ef27ce29b`.
 
 ## Implemented boundary
 
@@ -52,6 +55,44 @@ read, after verified read/before binding, after non-cancellable binding, and bef
 authority effect. A stop before binding returns the original owner. A stop after
 binding retains the committed V4 owner for exact restart. Clear latches issue one
 route-bound, non-cloneable authority.
+
+## Source-review closure
+
+The consumer snapshot progression is intentionally distinct from producer-adjacent
+progression. A late-joining consumer may bootstrap from any positive retained
+revision, and a higher revision may return to an earlier semantic hash after omitted
+intermediate publications. Same-revision/different-hash, sequence collision,
+rollback, generation drift and invalid-newest fallback remain rejected. Signed
+reader tests exercise late join after retention, A -> B -> A, and the corresponding
+conflicts through the actual verifier and bounded reader path.
+
+The complete continuation is now exercised as:
+
+```text
+signed snapshot -> V4 -> seal/reread -> route authority -> existing effect
+```
+
+The exact V4 proof carries record identity, predecessor, transition binding, route
+kind and binding time into Market, Working, Cancel and Day-expiry consumers. A
+pre-binding P1-d3 replacement is accepted only when the authenticated V4 is the
+single exact current successor; arbitrary stale replacements remain blocked.
+Working untouched/fill, Day-expiry and Market reach their inherited effects and
+survive covered restart without duplicate append, seal, callback or broker-truth
+application. Journal-ahead recovery also completes the Market effect and proves one
+covering seal and one lifecycle effect. Legacy P1-d3 golden bytes are unchanged; the
+V4 Day-expiry path uses a deterministic one-nanosecond receipt discriminator only
+when source time equals the already-observed final M10 boundary.
+
+The schedule-step authority retains an opaque Working/Cancel route tag through the
+effect boundary. A signed Closed -> Cancel grant cannot enter Working evaluation,
+while the same grant reaches only the existing cancel effect.
+
+Binding is split at the non-cancellable durable boundary. The first half returns a
+non-authorizing committed owner; `resume_stage8b_p1e_committed_schedule_binding`
+performs mandatory checkpoint E against newly retained shutdown state before any
+route permit can exist. Checkpoint F remains the final guard before effect. A
+deterministic test raises shutdown after D and after the one completed binding seal,
+then proves E stops without authority or effect.
 
 The source checker pins the 81-row source acceptance inventory and eight-row R2
 semantic overlay. The aggregate source gate runs the accepted R2 design gate, the

@@ -16,6 +16,7 @@ import stage8b_p1e_i1a_source_check as source_check
 
 
 ACCEPTED_DESIGN = source_check.ACCEPTED_DESIGN
+REVIEWED_SOURCE = source_check.REVIEWED_SOURCE
 BRANCH = "stage8b-paper-shadow-resumption"
 PREFIX = "handoff-evidence/"
 MARKER = "handoff-commit.txt"
@@ -57,7 +58,17 @@ def parse_marker(raw: bytes) -> dict[str, str]:
         result[key] = value
     require(
         set(result)
-        == {"stage", "source_short_ref", "source_ref", "source_parent", "source_tree", "branch", "accepted_design_ref", "archive_name"},
+        == {
+            "stage",
+            "source_short_ref",
+            "source_ref",
+            "source_parent",
+            "source_tree",
+            "branch",
+            "accepted_design_ref",
+            "reviewed_source_ref",
+            "archive_name",
+        },
         "marker inventory drift",
     )
     return result
@@ -83,8 +94,9 @@ def check(path: str) -> dict[str, object]:
         marker = parse_marker(files[MARKER])
         require(marker["stage"] == "Stage 8B-P1-e I1A source implementation", "stage mismatch")
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
-        require(marker["source_parent"] == ACCEPTED_DESIGN, "source parent mismatch")
+        require(marker["source_parent"] == REVIEWED_SOURCE, "source parent mismatch")
         require(marker["accepted_design_ref"] == ACCEPTED_DESIGN, "accepted design mismatch")
+        require(marker["reviewed_source_ref"] == REVIEWED_SOURCE, "reviewed source mismatch")
         require(marker["branch"] == BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
 
@@ -92,7 +104,7 @@ def check(path: str) -> dict[str, object]:
         require(common.git_object_id("commit", commit_raw) == marker["source_ref"], "commit object mismatch")
         commit_lines = commit_raw.decode("utf-8").splitlines()
         require(commit_lines[0] == f"tree {marker['source_tree']}", "commit tree mismatch")
-        require(f"parent {ACCEPTED_DESIGN}" in commit_lines, "commit parent mismatch")
+        require(f"parent {REVIEWED_SOURCE}" in commit_lines, "commit parent mismatch")
 
         manifest = json.loads(files[MANIFEST])
         require(manifest["schema_version"] == 3, "manifest version mismatch")
@@ -120,11 +132,12 @@ def check(path: str) -> dict[str, object]:
         evidence = json.loads(files[EVIDENCE])
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
-        require(evidence["source_parent"] == ACCEPTED_DESIGN, "evidence parent mismatch")
+        require(evidence["source_parent"] == REVIEWED_SOURCE, "evidence parent mismatch")
+        require(evidence["reviewed_source_ref"] == REVIEWED_SOURCE, "evidence reviewed source mismatch")
         require(evidence["accepted_design_ref"] == ACCEPTED_DESIGN, "evidence design mismatch")
-        require(evidence["status"] == "SOURCE_REVIEW_CANDIDATE", "evidence status mismatch")
+        require(evidence["status"] == "SOURCE_CORRECTION_REVIEW_CANDIDATE", "evidence status mismatch")
         require(evidence["acceptance_rows"] == 81 and evidence["r2_overlay_rows"] == 8, "evidence inventory mismatch")
-        require(evidence["source_negative_cases"] == 60, "negative count mismatch")
+        require(evidence["source_negative_cases"] == 82, "negative count mismatch")
         require(evidence["p1d4_sigkill_cells"] == 105 and evidence["p1d4_sigkill_runs"] == 2, "crash inventory mismatch")
         require(evidence["changed_paths"] == sorted(source_check.EXPECTED_CHANGED), "changed path inventory mismatch")
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
@@ -135,7 +148,7 @@ def check(path: str) -> dict[str, object]:
         for expected in (
             b"stage8b-p1e-i1a-r2-design-gate: ok",
             b"PASS stage8b-p1e-i1a-source-check",
-            b"PASS stage8b-p1e-i1a-source-negative-harness 60/60",
+            b"PASS stage8b-p1e-i1a-source-negative-harness 82/82",
             b"PASS stage8b-p1d4-source-negative-harness 60/60",
             b"PASS stage8b-p1d4-crash-evidence-check cells=105 runs=2",
             b"PASS stage8b-p1d4-crash-evidence-negative-harness 41/41",
@@ -178,6 +191,7 @@ def check(path: str) -> dict[str, object]:
             "source_ref": marker["source_ref"],
             "source_tree": marker["source_tree"],
             "accepted_design_ref": ACCEPTED_DESIGN,
+            "reviewed_source_ref": REVIEWED_SOURCE,
             "p1d4_sigkill_cells": crash_result["cells"],
             "p1d4_sigkill_runs": crash_result["runs"],
             "result": "PASS",
