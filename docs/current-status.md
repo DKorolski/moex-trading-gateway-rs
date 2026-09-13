@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-07.
+Status date: 2026-09-13.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -1643,14 +1643,22 @@ The I1A source correction at
 closes exact five-field M10 effect binding and V4-prefixed journal-ahead
 recovery without opening deployable I1 or operational activation.
 
-The active implementation boundary is the I1 F00-F17 first-boot composition
-checkpoint. It authenticates a fixed observation-only source, reconstructs the
-fixed Hybrid IMOEXF profile, admits fresh flat Stage 4 truth, warms canonical
-History M10, independently rebuilds and validates High180 riskgate state,
-proves empty pending streams, processes one zero-intent Replay candidate and
-feeds the accepted Stage 5G export/restore plus Stage 8B-P1 durable-root
-transaction. The full integration test proves one identity-derived durable
-directory and restart without a second first boot.
+The initial I1 F00-F17 first-boot checkpoint at `21fda88` received HOLD for an
+unbound candidate semantic ID, date-count-only History completeness and missing
+F00 filesystem tests. The active correction upgrades the authenticated wire
+source to schema/domain v2 while preserving the design-pinned v1 facade name.
+It recomputes the candidate through the accepted canonical P1 M10 identity,
+requires exact config-bound session-window coverage, and exercises the fixed
+loader against regular/link/mode/identity/size/change/FIFO cases.
+
+The corrected boundary authenticates a fixed observation-only source,
+reconstructs the fixed Hybrid IMOEXF profile, admits fresh flat Stage 4 truth,
+warms canonical History M10, independently rebuilds and validates High180
+riskgate state, proves empty pending streams, processes one zero-intent Replay
+candidate and feeds the accepted Stage 5G export/restore plus Stage 8B-P1
+durable-root transaction. Its full fixture contains 10,648 M10 bars across 121
+sessions and 120 non-zero High180 outcomes. The integration test proves one
+identity-derived durable directory and restart without a second first boot.
 
 This checkpoint is not complete I1. Transaction V5/receipt/provenance,
 deployable owner loop, signal/panic/exit handling, the complete route/restart

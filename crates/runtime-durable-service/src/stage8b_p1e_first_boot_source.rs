@@ -9,13 +9,13 @@ use std::{
     collections::BTreeSet,
     ffi::CString,
     fmt,
-    fs::OpenOptions,
+    fs::{Metadata, OpenOptions},
     io::Read,
-    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::Path,
 };
 
-use chrono::{DateTime, Duration, NaiveDate, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc, Weekday};
 use rust_decimal::Decimal;
 use serde::{
     de::{MapAccess, SeqAccess, Visitor},
@@ -31,9 +31,9 @@ use crate::{
     STAGE8B_P1E_RUNTIME_PROFILE_SHA256, STAGE8B_P1_VENUE_SYMBOL,
 };
 
-pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION: u16 = 1;
+pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION: u16 = 2;
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN: &str =
-    "moex.stage8b.p1e.first-boot-source-bundle.v1";
+    "moex.stage8b.p1e.first-boot-source-bundle.v2";
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES: u64 = 16 * 1024 * 1024;
 pub const STAGE8B_P1E_FIRST_BOOT_SOURCE_GROUP: &str = "moex-p1-paper";
 pub const STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS: usize = 121;
@@ -79,6 +79,7 @@ pub struct Stage8bP1eValidatedFirstBootSourceV1 {
     history_bars_sha256: String,
     riskgate_session_observations_sha256: String,
     candidate_semantic_id_sha256: String,
+    candidate_canonical_m10_sha256: String,
     history_bars: Vec<Stage8bP1eFirstBootBarV1>,
     riskgate_observations: Vec<Stage8bP1eRiskGateObservationV1>,
     candidate: Stage8bP1eFirstBootBarV1,
@@ -172,7 +173,7 @@ pub fn build_stage8b_p1_first_boot_source_v1(
             broker_truth_checked_at: source.broker_truth_checked_at,
             history_bars_sha256: source.history_bars_sha256,
             riskgate_session_observations_sha256: source.riskgate_session_observations_sha256,
-            candidate_semantic_id_sha256: source.candidate_semantic_id_sha256,
+            validated_candidate_semantic_id_sha256: source.candidate_semantic_id_sha256,
             history_bars,
             riskgate_observations,
             candidate: core_bar_input(&source.candidate),
@@ -234,6 +235,10 @@ impl Stage8bP1eValidatedFirstBootSourceV1 {
         &self.candidate_semantic_id_sha256
     }
 
+    pub fn candidate_canonical_m10_sha256(&self) -> &str {
+        &self.candidate_canonical_m10_sha256
+    }
+
     pub fn history_bars(&self) -> &[Stage8bP1eFirstBootBarV1] {
         &self.history_bars
     }
@@ -282,6 +287,7 @@ struct FirstBootSourceDocumentV1 {
     captured_at_utc: String,
     broker_truth: FirstBootBrokerTruthV1,
     history_provenance: FirstBootHistoryProvenanceV1,
+    history_coverage: FirstBootHistoryCoverageV2,
     history_bars: Vec<FirstBootHistoryBarV1>,
     riskgate_history: FirstBootRiskGateHistoryV1,
     candidate: FirstBootCandidateBarV1,
@@ -309,6 +315,28 @@ struct FirstBootHistoryProvenanceV1 {
     target_timeframe_sec: u64,
     aggregation_complete: bool,
     gap_absence_proven: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FirstBootHistoryCoverageV2 {
+    source_mode: String,
+    sessions_sha256: String,
+    sessions: Vec<FirstBootHistorySessionV2>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FirstBootHistorySessionV2 {
+    session_date: String,
+    windows: Vec<FirstBootHistoryWindowV2>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FirstBootHistoryWindowV2 {
+    first_close_time_utc: i64,
+    last_close_time_utc: i64,
 }
 
 #[derive(Deserialize)]
@@ -357,7 +385,12 @@ struct FirstBootCandidateBarV1 {
     volume: String,
     is_final: bool,
     origin: String,
+    redis_id: String,
     semantic_id_sha256: String,
+    payload_sha256: String,
+    open_ts_utc_ms: i64,
+    close_ts_utc_ms: i64,
+    source_m1: Vec<crate::Stage8bP1CanonicalM10SourceM1>,
 }
 
 /// Load F00 from the sole accepted fixed path. The file must be root-owned,
@@ -369,28 +402,44 @@ pub fn load_stage8b_p1e_first_boot_source_v1(
 ) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
     let path = Path::new(STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH);
     let expected_gid = service_group_gid()?;
+    let bytes = read_protected_first_boot_source(path, 0, expected_gid, || {})?;
+    parse_stage8b_p1e_first_boot_source_v1(
+        &bytes,
+        supervisor.first_boot_source_bundle_sha256(),
+        supervisor.bootstrap().operational_identity_sha256(),
+        supervisor.bootstrap().account_id().as_str(),
+        trusted_now,
+    )
+}
+
+fn read_protected_first_boot_source<F>(
+    path: &Path,
+    expected_uid: u32,
+    expected_gid: u32,
+    before_read: F,
+) -> Result<Vec<u8>, Stage8bP1eFirstBootSourceError>
+where
+    F: FnOnce(),
+{
+    let before = path
+        .symlink_metadata()
+        .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidFileBoundary)?;
+    validate_source_metadata(&before, expected_uid, expected_gid)?;
     let mut file = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
         .open(path)
         .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidFileBoundary)?;
     let metadata = file
         .metadata()
         .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidFileBoundary)?;
-    let mode = metadata.permissions().mode() & 0o777;
-    if !metadata.file_type().is_file()
-        || metadata.nlink() != 1
-        || metadata.uid() != 0
-        || metadata.gid() != expected_gid
-        || mode & !0o640 != 0
-    {
+    validate_source_metadata(&metadata, expected_uid, expected_gid)?;
+    if !same_source_metadata(&before, &metadata) {
         return Err(Stage8bP1eFirstBootSourceError::InvalidFileBoundary);
-    }
-    if metadata.len() > STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES {
-        return Err(Stage8bP1eFirstBootSourceError::SourceTooLarge);
     }
     let capacity = usize::try_from(metadata.len())
         .map_err(|_| Stage8bP1eFirstBootSourceError::SourceTooLarge)?;
+    before_read();
     let mut bytes = Vec::with_capacity(capacity);
     (&mut file)
         .take(STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES + 1)
@@ -402,24 +451,46 @@ pub fn load_stage8b_p1e_first_boot_source_v1(
     if bytes.len() as u64 > STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES {
         return Err(Stage8bP1eFirstBootSourceError::SourceTooLarge);
     }
-    if bytes.len() as u64 != metadata.len()
-        || after.len() != metadata.len()
-        || after.dev() != metadata.dev()
-        || after.ino() != metadata.ino()
-        || after.uid() != metadata.uid()
-        || after.gid() != metadata.gid()
-        || after.nlink() != metadata.nlink()
-        || after.permissions().mode() & 0o777 != mode
-    {
+    if bytes.len() as u64 != metadata.len() || !same_source_metadata(&metadata, &after) {
         return Err(Stage8bP1eFirstBootSourceError::SourceReadFailed);
     }
-    parse_stage8b_p1e_first_boot_source_v1(
-        &bytes,
-        supervisor.first_boot_source_bundle_sha256(),
-        supervisor.bootstrap().operational_identity_sha256(),
-        supervisor.bootstrap().account_id().as_str(),
-        trusted_now,
-    )
+    Ok(bytes)
+}
+
+fn validate_source_metadata(
+    metadata: &Metadata,
+    expected_uid: u32,
+    expected_gid: u32,
+) -> Result<(), Stage8bP1eFirstBootSourceError> {
+    let mode = metadata.permissions().mode() & 0o777;
+    if !metadata.file_type().is_file()
+        || metadata.file_type().is_symlink()
+        || metadata.file_type().is_fifo()
+        || metadata.nlink() != 1
+        || metadata.uid() != expected_uid
+        || metadata.gid() != expected_gid
+        || mode & !0o640 != 0
+    {
+        return Err(Stage8bP1eFirstBootSourceError::InvalidFileBoundary);
+    }
+    if metadata.len() > STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES {
+        return Err(Stage8bP1eFirstBootSourceError::SourceTooLarge);
+    }
+    Ok(())
+}
+
+fn same_source_metadata(left: &Metadata, right: &Metadata) -> bool {
+    left.dev() == right.dev()
+        && left.ino() == right.ino()
+        && left.len() == right.len()
+        && left.uid() == right.uid()
+        && left.gid() == right.gid()
+        && left.nlink() == right.nlink()
+        && left.permissions().mode() & 0o777 == right.permissions().mode() & 0o777
+        && left.mtime() == right.mtime()
+        && left.mtime_nsec() == right.mtime_nsec()
+        && left.ctime() == right.ctime()
+        && left.ctime_nsec() == right.ctime_nsec()
 }
 
 /// Validate already-read bytes. This remains crate-private so the future
@@ -448,6 +519,12 @@ pub(crate) fn parse_stage8b_p1e_first_boot_source_v1(
         .get("riskgate_history")
         .and_then(Value::as_object)
         .and_then(|riskgate| riskgate.get("session_observations"))
+        .map(canonical_value_sha256)
+        .ok_or(Stage8bP1eFirstBootSourceError::InvalidSchema)?;
+    let coverage_hash = value
+        .get("history_coverage")
+        .and_then(Value::as_object)
+        .and_then(|coverage| coverage.get("sessions"))
         .map(canonical_value_sha256)
         .ok_or(Stage8bP1eFirstBootSourceError::InvalidSchema)?;
     let document: FirstBootSourceDocumentV1 =
@@ -491,6 +568,9 @@ pub(crate) fn parse_stage8b_p1e_first_boot_source_v1(
         || !document.history_provenance.gap_absence_proven
         || document.history_bars.is_empty()
         || history_hash != document.riskgate_history.history_bars_sha256
+        || document.history_coverage.source_mode != "config-bound-explicit-session-windows-v1"
+        || !is_sha256_hex(&document.history_coverage.sessions_sha256)
+        || coverage_hash != document.history_coverage.sessions_sha256
     {
         return Err(Stage8bP1eFirstBootSourceError::InvalidHistory);
     }
@@ -526,7 +606,13 @@ pub(crate) fn parse_stage8b_p1e_first_boot_source_v1(
         );
         history_bars.push(bar);
     }
-    if history_sessions.len() < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS {
+    if history_sessions.len() < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS
+        || !history_coverage_is_exact(
+            &document.history_coverage.sessions,
+            &history_bars,
+            &history_sessions,
+        )
+    {
         return Err(Stage8bP1eFirstBootSourceError::InvalidHistory);
     }
 
@@ -588,7 +674,40 @@ pub(crate) fn parse_stage8b_p1e_first_boot_source_v1(
     if candidate.close_time_utc <= history_tail.close_time_utc
         || candidate.close_time_utc > captured_at.timestamp()
         || candidate_session <= tail_session
-        || !is_sha256_hex(&document.candidate.semantic_id_sha256)
+    {
+        return Err(Stage8bP1eFirstBootSourceError::InvalidCandidate);
+    }
+    let candidate_open_ts_utc_ms = document
+        .candidate
+        .close_ts_utc_ms
+        .checked_sub(600_000)
+        .ok_or(Stage8bP1eFirstBootSourceError::InvalidCandidate)?;
+    if document.candidate.close_ts_utc_ms != candidate.close_time_utc.saturating_mul(1_000)
+        || document.candidate.open_ts_utc_ms != candidate_open_ts_utc_ms
+    {
+        return Err(Stage8bP1eFirstBootSourceError::InvalidCandidate);
+    }
+    let canonical_candidate =
+        crate::build_stage8b_p1_canonical_m10(crate::Stage8bP1CanonicalM10BuildInput {
+            operational_identity_sha256: expected_operational_identity_sha256.to_string(),
+            open_ts_utc_ms: document.candidate.open_ts_utc_ms,
+            close_ts_utc_ms: document.candidate.close_ts_utc_ms,
+            open: document.candidate.open.clone(),
+            high: document.candidate.high.clone(),
+            low: document.candidate.low.clone(),
+            close: document.candidate.close.clone(),
+            volume: document.candidate.volume.clone(),
+            source_m1: document.candidate.source_m1,
+        })
+        .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidCandidate)?;
+    let validated_candidate = crate::parse_stage8b_p1_canonical_m10(
+        &canonical_candidate,
+        expected_operational_identity_sha256,
+    )
+    .map_err(|_| Stage8bP1eFirstBootSourceError::InvalidCandidate)?;
+    if document.candidate.redis_id != validated_candidate.redis_id()
+        || document.candidate.semantic_id_sha256 != validated_candidate.semantic_id_sha256()
+        || document.candidate.payload_sha256 != validated_candidate.payload_sha256()
     {
         return Err(Stage8bP1eFirstBootSourceError::InvalidCandidate);
     }
@@ -601,11 +720,73 @@ pub(crate) fn parse_stage8b_p1e_first_boot_source_v1(
         account_id: document.broker_truth.account_id,
         history_bars_sha256: history_hash,
         riskgate_session_observations_sha256: observations_hash,
-        candidate_semantic_id_sha256: document.candidate.semantic_id_sha256,
+        candidate_semantic_id_sha256: validated_candidate.semantic_id_sha256().to_string(),
+        candidate_canonical_m10_sha256: sha256_hex(validated_candidate.canonical_bytes()),
         history_bars,
         riskgate_observations,
         candidate,
     })
+}
+
+fn history_coverage_is_exact(
+    sessions: &[FirstBootHistorySessionV2],
+    history_bars: &[Stage8bP1eFirstBootBarV1],
+    history_sessions: &BTreeSet<NaiveDate>,
+) -> bool {
+    if sessions.len() < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS
+        || sessions.len() != history_sessions.len()
+    {
+        return false;
+    }
+    let mut expected_closes = Vec::with_capacity(history_bars.len());
+    let mut declared_dates = BTreeSet::new();
+    let mut prior_date = None;
+    for session in sessions {
+        let Ok(session_date) = NaiveDate::parse_from_str(&session.session_date, "%Y-%m-%d") else {
+            return false;
+        };
+        if session_date.format("%Y-%m-%d").to_string() != session.session_date
+            || prior_date.is_some_and(|prior| prior >= session_date)
+            || session.windows.is_empty()
+            || matches!(session_date.weekday(), Weekday::Sat | Weekday::Sun)
+        {
+            return false;
+        }
+        prior_date = Some(session_date);
+        declared_dates.insert(session_date);
+        let mut prior_close = None;
+        for window in &session.windows {
+            if window.first_close_time_utc <= 0
+                || window.first_close_time_utc.rem_euclid(600) != 0
+                || window.last_close_time_utc < window.first_close_time_utc
+                || window.last_close_time_utc.rem_euclid(600) != 0
+                || prior_close.is_some_and(|prior| prior >= window.first_close_time_utc)
+                || moscow_session_date(window.first_close_time_utc) != Some(session_date)
+                || moscow_session_date(window.last_close_time_utc) != Some(session_date)
+            {
+                return false;
+            }
+            let mut close = window.first_close_time_utc;
+            loop {
+                expected_closes.push(close);
+                if expected_closes.len() > history_bars.len() || close == window.last_close_time_utc
+                {
+                    break;
+                }
+                let Some(next) = close.checked_add(600) else {
+                    return false;
+                };
+                close = next;
+            }
+            prior_close = Some(window.last_close_time_utc);
+        }
+    }
+    declared_dates == *history_sessions
+        && expected_closes.len() == history_bars.len()
+        && expected_closes
+            .iter()
+            .zip(history_bars)
+            .all(|(expected, actual)| *expected == actual.close_time_utc)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -859,7 +1040,13 @@ impl<'de> Deserialize<'de> for NoDuplicateJson {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt, path::PathBuf};
+    use std::{
+        ffi::CString,
+        fs,
+        os::unix::{ffi::OsStrExt, fs::PermissionsExt},
+        path::{Path, PathBuf},
+        time::{Duration as StdDuration, Instant},
+    };
 
     use chrono::{Datelike, TimeZone, Weekday};
     use serde_json::json;
@@ -877,30 +1064,62 @@ mod tests {
         let mut day = NaiveDate::from_ymd_opt(2026, 1, 5).unwrap();
         let mut history = Vec::new();
         let mut observations = Vec::new();
-        while history.len() < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS {
+        let mut coverage_sessions = Vec::new();
+        let mut session_count = 0_usize;
+        while session_count < STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS {
             if !matches!(day.weekday(), Weekday::Sat | Weekday::Sun) {
-                let close_time_utc = Utc
-                    .with_ymd_and_hms(day.year(), day.month(), day.day(), 12, 0, 0)
+                let first_close = Utc
+                    .with_ymd_and_hms(day.year(), day.month(), day.day(), 6, 10, 0)
                     .single()
                     .unwrap()
                     .timestamp();
-                history.push(json!({
-                    "instrument": STAGE8B_P1_VENUE_SYMBOL,
-                    "timeframe_sec": 600,
-                    "close_time_utc": close_time_utc,
-                    "open": "2200.0",
-                    "high": "2201.0",
-                    "low": "2199.5",
-                    "close": "2200.5",
-                    "volume": "10",
-                    "is_final": true,
-                    "origin": "history"
+                let last_close = Utc
+                    .with_ymd_and_hms(day.year(), day.month(), day.day(), 20, 40, 0)
+                    .single()
+                    .unwrap()
+                    .timestamp();
+                let mut close_time_utc = first_close;
+                let mut bar_index = 0_usize;
+                while close_time_utc <= last_close {
+                    let (open, high, low, close) = if bar_index == 0 {
+                        if session_count == 0 {
+                            ("2200", "2210", "2190", "2200")
+                        } else {
+                            ("2200", "2210", "2190", "2201.5")
+                        }
+                    } else if session_count > 0 && bar_index == 1 {
+                        ("2201.5", "2202", "2199.5", "2200")
+                    } else {
+                        ("2200", "2201", "2199", "2200")
+                    };
+                    history.push(json!({
+                        "instrument": STAGE8B_P1_VENUE_SYMBOL,
+                        "timeframe_sec": 600,
+                        "close_time_utc": close_time_utc,
+                        "open": open,
+                        "high": high,
+                        "low": low,
+                        "close": close,
+                        "volume": "10",
+                        "is_final": true,
+                        "origin": "history"
+                    }));
+                    close_time_utc += 600;
+                    bar_index += 1;
+                }
+                coverage_sessions.push(json!({
+                    "session_date": day.format("%Y-%m-%d").to_string(),
+                    "windows": [{
+                        "first_close_time_utc": first_close,
+                        "last_close_time_utc": last_close
+                    }]
                 }));
                 observations.push(json!({
                     "session_date": day.format("%Y-%m-%d").to_string(),
-                    "shadow_pnl_points": "0.0",
-                    "shadow_trade_count": 0
+                    "shadow_pnl_points": if session_count == 0 { "0.0" } else { "1.4" },
+                    "shadow_trade_count": if session_count == 0 { 0 } else { 1 }
                 }));
+                session_count += 1;
             }
             day = day.succ_opt().unwrap();
         }
@@ -914,9 +1133,42 @@ mod tests {
             .timestamp();
         let captured = Utc.timestamp_opt(candidate_close + 30, 0).single().unwrap();
         let history_hash = canonical_value_sha256(&Value::Array(history.clone()));
+        let coverage_hash = canonical_value_sha256(&Value::Array(coverage_sessions.clone()));
         let observation_hash = canonical_value_sha256(&Value::Array(observations.clone()));
+        let close_ts_utc_ms = candidate_close * 1_000;
+        let open_ts_utc_ms = close_ts_utc_ms - 600_000;
+        let source_m1 = (0_i64..10)
+            .map(|index| {
+                let open = open_ts_utc_ms + index * 60_000;
+                let close = open + 60_000;
+                crate::Stage8bP1CanonicalM10SourceM1 {
+                    redis_id: format!("{close}-0"),
+                    semantic_id_sha256: sha256_hex(
+                        format!("candidate-m1-semantic-{index}").as_bytes(),
+                    ),
+                    payload_sha256: sha256_hex(format!("candidate-m1-payload-{index}").as_bytes()),
+                    open_ts_utc_ms: open,
+                    close_ts_utc_ms: close,
+                }
+            })
+            .collect::<Vec<_>>();
+        let candidate_bytes =
+            crate::build_stage8b_p1_canonical_m10(crate::Stage8bP1CanonicalM10BuildInput {
+                operational_identity_sha256: operational.to_string(),
+                open_ts_utc_ms,
+                close_ts_utc_ms,
+                open: "2200".to_string(),
+                high: "2201".to_string(),
+                low: "2199".to_string(),
+                close: "2200".to_string(),
+                volume: "20".to_string(),
+                source_m1: source_m1.clone(),
+            })
+            .unwrap();
+        let candidate =
+            crate::parse_stage8b_p1_canonical_m10(&candidate_bytes, operational).unwrap();
         let value = json!({
-            "schema_version": 1,
+            "schema_version": STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION,
             "domain": STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN,
             "operational_identity_sha256": operational,
             "runtime_profile_sha256": STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
@@ -941,6 +1193,11 @@ mod tests {
                 "aggregation_complete": true,
                 "gap_absence_proven": true
             },
+            "history_coverage": {
+                "source_mode": "config-bound-explicit-session-windows-v1",
+                "sessions_sha256": coverage_hash,
+                "sessions": coverage_sessions
+            },
             "history_bars": history,
             "riskgate_history": {
                 "source_mode": "source-compatible-high180-shadow-history-v1",
@@ -953,14 +1210,19 @@ mod tests {
                 "instrument": STAGE8B_P1_VENUE_SYMBOL,
                 "timeframe_sec": 600,
                 "close_time_utc": candidate_close,
-                "open": "2200.5",
-                "high": "2202.0",
-                "low": "2200.0",
-                "close": "2201.5",
+                "open": "2200",
+                "high": "2201",
+                "low": "2199",
+                "close": "2200",
                 "volume": "20",
                 "is_final": true,
                 "origin": "replay",
-                "semantic_id_sha256": "2".repeat(64)
+                "redis_id": candidate.redis_id(),
+                "semantic_id_sha256": candidate.semantic_id_sha256(),
+                "payload_sha256": candidate.payload_sha256(),
+                "open_ts_utc_ms": open_ts_utc_ms,
+                "close_ts_utc_ms": close_ts_utc_ms,
+                "source_m1": source_m1
             }
         });
         (
@@ -993,7 +1255,7 @@ mod tests {
                 broker_truth_checked_at: source.broker_truth_checked_at,
                 history_bars_sha256: source.history_bars_sha256,
                 riskgate_session_observations_sha256: source.riskgate_session_observations_sha256,
-                candidate_semantic_id_sha256: source.candidate_semantic_id_sha256,
+                validated_candidate_semantic_id_sha256: source.candidate_semantic_id_sha256,
                 history_bars: source.history_bars.iter().map(core_bar_input).collect(),
                 riskgate_observations: source
                     .riskgate_observations
@@ -1020,6 +1282,29 @@ mod tests {
         fs::create_dir(&path).unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
         fs::canonicalize(path).unwrap()
+    }
+
+    fn loader_file(directory: &Path, bytes: &[u8]) -> PathBuf {
+        let path = directory.join("first-boot-source.json");
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        path
+    }
+
+    fn current_identity() -> (u32, u32) {
+        // SAFETY: these libc calls have no preconditions and do not dereference pointers.
+        unsafe { (libc::getuid(), libc::getgid()) }
+    }
+
+    fn assert_no_durable_root(parent: &Path) {
+        assert_eq!(
+            fs::read_dir(parent)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                .count(),
+            0
+        );
     }
 
     fn bootstrap_config(
@@ -1063,9 +1348,15 @@ mod tests {
         let (bytes, now, operational, account) = fixture();
         let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
         assert_eq!(source.source_bundle_sha256(), sha256_hex(&bytes));
-        assert_eq!(source.history_bars().len(), 121);
+        assert_eq!(source.history_bars().len(), 121 * 88);
         assert_eq!(source.riskgate_observations().len(), 121);
+        assert!(source
+            .riskgate_observations()
+            .iter()
+            .any(|observation| observation.shadow_trade_count == 1
+                && observation.shadow_pnl_points_text == "1.4"));
         assert_eq!(source.candidate().close_time_utc % 600, 0);
+        assert!(is_sha256_hex(source.candidate_canonical_m10_sha256()));
     }
 
     #[test]
@@ -1073,6 +1364,7 @@ mod tests {
         let (bytes, now, operational, account) = fixture();
         let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
         let candidate_close_time = source.candidate.close_time_utc;
+        let candidate_semantic_id = source.candidate_semantic_id_sha256.clone();
         let composition = build_composition(source, operational, account).unwrap();
         let (_timer_ready, export, _) = composition.into_parts();
         assert_eq!(export.snapshot_revision, 1);
@@ -1080,7 +1372,7 @@ mod tests {
         assert_eq!(export.write_generation, 1);
         assert_eq!(
             export.lifecycle_watermarks.persisted_event_watermark,
-            Some("2".repeat(64))
+            Some(candidate_semantic_id)
         );
         assert_eq!(export.riskgate.materialized_state.ledger_rows_count, 121);
         assert_eq!(
@@ -1124,8 +1416,13 @@ mod tests {
         let operational = validated.operational_identity_sha256().to_string();
         let (bytes, now, _, account) = fixture_for_binding(&operational, "ACC_TEST_0001");
         let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
+        let candidate_semantic_id = source.candidate_semantic_id_sha256.clone();
         let composition = build_composition(source, operational, account).unwrap();
         let (source, export_input, fresh_runtime) = composition.into_parts();
+        assert_eq!(
+            export_input.lifecycle_watermarks.persisted_event_watermark,
+            Some(candidate_semantic_id)
+        );
         let restart_runtime = fresh_runtime.clone();
         let admin = crate::authorize_stage8b_p1_first_boot(
             &validated,
@@ -1212,6 +1509,20 @@ mod tests {
     }
 
     #[test]
+    fn legacy_wire_schema_is_rejected_explicitly() {
+        let (bytes, now, operational, account) = fixture();
+        let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+        value["schema_version"] = Value::from(1);
+        value["domain"] = Value::String("moex.stage8b.p1e.first-boot-source-bundle.v1".to_owned());
+        let legacy = serde_json::to_vec(&value).unwrap();
+
+        assert_eq!(
+            parse_fixture(&legacy, now, &operational, &account).err(),
+            Some(Stage8bP1eFirstBootSourceError::IdentityMismatch)
+        );
+    }
+
+    #[test]
     fn stale_truth_and_tampered_observation_hash_are_rejected() {
         let (bytes, now, operational, account) = fixture();
         assert_eq!(
@@ -1257,5 +1568,167 @@ mod tests {
             parse_fixture(&same_session, now, &operational, &account).err(),
             Some(Stage8bP1eFirstBootSourceError::InvalidCandidate)
         );
+    }
+
+    #[test]
+    fn redigested_candidate_identity_mismatch_and_material_change_are_rejected() {
+        let (bytes, now, operational, account) = fixture();
+        let parent = temp_directory("candidate-rejection-no-root");
+        let mut wrong_identity: Value = serde_json::from_slice(&bytes).unwrap();
+        wrong_identity["candidate"]["semantic_id_sha256"] = Value::String("f".repeat(64));
+        let wrong_identity = serde_json::to_vec(&wrong_identity).unwrap();
+        assert_eq!(
+            parse_fixture(&wrong_identity, now, &operational, &account).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidCandidate)
+        );
+        assert_no_durable_root(&parent);
+
+        let mut changed_material: Value = serde_json::from_slice(&bytes).unwrap();
+        changed_material["candidate"]["close"] = Value::String("2200.5".to_string());
+        changed_material["candidate"]["high"] = Value::String("2201.5".to_string());
+        let changed_material = serde_json::to_vec(&changed_material).unwrap();
+        assert_eq!(
+            parse_fixture(&changed_material, now, &operational, &account).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidCandidate)
+        );
+        assert_no_durable_root(&parent);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn redigested_history_gap_tail_truncation_and_uncovered_date_are_rejected() {
+        let (bytes, now, operational, account) = fixture();
+        let parent = temp_directory("history-rejection-no-root");
+        for mutation in ["internal-gap", "truncated-tail", "uncovered-date"] {
+            let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+            let history = value["history_bars"].as_array_mut().unwrap();
+            match mutation {
+                "internal-gap" => {
+                    history.remove(10);
+                }
+                "truncated-tail" => {
+                    history.pop();
+                }
+                "uncovered-date" => {
+                    let mut bar = history.last().unwrap().clone();
+                    bar["close_time_utc"] = Value::Number(
+                        (bar["close_time_utc"].as_i64().unwrap() + 3 * 86_400).into(),
+                    );
+                    history.push(bar);
+                }
+                _ => unreachable!(),
+            }
+            value["riskgate_history"]["history_bars_sha256"] =
+                Value::String(canonical_value_sha256(&value["history_bars"]));
+            let redigested = serde_json::to_vec(&value).unwrap();
+            assert_eq!(
+                parse_fixture(&redigested, now, &operational, &account).err(),
+                Some(Stage8bP1eFirstBootSourceError::InvalidHistory),
+                "mutation {mutation}"
+            );
+            assert_no_durable_root(&parent);
+        }
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn f00_regular_single_link_file_is_read_completely() {
+        let directory = temp_directory("loader-regular");
+        let (bytes, now, operational, account) = fixture();
+        let path = loader_file(&directory, &bytes);
+        let (uid, gid) = current_identity();
+        let loaded = read_protected_first_boot_source(&path, uid, gid, || {}).unwrap();
+        assert_eq!(loaded, bytes);
+        parse_fixture(&loaded, now, &operational, &account).unwrap();
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn f00_symlink_and_hardlink_are_rejected() {
+        let directory = temp_directory("loader-links");
+        let target = loader_file(&directory, b"source");
+        let symlink_path = directory.join("source-link.json");
+        std::os::unix::fs::symlink(&target, &symlink_path).unwrap();
+        let (uid, gid) = current_identity();
+        assert_eq!(
+            read_protected_first_boot_source(&symlink_path, uid, gid, || {}).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidFileBoundary)
+        );
+        let hardlink_path = directory.join("source-hardlink.json");
+        fs::hard_link(&target, &hardlink_path).unwrap();
+        assert_eq!(
+            read_protected_first_boot_source(&target, uid, gid, || {}).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidFileBoundary)
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn f00_permissions_owner_and_group_are_fail_closed() {
+        let directory = temp_directory("loader-identity");
+        let path = loader_file(&directory, b"source");
+        let (uid, gid) = current_identity();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o666)).unwrap();
+        assert_eq!(
+            read_protected_first_boot_source(&path, uid, gid, || {}).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidFileBoundary)
+        );
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(
+            read_protected_first_boot_source(&path, uid.wrapping_add(1), gid, || {}).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidFileBoundary)
+        );
+        assert_eq!(
+            read_protected_first_boot_source(&path, uid, gid.wrapping_add(1), || {}).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidFileBoundary)
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn f00_oversize_input_is_rejected_before_read() {
+        let directory = temp_directory("loader-oversize");
+        let path = loader_file(&directory, b"");
+        let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES + 1)
+            .unwrap();
+        let (uid, gid) = current_identity();
+        assert_eq!(
+            read_protected_first_boot_source(&path, uid, gid, || {}).err(),
+            Some(Stage8bP1eFirstBootSourceError::SourceTooLarge)
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn f00_change_or_incomplete_read_is_rejected() {
+        let directory = temp_directory("loader-change");
+        let path = loader_file(&directory, b"complete source");
+        let (uid, gid) = current_identity();
+        assert_eq!(
+            read_protected_first_boot_source(&path, uid, gid, || {
+                fs::write(&path, b"short").unwrap();
+            })
+            .err(),
+            Some(Stage8bP1eFirstBootSourceError::SourceReadFailed)
+        );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn f00_fifo_failure_is_bounded() {
+        let directory = temp_directory("loader-fifo");
+        let path = directory.join("first-boot-source.fifo");
+        let raw_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `raw_path` is a live NUL-terminated path and mode is valid.
+        assert_eq!(unsafe { libc::mkfifo(raw_path.as_ptr(), 0o600) }, 0);
+        let (uid, gid) = current_identity();
+        let started = Instant::now();
+        assert_eq!(
+            read_protected_first_boot_source(&path, uid, gid, || {}).err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidFileBoundary)
+        );
+        assert!(started.elapsed() < StdDuration::from_secs(1));
+        fs::remove_dir_all(directory).unwrap();
     }
 }

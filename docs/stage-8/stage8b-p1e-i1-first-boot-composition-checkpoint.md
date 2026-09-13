@@ -1,6 +1,8 @@
 # Stage 8B-P1-e I1 first-boot composition checkpoint
 
-Status: source review candidate for the F00-F17 first-boot composition only.
+Status: correction source review candidate for the F00-F17 first-boot
+composition only. The initial `21fda88` checkpoint received HOLD; this document
+describes the corrected v2 source boundary.
 This is not complete I1 supervisor acceptance and not operational activation.
 
 Accepted predecessor:
@@ -15,7 +17,8 @@ facades. It adds no Redis or FINAM dependency.
 
 The production path now performs:
 
-1. F00: read the one fixed first-boot source path with `O_NOFOLLOW`; require a
+1. F00: read the one fixed first-boot source path with
+   `O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK`; require a
    regular single-link file, root ownership, the configured service group,
    mode no wider than `0640`, a bounded 16 MiB complete read, stable metadata,
    duplicate-key rejection and the configured source SHA-256.
@@ -23,8 +26,9 @@ The production path now performs:
    actual configuration fingerprint with the validated bootstrap profile.
 3. F02: construct broker-neutral Stage 4 truth for the configured account and
    IMOEXF instrument, then require complete fresh flat position/order truth.
-4. F03-F04: perform the accepted Stage 5C bootstrap and canonical final
-   History M10 warmup with `FinamDerivedM1ToM10` provenance.
+4. F03-F04: authenticate explicit per-session M10 coverage windows, require
+   exact close-time equality without missing, duplicate or out-of-window bars,
+   then perform Stage 5C canonical final History M10 warmup.
 5. F05-F09: independently replay the exact History bars through the source
    High180 riskgate kernel, compare every supplied observation byte-exactly,
    derive the Stage 5D ledger/materialized state through accepted algorithms,
@@ -32,7 +36,9 @@ The production path now performs:
 6. F10: prove an empty bounded recovery set for ACK, order, stop-order and
    position streams. This is deterministic input composition, not Redis
    consumer activation.
-7. F11-F14: process exactly one later-session Replay M10 candidate, require
+7. F11-F14: rebuild the candidate through the accepted P1 canonical M10
+   identity domain (including exact ten-M1 provenance), then process exactly
+   one later-session Replay M10 candidate, require
    one callback with zero intents/requests and no execution eligibility,
    derive the current shadow state and construct the clean-restart export
    input.
@@ -50,23 +56,33 @@ the History-tail session, and is consumed exactly once.
 
 ## Evidence in this source slice
 
-- 121 complete History sessions are supplied and independently replayed;
+- 121 full History sessions (10,648 M10 bars) are supplied and independently
+  replayed against config-bound exact session windows;
 - all 121 finalized source observations are compared, while the accepted
-  riskgate minimum remains 120 sessions;
+  riskgate minimum remains 120 sessions; 120 observations contain a real
+  High180 shadow trade and non-zero PnL;
+- candidate identity is recomputed through the accepted canonical P1 M10
+  builder/parser and the resulting value binds callback export and restore;
+- redigested missing-bar, tail-truncation, uncovered-date, wrong candidate-ID
+  and changed-candidate negatives fail before durable-root creation;
+- F00 Unix tests cover regular positive, symlink, hardlink, mode, owner/group,
+  oversize, incomplete/change and bounded FIFO cases;
 - a mutation that changes an observation and recomputes its outer hash is
   rejected by the independently rebuilt High180 oracle;
 - source hash, deployment/account/profile binding, duplicate JSON keys,
-  freshness, OHLC validity, chronology and candidate-session failures are
-  fail-closed;
+  legacy wire schema v1, freshness, OHLC validity, chronology and
+  candidate-session failures are fail-closed;
 - the full first-boot test reaches authenticated export/restore before the
   sole durable-root creation and then completes an ordinary restart;
 - the resulting receipt keeps Redis and FINAM transport unattached.
 
 The modified-crate suites, doctests, formatting and strict all-target/all-feature
-Clippy pass. The inherited Stage 7B Redis subprocess suite passes completely
-when serialized. A concurrent aggregate run observed one claim-barrier timeout
-in the inherited X16 test; the exact test and the complete subprocess target
-both passed when rerun with `--test-threads=1`. This timing observation is not
+Clippy pass. The durable-service suite uses the repository-pinned
+`RUST_MIN_STACK=33554432` binding required by the inherited P1-d4 registry.
+The inherited Stage 7B Redis subprocess suite passes completely when
+serialized. A concurrent aggregate run observed one claim-barrier timeout in
+the inherited X16 test; the exact test and the complete subprocess target both
+passed when rerun with `--test-threads=1`. This timing observation is not
 silently converted into a green parallel-run claim.
 
 ## Remaining before complete I1 acceptance

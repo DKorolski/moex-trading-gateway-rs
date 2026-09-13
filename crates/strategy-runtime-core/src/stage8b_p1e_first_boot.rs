@@ -58,7 +58,9 @@ pub struct Stage8bP1eFirstBootCompositionInputV1 {
     pub broker_truth_checked_at: DateTime<Utc>,
     pub history_bars_sha256: String,
     pub riskgate_session_observations_sha256: String,
-    pub candidate_semantic_id_sha256: String,
+    /// Computed and cross-validated by the durable-service canonical P1 M10
+    /// boundary. It is not a free-form source assertion.
+    pub validated_candidate_semantic_id_sha256: String,
     pub history_bars: Vec<Stage8bP1eFirstBootBarInputV1>,
     pub riskgate_observations: Vec<Stage8bP1eRiskGateObservationInputV1>,
     pub candidate: Stage8bP1eFirstBootBarInputV1,
@@ -110,7 +112,7 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
         || !is_sha256_hex(&input.operational_identity_sha256)
         || !is_sha256_hex(&input.history_bars_sha256)
         || !is_sha256_hex(&input.riskgate_session_observations_sha256)
-        || !is_sha256_hex(&input.candidate_semantic_id_sha256)
+        || !is_sha256_hex(&input.validated_candidate_semantic_id_sha256)
         || input.runtime.stage5c_config_fingerprint()
             != input.fresh_runtime.stage5c_config_fingerprint()
         || input.broker_truth_checked_at > input.captured_at
@@ -354,7 +356,7 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
     let (riskgate, riskgate_evidence) = final_authority.into_export_parts();
     let snapshot_id = first_boot_snapshot_id(
         &input.operational_identity_sha256,
-        &input.candidate_semantic_id_sha256,
+        &input.validated_candidate_semantic_id_sha256,
     );
     let export_input = Stage5gCleanRestartExportInput {
         snapshot_id,
@@ -365,7 +367,7 @@ pub fn build_stage8b_p1_first_boot_composition_v1(
         source_commit_or_build_id:
             crate::stage5d_persistence::STAGE5D_RUNTIME_SEMANTIC_COMPATIBILITY_ID.to_string(),
         lifecycle_watermarks: Stage5dLifecycleWatermarks {
-            persisted_event_watermark: Some(input.candidate_semantic_id_sha256),
+            persisted_event_watermark: Some(input.validated_candidate_semantic_id_sha256),
             last_semantic_bar_ts: Utc
                 .timestamp_opt(input.candidate.close_time_utc, 0)
                 .single(),
