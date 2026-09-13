@@ -137,7 +137,7 @@ def check(path: str) -> dict[str, object]:
         require(evidence["accepted_design_ref"] == ACCEPTED_DESIGN, "evidence design mismatch")
         require(evidence["status"] == "SOURCE_CORRECTION_REVIEW_CANDIDATE", "evidence status mismatch")
         require(evidence["acceptance_rows"] == 81 and evidence["r2_overlay_rows"] == 8, "evidence inventory mismatch")
-        require(evidence["source_negative_cases"] == 82, "negative count mismatch")
+        require(evidence["source_negative_cases"] == 100, "negative count mismatch")
         require(evidence["p1d4_sigkill_cells"] == 105 and evidence["p1d4_sigkill_runs"] == 2, "crash inventory mismatch")
         require(evidence["changed_paths"] == sorted(source_check.EXPECTED_CHANGED), "changed path inventory mismatch")
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
@@ -148,7 +148,7 @@ def check(path: str) -> dict[str, object]:
         for expected in (
             b"stage8b-p1e-i1a-r2-design-gate: ok",
             b"PASS stage8b-p1e-i1a-source-check",
-            b"PASS stage8b-p1e-i1a-source-negative-harness 82/82",
+            b"PASS stage8b-p1e-i1a-source-negative-harness 100/100",
             b"PASS stage8b-p1d4-source-negative-harness 60/60",
             b"PASS stage8b-p1d4-crash-evidence-check cells=105 runs=2",
             b"PASS stage8b-p1d4-crash-evidence-negative-harness 41/41",

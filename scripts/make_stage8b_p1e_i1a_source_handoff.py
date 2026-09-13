@@ -91,7 +91,7 @@ def main() -> None:
                 "archive_name": archive_name,
                 "worktree_clean": True,
                 "pushed_to_origin": False,
-                "source_negative_cases": 82,
+                "source_negative_cases": 100,
                 "p1d4_sigkill_cells": 105,
                 "p1d4_sigkill_runs": 2,
                 "changed_paths": changed_paths,

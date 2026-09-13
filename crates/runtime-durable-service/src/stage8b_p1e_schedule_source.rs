@@ -1862,6 +1862,70 @@ mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    fn p1e_test_bound_working_schedule(
+        close_price: i64,
+    ) -> (
+        ScheduleReadyTestSetup,
+        Stage7bRecoveryReadyOwner,
+        strategy_runtime_core::Stage8bP1d3ScheduleStepAuthority,
+        strategy_runtime_core::Stage8bP1d3CanonicalM10Evidence,
+    ) {
+        let (mut setup, owner, predecessor) = p1e_test_working_limit_fixture();
+        let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
+        let (active_order, transition_sha256, _) = owner
+            .stage8b_p1e_test_working_binding_parts()
+            .expect("working binding material must be authenticated");
+        let candidate = p1e_test_m10_identity(
+            &operational_identity,
+            P1E_TEST_LATER_CANDIDATE_CLOSE_MS,
+            close_price,
+        );
+        let committed = match bind_stage8b_p1e_working_limit_schedule(
+            owner,
+            Stage8bP1eVerifiedScheduleSnapshotV1 {
+                redis_stream_id: format!("{}-1", P1E_TEST_LATER_CANDIDATE_CLOSE_MS),
+                accepted: setup.accepted_schedule.take().unwrap(),
+            },
+            &Stage8bP1eShutdownLatchV1::new(),
+            &predecessor,
+            &candidate,
+            active_order.as_str(),
+            transition_sha256,
+            DateTime::parse_from_rfc3339("2026-08-03T12:30:00.000000Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            &setup.commitment_key,
+        )
+        .unwrap()
+        {
+            Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+            _ => panic!("clear latch D must commit the exact Working V4"),
+        };
+        let permit = match resume_stage8b_p1e_committed_schedule_binding(
+            committed,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+            _ => panic!("clear latch E must continue"),
+        };
+        let Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } =
+            continue_stage8b_p1e_schedule_step(permit, &Stage8bP1eShutdownLatchV1::new()).unwrap()
+        else {
+            panic!("clear latch F must issue Working authority")
+        };
+        (
+            setup,
+            *owner,
+            authority,
+            p1e_test_p1d3_evidence(
+                &operational_identity,
+                P1E_TEST_LATER_CANDIDATE_CLOSE_MS,
+                close_price,
+            ),
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
     fn p1e_test_install_closed_schedule(
         setup: &mut ScheduleReadyTestSetup,
         owner: &Stage7bRecoveryReadyOwner,
@@ -1883,6 +1947,64 @@ mod tests {
         setup.schedule_public_key_hex = public_key_hex;
         setup.schedule_key_valid_from = trust_from;
         setup.schedule_key_valid_until = trust_until;
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    fn p1e_test_bound_day_expiry_schedule() -> (
+        ScheduleReadyTestSetup,
+        Stage7bRecoveryReadyOwner,
+        strategy_runtime_core::Stage8bP1d3DayExpiryAuthority,
+    ) {
+        let (mut setup, owner, last_evaluated) = p1e_test_working_limit_fixture();
+        let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
+        let (active_order, transition_sha256, exact_last_evaluated) = owner
+            .stage8b_p1e_test_working_binding_parts()
+            .expect("working binding material must be authenticated");
+        assert_eq!(last_evaluated, exact_last_evaluated);
+        p1e_test_install_closed_schedule(&mut setup, &owner, P1E_TEST_INITIAL_CANDIDATE_CLOSE_MS);
+        let predecessor = p1e_test_m10_identity(
+            &operational_identity,
+            P1E_TEST_PLACE_DECISION_CLOSE_MS,
+            2_210,
+        );
+        let trusted_now = Utc
+            .timestamp_millis_opt(P1E_TEST_INITIAL_CANDIDATE_CLOSE_MS)
+            .single()
+            .unwrap();
+        let committed = match bind_stage8b_p1e_day_expiry_schedule(
+            owner,
+            Stage8bP1eVerifiedScheduleSnapshotV1 {
+                redis_stream_id: format!("{}-1", P1E_TEST_INITIAL_CANDIDATE_CLOSE_MS),
+                accepted: setup.accepted_schedule.take().unwrap(),
+            },
+            &Stage8bP1eShutdownLatchV1::new(),
+            &predecessor,
+            &last_evaluated,
+            trusted_now,
+            active_order.as_str(),
+            transition_sha256,
+            trusted_now,
+            &setup.commitment_key,
+        )
+        .unwrap()
+        {
+            Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+            _ => panic!("clear latch D must commit the exact expiry V4"),
+        };
+        let permit = match resume_stage8b_p1e_committed_schedule_binding(
+            committed,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+            _ => panic!("clear latch E must continue"),
+        };
+        let Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } =
+            continue_stage8b_p1e_day_expiry_schedule(permit, &Stage8bP1eShutdownLatchV1::new())
+                .unwrap()
+        else {
+            panic!("clear latch F must issue expiry authority")
+        };
+        (setup, *owner, authority)
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
@@ -2360,6 +2482,195 @@ mod tests {
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     #[test]
+    fn signed_v4_market_rejects_same_redis_id_with_different_payload_before_effect() {
+        let (setup, owner, candidate) = schedule_ready_fixture();
+        let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
+        let committed = owner
+            .commit_stage8b_p1e_schedule_binding(
+                candidate,
+                DateTime::parse_from_rfc3339("2026-08-03T12:30:00.000000Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+                &setup.commitment_key,
+            )
+            .unwrap();
+        let permit = match resume_stage8b_p1e_committed_schedule_binding(
+            committed,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+            _ => panic!("clear latch E must continue"),
+        };
+        let Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } =
+            continue_stage8b_p1e_market_schedule(permit, &Stage8bP1eShutdownLatchV1::new())
+                .unwrap()
+        else {
+            panic!("clear latch F must issue the market authority")
+        };
+        let before_effect = owner.stage8b_p1e_test_checkpoint_snapshot();
+        let close_ts_utc_ms = setup.market_predecessor.close_ts_utc_ms + 600_000;
+        let conflicting_bytes =
+            p1e_test_canonical_m10(operational_identity.clone(), close_ts_utc_ms, 2_180);
+        let conflicting =
+            crate::parse_stage8b_p1_canonical_m10(&conflicting_bytes, &operational_identity)
+                .unwrap();
+        assert_eq!(
+            conflicting.redis_id(),
+            format!("{close_ts_utc_ms}-0"),
+            "counterexample must preserve the V4 Redis ID"
+        );
+        assert!(owner
+            .stage8b_p1d1_execution_eligibility(
+                authority,
+                conflicting.into_p1d1_execution_evidence().unwrap(),
+            )
+            .is_err());
+        assert_eq!(owner.stage8b_p1e_test_checkpoint_snapshot(), before_effect);
+        drop(owner);
+        let restarted = restart_schedule_fixture(&setup);
+        assert_eq!(
+            restarted
+                .stage8b_p1d4_test_runtime_audit()
+                .unwrap()
+                .dispatch_v1_total,
+            0,
+            "identity conflict must not append a dispatch or invoke the provider"
+        );
+        drop(restarted);
+        std::fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[test]
+    fn signed_v4_market_recovers_dispatch_outcome_ahead_of_ack_replacement_once() {
+        let (setup, owner, candidate) = schedule_ready_fixture();
+        let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
+        let close_ts_utc_ms = setup.market_predecessor.close_ts_utc_ms + 600_000;
+        let exact_bytes =
+            p1e_test_canonical_m10(operational_identity.clone(), close_ts_utc_ms, 2_175);
+        let exact =
+            crate::parse_stage8b_p1_canonical_m10(&exact_bytes, &operational_identity).unwrap();
+        let committed = owner
+            .commit_stage8b_p1e_schedule_binding(
+                candidate,
+                DateTime::parse_from_rfc3339("2026-08-03T12:30:00.000000Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
+                &setup.commitment_key,
+            )
+            .unwrap();
+        let permit = match resume_stage8b_p1e_committed_schedule_binding(
+            committed,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+            _ => panic!("clear latch E must continue"),
+        };
+        let Stage8bP1eScheduleAuthorityDecisionV1::Continue {
+            mut owner,
+            authority,
+        } = continue_stage8b_p1e_market_schedule(permit, &Stage8bP1eShutdownLatchV1::new())
+            .unwrap()
+        else {
+            panic!("clear latch F must issue market authority")
+        };
+        let covered_v4 = owner.stage8b_p1e_test_checkpoint_snapshot();
+        let eligibility = owner
+            .stage8b_p1d1_execution_eligibility(
+                authority,
+                exact.into_p1d1_execution_evidence().unwrap(),
+            )
+            .unwrap();
+        let outcome = owner
+            .admit_p1d1_eligible_market_dispatch(eligibility)
+            .unwrap()
+            .execute();
+        crate::stage8a4_i3_test_fail_before_covering_seal(&mut owner);
+        assert!(matches!(
+            owner.commit_stage8b_p1d2_ack(outcome, &setup.commitment_key),
+            Err(crate::Stage7bRecoveryError::Runtime(
+                strategy_runtime_core::Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+            ))
+        ));
+
+        let restarted = restart_schedule_fixture(&setup);
+        let before_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("journal-ahead market outcome must remain auditable");
+        let pending = match restarted {
+            crate::Stage7bRestartOutcome::P1d2PreAckPending(pending) => pending,
+            crate::Stage7bRestartOutcome::Blocked(blocked) => panic!(
+                "V4-prefixed market outcome blocked during exact ACK recovery: {:?}",
+                blocked.reason()
+            ),
+            crate::Stage7bRestartOutcome::P1d4GeneratedMarketPreAckPending(_) => {
+                panic!("V4-prefixed market outcome was classified as generated-Market pre-ACK")
+            }
+            _ => panic!("V4-prefixed market outcome must enter exact ACK recovery"),
+        };
+        let conflicting_bytes =
+            p1e_test_canonical_m10(operational_identity.clone(), close_ts_utc_ms, 2_180);
+        let conflicting =
+            crate::parse_stage8b_p1_canonical_m10(&conflicting_bytes, &operational_identity)
+                .unwrap();
+        assert!(pending
+            .commit_reconstructed_ack(
+                conflicting.into_p1d1_execution_evidence().unwrap(),
+                &setup.commitment_key,
+            )
+            .is_err());
+
+        let restarted = restart_schedule_fixture(&setup);
+        assert_eq!(
+            restarted
+                .stage8b_p1d4_test_runtime_audit()
+                .unwrap()
+                .journal_lifecycle_sequences,
+            before_recovery.journal_lifecycle_sequences,
+            "conflicting recovery M10 must append neither finalization nor replacement"
+        );
+        let crate::Stage7bRestartOutcome::P1d2PreAckPending(pending) = restarted else {
+            panic!("rejected recovery identity must leave the exact ACK frontier recoverable")
+        };
+        let exact =
+            crate::parse_stage8b_p1_canonical_m10(&exact_bytes, &operational_identity).unwrap();
+        let truth = pending
+            .commit_reconstructed_ack(
+                exact.into_p1d1_execution_evidence().unwrap(),
+                &setup.commitment_key,
+            )
+            .unwrap()
+            .commit_truth(&setup.commitment_key)
+            .unwrap();
+        assert_eq!(truth.recovery_seal_generation(), covered_v4.0 + 2);
+        drop(truth);
+
+        let restarted = restart_schedule_fixture(&setup);
+        let after_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("second restart must preserve the recovered market outcome");
+        assert_eq!(
+            after_recovery.dispatch_v1_total,
+            before_recovery.dispatch_v1_total
+        );
+        assert_eq!(
+            after_recovery.order_v1_total,
+            before_recovery.order_v1_total
+        );
+        assert_eq!(
+            after_recovery.trade_v1_total,
+            before_recovery.trade_v1_total
+        );
+        assert_eq!(
+            after_recovery.journal_lifecycle_sequences,
+            before_recovery.journal_lifecycle_sequences
+        );
+        drop(restarted);
+        std::fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[test]
     fn signed_v4_working_untouched_reaches_existing_effect_once() {
         use strategy_runtime_core::Stage8bP1d3LaterObservation;
 
@@ -2445,6 +2756,94 @@ mod tests {
         assert_eq!(after_callback.1, before.1 + 1);
         assert_eq!(after_callback.2, before.2);
         drop(ready);
+        std::fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[test]
+    fn signed_v4_working_rejects_same_redis_id_with_different_payload_before_effect() {
+        use strategy_runtime_core::Stage8bP1d3LaterObservation;
+
+        let (mut setup, owner, predecessor) = p1e_test_working_limit_fixture();
+        let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
+        let (active_order, transition_sha256, _) = owner
+            .stage8b_p1e_test_working_binding_parts()
+            .expect("working binding material must be authenticated");
+        let exact = p1e_test_m10_identity(
+            &operational_identity,
+            P1E_TEST_LATER_CANDIDATE_CLOSE_MS,
+            2_230,
+        );
+        let committed = match bind_stage8b_p1e_working_limit_schedule(
+            owner,
+            Stage8bP1eVerifiedScheduleSnapshotV1 {
+                redis_stream_id: format!("{}-1", P1E_TEST_LATER_CANDIDATE_CLOSE_MS),
+                accepted: setup.accepted_schedule.take().unwrap(),
+            },
+            &Stage8bP1eShutdownLatchV1::new(),
+            &predecessor,
+            &exact,
+            active_order.as_str(),
+            transition_sha256,
+            DateTime::parse_from_rfc3339("2026-08-03T12:30:00.000000Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            &setup.commitment_key,
+        )
+        .unwrap()
+        {
+            Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+            _ => panic!("clear latch D must commit V4"),
+        };
+        let permit = match resume_stage8b_p1e_committed_schedule_binding(
+            committed,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+            _ => panic!("clear latch E must continue"),
+        };
+        let Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } =
+            continue_stage8b_p1e_schedule_step(permit, &Stage8bP1eShutdownLatchV1::new()).unwrap()
+        else {
+            panic!("clear latch F must issue Working authority")
+        };
+        let before_effect = owner.stage8b_p1e_test_checkpoint_snapshot();
+        let conflicting = p1e_test_p1d3_evidence(
+            &operational_identity,
+            P1E_TEST_LATER_CANDIDATE_CLOSE_MS,
+            2_220,
+        );
+        assert_eq!(conflicting.redis_id, exact.redis_id);
+        assert_ne!(conflicting.payload_sha256, exact.payload_sha256);
+        assert!(owner
+            .commit_stage8b_p1d3_later_limit(
+                Stage8bP1d3LaterObservation::Candidate {
+                    evidence: Box::new(conflicting),
+                    schedule: authority,
+                },
+                &setup.commitment_key,
+            )
+            .is_err());
+        let crate::Stage7bRestartOutcome::P1eScheduleBindingCommitted(committed) =
+            restart_schedule_fixture(&setup)
+        else {
+            panic!("identity conflict must preserve only the covered V4")
+        };
+        let permit = match resume_stage8b_p1e_committed_schedule_binding(
+            *committed,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+            _ => panic!("covered V4 must remain recoverable"),
+        };
+        let Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } =
+            continue_stage8b_p1e_schedule_step(permit, &Stage8bP1eShutdownLatchV1::new()).unwrap()
+        else {
+            panic!("covered V4 must retain its exact authority")
+        };
+        assert_eq!(owner.stage8b_p1e_test_checkpoint_snapshot(), before_effect);
+        drop(authority);
+        drop(owner);
         std::fs::remove_dir_all(setup.parent).unwrap();
     }
 
@@ -2564,6 +2963,62 @@ mod tests {
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     #[test]
+    fn signed_v4_working_fill_recovers_outcome_ahead_of_replacement_once() {
+        use strategy_runtime_core::Stage8bP1d3LaterObservation;
+
+        let (setup, mut owner, authority, evidence) = p1e_test_bound_working_schedule(2_230);
+        let covered_v4 = owner.stage8b_p1e_test_checkpoint_snapshot();
+        crate::stage8a4_i3_test_fail_before_covering_seal(&mut owner);
+        assert!(matches!(
+            owner.commit_stage8b_p1d3_later_limit(
+                Stage8bP1d3LaterObservation::Candidate {
+                    evidence: Box::new(evidence),
+                    schedule: authority,
+                },
+                &setup.commitment_key,
+            ),
+            Err(crate::Stage7bRecoveryError::Runtime(
+                strategy_runtime_core::Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+            ))
+        ));
+
+        let restarted = restart_schedule_fixture(&setup);
+        let before_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("journal-ahead Working outcome must remain auditable");
+        let crate::Stage7bRestartOutcome::P1d3PreAckPending(pending) = restarted else {
+            panic!("V4 plus uncovered Working outcome must enter exact pre-seal recovery")
+        };
+        let crate::recovery::Stage8bP1d3RecoveredCommitOutcome::SemanticCallbackPending(pending) =
+            pending
+                .commit_reconstructed_transition(&setup.commitment_key)
+                .unwrap()
+        else {
+            panic!("recovery must commit only the exact terminal replacement")
+        };
+        let recovered_snapshot = pending.stage8b_p1e_test_checkpoint_snapshot();
+        assert_eq!(recovered_snapshot.0, covered_v4.0 + 1);
+        assert_eq!(recovered_snapshot.1, covered_v4.1 + 1);
+        drop(pending);
+
+        let restarted = restart_schedule_fixture(&setup);
+        let after_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("second restart must preserve the recovered Working outcome");
+        assert_eq!(
+            after_recovery.durable_outcomes,
+            before_recovery.durable_outcomes
+        );
+        assert_eq!(
+            after_recovery.journal_lifecycle_sequences, before_recovery.journal_lifecycle_sequences,
+            "second restart must append neither another outcome nor another effect"
+        );
+        drop(restarted);
+        std::fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[test]
     fn signed_v4_day_expiry_reaches_existing_effect_and_restart_once() {
         use strategy_runtime_core::Stage8bP1d3LaterObservation;
 
@@ -2661,6 +3116,58 @@ mod tests {
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     #[test]
+    fn signed_v4_day_expiry_recovers_outcome_ahead_of_replacement_once() {
+        use strategy_runtime_core::Stage8bP1d3LaterObservation;
+
+        let (setup, mut owner, authority) = p1e_test_bound_day_expiry_schedule();
+        let covered_v4 = owner.stage8b_p1e_test_checkpoint_snapshot();
+        crate::stage8a4_i3_test_fail_before_covering_seal(&mut owner);
+        assert!(matches!(
+            owner.commit_stage8b_p1d3_later_limit(
+                Stage8bP1d3LaterObservation::DayExpiry { authority },
+                &setup.commitment_key,
+            ),
+            Err(crate::Stage7bRecoveryError::Runtime(
+                strategy_runtime_core::Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+            ))
+        ));
+
+        let restarted = restart_schedule_fixture(&setup);
+        let before_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("journal-ahead expiry must remain auditable");
+        let crate::Stage7bRestartOutcome::P1d3PreAckPending(pending) = restarted else {
+            panic!("V4 plus uncovered expiry outcome must enter exact pre-seal recovery")
+        };
+        let crate::recovery::Stage8bP1d3RecoveredCommitOutcome::Ready(ready) = pending
+            .commit_reconstructed_transition(&setup.commitment_key)
+            .unwrap()
+        else {
+            panic!("expiry recovery must commit one terminal replacement")
+        };
+        let after_commit = ready.stage8b_p1e_test_checkpoint_snapshot();
+        assert_eq!(after_commit.0, covered_v4.0 + 1);
+        assert_eq!(after_commit.1, covered_v4.1 + 1);
+        drop(ready);
+
+        let restarted = restart_schedule_fixture(&setup);
+        let after_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("second restart must preserve the recovered expiry");
+        assert_eq!(
+            after_recovery.durable_outcomes,
+            before_recovery.durable_outcomes
+        );
+        assert_eq!(
+            after_recovery.journal_lifecycle_sequences,
+            before_recovery.journal_lifecycle_sequences
+        );
+        drop(restarted);
+        std::fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[test]
     fn signed_closed_cancel_authority_cannot_enter_working_evaluation() {
         use strategy_runtime_core::Stage8bP1d3LaterObservation;
 
@@ -2724,6 +3231,86 @@ mod tests {
             2,
             "restart must preserve one Working LIMIT and one cancel outcome"
         );
+        std::fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[test]
+    fn signed_v4_cancel_recovers_dispatch_and_outcome_ahead_of_replacement_once() {
+        let (setup, mut owner, authority, evidence) = p1e_test_cancel_binding_fixture();
+        let covered_v4 = owner.stage8b_p1e_test_checkpoint_snapshot();
+        crate::stage8a4_i3_test_fail_before_covering_seal(&mut owner);
+        assert!(matches!(
+            owner.commit_stage8b_p1d3_cancel(evidence, authority, &setup.commitment_key),
+            Err(crate::Stage7bRecoveryError::Runtime(
+                strategy_runtime_core::Stage6dLiveCoreError::JournalMutationMayHaveOccurred
+            ))
+        ));
+
+        let restarted = restart_schedule_fixture(&setup);
+        let before_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("journal-ahead cancel must remain auditable");
+        let crate::Stage7bRestartOutcome::P1d3PreAckPending(pending) = restarted else {
+            panic!("V4 plus uncovered cancel outcome must enter exact pre-seal recovery")
+        };
+        let crate::recovery::Stage8bP1d3RecoveredCommitOutcome::AckCommitted(ack) = pending
+            .commit_reconstructed_transition(&setup.commitment_key)
+            .unwrap()
+        else {
+            panic!("cancel recovery must reconstruct only S_ack")
+        };
+        let truth = ack.commit_truth(&setup.commitment_key).unwrap();
+        let after_commit = truth.stage8b_p1d3_test_restart_snapshot();
+        assert_eq!(after_commit.0, covered_v4.0 + 2);
+        assert_eq!(after_commit.1, covered_v4.1 + 3);
+        drop(truth);
+
+        let restarted = restart_schedule_fixture(&setup);
+        let after_recovery = restarted
+            .stage8b_p1d4_test_runtime_audit()
+            .expect("second restart must preserve the recovered cancel");
+        assert_eq!(
+            after_recovery.durable_outcomes,
+            before_recovery.durable_outcomes
+        );
+        assert_eq!(
+            after_recovery.journal_lifecycle_sequences,
+            before_recovery.journal_lifecycle_sequences
+        );
+        drop(restarted);
+        std::fs::remove_dir_all(setup.parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[test]
+    fn signed_v4_cancel_rejects_exact_id_with_conflicting_semantic_identity_before_dispatch() {
+        let (setup, owner, authority, mut evidence) = p1e_test_cancel_binding_fixture();
+        let before_effect = owner.stage8b_p1e_test_checkpoint_snapshot();
+        evidence.semantic_id_sha256 = "ef".repeat(32);
+        assert!(owner
+            .commit_stage8b_p1d3_cancel(evidence, authority, &setup.commitment_key)
+            .is_err());
+        let crate::Stage7bRestartOutcome::P1eScheduleBindingCommitted(committed) =
+            restart_schedule_fixture(&setup)
+        else {
+            panic!("identity conflict must preserve only the exact cancel V4")
+        };
+        let permit = match resume_stage8b_p1e_committed_schedule_binding(
+            *committed,
+            &Stage8bP1eShutdownLatchV1::new(),
+        ) {
+            Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+            _ => panic!("cancel V4 must remain recoverable"),
+        };
+        let Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } =
+            continue_stage8b_p1e_schedule_step(permit, &Stage8bP1eShutdownLatchV1::new()).unwrap()
+        else {
+            panic!("cancel V4 must retain exact Cancel authority")
+        };
+        assert_eq!(owner.stage8b_p1e_test_checkpoint_snapshot(), before_effect);
+        drop(authority);
+        drop(owner);
         std::fs::remove_dir_all(setup.parent).unwrap();
     }
 

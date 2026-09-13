@@ -79,4 +79,4 @@ if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
   exit 1
 fi
 
-echo "PASS stage8b-p1e-i1a-source-gate source_ref=$source_ref source_tree=$source_tree acceptance=81 r2=8 source_negatives=82 p1d4_sigkill=105x2 full_tests=true doctests=true clippy=true db0=false db15=false finam_write=false live=false"
+echo "PASS stage8b-p1e-i1a-source-gate source_ref=$source_ref source_tree=$source_tree acceptance=81 r2=8 source_negatives=100 p1d4_sigkill=105x2 full_tests=true doctests=true clippy=true db0=false db15=false finam_write=false live=false"

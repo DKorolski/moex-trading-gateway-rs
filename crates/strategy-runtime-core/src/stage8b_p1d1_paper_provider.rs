@@ -126,6 +126,19 @@ pub struct Stage8bP1d1CanonicalM10Evidence {
     pub open: Decimal,
 }
 
+impl Stage8bP1d1CanonicalM10Evidence {
+    pub(crate) fn matches_stage8b_p1e_m10_identity(
+        &self,
+        expected: &crate::Stage8bP1eM10IdentityV1,
+    ) -> bool {
+        self.source_redis_id == expected.redis_id
+            && self.semantic_id_sha256 == expected.semantic_id_sha256
+            && self.payload_sha256 == expected.payload_sha256
+            && self.open_ts_utc_ms == expected.open_ts_utc_ms
+            && self.close_ts_utc_ms == expected.close_ts_utc_ms
+    }
+}
+
 /// Opaque one-use schedule authority for the P1-d1 execution observation.
 ///
 /// Canonical Redis bytes cannot construct this value.  It owns the exact
@@ -158,10 +171,13 @@ impl Stage8bP1d1ExecutionScheduleAuthority {
     pub(crate) fn matches_stage8b_p1e_v4_record(
         &self,
         record: &crate::Stage6JournalRecordV4,
+        evidence: &Stage8bP1d1CanonicalM10Evidence,
     ) -> bool {
         self.v4_proof.as_ref().is_some_and(|proof| {
             proof.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
                 && proof.matches_record(record)
+                && evidence
+                    .matches_stage8b_p1e_m10_identity(&record.candidate_or_last_eligible_m10())
         })
     }
 
@@ -1182,6 +1198,50 @@ mod tests {
         Utc.timestamp_millis_opt(candidate_close_ms)
             .single()
             .unwrap()
+    }
+
+    #[test]
+    fn p1e_market_exact_m10_match_rejects_each_identity_component_independently() {
+        let evidence = Stage8bP1d1CanonicalM10Evidence {
+            source_redis_id: "1785760200000-0".to_string(),
+            source_canonical_bytes_sha256: "8".repeat(64),
+            operational_identity_sha256: "1".repeat(64),
+            instrument: instrument(),
+            semantic_id_sha256: "3".repeat(64),
+            payload_sha256: "4".repeat(64),
+            open_ts_utc_ms: 1_785_759_600_000,
+            close_ts_utc_ms: 1_785_760_200_000,
+            open: Decimal::new(2_175, 1),
+        };
+        let exact = crate::Stage8bP1eM10IdentityV1 {
+            redis_id: evidence.source_redis_id.clone(),
+            semantic_id_sha256: evidence.semantic_id_sha256.clone(),
+            payload_sha256: evidence.payload_sha256.clone(),
+            open_ts_utc_ms: evidence.open_ts_utc_ms,
+            close_ts_utc_ms: evidence.close_ts_utc_ms,
+        };
+        assert!(evidence.matches_stage8b_p1e_m10_identity(&exact));
+
+        let mut mutations = Vec::new();
+        let mut value = exact.clone();
+        value.redis_id = "1785760200001-0".to_string();
+        mutations.push(value);
+        let mut value = exact.clone();
+        value.semantic_id_sha256 = "5".repeat(64);
+        mutations.push(value);
+        let mut value = exact.clone();
+        value.payload_sha256 = "6".repeat(64);
+        mutations.push(value);
+        let mut value = exact.clone();
+        value.open_ts_utc_ms += 1;
+        mutations.push(value);
+        let mut value = exact;
+        value.close_ts_utc_ms += 1;
+        mutations.push(value);
+
+        assert!(mutations
+            .iter()
+            .all(|value| !evidence.matches_stage8b_p1e_m10_identity(value)));
     }
 
     fn eligible(

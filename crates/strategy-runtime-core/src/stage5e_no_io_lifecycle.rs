@@ -7915,7 +7915,7 @@ pub mod p1e_schedule_source {
             crate::stage8b_p1d3_working_limit::stage8b_p1d3_day_expiry_authority_from_stage5e(
                 self.candidate.schedule_semantic_sha256,
                 self.candidate.trading_day,
-                self.candidate.candidate_or_last_eligible_m10.redis_id,
+                self.candidate.candidate_or_last_eligible_m10,
                 boundary_ts_utc_ms,
                 self.v4_proof,
             )

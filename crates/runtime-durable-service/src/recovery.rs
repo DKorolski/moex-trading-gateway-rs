@@ -4546,17 +4546,28 @@ impl Stage7bRecoveryReadyOwner {
     ) -> Result<Stage8bP1d3LaterCommitOutcome, Stage7bRecoveryError> {
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        let fail_before_replacement_seal = self.stage8a4_test_fail_before_covering_seal;
         let Stage7bRecoveryReadyOwner {
             recovered,
             writer_lease,
             committed_seal,
             ..
         } = self;
-        let ready = match apply_stage8b_p1d3_later_limit_transition(
-            recovered,
-            observation,
-            commitment_key,
-        )? {
+        let transition =
+            apply_stage8b_p1d3_later_limit_transition(recovered, observation, commitment_key)?;
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        if fail_before_replacement_seal
+            && !matches!(
+                &transition,
+                Stage6Stage8bP1d3LaterTransition::AlreadyEvaluated { .. }
+            )
+        {
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+            ));
+        }
+        let ready = match transition {
             Stage6Stage8bP1d3LaterTransition::AlreadyEvaluated { recovered } => {
                 let ready = Stage7bRecoveryReadyOwner {
                     recovered,
@@ -4611,14 +4622,23 @@ impl Stage7bRecoveryReadyOwner {
     ) -> Result<Stage8bP1d3CancelCommitOutcome, Stage7bRecoveryError> {
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        let fail_before_replacement_seal = self.stage8a4_test_fail_before_covering_seal;
         let Stage7bRecoveryReadyOwner {
             recovered,
             writer_lease,
             committed_seal,
             ..
         } = self;
-        match apply_stage8b_p1d3_cancel_transition(recovered, candidate, schedule, commitment_key)?
-        {
+        let transition =
+            apply_stage8b_p1d3_cancel_transition(recovered, candidate, schedule, commitment_key)?;
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        if fail_before_replacement_seal {
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+            ));
+        }
+        match transition {
             Stage6Stage8bP1d3CancelTransition::AckCommitted {
                 recovered,
                 stage5g_restart_package,
@@ -4728,6 +4748,8 @@ impl Stage7bRecoveryReadyOwner {
     ) -> Result<Stage8bP1d2AckCommittedOwner, Stage7bRecoveryError> {
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        let fail_before_replacement_seal = self.stage8a4_test_fail_before_covering_seal;
         let Stage7bRecoveryReadyOwner {
             recovered,
             writer_lease,
@@ -4735,6 +4757,12 @@ impl Stage7bRecoveryReadyOwner {
             ..
         } = self;
         let transition = apply_stage8b_p1d2_ack_transition(recovered, outcome, commitment_key)?;
+        #[cfg(feature = "stage8a4-i3-test-fixtures")]
+        if fail_before_replacement_seal {
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::JournalMutationMayHaveOccurred,
+            ));
+        }
         stage8b_p1_test_crash_barrier("p1d2-after-ack-before-s-ack");
         let ready = commit_stage8b_p1_replacement_seal(
             transition.recovered,

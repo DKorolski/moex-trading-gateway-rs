@@ -24,6 +24,7 @@
     "consumer_snapshot_progression": true,
     "guarded_restart_continuation": true,
     "inherited_p1d3_goldens_unchanged": true,
+    "exact_m10_effect_binding": true,
     "journal_ahead_effect_continuation": true,
     "mandatory_latch_e_observable": true,
     "route_restriction_reaches_effect": true,
@@ -33,12 +34,13 @@
       "working_fill",
       "cancel",
       "day_expiry"
-    ]
+    ],
+    "v4_prefixed_outcome_recovery": true
   },
   "r2_overlay_rows": 8,
-  "reviewed_source_ref": "9d7eb32cbee0e64acdc831881cb6e69ef27ce29b",
+  "reviewed_source_ref": "848bff061c33e6fb8e8ab36eb596a2bba8f50ba9",
   "schema_version": 1,
-  "source_negative_cases": 82,
+  "source_negative_cases": 100,
   "stage": "Stage 8B-P1-e I1A source implementation",
   "status": "SOURCE_CORRECTION_REVIEW_CANDIDATE",
   "verification_contract": {

@@ -34,6 +34,7 @@ pub const STAGE8B_P1D3_EVALUATION_EVIDENCE_DOMAIN: &str =
 
 const STAGE8B_P1D3_ORDER_FINGERPRINT_DOMAIN: &str = "moex.stage8b.p1d3.order-fingerprint.v1";
 const STAGE8B_P1D3_TRADE_ID_DOMAIN: &str = "moex.stage8b.p1d.trade-id.v1";
+const M10_MILLIS: i64 = 600_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -101,6 +102,19 @@ pub struct Stage8bP1d3CanonicalM10Evidence {
     pub high: Decimal,
     pub low: Decimal,
     pub close: Decimal,
+}
+
+impl Stage8bP1d3CanonicalM10Evidence {
+    pub(crate) fn matches_stage8b_p1e_m10_identity(
+        &self,
+        expected: &crate::Stage8bP1eM10IdentityV1,
+    ) -> bool {
+        self.redis_id == expected.redis_id
+            && self.semantic_id_sha256 == expected.semantic_id_sha256
+            && self.payload_sha256 == expected.payload_sha256
+            && self.open_ts_utc_ms == expected.open_ts_utc_ms
+            && self.close_ts_utc_ms == expected.close_ts_utc_ms
+    }
 }
 
 /// Exact canonical M10 identity whose order evaluation is already durable but
@@ -176,6 +190,7 @@ pub struct Stage8bP1d3DayExpiryAuthority {
     schedule_fingerprint_sha256: String,
     trading_day_identity: String,
     last_eligible_m10_redis_id: String,
+    exact_last_eligible_m10: Option<crate::Stage8bP1eM10IdentityV1>,
     boundary_ts_utc_ms: i64,
     v4_proof:
         Option<crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1>,
@@ -203,7 +218,8 @@ impl Stage8bP1d3ScheduleStepAuthority {
                 && record.trading_day() == self.trading_day_identity
                 && record.predecessor_m10().redis_id == self.predecessor_redis_id
                 && record.candidate_or_last_eligible_m10().redis_id == self.candidate_redis_id
-                && self.candidate_redis_id == candidate.redis_id
+                && candidate
+                    .matches_stage8b_p1e_m10_identity(&record.candidate_or_last_eligible_m10())
         })
     }
 }
@@ -214,12 +230,16 @@ impl Stage8bP1d3DayExpiryAuthority {
         record: &crate::Stage6JournalRecordV4,
     ) -> bool {
         self.v4_proof.as_ref().is_some_and(|proof| {
+            let actual = record.candidate_or_last_eligible_m10();
             proof.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry
                 && proof.matches_record(record)
                 && record.schedule_semantic_sha256() == self.schedule_fingerprint_sha256
                 && record.trading_day() == self.trading_day_identity
-                && record.candidate_or_last_eligible_m10().redis_id
-                    == self.last_eligible_m10_redis_id
+                && actual.redis_id == self.last_eligible_m10_redis_id
+                && self
+                    .exact_last_eligible_m10
+                    .as_ref()
+                    .is_some_and(|expected| expected == &actual)
         })
     }
 }
@@ -267,12 +287,17 @@ pub(crate) fn stage8b_p1d3_schedule_step_authority_from_stage5e(
 pub(crate) fn stage8b_p1d3_day_expiry_authority_from_stage5e(
     schedule_fingerprint_sha256: String,
     trading_day_identity: String,
-    last_eligible_m10_redis_id: String,
+    last_eligible_m10: crate::Stage8bP1eM10IdentityV1,
     boundary_ts_utc_ms: i64,
     v4_proof: crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1,
 ) -> Result<Stage8bP1d3DayExpiryAuthority, Stage8bP1d3Error> {
-    let last_eligible_ms = exact_m10_redis_id_ms(&last_eligible_m10_redis_id)?;
+    let last_eligible_ms = exact_m10_redis_id_ms(&last_eligible_m10.redis_id)?;
     if !is_sha256(&schedule_fingerprint_sha256)
+        || !is_sha256(&last_eligible_m10.semantic_id_sha256)
+        || !is_sha256(&last_eligible_m10.payload_sha256)
+        || last_eligible_m10.close_ts_utc_ms != last_eligible_ms
+        || last_eligible_m10.open_ts_utc_ms
+            != last_eligible_m10.close_ts_utc_ms.saturating_sub(M10_MILLIS)
         || boundary_ts_utc_ms < last_eligible_ms
         || exact_timestamp(boundary_ts_utc_ms).is_err()
         || trading_day(last_eligible_ms)? != trading_day_identity
@@ -282,7 +307,8 @@ pub(crate) fn stage8b_p1d3_day_expiry_authority_from_stage5e(
     Ok(Stage8bP1d3DayExpiryAuthority {
         schedule_fingerprint_sha256,
         trading_day_identity,
-        last_eligible_m10_redis_id,
+        last_eligible_m10_redis_id: last_eligible_m10.redis_id.clone(),
+        exact_last_eligible_m10: Some(last_eligible_m10),
         boundary_ts_utc_ms,
         v4_proof: Some(v4_proof),
     })
@@ -5262,6 +5288,7 @@ pub fn stage8b_p1d3_test_expiry_authority(
         schedule_fingerprint_sha256,
         trading_day_identity,
         last_eligible_m10_redis_id,
+        exact_last_eligible_m10: None,
         boundary_ts_utc_ms,
         v4_proof: None,
     }
@@ -5394,6 +5421,44 @@ mod tests {
             low,
             close: open,
         }
+    }
+
+    #[test]
+    fn p1e_exact_m10_match_rejects_each_identity_component_independently() {
+        let evidence = later_bar(
+            Decimal::new(2_100, 0),
+            Decimal::new(2_101, 0),
+            Decimal::new(2_099, 0),
+        );
+        let exact = crate::Stage8bP1eM10IdentityV1 {
+            redis_id: evidence.redis_id.clone(),
+            semantic_id_sha256: evidence.semantic_id_sha256.clone(),
+            payload_sha256: evidence.payload_sha256.clone(),
+            open_ts_utc_ms: evidence.open_ts_utc_ms,
+            close_ts_utc_ms: evidence.close_ts_utc_ms,
+        };
+        assert!(evidence.matches_stage8b_p1e_m10_identity(&exact));
+
+        let mut mutations = Vec::new();
+        let mut value = exact.clone();
+        value.redis_id = "1785000600001-0".to_string();
+        mutations.push(value);
+        let mut value = exact.clone();
+        value.semantic_id_sha256 = "21".repeat(32);
+        mutations.push(value);
+        let mut value = exact.clone();
+        value.payload_sha256 = "22".repeat(32);
+        mutations.push(value);
+        let mut value = exact.clone();
+        value.open_ts_utc_ms += 1;
+        mutations.push(value);
+        let mut value = exact;
+        value.close_ts_utc_ms += 1;
+        mutations.push(value);
+
+        assert!(mutations
+            .iter()
+            .all(|value| !evidence.matches_stage8b_p1e_m10_identity(value)));
     }
 
     fn later_step() -> Stage8bP1d3ScheduleStepAuthority {

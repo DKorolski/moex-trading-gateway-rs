@@ -6,7 +6,7 @@ Accepted design predecessor:
 `aa24e840ed8b7d18c80be6f1fdd8f50facf5b6d4`.
 
 Reviewed source corrected by this candidate:
-`9d7eb32cbee0e64acdc831881cb6e69ef27ce29b`.
+`848bff061c33e6fb8e8ab36eb596a2bba8f50ba9`.
 
 ## Implemented boundary
 
@@ -86,6 +86,20 @@ when source time equals the already-observed final M10 boundary.
 The schedule-step authority retains an opaque Working/Cancel route tag through the
 effect boundary. A signed Closed -> Cancel grant cannot enter Working evaluation,
 while the same grant reaches only the existing cancel effect.
+
+Every route now binds the consumed bar to the V4 record by the exact five-field M10 identity:
+Redis ID, semantic ID SHA-256, payload SHA-256, open timestamp and close timestamp.
+Market, Working and Cancel reject a different internally valid M10 before dispatch,
+evaluation, provider, callback, outcome append or replacement seal. Day-expiry carries
+and verifies the exact last eligible M10 identity rather than only its Redis ID.
+
+The outcome-before-replacement crash frontier authenticates the exact
+`C0 -> V4 -> C1` prefix before accepting an already durable effect. Working fill and
+Day-expiry admit only direct V4-to-V3 continuity; Cancel admits only the single
+V4-to-dispatch-to-V3 chain; Market validates the equivalent V4-prefixed V1 outcome
+chain before reconstructing ACK/truth. The recovered replacement is bound to the
+actual post-outcome checkpoint, and a second restart appends neither another outcome,
+callback nor seal.
 
 Binding is split at the non-cancellable durable boundary. The first half returns a
 non-authorizing committed owner; `resume_stage8b_p1e_committed_schedule_binding`

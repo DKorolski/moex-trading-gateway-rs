@@ -11,7 +11,7 @@ import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ACCEPTED_DESIGN = "aa24e840ed8b7d18c80be6f1fdd8f50facf5b6d4"
-REVIEWED_SOURCE = "9d7eb32cbee0e64acdc831881cb6e69ef27ce29b"
+REVIEWED_SOURCE = "848bff061c33e6fb8e8ab36eb596a2bba8f50ba9"
 EXPECTED_CHANGED = {
     "crates/finam-gateway/src/lib.rs",
     "crates/finam-gateway/src/stage8b_p1e_schedule_publisher.rs",
@@ -162,13 +162,26 @@ def validate_content(content: dict[str, str]) -> None:
         "stage8b_p1e_replacement_is_current_or_v4_bound",
         "apply_stage8b_p1d3_evaluation_stage_after_schedule_binding",
         "apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding",
+        "fn stage8b_p1e_schedule_checkpoint_before_journal_ahead_outcome(",
+        "fn stage8b_p1e_market_binding_before_recovered_dispatch",
+        "stage8b_p1e_dispatch_follows_exact_schedule_binding_records",
     ):
         require(token in live, f"journal-ahead invariant missing: {token}")
+    require(
+        live.count("apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding") == 2,
+        "V4-aware truth continuation must cover normal effect and journal-ahead recovery",
+    )
 
     for token in (
         "v4_proof:\n        Option<crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1>",
         "fn bound_at_utc(&self) -> Option<DateTime<Utc>>",
         "p1e_market_binding_matches_exact_request_command_and_predecessor_m10",
+        "self.source_redis_id == expected.redis_id",
+        "self.semantic_id_sha256 == expected.semantic_id_sha256",
+        "self.payload_sha256 == expected.payload_sha256",
+        "self.open_ts_utc_ms == expected.open_ts_utc_ms",
+        "self.close_ts_utc_ms == expected.close_ts_utc_ms",
+        "p1e_market_exact_m10_match_rejects_each_identity_component_independently",
     ):
         require(token in p1d1, f"market V4 continuation invariant missing: {token}")
 
@@ -183,8 +196,19 @@ def validate_content(content: dict[str, str]) -> None:
         "fn ordered_autonomous_receipt_timestamp",
         "schedule_route_restriction_reaches_the_effect_boundary",
         "all_eight_fresh_and_recovery_paths_match_checked_in_canonical_goldens",
+        "self.redis_id == expected.redis_id",
+        "self.semantic_id_sha256 == expected.semantic_id_sha256",
+        "self.payload_sha256 == expected.payload_sha256",
+        "self.open_ts_utc_ms == expected.open_ts_utc_ms",
+        "self.close_ts_utc_ms == expected.close_ts_utc_ms",
+        "exact_last_eligible_m10",
+        "p1e_exact_m10_match_rejects_each_identity_component_independently",
     ):
         require(token in p1d3, f"P1-d3 V4/route invariant missing: {token}")
+    require(
+        p1d3.count("exact_last_eligible_m10") == 4,
+        "Day-expiry exact last-M10 storage or validation drifted",
+    )
 
     binding_commit = section(
         service,
@@ -196,8 +220,16 @@ def validate_content(content: dict[str, str]) -> None:
         "commit_stage8b_p1e_schedule_binding",
         "The existing seal writer performs write/fsync/rename",
         "Stage7bRestartOutcome::P1eScheduleBindingCommitted",
+        "let fail_before_replacement_seal = self.stage8a4_test_fail_before_covering_seal",
     ):
         require(token in service, f"durable composition invariant missing: {token}")
+    require(
+        service.count(
+            "let fail_before_replacement_seal = self.stage8a4_test_fail_before_covering_seal"
+        )
+        == 3,
+        "Market, Working/expiry and Cancel outcome-before-seal frontiers must remain injectable",
+    )
     require(
         "self.advance_recovery_seal(commitment_key)?;\n        if self.committed_seal.seal_generation() != pending.expected_covering_seal_generation()"
         in binding_commit,
@@ -255,6 +287,13 @@ def validate_content(content: dict[str, str]) -> None:
         "signed_closed_cancel_authority_cannot_enter_working_evaluation",
         "signed_closed_cancel_authority_reaches_cancel_effect_once",
         "v4_journal_ahead_restart_commits_one_seal_and_reaches_market_effect_once",
+        "signed_v4_market_rejects_same_redis_id_with_different_payload_before_effect",
+        "signed_v4_working_rejects_same_redis_id_with_different_payload_before_effect",
+        "signed_v4_cancel_rejects_exact_id_with_conflicting_semantic_identity_before_dispatch",
+        "signed_v4_market_recovers_dispatch_outcome_ahead_of_ack_replacement_once",
+        "signed_v4_working_fill_recovers_outcome_ahead_of_replacement_once",
+        "signed_v4_day_expiry_recovers_outcome_ahead_of_replacement_once",
+        "signed_v4_cancel_recovers_dispatch_and_outcome_ahead_of_replacement_once",
     ):
         require(token in reader, f"binding/latch invariant missing: {token}")
 
@@ -324,6 +363,9 @@ def validate_content(content: dict[str, str]) -> None:
         "consumer snapshot progression",
         "signed snapshot -> V4 -> seal/reread -> route authority -> existing effect",
         "mandatory checkpoint E",
+        "exact five-field M10 identity",
+        "C0 -> V4 -> C1",
+        "outcome-before-replacement crash frontier",
     ):
         require(token in document, f"implementation document invariant missing: {token}")
 
@@ -333,7 +375,9 @@ def validate_content(content: dict[str, str]) -> None:
     require(evidence["accepted_design_ref"] == ACCEPTED_DESIGN, "evidence design ref drift")
     require(evidence["reviewed_source_ref"] == REVIEWED_SOURCE, "evidence reviewed source ref drift")
     require(evidence["acceptance_rows"] == 81 and evidence["r2_overlay_rows"] == 8, "evidence inventory drift")
-    require(evidence["source_negative_cases"] == 82, "evidence source negative inventory drift")
+    require(evidence["source_negative_cases"] == 100, "evidence source negative inventory drift")
+    require(evidence["source_review_closure"]["exact_m10_effect_binding"] is True, "exact M10 closure missing")
+    require(evidence["source_review_closure"]["v4_prefixed_outcome_recovery"] is True, "V4 recovery closure missing")
     require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
     require(evidence["next_stage_authorized"] is False, "next source/deployment stage opened early")
 
