@@ -1105,11 +1105,29 @@ pub fn attach_stage5g_initial_zero_intent_timer_ready(
     settled: Stage5cSettledPaperStrategy,
     checkpoint_ts_utc_ms: i64,
 ) -> Result<Stage5gTimerReadyPaperStrategy, Stage5gInitialTimerReadyError> {
+    attach_stage5g_initial_zero_intent_timer_ready_inner(settled, checkpoint_ts_utc_ms, false)
+}
+
+/// P1 first-boot counterpart of the public live-eligible zero-intent bridge.
+/// It accepts only the single authenticated Replay observation produced by
+/// the F00-F12 pipeline and cannot be called outside this crate.
+pub(crate) fn attach_stage8b_p1_initial_replay_timer_ready(
+    settled: Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+) -> Result<Stage5gTimerReadyPaperStrategy, Stage5gInitialTimerReadyError> {
+    attach_stage5g_initial_zero_intent_timer_ready_inner(settled, checkpoint_ts_utc_ms, true)
+}
+
+fn attach_stage5g_initial_zero_intent_timer_ready_inner(
+    settled: Stage5cSettledPaperStrategy,
+    checkpoint_ts_utc_ms: i64,
+    require_observation_only: bool,
+) -> Result<Stage5gTimerReadyPaperStrategy, Stage5gInitialTimerReadyError> {
     let batch = settled.intent_batch();
     if batch.intent_count() != 0 || !batch.request_ids().is_empty() {
         return Err(Stage5gInitialTimerReadyError::NonZeroIntentBatch);
     }
-    if batch.observation_only() {
+    if batch.observation_only() != require_observation_only {
         return Err(Stage5gInitialTimerReadyError::ObservationOnlyBatch);
     }
     let expected_checkpoint = batch

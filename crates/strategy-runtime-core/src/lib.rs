@@ -304,6 +304,7 @@ mod stage8b_p1d1_paper_provider;
 mod stage8b_p1d2_market_feedback;
 mod stage8b_p1d3_working_limit;
 mod stage8b_p1d4_generated_market;
+mod stage8b_p1e_first_boot;
 
 pub use hybrid_intraday_runtime::{
     BrokerNeutralHybridCallbackResult, BrokerNeutralHybridStrategy, HybridIntradayProfile,
@@ -745,6 +746,11 @@ pub use stage8b_p1d4_generated_market::{
     stage8b_p1d4_immediate_redis_successor, Stage8bP1d4CommandPublicationBindingV1,
     Stage8bP1d4CommandPublicationReservationV1, Stage8bP1d4GeneratedMarketError,
     Stage8bP1d4GeneratedMarketPackageState,
+};
+pub use stage8b_p1e_first_boot::{
+    build_stage8b_p1_first_boot_composition_v1, Stage8bP1eFirstBootBarInputV1,
+    Stage8bP1eFirstBootCompositionError, Stage8bP1eFirstBootCompositionInputV1,
+    Stage8bP1eFirstBootCompositionV1, Stage8bP1eRiskGateObservationInputV1,
 };
 // STAGE5D-ADDITIVE-BRIDGE-BEGIN: lib-stage5d-exports
 pub use stage5d_persistence::{

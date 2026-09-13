@@ -944,6 +944,71 @@ impl HybridIntradayRuntimeStrategy {
         self.last_position_qty
     }
 
+    /// Rebuilds the P1 first-boot riskgate observations from canonical History
+    /// M10 without mutating the warmed strategy.  The replay intentionally
+    /// calls the same High180 shadow kernel as the ordinary bar callback; no
+    /// ledger or materialized fields are accepted from the caller.
+    pub(crate) fn stage8b_p1_rebuild_riskgate_history(
+        &self,
+        bars: &[BarEvent],
+    ) -> Result<Vec<RiskGateSessionFinalization>, ()> {
+        let mut oracle = Self::new(self.config.clone());
+        let mut processed = 0_usize;
+        for bar in bars {
+            if bar.symbol != oracle.config.symbol
+                || ![bar.o, bar.h, bar.l, bar.close, bar.v]
+                    .iter()
+                    .all(|value| value.is_finite())
+                || bar.v < 0.0
+                || bar.l > bar.h
+                || bar.h < bar.o.max(bar.close)
+                || bar.l > bar.o.min(bar.close)
+                || bar.close_time_utc.rem_euclid(600) != 0
+                || oracle
+                    .last_processed_bar_ts
+                    .is_some_and(|last| bar.close_time_utc <= last)
+            {
+                return Err(());
+            }
+            let dt_local = oracle.utc_to_local_naive(bar.close_time_utc).ok_or(())?;
+            if oracle.suppress_weekend_signal_generation(dt_local)
+                || oracle.suppress_non_model_session_bar(dt_local).is_some()
+            {
+                oracle.last_processed_bar_ts = Some(bar.close_time_utc);
+                continue;
+            }
+            oracle.update_day_aggregates(dt_local, bar.h, bar.l);
+            if oracle.uses_high180_mr() {
+                oracle.high180_mr.on_bar(dt_local, bar.h, bar.l);
+            }
+            let close_prev = oracle.prev_day_close().unwrap_or(bar.close);
+            let day_range_prev = oracle.prev_day_range.unwrap_or(0.0);
+            oracle.update_risk_gate_shadow(
+                dt_local,
+                bar.close_time_utc,
+                bar.h,
+                bar.l,
+                bar.close,
+                close_prev,
+                day_range_prev,
+            );
+            oracle.last_bar_close = Some(bar.close);
+            oracle.last_processed_bar_ts = Some(bar.close_time_utc);
+            processed = processed.saturating_add(1);
+        }
+        if processed == 0 {
+            return Err(());
+        }
+        // The authenticated first-boot source proves that the candidate belongs
+        // to a strictly later Moscow session.  That external chronology proof
+        // makes the final History session complete, so close it through the
+        // same source finalizer before comparing the observation list.
+        if let Some(last_session) = oracle.risk_gate_shadow_session_date {
+            oracle.finalize_risk_gate_shadow_session(last_session);
+        }
+        Ok(oracle.pending_risk_gate_finalizations)
+    }
+
     pub(crate) fn stage5g_protective_completion_post_callback_summary(
         &self,
     ) -> (

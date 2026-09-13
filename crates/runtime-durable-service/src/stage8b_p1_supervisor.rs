@@ -190,6 +190,18 @@ impl Stage8bP1eValidatedSupervisorConfigV1 {
         self.shutdown_grace_ms
     }
 
+    /// Consumes the validated process config for the offline first-boot path.
+    /// Redis attachment material is deliberately discarded: bootstrap cannot
+    /// obtain a Redis connection or namespace mutation capability.
+    pub(crate) fn into_first_boot_parts(
+        self,
+    ) -> (
+        Stage8bP1ValidatedBootstrapConfig,
+        HybridIntradayRuntimeStrategy,
+    ) {
+        (self.bootstrap, self.runtime)
+    }
+
     pub fn into_run_parts(
         self,
     ) -> (
@@ -2102,8 +2114,8 @@ mod tests {
         assert!(!text.contains("LiveReady"));
         assert!(!text.contains("redis://"));
         assert_eq!(
-            stage8b_p1e_redact_account_id("7502MIW"),
-            domain_hash("moex.stage8b.p1e.redact.account.v1", "7502MIW")
+            stage8b_p1e_redact_account_id("ACC_TEST_REDACTION"),
+            domain_hash("moex.stage8b.p1e.redact.account.v1", "ACC_TEST_REDACTION")
         );
     }
 

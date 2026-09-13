@@ -280,6 +280,7 @@ mod recovery;
 mod stage8b_p1_bootstrap;
 mod stage8b_p1_semantic;
 mod stage8b_p1_supervisor;
+mod stage8b_p1e_first_boot_source;
 mod stage8b_p1e_schedule_source;
 
 pub use recovery::{
@@ -413,6 +414,15 @@ pub use stage8b_p1_supervisor::{
     STAGE8B_P1E_SUPERVISOR_CONFIG_PATH, STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION,
     STAGE8B_P1E_SYSTEMD_STOP_TIMEOUT_MS, STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256,
     STAGE8B_P1E_TELEMETRY_RETENTION,
+};
+pub use stage8b_p1e_first_boot_source::{
+    build_stage8b_p1_first_boot_source_v1, load_stage8b_p1e_first_boot_source_v1,
+    Stage8bP1eFirstBootBarV1, Stage8bP1eFirstBootBuildError, Stage8bP1eFirstBootSourceError,
+    Stage8bP1ePreparedFirstBootV1, Stage8bP1eRiskGateObservationV1,
+    Stage8bP1eValidatedFirstBootSourceV1, STAGE8B_P1E_FIRST_BOOT_MIN_HISTORY_SESSIONS,
+    STAGE8B_P1E_FIRST_BOOT_MIN_RISKGATE_SESSIONS, STAGE8B_P1E_FIRST_BOOT_SOURCE_DOMAIN,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_GROUP, STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES,
+    STAGE8B_P1E_FIRST_BOOT_SOURCE_SCHEMA_VERSION, STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS,
 };
 pub use stage8b_p1e_schedule_source::{
     bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,

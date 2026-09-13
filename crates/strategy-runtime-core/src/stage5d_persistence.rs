@@ -4735,6 +4735,150 @@ pub struct Stage5dRiskGatePersistence {
     pub durable_finalization_outbox: Vec<Stage5dRiskGateFinalizationOutboxRecord>,
 }
 
+/// Source-derived P1 first-boot riskgate authority.  The opaque value binds
+/// the runtime projection, validated ledger evidence and persistence DTO that
+/// were rebuilt from the same observation sequence.
+pub(crate) struct Stage8bP1RiskGateAuthority {
+    runtime_state: RiskGateRuntimeState,
+    persistence: Stage5dRiskGatePersistence,
+    evidence: Stage5dRiskGateLedgerEvidence,
+}
+
+impl Stage8bP1RiskGateAuthority {
+    pub(crate) fn runtime_state(&self) -> &RiskGateRuntimeState {
+        &self.runtime_state
+    }
+
+    pub(crate) fn into_export_parts(
+        self,
+    ) -> (Stage5dRiskGatePersistence, Stage5dRiskGateLedgerEvidence) {
+        (self.persistence, self.evidence)
+    }
+
+    pub(crate) fn current_shadow_session_date(&self) -> Option<&str> {
+        self.evidence.current_shadow_session_date.as_deref()
+    }
+
+    pub(crate) fn current_shadow_pnl_points(&self) -> &str {
+        &self.evidence.current_shadow_pnl_points
+    }
+}
+
+/// Derives the complete Stage 5D riskgate authority for P1 first boot.  Only
+/// the three source-produced observation fields are accepted; every ledger,
+/// rolling, policy and materialized field is rebuilt by the accepted source
+/// algorithms and validated by the ordinary Stage 5D validator.
+pub(crate) fn stage8b_p1_build_riskgate_authority(
+    strategy: &crate::hybrid_intraday_runtime::HybridIntradayRuntimeStrategy,
+    strategy_id: &str,
+    observations: &[(NaiveDate, f64, u32)],
+    persisted_at: DateTime<Utc>,
+) -> Result<Stage8bP1RiskGateAuthority, Stage5dRiskGateInjectionBlockReason> {
+    if observations.len() < crate::hybrid_intraday::SHADOW_PNL_LB120_MIN_HISTORY_SESSIONS
+        || !strategy.stage5d_riskgate_applicable()
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid);
+    }
+    let source_identity = strategy.stage5d_expected_riskgate_identity(strategy_id.to_string());
+    let identity = Stage5dRiskGateIdentity {
+        strategy_id: source_identity.strategy_id.clone(),
+        profile_id: source_identity.profile_id.clone(),
+        mr_variant: source_identity.mr_variant.clone(),
+        timeframe: source_identity.timeframe.clone(),
+        session_policy: source_identity.session_policy.clone(),
+        model_version: source_identity.model_version.clone(),
+    };
+    let mut rows = Vec::with_capacity(observations.len());
+    for (session_date, shadow_pnl_points, shadow_trade_count) in observations {
+        let mut row = crate::hybrid_intraday::build_runtime_session_row(
+            &rows,
+            *session_date,
+            *shadow_pnl_points,
+            *shadow_trade_count,
+        )
+        .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+        row.source = crate::hybrid_intraday::RiskGateRowSource::Seed;
+        row.status = crate::hybrid_intraday::RiskGateRowStatus::Complete;
+        rows.push(row);
+    }
+    let planned = crate::hybrid_intraday::plan_risk_gate_startup(
+        crate::hybrid_intraday::RiskGateStartupMode::BootstrapFromSeed,
+        &[],
+        &rows,
+        &source_identity,
+        None,
+        persisted_at.timestamp(),
+    )
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+    if planned.decision != crate::hybrid_intraday::RiskGateStartupDecision::ImportSeed
+        || planned.ledger_records != planned.records_to_write
+        || planned.ledger_records.len() != observations.len()
+    {
+        return Err(Stage5dRiskGateInjectionBlockReason::LedgerRecordDerivedStateMismatch);
+    }
+
+    let semantic: Stage5dSemanticStrategyStateV1 = serde_json::from_value(
+        serde_json::to_value(Strategy::state(strategy))
+            .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?,
+    )
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?;
+    let Stage5dSemanticStrategyStateV1::HybridIntradayRuntime(semantic) = semantic;
+    let current_shadow_session_date = semantic
+        .risk_gate_shadow_session_date
+        .as_deref()
+        .map(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .transpose()
+        .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+    let materialized = crate::hybrid_intraday::rebuild_materialized_state_from_ledger_records(
+        &planned.ledger_records,
+        current_shadow_session_date,
+        semantic.risk_gate_shadow_pnl_points,
+        true,
+    )
+    .map_err(|_| Stage5dRiskGateInjectionBlockReason::MaterializedStateInvalid)?;
+    let mut evidence = Stage5dRiskGateLedgerEvidence {
+        schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+        identity: identity.clone(),
+        ledger_tail_hash: String::new(),
+        ledger_records: planned
+            .ledger_records
+            .iter()
+            .map(stage5d_stage_record_from_source)
+            .collect(),
+        seed_loaded: true,
+        current_shadow_session_date: materialized
+            .current_shadow_session_date
+            .map(|date| date.format("%Y-%m-%d").to_string()),
+        current_shadow_pnl_points: stage5d_source_format_riskgate_decimal(
+            materialized.current_shadow_pnl_points,
+        ),
+        current_generation: crate::hybrid_intraday::RISK_GATE_STATE_GENERATION.to_string(),
+    };
+    evidence.ledger_tail_hash = stage5d_compute_riskgate_ledger_tail_hash(&evidence)
+        .map_err(|_| Stage5dRiskGateInjectionBlockReason::LedgerEvidenceInvalid)?;
+    stage5d_validate_riskgate_ledger_evidence(evidence.clone())?;
+    let persistence = Stage5dRiskGatePersistence {
+        schema_version: STAGE5D_RISKGATE_SCHEMA_VERSION,
+        identity,
+        materialized_state: stage5d_stage_materialized_from_source(&materialized),
+        ledger_tail_hash: evidence.ledger_tail_hash.clone(),
+        durable_finalization_outbox: Vec::new(),
+    };
+    let runtime_state = RiskGateRuntimeState {
+        profile_id: source_identity.profile_id,
+        last_finalized_session_date: materialized.last_finalized_session_date,
+        rolling_sum_lb120: materialized.rolling_sum_lb120,
+        mr_enabled_current_session: materialized.mr_enabled_current_session,
+        mr_enabled_next_session: materialized.mr_enabled_next_session,
+        ledger_rows_count: materialized.ledger_rows_count,
+    };
+    Ok(Stage8bP1RiskGateAuthority {
+        runtime_state,
+        persistence,
+        evidence,
+    })
+}
+
 /// Versioned Stage 5D persistence envelope DTO.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

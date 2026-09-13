@@ -2614,9 +2614,60 @@ impl Stage5cWarmedPaperStrategy {
         &self.strategy
     }
 
+    pub(crate) fn stage8b_p1_strategy(&self) -> &HybridIntradayRuntimeStrategy {
+        &self.strategy
+    }
+
     pub(crate) fn into_parts(self) -> (HybridIntradayRuntimeStrategy, Stage5cHistoryWarmupReceipt) {
         (self.strategy, self.receipt)
     }
+
+    pub(crate) fn stage8b_p1_rebuild_riskgate_history(
+        &self,
+        bars: &[crate::runtime_compat::BarEvent],
+    ) -> Result<Vec<crate::runtime_compat::RiskGateSessionFinalization>, ()> {
+        self.strategy.stage8b_p1_rebuild_riskgate_history(bars)
+    }
+}
+
+/// Applies only the source-derived riskgate materialization to a warmed P1
+/// runtime.  No serialized strategy state or pending lifecycle state crosses
+/// this bridge.
+pub(crate) fn stage8b_p1_apply_riskgate_to_warmed(
+    warmed: Stage5cWarmedPaperStrategy,
+    riskgate: &crate::runtime_compat::RiskGateRuntimeState,
+) -> Result<Stage5cWarmedPaperStrategy, ()> {
+    if riskgate.profile_id != "imoexf_primary_high180_lb120"
+        || riskgate.ledger_rows_count < 120
+        || riskgate.last_finalized_session_date.is_none()
+    {
+        return Err(());
+    }
+    let (mut strategy, receipt) = warmed.into_parts();
+    Strategy::on_risk_gate_state(&mut strategy, riskgate);
+    let state = Strategy::state(&strategy);
+    let StrategyState::HybridIntradayRuntime {
+        risk_gate_mr_enabled_current_session,
+        risk_gate_rolling_sum_lb120,
+        risk_gate_last_finalized_session_date,
+        risk_gate_ledger_rows_count,
+        ..
+    } = state
+    else {
+        return Err(());
+    };
+    let expected_last_finalized = riskgate
+        .last_finalized_session_date
+        .map(|date| date.format("%Y-%m-%d").to_string());
+    if *risk_gate_mr_enabled_current_session != riskgate.mr_enabled_current_session
+        || risk_gate_rolling_sum_lb120.map(f64::to_bits)
+            != riskgate.rolling_sum_lb120.map(f64::to_bits)
+        || *risk_gate_last_finalized_session_date != expected_last_finalized
+        || *risk_gate_ledger_rows_count != riskgate.ledger_rows_count
+    {
+        return Err(());
+    }
+    Ok(Stage5cWarmedPaperStrategy { strategy, receipt })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -4263,7 +4314,8 @@ pub(crate) fn stage8b_p1_restore_timer_ready_settlement(
     {
         return Err(());
     }
-    let recovery_receipt = stage8b_p1_restore_recovery_receipt(authority)?;
+    let recovery_receipt =
+        stage8b_p1_restore_recovery_receipt(authority, authority.settled_batch.observation_only)?;
     let summary = &authority.settled_batch;
     let batch = Stage5cPaperIntentBatch {
         strategy_id: summary.strategy_id.clone(),
@@ -4273,7 +4325,7 @@ pub(crate) fn stage8b_p1_restore_timer_ready_settlement(
         state_fingerprint: summary.state_fingerprint.clone(),
         request_ids: Vec::new(),
         records: Vec::new(),
-        observation_only: false,
+        observation_only: summary.observation_only,
     };
     let settled = Stage5cSettledPaperStrategy {
         strategy,
@@ -4289,9 +4341,10 @@ pub(crate) fn stage8b_p1_restore_timer_ready_settlement(
 
 fn stage8b_p1_restore_recovery_receipt(
     authority: &Stage5cTimerReadyRestartAuthorityV1,
+    allow_observation_only: bool,
 ) -> Result<Stage5cPendingRecoveryReceipt, ()> {
     let context = authority.continuation_context.as_ref().ok_or(())?;
-    if authority.settled_batch.observation_only
+    if (authority.settled_batch.observation_only && !allow_observation_only)
         || authority.settled_batch_history.is_empty()
         || authority.settled_batch_history.last() != Some(&authority.settled_batch)
         || context.schema_version != STAGE5C_TIMER_CONTINUATION_CONTEXT_SCHEMA_VERSION
@@ -4466,7 +4519,7 @@ pub(crate) fn stage8b_p1_restore_generated_intent_settled(
     }
     Ok(Stage5cSettledPaperStrategy {
         strategy,
-        recovery_receipt: stage8b_p1_restore_recovery_receipt(authority)?,
+        recovery_receipt: stage8b_p1_restore_recovery_receipt(authority, false)?,
         batch,
         settled_batch_history: authority.settled_batch_history.clone(),
     })
@@ -6506,7 +6559,7 @@ pub fn notify_stage5c_runtime_state_restored(
     notify_stage5c_runtime_state_restored_at(bootstrapped, Utc::now())
 }
 
-fn notify_stage5c_runtime_state_restored_at(
+pub(crate) fn notify_stage5c_runtime_state_restored_at(
     bootstrapped: Stage5cBootstrappedPaperStrategy,
     restored_ts: DateTime<Utc>,
 ) -> Result<Stage5cRuntimeStateRestoredPaperStrategy, Stage5cRuntimeStateRestoreError> {
@@ -6716,7 +6769,7 @@ pub fn warmup_stage5c_history(
     warmup_stage5c_history_at(restored, history, Utc::now())
 }
 
-fn warmup_stage5c_history_at(
+pub(crate) fn warmup_stage5c_history_at(
     restored: Stage5cRuntimeStateRestoredPaperStrategy,
     history: Stage5cAcceptedHistoryBatch,
     warmup_now: DateTime<Utc>,
@@ -6943,7 +6996,7 @@ pub fn recover_stage5c_pending_streams(
     recover_stage5c_pending_streams_at(warmed, evidence, Utc::now())
 }
 
-fn recover_stage5c_pending_streams_at(
+pub(crate) fn recover_stage5c_pending_streams_at(
     warmed: Stage5cWarmedPaperStrategy,
     evidence: Stage5cAcceptedPendingRecoveryEvidence,
     recovered_ts: DateTime<Utc>,
@@ -7970,6 +8023,31 @@ fn apply_stage5c_semantic_bar_at(
     accepted: Stage5cAcceptedSemanticBar,
     now: DateTime<Utc>,
 ) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    apply_stage5c_semantic_bar_at_with_replay_boundary(recovered, accepted, now, false)
+}
+
+/// P1 first boot uses an authenticated Replay M10 captured no later than the
+/// lifecycle timestamp.  Unlike the ordinary live/reconnect path it may be
+/// older than the empty-recovery wall-clock receipt, but it must still be
+/// strictly after the History tail.  This narrow bridge preserves the normal
+/// Stage 5C stale-bar rule for every other caller.
+pub(crate) fn stage8b_p1_apply_first_replay_bar_at(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
+    if accepted.origin != broker_core::HybridRuntimeBarOrigin::Replay {
+        return Err(Stage5cSemanticBarError::Stage3Rejected);
+    }
+    apply_stage5c_semantic_bar_at_with_replay_boundary(recovered, accepted, now, true)
+}
+
+fn apply_stage5c_semantic_bar_at_with_replay_boundary(
+    recovered: Stage5cPendingRecoveredPaperStrategy,
+    accepted: Stage5cAcceptedSemanticBar,
+    now: DateTime<Utc>,
+    allow_authenticated_first_boot_replay: bool,
+) -> Result<Stage5cSemanticBarResult, Stage5cSemanticBarError> {
     let (mut strategy, recovery_receipt) = recovered.into_parts();
     let admission = &recovery_receipt
         .warmup_receipt()
@@ -7991,7 +8069,8 @@ fn apply_stage5c_semantic_bar_at(
     if !same_tick_size(accepted.tick_size, admission.tick_size()) {
         return Err(Stage5cSemanticBarError::TickSizeMismatch);
     }
-    if accepted.bar.close_time_utc <= recovery_receipt.recovered_ts().timestamp()
+    if (!allow_authenticated_first_boot_replay
+        && accepted.bar.close_time_utc <= recovery_receipt.recovered_ts().timestamp())
         || accepted.bar.close_time_utc <= recovery_receipt.warmup_receipt().last_history_ts()
     {
         return Err(Stage5cSemanticBarError::StaleOrDuplicateBar);

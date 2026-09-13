@@ -88,6 +88,14 @@ impl Stage8bP1ValidatedBootstrapConfig {
         &self.operational_identity_sha256
     }
 
+    pub(crate) fn account_id(&self) -> &BrokerAccountId {
+        &self.account_id
+    }
+
+    pub(crate) fn runtime_config_fingerprint_sha256(&self) -> &str {
+        &self.runtime_config_fingerprint_sha256
+    }
+
     /// Exact generation of the pre-provisioned Stage 7 command group.  The
     /// deployable supervisor uses it only to authenticate the Redis
     /// deployment manifest; it grants no command-consumer authority.

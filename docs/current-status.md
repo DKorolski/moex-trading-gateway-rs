@@ -1635,3 +1635,25 @@ repository, and six fully qualified exact tests with one-selected/one-passed
 enforcement. Production Rust is unchanged. I0, supervisor, installation,
 operational DB0/VPS, FINAM POST/DELETE, broker dispatch, runtime-live and real
 orders remain closed pending independent R10 acceptance.
+
+## Stage 8B-P1-e I1A closure and I1 first-boot checkpoint (2026-09-13)
+
+The I1A source correction at
+`8360c4701b6abbe75ced988cf8dd2d74487e1846` is independently accepted. It
+closes exact five-field M10 effect binding and V4-prefixed journal-ahead
+recovery without opening deployable I1 or operational activation.
+
+The active implementation boundary is the I1 F00-F17 first-boot composition
+checkpoint. It authenticates a fixed observation-only source, reconstructs the
+fixed Hybrid IMOEXF profile, admits fresh flat Stage 4 truth, warms canonical
+History M10, independently rebuilds and validates High180 riskgate state,
+proves empty pending streams, processes one zero-intent Replay candidate and
+feeds the accepted Stage 5G export/restore plus Stage 8B-P1 durable-root
+transaction. The full integration test proves one identity-derived durable
+directory and restart without a second first boot.
+
+This checkpoint is not complete I1. Transaction V5/receipt/provenance,
+deployable owner loop, signal/panic/exit handling, the complete route/restart
+process matrix, systemd/install material and aggregate I1 acceptance remain to
+be implemented separately. Operational Redis DB0/DB15, VPS activation, FINAM
+POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
