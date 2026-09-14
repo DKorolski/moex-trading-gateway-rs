@@ -282,6 +282,7 @@ mod stage8b_p1_semantic;
 mod stage8b_p1_supervisor;
 mod stage8b_p1e_first_boot_source;
 mod stage8b_p1e_first_boot_transaction;
+mod stage8b_p1e_process;
 mod stage8b_p1e_schedule_source;
 
 pub use recovery::{
@@ -443,6 +444,11 @@ pub use stage8b_p1e_first_boot_transaction::{
     STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_TRANSACTION_MARKER_FILE,
     STAGE8B_P1E_TRANSACTION_MARKER_SCHEMA_VERSION, STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE,
     STAGE8B_P1E_TRANSACTION_V5_CONTRACT_VERSION,
+};
+pub use stage8b_p1e_process::{
+    execute_stage8b_p1e_process_command_v1, parse_stage8b_p1e_process_command_v1,
+    Stage8bP1eProcessCommandV1, Stage8bP1eProcessErrorV1, Stage8bP1eProcessRecoveryActionV1,
+    Stage8bP1eProcessSuccessV1,
 };
 pub use stage8b_p1e_schedule_source::{
     bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,

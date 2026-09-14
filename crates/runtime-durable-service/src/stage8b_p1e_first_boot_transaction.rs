@@ -905,6 +905,19 @@ pub fn first_boot_stage8b_p1e_transaction_v5(
     )
 }
 
+/// Derives the only admissible generation for a new first-boot attempt from
+/// authenticated retained quarantine evidence.  Callers cannot choose or
+/// reuse an attempt generation.  The ordinary transaction repeats the same
+/// history validation immediately before its first durable mutation.
+pub(crate) fn next_stage8b_p1e_bootstrap_attempt_generation_v5(
+    config: &Stage8bP1ValidatedBootstrapConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<u64, Stage8bP1eFirstBootTransactionError> {
+    maximum_authenticated_quarantine_generation(config, commitment_key)?
+        .checked_add(1)
+        .ok_or(Stage8bP1eFirstBootTransactionError::InvalidGeneration)
+}
+
 fn first_boot_stage8b_p1e_transaction_v5_with_observer<F>(
     prepared: Stage8bP1ePreparedFirstBootV1,
     admin: Stage8bP1FirstBootAdminCommand,
@@ -1551,11 +1564,22 @@ fn require_generation_after_quarantine_history(
     bootstrap_attempt_generation: u64,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<(), Stage8bP1eFirstBootTransactionError> {
+    let maximum_generation = maximum_authenticated_quarantine_generation(config, commitment_key)?;
+    if bootstrap_attempt_generation <= maximum_generation {
+        return Err(Stage8bP1eFirstBootTransactionError::InvalidGeneration);
+    }
+    Ok(())
+}
+
+fn maximum_authenticated_quarantine_generation(
+    config: &Stage8bP1ValidatedBootstrapConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<u64, Stage8bP1eFirstBootTransactionError> {
     let quarantine_parent = config
         .durable_parent()
         .join(STAGE8B_P1E_FIRST_BOOT_QUARANTINE_DIRECTORY);
     if !path_exists(quarantine_parent.clone())? {
-        return Ok(());
+        return Ok(0);
     }
     validate_owned_directory(&quarantine_parent)?;
     let mut maximum_generation = 0_u64;
@@ -1594,10 +1618,7 @@ fn require_generation_after_quarantine_history(
         }
         maximum_generation = maximum_generation.max(marker.bootstrap_attempt_generation);
     }
-    if bootstrap_attempt_generation <= maximum_generation {
-        return Err(Stage8bP1eFirstBootTransactionError::InvalidGeneration);
-    }
-    Ok(())
+    Ok(maximum_generation)
 }
 
 fn rename_noreplace_between(
