@@ -1719,3 +1719,26 @@ This is still not complete deployable I1. The owner loop, installed
 matrix remain next review slices. Operational Redis DB0/DB15, VPS activation,
 operational credentials, FINAM POST/DELETE, broker dispatch, runtime-live and
 real orders remain closed.
+
+## Stage 8B-P1-e I1 pre-seal recovery freshness correction (2026-09-14)
+
+Independent review placed `be6707391dc53327fa3a29a40836d24f71eca850` on
+HOLD for `P1-PSR01`: every recovery action incorrectly depended on repeating
+the 300-second fresh broker-truth admission. The current correction candidate
+keeps that freshness rule unchanged for a new first boot and separates
+existing-transaction recovery authority.
+
+Remove-marker-temp, quarantine-root and finalize-quarantine now use only the
+exact selector, validated deployment/runtime identity, HMAC-authenticated
+durable marker with recomputed transaction identity, and fresh V5 filesystem
+classification. Continuation first authenticates the marker, then permits
+historical reconstruction only from the byte-exact original F00 bundle and
+all marker-bound provenance hashes. Missing or changed historical bytes fail
+before mutation while safe quarantine remains available.
+
+Time-advance tests cover the 300/301-second boundary, 30-day administrative
+recovery, historical continuation at 301 seconds and 30 days, and changed
+bundle rejection without filesystem mutation. This remains a correction
+candidate requiring independent acceptance before the owner loop opens.
+Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE, broker dispatch,
+runtime-live and real orders remain closed.

@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strategy_runtime_core::{
@@ -26,9 +27,14 @@ use strategy_runtime_core::{
 use crate::{
     recovery::Stage7bP1eAdoptionMaterial,
     stage8b_p1_bootstrap::{restart_stage8b_p1, validate_initial_source},
+    stage8b_p1e_first_boot_source::{
+        build_stage8b_p1_historical_recovery_source_v1, Stage8bP1eHistoricalSourceBindingV5,
+    },
     Stage7bDurableRootAuthority, Stage7bRecoveryReadyOwner, Stage7bRestartOutcome,
     Stage8bP1FirstBootAdminCommand, Stage8bP1ValidatedBootstrapConfig,
-    Stage8bP1ePreparedFirstBootV1, STAGE7B_JOURNAL_FILE, STAGE7B_RECOVERY_SEAL_FILE,
+    Stage8bP1ePreparedFirstBootV1, Stage8bP1eValidatedSupervisorConfigV1, STAGE7B_JOURNAL_FILE,
+    STAGE7B_RECOVERY_SEAL_FILE, STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256,
+    STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
 };
 
 pub const STAGE8B_P1E_TRANSACTION_MARKER_SCHEMA_VERSION: u16 = 4;
@@ -198,6 +204,13 @@ impl Stage8bP1ePreSealRecoveryActionV5 {
             }
         }
     }
+
+    const fn is_administrative(self) -> bool {
+        matches!(
+            self,
+            Self::RemoveMarkerTemp | Self::QuarantineRoot | Self::FinalizeQuarantine
+        )
+    }
 }
 
 /// Opaque one-shot proof of the exact recovery selector.  It is intentionally
@@ -324,6 +337,185 @@ pub fn authorize_stage8b_p1e_pre_seal_recovery_v5(
     })
 }
 
+/// Executes only the three evidence-preserving administrative actions.  This
+/// entry point deliberately has no source-bundle or trusted-clock argument:
+/// authority comes from the authenticated durable marker, exact selector,
+/// deployment identity and a fresh filesystem classification.
+pub fn recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+    config: Stage8bP1ValidatedBootstrapConfig,
+    fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    selector: Stage8bP1ePreSealRecoverySelectorV5,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1ePreSealRecoveryOutcomeV5, Stage8bP1eFirstBootTransactionError> {
+    recover_pre_seal_administrative_v5_with_observer(
+        config,
+        fresh_runtime,
+        selector,
+        commitment_key,
+        |_| {},
+    )
+}
+
+/// Production recovery composition for an existing V5 transaction.  Safe
+/// administrative actions never read F00. Continuations first authenticate
+/// the durable marker and then reconstruct only the byte-exact historical
+/// bundle bound by that marker; the 300-second rule remains mandatory for new
+/// first-boot admission through `build_stage8b_p1_first_boot_source_v1`.
+pub fn recover_stage8b_p1e_first_boot_pre_seal_from_supervisor_v5(
+    supervisor: Stage8bP1eValidatedSupervisorConfigV1,
+    trusted_now: DateTime<Utc>,
+    selector: Stage8bP1ePreSealRecoverySelectorV5,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1ePreSealRecoveryOutcomeV5, Stage8bP1eFirstBootTransactionError> {
+    if selector.action.is_administrative() {
+        let (config, fresh_runtime) = supervisor.into_first_boot_parts();
+        return recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+            config,
+            fresh_runtime,
+            selector,
+            commitment_key,
+        );
+    }
+    let binding = historical_source_binding_v5(supervisor.bootstrap(), &selector, commitment_key)?;
+    if supervisor.first_boot_source_bundle_sha256() != binding.source_bundle_sha256 {
+        return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+    }
+    let prepared =
+        build_stage8b_p1_historical_recovery_source_v1(supervisor, trusted_now, &binding)
+            .map_err(|_| Stage8bP1eFirstBootTransactionError::InvalidAuthority)?;
+    recover_stage8b_p1e_first_boot_pre_seal_v5(prepared, selector, commitment_key)
+}
+
+fn recover_pre_seal_administrative_v5_with_observer<F>(
+    config: Stage8bP1ValidatedBootstrapConfig,
+    fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    selector: Stage8bP1ePreSealRecoverySelectorV5,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    mut observer: F,
+) -> Result<Stage8bP1ePreSealRecoveryOutcomeV5, Stage8bP1eFirstBootTransactionError>
+where
+    F: FnMut(&'static str),
+{
+    if !selector.action.is_administrative()
+        || selector.operational_identity_sha256 != config.operational_identity_sha256()
+        || selector.runtime_config_fingerprint_sha256 != config.runtime_config_fingerprint_sha256()
+        || fresh_runtime.stage5c_config_fingerprint() != config.runtime_config_fingerprint_sha256()
+    {
+        return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+    }
+
+    let inspection = classify_stage8b_p1e_first_boot_v5(
+        config.duplicate_for_internal_classification(),
+        commitment_key,
+        fresh_runtime.clone(),
+    );
+    if inspection.classification == Stage8bP1eFirstBootClassificationV5::CorruptOrIdentityMismatch
+        || inspection.transaction_id_sha256.as_deref()
+            != Some(selector.transaction_id_sha256.as_str())
+        || inspection.required_action != selector.action.as_str()
+    {
+        return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+    }
+
+    let parent = config.durable_parent().to_path_buf();
+    let root_path = parent.join(config.expected_root_name());
+    match selector.action {
+        Stage8bP1ePreSealRecoveryActionV5::RemoveMarkerTemp => {
+            let initial: Stage8bP1eFirstBootTransactionMarkerV4 = read_canonical_authority(
+                &parent,
+                STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE,
+                commitment_key,
+                |value: &Stage8bP1eFirstBootTransactionMarkerV4, key| {
+                    value.validate_authenticated(key)
+                },
+            )?;
+            if initial.phase != Stage8bP1eFirstBootTransactionPhaseV4::Prepared
+                || !marker_matches_durable_recovery(
+                    &initial,
+                    &config,
+                    &selector.transaction_id_sha256,
+                )
+                || path_exists(parent.join(STAGE8B_P1E_TRANSACTION_MARKER_FILE))?
+                || path_exists(root_path)?
+                || path_exists(parent.join(STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE))?
+                || path_exists(parent.join(STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE))?
+            {
+                return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+            }
+            unlink_authority_file(&parent, STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE)?;
+            observer("after-remove-marker-temp-before-parent-fsync");
+            sync_directory(&parent)?;
+            let next = classify_stage8b_p1e_first_boot_v5(config, commitment_key, fresh_runtime);
+            if next.classification != Stage8bP1eFirstBootClassificationV5::NoRoot {
+                return Err(Stage8bP1eFirstBootTransactionError::Adoption);
+            }
+            Ok(Stage8bP1ePreSealRecoveryOutcomeV5::NoRoot(next))
+        }
+        Stage8bP1ePreSealRecoveryActionV5::QuarantineRoot => {
+            let expected_phase = match inspection.classification {
+                Stage8bP1eFirstBootClassificationV5::RootWithoutJournal => {
+                    Stage8bP1eFirstBootTransactionPhaseV4::RootPublished
+                }
+                Stage8bP1eFirstBootClassificationV5::JournalWithoutSeal => {
+                    Stage8bP1eFirstBootTransactionPhaseV4::JournalDurable
+                }
+                _ => return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch),
+            };
+            let marker = read_expected_durable_recovery_marker(
+                &config,
+                commitment_key,
+                &selector.transaction_id_sha256,
+                expected_phase,
+            )?;
+            quarantine_incomplete_root(
+                &parent,
+                &root_path,
+                &marker,
+                config.expected_root_name(),
+                &mut observer,
+            )?;
+            let next = classify_stage8b_p1e_first_boot_v5(config, commitment_key, fresh_runtime);
+            if next.classification != Stage8bP1eFirstBootClassificationV5::QuarantinedIncompleteRoot
+            {
+                return Err(Stage8bP1eFirstBootTransactionError::Adoption);
+            }
+            Ok(Stage8bP1ePreSealRecoveryOutcomeV5::QuarantinePending(next))
+        }
+        Stage8bP1ePreSealRecoveryActionV5::FinalizeQuarantine => {
+            let marker: Stage8bP1eFirstBootTransactionMarkerV4 = read_canonical_authority(
+                &parent,
+                STAGE8B_P1E_TRANSACTION_MARKER_FILE,
+                commitment_key,
+                |value: &Stage8bP1eFirstBootTransactionMarkerV4, key| {
+                    value.validate_authenticated(key)
+                },
+            )?;
+            if !matches!(
+                marker.phase,
+                Stage8bP1eFirstBootTransactionPhaseV4::RootPublished
+                    | Stage8bP1eFirstBootTransactionPhaseV4::JournalDurable
+            ) || !marker_matches_durable_recovery(
+                &marker,
+                &config,
+                &selector.transaction_id_sha256,
+            ) {
+                return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+            }
+            finalize_quarantine(&parent, &marker, commitment_key, &mut observer)?;
+            Ok(Stage8bP1ePreSealRecoveryOutcomeV5::QuarantineFinalized {
+                transaction_id_sha256: marker.transaction_id_sha256,
+                bootstrap_attempt_generation: marker.bootstrap_attempt_generation,
+            })
+        }
+        Stage8bP1ePreSealRecoveryActionV5::ResumePrepared
+        | Stage8bP1ePreSealRecoveryActionV5::CompletePreparedToRootPublished
+        | Stage8bP1ePreSealRecoveryActionV5::CompleteRootPublishedToJournalDurable
+        | Stage8bP1ePreSealRecoveryActionV5::CompleteJournalDurableToSealCommitted => {
+            Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)
+        }
+    }
+}
+
 /// Executes exactly one authenticated pre-seal administrative selector and,
 /// where the accepted contract requires it, continues the same transaction
 /// to adoption.  Classification and selector checks happen before the first
@@ -351,6 +543,15 @@ where
     F: FnMut(&'static str),
 {
     let (config, source, export_input, fresh_runtime, provenance) = prepared.into_parts();
+    if selector.action.is_administrative() {
+        return recover_pre_seal_administrative_v5_with_observer(
+            config,
+            fresh_runtime,
+            selector,
+            commitment_key,
+            observer,
+        );
+    }
     if selector.operational_identity_sha256 != config.operational_identity_sha256()
         || selector.runtime_config_fingerprint_sha256 != config.runtime_config_fingerprint_sha256()
         || provenance.operational_identity_sha256() != config.operational_identity_sha256()
@@ -400,39 +601,11 @@ where
     }
 
     let parent = config.durable_parent().to_path_buf();
-    let root_path = parent.join(config.expected_root_name());
     match selector.action {
-        Stage8bP1ePreSealRecoveryActionV5::RemoveMarkerTemp => {
-            let initial: Stage8bP1eFirstBootTransactionMarkerV4 = read_canonical_authority(
-                &parent,
-                STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE,
-                commitment_key,
-                |value: &Stage8bP1eFirstBootTransactionMarkerV4, key| {
-                    value.validate_authenticated(key)
-                },
-            )?;
-            if initial.phase != Stage8bP1eFirstBootTransactionPhaseV4::Prepared
-                || !marker_matches_prepared_recovery(
-                    &initial,
-                    &config,
-                    &selector.transaction_id_sha256,
-                    &provenance,
-                )
-                || path_exists(parent.join(STAGE8B_P1E_TRANSACTION_MARKER_FILE))?
-                || path_exists(root_path)?
-                || path_exists(parent.join(STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE))?
-                || path_exists(parent.join(STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE))?
-            {
-                return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
-            }
-            unlink_authority_file(&parent, STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE)?;
-            observer("after-remove-marker-temp-before-parent-fsync");
-            sync_directory(&parent)?;
-            let next = classify_stage8b_p1e_first_boot_v5(config, commitment_key, fresh_runtime);
-            if next.classification != Stage8bP1eFirstBootClassificationV5::NoRoot {
-                return Err(Stage8bP1eFirstBootTransactionError::Adoption);
-            }
-            Ok(Stage8bP1ePreSealRecoveryOutcomeV5::NoRoot(next))
+        Stage8bP1ePreSealRecoveryActionV5::RemoveMarkerTemp
+        | Stage8bP1ePreSealRecoveryActionV5::QuarantineRoot
+        | Stage8bP1ePreSealRecoveryActionV5::FinalizeQuarantine => {
+            Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)
         }
         Stage8bP1ePreSealRecoveryActionV5::ResumePrepared => {
             let marker = read_expected_recovery_marker(
@@ -453,63 +626,6 @@ where
             )
             .map(Box::new)
             .map(Stage8bP1ePreSealRecoveryOutcomeV5::Adopted)
-        }
-        Stage8bP1ePreSealRecoveryActionV5::QuarantineRoot => {
-            let marker = read_expected_recovery_marker(
-                &config,
-                commitment_key,
-                &selector.transaction_id_sha256,
-                &provenance,
-                match inspection.classification {
-                    Stage8bP1eFirstBootClassificationV5::RootWithoutJournal => {
-                        Stage8bP1eFirstBootTransactionPhaseV4::RootPublished
-                    }
-                    Stage8bP1eFirstBootClassificationV5::JournalWithoutSeal => {
-                        Stage8bP1eFirstBootTransactionPhaseV4::JournalDurable
-                    }
-                    _ => return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch),
-                },
-            )?;
-            quarantine_incomplete_root(
-                &parent,
-                &root_path,
-                &marker,
-                config.expected_root_name(),
-                &mut observer,
-            )?;
-            let next = classify_stage8b_p1e_first_boot_v5(config, commitment_key, fresh_runtime);
-            if next.classification != Stage8bP1eFirstBootClassificationV5::QuarantinedIncompleteRoot
-            {
-                return Err(Stage8bP1eFirstBootTransactionError::Adoption);
-            }
-            Ok(Stage8bP1ePreSealRecoveryOutcomeV5::QuarantinePending(next))
-        }
-        Stage8bP1ePreSealRecoveryActionV5::FinalizeQuarantine => {
-            let marker = read_expected_recovery_marker(
-                &config,
-                commitment_key,
-                &selector.transaction_id_sha256,
-                &provenance,
-                match inspection.classification {
-                    Stage8bP1eFirstBootClassificationV5::QuarantinedIncompleteRoot => {
-                        read_canonical_authority(
-                            &parent,
-                            STAGE8B_P1E_TRANSACTION_MARKER_FILE,
-                            commitment_key,
-                            |value: &Stage8bP1eFirstBootTransactionMarkerV4, key| {
-                                value.validate_authenticated(key)
-                            },
-                        )?
-                        .phase
-                    }
-                    _ => return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch),
-                },
-            )?;
-            finalize_quarantine(&parent, &marker, commitment_key, &mut observer)?;
-            Ok(Stage8bP1ePreSealRecoveryOutcomeV5::QuarantineFinalized {
-                transaction_id_sha256: marker.transaction_id_sha256,
-                bootstrap_attempt_generation: marker.bootstrap_attempt_generation,
-            })
         }
         Stage8bP1ePreSealRecoveryActionV5::CompletePreparedToRootPublished => {
             let marker = complete_marker_temp_transition(
@@ -593,6 +709,27 @@ where
         commitment_key,
         observer,
     )
+}
+
+#[cfg(test)]
+pub(crate) fn test_recover_stage8b_p1e_first_boot_pre_seal_historical_from_bytes_v5(
+    config: Stage8bP1ValidatedBootstrapConfig,
+    fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    source_bytes: &[u8],
+    trusted_now: DateTime<Utc>,
+    selector: Stage8bP1ePreSealRecoverySelectorV5,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1ePreSealRecoveryOutcomeV5, Stage8bP1eFirstBootTransactionError> {
+    let binding = historical_source_binding_v5(&config, &selector, commitment_key)?;
+    let prepared = crate::stage8b_p1e_first_boot_source::test_build_stage8b_p1_historical_recovery_source_from_bytes_v1(
+        config,
+        fresh_runtime,
+        source_bytes,
+        trusted_now,
+        &binding,
+    )
+    .map_err(|_| Stage8bP1eFirstBootTransactionError::InvalidAuthority)?;
+    recover_stage8b_p1e_first_boot_pre_seal_v5(prepared, selector, commitment_key)
 }
 
 /// Completes only the four post-seal response-loss states.  The exact action
@@ -1084,15 +1221,105 @@ fn recovery_bootstrap_generation(
     Ok(authority.bootstrap_attempt_generation)
 }
 
+fn marker_matches_durable_recovery(
+    marker: &Stage8bP1eFirstBootTransactionMarkerV4,
+    config: &Stage8bP1ValidatedBootstrapConfig,
+    expected_transaction_id_sha256: &str,
+) -> bool {
+    marker.transaction_id_sha256 == expected_transaction_id_sha256
+        && marker.operational_identity_sha256 == config.operational_identity_sha256()
+        && marker.runtime_profile_sha256 == STAGE8B_P1E_RUNTIME_PROFILE_SHA256
+        && marker.runtime_config_fingerprint_sha256 == config.runtime_config_fingerprint_sha256()
+        && marker.source_plan_sha256 == STAGE8B_P1E_FIRST_BOOT_SOURCE_PLAN_V2_SHA256
+        && transaction_id_sha256(
+            &marker.operational_identity_sha256,
+            &marker.source_bundle_sha256,
+            marker.source_bundle_generation,
+            marker.bootstrap_attempt_generation,
+        )
+        .is_ok_and(|derived| derived == marker.transaction_id_sha256)
+}
+
+fn read_expected_durable_recovery_marker(
+    config: &Stage8bP1ValidatedBootstrapConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    expected_transaction_id_sha256: &str,
+    expected_phase: Stage8bP1eFirstBootTransactionPhaseV4,
+) -> Result<Stage8bP1eFirstBootTransactionMarkerV4, Stage8bP1eFirstBootTransactionError> {
+    let marker: Stage8bP1eFirstBootTransactionMarkerV4 = read_canonical_authority(
+        config.durable_parent(),
+        STAGE8B_P1E_TRANSACTION_MARKER_FILE,
+        commitment_key,
+        |value: &Stage8bP1eFirstBootTransactionMarkerV4, key| value.validate_authenticated(key),
+    )?;
+    if marker.phase != expected_phase
+        || !marker_matches_durable_recovery(&marker, config, expected_transaction_id_sha256)
+    {
+        return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+    }
+    Ok(marker)
+}
+
+fn historical_source_binding_v5(
+    config: &Stage8bP1ValidatedBootstrapConfig,
+    selector: &Stage8bP1ePreSealRecoverySelectorV5,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eHistoricalSourceBindingV5, Stage8bP1eFirstBootTransactionError> {
+    if selector.action.is_administrative()
+        || selector.operational_identity_sha256 != config.operational_identity_sha256()
+        || selector.runtime_config_fingerprint_sha256 != config.runtime_config_fingerprint_sha256()
+    {
+        return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+    }
+    let marker = optional_authenticated_marker(
+        config.durable_parent(),
+        STAGE8B_P1E_TRANSACTION_MARKER_FILE,
+        commitment_key,
+    )?;
+    let marker_temp = optional_authenticated_marker(
+        config.durable_parent(),
+        STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE,
+        commitment_key,
+    )?;
+    let authority = marker
+        .as_ref()
+        .or(marker_temp.as_ref())
+        .ok_or(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)?;
+    if !marker.iter().chain(marker_temp.iter()).all(|value| {
+        marker_matches_durable_recovery(value, config, &selector.transaction_id_sha256)
+    }) {
+        return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+    }
+    if let (Some(old), Some(next)) = (&marker, &marker_temp) {
+        let expected = old.successor(
+            next.phase,
+            next.canonical_root_identity_sha256.clone(),
+            commitment_key,
+        )?;
+        if *next != expected {
+            return Err(Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch);
+        }
+    }
+    Ok(Stage8bP1eHistoricalSourceBindingV5 {
+        operational_identity_sha256: authority.operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: authority.runtime_config_fingerprint_sha256.clone(),
+        source_bundle_sha256: authority.source_bundle_sha256.clone(),
+        source_bundle_generation: authority.source_bundle_generation,
+        history_bars_sha256: authority.history_bars_sha256.clone(),
+        riskgate_session_observations_sha256: authority
+            .riskgate_session_observations_sha256
+            .clone(),
+        candidate_semantic_id_sha256: authority.candidate_semantic_id_sha256.clone(),
+    })
+}
+
 fn marker_matches_prepared_recovery(
     marker: &Stage8bP1eFirstBootTransactionMarkerV4,
     config: &Stage8bP1ValidatedBootstrapConfig,
     expected_transaction_id_sha256: &str,
     provenance: &strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1,
 ) -> bool {
-    marker.transaction_id_sha256 == expected_transaction_id_sha256
-        && marker.operational_identity_sha256 == config.operational_identity_sha256()
-        && marker.runtime_config_fingerprint_sha256 == config.runtime_config_fingerprint_sha256()
+    marker_matches_durable_recovery(marker, config, expected_transaction_id_sha256)
         && marker.operational_identity_sha256 == provenance.operational_identity_sha256()
         && marker.runtime_profile_sha256 == provenance.runtime_profile_sha256()
         && marker.runtime_config_fingerprint_sha256

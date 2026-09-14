@@ -98,6 +98,25 @@ pub struct Stage8bP1ePreparedFirstBootV1 {
     provenance: strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1,
 }
 
+/// Marker-authenticated provenance admitted only for reconstructing an
+/// already-existing V5 first-boot transaction.  It is crate-private so the
+/// ordinary first-boot source loader cannot opt out of freshness.
+pub(crate) struct Stage8bP1eHistoricalSourceBindingV5 {
+    pub(crate) operational_identity_sha256: String,
+    pub(crate) runtime_config_fingerprint_sha256: String,
+    pub(crate) source_bundle_sha256: String,
+    pub(crate) source_bundle_generation: u64,
+    pub(crate) history_bars_sha256: String,
+    pub(crate) riskgate_session_observations_sha256: String,
+    pub(crate) candidate_semantic_id_sha256: String,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FirstBootTruthPolicy {
+    FreshAdmission,
+    HistoricalRecovery,
+}
+
 impl Stage8bP1ePreparedFirstBootV1 {
     pub fn into_parts(
         self,
@@ -147,11 +166,85 @@ pub fn build_stage8b_p1_first_boot_source_v1(
     trusted_now: DateTime<Utc>,
 ) -> Result<Stage8bP1ePreparedFirstBootV1, Stage8bP1eFirstBootBuildError> {
     let source = load_stage8b_p1e_first_boot_source_v1(&supervisor, trusted_now)?;
-    let operational_identity_sha256 = supervisor
-        .bootstrap()
-        .operational_identity_sha256()
-        .to_string();
     let (bootstrap, runtime) = supervisor.into_first_boot_parts();
+    prepare_stage8b_p1_first_boot_source_v1(bootstrap, runtime, source)
+}
+
+/// Reconstructs the exact source of an authenticated transaction after its
+/// live broker-truth freshness window has elapsed.  The caller must first
+/// derive `binding` from the durable HMAC marker.  Only age is historical:
+/// all bytes, identity, history, riskgate and candidate hashes remain exact.
+pub(crate) fn build_stage8b_p1_historical_recovery_source_v1(
+    supervisor: Stage8bP1eValidatedSupervisorConfigV1,
+    trusted_now: DateTime<Utc>,
+    binding: &Stage8bP1eHistoricalSourceBindingV5,
+) -> Result<Stage8bP1ePreparedFirstBootV1, Stage8bP1eFirstBootBuildError> {
+    if !historical_binding_matches_supervisor(&supervisor, binding) {
+        return Err(Stage8bP1eFirstBootBuildError::Source);
+    }
+    let path = Path::new(STAGE8B_P1E_FIRST_BOOT_SOURCE_PATH);
+    let expected_gid = service_group_gid()?;
+    let bytes = read_protected_first_boot_source(path, 0, expected_gid, || {})?;
+    let (bootstrap, runtime) = supervisor.into_first_boot_parts();
+    prepare_stage8b_p1_historical_recovery_source_from_bytes_v1(
+        bootstrap,
+        runtime,
+        &bytes,
+        trusted_now,
+        binding,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn test_build_stage8b_p1_historical_recovery_source_from_bytes_v1(
+    bootstrap: Stage8bP1ValidatedBootstrapConfig,
+    runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    bytes: &[u8],
+    trusted_now: DateTime<Utc>,
+    binding: &Stage8bP1eHistoricalSourceBindingV5,
+) -> Result<Stage8bP1ePreparedFirstBootV1, Stage8bP1eFirstBootBuildError> {
+    prepare_stage8b_p1_historical_recovery_source_from_bytes_v1(
+        bootstrap,
+        runtime,
+        bytes,
+        trusted_now,
+        binding,
+    )
+}
+
+fn prepare_stage8b_p1_historical_recovery_source_from_bytes_v1(
+    bootstrap: Stage8bP1ValidatedBootstrapConfig,
+    runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    bytes: &[u8],
+    trusted_now: DateTime<Utc>,
+    binding: &Stage8bP1eHistoricalSourceBindingV5,
+) -> Result<Stage8bP1ePreparedFirstBootV1, Stage8bP1eFirstBootBuildError> {
+    if bootstrap.operational_identity_sha256() != binding.operational_identity_sha256
+        || bootstrap.runtime_config_fingerprint_sha256()
+            != binding.runtime_config_fingerprint_sha256
+    {
+        return Err(Stage8bP1eFirstBootBuildError::Source);
+    }
+    let source = parse_stage8b_p1e_first_boot_source_with_policy_v1(
+        bytes,
+        &binding.source_bundle_sha256,
+        bootstrap.operational_identity_sha256(),
+        bootstrap.account_id().as_str(),
+        trusted_now,
+        FirstBootTruthPolicy::HistoricalRecovery,
+    )?;
+    if !historical_binding_matches_source(binding, &source) {
+        return Err(Stage8bP1eFirstBootBuildError::Source);
+    }
+    prepare_stage8b_p1_first_boot_source_v1(bootstrap, runtime, source)
+}
+
+fn prepare_stage8b_p1_first_boot_source_v1(
+    bootstrap: Stage8bP1ValidatedBootstrapConfig,
+    runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    source: Stage8bP1eValidatedFirstBootSourceV1,
+) -> Result<Stage8bP1ePreparedFirstBootV1, Stage8bP1eFirstBootBuildError> {
+    let operational_identity_sha256 = bootstrap.operational_identity_sha256().to_string();
     let (fresh_runtime, fresh_fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime()?;
     if fresh_fingerprint != bootstrap.runtime_config_fingerprint_sha256() {
         return Err(Stage8bP1eFirstBootBuildError::RuntimeProfile);
@@ -205,6 +298,28 @@ pub fn build_stage8b_p1_first_boot_source_v1(
         fresh_runtime,
         provenance,
     })
+}
+
+fn historical_binding_matches_supervisor(
+    supervisor: &Stage8bP1eValidatedSupervisorConfigV1,
+    binding: &Stage8bP1eHistoricalSourceBindingV5,
+) -> bool {
+    supervisor.bootstrap().operational_identity_sha256() == binding.operational_identity_sha256
+        && supervisor.runtime_config_fingerprint_sha256()
+            == binding.runtime_config_fingerprint_sha256
+        && supervisor.first_boot_source_bundle_sha256() == binding.source_bundle_sha256
+}
+
+fn historical_binding_matches_source(
+    binding: &Stage8bP1eHistoricalSourceBindingV5,
+    source: &Stage8bP1eValidatedFirstBootSourceV1,
+) -> bool {
+    source.source_bundle_sha256 == binding.source_bundle_sha256
+        && source.source_bundle_generation == binding.source_bundle_generation
+        && source.history_bars_sha256 == binding.history_bars_sha256
+        && source.riskgate_session_observations_sha256
+            == binding.riskgate_session_observations_sha256
+        && source.candidate_semantic_id_sha256 == binding.candidate_semantic_id_sha256
 }
 
 fn core_bar_input(
@@ -521,6 +636,24 @@ pub(crate) fn parse_stage8b_p1e_first_boot_source_v1(
     expected_account_id: &str,
     trusted_now: DateTime<Utc>,
 ) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
+    parse_stage8b_p1e_first_boot_source_with_policy_v1(
+        bytes,
+        expected_source_bundle_sha256,
+        expected_operational_identity_sha256,
+        expected_account_id,
+        trusted_now,
+        FirstBootTruthPolicy::FreshAdmission,
+    )
+}
+
+fn parse_stage8b_p1e_first_boot_source_with_policy_v1(
+    bytes: &[u8],
+    expected_source_bundle_sha256: &str,
+    expected_operational_identity_sha256: &str,
+    expected_account_id: &str,
+    trusted_now: DateTime<Utc>,
+    truth_policy: FirstBootTruthPolicy,
+) -> Result<Stage8bP1eValidatedFirstBootSourceV1, Stage8bP1eFirstBootSourceError> {
     if bytes.len() as u64 > STAGE8B_P1E_FIRST_BOOT_SOURCE_MAX_BYTES {
         return Err(Stage8bP1eFirstBootSourceError::SourceTooLarge);
     }
@@ -566,8 +699,9 @@ pub(crate) fn parse_stage8b_p1e_first_boot_source_v1(
         .ok_or(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth)?;
     if captured_at > trusted_now
         || broker_truth_checked_at > captured_at
-        || trusted_now.signed_duration_since(broker_truth_checked_at)
-            > Duration::seconds(STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS)
+        || (truth_policy == FirstBootTruthPolicy::FreshAdmission
+            && trusted_now.signed_duration_since(broker_truth_checked_at)
+                > Duration::seconds(STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS))
         || document.broker_truth.instrument != STAGE8B_P1_VENUE_SYMBOL
         || document.broker_truth.target_position_qty != "0"
         || !document.broker_truth.target_positions_complete
@@ -1405,6 +1539,35 @@ mod tests {
         )
     }
 
+    fn recovery_material(
+        parent: &Path,
+    ) -> (
+        crate::Stage8bP1ValidatedBootstrapConfig,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        Vec<u8>,
+        DateTime<Utc>,
+        String,
+    ) {
+        let (fresh_runtime, runtime_fingerprint) =
+            Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let config = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.to_path_buf(),
+            runtime_fingerprint.clone(),
+        ))
+        .unwrap();
+        let (bytes, fixture_now, _, _) = fixture_for_binding(
+            config.operational_identity_sha256(),
+            config.account_id().as_str(),
+        );
+        (
+            config,
+            fresh_runtime,
+            bytes,
+            fixture_now,
+            runtime_fingerprint,
+        )
+    }
+
     fn interrupt_first_boot_at(
         parent: &Path,
         hook: &'static str,
@@ -2130,6 +2293,330 @@ mod tests {
             drop(adopted);
             fs::remove_dir_all(parent).unwrap();
         }
+    }
+
+    #[test]
+    fn pre_seal_administrative_recovery_remains_available_after_long_downtime() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+        use crate::Stage8bP1ePreSealRecoveryActionV5 as Action;
+
+        let remove_parent = temp_directory("stale-remove-marker-temp");
+        let (key, runtime_fingerprint) = interrupt_first_boot_at(
+            &remove_parent,
+            "after-prepared-marker-temp-sync-before-rename",
+        );
+        let transaction_id = classify_first_boot(&remove_parent, &runtime_fingerprint, &key)
+            .transaction_id_sha256
+            .unwrap();
+        let selector = authorize_pre_seal_recovery(
+            &remove_parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::RemoveMarkerTemp,
+        );
+        let (config, runtime, bytes, fixture_now, _) = recovery_material(&remove_parent);
+        assert_eq!(
+            parse_fixture(
+                &bytes,
+                fixture_now + Duration::days(30),
+                config.operational_identity_sha256(),
+                config.account_id().as_str(),
+            )
+            .err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth)
+        );
+        let outcome = crate::recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+            config, runtime, selector, &key,
+        )
+        .unwrap();
+        let crate::Stage8bP1ePreSealRecoveryOutcomeV5::NoRoot(next) = outcome else {
+            panic!("stale administrative removal did not converge to NoRoot");
+        };
+        assert_eq!(next.classification, Classification::NoRoot);
+        fs::remove_dir_all(remove_parent).unwrap();
+
+        for (name, hook, expected) in [
+            (
+                "stale-quarantine-root-published",
+                "after-root-parent-fsync-before-journal-create",
+                Classification::RootWithoutJournal,
+            ),
+            (
+                "stale-quarantine-journal-durable",
+                "after-journal-fsync-before-initial-seal-commit",
+                Classification::JournalWithoutSeal,
+            ),
+        ] {
+            let parent = temp_directory(name);
+            let (key, runtime_fingerprint) = interrupt_first_boot_at(&parent, hook);
+            let quarantine_parent = preprovision_quarantine(&parent);
+            let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+            assert_eq!(inspection.classification, expected);
+            let transaction_id = inspection.transaction_id_sha256.unwrap();
+            let selector = authorize_pre_seal_recovery(
+                &parent,
+                &runtime_fingerprint,
+                &transaction_id,
+                Action::QuarantineRoot,
+            );
+            let (config, runtime, _, _, _) = recovery_material(&parent);
+            let outcome = crate::recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+                config, runtime, selector, &key,
+            )
+            .unwrap();
+            let crate::Stage8bP1ePreSealRecoveryOutcomeV5::QuarantinePending(next) = outcome else {
+                panic!("stale administrative quarantine did not retain evidence");
+            };
+            assert_eq!(
+                next.classification,
+                Classification::QuarantinedIncompleteRoot
+            );
+
+            let selector = authorize_pre_seal_recovery(
+                &parent,
+                &runtime_fingerprint,
+                &transaction_id,
+                Action::FinalizeQuarantine,
+            );
+            let (config, runtime, _, _, _) = recovery_material(&parent);
+            let outcome = crate::recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+                config, runtime, selector, &key,
+            )
+            .unwrap();
+            let crate::Stage8bP1ePreSealRecoveryOutcomeV5::QuarantineFinalized {
+                transaction_id_sha256,
+                ..
+            } = outcome
+            else {
+                panic!("stale quarantine finalization did not retain history");
+            };
+            assert_eq!(transaction_id_sha256, transaction_id);
+            assert!(quarantine_parent
+                .join(&transaction_id)
+                .join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)
+                .is_file());
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn administrative_recovery_rejects_wrong_selector_and_marker_auth_without_mutation() {
+        use crate::Stage8bP1ePreSealRecoveryActionV5 as Action;
+
+        let parent = temp_directory("administrative-negative-authority");
+        let (key, runtime_fingerprint) =
+            interrupt_first_boot_at(&parent, "after-prepared-marker-temp-sync-before-rename");
+        let transaction_id = classify_first_boot(&parent, &runtime_fingerprint, &key)
+            .transaction_id_sha256
+            .unwrap();
+
+        let wrong_transaction = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &"f".repeat(64),
+            Action::RemoveMarkerTemp,
+        );
+        let (config, runtime, _, _, _) = recovery_material(&parent);
+        let before = filesystem_snapshot(&parent);
+        assert_eq!(
+            crate::recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+                config,
+                runtime,
+                wrong_transaction,
+                &key,
+            )
+            .err(),
+            Some(crate::Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)
+        );
+        assert_eq!(filesystem_snapshot(&parent), before);
+
+        let wrong_action = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::FinalizeQuarantine,
+        );
+        let (config, runtime, _, _, _) = recovery_material(&parent);
+        let before = filesystem_snapshot(&parent);
+        assert_eq!(
+            crate::recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+                config,
+                runtime,
+                wrong_action,
+                &key,
+            )
+            .err(),
+            Some(crate::Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)
+        );
+        assert_eq!(filesystem_snapshot(&parent), before);
+
+        let mut wrong_raw = bootstrap_config(parent.clone(), runtime_fingerprint.clone());
+        wrong_raw.gateway_instance_id = "finam-imoexf-paper-gateway-other".to_string();
+        let wrong_config = crate::validate_stage8b_p1_bootstrap_config(wrong_raw).unwrap();
+        let wrong_identity = crate::authorize_stage8b_p1e_pre_seal_recovery_v5(
+            &wrong_config,
+            &transaction_id,
+            Action::RemoveMarkerTemp,
+            crate::STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
+        )
+        .unwrap();
+        let (config, runtime, _, _, _) = recovery_material(&parent);
+        let before = filesystem_snapshot(&parent);
+        assert_eq!(
+            crate::recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+                config,
+                runtime,
+                wrong_identity,
+                &key,
+            )
+            .err(),
+            Some(crate::Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)
+        );
+        assert_eq!(filesystem_snapshot(&parent), before);
+
+        let valid_selector = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::RemoveMarkerTemp,
+        );
+        let marker_path = parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE);
+        let mut marker: Value = serde_json::from_slice(&fs::read(&marker_path).unwrap()).unwrap();
+        marker["marker_hmac_sha256"] = Value::String("f".repeat(64));
+        fs::write(&marker_path, serde_json::to_vec(&marker).unwrap()).unwrap();
+        let (config, runtime, _, _, _) = recovery_material(&parent);
+        let before = filesystem_snapshot(&parent);
+        assert_eq!(
+            crate::recover_stage8b_p1e_first_boot_pre_seal_administrative_v5(
+                config,
+                runtime,
+                valid_selector,
+                &key,
+            )
+            .err(),
+            Some(crate::Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch)
+        );
+        assert_eq!(filesystem_snapshot(&parent), before);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn historical_continuation_is_marker_bound_at_300_301_and_long_downtime() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+        use crate::Stage8bP1ePreSealRecoveryActionV5 as Action;
+
+        let (bytes, fixture_now, operational, account) = fixture();
+        assert!(parse_fixture(
+            &bytes,
+            fixture_now + Duration::seconds(298),
+            &operational,
+            &account,
+        )
+        .is_ok());
+        assert_eq!(
+            parse_fixture(
+                &bytes,
+                fixture_now + Duration::seconds(299),
+                &operational,
+                &account,
+            )
+            .err(),
+            Some(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth)
+        );
+
+        for (name, downtime) in [
+            ("historical-continuation-301", Duration::seconds(299)),
+            ("historical-continuation-long", Duration::days(30)),
+        ] {
+            let parent = temp_directory(name);
+            let (key, runtime_fingerprint) =
+                interrupt_first_boot_at(&parent, "after-prepared-marker-temp-sync-before-rename");
+            fs::rename(
+                parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE),
+                parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE),
+            )
+            .unwrap();
+            fs::File::open(&parent).unwrap().sync_all().unwrap();
+            let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+            assert_eq!(
+                inspection.classification,
+                Classification::PreparedWithoutRoot
+            );
+            let transaction_id = inspection.transaction_id_sha256.unwrap();
+            let selector = authorize_pre_seal_recovery(
+                &parent,
+                &runtime_fingerprint,
+                &transaction_id,
+                Action::ResumePrepared,
+            );
+            let (config, runtime, bytes, fixture_now, _) = recovery_material(&parent);
+            assert_eq!(
+                parse_fixture(
+                    &bytes,
+                    fixture_now + downtime,
+                    config.operational_identity_sha256(),
+                    config.account_id().as_str(),
+                )
+                .err(),
+                Some(Stage8bP1eFirstBootSourceError::InvalidBrokerTruth)
+            );
+            let outcome = crate::stage8b_p1e_first_boot_transaction::test_recover_stage8b_p1e_first_boot_pre_seal_historical_from_bytes_v5(
+                config,
+                runtime,
+                &bytes,
+                fixture_now + downtime,
+                selector,
+                &key,
+            )
+            .unwrap();
+            let crate::Stage8bP1ePreSealRecoveryOutcomeV5::Adopted(outcome) = outcome else {
+                panic!("historical continuation did not adopt");
+            };
+            assert!(outcome.owner().recovery_ready());
+            drop(outcome);
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn historical_continuation_rejects_changed_bundle_without_mutation() {
+        use crate::Stage8bP1ePreSealRecoveryActionV5 as Action;
+
+        let parent = temp_directory("historical-continuation-changed-bundle");
+        let (key, runtime_fingerprint) =
+            interrupt_first_boot_at(&parent, "after-prepared-marker-temp-sync-before-rename");
+        fs::rename(
+            parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE),
+            parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE),
+        )
+        .unwrap();
+        fs::File::open(&parent).unwrap().sync_all().unwrap();
+        let transaction_id = classify_first_boot(&parent, &runtime_fingerprint, &key)
+            .transaction_id_sha256
+            .unwrap();
+        let selector = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::ResumePrepared,
+        );
+        let (config, runtime, mut bytes, fixture_now, _) = recovery_material(&parent);
+        bytes.push(b' ');
+        let before = filesystem_snapshot(&parent);
+        assert_eq!(
+            crate::stage8b_p1e_first_boot_transaction::test_recover_stage8b_p1e_first_boot_pre_seal_historical_from_bytes_v5(
+                config,
+                runtime,
+                &bytes,
+                fixture_now + Duration::days(30),
+                selector,
+                &key,
+            )
+            .err(),
+            Some(crate::Stage8bP1eFirstBootTransactionError::InvalidAuthority)
+        );
+        assert_eq!(filesystem_snapshot(&parent), before);
+        fs::remove_dir_all(parent).unwrap();
     }
 
     #[test]
