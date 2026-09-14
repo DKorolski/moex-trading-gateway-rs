@@ -1469,6 +1469,33 @@ mod tests {
         (root_path, quarantine_root, transaction_id)
     }
 
+    fn preprovision_quarantine(parent: &Path) -> PathBuf {
+        let quarantine = parent.join(crate::STAGE8B_P1E_FIRST_BOOT_QUARANTINE_DIRECTORY);
+        fs::create_dir(&quarantine).unwrap();
+        fs::set_permissions(&quarantine, fs::Permissions::from_mode(0o700)).unwrap();
+        quarantine
+    }
+
+    fn authorize_pre_seal_recovery(
+        parent: &Path,
+        runtime_fingerprint: &str,
+        transaction_id: &str,
+        action: crate::Stage8bP1ePreSealRecoveryActionV5,
+    ) -> crate::Stage8bP1ePreSealRecoverySelectorV5 {
+        let config = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.to_path_buf(),
+            runtime_fingerprint.to_string(),
+        ))
+        .unwrap();
+        crate::authorize_stage8b_p1e_pre_seal_recovery_v5(
+            &config,
+            transaction_id,
+            action,
+            crate::STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
+        )
+        .unwrap()
+    }
+
     fn filesystem_snapshot(root: &Path) -> Vec<(String, &'static str, u32, Vec<u8>)> {
         fn visit(base: &Path, path: &Path, rows: &mut Vec<(String, &'static str, u32, Vec<u8>)>) {
             let metadata = fs::symlink_metadata(path).unwrap();
@@ -1898,6 +1925,351 @@ mod tests {
             }
             fs::remove_dir_all(parent).unwrap();
         }
+    }
+
+    #[test]
+    fn pre_seal_recovery_requires_exact_selector_and_completes_all_continuable_frontiers() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+        use crate::Stage8bP1ePreSealRecoveryActionV5 as Action;
+
+        let cases = [
+            (
+                "prepared-without-root",
+                "after-prepared-marker-temp-sync-before-rename",
+                Classification::PreparedWithoutRoot,
+                Action::ResumePrepared,
+                true,
+            ),
+            (
+                "prepared-to-root-published",
+                "after-root-published-marker-temp-sync-before-rename",
+                Classification::PreparedToRootPublishedMarkerTempPending,
+                Action::CompletePreparedToRootPublished,
+                false,
+            ),
+            (
+                "root-published-to-journal-durable",
+                "after-journal-durable-marker-temp-sync-before-rename",
+                Classification::RootPublishedToJournalDurableMarkerTempPending,
+                Action::CompleteRootPublishedToJournalDurable,
+                false,
+            ),
+            (
+                "journal-durable-to-seal-committed",
+                "after-seal-committed-marker-temp-sync-before-rename",
+                Classification::JournalDurableToSealCommittedMarkerTempPending,
+                Action::CompleteJournalDurableToSealCommitted,
+                false,
+            ),
+        ];
+
+        for (name, hook, expected, action, publish_initial_marker) in cases {
+            let parent = temp_directory(name);
+            let (key, runtime_fingerprint) = interrupt_first_boot_at(&parent, hook);
+            if publish_initial_marker {
+                fs::rename(
+                    parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE),
+                    parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE),
+                )
+                .unwrap();
+                fs::File::open(&parent).unwrap().sync_all().unwrap();
+            }
+            let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+            assert_eq!(inspection.classification, expected, "fixture {name}");
+            assert_eq!(
+                inspection.required_action,
+                action.as_str(),
+                "fixture {name}"
+            );
+            let transaction_id = inspection.transaction_id_sha256.unwrap();
+
+            let wrong = authorize_pre_seal_recovery(
+                &parent,
+                &runtime_fingerprint,
+                &transaction_id,
+                Action::FinalizeQuarantine,
+            );
+            let (prepared, _, _, _) = prepared_transaction(&parent);
+            let before = filesystem_snapshot(&parent);
+            assert_eq!(
+                crate::recover_stage8b_p1e_first_boot_pre_seal_v5(prepared, wrong, &key).err(),
+                Some(crate::Stage8bP1eFirstBootTransactionError::RecoverySelectorMismatch),
+                "wrong selector for {name}"
+            );
+            assert_eq!(
+                filesystem_snapshot(&parent),
+                before,
+                "wrong selector mutated {name}"
+            );
+
+            let selector =
+                authorize_pre_seal_recovery(&parent, &runtime_fingerprint, &transaction_id, action);
+            let (prepared, _, _, _) = prepared_transaction(&parent);
+            let outcome =
+                crate::recover_stage8b_p1e_first_boot_pre_seal_v5(prepared, selector, &key)
+                    .unwrap();
+            let crate::Stage8bP1ePreSealRecoveryOutcomeV5::Adopted(outcome) = outcome else {
+                panic!("continuable frontier {name} did not reach adoption");
+            };
+            assert!(outcome.owner().recovery_ready());
+            drop(outcome);
+            let adopted = classify_first_boot(&parent, &runtime_fingerprint, &key);
+            assert_eq!(
+                adopted.classification,
+                Classification::AdoptedCommittedRoot,
+                "recovered {name}"
+            );
+            assert!(adopted.ordinary_run_allowed);
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn pre_seal_remove_and_quarantine_actions_are_durable_and_generation_guarded() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+        use crate::Stage8bP1ePreSealRecoveryActionV5 as Action;
+
+        let remove_parent = temp_directory("remove-initial-marker-temp");
+        let (key, runtime_fingerprint) = interrupt_first_boot_at(
+            &remove_parent,
+            "after-prepared-marker-temp-sync-before-rename",
+        );
+        let inspection = classify_first_boot(&remove_parent, &runtime_fingerprint, &key);
+        assert_eq!(
+            inspection.classification,
+            Classification::UnpublishedMarkerTemp
+        );
+        let transaction_id = inspection.transaction_id_sha256.unwrap();
+        let selector = authorize_pre_seal_recovery(
+            &remove_parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::RemoveMarkerTemp,
+        );
+        let (prepared, _, _, _) = prepared_transaction(&remove_parent);
+        let outcome =
+            crate::recover_stage8b_p1e_first_boot_pre_seal_v5(prepared, selector, &key).unwrap();
+        let crate::Stage8bP1ePreSealRecoveryOutcomeV5::NoRoot(next) = outcome else {
+            panic!("marker-temp removal did not return NoRoot");
+        };
+        assert_eq!(next.classification, Classification::NoRoot);
+        fs::remove_dir_all(remove_parent).unwrap();
+
+        for (name, hook, expected) in [
+            (
+                "quarantine-root-published",
+                "after-root-parent-fsync-before-journal-create",
+                Classification::RootWithoutJournal,
+            ),
+            (
+                "quarantine-journal-durable",
+                "after-journal-fsync-before-initial-seal-commit",
+                Classification::JournalWithoutSeal,
+            ),
+        ] {
+            let parent = temp_directory(name);
+            let (key, runtime_fingerprint) = interrupt_first_boot_at(&parent, hook);
+            let quarantine_parent = preprovision_quarantine(&parent);
+            let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+            assert_eq!(inspection.classification, expected);
+            let transaction_id = inspection.transaction_id_sha256.unwrap();
+            let selector = authorize_pre_seal_recovery(
+                &parent,
+                &runtime_fingerprint,
+                &transaction_id,
+                Action::QuarantineRoot,
+            );
+            let (prepared, _, _, _) = prepared_transaction(&parent);
+            let outcome =
+                crate::recover_stage8b_p1e_first_boot_pre_seal_v5(prepared, selector, &key)
+                    .unwrap();
+            let crate::Stage8bP1ePreSealRecoveryOutcomeV5::QuarantinePending(next) = outcome else {
+                panic!("quarantine action did not retain pending evidence");
+            };
+            assert_eq!(
+                next.classification,
+                Classification::QuarantinedIncompleteRoot
+            );
+
+            let selector = authorize_pre_seal_recovery(
+                &parent,
+                &runtime_fingerprint,
+                &transaction_id,
+                Action::FinalizeQuarantine,
+            );
+            let (prepared, _, _, _) = prepared_transaction(&parent);
+            let outcome =
+                crate::recover_stage8b_p1e_first_boot_pre_seal_v5(prepared, selector, &key)
+                    .unwrap();
+            let crate::Stage8bP1ePreSealRecoveryOutcomeV5::QuarantineFinalized {
+                transaction_id_sha256,
+                bootstrap_attempt_generation,
+            } = outcome
+            else {
+                panic!("quarantine finalization did not retain history");
+            };
+            assert_eq!(transaction_id_sha256, transaction_id);
+            assert_eq!(bootstrap_attempt_generation, 1);
+            assert!(quarantine_parent
+                .join(&transaction_id)
+                .join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)
+                .is_file());
+            assert!(!parent
+                .join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE)
+                .exists());
+
+            let (prepared, admin, _, _) = prepared_transaction(&parent);
+            assert_eq!(
+                crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &key).err(),
+                Some(crate::Stage8bP1eFirstBootTransactionError::InvalidGeneration)
+            );
+            let (prepared, admin, _, _) = prepared_transaction(&parent);
+            let adopted =
+                crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 2, &key).unwrap();
+            assert!(adopted.owner().recovery_ready());
+            drop(adopted);
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn pre_seal_response_loss_reclassifies_without_repeating_completed_effects() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+        use crate::Stage8bP1ePreSealRecoveryActionV5 as Action;
+
+        let parent = temp_directory("remove-marker-temp-response-loss");
+        let (key, runtime_fingerprint) =
+            interrupt_first_boot_at(&parent, "after-prepared-marker-temp-sync-before-rename");
+        let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+        let transaction_id = inspection.transaction_id_sha256.unwrap();
+        let selector = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::RemoveMarkerTemp,
+        );
+        let (prepared, _, _, _) = prepared_transaction(&parent);
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::stage8b_p1e_first_boot_transaction::test_recover_stage8b_p1e_first_boot_pre_seal_v5_with_observer(
+                prepared,
+                selector,
+                &key,
+                |hook| {
+                    if hook == "after-remove-marker-temp-before-parent-fsync" {
+                        panic!("simulated-response-loss");
+                    }
+                },
+            )
+            .unwrap();
+        }));
+        assert!(interrupted.is_err());
+        assert_eq!(
+            classify_first_boot(&parent, &runtime_fingerprint, &key).classification,
+            Classification::NoRoot
+        );
+        fs::remove_dir_all(parent).unwrap();
+
+        let parent = temp_directory("pre-seal-marker-response-loss");
+        let (key, runtime_fingerprint) = interrupt_first_boot_at(
+            &parent,
+            "after-root-published-marker-temp-sync-before-rename",
+        );
+        let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+        let transaction_id = inspection.transaction_id_sha256.unwrap();
+        let selector = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::CompletePreparedToRootPublished,
+        );
+        let (prepared, _, _, _) = prepared_transaction(&parent);
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::stage8b_p1e_first_boot_transaction::test_recover_stage8b_p1e_first_boot_pre_seal_v5_with_observer(
+                prepared,
+                selector,
+                &key,
+                |hook| {
+                    if hook == "after-pre-seal-marker-temp-rename-before-parent-fsync" {
+                        panic!("simulated-response-loss");
+                    }
+                },
+            )
+            .unwrap();
+        }));
+        assert!(interrupted.is_err());
+        let next = classify_first_boot(&parent, &runtime_fingerprint, &key);
+        assert_eq!(next.classification, Classification::RootWithoutJournal);
+        assert_eq!(next.required_action, Action::QuarantineRoot.as_str());
+        assert!(!parent
+            .join(crate::STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE)
+            .exists());
+        fs::remove_dir_all(parent).unwrap();
+
+        let parent = temp_directory("quarantine-response-loss");
+        let (key, runtime_fingerprint) =
+            interrupt_first_boot_at(&parent, "after-root-parent-fsync-before-journal-create");
+        preprovision_quarantine(&parent);
+        let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+        let transaction_id = inspection.transaction_id_sha256.unwrap();
+        let selector = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::QuarantineRoot,
+        );
+        let (prepared, _, _, _) = prepared_transaction(&parent);
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::stage8b_p1e_first_boot_transaction::test_recover_stage8b_p1e_first_boot_pre_seal_v5_with_observer(
+                prepared,
+                selector,
+                &key,
+                |hook| {
+                    if hook == "after-quarantine-root-rename-before-parent-fsync" {
+                        panic!("simulated-response-loss");
+                    }
+                },
+            )
+            .unwrap();
+        }));
+        assert!(interrupted.is_err());
+        let next = classify_first_boot(&parent, &runtime_fingerprint, &key);
+        assert_eq!(
+            next.classification,
+            Classification::QuarantinedIncompleteRoot
+        );
+        assert_eq!(next.required_action, Action::FinalizeQuarantine.as_str());
+
+        let selector = authorize_pre_seal_recovery(
+            &parent,
+            &runtime_fingerprint,
+            &transaction_id,
+            Action::FinalizeQuarantine,
+        );
+        let (prepared, _, _, _) = prepared_transaction(&parent);
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::stage8b_p1e_first_boot_transaction::test_recover_stage8b_p1e_first_boot_pre_seal_v5_with_observer(
+                prepared,
+                selector,
+                &key,
+                |hook| {
+                    if hook == "after-finalize-quarantine-marker-rename-before-parent-fsync" {
+                        panic!("simulated-response-loss");
+                    }
+                },
+            )
+            .unwrap();
+        }));
+        assert!(interrupted.is_err());
+        assert_eq!(
+            classify_first_boot(&parent, &runtime_fingerprint, &key).classification,
+            Classification::NoRoot
+        );
+        let (prepared, admin, _, _) = prepared_transaction(&parent);
+        assert_eq!(
+            crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &key).err(),
+            Some(crate::Stage8bP1eFirstBootTransactionError::InvalidGeneration)
+        );
+        fs::remove_dir_all(parent).unwrap();
     }
 
     #[test]

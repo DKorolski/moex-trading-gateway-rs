@@ -1693,3 +1693,29 @@ administrative recovery, the owner loop and the process signal/panic/restart
 matrix are subsequent review slices. Operational Redis DB0/DB15, VPS
 activation, operational credentials, FINAM POST/DELETE, broker dispatch,
 runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 pre-seal administrative recovery candidate (2026-09-14)
+
+The transaction V5 classifier correction at
+`5e2e157e032406fdbb9047c33c641f5973514504` is independently accepted and
+P1-TX01 is closed. The current child source slice implements the seven exact
+pre-seal administrative selectors. It binds each one-shot selector to the
+validated deployment, source-derived transaction ID and fixed recovery
+confirmation, then repeats a fresh authenticated V5 classification before any
+mutation.
+
+Prepared and all three pre-adoption marker-temp frontiers continue the same
+transaction to receipt V2 plus Adopted. The JournalDurable response-loss path
+opens only the already-existing empty journal under the Stage 7 writer lease;
+it cannot create a second journal. Incomplete RootPublished/JournalDurable
+roots are retained through no-replace quarantine and marker finalization with
+directory fsyncs. Authenticated quarantine history now rejects reuse of an old
+bootstrap-attempt generation. Focused filesystem tests cover selector mismatch,
+all continuable frontiers, both quarantine frontiers and response loss after
+each administrative rename family.
+
+This is still not complete deployable I1. The owner loop, installed
+`bootstrap-recover` composition and release subprocess signal/panic/restart
+matrix remain next review slices. Operational Redis DB0/DB15, VPS activation,
+operational credentials, FINAM POST/DELETE, broker dispatch, runtime-live and
+real orders remain closed.

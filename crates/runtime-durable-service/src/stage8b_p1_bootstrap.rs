@@ -114,6 +114,23 @@ impl Stage8bP1ValidatedBootstrapConfig {
     pub(crate) fn expected_root_name(&self) -> &str {
         &self.expected_root_name
     }
+
+    /// Rebuilds the same validated authority for an internal read-only
+    /// classification pass.  The public type deliberately remains neither
+    /// `Clone` nor constructible, while the transaction coordinator can
+    /// classify and then consume the original authority without asking a
+    /// caller to validate the configuration twice.
+    pub(crate) fn duplicate_for_internal_classification(&self) -> Self {
+        Self {
+            account_id: self.account_id.clone(),
+            instrument: self.instrument.clone(),
+            runtime_config_fingerprint_sha256: self.runtime_config_fingerprint_sha256.clone(),
+            operational_identity: self.operational_identity.clone(),
+            operational_identity_sha256: self.operational_identity_sha256.clone(),
+            durable_parent: self.durable_parent.clone(),
+            expected_root_name: self.expected_root_name.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

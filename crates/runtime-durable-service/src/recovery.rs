@@ -3866,6 +3866,72 @@ impl Stage7bRecoveryReadyOwner {
         })
     }
 
+    /// Reconstructs the linear first-boot authority only at the authenticated
+    /// journal-durable / initial-seal-absent frontier.  This is the narrow
+    /// response-loss companion to `begin_stage8b_p1e_first_boot`: it opens the
+    /// already-created journal and therefore can neither create a second
+    /// journal nor skip the normal empty-journal and source-package checks.
+    pub(crate) fn resume_stage8b_p1e_journal_durable_first_boot(
+        root: Stage7bDurableRootAuthority,
+        identity: Stage6dOperationalIdentityConfig,
+        authorization: Stage6dFirstBootAuthorization,
+        stage5g_seed: &[u8],
+        first_boot_provenance: Stage8bP1eFirstBootProvenanceV1,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+        fresh_runtime: HybridIntradayRuntimeStrategy,
+    ) -> Result<Stage7bP1eJournalDurableFirstBoot, Stage7bRecoveryError> {
+        root.validate_bound_identity(&identity)?;
+        if root.regular_child_exists(STAGE7B_RECOVERY_SEAL_FILE)? {
+            return Err(Stage7bRecoveryError::SealAlreadyExists);
+        }
+        if stage5g_seed.is_empty() {
+            return Err(Stage7bRecoveryError::Runtime(
+                Stage6dLiveCoreError::RestartPackageDecode,
+            ));
+        }
+        if !authorization
+            .authorizes_runtime_config_fingerprint(&fresh_runtime.stage5c_config_fingerprint())
+        {
+            return Err(Stage7bRecoveryError::RuntimeConfigMismatch);
+        }
+        let validated_stage5g_seed =
+            restore_stage5g_clean_restart(stage5g_seed, commitment_key, fresh_runtime).map_err(
+                |error| Stage7bRecoveryError::Runtime(Stage6dLiveCoreError::Stage5gRestart(error)),
+            )?;
+        let storage = Stage7bWritableDurableAuthority::open_existing(root, &identity)?;
+        let (journal, writer_lease) = storage.into_recovery_parts();
+        let checkpoint = Stage6JournalCheckpointV1::from_frontier(journal.frontier().clone())
+            .map_err(Stage7bDurableStorageError::from)?;
+        let stage6d_package = seal_stage6d_restart_package_v2(
+            stage5g_seed,
+            checkpoint.clone(),
+            identity.clone(),
+            first_boot_provenance,
+            commitment_key,
+        )?;
+        let identity_sha256 = stage6d_operational_identity_sha256(&identity)?;
+        let initial_seal = Stage7bRecoverySealV1::new(
+            1,
+            stage6d_package,
+            checkpoint,
+            identity_sha256.as_str().to_string(),
+            commitment_key,
+        )?;
+        let recovered = first_boot_stage6d_paper_from_validated_stage5g_seed_with_owned_journal(
+            authorization,
+            validated_stage5g_seed,
+            journal,
+            identity.clone(),
+        )?;
+        validate_recovered_binding(&recovered, &initial_seal, &identity)?;
+        Ok(Stage7bP1eJournalDurableFirstBoot {
+            recovered,
+            writer_lease,
+            initial_seal,
+            identity,
+        })
+    }
+
     pub fn first_boot(
         root: Stage7bDurableRootAuthority,
         identity: Stage6dOperationalIdentityConfig,
