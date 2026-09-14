@@ -1673,11 +1673,15 @@ process matrix, systemd/install material and aggregate I1 acceptance remain to
 be implemented separately. Operational Redis DB0/DB15, VPS activation, FINAM
 POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
 
-## Stage 8B-P1-e I1 transaction V5 source candidate (2026-09-14)
+## Stage 8B-P1-e I1 transaction V5 classifier correction (2026-09-14)
 
 The first-boot governance correction at
 `21eaf01916f2da5eaacb191b4d7339a8101070ad` is independently accepted and is
-the immutable predecessor of the active source slice. The candidate implements
+the immutable predecessor of this source line. Transaction source `fdab06a`
+is HOLD due to P1-TX01: its quarantine classification compared the marker only
+with the absent active-root identity. The active correction chooses exactly
+one active/quarantine layout before identity validation and adds executable
+positive and negative quarantine filesystem fixtures. The source line implements
 transaction V5, authenticated receipt V2 and exact first-boot provenance in a
 Stage 6 restart package V2. Ten filesystem crash hooks have deterministic
 classifications; the four post-seal response-loss frontiers can resume to the

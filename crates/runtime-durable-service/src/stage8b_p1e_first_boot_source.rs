@@ -1405,6 +1405,115 @@ mod tests {
         )
     }
 
+    fn interrupt_first_boot_at(
+        parent: &Path,
+        hook: &'static str,
+    ) -> (strategy_runtime_core::Stage5gLifecycleCommitmentKey, String) {
+        let (prepared, admin, key, runtime_fingerprint) = prepared_transaction(parent);
+        let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::stage8b_p1e_first_boot_transaction::test_first_boot_stage8b_p1e_transaction_v5_with_observer(
+                prepared,
+                admin,
+                1,
+                &key,
+                |observed| {
+                    if observed == hook {
+                        panic!("simulated-sigkill-at-{hook}");
+                    }
+                },
+            )
+            .unwrap();
+        }));
+        assert!(interrupted.is_err(), "hook {hook} was not reached");
+        (key, runtime_fingerprint)
+    }
+
+    fn classify_first_boot(
+        parent: &Path,
+        runtime_fingerprint: &str,
+        key: &strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+    ) -> crate::Stage8bP1eFirstBootInspectionV5 {
+        let (fresh_runtime, fresh_fingerprint) =
+            Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        assert_eq!(fresh_fingerprint, runtime_fingerprint);
+        crate::classify_stage8b_p1e_first_boot_v5(
+            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                runtime_fingerprint.to_string(),
+            ))
+            .unwrap(),
+            key,
+            fresh_runtime,
+        )
+    }
+
+    fn move_active_root_to_exact_quarantine(
+        parent: &Path,
+        runtime_fingerprint: &str,
+        key: &strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+    ) -> (PathBuf, PathBuf, String) {
+        let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.to_path_buf(),
+            runtime_fingerprint.to_string(),
+        ))
+        .unwrap();
+        let root_path = parent.join(validated.expected_root_name());
+        let transaction_id = classify_first_boot(parent, runtime_fingerprint, key)
+            .transaction_id_sha256
+            .expect("interrupted authority binds one transaction");
+        let quarantine_parent = parent.join(crate::STAGE8B_P1E_FIRST_BOOT_QUARANTINE_DIRECTORY);
+        fs::create_dir(&quarantine_parent).unwrap();
+        fs::set_permissions(&quarantine_parent, fs::Permissions::from_mode(0o700)).unwrap();
+        let quarantine_root = quarantine_parent.join(&transaction_id);
+        fs::rename(&root_path, &quarantine_root).unwrap();
+        (root_path, quarantine_root, transaction_id)
+    }
+
+    fn filesystem_snapshot(root: &Path) -> Vec<(String, &'static str, u32, Vec<u8>)> {
+        fn visit(base: &Path, path: &Path, rows: &mut Vec<(String, &'static str, u32, Vec<u8>)>) {
+            let metadata = fs::symlink_metadata(path).unwrap();
+            let relative = path
+                .strip_prefix(base)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            if metadata.is_dir() {
+                rows.push((
+                    relative,
+                    "directory",
+                    metadata.permissions().mode() & 0o777,
+                    Vec::new(),
+                ));
+                let mut children = fs::read_dir(path)
+                    .unwrap()
+                    .map(|entry| entry.unwrap().path())
+                    .collect::<Vec<_>>();
+                children.sort();
+                for child in children {
+                    visit(base, &child, rows);
+                }
+            } else if metadata.is_file() {
+                rows.push((
+                    relative,
+                    "file",
+                    metadata.permissions().mode() & 0o777,
+                    fs::read(path).unwrap(),
+                ));
+            } else {
+                rows.push((
+                    relative,
+                    "other",
+                    metadata.permissions().mode() & 0o777,
+                    Vec::new(),
+                ));
+            }
+        }
+
+        let mut rows = Vec::new();
+        visit(root, root, &mut rows);
+        rows
+    }
+
     fn parse_fixture(
         bytes: &[u8],
         now: DateTime<Utc>,
@@ -1789,6 +1898,120 @@ mod tests {
             }
             fs::remove_dir_all(parent).unwrap();
         }
+    }
+
+    #[test]
+    fn quarantined_incomplete_root_is_reachable_for_root_published_and_journal_durable() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+
+        for (hook, expected_before, journal_expected) in [
+            (
+                "after-root-parent-fsync-before-journal-create",
+                Classification::RootWithoutJournal,
+                false,
+            ),
+            (
+                "after-journal-fsync-before-initial-seal-commit",
+                Classification::JournalWithoutSeal,
+                true,
+            ),
+        ] {
+            let parent = temp_directory(&format!("quarantine-positive-{journal_expected}"));
+            let (key, runtime_fingerprint) = interrupt_first_boot_at(&parent, hook);
+            assert_eq!(
+                classify_first_boot(&parent, &runtime_fingerprint, &key).classification,
+                expected_before
+            );
+            let (root_path, quarantine_root, transaction_id) =
+                move_active_root_to_exact_quarantine(&parent, &runtime_fingerprint, &key);
+            assert!(!root_path.exists());
+            assert_eq!(
+                quarantine_root.join(crate::STAGE7B_JOURNAL_FILE).exists(),
+                journal_expected
+            );
+            assert!(!quarantine_root
+                .join(crate::STAGE7B_RECOVERY_SEAL_FILE)
+                .exists());
+
+            let before = filesystem_snapshot(&parent);
+            let inspection = classify_first_boot(&parent, &runtime_fingerprint, &key);
+            assert_eq!(
+                inspection.classification,
+                Classification::QuarantinedIncompleteRoot
+            );
+            assert_eq!(
+                inspection.transaction_id_sha256.as_deref(),
+                Some(transaction_id.as_str())
+            );
+            assert_eq!(inspection.required_action, "finalize-quarantine");
+            assert!(!inspection.ordinary_run_allowed);
+            assert_eq!(filesystem_snapshot(&parent), before);
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn quarantine_identity_layout_and_committed_seal_conflicts_fail_closed_without_mutation() {
+        use crate::Stage8bP1eFirstBootClassificationV5 as Classification;
+
+        let assert_corrupt_without_mutation =
+            |parent: &Path,
+             runtime_fingerprint: &str,
+             key: &strategy_runtime_core::Stage5gLifecycleCommitmentKey| {
+                let before = filesystem_snapshot(parent);
+                let inspection = classify_first_boot(parent, runtime_fingerprint, key);
+                assert_eq!(
+                    inspection.classification,
+                    Classification::CorruptOrIdentityMismatch
+                );
+                assert_eq!(inspection.required_action, "none");
+                assert!(!inspection.ordinary_run_allowed);
+                assert_eq!(filesystem_snapshot(parent), before);
+            };
+
+        let wrong_identity_parent = temp_directory("quarantine-wrong-identity");
+        let (key, runtime_fingerprint) = interrupt_first_boot_at(
+            &wrong_identity_parent,
+            "after-root-parent-fsync-before-journal-create",
+        );
+        let (_, quarantine_root, _) = move_active_root_to_exact_quarantine(
+            &wrong_identity_parent,
+            &runtime_fingerprint,
+            &key,
+        );
+        fs::remove_dir(&quarantine_root).unwrap();
+        fs::create_dir(&quarantine_root).unwrap();
+        fs::set_permissions(&quarantine_root, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_corrupt_without_mutation(&wrong_identity_parent, &runtime_fingerprint, &key);
+        fs::remove_dir_all(wrong_identity_parent).unwrap();
+
+        let dual_root_parent = temp_directory("quarantine-dual-root");
+        let (key, runtime_fingerprint) = interrupt_first_boot_at(
+            &dual_root_parent,
+            "after-root-parent-fsync-before-journal-create",
+        );
+        let (root_path, _, _) =
+            move_active_root_to_exact_quarantine(&dual_root_parent, &runtime_fingerprint, &key);
+        fs::create_dir(&root_path).unwrap();
+        fs::set_permissions(&root_path, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_corrupt_without_mutation(&dual_root_parent, &runtime_fingerprint, &key);
+        fs::remove_dir_all(dual_root_parent).unwrap();
+
+        let committed_seal_parent = temp_directory("quarantine-committed-seal");
+        let (key, runtime_fingerprint) = interrupt_first_boot_at(
+            &committed_seal_parent,
+            "after-seal-persist-reread-before-bootstrap-success-report",
+        );
+        let (_, quarantine_root, _) = move_active_root_to_exact_quarantine(
+            &committed_seal_parent,
+            &runtime_fingerprint,
+            &key,
+        );
+        assert!(quarantine_root
+            .join(crate::STAGE7B_RECOVERY_SEAL_FILE)
+            .is_file());
+        assert_corrupt_without_mutation(&committed_seal_parent, &runtime_fingerprint, &key);
+        fs::remove_dir_all(committed_seal_parent).unwrap();
     }
 
     #[test]

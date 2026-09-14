@@ -82,6 +82,31 @@ def check_content(root: Path) -> None:
 
     require("first_boot_stage8b_p1e_transaction_v5(" in source, "source does not enter V5 transaction")
     require("every_v5_crash_hook_has_one_exact_fail_closed_classification" in source, "crash matrix missing")
+    require(
+        "quarantined_incomplete_root_is_reachable_for_root_published_and_journal_durable" in source,
+        "quarantine positive filesystem fixtures missing",
+    )
+    require(
+        "quarantine_identity_layout_and_committed_seal_conflicts_fail_closed_without_mutation" in source,
+        "quarantine negative filesystem fixtures missing",
+    )
+    require(
+        "assert_eq!(filesystem_snapshot(&parent), before);" in source,
+        "positive classifier no-mutation assertion missing",
+    )
+    require(
+        "assert_eq!(filesystem_snapshot(parent), before);" in source,
+        "negative classifier no-mutation assertion missing",
+    )
+    require(
+        "let observed_root_identity = root_identity.as_ref().or(quarantine_identity.as_ref());"
+        in transaction,
+        "classifier does not bind marker identity to active-or-quarantine layout",
+    )
+    require(
+        "if root_exists && quarantine_exists" in transaction,
+        "active plus quarantine layout is not rejected",
+    )
     require("Stage7bP1eJournalDurableFirstBoot" in recovery, "linear journal-durable seam missing")
     require("begin_stage8b_p1e_first_boot" in recovery, "split first-boot entry missing")
     require("commit_initial_seal" in recovery, "initial seal continuation missing")
@@ -144,7 +169,7 @@ def main() -> None:
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         print(f"stage8b-p1e-i1-transaction-v5-check: FAIL {error}")
         raise SystemExit(1)
-    print("PASS stage8b-p1e-i1-transaction-v5-check classifications=15 crash_hooks=10 post_seal_recovery=4 redis=false finam=false live=false")
+    print("PASS stage8b-p1e-i1-transaction-v5-check classifications=15 crash_hooks=10 quarantine_fixtures=5 post_seal_recovery=4 redis=false finam=false live=false")
 
 
 if __name__ == "__main__":

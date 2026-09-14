@@ -1137,7 +1137,24 @@ fn classify_stage8b_p1e_first_boot_v5_inner(
         STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE,
         commitment_key,
     )?;
+    let transaction_id = marker
+        .as_ref()
+        .or(marker_temp.as_ref())
+        .map(|value| value.transaction_id_sha256.clone());
+    let quarantine_root = transaction_id.as_ref().map(|transaction_id| {
+        parent
+            .join(STAGE8B_P1E_FIRST_BOOT_QUARANTINE_DIRECTORY)
+            .join(transaction_id)
+    });
     let root_exists = path_exists(root_path.clone())?;
+    let quarantine_exists = quarantine_root
+        .as_ref()
+        .map(|path| path_exists(path.clone()))
+        .transpose()?
+        .unwrap_or(false);
+    if root_exists && quarantine_exists {
+        return Err(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile);
+    }
     let journal_exists = root_exists && path_exists(root_path.join(STAGE7B_JOURNAL_FILE))?;
     let seal_exists = root_exists && path_exists(root_path.join(STAGE7B_RECOVERY_SEAL_FILE))?;
 
@@ -1162,43 +1179,37 @@ fn classify_stage8b_p1e_first_boot_v5_inner(
     let root_identity = root_exists
         .then(|| canonical_root_identity_sha256(&root_path))
         .transpose()?;
-    for authority in marker.iter().chain(marker_temp.iter()) {
-        if authority.phase != Stage8bP1eFirstBootTransactionPhaseV4::Prepared
-            && root_identity.as_ref() != Some(&authority.canonical_root_identity_sha256)
-        {
-            return Err(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile);
-        }
-    }
-
-    let transaction_id = marker
-        .as_ref()
-        .or(marker_temp.as_ref())
-        .map(|value| value.transaction_id_sha256.clone());
-    let quarantine_root = transaction_id.as_ref().map(|transaction_id| {
-        parent
-            .join(STAGE8B_P1E_FIRST_BOOT_QUARANTINE_DIRECTORY)
-            .join(transaction_id)
-    });
-    let quarantine_exists = quarantine_root
-        .as_ref()
-        .map(|path| path_exists(path.clone()))
-        .transpose()?
-        .unwrap_or(false);
+    let mut quarantine_identity = None;
+    let mut quarantined_journal_exists = false;
+    let mut quarantined_seal_exists = false;
     if quarantine_exists {
         let path = quarantine_root
             .as_ref()
             .ok_or(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile)?;
         validate_owned_directory(path)?;
-        let quarantined_identity =
-            canonical_root_identity_sha256_with_basename(path, &expected_root_name)?;
-        if marker.as_ref().map_or(true, |value| {
-            value.canonical_root_identity_sha256 != quarantined_identity
-        }) {
+        quarantined_journal_exists = path_exists(path.join(STAGE7B_JOURNAL_FILE))?;
+        quarantined_seal_exists = path_exists(path.join(STAGE7B_RECOVERY_SEAL_FILE))?;
+        if quarantined_journal_exists {
+            validate_owned_regular_file(&path.join(STAGE7B_JOURNAL_FILE))?;
+        }
+        if quarantined_seal_exists {
+            validate_owned_regular_file(&path.join(STAGE7B_RECOVERY_SEAL_FILE))?;
+        }
+        if quarantined_seal_exists && !quarantined_journal_exists {
             return Err(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile);
         }
+        quarantine_identity = Some(canonical_root_identity_sha256_with_basename(
+            path,
+            &expected_root_name,
+        )?);
     }
-    if root_exists && quarantine_exists {
-        return Err(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile);
+    let observed_root_identity = root_identity.as_ref().or(quarantine_identity.as_ref());
+    for authority in marker.iter().chain(marker_temp.iter()) {
+        if authority.phase != Stage8bP1eFirstBootTransactionPhaseV4::Prepared
+            && observed_root_identity != Some(&authority.canonical_root_identity_sha256)
+        {
+            return Err(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile);
+        }
     }
 
     let marker_temp_is_successor = match (&marker, &marker_temp) {
@@ -1346,32 +1357,19 @@ fn classify_stage8b_p1e_first_boot_v5_inner(
     {
         matches.push(Stage8bP1eFirstBootClassificationV5::CommittedRootResponseLost);
     }
-    if marker.as_ref().is_some_and(|value| {
-        matches!(
-            value.phase,
-            Stage8bP1eFirstBootTransactionPhaseV4::RootPublished
-                | Stage8bP1eFirstBootTransactionPhaseV4::JournalDurable
-        )
-    }) && marker_temp.is_none()
+    if marker_temp.is_none()
         && !root_exists
         && quarantine_exists
         && no_receipts
+        && !quarantined_seal_exists
+        && marker.as_ref().is_some_and(|value| {
+            (value.phase == Stage8bP1eFirstBootTransactionPhaseV4::RootPublished
+                && !quarantined_journal_exists)
+                || (value.phase == Stage8bP1eFirstBootTransactionPhaseV4::JournalDurable
+                    && quarantined_journal_exists)
+        })
     {
-        let quarantine = quarantine_root
-            .as_ref()
-            .ok_or(Stage8bP1eFirstBootTransactionError::InvalidAuthorityFile)?;
-        let quarantined_journal = path_exists(quarantine.join(STAGE7B_JOURNAL_FILE))?;
-        let quarantined_seal = path_exists(quarantine.join(STAGE7B_RECOVERY_SEAL_FILE))?;
-        if !quarantined_seal
-            && marker.as_ref().is_some_and(|value| {
-                (value.phase == Stage8bP1eFirstBootTransactionPhaseV4::RootPublished
-                    && !quarantined_journal)
-                    || (value.phase == Stage8bP1eFirstBootTransactionPhaseV4::JournalDurable
-                        && quarantined_journal)
-            })
-        {
-            matches.push(Stage8bP1eFirstBootClassificationV5::QuarantinedIncompleteRoot);
-        }
+        matches.push(Stage8bP1eFirstBootClassificationV5::QuarantinedIncompleteRoot);
     }
     if marker
         .as_ref()

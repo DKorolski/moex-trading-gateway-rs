@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the immutable Stage 8B-P1-e I1 transaction V5 source handoff."""
+"""Build the immutable Stage 8B-P1-e I1 transaction V5 correction handoff."""
 
 from __future__ import annotations
 
@@ -17,15 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "reports/handoff"
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_PREDECESSOR = "21eaf01916f2da5eaacb191b4d7339a8101070ad"
+REVIEWED_HOLD = "fdab06a6222909ea5666d98665a52ba765afe515"
 EXPECTED_CHANGED = {
-    "crates/runtime-durable-service/src/lib.rs",
-    "crates/runtime-durable-service/src/recovery.rs",
-    "crates/runtime-durable-service/src/stage8b_p1_bootstrap.rs",
     "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
     "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs",
-    "crates/strategy-runtime-core/src/lib.rs",
-    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
-    "crates/strategy-runtime-core/src/stage6d_live_core.rs",
     "docs/current-status.md",
     "docs/stage-8/stage8b-p1e-i1-transaction-v5-implementation.md",
     "scripts/make_stage8b_p1e_i1_transaction_v5_handoff.py",
@@ -53,15 +48,15 @@ def main() -> None:
     source_ref = git("rev-parse", "HEAD").decode().strip()
     source_parent = git("rev-parse", "HEAD^").decode().strip()
     source_tree = git("rev-parse", "HEAD^{tree}").decode().strip()
-    if source_parent != ACCEPTED_PREDECESSOR:
+    if source_parent != REVIEWED_HOLD:
         raise SystemExit(
             "stage8b-p1e-i1-transaction-v5-handoff: FAIL "
-            f"parent={source_parent} expected={ACCEPTED_PREDECESSOR}"
+            f"parent={source_parent} expected={REVIEWED_HOLD}"
         )
     changed = set(
         filter(
             None,
-            git("diff", "--name-only", ACCEPTED_PREDECESSOR, source_ref, "--")
+            git("diff", "--name-only", REVIEWED_HOLD, source_ref, "--")
             .decode()
             .splitlines(),
         )
@@ -85,7 +80,7 @@ def main() -> None:
 
     short_ref = source_ref[:7]
     archive_name = (
-        f"moex-trading-project-{short_ref}-stage8b-p1e-i1-transaction-v5-source-review-package.zip"
+        f"moex-trading-project-{short_ref}-stage8b-p1e-i1-transaction-v5-correction-review-package.zip"
     )
     archive_path = OUTPUT / archive_name
     manifest, entries = common.source_manifest(source_ref)
@@ -93,7 +88,7 @@ def main() -> None:
     manifest_document.update(
         {
             "schema_version": 3,
-            "stage": "Stage 8B-P1-e I1 transaction V5 source",
+            "stage": "Stage 8B-P1-e I1 transaction V5 classifier correction",
             "source_tree": source_tree,
             "source_branch": branch,
         }
@@ -101,10 +96,12 @@ def main() -> None:
     manifest = (json.dumps(manifest_document, indent=2, sort_keys=True) + "\n").encode()
     evidence = {
         "schema_version": 1,
-        "stage": "Stage 8B-P1-e I1 transaction V5 source",
-        "status": "SOURCE_REVIEW_CANDIDATE",
+        "stage": "Stage 8B-P1-e I1 transaction V5 classifier correction",
+        "status": "SOURCE_CORRECTION_REVIEW_CANDIDATE",
         "source_ref": source_ref,
         "source_parent": source_parent,
+        "accepted_predecessor": ACCEPTED_PREDECESSOR,
+        "reviewed_hold": REVIEWED_HOLD,
         "source_tree": source_tree,
         "branch": branch,
         "archive_name": archive_name,
@@ -115,8 +112,11 @@ def main() -> None:
         "marker_schema_version": 4,
         "classifications": 15,
         "crash_hooks": 10,
+        "quarantine_positive_fixtures": 2,
+        "quarantine_negative_fixtures": 3,
         "post_seal_recovery_actions": 4,
-        "negative_cases": 18,
+        "negative_cases": 22,
+        "finding_closed": "P1-TX01",
         "changed_paths": sorted(changed),
         "deferred": [
             "pre-seal administrative recovery commands",
@@ -137,13 +137,14 @@ def main() -> None:
     }
     evidence_bytes = (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode()
     marker = (
-        "stage=Stage 8B-P1-e I1 transaction V5 source\n"
+        "stage=Stage 8B-P1-e I1 transaction V5 classifier correction\n"
         f"source_short_ref={short_ref}\n"
         f"source_ref={source_ref}\n"
         f"source_parent={source_parent}\n"
         f"source_tree={source_tree}\n"
         f"branch={branch}\n"
         f"accepted_predecessor={ACCEPTED_PREDECESSOR}\n"
+        f"reviewed_hold={REVIEWED_HOLD}\n"
         f"archive_name={archive_name}\n"
     ).encode()
     additions = {

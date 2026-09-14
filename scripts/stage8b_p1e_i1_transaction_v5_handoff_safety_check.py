@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate an immutable Stage 8B-P1-e I1 transaction V5 source handoff."""
+"""Validate an immutable Stage 8B-P1-e I1 transaction V5 correction handoff."""
 
 from __future__ import annotations
 
@@ -14,15 +14,10 @@ import stage8b_p1e_i1a_handoff_safety_check as common
 
 BRANCH = "stage8b-paper-shadow-resumption"
 ACCEPTED_PREDECESSOR = "21eaf01916f2da5eaacb191b4d7339a8101070ad"
+REVIEWED_HOLD = "fdab06a6222909ea5666d98665a52ba765afe515"
 EXPECTED_CHANGED = {
-    "crates/runtime-durable-service/src/lib.rs",
-    "crates/runtime-durable-service/src/recovery.rs",
-    "crates/runtime-durable-service/src/stage8b_p1_bootstrap.rs",
     "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
     "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs",
-    "crates/strategy-runtime-core/src/lib.rs",
-    "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
-    "crates/strategy-runtime-core/src/stage6d_live_core.rs",
     "docs/current-status.md",
     "docs/stage-8/stage8b-p1e-i1-transaction-v5-implementation.md",
     "scripts/make_stage8b_p1e_i1_transaction_v5_handoff.py",
@@ -67,6 +62,7 @@ def parse_marker(raw: bytes) -> dict[str, str]:
             "source_tree",
             "branch",
             "accepted_predecessor",
+            "reviewed_hold",
             "archive_name",
         },
         "marker inventory drift",
@@ -89,10 +85,14 @@ def check(path: str) -> dict[str, object]:
 
         files = {name: archive.read(name) for name in names}
         marker = parse_marker(files[MARKER])
-        require(marker["stage"] == "Stage 8B-P1-e I1 transaction V5 source", "stage mismatch")
+        require(
+            marker["stage"] == "Stage 8B-P1-e I1 transaction V5 classifier correction",
+            "stage mismatch",
+        )
         require(marker["archive_name"] == PurePosixPath(path).name, "archive-name mismatch")
-        require(marker["source_parent"] == ACCEPTED_PREDECESSOR, "source parent mismatch")
+        require(marker["source_parent"] == REVIEWED_HOLD, "source parent mismatch")
         require(marker["accepted_predecessor"] == ACCEPTED_PREDECESSOR, "predecessor mismatch")
+        require(marker["reviewed_hold"] == REVIEWED_HOLD, "reviewed hold mismatch")
         require(marker["branch"] == BRANCH, "branch mismatch")
         require(marker["source_ref"].startswith(marker["source_short_ref"]), "short ref mismatch")
 
@@ -100,7 +100,7 @@ def check(path: str) -> dict[str, object]:
         require(common.git_object_id("commit", commit_raw) == marker["source_ref"], "commit object mismatch")
         commit_lines = commit_raw.decode("utf-8").splitlines()
         require(commit_lines[0] == f"tree {marker['source_tree']}", "commit tree mismatch")
-        require(f"parent {ACCEPTED_PREDECESSOR}" in commit_lines, "commit parent mismatch")
+        require(f"parent {REVIEWED_HOLD}" in commit_lines, "commit parent mismatch")
 
         manifest = json.loads(files[MANIFEST])
         require(manifest["schema_version"] == 3, "manifest version mismatch")
@@ -126,9 +126,14 @@ def check(path: str) -> dict[str, object]:
         require(common.build_tree_oid(entries, payloads) == marker["source_tree"], "reconstructed tree mismatch")
 
         evidence = json.loads(files[EVIDENCE])
-        require(evidence["status"] == "SOURCE_REVIEW_CANDIDATE", "evidence status mismatch")
+        require(
+            evidence["status"] == "SOURCE_CORRECTION_REVIEW_CANDIDATE",
+            "evidence status mismatch",
+        )
         require(evidence["source_ref"] == marker["source_ref"], "evidence source mismatch")
-        require(evidence["source_parent"] == ACCEPTED_PREDECESSOR, "evidence parent mismatch")
+        require(evidence["source_parent"] == REVIEWED_HOLD, "evidence parent mismatch")
+        require(evidence["accepted_predecessor"] == ACCEPTED_PREDECESSOR, "evidence predecessor mismatch")
+        require(evidence["reviewed_hold"] == REVIEWED_HOLD, "evidence reviewed hold mismatch")
         require(evidence["source_tree"] == marker["source_tree"], "evidence tree mismatch")
         require(evidence["changed_paths"] == sorted(EXPECTED_CHANGED), "changed paths mismatch")
         require(
@@ -137,16 +142,24 @@ def check(path: str) -> dict[str, object]:
             "contract version mismatch",
         )
         require(
-            (evidence["classifications"], evidence["crash_hooks"], evidence["post_seal_recovery_actions"], evidence["negative_cases"])
-            == (15, 10, 4, 18),
+            (
+                evidence["classifications"],
+                evidence["crash_hooks"],
+                evidence["quarantine_positive_fixtures"],
+                evidence["quarantine_negative_fixtures"],
+                evidence["post_seal_recovery_actions"],
+                evidence["negative_cases"],
+            )
+            == (15, 10, 2, 3, 4, 22),
             "evidence inventory mismatch",
         )
+        require(evidence["finding_closed"] == "P1-TX01", "finding closure mismatch")
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
         require(evidence["gate_sha256"] == sha256(files[GATE]), "gate digest mismatch")
         require(evidence["manifest_sha256"] == sha256(files[MANIFEST]), "manifest digest mismatch")
         for expected in (
             b"PASS stage8b-p1e-i1-transaction-v5-check",
-            b"PASS stage8b-p1e-i1-transaction-v5-negative-harness 18/18",
+            b"PASS stage8b-p1e-i1-transaction-v5-negative-harness 22/22",
             b"PASS stage8b-p1e-i1-transaction-v5-gate",
         ):
             require(expected in files[GATE], f"gate marker missing: {expected!r}")
@@ -160,6 +173,7 @@ def check(path: str) -> dict[str, object]:
             "source_ref": marker["source_ref"],
             "source_tree": marker["source_tree"],
             "accepted_predecessor": ACCEPTED_PREDECESSOR,
+            "reviewed_hold": REVIEWED_HOLD,
             "result": "PASS",
         }
 

@@ -30,6 +30,10 @@ MUTATIONS = (
     ("drop-v2-hmac", "crates/strategy-runtime-core/src/stage5g_clean_restart.rs", "stage6d_v2_hmac_sha256", "removed_stage6d_v2_hmac"),
     ("drop-transaction-module", "crates/runtime-durable-service/src/lib.rs", "mod stage8b_p1e_first_boot_transaction;", "// removed transaction module"),
     ("drop-admin-boundary-doc", "docs/stage-8/stage8b-p1e-i1-transaction-v5-implementation.md", "Pre-seal administrative actions", "Deferred actions"),
+    ("drop-quarantine-layout-identity", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs", "root_identity.as_ref().or(quarantine_identity.as_ref())", "root_identity.as_ref()"),
+    ("drop-dual-root-rejection", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs", "if root_exists && quarantine_exists", "if false && root_exists && quarantine_exists"),
+    ("drop-quarantine-positive-fixtures", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs", "quarantined_incomplete_root_is_reachable_for_root_published_and_journal_durable", "removed_quarantine_positive_fixtures"),
+    ("drop-quarantine-negative-fixtures", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs", "quarantine_identity_layout_and_committed_seal_conflicts_fail_closed_without_mutation", "removed_quarantine_negative_fixtures"),
 )
 
 
