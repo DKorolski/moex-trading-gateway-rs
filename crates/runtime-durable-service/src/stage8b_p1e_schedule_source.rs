@@ -1037,7 +1037,7 @@ pub(crate) mod tests {
     }
 
     fn requested_latch() -> Stage8bP1eShutdownLatchV1 {
-        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let latch = Stage8bP1eShutdownLatchV1::new();
         assert!(latch.request(Stage8bP1eShutdownIntentV1::new(
             crate::Stage8bP1eShutdownCauseV1::ExternalSignal,
             2_000,

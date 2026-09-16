@@ -2296,27 +2296,25 @@ impl Stage8bP1eShutdownIntentV1 {
 
 #[derive(Default)]
 pub struct Stage8bP1eShutdownLatchV1 {
-    intent: Option<Stage8bP1eShutdownIntentV1>,
+    intent: std::sync::OnceLock<Stage8bP1eShutdownIntentV1>,
 }
 
 impl Stage8bP1eShutdownLatchV1 {
     pub const fn new() -> Self {
-        Self { intent: None }
-    }
-
-    /// First request wins. Later requests are diagnostic-only and cannot
-    /// replace the initiating cause, sequence, deadline or exit class.
-    pub fn request(&mut self, intent: Stage8bP1eShutdownIntentV1) -> bool {
-        if self.intent.is_some() {
-            false
-        } else {
-            self.intent = Some(intent);
-            true
+        Self {
+            intent: std::sync::OnceLock::new(),
         }
     }
 
+    /// First request wins across all process tasks. Later requests are
+    /// diagnostic-only and cannot replace the initiating cause, sequence,
+    /// deadline or exit class.
+    pub fn request(&self, intent: Stage8bP1eShutdownIntentV1) -> bool {
+        self.intent.set(intent).is_ok()
+    }
+
     pub fn intent(&self) -> Option<&Stage8bP1eShutdownIntentV1> {
-        self.intent.as_ref()
+        self.intent.get()
     }
 }
 
@@ -5587,7 +5585,7 @@ mod tests {
     };
 
     fn p1e_clear_permit(owner: Stage8bP1ePostAcquisitionOwnerV1) -> Stage8bP1eContinuationPermitV1 {
-        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let latch = Stage8bP1eShutdownLatchV1::new();
         let Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) =
             decide_stage8b_p1e_post_acquisition_latch(owner, &latch)
         else {
@@ -6267,7 +6265,7 @@ mod tests {
             .await
             .unwrap();
         let intent = Stage8bP1eShutdownIntentV1::new(cause, 20_000, 17);
-        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let latch = Stage8bP1eShutdownLatchV1::new();
         if matches!(arrival, P1eI0SignalArrival::PresetLatchBeforeAcquisition) {
             assert!(latch.request(intent.clone()));
         }
@@ -6654,7 +6652,7 @@ mod tests {
             .unwrap();
         let intent =
             Stage8bP1eShutdownIntentV1::new(Stage8bP1eShutdownCauseV1::ExternalSignal, 20_000, 41);
-        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let latch = Stage8bP1eShutdownLatchV1::new();
         assert!(latch.request(intent.clone()));
         let Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(receipt) =
             decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
@@ -6741,7 +6739,7 @@ mod tests {
     ) {
         let intent =
             Stage8bP1eShutdownIntentV1::new(Stage8bP1eShutdownCauseV1::ExternalSignal, 20_000, 51);
-        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let latch = Stage8bP1eShutdownLatchV1::new();
         assert!(latch.request(intent.clone()));
         let Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(receipt) =
             decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
@@ -6756,7 +6754,7 @@ mod tests {
         acquired: Stage8bP1ePostAcquisitionOwnerV1,
         expected_route_id: &str,
     ) -> (Stage8bP1eContinuationPermitV1, Stage8bP1eShutdownLatchV1) {
-        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let latch = Stage8bP1eShutdownLatchV1::new();
         let Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) =
             decide_stage8b_p1e_post_acquisition_latch(acquired, &latch)
         else {
@@ -7391,7 +7389,7 @@ mod tests {
             .await
             .unwrap();
         let permit = p1e_clear_permit(acquired);
-        let mut latch = Stage8bP1eShutdownLatchV1::new();
+        let latch = Stage8bP1eShutdownLatchV1::new();
         p1e_i0_begin_effect_audit();
 
         let resolved = resume_stage8b_p1d3_truth_with_redis(permit).await.unwrap();

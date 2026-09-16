@@ -69,11 +69,17 @@ boundary and does not authorize installation or activation.
 - latch checks before acquisition and after an empty bounded wait, so shutdown
   winning either race destroys the in-memory Ready authority and requires
   authenticated restart instead of allowing another poll;
+- a process-shared first-wins shutdown latch backed by `OnceLock`, allowing a
+  signal/supervision task to stop an owner that is inside the bounded Redis
+  wait without replacing the initiating cause, deadline or sequence;
 - explicit fail-closed validation when a semantic recovery boundary labelled
   `Ready` does not contain its exact Ready owner;
 - a same-invocation schedule-free drain that advances an acquired source
   through at most eight authenticated rows, checks the shutdown latch after
   every row, and returns to S08 only from an exact terminal `Ready` owner;
+- the schedule-free S09 owner task: empty S08 reads and terminal Ready results
+  remain inside one long-lived linear loop, while shutdown, retry-blocked and
+  schedule-dependent results return typed ownership instead of dropping it;
 - schedule-dependent continuations leave that drain as an opaque retained
   owner, while pending-not-claimable, blocked and shutdown outcomes remain
   structurally unable to poll fresh data;
@@ -126,9 +132,8 @@ authorities; it must not attach and then return after dropping an owner.
   Market, Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT
   and plain Market now cover C-F and must remain the reference ownership
   shapes;
-- composition of repeated S08 bounded polls and the new schedule-free drain
-  into the long-lived S09 task; both single-invocation boundaries are now
-  present;
+- composition of the signed-schedule branches back into the new long-lived
+  S09 task; its schedule-free repeated S08/S06R path is now present;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized
