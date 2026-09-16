@@ -1,8 +1,9 @@
 //! Fixed-path process composition for the Stage 8B-P1-e paper supervisor.
 //!
 //! This boundary deliberately owns no FINAM dependency and no broker send
-//! capability.  Bootstrap and recovery are filesystem-only.  `run` performs
-//! authenticated local classification before the verify-only Redis attach.
+//! capability. Bootstrap and recovery are filesystem-only. `run` remains a
+//! reserved fail-closed command until the durable owner loop is composed; it
+//! does not load credentials, restart durable state, or attach Redis.
 
 use std::{
     ffi::OsString,
@@ -325,15 +326,27 @@ fn read_protected_config(
     path: &Path,
     expected_uid: u32,
 ) -> Result<Vec<u8>, Stage8bP1eProcessErrorV1> {
+    read_protected_config_with_before_open(path, expected_uid, || {})
+}
+
+fn read_protected_config_with_before_open<F>(
+    path: &Path,
+    expected_uid: u32,
+    before_open: F,
+) -> Result<Vec<u8>, Stage8bP1eProcessErrorV1>
+where
+    F: FnOnce(),
+{
     if !path.is_absolute() || path.as_os_str().as_bytes().contains(&0) {
         return Err(Stage8bP1eProcessErrorV1::ConfigBoundary);
     }
     let before =
         fs::symlink_metadata(path).map_err(|_| Stage8bP1eProcessErrorV1::ConfigBoundary)?;
     validate_config_metadata(&before, expected_uid)?;
+    before_open();
     let mut file = OpenOptions::new()
         .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
         .open(path)
         .map_err(|_| Stage8bP1eProcessErrorV1::ConfigBoundary)?;
     let opened = file
@@ -413,7 +426,11 @@ fn read_boot_id(path: &Path) -> Result<[u8; 16], Stage8bP1eProcessErrorV1> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
+    use std::{
+        ffi::CString,
+        io::Write,
+        time::{Duration as StdDuration, Instant},
+    };
 
     fn fixed_config() -> &'static str {
         STAGE8B_P1E_SUPERVISOR_CONFIG_PATH
@@ -519,6 +536,34 @@ mod tests {
         let link = directory.join("link.json");
         std::os::unix::fs::symlink(&path, &link).unwrap();
         assert!(read_protected_config(&link, uid).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn protected_config_regular_to_fifo_replacement_is_bounded() {
+        let directory = std::env::temp_dir().join(format!(
+            "stage8b-p1e-config-fifo-race-{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let path = directory.join("supervisor.json");
+        fs::write(&path, b"{}").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let uid = fs::metadata(&path).unwrap().uid();
+
+        let started = Instant::now();
+        let result = read_protected_config_with_before_open(&path, uid, || {
+            fs::remove_file(&path).unwrap();
+            let raw_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+            // SAFETY: `raw_path` is a live NUL-terminated path and mode is valid.
+            assert_eq!(unsafe { libc::mkfifo(raw_path.as_ptr(), 0o600) }, 0);
+        });
+
+        assert!(matches!(
+            result,
+            Err(Stage8bP1eProcessErrorV1::ConfigBoundary)
+        ));
+        assert!(started.elapsed() < StdDuration::from_secs(1));
         fs::remove_dir_all(directory).unwrap();
     }
 }

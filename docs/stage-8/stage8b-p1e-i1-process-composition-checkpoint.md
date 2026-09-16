@@ -11,6 +11,8 @@ boundary and does not authorize installation or activation.
   `bootstrap-recover`, and reserved `run`;
 - protected root-owned supervisor-config loading and canonical Linux boot-id
   parsing;
+- nonblocking protected config open across the regular-file-to-FIFO replacement
+  window, followed by descriptor metadata and identity validation;
 - automatic next bootstrap-attempt generation derived from authenticated
   quarantine history rather than caller input;
 - direct use of the accepted V5 administrative pre-seal recovery entry;
@@ -59,6 +61,10 @@ binding authorities; it must not add a generic owner escape hatch.
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized
   subsequent gate.
+
+The checkpoint review finding `P2-CP01` is closed locally by opening the fixed
+config with `O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK` and exercising the exact
+regular-file-to-FIFO replacement window through the production loader.
 
 Redis DB0/DB15 activation, VPS installation, FINAM POST/DELETE/send, broker
 dispatch, runtime-live, and real orders remain closed.
