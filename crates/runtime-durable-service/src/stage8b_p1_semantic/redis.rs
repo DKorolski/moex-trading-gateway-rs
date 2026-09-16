@@ -7865,6 +7865,44 @@ mod tests {
         fs::remove_dir_all(parent).unwrap();
     }
 
+    #[tokio::test]
+    async fn p1e_i1_empty_fresh_poll_returns_the_exact_ready_owner() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i1-empty-fresh-poll");
+        let (stage7, _, _, identity) = first_boot(&parent);
+        let transport = initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let owner = Stage8bP1RedisSemanticCompositionOwner::new(stage7, transport);
+
+        let Stage8bP1eReadyFreshAcquisitionOutcomeV1::EmptyFreshPoll(mut owner) =
+            poll_stage8b_p1e_ready_fresh_with_redis(owner)
+                .await
+                .unwrap()
+        else {
+            panic!("an empty bounded poll must return the exact Ready owner")
+        };
+
+        owner
+            .transport_mut()
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), 1_785_759_000_000, 2_600),
+                &identity,
+            )
+            .await
+            .unwrap();
+        assert!(matches!(
+            poll_stage8b_p1e_ready_fresh_with_redis(*owner)
+                .await
+                .unwrap(),
+            Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(_)
+        ));
+        fs::remove_dir_all(parent).unwrap();
+    }
+
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     #[tokio::test]
     async fn p1e_i1_ready_working_limit_signed_schedule_composes_c_through_f_and_xacks_last() {

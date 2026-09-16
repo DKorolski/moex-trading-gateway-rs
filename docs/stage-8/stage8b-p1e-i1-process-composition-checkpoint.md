@@ -53,6 +53,17 @@ boundary and does not authorize installation or activation.
   effect authority and leaves the exact M10 pending for authenticated restart;
 - a real-Redis composition test proving the Working C-D-E-F success path
   returns `Ready` and reaches source XACK only as the lifecycle's final step;
+- one linear S08 polling owner shared by startup `Ready/no-pending` and every
+  terminal recovered `Ready` route;
+- one bounded fresh read per S08 call: an empty read returns the exact same
+  owner and verify-only control plane, while an acquired source crosses the
+  mandatory post-acquisition latch before parsing or callback authority can
+  escape;
+- latch checks before acquisition and after an empty bounded wait, so shutdown
+  winning either race destroys the in-memory Ready authority and requires
+  authenticated restart instead of allowing another poll;
+- explicit fail-closed validation when a semantic recovery boundary labelled
+  `Ready` does not contain its exact Ready owner;
 - normalized quiescent, pending-not-claimable, multi-intent-blocked and
   schedule-deferred outputs that retain the verify-only control plane and do
   not expose raw lifecycle owners;
@@ -100,7 +111,8 @@ authorities; it must not attach and then return after dropping an owner.
 - signed schedule-source process composition for Initial-LIMIT, Market,
   Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT now
   covers C-F and must remain the reference ownership shape;
-- S08 bounded fresh polling and the continuing S09 owner loop;
+- composition of repeated S08 bounded polls into the continuing S09 owner
+  loop; the single-poll ownership boundary is now present;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized

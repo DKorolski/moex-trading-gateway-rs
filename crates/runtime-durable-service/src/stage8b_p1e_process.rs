@@ -33,7 +33,7 @@ use crate::{
     acquire_stage8b_p1e_ready_pending_with_redis, authorize_stage8b_p1_first_boot,
     authorize_stage8b_p1e_pre_seal_recovery_v5, build_stage8b_p1_first_boot_source_v1,
     first_boot_stage8b_p1e_transaction_v5, load_stage8b_p1_commitment_key_from_systemd_credential,
-    recover_stage8b_p1e_first_boot_adoption_v5,
+    poll_stage8b_p1e_ready_fresh_with_redis, recover_stage8b_p1e_first_boot_adoption_v5,
     recover_stage8b_p1e_first_boot_pre_seal_from_supervisor_v5,
     resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
     resume_stage8b_p1_prepublication_with_redis, resume_stage8b_p1d2_ack_with_redis,
@@ -56,14 +56,14 @@ use crate::{
     Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
     Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckResolved,
     Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1ePostAcquisitionOwnerV1,
-    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
-    Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
-    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
-    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownIntentV1,
-    Stage8bP1eShutdownLatchV1, Stage8bP1eSignedWorkingScheduleOutcomeV1,
-    Stage8bP1eSupervisorConfigV1, Stage8bP1eValidatedSupervisorConfigV1,
-    Stage8bP1eVerifiedRedisSessionV1, STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
-    STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
+    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
+    Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eRedisControlError,
+    Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRetainedSourceReceiptV1,
+    Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
+    Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
+    STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
 
 use crate::stage8b_p1e_first_boot_transaction::next_stage8b_p1e_bootstrap_attempt_generation_v5;
@@ -357,6 +357,8 @@ pub enum Stage8bP1eStartupErrorV1 {
     Source(#[from] Stage8bP1RedisSemanticError),
     #[error("signed schedule read or binding failed")]
     Schedule(#[from] crate::Stage8bP1eScheduleReadError),
+    #[error("quiescent recovery boundary did not contain its exact Ready owner")]
+    ReadyBoundaryInvariant,
 }
 
 /// Linear S05/S06 result.  The verified diagnostic control connection is held
@@ -453,6 +455,16 @@ pub struct Stage8bP1eReadyIdleStartupV1 {
 impl Stage8bP1eReadyIdleStartupV1 {
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
+    }
+
+    /// Enters the steady-state S08 boundary without cloning or reconstructing
+    /// the Ready owner retained by startup S06.
+    pub fn into_ready_polling(self) -> Stage8bP1eReadyPollingV1 {
+        let Self { _owner, control } = self;
+        Stage8bP1eReadyPollingV1 {
+            owner: _owner,
+            control,
+        }
     }
 }
 
@@ -625,15 +637,28 @@ pub enum Stage8bP1eRecoveredReadyKindV1 {
     Limit,
 }
 
-#[allow(
-    dead_code,
-    reason = "opaque linear owners are retained for the future S08 boundary"
-)]
 enum Stage8bP1eRecoveredReadyRouteV1 {
     Semantic(Stage8bP1RedisSemanticOutcome),
     ZeroIntent(Stage8bP1RedisZeroIntentAckResolved),
     Feedback(Stage8bP1RedisFeedbackResolved),
     Limit(Stage8bP1RedisLimitResolved),
+}
+
+fn recovered_ready_owner(
+    route: Stage8bP1eRecoveredReadyRouteV1,
+) -> Result<Box<Stage8bP1RedisSemanticCompositionOwner>, Stage8bP1eStartupErrorV1> {
+    match route {
+        Stage8bP1eRecoveredReadyRouteV1::Semantic(Stage8bP1RedisSemanticOutcome::Ready {
+            owner,
+            ..
+        }) => Ok(owner),
+        Stage8bP1eRecoveredReadyRouteV1::Semantic(_) => {
+            Err(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant)
+        }
+        Stage8bP1eRecoveredReadyRouteV1::ZeroIntent(resolved) => Ok(resolved.into_ready_owner()),
+        Stage8bP1eRecoveredReadyRouteV1::Feedback(resolved) => Ok(resolved.into_ready_owner()),
+        Stage8bP1eRecoveredReadyRouteV1::Limit(resolved) => Ok(resolved.into_ready_owner()),
+    }
 }
 
 /// Quiescent owner reached only after the selected lifecycle has completed
@@ -651,6 +676,118 @@ impl Stage8bP1eRecoveredReadyV1 {
 
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
+    }
+
+    /// Enters S08 only from an exact terminal recovery result. The semantic
+    /// route is checked explicitly so an internally inconsistent non-Ready
+    /// outcome cannot be converted into fresh-poll authority.
+    pub fn into_ready_polling(self) -> Result<Stage8bP1eReadyPollingV1, Stage8bP1eStartupErrorV1> {
+        let Self {
+            kind: _,
+            _route,
+            control,
+        } = self;
+        let owner = recovered_ready_owner(*_route)?;
+        Ok(Stage8bP1eReadyPollingV1 { owner, control })
+    }
+}
+
+/// Sole quiescent owner admitted to one bounded S08 fresh read. Empty reads
+/// return this same authority; acquired reads must cross the mandatory
+/// post-acquisition latch before any parsing or callback is possible.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runtime_durable_service::Stage8bP1eReadyPollingV1>();
+/// ```
+pub struct Stage8bP1eReadyPollingV1 {
+    owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eReadyPollingV1 {
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+/// Result of exactly one bounded fresh read. `Empty` remains quiescent;
+/// `RetainedSource` destroys continuation authority after a set latch; and
+/// `ContinueSource` carries exactly one route-bound permit.
+pub enum Stage8bP1eReadyPollOutcomeV1 {
+    Empty(Stage8bP1eReadyPollingV1),
+    Stopped(Stage8bP1eStoppedReadyPollingV1),
+    RetainedSource(Stage8bP1eRetainedStartupV1),
+    ContinueSource(Stage8bP1eContinuingStartupV1),
+}
+
+/// Diagnostic-only result when shutdown wins before acquisition or while the
+/// bounded fresh read is waiting. The Ready owner has been destroyed, so the
+/// process must reconstruct it from durable state after restart.
+pub struct Stage8bP1eStoppedReadyPollingV1 {
+    shutdown_intent: Stage8bP1eShutdownIntentV1,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eStoppedReadyPollingV1 {
+    pub fn shutdown_intent(&self) -> &Stage8bP1eShutdownIntentV1 {
+        &self.shutdown_intent
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+/// Performs one S08 fresh poll and immediately applies the post-acquisition
+/// latch. No acquired source can escape this function without either losing
+/// all effect authority or becoming one exact routed continuation.
+pub async fn poll_stage8b_p1e_ready_once_v1(
+    ready: Stage8bP1eReadyPollingV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Result<Stage8bP1eReadyPollOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let Stage8bP1eReadyPollingV1 { owner, control } = ready;
+    if let Some(shutdown_intent) = latch.intent().cloned() {
+        drop(owner);
+        return Ok(Stage8bP1eReadyPollOutcomeV1::Stopped(
+            Stage8bP1eStoppedReadyPollingV1 {
+                shutdown_intent,
+                control,
+            },
+        ));
+    }
+    match poll_stage8b_p1e_ready_fresh_with_redis(*owner).await? {
+        Stage8bP1eReadyFreshAcquisitionOutcomeV1::EmptyFreshPoll(owner) => {
+            if let Some(shutdown_intent) = latch.intent().cloned() {
+                drop(owner);
+                Ok(Stage8bP1eReadyPollOutcomeV1::Stopped(
+                    Stage8bP1eStoppedReadyPollingV1 {
+                        shutdown_intent,
+                        control,
+                    },
+                ))
+            } else {
+                Ok(Stage8bP1eReadyPollOutcomeV1::Empty(
+                    Stage8bP1eReadyPollingV1 { owner, control },
+                ))
+            }
+        }
+        Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) => Ok(
+            match route_stage8b_p1e_post_acquisition_v1(acquired, latch) {
+                Stage8bP1eRoutedPostAcquisitionDecisionV1::RetainForRestart(receipt) => {
+                    Stage8bP1eReadyPollOutcomeV1::RetainedSource(Stage8bP1eRetainedStartupV1 {
+                        receipt,
+                        _control: control,
+                    })
+                }
+                Stage8bP1eRoutedPostAcquisitionDecisionV1::Continue(route) => {
+                    Stage8bP1eReadyPollOutcomeV1::ContinueSource(Stage8bP1eContinuingStartupV1 {
+                        route,
+                        control,
+                    })
+                }
+            },
+        ),
     }
 }
 
@@ -2118,5 +2255,19 @@ mod tests {
         assert_eq!(owner.kind(), Stage8bP1eRestartKindV1::Ready);
         drop(owner);
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn recovered_ready_conversion_rejects_a_non_ready_semantic_route() {
+        let result = recovered_ready_owner(Stage8bP1eRecoveredReadyRouteV1::Semantic(
+            Stage8bP1RedisSemanticOutcome::MultiIntentBlocked {
+                semantic_batch_id_sha256: "11".repeat(32),
+                intent_count: 2,
+            },
+        ));
+        assert!(matches!(
+            result,
+            Err(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant)
+        ));
     }
 }
