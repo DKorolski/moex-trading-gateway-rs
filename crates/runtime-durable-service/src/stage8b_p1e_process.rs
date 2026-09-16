@@ -70,6 +70,7 @@ use crate::stage8b_p1e_first_boot_transaction::next_stage8b_p1e_bootstrap_attemp
 
 const STAGE8B_P1E_BOOT_ID_PATH: &str = "/proc/sys/kernel/random/boot_id";
 const STAGE8B_P1E_CONFIG_MAX_BYTES: u64 = 1024 * 1024;
+const STAGE8B_P1E_SCHEDULE_FREE_RECOVERY_MAX_ROWS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stage8bP1eProcessCommandV1 {
@@ -359,6 +360,8 @@ pub enum Stage8bP1eStartupErrorV1 {
     Schedule(#[from] crate::Stage8bP1eScheduleReadError),
     #[error("quiescent recovery boundary did not contain its exact Ready owner")]
     ReadyBoundaryInvariant,
+    #[error("schedule-free recovery exceeded its fixed row budget")]
+    RecoveryStepBudgetExceeded,
 }
 
 /// Linear S05/S06 result.  The verified diagnostic control connection is held
@@ -954,6 +957,63 @@ pub enum Stage8bP1eRecoveryAdvanceOutcomeV1 {
     PendingNotClaimable(Box<Stage8bP1eRecoveredPendingNotClaimableV1>),
     Blocked(Box<Stage8bP1eRecoveredBlockedV1>),
     ScheduleDeferred(Box<Stage8bP1eScheduleDeferredRecoveryV1>),
+}
+
+/// Terminal result of one same-invocation schedule-free source drain. A
+/// successful `Ready` result owns the only authority that may return to S08;
+/// all other variants remain non-pollable by construction.
+pub enum Stage8bP1eScheduleFreeDrainOutcomeV1 {
+    Ready(Stage8bP1eReadyPollingV1),
+    RetainedForRestart(Stage8bP1eRetainedRecoveryBoundaryV1),
+    PendingNotClaimable(Stage8bP1eRecoveredPendingNotClaimableV1),
+    Blocked(Stage8bP1eRecoveredBlockedV1),
+    ScheduleDeferred(Stage8bP1eScheduleDeferredRecoveryV1),
+}
+
+/// Drains one acquired source through every schedule-free authenticated row
+/// in the same owner invocation. Each durable row is followed by a mandatory
+/// latch recheck. A schedule-dependent route is returned with its exact owner
+/// untouched; it is never guessed or bypassed here.
+pub async fn drain_stage8b_p1e_schedule_free_recovery_v1(
+    startup: Stage8bP1eContinuingStartupV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eScheduleFreeDrainOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let mut step = continue_stage8b_p1e_recovery_once_v1(startup, commitment_key).await?;
+    // `continue_stage8b_p1e_recovery_once_v1` above consumed row one. Each
+    // loop iteration may consume exactly one additional authenticated row.
+    for _ in 1..STAGE8B_P1E_SCHEDULE_FREE_RECOVERY_MAX_ROWS {
+        let permit = match recheck_stage8b_p1e_recovery_step_latch_v1(step, latch) {
+            Stage8bP1eRecoveryLatchDecisionV1::RetainForRestart(retained) => {
+                return Ok(Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(
+                    retained,
+                ));
+            }
+            Stage8bP1eRecoveryLatchDecisionV1::Continue(permit) => permit,
+        };
+        match advance_stage8b_p1e_recovery_once_v1(permit, commitment_key).await? {
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(next) => step = *next,
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(ready) => {
+                return Ok(Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(
+                    ready.into_ready_polling()?,
+                ));
+            }
+            Stage8bP1eRecoveryAdvanceOutcomeV1::PendingNotClaimable(pending) => {
+                return Ok(Stage8bP1eScheduleFreeDrainOutcomeV1::PendingNotClaimable(
+                    *pending,
+                ));
+            }
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Blocked(blocked) => {
+                return Ok(Stage8bP1eScheduleFreeDrainOutcomeV1::Blocked(*blocked));
+            }
+            Stage8bP1eRecoveryAdvanceOutcomeV1::ScheduleDeferred(deferred) => {
+                return Ok(Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(
+                    *deferred,
+                ));
+            }
+        }
+    }
+    Err(Stage8bP1eStartupErrorV1::RecoveryStepBudgetExceeded)
 }
 
 /// Rechecks the first-wins shutdown latch after exactly one accepted recovery
@@ -2034,10 +2094,63 @@ mod tests {
     use std::{
         ffi::CString,
         io::Write,
+        net::TcpListener,
         os::unix::fs::DirBuilderExt,
         path::PathBuf,
+        process::{Child, Command, Stdio},
         time::{Duration as StdDuration, Instant},
     };
+
+    struct RedisServer {
+        child: Child,
+        url: String,
+    }
+
+    impl RedisServer {
+        async fn start() -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            drop(listener);
+            let mut child = Command::new("redis-server")
+                .args([
+                    "--bind",
+                    "127.0.0.1",
+                    "--port",
+                    &port.to_string(),
+                    "--save",
+                    "",
+                    "--appendonly",
+                    "no",
+                ])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("redis-server is required for the P1-e process proof");
+            let url = format!("redis://127.0.0.1:{port}/");
+            for _ in 0..100 {
+                if let Ok(client) = redis::Client::open(url.as_str()) {
+                    if let Ok(mut connection) = redis::aio::ConnectionManager::new(client).await {
+                        let pong: redis::RedisResult<String> =
+                            redis::cmd("PING").query_async(&mut connection).await;
+                        if pong.as_deref() == Ok("PONG") && child.try_wait().unwrap().is_none() {
+                            return Self { child, url };
+                        }
+                    }
+                }
+                tokio::time::sleep(StdDuration::from_millis(10)).await;
+            }
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("temporary Redis did not start");
+        }
+    }
+
+    impl Drop for RedisServer {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
 
     fn fixed_config() -> &'static str {
         STAGE8B_P1E_SUPERVISOR_CONFIG_PATH
@@ -2080,6 +2193,39 @@ mod tests {
             stage8a4_writer_issuer_public_key_hex: "22".repeat(32),
             durable_parent: parent,
         }
+    }
+
+    fn source_m1(open_ts_utc_ms: i64) -> Vec<crate::Stage8bP1CanonicalM10SourceM1> {
+        (0..10)
+            .map(|index| {
+                let open = open_ts_utc_ms + index * 60_000;
+                let close = open + 60_000;
+                crate::Stage8bP1CanonicalM10SourceM1 {
+                    redis_id: format!("{close}-0"),
+                    semantic_id_sha256: format!("{:064x}", index + 1),
+                    payload_sha256: format!("{:064x}", index + 101),
+                    open_ts_utc_ms: open,
+                    close_ts_utc_ms: close,
+                }
+            })
+            .collect()
+    }
+
+    fn canonical_m10(operational_identity_sha256: String) -> Vec<u8> {
+        let close_ts_utc_ms = 1_785_759_000_000;
+        let open_ts_utc_ms = close_ts_utc_ms - 600_000;
+        crate::build_stage8b_p1_canonical_m10(crate::Stage8bP1CanonicalM10BuildInput {
+            operational_identity_sha256,
+            open_ts_utc_ms,
+            close_ts_utc_ms,
+            open: "2600".to_string(),
+            high: "2601".to_string(),
+            low: "2599".to_string(),
+            close: "2600".to_string(),
+            volume: "10000".to_string(),
+            source_m1: source_m1(open_ts_utc_ms),
+        })
+        .unwrap()
     }
 
     #[test]
@@ -2269,5 +2415,83 @@ mod tests {
             result,
             Err(Stage8bP1eStartupErrorV1::ReadyBoundaryInvariant)
         ));
+    }
+
+    #[tokio::test]
+    async fn s08_s09_schedule_free_source_drains_once_and_preserves_ready_owner() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("s08-s09-schedule-free");
+        let (source, export_input, key, fresh) =
+            strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.clone(),
+            fresh.stage5c_config_fingerprint(),
+        ))
+        .unwrap();
+        let admin = crate::authorize_stage8b_p1_first_boot(
+            &validated,
+            crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+        )
+        .unwrap();
+        let first_boot =
+            crate::first_boot_stage8b_p1(validated, admin, source, export_input, &key, fresh)
+                .unwrap();
+        let operational_identity_sha256 = first_boot.receipt().operational_identity_sha256.clone();
+        let transport = crate::initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            crate::Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let mut owner =
+            Stage8bP1RedisSemanticCompositionOwner::new(first_boot.into_owner(), transport);
+        owner
+            .transport_mut()
+            .publish_canonical_m10(
+                &canonical_m10(operational_identity_sha256.clone()),
+                &operational_identity_sha256,
+            )
+            .await
+            .unwrap();
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let ready = Stage8bP1eReadyPollingV1 {
+            owner: Box::new(owner),
+            control,
+        };
+        let mut latch = Stage8bP1eShutdownLatchV1::new();
+
+        let Stage8bP1eReadyPollOutcomeV1::ContinueSource(continuing) =
+            poll_stage8b_p1e_ready_once_v1(ready, &latch).await.unwrap()
+        else {
+            panic!("one fresh ordinary source must cross the clear latch")
+        };
+        let Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) =
+            drain_stage8b_p1e_schedule_free_recovery_v1(continuing, &latch, &key)
+                .await
+                .unwrap()
+        else {
+            panic!("the ordinary zero-intent source must drain to Ready")
+        };
+        let Stage8bP1eReadyPollOutcomeV1::Empty(ready) =
+            poll_stage8b_p1e_ready_once_v1(ready, &latch).await.unwrap()
+        else {
+            panic!("the next bounded fresh poll must preserve the Ready owner")
+        };
+
+        let intent = Stage8bP1eShutdownIntentV1::new(
+            crate::Stage8bP1eShutdownCauseV1::ExternalSignal,
+            10_000,
+            1,
+        );
+        assert!(latch.request(intent.clone()));
+        let Stage8bP1eReadyPollOutcomeV1::Stopped(stopped) =
+            poll_stage8b_p1e_ready_once_v1(ready, &latch).await.unwrap()
+        else {
+            panic!("preset shutdown must destroy Ready authority before Redis read")
+        };
+        assert_eq!(stopped.shutdown_intent(), &intent);
+        drop(stopped);
+        fs::remove_dir_all(parent).unwrap();
     }
 }

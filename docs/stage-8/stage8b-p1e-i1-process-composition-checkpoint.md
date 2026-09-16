@@ -64,6 +64,12 @@ boundary and does not authorize installation or activation.
   authenticated restart instead of allowing another poll;
 - explicit fail-closed validation when a semantic recovery boundary labelled
   `Ready` does not contain its exact Ready owner;
+- a same-invocation schedule-free drain that advances an acquired source
+  through at most eight authenticated rows, checks the shutdown latch after
+  every row, and returns to S08 only from an exact terminal `Ready` owner;
+- schedule-dependent continuations leave that drain as an opaque retained
+  owner, while pending-not-claimable, blocked and shutdown outcomes remain
+  structurally unable to poll fresh data;
 - normalized quiescent, pending-not-claimable, multi-intent-blocked and
   schedule-deferred outputs that retain the verify-only control plane and do
   not expose raw lifecycle owners;
@@ -111,8 +117,9 @@ authorities; it must not attach and then return after dropping an owner.
 - signed schedule-source process composition for Initial-LIMIT, Market,
   Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT now
   covers C-F and must remain the reference ownership shape;
-- composition of repeated S08 bounded polls into the continuing S09 owner
-  loop; the single-poll ownership boundary is now present;
+- composition of repeated S08 bounded polls and the new schedule-free drain
+  into the long-lived S09 task; both single-invocation boundaries are now
+  present;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized

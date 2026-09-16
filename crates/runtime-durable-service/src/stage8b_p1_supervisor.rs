@@ -458,6 +458,18 @@ impl Stage8bP1eRedisControlV1 {
     }
 }
 
+#[cfg(test)]
+pub(crate) async fn stage8b_p1e_test_redis_control_v1(redis_url: &str) -> Stage8bP1eRedisControlV1 {
+    let client = redis::Client::open(redis_url).expect("test Redis URL");
+    let connection = ConnectionManager::new(client)
+        .await
+        .expect("test Redis connection");
+    Stage8bP1eRedisControlV1 {
+        connection,
+        namespace: stage8b_p1_redis_namespace(),
+    }
+}
+
 /// Performs S05 against a pre-provisioned DB15 namespace.  No command in this
 /// function can create a key, group or stream.
 pub async fn attach_stage8b_p1e_verified_redis(
