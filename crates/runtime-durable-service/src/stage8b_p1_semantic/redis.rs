@@ -2440,6 +2440,54 @@ impl Stage8bP1ePostAcquisitionRouteV1 {
             Self::P1d3Truth { .. } => "LT04/LT05",
         }
     }
+
+    fn continuation_kind(&self) -> Stage8bP1eContinuationRouteKindV1 {
+        match self {
+            Self::ReadySource { .. } => Stage8bP1eContinuationRouteKindV1::ReadySemantic,
+            Self::ReadyWorkingLimit { .. } => Stage8bP1eContinuationRouteKindV1::ReadyWorkingLimit,
+            Self::ZeroIntentAck { .. } => Stage8bP1eContinuationRouteKindV1::ZeroIntentAck,
+            Self::JournalAhead { .. } => Stage8bP1eContinuationRouteKindV1::JournalAhead,
+            Self::Prepublication { .. } => Stage8bP1eContinuationRouteKindV1::Prepublication,
+            Self::P1d4Prepublication { .. } => {
+                Stage8bP1eContinuationRouteKindV1::P1d4Prepublication
+            }
+            Self::P1d4JournalAhead {
+                durable: Stage8bP1d4JournalAheadPending::Dispatch(_),
+                ..
+            } => Stage8bP1eContinuationRouteKindV1::P1d4DispatchPending,
+            Self::P1d4JournalAhead {
+                durable: Stage8bP1d4JournalAheadPending::Order(_),
+                ..
+            } => Stage8bP1eContinuationRouteKindV1::P1d4OrderPending,
+            Self::P1d4JournalAhead {
+                durable: Stage8bP1d4JournalAheadPending::PreFinalization(_),
+                ..
+            } => Stage8bP1eContinuationRouteKindV1::P1d4PreFinalizationPending,
+            Self::P1d4JournalAhead {
+                durable: Stage8bP1d4JournalAheadPending::PreAck(_),
+                ..
+            } => Stage8bP1eContinuationRouteKindV1::P1d4PreAckPending,
+            Self::P1d4Ack { .. } => Stage8bP1eContinuationRouteKindV1::P1d4Ack,
+            Self::P1d4Truth { .. } => Stage8bP1eContinuationRouteKindV1::P1d4Truth,
+            Self::P1d2Ack { .. } => Stage8bP1eContinuationRouteKindV1::P1d2Ack,
+            Self::P1d2PreAck { .. } => Stage8bP1eContinuationRouteKindV1::P1d2PreAck,
+            Self::P1d2Truth { .. } => Stage8bP1eContinuationRouteKindV1::P1d2Truth,
+            Self::P1d3PreAck { .. } => Stage8bP1eContinuationRouteKindV1::P1d3PreAck,
+            Self::P1d3DispatchLimit { .. } => Stage8bP1eContinuationRouteKindV1::P1d3DispatchLimit,
+            Self::P1d3DispatchExpiry { .. } => {
+                Stage8bP1eContinuationRouteKindV1::P1d3DispatchExpiry
+            }
+            Self::P1d3DispatchCancel { .. } => {
+                Stage8bP1eContinuationRouteKindV1::P1d3DispatchCancel
+            }
+            Self::P1d3Ack { .. } => Stage8bP1eContinuationRouteKindV1::P1d3Ack,
+            Self::P1d3Truth { .. } => Stage8bP1eContinuationRouteKindV1::P1d3Truth,
+            Self::P1d3CancelContinuation { .. } => {
+                Stage8bP1eContinuationRouteKindV1::P1d3CancelContinuation
+            }
+            Self::P1d3Semantic { .. } => Stage8bP1eContinuationRouteKindV1::P1d3Semantic,
+        }
+    }
 }
 
 /// Opaque linear owner created immediately after one exact Redis acquisition.
@@ -2640,6 +2688,133 @@ pub struct Stage8bP1eContinuationPermitV1 {
     route: Box<Stage8bP1ePostAcquisitionRouteV1>,
 }
 
+/// Exhaustive diagnostic identity of the route selected after the mandatory
+/// post-acquisition shutdown latch.  It grants no Redis, schedule, provider or
+/// callback authority by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Stage8bP1eContinuationRouteKindV1 {
+    ReadySemantic,
+    ReadyWorkingLimit,
+    ZeroIntentAck,
+    JournalAhead,
+    Prepublication,
+    P1d4Prepublication,
+    P1d4DispatchPending,
+    P1d4OrderPending,
+    P1d4PreFinalizationPending,
+    P1d4PreAckPending,
+    P1d4Ack,
+    P1d4Truth,
+    P1d2Ack,
+    P1d2PreAck,
+    P1d2Truth,
+    P1d3PreAck,
+    P1d3DispatchLimit,
+    P1d3DispatchExpiry,
+    P1d3DispatchCancel,
+    P1d3Ack,
+    P1d3Truth,
+    P1d3CancelContinuation,
+    P1d3Semantic,
+}
+
+impl Stage8bP1eContinuationRouteKindV1 {
+    pub const ALL: [Self; 23] = [
+        Self::ReadySemantic,
+        Self::ReadyWorkingLimit,
+        Self::ZeroIntentAck,
+        Self::JournalAhead,
+        Self::Prepublication,
+        Self::P1d4Prepublication,
+        Self::P1d4DispatchPending,
+        Self::P1d4OrderPending,
+        Self::P1d4PreFinalizationPending,
+        Self::P1d4PreAckPending,
+        Self::P1d4Ack,
+        Self::P1d4Truth,
+        Self::P1d2Ack,
+        Self::P1d2PreAck,
+        Self::P1d2Truth,
+        Self::P1d3PreAck,
+        Self::P1d3DispatchLimit,
+        Self::P1d3DispatchExpiry,
+        Self::P1d3DispatchCancel,
+        Self::P1d3Ack,
+        Self::P1d3Truth,
+        Self::P1d3CancelContinuation,
+        Self::P1d3Semantic,
+    ];
+}
+
+/// Route-bound continuation selected only after the mandatory latch check.
+/// Each variant owns the same opaque single-use permit, but its enum identity
+/// forces the process dispatcher to name every accepted continuation.  The
+/// underlying resume function still validates the route before any effect.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runtime_durable_service::Stage8bP1eRoutedContinuationV1>();
+/// ```
+pub enum Stage8bP1eRoutedContinuationV1 {
+    ReadySemantic(Stage8bP1eContinuationPermitV1),
+    ReadyWorkingLimit(Stage8bP1eContinuationPermitV1),
+    ZeroIntentAck(Stage8bP1eContinuationPermitV1),
+    JournalAhead(Stage8bP1eContinuationPermitV1),
+    Prepublication(Stage8bP1eContinuationPermitV1),
+    P1d4Prepublication(Stage8bP1eContinuationPermitV1),
+    P1d4DispatchPending(Stage8bP1eContinuationPermitV1),
+    P1d4OrderPending(Stage8bP1eContinuationPermitV1),
+    P1d4PreFinalizationPending(Stage8bP1eContinuationPermitV1),
+    P1d4PreAckPending(Stage8bP1eContinuationPermitV1),
+    P1d4Ack(Stage8bP1eContinuationPermitV1),
+    P1d4Truth(Stage8bP1eContinuationPermitV1),
+    P1d2Ack(Stage8bP1eContinuationPermitV1),
+    P1d2PreAck(Stage8bP1eContinuationPermitV1),
+    P1d2Truth(Stage8bP1eContinuationPermitV1),
+    P1d3PreAck(Stage8bP1eContinuationPermitV1),
+    P1d3DispatchLimit(Stage8bP1eContinuationPermitV1),
+    P1d3DispatchExpiry(Stage8bP1eContinuationPermitV1),
+    P1d3DispatchCancel(Stage8bP1eContinuationPermitV1),
+    P1d3Ack(Stage8bP1eContinuationPermitV1),
+    P1d3Truth(Stage8bP1eContinuationPermitV1),
+    P1d3CancelContinuation(Stage8bP1eContinuationPermitV1),
+    P1d3Semantic(Stage8bP1eContinuationPermitV1),
+}
+
+impl Stage8bP1eRoutedContinuationV1 {
+    pub const fn kind(&self) -> Stage8bP1eContinuationRouteKindV1 {
+        match self {
+            Self::ReadySemantic(_) => Stage8bP1eContinuationRouteKindV1::ReadySemantic,
+            Self::ReadyWorkingLimit(_) => Stage8bP1eContinuationRouteKindV1::ReadyWorkingLimit,
+            Self::ZeroIntentAck(_) => Stage8bP1eContinuationRouteKindV1::ZeroIntentAck,
+            Self::JournalAhead(_) => Stage8bP1eContinuationRouteKindV1::JournalAhead,
+            Self::Prepublication(_) => Stage8bP1eContinuationRouteKindV1::Prepublication,
+            Self::P1d4Prepublication(_) => Stage8bP1eContinuationRouteKindV1::P1d4Prepublication,
+            Self::P1d4DispatchPending(_) => Stage8bP1eContinuationRouteKindV1::P1d4DispatchPending,
+            Self::P1d4OrderPending(_) => Stage8bP1eContinuationRouteKindV1::P1d4OrderPending,
+            Self::P1d4PreFinalizationPending(_) => {
+                Stage8bP1eContinuationRouteKindV1::P1d4PreFinalizationPending
+            }
+            Self::P1d4PreAckPending(_) => Stage8bP1eContinuationRouteKindV1::P1d4PreAckPending,
+            Self::P1d4Ack(_) => Stage8bP1eContinuationRouteKindV1::P1d4Ack,
+            Self::P1d4Truth(_) => Stage8bP1eContinuationRouteKindV1::P1d4Truth,
+            Self::P1d2Ack(_) => Stage8bP1eContinuationRouteKindV1::P1d2Ack,
+            Self::P1d2PreAck(_) => Stage8bP1eContinuationRouteKindV1::P1d2PreAck,
+            Self::P1d2Truth(_) => Stage8bP1eContinuationRouteKindV1::P1d2Truth,
+            Self::P1d3PreAck(_) => Stage8bP1eContinuationRouteKindV1::P1d3PreAck,
+            Self::P1d3DispatchLimit(_) => Stage8bP1eContinuationRouteKindV1::P1d3DispatchLimit,
+            Self::P1d3DispatchExpiry(_) => Stage8bP1eContinuationRouteKindV1::P1d3DispatchExpiry,
+            Self::P1d3DispatchCancel(_) => Stage8bP1eContinuationRouteKindV1::P1d3DispatchCancel,
+            Self::P1d3Ack(_) => Stage8bP1eContinuationRouteKindV1::P1d3Ack,
+            Self::P1d3Truth(_) => Stage8bP1eContinuationRouteKindV1::P1d3Truth,
+            Self::P1d3CancelContinuation(_) => {
+                Stage8bP1eContinuationRouteKindV1::P1d3CancelContinuation
+            }
+            Self::P1d3Semantic(_) => Stage8bP1eContinuationRouteKindV1::P1d3Semantic,
+        }
+    }
+}
+
 /// Diagnostic-only proof that an acquired source was deliberately retained.
 /// It carries no source payload, Redis transport or durable authority.
 pub struct Stage8bP1eRetainedSourceReceiptV1 {
@@ -2668,6 +2843,14 @@ impl Stage8bP1eRetainedSourceReceiptV1 {
 pub enum Stage8bP1ePostAcquisitionDecisionV1 {
     RetainForRestart(Stage8bP1eRetainedSourceReceiptV1),
     Continue(Stage8bP1eContinuationPermitV1),
+}
+
+/// Mandatory latch result with an exhaustive continuation identity.  A set
+/// latch destroys all effect authority and returns only a diagnostic receipt;
+/// a clear latch returns exactly one route-bound linear permit.
+pub enum Stage8bP1eRoutedPostAcquisitionDecisionV1 {
+    RetainForRestart(Stage8bP1eRetainedSourceReceiptV1),
+    Continue(Stage8bP1eRoutedContinuationV1),
 }
 
 /// Result of startup S06 pending-source inspection. This operation cannot read
@@ -2795,6 +2978,95 @@ pub fn decide_stage8b_p1e_post_acquisition_latch(
     } else {
         let _ = acquisition_kind;
         Stage8bP1ePostAcquisitionDecisionV1::Continue(Stage8bP1eContinuationPermitV1 { route })
+    }
+}
+
+/// Performs the mandatory post-acquisition latch and exhaustively classifies
+/// the resulting single-use continuation without inspecting or reconstructing
+/// source bytes in the process layer.
+pub fn route_stage8b_p1e_post_acquisition_v1(
+    owner: Stage8bP1ePostAcquisitionOwnerV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Stage8bP1eRoutedPostAcquisitionDecisionV1 {
+    match decide_stage8b_p1e_post_acquisition_latch(owner, latch) {
+        Stage8bP1ePostAcquisitionDecisionV1::RetainForRestart(receipt) => {
+            Stage8bP1eRoutedPostAcquisitionDecisionV1::RetainForRestart(receipt)
+        }
+        Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) => {
+            let kind = permit.route.continuation_kind();
+            let route = match kind {
+                Stage8bP1eContinuationRouteKindV1::ReadySemantic => {
+                    Stage8bP1eRoutedContinuationV1::ReadySemantic(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::ReadyWorkingLimit => {
+                    Stage8bP1eRoutedContinuationV1::ReadyWorkingLimit(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::ZeroIntentAck => {
+                    Stage8bP1eRoutedContinuationV1::ZeroIntentAck(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::JournalAhead => {
+                    Stage8bP1eRoutedContinuationV1::JournalAhead(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::Prepublication => {
+                    Stage8bP1eRoutedContinuationV1::Prepublication(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d4Prepublication => {
+                    Stage8bP1eRoutedContinuationV1::P1d4Prepublication(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d4DispatchPending => {
+                    Stage8bP1eRoutedContinuationV1::P1d4DispatchPending(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d4OrderPending => {
+                    Stage8bP1eRoutedContinuationV1::P1d4OrderPending(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d4PreFinalizationPending => {
+                    Stage8bP1eRoutedContinuationV1::P1d4PreFinalizationPending(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d4PreAckPending => {
+                    Stage8bP1eRoutedContinuationV1::P1d4PreAckPending(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d4Ack => {
+                    Stage8bP1eRoutedContinuationV1::P1d4Ack(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d4Truth => {
+                    Stage8bP1eRoutedContinuationV1::P1d4Truth(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d2Ack => {
+                    Stage8bP1eRoutedContinuationV1::P1d2Ack(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d2PreAck => {
+                    Stage8bP1eRoutedContinuationV1::P1d2PreAck(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d2Truth => {
+                    Stage8bP1eRoutedContinuationV1::P1d2Truth(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3PreAck => {
+                    Stage8bP1eRoutedContinuationV1::P1d3PreAck(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3DispatchLimit => {
+                    Stage8bP1eRoutedContinuationV1::P1d3DispatchLimit(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3DispatchExpiry => {
+                    Stage8bP1eRoutedContinuationV1::P1d3DispatchExpiry(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3DispatchCancel => {
+                    Stage8bP1eRoutedContinuationV1::P1d3DispatchCancel(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3Ack => {
+                    Stage8bP1eRoutedContinuationV1::P1d3Ack(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3Truth => {
+                    Stage8bP1eRoutedContinuationV1::P1d3Truth(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3CancelContinuation => {
+                    Stage8bP1eRoutedContinuationV1::P1d3CancelContinuation(permit)
+                }
+                Stage8bP1eContinuationRouteKindV1::P1d3Semantic => {
+                    Stage8bP1eRoutedContinuationV1::P1d3Semantic(permit)
+                }
+            };
+            Stage8bP1eRoutedPostAcquisitionDecisionV1::Continue(route)
+        }
     }
 }
 
@@ -5876,6 +6148,15 @@ mod tests {
 
     #[test]
     fn p1e_i0_inventory_pins_30_route_cells_and_46_effect_profiles() {
+        assert_eq!(Stage8bP1eContinuationRouteKindV1::ALL.len(), 23);
+        assert_eq!(
+            Stage8bP1eContinuationRouteKindV1::ALL
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+                .len(),
+            23,
+            "post-latch continuation inventory must stay exhaustive and unique"
+        );
         let route_cells = [
             "LR01-default",
             "LR02-default",
@@ -6159,7 +6440,18 @@ mod tests {
         let acquired = acquire_stage8b_p1_prepublication_with_redis(*owner, transport)
             .await
             .unwrap();
-        let permit = p1e_clear_permit(acquired);
+        let Stage8bP1eRoutedPostAcquisitionDecisionV1::Continue(route) =
+            route_stage8b_p1e_post_acquisition_v1(acquired, &Stage8bP1eShutdownLatchV1::new())
+        else {
+            panic!("LR02 must route only to the prepublication continuation");
+        };
+        assert_eq!(
+            route.kind(),
+            Stage8bP1eContinuationRouteKindV1::Prepublication
+        );
+        let Stage8bP1eRoutedContinuationV1::Prepublication(permit) = route else {
+            panic!("LR02 kind and capability variant must agree");
+        };
         assert!(matches!(
             resume_stage8b_p1d2_ack_with_redis(permit).await,
             Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)

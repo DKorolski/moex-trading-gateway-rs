@@ -61,7 +61,8 @@ pub use redis::{
     resume_stage8b_p1d4_order_pending_with_redis, resume_stage8b_p1d4_pre_ack_with_redis,
     resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
     resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_ready_source_with_redis,
-    resume_stage8b_p1e_ready_working_limit_source_with_redis, Stage8bP1RedisCancelCommitOutcome,
+    resume_stage8b_p1e_ready_working_limit_source_with_redis,
+    route_stage8b_p1e_post_acquisition_v1, Stage8bP1RedisCancelCommitOutcome,
     Stage8bP1RedisCancelContinuationPending, Stage8bP1RedisCommandPublicationDisposition,
     Stage8bP1RedisCommandPublicationReceipt, Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig,
     Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisFeedbackResolved,
@@ -73,11 +74,12 @@ pub use redis::{
     Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
     Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckDisposition,
     Stage8bP1RedisZeroIntentAckResolved, Stage8bP1eClaimedM10DeliveryV2,
-    Stage8bP1eContinuationPermitV1, Stage8bP1ePostAcquisitionDecisionV1,
-    Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
-    Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eReadySourceRouteV1,
-    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1,
-    Stage8bP1eShutdownLatchV1,
+    Stage8bP1eContinuationPermitV1, Stage8bP1eContinuationRouteKindV1,
+    Stage8bP1ePostAcquisitionDecisionV1, Stage8bP1ePostAcquisitionOwnerV1,
+    Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1eReadySourceRouteV1, Stage8bP1eRetainedSourceReceiptV1,
+    Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
+    Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
 };
 
 pub const STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION: u16 = 1;

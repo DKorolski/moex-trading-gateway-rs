@@ -17,16 +17,49 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
+use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
 
 use crate::{
-    authorize_stage8b_p1_first_boot, authorize_stage8b_p1e_pre_seal_recovery_v5,
-    build_stage8b_p1_first_boot_source_v1, first_boot_stage8b_p1e_transaction_v5,
-    load_stage8b_p1_commitment_key_from_systemd_credential,
+    acquire_stage8b_p1_journal_ahead_with_redis, acquire_stage8b_p1_prepublication_with_redis,
+    acquire_stage8b_p1_zero_intent_ack_with_redis, acquire_stage8b_p1d2_ack_with_redis,
+    acquire_stage8b_p1d2_pre_ack_with_redis, acquire_stage8b_p1d2_truth_with_redis,
+    acquire_stage8b_p1d3_ack_with_redis, acquire_stage8b_p1d3_cancel_continuation_with_redis,
+    acquire_stage8b_p1d3_dispatch_cancel_with_redis, acquire_stage8b_p1d3_pre_ack_with_redis,
+    acquire_stage8b_p1d3_semantic_with_redis, acquire_stage8b_p1d3_truth_with_redis,
+    acquire_stage8b_p1d4_ack_with_redis, acquire_stage8b_p1d4_dispatch_pending_with_redis,
+    acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
+    acquire_stage8b_p1d4_pre_finalization_with_redis,
+    acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
+    acquire_stage8b_p1e_ready_pending_with_redis, authorize_stage8b_p1_first_boot,
+    authorize_stage8b_p1e_pre_seal_recovery_v5, build_stage8b_p1_first_boot_source_v1,
+    first_boot_stage8b_p1e_transaction_v5, load_stage8b_p1_commitment_key_from_systemd_credential,
     recover_stage8b_p1e_first_boot_adoption_v5,
     recover_stage8b_p1e_first_boot_pre_seal_from_supervisor_v5,
-    validate_stage8b_p1e_supervisor_config_v1, Stage8bP1eAdoptionRecoveryActionV5,
-    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1eSupervisorConfigV1,
-    Stage8bP1eValidatedSupervisorConfigV1, STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
+    resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
+    resume_stage8b_p1_prepublication_with_redis, resume_stage8b_p1d2_ack_with_redis,
+    resume_stage8b_p1d2_pre_ack_with_redis, resume_stage8b_p1d2_truth_with_redis,
+    resume_stage8b_p1d3_ack_with_redis, resume_stage8b_p1d3_cancel_continuation_with_redis,
+    resume_stage8b_p1d3_pre_ack_with_redis, resume_stage8b_p1d3_semantic_with_redis,
+    resume_stage8b_p1d3_truth_with_redis, resume_stage8b_p1d4_ack_with_redis,
+    resume_stage8b_p1d4_dispatch_pending_with_redis, resume_stage8b_p1d4_order_pending_with_redis,
+    resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
+    resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
+    resume_stage8b_p1e_ready_source_with_redis, route_stage8b_p1e_post_acquisition_v1,
+    validate_stage8b_p1e_supervisor_config_v1, Stage7bRestartOutcome,
+    Stage8bP1RedisCommandPublished, Stage8bP1RedisFeedbackAckCommitted,
+    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisGeneratedMarketAckCommitted,
+    Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisLimitResolved,
+    Stage8bP1RedisLimitTruthCommitted, Stage8bP1RedisPreAckRecoveryOutcome,
+    Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
+    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
+    Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckResolved,
+    Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1ePostAcquisitionOwnerV1,
+    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
+    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSupervisorConfigV1, Stage8bP1eValidatedSupervisorConfigV1,
+    Stage8bP1eVerifiedRedisSessionV1, STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
     STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
 
@@ -57,6 +90,929 @@ pub enum Stage8bP1eProcessSuccessV1 {
     ConfigValid,
     BootstrapAdopted,
     RecoveryApplied,
+}
+
+/// Result of the pre-Redis S04 restart classification.  The attachable branch
+/// can contain only outcomes for which S05 is legal; the two fail-closed
+/// outcomes are retained by a distinct opaque owner and therefore cannot be
+/// passed to the Redis acquisition API by construction.
+pub enum Stage8bP1ePreRedisRestartV1 {
+    Attachable(Stage8bP1eAttachableRestartV1),
+    Blocked(Stage8bP1eBlockedRestartV1),
+}
+
+/// Opaque, linear owner for one of the 21 restart outcomes that may proceed to
+/// verify-only Redis attachment.  It deliberately implements neither Clone
+/// nor serde and exposes no raw durable owner.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runtime_durable_service::Stage8bP1eAttachableRestartV1>();
+/// ```
+pub struct Stage8bP1eAttachableRestartV1 {
+    route: Box<Stage8bP1eAttachableRestartRouteV1>,
+}
+
+/// Opaque terminal owner for a restart outcome that must stop before Redis.
+/// It is not accepted by the S05/S06 acquisition boundary.
+///
+/// ```compile_fail
+/// use runtime_durable_service::{
+///     acquire_stage8b_p1e_startup_owner_v1, Stage8bP1eBlockedRestartV1,
+///     Stage8bP1eVerifiedRedisSessionV1,
+/// };
+/// async fn forbidden(
+///     blocked: Stage8bP1eBlockedRestartV1,
+///     session: Stage8bP1eVerifiedRedisSessionV1,
+/// ) {
+///     let _ = acquire_stage8b_p1e_startup_owner_v1(blocked, session).await;
+/// }
+/// ```
+pub struct Stage8bP1eBlockedRestartV1 {
+    kind: Stage8bP1eRestartKindV1,
+    _route: Box<Stage8bP1eBlockedRestartRouteV1>,
+}
+
+enum Stage8bP1eBlockedRestartRouteV1 {
+    Stage8a4I3Pending(Box<crate::Stage8a4I3RecoveryPendingOwner>),
+    Blocked(Box<crate::Stage7bRecoveryBlocked>),
+}
+
+enum Stage8bP1eAttachableRestartRouteV1 {
+    Ready(Box<crate::Stage7bRecoveryReadyOwner>),
+    P1SemanticPrepublicationPending(Box<crate::P1SemanticPrepublicationPending>),
+    P1SemanticPrepublicationReady(Box<crate::Stage8bP1SemanticPrepublicationOwner>),
+    P1SemanticZeroIntentAckPending(Box<crate::P1SemanticZeroIntentAckPending>),
+    P1d2PreAckPending(Box<crate::Stage8bP1d2PreAckPendingOwner>),
+    P1d2AckCommitted(Box<crate::Stage8bP1d2AckCommittedOwner>),
+    P1d2TruthCommitted(Box<crate::Stage8bP1d2TruthCommittedOwner>),
+    P1d4GeneratedMarketPrepublicationPending(
+        Box<crate::Stage8bP1d4GeneratedMarketPrepublicationOwner>,
+    ),
+    P1d4GeneratedMarketDispatchPending(Box<crate::Stage8bP1d4GeneratedMarketDispatchPendingOwner>),
+    P1d4GeneratedMarketOrderPending(Box<crate::Stage8bP1d4GeneratedMarketOrderPendingOwner>),
+    P1d4GeneratedMarketPreFinalizationPending(
+        Box<crate::Stage8bP1d4GeneratedMarketPreFinalizationPendingOwner>,
+    ),
+    P1d4GeneratedMarketPreAckPending(Box<crate::Stage8bP1d4GeneratedMarketPreAckPendingOwner>),
+    P1d4GeneratedMarketAckCommitted(Box<crate::Stage8bP1d4GeneratedMarketAckCommittedOwner>),
+    P1d4GeneratedMarketTruthCommitted(Box<crate::Stage8bP1d4GeneratedMarketTruthCommittedOwner>),
+    P1d3DispatchPending(Box<crate::Stage8bP1d3DispatchPendingOwner>),
+    P1d3PreAckPending(Box<crate::Stage8bP1d3PreAckPendingOwner>),
+    P1d3AckCommitted(Box<crate::Stage8bP1d3AckCommittedOwner>),
+    P1d3TruthCommitted(Box<crate::Stage8bP1d3TruthCommittedOwner>),
+    P1d3CancelContinuationPending(Box<crate::recovery::Stage8bP1d3CancelContinuationOwner>),
+    P1d3SemanticPending(Box<crate::Stage8bP1d3SemanticPendingOwner>),
+    P1eScheduleBindingCommitted(Box<crate::Stage8bP1eScheduleBindingCommittedOwner>),
+}
+
+impl Stage8bP1eAttachableRestartV1 {
+    pub fn kind(&self) -> Stage8bP1eRestartKindV1 {
+        match self.route.as_ref() {
+            Stage8bP1eAttachableRestartRouteV1::Ready(_) => Stage8bP1eRestartKindV1::Ready,
+            Stage8bP1eAttachableRestartRouteV1::P1SemanticPrepublicationPending(_) => {
+                Stage8bP1eRestartKindV1::P1SemanticPrepublicationPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1SemanticPrepublicationReady(_) => {
+                Stage8bP1eRestartKindV1::P1SemanticPrepublicationReady
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1SemanticZeroIntentAckPending(_) => {
+                Stage8bP1eRestartKindV1::P1SemanticZeroIntentAckPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d2PreAckPending(_) => {
+                Stage8bP1eRestartKindV1::P1d2PreAckPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d2AckCommitted(_) => {
+                Stage8bP1eRestartKindV1::P1d2AckCommitted
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d2TruthCommitted(_) => {
+                Stage8bP1eRestartKindV1::P1d2TruthCommitted
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPrepublicationPending(_) => {
+                Stage8bP1eRestartKindV1::P1d4GeneratedMarketPrepublicationPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketDispatchPending(_) => {
+                Stage8bP1eRestartKindV1::P1d4GeneratedMarketDispatchPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketOrderPending(_) => {
+                Stage8bP1eRestartKindV1::P1d4GeneratedMarketOrderPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPreFinalizationPending(_) => {
+                Stage8bP1eRestartKindV1::P1d4GeneratedMarketPreFinalizationPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPreAckPending(_) => {
+                Stage8bP1eRestartKindV1::P1d4GeneratedMarketPreAckPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketAckCommitted(_) => {
+                Stage8bP1eRestartKindV1::P1d4GeneratedMarketAckCommitted
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketTruthCommitted(_) => {
+                Stage8bP1eRestartKindV1::P1d4GeneratedMarketTruthCommitted
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d3DispatchPending(_) => {
+                Stage8bP1eRestartKindV1::P1d3DispatchPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d3PreAckPending(_) => {
+                Stage8bP1eRestartKindV1::P1d3PreAckPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d3AckCommitted(_) => {
+                Stage8bP1eRestartKindV1::P1d3AckCommitted
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d3TruthCommitted(_) => {
+                Stage8bP1eRestartKindV1::P1d3TruthCommitted
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d3CancelContinuationPending(_) => {
+                Stage8bP1eRestartKindV1::P1d3CancelContinuationPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1d3SemanticPending(_) => {
+                Stage8bP1eRestartKindV1::P1d3SemanticPending
+            }
+            Stage8bP1eAttachableRestartRouteV1::P1eScheduleBindingCommitted(_) => {
+                Stage8bP1eRestartKindV1::P1eScheduleBindingCommitted
+            }
+        }
+    }
+}
+
+impl Stage8bP1eBlockedRestartV1 {
+    pub const fn kind(&self) -> Stage8bP1eRestartKindV1 {
+        self.kind
+    }
+
+    /// Consumes the terminal owner at the process exit boundary.  No Redis
+    /// session can be supplied to this method.
+    pub fn finish_before_redis(self) -> Stage8bP1eRestartKindV1 {
+        match *self._route {
+            Stage8bP1eBlockedRestartRouteV1::Stage8a4I3Pending(owner) => drop(owner),
+            Stage8bP1eBlockedRestartRouteV1::Blocked(owner) => drop(owner),
+        }
+        self.kind
+    }
+}
+
+/// Exhaustively consumes all 23 durable restart variants before any Redis
+/// connection exists.  Adding a new `Stage7bRestartOutcome` variant cannot
+/// silently inherit an attach policy because this match has no wildcard.
+pub fn stage8b_p1e_route_pre_redis_restart_v1(
+    outcome: Stage7bRestartOutcome,
+) -> Stage8bP1ePreRedisRestartV1 {
+    let route = match outcome {
+        Stage7bRestartOutcome::Ready(owner) => Stage8bP1eAttachableRestartRouteV1::Ready(owner),
+        Stage7bRestartOutcome::Stage8a4I3Pending(owner) => {
+            return Stage8bP1ePreRedisRestartV1::Blocked(Stage8bP1eBlockedRestartV1 {
+                kind: Stage8bP1eRestartKindV1::Stage8a4I3Pending,
+                _route: Box::new(Stage8bP1eBlockedRestartRouteV1::Stage8a4I3Pending(owner)),
+            });
+        }
+        Stage7bRestartOutcome::P1SemanticPrepublicationPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1SemanticPrepublicationPending(owner)
+        }
+        Stage7bRestartOutcome::P1SemanticPrepublicationReady(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1SemanticPrepublicationReady(owner)
+        }
+        Stage7bRestartOutcome::P1SemanticZeroIntentAckPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1SemanticZeroIntentAckPending(owner)
+        }
+        Stage7bRestartOutcome::P1d2PreAckPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d2PreAckPending(owner)
+        }
+        Stage7bRestartOutcome::P1d2AckCommitted(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d2AckCommitted(owner)
+        }
+        Stage7bRestartOutcome::P1d2TruthCommitted(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d2TruthCommitted(owner)
+        }
+        Stage7bRestartOutcome::P1d4GeneratedMarketPrepublicationPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPrepublicationPending(owner)
+        }
+        Stage7bRestartOutcome::P1d4GeneratedMarketDispatchPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketDispatchPending(owner)
+        }
+        Stage7bRestartOutcome::P1d4GeneratedMarketOrderPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketOrderPending(owner)
+        }
+        Stage7bRestartOutcome::P1d4GeneratedMarketPreFinalizationPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPreFinalizationPending(owner)
+        }
+        Stage7bRestartOutcome::P1d4GeneratedMarketPreAckPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPreAckPending(owner)
+        }
+        Stage7bRestartOutcome::P1d4GeneratedMarketAckCommitted(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketAckCommitted(owner)
+        }
+        Stage7bRestartOutcome::P1d4GeneratedMarketTruthCommitted(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketTruthCommitted(owner)
+        }
+        Stage7bRestartOutcome::P1d3DispatchPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d3DispatchPending(owner)
+        }
+        Stage7bRestartOutcome::P1d3PreAckPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d3PreAckPending(owner)
+        }
+        Stage7bRestartOutcome::P1d3AckCommitted(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d3AckCommitted(owner)
+        }
+        Stage7bRestartOutcome::P1d3TruthCommitted(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d3TruthCommitted(owner)
+        }
+        Stage7bRestartOutcome::P1d3CancelContinuationPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d3CancelContinuationPending(owner)
+        }
+        Stage7bRestartOutcome::P1d3SemanticPending(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1d3SemanticPending(owner)
+        }
+        Stage7bRestartOutcome::P1eScheduleBindingCommitted(owner) => {
+            Stage8bP1eAttachableRestartRouteV1::P1eScheduleBindingCommitted(owner)
+        }
+        Stage7bRestartOutcome::Blocked(owner) => {
+            return Stage8bP1ePreRedisRestartV1::Blocked(Stage8bP1eBlockedRestartV1 {
+                kind: Stage8bP1eRestartKindV1::Blocked,
+                _route: Box::new(Stage8bP1eBlockedRestartRouteV1::Blocked(owner)),
+            });
+        }
+    };
+    Stage8bP1ePreRedisRestartV1::Attachable(Stage8bP1eAttachableRestartV1 {
+        route: Box::new(route),
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eStartupOwnerKindV1 {
+    ReadySourceAcquired,
+    ReadyNoPending,
+    ReadyPendingNotClaimable,
+    RecoveredSourceAcquired,
+    P1d3LimitDispatchAwaitingSchedule,
+    ScheduleBindingCommitted,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum Stage8bP1eStartupErrorV1 {
+    #[error("S06 Redis observation failed")]
+    RedisControl(#[from] Stage8bP1eRedisControlError),
+    #[error("S06/S06R source acquisition failed")]
+    Source(#[from] Stage8bP1RedisSemanticError),
+}
+
+/// Linear S05/S06 result.  The verified diagnostic control connection is held
+/// beside exactly one route owner, so no successful attach can return after
+/// dropping the durable/source authority.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runtime_durable_service::Stage8bP1eStartupOwnerV1>();
+/// ```
+pub struct Stage8bP1eStartupOwnerV1 {
+    kind: Stage8bP1eStartupOwnerKindV1,
+    route: Box<Stage8bP1eStartupOwnerRouteV1>,
+    control: Stage8bP1eRedisControlV1,
+}
+
+/// Exhaustive S06-to-latch result. Every variant is linear and retains the
+/// verified diagnostic Redis control plane beside the sole lifecycle owner or
+/// route-bound continuation. No variant can be cloned or serialized.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runtime_durable_service::Stage8bP1eStartupLatchDecisionV1>();
+/// ```
+pub enum Stage8bP1eStartupLatchDecisionV1 {
+    RetainedSource(Stage8bP1eRetainedStartupV1),
+    ContinueSource(Stage8bP1eContinuingStartupV1),
+    ReadyIdle(Stage8bP1eReadyIdleStartupV1),
+    ReadyPendingNotClaimable(Stage8bP1ePendingNotClaimableStartupV1),
+    P1d3LimitDispatchAwaitingSchedule(Stage8bP1eLimitScheduleStartupV1),
+    ScheduleBindingCommitted(Stage8bP1eCommittedScheduleStartupV1),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eStartupLatchKindV1 {
+    RetainedSource,
+    ContinueSource,
+    ReadyIdle,
+    ReadyPendingNotClaimable,
+    P1d3LimitDispatchAwaitingSchedule,
+    ScheduleBindingCommitted,
+}
+
+impl Stage8bP1eStartupLatchDecisionV1 {
+    pub const fn kind(&self) -> Stage8bP1eStartupLatchKindV1 {
+        match self {
+            Self::RetainedSource(_) => Stage8bP1eStartupLatchKindV1::RetainedSource,
+            Self::ContinueSource(_) => Stage8bP1eStartupLatchKindV1::ContinueSource,
+            Self::ReadyIdle(_) => Stage8bP1eStartupLatchKindV1::ReadyIdle,
+            Self::ReadyPendingNotClaimable(_) => {
+                Stage8bP1eStartupLatchKindV1::ReadyPendingNotClaimable
+            }
+            Self::P1d3LimitDispatchAwaitingSchedule(_) => {
+                Stage8bP1eStartupLatchKindV1::P1d3LimitDispatchAwaitingSchedule
+            }
+            Self::ScheduleBindingCommitted(_) => {
+                Stage8bP1eStartupLatchKindV1::ScheduleBindingCommitted
+            }
+        }
+    }
+}
+
+pub struct Stage8bP1eRetainedStartupV1 {
+    receipt: Stage8bP1eRetainedSourceReceiptV1,
+    _control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eRetainedStartupV1 {
+    pub fn receipt(&self) -> &Stage8bP1eRetainedSourceReceiptV1 {
+        &self.receipt
+    }
+}
+
+pub struct Stage8bP1eContinuingStartupV1 {
+    route: Stage8bP1eRoutedContinuationV1,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eContinuingStartupV1 {
+    pub fn route(&self) -> &Stage8bP1eRoutedContinuationV1 {
+        &self.route
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub struct Stage8bP1eReadyIdleStartupV1 {
+    _owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eReadyIdleStartupV1 {
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub struct Stage8bP1ePendingNotClaimableStartupV1 {
+    _owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+    pending_m10_redis_id: String,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1ePendingNotClaimableStartupV1 {
+    pub fn pending_m10_redis_id(&self) -> &str {
+        &self.pending_m10_redis_id
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub struct Stage8bP1eLimitScheduleStartupV1 {
+    _durable: Box<crate::Stage8bP1d3DispatchPendingOwner>,
+    _transport: Stage8bP1RedisSemanticCompositionTransport,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eLimitScheduleStartupV1 {
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub struct Stage8bP1eCommittedScheduleStartupV1 {
+    _durable: Box<crate::Stage8bP1eScheduleBindingCommittedOwner>,
+    _transport: Stage8bP1RedisSemanticCompositionTransport,
+    control: Stage8bP1eRedisControlV1,
+}
+
+/// One exact S06R continuation result.  This boundary deliberately performs
+/// at most one accepted resume transition; later phase settlement remains
+/// typed and cannot be skipped.  Schedule-dependent permits remain linear and
+/// unconsumed until signed schedule composition supplies their exact authority.
+pub enum Stage8bP1eRecoveryStepRouteV1 {
+    Semantic(Box<Stage8bP1RedisSemanticOutcome>),
+    ZeroIntentResolved(Box<Stage8bP1RedisZeroIntentAckResolved>),
+    Prepublication(Box<Stage8bP1RedisPrepublicationPending>),
+    CommandPublished(Box<Stage8bP1RedisCommandPublished>),
+    GeneratedMarketAckCommitted(Box<Stage8bP1RedisGeneratedMarketAckCommitted>),
+    FeedbackAckCommitted(Box<Stage8bP1RedisFeedbackAckCommitted>),
+    FeedbackResolved(Box<Stage8bP1RedisFeedbackResolved>),
+    LimitPreAckRecovered(Box<Stage8bP1RedisPreAckRecoveryOutcome>),
+    LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
+    LimitTruthCommitted(Box<Stage8bP1RedisLimitTruthCommitted>),
+    LimitResolved(Box<Stage8bP1RedisLimitResolved>),
+    ScheduleDeferred(Box<Stage8bP1eRoutedContinuationV1>),
+}
+
+pub struct Stage8bP1eRecoveryStepV1 {
+    route: Box<Stage8bP1eRecoveryStepRouteV1>,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eRecoveryStepV1 {
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+
+    pub fn requires_schedule(&self) -> bool {
+        matches!(
+            self.route.as_ref(),
+            Stage8bP1eRecoveryStepRouteV1::ScheduleDeferred(_)
+        )
+    }
+}
+
+impl Stage8bP1eCommittedScheduleStartupV1 {
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+enum Stage8bP1eStartupOwnerRouteV1 {
+    ReadyPending(Stage8bP1eReadyPendingAcquisitionOutcomeV1),
+    RecoveredSource(Stage8bP1ePostAcquisitionOwnerV1),
+    P1d3LimitDispatch {
+        durable: Box<crate::Stage8bP1d3DispatchPendingOwner>,
+        transport: Stage8bP1RedisSemanticCompositionTransport,
+    },
+    ScheduleBindingCommitted {
+        durable: Box<crate::Stage8bP1eScheduleBindingCommittedOwner>,
+        transport: Stage8bP1RedisSemanticCompositionTransport,
+    },
+}
+
+impl Stage8bP1eStartupOwnerV1 {
+    pub const fn kind(&self) -> Stage8bP1eStartupOwnerKindV1 {
+        self.kind
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+
+    pub fn into_ready_pending(
+        self,
+    ) -> Result<
+        (
+            Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+            Stage8bP1eRedisControlV1,
+        ),
+        Box<Self>,
+    > {
+        let Self {
+            kind,
+            route,
+            control,
+        } = self;
+        match *route {
+            Stage8bP1eStartupOwnerRouteV1::ReadyPending(outcome) => Ok((outcome, control)),
+            route => Err(Box::new(Self {
+                kind,
+                route: Box::new(route),
+                control,
+            })),
+        }
+    }
+
+    pub fn into_recovered_source(
+        self,
+    ) -> Result<(Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1eRedisControlV1), Box<Self>> {
+        let Self {
+            kind,
+            route,
+            control,
+        } = self;
+        match *route {
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(owner) => Ok((owner, control)),
+            route => Err(Box::new(Self {
+                kind,
+                route: Box::new(route),
+                control,
+            })),
+        }
+    }
+
+    pub fn into_p1d3_limit_dispatch(
+        self,
+    ) -> Result<
+        (
+            Box<crate::Stage8bP1d3DispatchPendingOwner>,
+            Stage8bP1RedisSemanticCompositionTransport,
+            Stage8bP1eRedisControlV1,
+        ),
+        Box<Self>,
+    > {
+        let Self {
+            kind,
+            route,
+            control,
+        } = self;
+        match *route {
+            Stage8bP1eStartupOwnerRouteV1::P1d3LimitDispatch { durable, transport } => {
+                Ok((durable, transport, control))
+            }
+            route => Err(Box::new(Self {
+                kind,
+                route: Box::new(route),
+                control,
+            })),
+        }
+    }
+
+    pub fn into_schedule_binding_committed(
+        self,
+    ) -> Result<
+        (
+            Box<crate::Stage8bP1eScheduleBindingCommittedOwner>,
+            Stage8bP1RedisSemanticCompositionTransport,
+            Stage8bP1eRedisControlV1,
+        ),
+        Box<Self>,
+    > {
+        let Self {
+            kind,
+            route,
+            control,
+        } = self;
+        match *route {
+            Stage8bP1eStartupOwnerRouteV1::ScheduleBindingCommitted { durable, transport } => {
+                Ok((durable, transport, control))
+            }
+            route => Err(Box::new(Self {
+                kind,
+                route: Box::new(route),
+                control,
+            })),
+        }
+    }
+}
+
+/// Performs S06 pending-only acquisition after an already verified S05
+/// session.  Non-Ready source routes reuse their accepted exact lookup/reclaim
+/// wrappers; Ready alone uses the pending-only scan. LIMIT dispatch and a
+/// committed schedule binding remain linearly deferred until the schedule
+/// classifier selects their exact authority subtype.
+pub async fn acquire_stage8b_p1e_startup_owner_v1(
+    restart: Stage8bP1eAttachableRestartV1,
+    session: Stage8bP1eVerifiedRedisSessionV1,
+) -> Result<Stage8bP1eStartupOwnerV1, Stage8bP1eStartupErrorV1> {
+    let (transport, mut control) = session.into_parts();
+    // S06 observation is deliberately non-authorizing for non-Ready routes.
+    // It proves that the group can be inspected before the accepted exact
+    // resume wrapper becomes the sole reclaim/lookup owner below.
+    let _observed_pel_count = control.pel_count().await?;
+    let (kind, route) = match *restart.route {
+        Stage8bP1eAttachableRestartRouteV1::Ready(owner) => {
+            let owner = Stage8bP1RedisSemanticCompositionOwner::new(*owner, transport);
+            let outcome = acquire_stage8b_p1e_ready_pending_with_redis(owner).await?;
+            let kind = match &outcome {
+                Stage8bP1eReadyPendingAcquisitionOutcomeV1::Acquired(_) => {
+                    Stage8bP1eStartupOwnerKindV1::ReadySourceAcquired
+                }
+                Stage8bP1eReadyPendingAcquisitionOutcomeV1::NoPending(_) => {
+                    Stage8bP1eStartupOwnerKindV1::ReadyNoPending
+                }
+                Stage8bP1eReadyPendingAcquisitionOutcomeV1::PendingNotClaimable { .. } => {
+                    Stage8bP1eStartupOwnerKindV1::ReadyPendingNotClaimable
+                }
+            };
+            (kind, Stage8bP1eStartupOwnerRouteV1::ReadyPending(outcome))
+        }
+        Stage8bP1eAttachableRestartRouteV1::P1SemanticPrepublicationPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1_journal_ahead_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1SemanticPrepublicationReady(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1_prepublication_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1SemanticZeroIntentAckPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1_zero_intent_ack_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d2PreAckPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d2_pre_ack_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d2AckCommitted(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d2_ack_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d2TruthCommitted(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d2_truth_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPrepublicationPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d4_prepublication_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketDispatchPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d4_dispatch_pending_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketOrderPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d4_order_pending_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPreFinalizationPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d4_pre_finalization_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketPreAckPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d4_pre_ack_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketAckCommitted(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d4_ack_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d4GeneratedMarketTruthCommitted(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d4_truth_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d3DispatchPending(owner) if owner.is_cancel() => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d3_dispatch_cancel_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d3DispatchPending(owner)
+            if owner.is_limit_place() =>
+        {
+            (
+                Stage8bP1eStartupOwnerKindV1::P1d3LimitDispatchAwaitingSchedule,
+                Stage8bP1eStartupOwnerRouteV1::P1d3LimitDispatch {
+                    durable: owner,
+                    transport,
+                },
+            )
+        }
+        Stage8bP1eAttachableRestartRouteV1::P1d3DispatchPending(_) => {
+            return Err(Stage8bP1RedisSemanticError::ExactSourceConflict.into());
+        }
+        Stage8bP1eAttachableRestartRouteV1::P1d3PreAckPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d3_pre_ack_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d3AckCommitted(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d3_ack_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d3TruthCommitted(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d3_truth_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d3CancelContinuationPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d3_cancel_continuation_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1d3SemanticPending(owner) => (
+            Stage8bP1eStartupOwnerKindV1::RecoveredSourceAcquired,
+            Stage8bP1eStartupOwnerRouteV1::RecoveredSource(
+                acquire_stage8b_p1d3_semantic_with_redis(*owner, transport).await?,
+            ),
+        ),
+        Stage8bP1eAttachableRestartRouteV1::P1eScheduleBindingCommitted(owner) => (
+            Stage8bP1eStartupOwnerKindV1::ScheduleBindingCommitted,
+            Stage8bP1eStartupOwnerRouteV1::ScheduleBindingCommitted {
+                durable: owner,
+                transport,
+            },
+        ),
+    };
+    Ok(Stage8bP1eStartupOwnerV1 {
+        kind,
+        route: Box::new(route),
+        control,
+    })
+}
+
+/// Applies the mandatory post-acquisition latch without losing the verified
+/// control plane or exposing a second acquisition path. Ready/no-pending and
+/// unclaimable states retain their exact semantic owner. Schedule-dependent
+/// routes remain opaque until the signed schedule classifier supplies the
+/// route-specific authority.
+pub fn latch_stage8b_p1e_startup_owner_v1(
+    startup: Stage8bP1eStartupOwnerV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Stage8bP1eStartupLatchDecisionV1 {
+    let Stage8bP1eStartupOwnerV1 {
+        kind: _,
+        route,
+        control,
+    } = startup;
+    let acquired = match *route {
+        Stage8bP1eStartupOwnerRouteV1::ReadyPending(
+            Stage8bP1eReadyPendingAcquisitionOutcomeV1::Acquired(owner),
+        )
+        | Stage8bP1eStartupOwnerRouteV1::RecoveredSource(owner) => owner,
+        Stage8bP1eStartupOwnerRouteV1::ReadyPending(
+            Stage8bP1eReadyPendingAcquisitionOutcomeV1::NoPending(owner),
+        ) => {
+            return Stage8bP1eStartupLatchDecisionV1::ReadyIdle(Stage8bP1eReadyIdleStartupV1 {
+                _owner: owner,
+                control,
+            });
+        }
+        Stage8bP1eStartupOwnerRouteV1::ReadyPending(
+            Stage8bP1eReadyPendingAcquisitionOutcomeV1::PendingNotClaimable {
+                owner,
+                pending_m10_redis_id,
+            },
+        ) => {
+            return Stage8bP1eStartupLatchDecisionV1::ReadyPendingNotClaimable(
+                Stage8bP1ePendingNotClaimableStartupV1 {
+                    _owner: owner,
+                    pending_m10_redis_id,
+                    control,
+                },
+            );
+        }
+        Stage8bP1eStartupOwnerRouteV1::P1d3LimitDispatch { durable, transport } => {
+            return Stage8bP1eStartupLatchDecisionV1::P1d3LimitDispatchAwaitingSchedule(
+                Stage8bP1eLimitScheduleStartupV1 {
+                    _durable: durable,
+                    _transport: transport,
+                    control,
+                },
+            );
+        }
+        Stage8bP1eStartupOwnerRouteV1::ScheduleBindingCommitted { durable, transport } => {
+            return Stage8bP1eStartupLatchDecisionV1::ScheduleBindingCommitted(
+                Stage8bP1eCommittedScheduleStartupV1 {
+                    _durable: durable,
+                    _transport: transport,
+                    control,
+                },
+            );
+        }
+    };
+    match route_stage8b_p1e_post_acquisition_v1(acquired, latch) {
+        Stage8bP1eRoutedPostAcquisitionDecisionV1::RetainForRestart(receipt) => {
+            Stage8bP1eStartupLatchDecisionV1::RetainedSource(Stage8bP1eRetainedStartupV1 {
+                receipt,
+                _control: control,
+            })
+        }
+        Stage8bP1eRoutedPostAcquisitionDecisionV1::Continue(route) => {
+            Stage8bP1eStartupLatchDecisionV1::ContinueSource(Stage8bP1eContinuingStartupV1 {
+                route,
+                control,
+            })
+        }
+    }
+}
+
+/// Executes exactly one accepted post-latch recovery continuation.  The match
+/// is exhaustive over the 23 route-bound permits and contains no generic
+/// fallback. Four schedule-dependent routes are retained unchanged rather
+/// than receiving reconstructed or guessed schedule authority.
+pub async fn continue_stage8b_p1e_recovery_once_v1(
+    startup: Stage8bP1eContinuingStartupV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eRecoveryStepV1, Stage8bP1eStartupErrorV1> {
+    let Stage8bP1eContinuingStartupV1 { route, control } = startup;
+    let route = match route {
+        Stage8bP1eRoutedContinuationV1::ReadySemantic(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::Semantic(Box::new(
+                resume_stage8b_p1e_ready_source_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        route @ Stage8bP1eRoutedContinuationV1::ReadyWorkingLimit(_)
+        | route @ Stage8bP1eRoutedContinuationV1::P1d3DispatchLimit(_)
+        | route @ Stage8bP1eRoutedContinuationV1::P1d3DispatchExpiry(_)
+        | route @ Stage8bP1eRoutedContinuationV1::P1d3DispatchCancel(_) => {
+            Stage8bP1eRecoveryStepRouteV1::ScheduleDeferred(Box::new(route))
+        }
+        Stage8bP1eRoutedContinuationV1::ZeroIntentAck(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::ZeroIntentResolved(Box::new(
+                resolve_stage8b_p1_zero_intent_ack_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::JournalAhead(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::Prepublication(Box::new(
+                resume_stage8b_p1_journal_ahead_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::Prepublication(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::Prepublication(Box::new(
+                resume_stage8b_p1_prepublication_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d4Prepublication(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::CommandPublished(Box::new(
+                resume_stage8b_p1d4_prepublication_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d4DispatchPending(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(Box::new(
+                resume_stage8b_p1d4_dispatch_pending_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d4OrderPending(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(Box::new(
+                resume_stage8b_p1d4_order_pending_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d4PreFinalizationPending(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(Box::new(
+                resume_stage8b_p1d4_pre_finalization_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d4PreAckPending(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(Box::new(
+                resume_stage8b_p1d4_pre_ack_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d4Ack(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(Box::new(
+                resume_stage8b_p1d4_ack_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d4Truth(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::FeedbackResolved(Box::new(
+                resume_stage8b_p1d4_truth_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d2Ack(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::FeedbackAckCommitted(Box::new(
+                resume_stage8b_p1d2_ack_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d2PreAck(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::FeedbackAckCommitted(Box::new(
+                resume_stage8b_p1d2_pre_ack_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d2Truth(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::FeedbackResolved(Box::new(
+                resume_stage8b_p1d2_truth_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d3PreAck(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::LimitPreAckRecovered(Box::new(
+                resume_stage8b_p1d3_pre_ack_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d3Ack(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(Box::new(
+                resume_stage8b_p1d3_ack_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d3Truth(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::LimitResolved(Box::new(
+                resume_stage8b_p1d3_truth_with_redis(permit).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d3CancelContinuation(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::LimitTruthCommitted(Box::new(
+                resume_stage8b_p1d3_cancel_continuation_with_redis(permit, commitment_key).await?,
+            ))
+        }
+        Stage8bP1eRoutedContinuationV1::P1d3Semantic(permit) => {
+            Stage8bP1eRecoveryStepRouteV1::Semantic(Box::new(
+                resume_stage8b_p1d3_semantic_with_redis(permit, commitment_key).await?,
+            ))
+        }
+    };
+    Ok(Stage8bP1eRecoveryStepV1 {
+        route: Box::new(route),
+        control,
+    })
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -429,11 +1385,52 @@ mod tests {
     use std::{
         ffi::CString,
         io::Write,
+        os::unix::fs::DirBuilderExt,
+        path::PathBuf,
         time::{Duration as StdDuration, Instant},
     };
 
     fn fixed_config() -> &'static str {
         STAGE8B_P1E_SUPERVISOR_CONFIG_PATH
+    }
+
+    fn temp_directory(label: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "stage8b-p1e-process-{label}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4().simple()
+        ));
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder.create(&path).unwrap();
+        fs::canonicalize(path).unwrap()
+    }
+
+    fn bootstrap_config(
+        parent: PathBuf,
+        runtime_config_fingerprint_sha256: String,
+    ) -> crate::Stage8bP1BootstrapConfig {
+        crate::Stage8bP1BootstrapConfig {
+            schema_version: crate::STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
+            broker_id: crate::STAGE8B_P1_BROKER_ID.to_string(),
+            strategy_id: crate::STAGE8B_P1_STRATEGY_ID.to_string(),
+            account_id: "ACC_TEST_0001".to_string(),
+            internal_symbol: crate::STAGE8B_P1_INTERNAL_SYMBOL.to_string(),
+            venue_symbol: crate::STAGE8B_P1_VENUE_SYMBOL.to_string(),
+            exchange: crate::STAGE8B_P1_EXCHANGE.to_string(),
+            market: crate::STAGE8B_P1_MARKET.to_string(),
+            tick_size: crate::STAGE8B_P1_TICK_SIZE.to_string(),
+            runtime_config_fingerprint_sha256,
+            instrument_map_fingerprint_sha256:
+                crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            deployment_id: "finam-imoexf-paper-p1".to_string(),
+            deployment_generation: 1,
+            gateway_instance_id: "finam-imoexf-paper-gateway-1".to_string(),
+            market_data_generation: 1,
+            command_consumer_generation: 1,
+            stage8a4_writer_issuer_public_key_hex: "22".repeat(32),
+            durable_parent: parent,
+        }
     }
 
     #[test]
@@ -565,5 +1562,49 @@ mod tests {
         ));
         assert!(started.elapsed() < StdDuration::from_secs(1));
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn authenticated_ready_restart_becomes_attachable_without_losing_owner() {
+        let parent = temp_directory("ready-route");
+        let (source, export_input, key, fresh) =
+            strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let fingerprint = fresh.stage5c_config_fingerprint();
+        let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.clone(),
+            fingerprint.clone(),
+        ))
+        .unwrap();
+        let admin = crate::authorize_stage8b_p1_first_boot(
+            &validated,
+            crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+        )
+        .unwrap();
+        drop(
+            crate::first_boot_stage8b_p1(
+                validated,
+                admin,
+                source,
+                export_input,
+                &key,
+                fresh.clone(),
+            )
+            .unwrap(),
+        );
+
+        let restart_config = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.clone(),
+            fingerprint,
+        ))
+        .unwrap();
+        let restart = crate::restart_stage8b_p1(restart_config, &key, fresh).unwrap();
+        let Stage8bP1ePreRedisRestartV1::Attachable(owner) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("authenticated Ready restart must remain attachable")
+        };
+        assert_eq!(owner.kind(), Stage8bP1eRestartKindV1::Ready);
+        drop(owner);
+        fs::remove_dir_all(parent).unwrap();
     }
 }
