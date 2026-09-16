@@ -2481,8 +2481,8 @@ impl Stage6dDurableRuntimeRecovered {
             })
     }
 
-    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-    pub fn stage8b_p1e_test_working_binding_parts(
+    #[doc(hidden)]
+    pub fn stage8b_p1e_working_binding_parts(
         &self,
     ) -> Option<(BrokerOrderId, String, crate::Stage8bP1eM10IdentityV1)> {
         let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
@@ -2490,7 +2490,7 @@ impl Stage6dDurableRuntimeRecovered {
         };
         restart
             .stage8b_p1d3_replacement()?
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
     }
 
     /// Identifies the exact target-sealed predecessor of a recovered CANCEL

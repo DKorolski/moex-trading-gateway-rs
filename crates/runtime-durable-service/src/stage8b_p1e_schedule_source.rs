@@ -741,7 +741,7 @@ fn parse_redis_stream_id(value: &str) -> Option<(u64, u64)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
     use broker_core::{
@@ -1474,6 +1474,31 @@ mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) fn p1e_test_open_schedule_snapshot(
+        operational_identity_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        instrument_map_fingerprint_sha256: String,
+        redis_stream_id: String,
+        now: DateTime<Utc>,
+    ) -> Stage8bP1eVerifiedScheduleSnapshotV1 {
+        let (accepted, _, _, _) = signed_schedule_source(
+            operational_identity_sha256,
+            runtime_config_fingerprint_sha256,
+            instrument_map_fingerprint_sha256,
+            now,
+            Utc.with_ymd_and_hms(2026, 8, 3, 18, 0, 0)
+                .single()
+                .unwrap()
+                .timestamp_millis(),
+            false,
+        );
+        Stage8bP1eVerifiedScheduleSnapshotV1 {
+            redis_stream_id,
+            accepted,
+        }
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
     fn revised_schedule_envelope(
         base: &[u8],
         publication_sequence: u64,
@@ -1856,7 +1881,7 @@ mod tests {
             .unwrap()
             .into_ready_after_source_resolution();
         let (_, _, predecessor) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("initial LIMIT must remain Working");
         (setup, owner, predecessor)
     }
@@ -1873,7 +1898,7 @@ mod tests {
         let (mut setup, owner, predecessor) = p1e_test_working_limit_fixture();
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
         let (active_order, transition_sha256, _) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("working binding material must be authenticated");
         let candidate = p1e_test_m10_identity(
             &operational_identity,
@@ -1958,7 +1983,7 @@ mod tests {
         let (mut setup, owner, last_evaluated) = p1e_test_working_limit_fixture();
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
         let (active_order, transition_sha256, exact_last_evaluated) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("working binding material must be authenticated");
         assert_eq!(last_evaluated, exact_last_evaluated);
         p1e_test_install_closed_schedule(&mut setup, &owner, P1E_TEST_INITIAL_CANDIDATE_CLOSE_MS);
@@ -2019,7 +2044,7 @@ mod tests {
         let (mut setup, owner, _) = p1e_test_working_limit_fixture();
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
         let (target_order, _, _) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("cancel fixture requires one authenticated Working LIMIT");
         let source_attribution = owner.stage8b_p1d3_test_working_book_attribution().unwrap();
         let (attribution_prefix, _) = source_attribution
@@ -2069,7 +2094,7 @@ mod tests {
             .unwrap();
         let (owner, _, _) = prepublication.into_p1c_parts();
         let (active_order, transition_sha256, predecessor) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("cancel semantic commit must preserve the exact Working LIMIT");
         let candidate_close_ms = cancel_decision_close_ms + 600_000;
         let candidate = p1e_test_m10_identity(&operational_identity, candidate_close_ms, 2_220);
@@ -2678,7 +2703,7 @@ mod tests {
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
         let before = owner.stage8b_p1e_test_checkpoint_snapshot();
         let (active_order, transition_sha256, exact_predecessor) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("working binding material must be authenticated");
         assert_eq!(predecessor, exact_predecessor);
         let candidate = p1e_test_m10_identity(
@@ -2767,7 +2792,7 @@ mod tests {
         let (mut setup, owner, predecessor) = p1e_test_working_limit_fixture();
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
         let (active_order, transition_sha256, _) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("working binding material must be authenticated");
         let exact = p1e_test_m10_identity(
             &operational_identity,
@@ -2856,7 +2881,7 @@ mod tests {
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
         let before = owner.stage8b_p1e_test_checkpoint_snapshot();
         let (active_order, transition_sha256, _) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("working binding material must be authenticated");
         let candidate = p1e_test_m10_identity(
             &operational_identity,
@@ -3026,7 +3051,7 @@ mod tests {
         let operational_identity = owner.stage8b_p1_operational_identity_sha256().to_string();
         let before = owner.stage8b_p1e_test_checkpoint_snapshot();
         let (active_order, transition_sha256, exact_last_evaluated) = owner
-            .stage8b_p1e_test_working_binding_parts()
+            .stage8b_p1e_working_binding_parts()
             .expect("working binding material must be authenticated");
         assert_eq!(last_evaluated, exact_last_evaluated);
         p1e_test_install_closed_schedule(&mut setup, &owner, P1E_TEST_INITIAL_CANDIDATE_CLOSE_MS);

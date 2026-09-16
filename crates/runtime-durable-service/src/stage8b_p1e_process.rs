@@ -44,9 +44,10 @@ use crate::{
     resume_stage8b_p1d4_dispatch_pending_with_redis, resume_stage8b_p1d4_order_pending_with_redis,
     resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
-    resume_stage8b_p1e_ready_source_with_redis, route_stage8b_p1e_post_acquisition_v1,
-    validate_stage8b_p1e_supervisor_config_v1, Stage7bRestartOutcome,
-    Stage8bP1RedisCommandPublished, Stage8bP1RedisFeedbackAckCommitted,
+    resume_stage8b_p1e_ready_source_with_redis,
+    resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
+    route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
+    Stage7bRestartOutcome, Stage8bP1RedisCommandPublished, Stage8bP1RedisFeedbackAckCommitted,
     Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
     Stage8bP1RedisGeneratedMarketAckCommitted, Stage8bP1RedisGeneratedMarketTruthCommitted,
     Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisLimitResolved,
@@ -59,7 +60,8 @@ use crate::{
     Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
     Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
     Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownIntentV1,
-    Stage8bP1eShutdownLatchV1, Stage8bP1eSupervisorConfigV1, Stage8bP1eValidatedSupervisorConfigV1,
+    Stage8bP1eShutdownLatchV1, Stage8bP1eSignedWorkingScheduleOutcomeV1,
+    Stage8bP1eSupervisorConfigV1, Stage8bP1eValidatedSupervisorConfigV1,
     Stage8bP1eVerifiedRedisSessionV1, STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
     STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
@@ -353,6 +355,8 @@ pub enum Stage8bP1eStartupErrorV1 {
     RedisControl(#[from] Stage8bP1eRedisControlError),
     #[error("S06/S06R source acquisition failed")]
     Source(#[from] Stage8bP1RedisSemanticError),
+    #[error("signed schedule read or binding failed")]
+    Schedule(#[from] crate::Stage8bP1eScheduleReadError),
 }
 
 /// Linear S05/S06 result.  The verified diagnostic control connection is held
@@ -714,6 +718,96 @@ impl Stage8bP1eScheduleDeferredRecoveryV1 {
 
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
+    }
+}
+
+pub struct Stage8bP1eScheduleStoppedRecoveryV1 {
+    receipt: crate::Stage8bP1eScheduleStopReceiptV1,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eScheduleStoppedRecoveryV1 {
+    pub fn receipt(&self) -> &crate::Stage8bP1eScheduleStopReceiptV1 {
+        &self.receipt
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub enum Stage8bP1eWorkingScheduleAdvanceOutcomeV1 {
+    Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
+    AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+    Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
+}
+
+/// Completes schedule checkpoints C-F for the exact Ready/Working-LIMIT
+/// continuation. Unsupported schedule routes are rejected before schedule
+/// I/O. An empty newest-only read retains the same linear permit; a stop drops
+/// effect authority and relies on authenticated restart while keeping the M10
+/// pending; a successful effect rejoins the row-bounded recovery state
+/// machine.
+pub async fn advance_stage8b_p1e_ready_working_schedule_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eWorkingScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let Stage8bP1eScheduleDeferredRecoveryV1 {
+        kind,
+        _route: route,
+        control,
+    } = deferred;
+    let Stage8bP1eScheduleDeferredRouteV1::RoutedContinuation(route) = *route else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+    let Stage8bP1eRoutedContinuationV1::ReadyWorkingLimit(permit) = *route else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+
+    match reader.read_newest_guarded(context, latch).await? {
+        crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            drop(permit);
+            Ok(Stage8bP1eWorkingScheduleAdvanceOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+            ))
+        }
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Empty,
+        ) => Ok(Stage8bP1eWorkingScheduleAdvanceOutcomeV1::AwaitingSchedule(
+            Stage8bP1eScheduleDeferredRecoveryV1 {
+                kind,
+                _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::RoutedContinuation(
+                    Box::new(Stage8bP1eRoutedContinuationV1::ReadyWorkingLimit(permit)),
+                )),
+                control,
+            },
+        )),
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+        ) => match resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
+            permit,
+            *snapshot,
+            latch,
+            bound_at_utc,
+            commitment_key,
+        )
+        .await?
+        {
+            Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt) => {
+                Ok(Stage8bP1eWorkingScheduleAdvanceOutcomeV1::Stopped(
+                    Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                ))
+            }
+            Stage8bP1eSignedWorkingScheduleOutcomeV1::Semantic(outcome) => {
+                Ok(Stage8bP1eWorkingScheduleAdvanceOutcomeV1::Lifecycle(
+                    classify_recovered_semantic_outcome(outcome, control),
+                ))
+            }
+        },
     }
 }
 

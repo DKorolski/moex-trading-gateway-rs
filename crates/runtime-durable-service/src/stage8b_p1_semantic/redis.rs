@@ -26,6 +26,7 @@ use crate::recovery::{
 };
 use crate::stage8b_p1_bootstrap::{stage8b_p1_redis_namespace, Stage8bP1RedisNamespace};
 use broker_core::{BrokerCommand, Envelope, MessageType, StrategyRequestId, SCHEMA_VERSION};
+use chrono::{DateTime, Utc};
 use redis::aio::ConnectionManager;
 use redis::streams::{
     StreamAutoClaimReply, StreamId, StreamPendingCountReply, StreamRangeReply, StreamReadReply,
@@ -921,6 +922,8 @@ pub enum Stage8bP1RedisSemanticError {
     P1d1DecisionBindingConflict,
     #[error("Stage 8B-P1-e continuation permit does not match the requested route")]
     P1eContinuationPermitRouteMismatch,
+    #[error("Stage 8B-P1-e signed schedule composition failed: {0}")]
+    P1eSchedule(#[from] crate::Stage8bP1eScheduleReadError),
 }
 
 struct Stage8bP1RedisBackend {
@@ -2957,6 +2960,97 @@ pub async fn resume_stage8b_p1e_ready_working_limit_source_with_redis(
     owner
         .process_claimed_working_limit(pending_m10, schedule_authority, commitment_key)
         .await
+}
+
+/// Result of the complete C-already-read/D/E/F Working-LIMIT schedule
+/// continuation. A stop result is diagnostic only: all lifecycle authority is
+/// consumed so the next process must reconstruct from the authenticated
+/// durable root while the exact source remains pending.
+pub enum Stage8bP1eSignedWorkingScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Semantic(Stage8bP1RedisSemanticOutcome),
+}
+
+/// Binds one already verified signed snapshot to the exact acquired Working
+/// LIMIT M10, commits+rereads V4, performs latch E and latch F, then executes
+/// only the inherited Working continuation. No Redis acquisition occurs here
+/// and the source can reach XACK only through the returned typed lifecycle.
+pub async fn resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
+    permit: Stage8bP1eContinuationPermitV1,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    let Stage8bP1ePostAcquisitionRouteV1::ReadyWorkingLimit { claimed } = consume_permit(permit)
+    else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
+    };
+    let (owner, pending_m10) = claimed.into_parts()?;
+    let operational_identity_sha256 = owner
+        .stage7
+        .stage8b_p1_operational_identity_sha256()
+        .to_string();
+    let candidate = pending_m10.parse_exact(&operational_identity_sha256)?;
+    let candidate = strategy_runtime_core::Stage8bP1eM10IdentityV1 {
+        close_ts_utc_ms: candidate.close_ts_utc_ms(),
+        open_ts_utc_ms: candidate.open_ts_utc_ms(),
+        payload_sha256: candidate.payload_sha256().to_string(),
+        redis_id: candidate.redis_id().to_string(),
+        semantic_id_sha256: candidate.semantic_id_sha256().to_string(),
+    };
+    let (active_broker_order_id, working_book_transition_sha256, predecessor) = owner
+        .stage7
+        .stage8b_p1e_working_binding_parts()
+        .ok_or(Stage8bP1RedisSemanticError::ExactSourceConflict)?;
+    let Stage8bP1RedisSemanticCompositionOwner { stage7, transport } = owner;
+    let committed = match crate::bind_stage8b_p1e_working_limit_schedule(
+        stage7,
+        snapshot,
+        latch,
+        &predecessor,
+        &candidate,
+        active_broker_order_id.as_str(),
+        working_book_transition_sha256,
+        bound_at_utc,
+        commitment_key,
+    )? {
+        crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+    };
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let owner = Stage8bP1RedisSemanticCompositionOwner { stage7, transport };
+    let outcome = owner
+        .process_claimed_working_limit(pending_m10, authority, commitment_key)
+        .await?;
+    Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Semantic(outcome))
 }
 
 /// The only conversion from acquired ownership to either shutdown retention
@@ -7767,6 +7861,76 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending.count(), 0, "claimed continuation must XACK once");
+        drop(connection);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn p1e_i1_ready_working_limit_signed_schedule_composes_c_through_f_and_xacks_last() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i1-ready-working-signed-schedule");
+        let (key, fresh, identity, mut owner) =
+            prepare_p1d4_later_working_owner(&redis.url, &parent, false, false, None).await;
+        let candidate_close_ms = P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000;
+        owner
+            .transport_mut()
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), candidate_close_ms, 2_220),
+                &identity,
+            )
+            .await
+            .unwrap();
+
+        let Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) =
+            poll_stage8b_p1e_ready_fresh_with_redis(owner)
+                .await
+                .unwrap()
+        else {
+            panic!("one fresh Working-LIMIT source must be acquired")
+        };
+        let clear_latch = Stage8bP1eShutdownLatchV1::new();
+        let Stage8bP1ePostAcquisitionDecisionV1::Continue(permit) =
+            decide_stage8b_p1e_post_acquisition_latch(acquired, &clear_latch)
+        else {
+            panic!("clear latch B must issue one route-exact permit")
+        };
+        let bound_at = Utc
+            .timestamp_millis_opt(candidate_close_ms)
+            .single()
+            .unwrap();
+        let snapshot = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_snapshot(
+            identity.clone(),
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            format!("{candidate_close_ms}-1"),
+            bound_at,
+        );
+        let outcome = resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
+            permit,
+            snapshot,
+            &clear_latch,
+            bound_at,
+            &key,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            Stage8bP1eSignedWorkingScheduleOutcomeV1::Semantic(
+                Stage8bP1RedisSemanticOutcome::Ready { .. }
+            )
+        ));
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "source XACK must remain lifecycle-last");
         drop(connection);
         fs::remove_dir_all(parent).unwrap();
     }

@@ -1128,8 +1128,7 @@ impl Stage8bP1d3ReplacementProjectionV1 {
         &self.authenticated_stage6_checkpoint_sha256
     }
 
-    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
-    pub(crate) fn stage8b_p1e_test_working_binding_parts(
+    pub(crate) fn stage8b_p1e_working_binding_parts(
         &self,
     ) -> Option<(BrokerOrderId, String, crate::Stage8bP1eM10IdentityV1)> {
         let active = self.working_book.active_record()?;

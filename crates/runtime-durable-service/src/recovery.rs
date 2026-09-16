@@ -3253,16 +3253,14 @@ impl Stage7bRecoveryReadyOwner {
             .ok_or(Stage7bRecoveryError::SealInvalid)
     }
 
-    #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
-    #[allow(dead_code)]
-    pub(crate) fn stage8b_p1e_test_working_binding_parts(
+    pub(crate) fn stage8b_p1e_working_binding_parts(
         &self,
     ) -> Option<(
         BrokerOrderId,
         String,
         strategy_runtime_core::Stage8bP1eM10IdentityV1,
     )> {
-        self.recovered.stage8b_p1e_test_working_binding_parts()
+        self.recovered.stage8b_p1e_working_binding_parts()
     }
 
     #[cfg(test)]

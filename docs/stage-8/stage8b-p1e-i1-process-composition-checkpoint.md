@@ -43,12 +43,22 @@ boundary and does not authorize installation or activation.
 - typed schedule-free S06R advancement from ACK to the exact replacement
   truth and from truth to exact source resolution/XACK-last, with a fresh
   latch permit required between every transition;
+- the first complete signed-schedule process path for a Ready/Working-LIMIT
+  source: latch C performs one bounded newest-only read, latch D binds the
+  exact acquired M10 and authenticated working-book transition, latch E
+  rereads the committed V4, and latch F issues only the inherited Working
+  authority before the existing semantic lifecycle runs;
+- an empty latch-C schedule read retains the same non-cloneable Working route
+  permit for a later bounded poll, while a stop at C, D, E, or F destroys all
+  effect authority and leaves the exact M10 pending for authenticated restart;
+- a real-Redis composition test proving the Working C-D-E-F success path
+  returns `Ready` and reaches source XACK only as the lifecycle's final step;
 - normalized quiescent, pending-not-claimable, multi-intent-blocked and
   schedule-deferred outputs that retain the verify-only control plane and do
   not expose raw lifecycle owners;
-- explicit deferral of Ready/working-LIMIT and the three P1-d3 dispatch routes
-  until exact signed schedule authority exists; no guessed or reconstructed
-  schedule authority is issued;
+- explicit deferral of Initial-LIMIT, Market, Cancel, Day-expiry and recovered
+  dispatch process routes until each can retain or reissue its exact signed V4
+  authority; no guessed or reconstructed schedule authority is issued;
 - deferred typed ownership for the LIMIT-versus-expiry dispatch decision and
   for an already committed signed schedule binding;
 - stable nonzero process exit classes and redacted stdout/stderr.
@@ -87,8 +97,9 @@ authorities; it must not attach and then return after dropping an owner.
 - composition of the new row-bounded S06R permit sequence into the owner task;
   the schedule-free ACK/truth/XACK transitions now exist, but the production
   loop must still drive each returned row through its mandatory latch recheck;
-- signed schedule-source binding and A-F latch composition for Market,
-  Working, Cancel, and Day-expiry routes;
+- signed schedule-source process composition for Initial-LIMIT, Market,
+  Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT now
+  covers C-F and must remain the reference ownership shape;
 - S08 bounded fresh polling and the continuing S09 owner loop;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;

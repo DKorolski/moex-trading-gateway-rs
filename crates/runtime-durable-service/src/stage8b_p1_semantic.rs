@@ -62,6 +62,7 @@ pub use redis::{
     resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
     resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_source_with_redis,
+    resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, Stage8bP1RedisCancelCommitOutcome,
     Stage8bP1RedisCancelContinuationPending, Stage8bP1RedisCommandPublicationDisposition,
     Stage8bP1RedisCommandPublicationReceipt, Stage8bP1RedisCommandPublished, Stage8bP1RedisConfig,
@@ -80,6 +81,7 @@ pub use redis::{
     Stage8bP1eReadySourceRouteV1, Stage8bP1eRetainedSourceReceiptV1,
     Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
     Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSignedWorkingScheduleOutcomeV1,
 };
 
 pub const STAGE8B_P1_CANONICAL_M10_SCHEMA_VERSION: u16 = 1;
