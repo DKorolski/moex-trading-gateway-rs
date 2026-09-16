@@ -53,6 +53,13 @@ boundary and does not authorize installation or activation.
   effect authority and leaves the exact M10 pending for authenticated restart;
 - a real-Redis composition test proving the Working C-D-E-F success path
   returns `Ready` and reaches source XACK only as the lifecycle's final step;
+- a complete plain-Market `CommandPublished` signed-schedule path: the exact
+  decision M10 and first canonical successor are bound into V4, latch E/F
+  precede the inherited paper provider, and the continuation stops at the
+  typed P1-d2 `S_ack` owner with the decision source still pending;
+- pre-I/O classification separates plain Market, generated Market and
+  Initial-LIMIT published owners, so the plain-Market bridge cannot mutate
+  either package-specific route before its own authority bridge exists;
 - one linear S08 polling owner shared by startup `Ready/no-pending` and every
   terminal recovered `Ready` route;
 - one bounded fresh read per S08 call: an empty read returns the exact same
@@ -73,9 +80,10 @@ boundary and does not authorize installation or activation.
 - normalized quiescent, pending-not-claimable, multi-intent-blocked and
   schedule-deferred outputs that retain the verify-only control plane and do
   not expose raw lifecycle owners;
-- explicit deferral of Initial-LIMIT, Market, Cancel, Day-expiry and recovered
-  dispatch process routes until each can retain or reissue its exact signed V4
-  authority; no guessed or reconstructed schedule authority is issued;
+- explicit deferral of Initial-LIMIT, generated Market, Cancel, Day-expiry and
+  recovered dispatch process routes until each can retain or reissue its exact
+  signed V4 authority; no guessed or reconstructed schedule authority is
+  issued;
 - deferred typed ownership for the LIMIT-versus-expiry dispatch decision and
   for an already committed signed schedule binding;
 - stable nonzero process exit classes and redacted stdout/stderr.
@@ -114,9 +122,10 @@ authorities; it must not attach and then return after dropping an owner.
 - composition of the new row-bounded S06R permit sequence into the owner task;
   the schedule-free ACK/truth/XACK transitions now exist, but the production
   loop must still drive each returned row through its mandatory latch recheck;
-- signed schedule-source process composition for Initial-LIMIT, Market,
-  Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT now
-  covers C-F and must remain the reference ownership shape;
+- signed schedule-source process composition for Initial-LIMIT, generated
+  Market, Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT
+  and plain Market now cover C-F and must remain the reference ownership
+  shapes;
 - composition of repeated S08 bounded polls and the new schedule-free drain
   into the long-lived S09 task; both single-invocation boundaries are now
   present;

@@ -44,6 +44,7 @@ use crate::{
     resume_stage8b_p1d4_dispatch_pending_with_redis, resume_stage8b_p1d4_order_pending_with_redis,
     resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
+    resume_stage8b_p1e_command_published_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
@@ -56,11 +57,12 @@ use crate::{
     Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
     Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckResolved,
     Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1ePostAcquisitionOwnerV1,
-    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
-    Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eRedisControlError,
-    Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRetainedSourceReceiptV1,
-    Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
-    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1ePublishedScheduleRouteV1,
+    Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
+    Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownIntentV1,
+    Stage8bP1eShutdownLatchV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
     Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
     STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
@@ -832,7 +834,10 @@ impl Stage8bP1eRecoveredBlockedV1 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage8bP1eScheduleDeferredKindV1 {
-    CommandPublished,
+    CommandPublishedMarket,
+    CommandPublishedGeneratedMarket,
+    CommandPublishedInitialLimit,
+    CommandPublishedUnsupported,
     RoutedContinuation,
 }
 
@@ -880,6 +885,86 @@ pub enum Stage8bP1eWorkingScheduleAdvanceOutcomeV1 {
     Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
     AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
     Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
+}
+
+pub enum Stage8bP1eMarketScheduleAdvanceOutcomeV1 {
+    Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
+    AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+    Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
+}
+
+/// Completes schedule checkpoints C-F for an already published Market
+/// command. Empty newest-only reads retain the exact published owner. A
+/// successful schedule binding reaches exactly one S_ack owner and rejoins
+/// the ordinary row-bounded recovery state machine.
+pub async fn advance_stage8b_p1e_market_schedule_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eMarketScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let Stage8bP1eScheduleDeferredRecoveryV1 {
+        kind,
+        _route: route,
+        control,
+    } = deferred;
+    if kind != Stage8bP1eScheduleDeferredKindV1::CommandPublishedMarket {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    }
+    let Stage8bP1eScheduleDeferredRouteV1::CommandPublished(published) = *route else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+
+    match reader.read_newest_guarded(context, latch).await? {
+        crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            drop(published);
+            Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+            ))
+        }
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Empty,
+        ) => Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::AwaitingSchedule(
+            Stage8bP1eScheduleDeferredRecoveryV1 {
+                kind,
+                _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                    published,
+                )),
+                control,
+            },
+        )),
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+        ) => match resume_stage8b_p1e_command_published_with_signed_schedule(
+            *published,
+            *snapshot,
+            latch,
+            bound_at_utc,
+            commitment_key,
+        )
+        .await?
+        {
+            Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt) => {
+                Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::Stopped(
+                    Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                ))
+            }
+            Stage8bP1eSignedMarketScheduleOutcomeV1::FeedbackAckCommitted(ack) => {
+                Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::Lifecycle(
+                    Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                        Stage8bP1eRecoveryStepV1 {
+                            route: Box::new(Stage8bP1eRecoveryStepRouteV1::FeedbackAckCommitted(
+                                ack,
+                            )),
+                            control,
+                        },
+                    )),
+                ))
+            }
+        },
+    }
 }
 
 /// Completes schedule checkpoints C-F for the exact Ready/Working-LIMIT
@@ -1109,9 +1194,23 @@ pub async fn advance_stage8b_p1e_recovery_once_v1(
             )))
         }
         Stage8bP1eRecoveryStepRouteV1::CommandPublished(published) => {
+            let kind = match published.p1e_schedule_route() {
+                Stage8bP1ePublishedScheduleRouteV1::PlainMarket => {
+                    Stage8bP1eScheduleDeferredKindV1::CommandPublishedMarket
+                }
+                Stage8bP1ePublishedScheduleRouteV1::GeneratedMarket => {
+                    Stage8bP1eScheduleDeferredKindV1::CommandPublishedGeneratedMarket
+                }
+                Stage8bP1ePublishedScheduleRouteV1::InitialLimit => {
+                    Stage8bP1eScheduleDeferredKindV1::CommandPublishedInitialLimit
+                }
+                Stage8bP1ePublishedScheduleRouteV1::Unsupported => {
+                    Stage8bP1eScheduleDeferredKindV1::CommandPublishedUnsupported
+                }
+            };
             Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::ScheduleDeferred(
                 Box::new(Stage8bP1eScheduleDeferredRecoveryV1 {
-                    kind: Stage8bP1eScheduleDeferredKindV1::CommandPublished,
+                    kind,
                     _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
                         published,
                     )),

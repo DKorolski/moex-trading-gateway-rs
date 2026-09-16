@@ -1396,6 +1396,14 @@ pub struct Stage8bP1RedisCommandPublished {
     p1d4_binding: Option<Stage8bP1d4CommandPublicationBindingV1>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1ePublishedScheduleRouteV1 {
+    PlainMarket,
+    GeneratedMarket,
+    InitialLimit,
+    Unsupported,
+}
+
 /// Exact source M10 remains pending while the replacement S_ack is already
 /// durable and reread. ACK replay is structurally unavailable from this type.
 pub struct Stage8bP1RedisFeedbackAckCommitted {
@@ -1483,6 +1491,28 @@ pub struct Stage8bP1RedisFeedbackResolved {
 }
 
 impl Stage8bP1RedisCommandPublished {
+    pub fn p1e_schedule_route(&self) -> Stage8bP1ePublishedScheduleRouteV1 {
+        let publication_pair = (self.p1d4_reservation.is_some(), self.p1d4_binding.is_some());
+        match (&self.command, publication_pair) {
+            (BrokerCommand::PlaceOrder(place), (false, false))
+                if place.order_type == broker_core::OrderType::Market =>
+            {
+                Stage8bP1ePublishedScheduleRouteV1::PlainMarket
+            }
+            (BrokerCommand::PlaceOrder(place), (true, true))
+                if place.order_type == broker_core::OrderType::Market =>
+            {
+                Stage8bP1ePublishedScheduleRouteV1::GeneratedMarket
+            }
+            (BrokerCommand::PlaceOrder(place), (false, false))
+                if place.order_type == broker_core::OrderType::Limit =>
+            {
+                Stage8bP1ePublishedScheduleRouteV1::InitialLimit
+            }
+            _ => Stage8bP1ePublishedScheduleRouteV1::Unsupported,
+        }
+    }
+
     pub fn evidence(&self) -> &Stage6Stage8bP1SemanticCommitEvidenceV1 {
         &self.evidence
     }
@@ -2969,6 +2999,144 @@ pub async fn resume_stage8b_p1e_ready_working_limit_source_with_redis(
 pub enum Stage8bP1eSignedWorkingScheduleOutcomeV1 {
     Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
     Semantic(Stage8bP1RedisSemanticOutcome),
+}
+
+/// Result of the complete C-already-read/D/E/F Market schedule
+/// continuation. The schedule binding is committed before either paper
+/// provider path can observe the canonical successor M10. A stop destroys
+/// all effect authority and leaves the originating source pending.
+pub enum Stage8bP1eSignedMarketScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    FeedbackAckCommitted(Box<Stage8bP1RedisFeedbackAckCommitted>),
+}
+
+fn stage8b_p1e_m10_identity_from_validated(
+    source: &Stage8bP1ValidatedCanonicalM10,
+) -> strategy_runtime_core::Stage8bP1eM10IdentityV1 {
+    strategy_runtime_core::Stage8bP1eM10IdentityV1 {
+        close_ts_utc_ms: source.close_ts_utc_ms(),
+        open_ts_utc_ms: source.open_ts_utc_ms(),
+        payload_sha256: source.payload_sha256().to_string(),
+        redis_id: source.redis_id().to_string(),
+        semantic_id_sha256: source.semantic_id_sha256().to_string(),
+    }
+}
+
+/// Binds one already verified signed snapshot to the exact published Market
+/// decision and its first canonical successor, commits+rereads V4, performs
+/// latch E and latch F, and only then enters the inherited paper provider.
+/// No fresh M10 acquisition or source acknowledgement is performed here.
+pub async fn resume_stage8b_p1e_command_published_with_signed_schedule(
+    mut published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedMarketScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    if published.p1e_schedule_route() != Stage8bP1ePublishedScheduleRouteV1::PlainMarket {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
+    }
+    if !published.command_matches_durable_evidence()
+        || published.pending_m10.redis_id() != published.evidence.m10_redis_id
+        || published.receipt.source_m10_redis_id != published.evidence.m10_redis_id
+    {
+        return Err(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict);
+    }
+    let operational_identity_sha256 = published
+        .stage7
+        .stage8b_p1_operational_identity_sha256()
+        .to_string();
+    let predecessor = published
+        .pending_m10
+        .parse_exact(&operational_identity_sha256)?;
+    let candidate = published
+        .transport
+        .backend
+        .exact_first_successor_m10(
+            published.pending_m10.redis_id(),
+            &operational_identity_sha256,
+        )
+        .await?;
+    let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
+    let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
+    let strategy_request_id = published
+        .evidence
+        .strategy_request_id
+        .ok_or(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict)?;
+    let canonical_command_sha256 = published
+        .evidence
+        .canonical_command_sha256
+        .clone()
+        .ok_or(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict)?;
+    let Stage8bP1RedisCommandPublished {
+        stage7,
+        evidence,
+        command,
+        transport,
+        pending_m10,
+        receipt,
+        p1d4_reservation,
+        p1d4_binding,
+    } = published;
+    let committed = match crate::bind_stage8b_p1e_market_schedule(
+        stage7,
+        snapshot,
+        latch,
+        &predecessor,
+        &candidate,
+        strategy_request_id.to_string(),
+        canonical_command_sha256,
+        bound_at_utc,
+        commitment_key,
+    )? {
+        crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+    };
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_market_schedule(permit, latch)? {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let published = Stage8bP1RedisCommandPublished {
+        stage7,
+        evidence,
+        command,
+        transport,
+        pending_m10,
+        receipt,
+        p1d4_reservation,
+        p1d4_binding,
+    };
+    Ok(
+        Stage8bP1eSignedMarketScheduleOutcomeV1::FeedbackAckCommitted(Box::new(
+            published
+                .execute_next_canonical_market(authority, commitment_key)
+                .await?,
+        )),
+    )
 }
 
 /// Binds one already verified signed snapshot to the exact acquired Working
@@ -7780,6 +7948,81 @@ mod tests {
         (key, fresh, identity, *pending, decision_close_ms)
     }
 
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn p1e_i1_published_market_signed_schedule_commits_ack_and_retains_source() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i1-published-market-signed-schedule");
+        let (mut pending, key, fresh, identity) = one_intent_pending(&redis, &parent).await;
+        let candidate_close_ms = 1_785_759_600_000;
+        pending
+            .transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), candidate_close_ms, 2_650),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let published = pending.publish_exact_command().await.unwrap();
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::PlainMarket
+        );
+        let bound_at = Utc
+            .timestamp_millis_opt(candidate_close_ms)
+            .single()
+            .unwrap();
+        let snapshot = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_snapshot(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            format!("{candidate_close_ms}-1"),
+            bound_at,
+        );
+        let outcome = resume_stage8b_p1e_command_published_with_signed_schedule(
+            published,
+            snapshot,
+            &Stage8bP1eShutdownLatchV1::new(),
+            bound_at,
+            &key,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            outcome,
+            Stage8bP1eSignedMarketScheduleOutcomeV1::FeedbackAckCommitted(_)
+        ));
+
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            pending.count(),
+            1,
+            "signed Market binding must stop at S_ack before source XACK"
+        );
+        drop(connection);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1e_i1_published_schedule_route_separates_initial_limit() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i1-published-initial-limit-route");
+        let (_, _, _, published) =
+            prepare_p1d3_initial_limit_source(&redis.url, &parent, 2_220).await;
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::InitialLimit
+        );
+        fs::remove_dir_all(parent).unwrap();
+    }
+
     #[tokio::test]
     async fn p1e_i1_ready_delivery_routes_working_limit_without_second_acquisition() {
         let redis = RedisServer::start().await;
@@ -8039,6 +8282,10 @@ mod tests {
             .publish_exact_generated_market_command(&key)
             .await
             .unwrap();
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::GeneratedMarket
+        );
         let reservation = published.p1d4_reservation.as_ref().unwrap();
         let binding = published.p1d4_binding.as_ref().unwrap();
         assert_eq!(
