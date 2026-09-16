@@ -922,6 +922,8 @@ pub enum Stage8bP1RedisSemanticError {
     P1d1DecisionBindingConflict,
     #[error("Stage 8B-P1-e continuation permit does not match the requested route")]
     P1eContinuationPermitRouteMismatch,
+    #[error("Stage 8B-P1-e trusted verification and durable binding clocks differ")]
+    P1eScheduleClockMismatch,
     #[error("Stage 8B-P1-e signed schedule composition failed: {0}")]
     P1eSchedule(#[from] crate::Stage8bP1eScheduleReadError),
 }
@@ -5552,7 +5554,7 @@ fn token(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::stage8b_p1_bootstrap::{
         authorize_stage8b_p1_first_boot, first_boot_stage8b_p1, restart_stage8b_p1,
@@ -7586,6 +7588,35 @@ mod tests {
         String,
     ) {
         one_intent_pending_at_with_entry_side(redis_url, parent, false).await
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_plain_market_published(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1RedisCommandPublished,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (mut pending, key, fresh, identity) = one_intent_pending_at(redis_url, parent).await;
+        let candidate_close_ms = 1_785_759_600_000;
+        pending
+            .transport
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), candidate_close_ms, 2_650),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let published = pending.publish_exact_command().await.unwrap();
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::PlainMarket
+        );
+        (published, key, fresh, identity, candidate_close_ms)
     }
 
     async fn one_intent_pending_at_with_entry_side(

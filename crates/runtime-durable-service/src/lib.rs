@@ -455,7 +455,8 @@ pub use stage8b_p1e_first_boot_transaction::{
 pub use stage8b_p1e_process::{
     acquire_stage8b_p1e_startup_owner_v1, advance_stage8b_p1e_market_schedule_v1,
     advance_stage8b_p1e_ready_working_schedule_v1, advance_stage8b_p1e_recovery_once_v1,
-    continue_stage8b_p1e_recovery_once_v1, drain_stage8b_p1e_schedule_free_recovery_v1,
+    advance_stage8b_p1e_supported_schedule_once_v1, continue_stage8b_p1e_recovery_once_v1,
+    drain_stage8b_p1e_recovery_lifecycle_v1, drain_stage8b_p1e_schedule_free_recovery_v1,
     execute_stage8b_p1e_process_command_v1, latch_stage8b_p1e_startup_owner_v1,
     parse_stage8b_p1e_process_command_v1, poll_stage8b_p1e_ready_once_v1,
     recheck_stage8b_p1e_recovery_step_latch_v1, run_stage8b_p1e_schedule_free_owner_loop_v1,
@@ -476,7 +477,7 @@ pub use stage8b_p1e_process::{
     Stage8bP1eScheduleStoppedRecoveryV1, Stage8bP1eStartupErrorV1,
     Stage8bP1eStartupLatchDecisionV1, Stage8bP1eStartupLatchKindV1, Stage8bP1eStartupOwnerKindV1,
     Stage8bP1eStartupOwnerV1, Stage8bP1eStoppedReadyPollingV1,
-    Stage8bP1eWorkingScheduleAdvanceOutcomeV1,
+    Stage8bP1eSupportedScheduleCycleOutcomeV1, Stage8bP1eWorkingScheduleAdvanceOutcomeV1,
 };
 pub use stage8b_p1e_schedule_source::{
     bind_stage8b_p1e_cancel_schedule, bind_stage8b_p1e_day_expiry_schedule,

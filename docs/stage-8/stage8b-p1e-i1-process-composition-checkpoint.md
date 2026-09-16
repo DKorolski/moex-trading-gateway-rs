@@ -80,6 +80,16 @@ boundary and does not authorize installation or activation.
 - the schedule-free S09 owner task: empty S08 reads and terminal Ready results
   remain inside one long-lived linear loop, while shutdown, retry-blocked and
   schedule-dependent results return typed ownership instead of dropping it;
+- one shared bounded lifecycle-to-S09 adapter for completed signed-schedule
+  effects: every returned ACK/truth row crosses the same first-wins latch and
+  only exact terminal Ready can become a fresh-poll owner again;
+- one bounded supported-schedule cycle that pre-classifies plain Market and
+  Ready/Working-LIMIT before schedule I/O, performs their existing C-F path,
+  and feeds the resulting lifecycle through that adapter; every other route
+  is returned as the same opaque unsupported owner;
+- exact equality between the trusted schedule-verification clock and the V4
+  binding clock, plus in-memory high-water advancement only after the signed
+  binding/effect path has returned a committed lifecycle owner;
 - schedule-dependent continuations leave that drain as an opaque retained
   owner, while pending-not-claimable, blocked and shutdown outcomes remain
   structurally unable to poll fresh data;
@@ -132,8 +142,9 @@ authorities; it must not attach and then return after dropping an owner.
   Market, Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT
   and plain Market now cover C-F and must remain the reference ownership
   shapes;
-- composition of the signed-schedule branches back into the new long-lived
-  S09 task; its schedule-free repeated S08/S06R path is now present;
+- bounded retry/deadline composition around the supported signed-schedule
+  cycle and its return to the long-lived S09 task; the schedule-free repeated
+  S08/S06R path and the exact lifecycle re-entry adapter are now present;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized

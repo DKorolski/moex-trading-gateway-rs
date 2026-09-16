@@ -34,6 +34,9 @@ use crate::stage8b_p1_bootstrap::{
 
 mod redis;
 
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+pub(crate) use redis::tests::p1e_test_plain_market_published;
+
 pub use redis::{
     acquire_stage8b_p1_journal_ahead_with_redis, acquire_stage8b_p1_prepublication_with_redis,
     acquire_stage8b_p1_zero_intent_ack_with_redis, acquire_stage8b_p1d2_ack_with_redis,
