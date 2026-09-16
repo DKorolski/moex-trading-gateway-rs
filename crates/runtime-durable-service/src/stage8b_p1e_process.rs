@@ -47,7 +47,8 @@ use crate::{
     resume_stage8b_p1e_ready_source_with_redis, route_stage8b_p1e_post_acquisition_v1,
     validate_stage8b_p1e_supervisor_config_v1, Stage7bRestartOutcome,
     Stage8bP1RedisCommandPublished, Stage8bP1RedisFeedbackAckCommitted,
-    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisGeneratedMarketAckCommitted,
+    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
+    Stage8bP1RedisGeneratedMarketAckCommitted, Stage8bP1RedisGeneratedMarketTruthCommitted,
     Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisLimitResolved,
     Stage8bP1RedisLimitTruthCommitted, Stage8bP1RedisPreAckRecoveryOutcome,
     Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
@@ -57,8 +58,8 @@ use crate::{
     Stage8bP1ePreSealRecoveryActionV5, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
     Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
     Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
-    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownLatchV1,
-    Stage8bP1eSupervisorConfigV1, Stage8bP1eValidatedSupervisorConfigV1,
+    Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownIntentV1,
+    Stage8bP1eShutdownLatchV1, Stage8bP1eSupervisorConfigV1, Stage8bP1eValidatedSupervisorConfigV1,
     Stage8bP1eVerifiedRedisSessionV1, STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
     STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
@@ -495,7 +496,9 @@ pub enum Stage8bP1eRecoveryStepRouteV1 {
     Prepublication(Box<Stage8bP1RedisPrepublicationPending>),
     CommandPublished(Box<Stage8bP1RedisCommandPublished>),
     GeneratedMarketAckCommitted(Box<Stage8bP1RedisGeneratedMarketAckCommitted>),
+    GeneratedMarketTruthCommitted(Box<Stage8bP1RedisGeneratedMarketTruthCommitted>),
     FeedbackAckCommitted(Box<Stage8bP1RedisFeedbackAckCommitted>),
+    FeedbackTruthCommitted(Box<Stage8bP1RedisFeedbackTruthCommitted>),
     FeedbackResolved(Box<Stage8bP1RedisFeedbackResolved>),
     LimitPreAckRecovered(Box<Stage8bP1RedisPreAckRecoveryOutcome>),
     LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
@@ -504,12 +507,61 @@ pub enum Stage8bP1eRecoveryStepRouteV1 {
     ScheduleDeferred(Box<Stage8bP1eRoutedContinuationV1>),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eRecoveryBoundaryKindV1 {
+    Semantic,
+    ZeroIntentResolved,
+    Prepublication,
+    CommandPublished,
+    GeneratedMarketAckCommitted,
+    GeneratedMarketTruthCommitted,
+    FeedbackAckCommitted,
+    FeedbackTruthCommitted,
+    FeedbackResolved,
+    LimitPreAckRecovered,
+    LimitAckCommitted,
+    LimitTruthCommitted,
+    LimitResolved,
+    ScheduleDeferred,
+}
+
+impl Stage8bP1eRecoveryStepRouteV1 {
+    const fn kind(&self) -> Stage8bP1eRecoveryBoundaryKindV1 {
+        match self {
+            Self::Semantic(_) => Stage8bP1eRecoveryBoundaryKindV1::Semantic,
+            Self::ZeroIntentResolved(_) => Stage8bP1eRecoveryBoundaryKindV1::ZeroIntentResolved,
+            Self::Prepublication(_) => Stage8bP1eRecoveryBoundaryKindV1::Prepublication,
+            Self::CommandPublished(_) => Stage8bP1eRecoveryBoundaryKindV1::CommandPublished,
+            Self::GeneratedMarketAckCommitted(_) => {
+                Stage8bP1eRecoveryBoundaryKindV1::GeneratedMarketAckCommitted
+            }
+            Self::GeneratedMarketTruthCommitted(_) => {
+                Stage8bP1eRecoveryBoundaryKindV1::GeneratedMarketTruthCommitted
+            }
+            Self::FeedbackAckCommitted(_) => Stage8bP1eRecoveryBoundaryKindV1::FeedbackAckCommitted,
+            Self::FeedbackTruthCommitted(_) => {
+                Stage8bP1eRecoveryBoundaryKindV1::FeedbackTruthCommitted
+            }
+            Self::FeedbackResolved(_) => Stage8bP1eRecoveryBoundaryKindV1::FeedbackResolved,
+            Self::LimitPreAckRecovered(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitPreAckRecovered,
+            Self::LimitAckCommitted(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitAckCommitted,
+            Self::LimitTruthCommitted(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitTruthCommitted,
+            Self::LimitResolved(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitResolved,
+            Self::ScheduleDeferred(_) => Stage8bP1eRecoveryBoundaryKindV1::ScheduleDeferred,
+        }
+    }
+}
+
 pub struct Stage8bP1eRecoveryStepV1 {
     route: Box<Stage8bP1eRecoveryStepRouteV1>,
     control: Stage8bP1eRedisControlV1,
 }
 
 impl Stage8bP1eRecoveryStepV1 {
+    pub fn kind(&self) -> Stage8bP1eRecoveryBoundaryKindV1 {
+        self.route.kind()
+    }
+
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
     }
@@ -519,6 +571,372 @@ impl Stage8bP1eRecoveryStepV1 {
             self.route.as_ref(),
             Stage8bP1eRecoveryStepRouteV1::ScheduleDeferred(_)
         )
+    }
+}
+
+/// Diagnostic-only shutdown result at an authenticated S06R row boundary.
+/// The lifecycle owner is deliberately dropped so restart must reconstruct it
+/// from the durable package; no continuation authority is retained here.
+pub struct Stage8bP1eRetainedRecoveryBoundaryV1 {
+    kind: Stage8bP1eRecoveryBoundaryKindV1,
+    shutdown_intent: Stage8bP1eShutdownIntentV1,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eRetainedRecoveryBoundaryV1 {
+    pub const fn kind(&self) -> Stage8bP1eRecoveryBoundaryKindV1 {
+        self.kind
+    }
+
+    pub fn shutdown_intent(&self) -> &Stage8bP1eShutdownIntentV1 {
+        &self.shutdown_intent
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+/// Single-use authority to advance exactly one already-authenticated recovery
+/// boundary. It can be created only by a clear post-boundary latch check.
+///
+/// ```compile_fail
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<runtime_durable_service::Stage8bP1eRecoveryAdvancePermitV1>();
+/// ```
+pub struct Stage8bP1eRecoveryAdvancePermitV1 {
+    step: Stage8bP1eRecoveryStepV1,
+}
+
+pub enum Stage8bP1eRecoveryLatchDecisionV1 {
+    RetainForRestart(Stage8bP1eRetainedRecoveryBoundaryV1),
+    Continue(Stage8bP1eRecoveryAdvancePermitV1),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eRecoveredReadyKindV1 {
+    Semantic,
+    ZeroIntent,
+    Feedback,
+    Limit,
+}
+
+#[allow(
+    dead_code,
+    reason = "opaque linear owners are retained for the future S08 boundary"
+)]
+enum Stage8bP1eRecoveredReadyRouteV1 {
+    Semantic(Stage8bP1RedisSemanticOutcome),
+    ZeroIntent(Stage8bP1RedisZeroIntentAckResolved),
+    Feedback(Stage8bP1RedisFeedbackResolved),
+    Limit(Stage8bP1RedisLimitResolved),
+}
+
+/// Quiescent owner reached only after the selected lifecycle has completed
+/// its exact terminal boundary, including source XACK-last where applicable.
+pub struct Stage8bP1eRecoveredReadyV1 {
+    kind: Stage8bP1eRecoveredReadyKindV1,
+    _route: Box<Stage8bP1eRecoveredReadyRouteV1>,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eRecoveredReadyV1 {
+    pub const fn kind(&self) -> Stage8bP1eRecoveredReadyKindV1 {
+        self.kind
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub struct Stage8bP1eRecoveredPendingNotClaimableV1 {
+    _owner: Box<Stage8bP1RedisSemanticCompositionOwner>,
+    pending_m10_redis_id: String,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eRecoveredPendingNotClaimableV1 {
+    pub fn pending_m10_redis_id(&self) -> &str {
+        &self.pending_m10_redis_id
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub struct Stage8bP1eRecoveredBlockedV1 {
+    semantic_batch_id_sha256: String,
+    intent_count: usize,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eRecoveredBlockedV1 {
+    pub fn semantic_batch_id_sha256(&self) -> &str {
+        &self.semantic_batch_id_sha256
+    }
+
+    pub const fn intent_count(&self) -> usize {
+        self.intent_count
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stage8bP1eScheduleDeferredKindV1 {
+    CommandPublished,
+    RoutedContinuation,
+}
+
+#[allow(
+    dead_code,
+    reason = "opaque schedule-dependent owners are retained for I1A composition"
+)]
+enum Stage8bP1eScheduleDeferredRouteV1 {
+    CommandPublished(Box<Stage8bP1RedisCommandPublished>),
+    RoutedContinuation(Box<Stage8bP1eRoutedContinuationV1>),
+}
+
+pub struct Stage8bP1eScheduleDeferredRecoveryV1 {
+    kind: Stage8bP1eScheduleDeferredKindV1,
+    _route: Box<Stage8bP1eScheduleDeferredRouteV1>,
+    control: Stage8bP1eRedisControlV1,
+}
+
+impl Stage8bP1eScheduleDeferredRecoveryV1 {
+    pub const fn kind(&self) -> Stage8bP1eScheduleDeferredKindV1 {
+        self.kind
+    }
+
+    pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
+        &mut self.control
+    }
+}
+
+pub enum Stage8bP1eRecoveryAdvanceOutcomeV1 {
+    Continue(Box<Stage8bP1eRecoveryStepV1>),
+    Ready(Box<Stage8bP1eRecoveredReadyV1>),
+    PendingNotClaimable(Box<Stage8bP1eRecoveredPendingNotClaimableV1>),
+    Blocked(Box<Stage8bP1eRecoveredBlockedV1>),
+    ScheduleDeferred(Box<Stage8bP1eScheduleDeferredRecoveryV1>),
+}
+
+/// Rechecks the first-wins shutdown latch after exactly one accepted recovery
+/// row. A set latch destroys the in-memory continuation. A clear latch issues
+/// one opaque permit for exactly one further row.
+pub fn recheck_stage8b_p1e_recovery_step_latch_v1(
+    step: Stage8bP1eRecoveryStepV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Stage8bP1eRecoveryLatchDecisionV1 {
+    if let Some(shutdown_intent) = latch.intent().cloned() {
+        let Stage8bP1eRecoveryStepV1 { route, control } = step;
+        let kind = route.kind();
+        drop(route);
+        Stage8bP1eRecoveryLatchDecisionV1::RetainForRestart(Stage8bP1eRetainedRecoveryBoundaryV1 {
+            kind,
+            shutdown_intent,
+            control,
+        })
+    } else {
+        Stage8bP1eRecoveryLatchDecisionV1::Continue(Stage8bP1eRecoveryAdvancePermitV1 { step })
+    }
+}
+
+fn classify_recovered_semantic_outcome(
+    outcome: Stage8bP1RedisSemanticOutcome,
+    control: Stage8bP1eRedisControlV1,
+) -> Stage8bP1eRecoveryAdvanceOutcomeV1 {
+    match outcome {
+        ready @ Stage8bP1RedisSemanticOutcome::Ready { .. } => {
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(Box::new(Stage8bP1eRecoveredReadyV1 {
+                kind: Stage8bP1eRecoveredReadyKindV1::Semantic,
+                _route: Box::new(Stage8bP1eRecoveredReadyRouteV1::Semantic(ready)),
+                control,
+            }))
+        }
+        Stage8bP1RedisSemanticOutcome::Prepublication(pending) => {
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(Stage8bP1eRecoveryStepV1 {
+                route: Box::new(Stage8bP1eRecoveryStepRouteV1::Prepublication(pending)),
+                control,
+            }))
+        }
+        Stage8bP1RedisSemanticOutcome::PendingNotClaimable {
+            owner,
+            pending_m10_redis_id,
+        } => Stage8bP1eRecoveryAdvanceOutcomeV1::PendingNotClaimable(Box::new(
+            Stage8bP1eRecoveredPendingNotClaimableV1 {
+                _owner: owner,
+                pending_m10_redis_id,
+                control,
+            },
+        )),
+        Stage8bP1RedisSemanticOutcome::MultiIntentBlocked {
+            semantic_batch_id_sha256,
+            intent_count,
+        } => Stage8bP1eRecoveryAdvanceOutcomeV1::Blocked(Box::new(Stage8bP1eRecoveredBlockedV1 {
+            semantic_batch_id_sha256,
+            intent_count,
+            control,
+        })),
+    }
+}
+
+/// Advances one clear-latch S06R row. ACK boundaries can only create their
+/// exact replacement truth; truth boundaries can only resolve the exact
+/// source. The returned continuation must pass through another latch recheck
+/// before any later row, schedule lookup or fresh source read.
+pub async fn advance_stage8b_p1e_recovery_once_v1(
+    permit: Stage8bP1eRecoveryAdvancePermitV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eRecoveryAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let Stage8bP1eRecoveryAdvancePermitV1 { step } = permit;
+    let Stage8bP1eRecoveryStepV1 { route, control } = step;
+    match *route {
+        Stage8bP1eRecoveryStepRouteV1::Semantic(outcome) => {
+            Ok(classify_recovered_semantic_outcome(*outcome, control))
+        }
+        Stage8bP1eRecoveryStepRouteV1::ZeroIntentResolved(resolved) => Ok(
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(Box::new(Stage8bP1eRecoveredReadyV1 {
+                kind: Stage8bP1eRecoveredReadyKindV1::ZeroIntent,
+                _route: Box::new(Stage8bP1eRecoveredReadyRouteV1::ZeroIntent(*resolved)),
+                control,
+            })),
+        ),
+        Stage8bP1eRecoveryStepRouteV1::Prepublication(pending) => {
+            let published = pending.publish_exact_command().await?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                Stage8bP1eRecoveryStepV1 {
+                    route: Box::new(Stage8bP1eRecoveryStepRouteV1::CommandPublished(Box::new(
+                        published,
+                    ))),
+                    control,
+                },
+            )))
+        }
+        Stage8bP1eRecoveryStepRouteV1::CommandPublished(published) => {
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::ScheduleDeferred(
+                Box::new(Stage8bP1eScheduleDeferredRecoveryV1 {
+                    kind: Stage8bP1eScheduleDeferredKindV1::CommandPublished,
+                    _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                        published,
+                    )),
+                    control,
+                }),
+            ))
+        }
+        Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(ack) => {
+            let truth = ack.commit_truth(commitment_key).await?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                Stage8bP1eRecoveryStepV1 {
+                    route: Box::new(
+                        Stage8bP1eRecoveryStepRouteV1::GeneratedMarketTruthCommitted(Box::new(
+                            truth,
+                        )),
+                    ),
+                    control,
+                },
+            )))
+        }
+        Stage8bP1eRecoveryStepRouteV1::GeneratedMarketTruthCommitted(truth) => {
+            let resolved = truth.acknowledge_source().await?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(Box::new(
+                Stage8bP1eRecoveredReadyV1 {
+                    kind: Stage8bP1eRecoveredReadyKindV1::Feedback,
+                    _route: Box::new(Stage8bP1eRecoveredReadyRouteV1::Feedback(resolved)),
+                    control,
+                },
+            )))
+        }
+        Stage8bP1eRecoveryStepRouteV1::FeedbackAckCommitted(ack) => {
+            let truth = ack.commit_truth(commitment_key)?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                Stage8bP1eRecoveryStepV1 {
+                    route: Box::new(Stage8bP1eRecoveryStepRouteV1::FeedbackTruthCommitted(
+                        Box::new(truth),
+                    )),
+                    control,
+                },
+            )))
+        }
+        Stage8bP1eRecoveryStepRouteV1::FeedbackTruthCommitted(truth) => {
+            let resolved = truth.acknowledge_source().await?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(Box::new(
+                Stage8bP1eRecoveredReadyV1 {
+                    kind: Stage8bP1eRecoveredReadyKindV1::Feedback,
+                    _route: Box::new(Stage8bP1eRecoveredReadyRouteV1::Feedback(resolved)),
+                    control,
+                },
+            )))
+        }
+        Stage8bP1eRecoveryStepRouteV1::FeedbackResolved(resolved) => Ok(
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(Box::new(Stage8bP1eRecoveredReadyV1 {
+                kind: Stage8bP1eRecoveredReadyKindV1::Feedback,
+                _route: Box::new(Stage8bP1eRecoveredReadyRouteV1::Feedback(*resolved)),
+                control,
+            })),
+        ),
+        Stage8bP1eRecoveryStepRouteV1::LimitPreAckRecovered(recovered) => match *recovered {
+            Stage8bP1RedisPreAckRecoveryOutcome::AckCommitted(ack) => Ok(
+                Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(Stage8bP1eRecoveryStepV1 {
+                    route: Box::new(Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(Box::new(
+                        ack,
+                    ))),
+                    control,
+                })),
+            ),
+            Stage8bP1RedisPreAckRecoveryOutcome::TruthCommitted(truth) => Ok(
+                Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(Stage8bP1eRecoveryStepV1 {
+                    route: Box::new(Stage8bP1eRecoveryStepRouteV1::LimitTruthCommitted(
+                        Box::new(truth),
+                    )),
+                    control,
+                })),
+            ),
+            Stage8bP1RedisPreAckRecoveryOutcome::Semantic(outcome) => {
+                Ok(classify_recovered_semantic_outcome(outcome, control))
+            }
+        },
+        Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(ack) => {
+            let truth = ack.commit_truth(commitment_key)?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                Stage8bP1eRecoveryStepV1 {
+                    route: Box::new(Stage8bP1eRecoveryStepRouteV1::LimitTruthCommitted(
+                        Box::new(truth),
+                    )),
+                    control,
+                },
+            )))
+        }
+        Stage8bP1eRecoveryStepRouteV1::LimitTruthCommitted(truth) => {
+            let resolved = truth.acknowledge_source().await?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(Box::new(
+                Stage8bP1eRecoveredReadyV1 {
+                    kind: Stage8bP1eRecoveredReadyKindV1::Limit,
+                    _route: Box::new(Stage8bP1eRecoveredReadyRouteV1::Limit(resolved)),
+                    control,
+                },
+            )))
+        }
+        Stage8bP1eRecoveryStepRouteV1::LimitResolved(resolved) => Ok(
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Ready(Box::new(Stage8bP1eRecoveredReadyV1 {
+                kind: Stage8bP1eRecoveredReadyKindV1::Limit,
+                _route: Box::new(Stage8bP1eRecoveredReadyRouteV1::Limit(*resolved)),
+                control,
+            })),
+        ),
+        Stage8bP1eRecoveryStepRouteV1::ScheduleDeferred(route) => {
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::ScheduleDeferred(
+                Box::new(Stage8bP1eScheduleDeferredRecoveryV1 {
+                    kind: Stage8bP1eScheduleDeferredKindV1::RoutedContinuation,
+                    _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::RoutedContinuation(route)),
+                    control,
+                }),
+            ))
+        }
     }
 }
 

@@ -37,6 +37,15 @@ boundary and does not authorize installation or activation.
 - a one-step S06R dispatcher that calls only the route's accepted resume
   function while retaining the verify-only Redis control connection beside
   the resulting lifecycle owner;
+- a mandatory post-row latch recheck that destroys continuation authority on
+  shutdown and otherwise issues one non-cloneable permit for exactly one next
+  recovery row;
+- typed schedule-free S06R advancement from ACK to the exact replacement
+  truth and from truth to exact source resolution/XACK-last, with a fresh
+  latch permit required between every transition;
+- normalized quiescent, pending-not-claimable, multi-intent-blocked and
+  schedule-deferred outputs that retain the verify-only control plane and do
+  not expose raw lifecycle owners;
 - explicit deferral of Ready/working-LIMIT and the three P1-d3 dispatch routes
   until exact signed schedule authority exists; no guessed or reconstructed
   schedule authority is issued;
@@ -75,9 +84,9 @@ authorities; it must not attach and then return after dropping an owner.
 
 - production `run` wiring for credential load, S03 durable restart and the
   completed owner-retaining S04-S06 seam;
-- completion of multi-step S06R settlement from the new exact one-step result
-  through replacement truth and XACK-last to an authenticated quiescent,
-  schedule-deferred, blocked, or retained-source boundary;
+- composition of the new row-bounded S06R permit sequence into the owner task;
+  the schedule-free ACK/truth/XACK transitions now exist, but the production
+  loop must still drive each returned row through its mandatory latch recheck;
 - signed schedule-source binding and A-F latch composition for Market,
   Working, Cancel, and Day-expiry routes;
 - S08 bounded fresh polling and the continuing S09 owner loop;
