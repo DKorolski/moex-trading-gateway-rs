@@ -3039,6 +3039,46 @@ mod tests {
         }
     }
 
+    fn supervisor_config_bytes(parent: &Path) -> Vec<u8> {
+        let (_, runtime_config_fingerprint_sha256) =
+            crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": crate::STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION,
+            "runtime_profile_id": crate::STAGE8B_P1E_RUNTIME_PROFILE_ID,
+            "runtime_profile_sha256": crate::STAGE8B_P1E_RUNTIME_PROFILE_SHA256,
+            "first_boot_source_bundle_sha256": "11".repeat(32),
+            "redis_url": crate::STAGE8B_P1E_REDIS_URL_IPV4,
+            "redis_deployment_manifest_sha256": "22".repeat(32),
+            "redis_runtime_policy_id": crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID,
+            "redis_runtime_policy_sha256": crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256,
+            "telemetry_contract_sha256": crate::STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256,
+            "health_interval_ms": 5_000,
+            "shutdown_grace_ms": 30_000,
+            "bootstrap": {
+                "schema_version": crate::STAGE8B_P1_BOOTSTRAP_CONFIG_SCHEMA_VERSION,
+                "broker_id": crate::STAGE8B_P1_BROKER_ID,
+                "strategy_id": crate::STAGE8B_P1_STRATEGY_ID,
+                "account_id": "ACC_TEST_0001",
+                "internal_symbol": crate::STAGE8B_P1_INTERNAL_SYMBOL,
+                "venue_symbol": crate::STAGE8B_P1_VENUE_SYMBOL,
+                "exchange": crate::STAGE8B_P1_EXCHANGE,
+                "market": crate::STAGE8B_P1_MARKET,
+                "tick_size": crate::STAGE8B_P1_TICK_SIZE,
+                "runtime_config_fingerprint_sha256": runtime_config_fingerprint_sha256,
+                "instrument_map_fingerprint_sha256":
+                    crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                "deployment_id": "finam-imoexf-paper-p1",
+                "deployment_generation": 1,
+                "gateway_instance_id": "finam-imoexf-paper-gateway-1",
+                "market_data_generation": 1,
+                "command_consumer_generation": 1,
+                "stage8a4_writer_issuer_public_key_hex": "33".repeat(32),
+                "durable_parent": parent,
+            }
+        }))
+        .unwrap()
+    }
+
     fn source_m1(open_ts_utc_ms: i64) -> Vec<crate::Stage8bP1CanonicalM10SourceM1> {
         (0..10)
             .map(|index| {
@@ -3217,6 +3257,38 @@ mod tests {
             Err(Stage8bP1eProcessErrorV1::ConfigBoundary)
         ));
         assert!(started.elapsed() < StdDuration::from_secs(1));
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_guard_crosses_production_config_routing_without_credential_redis_or_durable_effect(
+    ) {
+        let directory = temp_directory("run-guard-routing");
+        let durable_parent = directory.join("durable");
+        fs::create_dir(&durable_parent).unwrap();
+        fs::set_permissions(&durable_parent, fs::Permissions::from_mode(0o700)).unwrap();
+        let durable_parent = fs::canonicalize(durable_parent).unwrap();
+        let config_path = directory.join("supervisor.json");
+        fs::write(&config_path, supervisor_config_bytes(&durable_parent)).unwrap();
+        fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let expected_uid = fs::metadata(&config_path).unwrap().uid();
+        let boot_id_path = directory.join("boot_id");
+        fs::write(&boot_id_path, b"01234567-89ab-cdef-0123-456789abcdef\n").unwrap();
+
+        let result = execute_with_boundaries(
+            Stage8bP1eProcessCommandV1::Run,
+            &config_path,
+            &boot_id_path,
+            DateTime::<Utc>::from_timestamp_millis(1_785_759_000_000).unwrap(),
+            expected_uid,
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(Stage8bP1eProcessErrorV1::OwnerLoopUnavailable)
+        ));
+        assert_eq!(fs::read_dir(&durable_parent).unwrap().count(), 0);
         fs::remove_dir_all(directory).unwrap();
     }
 
