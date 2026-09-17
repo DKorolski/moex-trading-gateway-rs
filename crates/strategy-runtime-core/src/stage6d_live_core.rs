@@ -1940,6 +1940,20 @@ impl Stage6dDurableRuntimeRecovered {
                 if !decision.matches_stage8b_p1e_market_candidate(candidate) {
                     return Ok(false);
                 }
+                if candidate.generated_market_publication_seal().is_some() {
+                    let Some(crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication {
+                        reservation,
+                    }) = self.stage8b_p1d4_generated_market_package_state()?
+                    else {
+                        return Ok(false);
+                    };
+                    return Ok(reservation.strategy_request_id().to_string()
+                        == decision_request_id
+                        && reservation.canonical_command_sha256()
+                            == decision.canonical_command_sha256()
+                        && reservation.source_m10_redis_id()
+                            == candidate.predecessor_m10().redis_id);
+                }
                 if is_recovery {
                     return Ok(true);
                 }
@@ -2282,6 +2296,13 @@ impl Stage6dDurableRuntimeRecovered {
         {
             return Err(Stage6dLiveCoreError::DurableOrderingViolation);
         }
+        if candidate.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            && candidate
+                .generated_market_publication_seal()
+                .is_some_and(|(generation, _)| generation != prior_covering_seal_generation)
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
         let previous_record_id = self
             .journal_frontier()
             .last_record_id()
@@ -2571,6 +2592,65 @@ impl Stage6dDurableRuntimeRecovered {
         restart
             .stage8b_p1d4_generated_market_package_state()
             .map_err(|_| Stage6dLiveCoreError::RestartPackageBindingMismatch)
+    }
+
+    /// Proves the single additional recovery-seal generation introduced by
+    /// a signed generated-Market V4. The proof is accepted only when the
+    /// checkpoint-covered latest V4 names the exact authenticated P1-d4
+    /// reservation and publication binding retained by Stage 5G.
+    pub fn stage8b_p1e_generated_market_schedule_bound(
+        &self,
+        expected_publication_binding: &crate::Stage8bP1d4CommandPublicationBindingV1,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        if self.authenticated_checkpoint.frontier() != self.journal_frontier() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let Some(package_state) = self.stage8b_p1d4_generated_market_package_state()? else {
+            return Ok(false);
+        };
+        let reservation = match package_state {
+            crate::Stage8bP1d4GeneratedMarketPackageState::Prepublication { reservation } => {
+                reservation
+            }
+            crate::Stage8bP1d4GeneratedMarketPackageState::AckCommitted {
+                reservation,
+                binding,
+            }
+            | crate::Stage8bP1d4GeneratedMarketPackageState::TruthCommitted {
+                reservation,
+                binding,
+            } => {
+                if binding != *expected_publication_binding {
+                    return Ok(false);
+                }
+                reservation
+            }
+        };
+        if expected_publication_binding
+            .validate_against(&reservation)
+            .is_err()
+        {
+            return Ok(false);
+        }
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let Some(record) = mixed.schedule_binding_records().last() else {
+            return Ok(false);
+        };
+        let request_binding = record.request_or_order_binding();
+        let request_id = reservation.strategy_request_id().to_string();
+        Ok(
+            record.transition_kind() == crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+                && record.predecessor_m10().redis_id == reservation.source_m10_redis_id()
+                && request_binding.strategy_request_id.as_deref() == Some(request_id.as_str())
+                && request_binding.canonical_command_sha256.as_deref()
+                    == Some(reservation.canonical_command_sha256())
+                && request_binding.publication_seal_generation
+                    == Some(expected_publication_binding.prepublication_seal_generation())
+                && request_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()
+                    == Some(expected_publication_binding.prepublication_seal_commitment_sha256()),
+        )
     }
 
     pub fn stage8b_p1d3_journal_ahead_uses_command_source(

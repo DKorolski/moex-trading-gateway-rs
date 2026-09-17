@@ -913,6 +913,17 @@ pub(crate) struct Stage8bP1eInitialLimitRestartMaterial {
     pub(crate) publication_seal_commitment_sha256: String,
 }
 
+pub(crate) struct Stage8bP1eGeneratedMarketRestartMaterial {
+    pub(crate) evidence: Stage6Stage8bP1SemanticCommitEvidenceV1,
+    pub(crate) command: BrokerCommand,
+    pub(crate) operational_identity_sha256: String,
+    pub(crate) predecessor_m10: strategy_runtime_core::Stage8bP1eM10IdentityV1,
+    pub(crate) candidate_m10: strategy_runtime_core::Stage8bP1eM10IdentityV1,
+    pub(crate) high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+    pub(crate) reservation: Stage8bP1d4CommandPublicationReservationV1,
+    pub(crate) publication_binding: Stage8bP1d4CommandPublicationBindingV1,
+}
+
 enum Stage8bP1eScheduleRecoveryTrust {
     Production,
     #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
@@ -995,6 +1006,86 @@ impl Stage8bP1eScheduleBindingCommittedOwner {
     pub(crate) fn is_initial_limit(&self) -> bool {
         self.binding.transition_kind()
             == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+    }
+
+    pub(crate) fn is_generated_market(&self) -> bool {
+        self.binding.transition_kind()
+            == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            && self.binding.generated_market_publication_seal().is_some()
+    }
+
+    pub(crate) fn generated_market_restart_material(
+        &self,
+    ) -> Result<Option<Stage8bP1eGeneratedMarketRestartMaterial>, Stage7bRecoveryError> {
+        if !self.is_generated_market() {
+            return Ok(None);
+        }
+        self.ready.require_lifecycle_available()?;
+        if self.binding.operational_identity_sha256()
+            != self.ready.stage8b_p1_operational_identity_sha256()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        let (evidence, command) = self
+            .ready
+            .recovered
+            .stage8b_p1_prepublication_material()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let Some(Stage8bP1d4GeneratedMarketPackageState::Prepublication { reservation }) = self
+            .ready
+            .recovered
+            .stage8b_p1d4_generated_market_package_state()?
+        else {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        };
+        let request_binding = self.binding.request_or_order_binding();
+        let command_sha256 = sha256_hex(
+            &serde_json::to_vec(&command).map_err(|_| Stage7bRecoveryError::SealInvalid)?,
+        );
+        let request_id = evidence
+            .strategy_request_id
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let request_id_text = request_id.to_string();
+        let (publication_seal_generation, publication_seal_commitment_sha256) = self
+            .binding
+            .generated_market_publication_seal()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        let publication_binding = Stage8bP1d4CommandPublicationBindingV1::from_reservation(
+            &reservation,
+            publication_seal_generation,
+            publication_seal_commitment_sha256.to_string(),
+        )
+        .map_err(|_| Stage7bRecoveryError::SealInvalid)?;
+        if evidence.m10_redis_id != self.binding.predecessor_m10().redis_id
+            || evidence.m10_semantic_id_sha256 != self.binding.predecessor_m10().semantic_id_sha256
+            || evidence.m10_payload_sha256 != self.binding.predecessor_m10().payload_sha256
+            || request_binding.strategy_request_id.as_deref() != Some(request_id_text.as_str())
+            || evidence.canonical_command_sha256.as_deref() != Some(command_sha256.as_str())
+            || request_binding.canonical_command_sha256.as_deref() != Some(command_sha256.as_str())
+            || reservation.strategy_request_id() != request_id
+            || reservation.source_m10_redis_id() != evidence.m10_redis_id
+            || reservation.canonical_command_sha256() != command_sha256
+            || publication_seal_generation.checked_add(1)
+                != Some(self.receipt.covering_seal_generation)
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(Some(Stage8bP1eGeneratedMarketRestartMaterial {
+            evidence,
+            command,
+            operational_identity_sha256: self
+                .ready
+                .stage8b_p1_operational_identity_sha256()
+                .to_string(),
+            predecessor_m10: self.binding.predecessor_m10().clone(),
+            candidate_m10: self.binding.candidate_or_last_eligible_m10().clone(),
+            high_water: self
+                .binding
+                .recovered_high_water()
+                .map_err(|_| Stage7bRecoveryError::SealInvalid)?,
+            reservation,
+            publication_binding,
+        }))
     }
 
     pub(crate) fn initial_limit_restart_material(
@@ -2137,9 +2228,15 @@ impl Stage8bP1d4GeneratedMarketAckCommittedOwner {
         self.ready.require_lifecycle_available()?;
         self.ready
             .revalidate_cached_committed_seal(commitment_key)?;
+        let schedule_bound = self
+            .ready
+            .recovered
+            .stage8b_p1e_generated_market_schedule_bound(&self.publication_binding)?;
         let expected_ack = self
             .publication_binding
             .prepublication_seal_generation()
+            .checked_add(u64::from(schedule_bound))
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
             .checked_add(1)
             .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
         let expected_truth = expected_ack
@@ -4497,6 +4594,20 @@ impl Stage7bRecoveryReadyOwner {
                     ),
                 )));
             }
+            if binding.transition_kind()
+                == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+                && binding
+                    .generated_market_publication_seal()
+                    .is_some_and(|(generation, _)| {
+                        generation != record.prior_covering_seal_generation()
+                    })
+            {
+                return Ok(Stage7bRestartOutcome::Blocked(Box::new(
+                    Stage7bRecoveryBlocked::after_consumed_storage(
+                        Stage7bRecoveryBlockReason::CheckpointMismatch,
+                    ),
+                )));
+            }
             let ready = Stage7bRecoveryReadyOwner {
                 recovered,
                 writer_lease,
@@ -4716,6 +4827,17 @@ impl Stage7bRecoveryReadyOwner {
                     self.committed_seal.seal_generation(),
                     self.committed_seal.seal_commitment_sha256(),
                 ))
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        if candidate.transition_kind()
+            == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            && candidate.generated_market_publication_seal().is_some_and(
+                |(generation, commitment)| {
+                    generation != self.committed_seal.seal_generation()
+                        || commitment != self.committed_seal.seal_commitment_sha256()
+                },
+            )
         {
             return Err(Stage7bRecoveryError::SealInvalid);
         }
@@ -5148,15 +5270,21 @@ impl Stage7bRecoveryReadyOwner {
     ) -> Result<Stage8bP1d4GeneratedMarketAckCommittedOwner, Stage7bRecoveryError> {
         self.require_lifecycle_available()?;
         self.revalidate_cached_committed_seal(commitment_key)?;
-        if publication_binding.prepublication_seal_generation()
-            != self.committed_seal.seal_generation()
-            || publication_binding.prepublication_seal_commitment_sha256()
-                != self.committed_seal.seal_commitment_sha256()
+        let schedule_bound = self
+            .recovered
+            .stage8b_p1e_generated_market_schedule_bound(&publication_binding)?;
+        let expected_pre_ack_seal_generation = publication_binding
+            .prepublication_seal_generation()
+            .checked_add(u64::from(schedule_bound))
+            .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
+        if self.committed_seal.seal_generation() != expected_pre_ack_seal_generation
+            || (!schedule_bound
+                && publication_binding.prepublication_seal_commitment_sha256()
+                    != self.committed_seal.seal_commitment_sha256())
         {
             return Err(Stage7bRecoveryError::SealInvalid);
         }
-        let expected_ack_seal_generation = publication_binding
-            .prepublication_seal_generation()
+        let expected_ack_seal_generation = expected_pre_ack_seal_generation
             .checked_add(1)
             .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
         let Stage7bRecoveryReadyOwner {
@@ -5795,6 +5923,17 @@ fn restart_stage8b_p1e_schedule_journal_ahead(
     {
         return Err(Stage7bRecoveryError::SealInvalid);
     }
+    if binding.transition_kind()
+        == strategy_runtime_core::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+        && binding
+            .generated_market_publication_seal()
+            .is_some_and(|(generation, commitment)| {
+                generation != committed_pre_binding_seal.seal_generation()
+                    || commitment != committed_pre_binding_seal.seal_commitment_sha256()
+            })
+    {
+        return Err(Stage7bRecoveryError::SealInvalid);
+    }
     // Verify the exact retained signed transition before replacing S0. A
     // malformed or untrusted V4 frame must never become covered merely because
     // its journal append reached disk.
@@ -5887,12 +6026,17 @@ fn restart_stage8b_p1d4_generated_market_direct(
             reservation,
             binding,
         } => {
+            let schedule_bound = ready
+                .recovered
+                .stage8b_p1e_generated_market_schedule_bound(&binding)?;
+            let expected_generation = binding
+                .prepublication_seal_generation()
+                .checked_add(u64::from(schedule_bound))
+                .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+                .checked_add(1)
+                .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
             if binding.validate_against(&reservation).is_err()
-                || ready.committed_seal.seal_generation()
-                    != binding
-                        .prepublication_seal_generation()
-                        .checked_add(1)
-                        .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+                || ready.committed_seal.seal_generation() != expected_generation
             {
                 return Err(Stage7bRecoveryError::SealInvalid);
             }
@@ -5907,12 +6051,17 @@ fn restart_stage8b_p1d4_generated_market_direct(
             reservation,
             binding,
         } => {
+            let schedule_bound = ready
+                .recovered
+                .stage8b_p1e_generated_market_schedule_bound(&binding)?;
+            let expected_generation = binding
+                .prepublication_seal_generation()
+                .checked_add(u64::from(schedule_bound))
+                .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+                .checked_add(2)
+                .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?;
             if binding.validate_against(&reservation).is_err()
-                || ready.committed_seal.seal_generation()
-                    != binding
-                        .prepublication_seal_generation()
-                        .checked_add(2)
-                        .ok_or(Stage7bRecoveryError::SealGenerationOverflow)?
+                || ready.committed_seal.seal_generation() != expected_generation
             {
                 return Err(Stage7bRecoveryError::SealInvalid);
             }

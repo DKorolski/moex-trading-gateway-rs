@@ -554,6 +554,41 @@ pub fn bind_stage8b_p1e_market_schedule(
     commit_binding_only(owner, binding, bound_at_utc, commitment_key)
 }
 
+/// Binds an already published generated-Market command to the exact signed
+/// schedule while retaining the independently committed P1-d4 publication
+/// seal in V4. The ordinary Market binding remains byte-for-byte unchanged.
+#[allow(clippy::too_many_arguments)]
+pub fn bind_stage8b_p1e_generated_market_schedule(
+    owner: Stage7bRecoveryReadyOwner,
+    snapshot: Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    predecessor: &Stage8bP1eM10IdentityV1,
+    candidate: &Stage8bP1eM10IdentityV1,
+    strategy_request_id: impl Into<String>,
+    canonical_command_sha256: impl Into<String>,
+    publication_seal_generation: u64,
+    publication_seal_commitment_sha256: impl Into<String>,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eScheduleBindingCommitV1, Stage8bP1eScheduleReadError> {
+    let owner = match binding_owner_after_latch_d(owner, latch) {
+        Ok(owner) => owner,
+        Err(commit) => return Ok(commit),
+    };
+    let binding = snapshot.accepted.prepare_generated_market_binding(
+        predecessor,
+        candidate,
+        strategy_request_id,
+        canonical_command_sha256,
+        (
+            publication_seal_generation,
+            publication_seal_commitment_sha256,
+        ),
+        snapshot.redis_stream_id,
+    )?;
+    commit_binding_only(owner, binding, bound_at_utc, commitment_key)
+}
+
 /// The only public initial-LIMIT schedule-step binding composition. Its
 /// request/command identity is bound like Market while the resulting one-use
 /// authority is restricted to the initial LIMIT transition.

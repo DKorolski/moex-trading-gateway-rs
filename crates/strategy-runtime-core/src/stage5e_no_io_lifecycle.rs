@@ -7905,6 +7905,22 @@ pub mod p1e_schedule_source {
             ))
         }
 
+        pub fn generated_market_publication_seal(&self) -> Option<(u64, &str)> {
+            if self.candidate.transition_kind != Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            {
+                return None;
+            }
+            Some((
+                self.candidate
+                    .request_or_order_binding
+                    .publication_seal_generation?,
+                self.candidate
+                    .request_or_order_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()?,
+            ))
+        }
+
         pub fn recovered_high_water(
             &self,
         ) -> Result<Stage8bP1eScheduleHighWaterV1, Stage8bP1eScheduleSourceError> {
@@ -8055,6 +8071,35 @@ pub mod p1e_schedule_source {
                     working_book_transition_sha256: None,
                     publication_seal_generation: None,
                     publication_seal_commitment_sha256: None,
+                },
+                redis_stream_id.into(),
+                Stage8bP1ePreparedScheduleRouteV1::Market(Box::new(projection)),
+            )
+        }
+
+        pub fn prepare_generated_market_binding(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            candidate: &Stage8bP1eM10IdentityV1,
+            strategy_request_id: impl Into<String>,
+            canonical_command_sha256: impl Into<String>,
+            publication_seal: (u64, impl Into<String>),
+            redis_stream_id: impl Into<String>,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            self.require_open_route()?;
+            let projection = self.open_projection(predecessor, candidate)?;
+            self.prepare_binding(
+                Stage8bP1eScheduleTransitionKindV1::MarketExecution,
+                Stage8bP1eScheduleAuthorityKindV1::Market,
+                predecessor,
+                candidate,
+                Stage8bP1eRequestOrOrderBindingV1 {
+                    strategy_request_id: Some(strategy_request_id.into()),
+                    canonical_command_sha256: Some(canonical_command_sha256.into()),
+                    active_broker_order_id: None,
+                    working_book_transition_sha256: None,
+                    publication_seal_generation: Some(publication_seal.0),
+                    publication_seal_commitment_sha256: Some(publication_seal.1.into()),
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::Market(Box::new(projection)),
@@ -8381,6 +8426,18 @@ pub mod p1e_schedule_source {
 
         pub fn initial_publication_seal(&self) -> Option<(u64, &str)> {
             if self.transition_kind != Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation {
+                return None;
+            }
+            Some((
+                self.request_or_order_binding.publication_seal_generation?,
+                self.request_or_order_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()?,
+            ))
+        }
+
+        pub fn generated_market_publication_seal(&self) -> Option<(u64, &str)> {
+            if self.transition_kind != Stage8bP1eScheduleTransitionKindV1::MarketExecution {
                 return None;
             }
             Some((
@@ -8854,20 +8911,38 @@ pub mod p1e_schedule_source {
         let candidate_m10 = record.candidate_or_last_eligible_m10();
         let binding = record.request_or_order_binding();
         let candidate = match record.transition_kind() {
-            Stage8bP1eScheduleTransitionKindV1::MarketExecution => accepted
-                .prepare_market_binding(
-                    &predecessor,
-                    &candidate_m10,
-                    binding
-                        .strategy_request_id
-                        .clone()
-                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
-                    binding
-                        .canonical_command_sha256
-                        .clone()
-                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
-                    record.redis_stream_id().to_string(),
-                )?,
+            Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+                let request_id = binding
+                    .strategy_request_id
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?;
+                let command_sha256 = binding
+                    .canonical_command_sha256
+                    .clone()
+                    .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?;
+                match (
+                    binding.publication_seal_generation,
+                    binding.publication_seal_commitment_sha256.clone(),
+                ) {
+                    (None, None) => accepted.prepare_market_binding(
+                        &predecessor,
+                        &candidate_m10,
+                        request_id,
+                        command_sha256,
+                        record.redis_stream_id().to_string(),
+                    )?,
+                    (Some(generation), Some(commitment)) => accepted
+                        .prepare_generated_market_binding(
+                            &predecessor,
+                            &candidate_m10,
+                            request_id,
+                            command_sha256,
+                            (generation, commitment),
+                            record.redis_stream_id().to_string(),
+                        )?,
+                    _ => return Err(Stage8bP1eScheduleSourceError::TransitionMismatch),
+                }
+            }
             Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => accepted
                 .prepare_initial_limit_binding(
                     &predecessor,
@@ -9628,6 +9703,16 @@ pub mod p1e_schedule_source {
     ) -> bool {
         match transition_kind {
             Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+                let publication_seal_valid = match (
+                    binding.publication_seal_generation,
+                    binding.publication_seal_commitment_sha256.as_deref(),
+                ) {
+                    (None, None) => true,
+                    (Some(generation), Some(commitment)) => {
+                        generation > 0 && valid_sha256(commitment)
+                    }
+                    _ => false,
+                };
                 binding
                     .strategy_request_id
                     .as_deref()
@@ -9638,8 +9723,7 @@ pub mod p1e_schedule_source {
                         .is_some_and(valid_sha256)
                     && binding.active_broker_order_id.is_none()
                     && binding.working_book_transition_sha256.is_none()
-                    && binding.publication_seal_generation.is_none()
-                    && binding.publication_seal_commitment_sha256.is_none()
+                    && publication_seal_valid
             }
             Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => {
                 binding

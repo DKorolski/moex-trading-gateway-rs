@@ -46,7 +46,9 @@ use crate::{
     resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
     resume_stage8b_p1e_command_published_with_signed_schedule,
+    resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
+    resume_stage8b_p1e_generated_market_with_signed_schedule,
     resume_stage8b_p1e_initial_limit_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
@@ -62,10 +64,12 @@ use crate::{
     Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1ePostAcquisitionOwnerV1,
     Stage8bP1ePreSealRecoveryActionV5, Stage8bP1ePublishedScheduleRouteV1,
     Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRedisControlError,
     Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRetainedSourceReceiptV1,
     Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
     Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
     Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
@@ -962,6 +966,12 @@ pub enum Stage8bP1eMarketScheduleAdvanceOutcomeV1 {
     Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
 }
 
+pub enum Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1 {
+    Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
+    AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+    Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
+}
+
 pub enum Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1 {
     Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
     AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
@@ -1044,6 +1054,7 @@ impl Stage8bP1eScheduleAcquisitionPolicyV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage8bP1eSupportedScheduleRouteV1 {
     PlainMarket,
+    GeneratedMarket,
     InitialLimit,
     ReadyWorkingLimit,
 }
@@ -1060,6 +1071,10 @@ fn supported_schedule_route(
             Stage8bP1eScheduleDeferredKindV1::CommandPublishedInitialLimit,
             Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_),
         ) => Some(Stage8bP1eSupportedScheduleRouteV1::InitialLimit),
+        (
+            Stage8bP1eScheduleDeferredKindV1::CommandPublishedGeneratedMarket,
+            Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_),
+        ) => Some(Stage8bP1eSupportedScheduleRouteV1::GeneratedMarket),
         (
             Stage8bP1eScheduleDeferredKindV1::RoutedContinuation,
             Stage8bP1eScheduleDeferredRouteV1::RoutedContinuation(route),
@@ -1322,6 +1337,131 @@ async fn advance_stage8b_p1e_market_schedule_with_timeout_v1(
     }
 }
 
+/// Completes schedule checkpoints C-F for the exact reservation-bearing
+/// generated-Market publication and rejoins the combined P1-d4 lifecycle.
+pub async fn advance_stage8b_p1e_generated_market_schedule_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    advance_stage8b_p1e_generated_market_schedule_with_timeout_v1(
+        deferred,
+        reader,
+        context,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        StdDuration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn advance_stage8b_p1e_generated_market_schedule_with_timeout_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    operation_timeout: StdDuration,
+) -> Result<Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    if context.trusted_now != bound_at_utc {
+        return Err(Stage8bP1RedisSemanticError::P1eScheduleClockMismatch.into());
+    }
+    if deferred.kind != Stage8bP1eScheduleDeferredKindV1::CommandPublishedGeneratedMarket
+        || !matches!(
+            deferred._route.as_ref(),
+            Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_)
+        )
+    {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    }
+    let read = match reader
+        .read_newest_guarded_with_timeout(context, latch, operation_timeout)
+        .await
+    {
+        Ok(read) => read,
+        Err(error) if retryable_schedule_read_error(&error) => {
+            return Ok(
+                Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::AwaitingSchedule(deferred),
+            );
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let Stage8bP1eScheduleDeferredRecoveryV1 {
+        kind,
+        _route: route,
+        control,
+    } = deferred;
+    let Stage8bP1eScheduleDeferredRouteV1::CommandPublished(published) = *route else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+    match read {
+        crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            drop(published);
+            Ok(Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+            ))
+        }
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Empty,
+        ) => Ok(
+            Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                Stage8bP1eScheduleDeferredRecoveryV1 {
+                    kind,
+                    _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                        published,
+                    )),
+                    control,
+                },
+            ),
+        ),
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+        ) => {
+            let committed_high_water = snapshot.high_water().clone();
+            match resume_stage8b_p1e_generated_market_with_signed_schedule(
+                *published,
+                *snapshot,
+                latch,
+                bound_at_utc,
+                commitment_key,
+            )
+            .await?
+            {
+                Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::Stopped(receipt) => {
+                    Ok(Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Stopped(
+                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                    ))
+                }
+                Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::GeneratedMarketAckCommitted(
+                    ack,
+                ) => {
+                    context.high_water = Some(committed_high_water);
+                    Ok(
+                        Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Lifecycle(
+                            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                                Stage8bP1eRecoveryStepV1 {
+                                    route: Box::new(
+                                        Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(
+                                            ack,
+                                        ),
+                                    ),
+                                    control,
+                                },
+                            )),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
 /// Completes schedule checkpoints C-F for the exact Ready/Working-LIMIT
 /// continuation. Unsupported schedule routes are rejected before schedule
 /// I/O. An empty newest-only read retains the same linear permit; a stop drops
@@ -1509,6 +1649,31 @@ async fn advance_stage8b_p1e_supported_schedule_once_with_timeout_v1(
                     ));
                 }
                 Stage8bP1eMarketScheduleAdvanceOutcomeV1::Lifecycle(lifecycle) => lifecycle,
+            }
+        }
+        Stage8bP1eSupportedScheduleRouteV1::GeneratedMarket => {
+            match advance_stage8b_p1e_generated_market_schedule_with_timeout_v1(
+                deferred,
+                reader,
+                context,
+                latch,
+                bound_at_utc,
+                commitment_key,
+                operation_timeout,
+            )
+            .await?
+            {
+                Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Stopped(stopped) => {
+                    return Ok(Stage8bP1eSupportedScheduleCycleOutcomeV1::Stopped(stopped));
+                }
+                Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::AwaitingSchedule(deferred) => {
+                    return Ok(Stage8bP1eSupportedScheduleCycleOutcomeV1::AwaitingSchedule(
+                        deferred,
+                    ));
+                }
+                Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Lifecycle(lifecycle) => {
+                    lifecycle
+                }
             }
         }
         Stage8bP1eSupportedScheduleRouteV1::InitialLimit => {
@@ -1844,7 +2009,67 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
                 transport,
                 control,
             } = pending;
-            if !durable.is_initial_limit() {
+            if durable.is_generated_market() {
+                match resume_stage8b_p1e_committed_generated_market_with_redis(
+                    durable,
+                    transport,
+                    latch,
+                    commitment_key,
+                )
+                .await
+                {
+                    Ok(Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::Stopped(
+                        receipt,
+                    )) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
+                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        ));
+                    }
+                    Ok(
+                        Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::GeneratedMarketAckCommitted {
+                            owner,
+                            high_water,
+                        },
+                    ) => {
+                        apply_recovered_schedule_high_water(context, Some(high_water))?;
+                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                                Stage8bP1eRecoveryStepV1 {
+                                    route: Box::new(
+                                        Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(
+                                            owner,
+                                        ),
+                                    ),
+                                    control,
+                                },
+                            )),
+                            latch,
+                            commitment_key,
+                        )
+                        .await?
+                        {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                                Stage8bP1eOwnerLoopEntryV1::Ready(ready)
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(retained));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::PendingNotClaimable(pending) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(
+                                    pending,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Blocked(blocked) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(deferred) => {
+                                Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred)
+                            }
+                        }
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            } else if !durable.is_initial_limit() {
                 return Ok(Stage8bP1eOwnerLoopOutcomeV1::StartupCommittedSchedule(
                     Stage8bP1eCommittedScheduleStartupV1 {
                         durable,
@@ -1852,57 +2077,62 @@ pub async fn run_stage8b_p1e_startup_owner_loop_v1(
                         control,
                     },
                 ));
-            }
-            match resume_stage8b_p1e_committed_initial_limit_with_redis(
-                durable,
-                transport,
-                latch,
-                commitment_key,
-            )
-            .await
-            {
-                Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::Stopped(receipt)) => {
-                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
-                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
-                    ));
-                }
-                Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::LimitAckCommitted {
-                    owner,
-                    high_water,
-                }) => {
-                    apply_recovered_schedule_high_water(context, Some(high_water))?;
-                    match drain_stage8b_p1e_recovery_lifecycle_v1(
-                        Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
-                            Stage8bP1eRecoveryStepV1 {
-                                route: Box::new(Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(
-                                    owner,
-                                )),
-                                control,
-                            },
-                        )),
-                        latch,
-                        commitment_key,
-                    )
-                    .await?
-                    {
-                        Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
-                            Stage8bP1eOwnerLoopEntryV1::Ready(ready)
-                        }
-                        Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
-                            return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(retained));
-                        }
-                        Stage8bP1eScheduleFreeDrainOutcomeV1::PendingNotClaimable(pending) => {
-                            return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(pending));
-                        }
-                        Stage8bP1eScheduleFreeDrainOutcomeV1::Blocked(blocked) => {
-                            return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
-                        }
-                        Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(deferred) => {
-                            Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred)
+            } else {
+                match resume_stage8b_p1e_committed_initial_limit_with_redis(
+                    durable,
+                    transport,
+                    latch,
+                    commitment_key,
+                )
+                .await
+                {
+                    Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::Stopped(receipt)) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(
+                            Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                        ));
+                    }
+                    Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::LimitAckCommitted {
+                        owner,
+                        high_water,
+                    }) => {
+                        apply_recovered_schedule_high_water(context, Some(high_water))?;
+                        match drain_stage8b_p1e_recovery_lifecycle_v1(
+                            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                                Stage8bP1eRecoveryStepV1 {
+                                    route: Box::new(
+                                        Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(owner),
+                                    ),
+                                    control,
+                                },
+                            )),
+                            latch,
+                            commitment_key,
+                        )
+                        .await?
+                        {
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                                Stage8bP1eOwnerLoopEntryV1::Ready(ready)
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(
+                                    retained,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::PendingNotClaimable(pending) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(
+                                    pending,
+                                ));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::Blocked(blocked) => {
+                                return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+                            }
+                            Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(deferred) => {
+                                Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred)
+                            }
                         }
                     }
+                    Err(error) => return Err(error.into()),
                 }
-                Err(error) => return Err(error.into()),
             }
         }
     };
@@ -4322,6 +4552,193 @@ mod tests {
         assert_eq!(
             commands_after, commands_before,
             "committed V4 restart must revalidate, never republish, the command"
+        );
+        drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn committed_generated_market_restart_revalidates_without_schedule_reread_or_republish() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("committed-generated-market-restart");
+        let (published, key, fresh, identity_sha256, candidate_close_ms) =
+            crate::stage8b_p1_semantic::p1e_test_generated_market_published(&redis.url, &parent)
+                .await;
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(candidate_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity_sha256,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut binding_reader =
+            crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex.clone(),
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+        let snapshot = match binding_reader
+            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap()
+        {
+            crate::Stage8bP1eGuardedScheduleReadV1::Read(
+                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+            ) => snapshot,
+            _ => panic!("fixture schedule must produce one verified generated-Market snapshot"),
+        };
+        let expected_high_water = snapshot.high_water().clone();
+        let _binding_receipt =
+            crate::stage8b_p1_semantic::p1e_test_commit_generated_market_v4_only(
+                published,
+                *snapshot,
+                trusted_now,
+                &key,
+            )
+            .await;
+        assert_eq!(binding_reader.test_read_attempts(), 1);
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let commands_before: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_before, 1);
+        let pending_before: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_before.count(), 1);
+
+        let operational_identity =
+            operational_identity_config(parent.clone(), fresh.stage5c_config_fingerprint());
+        let root_name =
+            crate::Stage7bDurableRootAuthority::expected_directory_name(&operational_identity)
+                .unwrap();
+        let root = crate::Stage7bDurableRootAuthority::validate(
+            parent.join(root_name),
+            &operational_identity,
+        )
+        .unwrap();
+        let restart = crate::Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+            root,
+            operational_identity,
+            &key,
+            fresh,
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .unwrap();
+        let Stage8bP1ePreRedisRestartV1::Attachable(restart) =
+            stage8b_p1e_route_pre_redis_restart_v1(restart)
+        else {
+            panic!("authenticated generated-Market V4 restart must remain attachable")
+        };
+        assert_eq!(
+            restart.kind(),
+            Stage8bP1eRestartKindV1::P1eScheduleBindingCommitted
+        );
+        let session =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_verified_redis_session_v1(&redis.url)
+                .await;
+        let startup = acquire_stage8b_p1e_startup_owner_v1(restart, session)
+            .await
+            .unwrap();
+        assert_eq!(
+            startup.kind(),
+            Stage8bP1eStartupOwnerKindV1::ScheduleBindingCommitted
+        );
+        let restart_reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let mut restart_context = fixture.context;
+        let latch = Stage8bP1eShutdownLatchV1::new();
+        let Stage8bP1eStartupLatchDecisionV1::ScheduleBindingCommitted(pending) =
+            latch_stage8b_p1e_startup_owner_v1(startup, &latch)
+        else {
+            panic!("restart must retain the committed generated-Market schedule route")
+        };
+        let Stage8bP1eCommittedScheduleStartupV1 {
+            durable,
+            transport,
+            control,
+        } = pending;
+        let Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1::GeneratedMarketAckCommitted {
+            owner,
+            high_water,
+        } = resume_stage8b_p1e_committed_generated_market_with_redis(
+            durable, transport, &latch, &key,
+        )
+        .await
+        .unwrap()
+        else {
+            panic!("clear restart latch must commit inherited generated-Market S_ack")
+        };
+        apply_recovered_schedule_high_water(&mut restart_context, Some(high_water)).unwrap();
+        let lifecycle =
+            Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(Stage8bP1eRecoveryStepV1 {
+                route: Box::new(Stage8bP1eRecoveryStepRouteV1::GeneratedMarketAckCommitted(
+                    owner,
+                )),
+                control,
+            }));
+        let Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) =
+            drain_stage8b_p1e_recovery_lifecycle_v1(lifecycle, &latch, &key)
+                .await
+                .unwrap()
+        else {
+            panic!("restarted generated-Market S_ack must drain to exact Ready")
+        };
+        assert_eq!(
+            restart_reader.test_read_attempts(),
+            0,
+            "committed generated-Market V4 restart must not reread signed schedule source"
+        );
+        assert_eq!(restart_context.high_water, Some(expected_high_water));
+        let pending_after: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            pending_after.count(),
+            0,
+            "generated S_truth must precede source XACK-last"
+        );
+        let commands_after: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands_after, commands_before,
+            "committed generated-Market V4 restart must revalidate, never republish, the command"
         );
         drop(ready);
         fs::remove_dir_all(parent).unwrap();

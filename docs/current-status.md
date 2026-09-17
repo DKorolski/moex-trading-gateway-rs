@@ -1762,7 +1762,34 @@ publication.
 
 A real-Redis plus disk-restart test proves one pending source before restart,
 zero schedule reads after restart, unchanged command-stream length and zero
-pending sources only after the replacement truth is durable. Generated
-Market, Cancel, Day-expiry and later retained Initial-LIMIT startup frontiers
-remain subsequent slices. Operational Redis DB0/DB15, VPS activation, FINAM
+pending sources only after the replacement truth is durable. At that
+checkpoint, generated Market, Cancel, Day-expiry and later retained
+Initial-LIMIT startup frontiers remained subsequent slices. Operational Redis DB0/DB15, VPS activation, FINAM
 POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 generated-Market signed schedule candidate (2026-09-17)
+
+The committed Initial-LIMIT restart at `3290371` is the immutable predecessor
+of this narrow source slice. The candidate composes the generated-Market
+`CommandPublished` route with the accepted signed-schedule C-F sequence while
+preserving the P1-d4 reservation, publication marker and package identity.
+
+Fresh execution writes and rereads one V4 record that binds the exact
+predecessor M10, first canonical successor, request/command identity and
+prepublication recovery seal before the existing generated-Market paper
+provider can execute. The P1-d4 replacement-seal rules accept the additional
+generation only when the checkpoint-covered V4 proves that exact publication
+binding; the legacy no-V4 generation contract remains unchanged.
+
+Authenticated restart directly from the committed V4 reclaims the exact PEL
+entry, revalidates the immutable Redis marker, canonical envelope, command
+bytes, reservation and publication binding, verifies the same first successor
+and restores signed-schedule high-water. It performs no schedule reread or
+command republish and rejoins the existing combined
+`S_ack -> S_truth -> XACK-last` path. A real-Redis plus disk-restart test proves
+the command-stream length remains unchanged and the source stays pending until
+truth is durable.
+
+Cancel, Day-expiry and their retained dispatch schedule routes remain later
+I1 slices. Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE,
+broker dispatch, runtime-live and real orders remain closed.

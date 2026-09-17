@@ -57,6 +57,20 @@ boundary and does not authorize installation or activation.
   decision M10 and first canonical successor are bound into V4, latch E/F
   precede the inherited paper provider, and the continuation stops at the
   typed P1-d2 `S_ack` owner with the decision source still pending;
+- a package-preserving generated-Market `CommandPublished` signed-schedule
+  path: the V4 record binds the exact P1-d4 reservation/publication seal,
+  request/command identity, decision M10 and first canonical successor before
+  latch E/F can issue the inherited generated-Market provider authority;
+- authenticated restart from that committed generated-Market V4 route: the
+  process reclaims only the exact predecessor PEL entry, revalidates the
+  immutable Redis marker/envelope/command and publication binding, verifies
+  the exact first successor, restores schedule high-water, and continues
+  through combined `S_ack -> S_truth -> XACK-last` without a second schedule
+  read or command publication;
+- generated-Market ACK/truth restart generation checks recognize the one
+  additional V4 generation only when the checkpoint-covered schedule record
+  proves the exact retained P1-d4 binding; the legacy no-V4 path keeps its
+  original generation contract;
 - a complete fresh Initial-LIMIT `CommandPublished` signed-schedule path: the
   exact request/command-bound decision M10 and its first canonical successor
   are sealed into a dedicated Initial-only V4 route, latch E/F issue only the
@@ -141,9 +155,9 @@ boundary and does not authorize installation or activation.
 - normalized quiescent, pending-not-claimable, multi-intent-blocked and
   schedule-deferred outputs that retain the verify-only control plane and do
   not expose raw lifecycle owners;
-- explicit deferral of generated Market, Cancel, Day-expiry and recovered
-  dispatch process routes until each can retain or reissue its exact signed V4
-  authority; no guessed or reconstructed schedule authority is issued;
+- explicit deferral of Cancel, Day-expiry and their recovered dispatch process
+  routes until each can retain or reissue its exact signed V4 authority; no
+  guessed or reconstructed schedule authority is issued;
 - deferred typed ownership for the LIMIT-versus-expiry dispatch decision and
   for an already committed signed schedule binding;
 - stable nonzero process exit classes and redacted stdout/stderr.
@@ -179,10 +193,10 @@ authorities; it must not attach and then return after dropping an owner.
 
 - production `run` wiring for credential load, S03 durable restart and the
   completed owner-retaining S04-S09 seam;
-- signed schedule-source process composition for generated Market, Cancel,
-  Day-expiry and recovered dispatch routes; Ready/Working-LIMIT, plain Market
-  and fresh Initial-LIMIT now cover C-F and must remain the reference ownership
-  shapes;
+- signed schedule-source process composition for Cancel, Day-expiry and their
+  recovered dispatch routes; Ready/Working-LIMIT, plain Market, generated
+  Market and fresh Initial-LIMIT now cover C-F and remain the reference
+  ownership shapes;
 - authenticated restart composition for later retained Initial-LIMIT
   frontiers after `S_ack`; the `ScheduleBindingCommitted` frontier is complete
   and remains the reference rule that no restart may reconstruct or guess
