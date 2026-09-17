@@ -1554,6 +1554,29 @@ enum Stage8bP1eOwnerLoopEntryV1 {
     ScheduleDeferred(Stage8bP1eScheduleDeferredRecoveryV1),
 }
 
+struct Stage8bP1eOwnerLoopClockV1 {
+    trusted_utc_anchor: DateTime<Utc>,
+    monotonic_anchor: tokio::time::Instant,
+}
+
+impl Stage8bP1eOwnerLoopClockV1 {
+    fn new(trusted_utc_anchor: DateTime<Utc>) -> Self {
+        Self {
+            trusted_utc_anchor,
+            monotonic_anchor: tokio::time::Instant::now(),
+        }
+    }
+
+    fn trusted_now(&self) -> Result<DateTime<Utc>, Stage8bP1eStartupErrorV1> {
+        let elapsed = tokio::time::Instant::now().saturating_duration_since(self.monotonic_anchor);
+        let elapsed = chrono::Duration::from_std(elapsed)
+            .map_err(|_| Stage8bP1RedisSemanticError::P1eScheduleClockMismatch)?;
+        self.trusted_utc_anchor
+            .checked_add_signed(elapsed)
+            .ok_or_else(|| Stage8bP1RedisSemanticError::P1eScheduleClockMismatch.into())
+    }
+}
+
 /// Consumes the sole S05/S06 startup owner and joins every already-composed
 /// route to the long-lived S08/S09 task. Startup routes whose signed authority
 /// bridge is not yet composed remain typed terminal owners; they are never
@@ -1638,6 +1661,7 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let clock = Stage8bP1eOwnerLoopClockV1::new(context.trusted_now);
     loop {
         let mut deferred = match entry {
             Stage8bP1eOwnerLoopEntryV1::Ready(ready) => {
@@ -1668,6 +1692,11 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
         };
 
         loop {
+            // Refresh the trusted schedule clock from one UTC/monotonic anchor
+            // before every acquisition cycle. A long Ready polling interval
+            // therefore cannot leave freshness checks pinned to process-start
+            // time, and a later wall-clock adjustment cannot move time back.
+            context.trusted_now = clock.trusted_now()?;
             match advance_stage8b_p1e_supported_schedule_bounded_v1(
                 deferred,
                 reader,
@@ -3510,6 +3539,19 @@ mod tests {
         )));
         drop(stopped);
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn owner_loop_trusted_clock_advances_monotonically_across_idle_time() {
+        let anchor = DateTime::<Utc>::from_timestamp_millis(1_785_759_000_000).unwrap();
+        let clock = Stage8bP1eOwnerLoopClockV1::new(anchor);
+
+        let first = clock.trusted_now().unwrap();
+        tokio::time::sleep(StdDuration::from_millis(10)).await;
+        let second = clock.trusted_now().unwrap();
+
+        assert!(first >= anchor);
+        assert!(second > first);
     }
 
     #[tokio::test]

@@ -84,6 +84,10 @@ boundary and does not authorize installation or activation.
   schedule-free drain and every completed supported signed-schedule cycle;
   Ready is absent from its terminal API, so successful schedule processing
   immediately resumes bounded fresh polling without releasing ownership;
+- one UTC anchor paired with one monotonic process anchor for that long-lived
+  owner task: the trusted schedule-verification time is refreshed before every
+  acquisition cycle, so a long Ready interval cannot preserve stale
+  process-start time and a wall-clock rollback cannot move trusted time back;
 - one linear S05/S06-to-S09 entry seam: Ready/no-pending and every composed
   continuation enter the same long-lived task, while LIMIT-dispatch and
   committed-binding startup routes remain explicit typed terminal owners until
