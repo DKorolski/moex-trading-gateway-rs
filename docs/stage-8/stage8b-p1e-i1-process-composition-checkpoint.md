@@ -84,6 +84,10 @@ boundary and does not authorize installation or activation.
   schedule-free drain and every completed supported signed-schedule cycle;
   Ready is absent from its terminal API, so successful schedule processing
   immediately resumes bounded fresh polling without releasing ownership;
+- one linear S05/S06-to-S09 entry seam: Ready/no-pending and every composed
+  continuation enter the same long-lived task, while LIMIT-dispatch and
+  committed-binding startup routes remain explicit typed terminal owners until
+  their exact signed-authority bridges are composed;
 - one shared bounded lifecycle-to-S09 adapter for completed signed-schedule
   effects: every returned ACK/truth row crosses the same first-wins latch and
   only exact terminal Ready can become a fresh-poll owner again;
@@ -148,10 +152,7 @@ authorities; it must not attach and then return after dropping an owner.
 ## Still required before review
 
 - production `run` wiring for credential load, S03 durable restart and the
-  completed owner-retaining S04-S06 seam;
-- composition of the new row-bounded S06R permit sequence into the owner task;
-  the schedule-free ACK/truth/XACK transitions now exist, but the production
-  loop must still drive each returned row through its mandatory latch recheck;
+  completed owner-retaining S04-S09 seam;
 - signed schedule-source process composition for Initial-LIMIT, generated
   Market, Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT
   and plain Market now cover C-F and must remain the reference ownership

@@ -1544,6 +1544,70 @@ pub enum Stage8bP1eOwnerLoopOutcomeV1 {
     Blocked(Stage8bP1eRecoveredBlockedV1),
     ScheduleExhausted(Stage8bP1eScheduleDeferredRecoveryV1),
     UnsupportedSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+    StartupPendingNotClaimable(Stage8bP1ePendingNotClaimableStartupV1),
+    StartupLimitSchedule(Stage8bP1eLimitScheduleStartupV1),
+    StartupCommittedSchedule(Stage8bP1eCommittedScheduleStartupV1),
+}
+
+enum Stage8bP1eOwnerLoopEntryV1 {
+    Ready(Stage8bP1eReadyPollingV1),
+    ScheduleDeferred(Stage8bP1eScheduleDeferredRecoveryV1),
+}
+
+/// Consumes the sole S05/S06 startup owner and joins every already-composed
+/// route to the long-lived S08/S09 task. Startup routes whose signed authority
+/// bridge is not yet composed remain typed terminal owners; they are never
+/// coerced into a supported schedule path.
+pub async fn run_stage8b_p1e_startup_owner_loop_v1(
+    startup: Stage8bP1eStartupOwnerV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    let entry = match latch_stage8b_p1e_startup_owner_v1(startup, latch) {
+        Stage8bP1eStartupLatchDecisionV1::RetainedSource(retained) => {
+            return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
+        }
+        Stage8bP1eStartupLatchDecisionV1::ContinueSource(continuing) => {
+            match drain_stage8b_p1e_schedule_free_recovery_v1(continuing, latch, commitment_key)
+                .await?
+            {
+                Stage8bP1eScheduleFreeDrainOutcomeV1::Ready(ready) => {
+                    Stage8bP1eOwnerLoopEntryV1::Ready(ready)
+                }
+                Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(retained));
+                }
+                Stage8bP1eScheduleFreeDrainOutcomeV1::PendingNotClaimable(pending) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(pending));
+                }
+                Stage8bP1eScheduleFreeDrainOutcomeV1::Blocked(blocked) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+                }
+                Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(deferred) => {
+                    Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred)
+                }
+            }
+        }
+        Stage8bP1eStartupLatchDecisionV1::ReadyIdle(ready) => {
+            Stage8bP1eOwnerLoopEntryV1::Ready(ready.into_ready_polling())
+        }
+        Stage8bP1eStartupLatchDecisionV1::ReadyPendingNotClaimable(pending) => {
+            return Ok(Stage8bP1eOwnerLoopOutcomeV1::StartupPendingNotClaimable(
+                pending,
+            ));
+        }
+        Stage8bP1eStartupLatchDecisionV1::P1d3LimitDispatchAwaitingSchedule(pending) => {
+            return Ok(Stage8bP1eOwnerLoopOutcomeV1::StartupLimitSchedule(pending));
+        }
+        Stage8bP1eStartupLatchDecisionV1::ScheduleBindingCommitted(pending) => {
+            return Ok(Stage8bP1eOwnerLoopOutcomeV1::StartupCommittedSchedule(
+                pending,
+            ));
+        }
+    };
+    run_stage8b_p1e_owner_loop_from_entry_v1(entry, reader, context, latch, commitment_key).await
 }
 
 /// Retains the sole polling/lifecycle owner across the completed schedule-free
@@ -1551,36 +1615,56 @@ pub enum Stage8bP1eOwnerLoopOutcomeV1 {
 /// exact Ready in-process; no quiescent Ready owner is returned to a caller
 /// that could accidentally drop it between polls.
 pub async fn run_stage8b_p1e_owner_loop_v1(
-    mut ready: Stage8bP1eReadyPollingV1,
+    ready: Stage8bP1eReadyPollingV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    run_stage8b_p1e_owner_loop_from_entry_v1(
+        Stage8bP1eOwnerLoopEntryV1::Ready(ready),
+        reader,
+        context,
+        latch,
+        commitment_key,
+    )
+    .await
+}
+
+async fn run_stage8b_p1e_owner_loop_from_entry_v1(
+    mut entry: Stage8bP1eOwnerLoopEntryV1,
     reader: &mut crate::Stage8bP1eRedisScheduleReader,
     context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
     loop {
-        let mut deferred = match run_stage8b_p1e_schedule_free_owner_loop_v1(
-            ready,
-            latch,
-            commitment_key,
-        )
-        .await?
-        {
-            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::StoppedReady(stopped) => {
-                return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedReady(stopped));
+        let mut deferred = match entry {
+            Stage8bP1eOwnerLoopEntryV1::Ready(ready) => {
+                match run_stage8b_p1e_schedule_free_owner_loop_v1(ready, latch, commitment_key)
+                    .await?
+                {
+                    Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::StoppedReady(stopped) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedReady(stopped));
+                    }
+                    Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedSource(retained) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
+                    }
+                    Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedRecovery(retained) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(retained));
+                    }
+                    Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::PendingNotClaimable(pending) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(pending));
+                    }
+                    Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::Blocked(blocked) => {
+                        return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+                    }
+                    Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::ScheduleDeferred(deferred) => {
+                        deferred
+                    }
+                }
             }
-            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedSource(retained) => {
-                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
-            }
-            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedRecovery(retained) => {
-                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(retained));
-            }
-            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::PendingNotClaimable(pending) => {
-                return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(pending));
-            }
-            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::Blocked(blocked) => {
-                return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
-            }
-            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::ScheduleDeferred(deferred) => deferred,
+            Stage8bP1eOwnerLoopEntryV1::ScheduleDeferred(deferred) => deferred,
         };
 
         loop {
@@ -1594,7 +1678,7 @@ pub async fn run_stage8b_p1e_owner_loop_v1(
             .await?
             {
                 Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(next) => {
-                    ready = next;
+                    entry = Stage8bP1eOwnerLoopEntryV1::Ready(next);
                     break;
                 }
                 Stage8bP1eBoundedScheduleCycleOutcomeV1::Stopped(stopped) => {
@@ -3288,7 +3372,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn s09_combined_owner_loop_observes_concurrent_shutdown_during_bounded_poll() {
+    async fn s05_s09_startup_owner_loop_observes_concurrent_shutdown_during_bounded_poll() {
         let redis = RedisServer::start().await;
         let parent = temp_directory("s09-concurrent-shutdown");
         let (source, export_input, key, fresh) =
@@ -3312,10 +3396,12 @@ mod tests {
         )
         .await
         .unwrap();
-        let ready = Stage8bP1eReadyPollingV1 {
-            owner: Box::new(Stage8bP1RedisSemanticCompositionOwner::new(
-                first_boot.into_owner(),
-                transport,
+        let startup = Stage8bP1eStartupOwnerV1 {
+            kind: Stage8bP1eStartupOwnerKindV1::ReadyNoPending,
+            route: Box::new(Stage8bP1eStartupOwnerRouteV1::ReadyPending(
+                Stage8bP1eReadyPendingAcquisitionOutcomeV1::NoPending(Box::new(
+                    Stage8bP1RedisSemanticCompositionOwner::new(first_boot.into_owner(), transport),
+                )),
             )),
             control: crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url)
                 .await,
@@ -3334,7 +3420,8 @@ mod tests {
             20_000,
             1,
         );
-        let runner = run_stage8b_p1e_owner_loop_v1(ready, &mut reader, &mut context, &latch, &key);
+        let runner =
+            run_stage8b_p1e_startup_owner_loop_v1(startup, &mut reader, &mut context, &latch, &key);
         let signal = async {
             tokio::time::sleep(StdDuration::from_millis(50)).await;
             assert!(latch.request(intent.clone()));
@@ -3350,6 +3437,72 @@ mod tests {
             2,
         )));
         drop(stopped);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn s05_pending_not_claimable_stays_startup_typed_without_schedule_read() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("s05-pending-not-claimable");
+        let (source, export_input, key, fresh) =
+            strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+            parent.clone(),
+            fresh.stage5c_config_fingerprint(),
+        ))
+        .unwrap();
+        let admin = crate::authorize_stage8b_p1_first_boot(
+            &validated,
+            crate::STAGE8B_P1_FIRST_BOOT_CONFIRMATION,
+        )
+        .unwrap();
+        let first_boot =
+            crate::first_boot_stage8b_p1(validated, admin, source, export_input, &key, fresh)
+                .unwrap();
+        let transport = crate::initialize_stage8b_p1_redis_namespace(
+            &redis.url,
+            crate::Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        let startup = Stage8bP1eStartupOwnerV1 {
+            kind: Stage8bP1eStartupOwnerKindV1::ReadyPendingNotClaimable,
+            route: Box::new(Stage8bP1eStartupOwnerRouteV1::ReadyPending(
+                Stage8bP1eReadyPendingAcquisitionOutcomeV1::PendingNotClaimable {
+                    owner: Box::new(Stage8bP1RedisSemanticCompositionOwner::new(
+                        first_boot.into_owner(),
+                        transport,
+                    )),
+                    pending_m10_redis_id: "1785759000000-0".to_string(),
+                },
+            )),
+            control: crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url)
+                .await,
+        };
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis.url)
+            .await
+            .unwrap();
+        let mut context = schedule_context(
+            "00".repeat(32),
+            "11".repeat(32),
+            DateTime::<Utc>::from_timestamp_millis(1_785_759_000_000).unwrap(),
+        );
+
+        let outcome = run_stage8b_p1e_startup_owner_loop_v1(
+            startup,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        let Stage8bP1eOwnerLoopOutcomeV1::StartupPendingNotClaimable(pending) = outcome else {
+            panic!("startup PEL threshold must remain a startup-typed boundary")
+        };
+        assert_eq!(pending.pending_m10_redis_id(), "1785759000000-0");
+        assert_eq!(reader.test_read_attempts(), 0);
+        drop(pending);
         fs::remove_dir_all(parent).unwrap();
     }
 
