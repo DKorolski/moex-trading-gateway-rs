@@ -2293,6 +2293,88 @@ impl Stage6dDurableRuntimeRecovered {
             .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)
     }
 
+    fn checkpoint_covered_latest_stage8b_p1e_schedule_record(
+        &self,
+        expected_instrument_map_fingerprint_sha256: &str,
+    ) -> Result<Option<crate::Stage6JournalRecordV4>, Stage6dLiveCoreError> {
+        if self.authenticated_checkpoint.frontier() != self.journal_frontier() {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
+        let mixed = Stage6MixedReplayEngineV2::replay(self.journal.versioned_records())?;
+        let Some(record) = mixed.schedule_binding_records().last().cloned() else {
+            return Ok(None);
+        };
+        let operational_identity = self
+            .authenticated_operational_identity
+            .as_ref()
+            .ok_or(Stage6dLiveCoreError::OperationalIdentityInvalid)?;
+        if operational_identity.instrument_map_fingerprint_sha256
+            != expected_instrument_map_fingerprint_sha256
+            || stage6d_operational_identity_sha256(operational_identity)?.as_str()
+                != record.operational_identity_sha256()
+        {
+            return Err(Stage6dLiveCoreError::OperationalIdentityInvalid);
+        }
+        Ok(Some(record))
+    }
+
+    /// Restores schedule progression only from the latest authenticated V4 in
+    /// a journal completely covered by the current checkpoint. Journal-ahead
+    /// records are handled by their typed recovery routes and cannot advance a
+    /// quiescent Ready owner's global high-water mark.
+    pub fn recover_stage8b_p1e_latest_schedule_high_water(
+        &self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+    ) -> Result<Option<crate::Stage8bP1eScheduleHighWaterV1>, Stage6dLiveCoreError> {
+        let expected_instrument_map_fingerprint_sha256 =
+            expected_instrument_map_fingerprint_sha256.into();
+        let Some(record) = self.checkpoint_covered_latest_stage8b_p1e_schedule_record(
+            &expected_instrument_map_fingerprint_sha256,
+        )?
+        else {
+            return Ok(None);
+        };
+        crate::recover_stage8b_p1e_schedule_high_water_v4(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+        )
+        .map(Some)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
+    /// Fixture-only counterpart of checkpoint-covered progression recovery.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_recover_latest_schedule_high_water_with_key(
+        &self,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Option<crate::Stage8bP1eScheduleHighWaterV1>, Stage6dLiveCoreError> {
+        let expected_instrument_map_fingerprint_sha256 =
+            expected_instrument_map_fingerprint_sha256.into();
+        let Some(record) = self.checkpoint_covered_latest_stage8b_p1e_schedule_record(
+            &expected_instrument_map_fingerprint_sha256,
+        )?
+        else {
+            return Ok(None);
+        };
+        crate::stage8b_p1e_test_recover_schedule_high_water_v4_with_key(
+            &record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )
+        .map(Some)
+        .map_err(|_| Stage6dLiveCoreError::DurableOrderingViolation)
+    }
+
     /// Reconstructs route authority only from the exact authenticated V4 tail.
     /// The runtime is consumed and returned beside the binding so callers
     /// cannot retain an independently reusable recovered authority.

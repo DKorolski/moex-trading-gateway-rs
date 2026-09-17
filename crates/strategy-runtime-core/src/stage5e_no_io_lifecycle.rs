@@ -8583,6 +8583,26 @@ pub mod p1e_schedule_source {
         )
     }
 
+    /// Recovers the authenticated progression watermark from one exact V4
+    /// binding. The full historical binding is reconstructed and compared to
+    /// the record before the watermark is released, so a syntactically valid
+    /// envelope cannot independently advance restart progression.
+    pub fn recover_stage8b_p1e_schedule_high_water_v4(
+        record: &crate::Stage6JournalRecordV4,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+    ) -> Result<Stage8bP1eScheduleHighWaterV1, Stage8bP1eScheduleSourceError> {
+        Ok(recover_stage8b_p1e_schedule_binding_material_v4_with_key(
+            record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            STAGE8B_P1E_SCHEDULE_PUBLIC_KEY_ED25519_HEX,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_FROM_UTC)?,
+            parse_trust_timestamp(STAGE8B_P1E_SCHEDULE_KEY_VALID_UNTIL_UTC)?,
+        )?
+        .high_water)
+    }
+
     /// Fixture-only counterpart of historical V4 recovery. It executes the
     /// exact production reconstruction and cross-validation path with an
     /// explicitly supplied test trust anchor; deployable builds cannot name
@@ -8607,6 +8627,35 @@ pub mod p1e_schedule_source {
         )
     }
 
+    /// Fixture-only counterpart of durable progression recovery. It executes
+    /// the same full V4 reconstruction and exact-record comparison with an
+    /// explicitly supplied test trust anchor.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_recover_schedule_high_water_v4_with_key(
+        record: &crate::Stage6JournalRecordV4,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eScheduleHighWaterV1, Stage8bP1eScheduleSourceError> {
+        Ok(recover_stage8b_p1e_schedule_binding_material_v4_with_key(
+            record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )?
+        .high_water)
+    }
+
+    struct Stage8bP1eRecoveredScheduleBindingMaterialV4 {
+        candidate: Stage8bP1eScheduleBindingCandidateV1,
+        high_water: Stage8bP1eScheduleHighWaterV1,
+    }
+
     fn recover_stage8b_p1e_schedule_binding_candidate_v4_with_key(
         record: &crate::Stage6JournalRecordV4,
         expected_runtime_config_fingerprint_sha256: impl Into<String>,
@@ -8615,6 +8664,25 @@ pub mod p1e_schedule_source {
         key_valid_from: DateTime<Utc>,
         key_valid_until: DateTime<Utc>,
     ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+        Ok(recover_stage8b_p1e_schedule_binding_material_v4_with_key(
+            record,
+            expected_runtime_config_fingerprint_sha256,
+            expected_instrument_map_fingerprint_sha256,
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        )?
+        .candidate)
+    }
+
+    fn recover_stage8b_p1e_schedule_binding_material_v4_with_key(
+        record: &crate::Stage6JournalRecordV4,
+        expected_runtime_config_fingerprint_sha256: impl Into<String>,
+        expected_instrument_map_fingerprint_sha256: impl Into<String>,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Stage8bP1eRecoveredScheduleBindingMaterialV4, Stage8bP1eScheduleSourceError> {
         let exact = record
             .exact_envelope_bytes()
             .map_err(|_| Stage8bP1eScheduleSourceError::TransitionMismatch)?;
@@ -8638,7 +8706,7 @@ pub mod p1e_schedule_source {
                 expected_registry_version: envelope.payload.registry.registry_version.clone(),
                 expected_runtime_config_fingerprint_sha256:
                     expected_runtime_config_fingerprint_sha256.into(),
-                high_water: Some(high_water),
+                high_water: Some(high_water.clone()),
                 trusted_now: bound_at,
             },
             public_key_hex,
@@ -8708,7 +8776,10 @@ pub mod p1e_schedule_source {
         if !record.matches_stage8b_p1e_candidate(&candidate) {
             return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
         }
-        Ok(candidate)
+        Ok(Stage8bP1eRecoveredScheduleBindingMaterialV4 {
+            candidate,
+            high_water,
+        })
     }
 
     fn verify_stage8b_p1e_schedule_envelope_with_key(

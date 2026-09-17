@@ -926,6 +926,8 @@ pub enum Stage8bP1RedisSemanticError {
     P1eScheduleClockMismatch,
     #[error("Stage 8B-P1-e signed schedule retry policy is invalid")]
     P1eScheduleRetryPolicyInvalid,
+    #[error("Stage 8B-P1-e durable schedule high-water conflicts with the Ready owner")]
+    P1eScheduleHighWaterConflict,
     #[error("Stage 8B-P1-e signed schedule composition failed: {0}")]
     P1eSchedule(#[from] crate::Stage8bP1eScheduleReadError),
 }
@@ -1044,6 +1046,50 @@ impl Stage8bP1RedisSemanticCompositionOwner {
 
     pub fn transport_mut(&mut self) -> &mut Stage8bP1RedisSemanticCompositionTransport {
         &mut self.transport
+    }
+
+    pub(crate) fn operational_identity_sha256(&self) -> &str {
+        self.stage7.stage8b_p1_operational_identity_sha256()
+    }
+
+    pub(crate) fn recover_stage8b_p1e_latest_schedule_high_water(
+        &self,
+        expected_runtime_config_fingerprint_sha256: &str,
+        expected_instrument_map_fingerprint_sha256: &str,
+    ) -> Result<
+        Option<strategy_runtime_core::Stage8bP1eScheduleHighWaterV1>,
+        Stage8bP1RedisSemanticError,
+    > {
+        self.stage7
+            .recover_stage8b_p1e_latest_schedule_high_water(
+                expected_runtime_config_fingerprint_sha256,
+                expected_instrument_map_fingerprint_sha256,
+            )
+            .map_err(Into::into)
+    }
+
+    #[cfg(any(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[allow(dead_code, reason = "fixture trust is exercised only by restart tests")]
+    pub(crate) fn stage8b_p1e_test_recover_latest_schedule_high_water_with_key(
+        &self,
+        expected_runtime_config_fingerprint_sha256: &str,
+        expected_instrument_map_fingerprint_sha256: &str,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<
+        Option<strategy_runtime_core::Stage8bP1eScheduleHighWaterV1>,
+        Stage8bP1RedisSemanticError,
+    > {
+        self.stage7
+            .stage8b_p1e_test_recover_latest_schedule_high_water_with_key(
+                expected_runtime_config_fingerprint_sha256,
+                expected_instrument_map_fingerprint_sha256,
+                public_key_hex,
+                key_valid_from,
+                key_valid_until,
+            )
+            .map_err(Into::into)
     }
 
     pub async fn process_next(

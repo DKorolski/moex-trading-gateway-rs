@@ -720,6 +720,66 @@ impl Stage8bP1eReadyPollingV1 {
     pub fn redis_control_mut(&mut self) -> &mut Stage8bP1eRedisControlV1 {
         &mut self.control
     }
+
+    /// Restores schedule progression only through the sealed Ready owner. An
+    /// already populated in-memory context must match the durable value
+    /// exactly; neither side may silently replace the other.
+    pub fn restore_durable_schedule_high_water(
+        &self,
+        context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    ) -> Result<(), Stage8bP1eStartupErrorV1> {
+        if self.owner.operational_identity_sha256() != context.expected_operational_identity_sha256
+        {
+            return Err(Stage8bP1RedisSemanticError::P1eScheduleHighWaterConflict.into());
+        }
+        let durable = self.owner.recover_stage8b_p1e_latest_schedule_high_water(
+            &context.expected_runtime_config_fingerprint_sha256,
+            &context.expected_instrument_map_fingerprint_sha256,
+        )?;
+        apply_recovered_schedule_high_water(context, durable)
+    }
+
+    #[cfg(any(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[allow(dead_code, reason = "fixture trust is exercised only by restart tests")]
+    fn test_restore_durable_schedule_high_water_with_key(
+        &self,
+        context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<(), Stage8bP1eStartupErrorV1> {
+        if self.owner.operational_identity_sha256() != context.expected_operational_identity_sha256
+        {
+            return Err(Stage8bP1RedisSemanticError::P1eScheduleHighWaterConflict.into());
+        }
+        let durable = self
+            .owner
+            .stage8b_p1e_test_recover_latest_schedule_high_water_with_key(
+                &context.expected_runtime_config_fingerprint_sha256,
+                &context.expected_instrument_map_fingerprint_sha256,
+                public_key_hex,
+                key_valid_from,
+                key_valid_until,
+            )?;
+        apply_recovered_schedule_high_water(context, durable)
+    }
+}
+
+fn apply_recovered_schedule_high_water(
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    durable: Option<strategy_runtime_core::Stage8bP1eScheduleHighWaterV1>,
+) -> Result<(), Stage8bP1eStartupErrorV1> {
+    match (&context.high_water, durable) {
+        (None, None) => Ok(()),
+        (None, Some(durable)) => {
+            context.high_water = Some(durable);
+            Ok(())
+        }
+        (Some(current), Some(durable)) if current == &durable => Ok(()),
+        (Some(_), None) | (Some(_), Some(_)) => {
+            Err(Stage8bP1RedisSemanticError::P1eScheduleHighWaterConflict.into())
+        }
+    }
 }
 
 /// Result of exactly one bounded fresh read. `Empty` remains quiescent;
@@ -1661,6 +1721,9 @@ async fn run_stage8b_p1e_owner_loop_from_entry_v1(
     latch: &Stage8bP1eShutdownLatchV1,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    if let Stage8bP1eOwnerLoopEntryV1::Ready(ready) = &entry {
+        ready.restore_durable_schedule_high_water(context)?;
+    }
     let clock = Stage8bP1eOwnerLoopClockV1::new(context.trusted_now);
     loop {
         let mut deferred = match entry {
@@ -3478,6 +3541,7 @@ mod tests {
         let parent = temp_directory("s09-concurrent-shutdown");
         let (source, export_input, key, fresh) =
             strategy_runtime_core::stage8b_p1_test_first_boot_material();
+        let runtime_config_fingerprint_sha256 = fresh.stage5c_config_fingerprint().to_string();
         let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
             parent.clone(),
             fresh.stage5c_config_fingerprint(),
@@ -3491,6 +3555,7 @@ mod tests {
         let first_boot =
             crate::first_boot_stage8b_p1(validated, admin, source, export_input, &key, fresh)
                 .unwrap();
+        let operational_identity_sha256 = first_boot.receipt().operational_identity_sha256.clone();
         let transport = crate::initialize_stage8b_p1_redis_namespace(
             &redis.url,
             crate::Stage8bP1RedisConfig::paper_default_auto(),
@@ -3512,8 +3577,8 @@ mod tests {
             .await
             .unwrap();
         let mut context = schedule_context(
-            "00".repeat(32),
-            "11".repeat(32),
+            operational_identity_sha256,
+            runtime_config_fingerprint_sha256,
             DateTime::<Utc>::from_timestamp_millis(1_785_759_000_000).unwrap(),
         );
         let intent = Stage8bP1eShutdownIntentV1::new(
@@ -3724,7 +3789,10 @@ mod tests {
             )),
             control,
         };
-        let mut context = fixture.context;
+        let mut context = fixture.context.clone();
+        let fixture_public_key_hex = fixture.public_key_hex.clone();
+        let fixture_key_valid_from = fixture.key_valid_from;
+        let fixture_key_valid_until = fixture.key_valid_until;
         let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
             &redis.url,
             fixture.public_key_hex,
@@ -3748,6 +3816,17 @@ mod tests {
         };
         assert_eq!(reader.test_read_attempts(), 1);
         assert!(context.high_water.is_some());
+        let accepted_high_water = context.high_water.clone();
+        let mut restarted_context = fixture.context;
+        ready
+            .test_restore_durable_schedule_high_water_with_key(
+                &mut restarted_context,
+                &fixture_public_key_hex,
+                fixture_key_valid_from,
+                fixture_key_valid_until,
+            )
+            .unwrap();
+        assert_eq!(restarted_context.high_water, accepted_high_water);
 
         let namespace = crate::stage8b_p1_redis_namespace();
         let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")

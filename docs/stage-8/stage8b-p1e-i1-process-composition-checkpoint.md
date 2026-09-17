@@ -102,6 +102,12 @@ boundary and does not authorize installation or activation.
 - exact equality between the trusted schedule-verification clock and the V4
   binding clock, plus in-memory high-water advancement only after the signed
   binding/effect path has returned a committed lifecycle owner;
+- restart recovery of the latest signed-schedule high-water only through an
+  exact Ready owner whose authenticated checkpoint and committed seal cover
+  the complete journal; the V4 signature, operational identity, instrument
+  map and exact historical binding are revalidated before progression is
+  restored, while journal-ahead/pending routes keep their typed historical
+  continuation and cannot promote a global high-water mark;
 - the compile-time-pinned I1A acquisition policy around those supported
   routes: at most 12 reads inside 60 seconds, a two-second per-read timeout,
   and deterministic 250/500/1000/2000/4000/5000-ms capped backoff;

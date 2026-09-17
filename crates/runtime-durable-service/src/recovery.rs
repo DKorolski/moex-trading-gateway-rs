@@ -3150,6 +3150,59 @@ impl Stage7bRecoveryReadyOwner {
         self.committed_seal.operational_identity_sha256()
     }
 
+    fn require_stage8b_p1e_schedule_recovery_ready(&self) -> Result<(), Stage7bRecoveryError> {
+        self.require_lifecycle_available()?;
+        let operational_identity = self
+            .recovered
+            .authenticated_operational_identity()
+            .ok_or(Stage7bRecoveryError::SealInvalid)?;
+        if self.committed_seal.stage6_checkpoint() != self.recovered.authenticated_checkpoint()
+            || self.committed_seal.operational_identity_sha256()
+                != stage6d_operational_identity_sha256(operational_identity)?.as_str()
+        {
+            return Err(Stage7bRecoveryError::SealInvalid);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn recover_stage8b_p1e_latest_schedule_high_water(
+        &self,
+        expected_runtime_config_fingerprint_sha256: &str,
+        expected_instrument_map_fingerprint_sha256: &str,
+    ) -> Result<Option<strategy_runtime_core::Stage8bP1eScheduleHighWaterV1>, Stage7bRecoveryError>
+    {
+        self.require_stage8b_p1e_schedule_recovery_ready()?;
+        self.recovered
+            .recover_stage8b_p1e_latest_schedule_high_water(
+                expected_runtime_config_fingerprint_sha256,
+                expected_instrument_map_fingerprint_sha256,
+            )
+            .map_err(Into::into)
+    }
+
+    #[cfg(any(test, feature = "stage8a4-i3-test-fixtures"))]
+    #[allow(dead_code, reason = "fixture trust is exercised only by restart tests")]
+    pub(crate) fn stage8b_p1e_test_recover_latest_schedule_high_water_with_key(
+        &self,
+        expected_runtime_config_fingerprint_sha256: &str,
+        expected_instrument_map_fingerprint_sha256: &str,
+        public_key_hex: &str,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Option<strategy_runtime_core::Stage8bP1eScheduleHighWaterV1>, Stage7bRecoveryError>
+    {
+        self.require_stage8b_p1e_schedule_recovery_ready()?;
+        self.recovered
+            .stage8b_p1e_test_recover_latest_schedule_high_water_with_key(
+                expected_runtime_config_fingerprint_sha256,
+                expected_instrument_map_fingerprint_sha256,
+                public_key_hex,
+                key_valid_from,
+                key_valid_until,
+            )
+            .map_err(Into::into)
+    }
+
     /// Test-only P1-d4 classifier fixture. It leaves the accepted replacement
     /// seal current and appends exactly one fsynced dispatch row, matching the
     /// crash state that production restart must classify or reject.
