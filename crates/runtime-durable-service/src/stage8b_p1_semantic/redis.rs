@@ -614,6 +614,95 @@ redis.call('SET', marker_key, cjson.encode({
 return {'published', output_id}
 "#;
 
+const COMMAND_PUBLICATION_REVALIDATE_LUA: &str = r#"
+local function type_name(key)
+  local result = redis.call('TYPE', key)
+  if type(result) == 'table' then return result['ok'] end
+  return result
+end
+
+local function has_group(stream, expected)
+  local groups = redis.call('XINFO', 'GROUPS', stream)
+  for _, candidate in ipairs(groups) do
+    for index = 1, #candidate, 2 do
+      if candidate[index] == 'name' and candidate[index + 1] == expected then
+        return true
+      end
+    end
+  end
+  return false
+end
+
+local source = KEYS[1]
+local command_stream = KEYS[2]
+local marker_key = KEYS[3]
+local group = ARGV[1]
+local source_id = ARGV[2]
+local source_payload = ARGV[3]
+local semantic_batch_id = ARGV[4]
+local request_id = ARGV[5]
+local command_sha256 = ARGV[6]
+local envelope_sha256 = ARGV[7]
+local envelope_payload = ARGV[8]
+local seal_generation = tonumber(ARGV[9])
+local seal_commitment = ARGV[10]
+local schema = tonumber(ARGV[11])
+local domain = ARGV[12]
+local command_group = ARGV[13]
+
+if schema ~= 1 or domain ~= 'moex.stage8b.p1.command-publication-marker.v1' then
+  return redis.error_reply('STAGE8B_P1_PUBLICATION_SCHEMA')
+end
+if type_name(source) ~= 'stream' or type_name(command_stream) ~= 'stream' then
+  return redis.error_reply('STAGE8B_P1_STREAM_TYPE')
+end
+if not has_group(command_stream, command_group) then
+  return redis.error_reply('STAGE8B_P1_COMMAND_GROUP_MISSING')
+end
+if type_name(marker_key) ~= 'string' then
+  return redis.error_reply('STAGE8B_P1_MARKER_MISSING')
+end
+
+local exact_source = redis.call('XRANGE', source, source_id, source_id)
+if #exact_source ~= 1 or tostring(exact_source[1][1]) ~= source_id then
+  return redis.error_reply('STAGE8B_P1_SOURCE_MISSING')
+end
+local source_fields = exact_source[1][2]
+if #source_fields ~= 2 or source_fields[1] ~= 'payload' or source_fields[2] ~= source_payload then
+  return redis.error_reply('STAGE8B_P1_SOURCE_CONFLICT')
+end
+local pending = redis.call('XPENDING', source, group, source_id, source_id, 1)
+if #pending ~= 1 or tostring(pending[1][1]) ~= source_id then
+  return redis.error_reply('STAGE8B_P1_SOURCE_NOT_PENDING')
+end
+
+local ok, marker = pcall(cjson.decode, redis.call('GET', marker_key))
+if not ok or marker['schema_version'] ~= schema or marker['domain'] ~= domain
+   or marker['source_stream'] ~= source or marker['source_group'] ~= group
+   or marker['source_id'] ~= source_id
+   or marker['semantic_batch_id_sha256'] ~= semantic_batch_id
+   or marker['strategy_request_id'] ~= request_id
+   or marker['canonical_command_sha256'] ~= command_sha256
+   or marker['canonical_envelope_sha256'] ~= envelope_sha256
+   or marker['command_stream'] ~= command_stream
+   or marker['command_group'] ~= command_group
+   or marker['seal_generation'] ~= seal_generation
+   or marker['seal_commitment_sha256'] ~= seal_commitment then
+  return redis.error_reply('STAGE8B_P1_PUBLICATION_CONFLICT')
+end
+local output_id = marker['command_entry_id']
+local exact_command = redis.call('XRANGE', command_stream, output_id, output_id)
+if #exact_command ~= 1 or tostring(exact_command[1][1]) ~= output_id then
+  return redis.error_reply('STAGE8B_P1_COMMAND_MISSING')
+end
+local command_fields = exact_command[1][2]
+if #command_fields ~= 2 or command_fields[1] ~= 'payload'
+   or command_fields[2] ~= envelope_payload then
+  return redis.error_reply('STAGE8B_P1_COMMAND_CONFLICT')
+end
+return {'existing', output_id}
+"#;
+
 const P1D4_COMMAND_PUBLICATION_LUA: &str = r#"
 local function type_name(key)
   local result = redis.call('TYPE', key)
@@ -3066,6 +3155,17 @@ pub enum Stage8bP1eSignedInitialLimitScheduleOutcomeV1 {
     LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
 }
 
+/// Restart continuation for an Initial LIMIT whose exact signed schedule and
+/// command publication are already covered by V4. No schedule read or Hybrid
+/// callback is reachable from this boundary.
+pub enum Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    LimitAckCommitted {
+        owner: Box<Stage8bP1RedisLimitAckCommitted>,
+        high_water: strategy_runtime_core::Stage8bP1eScheduleHighWaterV1,
+    },
+}
+
 fn stage8b_p1e_m10_identity_from_validated(
     source: &Stage8bP1ValidatedCanonicalM10,
 ) -> strategy_runtime_core::Stage8bP1eM10IdentityV1 {
@@ -3258,6 +3358,8 @@ pub async fn resume_stage8b_p1e_initial_limit_with_signed_schedule(
         &candidate,
         strategy_request_id.to_string(),
         canonical_command_sha256,
+        receipt.covering_seal_generation,
+        receipt.covering_seal_commitment_sha256.clone(),
         bound_at_utc,
         commitment_key,
     )? {
@@ -3314,6 +3416,89 @@ pub async fn resume_stage8b_p1e_initial_limit_with_signed_schedule(
                 .execute_next_canonical_limit(authority, commitment_key)
                 .await?,
         )),
+    )
+}
+
+/// Resumes only an authenticated Initial-LIMIT V4 tail. The exact source PEL,
+/// immutable command publication marker and first successor M10 are all
+/// cross-validated before the inherited P1-d3 S_ack commit. Source XACK stays
+/// structurally unreachable until the returned owner commits S_truth.
+pub async fn resume_stage8b_p1e_committed_initial_limit_with_redis(
+    committed: Box<crate::Stage8bP1eScheduleBindingCommittedOwner>,
+    mut transport: Stage8bP1RedisSemanticCompositionTransport,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    let material = committed
+        .initial_limit_restart_material()?
+        .ok_or(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch)?;
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(*committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::Stopped(
+                receipt,
+            ));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::Stopped(
+                receipt,
+            ));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let pending_m10 = transport
+        .backend
+        .reclaim_exact_binding(
+            &material.predecessor_m10.redis_id,
+            &material.predecessor_m10.semantic_id_sha256,
+            &material.predecessor_m10.payload_sha256,
+        )
+        .await?;
+    transport
+        .backend
+        .revalidate_exact_command_publication(
+            &material.evidence,
+            &material.command,
+            &pending_m10,
+            material.publication_seal_generation,
+            &material.publication_seal_commitment_sha256,
+        )
+        .await?;
+    let successor = transport
+        .backend
+        .exact_first_successor_m10(
+            pending_m10.redis_id(),
+            &material.operational_identity_sha256,
+        )
+        .await?;
+    if stage8b_p1e_m10_identity_from_validated(&successor) != material.candidate_m10 {
+        return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+    }
+    let observation = Stage8bP1d3InitialObservation::Candidate {
+        evidence: Box::new(successor.into_p1d3_limit_evidence()?),
+        schedule: authority,
+    };
+    let durable = stage7.commit_stage8b_p1d3_initial_limit_ack(observation, commitment_key)?;
+    Ok(
+        Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1::LimitAckCommitted {
+            owner: Box::new(Stage8bP1RedisLimitAckCommitted {
+                durable,
+                transport,
+                pending_m10,
+            }),
+            high_water: material.high_water,
+        },
     )
 }
 
@@ -5212,6 +5397,80 @@ impl Stage8bP1RedisBackend {
             runtime_live: false,
             real_orders: false,
         })
+    }
+
+    async fn revalidate_exact_command_publication(
+        &mut self,
+        evidence: &Stage6Stage8bP1SemanticCommitEvidenceV1,
+        command: &BrokerCommand,
+        delivery: &Stage8bP1PendingM10Delivery,
+        publication_seal_generation: u64,
+        publication_seal_commitment_sha256: &str,
+    ) -> Result<(), Stage8bP1RedisSemanticError> {
+        let request_id = evidence
+            .strategy_request_id
+            .ok_or(Stage8bP1RedisSemanticError::CommandPublicationConflict)?;
+        let command_bytes = serde_json::to_vec(command)
+            .map_err(|_| Stage8bP1RedisSemanticError::CommandPublicationConflict)?;
+        let command_sha256 = sha256_hex(&command_bytes);
+        if publication_seal_generation == 0
+            || publication_seal_commitment_sha256.len() != 64
+            || !publication_seal_commitment_sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || evidence.intent_count != 1
+            || evidence.canonical_command_sha256.as_deref() != Some(command_sha256.as_str())
+            || delivery.redis_id() != evidence.m10_redis_id
+            || delivery.semantic_id_sha256() != evidence.m10_semantic_id_sha256
+            || delivery.payload_sha256() != evidence.m10_payload_sha256
+        {
+            return Err(Stage8bP1RedisSemanticError::CommandPublicationConflict);
+        }
+        let envelope = Envelope {
+            schema_version: SCHEMA_VERSION,
+            ts_utc: command_created_at(command),
+            source: COMMAND_ENVELOPE_SOURCE.to_string(),
+            msg_type: MessageType::Command,
+            payload: command.clone(),
+        };
+        let envelope_bytes = serde_json::to_vec(&envelope)
+            .map_err(|_| Stage8bP1RedisSemanticError::CommandPublicationConflict)?;
+        runtime_command_bridge::decode_stage7a_pre_admission(&envelope_bytes)
+            .map_err(|_| Stage8bP1RedisSemanticError::CommandPublicationConflict)?;
+        let envelope_payload = std::str::from_utf8(&envelope_bytes)
+            .map_err(|_| Stage8bP1RedisSemanticError::CommandPublicationConflict)?;
+        let source_payload = std::str::from_utf8(&delivery.canonical_bytes)
+            .map_err(|_| Stage8bP1RedisSemanticError::ExactSourceConflict)?;
+        let marker_key = publication_marker_key(&self.namespace, request_id);
+        let result: Vec<String> = redis::cmd("EVAL")
+            .arg(COMMAND_PUBLICATION_REVALIDATE_LUA)
+            .arg(3)
+            .arg(&self.namespace.canonical_m10_stream)
+            .arg(&self.namespace.canonical_command_stream)
+            .arg(marker_key)
+            .arg(&self.namespace.m10_consumer_group)
+            .arg(delivery.redis_id())
+            .arg(source_payload)
+            .arg(&evidence.semantic_batch_id_sha256)
+            .arg(request_id.to_string())
+            .arg(&command_sha256)
+            .arg(sha256_hex(&envelope_bytes))
+            .arg(envelope_payload)
+            .arg(publication_seal_generation)
+            .arg(publication_seal_commitment_sha256)
+            .arg(COMMAND_PUBLICATION_MARKER_SCHEMA_VERSION)
+            .arg(COMMAND_PUBLICATION_MARKER_DOMAIN)
+            .arg(&self.namespace.stage7b_command_consumer_group)
+            .query_async(&mut self.connection)
+            .await?;
+        match result.as_slice() {
+            [classification, command_entry_id]
+                if classification == "existing" && !command_entry_id.is_empty() =>
+            {
+                Ok(())
+            }
+            _ => Err(Stage8bP1RedisSemanticError::InvalidRedisReply),
+        }
     }
 
     async fn prepare_p1d4_command_publication(
@@ -7979,6 +8238,62 @@ pub(crate) mod tests {
         )
     }
 
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_commit_initial_limit_v4_only(
+        mut published: Stage8bP1RedisCommandPublished,
+        snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+        bound_at_utc: DateTime<Utc>,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> crate::Stage8bP1eScheduleBindingCommitReceipt {
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::InitialLimit
+        );
+        let operational_identity_sha256 = published
+            .stage7
+            .stage8b_p1_operational_identity_sha256()
+            .to_string();
+        let predecessor = published
+            .pending_m10
+            .parse_exact(&operational_identity_sha256)
+            .unwrap();
+        let candidate = published
+            .transport
+            .backend
+            .exact_first_successor_m10(
+                published.pending_m10.redis_id(),
+                &operational_identity_sha256,
+            )
+            .await
+            .unwrap();
+        let request_id = published.evidence.strategy_request_id.unwrap();
+        let command_sha256 = published.evidence.canonical_command_sha256.clone().unwrap();
+        let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
+        let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
+        let committed = crate::bind_stage8b_p1e_initial_limit_schedule(
+            published.stage7,
+            snapshot,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &predecessor,
+            &candidate,
+            request_id.to_string(),
+            command_sha256,
+            published.receipt.covering_seal_generation,
+            published.receipt.covering_seal_commitment_sha256.clone(),
+            bound_at_utc,
+            commitment_key,
+        )
+        .unwrap();
+        let crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) = committed else {
+            panic!("clear test latch must commit Initial LIMIT V4")
+        };
+        let receipt = owner.receipt().clone();
+        drop(owner);
+        drop(published.transport);
+        drop(published.pending_m10);
+        receipt
+    }
+
     async fn prepare_p1d3_initial_filled_source(
         redis_url: &str,
         parent: &Path,
@@ -8562,6 +8877,141 @@ pub(crate) mod tests {
         let resolved = truth.acknowledge_source().await.unwrap();
         drop(resolved);
         fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[tokio::test]
+    async fn p1e_command_publication_revalidation_is_read_only_and_seal_exact() {
+        let redis = RedisServer::start().await;
+        let mut connection = redis.connection().await;
+        let source_stream = "p1e:revalidate:source";
+        let source_group = "p1e-revalidate-source-group";
+        let source_id = "10-1";
+        let source_payload = "canonical-source-payload";
+        let command_stream = "p1e:revalidate:commands";
+        let command_group = "p1e-revalidate-command-group";
+        let command_id = "20-1";
+        let command_payload = "canonical-command-envelope";
+        let marker_key = "p1e:revalidate:marker";
+        let semantic_batch_id = "11".repeat(32);
+        let request_id = "request-initial-limit-revalidate";
+        let command_sha256 = "22".repeat(32);
+        let envelope_sha256 = "33".repeat(32);
+        let seal_generation = 17_u64;
+        let seal_commitment = "44".repeat(32);
+
+        let _: String = redis::cmd("XADD")
+            .arg(source_stream)
+            .arg(source_id)
+            .arg("payload")
+            .arg(source_payload)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let _: () = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(source_stream)
+            .arg(source_group)
+            .arg("0-0")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let _: redis::streams::StreamReadReply = redis::cmd("XREADGROUP")
+            .arg("GROUP")
+            .arg(source_group)
+            .arg("p1e-revalidate-consumer")
+            .arg("COUNT")
+            .arg(1)
+            .arg("STREAMS")
+            .arg(source_stream)
+            .arg(">")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let _: () = redis::cmd("XGROUP")
+            .arg("CREATE")
+            .arg(command_stream)
+            .arg(command_group)
+            .arg("0-0")
+            .arg("MKSTREAM")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(command_stream)
+            .arg(command_id)
+            .arg("payload")
+            .arg(command_payload)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let marker = serde_json::json!({
+            "schema_version": COMMAND_PUBLICATION_MARKER_SCHEMA_VERSION,
+            "domain": COMMAND_PUBLICATION_MARKER_DOMAIN,
+            "source_stream": source_stream,
+            "source_group": source_group,
+            "source_id": source_id,
+            "semantic_batch_id_sha256": semantic_batch_id,
+            "strategy_request_id": request_id,
+            "canonical_command_sha256": command_sha256,
+            "canonical_envelope_sha256": envelope_sha256,
+            "command_stream": command_stream,
+            "command_group": command_group,
+            "command_entry_id": command_id,
+            "seal_generation": seal_generation,
+            "seal_commitment_sha256": seal_commitment,
+        })
+        .to_string();
+        let _: () = redis::cmd("SET")
+            .arg(marker_key)
+            .arg(&marker)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+
+        macro_rules! revalidate {
+            ($generation:expr, $commitment:expr) => {
+                redis::cmd("EVAL")
+                    .arg(COMMAND_PUBLICATION_REVALIDATE_LUA)
+                    .arg(3)
+                    .arg(source_stream)
+                    .arg(command_stream)
+                    .arg(marker_key)
+                    .arg(source_group)
+                    .arg(source_id)
+                    .arg(source_payload)
+                    .arg(&semantic_batch_id)
+                    .arg(request_id)
+                    .arg(&command_sha256)
+                    .arg(&envelope_sha256)
+                    .arg(command_payload)
+                    .arg($generation)
+                    .arg($commitment)
+                    .arg(COMMAND_PUBLICATION_MARKER_SCHEMA_VERSION)
+                    .arg(COMMAND_PUBLICATION_MARKER_DOMAIN)
+                    .arg(command_group)
+                    .query_async::<Vec<String>>(&mut connection)
+                    .await
+            };
+        }
+
+        assert_eq!(
+            revalidate!(seal_generation, &seal_commitment).unwrap(),
+            vec!["existing", command_id]
+        );
+        assert!(revalidate!(seal_generation + 1, &seal_commitment).is_err());
+        assert!(revalidate!(seal_generation, "55".repeat(32)).is_err());
+        let stored_marker: String = redis::cmd("GET")
+            .arg(marker_key)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let command_count: usize = redis::cmd("XLEN")
+            .arg(command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(stored_marker, marker);
+        assert_eq!(command_count, 1, "revalidation must never append a command");
     }
 
     #[tokio::test]

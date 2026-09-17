@@ -1742,3 +1742,27 @@ bundle rejection without filesystem mutation. This remains a correction
 candidate requiring independent acceptance before the owner loop opens.
 Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE, broker dispatch,
 runtime-live and real orders remain closed.
+
+## Stage 8B-P1-e I1 committed Initial-LIMIT restart candidate (2026-09-17)
+
+The fresh signed Initial-LIMIT path at `89c243d` is the immutable predecessor
+of this narrow source slice. The candidate composes the previously deferred
+`ScheduleBindingCommitted` startup route without reopening schedule-source or
+strategy-callback authority.
+
+Initial-LIMIT V4 now retains the exact command-publication recovery-seal
+generation and commitment. Fresh commit, journal-ahead recovery and ordinary
+restart validate that binding against the durable predecessor. The Redis
+restart path then reclaims the exact predecessor M10, atomically revalidates
+the immutable publication marker and command bytes, verifies the exact first
+successor, and enters the inherited P1-d3 lifecycle at `S_ack`. It preserves
+the signed schedule high-water and reaches `S_truth`, source XACK-last and
+exact `Ready` without a second schedule read, Hybrid callback or command
+publication.
+
+A real-Redis plus disk-restart test proves one pending source before restart,
+zero schedule reads after restart, unchanged command-stream length and zero
+pending sources only after the replacement truth is durable. Generated
+Market, Cancel, Day-expiry and later retained Initial-LIMIT startup frontiers
+remain subsequent slices. Operational Redis DB0/DB15, VPS activation, FINAM
+POST/DELETE, broker dispatch, runtime-live and real orders remain closed.

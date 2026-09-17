@@ -62,6 +62,15 @@ boundary and does not authorize installation or activation.
   are sealed into a dedicated Initial-only V4 route, latch E/F issue only the
   Initial-LIMIT authority, and the existing LIMIT lifecycle advances through
   `S_ack`, `S_truth` and source-XACK-last back to exact `Ready`;
+- authenticated restart from that committed Initial-LIMIT V4 route: V4 now
+  retains the exact command-publication seal generation and commitment, and
+  restart cross-validates them against the durable predecessor, immutable
+  Redis publication marker, exact command bytes, exact predecessor PEL entry
+  and exact first-successor identity before inherited P1-d3 execution;
+- the restarted Initial-LIMIT route performs no second signed-schedule read,
+  no second Hybrid callback and no command republish; it restores the durable
+  schedule high-water and follows the same `S_ack -> S_truth -> XACK-last`
+  sequence back to exact `Ready`;
 - route authority is separated at the effect boundary: Initial, Working and
   Cancel schedule grants cannot be reused across one another, while the
   pre-P1-e legacy test grant remains confined to inherited fixture coverage;
@@ -174,10 +183,10 @@ authorities; it must not attach and then return after dropping an owner.
   Day-expiry and recovered dispatch routes; Ready/Working-LIMIT, plain Market
   and fresh Initial-LIMIT now cover C-F and must remain the reference ownership
   shapes;
-- authenticated restart composition from Initial-LIMIT
-  `ScheduleBindingCommitted` and later retained frontiers; the fresh path is
-  complete, but no restart route may reconstruct or guess consumed schedule
-  authority;
+- authenticated restart composition for later retained Initial-LIMIT
+  frontiers after `S_ack`; the `ScheduleBindingCommitted` frontier is complete
+  and remains the reference rule that no restart may reconstruct or guess
+  consumed schedule authority;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized

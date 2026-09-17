@@ -2273,6 +2273,15 @@ impl Stage6dDurableRuntimeRecovered {
         )? {
             return Err(Stage6dLiveCoreError::DurableOrderingViolation);
         }
+        if candidate.transition_kind()
+            == crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+            && candidate
+                .initial_publication_seal()
+                .map(|(generation, _)| generation)
+                != Some(prior_covering_seal_generation)
+        {
+            return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+        }
         let previous_record_id = self
             .journal_frontier()
             .last_record_id()

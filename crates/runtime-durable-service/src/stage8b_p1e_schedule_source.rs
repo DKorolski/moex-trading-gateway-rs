@@ -566,6 +566,8 @@ pub fn commit_stage8b_p1e_initial_limit_schedule(
     candidate: &Stage8bP1eM10IdentityV1,
     strategy_request_id: impl Into<String>,
     canonical_command_sha256: impl Into<String>,
+    publication_seal_generation: u64,
+    publication_seal_commitment_sha256: impl Into<String>,
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eScheduleBindingDecisionV1, Stage8bP1eScheduleReadError> {
@@ -578,6 +580,8 @@ pub fn commit_stage8b_p1e_initial_limit_schedule(
             candidate,
             strategy_request_id,
             canonical_command_sha256,
+            publication_seal_generation,
+            publication_seal_commitment_sha256,
             bound_at_utc,
             commitment_key,
         )?,
@@ -594,6 +598,8 @@ pub fn bind_stage8b_p1e_initial_limit_schedule(
     candidate: &Stage8bP1eM10IdentityV1,
     strategy_request_id: impl Into<String>,
     canonical_command_sha256: impl Into<String>,
+    publication_seal_generation: u64,
+    publication_seal_commitment_sha256: impl Into<String>,
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
 ) -> Result<Stage8bP1eScheduleBindingCommitV1, Stage8bP1eScheduleReadError> {
@@ -606,6 +612,10 @@ pub fn bind_stage8b_p1e_initial_limit_schedule(
         candidate,
         strategy_request_id,
         canonical_command_sha256,
+        (
+            publication_seal_generation,
+            publication_seal_commitment_sha256,
+        ),
         snapshot.redis_stream_id,
     )?;
     commit_binding_only(owner, binding, bound_at_utc, commitment_key)

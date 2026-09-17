@@ -7768,6 +7768,10 @@ pub mod p1e_schedule_source {
         pub canonical_command_sha256: Option<String>,
         pub active_broker_order_id: Option<String>,
         pub working_book_transition_sha256: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub publication_seal_generation: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub publication_seal_commitment_sha256: Option<String>,
     }
 
     enum Stage8bP1ePreparedScheduleRouteV1 {
@@ -7852,7 +7856,7 @@ pub mod p1e_schedule_source {
                 && self.transition_kind == record.transition_kind()
         }
 
-        pub(crate) fn transition_kind(&self) -> Stage8bP1eScheduleTransitionKindV1 {
+        pub fn transition_kind(&self) -> Stage8bP1eScheduleTransitionKindV1 {
             self.transition_kind
         }
 
@@ -7862,6 +7866,54 @@ pub mod p1e_schedule_source {
     }
 
     impl Stage8bP1eCommittedScheduleBindingV1 {
+        /// Read-only restart classification. It grants no route authority and
+        /// leaves the one-use committed binding intact.
+        pub fn transition_kind(&self) -> Stage8bP1eScheduleTransitionKindV1 {
+            self.candidate.transition_kind
+        }
+
+        pub fn operational_identity_sha256(&self) -> &str {
+            &self.candidate.operational_identity_sha256
+        }
+
+        pub fn predecessor_m10(&self) -> &Stage8bP1eM10IdentityV1 {
+            &self.candidate.predecessor_m10
+        }
+
+        pub fn candidate_or_last_eligible_m10(&self) -> &Stage8bP1eM10IdentityV1 {
+            &self.candidate.candidate_or_last_eligible_m10
+        }
+
+        pub fn request_or_order_binding(&self) -> &Stage8bP1eRequestOrOrderBindingV1 {
+            &self.candidate.request_or_order_binding
+        }
+
+        pub fn initial_publication_seal(&self) -> Option<(u64, &str)> {
+            if self.candidate.transition_kind
+                != Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+            {
+                return None;
+            }
+            Some((
+                self.candidate
+                    .request_or_order_binding
+                    .publication_seal_generation?,
+                self.candidate
+                    .request_or_order_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()?,
+            ))
+        }
+
+        pub fn recovered_high_water(
+            &self,
+        ) -> Result<Stage8bP1eScheduleHighWaterV1, Stage8bP1eScheduleSourceError> {
+            let envelope: Stage8bP1eScheduleEnvelopeV3 =
+                serde_json::from_slice(&self.candidate.exact_envelope_bytes)
+                    .map_err(|_| Stage8bP1eScheduleSourceError::NonCanonicalEnvelope)?;
+            high_water_from_envelope(&envelope, self.candidate.envelope_sha256.clone())
+        }
+
         pub fn issue_market_authority(
             self,
         ) -> Result<crate::Stage8bP1d1ExecutionScheduleAuthority, Stage8bP1eScheduleSourceError>
@@ -8001,6 +8053,8 @@ pub mod p1e_schedule_source {
                     canonical_command_sha256: Some(canonical_command_sha256.into()),
                     active_broker_order_id: None,
                     working_book_transition_sha256: None,
+                    publication_seal_generation: None,
+                    publication_seal_commitment_sha256: None,
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::Market(Box::new(projection)),
@@ -8027,6 +8081,8 @@ pub mod p1e_schedule_source {
                     canonical_command_sha256: None,
                     active_broker_order_id: Some(active_broker_order_id.into()),
                     working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+                    publication_seal_generation: None,
+                    publication_seal_commitment_sha256: None,
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
@@ -8043,6 +8099,7 @@ pub mod p1e_schedule_source {
             candidate: &Stage8bP1eM10IdentityV1,
             strategy_request_id: impl Into<String>,
             canonical_command_sha256: impl Into<String>,
+            publication_seal: (u64, impl Into<String>),
             redis_stream_id: impl Into<String>,
         ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
             self.require_open_route()?;
@@ -8057,6 +8114,8 @@ pub mod p1e_schedule_source {
                     canonical_command_sha256: Some(canonical_command_sha256.into()),
                     active_broker_order_id: None,
                     working_book_transition_sha256: None,
+                    publication_seal_generation: Some(publication_seal.0),
+                    publication_seal_commitment_sha256: Some(publication_seal.1.into()),
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
@@ -8086,6 +8145,8 @@ pub mod p1e_schedule_source {
                     canonical_command_sha256: None,
                     active_broker_order_id: Some(active_broker_order_id.into()),
                     working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+                    publication_seal_generation: None,
+                    publication_seal_commitment_sha256: None,
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
@@ -8143,6 +8204,8 @@ pub mod p1e_schedule_source {
                     canonical_command_sha256: None,
                     active_broker_order_id: Some(active_broker_order_id.into()),
                     working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+                    publication_seal_generation: None,
+                    publication_seal_commitment_sha256: None,
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::DayExpiry {
@@ -8316,6 +8379,18 @@ pub mod p1e_schedule_source {
             &self.request_or_order_binding
         }
 
+        pub fn initial_publication_seal(&self) -> Option<(u64, &str)> {
+            if self.transition_kind != Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation {
+                return None;
+            }
+            Some((
+                self.request_or_order_binding.publication_seal_generation?,
+                self.request_or_order_binding
+                    .publication_seal_commitment_sha256
+                    .as_deref()?,
+            ))
+        }
+
         pub(crate) fn schedule_semantic_sha256(&self) -> &str {
             &self.schedule_semantic_sha256
         }
@@ -8332,7 +8407,7 @@ pub mod p1e_schedule_source {
             &self.trading_day
         }
 
-        pub(crate) fn transition_kind(&self) -> Stage8bP1eScheduleTransitionKindV1 {
+        pub fn transition_kind(&self) -> Stage8bP1eScheduleTransitionKindV1 {
             self.transition_kind
         }
 
@@ -8418,6 +8493,8 @@ pub mod p1e_schedule_source {
                 canonical_command_sha256: None,
                 active_broker_order_id: Some("FINAM-ORDER-I1A-1".to_string()),
                 working_book_transition_sha256: Some("b".repeat(64)),
+                publication_seal_generation: None,
+                publication_seal_commitment_sha256: None,
             },
             route: Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
                 initial_only: false,
@@ -8455,6 +8532,8 @@ pub mod p1e_schedule_source {
             canonical_command_sha256: None,
             active_broker_order_id: Some(active_broker_order_id.into()),
             working_book_transition_sha256: Some(working_book_transition_sha256.into()),
+            publication_seal_generation: None,
+            publication_seal_commitment_sha256: None,
         };
         candidate.trading_day = trading_day.into();
         candidate.predecessor_m10 = predecessor_m10;
@@ -8479,6 +8558,8 @@ pub mod p1e_schedule_source {
             canonical_command_sha256: Some(canonical_command_sha256.into()),
             active_broker_order_id: None,
             working_book_transition_sha256: None,
+            publication_seal_generation: None,
+            publication_seal_commitment_sha256: None,
         };
         candidate.route = Stage8bP1ePreparedScheduleRouteV1::Market(Box::new(
             super::schedule_window_evidence::stage8b_p1d1_test_schedule_projection(
@@ -8799,6 +8880,15 @@ pub mod p1e_schedule_source {
                         .canonical_command_sha256
                         .clone()
                         .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    (
+                        binding
+                            .publication_seal_generation
+                            .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                        binding
+                            .publication_seal_commitment_sha256
+                            .clone()
+                            .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    ),
                     record.redis_stream_id().to_string(),
                 )?,
             Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation => accepted
@@ -9537,8 +9627,7 @@ pub mod p1e_schedule_source {
         binding: &Stage8bP1eRequestOrOrderBindingV1,
     ) -> bool {
         match transition_kind {
-            Stage8bP1eScheduleTransitionKindV1::MarketExecution
-            | Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => {
+            Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
                 binding
                     .strategy_request_id
                     .as_deref()
@@ -9549,6 +9638,27 @@ pub mod p1e_schedule_source {
                         .is_some_and(valid_sha256)
                     && binding.active_broker_order_id.is_none()
                     && binding.working_book_transition_sha256.is_none()
+                    && binding.publication_seal_generation.is_none()
+                    && binding.publication_seal_commitment_sha256.is_none()
+            }
+            Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => {
+                binding
+                    .strategy_request_id
+                    .as_deref()
+                    .is_some_and(|value| !value.is_empty() && value.len() <= 256)
+                    && binding
+                        .canonical_command_sha256
+                        .as_deref()
+                        .is_some_and(valid_sha256)
+                    && binding.active_broker_order_id.is_none()
+                    && binding.working_book_transition_sha256.is_none()
+                    && binding
+                        .publication_seal_generation
+                        .is_some_and(|value| value > 0)
+                    && binding
+                        .publication_seal_commitment_sha256
+                        .as_deref()
+                        .is_some_and(valid_sha256)
             }
             Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
             | Stage8bP1eScheduleTransitionKindV1::CancelStep
@@ -9563,6 +9673,8 @@ pub mod p1e_schedule_source {
                         .working_book_transition_sha256
                         .as_deref()
                         .is_some_and(valid_sha256)
+                    && binding.publication_seal_generation.is_none()
+                    && binding.publication_seal_commitment_sha256.is_none()
             }
         }
     }
@@ -10648,6 +10760,55 @@ pub mod p1e_schedule_source {
                 .err()
                 .expect("runtime config drift must block historical recovery"),
                 Stage8bP1eScheduleSourceError::IdentityMismatch
+            );
+        }
+
+        #[test]
+        fn initial_limit_v4_recovery_preserves_exact_publication_seal_binding() {
+            let bound_at = timestamp("2026-09-14T12:10:00.000000Z");
+            let key = SigningKey::from_bytes(&[0x5a; 32]);
+            let mut envelope = open_envelope(bound_at);
+            sign(&mut envelope, &key);
+            let accepted = verify_with_fixture_key(&envelope, &context(bound_at, None), &key)
+                .expect("fixture envelope must authenticate before Initial LIMIT binding");
+            let predecessor = m10("2026-09-14T11:50:00.000000Z", "2026-09-14T12:00:00.000000Z");
+            let candidate_m10 = m10("2026-09-14T12:00:00.000000Z", "2026-09-14T12:10:00.000000Z");
+            let publication_seal = (17, "c".repeat(64));
+            let candidate = accepted
+                .prepare_initial_limit_binding(
+                    &predecessor,
+                    &candidate_m10,
+                    "request-initial-limit-recovery",
+                    "d".repeat(64),
+                    publication_seal.clone(),
+                    "1789387800001-0",
+                )
+                .unwrap();
+            assert_eq!(
+                candidate.initial_publication_seal(),
+                Some((publication_seal.0, publication_seal.1.as_str()))
+            );
+            let record = crate::Stage6JournalRecordV4::from_stage8b_p1e_candidate(
+                &candidate,
+                crate::Stage6LifecycleSequence::new(9).unwrap(),
+                crate::Stage6JournalRecordId::parse_exact("b".repeat(64)).unwrap(),
+                publication_seal.0,
+                bound_at,
+            )
+            .unwrap();
+            let recovered = recover_stage8b_p1e_schedule_binding_candidate_v4_with_key(
+                &record,
+                "5".repeat(64),
+                "3".repeat(64),
+                &hex_encode(key.verifying_key().to_bytes()),
+                timestamp("2026-01-01T00:00:00.000000Z"),
+                timestamp("2027-01-01T00:00:00.000000Z"),
+            )
+            .expect("Initial LIMIT V4 must recover the exact publication-seal binding");
+            assert!(record.matches_stage8b_p1e_candidate(&recovered));
+            assert_eq!(
+                recovered.initial_publication_seal(),
+                Some((publication_seal.0, publication_seal.1.as_str()))
             );
         }
     }

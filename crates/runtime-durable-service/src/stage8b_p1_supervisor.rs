@@ -470,6 +470,23 @@ pub(crate) async fn stage8b_p1e_test_redis_control_v1(redis_url: &str) -> Stage8
     }
 }
 
+#[cfg(test)]
+pub(crate) async fn stage8b_p1e_test_verified_redis_session_v1(
+    redis_url: &str,
+) -> Stage8bP1eVerifiedRedisSessionV1 {
+    let mut config = crate::Stage8bP1RedisConfig::paper_default_auto();
+    config.claim_idle_ms = 1;
+    config.claim_count = 1;
+    config.max_claim_pages = 16;
+    let transport = attach_stage8b_p1_redis(redis_url, config)
+        .await
+        .expect("test Redis transport");
+    Stage8bP1eVerifiedRedisSessionV1 {
+        transport,
+        control: stage8b_p1e_test_redis_control_v1(redis_url).await,
+    }
+}
+
 /// Performs S05 against a pre-provisioned DB15 namespace.  No command in this
 /// function can create a key, group or stream.
 pub async fn attach_stage8b_p1e_verified_redis(
