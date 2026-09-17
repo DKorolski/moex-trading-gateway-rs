@@ -180,6 +180,7 @@ pub struct Stage8bP1d3ScheduleStepAuthority {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage8bP1d3ScheduleStepRoute {
     Legacy,
+    Initial,
     Working,
     Cancel,
 }
@@ -203,6 +204,9 @@ impl Stage8bP1d3ScheduleStepAuthority {
         candidate: &Stage8bP1d3CanonicalM10Evidence,
     ) -> bool {
         let expected_kind = match self.route {
+            Stage8bP1d3ScheduleStepRoute::Initial => {
+                crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+            }
             Stage8bP1d3ScheduleStepRoute::Working => {
                 crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
             }
@@ -222,6 +226,37 @@ impl Stage8bP1d3ScheduleStepAuthority {
                     .matches_stage8b_p1e_m10_identity(&record.candidate_or_last_eligible_m10())
         })
     }
+}
+
+pub(crate) fn stage8b_p1d3_initial_schedule_step_authority_from_stage5e(
+    schedule_fingerprint_sha256: String,
+    trading_day_identity: String,
+    last_eligible_m10_redis_id: String,
+    predecessor_redis_id: String,
+    candidate_redis_id: String,
+    v4_proof: crate::stage5e_no_io_lifecycle::p1e_schedule_source::Stage8bP1eV4BindingProofV1,
+) -> Result<Stage8bP1d3ScheduleStepAuthority, Stage8bP1d3Error> {
+    let predecessor_ms = exact_m10_redis_id_ms(&predecessor_redis_id)?;
+    let candidate_ms = exact_m10_redis_id_ms(&candidate_redis_id)?;
+    let last_eligible_ms = exact_m10_redis_id_ms(&last_eligible_m10_redis_id)?;
+    if !is_sha256(&schedule_fingerprint_sha256)
+        || candidate_ms <= predecessor_ms
+        || candidate_ms > last_eligible_ms
+        || trading_day(candidate_ms)? != trading_day_identity
+        || v4_proof.transition_kind()
+            != crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+    {
+        return Err(Stage8bP1d3Error::IdentityMismatch);
+    }
+    Ok(Stage8bP1d3ScheduleStepAuthority {
+        schedule_fingerprint_sha256,
+        trading_day_identity,
+        last_eligible_m10_redis_id,
+        predecessor_redis_id,
+        candidate_redis_id,
+        route: Stage8bP1d3ScheduleStepRoute::Initial,
+        v4_proof: Some(v4_proof),
+    })
 }
 
 impl Stage8bP1d3DayExpiryAuthority {
@@ -698,6 +733,7 @@ pub(crate) struct Stage8bP1d3InitialLimitInput {
     pub pre_position_avg_price: Option<Decimal>,
     pub sequence_allocation_frontier: u64,
     pub stage6_dispatch_record_id: String,
+    pub stage6_outcome_lifecycle_sequence: u64,
     pub stage6_predecessor_frontier_sha256: String,
     pub stage6_reserved_checkpoint_sha256: String,
     pub previous_outcome_evidence_sha256: String,
@@ -4199,7 +4235,7 @@ pub(crate) fn preflight_initial_limit_transition(
     match observation {
         Stage8bP1d3InitialObservation::Candidate { evidence, schedule } => {
             validate_scoped_bar(pre_book, evidence)?;
-            validate_working_step(schedule, &input.decision_m10_redis_id, evidence)?;
+            validate_initial_step(schedule, &input.decision_m10_redis_id, evidence)?;
             if evidence.close_ts_utc_ms <= input.decision_m10_close_ts_utc_ms {
                 return Err(Stage8bP1d3Error::InvalidChronology);
             }
@@ -4256,7 +4292,7 @@ pub(crate) fn build_initial_limit_transition(
         match (candidate.as_ref(), step.as_ref(), expiry.as_ref()) {
             (Some(bar), Some(step), None) => {
                 validate_scoped_bar(pre_book, bar)?;
-                validate_working_step(step, &input.decision_m10_redis_id, bar)?;
+                validate_initial_step(step, &input.decision_m10_redis_id, bar)?;
                 if bar.close_ts_utc_ms <= input.decision_m10_close_ts_utc_ms {
                     return Err(Stage8bP1d3Error::InvalidChronology);
                 }
@@ -4422,7 +4458,12 @@ pub(crate) fn build_initial_limit_transition(
     )
     .map_err(|_| Stage8bP1d3Error::IdentityMismatch)?;
     let (request_finalized_record_id, request_finalized_fingerprint_sha256) =
-        request_finalization_binding(place_identity, &outcome_record_id, 3, transition_time)?;
+        request_finalization_binding(
+            place_identity,
+            &outcome_record_id,
+            input.stage6_outcome_lifecycle_sequence,
+            transition_time,
+        )?;
     post_book.insert_or_replace(record)?;
     let expected_post_book_sha256 = post_book_state_sha256(&post_book)?;
     let evidence = Stage8bP1d3OutcomeEvidenceV1 {
@@ -4542,6 +4583,7 @@ fn validate_initial_input(
             != Some(600_000)
         || input.decision_m10_close_ts_utc_ms.rem_euclid(600_000) != 0
         || !is_sha256(&input.stage6_dispatch_record_id)
+        || input.stage6_outcome_lifecycle_sequence == 0
         || !is_sha256(&input.stage6_predecessor_frontier_sha256)
         || !is_sha256(&input.stage6_reserved_checkpoint_sha256)
         || !is_sha256(&input.previous_outcome_evidence_sha256)
@@ -4808,7 +4850,24 @@ fn validate_working_step(
     expected_predecessor: &str,
     candidate: &Stage8bP1d3CanonicalM10Evidence,
 ) -> Result<(), Stage8bP1d3Error> {
-    if step.route == Stage8bP1d3ScheduleStepRoute::Cancel {
+    if !matches!(
+        step.route,
+        Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Working
+    ) {
+        return Err(Stage8bP1d3Error::InvalidTransition);
+    }
+    validate_step_identity(step, expected_predecessor, candidate)
+}
+
+fn validate_initial_step(
+    step: &Stage8bP1d3ScheduleStepAuthority,
+    expected_predecessor: &str,
+    candidate: &Stage8bP1d3CanonicalM10Evidence,
+) -> Result<(), Stage8bP1d3Error> {
+    if !matches!(
+        step.route,
+        Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Initial
+    ) {
         return Err(Stage8bP1d3Error::InvalidTransition);
     }
     validate_step_identity(step, expected_predecessor, candidate)
@@ -4819,7 +4878,10 @@ fn validate_cancel_step(
     expected_predecessor: &str,
     candidate: &Stage8bP1d3CanonicalM10Evidence,
 ) -> Result<(), Stage8bP1d3Error> {
-    if step.route == Stage8bP1d3ScheduleStepRoute::Working {
+    if !matches!(
+        step.route,
+        Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Cancel
+    ) {
         return Err(Stage8bP1d3Error::InvalidTransition);
     }
     validate_step_identity(step, expected_predecessor, candidate)
@@ -5389,6 +5451,7 @@ mod tests {
             pre_position_avg_price: None,
             sequence_allocation_frontier: 20,
             stage6_dispatch_record_id: "b".repeat(64),
+            stage6_outcome_lifecycle_sequence: 3,
             stage6_predecessor_frontier_sha256: "d".repeat(64),
             stage6_reserved_checkpoint_sha256: "e".repeat(64),
             previous_outcome_evidence_sha256: "f".repeat(64),
@@ -5477,6 +5540,20 @@ mod tests {
             last_eligible_m10_redis_id: "1785000600000-0".to_string(),
             predecessor_redis_id: "1785000000000-0".to_string(),
             candidate_redis_id: "1785000600000-0".to_string(),
+            route,
+            v4_proof: None,
+        }
+    }
+
+    fn routed_initial_step(
+        route: Stage8bP1d3ScheduleStepRoute,
+    ) -> Stage8bP1d3ScheduleStepAuthority {
+        Stage8bP1d3ScheduleStepAuthority {
+            schedule_fingerprint_sha256: "1".repeat(64),
+            trading_day_identity: "2026-07-25".to_string(),
+            last_eligible_m10_redis_id: "1785000000000-0".to_string(),
+            predecessor_redis_id: "1784999400000-0".to_string(),
+            candidate_redis_id: "1785000000000-0".to_string(),
             route,
             v4_proof: None,
         }
@@ -5738,10 +5815,38 @@ mod tests {
     #[test]
     fn schedule_route_restriction_reaches_the_effect_boundary() {
         let working = initial_working();
+        let initial_candidate = bar(
+            Decimal::new(2_200, 1),
+            Decimal::new(2_220, 1),
+            Decimal::new(2_190, 1),
+        );
+        assert_eq!(
+            build_initial_limit_transition(
+                &book(),
+                input(OrderSide::Buy, Decimal::new(2_210, 1)),
+                Some(initial_candidate),
+                Some(routed_initial_step(Stage8bP1d3ScheduleStepRoute::Working)),
+                None,
+            )
+            .expect_err("a working grant must fail before initial evaluation"),
+            Stage8bP1d3Error::InvalidTransition
+        );
+
         let candidate = later_bar(
             Decimal::new(2_200, 1),
             Decimal::new(2_220, 1),
             Decimal::new(2_190, 1),
+        );
+        assert_eq!(
+            build_later_limit_transition(
+                &working.post_book,
+                autonomous_input(&working.post_book),
+                Some(candidate.clone()),
+                Some(routed_later_step(Stage8bP1d3ScheduleStepRoute::Initial)),
+                None,
+            )
+            .expect_err("an initial-only grant must fail before working evaluation"),
+            Stage8bP1d3Error::InvalidTransition
         );
         assert_eq!(
             build_later_limit_transition(
@@ -5756,6 +5861,17 @@ mod tests {
         );
 
         let target = working.post_book.active_broker_order_id.clone().unwrap();
+        let initial_cancel_error = match build_cancel_transition(
+            &working.post_book,
+            cancel_input(&working.post_book, target.clone()),
+            candidate.clone(),
+            routed_later_step(Stage8bP1d3ScheduleStepRoute::Initial),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("an initial-only grant must fail before cancel evaluation"),
+        };
+        assert_eq!(initial_cancel_error, Stage8bP1d3Error::InvalidTransition);
+
         let cancel_error = match build_cancel_transition(
             &working.post_book,
             cancel_input(&working.post_book, target),

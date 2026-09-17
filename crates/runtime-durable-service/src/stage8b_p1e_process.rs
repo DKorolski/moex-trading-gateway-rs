@@ -46,6 +46,7 @@ use crate::{
     resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
     resume_stage8b_p1e_command_published_with_signed_schedule,
+    resume_stage8b_p1e_initial_limit_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
@@ -63,10 +64,11 @@ use crate::{
     Stage8bP1eRedisControlError, Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1,
     Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
     Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownIntentV1,
-    Stage8bP1eShutdownLatchV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
-    Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
-    Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
-    STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION, STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
+    Stage8bP1eShutdownLatchV1, Stage8bP1eSignedInitialLimitScheduleOutcomeV1,
+    Stage8bP1eSignedMarketScheduleOutcomeV1, Stage8bP1eSignedWorkingScheduleOutcomeV1,
+    Stage8bP1eSupervisorConfigV1, Stage8bP1eValidatedSupervisorConfigV1,
+    Stage8bP1eVerifiedRedisSessionV1, STAGE8B_P1E_FIRST_BOOT_RECOVERY_CONFIRMATION,
+    STAGE8B_P1E_SUPERVISOR_CONFIG_PATH,
 };
 
 use crate::stage8b_p1e_first_boot_transaction::next_stage8b_p1e_bootstrap_attempt_generation_v5;
@@ -959,6 +961,12 @@ pub enum Stage8bP1eMarketScheduleAdvanceOutcomeV1 {
     Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
 }
 
+pub enum Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1 {
+    Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
+    AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+    Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
+}
+
 /// One bounded signed-schedule attempt for the route shapes already composed
 /// by I1. Unsupported routes retain their exact opaque owner unchanged; they
 /// are never coerced into the Market or Working-LIMIT authority paths.
@@ -1035,6 +1043,7 @@ impl Stage8bP1eScheduleAcquisitionPolicyV1 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stage8bP1eSupportedScheduleRouteV1 {
     PlainMarket,
+    InitialLimit,
     ReadyWorkingLimit,
 }
 
@@ -1047,6 +1056,10 @@ fn supported_schedule_route(
             Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_),
         ) => Some(Stage8bP1eSupportedScheduleRouteV1::PlainMarket),
         (
+            Stage8bP1eScheduleDeferredKindV1::CommandPublishedInitialLimit,
+            Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_),
+        ) => Some(Stage8bP1eSupportedScheduleRouteV1::InitialLimit),
+        (
             Stage8bP1eScheduleDeferredKindV1::RoutedContinuation,
             Stage8bP1eScheduleDeferredRouteV1::RoutedContinuation(route),
         ) if matches!(
@@ -1057,6 +1070,123 @@ fn supported_schedule_route(
             Some(Stage8bP1eSupportedScheduleRouteV1::ReadyWorkingLimit)
         }
         _ => None,
+    }
+}
+
+/// Completes schedule checkpoints C-F for an already published initial LIMIT
+/// command, then rejoins the ordinary LIMIT S_ack/S_truth/XACK lifecycle.
+pub async fn advance_stage8b_p1e_initial_limit_schedule_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    advance_stage8b_p1e_initial_limit_schedule_with_timeout_v1(
+        deferred,
+        reader,
+        context,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        StdDuration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn advance_stage8b_p1e_initial_limit_schedule_with_timeout_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    operation_timeout: StdDuration,
+) -> Result<Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    if context.trusted_now != bound_at_utc {
+        return Err(Stage8bP1RedisSemanticError::P1eScheduleClockMismatch.into());
+    }
+    if deferred.kind != Stage8bP1eScheduleDeferredKindV1::CommandPublishedInitialLimit
+        || !matches!(
+            deferred._route.as_ref(),
+            Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_)
+        )
+    {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    }
+    let read = match reader
+        .read_newest_guarded_with_timeout(context, latch, operation_timeout)
+        .await
+    {
+        Ok(read) => read,
+        Err(error) if retryable_schedule_read_error(&error) => {
+            return Ok(Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::AwaitingSchedule(deferred));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let Stage8bP1eScheduleDeferredRecoveryV1 {
+        kind,
+        _route: route,
+        control,
+    } = deferred;
+    let Stage8bP1eScheduleDeferredRouteV1::CommandPublished(published) = *route else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+    match read {
+        crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            drop(published);
+            Ok(Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+            ))
+        }
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Empty,
+        ) => Ok(
+            Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                Stage8bP1eScheduleDeferredRecoveryV1 {
+                    kind,
+                    _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                        published,
+                    )),
+                    control,
+                },
+            ),
+        ),
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+        ) => {
+            let committed_high_water = snapshot.high_water().clone();
+            match resume_stage8b_p1e_initial_limit_with_signed_schedule(
+                *published,
+                *snapshot,
+                latch,
+                bound_at_utc,
+                commitment_key,
+            )
+            .await?
+            {
+                Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(receipt) => {
+                    Ok(Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Stopped(
+                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                    ))
+                }
+                Stage8bP1eSignedInitialLimitScheduleOutcomeV1::LimitAckCommitted(ack) => {
+                    context.high_water = Some(committed_high_water);
+                    Ok(Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Lifecycle(
+                        Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                            Stage8bP1eRecoveryStepV1 {
+                                route: Box::new(Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(
+                                    ack,
+                                )),
+                                control,
+                            },
+                        )),
+                    ))
+                }
+            }
+        }
     }
 }
 
@@ -1378,6 +1508,29 @@ async fn advance_stage8b_p1e_supported_schedule_once_with_timeout_v1(
                     ));
                 }
                 Stage8bP1eMarketScheduleAdvanceOutcomeV1::Lifecycle(lifecycle) => lifecycle,
+            }
+        }
+        Stage8bP1eSupportedScheduleRouteV1::InitialLimit => {
+            match advance_stage8b_p1e_initial_limit_schedule_with_timeout_v1(
+                deferred,
+                reader,
+                context,
+                latch,
+                bound_at_utc,
+                commitment_key,
+                operation_timeout,
+            )
+            .await?
+            {
+                Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Stopped(stopped) => {
+                    return Ok(Stage8bP1eSupportedScheduleCycleOutcomeV1::Stopped(stopped));
+                }
+                Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::AwaitingSchedule(deferred) => {
+                    return Ok(Stage8bP1eSupportedScheduleCycleOutcomeV1::AwaitingSchedule(
+                        deferred,
+                    ));
+                }
+                Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Lifecycle(lifecycle) => lifecycle,
             }
         }
         Stage8bP1eSupportedScheduleRouteV1::ReadyWorkingLimit => {
@@ -3827,6 +3980,78 @@ mod tests {
             )
             .unwrap();
         assert_eq!(restarted_context.high_water, accepted_high_water);
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "S_truth must precede source XACK-last");
+        drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn bounded_signed_initial_limit_cycle_rejoins_ready_and_xacks_source_last() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("signed-schedule-initial-limit-bounded-success");
+        let (published, key, fresh, identity, candidate_close_ms) =
+            crate::stage8b_p1_semantic::p1e_test_initial_limit_published(&redis.url, &parent).await;
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(candidate_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let deferred = Stage8bP1eScheduleDeferredRecoveryV1 {
+            kind: Stage8bP1eScheduleDeferredKindV1::CommandPublishedInitialLimit,
+            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                Box::new(published),
+            )),
+            control,
+        };
+        let mut context = fixture.context.clone();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+
+        let outcome = advance_stage8b_p1e_supported_schedule_bounded_v1(
+            deferred,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+        )
+        .await
+        .unwrap();
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(ready) = outcome else {
+            panic!("fresh signed initial LIMIT schedule must rejoin exact Ready")
+        };
+        assert_eq!(reader.test_read_attempts(), 1);
+        assert!(context.high_water.is_some());
 
         let namespace = crate::stage8b_p1_redis_namespace();
         let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")

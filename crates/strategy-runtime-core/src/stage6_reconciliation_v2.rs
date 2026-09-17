@@ -1857,6 +1857,10 @@ fn valid_v4_route_binding(
         (
             crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution,
             crate::Stage8bP1eScheduleAuthorityKindV1::Market,
+        )
+        | (
+            crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation,
+            crate::Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
         ) => {
             binding
                 .strategy_request_id
@@ -2278,7 +2282,8 @@ impl Stage6MixedReplayEngineV2 {
                         seen_schedule_transition_keys.insert(transition_key, canonical.clone());
                     }
                     match v4.transition_kind() {
-                        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+                        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+                        | crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => {
                             let binding = v4.request_or_order_binding();
                             let request_id = binding
                                 .strategy_request_id

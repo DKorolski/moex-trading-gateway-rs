@@ -1954,6 +1954,12 @@ impl Stage6dDurableRuntimeRecovered {
                                 == decision_request_id
                 ))
             }
+            crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => self
+                .stage8b_p1e_initial_limit_candidate_matches_runtime(
+                    candidate,
+                    expected_stage5_checkpoint_sha256,
+                    is_recovery,
+                ),
             crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
             | crate::Stage8bP1eScheduleTransitionKindV1::CancelStep
             | crate::Stage8bP1eScheduleTransitionKindV1::DayExpiry => {
@@ -1968,6 +1974,91 @@ impl Stage6dDurableRuntimeRecovered {
                     && replacement.matches_stage8b_p1e_schedule_candidate(candidate)?)
             }
         }
+    }
+
+    fn stage8b_p1e_initial_limit_candidate_matches_runtime(
+        &self,
+        candidate: &crate::Stage8bP1eScheduleBindingCandidateV1,
+        expected_stage5_checkpoint_sha256: &str,
+        is_recovery: bool,
+    ) -> Result<bool, Stage6dLiveCoreError> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return Ok(false);
+        };
+        let Some(semantic) = restart
+            .stage8b_p1_semantic_commit()
+            .filter(|projection| projection.validate() && projection.intent_count == 1)
+        else {
+            return Ok(false);
+        };
+        let Some(replacement) = restart.stage8b_p1d3_replacement() else {
+            return Ok(false);
+        };
+        let (
+            Some(request_id),
+            Some(command),
+            Some(identity),
+            Some(command_snapshot),
+            Some(command_sha256),
+        ) = (
+            semantic.request_id,
+            semantic.canonical_command.as_ref(),
+            semantic.durable_request_identity.as_ref(),
+            semantic.durable_command_snapshot.as_ref(),
+            semantic.canonical_command_sha256.as_ref(),
+        )
+        else {
+            return Ok(false);
+        };
+        let BrokerCommand::PlaceOrder(place) = command else {
+            return Ok(false);
+        };
+        let Some(shape) = command_snapshot.place_order_shape() else {
+            return Ok(false);
+        };
+        let binding = candidate.request_or_order_binding();
+        let predecessor = candidate.predecessor_m10();
+        let successor = candidate.candidate_or_last_eligible_m10();
+        let accepted = stage7a_accepted_record(self, request_id);
+        let exact = replacement.authenticated_stage6_checkpoint_sha256()
+            == expected_stage5_checkpoint_sha256
+            && candidate.operational_identity_sha256() == semantic.operational_identity_sha256
+            && candidate.operational_identity_sha256()
+                == replacement.working_book().operational_identity_sha256()
+            && identity.strategy_request_id() == request_id
+            && identity.action() == Stage6DurableActionKind::Place
+            && place.request_id == request_id
+            && place.order_type == broker_core::OrderType::Limit
+            && place.time_in_force == broker_core::TimeInForce::Day
+            && place.ttl_ms.is_none()
+            && shape.order_type() == broker_core::OrderType::Limit
+            && shape.time_in_force() == broker_core::TimeInForce::Day
+            && binding.strategy_request_id.as_deref() == Some(request_id.to_string().as_str())
+            && binding.canonical_command_sha256.as_deref() == Some(command_sha256.as_str())
+            && binding.active_broker_order_id.is_none()
+            && binding.working_book_transition_sha256.is_none()
+            && predecessor.redis_id == semantic.m10_redis_id
+            && predecessor.semantic_id_sha256 == semantic.m10_semantic_id_sha256
+            && predecessor.payload_sha256 == semantic.m10_payload_sha256
+            && predecessor.open_ts_utc_ms == predecessor.close_ts_utc_ms.saturating_sub(600_000)
+            && successor.open_ts_utc_ms == predecessor.close_ts_utc_ms
+            && accepted.is_some_and(|record| {
+                record.durable_request_identity() == identity
+                    && matches!(
+                        record.payload(),
+                        Stage6JournalPayloadV1::RequestAccepted { command }
+                            if command.as_ref() == command_snapshot
+                    )
+            });
+        if !exact || is_recovery {
+            return Ok(exact);
+        }
+        Ok(matches!(
+            self.journal.versioned_records().last(),
+            Some(Stage6JournalRecordVersioned::V1(record))
+                if record.event_kind() == Stage6JournalEventKind::RequestAccepted
+                    && record.durable_request_identity() == identity
+        ))
     }
 
     fn stage8b_p1e_pre_binding_checkpoint(
@@ -4874,7 +4965,7 @@ pub fn apply_stage8b_p1d3_initial_limit_ack_transition(
         .timestamp_millis_opt(transition_ts_utc_ms)
         .single()
         .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
-    let (semantic, replacement, position_basis, reconstruction_runtime) =
+    let (semantic, replacement, position_basis, reconstruction_runtime, binding_v4) =
         match &recovered.stage5_runtime {
             Stage6dStage5RuntimeAuthority::Restart(restart) => {
                 let semantic = restart
@@ -4886,6 +4977,30 @@ pub fn apply_stage8b_p1d3_initial_limit_ack_transition(
                     .stage8b_p1d3_replacement()
                     .cloned()
                     .ok_or(Stage6dLiveCoreError::RestartRuntimeRequired)?;
+                let binding_v4 = match &observation {
+                    crate::Stage8bP1d3InitialObservation::Candidate { evidence, schedule } => {
+                        recovered
+                            .current_stage8b_p1e_schedule_binding_record()?
+                            .filter(|record| {
+                                schedule.matches_stage8b_p1e_v4_record(record, evidence)
+                            })
+                            .cloned()
+                    }
+                    crate::Stage8bP1d3InitialObservation::DayExpiry { .. } => None,
+                };
+                if let Some(record) = binding_v4.as_ref() {
+                    if recovered
+                        .stage8b_p1e_pre_binding_checkpoint(record)?
+                        .checkpoint_sha256()
+                        != replacement.authenticated_stage6_checkpoint_sha256()
+                    {
+                        return Err(Stage6dLiveCoreError::DurableOrderingViolation);
+                    }
+                } else if replacement.authenticated_stage6_checkpoint_sha256()
+                    != recovered.authenticated_checkpoint().checkpoint_sha256()
+                {
+                    return Err(Stage6dLiveCoreError::RestartRuntimeRequired);
+                }
                 let position_basis = restart
                     .stage8b_p1d3_position_basis()
                     .ok_or(Stage6dLiveCoreError::Stage8bP1d3WorkingLimit)?;
@@ -4894,6 +5009,7 @@ pub fn apply_stage8b_p1d3_initial_limit_ack_transition(
                     replacement,
                     position_basis,
                     restart.stage5g_fresh_reconstruction_candidate(),
+                    binding_v4,
                 )
             }
             Stage6dStage5RuntimeAuthority::FirstBoot(_) => {
@@ -4973,16 +5089,41 @@ pub fn apply_stage8b_p1d3_initial_limit_ack_transition(
         || shape.limit_price() != place.limit_price
         || replayed.dispatch_safety_state()
             != crate::Stage6DispatchSafetyStateV1::ReadyForFirstDispatch
-        || replayed.last_unique_record_id() != accepted.journal_record_id()
-        || recovered.journal_frontier().last_record_id() != Some(accepted.journal_record_id())
+        || binding_v4.as_ref().map_or_else(
+            || {
+                replayed.last_unique_record_id() != accepted.journal_record_id()
+                    || recovered.journal_frontier().last_record_id()
+                        != Some(accepted.journal_record_id())
+            },
+            |record| {
+                replayed.last_unique_record_id() != record.journal_record_id()
+                    || recovered.journal_frontier().last_record_id()
+                        != Some(record.journal_record_id())
+            },
+        )
     {
         return Err(Stage6dLiveCoreError::DurableOrderingViolation);
     }
     let limit_price = place
         .limit_price
         .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
-    let dispatch = stage7a_dispatch_record(identity, &accepted, transition_ts)?;
+    let dispatch = if let Some(record) = binding_v4.as_ref() {
+        stage7a_dispatch_record_after(
+            identity,
+            &accepted,
+            record.lifecycle_sequence(),
+            record.journal_record_id(),
+            transition_ts,
+        )?
+    } else {
+        stage7a_dispatch_record(identity, &accepted, transition_ts)?
+    };
     let dispatch_record_id = dispatch.journal_record_id().as_str().to_string();
+    let stage6_outcome_lifecycle_sequence = dispatch
+        .lifecycle_sequence()
+        .get()
+        .checked_add(1)
+        .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?;
     let pre_dispatch_checkpoint_sha256 = recovered
         .authenticated_checkpoint()
         .checkpoint_sha256()
@@ -5020,6 +5161,7 @@ pub fn apply_stage8b_p1d3_initial_limit_ack_transition(
         pre_position_avg_price: position_basis.1,
         sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
         stage6_dispatch_record_id: dispatch_record_id.clone(),
+        stage6_outcome_lifecycle_sequence,
         stage6_predecessor_frontier_sha256: pre_dispatch_checkpoint_sha256,
         stage6_reserved_checkpoint_sha256: reserved_checkpoint_sha256.clone(),
         previous_outcome_evidence_sha256: replacement
@@ -5032,8 +5174,16 @@ pub fn apply_stage8b_p1d3_initial_limit_ack_transition(
         &observation,
     )?;
 
-    let _dispatch_receipt =
-        prepare_stage6d_existing_accepted_paper_dispatch(&mut recovered, &accepted, dispatch)?;
+    let _dispatch_receipt = if let Some(record) = binding_v4.as_ref() {
+        prepare_stage6d_existing_accepted_paper_dispatch_after_schedule_binding(
+            &mut recovered,
+            &accepted,
+            dispatch,
+            record,
+        )?
+    } else {
+        prepare_stage6d_existing_accepted_paper_dispatch(&mut recovered, &accepted, dispatch)?
+    };
     stage8b_p1d2_test_crash_barrier("p1d4-initial-after-dispatch-before-authority-consumption");
     stage8b_p1d4_test_crash_frontier("F20");
     let authority =
@@ -5196,6 +5346,10 @@ pub fn resume_stage8b_p1d3_dispatch_only_limit_transition(
         pre_position_avg_price: position_basis.1,
         sequence_allocation_frontier: replacement.working_book().total_sequence_frontier(),
         stage6_dispatch_record_id: candidate.dispatch_record_id().as_str().to_string(),
+        stage6_outcome_lifecycle_sequence: candidate
+            .dispatch_sequence()
+            .checked_add(1)
+            .ok_or(Stage6dLiveCoreError::DurableOrderingViolation)?,
         stage6_predecessor_frontier_sha256: candidate.predecessor_checkpoint_sha256().to_string(),
         stage6_reserved_checkpoint_sha256: reserved_checkpoint_sha256,
         previous_outcome_evidence_sha256: replacement
@@ -10265,9 +10419,11 @@ fn stage8b_p1e_dispatch_follows_exact_schedule_binding(
     else {
         return false;
     };
-    if binding_record.transition_kind()
-        != crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
-    {
+    if !matches!(
+        binding_record.transition_kind(),
+        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            | crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+    ) {
         return true;
     }
     let expected_command_sha256 = match &recovered.stage5_runtime {
@@ -10309,7 +10465,8 @@ fn stage8b_p1e_dispatch_follows_exact_schedule_binding_records(
     }
     let binding = binding_record.request_or_order_binding();
     match binding_record.transition_kind() {
-        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+        crate::Stage8bP1eScheduleTransitionKindV1::MarketExecution
+        | crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => {
             let request_id = identity.strategy_request_id().to_string();
             identity.action() == Stage6DurableActionKind::Place
                 && binding.strategy_request_id.as_deref() == Some(request_id.as_str())

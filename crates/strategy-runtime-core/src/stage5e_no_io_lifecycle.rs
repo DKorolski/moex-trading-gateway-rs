@@ -7747,6 +7747,7 @@ pub mod p1e_schedule_source {
     #[serde(rename_all = "snake_case")]
     pub enum Stage8bP1eScheduleTransitionKindV1 {
         MarketExecution,
+        InitialLimitEvaluation,
         WorkingLimitEvaluation,
         CancelStep,
         DayExpiry,
@@ -7772,6 +7773,7 @@ pub mod p1e_schedule_source {
     enum Stage8bP1ePreparedScheduleRouteV1 {
         Market(Box<Stage5eScheduleProjectionBridgeInput>),
         ScheduleStep {
+            initial_only: bool,
             cancel_only: bool,
             last_eligible_m10_redis_id: String,
         },
@@ -7880,17 +7882,38 @@ pub mod p1e_schedule_source {
         ) -> Result<crate::Stage8bP1d3ScheduleStepAuthority, Stage8bP1eScheduleSourceError>
         {
             let Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                initial_only,
                 cancel_only,
                 last_eligible_m10_redis_id,
             } = self.candidate.route
             else {
                 return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
             };
-            if cancel_only
-                != (self.candidate.transition_kind
-                    == Stage8bP1eScheduleTransitionKindV1::CancelStep)
-            {
+            let route_matches = matches!(
+                (self.candidate.transition_kind, initial_only, cancel_only),
+                (
+                    Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation,
+                    true,
+                    false
+                ) | (
+                    Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation,
+                    false,
+                    false
+                ) | (Stage8bP1eScheduleTransitionKindV1::CancelStep, false, true)
+            );
+            if !route_matches {
                 return Err(Stage8bP1eScheduleSourceError::TransitionMismatch);
+            }
+            if initial_only {
+                return crate::stage8b_p1d3_working_limit::stage8b_p1d3_initial_schedule_step_authority_from_stage5e(
+                    self.candidate.schedule_semantic_sha256,
+                    self.candidate.trading_day,
+                    last_eligible_m10_redis_id,
+                    self.candidate.predecessor_m10.redis_id,
+                    self.candidate.candidate_or_last_eligible_m10.redis_id,
+                    self.v4_proof,
+                )
+                .map_err(|_| Stage8bP1eScheduleSourceError::TransitionMismatch);
             }
             crate::stage8b_p1d3_working_limit::stage8b_p1d3_schedule_step_authority_from_stage5e(
                 self.candidate.schedule_semantic_sha256,
@@ -8007,6 +8030,37 @@ pub mod p1e_schedule_source {
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                    initial_only: false,
+                    cancel_only: false,
+                    last_eligible_m10_redis_id: self.last_eligible_m10_redis_id()?,
+                },
+            )
+        }
+
+        pub fn prepare_initial_limit_binding(
+            &self,
+            predecessor: &Stage8bP1eM10IdentityV1,
+            candidate: &Stage8bP1eM10IdentityV1,
+            strategy_request_id: impl Into<String>,
+            canonical_command_sha256: impl Into<String>,
+            redis_stream_id: impl Into<String>,
+        ) -> Result<Stage8bP1eScheduleBindingCandidateV1, Stage8bP1eScheduleSourceError> {
+            self.require_open_route()?;
+            validate_m10_pair(predecessor, candidate, &self.envelope.payload.trading_day)?;
+            self.prepare_binding(
+                Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation,
+                Stage8bP1eScheduleAuthorityKindV1::ScheduleStep,
+                predecessor,
+                candidate,
+                Stage8bP1eRequestOrOrderBindingV1 {
+                    strategy_request_id: Some(strategy_request_id.into()),
+                    canonical_command_sha256: Some(canonical_command_sha256.into()),
+                    active_broker_order_id: None,
+                    working_book_transition_sha256: None,
+                },
+                redis_stream_id.into(),
+                Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                    initial_only: true,
                     cancel_only: false,
                     last_eligible_m10_redis_id: self.last_eligible_m10_redis_id()?,
                 },
@@ -8035,6 +8089,7 @@ pub mod p1e_schedule_source {
                 },
                 redis_stream_id.into(),
                 Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                    initial_only: false,
                     cancel_only: true,
                     last_eligible_m10_redis_id: self.last_eligible_m10_redis_id()?,
                 },
@@ -8365,6 +8420,7 @@ pub mod p1e_schedule_source {
                 working_book_transition_sha256: Some("b".repeat(64)),
             },
             route: Stage8bP1ePreparedScheduleRouteV1::ScheduleStep {
+                initial_only: false,
                 cancel_only: false,
                 last_eligible_m10_redis_id: "1789401600000-0".to_string(),
             },
@@ -8719,6 +8775,20 @@ pub mod p1e_schedule_source {
         let candidate = match record.transition_kind() {
             Stage8bP1eScheduleTransitionKindV1::MarketExecution => accepted
                 .prepare_market_binding(
+                    &predecessor,
+                    &candidate_m10,
+                    binding
+                        .strategy_request_id
+                        .clone()
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    binding
+                        .canonical_command_sha256
+                        .clone()
+                        .ok_or(Stage8bP1eScheduleSourceError::TransitionMismatch)?,
+                    record.redis_stream_id().to_string(),
+                )?,
+            Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => accepted
+                .prepare_initial_limit_binding(
                     &predecessor,
                     &candidate_m10,
                     binding
@@ -9467,7 +9537,8 @@ pub mod p1e_schedule_source {
         binding: &Stage8bP1eRequestOrOrderBindingV1,
     ) -> bool {
         match transition_kind {
-            Stage8bP1eScheduleTransitionKindV1::MarketExecution => {
+            Stage8bP1eScheduleTransitionKindV1::MarketExecution
+            | Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation => {
                 binding
                     .strategy_request_id
                     .as_deref()

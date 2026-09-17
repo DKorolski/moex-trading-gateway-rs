@@ -57,6 +57,14 @@ boundary and does not authorize installation or activation.
   decision M10 and first canonical successor are bound into V4, latch E/F
   precede the inherited paper provider, and the continuation stops at the
   typed P1-d2 `S_ack` owner with the decision source still pending;
+- a complete fresh Initial-LIMIT `CommandPublished` signed-schedule path: the
+  exact request/command-bound decision M10 and its first canonical successor
+  are sealed into a dedicated Initial-only V4 route, latch E/F issue only the
+  Initial-LIMIT authority, and the existing LIMIT lifecycle advances through
+  `S_ack`, `S_truth` and source-XACK-last back to exact `Ready`;
+- route authority is separated at the effect boundary: Initial, Working and
+  Cancel schedule grants cannot be reused across one another, while the
+  pre-P1-e legacy test grant remains confined to inherited fixture coverage;
 - pre-I/O classification separates plain Market, generated Market and
   Initial-LIMIT published owners, so the plain-Market bridge cannot mutate
   either package-specific route before its own authority bridge exists;
@@ -124,10 +132,9 @@ boundary and does not authorize installation or activation.
 - normalized quiescent, pending-not-claimable, multi-intent-blocked and
   schedule-deferred outputs that retain the verify-only control plane and do
   not expose raw lifecycle owners;
-- explicit deferral of Initial-LIMIT, generated Market, Cancel, Day-expiry and
-  recovered dispatch process routes until each can retain or reissue its exact
-  signed V4 authority; no guessed or reconstructed schedule authority is
-  issued;
+- explicit deferral of generated Market, Cancel, Day-expiry and recovered
+  dispatch process routes until each can retain or reissue its exact signed V4
+  authority; no guessed or reconstructed schedule authority is issued;
 - deferred typed ownership for the LIMIT-versus-expiry dispatch decision and
   for an already committed signed schedule binding;
 - stable nonzero process exit classes and redacted stdout/stderr.
@@ -163,10 +170,14 @@ authorities; it must not attach and then return after dropping an owner.
 
 - production `run` wiring for credential load, S03 durable restart and the
   completed owner-retaining S04-S09 seam;
-- signed schedule-source process composition for Initial-LIMIT, generated
-  Market, Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT
-  and plain Market now cover C-F and must remain the reference ownership
+- signed schedule-source process composition for generated Market, Cancel,
+  Day-expiry and recovered dispatch routes; Ready/Working-LIMIT, plain Market
+  and fresh Initial-LIMIT now cover C-F and must remain the reference ownership
   shapes;
+- authenticated restart composition from Initial-LIMIT
+  `ScheduleBindingCommitted` and later retained frontiers; the fresh path is
+  complete, but no restart route may reconstruct or guess consumed schedule
+  authority;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized

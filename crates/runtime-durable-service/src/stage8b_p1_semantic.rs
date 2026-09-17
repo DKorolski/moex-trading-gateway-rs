@@ -35,6 +35,9 @@ use crate::stage8b_p1_bootstrap::{
 mod redis;
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+pub(crate) use redis::tests::p1e_test_initial_limit_published;
+
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_plain_market_published;
 
 pub use redis::{
@@ -65,6 +68,7 @@ pub use redis::{
     resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
     resume_stage8b_p1d4_truth_with_redis,
     resume_stage8b_p1e_command_published_with_signed_schedule,
+    resume_stage8b_p1e_initial_limit_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
@@ -86,7 +90,8 @@ pub use redis::{
     Stage8bP1eReadyPendingAcquisitionOutcomeV1, Stage8bP1eReadySourceRouteV1,
     Stage8bP1eRetainedSourceReceiptV1, Stage8bP1eRoutedContinuationV1,
     Stage8bP1eRoutedPostAcquisitionDecisionV1, Stage8bP1eShutdownCauseV1,
-    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1,
 };
 

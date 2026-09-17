@@ -3058,6 +3058,14 @@ pub enum Stage8bP1eSignedMarketScheduleOutcomeV1 {
     FeedbackAckCommitted(Box<Stage8bP1RedisFeedbackAckCommitted>),
 }
 
+/// Result of the complete C-already-read/D/E/F initial-LIMIT schedule
+/// continuation. The replacement S_ack remains the only next lifecycle
+/// authority; source XACK is not reachable from this result.
+pub enum Stage8bP1eSignedInitialLimitScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
+}
+
 fn stage8b_p1e_m10_identity_from_validated(
     source: &Stage8bP1ValidatedCanonicalM10,
 ) -> strategy_runtime_core::Stage8bP1eM10IdentityV1 {
@@ -3182,6 +3190,128 @@ pub async fn resume_stage8b_p1e_command_published_with_signed_schedule(
         Stage8bP1eSignedMarketScheduleOutcomeV1::FeedbackAckCommitted(Box::new(
             published
                 .execute_next_canonical_market(authority, commitment_key)
+                .await?,
+        )),
+    )
+}
+
+/// Binds one verified signed snapshot to the exact published initial LIMIT
+/// decision and first canonical successor. The V4 binding is sealed and
+/// reread before the initial LIMIT paper transition can run.
+pub async fn resume_stage8b_p1e_initial_limit_with_signed_schedule(
+    mut published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    if published.p1e_schedule_route() != Stage8bP1ePublishedScheduleRouteV1::InitialLimit {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
+    }
+    if !published.command_matches_durable_evidence()
+        || published.pending_m10.redis_id() != published.evidence.m10_redis_id
+        || published.receipt.source_m10_redis_id != published.evidence.m10_redis_id
+    {
+        return Err(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict);
+    }
+    let operational_identity_sha256 = published
+        .stage7
+        .stage8b_p1_operational_identity_sha256()
+        .to_string();
+    let predecessor = published
+        .pending_m10
+        .parse_exact(&operational_identity_sha256)?;
+    let candidate = published
+        .transport
+        .backend
+        .exact_first_successor_m10(
+            published.pending_m10.redis_id(),
+            &operational_identity_sha256,
+        )
+        .await?;
+    let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
+    let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
+    let strategy_request_id = published
+        .evidence
+        .strategy_request_id
+        .ok_or(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict)?;
+    let canonical_command_sha256 = published
+        .evidence
+        .canonical_command_sha256
+        .clone()
+        .ok_or(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict)?;
+    let Stage8bP1RedisCommandPublished {
+        stage7,
+        evidence,
+        command,
+        transport,
+        pending_m10,
+        receipt,
+        p1d4_reservation,
+        p1d4_binding,
+    } = published;
+    let committed = match crate::bind_stage8b_p1e_initial_limit_schedule(
+        stage7,
+        snapshot,
+        latch,
+        &predecessor,
+        &candidate,
+        strategy_request_id.to_string(),
+        canonical_command_sha256,
+        bound_at_utc,
+        commitment_key,
+    )? {
+        crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(
+                receipt,
+            ));
+        }
+        crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+    };
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(
+                receipt,
+            ));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedInitialLimitScheduleOutcomeV1::Stopped(
+                receipt,
+            ));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let published = Stage8bP1RedisCommandPublished {
+        stage7,
+        evidence,
+        command,
+        transport,
+        pending_m10,
+        receipt,
+        p1d4_reservation,
+        p1d4_binding,
+    };
+    Ok(
+        Stage8bP1eSignedInitialLimitScheduleOutcomeV1::LimitAckCommitted(Box::new(
+            published
+                .execute_next_canonical_limit(authority, commitment_key)
                 .await?,
         )),
     )
@@ -7825,6 +7955,28 @@ pub(crate) mod tests {
         )
         .await
         .expect("canonical P1-d3 LIMIT fixture must be constructible")
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_initial_limit_published(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1RedisCommandPublished,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (key, fresh, identity, published) =
+            prepare_p1d3_initial_limit_source(redis_url, parent, 2_220).await;
+        (
+            published,
+            key,
+            fresh,
+            identity,
+            P1D3_CANCEL_DECISION_CLOSE_MS,
+        )
     }
 
     async fn prepare_p1d3_initial_filled_source(
