@@ -34,11 +34,20 @@ use crate::stage8b_p1_bootstrap::{
 
 mod redis;
 
+pub(crate) use redis::{
+    resume_stage8b_p1e_command_published_with_signed_schedule_timeout,
+    resume_stage8b_p1e_generated_market_with_signed_schedule_timeout,
+    resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout,
+};
+
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_initial_limit_published;
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_generated_market_published;
+
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+pub(crate) use redis::tests::p1e_test_generated_market_prepublication_without_successor;
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_commit_initial_limit_v4_only;

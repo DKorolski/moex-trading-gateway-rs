@@ -20,6 +20,9 @@ def replace(content: dict[str, str], key: str, old: str, new: str) -> dict[str, 
 def main() -> None:
     base = check.load_content()
     check.validate_content(base)
+    print("PASS positive-baseline")
+    check.validate_content(copy.deepcopy(base))
+    print("PASS no-op-control")
     cases = [
         ("semantic-domain", "core", "schedule-semantic-identity.sha256.v1", "schedule-semantic-identity.sha256.v2"),
         ("semantic-identity", "core", "pub struct Stage8bP1eScheduleSemanticIdentityV1", "struct RemovedSemanticIdentity"),
@@ -61,7 +64,9 @@ def main() -> None:
         ("market-exact-open-ts", "p1d1", "self.open_ts_utc_ms == expected.open_ts_utc_ms", "true"),
         ("market-exact-close-ts", "p1d1", "self.close_ts_utc_ms == expected.close_ts_utc_ms", "true"),
         ("route-tag", "p1d3", "enum Stage8bP1d3ScheduleStepRoute", "enum RemovedScheduleStepRoute"),
-        ("cancel-route-rejection", "p1d3", "if step.route == Stage8bP1d3ScheduleStepRoute::Cancel", "if false"),
+        ("initial-route-rejection", "p1d3", "Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Initial", "Stage8bP1d3ScheduleStepRoute::Legacy"),
+        ("working-route-rejection", "p1d3", "Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Working", "Stage8bP1d3ScheduleStepRoute::Legacy"),
+        ("cancel-route-rejection", "p1d3", "Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Cancel", "Stage8bP1d3ScheduleStepRoute::Legacy"),
         ("v4-record-cross-binding", "p1d3", "pub(crate) fn matches_stage8b_p1e_schedule_v4_record", "pub(crate) fn removed_matches_schedule_v4_record"),
         ("v4-expiry-receipt-order", "p1d3", "fn ordered_autonomous_receipt_timestamp", "fn removed_autonomous_receipt_timestamp"),
         ("working-exact-redis-id", "p1d3", "self.redis_id == expected.redis_id", "true"),

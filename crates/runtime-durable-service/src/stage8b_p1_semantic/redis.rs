@@ -1444,6 +1444,13 @@ impl Stage8bP1RedisPrepublicationPending {
         false
     }
 
+    /// Classifies the authenticated durable candidate before this linear
+    /// owner is consumed. Generated Market must use the reservation-bearing
+    /// publisher; external command labels are not an authority source.
+    pub(crate) fn requires_generated_market_reservation(&self) -> bool {
+        self.durable.stage8b_p1d4_generated_market_candidate()
+    }
+
     pub async fn publish_exact_command(
         mut self,
     ) -> Result<Stage8bP1RedisCommandPublished, Stage8bP1RedisSemanticError> {
@@ -1713,6 +1720,33 @@ impl Stage8bP1RedisCommandPublished {
 
     pub fn real_orders_enabled(&self) -> bool {
         false
+    }
+
+    /// Observes the exact first successor without consuming this linear
+    /// published owner. Empty, transport-loss and bounded-timeout results are
+    /// normal waiting states; an observed wrong/gapped successor remains a
+    /// fail-closed identity error.
+    async fn first_successor_m10_bounded(
+        &mut self,
+        expected_operational_identity_sha256: &str,
+        operation_timeout: std::time::Duration,
+    ) -> Result<Option<Stage8bP1ValidatedCanonicalM10>, Stage8bP1RedisSemanticError> {
+        if operation_timeout.is_zero() {
+            return Ok(None);
+        }
+        match tokio::time::timeout(
+            operation_timeout,
+            self.transport.backend.first_successor_m10_if_present(
+                self.pending_m10.redis_id(),
+                expected_operational_identity_sha256,
+            ),
+        )
+        .await
+        {
+            Ok(Ok(successor)) => Ok(successor),
+            Ok(Err(Stage8bP1RedisSemanticError::Redis(_))) | Err(_) => Ok(None),
+            Ok(Err(error)) => Err(error),
+        }
     }
 
     #[cfg(test)]
@@ -3144,6 +3178,7 @@ pub enum Stage8bP1eSignedWorkingScheduleOutcomeV1 {
 /// all effect authority and leaves the originating source pending.
 pub enum Stage8bP1eSignedMarketScheduleOutcomeV1 {
     Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
     FeedbackAckCommitted(Box<Stage8bP1RedisFeedbackAckCommitted>),
 }
 
@@ -3152,6 +3187,7 @@ pub enum Stage8bP1eSignedMarketScheduleOutcomeV1 {
 /// binding and produces only the combined P1-d4 replacement S_ack.
 pub enum Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1 {
     Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
     GeneratedMarketAckCommitted(Box<Stage8bP1RedisGeneratedMarketAckCommitted>),
 }
 
@@ -3160,6 +3196,7 @@ pub enum Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1 {
 /// authority; source XACK is not reachable from this result.
 pub enum Stage8bP1eSignedInitialLimitScheduleOutcomeV1 {
     Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
     LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
 }
 
@@ -3201,11 +3238,30 @@ fn stage8b_p1e_m10_identity_from_validated(
 /// latch E and latch F, and only then enters the inherited paper provider.
 /// No fresh M10 acquisition or source acknowledgement is performed here.
 pub async fn resume_stage8b_p1e_command_published_with_signed_schedule(
+    published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedMarketScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    resume_stage8b_p1e_command_published_with_signed_schedule_timeout(
+        published,
+        snapshot,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        std::time::Duration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+pub(crate) async fn resume_stage8b_p1e_command_published_with_signed_schedule_timeout(
     mut published: Stage8bP1RedisCommandPublished,
     snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
     latch: &Stage8bP1eShutdownLatchV1,
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
+    successor_timeout: std::time::Duration,
 ) -> Result<Stage8bP1eSignedMarketScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
     if published.p1e_schedule_route() != Stage8bP1ePublishedScheduleRouteV1::PlainMarket {
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
@@ -3223,14 +3279,14 @@ pub async fn resume_stage8b_p1e_command_published_with_signed_schedule(
     let predecessor = published
         .pending_m10
         .parse_exact(&operational_identity_sha256)?;
-    let candidate = published
-        .transport
-        .backend
-        .exact_first_successor_m10(
-            published.pending_m10.redis_id(),
-            &operational_identity_sha256,
-        )
-        .await?;
+    let Some(candidate) = published
+        .first_successor_m10_bounded(&operational_identity_sha256, successor_timeout)
+        .await?
+    else {
+        return Ok(Stage8bP1eSignedMarketScheduleOutcomeV1::AwaitingSuccessor(
+            Box::new(published),
+        ));
+    };
     let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
     let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
     let strategy_request_id = published
@@ -3318,11 +3374,30 @@ pub async fn resume_stage8b_p1e_command_published_with_signed_schedule(
 /// P1-d4 provider path. No generic Market settlement or republish path is
 /// reachable from this owner.
 pub async fn resume_stage8b_p1e_generated_market_with_signed_schedule(
+    published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    resume_stage8b_p1e_generated_market_with_signed_schedule_timeout(
+        published,
+        snapshot,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        std::time::Duration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+pub(crate) async fn resume_stage8b_p1e_generated_market_with_signed_schedule_timeout(
     mut published: Stage8bP1RedisCommandPublished,
     snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
     latch: &Stage8bP1eShutdownLatchV1,
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
+    successor_timeout: std::time::Duration,
 ) -> Result<Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
     if published.p1e_schedule_route() != Stage8bP1ePublishedScheduleRouteV1::GeneratedMarket {
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
@@ -3357,14 +3432,16 @@ pub async fn resume_stage8b_p1e_generated_market_with_signed_schedule(
     let predecessor = published
         .pending_m10
         .parse_exact(&operational_identity_sha256)?;
-    let candidate = published
-        .transport
-        .backend
-        .exact_first_successor_m10(
-            published.pending_m10.redis_id(),
-            &operational_identity_sha256,
-        )
-        .await?;
+    let Some(candidate) = published
+        .first_successor_m10_bounded(&operational_identity_sha256, successor_timeout)
+        .await?
+    else {
+        return Ok(
+            Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::AwaitingSuccessor(Box::new(
+                published,
+            )),
+        );
+    };
     let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
     let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
     let strategy_request_id = published
@@ -3459,11 +3536,30 @@ pub async fn resume_stage8b_p1e_generated_market_with_signed_schedule(
 /// decision and first canonical successor. The V4 binding is sealed and
 /// reread before the initial LIMIT paper transition can run.
 pub async fn resume_stage8b_p1e_initial_limit_with_signed_schedule(
+    published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout(
+        published,
+        snapshot,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        std::time::Duration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+pub(crate) async fn resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout(
     mut published: Stage8bP1RedisCommandPublished,
     snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
     latch: &Stage8bP1eShutdownLatchV1,
     bound_at_utc: DateTime<Utc>,
     commitment_key: &Stage5gLifecycleCommitmentKey,
+    successor_timeout: std::time::Duration,
 ) -> Result<Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
     if published.p1e_schedule_route() != Stage8bP1ePublishedScheduleRouteV1::InitialLimit {
         return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
@@ -3481,14 +3577,14 @@ pub async fn resume_stage8b_p1e_initial_limit_with_signed_schedule(
     let predecessor = published
         .pending_m10
         .parse_exact(&operational_identity_sha256)?;
-    let candidate = published
-        .transport
-        .backend
-        .exact_first_successor_m10(
-            published.pending_m10.redis_id(),
-            &operational_identity_sha256,
-        )
-        .await?;
+    let Some(candidate) = published
+        .first_successor_m10_bounded(&operational_identity_sha256, successor_timeout)
+        .await?
+    else {
+        return Ok(
+            Stage8bP1eSignedInitialLimitScheduleOutcomeV1::AwaitingSuccessor(Box::new(published)),
+        );
+    };
     let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
     let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
     let strategy_request_id = published
@@ -6103,6 +6199,19 @@ impl Stage8bP1RedisBackend {
         predecessor_redis_id: &str,
         expected_operational_identity_sha256: &str,
     ) -> Result<super::Stage8bP1ValidatedCanonicalM10, Stage8bP1RedisSemanticError> {
+        self.first_successor_m10_if_present(
+            predecessor_redis_id,
+            expected_operational_identity_sha256,
+        )
+        .await?
+        .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)
+    }
+
+    async fn first_successor_m10_if_present(
+        &mut self,
+        predecessor_redis_id: &str,
+        expected_operational_identity_sha256: &str,
+    ) -> Result<Option<super::Stage8bP1ValidatedCanonicalM10>, Stage8bP1RedisSemanticError> {
         let (predecessor_ms, predecessor_sequence) = parse_redis_id(predecessor_redis_id)?;
         if predecessor_sequence != 0 {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
@@ -6120,7 +6229,18 @@ impl Stage8bP1RedisBackend {
             .query_async(&mut self.connection)
             .await?;
         let Some(first) = reply.ids.first() else {
-            return Err(Stage8bP1RedisSemanticError::ExactPendingEntryMissing);
+            let predecessor_payload = self
+                .exact_stream_entry(predecessor_redis_id)
+                .await?
+                .ok_or(Stage8bP1RedisSemanticError::ExactPendingEntryMissing)?;
+            let predecessor = parse_stage8b_p1_canonical_m10(
+                predecessor_payload.as_bytes(),
+                expected_operational_identity_sha256,
+            )?;
+            if predecessor.redis_id() != predecessor_redis_id {
+                return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
+            }
+            return Ok(None);
         };
         if first.id != expected_id || first.map.len() != 1 {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
@@ -6135,7 +6255,7 @@ impl Stage8bP1RedisBackend {
         if validated.redis_id() != expected_id {
             return Err(Stage8bP1RedisSemanticError::ExactSourceConflict);
         }
-        Ok(validated)
+        Ok(Some(validated))
     }
 
     async fn retained_m10_count(&mut self) -> Result<usize, Stage8bP1RedisSemanticError> {
@@ -8800,6 +8920,7 @@ pub(crate) mod tests {
     async fn prepare_p1d4_generated_market_prepublication(
         redis_url: &str,
         parent: &Path,
+        publish_successor: bool,
     ) -> (
         Stage5gLifecycleCommitmentKey,
         strategy_runtime_core::HybridIntradayRuntimeStrategy,
@@ -8819,14 +8940,16 @@ pub(crate) mod tests {
             )
             .await
             .unwrap();
-        owner
-            .transport
-            .publish_canonical_m10(
-                &canonical_m10(identity.clone(), fill_close_ms, 2_175),
-                &identity,
-            )
-            .await
-            .unwrap();
+        if publish_successor {
+            owner
+                .transport
+                .publish_canonical_m10(
+                    &canonical_m10(identity.clone(), fill_close_ms, 2_175),
+                    &identity,
+                )
+                .await
+                .unwrap();
+        }
         let outcome = owner
             .process_next_working_limit(
                 p1d3_cancel_schedule(P1D3_CANCEL_CANDIDATE_CLOSE_MS, decision_close_ms),
@@ -8841,6 +8964,22 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_generated_market_prepublication_without_successor(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1RedisPrepublicationPending,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (key, fresh, identity, pending, decision_close_ms) =
+            prepare_p1d4_generated_market_prepublication(redis_url, parent, false).await;
+        (pending, key, fresh, identity, decision_close_ms + 600_000)
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
     pub(crate) async fn p1e_test_generated_market_published(
         redis_url: &str,
         parent: &Path,
@@ -8852,7 +8991,7 @@ pub(crate) mod tests {
         i64,
     ) {
         let (key, fresh, identity, pending, decision_close_ms) =
-            prepare_p1d4_generated_market_prepublication(redis_url, parent).await;
+            prepare_p1d4_generated_market_prepublication(redis_url, parent, true).await;
         let published = pending
             .publish_exact_generated_market_command(&key)
             .await
@@ -8972,6 +9111,105 @@ pub(crate) mod tests {
             "generated Market binding must stop at combined S_ack before source XACK"
         );
         drop(connection);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn p1e_i1_generated_market_signed_v4_restarts_after_ack_and_truth() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("p1e-i1-generated-market-signed-v4-restarts");
+        let (published, key, fresh, identity, candidate_close_ms) =
+            p1e_test_generated_market_published(&redis.url, &parent).await;
+        let bound_at = Utc
+            .timestamp_millis_opt(candidate_close_ms)
+            .single()
+            .unwrap();
+        let snapshot = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_snapshot(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            format!("{candidate_close_ms}-1"),
+            bound_at,
+        );
+        let Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::GeneratedMarketAckCommitted(ack) =
+            resume_stage8b_p1e_generated_market_with_signed_schedule(
+                published,
+                snapshot,
+                &Stage8bP1eShutdownLatchV1::new(),
+                bound_at,
+                &key,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("signed V4 must commit the combined generated-Market S_ack")
+        };
+        drop(ack);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh.clone(),
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d4GeneratedMarketAckCommitted(ack) = restart else {
+            panic!("signed V4 S_ack must restart as truth-only generated authority")
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let ack = p1e_test_resume_p1d4_ack(*ack, transport).await.unwrap();
+        let truth = ack.commit_truth(&key).await.unwrap();
+        let audit_before_restart = truth.audit_evidence().unwrap();
+        assert_eq!(
+            audit_before_restart.core.seq_ack.checked_add(1),
+            Some(audit_before_restart.core.seq_truth)
+        );
+        drop(truth);
+
+        let restart = restart_stage8b_p1(
+            validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                fresh.stage5c_config_fingerprint(),
+            ))
+            .unwrap(),
+            &key,
+            fresh,
+        )
+        .unwrap();
+        let Stage7bRestartOutcome::P1d4GeneratedMarketTruthCommitted(truth) = restart else {
+            panic!("signed V4 S_truth must restart as source-XACK-only authority")
+        };
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let transport = attach_stage8b_p1_redis(&redis.url, reclaim_config())
+            .await
+            .unwrap();
+        let resolved = p1e_test_resume_p1d4_truth(*truth, transport).await.unwrap();
+        assert_eq!(resolved.audit_evidence(), &audit_before_restart);
+        assert_eq!(
+            resolved.disposition(),
+            Stage8bP1RedisZeroIntentAckDisposition::AcknowledgedPending
+        );
+        let namespace = stage8b_p1_redis_namespace();
+        let mut connection = redis.connection().await;
+        let pending: StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            pending.count(),
+            0,
+            "S_truth restart may only XACK source last"
+        );
+        drop(resolved);
         fs::remove_dir_all(parent).unwrap();
     }
 
@@ -9226,7 +9464,7 @@ pub(crate) mod tests {
         let redis = RedisServer::start().await;
         let parent = temp_directory("p1d4-independent-write-and-seal-generations");
         let (key, _, _, mut pending, decision_close_ms) =
-            prepare_p1d4_generated_market_prepublication(&redis.url, &parent).await;
+            prepare_p1d4_generated_market_prepublication(&redis.url, &parent, true).await;
 
         let write_generation_w0 = pending
             .durable
@@ -11937,7 +12175,7 @@ pub(crate) mod tests {
             }
             "generated-market" => {
                 let (key, _, _, pending, decision_close_ms) =
-                    prepare_p1d4_generated_market_prepublication(&redis_url, &parent).await;
+                    prepare_p1d4_generated_market_prepublication(&redis_url, &parent, true).await;
                 std::env::set_var("STAGE8B_P1D4_ARMED", "1");
                 let truth = pending
                     .publish_exact_generated_market_command(&key)

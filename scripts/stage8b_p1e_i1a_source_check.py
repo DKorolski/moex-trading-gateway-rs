@@ -187,9 +187,12 @@ def validate_content(content: dict[str, str]) -> None:
 
     for token in (
         "enum Stage8bP1d3ScheduleStepRoute",
+        "Stage8bP1d3ScheduleStepRoute::Initial",
         "Stage8bP1d3ScheduleStepRoute::Working",
         "Stage8bP1d3ScheduleStepRoute::Cancel",
-        "if step.route == Stage8bP1d3ScheduleStepRoute::Cancel",
+        "Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Initial",
+        "Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Working",
+        "Stage8bP1d3ScheduleStepRoute::Legacy | Stage8bP1d3ScheduleStepRoute::Cancel",
         "pub(crate) fn matches_stage8b_p1e_schedule_v4_record",
         "apply_stage8b_p1d3_evaluation_stage_after_schedule_binding",
         "apply_stage8b_p1d3_autonomous_truth_stage_after_schedule_binding",

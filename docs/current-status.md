@@ -1,6 +1,6 @@
 # Current status — FINAM migration / ALOR parity
 
-Status date: 2026-09-13.
+Status date: 2026-09-17.
 
 This document is the operator/developer status source of truth. It intentionally
 separates what already exists from what is still forbidden for continuous
@@ -1743,10 +1743,11 @@ candidate requiring independent acceptance before the owner loop opens.
 Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE, broker dispatch,
 runtime-live and real orders remain closed.
 
-## Stage 8B-P1-e I1 committed Initial-LIMIT restart candidate (2026-09-17)
+## Stage 8B-P1-e I1 committed Initial-LIMIT restart checkpoint (2026-09-17)
 
-The fresh signed Initial-LIMIT path at `89c243d` is the immutable predecessor
-of this narrow source slice. The candidate composes the previously deferred
+The local fresh signed Initial-LIMIT checkpoint at `89c243d` precedes this
+narrow accumulated source slice; neither `89c243d` nor `3290371` has separate
+independent acceptance. The candidate composes the previously deferred
 `ScheduleBindingCommitted` startup route without reopening schedule-source or
 strategy-callback authority.
 
@@ -1767,12 +1768,22 @@ checkpoint, generated Market, Cancel, Day-expiry and later retained
 Initial-LIMIT startup frontiers remained subsequent slices. Operational Redis DB0/DB15, VPS activation, FINAM
 POST/DELETE, broker dispatch, runtime-live and real orders remain closed.
 
-## Stage 8B-P1-e I1 generated-Market signed schedule candidate (2026-09-17)
+## Stage 8B-P1-e I1 generated-Market process correction candidate (2026-09-17)
 
-The committed Initial-LIMIT restart at `3290371` is the immutable predecessor
-of this narrow source slice. The candidate composes the generated-Market
+Independent review placed generated-Market process checkpoint `66591fd` on
+HOLD with `P1-GMP01`, `P1-GMP02` and tooling finding `P2-GMP03`. The
+independently accepted I1 baseline therefore remains
+`a655da96ace23eb61d89642f63c49e5275ff98bd`; `89c243d`, `3290371` and
+`66591fd` are accumulated local implementation checkpoints rather than
+accepted predecessor boundaries.
+
+The active narrow correction composes the generated-Market
 `CommandPublished` route with the accepted signed-schedule C-F sequence while
 preserving the P1-d4 reservation, publication marker and package identity.
+Prepublication is now classified from authenticated durable state before the
+linear owner is consumed, so generated Market reaches only its
+reservation-bearing publisher and the generic-path prohibition remains
+intact.
 
 Fresh execution writes and rereads one V4 record that binds the exact
 predecessor M10, first canonical successor, request/command identity and
@@ -1790,6 +1801,16 @@ command republish and rejoins the existing combined
 the command-stream length remains unchanged and the source stays pending until
 truth is durable.
 
+When the exact successor M10 has not arrived, plain Market, generated Market
+and Initial-LIMIT retain one typed published owner instead of returning a
+terminal missing-entry error. Every bounded retry rereads the current signed
+schedule; predecessor loss, gap, payload mismatch and identity mismatch remain
+fail closed. The I1A source harness now validates the explicit
+Initial/Working/Cancel route partition and executes positive/no-op controls
+before 102 mutations.
+
 Cancel, Day-expiry and their retained dispatch schedule routes remain later
-I1 slices. Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE,
+I1 slices after independent acceptance of this correction. Production `run`
+wiring and process signal/panic/SIGKILL evidence are also separate later
+boundaries. Operational Redis DB0/DB15, VPS activation, FINAM POST/DELETE,
 broker dispatch, runtime-live and real orders remain closed.

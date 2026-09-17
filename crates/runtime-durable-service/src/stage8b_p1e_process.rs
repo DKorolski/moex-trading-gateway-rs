@@ -20,6 +20,12 @@ use std::{
 use chrono::{DateTime, Utc};
 use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
 
+use crate::stage8b_p1_semantic::{
+    resume_stage8b_p1e_command_published_with_signed_schedule_timeout,
+    resume_stage8b_p1e_generated_market_with_signed_schedule_timeout,
+    resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout,
+};
+
 use crate::{
     acquire_stage8b_p1_journal_ahead_with_redis, acquire_stage8b_p1_prepublication_with_redis,
     acquire_stage8b_p1_zero_intent_ack_with_redis, acquire_stage8b_p1d2_ack_with_redis,
@@ -45,11 +51,8 @@ use crate::{
     resume_stage8b_p1d4_dispatch_pending_with_redis, resume_stage8b_p1d4_order_pending_with_redis,
     resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
-    resume_stage8b_p1e_command_published_with_signed_schedule,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
-    resume_stage8b_p1e_generated_market_with_signed_schedule,
-    resume_stage8b_p1e_initial_limit_with_signed_schedule,
     resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
@@ -1174,12 +1177,13 @@ async fn advance_stage8b_p1e_initial_limit_schedule_with_timeout_v1(
             crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
         ) => {
             let committed_high_water = snapshot.high_water().clone();
-            match resume_stage8b_p1e_initial_limit_with_signed_schedule(
+            match resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout(
                 *published,
                 *snapshot,
                 latch,
                 bound_at_utc,
                 commitment_key,
+                operation_timeout,
             )
             .await?
             {
@@ -1188,6 +1192,17 @@ async fn advance_stage8b_p1e_initial_limit_schedule_with_timeout_v1(
                         Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
                     ))
                 }
+                Stage8bP1eSignedInitialLimitScheduleOutcomeV1::AwaitingSuccessor(published) => Ok(
+                    Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                        Stage8bP1eScheduleDeferredRecoveryV1 {
+                            kind,
+                            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                                published,
+                            )),
+                            control,
+                        },
+                    ),
+                ),
                 Stage8bP1eSignedInitialLimitScheduleOutcomeV1::LimitAckCommitted(ack) => {
                     context.high_water = Some(committed_high_water);
                     Ok(Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Lifecycle(
@@ -1305,18 +1320,30 @@ async fn advance_stage8b_p1e_market_schedule_with_timeout_v1(
             crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
         ) => {
             let committed_high_water = snapshot.high_water().clone();
-            match resume_stage8b_p1e_command_published_with_signed_schedule(
+            match resume_stage8b_p1e_command_published_with_signed_schedule_timeout(
                 *published,
                 *snapshot,
                 latch,
                 bound_at_utc,
                 commitment_key,
+                operation_timeout,
             )
             .await?
             {
                 Stage8bP1eSignedMarketScheduleOutcomeV1::Stopped(receipt) => {
                     Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::Stopped(
                         Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                    ))
+                }
+                Stage8bP1eSignedMarketScheduleOutcomeV1::AwaitingSuccessor(published) => {
+                    Ok(Stage8bP1eMarketScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                        Stage8bP1eScheduleDeferredRecoveryV1 {
+                            kind,
+                            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                                published,
+                            )),
+                            control,
+                        },
                     ))
                 }
                 Stage8bP1eSignedMarketScheduleOutcomeV1::FeedbackAckCommitted(ack) => {
@@ -1424,12 +1451,13 @@ async fn advance_stage8b_p1e_generated_market_schedule_with_timeout_v1(
             crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
         ) => {
             let committed_high_water = snapshot.high_water().clone();
-            match resume_stage8b_p1e_generated_market_with_signed_schedule(
+            match resume_stage8b_p1e_generated_market_with_signed_schedule_timeout(
                 *published,
                 *snapshot,
                 latch,
                 bound_at_utc,
                 commitment_key,
+                operation_timeout,
             )
             .await?
             {
@@ -1437,6 +1465,19 @@ async fn advance_stage8b_p1e_generated_market_schedule_with_timeout_v1(
                     Ok(Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::Stopped(
                         Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
                     ))
+                }
+                Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::AwaitingSuccessor(published) => {
+                    Ok(
+                        Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                            Stage8bP1eScheduleDeferredRecoveryV1 {
+                                kind,
+                                _route: Box::new(
+                                    Stage8bP1eScheduleDeferredRouteV1::CommandPublished(published),
+                                ),
+                                control,
+                            },
+                        ),
+                    )
                 }
                 Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1::GeneratedMarketAckCommitted(
                     ack,
@@ -2466,7 +2507,13 @@ pub async fn advance_stage8b_p1e_recovery_once_v1(
             })),
         ),
         Stage8bP1eRecoveryStepRouteV1::Prepublication(pending) => {
-            let published = pending.publish_exact_command().await?;
+            let published = if pending.requires_generated_market_reservation() {
+                pending
+                    .publish_exact_generated_market_command(commitment_key)
+                    .await?
+            } else {
+                pending.publish_exact_command().await?
+            };
             Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
                 Stage8bP1eRecoveryStepV1 {
                     route: Box::new(Stage8bP1eRecoveryStepRouteV1::CommandPublished(Box::new(
@@ -3635,15 +3682,23 @@ mod tests {
 
     fn canonical_m10(operational_identity_sha256: String) -> Vec<u8> {
         let close_ts_utc_ms = 1_785_759_000_000;
+        canonical_m10_at(operational_identity_sha256, close_ts_utc_ms, "2600")
+    }
+
+    fn canonical_m10_at(
+        operational_identity_sha256: String,
+        close_ts_utc_ms: i64,
+        close: &str,
+    ) -> Vec<u8> {
         let open_ts_utc_ms = close_ts_utc_ms - 600_000;
         crate::build_stage8b_p1_canonical_m10(crate::Stage8bP1CanonicalM10BuildInput {
             operational_identity_sha256,
             open_ts_utc_ms,
             close_ts_utc_ms,
-            open: "2600".to_string(),
-            high: "2601".to_string(),
-            low: "2599".to_string(),
-            close: "2600".to_string(),
+            open: close.to_string(),
+            high: close.to_string(),
+            low: close.to_string(),
+            close: close.to_string(),
             volume: "10000".to_string(),
             source_m1: source_m1(open_ts_utc_ms),
         })
@@ -4146,6 +4201,499 @@ mod tests {
         assert_eq!(pending.pending_m10_redis_id(), "1785759000000-0");
         assert_eq!(reader.test_read_attempts(), 0);
         drop(pending);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    async fn generated_market_deferred_without_successor(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1eScheduleDeferredRecoveryV1,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (pending, key, fresh, identity, successor_close_ms) =
+            crate::stage8b_p1_semantic::p1e_test_generated_market_prepublication_without_successor(
+                redis_url, parent,
+            )
+            .await;
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(redis_url).await;
+        let lifecycle = classify_recovered_semantic_outcome(
+            Stage8bP1RedisSemanticOutcome::Prepublication(Box::new(pending)),
+            control,
+        );
+        let Stage8bP1eScheduleFreeDrainOutcomeV1::ScheduleDeferred(deferred) =
+            drain_stage8b_p1e_recovery_lifecycle_v1(
+                lifecycle,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("Working generated Market must use reservation-bearing publication")
+        };
+        (deferred, key, fresh, identity, successor_close_ms)
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn generated_working_prepublication_uses_reserved_route_and_waits_for_successor() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("generated-working-process-waiting-successor");
+        let (deferred, key, fresh, identity, successor_close_ms) =
+            generated_market_deferred_without_successor(&redis.url, &parent).await;
+        let latch = Stage8bP1eShutdownLatchV1::new();
+        assert_eq!(
+            deferred.kind(),
+            Stage8bP1eScheduleDeferredKindV1::CommandPublishedGeneratedMarket
+        );
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let commands_after_publication: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands_after_publication, 1,
+            "generated process route must publish one reserved command"
+        );
+
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(successor_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity.clone(),
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let mut context = fixture.context.clone();
+        let one_attempt = Stage8bP1eScheduleAcquisitionPolicyV1 {
+            attempts: 1,
+            total_deadline: StdDuration::from_millis(100),
+            redis_operation_timeout: StdDuration::from_millis(20),
+            initial_backoff: StdDuration::from_millis(1),
+            maximum_backoff: StdDuration::from_millis(2),
+        };
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Exhausted(deferred) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &latch,
+                &key,
+                one_attempt,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("a verified schedule without its successor must retain the typed owner")
+        };
+        assert_eq!(
+            deferred.kind(),
+            Stage8bP1eScheduleDeferredKindV1::CommandPublishedGeneratedMarket
+        );
+        assert!(context.high_water.is_none());
+        assert_eq!(reader.test_read_attempts(), 1);
+
+        context.trusted_now += chrono::Duration::milliseconds(1);
+        let revised = crate::stage8b_p1e_schedule_source::tests::p1e_test_revised_schedule_envelope(
+            &fixture.bytes,
+            2,
+            2,
+            context.trusted_now,
+        );
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(revised)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let successor_payload = canonical_m10_at(identity, successor_close_ms, "2175");
+        let successor_id: String = redis::cmd("XADD")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(format!("{successor_close_ms}-0"))
+            .arg("payload")
+            .arg(successor_payload)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(successor_id, format!("{successor_close_ms}-0"));
+
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(ready) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &latch,
+                &key,
+                Stage8bP1eScheduleAcquisitionPolicyV1 {
+                    attempts: 2,
+                    total_deadline: StdDuration::from_millis(200),
+                    redis_operation_timeout: StdDuration::from_millis(20),
+                    initial_backoff: StdDuration::from_millis(1),
+                    maximum_backoff: StdDuration::from_millis(2),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("the same generated owner must continue after its exact successor arrives")
+        };
+        assert_eq!(
+            reader.test_read_attempts(),
+            2,
+            "schedule must be reread after waiting"
+        );
+        let high_water = context.high_water.as_ref().expect("V4 high-water");
+        assert_eq!(high_water.publication_sequence(), 2);
+        assert_eq!(high_water.semantic_revision(), 2);
+        let commands_after_completion: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands_after_completion, commands_after_publication,
+            "successor waiting must not republish the generated command"
+        );
+        let pending_after: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after.count(), 0, "S_truth must precede XACK-last");
+        drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn generated_successor_gap_payload_mismatch_and_missing_predecessor_fail_closed() {
+        for case in ["gap", "payload-mismatch", "missing-predecessor"] {
+            let redis = RedisServer::start().await;
+            let parent = temp_directory(&format!("generated-successor-{case}"));
+            let (deferred, key, fresh, identity, successor_close_ms) =
+                generated_market_deferred_without_successor(&redis.url, &parent).await;
+            let namespace = crate::stage8b_p1_redis_namespace();
+            let mut connection = redis::aio::ConnectionManager::new(
+                redis::Client::open(redis.url.as_str()).unwrap(),
+            )
+            .await
+            .unwrap();
+            let trusted_now = DateTime::<Utc>::from_timestamp_millis(successor_close_ms).unwrap();
+            let fixture =
+                crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+                    identity.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                    crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+                    trusted_now,
+                );
+            let _: String = redis::cmd("XADD")
+                .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+                .arg("*")
+                .arg("payload")
+                .arg(&fixture.bytes)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+
+            match case {
+                "gap" => {
+                    let gap_close_ms = successor_close_ms + 600_000;
+                    let payload = canonical_m10_at(identity.clone(), gap_close_ms, "2175");
+                    let _: String = redis::cmd("XADD")
+                        .arg(&namespace.canonical_m10_stream)
+                        .arg(format!("{gap_close_ms}-0"))
+                        .arg("payload")
+                        .arg(payload)
+                        .query_async(&mut connection)
+                        .await
+                        .unwrap();
+                }
+                "payload-mismatch" => {
+                    let payload = canonical_m10_at("f".repeat(64), successor_close_ms, "2175");
+                    let _: String = redis::cmd("XADD")
+                        .arg(&namespace.canonical_m10_stream)
+                        .arg(format!("{successor_close_ms}-0"))
+                        .arg("payload")
+                        .arg(payload)
+                        .query_async(&mut connection)
+                        .await
+                        .unwrap();
+                }
+                "missing-predecessor" => {
+                    let predecessor_close_ms = successor_close_ms - 600_000;
+                    let removed: usize = redis::cmd("XDEL")
+                        .arg(&namespace.canonical_m10_stream)
+                        .arg(format!("{predecessor_close_ms}-0"))
+                        .query_async(&mut connection)
+                        .await
+                        .unwrap();
+                    assert_eq!(removed, 1);
+                }
+                _ => unreachable!(),
+            }
+
+            let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+                &redis.url,
+                fixture.public_key_hex,
+                fixture.key_valid_from,
+                fixture.key_valid_until,
+            )
+            .await
+            .unwrap();
+            let mut context = fixture.context;
+            let error = match advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+                Stage8bP1eScheduleAcquisitionPolicyV1 {
+                    attempts: 3,
+                    total_deadline: StdDuration::from_millis(200),
+                    redis_operation_timeout: StdDuration::from_millis(20),
+                    initial_backoff: StdDuration::from_millis(1),
+                    maximum_backoff: StdDuration::from_millis(2),
+                },
+            )
+            .await
+            {
+                Ok(_) => {
+                    panic!("an observed invalid source state must not become successor waiting")
+                }
+                Err(error) => error,
+            };
+            match case {
+                "gap" => assert!(matches!(
+                    error,
+                    Stage8bP1eStartupErrorV1::Source(
+                        Stage8bP1RedisSemanticError::ExactSourceConflict
+                    )
+                )),
+                "payload-mismatch" => assert!(matches!(
+                    error,
+                    Stage8bP1eStartupErrorV1::Source(Stage8bP1RedisSemanticError::CanonicalM10(
+                        crate::Stage8bP1CanonicalM10Error::IdentityMismatch
+                    ))
+                )),
+                "missing-predecessor" => assert!(matches!(
+                    error,
+                    Stage8bP1eStartupErrorV1::Source(
+                        Stage8bP1RedisSemanticError::ExactPendingEntryMissing
+                    )
+                )),
+                _ => unreachable!(),
+            }
+            assert_eq!(
+                reader.test_read_attempts(),
+                1,
+                "{case} must fail on its first observed invalid source state"
+            );
+            let commands: usize = redis::cmd("XLEN")
+                .arg(&namespace.canonical_command_stream)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(commands, 1, "{case} must not republish the command");
+            drop(error);
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn generated_successor_wait_observes_shutdown_and_preserves_cause() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("generated-successor-wait-stop");
+        let (deferred, key, fresh, identity, successor_close_ms) =
+            generated_market_deferred_without_successor(&redis.url, &parent).await;
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(successor_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let mut context = fixture.context;
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Exhausted(deferred) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+                Stage8bP1eScheduleAcquisitionPolicyV1 {
+                    attempts: 1,
+                    total_deadline: StdDuration::from_millis(100),
+                    redis_operation_timeout: StdDuration::from_millis(20),
+                    initial_backoff: StdDuration::from_millis(1),
+                    maximum_backoff: StdDuration::from_millis(2),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("missing successor must retain the generated owner")
+        };
+
+        let latch = Stage8bP1eShutdownLatchV1::new();
+        let intent = Stage8bP1eShutdownIntentV1::new(
+            crate::Stage8bP1eShutdownCauseV1::ExternalSignal,
+            30_000,
+            9,
+        );
+        assert!(latch.request(intent.clone()));
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Stopped(stopped) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &latch,
+                &key,
+                Stage8bP1eScheduleAcquisitionPolicyV1 {
+                    attempts: 1,
+                    total_deadline: StdDuration::from_millis(100),
+                    redis_operation_timeout: StdDuration::from_millis(20),
+                    initial_backoff: StdDuration::from_millis(1),
+                    maximum_backoff: StdDuration::from_millis(2),
+                },
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("shutdown must stop the retained successor-wait owner")
+        };
+        assert_eq!(stopped.receipt().shutdown_intent(), &intent);
+        assert_eq!(
+            stopped.receipt().checkpoint(),
+            crate::Stage8bP1eScheduleLatchCheckpointV1::BeforeScheduleRead
+        );
+        assert_eq!(reader.test_read_attempts(), 1);
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 1);
+        let commands: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(commands, 1);
+        drop(stopped);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn generated_prepublication_shutdown_retains_before_reserved_publication() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("generated-prepublication-stop");
+        let (pending, key, _, _, _) =
+            crate::stage8b_p1_semantic::p1e_test_generated_market_prepublication_without_successor(
+                &redis.url, &parent,
+            )
+            .await;
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let lifecycle = classify_recovered_semantic_outcome(
+            Stage8bP1RedisSemanticOutcome::Prepublication(Box::new(pending)),
+            control,
+        );
+        let latch = Stage8bP1eShutdownLatchV1::new();
+        let intent = Stage8bP1eShutdownIntentV1::new(
+            crate::Stage8bP1eShutdownCauseV1::ExternalSignal,
+            20_000,
+            1,
+        );
+        assert!(latch.request(intent.clone()));
+        let Stage8bP1eScheduleFreeDrainOutcomeV1::RetainedForRestart(retained) =
+            drain_stage8b_p1e_recovery_lifecycle_v1(lifecycle, &latch, &key)
+                .await
+                .unwrap()
+        else {
+            panic!("shutdown must win before generated publication")
+        };
+        assert_eq!(
+            retained.kind(),
+            Stage8bP1eRecoveryBoundaryKindV1::Prepublication
+        );
+        assert_eq!(retained.shutdown_intent(), &intent);
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let commands: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands, 0,
+            "stop-before-publication must not XADD a command"
+        );
+        let pending_source: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_source.count(), 1);
+        drop(retained);
         fs::remove_dir_all(parent).unwrap();
     }
 
@@ -4823,7 +5371,7 @@ mod tests {
             bound_at,
         );
         let Stage8bP1eSignedMarketScheduleOutcomeV1::FeedbackAckCommitted(ack) =
-            resume_stage8b_p1e_command_published_with_signed_schedule(
+            crate::resume_stage8b_p1e_command_published_with_signed_schedule(
                 published,
                 snapshot,
                 &Stage8bP1eShutdownLatchV1::new(),

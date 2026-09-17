@@ -1766,6 +1766,22 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) fn p1e_test_revised_schedule_envelope(
+        base: &[u8],
+        publication_sequence: u64,
+        semantic_revision: u64,
+        published_at: DateTime<Utc>,
+    ) -> Vec<u8> {
+        revised_schedule_envelope(
+            base,
+            publication_sequence,
+            semantic_revision,
+            published_at,
+            0,
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
     type SnapshotProgressionFixture = (
         Vec<u8>,
         Vec<u8>,

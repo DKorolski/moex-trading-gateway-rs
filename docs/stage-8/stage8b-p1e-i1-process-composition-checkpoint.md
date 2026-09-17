@@ -61,6 +61,15 @@ boundary and does not authorize installation or activation.
   path: the V4 record binds the exact P1-d4 reservation/publication seal,
   request/command identity, decision M10 and first canonical successor before
   latch E/F can issue the inherited generated-Market provider authority;
+- prepublication routing derived from the authenticated durable candidate:
+  generated Market uses only the reservation-bearing publisher and the generic
+  publisher retains its fail-closed generated-candidate rejection;
+- typed bounded successor waiting for plain Market, generated Market and
+  Initial-LIMIT: a not-yet-arrived successor retains the exact published owner,
+  while each retry rereads the newest signed schedule before effect authority;
+- exact predecessor revalidation on an empty successor range, preserving
+  fail-closed handling for predecessor loss, successor gaps and payload or
+  operational-identity mismatch instead of converting them to polling;
 - authenticated restart from that committed generated-Market V4 route: the
   process reclaims only the exact predecessor PEL entry, revalidates the
   immutable Redis marker/envelope/command and publication binding, verifies
@@ -209,6 +218,12 @@ authorities; it must not attach and then return after dropping an owner.
 The checkpoint review finding `P2-CP01` is closed locally by opening the fixed
 config with `O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK` and exercising the exact
 regular-file-to-FIFO replacement window through the production loader.
+
+The generated-Market review findings on `66591fd` are addressed by the narrow
+source correction documented in
+`stage8b-p1e-i1-generated-market-process-correction.md`. That correction is a
+review candidate and does not elevate the accumulated process checkpoint to an
+accepted I1 boundary.
 
 Redis DB0/DB15 activation, VPS installation, FINAM POST/DELETE/send, broker
 dispatch, runtime-live, and real orders remain closed.
