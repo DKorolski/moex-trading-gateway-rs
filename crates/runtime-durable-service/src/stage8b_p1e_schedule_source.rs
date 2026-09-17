@@ -7,6 +7,8 @@
 //! snapshot grants no strategy authority; authority is created only after the
 //! exact transition is appended as Stage 6 V4 and covered by a reread seal.
 
+use std::time::Duration as StdDuration;
+
 use chrono::{DateTime, Utc};
 use redis::{aio::ConnectionManager, streams::StreamRangeReply};
 use strategy_runtime_core::{
@@ -18,13 +20,15 @@ use strategy_runtime_core::{
 
 use crate::{
     Stage7bRecoveryError, Stage7bRecoveryReadyOwner, Stage8bP1eScheduleBindingCommittedOwner,
-    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS,
 };
 
 #[derive(Debug, thiserror::Error)]
 pub enum Stage8bP1eScheduleReadError {
     #[error("Redis schedule read failed")]
     Redis(#[from] redis::RedisError),
+    #[error("Redis schedule read exceeded its bounded operation timeout")]
+    OperationTimeout,
     #[error("schedule stream reply is not an exact newest-only payload")]
     InvalidRedisReply,
     #[error("signed schedule source was rejected: {0}")]
@@ -209,29 +213,103 @@ pub fn resume_stage8b_p1e_committed_schedule_binding(
 /// command-publication API.
 pub struct Stage8bP1eRedisScheduleReader {
     connection: ConnectionManager,
+    #[cfg(test)]
+    read_attempts: usize,
+    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    fixture_trust: Option<Stage8bP1eFixtureScheduleTrust>,
+}
+
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+struct Stage8bP1eFixtureScheduleTrust {
+    public_key_hex: String,
+    key_valid_from: DateTime<Utc>,
+    key_valid_until: DateTime<Utc>,
 }
 
 impl Stage8bP1eRedisScheduleReader {
     pub async fn connect(redis_url: &str) -> Result<Self, Stage8bP1eScheduleReadError> {
         let client = redis::Client::open(redis_url)?;
+        let connection = tokio::time::timeout(
+            StdDuration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+            ConnectionManager::new(client),
+        )
+        .await
+        .map_err(|_| Stage8bP1eScheduleReadError::OperationTimeout)??;
         Ok(Self {
-            connection: ConnectionManager::new(client).await?,
+            connection,
+            #[cfg(test)]
+            read_attempts: 0,
+            #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+            fixture_trust: None,
         })
     }
 
-    async fn read_newest(
+    #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+    pub(crate) async fn test_connect_with_fixture_trust(
+        redis_url: &str,
+        public_key_hex: String,
+        key_valid_from: DateTime<Utc>,
+        key_valid_until: DateTime<Utc>,
+    ) -> Result<Self, Stage8bP1eScheduleReadError> {
+        let mut reader = Self::connect(redis_url).await?;
+        reader.fixture_trust = Some(Stage8bP1eFixtureScheduleTrust {
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        });
+        Ok(reader)
+    }
+
+    async fn read_newest_with_timeout(
         &mut self,
         context: &Stage8bP1eScheduleVerificationContextV1,
+        operation_timeout: StdDuration,
     ) -> Result<Stage8bP1eNewestScheduleReadV1, Stage8bP1eScheduleReadError> {
-        let reply: StreamRangeReply = redis::cmd("XREVRANGE")
-            .arg(STAGE8B_P1E_SCHEDULE_STREAM)
-            .arg("+")
-            .arg("-")
-            .arg("COUNT")
-            .arg(64)
-            .query_async(&mut self.connection)
-            .await?;
+        #[cfg(test)]
+        {
+            self.read_attempts += 1;
+        }
+        let reply: StreamRangeReply = tokio::time::timeout(
+            operation_timeout,
+            redis::cmd("XREVRANGE")
+                .arg(STAGE8B_P1E_SCHEDULE_STREAM)
+                .arg("+")
+                .arg("-")
+                .arg("COUNT")
+                .arg(64)
+                .query_async(&mut self.connection),
+        )
+        .await
+        .map_err(|_| Stage8bP1eScheduleReadError::OperationTimeout)??;
+        #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+        if let Some(trust) = &self.fixture_trust {
+            return verify_newest_reply_with_fixture_key(
+                reply,
+                context,
+                &trust.public_key_hex,
+                trust.key_valid_from,
+                trust.key_valid_until,
+            );
+        }
         verify_newest_reply(reply, context)
+    }
+
+    pub(crate) async fn read_newest_guarded_with_timeout(
+        &mut self,
+        context: &Stage8bP1eScheduleVerificationContextV1,
+        latch: &Stage8bP1eShutdownLatchV1,
+        operation_timeout: StdDuration,
+    ) -> Result<Stage8bP1eGuardedScheduleReadV1, Stage8bP1eScheduleReadError> {
+        if let Some(receipt) = stop_receipt(
+            latch,
+            Stage8bP1eScheduleLatchCheckpointV1::BeforeScheduleRead,
+        ) {
+            return Ok(Stage8bP1eGuardedScheduleReadV1::Stopped(receipt));
+        }
+        Ok(Stage8bP1eGuardedScheduleReadV1::Read(
+            self.read_newest_with_timeout(context, operation_timeout)
+                .await?,
+        ))
     }
 
     /// Latch C is evaluated before any Redis command. The result of a
@@ -242,15 +320,17 @@ impl Stage8bP1eRedisScheduleReader {
         context: &Stage8bP1eScheduleVerificationContextV1,
         latch: &Stage8bP1eShutdownLatchV1,
     ) -> Result<Stage8bP1eGuardedScheduleReadV1, Stage8bP1eScheduleReadError> {
-        if let Some(receipt) = stop_receipt(
+        self.read_newest_guarded_with_timeout(
+            context,
             latch,
-            Stage8bP1eScheduleLatchCheckpointV1::BeforeScheduleRead,
-        ) {
-            return Ok(Stage8bP1eGuardedScheduleReadV1::Stopped(receipt));
-        }
-        Ok(Stage8bP1eGuardedScheduleReadV1::Read(
-            self.read_newest(context).await?,
-        ))
+            StdDuration::from_millis(STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+        )
+        .await
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn test_read_attempts(&self) -> usize {
+        self.read_attempts
     }
 }
 
@@ -1471,6 +1551,50 @@ pub(crate) mod tests {
         )
         .unwrap();
         (accepted, public_key_hex, trust_from, trust_until)
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) struct P1eTestOpenScheduleEnvelope {
+        pub(crate) bytes: Vec<u8>,
+        pub(crate) context: Stage8bP1eScheduleVerificationContextV1,
+        pub(crate) public_key_hex: String,
+        pub(crate) key_valid_from: DateTime<Utc>,
+        pub(crate) key_valid_until: DateTime<Utc>,
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) fn p1e_test_open_schedule_envelope(
+        operational_identity_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        instrument_map_fingerprint_sha256: String,
+        now: DateTime<Utc>,
+    ) -> P1eTestOpenScheduleEnvelope {
+        let (accepted, public_key_hex, key_valid_from, key_valid_until) = signed_schedule_source(
+            operational_identity_sha256.clone(),
+            runtime_config_fingerprint_sha256.clone(),
+            instrument_map_fingerprint_sha256.clone(),
+            now,
+            Utc.with_ymd_and_hms(2026, 8, 3, 18, 0, 0)
+                .single()
+                .unwrap()
+                .timestamp_millis(),
+            false,
+        );
+        P1eTestOpenScheduleEnvelope {
+            bytes: accepted.exact_envelope_bytes().to_vec(),
+            context: Stage8bP1eScheduleVerificationContextV1 {
+                expected_instrument_map_fingerprint_sha256: instrument_map_fingerprint_sha256,
+                expected_operational_identity_sha256: operational_identity_sha256,
+                expected_registry_identity_sha256: "2".repeat(64),
+                expected_registry_version: "imoexf-v1".to_string(),
+                expected_runtime_config_fingerprint_sha256: runtime_config_fingerprint_sha256,
+                high_water: None,
+                trusted_now: now,
+            },
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        }
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]

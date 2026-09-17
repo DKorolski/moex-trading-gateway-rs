@@ -90,6 +90,16 @@ boundary and does not authorize installation or activation.
 - exact equality between the trusted schedule-verification clock and the V4
   binding clock, plus in-memory high-water advancement only after the signed
   binding/effect path has returned a committed lifecycle owner;
+- the compile-time-pinned I1A acquisition policy around those supported
+  routes: at most 12 reads inside 60 seconds, a two-second per-read timeout,
+  and deterministic 250/500/1000/2000/4000/5000-ms capped backoff;
+- empty, stale, Redis-transport and read-timeout observations retain the exact
+  linear owner for bounded retry; authentication, identity, progression and
+  binding failures remain immediate fail-closed errors, and exhaustion keeps
+  the exact M10 pending without falling through to another fresh read;
+- shutdown observed during backoff interrupts the wait and reaches latch C
+  before another Redis command; a verified source leaves the acquisition
+  deadline and enters the non-cancellable durable lifecycle path;
 - schedule-dependent continuations leave that drain as an opaque retained
   owner, while pending-not-claimable, blocked and shutdown outcomes remain
   structurally unable to poll fresh data;
@@ -142,9 +152,9 @@ authorities; it must not attach and then return after dropping an owner.
   Market, Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT
   and plain Market now cover C-F and must remain the reference ownership
   shapes;
-- bounded retry/deadline composition around the supported signed-schedule
-  cycle and its return to the long-lived S09 task; the schedule-free repeated
-  S08/S06R path and the exact lifecycle re-entry adapter are now present;
+- integration of the bounded supported-schedule result back into the
+  long-lived S09 task; the policy, schedule-free repeated S08/S06R path and
+  exact lifecycle re-entry adapter are now present;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized

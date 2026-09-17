@@ -924,6 +924,8 @@ pub enum Stage8bP1RedisSemanticError {
     P1eContinuationPermitRouteMismatch,
     #[error("Stage 8B-P1-e trusted verification and durable binding clocks differ")]
     P1eScheduleClockMismatch,
+    #[error("Stage 8B-P1-e signed schedule retry policy is invalid")]
+    P1eScheduleRetryPolicyInvalid,
     #[error("Stage 8B-P1-e signed schedule composition failed: {0}")]
     P1eSchedule(#[from] crate::Stage8bP1eScheduleReadError),
 }
