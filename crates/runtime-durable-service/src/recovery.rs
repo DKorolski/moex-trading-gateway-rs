@@ -3490,6 +3490,28 @@ impl Stage7bRecoveryReadyOwner {
     }
 
     #[cfg(test)]
+    pub(crate) fn stage8b_p1d3_requires_later_limit_evaluation(&self) -> bool {
+        self.recovered
+            .stage8b_p1d3_requires_later_limit_evaluation()
+    }
+
+    pub(crate) fn stage8b_p1e_day_expiry_binding_parts(
+        &self,
+    ) -> Result<
+        Option<(
+            BrokerOrderId,
+            String,
+            strategy_runtime_core::Stage8bP1eM10IdentityV1,
+            strategy_runtime_core::Stage8bP1eM10IdentityV1,
+        )>,
+        Stage7bRecoveryError,
+    > {
+        self.recovered
+            .stage8b_p1e_day_expiry_binding_parts()
+            .map_err(Stage7bRecoveryError::Runtime)
+    }
+
+    #[cfg(test)]
     pub(crate) fn stage8b_p1e_test_checkpoint_snapshot(&self) -> (u64, u64, Option<usize>) {
         (
             self.committed_seal.seal_generation(),

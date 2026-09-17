@@ -12,18 +12,17 @@ replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
 ## Active Stage 8B-P1-e I1 slice
 
-Generated-Market process correction `ff6639e` is independently SOURCE
-ACCEPTED. The current local candidate adds fresh Cancel signed-schedule
-composition: exact active order and predecessor validation, durable V4 before
-effect, typed ACK/truth/target-first continuations, recoverable future-M10 wait
-and XACK-last. Focused real-Redis tests prove completion without command
-republish and owner retention without high-water advancement while a successor
-is absent.
+Cancel signed-schedule composition `cc1f02c` is independently SOURCE ACCEPTED.
+The current local candidate adds source-free Day-expiry composition from the
+exact quiescent Ready owner: fresh signed Closed schedule, checkpoint-covered
+predecessor/last-eligible M10 pair, durable V4 before effect, terminal book and
+direct return to Ready without M10 XACK. Missing schedule retains the exact
+typed owner and does not advance schedule high-water.
 
-This is not full I1 closure. Next are Day-expiry composition, committed
-Cancel/Day-expiry restart, production retention of deferred/exhausted owners,
-and the process signal/panic/SIGKILL matrix. Redis DB0/VPS activation, FINAM
-write/send, broker dispatch, runtime-live and real orders remain closed.
+This is not full I1 closure. Next are committed Cancel/Day-expiry restart,
+production retention of deferred/exhausted owners, and the process
+signal/panic/SIGKILL matrix. Redis DB0/VPS activation, FINAM write/send, broker
+dispatch, runtime-live and real orders remain closed.
 
 ## Current accepted boundary
 

@@ -1700,6 +1700,38 @@ pub(crate) mod tests {
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) fn p1e_test_closed_schedule_envelope(
+        operational_identity_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        instrument_map_fingerprint_sha256: String,
+        boundary: DateTime<Utc>,
+    ) -> P1eTestOpenScheduleEnvelope {
+        let (accepted, public_key_hex, key_valid_from, key_valid_until) = signed_schedule_source(
+            operational_identity_sha256.clone(),
+            runtime_config_fingerprint_sha256.clone(),
+            instrument_map_fingerprint_sha256.clone(),
+            boundary,
+            boundary.timestamp_millis(),
+            true,
+        );
+        P1eTestOpenScheduleEnvelope {
+            bytes: accepted.exact_envelope_bytes().to_vec(),
+            context: Stage8bP1eScheduleVerificationContextV1 {
+                expected_instrument_map_fingerprint_sha256: instrument_map_fingerprint_sha256,
+                expected_operational_identity_sha256: operational_identity_sha256,
+                expected_registry_identity_sha256: "2".repeat(64),
+                expected_registry_version: "imoexf-v1".to_string(),
+                expected_runtime_config_fingerprint_sha256: runtime_config_fingerprint_sha256,
+                high_water: None,
+                trusted_now: boundary,
+            },
+            public_key_hex,
+            key_valid_from,
+            key_valid_until,
+        }
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
     pub(crate) fn p1e_test_open_schedule_snapshot(
         operational_identity_sha256: String,
         runtime_config_fingerprint_sha256: String,

@@ -2755,6 +2755,52 @@ impl Stage6dDurableRuntimeRecovered {
             .stage8b_p1e_working_binding_parts()
     }
 
+    /// Returns the exact authenticated M10 pair needed to bind a Day-expiry
+    /// transition. The pair is taken from the latest checkpoint-covered V4,
+    /// not reconstructed from wall-clock time or from the current bar ID.
+    #[doc(hidden)]
+    pub fn stage8b_p1e_day_expiry_binding_parts(
+        &self,
+    ) -> Result<
+        Option<(
+            BrokerOrderId,
+            String,
+            crate::Stage8bP1eM10IdentityV1,
+            crate::Stage8bP1eM10IdentityV1,
+        )>,
+        Stage6dLiveCoreError,
+    > {
+        let Some((active_order, transition_sha256, last_evaluated)) =
+            self.stage8b_p1e_working_binding_parts()
+        else {
+            return Ok(None);
+        };
+        let expected_instrument_map = self
+            .authenticated_operational_identity()
+            .ok_or(Stage6dLiveCoreError::OperationalIdentityInvalid)?
+            .instrument_map_fingerprint_sha256
+            .clone();
+        let Some(record) =
+            self.checkpoint_covered_latest_stage8b_p1e_schedule_record(&expected_instrument_map)?
+        else {
+            return Ok(None);
+        };
+        if !matches!(
+            record.transition_kind(),
+            crate::Stage8bP1eScheduleTransitionKindV1::InitialLimitEvaluation
+                | crate::Stage8bP1eScheduleTransitionKindV1::WorkingLimitEvaluation
+        ) || record.candidate_or_last_eligible_m10() != last_evaluated
+        {
+            return Ok(None);
+        }
+        Ok(Some((
+            active_order,
+            transition_sha256,
+            record.predecessor_m10(),
+            last_evaluated,
+        )))
+    }
+
     /// Identifies the exact target-sealed predecessor of a recovered CANCEL
     /// journal-ahead suffix. Unlike `stage8b_p1d3_restart_phase`, this narrow
     /// classifier deliberately examines the predecessor package before the

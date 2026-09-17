@@ -1,7 +1,7 @@
 # Stage 8B-P1-e I1 Cancel signed-schedule composition
 
-Status: local source implementation candidate after independent SOURCE ACCEPT
-of generated-Market correction
+Status: independently SOURCE ACCEPTED at
+`cc1f02c19f35bb06136db2521538c6929f9dc101` on accepted predecessor
 `ff6639ef45f1504decb4be2f6d8981bb3ba172e7`.
 
 ## Scope
@@ -75,6 +75,10 @@ Validation completed for this source candidate:
 - operational Redis DB0/DB15 and VPS activation;
 - FINAM POST/DELETE/send, broker dispatch, runtime-live and real orders.
 
-Next roadmap slice after independent acceptance: Day-expiry signed-schedule
-composition. Cancel and Day-expiry committed restart/recovery follow as a
-separate boundary.
+The next roadmap slice is Day-expiry signed-schedule composition. Cancel and
+Day-expiry committed restart/recovery follow as a separate boundary. That
+recovery boundary must also add the accepted reviewer evidence requirements:
+an explicit target-first signed Cancel process case reaching
+`CancelContinuationPending`, intermediate PEL assertions before recovered
+truth, exact-once publication/dispatch/outcome/XACK counters, and an observed
+truth-before-XACK ordering check rather than final `XPENDING=0` alone.

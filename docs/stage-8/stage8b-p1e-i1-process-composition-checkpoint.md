@@ -222,12 +222,19 @@ regular-file-to-FIFO replacement window through the production loader.
 The generated-Market review findings on `66591fd` are addressed by the narrow
 source correction documented in
 `stage8b-p1e-i1-generated-market-process-correction.md` and independently
-accepted at `ff6639e`. The following local source slice composes freshly
-published CANCEL through exact active-order/predecessor validation, signed V4
-binding, all three inherited P1-d3 race outcomes and source XACK-last. Its
-boundary is documented in
-`stage8b-p1e-i1-cancel-signed-schedule-composition.md`; committed Cancel restart
-and Day-expiry remain subsequent slices.
+accepted at `ff6639e`. Freshly published CANCEL composition through exact
+active-order/predecessor validation, signed V4 binding, all three inherited
+P1-d3 race outcomes and source XACK-last is independently SOURCE ACCEPTED at
+`cc1f02c`; its boundary and retained recovery-evidence requirements are
+documented in `stage8b-p1e-i1-cancel-signed-schedule-composition.md`.
+
+The current local source slice composes source-free Day expiry from the exact
+Ready owner. It binds a fresh signed Closed schedule to the
+checkpoint-covered predecessor/last-eligible M10 pair, commits durable V4
+before the inherited terminal effect, and returns directly to Ready without
+acquiring or XACKing an M10 source. Its boundary is documented in
+`stage8b-p1e-i1-day-expiry-signed-schedule-composition.md`; committed
+Cancel/Day-expiry restart remains the next slice.
 
 Redis DB0/DB15 activation, VPS installation, FINAM POST/DELETE/send, broker
 dispatch, runtime-live, and real orders remain closed.

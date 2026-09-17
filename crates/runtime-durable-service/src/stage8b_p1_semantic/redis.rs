@@ -1141,6 +1141,11 @@ impl Stage8bP1RedisSemanticCompositionOwner {
         self.stage7.stage8b_p1_operational_identity_sha256()
     }
 
+    #[cfg(test)]
+    pub(crate) fn requires_later_limit_evaluation(&self) -> bool {
+        self.stage7.stage8b_p1d3_requires_later_limit_evaluation()
+    }
+
     pub(crate) fn recover_stage8b_p1e_latest_schedule_high_water(
         &self,
         expected_runtime_config_fingerprint_sha256: &str,
@@ -3213,6 +3218,14 @@ pub enum Stage8bP1eSignedCancelScheduleOutcomeV1 {
     CancelCommitted(Box<Stage8bP1RedisCancelCommitOutcome>),
 }
 
+/// Result of binding a fresh signed Closed schedule to the exact durable
+/// Working order and evaluated last-eligible M10. Day expiry has no Redis M10
+/// source, so successful completion returns Ready directly and never XACKs.
+pub enum Stage8bP1eSignedDayExpiryScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    Ready(Box<Stage8bP1RedisSemanticCompositionOwner>),
+}
+
 /// Restart continuation for an Initial LIMIT whose exact signed schedule and
 /// command publication are already covered by V4. No schedule read or Hybrid
 /// callback is reachable from this boundary.
@@ -4115,6 +4128,70 @@ pub async fn resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
         .process_claimed_working_limit(pending_m10, authority, commitment_key)
         .await?;
     Ok(Stage8bP1eSignedWorkingScheduleOutcomeV1::Semantic(outcome))
+}
+
+/// Binds one fresh Closed schedule to a quiescent Ready owner and commits the
+/// inherited Day-expiry transition. The predecessor/last-eligible pair comes
+/// only from authenticated durable V4 evidence; no wall-clock or Redis source
+/// identity is synthesized at this boundary.
+pub fn resume_stage8b_p1e_day_expiry_with_signed_schedule(
+    owner: Stage8bP1RedisSemanticCompositionOwner,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedDayExpiryScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    let (active_order, transition_sha256, predecessor, last_evaluated) = owner
+        .stage7
+        .stage8b_p1e_day_expiry_binding_parts()?
+        .ok_or(Stage8bP1RedisSemanticError::ExactSourceConflict)?;
+    let Stage8bP1RedisSemanticCompositionOwner { stage7, transport } = owner;
+    let committed = match crate::bind_stage8b_p1e_day_expiry_schedule(
+        stage7,
+        snapshot,
+        latch,
+        &predecessor,
+        &last_evaluated,
+        bound_at_utc,
+        active_order.as_str(),
+        transition_sha256,
+        bound_at_utc,
+        commitment_key,
+    )? {
+        crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+    };
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_day_expiry_schedule(permit, latch)?
+    {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            return Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let owner = Stage8bP1RedisSemanticCompositionOwner { stage7, transport }
+        .expire_working_limit(authority, commitment_key)?;
+    Ok(Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Ready(Box::new(
+        owner,
+    )))
 }
 
 /// The only conversion from acquired ownership to either shutdown retention
@@ -9021,6 +9098,68 @@ pub(crate) mod tests {
         };
         owner = *normalized;
         (key, fresh, identity, owner)
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_day_expiry_ready(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1RedisSemanticCompositionOwner,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (key, fresh, identity, mut owner) =
+            prepare_p1d4_later_working_owner(redis_url, parent, false, false, None).await;
+        let boundary_ms = P1D3_CANCEL_CANDIDATE_CLOSE_MS + 600_000;
+        owner
+            .transport_mut()
+            .publish_canonical_m10(
+                &canonical_m10(identity.clone(), boundary_ms, 2_220),
+                &identity,
+            )
+            .await
+            .unwrap();
+        let Stage8bP1eReadyFreshAcquisitionOutcomeV1::Acquired(acquired) =
+            poll_stage8b_p1e_ready_fresh_with_redis(owner)
+                .await
+                .unwrap()
+        else {
+            panic!("Day-expiry fixture must acquire its exact last eligible M10")
+        };
+        let permit = p1e_clear_permit(acquired);
+        let bound_at = Utc.timestamp_millis_opt(boundary_ms).single().unwrap();
+        let snapshot = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_snapshot(
+            identity.clone(),
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            format!("{boundary_ms}-1"),
+            bound_at,
+        );
+        let Stage8bP1eSignedWorkingScheduleOutcomeV1::Semantic(
+            Stage8bP1RedisSemanticOutcome::Ready { owner, .. },
+        ) = resume_stage8b_p1e_ready_working_limit_with_signed_schedule(
+            permit,
+            snapshot,
+            &Stage8bP1eShutdownLatchV1::new(),
+            bound_at,
+            &key,
+        )
+        .await
+        .unwrap()
+        else {
+            panic!("signed last-eligible Working transition must return Ready")
+        };
+        let owner = *owner;
+        let (_, _, _, last_evaluated) = owner
+            .stage7
+            .stage8b_p1e_day_expiry_binding_parts()
+            .unwrap()
+            .expect("Ready Working owner must retain the exact latest signed M10 pair");
+        assert_eq!(last_evaluated.close_ts_utc_ms, boundary_ms);
+        (owner, key, fresh, identity, boundary_ms)
     }
 
     async fn prepare_p1d4_later_filled_zero_owner(

@@ -54,7 +54,7 @@ use crate::{
     resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
-    resume_stage8b_p1e_ready_source_with_redis,
+    resume_stage8b_p1e_day_expiry_with_signed_schedule, resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
     Stage7bRestartOutcome, Stage8bP1RedisCancelCommitOutcome,
@@ -75,7 +75,7 @@ use crate::{
     Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRetainedSourceReceiptV1,
     Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
     Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1eSignedCancelScheduleOutcomeV1,
-    Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
+    Stage8bP1eSignedDayExpiryScheduleOutcomeV1, Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
     Stage8bP1eValidatedSupervisorConfigV1, Stage8bP1eVerifiedRedisSessionV1,
@@ -739,6 +739,19 @@ impl Stage8bP1eReadyPollingV1 {
         &mut self.control
     }
 
+    /// Reclassifies an externally due day timer into the signed-schedule
+    /// acquisition path. This conversion grants no expiry authority: only a
+    /// fresh verified Closed schedule can advance the retained Ready owner.
+    pub fn into_day_expiry_schedule(self) -> Stage8bP1eScheduleDeferredRecoveryV1 {
+        Stage8bP1eScheduleDeferredRecoveryV1 {
+            kind: Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry,
+            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(
+                self.owner,
+            )),
+            control: self.control,
+        }
+    }
+
     /// Restores schedule progression only through the sealed Ready owner. An
     /// already populated in-memory context must match the durable value
     /// exactly; neither side may silently replace the other.
@@ -924,6 +937,7 @@ pub enum Stage8bP1eScheduleDeferredKindV1 {
     CommandPublishedCancel,
     CommandPublishedUnsupported,
     RoutedContinuation,
+    ReadyDayExpiry,
 }
 
 #[allow(
@@ -933,6 +947,7 @@ pub enum Stage8bP1eScheduleDeferredKindV1 {
 enum Stage8bP1eScheduleDeferredRouteV1 {
     CommandPublished(Box<Stage8bP1RedisCommandPublished>),
     RoutedContinuation(Box<Stage8bP1eRoutedContinuationV1>),
+    ReadyDayExpiry(Box<Stage8bP1RedisSemanticCompositionOwner>),
 }
 
 pub struct Stage8bP1eScheduleDeferredRecoveryV1 {
@@ -994,6 +1009,12 @@ pub enum Stage8bP1eCancelScheduleAdvanceOutcomeV1 {
     Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
     AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
     Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
+}
+
+pub enum Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1 {
+    Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
+    AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+    Ready(Stage8bP1eReadyPollingV1),
 }
 
 /// One bounded signed-schedule attempt for the route shapes already composed
@@ -1076,6 +1097,7 @@ enum Stage8bP1eSupportedScheduleRouteV1 {
     InitialLimit,
     Cancel,
     ReadyWorkingLimit,
+    ReadyDayExpiry,
 }
 
 fn supported_schedule_route(
@@ -1108,6 +1130,10 @@ fn supported_schedule_route(
         {
             Some(Stage8bP1eSupportedScheduleRouteV1::ReadyWorkingLimit)
         }
+        (
+            Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry,
+            Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(_),
+        ) => Some(Stage8bP1eSupportedScheduleRouteV1::ReadyDayExpiry),
         _ => None,
     }
 }
@@ -1785,6 +1811,113 @@ async fn advance_stage8b_p1e_ready_working_schedule_with_timeout_v1(
     }
 }
 
+/// Completes schedule checkpoints C-F for a source-free Ready Day-expiry
+/// route. Empty/retryable reads retain the exact owner; success commits the
+/// terminal expiry and returns Ready without any M10 XACK.
+pub async fn advance_stage8b_p1e_day_expiry_schedule_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
+        deferred,
+        reader,
+        context,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        StdDuration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    operation_timeout: StdDuration,
+) -> Result<Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    if context.trusted_now != bound_at_utc {
+        return Err(Stage8bP1RedisSemanticError::P1eScheduleClockMismatch.into());
+    }
+    if deferred.kind != Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry
+        || !matches!(
+            deferred._route.as_ref(),
+            Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(_)
+        )
+    {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    }
+    let read = match reader
+        .read_newest_guarded_with_timeout(context, latch, operation_timeout)
+        .await
+    {
+        Ok(read) => read,
+        Err(error) if retryable_schedule_read_error(&error) => {
+            return Ok(Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::AwaitingSchedule(deferred));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let Stage8bP1eScheduleDeferredRecoveryV1 {
+        kind,
+        _route: route,
+        control,
+    } = deferred;
+    let Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(owner) = *route else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+    match read {
+        crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            drop(owner);
+            Ok(Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+            ))
+        }
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Empty,
+        ) => Ok(
+            Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                Stage8bP1eScheduleDeferredRecoveryV1 {
+                    kind,
+                    _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::ReadyDayExpiry(owner)),
+                    control,
+                },
+            ),
+        ),
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+        ) => {
+            let committed_high_water = snapshot.high_water().clone();
+            match resume_stage8b_p1e_day_expiry_with_signed_schedule(
+                *owner,
+                *snapshot,
+                latch,
+                bound_at_utc,
+                commitment_key,
+            )? {
+                Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Stopped(receipt) => {
+                    Ok(Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Stopped(
+                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                    ))
+                }
+                Stage8bP1eSignedDayExpiryScheduleOutcomeV1::Ready(owner) => {
+                    context.high_water = Some(committed_high_water);
+                    Ok(Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Ready(
+                        Stage8bP1eReadyPollingV1 { owner, control },
+                    ))
+                }
+            }
+        }
+    }
+}
+
 /// Performs one schedule read for the two route shapes already implemented by
 /// I1, then drains a successful effect through the same bounded/latch-guarded
 /// lifecycle adapter used by S09. The caller may retry `AwaitingSchedule`
@@ -1945,6 +2078,31 @@ async fn advance_stage8b_p1e_supported_schedule_once_with_timeout_v1(
                 }
                 Stage8bP1eWorkingScheduleAdvanceOutcomeV1::Lifecycle(lifecycle) => lifecycle,
             }
+        }
+        Stage8bP1eSupportedScheduleRouteV1::ReadyDayExpiry => {
+            return Ok(
+                match advance_stage8b_p1e_day_expiry_schedule_with_timeout_v1(
+                    deferred,
+                    reader,
+                    context,
+                    latch,
+                    bound_at_utc,
+                    commitment_key,
+                    operation_timeout,
+                )
+                .await?
+                {
+                    Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Stopped(stopped) => {
+                        Stage8bP1eSupportedScheduleCycleOutcomeV1::Stopped(stopped)
+                    }
+                    Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::AwaitingSchedule(deferred) => {
+                        Stage8bP1eSupportedScheduleCycleOutcomeV1::AwaitingSchedule(deferred)
+                    }
+                    Stage8bP1eDayExpiryScheduleAdvanceOutcomeV1::Ready(ready) => {
+                        Stage8bP1eSupportedScheduleCycleOutcomeV1::Ready(ready)
+                    }
+                },
+            );
         }
     };
     Ok(
@@ -5196,6 +5354,275 @@ mod tests {
             .unwrap();
         assert_eq!(commands, 1, "signed composition must not republish CANCEL");
         drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn signed_day_expiry_commits_terminal_book_without_source_or_xack() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("signed-schedule-day-expiry-success");
+        let (owner, key, fresh, identity, boundary_ms) =
+            crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
+        let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            boundary,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let pending_before: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            pending_before.count(),
+            0,
+            "Day expiry must begin source-free"
+        );
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let deferred = Stage8bP1eReadyPollingV1 {
+            owner: Box::new(owner),
+            control,
+        }
+        .into_day_expiry_schedule();
+        assert_eq!(
+            deferred.kind(),
+            Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry
+        );
+        let mut context = fixture.context;
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(ready) =
+            advance_stage8b_p1e_supported_schedule_bounded_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("fresh Closed schedule must commit exact terminal Day expiry")
+        };
+        assert_eq!(reader.test_read_attempts(), 1);
+        assert!(context.high_water.is_some());
+        assert!(
+            !ready.owner.requires_later_limit_evaluation(),
+            "Day expiry must leave a terminal working-book projection"
+        );
+        let pending_after: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending_after.count(), 0, "source-free expiry cannot XACK");
+        drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn missing_day_expiry_schedule_retains_exact_ready_owner_until_retry() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("signed-schedule-day-expiry-missing-retry");
+        let (owner, key, fresh, identity, boundary_ms) =
+            crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
+        let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_closed_schedule_envelope(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            boundary,
+        );
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let deferred = Stage8bP1eReadyPollingV1 {
+            owner: Box::new(owner),
+            control,
+        }
+        .into_day_expiry_schedule();
+        let mut context = fixture.context.clone();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let one_attempt = Stage8bP1eScheduleAcquisitionPolicyV1 {
+            attempts: 1,
+            total_deadline: StdDuration::from_millis(100),
+            redis_operation_timeout: StdDuration::from_millis(20),
+            initial_backoff: StdDuration::from_millis(1),
+            maximum_backoff: StdDuration::from_millis(2),
+        };
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Exhausted(deferred) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+                one_attempt,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("missing Closed schedule must retain exact Day-expiry owner")
+        };
+        assert_eq!(
+            deferred.kind(),
+            Stage8bP1eScheduleDeferredKindV1::ReadyDayExpiry
+        );
+        assert!(context.high_water.is_none());
+        assert_eq!(reader.test_read_attempts(), 1);
+
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(ready) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+                one_attempt,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("retained owner must continue after exact Closed schedule arrives")
+        };
+        assert!(context.high_water.is_some());
+        assert!(
+            !ready.owner.requires_later_limit_evaluation(),
+            "retried Day expiry must become terminal exactly once"
+        );
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0);
+        drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn open_schedule_cannot_authorize_day_expiry() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("signed-schedule-day-expiry-open-denied");
+        let (owner, key, fresh, identity, boundary_ms) =
+            crate::stage8b_p1_semantic::p1e_test_day_expiry_ready(&redis.url, &parent).await;
+        let boundary = DateTime::<Utc>::from_timestamp_millis(boundary_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            boundary,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let deferred = Stage8bP1eReadyPollingV1 {
+            owner: Box::new(owner),
+            control,
+        }
+        .into_day_expiry_schedule();
+        let mut context = fixture.context;
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let result = advance_stage8b_p1e_supported_schedule_with_policy_v1(
+            deferred,
+            &mut reader,
+            &mut context,
+            &Stage8bP1eShutdownLatchV1::new(),
+            &key,
+            Stage8bP1eScheduleAcquisitionPolicyV1 {
+                attempts: 1,
+                total_deadline: StdDuration::from_millis(100),
+                redis_operation_timeout: StdDuration::from_millis(20),
+                initial_backoff: StdDuration::from_millis(1),
+                maximum_backoff: StdDuration::from_millis(2),
+            },
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(Stage8bP1eStartupErrorV1::Source(
+                Stage8bP1RedisSemanticError::P1eSchedule(
+                    crate::Stage8bP1eScheduleReadError::Source(
+                        strategy_runtime_core::Stage8bP1eScheduleSourceError::RouteDenied
+                    )
+                )
+            ))
+        ));
+        assert!(context.high_water.is_none());
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "denied expiry must remain source-free");
         fs::remove_dir_all(parent).unwrap();
     }
 
