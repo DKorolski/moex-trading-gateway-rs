@@ -1531,6 +1531,100 @@ pub enum Stage8bP1eScheduleFreeOwnerLoopOutcomeV1 {
     ScheduleDeferred(Stage8bP1eScheduleDeferredRecoveryV1),
 }
 
+/// Terminal boundary of the combined S08/S09 owner task for the route shapes
+/// composed by I1. Exact Ready is deliberately absent: both schedule-free and
+/// signed-schedule success remain inside the task and immediately resume
+/// bounded fresh polling.
+pub enum Stage8bP1eOwnerLoopOutcomeV1 {
+    StoppedReady(Stage8bP1eStoppedReadyPollingV1),
+    StoppedSchedule(Stage8bP1eScheduleStoppedRecoveryV1),
+    RetainedSource(Stage8bP1eRetainedStartupV1),
+    RetainedRecovery(Stage8bP1eRetainedRecoveryBoundaryV1),
+    PendingNotClaimable(Stage8bP1eRecoveredPendingNotClaimableV1),
+    Blocked(Stage8bP1eRecoveredBlockedV1),
+    ScheduleExhausted(Stage8bP1eScheduleDeferredRecoveryV1),
+    UnsupportedSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+}
+
+/// Retains the sole polling/lifecycle owner across the completed schedule-free
+/// and supported signed-schedule paths. A successful signed transition rejoins
+/// exact Ready in-process; no quiescent Ready owner is returned to a caller
+/// that could accidentally drop it between polls.
+pub async fn run_stage8b_p1e_owner_loop_v1(
+    mut ready: Stage8bP1eReadyPollingV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eOwnerLoopOutcomeV1, Stage8bP1eStartupErrorV1> {
+    loop {
+        let mut deferred = match run_stage8b_p1e_schedule_free_owner_loop_v1(
+            ready,
+            latch,
+            commitment_key,
+        )
+        .await?
+        {
+            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::StoppedReady(stopped) => {
+                return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedReady(stopped));
+            }
+            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedSource(retained) => {
+                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedSource(retained));
+            }
+            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::RetainedRecovery(retained) => {
+                return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(retained));
+            }
+            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::PendingNotClaimable(pending) => {
+                return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(pending));
+            }
+            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::Blocked(blocked) => {
+                return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+            }
+            Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::ScheduleDeferred(deferred) => deferred,
+        };
+
+        loop {
+            match advance_stage8b_p1e_supported_schedule_bounded_v1(
+                deferred,
+                reader,
+                context,
+                latch,
+                commitment_key,
+            )
+            .await?
+            {
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(next) => {
+                    ready = next;
+                    break;
+                }
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::Stopped(stopped) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::StoppedSchedule(stopped));
+                }
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::Exhausted(exhausted) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::ScheduleExhausted(exhausted));
+                }
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::RetainedRecovery(retained) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::RetainedRecovery(retained));
+                }
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::PendingNotClaimable(pending) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::PendingNotClaimable(pending));
+                }
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::Blocked(blocked) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::Blocked(blocked));
+                }
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::ScheduleDeferred(next) => {
+                    deferred = next;
+                }
+                Stage8bP1eBoundedScheduleCycleOutcomeV1::Unsupported(unsupported) => {
+                    return Ok(Stage8bP1eOwnerLoopOutcomeV1::UnsupportedSchedule(
+                        unsupported,
+                    ));
+                }
+            }
+        }
+    }
+}
+
 /// Runs the schedule-free portion of the long-lived S09 owner task. Empty
 /// bounded reads and terminal Ready recovery results stay inside this loop;
 /// no caller can accidentally drop a quiescent owner between polls. The
@@ -3194,7 +3288,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn s09_schedule_free_owner_loop_observes_concurrent_shutdown_during_bounded_poll() {
+    async fn s09_combined_owner_loop_observes_concurrent_shutdown_during_bounded_poll() {
         let redis = RedisServer::start().await;
         let parent = temp_directory("s09-concurrent-shutdown");
         let (source, export_input, key, fresh) =
@@ -3227,19 +3321,26 @@ mod tests {
                 .await,
         };
         let latch = Stage8bP1eShutdownLatchV1::new();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis.url)
+            .await
+            .unwrap();
+        let mut context = schedule_context(
+            "00".repeat(32),
+            "11".repeat(32),
+            DateTime::<Utc>::from_timestamp_millis(1_785_759_000_000).unwrap(),
+        );
         let intent = Stage8bP1eShutdownIntentV1::new(
             crate::Stage8bP1eShutdownCauseV1::ExternalSignal,
             20_000,
             1,
         );
-        let runner = run_stage8b_p1e_schedule_free_owner_loop_v1(ready, &latch, &key);
+        let runner = run_stage8b_p1e_owner_loop_v1(ready, &mut reader, &mut context, &latch, &key);
         let signal = async {
             tokio::time::sleep(StdDuration::from_millis(50)).await;
             assert!(latch.request(intent.clone()));
         };
         let (outcome, ()) = tokio::join!(runner, signal);
-        let Stage8bP1eScheduleFreeOwnerLoopOutcomeV1::StoppedReady(stopped) = outcome.unwrap()
-        else {
+        let Stage8bP1eOwnerLoopOutcomeV1::StoppedReady(stopped) = outcome.unwrap() else {
             panic!("concurrent shutdown must stop the retained Ready owner")
         };
         assert_eq!(stopped.shutdown_intent(), &intent);

@@ -80,6 +80,10 @@ boundary and does not authorize installation or activation.
 - the schedule-free S09 owner task: empty S08 reads and terminal Ready results
   remain inside one long-lived linear loop, while shutdown, retry-blocked and
   schedule-dependent results return typed ownership instead of dropping it;
+- one combined S08/S09 owner task that retains exact Ready across both the
+  schedule-free drain and every completed supported signed-schedule cycle;
+  Ready is absent from its terminal API, so successful schedule processing
+  immediately resumes bounded fresh polling without releasing ownership;
 - one shared bounded lifecycle-to-S09 adapter for completed signed-schedule
   effects: every returned ACK/truth row crosses the same first-wins latch and
   only exact terminal Ready can become a fresh-poll owner again;
@@ -152,9 +156,6 @@ authorities; it must not attach and then return after dropping an owner.
   Market, Cancel, Day-expiry and recovered dispatch routes; Ready/Working-LIMIT
   and plain Market now cover C-F and must remain the reference ownership
   shapes;
-- integration of the bounded supported-schedule result back into the
-  long-lived S09 task; the policy, schedule-free repeated S08/S06R path and
-  exact lifecycle re-entry adapter are now present;
 - fixed-path composition tests for missing administrative F00, stale exact
   continuation F00, and supervisor-hash mismatch;
 - process signal/panic/SIGKILL/restart evidence in its separately authorized
