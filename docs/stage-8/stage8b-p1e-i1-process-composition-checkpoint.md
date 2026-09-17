@@ -221,9 +221,13 @@ regular-file-to-FIFO replacement window through the production loader.
 
 The generated-Market review findings on `66591fd` are addressed by the narrow
 source correction documented in
-`stage8b-p1e-i1-generated-market-process-correction.md`. That correction is a
-review candidate and does not elevate the accumulated process checkpoint to an
-accepted I1 boundary.
+`stage8b-p1e-i1-generated-market-process-correction.md` and independently
+accepted at `ff6639e`. The following local source slice composes freshly
+published CANCEL through exact active-order/predecessor validation, signed V4
+binding, all three inherited P1-d3 race outcomes and source XACK-last. Its
+boundary is documented in
+`stage8b-p1e-i1-cancel-signed-schedule-composition.md`; committed Cancel restart
+and Day-expiry remain subsequent slices.
 
 Redis DB0/DB15 activation, VPS installation, FINAM POST/DELETE/send, broker
 dispatch, runtime-live, and real orders remain closed.

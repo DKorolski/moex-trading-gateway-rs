@@ -1547,6 +1547,7 @@ pub enum Stage8bP1ePublishedScheduleRouteV1 {
     PlainMarket,
     GeneratedMarket,
     InitialLimit,
+    Cancel,
     Unsupported,
 }
 
@@ -1654,6 +1655,9 @@ impl Stage8bP1RedisCommandPublished {
                 if place.order_type == broker_core::OrderType::Limit =>
             {
                 Stage8bP1ePublishedScheduleRouteV1::InitialLimit
+            }
+            (BrokerCommand::CancelOrder(_), (false, false)) => {
+                Stage8bP1ePublishedScheduleRouteV1::Cancel
             }
             _ => Stage8bP1ePublishedScheduleRouteV1::Unsupported,
         }
@@ -3200,6 +3204,15 @@ pub enum Stage8bP1eSignedInitialLimitScheduleOutcomeV1 {
     LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
 }
 
+/// Result of binding one published CANCEL to its exact active Working order
+/// and first canonical successor. Each race result remains a distinct linear
+/// owner so replacement truth and source XACK cannot be skipped.
+pub enum Stage8bP1eSignedCancelScheduleOutcomeV1 {
+    Stopped(crate::Stage8bP1eScheduleStopReceiptV1),
+    AwaitingSuccessor(Box<Stage8bP1RedisCommandPublished>),
+    CancelCommitted(Box<Stage8bP1RedisCancelCommitOutcome>),
+}
+
 /// Restart continuation for an Initial LIMIT whose exact signed schedule and
 /// command publication are already covered by V4. No schedule read or Hybrid
 /// callback is reachable from this boundary.
@@ -3673,6 +3686,142 @@ pub(crate) async fn resume_stage8b_p1e_initial_limit_with_signed_schedule_timeou
                 .await?,
         )),
     )
+}
+
+/// Binds one published CANCEL to a verified signed schedule and the exact
+/// active Working-order projection before evaluating the first canonical
+/// successor. No schedule authority is inferred from the command itself.
+pub async fn resume_stage8b_p1e_cancel_with_signed_schedule(
+    published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eSignedCancelScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    resume_stage8b_p1e_cancel_with_signed_schedule_timeout(
+        published,
+        snapshot,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        std::time::Duration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+pub(crate) async fn resume_stage8b_p1e_cancel_with_signed_schedule_timeout(
+    mut published: Stage8bP1RedisCommandPublished,
+    snapshot: crate::Stage8bP1eVerifiedScheduleSnapshotV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    successor_timeout: std::time::Duration,
+) -> Result<Stage8bP1eSignedCancelScheduleOutcomeV1, Stage8bP1RedisSemanticError> {
+    if published.p1e_schedule_route() != Stage8bP1ePublishedScheduleRouteV1::Cancel {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
+    }
+    if !published.command_matches_durable_evidence()
+        || published.pending_m10.redis_id() != published.evidence.m10_redis_id
+        || published.receipt.source_m10_redis_id != published.evidence.m10_redis_id
+    {
+        return Err(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict);
+    }
+    let operational_identity_sha256 = published
+        .stage7
+        .stage8b_p1_operational_identity_sha256()
+        .to_string();
+    let predecessor = published
+        .pending_m10
+        .parse_exact(&operational_identity_sha256)?;
+    let Some(candidate) = published
+        .first_successor_m10_bounded(&operational_identity_sha256, successor_timeout)
+        .await?
+    else {
+        return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::AwaitingSuccessor(
+            Box::new(published),
+        ));
+    };
+    let predecessor = stage8b_p1e_m10_identity_from_validated(&predecessor);
+    let candidate = stage8b_p1e_m10_identity_from_validated(&candidate);
+    let (active_broker_order_id, working_book_transition_sha256, active_predecessor) = published
+        .stage7
+        .stage8b_p1e_working_binding_parts()
+        .ok_or(Stage8bP1RedisSemanticError::ExactSourceConflict)?;
+    let BrokerCommand::CancelOrder(cancel) = &published.command else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch);
+    };
+    if cancel.order_id != active_broker_order_id || active_predecessor != predecessor {
+        return Err(Stage8bP1RedisSemanticError::P1d1DecisionBindingConflict);
+    }
+    let Stage8bP1RedisCommandPublished {
+        stage7,
+        evidence,
+        command,
+        transport,
+        pending_m10,
+        receipt,
+        p1d4_reservation,
+        p1d4_binding,
+    } = published;
+    let committed = match crate::bind_stage8b_p1e_cancel_schedule(
+        stage7,
+        snapshot,
+        latch,
+        &predecessor,
+        &candidate,
+        active_broker_order_id.as_str(),
+        working_book_transition_sha256,
+        bound_at_utc,
+        commitment_key,
+    )? {
+        crate::Stage8bP1eScheduleBindingCommitV1::StoppedBeforeBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingCommitV1::Committed(owner) => *owner,
+    };
+    let permit = match crate::resume_stage8b_p1e_committed_schedule_binding(committed, latch) {
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedAfterBinding { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleBindingDecisionV1::Continue(permit) => permit,
+        crate::Stage8bP1eScheduleBindingDecisionV1::StoppedBeforeBinding { .. } => {
+            unreachable!("committed schedule binding cannot stop before binding")
+        }
+    };
+    let (stage7, authority) = match crate::continue_stage8b_p1e_schedule_step(permit, latch)? {
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::RetainForRestart { owner, receipt } => {
+            drop(owner);
+            drop(transport);
+            drop(pending_m10);
+            return Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt));
+        }
+        crate::Stage8bP1eScheduleAuthorityDecisionV1::Continue { owner, authority } => {
+            (*owner, authority)
+        }
+    };
+    let published = Stage8bP1RedisCommandPublished {
+        stage7,
+        evidence,
+        command,
+        transport,
+        pending_m10,
+        receipt,
+        p1d4_reservation,
+        p1d4_binding,
+    };
+    Ok(Stage8bP1eSignedCancelScheduleOutcomeV1::CancelCommitted(
+        Box::new(
+            published
+                .execute_next_canonical_cancel(authority, commitment_key)
+                .await?,
+        ),
+    ))
 }
 
 /// Resumes only an authenticated Initial-LIMIT V4 tail. The exact source PEL,
@@ -10008,6 +10157,20 @@ pub(crate) mod tests {
         String,
         Stage8bP1RedisCommandPublished,
     ) {
+        prepare_p1d4_cancel_source_with_successor(redis_url, parent, target_state, true).await
+    }
+
+    async fn prepare_p1d4_cancel_source_with_successor(
+        redis_url: &str,
+        parent: &Path,
+        target_state: P1d4CancelTargetState,
+        include_successor: bool,
+    ) -> (
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        Stage8bP1RedisCommandPublished,
+    ) {
         let (mut pending, key, fresh, identity) = one_intent_pending_at(redis_url, parent).await;
         pending
             .transport
@@ -10113,10 +10276,11 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        for (close, price) in [
-            (P1D3_CANCEL_DECISION_CLOSE_MS, 2_220),
-            (P1D3_CANCEL_CANDIDATE_CLOSE_MS, 2_225),
-        ] {
+        let mut bars = vec![(P1D3_CANCEL_DECISION_CLOSE_MS, 2_220)];
+        if include_successor {
+            bars.push((P1D3_CANCEL_CANDIDATE_CLOSE_MS, 2_225));
+        }
+        for (close, price) in bars {
             transport
                 .publish_canonical_m10(&canonical_m10(identity.clone(), close, price), &identity)
                 .await
@@ -10140,6 +10304,63 @@ pub(crate) mod tests {
         .await
         .unwrap();
         (key, fresh, identity, published)
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_cancel_published(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1RedisCommandPublished,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (key, fresh, identity, published) =
+            prepare_p1d4_cancel_source(redis_url, parent, P1d4CancelTargetState::Working).await;
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::Cancel
+        );
+        (
+            published,
+            key,
+            fresh,
+            identity,
+            P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_cancel_published_without_successor(
+        redis_url: &str,
+        parent: &Path,
+    ) -> (
+        Stage8bP1RedisCommandPublished,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (key, fresh, identity, published) = prepare_p1d4_cancel_source_with_successor(
+            redis_url,
+            parent,
+            P1d4CancelTargetState::Working,
+            false,
+        )
+        .await;
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::Cancel
+        );
+        (
+            published,
+            key,
+            fresh,
+            identity,
+            P1D3_CANCEL_CANDIDATE_CLOSE_MS,
+        )
     }
 
     async fn prepare_p1d3_terminal_cancel_source_with_ids(

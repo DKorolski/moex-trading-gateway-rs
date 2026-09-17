@@ -10,6 +10,21 @@ The stable macro-roadmap is fixed in [roadmap.md](roadmap.md). Review may split
 an accepted macro-stage into smaller patch gates, but it does not renumber or
 replace the Stage 0–13 roadmap without a separate roadmap ADR.
 
+## Active Stage 8B-P1-e I1 slice
+
+Generated-Market process correction `ff6639e` is independently SOURCE
+ACCEPTED. The current local candidate adds fresh Cancel signed-schedule
+composition: exact active order and predecessor validation, durable V4 before
+effect, typed ACK/truth/target-first continuations, recoverable future-M10 wait
+and XACK-last. Focused real-Redis tests prove completion without command
+republish and owner retention without high-water advancement while a successor
+is absent.
+
+This is not full I1 closure. Next are Day-expiry composition, committed
+Cancel/Day-expiry restart, production retention of deferred/exhausted owners,
+and the process signal/panic/SIGKILL matrix. Redis DB0/VPS activation, FINAM
+write/send, broker dispatch, runtime-live and real orders remain closed.
+
 ## Current accepted boundary
 
 - Stage 8B-P1-d3 is independently CLOSED / ACCEPTED at governance authority

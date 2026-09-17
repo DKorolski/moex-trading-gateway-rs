@@ -1,10 +1,9 @@
 # Stage 8B-P1-e I1 generated-Market process correction
 
-Status: source-correction candidate for the independent HOLD on
-`66591fd075898b89187b38880a38a0438a3c0f81`. The independently accepted I1
-baseline remains `a655da96ace23eb61d89642f63c49e5275ff98bd`; the intermediate
-process checkpoints are accumulated implementation, not independently accepted
-boundaries.
+Status: independently SOURCE ACCEPTED at
+`ff6639ef45f1504decb4be2f6d8981bb3ba172e7`. This acceptance authorizes the
+subsequent Cancel/Day-expiry source composition but does not accept the full I1
+supervisor or any operational activation.
 
 ## Correction scope
 
@@ -65,7 +64,8 @@ signal/panic/SIGKILL matrix remains a separate gate.
 
 ## Deliberately closed
 
-- Cancel and Day-expiry signed-schedule composition;
+- Day-expiry signed-schedule composition; Cancel is implemented in the next
+  local source candidate but is not accepted by this document;
 - production `run` wiring and process crash/signal acceptance;
 - operational Redis DB0/DB15 or VPS activation;
 - FINAM POST/DELETE/send, broker dispatch, runtime-live and real orders.

@@ -35,6 +35,7 @@ use crate::stage8b_p1_bootstrap::{
 mod redis;
 
 pub(crate) use redis::{
+    resume_stage8b_p1e_cancel_with_signed_schedule_timeout,
     resume_stage8b_p1e_command_published_with_signed_schedule_timeout,
     resume_stage8b_p1e_generated_market_with_signed_schedule_timeout,
     resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout,
@@ -42,6 +43,11 @@ pub(crate) use redis::{
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_initial_limit_published;
+
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+pub(crate) use redis::tests::{
+    p1e_test_cancel_published, p1e_test_cancel_published_without_successor,
+};
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::p1e_test_generated_market_published;
@@ -84,7 +90,7 @@ pub use redis::{
     resume_stage8b_p1d4_ack_with_redis, resume_stage8b_p1d4_dispatch_pending_with_redis,
     resume_stage8b_p1d4_order_pending_with_redis, resume_stage8b_p1d4_pre_ack_with_redis,
     resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
-    resume_stage8b_p1d4_truth_with_redis,
+    resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_cancel_with_signed_schedule,
     resume_stage8b_p1e_command_published_with_signed_schedule,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
@@ -113,7 +119,7 @@ pub use redis::{
     Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRetainedSourceReceiptV1,
     Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
     Stage8bP1eShutdownCauseV1, Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
-    Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
+    Stage8bP1eSignedCancelScheduleOutcomeV1, Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1,
 };

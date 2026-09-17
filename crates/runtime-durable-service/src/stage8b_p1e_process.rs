@@ -21,6 +21,7 @@ use chrono::{DateTime, Utc};
 use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
 
 use crate::stage8b_p1_semantic::{
+    resume_stage8b_p1e_cancel_with_signed_schedule_timeout,
     resume_stage8b_p1e_command_published_with_signed_schedule_timeout,
     resume_stage8b_p1e_generated_market_with_signed_schedule_timeout,
     resume_stage8b_p1e_initial_limit_with_signed_schedule_timeout,
@@ -56,22 +57,24 @@ use crate::{
     resume_stage8b_p1e_ready_source_with_redis,
     resume_stage8b_p1e_ready_working_limit_with_signed_schedule,
     route_stage8b_p1e_post_acquisition_v1, validate_stage8b_p1e_supervisor_config_v1,
-    Stage7bRestartOutcome, Stage8bP1RedisCommandPublished, Stage8bP1RedisFeedbackAckCommitted,
-    Stage8bP1RedisFeedbackResolved, Stage8bP1RedisFeedbackTruthCommitted,
-    Stage8bP1RedisGeneratedMarketAckCommitted, Stage8bP1RedisGeneratedMarketTruthCommitted,
-    Stage8bP1RedisLimitAckCommitted, Stage8bP1RedisLimitResolved,
-    Stage8bP1RedisLimitTruthCommitted, Stage8bP1RedisPreAckRecoveryOutcome,
-    Stage8bP1RedisPrepublicationPending, Stage8bP1RedisSemanticCompositionOwner,
-    Stage8bP1RedisSemanticCompositionTransport, Stage8bP1RedisSemanticError,
-    Stage8bP1RedisSemanticOutcome, Stage8bP1RedisZeroIntentAckResolved,
-    Stage8bP1eAdoptionRecoveryActionV5, Stage8bP1ePostAcquisitionOwnerV1,
-    Stage8bP1ePreSealRecoveryActionV5, Stage8bP1ePublishedScheduleRouteV1,
-    Stage8bP1eReadyFreshAcquisitionOutcomeV1, Stage8bP1eReadyPendingAcquisitionOutcomeV1,
+    Stage7bRestartOutcome, Stage8bP1RedisCancelCommitOutcome,
+    Stage8bP1RedisCancelContinuationPending, Stage8bP1RedisCommandPublished,
+    Stage8bP1RedisFeedbackAckCommitted, Stage8bP1RedisFeedbackResolved,
+    Stage8bP1RedisFeedbackTruthCommitted, Stage8bP1RedisGeneratedMarketAckCommitted,
+    Stage8bP1RedisGeneratedMarketTruthCommitted, Stage8bP1RedisLimitAckCommitted,
+    Stage8bP1RedisLimitResolved, Stage8bP1RedisLimitTruthCommitted,
+    Stage8bP1RedisPreAckRecoveryOutcome, Stage8bP1RedisPrepublicationPending,
+    Stage8bP1RedisSemanticCompositionOwner, Stage8bP1RedisSemanticCompositionTransport,
+    Stage8bP1RedisSemanticError, Stage8bP1RedisSemanticOutcome,
+    Stage8bP1RedisZeroIntentAckResolved, Stage8bP1eAdoptionRecoveryActionV5,
+    Stage8bP1ePostAcquisitionOwnerV1, Stage8bP1ePreSealRecoveryActionV5,
+    Stage8bP1ePublishedScheduleRouteV1, Stage8bP1eReadyFreshAcquisitionOutcomeV1,
+    Stage8bP1eReadyPendingAcquisitionOutcomeV1,
     Stage8bP1eRecoveredGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eRecoveredInitialLimitScheduleOutcomeV1, Stage8bP1eRedisControlError,
     Stage8bP1eRedisControlV1, Stage8bP1eRestartKindV1, Stage8bP1eRetainedSourceReceiptV1,
     Stage8bP1eRoutedContinuationV1, Stage8bP1eRoutedPostAcquisitionDecisionV1,
-    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1,
+    Stage8bP1eShutdownIntentV1, Stage8bP1eShutdownLatchV1, Stage8bP1eSignedCancelScheduleOutcomeV1,
     Stage8bP1eSignedGeneratedMarketScheduleOutcomeV1,
     Stage8bP1eSignedInitialLimitScheduleOutcomeV1, Stage8bP1eSignedMarketScheduleOutcomeV1,
     Stage8bP1eSignedWorkingScheduleOutcomeV1, Stage8bP1eSupervisorConfigV1,
@@ -538,6 +541,7 @@ pub enum Stage8bP1eRecoveryStepRouteV1 {
     FeedbackTruthCommitted(Box<Stage8bP1RedisFeedbackTruthCommitted>),
     FeedbackResolved(Box<Stage8bP1RedisFeedbackResolved>),
     LimitPreAckRecovered(Box<Stage8bP1RedisPreAckRecoveryOutcome>),
+    CancelContinuationPending(Box<Stage8bP1RedisCancelContinuationPending>),
     LimitAckCommitted(Box<Stage8bP1RedisLimitAckCommitted>),
     LimitTruthCommitted(Box<Stage8bP1RedisLimitTruthCommitted>),
     LimitResolved(Box<Stage8bP1RedisLimitResolved>),
@@ -556,6 +560,7 @@ pub enum Stage8bP1eRecoveryBoundaryKindV1 {
     FeedbackTruthCommitted,
     FeedbackResolved,
     LimitPreAckRecovered,
+    CancelContinuationPending,
     LimitAckCommitted,
     LimitTruthCommitted,
     LimitResolved,
@@ -581,6 +586,9 @@ impl Stage8bP1eRecoveryStepRouteV1 {
             }
             Self::FeedbackResolved(_) => Stage8bP1eRecoveryBoundaryKindV1::FeedbackResolved,
             Self::LimitPreAckRecovered(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitPreAckRecovered,
+            Self::CancelContinuationPending(_) => {
+                Stage8bP1eRecoveryBoundaryKindV1::CancelContinuationPending
+            }
             Self::LimitAckCommitted(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitAckCommitted,
             Self::LimitTruthCommitted(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitTruthCommitted,
             Self::LimitResolved(_) => Stage8bP1eRecoveryBoundaryKindV1::LimitResolved,
@@ -913,6 +921,7 @@ pub enum Stage8bP1eScheduleDeferredKindV1 {
     CommandPublishedMarket,
     CommandPublishedGeneratedMarket,
     CommandPublishedInitialLimit,
+    CommandPublishedCancel,
     CommandPublishedUnsupported,
     RoutedContinuation,
 }
@@ -976,6 +985,12 @@ pub enum Stage8bP1eGeneratedMarketScheduleAdvanceOutcomeV1 {
 }
 
 pub enum Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1 {
+    Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
+    AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
+    Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
+}
+
+pub enum Stage8bP1eCancelScheduleAdvanceOutcomeV1 {
     Stopped(Stage8bP1eScheduleStoppedRecoveryV1),
     AwaitingSchedule(Stage8bP1eScheduleDeferredRecoveryV1),
     Lifecycle(Stage8bP1eRecoveryAdvanceOutcomeV1),
@@ -1059,6 +1074,7 @@ enum Stage8bP1eSupportedScheduleRouteV1 {
     PlainMarket,
     GeneratedMarket,
     InitialLimit,
+    Cancel,
     ReadyWorkingLimit,
 }
 
@@ -1079,6 +1095,10 @@ fn supported_schedule_route(
             Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_),
         ) => Some(Stage8bP1eSupportedScheduleRouteV1::GeneratedMarket),
         (
+            Stage8bP1eScheduleDeferredKindV1::CommandPublishedCancel,
+            Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_),
+        ) => Some(Stage8bP1eSupportedScheduleRouteV1::Cancel),
+        (
             Stage8bP1eScheduleDeferredKindV1::RoutedContinuation,
             Stage8bP1eScheduleDeferredRouteV1::RoutedContinuation(route),
         ) if matches!(
@@ -1089,6 +1109,146 @@ fn supported_schedule_route(
             Some(Stage8bP1eSupportedScheduleRouteV1::ReadyWorkingLimit)
         }
         _ => None,
+    }
+}
+
+/// Completes schedule checkpoints C-F for one exact published CANCEL and
+/// rejoins the inherited P1-d3 ACK/truth/cancel-race lifecycle.
+pub async fn advance_stage8b_p1e_cancel_schedule_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+) -> Result<Stage8bP1eCancelScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    advance_stage8b_p1e_cancel_schedule_with_timeout_v1(
+        deferred,
+        reader,
+        context,
+        latch,
+        bound_at_utc,
+        commitment_key,
+        StdDuration::from_millis(crate::STAGE8B_P1E_REDIS_OPERATION_TIMEOUT_MS),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn advance_stage8b_p1e_cancel_schedule_with_timeout_v1(
+    deferred: Stage8bP1eScheduleDeferredRecoveryV1,
+    reader: &mut crate::Stage8bP1eRedisScheduleReader,
+    context: &mut strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1,
+    latch: &Stage8bP1eShutdownLatchV1,
+    bound_at_utc: DateTime<Utc>,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    operation_timeout: StdDuration,
+) -> Result<Stage8bP1eCancelScheduleAdvanceOutcomeV1, Stage8bP1eStartupErrorV1> {
+    if context.trusted_now != bound_at_utc {
+        return Err(Stage8bP1RedisSemanticError::P1eScheduleClockMismatch.into());
+    }
+    if deferred.kind != Stage8bP1eScheduleDeferredKindV1::CommandPublishedCancel
+        || !matches!(
+            deferred._route.as_ref(),
+            Stage8bP1eScheduleDeferredRouteV1::CommandPublished(_)
+        )
+    {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    }
+    let read = match reader
+        .read_newest_guarded_with_timeout(context, latch, operation_timeout)
+        .await
+    {
+        Ok(read) => read,
+        Err(error) if retryable_schedule_read_error(&error) => {
+            return Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                deferred,
+            ));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let Stage8bP1eScheduleDeferredRecoveryV1 {
+        kind,
+        _route: route,
+        control,
+    } = deferred;
+    let Stage8bP1eScheduleDeferredRouteV1::CommandPublished(published) = *route else {
+        return Err(Stage8bP1RedisSemanticError::P1eContinuationPermitRouteMismatch.into());
+    };
+    match read {
+        crate::Stage8bP1eGuardedScheduleReadV1::Stopped(receipt) => {
+            drop(published);
+            Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::Stopped(
+                Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+            ))
+        }
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Empty,
+        ) => Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::AwaitingSchedule(
+            Stage8bP1eScheduleDeferredRecoveryV1 {
+                kind,
+                _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                    published,
+                )),
+                control,
+            },
+        )),
+        crate::Stage8bP1eGuardedScheduleReadV1::Read(
+            crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+        ) => {
+            let committed_high_water = snapshot.high_water().clone();
+            match resume_stage8b_p1e_cancel_with_signed_schedule_timeout(
+                *published,
+                *snapshot,
+                latch,
+                bound_at_utc,
+                commitment_key,
+                operation_timeout,
+            )
+            .await?
+            {
+                Stage8bP1eSignedCancelScheduleOutcomeV1::Stopped(receipt) => {
+                    Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::Stopped(
+                        Stage8bP1eScheduleStoppedRecoveryV1 { receipt, control },
+                    ))
+                }
+                Stage8bP1eSignedCancelScheduleOutcomeV1::AwaitingSuccessor(published) => {
+                    Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::AwaitingSchedule(
+                        Stage8bP1eScheduleDeferredRecoveryV1 {
+                            kind,
+                            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                                published,
+                            )),
+                            control,
+                        },
+                    ))
+                }
+                Stage8bP1eSignedCancelScheduleOutcomeV1::CancelCommitted(outcome) => {
+                    context.high_water = Some(committed_high_water);
+                    let route = match *outcome {
+                        Stage8bP1RedisCancelCommitOutcome::AckCommitted(ack) => {
+                            Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(Box::new(ack))
+                        }
+                        Stage8bP1RedisCancelCommitOutcome::TruthCommitted(truth) => {
+                            Stage8bP1eRecoveryStepRouteV1::LimitTruthCommitted(Box::new(truth))
+                        }
+                        Stage8bP1RedisCancelCommitOutcome::CancelContinuationPending(pending) => {
+                            Stage8bP1eRecoveryStepRouteV1::CancelContinuationPending(Box::new(
+                                pending,
+                            ))
+                        }
+                    };
+                    Ok(Stage8bP1eCancelScheduleAdvanceOutcomeV1::Lifecycle(
+                        Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                            Stage8bP1eRecoveryStepV1 {
+                                route: Box::new(route),
+                                control,
+                            },
+                        )),
+                    ))
+                }
+            }
+        }
     }
 }
 
@@ -1738,6 +1898,29 @@ async fn advance_stage8b_p1e_supported_schedule_once_with_timeout_v1(
                     ));
                 }
                 Stage8bP1eInitialLimitScheduleAdvanceOutcomeV1::Lifecycle(lifecycle) => lifecycle,
+            }
+        }
+        Stage8bP1eSupportedScheduleRouteV1::Cancel => {
+            match advance_stage8b_p1e_cancel_schedule_with_timeout_v1(
+                deferred,
+                reader,
+                context,
+                latch,
+                bound_at_utc,
+                commitment_key,
+                operation_timeout,
+            )
+            .await?
+            {
+                Stage8bP1eCancelScheduleAdvanceOutcomeV1::Stopped(stopped) => {
+                    return Ok(Stage8bP1eSupportedScheduleCycleOutcomeV1::Stopped(stopped));
+                }
+                Stage8bP1eCancelScheduleAdvanceOutcomeV1::AwaitingSchedule(deferred) => {
+                    return Ok(Stage8bP1eSupportedScheduleCycleOutcomeV1::AwaitingSchedule(
+                        deferred,
+                    ));
+                }
+                Stage8bP1eCancelScheduleAdvanceOutcomeV1::Lifecycle(lifecycle) => lifecycle,
             }
         }
         Stage8bP1eSupportedScheduleRouteV1::ReadyWorkingLimit => {
@@ -2534,6 +2717,9 @@ pub async fn advance_stage8b_p1e_recovery_once_v1(
                 Stage8bP1ePublishedScheduleRouteV1::InitialLimit => {
                     Stage8bP1eScheduleDeferredKindV1::CommandPublishedInitialLimit
                 }
+                Stage8bP1ePublishedScheduleRouteV1::Cancel => {
+                    Stage8bP1eScheduleDeferredKindV1::CommandPublishedCancel
+                }
                 Stage8bP1ePublishedScheduleRouteV1::Unsupported => {
                     Stage8bP1eScheduleDeferredKindV1::CommandPublishedUnsupported
                 }
@@ -2620,6 +2806,17 @@ pub async fn advance_stage8b_p1e_recovery_once_v1(
                 Ok(classify_recovered_semantic_outcome(outcome, control))
             }
         },
+        Stage8bP1eRecoveryStepRouteV1::CancelContinuationPending(pending) => {
+            let truth = pending.commit_recovered_cancel(commitment_key)?;
+            Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
+                Stage8bP1eRecoveryStepV1 {
+                    route: Box::new(Stage8bP1eRecoveryStepRouteV1::LimitTruthCommitted(
+                        Box::new(truth),
+                    )),
+                    control,
+                },
+            )))
+        }
         Stage8bP1eRecoveryStepRouteV1::LimitAckCommitted(ack) => {
             let truth = ack.commit_truth(commitment_key)?;
             Ok(Stage8bP1eRecoveryAdvanceOutcomeV1::Continue(Box::new(
@@ -4920,6 +5117,213 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(pending.count(), 0, "S_truth must precede source XACK-last");
+        drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn bounded_signed_cancel_cycle_rejoins_ready_and_xacks_source_last() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("signed-schedule-cancel-bounded-success");
+        let (published, key, fresh, identity, candidate_close_ms) =
+            crate::stage8b_p1_semantic::p1e_test_cancel_published(&redis.url, &parent).await;
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(candidate_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity,
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let deferred = Stage8bP1eScheduleDeferredRecoveryV1 {
+            kind: Stage8bP1eScheduleDeferredKindV1::CommandPublishedCancel,
+            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                Box::new(published),
+            )),
+            control,
+        };
+        let mut context = fixture.context;
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(ready) =
+            advance_stage8b_p1e_supported_schedule_bounded_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("fresh signed CANCEL must drain through replacement truth to Ready")
+        };
+        assert_eq!(reader.test_read_attempts(), 1);
+        assert!(context.high_water.is_some());
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0, "cancel truth must precede XACK-last");
+        let commands: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(commands, 1, "signed composition must not republish CANCEL");
+        drop(ready);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn signed_cancel_waits_for_successor_without_republish_or_high_water_advance() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("signed-schedule-cancel-successor-wait");
+        let (published, key, fresh, identity, candidate_close_ms) =
+            crate::stage8b_p1_semantic::p1e_test_cancel_published_without_successor(
+                &redis.url, &parent,
+            )
+            .await;
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(candidate_close_ms).unwrap();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope(
+            identity.clone(),
+            fresh.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let control =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_redis_control_v1(&redis.url).await;
+        let deferred = Stage8bP1eScheduleDeferredRecoveryV1 {
+            kind: Stage8bP1eScheduleDeferredKindV1::CommandPublishedCancel,
+            _route: Box::new(Stage8bP1eScheduleDeferredRouteV1::CommandPublished(
+                Box::new(published),
+            )),
+            control,
+        };
+        let mut context = fixture.context;
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let policy = Stage8bP1eScheduleAcquisitionPolicyV1 {
+            attempts: 1,
+            total_deadline: StdDuration::from_millis(100),
+            redis_operation_timeout: StdDuration::from_millis(20),
+            initial_backoff: StdDuration::from_millis(1),
+            maximum_backoff: StdDuration::from_millis(2),
+        };
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Exhausted(deferred) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+                policy,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("missing cancel successor must retain the exact published owner")
+        };
+        assert_eq!(
+            deferred.kind(),
+            Stage8bP1eScheduleDeferredKindV1::CommandPublishedCancel
+        );
+        assert!(context.high_water.is_none());
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let commands_before: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_before, 1);
+        let mut publisher = crate::attach_stage8b_p1_redis(
+            &redis.url,
+            crate::Stage8bP1RedisConfig::paper_default_auto(),
+        )
+        .await
+        .unwrap();
+        publisher
+            .publish_canonical_m10(
+                &canonical_m10_at(identity.clone(), candidate_close_ms, "2225"),
+                &identity,
+            )
+            .await
+            .unwrap();
+
+        let Stage8bP1eBoundedScheduleCycleOutcomeV1::Ready(ready) =
+            advance_stage8b_p1e_supported_schedule_with_policy_v1(
+                deferred,
+                &mut reader,
+                &mut context,
+                &Stage8bP1eShutdownLatchV1::new(),
+                &key,
+                policy,
+            )
+            .await
+            .unwrap()
+        else {
+            panic!("the retained CANCEL owner must complete after successor arrival")
+        };
+        assert!(context.high_water.is_some());
+        let commands_after: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands_after, commands_before,
+            "CANCEL must not be republished"
+        );
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(pending.count(), 0);
         drop(ready);
         fs::remove_dir_all(parent).unwrap();
     }
