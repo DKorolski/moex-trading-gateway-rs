@@ -1191,7 +1191,7 @@ impl<'de> Deserialize<'de> for NoDuplicateJson {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::{
         ffi::CString,
         fs,
@@ -1486,8 +1486,9 @@ mod tests {
         }
     }
 
-    fn prepared_transaction(
+    pub(crate) fn prepared_transaction_with_bootstrap(
         parent: &Path,
+        raw_bootstrap: crate::Stage8bP1BootstrapConfig,
     ) -> (
         Stage8bP1ePreparedFirstBootV1,
         crate::Stage8bP1FirstBootAdminCommand,
@@ -1495,11 +1496,12 @@ mod tests {
         String,
     ) {
         let (_, runtime_fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
-        let validated = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
-            parent.to_path_buf(),
-            runtime_fingerprint.clone(),
-        ))
-        .unwrap();
+        assert_eq!(raw_bootstrap.durable_parent, parent);
+        assert_eq!(
+            raw_bootstrap.runtime_config_fingerprint_sha256,
+            runtime_fingerprint
+        );
+        let validated = crate::validate_stage8b_p1_bootstrap_config(raw_bootstrap).unwrap();
         let operational = validated.operational_identity_sha256().to_string();
         let (bytes, now, _, account) = fixture_for_binding(&operational, "ACC_TEST_0001");
         let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
@@ -1536,6 +1538,21 @@ mod tests {
             admin,
             key,
             runtime_fingerprint,
+        )
+    }
+
+    fn prepared_transaction(
+        parent: &Path,
+    ) -> (
+        Stage8bP1ePreparedFirstBootV1,
+        crate::Stage8bP1FirstBootAdminCommand,
+        strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+        String,
+    ) {
+        let (_, runtime_fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        prepared_transaction_with_bootstrap(
+            parent,
+            bootstrap_config(parent.to_path_buf(), runtime_fingerprint),
         )
     }
 
@@ -3131,5 +3148,144 @@ mod tests {
         );
         assert!(started.elapsed() < StdDuration::from_secs(1));
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn ordinary_run_admission_rejects_post_seal_frontiers_without_mutation() {
+        for hook in [
+            "after-seal-persist-reread-before-bootstrap-success-report",
+            "after-receipt-temp-sync-before-final-rename",
+            "after-receipt-rename-parent-fsync-before-adopted-marker-temp-create",
+            "after-adopted-marker-temp-sync-before-rename",
+        ] {
+            let parent = temp_directory(&format!("ordinary-run-reject-{hook}"));
+            let (key, runtime_fingerprint) = interrupt_first_boot_at(&parent, hook);
+            let before = filesystem_snapshot(&parent);
+            let (fresh_runtime, fresh_fingerprint) =
+                Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            assert_eq!(fresh_fingerprint, runtime_fingerprint);
+            let config = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                runtime_fingerprint,
+            ))
+            .unwrap();
+            assert!(crate::admit_stage8b_p1e_ordinary_run_v1(config, &key, fresh_runtime).is_err());
+            assert_eq!(filesystem_snapshot(&parent), before, "hook {hook}");
+            fs::remove_dir_all(parent).unwrap();
+        }
+    }
+
+    #[test]
+    fn ordinary_run_admission_accepts_exact_adopted_authority_and_rejects_temp() {
+        let parent = temp_directory("ordinary-run-adopted");
+        let (prepared, admin, key, runtime_fingerprint) = prepared_transaction(&parent);
+        let adopted =
+            crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &key).unwrap();
+        drop(adopted);
+
+        let admit = || {
+            let (fresh_runtime, fresh_fingerprint) =
+                Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            assert_eq!(fresh_fingerprint, runtime_fingerprint);
+            let config = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                runtime_fingerprint.clone(),
+            ))
+            .unwrap();
+            crate::admit_stage8b_p1e_ordinary_run_v1(config, &key, fresh_runtime)
+        };
+        assert!(matches!(
+            admit().unwrap(),
+            crate::Stage7bRestartOutcome::Ready(_)
+        ));
+
+        let marker = parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE);
+        let marker_temp = parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE);
+        fs::copy(&marker, &marker_temp).unwrap();
+        fs::set_permissions(&marker_temp, fs::Permissions::from_mode(0o600)).unwrap();
+        let before = filesystem_snapshot(&parent);
+        assert!(admit().is_err());
+        assert_eq!(filesystem_snapshot(&parent), before);
+        fs::remove_dir_all(parent).unwrap();
+    }
+
+    #[test]
+    fn ordinary_run_admission_rejects_missing_corrupt_and_foreign_authority_without_mutation() {
+        fn adopted_fixture(
+            label: &str,
+            deployment_generation: u64,
+        ) -> (
+            PathBuf,
+            strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+            String,
+        ) {
+            let parent = temp_directory(label);
+            let (_, runtime_fingerprint) =
+                Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            let mut raw = bootstrap_config(parent.clone(), runtime_fingerprint.clone());
+            raw.deployment_generation = deployment_generation;
+            let (prepared, admin, key, _) = prepared_transaction_with_bootstrap(&parent, raw);
+            drop(crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &key).unwrap());
+            (parent, key, runtime_fingerprint)
+        }
+
+        fn assert_rejected_without_mutation(
+            parent: &Path,
+            key: &strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+            runtime_fingerprint: &str,
+        ) {
+            let before = filesystem_snapshot(parent);
+            let (fresh, fresh_fingerprint) =
+                Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            assert_eq!(fresh_fingerprint, runtime_fingerprint);
+            let config = crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.to_path_buf(),
+                runtime_fingerprint.to_string(),
+            ))
+            .unwrap();
+            assert!(crate::admit_stage8b_p1e_ordinary_run_v1(config, key, fresh).is_err());
+            assert_eq!(filesystem_snapshot(parent), before);
+        }
+
+        for (label, authority_file) in [
+            ("missing-marker", crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE),
+            (
+                "missing-receipt",
+                crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE,
+            ),
+        ] {
+            let (parent, key, runtime_fingerprint) = adopted_fixture(label, 1);
+            fs::remove_file(parent.join(authority_file)).unwrap();
+            assert_rejected_without_mutation(&parent, &key, &runtime_fingerprint);
+            fs::remove_dir_all(parent).unwrap();
+        }
+
+        for (label, authority_file) in [
+            ("corrupt-marker", crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE),
+            (
+                "corrupt-receipt",
+                crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE,
+            ),
+        ] {
+            let (parent, key, runtime_fingerprint) = adopted_fixture(label, 1);
+            fs::write(parent.join(authority_file), b"{\"corrupt\":true}").unwrap();
+            assert_rejected_without_mutation(&parent, &key, &runtime_fingerprint);
+            fs::remove_dir_all(parent).unwrap();
+        }
+
+        for (label, authority_file) in [
+            ("foreign-marker", crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE),
+            (
+                "foreign-receipt",
+                crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE,
+            ),
+        ] {
+            let (parent, key, runtime_fingerprint) = adopted_fixture(label, 1);
+            let (foreign, _, _) = adopted_fixture(&format!("{label}-source"), 2);
+            fs::copy(foreign.join(authority_file), parent.join(authority_file)).unwrap();
+            assert_rejected_without_mutation(&parent, &key, &runtime_fingerprint);
+            fs::remove_dir_all(parent).unwrap();
+            fs::remove_dir_all(foreign).unwrap();
+        }
     }
 }

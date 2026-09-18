@@ -446,8 +446,9 @@ pub use stage8b_p1e_first_boot_source::{
     STAGE8B_P1E_FIRST_BOOT_TRUTH_MAX_AGE_SECONDS,
 };
 pub use stage8b_p1e_first_boot_transaction::{
-    authorize_stage8b_p1e_pre_seal_recovery_v5, classify_stage8b_p1e_first_boot_v5,
-    first_boot_stage8b_p1e_transaction_v5, recover_stage8b_p1e_first_boot_adoption_v5,
+    admit_stage8b_p1e_ordinary_run_v1, authorize_stage8b_p1e_pre_seal_recovery_v5,
+    classify_stage8b_p1e_first_boot_v5, first_boot_stage8b_p1e_transaction_v5,
+    recover_stage8b_p1e_first_boot_adoption_v5,
     recover_stage8b_p1e_first_boot_pre_seal_administrative_v5,
     recover_stage8b_p1e_first_boot_pre_seal_from_supervisor_v5,
     recover_stage8b_p1e_first_boot_pre_seal_v5, Stage8bP1FirstBootReceiptV2,

@@ -22,6 +22,8 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
     paths = {
         "process": "crates/runtime-durable-service/src/stage8b_p1e_process.rs",
         "supervisor": "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs",
+        "first_boot": "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
+        "transaction": "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs",
         "binary": "crates/runtime-durable-service/src/bin/stage8b-p1-paper-supervisor.rs",
         "document": "docs/stage-8/stage8b-p1e-i1-process-supervision-matrix.md",
         "checkpoint": "docs/stage-8/stage8b-p1e-i1-process-composition-checkpoint.md",
@@ -47,10 +49,17 @@ def section(text: str, start: str, end: str) -> str:
 def validate_content(content: dict[str, str]) -> None:
     process = content["process"]
     supervisor = content["supervisor"]
+    first_boot = content["first_boot"]
+    transaction = content["transaction"]
     binary = content["binary"]
     document = content["document"]
     checkpoint = content["checkpoint"]
     status = content["status"]
+    admission = section(
+        transaction,
+        "pub fn admit_stage8b_p1e_ordinary_run_v1(",
+        "fn classify_stage8b_p1e_first_boot_v5_inner(",
+    )
 
     require("OwnerLoopUnavailable" not in process, "run placeholder remains in source")
     require_order(
@@ -65,38 +74,76 @@ def validate_content(content: dict[str, str]) -> None:
         "production process composition",
     )
 
-    run = section(process, "async fn execute_run(", "async fn supervise_stage8b_p1e_owner_task_v1(")
+    run = section(process, "async fn execute_run(", "async fn run_stage8b_p1e_production_owner_v1(")
+    production_owner = section(
+        process,
+        "async fn run_stage8b_p1e_production_owner_v1(",
+        "#[cfg(test)]\nasync fn stage8b_p1e_process_startup_test_barrier_v1(",
+    )
     owner = section(
         process,
         "async fn run_stage8b_p1e_process_owner_v1(",
         "async fn execute_run(",
     )
+    supervision = section(
+        process,
+        "async fn supervise_stage8b_p1e_owner_task_v1(",
+        "fn map_redis_attach_error(",
+    )
+    finish = section(process, "fn finish_owner_task_at(", "fn terminal_process_result(")
     require_order(
         run,
         (
             "SignalKind::terminate()",
             "SignalKind::interrupt()",
-            "load_stage8b_p1_commitment_key_from_systemd_credential()",
-            "restart_stage8b_p1(",
-            "let mut session = attach_stage8b_p1e_verified_redis(&attach_plan)",
-            ".clean_stale_zero_pending_consumers(&consumer_name)",
-            "let startup = acquire_stage8b_p1e_startup_owner_v1(attachable, session)",
-            "let reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis_url)",
-            "let owner = tokio::spawn(async move {",
+            "let coordinator = Stage8bP1eCoordinatorV1::new()",
+            "let latch = coordinator.shutdown_latch()",
+            "let owner = tokio::spawn(run_stage8b_p1e_production_owner_v1(",
             "supervise_stage8b_p1e_owner_task_v1",
         ),
-        "run order",
+        "run supervision order",
+    )
+    require_order(
+        production_owner,
+        (
+            'stage8b_p1e_process_startup_test_barrier_v1("before-admission", &latch)',
+            "load_stage8b_p1_commitment_key_from_systemd_credential()",
+            "admit_stage8b_p1e_ordinary_run_v1(",
+            'stage8b_p1e_process_startup_test_barrier_v1("after-admission", &latch)',
+            'stage8b_p1e_process_startup_test_barrier_v1("during-redis-attach", &latch)',
+            "let mut session = attach_stage8b_p1e_verified_redis(&attach_plan)",
+            ".clean_stale_zero_pending_consumers(&consumer_name)",
+            'stage8b_p1e_process_startup_test_barrier_v1("during-s06-acquisition", &latch)',
+            "let startup = acquire_stage8b_p1e_startup_owner_v1(attachable, session)",
+            "let reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis_url)",
+            "run_stage8b_p1e_process_owner_v1(startup, reader, context, latch, commitment_key)",
+        ),
+        "production startup order",
+    )
+    require(
+        "return Err(Stage8bP1eProcessErrorV1::DurableRestart);" in production_owner,
+        "pre-admission shutdown may be reported as authenticated success",
     )
     for token in (
         "expected_registry_identity_sha256: supervisor",
         "expected_registry_version: supervisor.schedule_registry_version()",
-        "Stage8bP1eSupervisorEventV1::ExternalSignal",
-        "Stage8bP1eSupervisorEventV1::GraceExpired",
-        "Stage8bP1eSupervisorEventV1::OwnerPanicked",
-        "Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached",
         "Stage8bP1eProcessSuccessV1::RunStopped",
     ):
         require(token in process, f"process invariant missing: {token}")
+    for token in (
+        "Stage8bP1eSupervisorEventV1::ExternalSignal",
+        "Stage8bP1eSupervisorEventV1::GraceExpired",
+    ):
+        require(token in supervision, f"supervision invariant missing: {token}")
+    require(
+        supervision.count("Stage8bP1eSupervisorEventV1::GraceExpired") == 2,
+        "both signal-failure and external-signal grace paths must remain explicit",
+    )
+    for token in (
+        "Stage8bP1eSupervisorEventV1::OwnerPanicked",
+        "Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached",
+    ):
+        require(token in finish, f"terminal mapping invariant missing: {token}")
     for token in (
         "Stage8bP1eOwnerLoopOutcomeV1::CommittedCancelResolved(resolved)",
         "resolved.into_ready_polling()",
@@ -125,12 +172,31 @@ def validate_content(content: dict[str, str]) -> None:
     ):
         require(field in supervisor, f"supervisor binding missing: {field}")
 
+    for token in (
+        "pub fn admit_stage8b_p1e_ordinary_run_v1(",
+        "STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE",
+        "STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE",
+        "stage8b_p1e_current_restart_package_audit(commitment_key)",
+        "first_boot_provenance_canonical_sha256",
+    ):
+        require(token in admission, f"ordinary-run admission invariant missing: {token}")
+
+    for test in (
+        "ordinary_run_admission_rejects_post_seal_frontiers_without_mutation",
+        "ordinary_run_admission_accepts_exact_adopted_authority_and_rejects_temp",
+        "ordinary_run_admission_rejects_missing_corrupt_and_foreign_authority_without_mutation",
+    ):
+        require(test in first_boot, f"ordinary-run admission test missing: {test}")
+
     for test in (
         "os_process_idle_sigterm_exits_zero_at_authenticated_boundary",
         "os_process_sigkill_then_restart_preserves_single_ready_owner",
         "os_process_owner_panic_exits_exact_class_70",
         "os_process_consumes_committed_cancel_handoff_and_keeps_polling",
         "os_process_sigkill_after_cancel_truth_recovers_xack_last_and_keeps_polling",
+        "production_run_signals_cover_admission_attach_and_s06_without_effects",
+        "process_wrapper_preserves_coordinator_boundary_exit_classes",
+        "process_wrapper_keeps_owner_panic_fatal_precedence",
     ):
         require(test in process, f"process matrix test missing: {test}")
 
@@ -158,6 +224,9 @@ def validate_content(content: dict[str, str]) -> None:
         "Authenticated restart returns exact `P1d3TruthCommitted`",
         "FINAM POST/DELETE/send",
         "not aggregate I1 acceptance",
+        "authenticated V5 ordinary-run admission",
+        "before admission exits 66",
+        "accepted V5 lifecycle mismatch",
     ):
         require(token in document, f"process documentation missing: {token}")
     require("composed `run`" in checkpoint, "checkpoint does not identify composed run")

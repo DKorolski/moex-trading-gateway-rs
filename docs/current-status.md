@@ -16,17 +16,25 @@ Cancel signed-schedule composition `cc1f02c`, Day-expiry P1-DEX01 correction
 `a667938`, committed Cancel/Day-expiry restart source `efe56a9` and committed
 owner-loop correction `e2ce442` are independently SOURCE ACCEPTED. The active
 source candidate composes that accepted owner loop into the fixed-path `run`
-process: credential load, authenticated durable restart, verify-only Redis
-attach and one retained S06R/S08/S09 owner. Cancel has exhaustive
+process: signal supervision, credential load, authenticated V5 ordinary-run
+admission, verify-only Redis attach and one retained S06R/S08/S09 owner.
+Admission rejects incomplete/corrupt/foreign adoption authority before Redis
+work and validates the current authenticated package without pinning it to the
+initial seal. Cancel has exhaustive
 ACK/truth/target-first routing, typed restart and terminal boundaries,
 XACK-last and idempotent final-XACK response-loss replay. Day-expiry requires
 an empty canonical M10 PEL and returns a source-free typed terminal owner.
 Neither route can fall through to fresh schedule admission.
 
 This is not full I1 closure. The active source candidate now includes the
-separate OS-process SIGTERM/panic/SIGKILL/restart matrix: idle shutdown and
-restart, exact panic exit class, committed-Cancel owner handoff and a durable
-truth-before-XACK crash/restart witness. Its review package must contain
+separate OS-process SIGTERM/panic/SIGKILL/restart matrix: production startup
+signals before admission, after admission, during attach and during S06; idle
+shutdown and restart; exact panic/72/73 exit classes; committed-Cancel owner
+handoff; and a durable truth-before-XACK crash/restart witness. A newly exposed
+accepted-predecessor mismatch remains explicit: V5 first boot exports
+`TimerReady`, while real P1 M10 advancement requires `P1SemanticReady`; that
+decision and real M10/Cancel/V4 positive witness are required before SOURCE
+ACCEPT. Its review package must contain
 retained command logs and exact exit status; no operational stand is activated
 by this source work. Redis DB0/VPS activation, paper-provider execution,
 FINAM write/send,

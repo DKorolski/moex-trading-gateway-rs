@@ -2215,6 +2215,81 @@ pub fn classify_stage8b_p1e_first_boot_v5(
     }
 }
 
+/// Authenticates the immutable V5 adoption authority for an ordinary daemon
+/// run and returns the *same* linear restart outcome that was inspected.
+///
+/// Unlike the first-boot classifier, this admission intentionally does not
+/// require the current seal/checkpoint/package digest to equal the initial
+/// receipt: those values advance during legitimate M10 and lifecycle work.
+/// The adopted marker and receipt remain immutable, while the current V2
+/// package must preserve their exact first-boot provenance and deployment
+/// identity. No authority file is created, removed or repaired here.
+pub fn admit_stage8b_p1e_ordinary_run_v1(
+    config: Stage8bP1ValidatedBootstrapConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+) -> Result<Stage7bRestartOutcome, Stage8bP1eFirstBootTransactionError> {
+    let parent = config.durable_parent().to_path_buf();
+    let root_path = parent.join(config.expected_root_name());
+
+    if path_exists(parent.join(STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE))?
+        || path_exists(parent.join(STAGE8B_P1E_FIRST_BOOT_RECEIPT_TEMP_FILE))?
+    {
+        return Err(Stage8bP1eFirstBootTransactionError::Adoption);
+    }
+    let marker: Stage8bP1eFirstBootTransactionMarkerV4 = read_canonical_authority(
+        &parent,
+        STAGE8B_P1E_TRANSACTION_MARKER_FILE,
+        commitment_key,
+        |value: &Stage8bP1eFirstBootTransactionMarkerV4, key| value.validate_authenticated(key),
+    )?;
+    let receipt: Stage8bP1FirstBootReceiptV2 = read_canonical_authority(
+        &parent,
+        STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE,
+        commitment_key,
+        |value: &Stage8bP1FirstBootReceiptV2, key| value.validate_authenticated(key),
+    )?;
+    validate_owned_directory(&root_path)?;
+    validate_owned_regular_file(&root_path.join(STAGE7B_JOURNAL_FILE))?;
+    validate_owned_regular_file(&root_path.join(STAGE7B_RECOVERY_SEAL_FILE))?;
+    if marker.phase != Stage8bP1eFirstBootTransactionPhaseV4::Adopted
+        || marker.operational_identity_sha256 != config.operational_identity_sha256()
+        || marker.runtime_profile_sha256 != STAGE8B_P1E_RUNTIME_PROFILE_SHA256
+        || marker.runtime_config_fingerprint_sha256 != config.runtime_config_fingerprint_sha256()
+        || marker.canonical_root_identity_sha256 != canonical_root_identity_sha256(&root_path)?
+        || receipt.deployment_identity_sha256 != STAGE8B_P1E_DEPLOYMENT_IDENTITY_V2_SHA256
+    {
+        return Err(Stage8bP1eFirstBootTransactionError::Adoption);
+    }
+    cross_validate_adopted(&parent, &marker, &receipt, commitment_key)?;
+
+    let outcome = restart_stage8b_p1(config, commitment_key, fresh_runtime)
+        .map_err(|_| Stage8bP1eFirstBootTransactionError::Durable)?;
+    let current = outcome
+        .stage8b_p1e_current_restart_package_audit(commitment_key)
+        .map_err(|_| Stage8bP1eFirstBootTransactionError::Adoption)?;
+    let provenance = &current.first_boot_provenance;
+    if current.schema_version != 2
+        || current.operational_identity_sha256 != marker.operational_identity_sha256
+        || current.first_boot_provenance_canonical_sha256
+            != receipt.first_boot_provenance_canonical_sha256
+        || provenance.operational_identity_sha256() != marker.operational_identity_sha256
+        || provenance.runtime_profile_sha256() != marker.runtime_profile_sha256
+        || provenance.runtime_config_fingerprint_sha256()
+            != marker.runtime_config_fingerprint_sha256
+        || provenance.source_bundle_sha256() != marker.source_bundle_sha256
+        || provenance.source_bundle_generation() != marker.source_bundle_generation
+        || provenance.source_plan_sha256() != marker.source_plan_sha256
+        || provenance.history_bars_sha256() != marker.history_bars_sha256
+        || provenance.riskgate_session_observations_sha256()
+            != marker.riskgate_session_observations_sha256
+        || provenance.candidate_semantic_id_sha256() != marker.candidate_semantic_id_sha256
+    {
+        return Err(Stage8bP1eFirstBootTransactionError::Adoption);
+    }
+    Ok(outcome)
+}
+
 fn classify_stage8b_p1e_first_boot_v5_inner(
     config: Stage8bP1ValidatedBootstrapConfig,
     commitment_key: &Stage5gLifecycleCommitmentKey,

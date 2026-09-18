@@ -188,18 +188,25 @@ and do not rebuild fresh admission.
 
 ## Composed process boundary
 
-The accepted `run CONFIG` grammar now loads the fixed systemd credential,
-performs authenticated durable restart, attaches only the verified DB15 Redis
-surface and transfers the exact startup owner into the continuing S06R/S08/S09
-loop. A returned committed-Cancel completion is consumed explicitly back into
-Ready polling; no second owner or fresh admission of the completed V4 is
-created.
+The accepted `run CONFIG` grammar now starts signal supervision first, loads
+the fixed systemd credential, performs authenticated V5 ordinary-run admission,
+attaches only the verified DB15 Redis surface and transfers the exact startup
+owner into the continuing S06R/S08/S09 loop. Admission binds the immutable
+adopted marker/receipt/provenance to the current authenticated restart package
+without requiring the current seal to equal the initial receipt. A returned
+committed-Cancel completion is consumed explicitly back into Ready polling; no
+second owner or fresh admission of the completed V4 is created.
 
 The schedule registry version and identity hash are explicit protected-config
 bindings. They are never learned from the schedule envelope being verified,
 which prevents a self-asserted trust root on the first signed read.
 
 ## Still required before review
+
+- resolve the accepted V5 lifecycle mismatch: V5 exports `TimerReady`, while
+  the first production P1 M10 transition requires `P1SemanticReady`. Then add
+  the real V5-adopted M10/Cancel/V4 advancement-and-restart admission witness;
+  no synthetic advanced package is accepted as a substitute;
 
 - signed schedule-source process composition for Cancel, Day-expiry and their
   recovered dispatch routes; Ready/Working-LIMIT, plain Market, generated

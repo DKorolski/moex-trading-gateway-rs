@@ -7262,6 +7262,54 @@ pub(crate) struct Stage8bP1d4RestartAuditV1 {
 }
 
 impl Stage7bRestartOutcome {
+    /// Authenticates the exact restart package retained by this linear
+    /// restart outcome and exposes only its broker-neutral V2 audit.  This is
+    /// used by ordinary-run admission to bind an already-adopted first boot
+    /// to the current (possibly advanced) package without reopening the
+    /// durable root or minting a second writer authority.
+    pub(crate) fn stage8b_p1e_current_restart_package_audit(
+        &self,
+        commitment_key: &Stage5gLifecycleCommitmentKey,
+    ) -> Result<
+        strategy_runtime_core::Stage8bP1eAuthenticatedRestartPackageV2Audit,
+        Stage7bRecoveryError,
+    > {
+        let seal = match self {
+            Self::Ready(owner) => &owner.committed_seal,
+            Self::Stage8a4I3Pending(owner) => &owner.committed_s0,
+            Self::P1SemanticPrepublicationPending(owner) => &owner.committed_s0,
+            Self::P1SemanticPrepublicationReady(owner) => &owner.ready.committed_seal,
+            Self::P1SemanticZeroIntentAckPending(owner) => &owner.ready.committed_seal,
+            Self::P1d2PreAckPending(owner) => &owner.committed_pre_ack_seal,
+            Self::P1d2AckCommitted(owner) => &owner.ready.committed_seal,
+            Self::P1d2TruthCommitted(owner) => &owner.ready.committed_seal,
+            Self::P1d4GeneratedMarketPrepublicationPending(owner) => &owner.ready.committed_seal,
+            Self::P1d4GeneratedMarketDispatchPending(owner) => &owner.state.committed_pre_ack_seal,
+            Self::P1d4GeneratedMarketOrderPending(owner) => &owner.state.committed_pre_ack_seal,
+            Self::P1d4GeneratedMarketPreFinalizationPending(owner) => {
+                &owner.state.committed_pre_ack_seal
+            }
+            Self::P1d4GeneratedMarketPreAckPending(owner) => &owner.state.committed_pre_ack_seal,
+            Self::P1d4GeneratedMarketAckCommitted(owner) => &owner.ready.committed_seal,
+            Self::P1d4GeneratedMarketTruthCommitted(owner) => &owner.ready.committed_seal,
+            Self::P1d3DispatchPending(owner) => &owner.committed_pre_dispatch_seal,
+            Self::P1d3PreAckPending(owner) => &owner.committed_pre_ack_seal,
+            Self::P1d3AckCommitted(owner) => &owner.ready.committed_seal,
+            Self::P1d3TruthCommitted(owner) => &owner.ready.committed_seal,
+            Self::P1d3CancelContinuationPending(owner) => match &owner.state {
+                Stage8bP1d3CancelContinuationState::TargetSealed(ready) => &ready.committed_seal,
+            },
+            Self::P1d3SemanticPending(owner) => &owner.ready.committed_seal,
+            Self::P1eScheduleBindingCommitted(owner) => &owner.ready.committed_seal,
+            Self::Blocked(_) => return Err(Stage7bRecoveryError::SealInvalid),
+        };
+        strategy_runtime_core::inspect_stage8b_p1e_authenticated_restart_package_v2(
+            seal.stage6d_authenticated_restart_package(),
+            commitment_key,
+        )
+        .map_err(Stage7bRecoveryError::Runtime)
+    }
+
     #[cfg(test)]
     pub(crate) fn stage8b_p1d4_test_runtime_audit(&self) -> Option<Stage8bP1d4RestartAuditV1> {
         let recovered = match self {

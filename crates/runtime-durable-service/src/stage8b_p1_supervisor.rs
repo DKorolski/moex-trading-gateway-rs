@@ -278,7 +278,7 @@ pub enum Stage8bP1eRedisControlError {
     TelemetryWriteFailed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Stage8bP1eRedisDeploymentManifestV1 {
     schema_version: u16,
@@ -301,7 +301,7 @@ struct Stage8bP1eRedisDeploymentManifestV1 {
     manifest_write_allowed_in_p1e: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Stage8bP1eRedisManifestKeyV1 {
     name: String,
@@ -650,6 +650,149 @@ fn manifest_key(name: &str, groups: &[&str]) -> Stage8bP1eRedisManifestKeyV1 {
         key_type: "stream".to_string(),
         groups: groups.iter().map(|group| (*group).to_string()).collect(),
     }
+}
+
+#[cfg(test)]
+fn stage8b_p1e_test_manifest_for_plan_v1(
+    plan: &Stage8bP1eRedisAttachPlanV1,
+) -> Stage8bP1eRedisDeploymentManifestV1 {
+    let namespace = plan.namespace();
+    Stage8bP1eRedisDeploymentManifestV1 {
+        schema_version: 1,
+        domain: "moex.stage8b.p1e.redis-deployment-manifest.v1".to_string(),
+        manifest_key: STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY.to_string(),
+        redis_url_allowlist: vec![
+            STAGE8B_P1E_REDIS_URL_IPV4.to_string(),
+            STAGE8B_P1E_REDIS_URL_IPV6.to_string(),
+        ],
+        redis_db_index: 15,
+        operational_identity_sha256: plan.operational_identity_sha256.clone(),
+        runtime_config_fingerprint_sha256: plan.runtime_config_fingerprint_sha256.clone(),
+        instrument_map_fingerprint_sha256: stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+        deployment_generation: plan.deployment_generation,
+        consumer_generation: plan.consumer_generation,
+        namespace_digest_sha256: STAGE8B_P1E_NAMESPACE_DIGEST_SHA256.to_string(),
+        keys: vec![
+            manifest_key(
+                &namespace.canonical_m10_stream,
+                &[&namespace.m10_consumer_group],
+            ),
+            manifest_key(
+                &namespace.canonical_command_stream,
+                &[&namespace.stage7b_command_consumer_group],
+            ),
+            manifest_key(&namespace.canonical_ack_stream, &[]),
+            manifest_key(&namespace.canonical_dlq_stream, &[]),
+            manifest_key(&namespace.canonical_order_stream, &[]),
+            manifest_key(&namespace.canonical_trade_stream, &[]),
+            manifest_key(&namespace.canonical_position_stream, &[]),
+            manifest_key(&namespace.runtime_state_stream, &[]),
+            manifest_key(&namespace.health_stream, &[]),
+            manifest_key(&namespace.readiness_stream, &[]),
+        ],
+        settlement_key_prefix: namespace.settlement_key_prefix.clone(),
+        provisioning_owner: "stage8b-p1f-administrative-boundary".to_string(),
+        run_mode: "verify-only".to_string(),
+        run_may_create_or_repair: false,
+        telemetry_write_command:
+            "XADD <health-or-readiness-stream> NOMKSTREAM MAXLEN = 4096 * payload <canonical-json>"
+                .to_string(),
+        manifest_write_allowed_in_p1e: false,
+    }
+}
+
+#[cfg(test)]
+fn stage8b_p1e_test_attach_plan_v1(
+    validated: &Stage8bP1eValidatedSupervisorConfigV1,
+    redis_url: &str,
+    redis_deployment_manifest_sha256: &str,
+) -> Stage8bP1eRedisAttachPlanV1 {
+    Stage8bP1eRedisAttachPlanV1 {
+        redis_url: redis_url.to_string(),
+        redis_deployment_manifest_sha256: redis_deployment_manifest_sha256.to_string(),
+        redis_config: validated.redis_config.clone(),
+        namespace: validated.namespace.clone(),
+        operational_identity_sha256: validated
+            .bootstrap
+            .operational_identity_sha256()
+            .to_string(),
+        runtime_config_fingerprint_sha256: validated.runtime_config_fingerprint_sha256.clone(),
+        deployment_generation: validated.bootstrap.deployment_generation(),
+        consumer_generation: validated.bootstrap.command_consumer_generation(),
+    }
+}
+
+/// Test-only provisioning for a production-composition process witness. The
+/// returned hash is consumed by a separately spawned child; the child itself
+/// receives only the normal verify-only validated supervisor capability.
+#[cfg(test)]
+pub(crate) async fn stage8b_p1e_test_provision_production_redis_v1(
+    mut config: Stage8bP1eSupervisorConfigV1,
+    boot_id: [u8; 16],
+    redis_url: &str,
+) -> String {
+    config.redis_url = STAGE8B_P1E_REDIS_URL_IPV4.to_string();
+    config.redis_deployment_manifest_sha256 = "00".repeat(32);
+    let validated =
+        validate_stage8b_p1e_supervisor_config_v1(config, boot_id).expect("test supervisor config");
+    let plan = stage8b_p1e_test_attach_plan_v1(&validated, redis_url, &"00".repeat(32));
+    let manifest = stage8b_p1e_test_manifest_for_plan_v1(&plan);
+    let encoded = serde_json::to_vec(&manifest).expect("test deployment manifest");
+    let canonical = canonical_json_bytes(&encoded).expect("canonical test deployment manifest");
+    let manifest_sha256 = sha256_hex(&canonical);
+
+    drop(
+        crate::initialize_stage8b_p1_redis_namespace(redis_url, validated.redis_config.clone())
+            .await
+            .expect("fresh test Redis namespace"),
+    );
+    let client = redis::Client::open(redis_url).expect("test Redis URL");
+    let mut connection = ConnectionManager::new(client)
+        .await
+        .expect("test Redis connection");
+    for key in &manifest.keys {
+        let actual_type: String = redis::cmd("TYPE")
+            .arg(&key.name)
+            .query_async(&mut connection)
+            .await
+            .expect("test stream type");
+        if actual_type == "none" {
+            let _: String = redis::cmd("XADD")
+                .arg(&key.name)
+                .arg("*")
+                .arg("fixture")
+                .arg("preprovisioned")
+                .query_async(&mut connection)
+                .await
+                .expect("test stream provisioning");
+        } else {
+            assert_eq!(actual_type, "stream");
+        }
+    }
+    let _: () = redis::cmd("SET")
+        .arg(STAGE8B_P1E_DEPLOYMENT_MANIFEST_KEY)
+        .arg(&canonical)
+        .query_async(&mut connection)
+        .await
+        .expect("test deployment manifest provisioning");
+    manifest_sha256
+}
+
+/// Rebuilds the production validated capability in an isolated process after
+/// its Redis namespace was provisioned by the parent test process.
+#[cfg(test)]
+pub(crate) fn stage8b_p1e_test_validated_production_supervisor_v1(
+    mut config: Stage8bP1eSupervisorConfigV1,
+    boot_id: [u8; 16],
+    redis_url: &str,
+    redis_deployment_manifest_sha256: &str,
+) -> Stage8bP1eValidatedSupervisorConfigV1 {
+    config.redis_url = STAGE8B_P1E_REDIS_URL_IPV4.to_string();
+    config.redis_deployment_manifest_sha256 = redis_deployment_manifest_sha256.to_string();
+    let mut validated =
+        validate_stage8b_p1e_supervisor_config_v1(config, boot_id).expect("test supervisor config");
+    validated.redis_url = redis_url.to_string();
+    validated
 }
 
 async fn redis_operation<T, F>(operation: F) -> Result<T, Stage8bP1eRedisControlError>

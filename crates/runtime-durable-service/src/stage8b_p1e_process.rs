@@ -40,23 +40,22 @@ use crate::{
     acquire_stage8b_p1d4_order_pending_with_redis, acquire_stage8b_p1d4_pre_ack_with_redis,
     acquire_stage8b_p1d4_pre_finalization_with_redis,
     acquire_stage8b_p1d4_prepublication_with_redis, acquire_stage8b_p1d4_truth_with_redis,
-    acquire_stage8b_p1e_ready_pending_with_redis, attach_stage8b_p1e_verified_redis,
-    authorize_stage8b_p1_first_boot, authorize_stage8b_p1e_pre_seal_recovery_v5,
-    build_stage8b_p1_first_boot_source_v1, first_boot_stage8b_p1e_transaction_v5,
-    load_stage8b_p1_commitment_key_from_systemd_credential,
+    acquire_stage8b_p1e_ready_pending_with_redis, admit_stage8b_p1e_ordinary_run_v1,
+    attach_stage8b_p1e_verified_redis, authorize_stage8b_p1_first_boot,
+    authorize_stage8b_p1e_pre_seal_recovery_v5, build_stage8b_p1_first_boot_source_v1,
+    first_boot_stage8b_p1e_transaction_v5, load_stage8b_p1_commitment_key_from_systemd_credential,
     poll_stage8b_p1e_ready_fresh_with_redis, recover_stage8b_p1e_first_boot_adoption_v5,
     recover_stage8b_p1e_first_boot_pre_seal_from_supervisor_v5,
-    resolve_stage8b_p1_zero_intent_ack_with_redis, restart_stage8b_p1,
-    resume_stage8b_p1_journal_ahead_with_redis, resume_stage8b_p1_prepublication_with_redis,
-    resume_stage8b_p1d2_ack_with_redis, resume_stage8b_p1d2_pre_ack_with_redis,
-    resume_stage8b_p1d2_truth_with_redis, resume_stage8b_p1d3_ack_with_redis,
-    resume_stage8b_p1d3_cancel_continuation_with_redis, resume_stage8b_p1d3_pre_ack_with_redis,
-    resume_stage8b_p1d3_semantic_with_redis, resume_stage8b_p1d3_truth_with_redis,
-    resume_stage8b_p1d4_ack_with_redis, resume_stage8b_p1d4_dispatch_pending_with_redis,
-    resume_stage8b_p1d4_order_pending_with_redis, resume_stage8b_p1d4_pre_ack_with_redis,
-    resume_stage8b_p1d4_pre_finalization_with_redis, resume_stage8b_p1d4_prepublication_with_redis,
-    resume_stage8b_p1d4_truth_with_redis, resume_stage8b_p1e_committed_cancel_with_redis,
-    resume_stage8b_p1e_committed_day_expiry,
+    resolve_stage8b_p1_zero_intent_ack_with_redis, resume_stage8b_p1_journal_ahead_with_redis,
+    resume_stage8b_p1_prepublication_with_redis, resume_stage8b_p1d2_ack_with_redis,
+    resume_stage8b_p1d2_pre_ack_with_redis, resume_stage8b_p1d2_truth_with_redis,
+    resume_stage8b_p1d3_ack_with_redis, resume_stage8b_p1d3_cancel_continuation_with_redis,
+    resume_stage8b_p1d3_pre_ack_with_redis, resume_stage8b_p1d3_semantic_with_redis,
+    resume_stage8b_p1d3_truth_with_redis, resume_stage8b_p1d4_ack_with_redis,
+    resume_stage8b_p1d4_dispatch_pending_with_redis, resume_stage8b_p1d4_order_pending_with_redis,
+    resume_stage8b_p1d4_pre_ack_with_redis, resume_stage8b_p1d4_pre_finalization_with_redis,
+    resume_stage8b_p1d4_prepublication_with_redis, resume_stage8b_p1d4_truth_with_redis,
+    resume_stage8b_p1e_committed_cancel_with_redis, resume_stage8b_p1e_committed_day_expiry,
     resume_stage8b_p1e_committed_generated_market_with_redis,
     resume_stage8b_p1e_committed_initial_limit_with_redis,
     resume_stage8b_p1e_ready_source_with_redis,
@@ -4033,15 +4032,37 @@ async fn execute_run(
     supervisor: Stage8bP1eValidatedSupervisorConfigV1,
     trusted_now: DateTime<Utc>,
 ) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
-    // Register both Unix signals before any durable or Redis operation. A
-    // signal arriving during synchronous restart remains queued for this
-    // process and is applied to the shared first-wins latch before owner work
-    // can pass its next acquisition checkpoint.
+    // Register and actively supervise both Unix signals before spawning the
+    // production startup path. The coordinator/latch and its single grace
+    // deadline therefore cover credential load, V5 admission, Redis attach,
+    // S06 acquisition, schedule-reader attach and the steady-state owner.
     let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| Stage8bP1eProcessErrorV1::SignalTaskFailed)?;
     let interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
         .map_err(|_| Stage8bP1eProcessErrorV1::SignalTaskFailed)?;
+    let shutdown_grace_ms = supervisor.shutdown_grace_ms();
+    let coordinator = Stage8bP1eCoordinatorV1::new();
+    let latch = coordinator.shutdown_latch();
+    let owner = tokio::spawn(run_stage8b_p1e_production_owner_v1(
+        supervisor,
+        trusted_now,
+        latch,
+    ));
+    supervise_stage8b_p1e_owner_task_v1(owner, coordinator, shutdown_grace_ms, terminate, interrupt)
+        .await
+}
 
+async fn run_stage8b_p1e_production_owner_v1(
+    supervisor: Stage8bP1eValidatedSupervisorConfigV1,
+    trusted_now: DateTime<Utc>,
+    latch: Arc<Stage8bP1eShutdownLatchV1>,
+) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1> {
+    stage8b_p1e_process_startup_test_barrier_v1("before-admission", &latch).await;
+    if latch.intent().is_some() {
+        // No durable owner has been authenticated yet.  A stop here cannot
+        // be reported as the exit-0 authenticated shutdown boundary.
+        return Err(Stage8bP1eProcessErrorV1::DurableRestart);
+    }
     let context = strategy_runtime_core::Stage8bP1eScheduleVerificationContextV1 {
         expected_instrument_map_fingerprint_sha256:
             crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
@@ -4061,54 +4082,105 @@ async fn execute_run(
     };
     let commitment_key = load_stage8b_p1_commitment_key_from_systemd_credential()
         .map_err(|_| Stage8bP1eProcessErrorV1::Credential)?;
-    let (bootstrap, runtime, attach_plan, settings) = supervisor.into_run_parts();
-    let restart = restart_stage8b_p1(bootstrap, &commitment_key, runtime)
+    let (bootstrap, runtime, attach_plan, _settings) = supervisor.into_run_parts();
+    let restart = admit_stage8b_p1e_ordinary_run_v1(bootstrap, &commitment_key, runtime)
         .map_err(|_| Stage8bP1eProcessErrorV1::DurableRestart)?;
+    stage8b_p1e_process_startup_test_barrier_v1("after-admission", &latch).await;
+    if latch.intent().is_some() {
+        drop(restart);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
     let attachable = match stage8b_p1e_route_pre_redis_restart_v1(restart) {
         Stage8bP1ePreRedisRestartV1::Attachable(attachable) => attachable,
         Stage8bP1ePreRedisRestartV1::Blocked(_) => {
             return Err(Stage8bP1eProcessErrorV1::RestartBlocked);
         }
     };
+    if latch.intent().is_some() {
+        drop(attachable);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
 
     let redis_url = attach_plan.redis_url().to_string();
     let consumer_name = attach_plan.consumer_name().to_string();
+    stage8b_p1e_process_startup_test_barrier_v1("during-redis-attach", &latch).await;
+    if latch.intent().is_some() {
+        drop(attachable);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
     let mut session = attach_stage8b_p1e_verified_redis(&attach_plan)
         .await
         .map_err(map_redis_attach_error)?;
+    if latch.intent().is_some() {
+        drop(session);
+        drop(attachable);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
     session
         .redis_control_mut()
         .clean_stale_zero_pending_consumers(&consumer_name)
         .await
         .map_err(map_redis_attach_error)?;
+    if latch.intent().is_some() {
+        drop(session);
+        drop(attachable);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
+    stage8b_p1e_process_startup_test_barrier_v1("during-s06-acquisition", &latch).await;
+    if latch.intent().is_some() {
+        drop(session);
+        drop(attachable);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
     let startup = acquire_stage8b_p1e_startup_owner_v1(attachable, session)
         .await
         .map_err(map_startup_error)?;
+    if latch.intent().is_some() {
+        drop(startup);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
     let reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis_url)
         .await
         .map_err(|_| Stage8bP1eProcessErrorV1::ScheduleReader)?;
+    if latch.intent().is_some() {
+        drop(reader);
+        drop(startup);
+        return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+    }
+    run_stage8b_p1e_process_owner_v1(startup, reader, context, latch, commitment_key)
+        .await
+        .map_err(map_startup_error)
+}
 
-    let coordinator = Stage8bP1eCoordinatorV1::new();
-    let latch = coordinator.shutdown_latch();
-    let owner_latch = Arc::clone(&latch);
-    let owner = tokio::spawn(async move {
-        run_stage8b_p1e_process_owner_v1(startup, reader, context, owner_latch, commitment_key)
-            .await
-    });
+#[cfg(test)]
+async fn stage8b_p1e_process_startup_test_barrier_v1(
+    phase: &str,
+    latch: &Stage8bP1eShutdownLatchV1,
+) {
+    const PHASE_ENV: &str = "STAGE8B_P1E_PROCESS_PRODUCTION_PHASE";
+    const READY_ENV: &str = "STAGE8B_P1E_PROCESS_FIXTURE_READY";
+    if std::env::var(PHASE_ENV).as_deref() != Ok(phase) {
+        return;
+    }
+    let ready = std::path::PathBuf::from(
+        std::env::var_os(READY_ENV).expect("production process fixture ready path"),
+    );
+    fs::write(&ready, phase.as_bytes()).expect("production process fixture ready marker");
+    while latch.intent().is_none() {
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+    }
+}
 
-    supervise_stage8b_p1e_owner_task_v1(
-        owner,
-        coordinator,
-        settings.shutdown_grace_ms,
-        terminate,
-        interrupt,
-    )
-    .await
+#[cfg(not(test))]
+async fn stage8b_p1e_process_startup_test_barrier_v1(
+    _phase: &str,
+    _latch: &Stage8bP1eShutdownLatchV1,
+) {
 }
 
 async fn supervise_stage8b_p1e_owner_task_v1(
     mut owner: tokio::task::JoinHandle<
-        Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eStartupErrorV1>,
+        Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1>,
     >,
     mut coordinator: Stage8bP1eCoordinatorV1,
     shutdown_grace_ms: u64,
@@ -4119,7 +4191,7 @@ async fn supervise_stage8b_p1e_owner_task_v1(
         biased;
         signal = terminate.recv() => signal.is_some(),
         signal = interrupt.recv() => signal.is_some(),
-        result = &mut owner => return finish_owner_task(&mut coordinator, result, false),
+        result = &mut owner => return finish_owner_task(&mut coordinator, result),
     };
     if !signal_received {
         let now = Utc::now().timestamp_millis();
@@ -4133,11 +4205,18 @@ async fn supervise_stage8b_p1e_owner_task_v1(
         return match tokio::time::timeout(StdDuration::from_millis(shutdown_grace_ms), &mut owner)
             .await
         {
-            Ok(result) => {
-                let _ = finish_owner_task(&mut coordinator, result, true);
-                Err(Stage8bP1eProcessErrorV1::SignalTaskFailed)
+            Ok(result) => finish_owner_task(&mut coordinator, result),
+            Err(_) => {
+                let decision = coordinator.coordinate(
+                    Stage8bP1eSupervisorEventV1::GraceExpired,
+                    true,
+                    Utc::now().timestamp_millis(),
+                    now.saturating_add(shutdown_grace_ms as i64),
+                    2,
+                );
+                owner.abort();
+                terminal_process_result(decision.exit_code)
             }
-            Err(_) => Err(Stage8bP1eProcessErrorV1::ShutdownGraceExpired),
         };
     }
 
@@ -4151,16 +4230,17 @@ async fn supervise_stage8b_p1e_owner_task_v1(
         1,
     );
     match tokio::time::timeout(StdDuration::from_millis(shutdown_grace_ms), &mut owner).await {
-        Ok(result) => finish_owner_task(&mut coordinator, result, true),
+        Ok(result) => finish_owner_task(&mut coordinator, result),
         Err(_) => {
-            let _ = coordinator.coordinate(
+            let decision = coordinator.coordinate(
                 Stage8bP1eSupervisorEventV1::GraceExpired,
                 true,
                 Utc::now().timestamp_millis(),
                 grace_deadline,
                 1,
             );
-            Err(Stage8bP1eProcessErrorV1::ShutdownGraceExpired)
+            owner.abort();
+            terminal_process_result(decision.exit_code)
         }
     }
 }
@@ -4195,62 +4275,80 @@ fn map_startup_error(error: Stage8bP1eStartupErrorV1) -> Stage8bP1eProcessErrorV
 fn finish_owner_task(
     coordinator: &mut Stage8bP1eCoordinatorV1,
     result: Result<
-        Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eStartupErrorV1>,
+        Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1>,
         tokio::task::JoinError,
     >,
-    shutdown_requested: bool,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    finish_owner_task_at(coordinator, result, Utc::now().timestamp_millis())
+}
+
+fn finish_owner_task_at(
+    coordinator: &mut Stage8bP1eCoordinatorV1,
+    result: Result<
+        Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1>,
+        tokio::task::JoinError,
+    >,
+    now_utc_ms: i64,
 ) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
     match result {
         Err(_) => {
-            let now = Utc::now().timestamp_millis();
-            let _ = coordinator.coordinate(
+            let decision = coordinator.coordinate(
                 Stage8bP1eSupervisorEventV1::OwnerPanicked,
                 false,
-                now,
-                now,
+                now_utc_ms,
+                now_utc_ms,
                 2,
             );
-            Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed)
+            terminal_process_result(decision.exit_code)
         }
-        Ok(Err(_)) => {
-            let now = Utc::now().timestamp_millis();
+        Ok(Err(error)) => {
             let _ = coordinator.coordinate(
                 Stage8bP1eSupervisorEventV1::RedisLifecycleFailed,
                 false,
-                now,
-                now,
+                now_utc_ms,
+                now_utc_ms,
                 2,
             );
-            Err(Stage8bP1eProcessErrorV1::OwnerLoop)
+            Err(error)
         }
         Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::RestartRequired)) => {
             Err(Stage8bP1eProcessErrorV1::OwnerLoop)
         }
-        Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)) if shutdown_requested => {
+        Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)) => {
             let decision = coordinator.coordinate(
                 Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached,
                 false,
-                Utc::now().timestamp_millis(),
+                now_utc_ms,
                 0,
                 2,
             );
-            if decision.exit_code == Some(0) {
-                Ok(Stage8bP1eProcessSuccessV1::RunStopped)
+            if decision.exit_code.is_some() {
+                terminal_process_result(decision.exit_code)
             } else {
-                Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed)
+                let decision = coordinator.coordinate(
+                    Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly,
+                    false,
+                    now_utc_ms,
+                    now_utc_ms,
+                    3,
+                );
+                terminal_process_result(decision.exit_code)
             }
         }
-        Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)) => {
-            let now = Utc::now().timestamp_millis();
-            let _ = coordinator.coordinate(
-                Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly,
-                false,
-                now,
-                now,
-                2,
-            );
-            Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed)
-        }
+    }
+}
+
+fn terminal_process_result(
+    exit_code: Option<u8>,
+) -> Result<Stage8bP1eProcessSuccessV1, Stage8bP1eProcessErrorV1> {
+    match exit_code {
+        Some(0) => Ok(Stage8bP1eProcessSuccessV1::RunStopped),
+        Some(64) => Err(Stage8bP1eProcessErrorV1::Config),
+        Some(66) => Err(Stage8bP1eProcessErrorV1::DurableRestart),
+        Some(67) => Err(Stage8bP1eProcessErrorV1::OwnerLoop),
+        Some(72) => Err(Stage8bP1eProcessErrorV1::ShutdownGraceExpired),
+        Some(73) => Err(Stage8bP1eProcessErrorV1::SignalTaskFailed),
+        Some(70 | 71) | Some(_) | None => Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed),
     }
 }
 
@@ -4559,6 +4657,10 @@ mod tests {
     const PROCESS_FIXTURE_REDIS_URL: &str = "STAGE8B_P1E_PROCESS_FIXTURE_REDIS_URL";
     const PROCESS_FIXTURE_READY: &str = "STAGE8B_P1E_PROCESS_FIXTURE_READY";
     const PROCESS_FIXTURE_TRUSTED_NOW_MS: &str = "STAGE8B_P1E_PROCESS_FIXTURE_TRUSTED_NOW_MS";
+    const PROCESS_PRODUCTION_PHASE: &str = "STAGE8B_P1E_PROCESS_PRODUCTION_PHASE";
+    const PROCESS_FIXTURE_MANIFEST_SHA256: &str = "STAGE8B_P1E_PROCESS_FIXTURE_MANIFEST_SHA256";
+    const PROCESS_FIXTURE_CREDENTIALS: &str = "STAGE8B_P1E_PROCESS_FIXTURE_CREDENTIALS";
+    const PROCESS_FIXTURE_BOOT_ID: [u8; 16] = [0x42; 16];
 
     async fn seed_idle_process_fixture(redis_url: &str, parent: &Path) -> String {
         let (source, export_input, key, fresh) =
@@ -4589,6 +4691,55 @@ mod tests {
         operational_identity_sha256
     }
 
+    fn seed_adopted_production_process_fixture(parent: &Path) {
+        let (_, runtime_fingerprint) = crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime()
+            .expect("production process fixture runtime");
+        let (prepared, admin, key, _) =
+            crate::stage8b_p1e_first_boot_source::tests::prepared_transaction_with_bootstrap(
+                parent,
+                bootstrap_config(parent.to_path_buf(), runtime_fingerprint),
+            );
+        let adopted = crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &key)
+            .expect("production process fixture adoption");
+        assert!(adopted.owner().recovery_ready());
+        drop(adopted);
+    }
+
+    fn production_process_credentials(label: &str) -> PathBuf {
+        let directory = temp_directory(label);
+        let path = directory.join(crate::STAGE8B_P1_COMMITMENT_CREDENTIAL_FILE);
+        fs::write(&path, [0x8b; 32]).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        directory
+    }
+
+    async fn redis_database_snapshot(redis_url: &str) -> BTreeMap<String, Vec<u8>> {
+        let client = redis::Client::open(redis_url).unwrap();
+        let mut connection = redis::aio::ConnectionManager::new(client).await.unwrap();
+        let mut keys: Vec<String> = redis::cmd("KEYS")
+            .arg("*")
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        keys.sort();
+        let mut snapshot = BTreeMap::new();
+        for key in keys {
+            let mut bytes: Vec<u8> = redis::cmd("DUMP")
+                .arg(&key)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            let ttl_ms: i64 = redis::cmd("PTTL")
+                .arg(&key)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            bytes.extend_from_slice(&ttl_ms.to_be_bytes());
+            snapshot.insert(key, bytes);
+        }
+        snapshot
+    }
+
     fn spawn_process_fixture_child(
         test_name: &str,
         redis_url: &str,
@@ -4603,6 +4754,32 @@ mod tests {
             .env(PROCESS_FIXTURE_PARENT, parent)
             .env(PROCESS_FIXTURE_REDIS_URL, redis_url)
             .env(PROCESS_FIXTURE_READY, ready)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap()
+    }
+
+    fn spawn_production_startup_fixture_child(
+        redis_url: &str,
+        parent: &Path,
+        ready: &Path,
+        credentials: &Path,
+        phase: &str,
+        manifest_sha256: &str,
+    ) -> Child {
+        Command::new(std::env::current_exe().unwrap())
+            .arg("--ignored")
+            .arg("--exact")
+            .arg("stage8b_p1e_process::tests::stage8b_p1e_production_startup_signal_fixture_child")
+            .arg("--nocapture")
+            .env(PROCESS_FIXTURE_PARENT, parent)
+            .env(PROCESS_FIXTURE_REDIS_URL, redis_url)
+            .env(PROCESS_FIXTURE_READY, ready)
+            .env(PROCESS_PRODUCTION_PHASE, phase)
+            .env(PROCESS_FIXTURE_MANIFEST_SHA256, manifest_sha256)
+            .env(PROCESS_FIXTURE_CREDENTIALS, credentials)
+            .env("CREDENTIALS_DIRECTORY", credentials)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -4676,11 +4853,39 @@ mod tests {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
         let coordinator = Stage8bP1eCoordinatorV1::new();
         let latch = coordinator.shutdown_latch();
-        let owner = tokio::spawn(run_stage8b_p1e_process_owner_v1(
-            startup, reader, context, latch, key,
-        ));
+        let owner = tokio::spawn(async move {
+            run_stage8b_p1e_process_owner_v1(startup, reader, context, latch, key)
+                .await
+                .map_err(map_startup_error)
+        });
         fs::write(ready, b"owner-live-signal-handlers-installed").unwrap();
         supervise_stage8b_p1e_owner_task_v1(owner, coordinator, 5_000, terminate, interrupt).await
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn stage8b_p1e_production_startup_signal_fixture_child() {
+        let parent = fs::canonicalize(std::env::var_os(PROCESS_FIXTURE_PARENT).unwrap()).unwrap();
+        let redis_url = std::env::var(PROCESS_FIXTURE_REDIS_URL).unwrap();
+        let manifest_sha256 = std::env::var(PROCESS_FIXTURE_MANIFEST_SHA256).unwrap();
+        let credentials =
+            fs::canonicalize(std::env::var_os(PROCESS_FIXTURE_CREDENTIALS).unwrap()).unwrap();
+        assert_eq!(
+            std::env::var_os("CREDENTIALS_DIRECTORY").as_deref(),
+            Some(credentials.as_os_str())
+        );
+        let supervisor =
+            crate::stage8b_p1_supervisor::stage8b_p1e_test_validated_production_supervisor_v1(
+                production_supervisor_config(parent),
+                PROCESS_FIXTURE_BOOT_ID,
+                &redis_url,
+                &manifest_sha256,
+            );
+        match execute_run(supervisor, Utc::now()).await {
+            Ok(Stage8bP1eProcessSuccessV1::RunStopped) => {}
+            Ok(other) => panic!("unexpected production startup success: {other:?}"),
+            Err(error) => std::process::exit(error.exit_code().into()),
+        }
     }
 
     #[tokio::test]
@@ -4756,13 +4961,11 @@ mod tests {
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()).unwrap();
         let coordinator = Stage8bP1eCoordinatorV1::new();
         let latch = coordinator.shutdown_latch();
-        let owner = tokio::spawn(run_stage8b_p1e_process_owner_v1(
-            startup,
-            reader,
-            fixture.context,
-            latch,
-            key,
-        ));
+        let owner = tokio::spawn(async move {
+            run_stage8b_p1e_process_owner_v1(startup, reader, fixture.context, latch, key)
+                .await
+                .map_err(map_startup_error)
+        });
         fs::write(ready, b"committed-cancel-owner-live").unwrap();
         match supervise_stage8b_p1e_owner_task_v1(owner, coordinator, 5_000, terminate, interrupt)
             .await
@@ -4774,7 +4977,7 @@ mod tests {
     }
 
     async fn panicking_process_owner_fixture(
-    ) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eStartupErrorV1> {
+    ) -> Result<Stage8bP1eOwnerTaskBoundaryV1, Stage8bP1eProcessErrorV1> {
         panic!("deterministic owner panic fixture")
     }
 
@@ -4846,6 +5049,86 @@ mod tests {
         assert_eq!(pending.count(), 0);
         fs::remove_dir_all(parent).unwrap();
         fs::remove_dir_all(control).unwrap();
+    }
+
+    #[tokio::test]
+    async fn production_run_signals_cover_admission_attach_and_s06_without_effects() {
+        for (label, phase, signal, expected_exit) in [
+            (
+                "pre-admission-sigterm",
+                "before-admission",
+                libc::SIGTERM,
+                66,
+            ),
+            ("admitted-sigterm", "after-admission", libc::SIGTERM, 0),
+            ("attach-sigint", "during-redis-attach", libc::SIGINT, 0),
+            ("s06-sigterm", "during-s06-acquisition", libc::SIGTERM, 0),
+        ] {
+            let redis = RedisServer::start().await;
+            let parent = temp_directory(&format!("production-{label}"));
+            let control = temp_directory(&format!("production-{label}-control"));
+            let credentials = production_process_credentials(&format!("production-{label}-creds"));
+            seed_adopted_production_process_fixture(&parent);
+            let manifest_sha256 =
+                crate::stage8b_p1_supervisor::stage8b_p1e_test_provision_production_redis_v1(
+                    production_supervisor_config(parent.clone()),
+                    PROCESS_FIXTURE_BOOT_ID,
+                    &redis.url,
+                )
+                .await;
+            let durable_before = durable_file_snapshot(&parent);
+            let redis_before = redis_database_snapshot(&redis.url).await;
+            let ready = control.join("production-startup-ready");
+            let mut child = spawn_production_startup_fixture_child(
+                &redis.url,
+                &parent,
+                &ready,
+                &credentials,
+                phase,
+                &manifest_sha256,
+            );
+            wait_for_process_fixture(&mut child, &ready);
+            let signal_started = Instant::now();
+            assert_eq!(
+                unsafe { libc::kill(child.id().try_into().unwrap(), signal) },
+                0
+            );
+            let status = wait_for_process_exit(&mut child);
+            assert_eq!(status.code(), Some(expected_exit), "phase {phase}");
+            assert_eq!(status.signal(), None, "phase {phase}");
+            assert!(
+                signal_started.elapsed() < StdDuration::from_secs(5),
+                "phase {phase} exceeded its single shutdown grace"
+            );
+            assert_eq!(
+                durable_file_snapshot(&parent),
+                durable_before,
+                "phase {phase} changed durable authority"
+            );
+            assert_eq!(
+                redis_database_snapshot(&redis.url).await,
+                redis_before,
+                "phase {phase} performed callback/publication/XACK or Redis repair"
+            );
+
+            let (fresh, _) = crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x8b; 32]).unwrap();
+            let admitted = crate::admit_stage8b_p1e_ordinary_run_v1(
+                crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .expect("signal boundary must retain one admissible owner");
+            assert!(matches!(admitted, Stage7bRestartOutcome::Ready(_)));
+            drop(admitted);
+            fs::remove_dir_all(parent).unwrap();
+            fs::remove_dir_all(control).unwrap();
+            fs::remove_dir_all(credentials).unwrap();
+        }
     }
 
     #[tokio::test]
@@ -5568,6 +5851,27 @@ mod tests {
         .unwrap()
     }
 
+    fn production_supervisor_config(parent: PathBuf) -> Stage8bP1eSupervisorConfigV1 {
+        let (_, runtime_config_fingerprint_sha256) =
+            crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        Stage8bP1eSupervisorConfigV1 {
+            schema_version: crate::STAGE8B_P1E_SUPERVISOR_CONFIG_SCHEMA_VERSION,
+            runtime_profile_id: crate::STAGE8B_P1E_RUNTIME_PROFILE_ID.to_string(),
+            runtime_profile_sha256: crate::STAGE8B_P1E_RUNTIME_PROFILE_SHA256.to_string(),
+            first_boot_source_bundle_sha256: "11".repeat(32),
+            schedule_registry_version: "test-registry-v1".to_string(),
+            schedule_registry_identity_sha256: "11".repeat(32),
+            redis_url: crate::STAGE8B_P1E_REDIS_URL_IPV4.to_string(),
+            redis_deployment_manifest_sha256: "22".repeat(32),
+            redis_runtime_policy_id: crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_ID.to_string(),
+            redis_runtime_policy_sha256: crate::STAGE8B_P1E_REDIS_RUNTIME_POLICY_SHA256.to_string(),
+            telemetry_contract_sha256: crate::STAGE8B_P1E_TELEMETRY_CONTRACT_SHA256.to_string(),
+            health_interval_ms: 5_000,
+            shutdown_grace_ms: 5_000,
+            bootstrap: bootstrap_config(parent, runtime_config_fingerprint_sha256),
+        }
+    }
+
     fn source_m1(open_ts_utc_ms: i64) -> Vec<crate::Stage8bP1CanonicalM10SourceM1> {
         (0..10)
             .map(|index| {
@@ -5678,6 +5982,91 @@ mod tests {
             72
         );
         assert_eq!(Stage8bP1eProcessErrorV1::SignalTaskFailed.exit_code(), 73);
+    }
+
+    #[test]
+    fn process_wrapper_preserves_coordinator_boundary_exit_classes() {
+        let mut before_deadline = Stage8bP1eCoordinatorV1::new();
+        let _ = before_deadline.coordinate(
+            Stage8bP1eSupervisorEventV1::ExternalSignal,
+            true,
+            100,
+            200,
+            1,
+        );
+        assert_eq!(
+            finish_owner_task_at(
+                &mut before_deadline,
+                Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)),
+                199,
+            )
+            .unwrap(),
+            Stage8bP1eProcessSuccessV1::RunStopped
+        );
+
+        let mut at_deadline = Stage8bP1eCoordinatorV1::new();
+        let _ = at_deadline.coordinate(
+            Stage8bP1eSupervisorEventV1::ExternalSignal,
+            true,
+            100,
+            200,
+            1,
+        );
+        assert!(matches!(
+            finish_owner_task_at(
+                &mut at_deadline,
+                Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)),
+                200,
+            ),
+            Err(Stage8bP1eProcessErrorV1::ShutdownGraceExpired)
+        ));
+
+        let mut signal_failure = Stage8bP1eCoordinatorV1::new();
+        let _ = signal_failure.coordinate(
+            Stage8bP1eSupervisorEventV1::SignalTaskFailed,
+            true,
+            100,
+            200,
+            1,
+        );
+        assert!(matches!(
+            finish_owner_task_at(
+                &mut signal_failure,
+                Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)),
+                150,
+            ),
+            Err(Stage8bP1eProcessErrorV1::SignalTaskFailed)
+        ));
+        let mut restart_required = Stage8bP1eCoordinatorV1::new();
+        assert!(matches!(
+            finish_owner_task_at(
+                &mut restart_required,
+                Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::RestartRequired)),
+                150,
+            ),
+            Err(Stage8bP1eProcessErrorV1::OwnerLoop)
+        ));
+    }
+
+    #[tokio::test]
+    async fn process_wrapper_keeps_owner_panic_fatal_precedence() {
+        for event in [
+            Stage8bP1eSupervisorEventV1::SignalTaskFailed,
+            Stage8bP1eSupervisorEventV1::ExternalSignal,
+        ] {
+            let mut coordinator = Stage8bP1eCoordinatorV1::new();
+            let _ = coordinator.coordinate(event, true, 100, 200, 1);
+            let joined = tokio::spawn(async {
+                panic!("deterministic process-wrapper panic");
+                #[allow(unreachable_code)]
+                Ok::<_, Stage8bP1eProcessErrorV1>(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)
+            })
+            .await;
+            assert!(matches!(
+                finish_owner_task_at(&mut coordinator, joined, 150),
+                Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed)
+            ));
+        }
     }
 
     #[test]
