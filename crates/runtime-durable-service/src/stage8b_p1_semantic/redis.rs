@@ -8947,10 +8947,20 @@ pub(crate) mod tests {
     fn p1d2_test_schedule_authority() -> strategy_runtime_core::Stage8bP1d1ExecutionScheduleAuthority
     {
         let predecessor_close_ts_utc_ms = 1_785_759_000_000_i64;
+        p1d2_test_schedule_authority_for(
+            predecessor_close_ts_utc_ms,
+            predecessor_close_ts_utc_ms + 600_000,
+        )
+    }
+
+    fn p1d2_test_schedule_authority_for(
+        predecessor_close_ts_utc_ms: i64,
+        candidate_close_ts_utc_ms: i64,
+    ) -> strategy_runtime_core::Stage8bP1d1ExecutionScheduleAuthority {
         strategy_runtime_core::stage8b_p1d1_test_schedule_authority(
             super::super::p1_instrument(),
             predecessor_close_ts_utc_ms,
-            predecessor_close_ts_utc_ms + 600_000,
+            candidate_close_ts_utc_ms,
         )
     }
 
@@ -9018,6 +9028,29 @@ pub(crate) mod tests {
         String,
     ) {
         let (owner, key, fresh, identity) = first_boot(parent);
+        one_intent_pending_from_owner(redis_url, owner, key, fresh, identity, short_entry, 600_000)
+            .await
+    }
+
+    async fn one_intent_pending_from_owner(
+        redis_url: &str,
+        owner: Stage7bRecoveryReadyOwner,
+        key: Stage5gLifecycleCommitmentKey,
+        fresh: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        identity: String,
+        short_entry: bool,
+        first_bar_delay_ms: i64,
+    ) -> (
+        Stage8bP1RedisPrepublicationPending,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+    ) {
+        let first_close_ts_utc_ms = owner
+            .stage8b_p1e_test_continuation_checkpoint_ts_utc_ms()
+            .expect("authenticated P1 owner must expose one continuation checkpoint")
+            .checked_add(first_bar_delay_ms)
+            .expect("fixture checkpoint must admit the requested M10 successor");
         let mut transport = initialize_stage8b_p1_redis_namespace(
             redis_url,
             Stage8bP1RedisConfig::paper_default_auto(),
@@ -9026,7 +9059,7 @@ pub(crate) mod tests {
         .unwrap();
         let bytes = canonical_m10(
             identity.clone(),
-            1_785_759_000_000,
+            first_close_ts_utc_ms,
             if short_entry { 2_550 } else { 2_650 },
         );
         transport
@@ -9037,8 +9070,17 @@ pub(crate) mod tests {
             .process_next(&key)
             .await
             .unwrap();
-        let Stage8bP1RedisSemanticOutcome::Prepublication(pending) = outcome else {
-            panic!("breakout M10 must produce one prepublication command");
+        let pending = match outcome {
+            Stage8bP1RedisSemanticOutcome::Prepublication(pending) => pending,
+            Stage8bP1RedisSemanticOutcome::Ready { .. } => {
+                panic!("breakout M10 produced zero intents")
+            }
+            Stage8bP1RedisSemanticOutcome::MultiIntentBlocked { intent_count, .. } => {
+                panic!("breakout M10 produced {intent_count} intents")
+            }
+            Stage8bP1RedisSemanticOutcome::PendingNotClaimable { .. } => {
+                panic!("breakout M10 remained pending-not-claimable")
+            }
         };
         (*pending, key, fresh, identity)
     }
@@ -9085,13 +9127,21 @@ pub(crate) mod tests {
         attribution: HybridRuntimeAttribution,
         request_id: StrategyRequestId,
     ) -> (BrokerCommand, HybridRuntimeAttribution, ClientOrderId) {
+        p1d3_place_command_at(attribution, request_id, P1D3_PLACE_DECISION_CLOSE_MS)
+    }
+
+    fn p1d3_place_command_at(
+        attribution: HybridRuntimeAttribution,
+        request_id: StrategyRequestId,
+        decision_close_ts_utc_ms: i64,
+    ) -> (BrokerCommand, HybridRuntimeAttribution, ClientOrderId) {
         let comment = attribution.internal_comment().to_string();
         let client_order_id = ClientOrderId::from_strategy_request(request_id);
         (
             BrokerCommand::PlaceOrder(PlaceOrder {
                 request_id,
                 created_ts: Utc
-                    .timestamp_millis_opt(P1D3_PLACE_DECISION_CLOSE_MS)
+                    .timestamp_millis_opt(decision_close_ts_utc_ms)
                     .single()
                     .unwrap(),
                 ttl_ms: None,
@@ -9117,6 +9167,24 @@ pub(crate) mod tests {
         request_id: StrategyRequestId,
         supplied_target_client_order_id: Option<ClientOrderId>,
     ) -> (BrokerCommand, HybridRuntimeAttribution) {
+        p1d3_cancel_command_at(
+            strategy,
+            target,
+            source_attribution,
+            request_id,
+            supplied_target_client_order_id,
+            P1D3_CANCEL_DECISION_CLOSE_MS,
+        )
+    }
+
+    fn p1d3_cancel_command_at(
+        strategy: &strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        target: broker_core::BrokerOrderId,
+        source_attribution: &HybridRuntimeAttribution,
+        request_id: StrategyRequestId,
+        supplied_target_client_order_id: Option<ClientOrderId>,
+        decision_close_ts_utc_ms: i64,
+    ) -> (BrokerCommand, HybridRuntimeAttribution) {
         let (prefix, _) = source_attribution
             .internal_comment()
             .rsplit_once("|r=")
@@ -9127,7 +9195,7 @@ pub(crate) mod tests {
         let command = stage8b_p1d3_test_materialize_host_cancel_command(
             strategy,
             request_id,
-            P1D3_CANCEL_DECISION_CLOSE_MS / 1_000,
+            decision_close_ts_utc_ms / 1_000,
             BrokerAccountId::new("ACC_TEST_0001"),
             super::super::p1_instrument(),
             target,
@@ -10767,11 +10835,49 @@ pub(crate) mod tests {
         String,
         Stage8bP1RedisPrepublicationPending,
     ) {
-        let (mut pending, key, fresh, identity) = one_intent_pending_at(redis_url, parent).await;
+        let (pending, key, fresh, identity) = one_intent_pending_at(redis_url, parent).await;
+        let (key, fresh, identity, pending, _) =
+            prepare_p1d4_cancel_prepublication_from_initial_pending(
+                redis_url,
+                pending,
+                key,
+                fresh,
+                identity,
+                target_state,
+                include_successor,
+            )
+            .await;
+        (key, fresh, identity, pending)
+    }
+
+    async fn prepare_p1d4_cancel_prepublication_from_initial_pending(
+        redis_url: &str,
+        mut pending: Stage8bP1RedisPrepublicationPending,
+        key: Stage5gLifecycleCommitmentKey,
+        fresh: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        identity: String,
+        target_state: P1d4CancelTargetState,
+        include_successor: bool,
+    ) -> (
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        Stage8bP1RedisPrepublicationPending,
+        i64,
+    ) {
+        let first_close_ts_utc_ms = pending
+            .pending_m10
+            .parse_exact(&identity)
+            .expect("initial pending M10 must remain canonical")
+            .close_ts_utc_ms();
+        let market_successor_close_ts_utc_ms = first_close_ts_utc_ms + 600_000;
+        let place_decision_close_ts_utc_ms = market_successor_close_ts_utc_ms + 600_000;
+        let cancel_decision_close_ts_utc_ms = place_decision_close_ts_utc_ms + 600_000;
+        let cancel_candidate_close_ts_utc_ms = cancel_decision_close_ts_utc_ms + 600_000;
         pending
             .transport
             .publish_canonical_m10(
-                &canonical_m10(identity.clone(), 1_785_759_600_000, 2_175),
+                &canonical_m10(identity.clone(), market_successor_close_ts_utc_ms, 2_175),
                 &identity,
             )
             .await
@@ -10780,7 +10886,13 @@ pub(crate) mod tests {
             .publish_exact_command()
             .await
             .unwrap()
-            .execute_next_canonical_market(p1d2_test_schedule_authority(), &key)
+            .execute_next_canonical_market(
+                p1d2_test_schedule_authority_for(
+                    first_close_ts_utc_ms,
+                    market_successor_close_ts_utc_ms,
+                ),
+                &key,
+            )
             .await
             .unwrap()
             .commit_truth(&key)
@@ -10804,8 +10916,11 @@ pub(crate) mod tests {
             HybridRuntimeAttribution::parse_source_comment(format!("{prefix}|r=EXIT")).unwrap();
         let place_request_id =
             StrategyRequestId::from(Uuid::from_u128(0xd431_0000_0000_4000_8000_0000_0000_0001));
-        let (mut place, place_attribution, _place_client_order_id) =
-            p1d3_place_command(place_attribution, place_request_id);
+        let (mut place, place_attribution, _place_client_order_id) = p1d3_place_command_at(
+            place_attribution,
+            place_request_id,
+            place_decision_close_ts_utc_ms,
+        );
         let BrokerCommand::PlaceOrder(place_order) = &mut place else {
             unreachable!("P1-d4 test place helper returned a non-PLACE command")
         };
@@ -10813,7 +10928,7 @@ pub(crate) mod tests {
         place_order.limit_price = Some(Decimal::new(2_230, 0));
         let durable = stage7
             .stage8b_p1d3_test_inject_one_intent(
-                p1d3_test_binding(&identity, P1D3_PLACE_DECISION_CLOSE_MS, 2_210),
+                p1d3_test_binding(&identity, place_decision_close_ts_utc_ms, 2_210),
                 place,
                 place_attribution.clone(),
                 &key,
@@ -10829,7 +10944,7 @@ pub(crate) mod tests {
                 let candidate = parse_stage8b_p1_canonical_m10(
                     &canonical_m10(
                         identity.clone(),
-                        P1D3_CANCEL_DECISION_CLOSE_MS,
+                        cancel_decision_close_ts_utc_ms,
                         candidate_price,
                     ),
                     &identity,
@@ -10842,8 +10957,8 @@ pub(crate) mod tests {
                         Stage8bP1d3InitialObservation::Candidate {
                             evidence: Box::new(candidate),
                             schedule: p1d3_cancel_schedule(
-                                P1D3_PLACE_DECISION_CLOSE_MS,
-                                P1D3_CANCEL_DECISION_CLOSE_MS,
+                                place_decision_close_ts_utc_ms,
+                                cancel_decision_close_ts_utc_ms,
                             ),
                         },
                         &key,
@@ -10872,9 +10987,9 @@ pub(crate) mod tests {
         )
         .await
         .unwrap();
-        let mut bars = vec![(P1D3_CANCEL_DECISION_CLOSE_MS, 2_220)];
+        let mut bars = vec![(cancel_decision_close_ts_utc_ms, 2_220)];
         if include_successor {
-            bars.push((P1D3_CANCEL_CANDIDATE_CLOSE_MS, 2_225));
+            bars.push((cancel_candidate_close_ts_utc_ms, 2_225));
         }
         for (close, price) in bars {
             transport
@@ -10886,8 +11001,14 @@ pub(crate) mod tests {
         let binding = binding_from_delivery(&pending_m10, identity.clone());
         let cancel_request_id =
             StrategyRequestId::from(Uuid::from_u128(0xd432_0000_0000_4000_8000_0000_0000_0001));
-        let (cancel, cancel_attribution) =
-            p1d3_cancel_command(&fresh, target, &place_attribution, cancel_request_id, None);
+        let (cancel, cancel_attribution) = p1d3_cancel_command_at(
+            &fresh,
+            target,
+            &place_attribution,
+            cancel_request_id,
+            None,
+            cancel_decision_close_ts_utc_ms,
+        );
         let durable = stage7
             .stage8b_p1d3_test_inject_one_intent(binding, cancel, cancel_attribution, &key)
             .unwrap();
@@ -10896,7 +11017,56 @@ pub(crate) mod tests {
             transport,
             pending_m10,
         };
-        (key, fresh, identity, pending)
+        (
+            key,
+            fresh,
+            identity,
+            pending,
+            cancel_candidate_close_ts_utc_ms,
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) async fn p1e_test_v5_cancel_published_from_owner(
+        redis_url: &str,
+        owner: Stage7bRecoveryReadyOwner,
+        key: Stage5gLifecycleCommitmentKey,
+        fresh: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        identity: String,
+    ) -> (
+        Stage8bP1RedisCommandPublished,
+        Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+        String,
+        i64,
+    ) {
+        let (pending, key, fresh, identity) = one_intent_pending_from_owner(
+            redis_url, owner, key, fresh, identity, false, 11_400_000,
+        )
+        .await;
+        let (key, fresh, identity, pending, cancel_candidate_close_ts_utc_ms) =
+            prepare_p1d4_cancel_prepublication_from_initial_pending(
+                redis_url,
+                pending,
+                key,
+                fresh,
+                identity,
+                P1d4CancelTargetState::Working,
+                true,
+            )
+            .await;
+        let published = pending.publish_exact_command().await.unwrap();
+        assert_eq!(
+            published.p1e_schedule_route(),
+            Stage8bP1ePublishedScheduleRouteV1::Cancel
+        );
+        (
+            published,
+            key,
+            fresh,
+            identity,
+            cancel_candidate_close_ts_utc_ms,
+        )
     }
 
     #[cfg(feature = "stage8a4-i3-test-fixtures")]

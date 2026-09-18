@@ -20,6 +20,11 @@ MUTATIONS = (
     ("drop-adopt-recovery", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs", "AdoptCommittedRoot", "RemovedAdoptionAction"),
     ("drop-corrupt-class", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs", "CorruptOrIdentityMismatch", "RemovedCorruptClass"),
     ("drop-source-entry", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs", "first_boot_stage8b_p1e_transaction_v5(", "first_boot_stage8b_p1e_transaction_v5_removed("),
+    ("downgrade-adoption-predicate", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs", "pub const STAGE8B_P1E_ADOPTION_PREDICATE_VERSION: u16 = 2", "pub const STAGE8B_P1E_ADOPTION_PREDICATE_VERSION: u16 = 1"),
+    ("downgrade-fresh-lifecycle", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs", "Stage5gCleanRestartSource::P1BootstrapReady(source)", "Stage5gCleanRestartSource::TimerReady(source)"),
+    ("downgrade-adoption-phase", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs", 'ascii_field("authenticated_stage5g_phase", "P1SemanticReady")', 'ascii_field("authenticated_stage5g_phase", "TimerReady")'),
+    ("remove-legacy-rejection", "docs/stage-8/stage8b-p1e-first-boot-transaction-v5.json", '"legacy_timer_ready_v5_artifacts": "reject-without-reinterpretation-or-rewrite"', '"legacy_timer_ready_v5_artifacts": "reinterpret"'),
+    ("downgrade-receipt-predicate", "docs/stage-8/stage8b-p1e-first-boot-receipt-v2.json", '"adoption_predicate_version": "exact-u16-2"', '"adoption_predicate_version": "exact-u16-1"'),
     ("drop-crash-matrix", "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs", "every_v5_crash_hook_has_one_exact_fail_closed_classification", "removed_v5_crash_matrix"),
     ("drop-linear-seam", "crates/runtime-durable-service/src/recovery.rs", "Stage7bP1eJournalDurableFirstBoot", "RemovedJournalDurableFirstBoot"),
     ("drop-preserving-replacement", "crates/runtime-durable-service/src/recovery.rs", "replace_stage5g_in_stage6d_restart_package(", "seal_stage6d_restart_package("),
@@ -51,6 +56,8 @@ def main() -> None:
                 "crates/strategy-runtime-core/src/stage5g_clean_restart.rs",
                 "crates/strategy-runtime-core/src/lib.rs",
                 "docs/stage-8/stage8b-p1e-i1-transaction-v5-implementation.md",
+                "docs/stage-8/stage8b-p1e-first-boot-transaction-v5.json",
+                "docs/stage-8/stage8b-p1e-first-boot-receipt-v2.json",
             ):
                 target = root / source
                 target.parent.mkdir(parents=True, exist_ok=True)

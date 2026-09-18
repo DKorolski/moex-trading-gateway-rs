@@ -28,6 +28,20 @@
     "ordinary_run_allowed": false,
     "evidence": "preserve"
   },
+  "p1_lifecycle_correction": {
+    "fresh_first_boot_export": "P1BootstrapReady",
+    "historical_pre_seal_continuation_export": "P1BootstrapReady",
+    "authenticated_stage5g_phase": "P1SemanticReady",
+    "adoption_predicate_version": 2,
+    "initial_zero_effect_predicate": {
+      "stage5c_callback_count": 1,
+      "stage8b_p1_semantic_commit": "absent",
+      "pending_request_count": 0,
+      "journal_frame_count": 0
+    },
+    "legacy_timer_ready_v5_artifacts": "reject-without-reinterpretation-or-rewrite",
+    "legacy_migration": "requires-separate-authenticated-administrative-authorization"
+  },
   "composed_inventory": {
     "base_classifications": 11,
     "marker_update_temp_classifications": 4,

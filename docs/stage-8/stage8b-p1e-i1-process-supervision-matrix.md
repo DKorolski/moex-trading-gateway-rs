@@ -1,7 +1,8 @@
 # Stage 8B-P1-e I1 process supervision matrix
 
-Status: correction review candidate for findings P1-PS01, P1-PS02 and
-P2-PS03 reported against `9e84b06e7440b5bcfe7f5cddf81ac60c2676bf76`.
+Status: correction review candidate closing P1-PS01, P1-PS02, P2-PS03,
+P1-V5LC01 and P2-PS04 reported through review target
+`0507639cd422b4a53e11ec60cafe82a49b5c1357`.
 
 ## Scope
 
@@ -55,11 +56,16 @@ surface is contacted.
 
 0. Production startup supervision: SIGTERM before admission exits 66 and
    cannot impersonate an authenticated stop. SIGTERM after exact V5 admission,
-   SIGINT during Redis attach and SIGTERM during delayed S06 acquisition all
-   observe one already-running grace deadline and exit 0 at the authenticated
-   boundary. Every case compares durable file bytes and a full isolated Redis
-   DUMP/PTTL snapshot before and after, then proves a fresh exact V5 admission.
-   There is no callback, publication, PEL mutation or XACK.
+   SIGINT before Redis attach and SIGTERM before S06 acquisition observe one
+   already-running grace deadline and exit 0 at the authenticated boundary.
+   Separate in-flight controls first poll the actual attach or S06 future to
+   `Pending`, record `request-pending`, and only then deliver SIGTERM/SIGINT.
+   Cooperative futures stop inside grace with exit 0; deliberately stubborn
+   in-flight futures force the same supervisor deadline to expire with exact
+   exit 72. Every case compares durable file bytes and a full isolated Redis
+   DUMP/PTTL snapshot before and after, verifies PEL remains empty, then proves
+   exact restart admission without a second owner. There is no callback,
+   publication or XACK.
 
 1. Idle SIGTERM: after signal handlers and the sole owner are live, SIGTERM
    latches shutdown, the bounded Redis wait returns a retained Ready owner,
@@ -93,25 +99,28 @@ Wrapper-level executable controls additionally preserve coordinator terminal
 classes: authenticated stop before deadline is 0, at/after deadline is 72,
 signal-channel failure with a clean authenticated stop is 73, restart-required
 is 67, and an owner panic retains fatal class 70 even when a signal or signal
-task failure initiated shutdown.
+task failure initiated shutdown. An `AuthenticatedStop` returned without any
+shutdown intent is an ownerless fatal return and exits 70, never grace-expired
+72.
 
-## Discovered predecessor mismatch
+## Corrected V5 predecessor lifecycle
 
-The requested positive witness "the same adopted V5 root after real
-M10/Cancel/V4 advancement" cannot currently be constructed without changing
-an accepted predecessor contract. The accepted V5 transaction exports
-`Stage5gCleanRestartSource::TimerReady`, while the production P1 semantic
-transition accepts only lifecycle `P1SemanticReady`; the older P1 bootstrap
-obtained that lifecycle through `P1BootstrapReady`. A direct production-path
-attempt from a freshly adopted V5 root therefore fails closed with
-`RestartRuntimeRequired` before the first M10 can advance.
+Fresh V5 first boot and historical pre-seal continuation now both export the
+existing zero-effect `Stage5gCleanRestartSource::P1BootstrapReady`. The sealed
+package therefore authenticates as `P1SemanticReady`, with callback count one,
+no semantic commit, no pending request and an empty journal. Adoption predicate
+version 2 and its derived owner/receipt digests bind that exact shape.
 
-This accepted V5 lifecycle mismatch is recorded rather than hidden behind a
-synthetic package or a legacy fixture. Resolving it requires a separately
-reviewed predecessor decision: either migrate V5's initial package to the
-already-established P1 bootstrap lifecycle or add an authenticated one-time
-TimerReady-to-P1SemanticReady transition. This correction does not silently
-rewrite the accepted V5 transaction, receipt or adoption predicate.
+The positive production-path regression starts from a freshly adopted V5 root,
+passes ordinary-run admission, executes canonical M10 through the real Hybrid
+callback and command publication, commits Cancel/V4, restarts durably and
+passes the same ordinary admission contract again. It proves the initial
+marker/receipt bytes are unchanged, the command count remains exactly one and
+the V4-bound source remains pending for its authorized continuation.
+
+Existing predicate-v1 `TimerReady` V5 artifacts are not reinterpreted,
+rewritten or deleted. They fail exact receipt/adoption validation; any future
+migration requires a separate authenticated administrative authorization.
 
 ## Deliberately closed
 
@@ -120,7 +129,6 @@ rewrite the accepted V5 transaction, receipt or adoption predicate.
 - FINAM POST/DELETE/send and broker dispatch;
 - runtime-live and real orders.
 
-This source slice is not aggregate I1 acceptance. The predecessor lifecycle
-decision and its real M10/Cancel/V4 witness remain required. Fixed-path
-installation, systemd material, telemetry composition and the remaining
-aggregate I1 gates continue as separate review boundaries.
+This source slice is not aggregate I1 acceptance. Fixed-path installation,
+systemd material, telemetry composition and the remaining aggregate I1 gates
+continue as separate review boundaries.

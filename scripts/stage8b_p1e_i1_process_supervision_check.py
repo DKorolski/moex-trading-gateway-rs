@@ -24,6 +24,7 @@ def load_content(root: pathlib.Path = ROOT) -> dict[str, str]:
         "supervisor": "crates/runtime-durable-service/src/stage8b_p1_supervisor.rs",
         "first_boot": "crates/runtime-durable-service/src/stage8b_p1e_first_boot_source.rs",
         "transaction": "crates/runtime-durable-service/src/stage8b_p1e_first_boot_transaction.rs",
+        "core": "crates/strategy-runtime-core/src/stage6d_live_core.rs",
         "binary": "crates/runtime-durable-service/src/bin/stage8b-p1-paper-supervisor.rs",
         "document": "docs/stage-8/stage8b-p1e-i1-process-supervision-matrix.md",
         "checkpoint": "docs/stage-8/stage8b-p1e-i1-process-composition-checkpoint.md",
@@ -51,6 +52,7 @@ def validate_content(content: dict[str, str]) -> None:
     supervisor = content["supervisor"]
     first_boot = content["first_boot"]
     transaction = content["transaction"]
+    core = content["core"]
     binary = content["binary"]
     document = content["document"]
     checkpoint = content["checkpoint"]
@@ -110,11 +112,13 @@ def validate_content(content: dict[str, str]) -> None:
             "load_stage8b_p1_commitment_key_from_systemd_credential()",
             "admit_stage8b_p1e_ordinary_run_v1(",
             'stage8b_p1e_process_startup_test_barrier_v1("after-admission", &latch)',
-            'stage8b_p1e_process_startup_test_barrier_v1("during-redis-attach", &latch)',
-            "let mut session = attach_stage8b_p1e_verified_redis(&attach_plan)",
+            'stage8b_p1e_process_startup_test_barrier_v1("before-redis-attach", &latch)',
+            '"inflight-redis-attach"',
+            "attach_stage8b_p1e_verified_redis(&attach_plan)",
             ".clean_stale_zero_pending_consumers(&consumer_name)",
-            'stage8b_p1e_process_startup_test_barrier_v1("during-s06-acquisition", &latch)',
-            "let startup = acquire_stage8b_p1e_startup_owner_v1(attachable, session)",
+            'stage8b_p1e_process_startup_test_barrier_v1("before-s06-acquisition", &latch)',
+            '"inflight-s06-acquisition"',
+            "acquire_stage8b_p1e_startup_owner_v1(attachable, session)",
             "let reader = crate::Stage8bP1eRedisScheduleReader::connect(&redis_url)",
             "run_stage8b_p1e_process_owner_v1(startup, reader, context, latch, commitment_key)",
         ),
@@ -181,6 +185,29 @@ def validate_content(content: dict[str, str]) -> None:
     ):
         require(token in admission, f"ordinary-run admission invariant missing: {token}")
 
+    require(
+        "pub const STAGE8B_P1E_ADOPTION_PREDICATE_VERSION: u16 = 2" in transaction,
+        "V5 adoption predicate version is not exact v2",
+    )
+    require(
+        transaction.count("Stage5gCleanRestartSource::P1BootstrapReady(source)") == 2
+        and "Stage5gCleanRestartSource::TimerReady(source)" not in transaction,
+        "fresh and historical V5 exports are not both P1BootstrapReady",
+    )
+    require(
+        transaction.count('ascii_field("authenticated_stage5g_phase", "P1SemanticReady")')
+        == 2,
+        "adoption digest and its exact test vector do not both bind P1SemanticReady",
+    )
+    for token in (
+        "Stage5gCleanRestartLifecycleKind::P1SemanticReady",
+        "restart.stage8b_p1_semantic_commit().is_none()",
+        "summary.stage5c_callback_count == 1",
+        "self.replay.requests().is_empty()",
+        "self.journal.frontier().frame_count() == 0",
+    ):
+        require(token in core, f"zero-effect initial P1 predicate missing: {token}")
+
     for test in (
         "ordinary_run_admission_rejects_post_seal_frontiers_without_mutation",
         "ordinary_run_admission_accepts_exact_adopted_authority_and_rejects_temp",
@@ -197,8 +224,37 @@ def validate_content(content: dict[str, str]) -> None:
         "production_run_signals_cover_admission_attach_and_s06_without_effects",
         "process_wrapper_preserves_coordinator_boundary_exit_classes",
         "process_wrapper_keeps_owner_panic_fatal_precedence",
+        "production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries",
+        "production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly",
     ):
         require(test in process, f"process matrix test missing: {test}")
+
+    for token in (
+        "Stage8bP1eStartupAwaitV1",
+        "await_stage8b_p1e_startup_operation_v1",
+        'format!("{phase}:request-pending")',
+        'std::env::var(MODE_ENV).as_deref() == Ok("stubborn")',
+        '"attach-cooperative-sigterm"',
+        '"s06-cooperative-sigint"',
+        '"attach-stubborn-sigint"',
+        '"s06-stubborn-sigterm"',
+        '"V4-bound Cancel source must remain pending"',
+    ):
+        require(token in process, f"in-flight/V5 process evidence missing: {token}")
+    require(
+        process.count("match await_stage8b_p1e_startup_operation_v1(") == 2,
+        "both Redis attach and S06 acquisition must use the shutdown-aware in-flight wrapper",
+    )
+    require(
+        process.count('format!("{phase}:request-pending")') == 2,
+        "the in-flight helper and process assertion must agree on the request-pending marker",
+    )
+
+    require(
+        "if coordinator.shutdown_intent().is_none()" in finish
+        and "Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner" in finish,
+        "unexpected authenticated stop is not mapped to fatal owner return",
+    )
 
     crash = section(
         process,
@@ -226,7 +282,9 @@ def validate_content(content: dict[str, str]) -> None:
         "not aggregate I1 acceptance",
         "authenticated V5 ordinary-run admission",
         "before admission exits 66",
-        "accepted V5 lifecycle mismatch",
+        "Corrected V5 predecessor lifecycle",
+        "Existing predicate-v1 `TimerReady` V5 artifacts",
+        "request-pending",
     ):
         require(token in document, f"process documentation missing: {token}")
     require("composed `run`" in checkpoint, "checkpoint does not identify composed run")

@@ -8,6 +8,7 @@
 use std::{
     ffi::OsString,
     fs::{self, File, OpenOptions},
+    future::Future,
     io::Read,
     os::unix::{
         ffi::OsStrExt,
@@ -17,6 +18,9 @@ use std::{
     sync::Arc,
     time::Duration as StdDuration,
 };
+
+#[cfg(test)]
+use std::task::Poll;
 
 use chrono::{DateTime, Utc};
 use strategy_runtime_core::Stage5gLifecycleCommitmentKey;
@@ -4103,14 +4107,24 @@ async fn run_stage8b_p1e_production_owner_v1(
 
     let redis_url = attach_plan.redis_url().to_string();
     let consumer_name = attach_plan.consumer_name().to_string();
-    stage8b_p1e_process_startup_test_barrier_v1("during-redis-attach", &latch).await;
+    stage8b_p1e_process_startup_test_barrier_v1("before-redis-attach", &latch).await;
     if latch.intent().is_some() {
         drop(attachable);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
-    let mut session = attach_stage8b_p1e_verified_redis(&attach_plan)
-        .await
-        .map_err(map_redis_attach_error)?;
+    let mut session = match await_stage8b_p1e_startup_operation_v1(
+        "inflight-redis-attach",
+        attach_stage8b_p1e_verified_redis(&attach_plan),
+        &latch,
+    )
+    .await
+    {
+        Stage8bP1eStartupAwaitV1::Completed(result) => result.map_err(map_redis_attach_error)?,
+        Stage8bP1eStartupAwaitV1::ShutdownRequested => {
+            drop(attachable);
+            return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+        }
+    };
     if latch.intent().is_some() {
         drop(session);
         drop(attachable);
@@ -4126,15 +4140,24 @@ async fn run_stage8b_p1e_production_owner_v1(
         drop(attachable);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
-    stage8b_p1e_process_startup_test_barrier_v1("during-s06-acquisition", &latch).await;
+    stage8b_p1e_process_startup_test_barrier_v1("before-s06-acquisition", &latch).await;
     if latch.intent().is_some() {
         drop(session);
         drop(attachable);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
     }
-    let startup = acquire_stage8b_p1e_startup_owner_v1(attachable, session)
-        .await
-        .map_err(map_startup_error)?;
+    let startup = match await_stage8b_p1e_startup_operation_v1(
+        "inflight-s06-acquisition",
+        acquire_stage8b_p1e_startup_owner_v1(attachable, session),
+        &latch,
+    )
+    .await
+    {
+        Stage8bP1eStartupAwaitV1::Completed(result) => result.map_err(map_startup_error)?,
+        Stage8bP1eStartupAwaitV1::ShutdownRequested => {
+            return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
+        }
+    };
     if latch.intent().is_some() {
         drop(startup);
         return Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop);
@@ -4168,6 +4191,91 @@ async fn stage8b_p1e_process_startup_test_barrier_v1(
     fs::write(&ready, phase.as_bytes()).expect("production process fixture ready marker");
     while latch.intent().is_none() {
         tokio::time::sleep(StdDuration::from_millis(5)).await;
+    }
+}
+
+enum Stage8bP1eStartupAwaitV1<T> {
+    Completed(T),
+    ShutdownRequested,
+}
+
+async fn wait_for_stage8b_p1e_shutdown_v1(latch: &Stage8bP1eShutdownLatchV1) {
+    while latch.intent().is_none() {
+        tokio::time::sleep(StdDuration::from_millis(5)).await;
+    }
+}
+
+#[cfg(not(test))]
+async fn await_stage8b_p1e_startup_operation_v1<F>(
+    _phase: &str,
+    future: F,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Stage8bP1eStartupAwaitV1<F::Output>
+where
+    F: Future,
+{
+    tokio::pin!(future);
+    tokio::select! {
+        output = &mut future => Stage8bP1eStartupAwaitV1::Completed(output),
+        () = wait_for_stage8b_p1e_shutdown_v1(latch) => {
+            Stage8bP1eStartupAwaitV1::ShutdownRequested
+        }
+    }
+}
+
+#[cfg(test)]
+async fn await_stage8b_p1e_startup_operation_v1<F>(
+    phase: &str,
+    future: F,
+    latch: &Stage8bP1eShutdownLatchV1,
+) -> Stage8bP1eStartupAwaitV1<F::Output>
+where
+    F: Future,
+{
+    const PHASE_ENV: &str = "STAGE8B_P1E_PROCESS_PRODUCTION_PHASE";
+    const READY_ENV: &str = "STAGE8B_P1E_PROCESS_FIXTURE_READY";
+    const MODE_ENV: &str = "STAGE8B_P1E_PROCESS_INFLIGHT_MODE";
+
+    if std::env::var(PHASE_ENV).as_deref() != Ok(phase) {
+        tokio::pin!(future);
+        return tokio::select! {
+            output = &mut future => Stage8bP1eStartupAwaitV1::Completed(output),
+            () = wait_for_stage8b_p1e_shutdown_v1(latch) => {
+                Stage8bP1eStartupAwaitV1::ShutdownRequested
+            }
+        };
+    }
+
+    let ready = std::path::PathBuf::from(
+        std::env::var_os(READY_ENV).expect("production process fixture ready path"),
+    );
+    let stubborn = std::env::var(MODE_ENV).as_deref() == Ok("stubborn");
+    let mut future = Box::pin(future);
+    let mut observed_pending = false;
+    let observed = std::future::poll_fn(move |context| {
+        if observed_pending {
+            return Poll::Pending;
+        }
+        match future.as_mut().poll(context) {
+            Poll::Pending => {
+                fs::write(&ready, format!("{phase}:request-pending").as_bytes())
+                    .expect("in-flight production request marker");
+                observed_pending = true;
+                Poll::Pending
+            }
+            Poll::Ready(output) => Poll::Ready(output),
+        }
+    });
+    tokio::pin!(observed);
+
+    if stubborn {
+        return Stage8bP1eStartupAwaitV1::Completed(observed.await);
+    }
+    tokio::select! {
+        output = &mut observed => Stage8bP1eStartupAwaitV1::Completed(output),
+        () = wait_for_stage8b_p1e_shutdown_v1(latch) => {
+            Stage8bP1eStartupAwaitV1::ShutdownRequested
+        }
     }
 }
 
@@ -4315,6 +4423,16 @@ fn finish_owner_task_at(
             Err(Stage8bP1eProcessErrorV1::OwnerLoop)
         }
         Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)) => {
+            if coordinator.shutdown_intent().is_none() {
+                let decision = coordinator.coordinate(
+                    Stage8bP1eSupervisorEventV1::OwnerReturnedWithoutOwner,
+                    false,
+                    now_utc_ms,
+                    now_utc_ms,
+                    3,
+                );
+                return terminal_process_result(decision.exit_code);
+            }
             let decision = coordinator.coordinate(
                 Stage8bP1eSupervisorEventV1::AuthenticatedBoundaryReached,
                 false,
@@ -4325,14 +4443,7 @@ fn finish_owner_task_at(
             if decision.exit_code.is_some() {
                 terminal_process_result(decision.exit_code)
             } else {
-                let decision = coordinator.coordinate(
-                    Stage8bP1eSupervisorEventV1::OwnerReturnedUnexpectedly,
-                    false,
-                    now_utc_ms,
-                    now_utc_ms,
-                    3,
-                );
-                terminal_process_result(decision.exit_code)
+                Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed)
             }
         }
     }
@@ -4658,6 +4769,7 @@ mod tests {
     const PROCESS_FIXTURE_READY: &str = "STAGE8B_P1E_PROCESS_FIXTURE_READY";
     const PROCESS_FIXTURE_TRUSTED_NOW_MS: &str = "STAGE8B_P1E_PROCESS_FIXTURE_TRUSTED_NOW_MS";
     const PROCESS_PRODUCTION_PHASE: &str = "STAGE8B_P1E_PROCESS_PRODUCTION_PHASE";
+    const PROCESS_INFLIGHT_MODE: &str = "STAGE8B_P1E_PROCESS_INFLIGHT_MODE";
     const PROCESS_FIXTURE_MANIFEST_SHA256: &str = "STAGE8B_P1E_PROCESS_FIXTURE_MANIFEST_SHA256";
     const PROCESS_FIXTURE_CREDENTIALS: &str = "STAGE8B_P1E_PROCESS_FIXTURE_CREDENTIALS";
     const PROCESS_FIXTURE_BOOT_ID: [u8; 16] = [0x42; 16];
@@ -4766,9 +4878,11 @@ mod tests {
         ready: &Path,
         credentials: &Path,
         phase: &str,
+        inflight_mode: Option<&str>,
         manifest_sha256: &str,
     ) -> Child {
-        Command::new(std::env::current_exe().unwrap())
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
             .arg("--ignored")
             .arg("--exact")
             .arg("stage8b_p1e_process::tests::stage8b_p1e_production_startup_signal_fixture_child")
@@ -4781,9 +4895,11 @@ mod tests {
             .env(PROCESS_FIXTURE_CREDENTIALS, credentials)
             .env("CREDENTIALS_DIRECTORY", credentials)
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap()
+            .stderr(Stdio::null());
+        if let Some(mode) = inflight_mode {
+            command.env(PROCESS_INFLIGHT_MODE, mode);
+        }
+        command.spawn().unwrap()
     }
 
     fn wait_for_process_fixture(child: &mut Child, ready: &Path) {
@@ -5061,8 +5177,18 @@ mod tests {
                 66,
             ),
             ("admitted-sigterm", "after-admission", libc::SIGTERM, 0),
-            ("attach-sigint", "during-redis-attach", libc::SIGINT, 0),
-            ("s06-sigterm", "during-s06-acquisition", libc::SIGTERM, 0),
+            (
+                "before-attach-sigint",
+                "before-redis-attach",
+                libc::SIGINT,
+                0,
+            ),
+            (
+                "before-s06-sigterm",
+                "before-s06-acquisition",
+                libc::SIGTERM,
+                0,
+            ),
         ] {
             let redis = RedisServer::start().await;
             let parent = temp_directory(&format!("production-{label}"));
@@ -5085,6 +5211,7 @@ mod tests {
                 &ready,
                 &credentials,
                 phase,
+                None,
                 &manifest_sha256,
             );
             wait_for_process_fixture(&mut child, &ready);
@@ -5129,6 +5256,300 @@ mod tests {
             fs::remove_dir_all(control).unwrap();
             fs::remove_dir_all(credentials).unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries() {
+        for (label, phase, mode, signal, expected_exit) in [
+            (
+                "attach-cooperative-sigterm",
+                "inflight-redis-attach",
+                "cooperative",
+                libc::SIGTERM,
+                0,
+            ),
+            (
+                "s06-cooperative-sigint",
+                "inflight-s06-acquisition",
+                "cooperative",
+                libc::SIGINT,
+                0,
+            ),
+            (
+                "attach-stubborn-sigint",
+                "inflight-redis-attach",
+                "stubborn",
+                libc::SIGINT,
+                72,
+            ),
+            (
+                "s06-stubborn-sigterm",
+                "inflight-s06-acquisition",
+                "stubborn",
+                libc::SIGTERM,
+                72,
+            ),
+        ] {
+            let redis = RedisServer::start().await;
+            let parent = temp_directory(&format!("production-{label}"));
+            let control = temp_directory(&format!("production-{label}-control"));
+            let credentials = production_process_credentials(&format!("production-{label}-creds"));
+            seed_adopted_production_process_fixture(&parent);
+            let manifest_sha256 =
+                crate::stage8b_p1_supervisor::stage8b_p1e_test_provision_production_redis_v1(
+                    production_supervisor_config(parent.clone()),
+                    PROCESS_FIXTURE_BOOT_ID,
+                    &redis.url,
+                )
+                .await;
+            let durable_before = durable_file_snapshot(&parent);
+            let redis_before = redis_database_snapshot(&redis.url).await;
+            let ready = control.join("production-inflight-ready");
+            let mut child = spawn_production_startup_fixture_child(
+                &redis.url,
+                &parent,
+                &ready,
+                &credentials,
+                phase,
+                Some(mode),
+                &manifest_sha256,
+            );
+            wait_for_process_fixture(&mut child, &ready);
+            assert_eq!(
+                fs::read_to_string(&ready).unwrap(),
+                format!("{phase}:request-pending")
+            );
+            let signal_started = Instant::now();
+            assert_eq!(
+                unsafe { libc::kill(child.id().try_into().unwrap(), signal) },
+                0
+            );
+            let status = wait_for_process_exit(&mut child);
+            assert_eq!(
+                status.code(),
+                Some(expected_exit),
+                "phase {phase} mode {mode}"
+            );
+            assert_eq!(status.signal(), None, "phase {phase} mode {mode}");
+            if mode == "cooperative" {
+                assert!(
+                    signal_started.elapsed() < StdDuration::from_secs(5),
+                    "cooperative {phase} did not stop within grace"
+                );
+            } else {
+                assert!(
+                    signal_started.elapsed() >= StdDuration::from_secs(5),
+                    "stubborn {phase} did not exercise grace expiry"
+                );
+            }
+            assert_eq!(durable_file_snapshot(&parent), durable_before);
+            assert_eq!(redis_database_snapshot(&redis.url).await, redis_before);
+
+            let namespace = crate::stage8b_p1_redis_namespace();
+            let mut connection = redis::aio::ConnectionManager::new(
+                redis::Client::open(redis.url.as_str()).unwrap(),
+            )
+            .await
+            .unwrap();
+            let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+                .arg(&namespace.canonical_m10_stream)
+                .arg(&namespace.m10_consumer_group)
+                .query_async(&mut connection)
+                .await
+                .unwrap();
+            assert_eq!(pending.count(), 0, "phase {phase} mode {mode}");
+
+            let (fresh, _) = crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+            let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&[0x8b; 32]).unwrap();
+            let admitted = crate::admit_stage8b_p1e_ordinary_run_v1(
+                crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                    parent.clone(),
+                    fresh.stage5c_config_fingerprint(),
+                ))
+                .unwrap(),
+                &key,
+                fresh,
+            )
+            .expect("in-flight shutdown must release the only durable owner");
+            assert!(matches!(admitted, Stage7bRestartOutcome::Ready(_)));
+            drop(admitted);
+            fs::remove_dir_all(parent).unwrap();
+            fs::remove_dir_all(control).unwrap();
+            fs::remove_dir_all(credentials).unwrap();
+        }
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    #[tokio::test]
+    async fn production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly() {
+        let redis = RedisServer::start().await;
+        let parent = temp_directory("production-v5-m10-cancel-v4-readmission");
+        let (fresh_runtime, runtime_fingerprint) =
+            crate::Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
+        let identity = strategy_runtime_core::stage6d_operational_identity_sha256(
+            &operational_identity_config(parent.clone(), runtime_fingerprint.clone()),
+        )
+        .unwrap()
+        .as_str()
+        .to_string();
+        let raw_bootstrap = bootstrap_config(parent.clone(), runtime_fingerprint.clone());
+        let (prepared, admin, key, prepared_fingerprint) =
+            crate::stage8b_p1e_first_boot_source::tests::prepared_transaction_with_bootstrap_for_breakout(
+                &parent,
+                raw_bootstrap,
+            );
+        assert_eq!(prepared_fingerprint, runtime_fingerprint);
+        let adopted = crate::first_boot_stage8b_p1e_transaction_v5(prepared, admin, 1, &key)
+            .expect("V5 production bootstrap must adopt one P1-compatible owner");
+        assert!(adopted.owner().recovery_ready());
+        assert!(adopted
+            .owner()
+            .recovered()
+            .unwrap()
+            .stage8b_p1e_initial_adoption_ready());
+        drop(adopted);
+
+        let marker_path = parent.join(crate::STAGE8B_P1E_TRANSACTION_MARKER_FILE);
+        let receipt_path = parent.join(crate::STAGE8B_P1E_FIRST_BOOT_RECEIPT_FILE);
+        let immutable_adoption_before = (
+            fs::read(&marker_path).unwrap(),
+            fs::read(&receipt_path).unwrap(),
+        );
+        let first_admission = crate::admit_stage8b_p1e_ordinary_run_v1(
+            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                runtime_fingerprint.clone(),
+            ))
+            .unwrap(),
+            &key,
+            fresh_runtime.clone(),
+        )
+        .expect("new V5 bootstrap must pass ordinary-run admission");
+        let Stage7bRestartOutcome::Ready(owner) = first_admission else {
+            panic!("initial V5 admission must return the exact Ready owner")
+        };
+
+        let (published, key, fresh_runtime, identity_after_m10, trusted_now_ms) =
+            crate::stage8b_p1_semantic::p1e_test_v5_cancel_published_from_owner(
+                &redis.url,
+                *owner,
+                key,
+                fresh_runtime,
+                identity.clone(),
+            )
+            .await;
+        assert_eq!(identity_after_m10, identity);
+        let trusted_now = DateTime::<Utc>::from_timestamp_millis(trusted_now_ms).unwrap();
+        let last_eligible_m10_close_ts_utc_ms = trusted_now
+            .date_naive()
+            .and_hms_opt(18, 0, 0)
+            .unwrap()
+            .and_utc()
+            .timestamp_millis();
+        let fixture = crate::stage8b_p1e_schedule_source::tests::p1e_test_open_schedule_envelope_for_last_eligible(
+            identity.clone(),
+            fresh_runtime.stage5c_config_fingerprint(),
+            crate::stage8b_p1_imoexf_instrument_map_fingerprint_sha256(),
+            trusted_now,
+            last_eligible_m10_close_ts_utc_ms,
+        );
+        let fixture_restart_trust = (
+            fixture.public_key_hex.clone(),
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        );
+        let mut connection =
+            redis::aio::ConnectionManager::new(redis::Client::open(redis.url.as_str()).unwrap())
+                .await
+                .unwrap();
+        let _: String = redis::cmd("XADD")
+            .arg(strategy_runtime_core::STAGE8B_P1E_SCHEDULE_STREAM)
+            .arg("*")
+            .arg("payload")
+            .arg(&fixture.bytes)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        let mut reader = crate::Stage8bP1eRedisScheduleReader::test_connect_with_fixture_trust(
+            &redis.url,
+            fixture.public_key_hex,
+            fixture.key_valid_from,
+            fixture.key_valid_until,
+        )
+        .await
+        .unwrap();
+        let snapshot = match reader
+            .read_newest_guarded(&fixture.context, &Stage8bP1eShutdownLatchV1::new())
+            .await
+            .unwrap()
+        {
+            crate::Stage8bP1eGuardedScheduleReadV1::Read(
+                crate::Stage8bP1eNewestScheduleReadV1::Verified(snapshot),
+            ) => snapshot,
+            _ => panic!("V5 Cancel path requires one verified Open schedule"),
+        };
+        crate::stage8b_p1_semantic::p1e_test_commit_cancel_v4_only(
+            published,
+            *snapshot,
+            trusted_now,
+            &key,
+        )
+        .await;
+        assert_eq!(
+            (
+                fs::read(&marker_path).unwrap(),
+                fs::read(&receipt_path).unwrap()
+            ),
+            immutable_adoption_before,
+            "M10/Cancel/V4 advancement must not rewrite initial adoption authority"
+        );
+
+        let namespace = crate::stage8b_p1_redis_namespace();
+        let commands_before_restart: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            commands_before_restart, 1,
+            "Cancel must publish exactly once"
+        );
+        let second_admission = crate::stage8b_p1e_first_boot_transaction::stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+            crate::validate_stage8b_p1_bootstrap_config(bootstrap_config(
+                parent.clone(),
+                runtime_fingerprint,
+            ))
+            .unwrap(),
+            &key,
+            fresh_runtime,
+            fixture_restart_trust.0,
+            fixture_restart_trust.1,
+            fixture_restart_trust.2,
+        )
+        .expect("advanced V5 root must preserve immutable ordinary-run provenance");
+        assert!(matches!(
+            second_admission,
+            Stage7bRestartOutcome::P1eScheduleBindingCommitted(_)
+        ));
+        let commands_after_restart: usize = redis::cmd("XLEN")
+            .arg(&namespace.canonical_command_stream)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(commands_after_restart, commands_before_restart);
+        let pending: redis::streams::StreamPendingReply = redis::cmd("XPENDING")
+            .arg(&namespace.canonical_m10_stream)
+            .arg(&namespace.m10_consumer_group)
+            .query_async(&mut connection)
+            .await
+            .unwrap();
+        assert_eq!(
+            pending.count(),
+            1,
+            "V4-bound Cancel source must remain pending"
+        );
+        drop(second_admission);
+        fs::remove_dir_all(parent).unwrap();
     }
 
     #[tokio::test]
@@ -5986,6 +6407,22 @@ mod tests {
 
     #[test]
     fn process_wrapper_preserves_coordinator_boundary_exit_classes() {
+        let mut unexpected_authenticated_stop = Stage8bP1eCoordinatorV1::new();
+        assert!(matches!(
+            finish_owner_task_at(
+                &mut unexpected_authenticated_stop,
+                Ok(Ok(Stage8bP1eOwnerTaskBoundaryV1::AuthenticatedStop)),
+                150,
+            ),
+            Err(Stage8bP1eProcessErrorV1::OwnerTaskFailed)
+        ));
+        assert_eq!(
+            unexpected_authenticated_stop
+                .shutdown_intent()
+                .map(Stage8bP1eShutdownIntentV1::cause),
+            Some(crate::Stage8bP1eShutdownCauseV1::OwnerFailure)
+        );
+
         let mut before_deadline = Stage8bP1eCoordinatorV1::new();
         let _ = before_deadline.coordinate(
             Stage8bP1eSupervisorEventV1::ExternalSignal,

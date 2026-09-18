@@ -30,6 +30,8 @@ def check_content(root: Path) -> None:
     durable_lib = content(root, "crates/runtime-durable-service/src/lib.rs")
     core_lib = content(root, "crates/strategy-runtime-core/src/lib.rs")
     implementation = content(root, "docs/stage-8/stage8b-p1e-i1-transaction-v5-implementation.md")
+    contract = content(root, "docs/stage-8/stage8b-p1e-first-boot-transaction-v5.json")
+    receipt = content(root, "docs/stage-8/stage8b-p1e-first-boot-receipt-v2.json")
 
     for token in (
         "STAGE8B_P1E_TRANSACTION_V5_CONTRACT_VERSION: u16 = 5",
@@ -81,6 +83,29 @@ def check_content(root: Path) -> None:
         require(hook in transaction and hook in source, f"crash hook not exercised: {hook}")
 
     require("first_boot_stage8b_p1e_transaction_v5(" in source, "source does not enter V5 transaction")
+    require(
+        "pub const STAGE8B_P1E_ADOPTION_PREDICATE_VERSION: u16 = 2" in transaction,
+        "exact adoption predicate v2 is missing",
+    )
+    require(
+        transaction.count("Stage5gCleanRestartSource::P1BootstrapReady(source)") == 2
+        and "Stage5gCleanRestartSource::TimerReady(source)" not in transaction,
+        "fresh and historical transaction exports are not both P1BootstrapReady",
+    )
+    require(
+        'ascii_field("authenticated_stage5g_phase", "P1SemanticReady")' in transaction,
+        "adoption-ready digest phase is not P1SemanticReady",
+    )
+    for token in (
+        '"adoption_predicate_version": 2',
+        '"legacy_timer_ready_v5_artifacts": "reject-without-reinterpretation-or-rewrite"',
+        '"legacy_migration": "requires-separate-authenticated-administrative-authorization"',
+    ):
+        require(token in contract, f"lifecycle correction contract missing: {token}")
+    require(
+        '"adoption_predicate_version": "exact-u16-2"' in receipt,
+        "receipt contract does not freeze predicate v2",
+    )
     require("every_v5_crash_hook_has_one_exact_fail_closed_classification" in source, "crash matrix missing")
     require(
         "quarantined_incomplete_root_is_reachable_for_root_published_and_journal_durable" in source,

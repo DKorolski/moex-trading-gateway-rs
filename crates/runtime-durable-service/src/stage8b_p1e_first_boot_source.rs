@@ -1213,6 +1213,14 @@ pub(crate) mod tests {
         operational: &str,
         account: &str,
     ) -> (Vec<u8>, DateTime<Utc>, String, String) {
+        fixture_for_binding_with_capture_delay(operational, account, 30)
+    }
+
+    fn fixture_for_binding_with_capture_delay(
+        operational: &str,
+        account: &str,
+        capture_delay_seconds: i64,
+    ) -> (Vec<u8>, DateTime<Utc>, String, String) {
         let mut day = NaiveDate::from_ymd_opt(2026, 1, 5).unwrap();
         let mut history = Vec::new();
         let mut observations = Vec::new();
@@ -1283,7 +1291,10 @@ pub(crate) mod tests {
             .single()
             .unwrap()
             .timestamp();
-        let captured = Utc.timestamp_opt(candidate_close + 30, 0).single().unwrap();
+        let captured = Utc
+            .timestamp_opt(candidate_close + capture_delay_seconds, 0)
+            .single()
+            .unwrap();
         let history_hash = canonical_value_sha256(&Value::Array(history.clone()));
         let coverage_hash = canonical_value_sha256(&Value::Array(coverage_sessions.clone()));
         let observation_hash = canonical_value_sha256(&Value::Array(observations.clone()));
@@ -1495,6 +1506,31 @@ pub(crate) mod tests {
         strategy_runtime_core::Stage5gLifecycleCommitmentKey,
         String,
     ) {
+        prepared_transaction_with_bootstrap_capture_delay(parent, raw_bootstrap, 30)
+    }
+
+    pub(crate) fn prepared_transaction_with_bootstrap_for_breakout(
+        parent: &Path,
+        raw_bootstrap: crate::Stage8bP1BootstrapConfig,
+    ) -> (
+        Stage8bP1ePreparedFirstBootV1,
+        crate::Stage8bP1FirstBootAdminCommand,
+        strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+        String,
+    ) {
+        prepared_transaction_with_bootstrap_capture_delay(parent, raw_bootstrap, 11_370)
+    }
+
+    pub(crate) fn prepared_transaction_with_bootstrap_capture_delay(
+        parent: &Path,
+        raw_bootstrap: crate::Stage8bP1BootstrapConfig,
+        capture_delay_seconds: i64,
+    ) -> (
+        Stage8bP1ePreparedFirstBootV1,
+        crate::Stage8bP1FirstBootAdminCommand,
+        strategy_runtime_core::Stage5gLifecycleCommitmentKey,
+        String,
+    ) {
         let (_, runtime_fingerprint) = Stage8bP1RuntimeProfileV1::build_hybrid_runtime().unwrap();
         assert_eq!(raw_bootstrap.durable_parent, parent);
         assert_eq!(
@@ -1503,7 +1539,11 @@ pub(crate) mod tests {
         );
         let validated = crate::validate_stage8b_p1_bootstrap_config(raw_bootstrap).unwrap();
         let operational = validated.operational_identity_sha256().to_string();
-        let (bytes, now, _, account) = fixture_for_binding(&operational, "ACC_TEST_0001");
+        let (bytes, now, _, account) = fixture_for_binding_with_capture_delay(
+            &operational,
+            "ACC_TEST_0001",
+            capture_delay_seconds,
+        );
         let source = parse_fixture(&bytes, now, &operational, &account).unwrap();
         let provenance = strategy_runtime_core::Stage8bP1eFirstBootProvenanceV1::new(
             operational.clone(),
@@ -1846,6 +1886,11 @@ pub(crate) mod tests {
         )
         .expect("F15 validation precedes the sole F17 durable-root creation");
         assert!(outcome.owner().recovery_ready());
+        assert!(outcome
+            .owner()
+            .recovered()
+            .unwrap()
+            .stage8b_p1e_initial_adoption_ready());
         assert_eq!(outcome.receipt().schema_version, 2);
         assert_eq!(outcome.receipt().restart_package_schema_version, 2);
         drop(outcome);
@@ -2192,6 +2237,11 @@ pub(crate) mod tests {
                 panic!("continuable frontier {name} did not reach adoption");
             };
             assert!(outcome.owner().recovery_ready());
+            assert!(outcome
+                .owner()
+                .recovered()
+                .unwrap()
+                .stage8b_p1e_initial_adoption_ready());
             drop(outcome);
             let adopted = classify_first_boot(&parent, &runtime_fingerprint, &key);
             assert_eq!(

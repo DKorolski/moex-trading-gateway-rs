@@ -28,13 +28,17 @@ Neither route can fall through to fresh schedule admission.
 
 This is not full I1 closure. The active source candidate now includes the
 separate OS-process SIGTERM/panic/SIGKILL/restart matrix: production startup
-signals before admission, after admission, during attach and during S06; idle
-shutdown and restart; exact panic/72/73 exit classes; committed-Cancel owner
-handoff; and a durable truth-before-XACK crash/restart witness. A newly exposed
-accepted-predecessor mismatch remains explicit: V5 first boot exports
-`TimerReady`, while real P1 M10 advancement requires `P1SemanticReady`; that
-decision and real M10/Cancel/V4 positive witness are required before SOURCE
-ACCEPT. Its review package must contain
+signals before admission, after admission, before and inside Redis attach and
+S06 acquisition; cooperative shutdown and grace-expiry controls; idle
+shutdown and restart; exact unexpected-stop/panic/72/73 exit classes;
+committed-Cancel owner handoff; and a durable truth-before-XACK crash/restart
+witness. The V5 lifecycle mismatch is corrected by exporting fresh and
+historical bootstrap through `P1BootstrapReady`, yielding an authenticated
+zero-effect `P1SemanticReady` owner under adoption predicate version 2.
+A production-path regression advances that root through M10 callback/command,
+Cancel/V4 and repeated admission without rewriting provenance or repeating
+effects. Legacy predicate-v1/TimerReady V5 artifacts are rejected without
+automatic migration. Its review package must contain
 retained command logs and exact exit status; no operational stand is activated
 by this source work. Redis DB0/VPS activation, paper-provider execution,
 FINAM write/send,

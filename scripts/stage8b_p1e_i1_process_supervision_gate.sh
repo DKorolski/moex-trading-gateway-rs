@@ -13,6 +13,12 @@ RUST_MIN_STACK=33554432 \
   stage8b_p1e_process::tests::production_run_signals_cover_admission_attach_and_s06_without_effects -- --test-threads=1
 RUST_MIN_STACK=33554432 \
   cargo test -p runtime-durable-service --all-features --lib \
+  stage8b_p1e_process::tests::production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries -- --test-threads=1
+RUST_MIN_STACK=33554432 \
+  cargo test -p runtime-durable-service --all-features --lib \
+  stage8b_p1e_process::tests::production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly -- --test-threads=1
+RUST_MIN_STACK=33554432 \
+  cargo test -p runtime-durable-service --all-features --lib \
   stage8b_p1e_process::tests::process_wrapper_ -- --test-threads=1
 RUST_MIN_STACK=33554432 \
   cargo test -p runtime-durable-service --all-features --lib \
@@ -23,6 +29,8 @@ RUST_MIN_STACK=33554432 \
 cargo clippy -p runtime-durable-service --all-targets --all-features -- -D warnings
 PYTHONPATH=scripts python3 scripts/stage8b_p1e_i1_process_supervision_check.py
 PYTHONPATH=scripts python3 scripts/stage8b_p1e_i1_process_supervision_negative_harness.py
+PYTHONPATH=scripts python3 scripts/stage8b_p1e_i1_transaction_v5_check.py
+PYTHONPATH=scripts python3 scripts/stage8b_p1e_i1_transaction_v5_negative_harness.py
 PYTHONPATH=scripts python3 scripts/stage8b_p1e_i1_committed_restart_check.py
 PYTHONPATH=scripts python3 scripts/stage8b_p1e_i1_committed_restart_negative_harness.py
 PYTHONPATH=scripts python3 scripts/stage8b_p1e_i1a_source_negative_harness.py

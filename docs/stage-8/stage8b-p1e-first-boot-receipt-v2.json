@@ -39,7 +39,7 @@
     "seal_generation": "exact-positive-u64-from-reread-committed-seal",
     "seal_commitment_sha256": "exact-lowercase-hex-from-reread-committed-seal",
     "stage6_checkpoint_sha256": "exact-lowercase-hex-from-ready-owner-committed-seal",
-    "adoption_predicate_version": "exact-u16-1",
+    "adoption_predicate_version": "exact-u16-2",
     "adoption_ready_owner_sha256": "derived-digest-contract-v1-lowercase-hex",
     "receipt_hmac_sha256": "HMAC-SHA-256-lowercase-hex-over-exact-framed-preimage"
   },

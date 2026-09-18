@@ -40,7 +40,7 @@ use crate::{
 pub const STAGE8B_P1E_TRANSACTION_MARKER_SCHEMA_VERSION: u16 = 4;
 pub const STAGE8B_P1E_TRANSACTION_V5_CONTRACT_VERSION: u16 = 5;
 pub const STAGE8B_P1E_FIRST_BOOT_RECEIPT_SCHEMA_VERSION: u16 = 2;
-pub const STAGE8B_P1E_ADOPTION_PREDICATE_VERSION: u16 = 1;
+pub const STAGE8B_P1E_ADOPTION_PREDICATE_VERSION: u16 = 2;
 pub const STAGE8B_P1E_TRANSACTION_MARKER_FILE: &str = ".stage8b-p1-first-boot-transaction-v4.json";
 pub const STAGE8B_P1E_TRANSACTION_MARKER_TEMP_FILE: &str =
     ".stage8b-p1-first-boot-transaction-v4.tmp";
@@ -563,7 +563,7 @@ where
     validate_initial_source(&config, &source, &fresh_runtime)
         .map_err(|_| Stage8bP1eFirstBootTransactionError::InvalidAuthority)?;
     let stage5g_seed = export_stage5g_clean_restart(
-        Stage5gCleanRestartSource::TimerReady(source),
+        Stage5gCleanRestartSource::P1BootstrapReady(source),
         export_input,
         commitment_key,
     )
@@ -943,7 +943,7 @@ where
         .map_err(|_| Stage8bP1eFirstBootTransactionError::InvalidAuthority)?;
 
     let stage5g_seed = export_stage5g_clean_restart(
-        Stage5gCleanRestartSource::TimerReady(source),
+        Stage5gCleanRestartSource::P1BootstrapReady(source),
         export_input,
         commitment_key,
     )
@@ -2070,7 +2070,7 @@ fn adoption_ready_owner_sha256(
             "stage6_checkpoint_sha256",
             &adoption.stage6_checkpoint_sha256,
         )?,
-        ascii_field("authenticated_stage5g_phase", "TimerReady")?,
+        ascii_field("authenticated_stage5g_phase", "P1SemanticReady")?,
         u64_field("pending_lifecycle_owner_count", 0),
         u64_field("pending_request_count", 0),
         u64_field("pending_deferred_timer_count", 0),
@@ -2229,6 +2229,50 @@ pub fn admit_stage8b_p1e_ordinary_run_v1(
     commitment_key: &Stage5gLifecycleCommitmentKey,
     fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
 ) -> Result<Stage7bRestartOutcome, Stage8bP1eFirstBootTransactionError> {
+    admit_stage8b_p1e_ordinary_run_with_restart_v1(
+        config,
+        commitment_key,
+        fresh_runtime,
+        restart_stage8b_p1,
+    )
+}
+
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+pub(crate) fn stage8b_p1e_test_admit_ordinary_run_with_schedule_key_v1(
+    config: Stage8bP1ValidatedBootstrapConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    public_key_hex: String,
+    key_valid_from: DateTime<Utc>,
+    key_valid_until: DateTime<Utc>,
+) -> Result<Stage7bRestartOutcome, Stage8bP1eFirstBootTransactionError> {
+    admit_stage8b_p1e_ordinary_run_with_restart_v1(
+        config,
+        commitment_key,
+        fresh_runtime,
+        move |config, commitment_key, fresh_runtime| {
+            crate::stage8b_p1_bootstrap::stage8b_p1e_test_restart_with_schedule_key(
+                config,
+                commitment_key,
+                fresh_runtime,
+                public_key_hex,
+                key_valid_from,
+                key_valid_until,
+            )
+        },
+    )
+}
+
+fn admit_stage8b_p1e_ordinary_run_with_restart_v1(
+    config: Stage8bP1ValidatedBootstrapConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    restart: impl FnOnce(
+        Stage8bP1ValidatedBootstrapConfig,
+        &Stage5gLifecycleCommitmentKey,
+        strategy_runtime_core::HybridIntradayRuntimeStrategy,
+    ) -> Result<Stage7bRestartOutcome, crate::Stage8bP1BootstrapError>,
+) -> Result<Stage7bRestartOutcome, Stage8bP1eFirstBootTransactionError> {
     let parent = config.durable_parent().to_path_buf();
     let root_path = parent.join(config.expected_root_name());
 
@@ -2263,7 +2307,7 @@ pub fn admit_stage8b_p1e_ordinary_run_v1(
     }
     cross_validate_adopted(&parent, &marker, &receipt, commitment_key)?;
 
-    let outcome = restart_stage8b_p1(config, commitment_key, fresh_runtime)
+    let outcome = restart(config, commitment_key, fresh_runtime)
         .map_err(|_| Stage8bP1eFirstBootTransactionError::Durable)?;
     let current = outcome
         .stage8b_p1e_current_restart_package_audit(commitment_key)
@@ -3202,7 +3246,7 @@ mod tests {
                 u64_field("seal_generation", 12),
                 digest_field("seal_commitment_sha256", &sequential(0x80)).unwrap(),
                 digest_field("stage6_checkpoint_sha256", &sequential(0xa0)).unwrap(),
-                ascii_field("authenticated_stage5g_phase", "TimerReady").unwrap(),
+                ascii_field("authenticated_stage5g_phase", "P1SemanticReady").unwrap(),
                 u64_field("pending_lifecycle_owner_count", 0),
                 u64_field("pending_request_count", 0),
                 u64_field("pending_deferred_timer_count", 0),
@@ -3214,7 +3258,7 @@ mod tests {
         let adoption_sha256 = sha256_hex(&adoption_preimage);
         assert_eq!(
             adoption_sha256,
-            "abde6f078ba75013a849e73e9a7133a8830413d48437763dc5174b7784212ad2"
+            "b73c38982c3ac3499de9c528a28a890d3141e9574271eaf17346b9e1a606137a"
         );
 
         let receipt = Stage8bP1FirstBootReceiptV2 {
@@ -3232,7 +3276,7 @@ mod tests {
             seal_generation: 12,
             seal_commitment_sha256: sequential(0x80),
             stage6_checkpoint_sha256: sequential(0xa0),
-            adoption_predicate_version: 1,
+            adoption_predicate_version: STAGE8B_P1E_ADOPTION_PREDICATE_VERSION,
             adoption_ready_owner_sha256: adoption_sha256,
             receipt_hmac_sha256: String::new(),
         };
@@ -3240,7 +3284,7 @@ mod tests {
         let key = Stage5gLifecycleCommitmentKey::from_secret_bytes(&key_bytes).unwrap();
         assert_eq!(
             key.stage8b_p1e_framed_hmac_sha256(&receipt.hmac_preimage().unwrap()),
-            "439683f9ac6c2622cace2b538d1f87346199837728da6bd3ad3db9a465595d94"
+            "f8e7d600f07b96a940851e950eceda825f2602d47bfb518fbc2b97d933972764"
         );
         assert!(hex(&receipt.hmac_preimage().unwrap()).starts_with("4d38425031453031"));
     }

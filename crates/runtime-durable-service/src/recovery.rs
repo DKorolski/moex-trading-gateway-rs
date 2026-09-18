@@ -3646,6 +3646,17 @@ impl Stage7bRecoveryReadyOwner {
         )
     }
 
+    #[cfg(any(
+        test,
+        feature = "stage8a4-i3-test-fixtures",
+        feature = "stage8b-p1-test-fixtures"
+    ))]
+    #[allow(dead_code)]
+    pub(crate) fn stage8b_p1e_test_continuation_checkpoint_ts_utc_ms(&self) -> Option<i64> {
+        self.recovered
+            .stage8b_p1e_test_continuation_checkpoint_ts_utc_ms()
+    }
+
     #[cfg(any(test, feature = "stage8b-p1-test-fixtures"))]
     #[allow(dead_code)]
     pub(crate) fn stage8b_p1d3_test_working_book_attribution(

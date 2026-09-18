@@ -120,7 +120,7 @@ def check(path: str) -> dict[str, object]:
             "evidence status mismatch",
         )
         require(evidence["production_process_composition"] is True, "process composition not declared")
-        require(evidence["process_matrix"]["case_count"] == 9, "process case count mismatch")
+        require(evidence["process_matrix"]["case_count"] == 15, "process case count mismatch")
         require(
             all(value is True for key, value in evidence["process_matrix"].items() if key != "case_count"),
             "process matrix case not proven",
@@ -134,6 +134,7 @@ def check(path: str) -> dict[str, object]:
             == {
                 "authenticated_before_deadline": 0,
                 "authenticated_at_or_after_deadline": 72,
+                "unexpected_authenticated_stop_without_intent": 70,
                 "signal_task_failure": 73,
                 "owner_panic_precedence": 70,
                 "restart_required": 67,
@@ -141,14 +142,18 @@ def check(path: str) -> dict[str, object]:
             "terminal exit mapping drift",
         )
         require(
-            evidence["known_predecessor_blocker"]
+            evidence["corrected_predecessor_lifecycle"]
             == {
-                "accepted_v5_lifecycle": "TimerReady",
-                "required_p1_semantic_lifecycle": "P1SemanticReady",
-                "real_m10_cancel_v4_witness_complete": False,
+                "fresh_v5_export": "P1BootstrapReady",
+                "historical_v5_export": "P1BootstrapReady",
+                "authenticated_adoption_phase": "P1SemanticReady",
+                "adoption_predicate_version": 2,
+                "legacy_predicate_v1_timer_ready_rejected": True,
+                "legacy_automatic_migration": False,
+                "real_m10_cancel_v4_witness_complete": True,
                 "synthetic_witness_used": False,
             },
-            "predecessor blocker disclosure drift",
+            "corrected predecessor lifecycle disclosure drift",
         )
         require(all(value is False for value in evidence["closed_surfaces"].values()), "closed surface opened")
         require(set(evidence["commands"]) == set(LOGS), "command inventory mismatch")
@@ -169,12 +174,15 @@ def check(path: str) -> dict[str, object]:
         )
         for token in (
             b"production_run_signals_cover_admission_attach_and_s06_without_effects",
+            b"production_run_signals_cover_real_inflight_attach_and_s06_grace_boundaries",
+            b"production_v5_bootstrap_advances_through_m10_cancel_v4_and_readmits_exactly",
             b"process_wrapper_preserves_coordinator_boundary_exit_classes",
             b"ordinary_run_admission_rejects_post_seal_frontiers_without_mutation",
-            b"stage8b-p1e-i1-process-supervision-negative-harness 52/52",
+            b"stage8b-p1e-i1-process-supervision-negative-harness 65/65",
+            b"stage8b-p1e-i1-transaction-v5-negative-harness 27/27",
         ):
             require(token in files[LOGS["source_gate"]], f"correction gate witness missing: {token!r}")
-        require(b"5 passed; 0 failed" in files[LOGS["runtime_process"]], "five process cases not retained")
+        require(b"5 passed; 0 failed" in files[LOGS["runtime_process"]], "five inherited process cases not retained")
         for name in (
             "runtime_lib",
             "runtime_redis_integration",

@@ -1504,6 +1504,15 @@ pub(crate) mod tests {
             }],
             received_ts: now,
         };
+        let session_end = Utc
+            .timestamp_millis_opt(session_end_utc_ms)
+            .single()
+            .unwrap();
+        let trading_day = session_end
+            .with_timezone(&chrono::FixedOffset::east_opt(3 * 60 * 60).unwrap())
+            .date_naive();
+        let trading_day_text = trading_day.format("%Y-%m-%d").to_string();
+        let session_start = trading_day.and_hms_opt(6, 0, 0).unwrap().and_utc();
         let validated = broker_core::stage4_bootstrap::validate_stage4_broker_truth_bootstrap(
             Stage4BrokerTruthBootstrapInput {
                 broker_truth: &truth,
@@ -1546,13 +1555,9 @@ pub(crate) mod tests {
             venue_mic: "RTSX".to_string(),
         };
         let sessions = vec![Stage8bP1eScheduleSessionV1 {
-            end_utc: timestamp_text(
-                Utc.timestamp_millis_opt(session_end_utc_ms)
-                    .single()
-                    .unwrap(),
-            ),
+            end_utc: timestamp_text(session_end),
             session_type: Stage8bP1eScheduleSessionTypeV1::TradableOpen,
-            start_utc: "2026-08-03T06:00:00.000000Z".to_string(),
+            start_utc: timestamp_text(session_start),
         }];
         let registry = Stage8bP1eScheduleRegistryV1 {
             registry_identity_sha256: "2".repeat(64),
@@ -1590,7 +1595,7 @@ pub(crate) mod tests {
                 source_observed_at_utc: timestamp_text(now),
             },
             timezone: "Europe/Moscow".to_string(),
-            trading_day: "2026-08-03".to_string(),
+            trading_day: trading_day_text.clone(),
         };
         let mut semantic_identity = Stage8bP1eScheduleSemanticIdentityV1 {
             domain: "moex.stage8b.p1e.schedule-semantic-identity.v1".to_string(),
@@ -1605,7 +1610,7 @@ pub(crate) mod tests {
             },
             timeframe_sec: 600,
             timezone: "Europe/Moscow".to_string(),
-            trading_day: "2026-08-03".to_string(),
+            trading_day: trading_day_text.clone(),
         };
         if closed {
             let boundary = Utc
@@ -1618,7 +1623,7 @@ pub(crate) mod tests {
                 last_eligible_m10_open_ts_utc: timestamp_text(
                     boundary - chrono::Duration::seconds(600),
                 ),
-                trading_day: "2026-08-03".to_string(),
+                trading_day: trading_day_text,
             };
             payload.stage4_evidence.evidence_kind = Stage8bP1eScheduleEvidenceKindV1::DayBoundary;
             payload.stage4_evidence.schedule_state = Stage8bP1eScheduleStateV1::Closed;
@@ -1695,15 +1700,32 @@ pub(crate) mod tests {
         instrument_map_fingerprint_sha256: String,
         now: DateTime<Utc>,
     ) -> P1eTestOpenScheduleEnvelope {
-        let (accepted, public_key_hex, key_valid_from, key_valid_until) = signed_schedule_source(
-            operational_identity_sha256.clone(),
-            runtime_config_fingerprint_sha256.clone(),
-            instrument_map_fingerprint_sha256.clone(),
+        p1e_test_open_schedule_envelope_for_last_eligible(
+            operational_identity_sha256,
+            runtime_config_fingerprint_sha256,
+            instrument_map_fingerprint_sha256,
             now,
             Utc.with_ymd_and_hms(2026, 8, 3, 18, 0, 0)
                 .single()
                 .unwrap()
                 .timestamp_millis(),
+        )
+    }
+
+    #[cfg(feature = "stage8a4-i3-test-fixtures")]
+    pub(crate) fn p1e_test_open_schedule_envelope_for_last_eligible(
+        operational_identity_sha256: String,
+        runtime_config_fingerprint_sha256: String,
+        instrument_map_fingerprint_sha256: String,
+        now: DateTime<Utc>,
+        last_eligible_m10_close_ts_utc_ms: i64,
+    ) -> P1eTestOpenScheduleEnvelope {
+        let (accepted, public_key_hex, key_valid_from, key_valid_until) = signed_schedule_source(
+            operational_identity_sha256.clone(),
+            runtime_config_fingerprint_sha256.clone(),
+            instrument_map_fingerprint_sha256.clone(),
+            now,
+            last_eligible_m10_close_ts_utc_ms,
             false,
         );
         P1eTestOpenScheduleEnvelope {

@@ -7,6 +7,13 @@ boundary and does not authorize installation or activation.
 ## Present in this checkpoint
 
 - the fixed executable identity `stage8b-p1-paper-supervisor`;
+- corrected V5 fresh and historical bootstrap export through
+  `P1BootstrapReady`, authenticated as the zero-effect `P1SemanticReady`
+  lifecycle under adoption predicate version 2;
+- an end-to-end production-path witness from V5 adoption through ordinary
+  admission, canonical M10 callback/command, Cancel/V4, durable restart and
+  repeated admission without rewriting initial provenance or repeating the
+  command;
 - exact fixed-path argv parsing for `validate-config`, `bootstrap`,
   `bootstrap-recover`, and composed `run`;
 - protected root-owned supervisor-config loading and canonical Linux boot-id
@@ -202,11 +209,6 @@ bindings. They are never learned from the schedule envelope being verified,
 which prevents a self-asserted trust root on the first signed read.
 
 ## Still required before review
-
-- resolve the accepted V5 lifecycle mismatch: V5 exports `TimerReady`, while
-  the first production P1 M10 transition requires `P1SemanticReady`. Then add
-  the real V5-adopted M10/Cancel/V4 advancement-and-restart admission witness;
-  no synthetic advanced package is accepted as a substitute;
 
 - signed schedule-source process composition for Cancel, Day-expiry and their
   recovered dispatch routes; Ready/Working-LIMIT, plain Market, generated

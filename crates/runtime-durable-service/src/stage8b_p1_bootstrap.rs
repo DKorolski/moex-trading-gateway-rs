@@ -214,7 +214,7 @@ pub enum Stage8bP1BootstrapError {
     FirstBootNotAuthorized,
     #[error("Stage 8B-P1 source does not match the validated deployment identity")]
     SourceIdentityMismatch,
-    #[error("Stage 8B-P1 source is not the initial zero-intent TimerReady authority")]
+    #[error("Stage 8B-P1 source is not the initial zero-effect P1SemanticReady authority")]
     InvalidInitialSource,
     #[error("Stage 8B-P1 fresh runtime config does not match the validated deployment")]
     RuntimeConfigMismatch,
@@ -517,6 +517,47 @@ pub fn restart_stage8b_p1(
     // A blocked outcome deliberately carries no reusable runtime authority,
     // so it cannot prove the positive source binding. Preserve that explicit
     // fail-closed diagnostic instead of obscuring it as a source mismatch.
+    if !matches!(outcome, Stage7bRestartOutcome::Blocked(_))
+        && !outcome.stage8b_p1_source_binding_matches(
+            STAGE8B_P1_STRATEGY_ID,
+            &config.account_id,
+            &config.instrument,
+            &config.runtime_config_fingerprint_sha256,
+        )
+    {
+        return Err(Stage8bP1BootstrapError::SourceIdentityMismatch);
+    }
+    Ok(outcome)
+}
+
+#[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
+pub(crate) fn stage8b_p1e_test_restart_with_schedule_key(
+    config: Stage8bP1ValidatedBootstrapConfig,
+    commitment_key: &Stage5gLifecycleCommitmentKey,
+    fresh_runtime: HybridIntradayRuntimeStrategy,
+    public_key_hex: String,
+    key_valid_from: chrono::DateTime<chrono::Utc>,
+    key_valid_until: chrono::DateTime<chrono::Utc>,
+) -> Result<Stage7bRestartOutcome, Stage8bP1BootstrapError> {
+    if fresh_runtime.stage5c_config_fingerprint() != config.runtime_config_fingerprint_sha256 {
+        return Err(Stage8bP1BootstrapError::RuntimeConfigMismatch);
+    }
+    let root_path = config.durable_parent.join(&config.expected_root_name);
+    if !root_path.exists() {
+        return Err(Stage8bP1BootstrapError::DurableRootMissing);
+    }
+    let root = Stage7bDurableRootAuthority::validate(&root_path, &config.operational_identity)
+        .map_err(|_| Stage8bP1BootstrapError::Stage7Storage)?;
+    let outcome = Stage7bRecoveryReadyOwner::stage8b_p1e_test_restart_with_schedule_key(
+        root,
+        config.operational_identity,
+        commitment_key,
+        fresh_runtime,
+        public_key_hex,
+        key_valid_from,
+        key_valid_until,
+    )
+    .map_err(|_| Stage8bP1BootstrapError::Stage7Recovery)?;
     if !matches!(outcome, Stage7bRestartOutcome::Blocked(_))
         && !outcome.stage8b_p1_source_binding_matches(
             STAGE8B_P1_STRATEGY_ID,

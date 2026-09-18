@@ -93,7 +93,7 @@ def main() -> None:
         "commands": records,
         "production_process_composition": True,
         "process_matrix": {
-            "case_count": 9,
+            "case_count": 15,
             "idle_sigterm": True,
             "idle_sigkill_restart": True,
             "owner_panic_exit_70": True,
@@ -101,8 +101,14 @@ def main() -> None:
             "cancel_truth_before_xack_sigkill_restart": True,
             "production_pre_admission_sigterm_exit_66": True,
             "production_post_admission_sigterm_exit_0": True,
-            "production_redis_attach_sigint_exit_0": True,
-            "production_s06_sigterm_exit_0": True,
+            "production_before_redis_attach_sigint_exit_0": True,
+            "production_before_s06_sigterm_exit_0": True,
+            "production_inflight_redis_attach_sigterm_exit_0": True,
+            "production_inflight_s06_sigint_exit_0": True,
+            "production_inflight_redis_attach_sigint_grace_exit_72": True,
+            "production_inflight_s06_sigterm_grace_exit_72": True,
+            "production_v5_m10_cancel_v4_restart_readmission": True,
+            "unexpected_authenticated_stop_exit_70": True,
         },
         "ordinary_run_admission": {
             "post_seal_frontiers_rejected_without_mutation": True,
@@ -110,18 +116,26 @@ def main() -> None:
             "adopted_v5_root_accepted": True,
             "authority_temp_files_rejected": True,
             "current_restart_package_provenance_bound": True,
+            "advanced_v5_root_readmitted": True,
+            "initial_marker_and_receipt_immutable": True,
+            "restart_does_not_repeat_command_publication": True,
         },
         "terminal_exit_mapping": {
             "authenticated_before_deadline": 0,
             "authenticated_at_or_after_deadline": 72,
+            "unexpected_authenticated_stop_without_intent": 70,
             "signal_task_failure": 73,
             "owner_panic_precedence": 70,
             "restart_required": 67,
         },
-        "known_predecessor_blocker": {
-            "accepted_v5_lifecycle": "TimerReady",
-            "required_p1_semantic_lifecycle": "P1SemanticReady",
-            "real_m10_cancel_v4_witness_complete": False,
+        "corrected_predecessor_lifecycle": {
+            "fresh_v5_export": "P1BootstrapReady",
+            "historical_v5_export": "P1BootstrapReady",
+            "authenticated_adoption_phase": "P1SemanticReady",
+            "adoption_predicate_version": 2,
+            "legacy_predicate_v1_timer_ready_rejected": True,
+            "legacy_automatic_migration": False,
+            "real_m10_cancel_v4_witness_complete": True,
             "synthetic_witness_used": False,
         },
         "closed_surfaces": {
@@ -133,7 +147,7 @@ def main() -> None:
             "runtime_live": False,
             "real_orders": False,
         },
-        "next_slice": "reviewed V5 lifecycle alignment and real M10/Cancel/V4 witness",
+        "next_slice": "review, then fixed-path installation/systemd and telemetry composition",
     }
     evidence_raw = (json.dumps(evidence, indent=2, sort_keys=True) + "\n").encode()
     marker = (

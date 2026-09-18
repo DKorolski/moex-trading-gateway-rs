@@ -3535,10 +3535,25 @@ impl Stage6dDurableRuntimeRecovered {
             Stage6dStage5RuntimeAuthority::FirstBoot(_) => return false,
         };
         let summary = restart.summary();
-        restart.lifecycle_kind() == crate::Stage5gCleanRestartLifecycleKind::TimerReady
+        restart.lifecycle_kind() == crate::Stage5gCleanRestartLifecycleKind::P1SemanticReady
+            && restart.stage8b_p1_semantic_commit().is_none()
             && summary.stage5c_callback_count == 1
             && self.replay.requests().is_empty()
             && self.journal.frontier().frame_count() == 0
+    }
+
+    /// Test-only observation of the authenticated Stage 5G continuation
+    /// checkpoint. It grants no continuation or mutation authority.
+    #[cfg(any(test, feature = "stage5g-artifact-fixtures"))]
+    #[doc(hidden)]
+    pub fn stage8b_p1e_test_continuation_checkpoint_ts_utc_ms(&self) -> Option<i64> {
+        let Stage6dStage5RuntimeAuthority::Restart(restart) = &self.stage5_runtime else {
+            return None;
+        };
+        restart
+            .checkpoint()
+            .payload
+            .last_continuation_checkpoint_ts_utc_ms
     }
 
     /// Produces only immutable counters from the already authenticated

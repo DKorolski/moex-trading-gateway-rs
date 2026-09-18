@@ -53,7 +53,7 @@ pub(crate) use redis::tests::p1e_test_initial_limit_published;
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]
 pub(crate) use redis::tests::{
     p1e_test_cancel_published, p1e_test_cancel_published_without_successor,
-    p1e_test_target_first_cancel_published,
+    p1e_test_target_first_cancel_published, p1e_test_v5_cancel_published_from_owner,
 };
 
 #[cfg(all(test, feature = "stage8a4-i3-test-fixtures"))]

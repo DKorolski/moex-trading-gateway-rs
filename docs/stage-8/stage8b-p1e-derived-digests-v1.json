@@ -48,7 +48,7 @@
       {"name": "seal_generation", "type": "u64be"},
       {"name": "seal_commitment_sha256", "type": "digest32-raw"},
       {"name": "stage6_checkpoint_sha256", "type": "digest32-raw"},
-      {"name": "authenticated_stage5g_phase", "type": "ascii-exact-TimerReady"},
+      {"name": "authenticated_stage5g_phase", "type": "ascii-exact-P1SemanticReady"},
       {"name": "pending_lifecycle_owner_count", "type": "u64be"},
       {"name": "pending_request_count", "type": "u64be"},
       {"name": "pending_deferred_timer_count", "type": "u64be"},
